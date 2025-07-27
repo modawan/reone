@@ -5316,9 +5316,16 @@ static Variable GetLastAttackResult(const std::vector<Variable> &args, const Rou
     auto oAttacker = getObjectOrCaller(args, 0, ctx);
 
     // Transform
+    auto attacker = checkCreature(oAttacker);
 
     // Execute
-    throw RoutineNotImplementedException("GetLastAttackResult");
+    const Combat::AttackHistory &history = ctx.game.combat().attackHistory(*attacker);
+    if (history.empty()) {
+        return Variable::ofInt(static_cast<int>(AttackResultType::Invalid));
+    }
+
+    Combat::Attack &lastAttack = *history.back();
+    return Variable::ofInt(static_cast<int>(lastAttack.resultType));
 }
 
 static Variable GetWasForcePowerSuccessful(const std::vector<Variable> &args, const RoutineContext &ctx) {
