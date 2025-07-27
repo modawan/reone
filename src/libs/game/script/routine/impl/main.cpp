@@ -5093,7 +5093,8 @@ static Variable IsNPCPartyMember(const std::vector<Variable> &args, const Routin
 
 static Variable GetIsConversationActive(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetIsConversationActive");
+    bool active = ctx.game.currentScreen() == game::Game::Screen::Conversation;
+    return Variable::ofInt(active);
 }
 
 static Variable GetPartyAIStyle(const std::vector<Variable> &args, const RoutineContext &ctx) {
