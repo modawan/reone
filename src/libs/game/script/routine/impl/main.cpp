@@ -3793,13 +3793,8 @@ static Variable TakeGoldFromCreature(const std::vector<Variable> &args, const Ro
 }
 
 static Variable GetIsInConversation(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Load
     auto oObject = getObject(args, 0, ctx);
-
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("GetIsInConversation");
+    return Variable::ofInt(oObject->isInConversation());
 }
 
 static Variable GetPlotFlag(const std::vector<Variable> &args, const RoutineContext &ctx) {
