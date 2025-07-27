@@ -3484,9 +3484,14 @@ static Variable ChangeToStandardFaction(const std::vector<Variable> &args, const
     auto nStandardFaction = getInt(args, 1);
 
     // Transform
+    if (nStandardFaction <= (int)Faction::Invalid || nStandardFaction >= (int)Faction::Last) {
+        throw RoutineArgumentException(str(boost::format("Invalid faction: %d") % nStandardFaction));
+    }
 
     // Execute
-    throw RoutineNotImplementedException("ChangeToStandardFaction");
+    auto creature = checkCreature(oCreatureToChange);
+    creature->setFaction((Faction)nStandardFaction);
+    return Variable::ofNull();
 }
 
 static Variable SoundObjectPlay(const std::vector<Variable> &args, const RoutineContext &ctx) {
