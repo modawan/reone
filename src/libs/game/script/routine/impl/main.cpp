@@ -3194,7 +3194,7 @@ static Variable GetIdFromTalent(const std::vector<Variable> &args, const Routine
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("GetIdFromTalent");
+    return Variable::ofInt(tTalent->value());
 }
 
 static Variable PlayPazaak(const std::vector<Variable> &args, const RoutineContext &ctx) {
