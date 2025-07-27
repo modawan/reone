@@ -18,6 +18,7 @@
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/jumptolocation.h"
 #include "reone/game/action/jumptoobject.h"
+#include "reone/game/action/usefeat.h"
 #include "reone/game/d20/feats.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/event.h"
@@ -5400,9 +5401,19 @@ static Variable GetLastCombatFeatUsed(const std::vector<Variable> &args, const R
     auto oAttacker = getObjectOrCaller(args, 0, ctx);
 
     // Transform
+    auto attacker = checkCreature(oAttacker);
 
     // Execute
-    throw RoutineNotImplementedException("GetLastCombatFeatUsed");
+    const Combat::AttackHistory &history = ctx.game.combat().attackHistory(*attacker);
+    for (auto i = history.rbegin(), e = history.rend(); i != e; ++i) {
+        Combat::Attack &attack = **i;
+        if (attack.action->type() == ActionType::UseFeat) {
+            auto featAction = std::static_pointer_cast<UseFeatAction>(attack.action);
+            return Variable::ofInt(static_cast<int>(featAction->feat()));
+        }
+    }
+
+    return Variable::ofInt(static_cast<int>(FeatType::Invalid));
 }
 
 static Variable GetLastAttackResult(const std::vector<Variable> &args, const RoutineContext &ctx) {
