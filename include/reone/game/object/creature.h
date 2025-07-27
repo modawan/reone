@@ -79,12 +79,15 @@ public:
         std::shared_ptr<Object> lastPerceived;
     };
 
+    using ActionHistory = std::deque<std::shared_ptr<Action>>;
+
     struct CombatState {
         bool active {false};
         bool shouldDeactivate {false};
         bool debilitated {false};
         std::shared_ptr<Object> attackTarget;
         Timer deactivationTimer;
+        ActionHistory actionHistory;
     };
 
     Creature(
@@ -210,6 +213,10 @@ public:
 
     std::shared_ptr<Object> getAttemptedAttackTarget() const;
     std::shared_ptr<Object> getAttackTarget() const { return _combatState.attackTarget; }
+
+    void addCombatActionToHistory(const std::shared_ptr<Action> &action);
+    const ActionHistory &combatActionHistory() { return _combatState.actionHistory; }
+
     int getAttackBonus(bool offHand = false) const;
     int getDefense() const;
     void getMainHandDamage(int &min, int &max) const;

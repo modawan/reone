@@ -16,6 +16,8 @@
  */
 
 #include "reone/game/action/usetalentonobject.h"
+#include "reone/game/object.h"
+#include "reone/game/object/creature.h"
 
 namespace reone {
 
@@ -23,6 +25,11 @@ namespace game {
 
 void UseTalentOnObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     // TODO: implement
+
+    if (actor.type() == ObjectType::Creature) {
+        Creature *creature = (Creature *)&actor;
+        creature->addCombatActionToHistory(self);
+    }
 
     complete();
 }

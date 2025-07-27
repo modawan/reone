@@ -591,6 +591,7 @@ void Creature::deactivateCombat(float delay) {
     if (_combatState.active) {
         _combatState.shouldDeactivate = true;
         _combatState.deactivationTimer.reset(delay);
+        _combatState.actionHistory.clear();
     }
 }
 
@@ -1405,6 +1406,23 @@ void Creature::loadPerceptionRangeFromUTC(const resource::generated::UTC &utc) {
     int rangeIdx = utc.PerceptionRange;
     _perception.sightRange = ranges->getFloat(rangeIdx, "primaryrange");
     _perception.hearingRange = ranges->getFloat(rangeIdx, "secondaryrange");
+}
+
+void Creature::addCombatActionToHistory(const std::shared_ptr<Action> &action) {
+    ActionHistory &history = _combatState.actionHistory;
+
+    // Make sure it is not already in the history. We only check the last
+    // element to avoid overflowing history with the same action.
+    if (!history.empty()) {
+        if (&*action == &*history.back()) {
+            return;
+        }
+    }
+
+    history.emplace_back(action);
+    if (history.size() > 64) {
+        history.pop_front();
+    }
 }
 
 } // namespace game
