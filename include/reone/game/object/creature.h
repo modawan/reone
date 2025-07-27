@@ -139,6 +139,7 @@ public:
     Subrace subrace() const { return _subrace; }
     NPCAIStyle aiStyle() const { return _aiStyle; }
     int walkmeshMaterial() const { return _walkmeshMaterial; }
+    bool isSpawned() const { return _isSpawned; }
 
     void setGender(Gender gender) { _gender = gender; }
     void setAppearance(int appearance) { _appearance = appearance; }
@@ -149,6 +150,7 @@ public:
     void setXP(int xp) { _xp = xp; }
     void setAIStyle(NPCAIStyle style) { _aiStyle = style; }
     void setWalkmeshMaterial(int material) { _walkmeshMaterial = material; }
+    void setIsSpawned(bool spawned) { _isSpawned = spawned; }
 
     // Animation
 
@@ -294,6 +296,7 @@ private:
     int _walkmeshMaterial {-1};
     int _gold {0}; /**< aka credits */
     std::string _envmap;
+    bool _isSpawned {false};
 
     std::shared_ptr<audio::AudioSource> _audioSourceVoice;
     std::shared_ptr<audio::AudioSource> _audioSourceFootstep;

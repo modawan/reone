@@ -3655,9 +3655,9 @@ static Variable GetIsEncounterCreature(const std::vector<Variable> &args, const 
     auto oCreature = getObjectOrCaller(args, 0, ctx);
 
     // Transform
+    auto creature = checkCreature(oCreature);
 
-    // Execute
-    throw RoutineNotImplementedException("GetIsEncounterCreature");
+    return Variable::ofInt(static_cast<int>(creature->isSpawned()));
 }
 
 static Variable GetLastPlayerDying(const std::vector<Variable> &args, const RoutineContext &ctx) {
