@@ -5389,14 +5389,12 @@ static Variable ShowPartySelectionGUI(const std::vector<Variable> &args, const R
 
     // Transform
     auto exitScript = boost::to_lower_copy(sExitScript);
-    auto forceNPC1 = static_cast<bool>(nForceNPC1);
-    auto forceNPC2 = static_cast<bool>(nForceNPC2);
 
     // Execute
     PartySelectionContext partyCtx;
     partyCtx.exitScript = exitScript;
-    partyCtx.forceNpc1 = forceNPC1;
-    partyCtx.forceNpc2 = forceNPC2;
+    partyCtx.forceNpc1 = nForceNPC1;
+    partyCtx.forceNpc2 = nForceNPC2;
     ctx.game.openPartySelection(partyCtx);
     return Variable::ofNull();
 }
