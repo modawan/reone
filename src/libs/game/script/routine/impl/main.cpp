@@ -5420,10 +5420,8 @@ static Variable GetCategoryFromTalent(const std::vector<Variable> &args, const R
     // Load
     auto tTalent = getTalent(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("GetCategoryFromTalent");
+    return Variable::ofInt(static_cast<int>(tTalent->type()));
 }
 
 static Variable SurrenderByFaction(const std::vector<Variable> &args, const RoutineContext &ctx) {
