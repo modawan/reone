@@ -2619,9 +2619,26 @@ static Variable GetCreatureHasTalent(const std::vector<Variable> &args, const Ro
     auto oCreature = getObjectOrCaller(args, 1, ctx);
 
     // Transform
+    auto creature = checkCreature(oCreature);
 
     // Execute
-    throw RoutineNotImplementedException("GetCreatureHasTalent");
+    bool result = 0;
+    switch (tTalent->type()) {
+    case TalentType::Spell: {
+        SpellType spell = static_cast<SpellType>(tTalent->value());
+        result = creature->attributes().hasSpell(spell);
+        break;
+    }
+    case TalentType::Feat: {
+        FeatType feat = static_cast<FeatType>(tTalent->value());
+        result = creature->attributes().hasFeat(feat);
+        break;
+    }
+    default:
+        break;
+    }
+
+    return Variable::ofInt(result);
 }
 
 static Variable GetCreatureTalentRandom(const std::vector<Variable> &args, const RoutineContext &ctx) {
