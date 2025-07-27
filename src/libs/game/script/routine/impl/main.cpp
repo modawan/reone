@@ -2644,6 +2644,47 @@ static Variable GetCreatureHasTalent(const std::vector<Variable> &args, const Ro
     return Variable::ofInt(result);
 }
 
+// Talents (feats and spells) are sorted by category. Returns an iterator to a
+// random talent, or `end` otherwise.
+template <typename T, typename C>
+static T findRandomTalentByCategory(T begin, T end, uint32_t category, C cond) {
+    auto cmp = [](const typename T::value_type &v, const uint32_t &cat) {
+        return v->category < cat;
+    };
+
+    auto lower = std::lower_bound(begin, end, category, cmp);
+
+    // TODO: We effectively evaluate the same condition twice: once to
+    // compute the total number of matching talents, and another to find the
+    // matching one. Perhaps it is better to store candidates in an array,
+    // and then do a constant lookup?
+
+    unsigned numChoices = 0;
+    for (auto it = lower; it != end && (*it)->category == category; ++it) {
+        if (cond(it)) {
+            ++numChoices;
+        }
+    }
+
+    if (!numChoices) {
+        return end;
+    }
+
+    unsigned chosen = randomInt(0, numChoices - 1);
+    unsigned current = 0;
+    for (auto it = lower; it != end && (*it)->category == category; ++it) {
+        if (!cond(it)) {
+            continue;
+        }
+        if (current == chosen) {
+            return it;
+        }
+        ++current;
+    }
+
+    return end;
+}
+
 static Variable GetCreatureTalentRandom(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nCategory = getInt(args, 0);
@@ -2651,9 +2692,45 @@ static Variable GetCreatureTalentRandom(const std::vector<Variable> &args, const
     auto nInclusion = getIntOrElse(args, 2, 0);
 
     // Transform
+    auto creature = checkCreature(oCreature);
+
+    // TODO: we ignore nInclusion here, because it is inconsistent. Enemy
+    // scripts in Kotor ask for feat categories with nInclusion == 0 (aka "Force
+    // Power"). Always search both feats and spells.
 
     // Execute
-    throw RoutineNotImplementedException("GetCreatureTalentRandom");
+
+    IFeats &feats = ctx.services.game.feats;
+
+    auto checkFeat = [&](IFeats::ConstIterator it) -> bool {
+        return creature->attributes().hasFeat((*it)->type);
+    };
+
+    auto featIt = findRandomTalentByCategory(
+            feats.begin(), feats.end(), nCategory, checkFeat);
+    if (featIt != feats.end()) {
+        auto talent = ctx.game.newTalent(
+                TalentType::Feat, static_cast<int>((*featIt)->type));
+        return Variable::ofTalent(talent);
+    }
+
+    // Same algorithm for spells
+    ISpells &spells = ctx.services.game.spells;
+
+    auto checkSpell = [&](ISpells::ConstIterator it) -> bool {
+        return creature->attributes().hasSpell((*it)->type);
+    };
+
+    auto spellIt = findRandomTalentByCategory(
+            spells.begin(), spells.end(), nCategory, checkSpell);
+    if (spellIt != spells.end()) {
+        auto talent = ctx.game.newTalent(
+                TalentType::Spell, static_cast<int>((*spellIt)->type));
+        return Variable::ofTalent(talent);
+    }
+
+    auto invalid = ctx.game.newTalent(TalentType::Invalid, 0);
+    return Variable::ofTalent(invalid);
 }
 
 // Talents (feats and spells) are sorted by category. Returns the first one
