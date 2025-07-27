@@ -48,6 +48,7 @@ void GameModule::init() {
     _cameraStyles->init();
     _guiSounds->init();
     _portraits->init();
+    _reputes->init();
     _surfaces->init();
 }
 
