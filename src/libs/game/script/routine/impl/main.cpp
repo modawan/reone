@@ -15,10 +15,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/jumptolocation.h"
 #include "reone/game/action/jumptoobject.h"
 #include "reone/game/action/usefeat.h"
+#include "reone/game/action/usetalentonobject.h"
 #include "reone/game/d20/feats.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/event.h"
@@ -3309,8 +3311,32 @@ static Variable SendMessageToPC(const std::vector<Variable> &args, const Routine
 }
 
 static Variable GetAttemptedSpellTarget(const std::vector<Variable> &args, const RoutineContext &ctx) {
+    // Load
+    auto caller = getCaller(ctx);
+
+    // Transform
+    auto creature = checkCreature(caller);
+
     // Execute
-    throw RoutineNotImplementedException("GetAttemptedSpellTarget");
+    const Creature::ActionHistory &history = creature->combatActionHistory();
+    for (auto i = history.rbegin(), e = history.rend(); i != e; ++i) {
+        const Action &action = **i;
+        switch (action.type()) {
+        case ActionType::CastSpellAtObject: {
+            auto *castSpell = (CastSpellAtObjectAction*) &action;
+            return Variable::ofObject(castSpell->target()->id());
+        }
+        case ActionType::UseTalentOnObject: {
+            auto *useTalent = (UseTalentOnObjectAction*) &action;
+            if (useTalent->talent()->type() == TalentType::Spell) {
+                return Variable::ofObject(useTalent->target()->id());
+            }
+        }
+        default:
+            break;
+        }
+    }
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetLastOpenedBy(const std::vector<Variable> &args, const RoutineContext &ctx) {
