@@ -19,6 +19,7 @@
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/jumptolocation.h"
 #include "reone/game/action/jumptoobject.h"
+#include "reone/game/action/movetoobject.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/usetalentonobject.h"
 #include "reone/game/d20/feats.h"
@@ -4137,8 +4138,26 @@ static Variable GetNearestTrapToObject(const std::vector<Variable> &args, const 
 }
 
 static Variable GetAttemptedMovementTarget(const std::vector<Variable> &args, const RoutineContext &ctx) {
+    // Load
+    auto caller = getCaller(ctx);
+
+    // Transform
+    auto creature = checkCreature(caller);
+
     // Execute
-    throw RoutineNotImplementedException("GetAttemptedMovementTarget");
+    const Creature::ActionHistory &actionHistory = creature->combatActionHistory();
+    for (auto i = actionHistory.rbegin(), e = actionHistory.rend(); i != e; ++i) {
+        const Action &action = **i;
+        switch (action.type()) {
+        case ActionType::MoveToObject: {
+            auto *move = (MoveToObjectAction*) &action;
+            return Variable::ofObject(move->target()->id());
+        }
+        default:
+            break;
+        }
+    }
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetBlockingCreature(const std::vector<Variable> &args, const RoutineContext &ctx) {
