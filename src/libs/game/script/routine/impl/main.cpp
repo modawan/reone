@@ -3307,9 +3307,12 @@ static Variable GetHasSpell(const std::vector<Variable> &args, const RoutineCont
     auto oCreature = getObjectOrCaller(args, 1, ctx);
 
     // Transform
+    auto spell = static_cast<SpellType>(nSpell);
+    auto creature = checkCreature(oCreature);
 
     // Execute
-    throw RoutineNotImplementedException("GetHasSpell");
+    bool hasSpell = creature->attributes().hasSpell(spell);
+    return Variable::ofInt(static_cast<int>(hasSpell));
 }
 
 static Variable OpenStore(const std::vector<Variable> &args, const RoutineContext &ctx) {
