@@ -5356,9 +5356,16 @@ static Variable GetLastHostileTarget(const std::vector<Variable> &args, const Ro
     auto oAttacker = getObjectOrCaller(args, 0, ctx);
 
     // Transform
+    auto attacker = checkCreature(oAttacker);
 
     // Execute
-    throw RoutineNotImplementedException("GetLastHostileTarget");
+    const Combat::AttackHistory &history = ctx.game.combat().attackHistory(*attacker);
+    if (history.empty()) {
+        return Variable::ofObject(kObjectInvalid);
+    }
+
+    Combat::Attack &lastAttack = *history.back();
+    return Variable::ofObject(lastAttack.target->id());
 }
 
 static Variable GetLastAttackAction(const std::vector<Variable> &args, const RoutineContext &ctx) {
