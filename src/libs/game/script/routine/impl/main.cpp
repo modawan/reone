@@ -5387,12 +5387,45 @@ static Variable GetLastHostileTarget(const std::vector<Variable> &args, const Ro
 
     // Execute
     const Combat::AttackHistory &history = ctx.game.combat().attackHistory(*attacker);
-    if (history.empty()) {
-        return Variable::ofObject(kObjectInvalid);
+    if (!history.empty()) {
+        Combat::Attack &lastAttack = *history.back();
+        return Variable::ofObject(lastAttack.target->id());
     }
 
-    Combat::Attack &lastAttack = *history.back();
-    return Variable::ofObject(lastAttack.target->id());
+    const auto &reputes = ctx.services.game.reputes;
+
+    // TODO: spells should be implemented in Combat. For now, check the
+    // character action history to find a hostile target of a spell.
+    const Creature::ActionHistory &actionHistory = attacker->combatActionHistory();
+    for (auto i = actionHistory.rbegin(), e = actionHistory.rend(); i != e; ++i) {
+        const Action &action = **i;
+        const Object *target = nullptr;
+        switch (action.type()) {
+        case ActionType::CastSpellAtObject: {
+            auto *castSpell = (CastSpellAtObjectAction*) &action;
+            target = castSpell->target().get();
+            break;
+        }
+        case ActionType::UseTalentOnObject: {
+            auto *useTalent = (UseTalentOnObjectAction*) &action;
+            target = useTalent->target().get();
+            break;
+        }
+        default:
+            break;
+        }
+
+        if (!target || target->type() != ObjectType::Creature) {
+            continue;
+        }
+        auto *targetCreature = (const Creature *) target;
+
+        if (reputes.getIsEnemy(*targetCreature, *attacker)) {
+            return Variable::ofObject(targetCreature->id());
+        }
+    }
+
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetLastAttackAction(const std::vector<Variable> &args, const RoutineContext &ctx) {
