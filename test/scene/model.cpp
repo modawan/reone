@@ -39,6 +39,11 @@ using namespace reone::scene;
 using testing::_;
 using testing::ReturnRef;
 
+class MockUser : public IUser {
+public:
+    ~MockUser() {}
+};
+
 TEST(ModelSceneNode, should_build_from_model) {
     // given
     auto graphicsOpt = GraphicsOptions();
@@ -339,4 +344,77 @@ TEST(ModelSceneNode, hould_transition_between_two_animations) {
     EXPECT_NEAR(3.0f, rootPosition.x, 1e-5);
     EXPECT_NEAR(3.75f, rootPosition.y, 1e-5);
     EXPECT_NEAR(4.5f, rootPosition.z, 1e-5);
+}
+
+TEST(ModelSceneNode, pick_model_at) {
+    // given
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+
+    auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    auto rootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto dummyNode = std::make_shared<ModelNode>(1, "dummy", glm::vec3(0.0f, 1.0f, 0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, rootNode.get());
+    rootNode->addChild(dummyNode);
+
+    std::vector<std::shared_ptr<Animation>> animations;
+    auto dummyModel = Model("dummy1", 0, rootNode, animations, "", 1.0f);
+
+    auto dummy1 = std::make_shared<ModelSceneNode>(
+        dummyModel,
+        ModelUsage::Creature,
+        *scene,
+        graphicsModule.services(),
+        audioModule.services(),
+        resourceModule.services());
+
+    auto dummy2 = std::make_shared<ModelSceneNode>(
+        dummyModel,
+        ModelUsage::Creature,
+        *scene,
+        graphicsModule.services(),
+        audioModule.services(),
+        resourceModule.services());
+
+    scene->addRoot(dummy1);
+    scene->addRoot(dummy2);
+
+    dummy1->setLocalTransform(glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 0.0f, 0.0f)));
+    dummy2->setLocalTransform(glm::translate(glm::mat4(1.0f), glm::vec3(2.0f, 0.0f, 0.0f)));
+
+    dummy1->setPickable(true);
+    dummy2->setPickable(true);
+
+    MockUser user1;
+    MockUser user2;
+
+    dummy1->setUser(user1);
+    dummy2->setUser(user2);
+
+    std::shared_ptr<CameraSceneNode> camera = scene->newCamera();
+
+    glm::mat4 view(
+        glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f),
+                    glm::vec3(1.0f, 0.0f, 0.0f),
+                    glm::vec3(0.0f, 1.0f, 0.0f)));
+    camera->setLocalTransform(view);
+    camera->setOrthographicProjection(-1.0f, 1.0f, -1.0f, 1.0f, 0.0f, -3.0f);
+    scene->setActiveCamera(camera.get());
+
+    ModelSceneNode *picked2 =
+        scene->pickModelAt(graphicsOpt.width / 2, graphicsOpt.height / 2, dummy1->user());
+    EXPECT_EQ(dummy2.get(), picked2);
+
+    ModelSceneNode *picked1 =
+        scene->pickModelAt(graphicsOpt.width / 2, graphicsOpt.height / 2, nullptr);
+    EXPECT_EQ(dummy1.get(), picked1);
 }
