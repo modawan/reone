@@ -18,6 +18,8 @@
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/jumptolocation.h"
 #include "reone/game/action/jumptoobject.h"
+#include "reone/game/d20/feats.h"
+#include "reone/game/d20/spells.h"
 #include "reone/game/event.h"
 #include "reone/game/game.h"
 #include "reone/game/reputes.h"
@@ -2634,6 +2636,25 @@ static Variable GetCreatureTalentRandom(const std::vector<Variable> &args, const
     throw RoutineNotImplementedException("GetCreatureTalentRandom");
 }
 
+// Talents (feats and spells) are sorted by category. Returns the first one
+// that matches `cond`, or `end` otherwise.
+template <typename T, typename C>
+static T findFirstTalentByCategory(T begin, T end, uint32_t category, C cond) {
+    auto cmp = [](const typename T::value_type &v, const uint32_t &cat) {
+        return v->category < cat;
+    };
+
+    auto it = std::lower_bound(begin, end, category, cmp);
+
+    while (it != end && (*it)->category == category) {
+        if (cond(it)) {
+            return it;
+        }
+        ++it;
+    }
+    return end;
+}
+
 static Variable GetCreatureTalentBest(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nCategory = getInt(args, 0);
@@ -2644,9 +2665,55 @@ static Variable GetCreatureTalentBest(const std::vector<Variable> &args, const R
     auto nExcludeId = getIntOrElse(args, 5, -1);
 
     // Transform
+    auto creature = checkCreature(oCreature);
 
     // Execute
-    throw RoutineNotImplementedException("GetCreatureTalentBest");
+
+    // TODO: it is unclear how nInclusion and nExcludeType are supposed to
+    // work. If nInclusion means a single talent type, then nExcludeType is
+    // almost useless.
+    //
+    // When nExcludeType != nInclusion, nExcludeType can be ignored.
+    // When nExcludeType == nInclusion, nExcludeId allows to ignore a single
+    // talent.
+    //
+    // This could make sense if nInclusion was a bitmask, but TalentType enum is
+    // sequential, so it is not going to work.
+    //
+    // Fow now we ignore all three of these arguments, and assume that
+    // a category is fine-grained enough to not cause a problem.
+
+    auto checkFeat = [&](IFeats::ConstIterator it) -> bool {
+        return (*it)->maxcr <= nCRMax && creature->attributes().hasFeat((*it)->type);
+    };
+
+    IFeats &feats = ctx.services.game.feats;
+    auto featIt = findFirstTalentByCategory(
+            feats.begin(), feats.end(), nCategory, checkFeat);
+
+    if (featIt != feats.end()) {
+        auto talent = ctx.game.newTalent(
+                TalentType::Feat, static_cast<int>((*featIt)->type));
+        return Variable::ofTalent(talent);
+    }
+
+    // Same algorithm, but for force powers.
+    auto checkSpell = [&](ISpells::ConstIterator it) -> bool {
+        return (*it)->maxcr <= nCRMax && creature->attributes().hasSpell((*it)->type);
+    };
+
+    ISpells &spells = ctx.services.game.spells;
+    auto spellIt = findFirstTalentByCategory(
+            spells.begin(), spells.end(), nCategory, checkSpell);
+
+    if (spellIt != spells.end()) {
+        auto talent = ctx.game.newTalent(
+                TalentType::Spell, static_cast<int>((*spellIt)->type));
+        return Variable::ofTalent(talent);
+    }
+
+    auto invalid = ctx.game.newTalent(TalentType::Invalid, 0);
+    return Variable::ofTalent(invalid);
 }
 
 static Variable GetGoldPieceValue(const std::vector<Variable> &args, const RoutineContext &ctx) {

@@ -49,6 +49,8 @@ void GameModule::init() {
     _guiSounds->init();
     _portraits->init();
     _reputes->init();
+    _feats->init();
+    _spells->init();
     _surfaces->init();
 }
 
