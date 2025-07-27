@@ -279,11 +279,11 @@ void GUI::render() {
         while (!controls.empty()) {
             auto &[controlWrapper, offset] = controls.front();
             auto &control = controlWrapper.get();
-            controls.pop();
             control.render({_options.width, _options.height}, offset, pass);
             for (auto &child : control.children()) {
                 controls.push({child, _controlOffset});
             }
+            controls.pop();
         }
     });
 }
