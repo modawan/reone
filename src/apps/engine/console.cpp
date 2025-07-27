@@ -109,7 +109,16 @@ void Console::trimOutput() {
 }
 
 bool Console::handle(const input::Event &event) {
-    if (_open && _input.handle(event)) {
+    if (event.type == input::EventType::KeyUp && (event.key.code == input::KeyCode::Backquote)) {
+        _open = !_open;
+        return true;
+    }
+
+    if (!_open) {
+        return false;
+    }
+
+    if (_input.handle(event)) {
         return true;
     }
     switch (event.type) {
@@ -137,40 +146,26 @@ bool Console::handleMouseWheel(const input::MouseWheelEvent &event) {
 }
 
 bool Console::handleKeyUp(const input::KeyEvent &event) {
-    if (_open) {
-        switch (event.code) {
-        case input::KeyCode::Backquote:
-            _open = false;
-            return true;
-
-        case input::KeyCode::Return: {
-            std::string text(_input.text());
-            if (!text.empty()) {
-                executeInputText();
-                _history.push(_input.text());
-                _input.clear();
-            }
-            return true;
+    switch (event.code) {
+    case input::KeyCode::Return: {
+        std::string text(_input.text());
+        if (!text.empty()) {
+            executeInputText();
+            _history.push(_input.text());
+            _input.clear();
         }
-        case input::KeyCode::Up:
-            if (!_history.empty()) {
-                _input.setText(_history.top());
-                _history.pop();
-            }
-            return true;
-        default:
-            return false;
-        }
-    } else {
-        switch (event.code) {
-        case input::KeyCode::Backquote:
-            _open = true;
-            return true;
-
-        default:
-            return false;
-        }
+        return true;
     }
+    case input::KeyCode::Up:
+        if (!_history.empty()) {
+            _input.setText(_history.top());
+            _history.pop();
+        }
+        return true;
+    default:
+        break;
+    }
+    return false;
 }
 
 void Console::executeInputText() {
