@@ -5274,14 +5274,21 @@ static Variable GetLastHostileTarget(const std::vector<Variable> &args, const Ro
     throw RoutineNotImplementedException("GetLastHostileTarget");
 }
 
-static Variable GetLastAttackObjectAction(const std::vector<Variable> &args, const RoutineContext &ctx) {
+static Variable GetLastAttackAction(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto oAttacker = getObjectOrCaller(args, 0, ctx);
 
     // Transform
+    auto attacker = checkCreature(oAttacker);
 
     // Execute
-    throw RoutineNotImplementedException("GetLastAttackObjectAction");
+    const Combat::AttackHistory &history = ctx.game.combat().attackHistory(*attacker);
+    if (history.empty()) {
+        return Variable::ofInt(static_cast<int>(ActionType::QueueEmpty));
+    }
+
+    Combat::Attack &lastAttack = *history.back();
+    return Variable::ofInt(static_cast<int>(lastAttack.action->type()));
 }
 
 static Variable GetLastForcePowerUsed(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7079,7 +7086,7 @@ void Routines::registerMainKotorRoutines() {
     insert(719, "SetGlobalFadeIn", R_VOID, {R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT}, &SetGlobalFadeIn);
     insert(720, "SetGlobalFadeOut", R_VOID, {R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT}, &SetGlobalFadeOut);
     insert(721, "GetLastHostileTarget", R_OBJECT, {R_OBJECT}, &GetLastHostileTarget);
-    insert(722, "GetLastAttackObjectAction", R_INT, {R_OBJECT}, &GetLastAttackObjectAction);
+    insert(722, "GetLastAttackAction", R_INT, {R_OBJECT}, &GetLastAttackAction);
     insert(723, "GetLastForcePowerUsed", R_INT, {R_OBJECT}, &GetLastForcePowerUsed);
     insert(724, "GetLastCombatFeatUsed", R_INT, {R_OBJECT}, &GetLastCombatFeatUsed);
     insert(725, "GetLastAttackResult", R_INT, {R_OBJECT}, &GetLastAttackResult);
@@ -7635,7 +7642,7 @@ void Routines::registerMainTslRoutines() {
     insert(719, "SetGlobalFadeIn", R_VOID, {R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT}, &SetGlobalFadeIn);
     insert(720, "SetGlobalFadeOut", R_VOID, {R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT}, &SetGlobalFadeOut);
     insert(721, "GetLastHostileTarget", R_OBJECT, {R_OBJECT}, &GetLastHostileTarget);
-    insert(722, "GetLastAttackObjectAction", R_INT, {R_OBJECT}, &GetLastAttackObjectAction);
+    insert(722, "GetLastAttackAction", R_INT, {R_OBJECT}, &GetLastAttackAction);
     insert(723, "GetLastForcePowerUsed", R_INT, {R_OBJECT}, &GetLastForcePowerUsed);
     insert(724, "GetLastCombatFeatUsed", R_INT, {R_OBJECT}, &GetLastCombatFeatUsed);
     insert(725, "GetLastAttackResult", R_INT, {R_OBJECT}, &GetLastAttackResult);
