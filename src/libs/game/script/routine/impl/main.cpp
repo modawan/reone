@@ -5562,9 +5562,19 @@ static Variable GetLastCombatFeatUsed(const std::vector<Variable> &args, const R
     const Combat::AttackHistory &history = ctx.game.combat().attackHistory(*attacker);
     for (auto i = history.rbegin(), e = history.rend(); i != e; ++i) {
         Combat::Attack &attack = **i;
-        if (attack.action->type() == ActionType::UseFeat) {
+        switch (attack.action->type()) {
+        case ActionType::UseFeat: {
             auto featAction = std::static_pointer_cast<UseFeatAction>(attack.action);
             return Variable::ofInt(static_cast<int>(featAction->feat()));
+        }
+        case ActionType::UseTalentOnObject: {
+            auto talentAction = std::static_pointer_cast<UseTalentOnObjectAction>(attack.action);
+            if (talentAction->talent()->type() == TalentType::Feat) {
+                return Variable::ofInt(talentAction->talent()->value());
+            }
+        }
+        default:
+            break;
         }
     }
 
