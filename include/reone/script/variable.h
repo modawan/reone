@@ -36,6 +36,7 @@ struct Variable {
     glm::vec3 vecValue {0.0f};
     std::shared_ptr<EngineType> engineType;
     std::shared_ptr<ExecutionContext> context;
+    uint64_t id {0};
 
     union {
         int32_t intValue {0};

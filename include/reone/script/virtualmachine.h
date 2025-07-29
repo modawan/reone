@@ -20,6 +20,8 @@
 #include "executionstate.h"
 #include "types.h"
 
+#include <sstream>
+
 namespace reone {
 
 namespace script {
@@ -56,6 +58,8 @@ private:
     uint32_t _nextInstruction {0};
     int _globalCount {0};
     ExecutionState _savedState;
+    std::stringstream _logStream;
+    bool _logEnabled {false};
 
     void registerHandler(InstructionType type, std::function<void(VirtualMachine *, const Instruction &)> handler) {
         _handlers.insert(std::make_pair(type, std::bind(handler, this, std::placeholders::_1)));
@@ -82,6 +86,20 @@ private:
     void withVectorsFromStack(const std::function<void(const glm::vec3 &, const glm::vec3 &)> &fn);
 
     void throwIfInvalidType(VariableType expected, VariableType actual);
+
+    using InstRevIterator = std::vector<Variable>::reverse_iterator;
+
+    void logOperandsIt(InstRevIterator begin, InstRevIterator end);
+    void logResultsIt(InstRevIterator begin, InstRevIterator end);
+
+    void logOperands(unsigned n);
+    void logResults(unsigned n);
+
+    enum class JumpType {
+        Jump,
+        Fallthrough,
+    };
+    void logJump(JumpType type);
 
     // Handlers
 

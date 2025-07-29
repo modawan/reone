@@ -21,6 +21,8 @@ namespace reone {
 
 namespace script {
 
+std::atomic<uint64_t> g_id {0};
+
 Variable Variable::ofNull() {
     Variable result;
     result.type = VariableType::Void;
@@ -31,6 +33,7 @@ Variable Variable::ofInt(int value) {
     Variable result;
     result.type = VariableType::Int;
     result.intValue = value;
+    result.id = ++g_id;
     return result;
 }
 
@@ -38,6 +41,7 @@ Variable Variable::ofFloat(float value) {
     Variable result;
     result.type = VariableType::Float;
     result.floatValue = value;
+    result.id = ++g_id;
     return result;
 }
 
@@ -45,6 +49,7 @@ Variable Variable::ofString(std::string value) {
     Variable result;
     result.type = VariableType::String;
     result.strValue = std::move(value);
+    result.id = ++g_id;
     return result;
 }
 
@@ -52,6 +57,7 @@ Variable Variable::ofVector(glm::vec3 value) {
     Variable result;
     result.type = VariableType::Vector;
     result.vecValue = std::move(value);
+    result.id = ++g_id;
     return result;
 }
 
@@ -59,6 +65,7 @@ Variable Variable::ofObject(uint32_t objectId) {
     Variable result;
     result.type = VariableType::Object;
     result.objectId = objectId;
+    result.id = ++g_id;
     return result;
 }
 
@@ -66,6 +73,7 @@ Variable Variable::ofEffect(std::shared_ptr<EngineType> engineType) {
     Variable result;
     result.type = VariableType::Effect;
     result.engineType = std::move(engineType);
+    result.id = ++g_id;
     return result;
 }
 
@@ -73,6 +81,7 @@ Variable Variable::ofEvent(std::shared_ptr<EngineType> engineType) {
     Variable result;
     result.type = VariableType::Event;
     result.engineType = std::move(engineType);
+    result.id = ++g_id;
     return result;
 }
 
@@ -80,6 +89,7 @@ Variable Variable::ofLocation(std::shared_ptr<EngineType> engineType) {
     Variable result;
     result.type = VariableType::Location;
     result.engineType = std::move(engineType);
+    result.id = ++g_id;
     return result;
 }
 
@@ -87,6 +97,7 @@ Variable Variable::ofTalent(std::shared_ptr<EngineType> engineType) {
     Variable result;
     result.type = VariableType::Talent;
     result.engineType = std::move(engineType);
+    result.id = ++g_id;
     return result;
 }
 
@@ -94,6 +105,7 @@ Variable Variable::ofAction(std::shared_ptr<ExecutionContext> context) {
     Variable result;
     result.type = VariableType::Action;
     result.context = std::move(context);
+    result.id = ++g_id;
     return result;
 }
 
@@ -102,25 +114,25 @@ const std::string Variable::toString() const {
     case VariableType::Void:
         return "void";
     case VariableType::Int:
-        return std::to_string(intValue);
+        return str(boost::format("%%%u:%d") % id % intValue);
     case VariableType::Float:
-        return std::to_string(floatValue);
+        return str(boost::format("%%%u:%f") % id % floatValue);
     case VariableType::String:
-        return str(boost::format("\"%s\"") % strValue);
+        return str(boost::format("%%%u:\"%s\"") % id % strValue);
     case VariableType::Object:
-        return std::to_string(objectId);
+        return str(boost::format("%%%u:%u") % id % objectId);
     case VariableType::Vector:
-        return str(boost::format("[%f,%f,%f]") % vecValue.x % vecValue.y % vecValue.z);
+        return str(boost::format("%%%u:[%f,%f,%f]") % id % vecValue.x % vecValue.y % vecValue.z);
     case VariableType::Effect:
-        return "effect";
+        return str(boost::format("%%%u:effect") % id);
     case VariableType::Event:
-        return "event";
+        return str(boost::format("%%%u:event") % id);
     case VariableType::Location:
-        return "location";
+        return str(boost::format("%%%u:location") % id);
     case VariableType::Talent:
-        return "talent";
+        return str(boost::format("%%%u:talent") % id);
     case VariableType::Action:
-        return "action";
+        return str(boost::format("%%%u:action") % id);
     default:
         throw std::logic_error("Unsupported variable type: " + std::to_string(static_cast<int>(type)));
     }
