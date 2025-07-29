@@ -37,6 +37,8 @@ VirtualMachine::VirtualMachine(std::shared_ptr<ScriptProgram> program, std::uniq
     _context(std::move(context)),
     _program(std::move(program)) {
 
+    _logEnabled = Logger::instance.isChannelEnabled(LogChannel::Script3);
+
     static std::unordered_map<InstructionType, std::function<void(VirtualMachine *, const Instruction &)>> g_handlers {
         {InstructionType::CPDOWNSP, &VirtualMachine::executeCPDOWNSP},
         {InstructionType::RSADDI, &VirtualMachine::executeRSADDI},
@@ -137,6 +139,63 @@ VirtualMachine::VirtualMachine(std::shared_ptr<ScriptProgram> program, std::uniq
     _handlers.insert(std::make_pair(InstructionType::NOP2, [](auto &) {}));
 }
 
+template <typename Iterator>
+static void logValues(std::stringstream &logStream, Iterator begin, Iterator end) {
+    bool comma = false;
+    unsigned i = 0;
+    for (auto it = begin; it != end; ++it) {
+        if (comma) {
+            logStream << ", ";
+        }
+        comma = true;
+        logStream << it->toString();
+    }
+}
+
+void VirtualMachine::logOperandsIt(InstRevIterator begin, InstRevIterator end) {
+    if (!_logEnabled) {
+        return;
+    }
+
+    _logStream << "(";
+    logValues(_logStream, begin, end);
+    _logStream << ")";
+}
+
+void VirtualMachine::logResultsIt(InstRevIterator begin, InstRevIterator end) {
+    if (!_logEnabled) {
+        return;
+    }
+
+    _logStream << " -> (";
+    logValues(_logStream, begin, end);
+    _logStream << ")";
+}
+
+void VirtualMachine::logOperands(unsigned n) {
+    logOperandsIt(_stack.rbegin(), _stack.rbegin() + n);
+}
+
+void VirtualMachine::logResults(unsigned n) {
+    logResultsIt(_stack.rbegin(), _stack.rbegin() + n);
+}
+
+void VirtualMachine::logJump(JumpType type) {
+    if (!_logEnabled) {
+        return;
+    }
+
+    _logStream << " -> ";
+    switch (type) {
+    case JumpType::Jump:
+        _logStream << "jump";
+        break;
+    case JumpType::Fallthrough:
+        _logStream << "fallthrough";
+        break;
+    }
+}
+
 int VirtualMachine::run() {
     uint32_t insOff = kStartInstructionOffset;
 
@@ -168,12 +227,20 @@ int VirtualMachine::run() {
         }
         _nextInstruction = ins.nextOffset;
 
-        if (Logger::instance.isChannelEnabled(LogChannel::Script3)) {
-            debug(str(boost::format("Instruction: %s") % describeInstruction(ins, *_context->routines)), LogChannel::Script3);
-        }
+        bool halt = false;
         try {
             handler->second(ins);
         } catch (const std::exception &ex) {
+            halt = true;
+        }
+
+        if (Logger::instance.isChannelEnabled(LogChannel::Script3)) {
+            debug(str(boost::format("Instruction: %s %s") % describeInstruction(ins, *_context->routines) % _logStream.str()), LogChannel::Script3);
+            _logStream.str("");
+            _logStream.clear();
+        }
+
+        if (halt) {
             debug(str(boost::format("Halt '%s'") % _program->name()), LogChannel::Script);
             return -1;
         }
@@ -199,35 +266,51 @@ void VirtualMachine::executeCPDOWNSP(const Instruction &ins) {
 }
 
 void VirtualMachine::executeRSADDI(const Instruction &ins) {
+    logOperands(0);
     _stack.push_back(Variable::ofInt(0));
+    logResults(1);
 }
 
 void VirtualMachine::executeRSADDF(const Instruction &ins) {
+    logOperands(0);
     _stack.push_back(Variable::ofFloat(0.0f));
+    logResults(1);
 }
 
 void VirtualMachine::executeRSADDS(const Instruction &ins) {
+    logOperands(0);
     _stack.push_back(Variable::ofString(""));
+    logResults(1);
 }
 
 void VirtualMachine::executeRSADDO(const Instruction &ins) {
+    logOperands(0);
     _stack.push_back(Variable::ofObject(kObjectInvalid));
+    logResults(1);
 }
 
 void VirtualMachine::executeRSADDEFF(const Instruction &ins) {
+    logOperands(0);
     _stack.push_back(Variable::ofEffect(nullptr));
+    logResults(1);
 }
 
 void VirtualMachine::executeRSADDEVT(const Instruction &ins) {
+    logOperands(0);
     _stack.push_back(Variable::ofEvent(nullptr));
+    logResults(1);
 }
 
 void VirtualMachine::executeRSADDLOC(const Instruction &ins) {
+    logOperands(0);
     _stack.push_back(Variable::ofLocation(nullptr));
+    logResults(1);
 }
 
 void VirtualMachine::executeRSADDTAL(const Instruction &ins) {
+    logOperands(0);
     _stack.push_back(Variable::ofTalent(nullptr));
+    logResults(1);
 }
 
 void VirtualMachine::executeCPTOPSP(const Instruction &ins) {
@@ -240,20 +323,28 @@ void VirtualMachine::executeCPTOPSP(const Instruction &ins) {
 }
 
 void VirtualMachine::executeCONSTI(const Instruction &ins) {
+    logOperands(0);
     _stack.push_back(Variable::ofInt(ins.intValue));
+    logResults(1);
 }
 
 void VirtualMachine::executeCONSTF(const Instruction &ins) {
+    logOperands(0);
     _stack.push_back(Variable::ofFloat(ins.floatValue));
+    logResults(1);
 }
 
 void VirtualMachine::executeCONSTS(const Instruction &ins) {
+    logOperands(0);
     _stack.push_back(Variable::ofString(ins.strValue));
+    logResults(1);
 }
 
 void VirtualMachine::executeCONSTO(const Instruction &ins) {
     uint32_t objectId = ins.objectId == kObjectSelf ? _context->callerId : ins.objectId;
+    logOperands(0);
     _stack.push_back(Variable::ofObject(objectId));
+    logResults(1);
 }
 
 void VirtualMachine::executeACTION(const Instruction &ins) {
@@ -267,6 +358,7 @@ void VirtualMachine::executeACTION(const Instruction &ins) {
         VariableType type = routine.getArgumentType(i);
         switch (type) {
         case VariableType::Vector:
+            logOperands(3);
             args.push_back(Variable::ofVector(getVectorFromStack()));
             break;
 
@@ -277,6 +369,7 @@ void VirtualMachine::executeACTION(const Instruction &ins) {
             break;
         }
         default:
+            logOperands(1);
             Variable var(_stack.back());
             if (var.type != type) {
                 throw std::runtime_error("Invalid argument variable type");
@@ -297,75 +390,100 @@ void VirtualMachine::executeACTION(const Instruction &ins) {
         debug(str(boost::format("Action: %04x %s(%s) -> %s") % ins.offset % routine.name() % argsString % retValue.toString()), LogChannel::Script2);
     }
     switch (routine.returnType()) {
-    case VariableType::Void:
+    case VariableType::Void: {
+        logResults(0);
         break;
-    case VariableType::Vector:
+    }
+    case VariableType::Vector: {
         _stack.push_back(Variable::ofFloat(retValue.vecValue.z));
         _stack.push_back(Variable::ofFloat(retValue.vecValue.y));
         _stack.push_back(Variable::ofFloat(retValue.vecValue.x));
+        logResults(3);
         break;
-    default:
+    }
+    default: {
         _stack.push_back(retValue);
+        logResults(1);
         break;
+    }
     }
 }
 
 void VirtualMachine::executeLOGANDII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left && right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeLOGORII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left || right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeINCORII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(left | right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeEXCORII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(left ^ right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeBOOLANDII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(left & right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeEQUALII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left == right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeEQUALFF(const Instruction &ins) {
+    logOperands(2);
     withFloatsFromStack([this](float left, float right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(fabs(left - right) < kFloatTolerance)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeEQUALSS(const Instruction &ins) {
+    logOperands(2);
     withStringsFromStack([this](auto &left, auto &right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left == right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeEQUALOO(const Instruction &ins) {
+    logOperands(2);
     withObjectsFromStack([this](uint32_t left, uint32_t right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left == right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeEQUALTT(const Instruction &ins) {
     int numVariables = ins.size / 4;
+    logOperands(numVariables * 2);
     std::vector<Variable> vars1;
     for (int i = 0; i < numVariables; ++i) {
         vars1.push_back(std::move(_stack.back()));
@@ -378,58 +496,76 @@ void VirtualMachine::executeEQUALTT(const Instruction &ins) {
     }
     bool equal = std::equal(vars1.begin(), vars1.end(), vars2.begin());
     _stack.push_back(Variable::ofInt(static_cast<int>(equal)));
+    logResults(1);
 }
 
 void VirtualMachine::executeEQUALEFFEFF(const Instruction &ins) {
+    logOperands(2);
     withEffectsFromStack([this](auto &left, auto &right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left == right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeEQUALEVTEVT(const Instruction &ins) {
+    logOperands(2);
     withEventsFromStack([this](auto &left, auto &right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left == right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeEQUALLOCLOC(const Instruction &ins) {
+    logOperands(2);
     withLocationsFromStack([this](auto &left, auto &right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left == right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeEQUALTALTAL(const Instruction &ins) {
+    logOperands(2);
     withTalentsFromStack([this](auto &left, auto &right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left == right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeNEQUALII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left != right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeNEQUALFF(const Instruction &ins) {
+    logOperands(2);
     withFloatsFromStack([this](float left, float right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left != right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeNEQUALSS(const Instruction &ins) {
+    logOperands(2);
     withStringsFromStack([this](auto &left, auto &right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left != right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeNEQUALOO(const Instruction &ins) {
+    logOperands(2);
     withObjectsFromStack([this](uint32_t left, uint32_t right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left != right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeNEQUALTT(const Instruction &ins) {
     int numVariables = ins.size / 4;
+    logOperands(numVariables * 2);
     std::vector<Variable> vars1;
     for (int i = 0; i < numVariables; ++i) {
         vars1.push_back(std::move(_stack.back()));
@@ -442,87 +578,115 @@ void VirtualMachine::executeNEQUALTT(const Instruction &ins) {
     }
     bool notEqual = !std::equal(vars1.begin(), vars1.end(), vars2.begin());
     _stack.push_back(Variable::ofInt(static_cast<int>(notEqual)));
+    logResults(1);
 }
 
 void VirtualMachine::executeNEQUALEFFEFF(const Instruction &ins) {
+    logOperands(2);
     withEffectsFromStack([this](auto &left, auto &right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left != right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeNEQUALEVTEVT(const Instruction &ins) {
+    logOperands(2);
     withEventsFromStack([this](auto &left, auto &right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left != right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeNEQUALLOCLOC(const Instruction &ins) {
+    logOperands(2);
     withLocationsFromStack([this](auto &left, auto &right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left != right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeNEQUALTALTAL(const Instruction &ins) {
+    logOperands(2);
     withTalentsFromStack([this](auto &left, auto &right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left != right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeGEQII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left >= right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeGEQFF(const Instruction &ins) {
+    logOperands(2);
     withFloatsFromStack([this](float left, float right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left >= right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeGTII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left > right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeGTFF(const Instruction &ins) {
+    logOperands(2);
     withFloatsFromStack([this](float left, float right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left > right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeLTII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left < right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeLTFF(const Instruction &ins) {
+    logOperands(2);
     withFloatsFromStack([this](float left, float right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left < right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeLEQII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left <= right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeLEQFF(const Instruction &ins) {
+    logOperands(2);
     withFloatsFromStack([this](float left, float right) {
         _stack.push_back(Variable::ofInt(static_cast<int>(left <= right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeSHLEFTII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(left << right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeSHRIGHTII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         int result = left;
         if (result < 0) {
@@ -532,182 +696,237 @@ void VirtualMachine::executeSHRIGHTII(const Instruction &ins) {
         }
         _stack.push_back(Variable::ofInt(result));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeUSHRIGHTII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(static_cast<unsigned int>(left) >> right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeADDII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(left + right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeADDIF(const Instruction &ins) {
+    logOperands(2);
     withIntFloatFromStack([this](int left, float right) {
         _stack.push_back(Variable::ofFloat(left + right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeADDFI(const Instruction &ins) {
+    logOperands(2);
     withFloatIntFromStack([this](float left, int right) {
         _stack.push_back(Variable::ofFloat(left + right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeADDFF(const Instruction &ins) {
+    logOperands(2);
     withFloatsFromStack([this](float left, float right) {
         _stack.push_back(Variable::ofFloat(left + right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeADDSS(const Instruction &ins) {
+    logOperands(2);
     withStringsFromStack([this](auto &left, auto &right) {
         _stack.push_back(Variable::ofString(left + right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeADDVV(const Instruction &ins) {
+    logOperands(2);
     withVectorsFromStack([this](auto &left, auto &right) {
         auto result = left + right;
         _stack.push_back(Variable::ofFloat(result.x));
         _stack.push_back(Variable::ofFloat(result.y));
         _stack.push_back(Variable::ofFloat(result.z));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeSUBII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(left - right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeSUBIF(const Instruction &ins) {
+    logOperands(2);
     withIntFloatFromStack([this](int left, float right) {
         _stack.push_back(Variable::ofFloat(left - right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeSUBFI(const Instruction &ins) {
+    logOperands(2);
     withFloatIntFromStack([this](float left, int right) {
         _stack.push_back(Variable::ofFloat(left - right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeSUBFF(const Instruction &ins) {
+    logOperands(2);
     withFloatsFromStack([this](float left, float right) {
         _stack.push_back(Variable::ofFloat(left - right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeSUBVV(const Instruction &ins) {
+    logOperands(2);
     withVectorsFromStack([this](auto &left, auto &right) {
         auto result = left - right;
         _stack.push_back(Variable::ofFloat(result.x));
         _stack.push_back(Variable::ofFloat(result.y));
         _stack.push_back(Variable::ofFloat(result.z));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeMULII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(left * right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeMULIF(const Instruction &ins) {
+    logOperands(2);
     withIntFloatFromStack([this](int left, float right) {
         _stack.push_back(Variable::ofFloat(left * right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeMULFI(const Instruction &ins) {
+    logOperands(2);
     withFloatIntFromStack([this](float left, int right) {
         _stack.push_back(Variable::ofFloat(left * right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeMULFF(const Instruction &ins) {
+    logOperands(2);
     withFloatsFromStack([this](float left, float right) {
         _stack.push_back(Variable::ofFloat(left * right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeMULVF(const Instruction &ins) {
+    logOperands(2);
     withVectorFloatFromStack([this](auto &left, float right) {
         auto result = left * right;
         _stack.push_back(Variable::ofFloat(result.x));
         _stack.push_back(Variable::ofFloat(result.y));
         _stack.push_back(Variable::ofFloat(result.z));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeMULFV(const Instruction &ins) {
+    logOperands(2);
     withFloatVectorFromStack([this](float left, auto &right) {
         auto result = left * right;
         _stack.push_back(Variable::ofFloat(result.x));
         _stack.push_back(Variable::ofFloat(result.y));
         _stack.push_back(Variable::ofFloat(result.z));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeDIVII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(left / right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeDIVIF(const Instruction &ins) {
+    logOperands(2);
     withIntFloatFromStack([this](int left, float right) {
         _stack.push_back(Variable::ofFloat(left / std::max(kFloatTolerance, right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeDIVFI(const Instruction &ins) {
+    logOperands(2);
     withFloatIntFromStack([this](float left, int right) {
         _stack.push_back(Variable::ofFloat(left / right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeDIVFF(const Instruction &ins) {
+    logOperands(2);
     withFloatsFromStack([this](float left, float right) {
         _stack.push_back(Variable::ofFloat(left / std::max(kFloatTolerance, right)));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeDIVVF(const Instruction &ins) {
+    logOperands(2);
     withVectorFloatFromStack([this](auto &left, float right) {
         auto result = left / right;
         _stack.push_back(Variable::ofFloat(result.x));
         _stack.push_back(Variable::ofFloat(result.y));
         _stack.push_back(Variable::ofFloat(result.z));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeDIVFV(const Instruction &ins) {
+    logOperands(2);
     withFloatVectorFromStack([this](float left, auto &right) {
         auto result = left / right;
         _stack.push_back(Variable::ofFloat(result.x));
         _stack.push_back(Variable::ofFloat(result.y));
         _stack.push_back(Variable::ofFloat(result.z));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeMODII(const Instruction &ins) {
+    logOperands(2);
     withIntsFromStack([this](int left, int right) {
         _stack.push_back(Variable::ofInt(left % right));
     });
+    logResults(1);
 }
 
 void VirtualMachine::executeNEGI(const Instruction &ins) {
-    _stack.back().intValue *= -1;
+    logOperands(1);
+    Variable neg = Variable::ofInt(-_stack.back().intValue);
+    _stack.back() = neg;
 }
 
 void VirtualMachine::executeNEGF(const Instruction &ins) {
-    _stack.back().floatValue *= -1.0f;
+    logOperands(1);
+    Variable neg = Variable::ofFloat(-_stack.back().floatValue);
+    _stack.back() = neg;
 }
 
 void VirtualMachine::executeMOVSP(const Instruction &ins) {
@@ -727,10 +946,14 @@ void VirtualMachine::executeJSR(const Instruction &ins) {
 }
 
 void VirtualMachine::executeJZ(const Instruction &ins) {
+    logOperands(1);
     bool zero = getIntFromStack() == 0;
     if (zero) {
         _nextInstruction = ins.offset + ins.jumpOffset;
+        logJump(JumpType::Jump);
+        return;
     }
+    logJump(JumpType::Fallthrough);
 }
 
 void VirtualMachine::executeRETN(const Instruction &ins) {
@@ -755,24 +978,36 @@ void VirtualMachine::executeDESTRUCT(const Instruction &ins) {
 
 void VirtualMachine::executeDECISP(const Instruction &ins) {
     int dstIdx = static_cast<int>(_stack.size()) + ins.stackOffset / 4;
-    _stack[dstIdx].intValue--;
+    auto it = std::reverse_iterator(_stack.begin() + dstIdx);
+    logOperandsIt(it, it + 1);
+    _stack[dstIdx] = Variable::ofInt(_stack[dstIdx].intValue - 1);
+    logResultsIt(it, it + 1);
 }
 
 void VirtualMachine::executeINCISP(const Instruction &ins) {
     int dstIdx = static_cast<int>(_stack.size()) + ins.stackOffset / 4;
-    _stack[dstIdx].intValue++;
+    auto it = std::reverse_iterator(_stack.begin() + dstIdx);
+    logOperandsIt(it, it + 1);
+    _stack[dstIdx] = Variable::ofInt(_stack[dstIdx].intValue + 1);
+    logResultsIt(it, it + 1);
 }
 
 void VirtualMachine::executeNOTI(const Instruction &ins) {
+    logOperands(1);
     int value = getIntFromStack();
     _stack.push_back(Variable::ofInt(static_cast<int>(!value)));
+    logResults(1);
 }
 
 void VirtualMachine::executeJNZ(const Instruction &ins) {
+    logOperands(1);
     bool notZero = getIntFromStack() != 0;
     if (notZero) {
         _nextInstruction = ins.offset + ins.jumpOffset;
+        logJump(JumpType::Jump);
+        return;
     }
+    logJump(JumpType::Fallthrough);
 }
 
 void VirtualMachine::executeCPDOWNBP(const Instruction &ins) {
@@ -796,17 +1031,27 @@ void VirtualMachine::executeCPTOPBP(const Instruction &ins) {
 
 void VirtualMachine::executeDECIBP(const Instruction &ins) {
     int dstIdx = _globalCount + ins.stackOffset / 4;
-    _stack[dstIdx].intValue--;
+
+    auto it = std::reverse_iterator(_stack.begin() + dstIdx);
+    logOperandsIt(it, it + 1);
+    _stack[dstIdx] = Variable::ofInt(_stack[dstIdx].intValue - 1);
+    logResultsIt(it, it + 1);
 }
 
 void VirtualMachine::executeINCIBP(const Instruction &ins) {
     int dstIdx = _globalCount + ins.stackOffset / 4;
-    _stack[dstIdx].intValue++;
+
+    auto it = std::reverse_iterator(_stack.begin() + dstIdx);
+    logOperandsIt(it, it + 1);
+    _stack[dstIdx] = Variable::ofInt(_stack[dstIdx].intValue + 1);
+    logResultsIt(it, it + 1);
 }
 
 void VirtualMachine::executeSAVEBP(const Instruction &ins) {
     _globalCount = static_cast<int>(_stack.size());
+    logOperands(0);
     _stack.push_back(Variable::ofInt(_globalCount));
+    logResults(1);
 }
 
 void VirtualMachine::executeRESTOREBP(const Instruction &ins) {
