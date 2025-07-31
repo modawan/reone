@@ -207,6 +207,19 @@ public:
 
     // END Scripts
 
+    // Listeners
+
+    void addListener(std::shared_ptr<Creature> object, std::string pattern, int32_t number);
+    void removeListener(std::shared_ptr<Creature> object);
+
+    void speak(std::shared_ptr<Object> speaker, std::string pattern, int32_t volume);
+    std::shared_ptr<Object> getLastSpeaker() const;
+    std::string getLastPattern() const;
+
+    void updateListeners(float dt);
+
+    // END Listeners
+
 private:
     std::string _sceneName;
 
@@ -252,6 +265,26 @@ private:
     std::set<uint32_t> _objectsToDestroy;
 
     // END Objects
+
+    // Listeners
+
+    struct Listener {
+        std::shared_ptr<Creature> object;
+        int32_t number;
+    };
+
+    using ListenerVec = std::vector<Listener>;
+    std::unordered_map<std::string, ListenerVec> _listeners;
+
+    struct ListenEvent {
+        std::shared_ptr<Object> speaker;
+        std::string pattern;
+        int32_t volume;
+    };
+
+    std::queue<ListenEvent> _pendingListenEvents;
+
+    // END Listeners
 
     // Stealth
 

@@ -243,6 +243,7 @@ public:
 
     void runSpawnScript();
     void runEndRoundScript();
+    void runDialogueScript();
 
     // END Scripts
 
@@ -251,6 +252,16 @@ public:
     void onEventSignalled(const std::string &name) override;
 
     // END IAnimationEventListener
+
+    // Listeners
+
+    bool isListening() { return _isListening; }
+    void setIsListening(bool value) { _isListening = value; }
+    void setLastListenNumber(int32_t number) { _lastListenNumber = number; }
+    int32_t getLastListenNumber() const { return _lastListenNumber; }
+    static const int kInvalidListenNumber = std::numeric_limits<int32_t>::min();
+
+    // END Listeners
 
 private:
     Gender _gender {Gender::Male};
@@ -298,6 +309,8 @@ private:
     int _gold {0}; /**< aka credits */
     std::string _envmap;
     bool _isSpawned {false};
+    bool _isListening {false};
+    int32_t _lastListenNumber {kInvalidListenNumber};
 
     std::shared_ptr<audio::AudioSource> _audioSourceVoice;
     std::shared_ptr<audio::AudioSource> _audioSourceFootstep;

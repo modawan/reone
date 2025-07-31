@@ -652,6 +652,7 @@ void Area::update(float dt) {
     }
     updatePerception(dt);
     updateHeartbeat(dt);
+    updateListeners(dt);
 }
 
 bool Area::moveCreature(const std::shared_ptr<Creature> &creature, const glm::vec2 &dir, bool run, float dt) {
@@ -1238,6 +1239,79 @@ Object *Area::getObjectAt(int x, int y) const {
         return nullptr;
     }
     return dynamic_cast<Object *>(model->user());
+}
+
+void Area::addListener(std::shared_ptr<Creature> object, std::string pattern, int32_t number) {
+    ListenerVec &vec = _listeners[pattern];
+    for (Listener &listener : vec) {
+        if (listener.object == object) {
+            listener.number = number;
+            return;
+        }
+    }
+    vec.push_back({std::move(object), number});
+}
+
+void Area::removeListener(std::shared_ptr<Creature> object) {
+    for (auto &kv : _listeners) {
+        ListenerVec &vec = kv.second;
+        for (Listener &listener : vec) {
+            if (listener.object == object) {
+                std::swap(listener, vec.back());
+                vec.pop_back();
+                return;
+            }
+        }
+    }
+}
+
+void Area::speak(std::shared_ptr<Object> speaker, std::string pattern, int32_t volume) {
+    _pendingListenEvents.push({std::move(speaker), std::move(pattern), volume});
+}
+
+std::shared_ptr<Object> Area::getLastSpeaker() const {
+    if (_pendingListenEvents.empty()) {
+        return std::shared_ptr<Object>();
+    }
+    return _pendingListenEvents.front().speaker;
+}
+
+std::string Area::getLastPattern() const {
+    if (_pendingListenEvents.empty()) {
+        return std::string();
+    }
+    return _pendingListenEvents.front().pattern;
+}
+
+void Area::updateListeners(float dt) {
+    while (!_pendingListenEvents.empty()) {
+        ListenEvent &ev = _pendingListenEvents.front();
+        ListenerVec &vec = _listeners[ev.pattern];
+
+        // First set the number for each listener - if one calls another, they
+        // should all get their respective number. This is unlikely to actually
+        // matter, but let's do this anyway.
+        for (Listener &listener : vec) {
+            if (!listener.object->isListening()) {
+                continue;
+            }
+
+            // TODO: take ev.volume into account
+            bool wasHeard = listener.object->perception().heard.count(ev.speaker) > 0;
+            if (ev.speaker == listener.object || wasHeard) {
+                listener.object->setLastListenNumber(listener.number);
+            }
+        }
+
+        // Now call the scripts.
+        for (Listener &listener : vec) {
+            if (listener.object->getLastListenNumber() != Creature::kInvalidListenNumber) {
+                listener.object->runDialogueScript();
+                listener.object->setLastListenNumber(Creature::kInvalidListenNumber);
+            }
+        }
+        _pendingListenEvents.pop();
+    }
 }
 
 } // namespace game

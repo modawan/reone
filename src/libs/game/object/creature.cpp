@@ -463,6 +463,10 @@ void Creature::runEndRoundScript() {
     }
 }
 
+void Creature::runDialogueScript() {
+    _game.scriptRunner().run(_onDialogue, _id, kObjectInvalid);
+}
+
 void Creature::giveXP(int amount) {
     _xp += amount;
 }
