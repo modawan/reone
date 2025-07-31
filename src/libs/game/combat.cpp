@@ -102,9 +102,17 @@ void Combat::addAttack(std::shared_ptr<Creature> attacker,
     debug(str(boost::format("Start round: %s -> %s") % attacker->tag() % target->tag()), LogChannel::Combat);
 }
 
+static void runOnAttackedScript(const Combat::Attack &attack) {
+    Object &target = *attack.target;
+    if (target.type() == ObjectType::Creature) {
+        static_cast<Creature &>(target).onAttacked();
+    }
+}
+
 void Combat::update(float dt) {
-    size_t activeRounds = _rounds.size();
-    for (size_t i = 0; i < activeRounds; ++i) {
+    size_t numRounds = _rounds.size();
+    size_t removedRounds = 0;
+    for (size_t i = 0; i < numRounds; ++i) {
         Round &round = *_rounds[i];
         updateRound(round, dt);
 
@@ -112,19 +120,26 @@ void Combat::update(float dt) {
             continue;
         }
 
-        // Save the attacks to the history
-        addAttackToHistory(_attackHistory, std::move(round.attack1));
-        if (round.attack2) {
-            addAttackToHistory(_attackHistory, std::move(round.attack2));
+        // Save the attacks to the history and run callbacks.
+        if (round.attack1) {
+            addAttackToHistory(_attackHistory, std::move(round.attack1));
+            runOnAttackedScript(*_attackHistory.back());
         }
 
-        // Push finished rounds to the end to remove them later
-        std::swap(_rounds[i], _rounds[activeRounds - 1]);
-        --activeRounds;
+        if (round.attack2) {
+            addAttackToHistory(_attackHistory, std::move(round.attack2));
+            runOnAttackedScript(*_attackHistory.back());
+        }
+
+        // Push finished rounds to the end to remove them later.
+        // Note that onAttack scripts may add more attacks to combat, so we have
+        // to be careful with how we iterate and clear the vector.
+        std::swap(_rounds[i], _rounds[_rounds.size() - 1 - removedRounds]);
+        ++removedRounds;
     }
 
     // Remove finished combat rounds
-    _rounds.resize(activeRounds);
+    _rounds.resize(_rounds.size() - removedRounds);
 }
 
 void Combat::updateRound(Round &round, float dt) {

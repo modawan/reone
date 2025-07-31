@@ -209,6 +209,8 @@ public:
     void activateCombat();
     void deactivateCombat(float delay);
 
+    void onAttacked();
+
     bool isInCombat() const { return _combatState.active; }
     bool isDebilitated() const { return _combatState.debilitated; }
     bool isTwoWeaponFighting() const;
