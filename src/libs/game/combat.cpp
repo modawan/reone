@@ -240,6 +240,10 @@ static void finishAttack(Combat::Attack &attack) {
     attack.attacker->setAttackTarget(nullptr);
     attack.attacker->setMovementRestricted(false);
     attack.attacker->runEndRoundScript();
+
+    if (attack.target->type() == ObjectType::Creature) {
+        std::static_pointer_cast<Creature>(attack.target)->onAttacked();
+    }
 }
 
 void Combat::finishRound(Round &round) {
@@ -377,6 +381,12 @@ void Combat::applyAttackResult(const Attack &attack, bool offHand) {
         criticalHitMultiplier = weapon->criticalHitMultiplier();
     }
 
+    uint32_t attacker_id = attack.attacker->id();
+    attack.target->setLastAttacker(attacker_id);
+    if (attack.attacker->type() == ObjectType::Creature) {
+        attack.target->setLastHostileActor(attacker_id);
+    }
+
     switch (attack.resultType) {
     case AttackResultType::Miss:
     case AttackResultType::AttackResisted:
@@ -401,6 +411,7 @@ void Combat::applyAttackResult(const Attack &attack, bool offHand) {
                 attack.attacker);
             attack.target->applyEffect(std::move(effect), DurationType::Instant);
         }
+        attack.target->setLastDamager(attacker_id);
         break;
     }
     case AttackResultType::CriticalHit: {
@@ -414,6 +425,7 @@ void Combat::applyAttackResult(const Attack &attack, bool offHand) {
             std::shared_ptr<DamageEffect> effect(_game.newEffect<DamageEffect>(criticalHitMultiplier * attack.damage, DamageType::Universal, DamagePower::Normal, attack.attacker));
             attack.target->applyEffect(std::move(effect), DurationType::Instant);
         }
+        attack.target->setLastDamager(attacker_id);
         break;
     }
     default:

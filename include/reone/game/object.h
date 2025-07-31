@@ -21,6 +21,7 @@
 #include "reone/scene/graph.h"
 #include "reone/scene/node.h"
 #include "reone/scene/user.h"
+#include "reone/script/types.h"
 #include "reone/system/timer.h"
 
 #include "action.h"
@@ -198,6 +199,40 @@ public:
 
     // END Scripts
 
+    // Script data
+
+    // Returns ID of an object that dealt damage to this object.
+    // Only valid in onDamage scripts.
+    uint32_t getLastDamager() const { return _lastDamager; }
+    void setLastDamager(uint32_t id) { _lastDamager = id; }
+
+    // Returns ID of an object that attacked this object.
+    // Only valid in onAttacked scripts.
+    uint32_t getLastAttacker() const { return _lastAttacker; }
+    void setLastAttacker(uint32_t id) { _lastAttacker = id; }
+
+    // Returns ID of an object that casted a spell at this object.
+    // Only valid in onSpellAt scripts.
+    uint32_t getLastSpellCaster() const { return _lastSpellCaster; }
+    void setLastSpellCaster(uint32_t id) { _lastSpellCaster = id; }
+
+    // Returns a spell ID for onSpellAt scripts.
+    uint32_t getLastSpell() const { return _lastSpell; }
+    void setLastSpell(uint32_t id) { _lastSpell = id; }
+
+    // Returns TRUE if a spell was harmful for onSpellAt scripts.
+    bool getLastSpellHarmfull() const { return _lastSpellHarmfull; }
+    void setLastSpellHarmfull(bool value) { _lastSpellHarmfull = value; }
+
+    // Returns one of object IDs from getLastDamager, getLastAttacker, getLastSpellCaster.
+
+    // This can be called outside of onDamage/Attacked/SpellAt scripts, and the
+    // returned ID is always of a creature type.
+    uint32_t getLastHostileActor() const { return _lastHostileActor; }
+    void setLastHostileActor(uint32_t id) { _lastHostileActor = id; }
+
+    // END Script data
+
 protected:
     struct DelayedAction {
         std::shared_ptr<Action> action;
@@ -268,6 +303,17 @@ protected:
     std::string _onUserDefined;
 
     // END Scripts
+
+    // Script data
+
+    uint32_t _lastDamager {script::kObjectInvalid};
+    uint32_t _lastAttacker {script::kObjectInvalid};
+    uint32_t _lastSpellCaster {script::kObjectInvalid};
+    uint32_t _lastSpell {script::kObjectInvalid};
+    bool _lastSpellHarmfull {script::kObjectInvalid};
+    uint32_t _lastHostileActor {script::kObjectInvalid};
+
+    // END Script data
 
     Object(
         uint32_t id,

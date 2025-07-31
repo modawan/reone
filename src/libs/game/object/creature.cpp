@@ -569,6 +569,9 @@ void Creature::onAttacked() {
     if (!_onAttacked.empty()) {
         _game.scriptRunner().run(_onAttacked, _id, kObjectInvalid);
     }
+    if (!_onDamaged.empty() && _lastDamager != kObjectInvalid) {
+        _game.scriptRunner().run(_onAttacked, _id, kObjectInvalid);
+    }
 }
 
 void Creature::onObjectVanished(const std::shared_ptr<Object> &object) {

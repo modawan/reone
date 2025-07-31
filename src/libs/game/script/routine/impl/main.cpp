@@ -358,7 +358,7 @@ static Variable GetLastAttacker(const std::vector<Variable> &args, const Routine
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("GetLastAttacker");
+    return Variable::ofObject(oAttackee->getLastAttacker());
 }
 
 static Variable GetNearestCreature(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3178,7 +3178,8 @@ static Variable GetTotalDamageDealt(const std::vector<Variable> &args, const Rou
 
 static Variable GetLastDamager(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetLastDamager");
+    auto object = getCaller(ctx);
+    return Variable::ofObject(object->getLastDamager());
 }
 
 static Variable GetLastDisarmed(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4796,15 +4797,7 @@ static Variable GetLastHostileActor(const std::vector<Variable> &args, const Rou
     auto oVictim = getObjectOrCaller(args, 0, ctx);
 
     // Execute
-    const Combat::AttackHistory &history = ctx.game.combat().attackHistory();
-    for (auto it = history.rbegin(), end = history.rend(); it != end; ++it) {
-        const Combat::Attack &attack = **it;
-        if (attack.target == oVictim) {
-            return Variable::ofObject(attack.attacker->id());
-        }
-    }
-
-    return Variable::ofObject(kObjectInvalid);
+    return Variable::ofObject(oVictim->getLastHostileActor());
 }
 
 static Variable ExportAllCharacters(const std::vector<Variable> &args, const RoutineContext &ctx) {
