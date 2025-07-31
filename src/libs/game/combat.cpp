@@ -64,7 +64,7 @@ static void addAttackToHistory(Combat::AttackHistory &history,
         return;
     }
     history.push_back(std::move(attack));
-    if (history.size() > 64) {
+    if (history.size() > 128) {
         history.pop_front();
     }
 }
@@ -74,55 +74,57 @@ void Combat::addAttack(std::shared_ptr<Creature> attacker,
                        std::shared_ptr<Action> action,
                        AttackResultType resultType,
                        int damage) {
-    RoundMap::iterator maybeRound;
 
     // If attacker has already started a combat round, do nothing
-    maybeRound = _roundByAttacker.find(attacker->id());
-    if (maybeRound != _roundByAttacker.end())
-        return;
-
-    // If there is an incomplete combat round where attacker and target roles are reversed, append to that round
-    maybeRound = _roundByAttacker.find(target->id());
-    if (maybeRound != _roundByAttacker.end()) {
-        Round &round = *maybeRound->second;
-        if (round.attack1->target == attacker) {
-            if (!round.attack2 && !isRoundPastFirstAttack(round.time)) {
-                round.attack2 = makeAttack(attacker, target, action, resultType, damage);
-                round.duel = true;
-                debug(str(boost::format("Append attack: %s -> %s") % attacker->tag() % target->tag()), LogChannel::Combat);
-            }
+    for (const auto &round : _rounds) {
+        if (round->attack1->attacker == attacker) {
             return;
+        }
+
+        if (round->attack2 && round->attack2->attacker == attacker) {
+            return;
+        }
+
+        if (round->attack1->target == attacker) {
+            if (!round->attack2 && !isRoundPastFirstAttack(round->time)) {
+                round->attack2 = makeAttack(attacker, target, action, resultType, damage);
+                round->duel = true;
+                debug(str(boost::format("Append attack: %s -> %s")
+                          % attacker->tag() % target->tag()), LogChannel::Combat);
+            }
         }
     }
 
     // Otherwise, start a new combat round
     auto round = std::make_unique<Round>();
     round->attack1 = makeAttack(attacker, target, action, resultType, damage);
-    _roundByAttacker.insert(std::make_pair(attacker->id(), std::move(round)));
+    _rounds.emplace_back(std::move(round));
     debug(str(boost::format("Start round: %s -> %s") % attacker->tag() % target->tag()), LogChannel::Combat);
 }
 
 void Combat::update(float dt) {
-    for (auto it = _roundByAttacker.begin(); it != _roundByAttacker.end();) {
-        Round &round = *it->second;
+    size_t activeRounds = _rounds.size();
+    for (size_t i = 0; i < activeRounds; ++i) {
+        Round &round = *_rounds[i];
         updateRound(round, dt);
 
-        // Remove finished combat rounds
-        if (round.state == RoundState::Finished) {
-
-            // Save the attacks to the history
-            AttackHistory &history1 = _attackHistory[round.attack1->attacker->id()];
-            addAttackToHistory(history1, std::move(round.attack1));
-            if (round.duel) {
-                AttackHistory &history2 = _attackHistory[round.attack2->attacker->id()];
-                addAttackToHistory(history2, std::move(round.attack2));
-            }
-
-            it = _roundByAttacker.erase(it);
-        } else {
-            ++it;
+        if (round.state != RoundState::Finished) {
+            continue;
         }
+
+        // Save the attacks to the history
+        addAttackToHistory(_attackHistory, std::move(round.attack1));
+        if (round.attack2) {
+            addAttackToHistory(_attackHistory, std::move(round.attack2));
+        }
+
+        // Push finished rounds to the end to remove them later
+        std::swap(_rounds[i], _rounds[activeRounds - 1]);
+        --activeRounds;
     }
+
+    // Remove finished combat rounds
+    _rounds.resize(activeRounds);
 }
 
 void Combat::updateRound(Round &round, float dt) {
@@ -489,10 +491,6 @@ void Combat::resetProjectile(Round &round) {
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
     sceneGraph.removeRoot(*round.projectile);
     round.projectile.reset();
-}
-
-const Combat::AttackHistory &Combat::attackHistory(const Creature &attacker) {
-    return _attackHistory[attacker.id()];
 }
 
 } // namespace game

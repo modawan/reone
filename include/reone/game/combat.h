@@ -67,7 +67,7 @@ public:
     void update(float dt);
 
     using AttackHistory = std::deque<std::unique_ptr<Attack>>;
-    const AttackHistory &attackHistory(const Creature &attacker);
+    const AttackHistory &attackHistory() { return _attackHistory; }
 
 private:
     enum class RoundState {
@@ -100,14 +100,13 @@ private:
         int animationVariant {1};
     };
 
-    using RoundMap = std::map<uint32_t, std::unique_ptr<Round>>;
-    using AttackHistoryMap = std::map<uint32_t, AttackHistory>;
+    using Rounds = std::vector<std::unique_ptr<Round>>;
 
     Game &_game;
     ServicesView &_services;
 
-    RoundMap _roundByAttacker;
-    AttackHistoryMap _attackHistory;
+    Rounds _rounds;
+    AttackHistory _attackHistory;
 
     void updateRound(Round &round, float dt);
     void startAttack(Attack &attack, bool duel);
