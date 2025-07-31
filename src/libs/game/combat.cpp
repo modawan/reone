@@ -120,17 +120,6 @@ void Combat::update(float dt) {
             continue;
         }
 
-        // Save the attacks to the history and run callbacks.
-        if (round.attack1) {
-            addAttackToHistory(_attackHistory, std::move(round.attack1));
-            runOnAttackedScript(*_attackHistory.back());
-        }
-
-        if (round.attack2) {
-            addAttackToHistory(_attackHistory, std::move(round.attack2));
-            runOnAttackedScript(*_attackHistory.back());
-        }
-
         // Push finished rounds to the end to remove them later.
         // Note that onAttack scripts may add more attacks to combat, so we have
         // to be careful with how we iterate and clear the vector.
@@ -253,6 +242,11 @@ void Combat::finishRound(Round &round) {
     }
     round.state = RoundState::Finished;
     debug(str(boost::format("Finish round: %s -> %s") % round.attack1->attacker->tag() % round.attack1->target->tag()), LogChannel::Combat);
+
+    _lastAttacks[round.attack1->attacker->id()] = std::move(round.attack1);
+    if (round.attack2) {
+        _lastAttacks[round.attack2->attacker->id()] = std::move(round.attack2);
+    }
 }
 
 static bool isAttackSuccessful(AttackResultType result) {
@@ -518,6 +512,14 @@ void Combat::resetProjectile(Round &round) {
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
     sceneGraph.removeRoot(*round.projectile);
     round.projectile.reset();
+}
+
+const Combat::Attack *Combat::getLastAttack(Creature &creature) {
+    return _lastAttacks[creature.id()].get();
+}
+
+const Combat::Attack *Combat::getAttack(Creature &creature) {
+    // TODO
 }
 
 } // namespace game

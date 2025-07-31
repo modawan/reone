@@ -3409,24 +3409,6 @@ static Variable GetAttemptedSpellTarget(const std::vector<Variable> &args, const
     auto creature = checkCreature(caller);
 
     // Execute
-    const Creature::ActionHistory &history = creature->combatActionHistory();
-    for (auto i = history.rbegin(), e = history.rend(); i != e; ++i) {
-        const Action &action = **i;
-        switch (action.type()) {
-        case ActionType::CastSpellAtObject: {
-            auto *castSpell = (CastSpellAtObjectAction*) &action;
-            return Variable::ofObject(castSpell->target()->id());
-        }
-        case ActionType::UseTalentOnObject: {
-            auto *useTalent = (UseTalentOnObjectAction*) &action;
-            if (useTalent->talent()->type() == TalentType::Spell) {
-                return Variable::ofObject(useTalent->target()->id());
-            }
-        }
-        default:
-            break;
-        }
-    }
     return Variable::ofObject(kObjectInvalid);
 }
 
@@ -5496,48 +5478,12 @@ static Variable GetLastHostileTarget(const std::vector<Variable> &args, const Ro
     auto attacker = checkCreature(oAttacker);
 
     // Execute
-    const Combat::AttackHistory &history = ctx.game.combat().attackHistory();
-    for (auto it = history.rbegin(), end = history.rend(); it != end; ++it) {
-        const Combat::Attack &attack = **it;
-        if (attack.attacker == attacker) {
-            return Variable::ofObject(attack.target->id());
-        }
+    const Combat::Attack *attack = ctx.game.combat().getLastAttack(*attacker);
+    if (!attack) {
+        return Variable::ofObject(kObjectInvalid);
     }
 
-    const auto &reputes = ctx.services.game.reputes;
-
-    // TODO: spells should be implemented in Combat. For now, check the
-    // character action history to find a hostile target of a spell.
-    const Creature::ActionHistory &actionHistory = attacker->combatActionHistory();
-    for (auto i = actionHistory.rbegin(), e = actionHistory.rend(); i != e; ++i) {
-        const Action &action = **i;
-        const Object *target = nullptr;
-        switch (action.type()) {
-        case ActionType::CastSpellAtObject: {
-            auto *castSpell = (CastSpellAtObjectAction*) &action;
-            target = castSpell->target().get();
-            break;
-        }
-        case ActionType::UseTalentOnObject: {
-            auto *useTalent = (UseTalentOnObjectAction*) &action;
-            target = useTalent->target().get();
-            break;
-        }
-        default:
-            break;
-        }
-
-        if (!target || target->type() != ObjectType::Creature) {
-            continue;
-        }
-        auto *targetCreature = (const Creature *) target;
-
-        if (reputes.getIsEnemy(*targetCreature, *attacker)) {
-            return Variable::ofObject(targetCreature->id());
-        }
-    }
-
-    return Variable::ofObject(kObjectInvalid);
+    return Variable::ofObject(attack->target->id());
 }
 
 static Variable GetLastAttackAction(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5548,15 +5494,12 @@ static Variable GetLastAttackAction(const std::vector<Variable> &args, const Rou
     auto attacker = checkCreature(oAttacker);
 
     // Execute
-    const Combat::AttackHistory &history = ctx.game.combat().attackHistory();
-    for (auto it = history.rbegin(), end = history.rend(); it != end; ++it) {
-        const Combat::Attack &attack = **it;
-        if (attack.attacker == attacker) {
-            return Variable::ofInt(static_cast<int>(attack.action->type()));
-        }
+    const Combat::Attack *attack = ctx.game.combat().getLastAttack(*attacker);
+    if (!attack || !attack->action) {
+        return Variable::ofInt(static_cast<int>(ActionType::QueueEmpty));
     }
 
-    return Variable::ofInt(static_cast<int>(ActionType::QueueEmpty));
+    return Variable::ofInt(static_cast<int>(attack->action->type()));
 }
 
 static Variable GetLastForcePowerUsed(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5577,27 +5520,24 @@ static Variable GetLastCombatFeatUsed(const std::vector<Variable> &args, const R
     auto attacker = checkCreature(oAttacker);
 
     // Execute
-    const Combat::AttackHistory &history = ctx.game.combat().attackHistory();
-    for (auto it = history.rbegin(), end = history.rend(); it != end; ++it) {
-        const Combat::Attack &attack = **it;
-        if (attack.attacker != attacker) {
-            continue;
-        }
+    const Combat::Attack *attack = ctx.game.combat().getLastAttack(*attacker);
+    if (!attack) {
+        return Variable::ofInt(static_cast<int>(AttackResultType::Invalid));
+    }
 
-        switch (attack.action->type()) {
-        case ActionType::UseFeat: {
-            auto featAction = std::static_pointer_cast<UseFeatAction>(attack.action);
-            return Variable::ofInt(static_cast<int>(featAction->feat()));
+    switch (attack->action->type()) {
+    case ActionType::UseFeat: {
+        auto featAction = std::static_pointer_cast<UseFeatAction>(attack->action);
+        return Variable::ofInt(static_cast<int>(featAction->feat()));
+    }
+    case ActionType::UseTalentOnObject: {
+        auto talentAction = std::static_pointer_cast<UseTalentOnObjectAction>(attack->action);
+        if (talentAction->talent()->type() == TalentType::Feat) {
+            return Variable::ofInt(talentAction->talent()->value());
         }
-        case ActionType::UseTalentOnObject: {
-            auto talentAction = std::static_pointer_cast<UseTalentOnObjectAction>(attack.action);
-            if (talentAction->talent()->type() == TalentType::Feat) {
-                return Variable::ofInt(talentAction->talent()->value());
-            }
-        }
-        default:
-            break;
-        }
+    }
+    default:
+        break;
     }
 
     return Variable::ofInt(static_cast<int>(FeatType::Invalid));
@@ -5611,15 +5551,12 @@ static Variable GetLastAttackResult(const std::vector<Variable> &args, const Rou
     auto attacker = checkCreature(oAttacker);
 
     // Execute
-    const Combat::AttackHistory &history = ctx.game.combat().attackHistory();
-    for (auto it = history.rbegin(), end = history.rend(); it != end; ++it) {
-        const Combat::Attack &attack = **it;
-        if (attack.attacker == attacker) {
-            return Variable::ofInt(static_cast<int>(attack.resultType));
-        }
+    const Combat::Attack *attack = ctx.game.combat().getLastAttack(*attacker);
+    if (!attack) {
+        return Variable::ofObject(kObjectInvalid);
     }
 
-    return Variable::ofInt(static_cast<int>(AttackResultType::Invalid));
+    return Variable::ofInt(static_cast<int>(attack->resultType));
 }
 
 static Variable GetWasForcePowerSuccessful(const std::vector<Variable> &args, const RoutineContext &ctx) {
