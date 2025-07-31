@@ -560,6 +560,11 @@ void Area::doDestroyObject(uint32_t objectId) {
     if (maybeObjectByType != typeObjects.end()) {
         typeObjects.erase(maybeObjectByType);
     }
+
+    // FIXME: check what is wrong with removing listeners (crash around shared_ptr dtor)
+    // if (object->type() == ObjectType::Creature) {
+    //     removeListener(std::static_pointer_cast<Creature>(object));
+    // }
 }
 
 ObjectList &Area::getObjectsByType(ObjectType type) {
