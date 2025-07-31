@@ -211,6 +211,11 @@ void Combat::finishRound(Round &round) {
     }
     round.state = RoundState::Finished;
     debug(str(boost::format("Finish round: %s -> %s") % round.attack1->attacker->tag() % round.attack1->target->tag()), LogChannel::Combat);
+
+    _lastAttacks[round.attack1->attacker->id()] = std::move(round.attack1);
+    if (round.attack2) {
+        _lastAttacks[round.attack2->attacker->id()] = std::move(round.attack2);
+    }
 }
 
 static bool isAttackSuccessful(AttackResultType result) {
@@ -488,6 +493,10 @@ void Combat::resetProjectile(Round &round) {
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
     sceneGraph.removeRoot(*round.projectile);
     round.projectile.reset();
+}
+
+const Combat::Attack *Combat::getLastAttack(Creature &creature) {
+    return _lastAttacks[creature.id()].get();
 }
 
 } // namespace game

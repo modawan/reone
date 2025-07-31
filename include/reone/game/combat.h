@@ -66,6 +66,8 @@ public:
 
     void update(float dt);
 
+    const Attack *getLastAttack(Creature &creature);
+
 private:
     enum class RoundState {
         Started,
@@ -98,11 +100,13 @@ private:
     };
 
     using RoundMap = std::map<uint32_t, std::unique_ptr<Round>>;
+    using LastAttackMap = std::map<uint32_t, std::unique_ptr<Attack>>;
 
     Game &_game;
     ServicesView &_services;
 
     RoundMap _roundByAttacker;
+    LastAttackMap _lastAttacks;
 
     void updateRound(Round &round, float dt);
     void startAttack(Attack &attack, bool duel);
