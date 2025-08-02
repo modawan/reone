@@ -81,6 +81,7 @@ public:
 
     struct CombatState {
         bool active {false};
+        bool shouldDeactivate {false};
         bool debilitated {false};
         std::shared_ptr<Object> attackTarget;
         Timer deactivationTimer;
