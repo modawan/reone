@@ -26,11 +26,7 @@ namespace game {
 
 class UseTalentOnObjectAction : public Action {
 public:
-    UseTalentOnObjectAction(Game &game, ServicesView &services, std::shared_ptr<Talent> chosenTalent, std::shared_ptr<Object> target) :
-        Action(game, services, ActionType::UseTalentOnObject),
-        _chosenTalent(std::move(chosenTalent)),
-        _target(std::move(target)) {
-    }
+    UseTalentOnObjectAction(Game &game, ServicesView &services, std::shared_ptr<Talent> chosenTalent, std::shared_ptr<Object> target);
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
@@ -40,6 +36,8 @@ public:
 private:
     std::shared_ptr<Talent> _chosenTalent;
     std::shared_ptr<Object> _target;
+
+    std::unique_ptr<Action> _action;
 };
 
 } // namespace game

@@ -51,6 +51,48 @@ void Spells::init() {
         spell->maxcr = maxcr;
         spell->category = category;
 
+        spell->conjtime = spells->getFloat(row, "conjtime", 0.0) / 1000;
+        spell->casttime = spells->getFloat(row, "casttime", 0.0) / 1000;
+        spell->catchtime = spells->getFloat(row, "catchtime", 0.0) / 1000;
+
+        std::string conjanim = spells->getString(row, "conjanim");
+        std::string castanim = spells->getString(row, "castanim");
+        std::string catchanim = spells->getString(row, "catchanim");
+
+        if (conjanim == "hand") {
+            spell->conjanim = "castout1";
+        } else if (conjanim == "dark") {
+            spell->conjanim = "castout2";
+        } else if (conjanim == "up") {
+            spell->conjanim = "castout3";
+        } else if (conjanim == "throw") {
+            spell->conjanim = "throwgren";
+        }
+
+        if (castanim == "self") {
+            spell->castanim = "castoutlp1";
+        } else if (castanim == "dark") {
+            spell->castanim = "castoutlp2";
+        } else if (castanim == "up") {
+            spell->castanim = "castoutlp3";
+        } else if (castanim == "throw") {
+            spell->castanim = "throwgren1";
+        }
+
+        if (catchanim == "CATCH") {
+            // Lightsaber throw is a special case: it has conjanim "throw" and
+            // castanim "throw" just like a grenade, but catchanim "CATCH".
+            // Handle it here before we get to grenades.
+            spell->conjanim = "throwsab";
+            spell->castanim = "throwsablp";
+            spell->catchanim = "catchsab";
+        }
+
+        spell->casthandvisual = spells->getString(row, "casthandvisual");
+        spell->castsound = spells->getString(row, "castsound");
+
+        spell->impactscript = spells->getString(row, "impactscript");
+
         _spellsArray.push_back(spell);
         _spells.insert(std::make_pair(spell->type, std::move(spell)));
     }

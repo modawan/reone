@@ -16,6 +16,8 @@
  */
 
 #include "reone/game/action/usetalentonobject.h"
+#include "reone/game/action/usefeat.h"
+#include "reone/game/action/castspellatobject.h"
 #include "reone/game/game.h"
 #include "reone/game/object.h"
 #include "reone/game/object/creature.h"
@@ -24,24 +26,37 @@ namespace reone {
 
 namespace game {
 
-void UseTalentOnObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    // TODO: implement for spells
-
-    auto creatureActor = _game.getObjectById<Creature>(actor.id());
-    creatureActor->addCombatActionToHistory(self);
+UseTalentOnObjectAction::UseTalentOnObjectAction(
+        Game &game,
+        ServicesView &services,
+        std::shared_ptr<Talent> chosenTalent,
+        std::shared_ptr<Object> target) :
+        Action(game, services, ActionType::UseTalentOnObject),
+        _chosenTalent(std::move(chosenTalent)),
+        _target(std::move(target)) {
 
     if (_chosenTalent->type() == TalentType::Feat) {
-        bool reached = creatureActor->navigateTo(
-                _target->position(), true, creatureActor->getAttackRange(), dt);
+        _action = std::make_unique<UseFeatAction>(
+            _game, _services, (FeatType)_chosenTalent->value(), _target);
+    } else if (_chosenTalent->type() == TalentType::Spell) {
+        _action = std::make_unique<CastSpellAtObjectAction>(
+                _game, _services, (SpellType)_chosenTalent->value(), _target,
+                /*metaMagic=*/ 0, /*cheat=*/ 0, /*domainLevel=*/ 0,
+                ProjectilePathType::Default, /*instantSpell=*/ false);
+    }
+}
 
-        if (reached) {
-            _game.combat().addAttack(std::move(creatureActor), _target, self);
-            complete();
-        }
+
+void UseTalentOnObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    if (!_action) {
+        complete();
         return;
     }
 
-    complete();
+    _action->execute(self, actor, dt);
+    if (_action->isCompleted()) {
+        complete();
+    }
 }
 
 } // namespace game

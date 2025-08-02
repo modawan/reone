@@ -21,6 +21,9 @@
 #include "../object.h"
 #include "../types.h"
 
+#include "reone/game/di/services.h"
+#include "reone/game/d20/spells.h"
+
 namespace reone {
 
 namespace game {
@@ -38,7 +41,7 @@ public:
         ProjectilePathType projectilePathType,
         bool instantSpell) :
         Action(game, services, ActionType::CastSpellAtObject),
-        _spell(spell),
+        _spell(services.game.spells.get(spell)),
         _target(std::move(target)),
         _metaMagic(metaMagic),
         _cheat(cheat),
@@ -52,13 +55,24 @@ public:
     const std::shared_ptr<Object> &target() { return _target; }
 
 private:
-    SpellType _spell;
+    std::shared_ptr<Spell> _spell;
     std::shared_ptr<Object> _target;
     int _metaMagic;
     bool _cheat;
     int _domainLevel;
     ProjectilePathType _projectilePathType;
     bool _instantSpell;
+
+    enum class SpellState {
+        Reset,
+        Conjure,
+        Cast,
+        Catch,
+        Complete,
+    };
+
+    SpellState _state {SpellState::Reset};
+    Timer _timer;
 };
 
 } // namespace game

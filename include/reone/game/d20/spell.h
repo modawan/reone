@@ -33,6 +33,19 @@ struct Spell {
     uint32_t pips {1}; // 1-3, position in a feat chain
     uint32_t maxcr {0}; // challenge rating of the spell
     uint32_t category;
+
+    float conjtime {0.0f};
+    float casttime {0.0f};
+    float catchtime {0.0f};
+
+    std::string conjanim;
+    std::string castanim;
+    std::string catchanim;
+
+    std::string casthandvisual;
+    std::string castsound;
+
+    std::string impactscript;
 };
 
 } // namespace game
