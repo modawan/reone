@@ -123,7 +123,7 @@ void ModelResourcePanel::InitGL() {
     }
 #if wxCHECK_VERSION(3, 1, 0)
     wxGLContextAttrs glCtxAttrs;
-    glCtxAttrs.CoreProfile().OGLVersion(4, 0).EndList();
+    glCtxAttrs.CoreProfile().OGLVersion(4, 0).PlatformDefaults().EndList();
     auto glContext = new wxGLContext(m_glCanvas, nullptr, &glCtxAttrs);
 #else
     auto glContext = new wxGLContext(m_glCanvas);
