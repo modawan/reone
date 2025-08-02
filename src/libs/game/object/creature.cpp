@@ -242,7 +242,7 @@ void Creature::updateHealth() {
 
 void Creature::updateCombat(float dt) {
     _combatState.deactivationTimer.update(dt);
-    if (_combatState.deactivationTimer.elapsed()) {
+    if (_combatState.shouldDeactivate && _combatState.deactivationTimer.elapsed()) {
         _combatState.active = false;
         _combatState.debilitated = false;
     }
@@ -584,10 +584,12 @@ void Creature::onObjectInaudible(const std::shared_ptr<Object> &object) {
 
 void Creature::activateCombat() {
     _combatState.active = true;
+    _combatState.shouldDeactivate = false;
 }
 
 void Creature::deactivateCombat(float delay) {
     if (_combatState.active) {
+        _combatState.shouldDeactivate = true;
         _combatState.deactivationTimer.reset(delay);
     }
 }
