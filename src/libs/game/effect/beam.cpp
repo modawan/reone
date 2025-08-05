@@ -38,8 +38,23 @@ static SceneNode *selectSourceNode(SceneNode *src) {
     }
 
     ModelSceneNode * model = (ModelSceneNode *) src;
-    if (SceneNode *hand = model->getNodeByName("lhand")) {
+    if (SceneNode *hand = model->getNodeByName("handconjure")) {
         return hand;
+    }
+    if (SceneNode *torso = model->getNodeByName("torso")) {
+        return torso;
+    }
+    return model;
+}
+
+static SceneNode *selectTargetNode(SceneNode *target) {
+    if (target->type() != SceneNodeType::Model) {
+        return target;
+    }
+
+    ModelSceneNode *model = (ModelSceneNode *)target;
+    if (SceneNode *torso = model->getNodeByName("torso")) {
+        return torso;
     }
     return model;
 }
@@ -49,14 +64,14 @@ void BeamEffect::applyTo(Object &object) {
 
 
     std::shared_ptr<SceneNode> effectorNode = _effector->sceneNode();
-    std::shared_ptr<SceneNode> objectNode = _effector->sceneNode();
+    _target = object.sceneNode();
 
     _node = std::make_shared<scene::EffectSceneNode>(
-            sceneGraph,
-            _services.graphics,
-            _services.audio,
-            _services.resource,
-            objectNode);
+        sceneGraph,
+        _services.graphics,
+        _services.audio,
+        _services.resource,
+        selectTargetNode(_target.get()));
 
     _source = selectSourceNode(effectorNode.get());
     _source->addChild(*_node);

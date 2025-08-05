@@ -41,8 +41,12 @@ void EffectSceneNode::render(IRenderPass &pass) {
     std::shared_ptr<graphics::Texture> tex =
         _resourceSvc.textures.get("po_pbastila", graphics::TextureUsage::MainTex);
 
-    glm::mat4 transform = glm::translate(glm::mat4(1.0f), origin())
-        * glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, 1.0f, 1.0f));
+    glm::vec3 source = origin();
+    glm::vec3 target = _target->origin();
+
+    glm::vec3 pos = source + (target - source) * glm::vec3(0.5);
+
+    glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, 1.0f, 1.0f));
 
     _graphicsSvc.context.useProgram(
             _graphicsSvc.shaderRegistry.get(graphics::ShaderProgramId::mvpTexture));

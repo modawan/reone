@@ -53,6 +53,7 @@ private:
     ServicesView &_services;
     std::shared_ptr<scene::EffectSceneNode> _node;
     scene::SceneNode *_source {nullptr};
+    std::shared_ptr<scene::SceneNode> _target;
 };
 
 } // namespace game

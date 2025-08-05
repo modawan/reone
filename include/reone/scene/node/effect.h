@@ -30,7 +30,7 @@ public:
         graphics::GraphicsServices &graphicsSvc,
         audio::AudioServices &audioSvc,
         resource::ResourceServices &resourceSvc,
-        std::shared_ptr<SceneNode> target) :
+        SceneNode *target) :
         SceneNode(
             SceneNodeType::GrassCluster,
             sceneGraph,
@@ -43,7 +43,7 @@ public:
     void render(IRenderPass &pass);
 
 private:
-    std::shared_ptr<SceneNode> _target;
+    SceneNode *_target;
 };
 
 } // namespace scene
