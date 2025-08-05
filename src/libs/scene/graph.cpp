@@ -99,6 +99,10 @@ void SceneGraph::addRoot(std::shared_ptr<SoundSceneNode> node) {
     _soundRoots.push_back(node);
 }
 
+void SceneGraph::addRoot(std::shared_ptr<EffectSceneNode> node) {
+    _effectRoots.push_back(node);
+}
+
 void SceneGraph::removeRoot(ModelSceneNode &node) {
     for (auto it = _activeLights.begin(); it != _activeLights.end();) {
         if (&(*it)->model() == &node) {
@@ -146,12 +150,23 @@ void SceneGraph::removeRoot(SoundSceneNode &node) {
     _soundRoots.erase(it, _soundRoots.end());
 }
 
+void SceneGraph::removeRoot(EffectSceneNode &node) {
+    auto it = std::remove_if(
+        _effectRoots.begin(),
+        _effectRoots.end(),
+        [&node](auto &root) { return root.get() == &node; });
+    _effectRoots.erase(it, _effectRoots.end());
+}
+
 void SceneGraph::update(float dt) {
     if (_updateRoots) {
         for (auto &root : _modelRoots) {
             root->update(dt);
         }
         for (auto &root : _grassRoots) {
+            root->update(dt);
+        }
+        for (auto &root : _effectRoots) {
             root->update(dt);
         }
         for (auto &root : _soundRoots) {
@@ -547,6 +562,10 @@ void SceneGraph::renderOpaque(IRenderPass &pass) {
     // Draw opaque meshes
     for (auto &mesh : _opaqueMeshes) {
         mesh->render(pass);
+    }
+    // Draw effects
+    for (auto &effect : _effectRoots) {
+        effect->render(pass);
     }
     // Draw opaque leafs
     for (auto &[node, leafs] : _opaqueLeafs) {

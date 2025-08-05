@@ -460,6 +460,7 @@ private:
     void consoleShowAABB(const IConsole::TokenList &tokens);
     void consoleShowWalkmesh(const IConsole::TokenList &tokens);
     void consoleShowTriggers(const IConsole::TokenList &tokens);
+    void consoleEffect(const IConsole::TokenList &tokens);
 
     // END Console commands
 };

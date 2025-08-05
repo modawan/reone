@@ -18,6 +18,7 @@
 #pragma once
 
 #include "../effect.h"
+#include "reone/game/di/services.h"
 
 namespace reone {
 
@@ -29,12 +30,14 @@ public:
         int beamVisualEffect,
         std::shared_ptr<Object> effector,
         BodyNode bodyPart,
-        bool missEffect) :
+        bool missEffect,
+        ServicesView &services) :
         Effect(EffectType::Beam),
         _beamVisualEffect(beamVisualEffect),
         _effector(std::move(effector)),
         _bodyPart(bodyPart),
-        _missEffect(missEffect) {
+        _missEffect(missEffect),
+        _services(services) {
     }
 
     void applyTo(Object &object) override;
@@ -44,6 +47,7 @@ private:
     std::shared_ptr<Object> _effector;
     BodyNode _bodyPart;
     bool _missEffect;
+    ServicesView &_services;
 };
 
 } // namespace game

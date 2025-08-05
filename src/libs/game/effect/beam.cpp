@@ -16,13 +16,28 @@
  */
 
 #include "reone/game/effect/beam.h"
+#include "reone/game/object.h"
+#include "reone/scene/graphs.h"
+#include "reone/scene/node/effect.h"
 
 namespace reone {
 
 namespace game {
 
 void BeamEffect::applyTo(Object &object) {
-    // TODO: implement
+    auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
+
+    scene::SceneNode *attach = std::static_pointer_cast<scene::ModelSceneNode>(
+                                   _effector->sceneNode())
+                                   ->getNodeByName("lhand");
+
+    sceneGraph.addRoot(
+        std::make_shared<scene::EffectSceneNode>(
+            sceneGraph,
+            _services.graphics,
+            _services.audio,
+            _services.resource,
+            *attach));
 }
 
 } // namespace game

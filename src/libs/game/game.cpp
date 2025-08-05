@@ -23,6 +23,7 @@
 #include "reone/game/combat.h"
 #include "reone/game/debug.h"
 #include "reone/game/di/services.h"
+#include "reone/game/effect/beam.h"
 #include "reone/game/location.h"
 #include "reone/game/party.h"
 #include "reone/game/script/routines.h"
@@ -106,6 +107,7 @@ void Game::registerConsoleCommands() {
     _console.registerCommand("showaabb", "toggle rendering AABB", std::bind(&Game::consoleShowAABB, this, std::placeholders::_1));
     _console.registerCommand("showwalkmesh", "toggle rendering walkmesh", std::bind(&Game::consoleShowWalkmesh, this, std::placeholders::_1));
     _console.registerCommand("showtriggers", "toggle rendering triggers", std::bind(&Game::consoleShowTriggers, this, std::placeholders::_1));
+    _console.registerCommand("effect", "apply an effect to selected object", std::bind(&Game::consoleEffect, this, std::placeholders::_1));
 }
 
 void Game::initLocalServices() {
@@ -1060,6 +1062,32 @@ void Game::consoleShowTriggers(const IConsole::TokenList &tokens) {
     }
     bool show = stoi(tokens[1]);
     setShowTriggers(show);
+}
+
+void Game::consoleEffect(const IConsole::TokenList &tokens) {
+    if (tokens.size() < 2) {
+        _console.printLine("Usage: effect name");
+        return;
+    }
+    auto target = module()->area()->selectedObject();
+    if (!target) {
+        _console.printLine("No object is selected");
+        return;
+    }
+
+    auto source = party().getLeader();
+    if (!target) {
+        _console.printLine("No leader object");
+        return;
+    }
+
+    const std::string &name = tokens[1];
+
+    if (name == "drain") {
+        std::shared_ptr<BeamEffect> effect = std::make_shared<BeamEffect>(
+            0, source, BodyNode::Hand, /*missEffect=*/false, _services);
+        target->applyEffect(effect, DurationType::Instant, 0.0f);
+    }
 }
 
 } // namespace game

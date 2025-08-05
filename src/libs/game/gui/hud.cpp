@@ -316,7 +316,6 @@ void HUD::renderHealth(int memberIndex) {
     _services.graphics.uniforms.setLocals([this, transform](auto &locals) {
         locals.reset();
         locals.model = std::move(transform);
-        locals.color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
     });
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpColor));
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);

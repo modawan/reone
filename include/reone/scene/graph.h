@@ -22,6 +22,7 @@
 #include "fogproperties.h"
 #include "node/camera.h"
 #include "node/dummy.h"
+#include "node/effect.h"
 #include "node/emitter.h"
 #include "node/grass.h"
 #include "node/light.h"
@@ -107,12 +108,14 @@ public:
     virtual void addRoot(std::shared_ptr<TriggerSceneNode> node) = 0;
     virtual void addRoot(std::shared_ptr<GrassSceneNode> node) = 0;
     virtual void addRoot(std::shared_ptr<SoundSceneNode> node) = 0;
+    virtual void addRoot(std::shared_ptr<EffectSceneNode> node) = 0;
 
     virtual void removeRoot(ModelSceneNode &node) = 0;
     virtual void removeRoot(WalkmeshSceneNode &node) = 0;
     virtual void removeRoot(TriggerSceneNode &node) = 0;
     virtual void removeRoot(GrassSceneNode &node) = 0;
     virtual void removeRoot(SoundSceneNode &node) = 0;
+    virtual void removeRoot(EffectSceneNode &node) = 0;
 
     // END Roots
 
@@ -186,12 +189,14 @@ public:
     void addRoot(std::shared_ptr<TriggerSceneNode> node) override;
     void addRoot(std::shared_ptr<GrassSceneNode> node) override;
     void addRoot(std::shared_ptr<SoundSceneNode> node) override;
+    void addRoot(std::shared_ptr<EffectSceneNode> node) override;
 
     void removeRoot(ModelSceneNode &node) override;
     void removeRoot(WalkmeshSceneNode &node) override;
     void removeRoot(TriggerSceneNode &node) override;
     void removeRoot(GrassSceneNode &node) override;
     void removeRoot(SoundSceneNode &node) override;
+    void removeRoot(EffectSceneNode &node) override;
 
     // END Roots
 
@@ -300,6 +305,7 @@ private:
     std::list<std::shared_ptr<WalkmeshSceneNode>> _walkmeshRoots;
     std::list<std::shared_ptr<TriggerSceneNode>> _triggerRoots;
     std::list<std::shared_ptr<GrassSceneNode>> _grassRoots;
+    std::list<std::shared_ptr<EffectSceneNode>> _effectRoots;
     std::list<std::shared_ptr<SoundSceneNode>> _soundRoots;
 
     // END Roots

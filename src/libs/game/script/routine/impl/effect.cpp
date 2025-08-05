@@ -440,7 +440,7 @@ static Variable EffectBeam(const std::vector<Variable> &args, const RoutineConte
     bool missEffect = static_cast<bool>(bMissEffect);
 
     // Execute
-    auto effect = ctx.game.newEffect<BeamEffect>(nBeamVisualEffect, std::move(oEffector), bodyPart, missEffect);
+    auto effect = ctx.game.newEffect<BeamEffect>(nBeamVisualEffect, std::move(oEffector), bodyPart, missEffect, ctx.services);
     return Variable::ofEffect(std::move(effect));
 }
 

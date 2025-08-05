@@ -55,6 +55,7 @@ set(SCENE_SOURCES
     ${SCENE_SOURCE_DIR}/graphs.cpp
     ${SCENE_SOURCE_DIR}/node.cpp
     ${SCENE_SOURCE_DIR}/node/camera.cpp
+    ${SCENE_SOURCE_DIR}/node/effect.cpp
     ${SCENE_SOURCE_DIR}/node/emitter.cpp
     ${SCENE_SOURCE_DIR}/node/grass.cpp
     ${SCENE_SOURCE_DIR}/node/light.cpp
