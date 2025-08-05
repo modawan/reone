@@ -24,20 +24,43 @@ namespace reone {
 
 namespace game {
 
+using namespace scene;
+
+BeamEffect::~BeamEffect() {
+    _source->removeChild(*_node);
+    auto &sceneGraph = _services.scene.graphs.get(kSceneMain);    
+    sceneGraph.removeRoot(*_node);
+}
+
+static SceneNode *selectSourceNode(SceneNode *src) {
+    if (src->type() != SceneNodeType::Model) {
+        return src;
+    }
+
+    ModelSceneNode * model = (ModelSceneNode *) src;
+    if (SceneNode *hand = model->getNodeByName("lhand")) {
+        return hand;
+    }
+    return model;
+}
+
 void BeamEffect::applyTo(Object &object) {
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
 
-    scene::SceneNode *attach = std::static_pointer_cast<scene::ModelSceneNode>(
-                                   _effector->sceneNode())
-                                   ->getNodeByName("lhand");
 
-    sceneGraph.addRoot(
-        std::make_shared<scene::EffectSceneNode>(
+    std::shared_ptr<SceneNode> effectorNode = _effector->sceneNode();
+    std::shared_ptr<SceneNode> objectNode = _effector->sceneNode();
+
+    _node = std::make_shared<scene::EffectSceneNode>(
             sceneGraph,
             _services.graphics,
             _services.audio,
             _services.resource,
-            *attach));
+            objectNode);
+
+    _source = selectSourceNode(effectorNode.get());
+    _source->addChild(*_node);
+    sceneGraph.addRoot(_node);
 }
 
 } // namespace game

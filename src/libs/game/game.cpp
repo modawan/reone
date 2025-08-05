@@ -1086,7 +1086,7 @@ void Game::consoleEffect(const IConsole::TokenList &tokens) {
     if (name == "drain") {
         std::shared_ptr<BeamEffect> effect = std::make_shared<BeamEffect>(
             0, source, BodyNode::Hand, /*missEffect=*/false, _services);
-        target->applyEffect(effect, DurationType::Instant, 0.0f);
+        target->applyEffect(effect, DurationType::Temporary, 10.0f);
     }
 }
 

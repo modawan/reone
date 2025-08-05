@@ -19,6 +19,7 @@
 
 #include "../effect.h"
 #include "reone/game/di/services.h"
+#include "reone/scene/node/effect.h"
 
 namespace reone {
 
@@ -40,6 +41,8 @@ public:
         _services(services) {
     }
 
+    ~BeamEffect();
+
     void applyTo(Object &object) override;
 
 private:
@@ -48,6 +51,8 @@ private:
     BodyNode _bodyPart;
     bool _missEffect;
     ServicesView &_services;
+    std::shared_ptr<scene::EffectSceneNode> _node;
+    scene::SceneNode *_source {nullptr};
 };
 
 } // namespace game
