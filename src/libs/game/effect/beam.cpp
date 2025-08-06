@@ -53,7 +53,7 @@ static SceneNode *selectTargetNode(SceneNode *target) {
     }
 
     ModelSceneNode *model = (ModelSceneNode *)target;
-    if (SceneNode *torso = model->getNodeByName("torso")) {
+    if (SceneNode *torso = model->getNodeByName("impact")) {
         return torso;
     }
     return model;
