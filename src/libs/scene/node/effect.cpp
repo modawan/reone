@@ -35,25 +35,54 @@ namespace reone {
 namespace scene {
 
 void EffectSceneNode::render(IRenderPass &pass) {
-    // std::shared_ptr<graphics::Texture> tex =
-    //     _resourceSvc.textures.get("fx_drain", graphics::TextureUsage::MainTex);
-
     std::shared_ptr<graphics::Texture> tex =
-        _resourceSvc.textures.get("po_pbastila", graphics::TextureUsage::MainTex);
+        _resourceSvc.textures.get("fx_drain", graphics::TextureUsage::MainTex);
 
-    glm::vec3 source = origin();
-    glm::vec3 target = _target->origin();
+    // std::shared_ptr<graphics::Texture> tex =
+    //     _resourceSvc.textures.get("po_pbastila", graphics::TextureUsage::MainTex);
 
-    glm::vec3 pos = source + (target - source) * glm::vec3(0.5);
+    glm::vec3 target = _absTransformInv * glm::vec4(_target->origin(), 1.0f);
+    glm::vec3 dir = glm::normalize(target);
 
-    glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, 1.0f, 1.0f));
+    glm::vec3 newY, newX, newZ;
+    if (dir.x == 0.0f && dir.y == 0.0f) {
+        if (dir.y < 0.0f) {
+            newY = -dir;
+            newX = glm::vec3(-1.0f, 0.0f, 0.0f);
+            newZ = glm::vec3(0.0f, 0.0f, 1.0f);
+        } else {
+            newY = dir;
+            newX = glm::vec3(1.0f, 0.0f, 0.0f);
+            newZ = glm::vec3(0.0f, 0.0f, 1.0f);
+        }
+    } else {
+        newY = dir;
+        newZ = glm::cross(newY, glm::vec3(0.0f, 1.0f, 0.0f));
+        newX = glm::normalize(glm::cross(newY, newZ));
+    }
+
+    glm::mat4x4 rotate(glm::vec4(newX, 0.0f),
+                       glm::vec4(newY, 0.0f),
+                       glm::vec4(newZ, 0.0f),
+                       glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+
+    float len = glm::length(target);
+    float width = 0.1;
+    glm::vec3 scale(width, len, 1.0f);
+    // glm::vec3 pos(0.0f, len / 2, 0.0f);
+    glm::vec3 pos(0.0f, 0.0f, 0.0f);
+
+    glm::mat4 transform = _absTransform
+        * rotate
+        // * glm::translate(glm::mat4(1.0f), pos)
+        * glm::scale(glm::mat4(1.0f), scale);
 
     _graphicsSvc.context.useProgram(
             _graphicsSvc.shaderRegistry.get(graphics::ShaderProgramId::mvpTexture));
     _graphicsSvc.context.bindTexture(*tex, graphics::TextureUnits::mainTex);
 
     graphics::Material material;
-    material.type = graphics::MaterialType::OpaqueModel;
+    material.type = graphics::MaterialType::TransparentModel;
     material.selfIllumColor = glm::vec3(1.0f, 0.0f, 0.0f);
 
     pass.draw(_graphicsSvc.meshRegistry.get(graphics::MeshName::quad),
