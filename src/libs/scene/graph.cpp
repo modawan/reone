@@ -563,10 +563,6 @@ void SceneGraph::renderOpaque(IRenderPass &pass) {
     for (auto &mesh : _opaqueMeshes) {
         mesh->render(pass);
     }
-    // Draw effects
-    for (auto &effect : _effectRoots) {
-        effect->render(pass);
-    }
     // Draw opaque leafs
     for (auto &[node, leafs] : _opaqueLeafs) {
         node->renderLeafs(pass, leafs);
@@ -602,6 +598,10 @@ void SceneGraph::renderTransparent(IRenderPass &pass) {
     // Draw transparent leafs (incl. meshes)
     for (auto &[node, leafs] : _transparentLeafs) {
         node->renderLeafs(pass, leafs);
+    }
+    // Draw effects
+    for (auto &effect : _effectRoots) {
+        effect->render(pass);
     }
 }
 

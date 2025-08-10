@@ -39,6 +39,14 @@ void EffectSceneNode::render(IRenderPass &pass) {
         _resourceSvc.textures.get("fx_drain", graphics::TextureUsage::MainTex);
 
     // std::shared_ptr<graphics::Texture> tex =
+    //     _resourceSvc.textures.get("w_lsabreblue01", graphics::TextureUsage::MainTex);
+
+    graphics::Texture::Features features;
+    features.blending = graphics::Texture::Blending::Additive;
+    features.decal = true;
+    tex->setFeatures(features);
+
+    // std::shared_ptr<graphics::Texture> tex =
     //     _resourceSvc.textures.get("po_pbastila", graphics::TextureUsage::MainTex);
 
     glm::vec3 target = _absTransformInv * glm::vec4(_target->origin(), 1.0f);
@@ -72,18 +80,25 @@ void EffectSceneNode::render(IRenderPass &pass) {
     // glm::vec3 pos(0.0f, len / 2, 0.0f);
     glm::vec3 pos(0.0f, 0.0f, 0.0f);
 
-    glm::mat4 transform = _absTransform
-        * rotate
-        // * glm::translate(glm::mat4(1.0f), pos)
-        * glm::scale(glm::mat4(1.0f), scale);
+    glm::mat4 transform = _absTransform * rotate
+                          // * glm::translate(glm::mat4(1.0f), pos)
+                          * glm::scale(glm::mat4(1.0f), scale);
 
-    _graphicsSvc.context.useProgram(
-            _graphicsSvc.shaderRegistry.get(graphics::ShaderProgramId::mvpTexture));
-    _graphicsSvc.context.bindTexture(*tex, graphics::TextureUnits::mainTex);
+    // _graphicsSvc.context.useProgram(
+    //     _graphicsSvc.shaderRegistry.get(graphics::ShaderProgramId::mvpTexture));
 
     graphics::Material material;
     material.type = graphics::MaterialType::TransparentModel;
-    material.selfIllumColor = glm::vec3(1.0f, 0.0f, 0.0f);
+
+    material.uv = glm::mat3x4(
+            glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
+            glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
+            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f));
+
+    // material.selfIllumColor = glm::vec3(1.0f, 0.0f, 0.0f);
+    // material.blending = graphics::BlendMode::Additive;
+    material.faceCulling = graphics::FaceCullMode::None;
+    material.textures.insert({graphics::TextureUnits::mainTex, *tex});
 
     pass.draw(_graphicsSvc.meshRegistry.get(graphics::MeshName::quad),
               material, transform, glm::inverse(transform));
