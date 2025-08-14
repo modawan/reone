@@ -361,6 +361,10 @@ void PBRRenderPass::drawBezier(Mesh &mesh,
 
     auto &program = _shaderRegistry.get(bezierShader[points.size() - 3]);
     _context.useProgram(program);
+
+    for (const auto &[unit, texture] : material.textures) {
+        _context.bindTexture(texture, unit);
+    }
     
     _uniforms.setLocals([this, &material, &transform, &transformInv](auto &locals) {
         locals.reset();
