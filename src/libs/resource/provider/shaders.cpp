@@ -32,6 +32,7 @@ namespace reone {
 
 namespace resource {
 
+static const std::string kVertBezier2 = "v_bezier2";
 static const std::string kVertBillboard = "v_billboard";
 static const std::string kVertGrass = "v_grass";
 static const std::string kVertModel = "v_model";
@@ -86,6 +87,7 @@ void Shaders::init() {
     }
 
     // Shaders
+    auto vertBezier2 = initShader(ShaderType::Vertex, kVertBezier2);
     auto vertBillboard = initShader(ShaderType::Vertex, kVertBillboard);
     auto vertGrass = initShader(ShaderType::Vertex, kVertGrass);
     auto vertModel = initShader(ShaderType::Vertex, kVertModel);
@@ -150,6 +152,7 @@ void Shaders::init() {
     _shaderRegistry.add(ShaderProgramId::mvpColor, initShaderProgram({vertMVP, fragColor}));
     _shaderRegistry.add(ShaderProgramId::mvpTexture, initShaderProgram({vertMVP, fragTexture}));
     _shaderRegistry.add(ShaderProgramId::ndcTexture, initShaderProgram({vertPassthrough, fragTextureNoPerspective}));
+    _shaderRegistry.add(ShaderProgramId::oitBezier2, initShaderProgram({vertBezier2, fragOITModel}));
     _shaderRegistry.add(ShaderProgramId::oitBlend, initShaderProgram({vertPassthrough, fragOITBlend}));
     _shaderRegistry.add(ShaderProgramId::oitModel, initShaderProgram({vertModel, fragOITModel}));
     _shaderRegistry.add(ShaderProgramId::oitParticles, initShaderProgram({vertParticles, fragOITParticles}));

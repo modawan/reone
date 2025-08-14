@@ -98,6 +98,14 @@ public:
                    glm::vec4 color,
                    glm::mat3x4 uv) override;
 
+    void drawBezier(graphics::Mesh &mesh,
+                    graphics::Material &material,
+                    const glm::mat4 &transform,
+                    const glm::mat4 &transformInv,
+                    const std::vector<glm::vec3> &points,
+                    unsigned numSegments) override;
+
+
 private:
     graphics::GraphicsOptions &_options;
     graphics::IContext &_context;

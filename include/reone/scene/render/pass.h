@@ -117,6 +117,13 @@ public:
                            const glm::ivec2 &scale,
                            glm::vec4 color = glm::vec4(1.0f),
                            glm::mat3x4 uv = glm::mat3x4(1.0f)) = 0;
+
+    virtual void drawBezier(graphics::Mesh &mesh,
+                            graphics::Material &material,
+                            const glm::mat4 &transform,
+                            const glm::mat4 &transformInv,
+                            const std::vector<glm::vec3> &points,
+                            unsigned numSegments) = 0;
 };
 
 } // namespace scene

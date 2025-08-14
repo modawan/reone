@@ -339,6 +339,44 @@ void PBRRenderPass::drawImage(Texture &texture,
     _meshRegistry.get(MeshName::quad).draw(_statistic);
 }
 
+void PBRRenderPass::drawBezier(Mesh &mesh,
+                               Material &material,
+                               const glm::mat4 &transform,
+                               const glm::mat4 &transformInv,
+                               const std::vector<glm::vec3> &points,
+                               unsigned numSegments) {
+    const char *bezierPoints[] = {
+        "uBezierP0", "uBezierP1", "uBezierP2"
+    };
+    const char *bezierShader[] = {
+        ShaderProgramId::oitBezier2
+    };
+
+    unsigned maxBezierPoints = sizeof(bezierPoints) / sizeof(*bezierPoints);
+
+    if (points.size() < 3 || points.size() > maxBezierPoints) {
+        throw std::invalid_argument(
+                str(boost::format("invalid number of bezier points: %u") % points.size()));
+    }
+
+    auto &program = _shaderRegistry.get(bezierShader[points.size() - 3]);
+    _context.useProgram(program);
+    
+    _uniforms.setLocals([this, &material, &transform, &transformInv](auto &locals) {
+        locals.reset();
+        locals.model = transform;
+        locals.modelInv = transformInv;
+        applyMaterialToLocals(material, locals);
+    });
+
+    for (unsigned i = 0; i < points.size(); ++i) {
+        program.setUniform(bezierPoints[i], points[i]);
+    }
+    program.setUniform("uBezierNumSegments", (int)numSegments);
+    mesh.drawInstanced(numSegments, _statistic);
+}
+
+
 } // namespace scene
 
 } // namespace reone
