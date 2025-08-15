@@ -38,55 +38,14 @@ void EffectSceneNode::render(IRenderPass &pass) {
     std::shared_ptr<graphics::Texture> tex =
         _resourceSvc.textures.get("fx_drain", graphics::TextureUsage::MainTex);
 
-    // std::shared_ptr<graphics::Texture> tex =
-    //     _resourceSvc.textures.get("w_lsabreblue01", graphics::TextureUsage::MainTex);
-
     graphics::Texture::Features features;
     features.blending = graphics::Texture::Blending::Additive;
     features.decal = true;
     tex->setFeatures(features);
 
-    // std::shared_ptr<graphics::Texture> tex =
-    //     _resourceSvc.textures.get("po_pbastila", graphics::TextureUsage::MainTex);
-
-    glm::vec3 target = _absTransformInv * glm::vec4(_target->origin(), 1.0f);
-    glm::vec3 dir = glm::normalize(target);
-
-    glm::vec3 newY, newX, newZ;
-    if (dir.x == 0.0f && dir.y == 0.0f) {
-        if (dir.y < 0.0f) {
-            newY = -dir;
-            newX = glm::vec3(-1.0f, 0.0f, 0.0f);
-            newZ = glm::vec3(0.0f, 0.0f, 1.0f);
-        } else {
-            newY = dir;
-            newX = glm::vec3(1.0f, 0.0f, 0.0f);
-            newZ = glm::vec3(0.0f, 0.0f, 1.0f);
-        }
-    } else {
-        newY = dir;
-        newZ = glm::cross(newY, glm::vec3(0.0f, 1.0f, 0.0f));
-        newX = glm::normalize(glm::cross(newY, newZ));
-    }
-
-    glm::mat4x4 rotate(glm::vec4(newX, 0.0f),
-                       glm::vec4(newY, 0.0f),
-                       glm::vec4(newZ, 0.0f),
-                       glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-
-    float len = glm::length(target);
-    float width = 0.1;
-    glm::vec3 scale(width, len, 1.0f);
-    // glm::vec3 pos(0.0f, len / 2, 0.0f);
-    glm::vec3 pos(0.0f, 0.0f, 0.0f);
-
-    glm::mat4 absNoTranslate = _absTransform;
-    absNoTranslate[3] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-
+    float width = 0.5;
+    glm::vec3 scale(width, 1.0f, 1.0f);
     glm::mat4 transform = glm::scale(glm::mat4(1.0f), scale);
-
-    // _graphicsSvc.context.useProgram(
-    //     _graphicsSvc.shaderRegistry.get(graphics::ShaderProgramId::mvpTexture));
 
     graphics::Material material;
     material.type = graphics::MaterialType::TransparentModel;
@@ -96,18 +55,16 @@ void EffectSceneNode::render(IRenderPass &pass) {
             glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
             glm::vec4(0.0f, 0.0f, 0.0f, 0.0f));
 
-    // material.selfIllumColor = glm::vec3(1.0f, 0.0f, 0.0f);
-    // material.blending = graphics::BlendMode::Additive;
     material.faceCulling = graphics::FaceCullMode::None;
     material.textures.insert({graphics::TextureUnits::mainTex, *tex});
 
+    glm::vec3 p0 = origin();
+    glm::vec3 p2 = _target->origin();
+    glm::vec3 p1 = glm::mix(p0, p2, glm::vec3(0.5f, 0.5f, 0.5f));
+
     pass.drawBezier(_graphicsSvc.meshRegistry.get(graphics::MeshName::quad),
                     material, transform, glm::inverse(transform),
-                    {
-                        origin(), _target->origin(),
-                        glm::mix(origin(), _target->origin(), glm::vec3(0.5f, 0.5f, 0.5f))
-                    },
-                    /*numSegments=*/1);
+                    {p0, p1, p2}, /*numSegments=*/1);
 }
 
 void EffectSceneNode::update(float dt) {

@@ -41,14 +41,16 @@ void main() {
         newX = cross(newY, newZ);
     }
 
-    mat4 rotate = mat4(
+    float scaleY = length(vseg);
+
+    mat4 transform = mat4(
             vec4(newX, 0.0f),
-            vec4(newY, 0.0f),
+            vec4(newY * scaleY, 0.0f),
             vec4(newZ, 0.0f),
-            vec4(0.0f, 0.0f, 0.0f, 1.0f));
+            vec4(uBezierP0, 1.0f));
 
     fragPos = P;
-    fragPosWorld = vec4(uBezierP0, 0.0f) + rotate * fragPos;
+    fragPosWorld = transform * uModel * fragPos;
 
     mat3 normalMatrix = transpose(mat3(uModelInv));
     fragNormalWorld = normalize(normalMatrix * N.xyz);
