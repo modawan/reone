@@ -20,11 +20,7 @@ void main() {
 
     fragPos = P;
 
-    mat4 model =
-      mat4(uModel[0], uModel[1], uModel[2],
-	   vec4(uBezierP0, 1.0f));
-    /* fragPosWorld = vec4(uBezierP0, 1.0f) + uModel * fragPos; */
-    fragPosWorld = model * fragPos;
+    fragPosWorld = vec4(uBezierP0, 0.0f) + uModel * fragPos;
 
     mat3 normalMatrix = transpose(mat3(uModelInv));
     fragNormalWorld = normalize(normalMatrix * N.xyz);

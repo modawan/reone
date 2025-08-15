@@ -80,14 +80,10 @@ void EffectSceneNode::render(IRenderPass &pass) {
     // glm::vec3 pos(0.0f, len / 2, 0.0f);
     glm::vec3 pos(0.0f, 0.0f, 0.0f);
 
-    glm::mat4 absNoTranslate = glm::mat4(
-            _absTransform[0],
-            _absTransform[1],
-            _absTransform[2],
-            glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+    glm::mat4 absNoTranslate = _absTransform;
+    absNoTranslate[3] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
 
-    glm::mat4 transform = _absTransform *
-        // absNoTranslate *
+    glm::mat4 transform = absNoTranslate *
         rotate * glm::scale(glm::mat4(1.0f), scale);
 
     // _graphicsSvc.context.useProgram(
