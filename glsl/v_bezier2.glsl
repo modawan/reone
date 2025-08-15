@@ -15,11 +15,20 @@ out vec2 fragUV1;
 out vec2 fragUV2;
 
 void main() {
-    vec4 P = vec4(aPosition, 1.0);
-    vec4 N = vec4(aNormal, 0.0);
+    float segment =  gl_InstanceID;
 
+    vec3 factorBegin = vec3(segment / uBezierNumSegments);
+    vec3 factorEnd = vec3((segment + 1.0f) / uBezierNumSegments);
 
-    vec3 vseg = uBezierP2 - uBezierP0;
+    vec3 beginQ0 = mix(uBezierP0, uBezierP1, factorBegin);
+    vec3 beginQ1 = mix(uBezierP1, uBezierP2, factorBegin);
+    vec3 begin = mix(beginQ0, beginQ1, factorBegin);
+
+    vec3 endQ0 = mix(uBezierP0, uBezierP1, factorEnd);
+    vec3 endQ1 = mix(uBezierP1, uBezierP2, factorEnd);
+    vec3 end = mix(endQ0, endQ1, factorEnd);
+
+    vec3 vseg = end - begin;
     vec3 dir = normalize(vseg);
 
     vec3 newY, newX, newZ;
@@ -47,8 +56,10 @@ void main() {
             vec4(newX, 0.0f),
             vec4(newY * scaleY, 0.0f),
             vec4(newZ, 0.0f),
-            vec4(uBezierP0, 1.0f));
+            vec4(begin, 1.0f));
 
+    vec4 P = vec4(aPosition, 1.0);
+    vec4 N = vec4(aNormal, 0.0);
     fragPos = P;
     fragPosWorld = transform * uModel * fragPos;
 

@@ -45,7 +45,10 @@ void EffectSceneNode::render(IRenderPass &pass) {
 
     float width = 0.5;
     glm::vec3 scale(width, 1.0f, 1.0f);
-    glm::mat4 transform = glm::scale(glm::mat4(1.0f), scale);
+    glm::mat4 transform = glm::scale(
+            glm::translate(glm::mat4(1.0f),
+                           glm::vec3(-0.25f, 0.0f, 0.0f)),
+            scale);
 
     graphics::Material material;
     material.type = graphics::MaterialType::TransparentModel;
@@ -60,11 +63,15 @@ void EffectSceneNode::render(IRenderPass &pass) {
 
     glm::vec3 p0 = origin();
     glm::vec3 p2 = _target->origin();
+
+
     glm::vec3 p1 = glm::mix(p0, p2, glm::vec3(0.5f, 0.5f, 0.5f));
+    float dist = glm::distance(p2, p1);
+    p1 += glm::vec3(0.0f, 0.0f, dist * 0.5f);
 
     pass.drawBezier(_graphicsSvc.meshRegistry.get(graphics::MeshName::quad),
                     material, transform, glm::inverse(transform),
-                    {p0, p1, p2}, /*numSegments=*/1);
+                    {p0, p1, p2}, /*numSegments=*/5);
 }
 
 void EffectSceneNode::update(float dt) {
