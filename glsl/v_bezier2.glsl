@@ -2,6 +2,7 @@
 #include "u_globals.glsl"
 #include "u_locals.glsl"
 #include "u_bezier.glsl"
+#include "i_math.glsl"
 
 layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec3 aNormal;
@@ -15,7 +16,9 @@ out vec2 fragUV1;
 out vec2 fragUV2;
 
 void main() {
-    float segment =  gl_InstanceID;
+    float segment =  gl_InstanceID / uBezierNumOrientations;
+    float orientationStep = PI / uBezierNumOrientations;
+    float orientation = orientationStep * (gl_InstanceID % uBezierNumOrientations);
 
     vec3 factorBegin = vec3(segment / uBezierNumSegments);
     vec3 factorEnd = vec3((segment + 1.0f) / uBezierNumSegments);
@@ -59,8 +62,16 @@ void main() {
             vec4(newZ, 0.0f),
             vec4(pos, 1.0f));
 
+    float orientCos = cos(orientation);
+    float orientSin = sin(orientation);
+    mat4 orient = mat4(
+            vec4(orientCos, 0.0f, -orientSin, 0.0f),
+            vec4(0.0f, 1.0f, 0.0f, 0.0f),
+            vec4(orientSin, 0.0f, orientCos, 0.0f),
+            vec4(0.0f, 0.0f, 0.0f, 1.0f));
+
     fragPos = vec4(aPosition, 1.0);
-    fragPosWorld = transform * uModel * fragPos;
+    fragPosWorld = transform * orient * uModel * fragPos;
 
     fragUV1 = aUV1;
     fragUV2 = aUV2;

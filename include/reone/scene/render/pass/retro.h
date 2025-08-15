@@ -101,7 +101,8 @@ public:
                     const glm::mat4 &transform,
                     const glm::mat4 &transformInv,
                     const std::vector<glm::vec3> &points,
-                    unsigned numSegments) override;
+                    unsigned numSegments,
+                    unsigned numOrientations) override;
 
 private:
     graphics::GraphicsOptions &_options;

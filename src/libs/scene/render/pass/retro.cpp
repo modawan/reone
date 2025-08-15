@@ -330,13 +330,17 @@ void RetroRenderPass::drawImage(Texture &texture,
 }
 
 void RetroRenderPass::drawBezier(Mesh &mesh,
-                               Material &material,
-                               const glm::mat4 &transform,
-                               const glm::mat4 &transformInv,
-                               const std::vector<glm::vec3> &points,
-                               unsigned numSegments) {
+                                 Material &material,
+                                 const glm::mat4 &transform,
+                                 const glm::mat4 &transformInv,
+                                 const std::vector<glm::vec3> &points,
+                                 unsigned numSegments,
+                                 unsigned numOrientations) {
     const char *bezierPoints[] = {
         "uBezierP0", "uBezierP1", "uBezierP2"
+    };
+    const char *bezierShader[] = {
+        ShaderProgramId::oitBezier2
     };
 
     unsigned maxBezierPoints = sizeof(bezierPoints) / sizeof(*bezierPoints);
@@ -346,20 +350,26 @@ void RetroRenderPass::drawBezier(Mesh &mesh,
                 str(boost::format("invalid number of bezier points: %u") % points.size()));
     }
 
-    withMaterialAppliedToContext(material, [&](auto &program) {
-        _uniforms.setLocals([this, &material, &transform, &transformInv](auto &locals) {
-            locals.reset();
-            locals.model = transform;
-            locals.modelInv = transformInv;
-            applyMaterialToLocals(material, locals);
-        });
+    auto &program = _shaderRegistry.get(bezierShader[points.size() - 3]);
+    _context.useProgram(program);
 
-        for (unsigned i = 0; i < points.size(); ++i) {
-            program.setUniform(bezierPoints[i], points[i]);
-        }
-        program.setUniform("uBezierNumSegments", (int)numSegments);
-        mesh.drawInstanced(numSegments, _statistic);
+    for (const auto &[unit, texture] : material.textures) {
+        _context.bindTexture(texture, unit);
+    }
+    
+    _uniforms.setLocals([this, &material, &transform, &transformInv](auto &locals) {
+        locals.reset();
+        locals.model = transform;
+        locals.modelInv = transformInv;
+        applyMaterialToLocals(material, locals);
     });
+
+    for (unsigned i = 0; i < points.size(); ++i) {
+        program.setUniform(bezierPoints[i], points[i]);
+    }
+    program.setUniform("uBezierNumSegments", (int)numSegments);
+    program.setUniform("uBezierNumOrientations", (int)numOrientations);
+    mesh.drawInstanced(numSegments * numOrientations, _statistic);
 }
 
 } // namespace scene

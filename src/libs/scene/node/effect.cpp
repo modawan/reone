@@ -44,7 +44,7 @@ void EffectSceneNode::render(IRenderPass &pass) {
     tex->setFeatures(features);
 
     float width = 0.3;
-    glm::mat4 transform1 =
+    glm::mat4 transform =
         glm::mat4(glm::vec4(width, 0.0f, 0.0f, 0.0f),
                   glm::vec4(0.0f,  1.0f, 0.0f, 0.0f),
                   glm::vec4(0.0f,  0.0f, 1.0f, 0.0f),
@@ -69,26 +69,8 @@ void EffectSceneNode::render(IRenderPass &pass) {
     p1 += glm::vec3(0.0f, 0.0f, dist * 0.5f);
 
     pass.drawBezier(_graphicsSvc.meshRegistry.get(graphics::MeshName::billboard),
-                    material, transform1, glm::inverse(transform1),
-                    {p0, p1, p2}, /*numSegments=*/20);
-
-    glm::mat4 transform2 = glm::rotate(glm::mat4(1.0f),
-                                       glm::quarter_pi<float>(),
-                                       glm::vec3(0.0f, 1.0f, 0.0f))
-        * transform1;
-
-    pass.drawBezier(_graphicsSvc.meshRegistry.get(graphics::MeshName::billboard),
-                    material, transform2, glm::inverse(transform2),
-                    {p0, p1, p2}, /*numSegments=*/20);
-
-    glm::mat4 transform3 = glm::rotate(glm::mat4(1.0f),
-                                       - glm::quarter_pi<float>(),
-                                       glm::vec3(0.0f, 1.0f, 0.0f))
-        * transform1;
-
-    pass.drawBezier(_graphicsSvc.meshRegistry.get(graphics::MeshName::billboard),
-                    material, transform3, glm::inverse(transform3),
-                    {p0, p1, p2}, /*numSegments=*/20);
+                    material, transform, glm::inverse(transform),
+                    {p0, p1, p2}, /*numSegments=*/20, /*numOrientations=*/3);
 }
 
 void EffectSceneNode::update(float dt) {

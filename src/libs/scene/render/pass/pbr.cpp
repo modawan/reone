@@ -344,7 +344,8 @@ void PBRRenderPass::drawBezier(Mesh &mesh,
                                const glm::mat4 &transform,
                                const glm::mat4 &transformInv,
                                const std::vector<glm::vec3> &points,
-                               unsigned numSegments) {
+                               unsigned numSegments,
+                               unsigned numOrientations) {
     const char *bezierPoints[] = {
         "uBezierP0", "uBezierP1", "uBezierP2"
     };
@@ -377,7 +378,8 @@ void PBRRenderPass::drawBezier(Mesh &mesh,
         program.setUniform(bezierPoints[i], points[i]);
     }
     program.setUniform("uBezierNumSegments", (int)numSegments);
-    mesh.drawInstanced(numSegments, _statistic);
+    program.setUniform("uBezierNumOrientations", (int)numOrientations);
+    mesh.drawInstanced(numSegments * numOrientations, _statistic);
 }
 
 

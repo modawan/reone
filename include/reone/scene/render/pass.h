@@ -123,7 +123,8 @@ public:
                             const glm::mat4 &transform,
                             const glm::mat4 &transformInv,
                             const std::vector<glm::vec3> &points,
-                            unsigned numSegments) = 0;
+                            unsigned numSegments,
+                            unsigned numOrientations) = 0;
 };
 
 } // namespace scene
