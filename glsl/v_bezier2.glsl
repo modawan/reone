@@ -18,9 +18,37 @@ void main() {
     vec4 P = vec4(aPosition, 1.0);
     vec4 N = vec4(aNormal, 0.0);
 
-    fragPos = P;
 
-    fragPosWorld = vec4(uBezierP0, 0.0f) + uModel * fragPos;
+    vec3 vseg = uBezierP2 - uBezierP0;
+    vec3 dir = normalize(vseg);
+
+    vec3 newY, newX, newZ;
+    if (dir.x == 0.0f && dir.y == 1.0f) {
+        // when a direction is parallel to the UP unit vector, the cross product
+        // with UP is invalid.
+        if (dir.y < 0.0f) {
+            newY = -dir;
+            newX = vec3(-1.0f, 0.0f, 0.0f);
+            newZ = vec3(0.0f, 0.0f, 1.0f);
+        } else {
+            newY = dir;
+            newX = vec3(1.0f, 0.0f, 0.0f);
+            newZ = vec3(0.0f, 0.0f, 1.0f);
+        }
+    } else {
+        newY = dir;
+        newZ = cross(newY, vec3(0.0f, 1.0f, 0.0f));
+        newX = cross(newY, newZ);
+    }
+
+    mat4 rotate = mat4(
+            vec4(newX, 0.0f),
+            vec4(newY, 0.0f),
+            vec4(newZ, 0.0f),
+            vec4(0.0f, 0.0f, 0.0f, 1.0f));
+
+    fragPos = P;
+    fragPosWorld = vec4(uBezierP0, 0.0f) + rotate * fragPos;
 
     mat3 normalMatrix = transpose(mat3(uModelInv));
     fragNormalWorld = normalize(normalMatrix * N.xyz);

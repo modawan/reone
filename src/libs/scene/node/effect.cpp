@@ -83,8 +83,7 @@ void EffectSceneNode::render(IRenderPass &pass) {
     glm::mat4 absNoTranslate = _absTransform;
     absNoTranslate[3] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
 
-    glm::mat4 transform = absNoTranslate *
-        rotate * glm::scale(glm::mat4(1.0f), scale);
+    glm::mat4 transform = glm::scale(glm::mat4(1.0f), scale);
 
     // _graphicsSvc.context.useProgram(
     //     _graphicsSvc.shaderRegistry.get(graphics::ShaderProgramId::mvpTexture));
