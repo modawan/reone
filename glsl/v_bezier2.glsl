@@ -52,11 +52,12 @@ void main() {
 
     float scaleY = length(vseg);
 
+    vec3 pos = mix(begin, end, vec3(0.5f, 0.5f, 0.5f));
     mat4 transform = mat4(
             vec4(newX, 0.0f),
             vec4(newY * scaleY, 0.0f),
             vec4(newZ, 0.0f),
-            vec4(begin, 1.0f));
+            vec4(pos, 1.0f));
 
     fragPos = vec4(aPosition, 1.0);
     fragPosWorld = transform * uModel * fragPos;
