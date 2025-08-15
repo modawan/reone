@@ -43,12 +43,12 @@ void EffectSceneNode::render(IRenderPass &pass) {
     features.decal = true;
     tex->setFeatures(features);
 
-    float width = 0.5;
-    glm::vec3 scale(width, 1.0f, 1.0f);
-    glm::mat4 transform = glm::scale(
-            glm::translate(glm::mat4(1.0f),
-                           glm::vec3(-0.25f, 0.0f, 0.0f)),
-            scale);
+    float width = 0.3;
+    glm::mat4 transform =
+        glm::mat4(glm::vec4(width, 0.0f, 0.0f, 0.0f),
+                  glm::vec4(0.0f,  1.0f, 0.0f, 0.0f),
+                  glm::vec4(0.0f,  0.0f, 1.0f, 0.0f),
+                  glm::vec4(0.0f,  0.0f, 0.0f, 1.0f));
 
     graphics::Material material;
     material.type = graphics::MaterialType::TransparentModel;
@@ -71,7 +71,7 @@ void EffectSceneNode::render(IRenderPass &pass) {
 
     pass.drawBezier(_graphicsSvc.meshRegistry.get(graphics::MeshName::quad),
                     material, transform, glm::inverse(transform),
-                    {p0, p1, p2}, /*numSegments=*/5);
+                    {p0, p1, p2}, /*numSegments=*/20);
 }
 
 void EffectSceneNode::update(float dt) {

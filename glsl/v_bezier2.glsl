@@ -32,13 +32,13 @@ void main() {
     vec3 dir = normalize(vseg);
 
     vec3 newY, newX, newZ;
-    if (dir.x == 0.0f && dir.y == 1.0f) {
+    if ((1.0f - abs(dir.z)) < 0.001) {
         // when a direction is parallel to the UP unit vector, the cross product
         // with UP is invalid.
-        if (dir.y < 0.0f) {
+        if (dir.z < 0.0f) {
             newY = -dir;
-            newX = vec3(-1.0f, 0.0f, 0.0f);
-            newZ = vec3(0.0f, 0.0f, 1.0f);
+            newX = vec3(1.0f, 0.0f, 0.0f);
+            newZ = vec3(0.0f, 0.0f, -1.0f);
         } else {
             newY = dir;
             newX = vec3(1.0f, 0.0f, 0.0f);
@@ -46,8 +46,8 @@ void main() {
         }
     } else {
         newY = dir;
-        newZ = cross(newY, vec3(0.0f, 1.0f, 0.0f));
-        newX = cross(newY, newZ);
+        newX = normalize(cross(newY, vec3(0.0f, 0.0f, 1.0f)));
+        newZ = normalize(cross(newY, newX));
     }
 
     float scaleY = length(vseg);
@@ -58,13 +58,8 @@ void main() {
             vec4(newZ, 0.0f),
             vec4(begin, 1.0f));
 
-    vec4 P = vec4(aPosition, 1.0);
-    vec4 N = vec4(aNormal, 0.0);
-    fragPos = P;
+    fragPos = vec4(aPosition, 1.0);
     fragPosWorld = transform * uModel * fragPos;
-
-    mat3 normalMatrix = transpose(mat3(uModelInv));
-    fragNormalWorld = normalize(normalMatrix * N.xyz);
 
     fragUV1 = aUV1;
     fragUV2 = aUV2;
