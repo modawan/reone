@@ -27,56 +27,50 @@ namespace game {
 using namespace scene;
 
 BeamEffect::~BeamEffect() {
-    _source->removeChild(*_node);
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);    
     sceneGraph.removeRoot(*_node);
 }
 
-static SceneNode *selectSourceNode(SceneNode *src) {
+static SceneNode &selectSourceNode(SceneNode *src) {
     if (src->type() != SceneNodeType::Model) {
-        return src;
+        return *src;
     }
 
     ModelSceneNode * model = (ModelSceneNode *) src;
     if (SceneNode *hand = model->getNodeByName("handconjure")) {
-        return hand;
+        return *hand;
     }
     if (SceneNode *torso = model->getNodeByName("torso")) {
-        return torso;
+        return *torso;
     }
-    return model;
+    return *model;
 }
 
-static SceneNode *selectTargetNode(SceneNode *target) {
+static SceneNode &selectTargetNode(SceneNode *target) {
     if (target->type() != SceneNodeType::Model) {
-        return target;
+        return *target;
     }
 
     ModelSceneNode *model = (ModelSceneNode *)target;
     if (SceneNode *torso = model->getNodeByName("impact")) {
-        return torso;
+        return *torso;
     }
-    return model;
+    return *model;
 }
 
 void BeamEffect::applyTo(Object &object) {
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
 
-
     std::shared_ptr<SceneNode> effectorNode = _effector->sceneNode();
     _target = object.sceneNode();
 
-    _node = std::make_shared<scene::EffectSceneNode>(
-        sceneGraph,
-        _services.graphics,
-        _services.audio,
-        _services.resource,
+    _node = std::make_shared<scene::DrainLifeBeamNode>(
+        selectSourceNode(effectorNode.get()),
         selectTargetNode(_target.get()),
-        _duration);
+        _duration,
+        sceneGraph);
 
-    _source = selectSourceNode(effectorNode.get());
-    _source->addChild(*_node);
-    sceneGraph.addRoot(_node);
+    sceneGraph.addRoot(std::static_pointer_cast<scene::EffectSceneNode>(_node));
 }
 
 } // namespace game

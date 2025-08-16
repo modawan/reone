@@ -135,6 +135,14 @@ public:
     virtual std::shared_ptr<GrassClusterSceneNode> newGrassCluster(GrassSceneNode &grass) = 0;
 
     // END Factory methods
+
+    // Services
+
+    virtual graphics::GraphicsServices &graphicsServices() = 0;
+    virtual audio::AudioServices &audioServices() = 0;
+    virtual resource::ResourceServices &resourceServices() = 0;
+
+    // END Services
 };
 
 class SceneGraph : public ISceneGraph, boost::noncopyable {
@@ -277,6 +285,14 @@ public:
     std::shared_ptr<GrassClusterSceneNode> newGrassCluster(GrassSceneNode &grass) override;
 
     // END Factory methods
+
+    // Services
+
+    graphics::GraphicsServices &graphicsServices() override { return _graphicsSvc; }
+    audio::AudioServices &audioServices() override { return _audioSvc; }
+    resource::ResourceServices &resourceServices() override { return _resourceSvc; }
+
+    // END Services
 
 private:
     std::string _name;

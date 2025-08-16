@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include "../node.h"
 #include "reone/graphics/material.h"
+#include "reone/scene/node.h"
 
 namespace reone {
 
@@ -26,25 +26,36 @@ namespace scene {
 
 class EffectSceneNode : public SceneNode {
 public:
-    EffectSceneNode(
-        ISceneGraph &sceneGraph,
-        graphics::GraphicsServices &graphicsSvc,
-        audio::AudioServices &audioSvc,
-        resource::ResourceServices &resourceSvc,
-        SceneNode *target,
-        float duration);
+    EffectSceneNode(ISceneGraph &sceneGraph);
+    virtual void render(IRenderPass &pass) = 0;
+};
+
+class DrainLifeBeamNode : public EffectSceneNode {
+public:
+    DrainLifeBeamNode(
+        SceneNode &source,
+        SceneNode &target,
+        float duration,
+        ISceneGraph &sceneGraph);
 
     void update(float dt) override;
-    void render(IRenderPass &pass);
+    void render(IRenderPass &pass) override;
 
 private:
-    SceneNode *_target;
+    SceneNode &_source;
+    SceneNode &_target;
+
+    // Animation
     float _duration;
     float _time = 0.0f;
     glm::vec3 _beginDirP1;
     glm::vec3 _endDirP1;
-    std::vector<glm::vec3> _bezierPoints;
+
+    // Render
+    glm::mat4 _scale;
     graphics::Material _material;
+
+    std::array<glm::vec3, 3> _bezierPoints;
 };
 
 } // namespace scene

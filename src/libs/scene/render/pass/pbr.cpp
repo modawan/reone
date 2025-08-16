@@ -342,8 +342,7 @@ void PBRRenderPass::drawImage(Texture &texture,
 void PBRRenderPass::drawBezier(Mesh &mesh,
                                Material &material,
                                const glm::mat4 &transform,
-                               const glm::mat4 &transformInv,
-                               const std::vector<glm::vec3> &points,
+                               ArrayRef<glm::vec3> points,
                                unsigned numSegments,
                                unsigned numOrientations) {
     const char *bezierPoints[] = {
@@ -353,12 +352,7 @@ void PBRRenderPass::drawBezier(Mesh &mesh,
         ShaderProgramId::oitBezier2
     };
 
-    unsigned maxBezierPoints = sizeof(bezierPoints) / sizeof(*bezierPoints);
-
-    if (points.size() < 3 || points.size() > maxBezierPoints) {
-        throw std::invalid_argument(
-                str(boost::format("invalid number of bezier points: %u") % points.size()));
-    }
+    assert((points.size() >= 3 && points.size() <= ArrayRef(bezierPoints).size()) && "unsupported number of Bezier points");
 
     auto &program = _shaderRegistry.get(bezierShader[points.size() - 3]);
     _context.useProgram(program);
@@ -366,11 +360,10 @@ void PBRRenderPass::drawBezier(Mesh &mesh,
     for (const auto &[unit, texture] : material.textures) {
         _context.bindTexture(texture, unit);
     }
-    
-    _uniforms.setLocals([this, &material, &transform, &transformInv](auto &locals) {
+
+    _uniforms.setLocals([this, &material, &transform](auto &locals) {
         locals.reset();
         locals.model = transform;
-        locals.modelInv = transformInv;
         applyMaterialToLocals(material, locals);
     });
 
@@ -381,7 +374,6 @@ void PBRRenderPass::drawBezier(Mesh &mesh,
     program.setUniform("uBezierNumOrientations", (int)numOrientations);
     mesh.drawInstanced(numSegments * numOrientations, _statistic);
 }
-
 
 } // namespace scene
 

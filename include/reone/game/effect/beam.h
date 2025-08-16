@@ -54,7 +54,7 @@ private:
     BodyNode _bodyPart;
     bool _missEffect;
     ServicesView &_services;
-    std::shared_ptr<scene::EffectSceneNode> _node;
+    std::shared_ptr<scene::DrainLifeBeamNode> _node;
     scene::SceneNode *_source {nullptr};
     std::shared_ptr<scene::SceneNode> _target;
 };

@@ -28,6 +28,7 @@
 
 #include "reone/graphics/material.h"
 #include "reone/graphics/types.h"
+#include "reone/scene/graph.h"
 #include "reone/scene/render/pass.h"
 #include "reone/system/randomutil.h"
 
@@ -35,21 +36,20 @@ namespace reone {
 
 namespace scene {
 
-EffectSceneNode::EffectSceneNode(
-    ISceneGraph &sceneGraph,
-    graphics::GraphicsServices &graphicsSvc,
-    audio::AudioServices &audioSvc,
-    resource::ResourceServices &resourceSvc,
-    SceneNode *target,
-    float duration) :
-    SceneNode(
-        SceneNodeType::GrassCluster,
-        sceneGraph,
-        graphicsSvc,
-        audioSvc,
-        resourceSvc),
-    _target(target),
-    _duration(duration) {
+EffectSceneNode::EffectSceneNode(ISceneGraph &sceneGraph) :
+    SceneNode(SceneNodeType::Effect,
+              sceneGraph,
+              sceneGraph.graphicsServices(),
+              sceneGraph.audioServices(),
+              sceneGraph.resourceServices()) {}
+
+DrainLifeBeamNode::DrainLifeBeamNode(
+    SceneNode &source,
+    SceneNode &target,
+    float duration,
+    ISceneGraph &sceneGraph) :
+    EffectSceneNode(sceneGraph),
+    _source(source), _target(target), _duration(duration) {
 
     _beginDirP1 = glm::vec3(randomFloat(-1.0f, 1.0f),
                             randomFloat(-1.0f, 1.0f),
@@ -58,8 +58,6 @@ EffectSceneNode::EffectSceneNode(
     _endDirP1 = glm::vec3(randomFloat(-1.0f, 1.0f),
                           randomFloat(-1.0f, 1.0f),
                           randomFloat(0, 1.0f));
-
-    _bezierPoints.resize(3);
 
     std::shared_ptr<graphics::Texture> tex =
         _resourceSvc.textures.get("fx_drain", graphics::TextureUsage::MainTex);
@@ -72,17 +70,24 @@ EffectSceneNode::EffectSceneNode(
     _material.type = graphics::MaterialType::TransparentModel;
 
     _material.uv = glm::mat3x4(
-            glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
-            glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
-            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f));
+        glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
+        glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
+        glm::vec4(0.0f, 0.0f, 0.0f, 0.0f));
 
     _material.faceCulling = graphics::FaceCullMode::None;
     _material.textures.insert({graphics::TextureUnits::mainTex, *tex});
+
+    float width = 0.3;
+    _scale = glm::mat4(
+        glm::vec4(width, 0.0f, 0.0f, 0.0f),
+        glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
+        glm::vec4(0.0f, 0.0f, 1.0f, 0.0f),
+        glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
 }
 
-void EffectSceneNode::update(float dt) {
-    glm::vec3 p0 = origin();
-    glm::vec3 p2 = _target->origin();
+void DrainLifeBeamNode::update(float dt) {
+    glm::vec3 p0 = _source.origin();
+    glm::vec3 p2 = _target.origin();
 
     _time += dt;
     glm::vec3 dirP1 = glm::mix(_beginDirP1, _endDirP1, glm::vec3(_time / _duration));
@@ -97,17 +102,10 @@ void EffectSceneNode::update(float dt) {
     _bezierPoints[2] = p2;
 }
 
-void EffectSceneNode::render(IRenderPass &pass) {
-    float width = 0.3;
-    glm::mat4 transform =
-        glm::mat4(glm::vec4(width, 0.0f, 0.0f, 0.0f),
-                  glm::vec4(0.0f,  1.0f, 0.0f, 0.0f),
-                  glm::vec4(0.0f,  0.0f, 1.0f, 0.0f),
-                  glm::vec4(0.0f,  0.0f, 0.0f, 1.0f));
-
+void DrainLifeBeamNode::render(IRenderPass &pass) {
     pass.drawBezier(_graphicsSvc.meshRegistry.get(graphics::MeshName::billboard),
-                    _material, transform, glm::inverse(transform),
-                    _bezierPoints, /*numSegments=*/20, /*numOrientations=*/3);
+                    _material, _scale, _bezierPoints,
+                    /*numSegments=*/20, /*numOrientations=*/3);
 }
 
 } // namespace reone
