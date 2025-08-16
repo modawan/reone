@@ -30,20 +30,19 @@ public:
         graphics::GraphicsServices &graphicsSvc,
         audio::AudioServices &audioSvc,
         resource::ResourceServices &resourceSvc,
-        SceneNode *target) :
-        SceneNode(
-            SceneNodeType::GrassCluster,
-            sceneGraph,
-            graphicsSvc,
-            audioSvc,
-            resourceSvc),
-        _target(target) {}
+        SceneNode *target,
+        float duration);
 
     void update(float dt) override;
     void render(IRenderPass &pass);
 
 private:
     SceneNode *_target;
+    float _duration;
+    float _time = 0.0f;
+    glm::vec3 _beginDirP1;
+    glm::vec3 _endDirP1;
+    std::vector<glm::vec3> _bezierPoints;
 };
 
 } // namespace scene

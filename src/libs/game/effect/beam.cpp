@@ -71,7 +71,8 @@ void BeamEffect::applyTo(Object &object) {
         _services.graphics,
         _services.audio,
         _services.resource,
-        selectTargetNode(_target.get()));
+        selectTargetNode(_target.get()),
+        _duration);
 
     _source = selectSourceNode(effectorNode.get());
     _source->addChild(*_node);

@@ -29,12 +29,14 @@ class BeamEffect : public Effect {
 public:
     BeamEffect(
         int beamVisualEffect,
+        float duration,
         std::shared_ptr<Object> effector,
         BodyNode bodyPart,
         bool missEffect,
         ServicesView &services) :
         Effect(EffectType::Beam),
         _beamVisualEffect(beamVisualEffect),
+        _duration(duration),
         _effector(std::move(effector)),
         _bodyPart(bodyPart),
         _missEffect(missEffect),
@@ -47,6 +49,7 @@ public:
 
 private:
     int _beamVisualEffect;
+    float _duration;
     std::shared_ptr<Object> _effector;
     BodyNode _bodyPart;
     bool _missEffect;

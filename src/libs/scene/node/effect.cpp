@@ -26,13 +26,58 @@
 #include "reone/graphics/uniforms.h"
 #include "reone/graphics/texture.h"
 
-#include "reone/scene/render/pass.h"
-#include "reone/graphics/types.h"
 #include "reone/graphics/material.h"
+#include "reone/graphics/types.h"
+#include "reone/scene/render/pass.h"
+#include "reone/system/randomutil.h"
 
 namespace reone {
 
 namespace scene {
+
+EffectSceneNode::EffectSceneNode(
+    ISceneGraph &sceneGraph,
+    graphics::GraphicsServices &graphicsSvc,
+    audio::AudioServices &audioSvc,
+    resource::ResourceServices &resourceSvc,
+    SceneNode *target,
+    float duration) :
+    SceneNode(
+        SceneNodeType::GrassCluster,
+        sceneGraph,
+        graphicsSvc,
+        audioSvc,
+        resourceSvc),
+    _target(target),
+    _duration(duration) {
+
+    _beginDirP1 = glm::vec3(randomFloat(-1.0f, 1.0f),
+                            randomFloat(-1.0f, 1.0f),
+                            randomFloat(0, 1.0f));
+
+    _endDirP1 = glm::vec3(randomFloat(-1.0f, 1.0f),
+                          randomFloat(-1.0f, 1.0f),
+                          randomFloat(0, 1.0f));
+
+    _bezierPoints.resize(3);
+}
+
+void EffectSceneNode::update(float dt) {
+    glm::vec3 p0 = origin();
+    glm::vec3 p2 = _target->origin();
+
+    _time += dt;
+    glm::vec3 dirP1 = glm::mix(_beginDirP1, _endDirP1, glm::vec3(_time / _duration));
+
+    glm::vec3 dir = p2 - p0;
+    glm::vec3 center = p0 + dir * 0.5f;
+    float r = glm::length(dir) / 2;
+    glm::vec3 p1 = center + dirP1 * r;
+
+    _bezierPoints[0] = p0;
+    _bezierPoints[1] = p1;
+    _bezierPoints[2] = p2;
+}
 
 void EffectSceneNode::render(IRenderPass &pass) {
     std::shared_ptr<graphics::Texture> tex =
@@ -61,46 +106,9 @@ void EffectSceneNode::render(IRenderPass &pass) {
     material.faceCulling = graphics::FaceCullMode::None;
     material.textures.insert({graphics::TextureUnits::mainTex, *tex});
 
-    glm::vec3 p0 = origin();
-    glm::vec3 p2 = _target->origin();
-
-    glm::vec3 p1 = glm::mix(p0, p2, glm::vec3(0.5f, 0.5f, 0.5f));
-    float dist = glm::distance(p2, p1);
-    p1 += glm::vec3(0.0f, 0.0f, dist * 0.5f);
-
     pass.drawBezier(_graphicsSvc.meshRegistry.get(graphics::MeshName::billboard),
                     material, transform, glm::inverse(transform),
-                    {p0, p1, p2}, /*numSegments=*/20, /*numOrientations=*/3);
-}
-
-void EffectSceneNode::update(float dt) {
-    // std::shared_ptr<graphics::Texture> tex =
-    //     _resourceSvc.textures.get("fx_drain", graphics::TextureUsage::Default);
-    // _graphicsSvc.context.bindTexture(*tex);
-
-    // glm::vec2 mapPos(100.0f, 100.0f);
-    // glm::vec4 bounds(512.0f, 512.0f, 8.0f, 8.0f);
-
-    // glm::vec3 topLeft(0.0f);
-    // topLeft.x = 512.0f;
-    // topLeft.y = 512.0f;
-
-    // glm::mat4 transform(1.0f);
-    // transform = glm::translate(transform, topLeft);
-    // transform = glm::scale(transform, glm::vec3(tex->width(), tex->height(), 1.0f));
-
-    // _graphicsSvc.uniforms.setLocals([transform](auto &locals) {
-    //     locals.reset();
-    //     locals.model = std::move(transform);
-    // });
-    // _graphicsSvc.context.useProgram(_graphicsSvc.shaderRegistry.get(graphics::ShaderProgramId::mvpTexture));
-
-    // int height = 1024;
-    // glm::ivec4 scissorBounds(bounds[0], height - (bounds[1] + bounds[3]), bounds[2], bounds[3]);
-    // _graphicsSvc.context.withScissorTest(scissorBounds, [&]() {
-    //     _graphicsSvc.meshRegistry.get(graphics::MeshName::quad)
-    //         .draw(_graphicsSvc.statistic);
-    // });
+                    _bezierPoints, /*numSegments=*/20, /*numOrientations=*/3);
 }
 
 } // namespace reone
