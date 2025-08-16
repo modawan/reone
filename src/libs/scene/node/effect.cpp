@@ -60,6 +60,24 @@ EffectSceneNode::EffectSceneNode(
                           randomFloat(0, 1.0f));
 
     _bezierPoints.resize(3);
+
+    std::shared_ptr<graphics::Texture> tex =
+        _resourceSvc.textures.get("fx_drain", graphics::TextureUsage::MainTex);
+
+    graphics::Texture::Features features;
+    features.blending = graphics::Texture::Blending::Additive;
+    features.decal = true;
+    tex->setFeatures(features);
+
+    _material.type = graphics::MaterialType::TransparentModel;
+
+    _material.uv = glm::mat3x4(
+            glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
+            glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
+            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f));
+
+    _material.faceCulling = graphics::FaceCullMode::None;
+    _material.textures.insert({graphics::TextureUnits::mainTex, *tex});
 }
 
 void EffectSceneNode::update(float dt) {
@@ -80,14 +98,6 @@ void EffectSceneNode::update(float dt) {
 }
 
 void EffectSceneNode::render(IRenderPass &pass) {
-    std::shared_ptr<graphics::Texture> tex =
-        _resourceSvc.textures.get("fx_drain", graphics::TextureUsage::MainTex);
-
-    graphics::Texture::Features features;
-    features.blending = graphics::Texture::Blending::Additive;
-    features.decal = true;
-    tex->setFeatures(features);
-
     float width = 0.3;
     glm::mat4 transform =
         glm::mat4(glm::vec4(width, 0.0f, 0.0f, 0.0f),
@@ -95,19 +105,8 @@ void EffectSceneNode::render(IRenderPass &pass) {
                   glm::vec4(0.0f,  0.0f, 1.0f, 0.0f),
                   glm::vec4(0.0f,  0.0f, 0.0f, 1.0f));
 
-    graphics::Material material;
-    material.type = graphics::MaterialType::TransparentModel;
-
-    material.uv = glm::mat3x4(
-            glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
-            glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
-            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f));
-
-    material.faceCulling = graphics::FaceCullMode::None;
-    material.textures.insert({graphics::TextureUnits::mainTex, *tex});
-
     pass.drawBezier(_graphicsSvc.meshRegistry.get(graphics::MeshName::billboard),
-                    material, transform, glm::inverse(transform),
+                    _material, transform, glm::inverse(transform),
                     _bezierPoints, /*numSegments=*/20, /*numOrientations=*/3);
 }
 

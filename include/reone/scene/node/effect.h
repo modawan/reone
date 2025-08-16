@@ -18,6 +18,7 @@
 #pragma once
 
 #include "../node.h"
+#include "reone/graphics/material.h"
 
 namespace reone {
 
@@ -43,6 +44,7 @@ private:
     glm::vec3 _beginDirP1;
     glm::vec3 _endDirP1;
     std::vector<glm::vec3> _bezierPoints;
+    graphics::Material _material;
 };
 
 } // namespace scene
