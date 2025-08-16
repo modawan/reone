@@ -15,24 +15,46 @@ out vec3 fragNormalWorld;
 out vec2 fragUV1;
 out vec2 fragUV2;
 
+vec3 bezierPoint(float factor) {
+    vec3 q0 = mix(uBezierP0, uBezierP1, factor);
+    vec3 q1 = mix(uBezierP1, uBezierP2, factor);
+    return mix(q0, q1, vec3(factor));
+}
+
 void main() {
     float segment =  gl_InstanceID / uBezierNumOrientations;
     float orientationStep = PI / uBezierNumOrientations;
     float orientation = orientationStep * (gl_InstanceID % uBezierNumOrientations);
 
-    vec3 factorBegin = vec3(segment / uBezierNumSegments);
-    vec3 factorEnd = vec3((segment + 1.0f) / uBezierNumSegments);
+    float factorBegin = segment / uBezierNumSegments;
+    float factorEnd = (segment + 1.0f) / uBezierNumSegments;
+    float factorNextEnd = (segment + 2.0f) / uBezierNumSegments;
 
-    vec3 beginQ0 = mix(uBezierP0, uBezierP1, factorBegin);
-    vec3 beginQ1 = mix(uBezierP1, uBezierP2, factorBegin);
-    vec3 begin = mix(beginQ0, beginQ1, factorBegin);
+    vec3 begin = bezierPoint(factorBegin);
+    vec3 end = bezierPoint(factorEnd);
+    vec3 nextEnd = bezierPoint(factorNextEnd);
 
-    vec3 endQ0 = mix(uBezierP0, uBezierP1, factorEnd);
-    vec3 endQ1 = mix(uBezierP1, uBezierP2, factorEnd);
-    vec3 end = mix(endQ0, endQ1, factorEnd);
+    vec3 seg = end - begin;
+    vec3 dir = normalize(seg);
+    float scaleY = length(seg);
 
-    vec3 vseg = end - begin;
-    vec3 dir = normalize(vseg);
+    vec3 nextSeg = nextEnd - end;
+    vec3 nextDir = normalize(nextSeg);
+
+    float cosA = dot(dir, nextDir);
+    float sinA = sqrt(1 - cosA * cosA) / cosA;
+
+    // FIXME: better to pass just the scale if this is all we need
+    float scaleX = uModel[0][0];
+    float edgeOffset = 0.5 * scaleX * sinA / (cosA * scaleY);
+
+    fragPos = vec4(aPosition, 1.0);
+    if (gl_VertexID == 2) {
+        fragPos += vec4(0.0f, edgeOffset, 0.0f, 0.0f);
+    }
+    if (gl_VertexID == 3) {
+        fragPos -= vec4(0.0f, edgeOffset, 0.0f, 0.0f);
+    }
 
     vec3 newY, newX, newZ;
     if ((1.0f - abs(dir.z)) < 0.001) {
@@ -53,8 +75,6 @@ void main() {
         newZ = normalize(cross(newY, newX));
     }
 
-    float scaleY = length(vseg);
-
     vec3 pos = mix(begin, end, vec3(0.5f, 0.5f, 0.5f));
     mat4 transform = mat4(
             vec4(newX, 0.0f),
@@ -70,7 +90,6 @@ void main() {
             vec4(orientSin, 0.0f, orientCos, 0.0f),
             vec4(0.0f, 0.0f, 0.0f, 1.0f));
 
-    fragPos = vec4(aPosition, 1.0);
     fragPosWorld = transform * orient * uModel * fragPos;
 
     fragUV1 = aUV1;
