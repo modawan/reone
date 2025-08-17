@@ -108,5 +108,51 @@ void DrainLifeBeamNode::render(IRenderPass &pass) {
                     /*numSegments=*/20, /*numOrientations=*/3);
 }
 
+FieldNode::FieldNode(
+    ModelSceneNode &target,
+    const std::shared_ptr<graphics::Texture> &tex,
+    ISceneGraph &sceneGraph) :
+    EffectSceneNode(sceneGraph),
+    _target(target), _tex(tex) {
+
+    _material.type = graphics::MaterialType::TransparentModel;
+
+    _material.uv = glm::mat3x4(
+        glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
+        glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
+        glm::vec4(0.0f, 0.0f, 0.0f, 0.0f));
+
+    _material.faceCulling = graphics::FaceCullMode::None;
+    _material.textures.insert({graphics::TextureUnits::mainTex, *tex});
+}
+
+void FieldNode::update(float dt) {}
+
+void FieldNode::render(IRenderPass &pass) {
+    std::vector<SceneNode *> worklist;
+    worklist.push_back(&_target);
+    while (!worklist.empty()) {
+        SceneNode &node = *worklist.back();
+        worklist.pop_back();
+
+        SceneNodeType type = node.type();
+        if (type == SceneNodeType::Model) {
+            auto &model = static_cast<ModelSceneNode &>(node);
+            if (model.isCulled()) {
+                continue;
+            }
+        } else if (type == SceneNodeType::Mesh) {
+            auto &meshNode = static_cast<MeshSceneNode &>(node);
+            if (meshNode.shouldRender() && !meshNode.isTransparent()) {
+                meshNode.renderWithMaterial(_material, pass);
+            }
+        }
+
+        for (SceneNode *child : node.children()) {
+            worklist.push_back(child);
+        }
+    }
+}
+
 } // namespace reone
 } // namespace scene

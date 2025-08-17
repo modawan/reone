@@ -19,6 +19,7 @@
 
 #include "reone/graphics/material.h"
 #include "reone/scene/node.h"
+#include "reone/scene/node/model.h"
 
 namespace reone {
 
@@ -56,6 +57,22 @@ private:
     graphics::Material _material;
 
     std::array<glm::vec3, 3> _bezierPoints;
+};
+
+class FieldNode : public EffectSceneNode {
+public:
+    FieldNode(
+        ModelSceneNode &target,
+        const std::shared_ptr<graphics::Texture> &tex,
+        ISceneGraph &sceneGraph);
+
+    void update(float dt) override;
+    void render(IRenderPass &pass) override;
+
+private:
+    SceneNode &_target;
+    graphics::Material _material;
+    std::shared_ptr<graphics::Texture> _tex;
 };
 
 } // namespace scene

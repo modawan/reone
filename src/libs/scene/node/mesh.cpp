@@ -245,6 +245,52 @@ static bool isReceivingShadows(const ModelSceneNode &model, const MeshSceneNode 
     return model.usage() == ModelUsage::Room;
 }
 
+void MeshSceneNode::renderWithMaterial(graphics::Material &material,
+                                       IRenderPass &pass) {
+    auto mesh = _modelNode.mesh();
+    if (_modelNode.isSkinMesh()) {
+        const auto &skin = *mesh->skin;
+        auto bones = std::vector<glm::mat4>(kMaxBones, glm::mat4(1.0f));
+        for (size_t i = 0; i < kMaxBones; ++i) {
+            if (i >= skin.boneNodeNumber.size()) {
+                break;
+            }
+            auto nodeNumber = skin.boneNodeNumber[i];
+            if (nodeNumber == 0xffff) {
+                continue;
+            }
+            auto bone = _model.getNodeByNumber(nodeNumber);
+            if (!bone) {
+                continue;
+            }
+            bones[i] = _modelNode.absoluteTransformInverse(); // convert bone transform in model space to bone transform in this model node space
+            bones[i] *= _model.absoluteTransformInverse();    // convert bone transform in world space to bone transform in model space
+            bones[i] *= bone->absoluteTransform();
+            bones[i] *= skin.boneMatrices[skin.boneSerial[i]]; // extract changes to the bone transform in this model node space
+        }
+        pass.drawSkinned(*mesh->mesh, material, _absTransform, _absTransformInv, std::move(bones));
+    } else if (_modelNode.isDanglymesh()) {
+        std::vector<glm::vec4> positions;
+        positions.reserve(_dangly.vertices.size());
+        for (const auto &vertex : _dangly.vertices) {
+            positions.emplace_back(vertex.position + vertex.displacement, 1.0f);
+        }
+        pass.drawDangly(*mesh->mesh,
+                        material,
+                        _absTransform,
+                        _absTransformInv,
+                        positions);
+    } else if (_modelNode.isSaberMesh()) {
+        pass.drawSaber(*mesh->mesh,
+                       material,
+                       _absTransform,
+                       _absTransformInv,
+                       glm::vec4 {_saber.displacement, 0.0f});
+    } else {
+        pass.draw(*mesh->mesh, material, _absTransform, _absTransformInv);
+    }
+}
+
 void MeshSceneNode::render(IRenderPass &pass) {
     auto mesh = _modelNode.mesh();
     if (!mesh || !_nodeTextures.diffuse) {
@@ -289,47 +335,7 @@ void MeshSceneNode::render(IRenderPass &pass) {
         material.affectedByFog = true;
     }
     material.faceCulling = _nodeTextures.diffuse->features().decal ? FaceCullMode::None : FaceCullMode::Back;
-    if (_modelNode.isSkinMesh()) {
-        const auto &skin = *mesh->skin;
-        auto bones = std::vector<glm::mat4>(kMaxBones, glm::mat4(1.0f));
-        for (size_t i = 0; i < kMaxBones; ++i) {
-            if (i >= skin.boneNodeNumber.size()) {
-                break;
-            }
-            auto nodeNumber = skin.boneNodeNumber[i];
-            if (nodeNumber == 0xffff) {
-                continue;
-            }
-            auto bone = _model.getNodeByNumber(nodeNumber);
-            if (!bone) {
-                continue;
-            }
-            bones[i] = _modelNode.absoluteTransformInverse(); // convert bone transform in model space to bone transform in this model node space
-            bones[i] *= _model.absoluteTransformInverse();    // convert bone transform in world space to bone transform in model space
-            bones[i] *= bone->absoluteTransform();
-            bones[i] *= skin.boneMatrices[skin.boneSerial[i]]; // extract changes to the bone transform in this model node space
-        }
-        pass.drawSkinned(*mesh->mesh, material, _absTransform, _absTransformInv, std::move(bones));
-    } else if (_modelNode.isDanglymesh()) {
-        std::vector<glm::vec4> positions;
-        positions.reserve(_dangly.vertices.size());
-        for (const auto &vertex : _dangly.vertices) {
-            positions.emplace_back(vertex.position + vertex.displacement, 1.0f);
-        }
-        pass.drawDangly(*mesh->mesh,
-                        material,
-                        _absTransform,
-                        _absTransformInv,
-                        positions);
-    } else if (_modelNode.isSaberMesh()) {
-        pass.drawSaber(*mesh->mesh,
-                       material,
-                       _absTransform,
-                       _absTransformInv,
-                       glm::vec4 {_saber.displacement, 0.0f});
-    } else {
-        pass.draw(*mesh->mesh, material, _absTransform, _absTransformInv);
-    }
+    renderWithMaterial(material, pass);
 }
 
 void MeshSceneNode::renderShadow(IRenderPass &pass) {

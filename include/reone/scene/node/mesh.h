@@ -21,6 +21,10 @@
 
 namespace reone {
 
+namespace graphics {
+class Material;
+}
+
 namespace scene {
 
 class ModelSceneNode;
@@ -50,6 +54,7 @@ public:
 
     void render(IRenderPass &pass);
     void renderShadow(IRenderPass &pass);
+    void renderWithMaterial(graphics::Material &material, IRenderPass &pass);
 
     bool shouldRender() const;
     bool shouldCastShadows() const;
