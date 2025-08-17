@@ -25,16 +25,12 @@ void main() {
 
     vec4 mainTexSample = texture(sMainArrayTex, vec3(uv, uMainArrayFrame));
     vec3 diffuseColor = mainTexSample.rgb;
-    float diffuseAlpha = mainTexSample.a;
-
-    if (isFeatureEnabled(FEATURE_PREMULALPHA)) {
-        diffuseAlpha = rgbToLuma(mainTexSample.rgb);
-        diffuseColor *= 1.0 / max(0.0001, diffuseAlpha);
-    }
+    float diffuseAlpha = rgbToLuma(mainTexSample.rgb);
+    diffuseColor *= 1.0 / max(0.0001, diffuseAlpha);
 
     vec3 normal = getNormal(uv);
 
-    float objectAlpha = uColor.a;
+    float objectAlpha = uColor.a * diffuseAlpha;
     if (objectAlpha == 0.0) {
         discard;
     }
