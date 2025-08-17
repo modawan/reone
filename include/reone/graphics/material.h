@@ -30,7 +30,8 @@ enum class MaterialType {
     TransparentModel,
     DirLightShadow,
     PointLightShadow,
-    Walkmesh
+    Walkmesh,
+    Field,
 };
 
 struct Material : boost::noncopyable {

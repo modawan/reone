@@ -115,7 +115,7 @@ FieldNode::FieldNode(
     EffectSceneNode(sceneGraph),
     _target(target), _tex(tex) {
 
-    _material.type = graphics::MaterialType::TransparentModel;
+    _material.type = graphics::MaterialType::Field;
 
     _material.uv = glm::mat3x4(
         glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),

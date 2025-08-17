@@ -54,7 +54,8 @@ void PBRRenderPass::withMaterialAppliedToContext(const Material &material, std::
         {MaterialType::PointLightShadow, ShaderProgramId::pointLightShadows}, //
         {MaterialType::OpaqueModel, ShaderProgramId::pbrOpaqueModel},         //
         {MaterialType::TransparentModel, ShaderProgramId::oitModel},          //
-        {MaterialType::Walkmesh, ShaderProgramId::pbrWalkmesh}                //
+        {MaterialType::Walkmesh, ShaderProgramId::pbrWalkmesh},               //
+        {MaterialType::Field, ShaderProgramId::oitField}                      //
     };
     if (kMatTypeToProgramId.count(material.type) == 0) {
         throw std::invalid_argument(str(boost::format("Material type %1% is not associated with a shader program") % static_cast<int>(material.type)));

@@ -34,6 +34,7 @@ namespace resource {
 
 static const std::string kVertBezier2 = "v_bezier2";
 static const std::string kVertBillboard = "v_billboard";
+static const std::string kVertField = "v_field";
 static const std::string kVertGrass = "v_grass";
 static const std::string kVertModel = "v_model";
 static const std::string kVertMVP = "v_mvp";
@@ -63,6 +64,7 @@ static const std::string kFragPBRSSR = "f_pbr_ssr";
 static const std::string kFragPBRWalkmesh = "f_pbr_walkmesh";
 static const std::string kFragNull = "f_null";
 static const std::string kFragOITBlend = "f_oit_blend";
+static const std::string kFragOITField = "f_oit_field";
 static const std::string kFragOITModel = "f_oit_model";
 static const std::string kFragOITParticles = "f_oit_particles";
 static const std::string kFragPointLightShadows = "f_ptlightshadow";
@@ -89,6 +91,7 @@ void Shaders::init() {
     // Shaders
     auto vertBezier2 = initShader(ShaderType::Vertex, kVertBezier2);
     auto vertBillboard = initShader(ShaderType::Vertex, kVertBillboard);
+    auto vertField = initShader(ShaderType::Vertex, kVertField);
     auto vertGrass = initShader(ShaderType::Vertex, kVertGrass);
     auto vertModel = initShader(ShaderType::Vertex, kVertModel);
     auto vertMVP = initShader(ShaderType::Vertex, kVertMVP);
@@ -117,6 +120,7 @@ void Shaders::init() {
     auto fragPBRWalkmesh = initShader(ShaderType::Fragment, kFragPBRWalkmesh);
     auto fragNull = initShader(ShaderType::Fragment, kFragNull);
     auto fragOITBlend = initShader(ShaderType::Fragment, kFragOITBlend);
+    auto fragOITField = initShader(ShaderType::Fragment, kFragOITField);
     auto fragOITModel = initShader(ShaderType::Fragment, kFragOITModel);
     auto fragOITParticles = initShader(ShaderType::Fragment, kFragOITParticles);
     auto fragPointLightShadows = initShader(ShaderType::Fragment, kFragPointLightShadows);
@@ -153,6 +157,7 @@ void Shaders::init() {
     _shaderRegistry.add(ShaderProgramId::mvpTexture, initShaderProgram({vertMVP, fragTexture}));
     _shaderRegistry.add(ShaderProgramId::ndcTexture, initShaderProgram({vertPassthrough, fragTextureNoPerspective}));
     _shaderRegistry.add(ShaderProgramId::oitBezier2, initShaderProgram({vertBezier2, fragOITModel}));
+    _shaderRegistry.add(ShaderProgramId::oitField, initShaderProgram({vertField, fragOITField}));
     _shaderRegistry.add(ShaderProgramId::oitBlend, initShaderProgram({vertPassthrough, fragOITBlend}));
     _shaderRegistry.add(ShaderProgramId::oitModel, initShaderProgram({vertModel, fragOITModel}));
     _shaderRegistry.add(ShaderProgramId::oitParticles, initShaderProgram({vertParticles, fragOITParticles}));

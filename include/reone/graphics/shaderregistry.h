@@ -45,6 +45,7 @@ struct ShaderProgramId {
     static constexpr char oitModel[] = "oit_model";
     static constexpr char oitParticles[] = "oit_particles";
     static constexpr char oitBezier2[] = "oit_bezier2";
+    static constexpr char oitField[] = "oit_field";
     static constexpr char pointLightShadows[] = "point_light_shadows";
     static constexpr char postBoxBlur4[] = "post_box_blur4";
     static constexpr char postFXAA[] = "post_fxaa";
