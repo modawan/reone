@@ -77,6 +77,10 @@ void PBRRenderPass::withMaterialAppliedToContext(const Material &material, std::
             }
         }
     }
+    if (material.textures.count(TextureUnits::mainArrayTex) > 0) {
+        program.setUniform("uMainArrayFrame", material.mainArrayFrame);
+    }
+
     auto prevBlending = _context.blendMode();
     if (material.blending && *material.blending != prevBlending) {
         _context.pushBlendMode(*material.blending);

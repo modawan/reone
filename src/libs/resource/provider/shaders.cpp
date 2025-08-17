@@ -242,6 +242,7 @@ std::shared_ptr<ShaderProgram> Shaders::initShaderProgram(std::vector<std::share
 
     // Samplers
     program->setUniform("sMainTex", TextureUnits::mainTex);
+    program->setUniform("sMainArrayTex", TextureUnits::mainArrayTex);
     program->setUniform("sLightmap", TextureUnits::lightmap);
     program->setUniform("sEnvMap", TextureUnits::envMap);
     program->setUniform("sNormalMap", TextureUnits::normalMap);

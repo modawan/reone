@@ -73,6 +73,7 @@ private:
     SceneNode &_target;
     graphics::Material _material;
     std::shared_ptr<graphics::Texture> _tex;
+    Timer _frameTimer;
 };
 
 } // namespace scene

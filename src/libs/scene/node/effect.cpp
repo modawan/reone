@@ -108,12 +108,21 @@ void DrainLifeBeamNode::render(IRenderPass &pass) {
                     /*numSegments=*/20, /*numOrientations=*/3);
 }
 
+static float fpsInterval(graphics::Texture &tex) {
+    return 1.0f / tex.features().fps;
+}
+
+static int numFrames(graphics::Texture &tex) {
+    const graphics::Texture::Features &f = tex.features();
+    return f.numX * f.numY;
+}
+
 FieldNode::FieldNode(
     ModelSceneNode &target,
     const std::shared_ptr<graphics::Texture> &tex,
     ISceneGraph &sceneGraph) :
     EffectSceneNode(sceneGraph),
-    _target(target), _tex(tex) {
+    _target(target), _tex(tex), _frameTimer(fpsInterval(*tex)) {
 
     _material.type = graphics::MaterialType::Field;
 
@@ -123,10 +132,16 @@ FieldNode::FieldNode(
         glm::vec4(0.0f, 0.0f, 0.0f, 0.0f));
 
     _material.faceCulling = graphics::FaceCullMode::None;
-    _material.textures.insert({graphics::TextureUnits::mainTex, *tex});
+    _material.textures.insert({graphics::TextureUnits::mainArrayTex, *tex});
 }
 
-void FieldNode::update(float dt) {}
+void FieldNode::update(float dt) {
+    _frameTimer.update(dt);
+    if (_frameTimer.elapsed()) {
+        _material.mainArrayFrame = (_material.mainArrayFrame + 1) % numFrames(*_tex);
+        _frameTimer.reset(fpsInterval(*_tex));
+    }
+}
 
 void FieldNode::render(IRenderPass &pass) {
     std::vector<SceneNode *> worklist;

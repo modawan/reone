@@ -167,11 +167,12 @@ struct TextureUnits {
     static constexpr int shadowMapArray = 15;
     static constexpr int irradianceMapArray = 16;
     static constexpr int prefilteredEnvMapArray = 17;
+    static constexpr int mainArrayTex = 18;
 
     // Cubemaps
 
-    static constexpr int envMapCube = 18;
-    static constexpr int shadowMapCube = 19;
+    static constexpr int envMapCube = 19;
+    static constexpr int shadowMapCube = 20;
 };
 
 // MDL
