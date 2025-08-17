@@ -17,6 +17,7 @@
 
 #include "reone/game/effect/beam.h"
 #include "reone/game/object.h"
+#include "reone/resource/provider/models.h"
 #include "reone/scene/graphs.h"
 #include "reone/scene/node/effect.h"
 
@@ -29,6 +30,7 @@ using namespace scene;
 BeamEffect::~BeamEffect() {
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);    
     sceneGraph.removeRoot(*_node);
+    _source->removeChild(*_conjNode);
 }
 
 static SceneNode &selectSourceNode(SceneNode *src) {
@@ -64,13 +66,17 @@ void BeamEffect::applyTo(Object &object) {
     std::shared_ptr<SceneNode> effectorNode = _effector->sceneNode();
     _target = object.sceneNode();
 
+    _source = &selectSourceNode(effectorNode.get());
+    SceneNode &target = selectTargetNode(_target.get());
+
     _node = std::make_shared<scene::DrainLifeBeamNode>(
-        selectSourceNode(effectorNode.get()),
-        selectTargetNode(_target.get()),
-        _duration,
-        sceneGraph);
+        *_source, target, _duration, sceneGraph);
 
     sceneGraph.addRoot(std::static_pointer_cast<scene::EffectSceneNode>(_node));
+
+    _conjModel = _services.resource.models.get("v_drain_dur");
+    _conjNode = sceneGraph.newModel(*_conjModel, scene::ModelUsage::Projectile);
+    _source->addChild(*_conjNode);
 }
 
 } // namespace game

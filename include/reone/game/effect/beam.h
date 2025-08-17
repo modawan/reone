@@ -20,6 +20,7 @@
 #include "../effect.h"
 #include "reone/game/di/services.h"
 #include "reone/scene/node/effect.h"
+#include "reone/scene/node/model.h"
 
 namespace reone {
 
@@ -55,6 +56,8 @@ private:
     bool _missEffect;
     ServicesView &_services;
     std::shared_ptr<scene::DrainLifeBeamNode> _node;
+    std::shared_ptr<scene::ModelSceneNode> _conjNode;
+    std::shared_ptr<graphics::Model> _conjModel;
     scene::SceneNode *_source {nullptr};
     std::shared_ptr<scene::SceneNode> _target;
 };
