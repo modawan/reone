@@ -27,6 +27,7 @@ layout(std140) uniform Locals {
     float uBumpMapScale;
     float uWaterAlpha;
     float uBillboardSize;
+    float uShiftAlongNormal;
 };
 
 uniform int uEnvMapDerivedLayer;

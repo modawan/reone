@@ -133,6 +133,7 @@ FieldNode::FieldNode(
 
     _material.faceCulling = graphics::FaceCullMode::None;
     _material.textures.insert({graphics::TextureUnits::mainArrayTex, *tex});
+    _material.shiftAlongNormal = 0.01f;
 }
 
 void FieldNode::update(float dt) {

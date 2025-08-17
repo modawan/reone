@@ -303,6 +303,7 @@ void PBRRenderPass::applyMaterialToLocals(const Material &material,
     locals.ambientColor = glm::vec4 {material.ambientColor, 0.0f};
     locals.diffuseColor = glm::vec4 {material.diffuseColor, 0.0f};
     locals.selfIllumColor = glm::vec4(material.selfIllumColor, 1.0f);
+    locals.shiftAlongNormal = material.shiftAlongNormal;
     if (material.textures.count(TextureUnits::mainTex) > 0) {
         const auto &mainTex = material.textures.at(TextureUnits::mainTex).get();
         if (mainTex.features().waterAlpha != -1.0f) {

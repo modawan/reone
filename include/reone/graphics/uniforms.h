@@ -117,6 +117,7 @@ struct LocalUniforms {
     float bumpMapScale;
     float waterAlpha;
     float billboardSize;
+    float shiftAlongNormal;
 
     LocalUniforms() {
         reset();
@@ -135,6 +136,7 @@ struct LocalUniforms {
         bumpMapScale = 1.0f;
         waterAlpha = 0.0f;
         billboardSize = 1.0f;
+        shiftAlongNormal = 0.0f;
     }
 };
 

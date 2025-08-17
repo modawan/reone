@@ -45,6 +45,7 @@ public:
     glm::vec4 color {1.0f};
     int bumpMapFrame {0};
     int mainArrayFrame {0};
+    float shiftAlongNormal {0.0f};
 
     glm::vec3 ambientColor {1.0f};
     glm::vec3 diffuseColor {1.0f};

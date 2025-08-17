@@ -64,6 +64,7 @@ void main() {
     }
 
     fragPosWorld = uModel * fragPos;
+    fragPosWorld += vec4(normalize(N).xyz * uShiftAlongNormal, 0.0f);
 
     mat3 normalMatrix = transpose(mat3(uModelInv));
     fragNormalWorld = normalize(normalMatrix * N.xyz);
