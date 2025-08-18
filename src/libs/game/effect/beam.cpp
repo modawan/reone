@@ -16,7 +16,9 @@
  */
 
 #include "reone/game/effect/beam.h"
+#include "reone/audio/mixer.h"
 #include "reone/game/object.h"
+#include "reone/resource/provider/audioclips.h"
 #include "reone/resource/provider/models.h"
 #include "reone/resource/provider/textures.h"
 #include "reone/scene/graphs.h"
@@ -48,6 +50,9 @@ BeamDrainLife::~BeamDrainLife() {
     }
     if (_conjNode) {
         _conjNode->parent()->removeChild(*_conjNode);
+    }
+    if (_audio) {
+        _audio->stop();
     }
 }
 
@@ -114,6 +119,13 @@ void BeamDrainLife::apply(Object &object, DurationType durationType, float durat
     _conjModel = _services.resource.models.get("v_drain_dur");
     _conjNode = sceneGraph.newModel(*_conjModel, scene::ModelUsage::Projectile);
     source.addChild(*_conjNode);
+
+    std::shared_ptr<audio::AudioClip> clip =
+        _services.resource.audioClips.get("v_bem_drainlife");
+
+    _audio = _services.audio.mixer.play(
+        std::move(clip), audio::AudioType::Sound,
+        /*gain=*/1.0f, /*loop=*/true, target.origin());
 }
 
 } // namespace game

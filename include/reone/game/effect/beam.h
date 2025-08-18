@@ -24,6 +24,10 @@
 
 namespace reone {
 
+namespace audio {
+class AudioSource;
+}
+
 namespace game {
 
 class BeamDrainLife : public Effect {
@@ -47,6 +51,7 @@ private:
     std::shared_ptr<scene::DrainLifeBeamNode> _beamNode;
     std::shared_ptr<scene::ModelSceneNode> _conjNode;
     std::shared_ptr<graphics::Model> _conjModel;
+    std::shared_ptr<audio::AudioSource> _audio;
 };
 
 } // namespace game
