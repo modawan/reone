@@ -34,6 +34,7 @@ public:
     }
 
     virtual void applyTo(Object &object);
+    virtual void apply(Object &object, DurationType durationType, float duration);
 
     EffectType type() const { return _type; }
 

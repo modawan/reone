@@ -436,15 +436,21 @@ static Variable EffectBeam(const std::vector<Variable> &args, const RoutineConte
     auto bMissEffect = getIntOrElse(args, 3, 0);
 
     // Transform
+    auto visualEffect = static_cast<VisualEffectType>(nBeamVisualEffect);
     auto bodyPart = static_cast<BodyNode>(nBodyPart);
     bool missEffect = static_cast<bool>(bMissEffect);
 
     // Execute
-    float duration = 10.0f;
-    auto effect = ctx.game.newEffect<BeamEffect>(
-        nBeamVisualEffect, duration,
-        std::move(oEffector), bodyPart, missEffect, ctx.services);
-
+    std::shared_ptr<Effect> effect;
+    switch (visualEffect) {
+    case VisualEffectType::BeamDrainLife: {
+        effect = ctx.game.newEffect<BeamDrainLife>(
+            std::move(oEffector), bodyPart, missEffect, ctx.services);
+        break;
+    }
+    default:
+        throw RoutineNotImplementedException(str(boost::format("Unsupported beam type %d") % static_cast<int>(nBeamVisualEffect)));
+    }
     return Variable::ofEffect(std::move(effect));
 }
 

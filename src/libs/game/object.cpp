@@ -254,17 +254,26 @@ void Object::moveDropableItemsTo(Object &other) {
     }
 }
 
-void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration) {
+void Object::applyEffect(const std::shared_ptr<Effect> &effect,
+                         DurationType durationType,
+                         float duration) {
     if (durationType == DurationType::Instant) {
         applyInstantEffect(*effect);
-    } else {
-        AppliedEffect appliedEffect;
-        appliedEffect.effect = effect;
-        appliedEffect.durationType = durationType;
-        appliedEffect.duration = duration;
-        applyInstantEffect(*effect);
-        _effects.push_back(std::move(appliedEffect));
+        return;
     }
+
+    if (durationType == DurationType::Permanent) {
+        duration = std::numeric_limits<float>::max();
+    }
+
+    AppliedEffect appliedEffect;
+    appliedEffect.effect = effect;
+    appliedEffect.durationType = durationType;
+    appliedEffect.duration = duration;
+    applyInstantEffect(*effect);
+    _effects.push_back(std::move(appliedEffect));
+
+    effect->apply(*this, durationType, duration);
 }
 
 void Object::applyInstantEffect(Effect &effect) {

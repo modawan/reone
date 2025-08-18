@@ -26,42 +26,27 @@ namespace reone {
 
 namespace game {
 
-class BeamEffect : public Effect {
+class BeamDrainLife : public Effect {
 public:
-    BeamEffect(
-        int beamVisualEffect,
-        float duration,
+    BeamDrainLife(
         std::shared_ptr<Object> effector,
         BodyNode bodyPart,
         bool missEffect,
-        ServicesView &services) :
-        Effect(EffectType::Beam),
-        _beamVisualEffect(beamVisualEffect),
-        _duration(duration),
-        _effector(std::move(effector)),
-        _bodyPart(bodyPart),
-        _missEffect(missEffect),
-        _services(services) {
-    }
+        ServicesView &services);
 
-    ~BeamEffect();
+    ~BeamDrainLife();
 
-    void applyTo(Object &object) override;
+    void apply(Object &object, DurationType durationType, float duration) override;
 
 private:
-    int _beamVisualEffect;
-    float _duration;
     std::shared_ptr<Object> _effector;
     BodyNode _bodyPart;
     bool _missEffect;
     ServicesView &_services;
-    std::shared_ptr<scene::DrainLifeBeamNode> _node;
-    std::shared_ptr<scene::FieldNode> _fieldNode;
-    std::shared_ptr<scene::ModelSceneNode> _conjNode;
 
+    std::shared_ptr<scene::DrainLifeBeamNode> _beamNode;
+    std::shared_ptr<scene::ModelSceneNode> _conjNode;
     std::shared_ptr<graphics::Model> _conjModel;
-    scene::SceneNode *_source {nullptr};
-    std::shared_ptr<scene::SceneNode> _target;
 };
 
 } // namespace game

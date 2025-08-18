@@ -27,6 +27,10 @@ void Effect::applyTo(Object &object) {
     debug("Unsupported effect type: " + std::to_string(static_cast<int>(_type)));
 }
 
+void Effect::apply(Object &object, DurationType durationType, float duration) {
+    debug("Unsupported effect type: " + std::to_string(static_cast<int>(_type)));
+}
+
 } // namespace game
 
 } // namespace reone
