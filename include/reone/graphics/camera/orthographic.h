@@ -23,6 +23,14 @@ namespace reone {
 
 namespace graphics {
 
+/// OrthographicCamera maps a 3D scene on a 2D screen plane without
+/// taking perspective into account. It is defined by width (left and
+/// right position on the X axis), height (bottom and top), and
+/// boundaries on the Z-axis (zNear and zFar). Ever vertex with Z <
+/// zNear or Z > zFar is clipped out.
+///
+/// See https://learnopengl.com/Getting-Started/Coordinate-Systems
+/// for more details.
 class OrthographicCamera : public Camera {
 public:
     OrthographicCamera() :
