@@ -105,6 +105,9 @@ bool AABB::intersect(const AABB &other) const {
            (_min.z <= other._max.z && _max.z >= other._min.z);
 }
 
+/// Find if a ray defined by origin and direction intersects a bounding box.
+/// See https://tavianator.com/2022/ray_box_boundary.html for details.
+/// FIXME: check if we need to improve NaN and corner case handling here.
 bool AABB::raycast(const glm::vec3 &origin,
                    const glm::vec3 &invDir,
                    float maxDistance,
