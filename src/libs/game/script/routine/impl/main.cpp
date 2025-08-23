@@ -1493,9 +1493,12 @@ static Variable ChangeFaction(const std::vector<Variable> &args, const RoutineCo
     auto oMemberOfFactionToJoin = getObject(args, 1, ctx);
 
     // Transform
+    auto target = checkCreature(oObjectToChangeFaction);
+    auto source = checkCreature(oMemberOfFactionToJoin);
 
     // Execute
-    throw RoutineNotImplementedException("ChangeFaction");
+    target->setFaction(source->faction());
+    return Variable::ofNull();
 }
 
 static Variable GetIsListening(const std::vector<Variable> &args, const RoutineContext &ctx) {
