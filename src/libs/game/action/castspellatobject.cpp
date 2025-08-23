@@ -16,13 +16,14 @@
  */
 
 #include "reone/game/action/castspellatobject.h"
-#include "reone/game/object/creature.h"
 #include "reone/audio/clip.h"
-#include "reone/audio/types.h"
 #include "reone/audio/mixer.h"
-#include "reone/resource/provider/audioclips.h"
-#include "reone/game/script/runner.h"
+#include "reone/audio/types.h"
 #include "reone/game/game.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/script/runner.h"
+#include "reone/resource/provider/audioclips.h"
+#include "reone/system/casting.h"
 
 namespace reone {
 
@@ -34,7 +35,7 @@ static void playAudioClip(std::string key, ServicesView &services) {
 }
 
 void CastSpellAtObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    if (actor.type() != ObjectType::Creature) {
+    if (!isa<Creature>(actor)) {
         complete();
         return;
     }

@@ -62,6 +62,7 @@
 #include "reone/scene/render/pipeline.h"
 #include "reone/script/di/services.h"
 #include "reone/system/binarywriter.h"
+#include "reone/system/casting.h"
 #include "reone/system/clock.h"
 #include "reone/system/di/services.h"
 #include "reone/system/exception/validation.h"
@@ -1004,13 +1005,13 @@ void Game::consoleGiveXP(const IConsole::TokenList &tokens) {
     if (!object) {
         object = party().getLeader();
     }
-    if (!object || object->type() != ObjectType::Creature) {
+    if (!object || !isa<Creature>(object)) {
         _console.printLine("No creature is selected");
         return;
     }
 
     int amount = stoi(tokens[1]);
-    std::static_pointer_cast<Creature>(object)->giveXP(amount);
+    cast<Creature>(object)->giveXP(amount);
 }
 
 void Game::consoleWarp(const IConsole::TokenList &tokens) {

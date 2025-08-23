@@ -29,6 +29,7 @@
 #include "reone/script/executioncontext.h"
 #include "reone/script/routine/exception/argmissing.h"
 #include "reone/script/routine/exception/argument.h"
+#include "reone/system/casting.h"
 
 using namespace reone::script;
 
@@ -55,7 +56,7 @@ static inline void throwIfInvalidObject(uint32_t objectId, const std::shared_ptr
 }
 
 static inline void throwIfObjectNotCreature(const std::shared_ptr<Object> &object) {
-    if (object->type() != ObjectType::Creature) {
+    if (!isa<Creature>(object)) {
         throw RoutineArgumentException(str(boost::format("Object %u is not a creature") % object->id()));
     }
 }

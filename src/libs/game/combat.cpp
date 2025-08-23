@@ -22,6 +22,7 @@
 #include "reone/game/game.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
+#include "reone/system/casting.h"
 #include "reone/system/logutil.h"
 #include "reone/system/randomutil.h"
 
@@ -104,8 +105,8 @@ void Combat::addAttack(std::shared_ptr<Creature> attacker,
 
 static void runOnAttackedScript(const Combat::Attack &attack) {
     Object &target = *attack.target;
-    if (target.type() == ObjectType::Creature) {
-        static_cast<Creature &>(target).onAttacked();
+    if (auto *creature = dyn_cast<Creature>(&target)) {
+        creature->onAttacked();
     }
 }
 
@@ -230,8 +231,8 @@ static void finishAttack(Combat::Attack &attack) {
     attack.attacker->setMovementRestricted(false);
     attack.attacker->runEndRoundScript();
 
-    if (attack.target->type() == ObjectType::Creature) {
-        std::static_pointer_cast<Creature>(attack.target)->onAttacked();
+    if (auto creature = dyn_cast<Creature>(attack.target)) {
+        creature->onAttacked();
     }
 }
 
@@ -265,8 +266,8 @@ AttackResultType Combat::determineAttackResult(const Attack &attack, bool offHan
 
     // Determine defense of a target
     int defense;
-    if (attack.target->type() == ObjectType::Creature) {
-        defense = std::static_pointer_cast<Creature>(attack.target)->getDefense();
+    if (auto creature = dyn_cast<Creature>(attack.target)) {
+        defense = creature->getDefense();
     } else {
         defense = 10;
     }
@@ -377,7 +378,7 @@ void Combat::applyAttackResult(const Attack &attack, bool offHand) {
 
     uint32_t attacker_id = attack.attacker->id();
     attack.target->setLastAttacker(attacker_id);
-    if (attack.attacker->type() == ObjectType::Creature) {
+    if (isa<Creature>(attack.attacker)) {
         attack.target->setLastHostileActor(attacker_id);
     }
 

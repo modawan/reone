@@ -20,6 +20,7 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/party.h"
+#include "reone/system/casting.h"
 
 namespace reone {
 
@@ -29,10 +30,10 @@ static constexpr float kMaxConversationDistance = 4.0f;
 
 void StartConversationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto actorPtr = _game.getObjectById(actor.id());
-    auto creatureActor = std::static_pointer_cast<Creature>(actorPtr);
+    auto creatureActor = dyn_cast<Creature>(actorPtr);
 
     bool reached =
-        actorPtr->type() != ObjectType::Creature ||
+        !creatureActor ||
         _ignoreStartRange ||
         creatureActor->navigateTo(_objectToConverse->position(), true, kMaxConversationDistance, dt);
 
