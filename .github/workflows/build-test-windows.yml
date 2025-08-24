@@ -1,5 +1,8 @@
 name: Build and run tests on Windows
 on:
+  push:
+    branches: [master]
+  pull_request:
   workflow_dispatch:
 env:
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
