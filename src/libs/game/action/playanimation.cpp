@@ -17,6 +17,7 @@
 
 #include "reone/game/action/playanimation.h"
 
+#include "reone/game/animationutil.h"
 #include "reone/game/object.h"
 #include "reone/scene/animproperties.h"
 
@@ -39,7 +40,13 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
     properties.speed = _speed;
     properties.duration = _durationSeconds;
 
+    bool looping = isAnimationLooping(_animation) && properties.duration == -1.0f;
     actor.playAnimation(_animation, std::move(properties));
+    if (looping) {
+        // Looping animations never finish. Complete the action
+        // immediately to avoid stalling the action queue.
+        complete();
+    }
 
     _playing = true;
 }
