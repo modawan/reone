@@ -308,7 +308,11 @@ bool Conversation::handleKeyUp(const input::KeyEvent &event) {
     if (code >= static_cast<char>(input::KeyCode::Key1) && code <= static_cast<char>(input::KeyCode::Key9)) {
         int index = code - static_cast<char>(input::KeyCode::Key1);
         if (_entryEnded) {
-            pickReply(index);
+            if (index >= 0 && index < static_cast<int>(_replies.size())) {
+                pickReply(index);
+            } else {
+                debug("Invalid reply index: " + std::to_string(index), LogChannel::Conversation);
+            }
             return true;
         }
     }
