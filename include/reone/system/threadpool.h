@@ -68,9 +68,11 @@ public:
     void deinit();
 
     std::shared_ptr<Task> enqueue(TaskFunc func) override {
-        std::lock_guard<std::mutex> lock(_mutex);
         auto task = std::make_shared<Task>(std::move(func));
-        _tasks.push(task);
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _tasks.push(task);
+        }
         _condVar.notify_one();
         return task;
     }

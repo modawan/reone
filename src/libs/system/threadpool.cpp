@@ -23,18 +23,19 @@ void ThreadPool::init() {
     if (_numThreads == -1) {
         _numThreads = static_cast<int>(std::thread::hardware_concurrency());
     }
+    _running = true;
     for (auto i = 0; i < _numThreads; ++i) {
         _threads.emplace_back(std::bind(&ThreadPool::workerThreadFunc, this));
     }
-    _running = true;
 }
 
 void ThreadPool::deinit() {
-    _running = false;
     {
         std::lock_guard<std::mutex> lock(_mutex);
-        _condVar.notify_all();
+        _running = false;
     }
+    _condVar.notify_all();
+
     for (auto &thread : _threads) {
         if (thread.joinable()) {
             thread.join();
