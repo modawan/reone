@@ -27,29 +27,29 @@ namespace reone {
 namespace game {
 
 void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    std::shared_ptr<Object> actorPtr(_game.getObjectById(actor.id()));
-    auto creatureActor = std::dynamic_pointer_cast<Creature>(actorPtr);
-    auto door = std::dynamic_pointer_cast<Door>(_door);
-
-    bool reached = !creatureActor || creatureActor->navigateTo(door->position(), true, kDefaultMaxObjectDistance, dt);
-    if (reached) {
-        bool isObjectSelf = actorPtr == door;
-        if (!isObjectSelf && door->isLocked()) {
-            std::string onFailToOpen(door->getOnFailToOpen());
-            if (!onFailToOpen.empty()) {
-                _game.scriptRunner().run(onFailToOpen, door->id(), actor.id());
-            }
-        } else {
-            door->open(actorPtr);
-            if (!isObjectSelf) {
-                std::string onOpen(door->getOnOpen());
-                if (!onOpen.empty()) {
-                    _game.scriptRunner().run(onOpen, door->id(), actor.id(), -1);
-                }
-            }
+    if (actor.type() == ObjectType::Creature) {
+        auto &creature = static_cast<Creature &>(actor);
+        bool reached = creature.navigateTo(_door->position(), true, kDefaultMaxObjectDistance, dt);
+        if (!reached) {
+            return;
         }
-        complete();
+        creature.face(*_door);
     }
+
+    if (!_door->isLocked()) {
+        _door->open();
+    }
+
+    bool isObjectSelf = _door->id() == actor.id();
+    if (!isObjectSelf) {
+        if (_door->isLocked()) {
+            _door->onFailToOpen(actor);
+        } else {
+            _door->onOpen(actor);
+        }
+    }
+
+    complete();
 }
 
 } // namespace game

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2025 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,28 +17,16 @@
 
 #pragma once
 
-#include "../action.h"
-
 namespace reone {
 
 namespace game {
 
 class Door;
+class Object;
 
-class OpenDoorAction : public Action {
-public:
-    OpenDoorAction(Game &game,
-                   ServicesView &services,
-                   std::shared_ptr<Door> door) :
-        Action(game, services, ActionType::OpenDoor),
-        _door(std::move(door)) {
-    }
-
-    void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
-
-private:
-    std::shared_ptr<Door> _door;
-};
+// Move an actor to a door, unlock and open it. Returns true when this action is
+// complete.
+bool unlockDoor(Door &door, Object &actor, float distance, float dt);
 
 } // namespace game
 

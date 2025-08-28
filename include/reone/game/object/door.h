@@ -48,12 +48,15 @@ public:
 
     bool isSelectable() const override;
 
-    void open(const std::shared_ptr<Object> &triggerrer);
-    void close(const std::shared_ptr<Object> &triggerrer);
+    void open();
+    void close();
 
     bool isLocked() const { return _locked; }
     bool isStatic() const { return _static; }
     bool isKeyRequired() const { return _keyRequired; }
+
+    void onOpen(const Object &triggerer);
+    void onFailToOpen(const Object &triggerer);
 
     const std::string &getOnOpen() const { return _onOpen; }
     const std::string &getOnFailToOpen() const { return _onFailToOpen; }

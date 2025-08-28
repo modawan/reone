@@ -244,9 +244,10 @@ static Variable ActionOpenDoor(const std::vector<Variable> &args, const RoutineC
     auto oDoor = getObject(args, 0, ctx);
 
     // Transform
+    auto door = checkDoor(oDoor);
 
     // Execute
-    auto action = ctx.game.newAction<OpenDoorAction>(std::move(oDoor));
+    auto action = ctx.game.newAction<OpenDoorAction>(std::move(door));
     getCaller(ctx)->addAction(std::move(action));
     return Variable::ofNull();
 }

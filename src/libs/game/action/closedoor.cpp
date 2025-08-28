@@ -31,7 +31,7 @@ void CloseDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float
 
     bool reached = !creatureActor || creatureActor->navigateTo(door->position(), true, kDefaultMaxObjectDistance, dt);
     if (reached) {
-        door->close(creatureActor);
+        door->close();
         complete();
     }
 }
