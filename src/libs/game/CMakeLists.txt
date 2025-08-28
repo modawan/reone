@@ -321,6 +321,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/action/castfakespellatlocation.cpp
     ${GAME_SOURCE_DIR}/action/castfakespellatobject.cpp
     ${GAME_SOURCE_DIR}/action/castspellatobject.cpp
+    ${GAME_SOURCE_DIR}/action/commonactions.cpp
     ${GAME_SOURCE_DIR}/action/closedoor.cpp
     ${GAME_SOURCE_DIR}/action/docommand.cpp
     ${GAME_SOURCE_DIR}/action/equipitem.cpp

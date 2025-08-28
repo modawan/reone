@@ -112,7 +112,7 @@ bool Door::isSelectable() const {
     return !_static && !_open;
 }
 
-void Door::open(const std::shared_ptr<Object> &triggerrer) {
+void Door::open() {
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     if (model) {
         // model->setDefaultAnimation("opened1", AnimationProperties::fromFlags(AnimationFlags::loop));
@@ -130,7 +130,7 @@ void Door::open(const std::shared_ptr<Object> &triggerrer) {
     _open = true;
 }
 
-void Door::close(const std::shared_ptr<Object> &triggerrer) {
+void Door::close() {
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     if (model) {
         // model->setDefaultAnimation("closed", AnimationProperties::fromFlags(AnimationFlags::loop));
@@ -146,6 +146,20 @@ void Door::close(const std::shared_ptr<Object> &triggerrer) {
         _walkmeshClosed->setEnabled(true);
     }
     _open = false;
+}
+
+void Door::onOpen(const Object &triggerer) {
+    if (_onOpen.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(_onOpen, _id, triggerer.id());
+}
+
+void Door::onFailToOpen(const Object &triggerer) {
+    if (_onFailToOpen.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(_onFailToOpen, _id, triggerer.id());
 }
 
 void Door::setLocked(bool locked) {

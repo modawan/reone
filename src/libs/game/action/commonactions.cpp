@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2025 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,30 +15,38 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/game/action/openlock.h"
-
-#include "reone/system/logutil.h"
-
-#include "commonactions.h"
-#include "reone/game/di/services.h"
-#include "reone/game/game.h"
+#include "reone/game/action.h"
+#include "reone/game/object.h"
+#include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
-#include "reone/game/script/runner.h"
 
 namespace reone {
 
 namespace game {
 
-void OpenLockAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    if (_target->type() == ObjectType::Door) {
-        if (unlockDoor(static_cast<Door &>(*_target), actor, kDefaultMaxObjectDistance, dt)) {
-            complete();
+bool unlockDoor(Door &door, Object &actor, float distance, float dt) {
+    if (actor.type() == ObjectType::Creature) {
+        auto &creature = static_cast<Creature &>(actor);
+        bool reached = creature.navigateTo(door.position(), true, distance, dt);
+        if (!reached) {
+            return false;
         }
-        return;
+        creature.face(door);
+        creature.playAnimation(AnimationType::LoopingUnlockDoor);
     }
 
-    warn("ActionExecutor: unsupported OpenLockAction target");
-    complete();
+    // FIXME: wait for animation to play
+
+    if (door.isKeyRequired()) {
+        // FIXME: run onFailedToOpen?
+        return true;
+    }
+
+    door.setLocked(false);
+    door.open();
+    door.onOpen(actor);
+
+    return true;
 }
 
 } // namespace game

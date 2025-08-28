@@ -27,15 +27,15 @@ class OpenLockAction : public Action {
 public:
     OpenLockAction(Game &game,
                    ServicesView &services,
-                   std::shared_ptr<Object> object) :
+                   std::shared_ptr<Object> target) :
         Action(game, services, ActionType::OpenLock),
-        _object(std::move(object)) {
+        _target(std::move(target)) {
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
 private:
-    std::shared_ptr<Object> _object;
+    std::shared_ptr<Object> _target;
 };
 
 } // namespace game
