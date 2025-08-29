@@ -83,6 +83,31 @@ struct Variable {
     static Variable ofAction(std::shared_ptr<ExecutionContext> context);
 };
 
+enum class ArgKind {
+    Caller,
+    UserDefinedEventNumber,
+};
+
+struct Argument {
+    Argument() = default;
+    Argument(ArgKind kind, Variable var) :
+        kind(kind), var(var) {
+
+        verify();
+    }
+
+    ArgKind kind;
+    Variable var;
+
+    std::string toString() const;
+
+    /// Parse "kind:value" and construct an Argument
+    static Argument fromString(std::string str);
+
+private:
+    void verify();
+};
+
 } // namespace script
 
 } // namespace reone

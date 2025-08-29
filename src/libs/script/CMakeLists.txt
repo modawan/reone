@@ -38,6 +38,7 @@ set(SCRIPT_HEADERS
 
 set(SCRIPT_SOURCES
     ${SCRIPT_SOURCE_DIR}/di/module.cpp
+    ${SCRIPT_SOURCE_DIR}/executioncontext.cpp
     ${SCRIPT_SOURCE_DIR}/format/ncsreader.cpp
     ${SCRIPT_SOURCE_DIR}/format/ncswriter.cpp
     ${SCRIPT_SOURCE_DIR}/instrutil.cpp

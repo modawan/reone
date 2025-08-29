@@ -1210,7 +1210,12 @@ static Variable SignalEvent(const std::vector<Variable> &args, const RoutineCont
 
     // Execute
     debug(str(boost::format("Event signalled: %s %s") % oObject->tag() % evToRun->number()), LogChannel::Script);
-    ctx.game.scriptRunner().run(oObject->getOnUserDefined(), oObject->id(), kObjectInvalid, evToRun->number());
+
+    ctx.game.scriptRunner().run(
+        oObject->getOnUserDefined(),
+        {{script::ArgKind::Caller, Variable::ofObject(oObject->id())},
+         {script::ArgKind::UserDefinedEventNumber, Variable::ofInt(evToRun->number())}});
+
     return Variable::ofNull();
 }
 
@@ -2161,7 +2166,11 @@ static Variable GetLastSpell(const std::vector<Variable> &args, const RoutineCon
 
 static Variable GetUserDefinedEventNumber(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    return Variable::ofInt(ctx.execution.userDefinedEventNumber);
+    if (const Variable *eventNum = ctx.execution.findArg(ArgKind::UserDefinedEventNumber)) {
+        return *eventNum;
+    }
+
+    return Variable::ofInt(-1);
 }
 
 static Variable GetSpellId(const std::vector<Variable> &args, const RoutineContext &ctx) {

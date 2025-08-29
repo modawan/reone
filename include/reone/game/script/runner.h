@@ -18,6 +18,7 @@
 #pragma once
 
 #include "reone/script/types.h"
+#include "reone/script/variable.h"
 
 namespace reone {
 
@@ -48,6 +49,10 @@ public:
         uint32_t triggerrerId = script::kObjectInvalid,
         int userDefinedEventNumber = -1,
         int scriptVar = -1);
+
+    int run(
+        const std::string &resRef,
+        const std::vector<script::Argument> &args);
 
 private:
     script::IRoutines &_routines;

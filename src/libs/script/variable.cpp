@@ -138,6 +138,62 @@ const std::string Variable::toString() const {
     }
 }
 
+const char *argKindToString(ArgKind kind) {
+    switch (kind) {
+    case ArgKind::Caller:
+        return "Caller";
+    case ArgKind::UserDefinedEventNumber:
+        return "UserDefinedEventNumber";
+    }
+
+    throw std::logic_error("Unsupported arg kind: " +
+                           std::to_string(static_cast<int>(kind)));
+}
+
+std::string Argument::toString() const {
+    return str(boost::format("%s:%s") % argKindToString(kind) % var.toString());
+}
+
+Argument Argument::fromString(std::string str) {
+    size_t colon = str.find(":");
+    if (colon == std::string::npos) {
+        throw std::invalid_argument("expected format: kind:value");
+    }
+
+    std::string value = str.substr(colon + 1);
+    std::string kind(std::move(str));
+    kind.resize(colon);
+
+    if (kind == "Caller") {
+        return {ArgKind::Caller, Variable::ofObject(std::stoul(value))};
+    }
+    if (kind == "UserDefinedEventNumber") {
+        return {ArgKind::UserDefinedEventNumber, Variable::ofInt(std::stoi(value))};
+    }
+
+    throw std::logic_error("Unsupported arg kind: " + kind);
+}
+
+void Argument::verify() {
+    switch (kind) {
+    case ArgKind::Caller: {
+        if (var.type != VariableType::Object || var.objectId == kObjectSelf) {
+            throw std::invalid_argument(toString() + ": expected an object != self");
+        }
+        return;
+    }
+    case ArgKind::UserDefinedEventNumber: {
+        if (var.type != VariableType::Int) {
+            throw std::invalid_argument(toString() + ": expected an integer");
+        }
+        return;
+    }
+    }
+
+    throw std::logic_error("Unsupported arg kind: " +
+                           std::to_string(static_cast<int>(kind)));
+}
+
 } // namespace script
 
 } // namespace reone
