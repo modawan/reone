@@ -210,12 +210,24 @@ int VirtualMachine::run() {
         insOff = _context->savedState->insOffset;
     }
 
-    debug(str(boost::format("Run '%s': offset=%04x, caller=%u, triggerrer=%u") %
-              _program->name() %
-              insOff %
-              _context->callerId %
-              _context->triggererId),
-          LogChannel::Script);
+    // FIXME: keep ExecutionContext::callerId until transition to using
+    // arguments in complete.
+    if (Logger::instance.isChannelEnabled(LogChannel::Script)) {
+        std::stringstream ss;
+        ss << boost::format("Run '%s': offset=%04x, caller=%u, triggerrer=%u") %
+                  _program->name() %
+                  insOff %
+                  _context->callerId %
+                  _context->triggererId;
+
+        if (!_context->args.empty()) {
+            for (const Argument &var : _context->args) {
+                ss << ", ";
+                ss << var.toString();
+            }
+        }
+        debug(ss.str());
+    }
 
     while (insOff < _program->length()) {
         const Instruction &ins = _program->getInstruction(insOff);
@@ -341,9 +353,24 @@ void VirtualMachine::executeCONSTS(const Instruction &ins) {
 }
 
 void VirtualMachine::executeCONSTO(const Instruction &ins) {
-    uint32_t objectId = ins.objectId == kObjectSelf ? _context->callerId : ins.objectId;
     logOperands(0);
-    _stack.push_back(Variable::ofObject(objectId));
+
+    uint32_t id = ins.objectId;
+    if (id != kObjectSelf) {
+        _stack.push_back(Variable::ofObject(id));
+        logResults(1);
+        return;
+    }
+
+    if (const Variable *caller = _context->findArg(ArgKind::Caller)) {
+        _stack.push_back(*caller);
+        logResults(1);
+        return;
+    }
+
+    // FIXME: keep ExecutionContext::callerId until transition to using
+    // arguments in complete.
+    _stack.push_back(Variable::ofObject(_context->callerId));
     logResults(1);
 }
 

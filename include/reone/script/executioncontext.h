@@ -18,6 +18,7 @@
 #pragma once
 
 #include "types.h"
+#include "variable.h"
 
 namespace reone {
 
@@ -32,8 +33,18 @@ struct ExecutionContext {
     std::shared_ptr<ExecutionState> savedState;
     uint32_t callerId {kObjectInvalid};
     uint32_t triggererId {kObjectInvalid};
-    int userDefinedEventNumber {-1};
     int scriptVar {-1};
+
+    std::vector<Argument> args;
+
+    /// Find an argument variable or return nullptr.
+    ///
+    /// Arguments are specific to a script run. For example, LastOpenedBy
+    /// argument is passed to an onOpen script (typically set on a
+    /// door). Scripts can read arguments by calling corresponding routine
+    /// actions. For example, scripts use GetLastOpenedBy routine to read
+    /// LastOpenedBy argument.
+    const Variable *findArg(ArgKind kind);
 };
 
 } // namespace script

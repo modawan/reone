@@ -46,8 +46,19 @@ int ScriptRunner::run(const std::string &resRef, uint32_t callerId, uint32_t tri
     ctx->routines = &_routines;
     ctx->callerId = callerId;
     ctx->triggererId = triggerrerId;
-    ctx->userDefinedEventNumber = userDefinedEventNumber;
     ctx->scriptVar = scriptVar;
+
+    return VirtualMachine(program, std::move(ctx)).run();
+}
+
+int ScriptRunner::run(const std::string &resRef, const std::vector<Argument> &args) {
+    auto program = _scripts.get(resRef);
+    if (!program)
+        return -1;
+
+    auto ctx = std::make_unique<ExecutionContext>();
+    ctx->routines = &_routines;
+    ctx->args = args;
 
     return VirtualMachine(program, std::move(ctx)).run();
 }

@@ -32,6 +32,26 @@ namespace game {
 
 void DoCommandAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto executionCtx = std::make_unique<ExecutionContext>(*_actionToDo);
+
+    // ExecutionContext may be applied to another actor - update the Caller
+    // argument to match. We keep other arguments intact because this is a
+    // continuation of the original context.
+    //
+    // For example, if a context starts as an onOpen script of a door, saves
+    // state, and reassigns itself via AssignCommand to a character - this
+    // continuation should to keep LastOpenedBy argument and return it via
+    // GetLastOpenedBy routine.
+    //
+    // Besides the Caller, scripts do not seem to use other arguments with
+    // AssignCommand.
+    for (Argument &arg : executionCtx->args) {
+        if (arg.kind == script::ArgKind::Caller) {
+            arg.var.objectId = actor.id();
+        }
+    }
+
+    // FIXME: keep ExecutionContext::callerId until transition to using
+    // arguments in complete.
     executionCtx->callerId = actor.id();
 
     std::shared_ptr<ScriptProgram> program(_actionToDo->savedState->program);
