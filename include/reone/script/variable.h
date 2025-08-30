@@ -89,6 +89,11 @@ enum class ArgKind {
     UserDefinedEventNumber,
     EnteringObject,
     ExitingObject,
+    LastPerceived,
+    LastPerceptionHeard,
+    LastPerceptionInaudible,
+    LastPerceptionSeen,
+    LastPerceptionVanished,
 };
 
 struct Argument {

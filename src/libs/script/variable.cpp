@@ -150,6 +150,16 @@ const char *argKindToString(ArgKind kind) {
         return "EnteringObject";
     case ArgKind::ExitingObject:
         return "ExitingObject";
+    case ArgKind::LastPerceived:
+        return "LastPerceived";
+    case ArgKind::LastPerceptionHeard:
+        return "LastPerceptionHeard";
+    case ArgKind::LastPerceptionInaudible:
+        return "LastPerceptionInaudible";
+    case ArgKind::LastPerceptionSeen:
+        return "LastPerceptionSeen";
+    case ArgKind::LastPerceptionVanished:
+        return "LastPerceptionVanished";
     }
 
     throw std::logic_error("Unsupported arg kind: " +
@@ -185,6 +195,21 @@ Argument Argument::fromString(std::string str) {
     if (kind == "ExitingObject") {
         return {ArgKind::ExitingObject, Variable::ofObject(std::stoul(value))};
     }
+    if (kind == "LastPerceived") {
+        return {ArgKind::LastPerceived, Variable::ofObject(std::stoul(value))};
+    }
+    if (kind == "LastPerceptionHeard") {
+        return {ArgKind::LastPerceptionHeard, Variable::ofInt(std::stoi(value))};
+    }
+    if (kind == "LastPerceptionInaudible") {
+        return {ArgKind::LastPerceptionInaudible, Variable::ofInt(std::stoi(value))};
+    }
+    if (kind == "LastPerceptionSeen") {
+        return {ArgKind::LastPerceptionSeen, Variable::ofInt(std::stoi(value))};
+    }
+    if (kind == "LastPerceptionVanished") {
+        return {ArgKind::LastPerceptionVanished, Variable::ofInt(std::stoi(value))};
+    }
 
     throw std::logic_error("Unsupported arg kind: " + kind);
 }
@@ -193,14 +218,19 @@ void Argument::verify() {
     switch (kind) {
     case ArgKind::Caller:
     case ArgKind::EnteringObject:
-    case ArgKind::ExitingObject: {
+    case ArgKind::ExitingObject:
+    case ArgKind::LastPerceived: {
         if (var.type != VariableType::Object || var.objectId == kObjectSelf) {
             throw std::invalid_argument(toString() + ": expected an object != self");
         }
         return;
     }
     case ArgKind::ScriptVar:
-    case ArgKind::UserDefinedEventNumber: {
+    case ArgKind::UserDefinedEventNumber:
+    case ArgKind::LastPerceptionHeard:
+    case ArgKind::LastPerceptionInaudible:
+    case ArgKind::LastPerceptionSeen:
+    case ArgKind::LastPerceptionVanished: {
         if (var.type != VariableType::Int) {
             throw std::invalid_argument(toString() + ": expected an integer");
         }
