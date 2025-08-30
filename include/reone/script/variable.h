@@ -86,6 +86,8 @@ struct Variable {
 enum class ArgKind {
     Caller,
     UserDefinedEventNumber,
+    EnteringObject,
+    ExitingObject,
 };
 
 struct Argument {

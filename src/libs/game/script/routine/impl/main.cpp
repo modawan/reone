@@ -269,14 +269,20 @@ static Variable GetArea(const std::vector<Variable> &args, const RoutineContext 
 
 static Variable GetEnteringObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    auto triggerrer = getTriggerrer(ctx);
-    return Variable::ofObject(getObjectIdOrInvalid(triggerrer));
+    if (const Variable *entering = ctx.execution.findArg(ArgKind::EnteringObject)) {
+        return *entering;
+    }
+
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetExitingObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    auto triggerrer = getTriggerrer(ctx);
-    return Variable::ofObject(getObjectIdOrInvalid(triggerrer));
+    if (const Variable *exiting = ctx.execution.findArg(ArgKind::ExitingObject)) {
+        return *exiting;
+    }
+
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetPosition(const std::vector<Variable> &args, const RoutineContext &ctx) {
