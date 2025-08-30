@@ -44,10 +44,18 @@ void DoCommandAction::execute(std::shared_ptr<Action> self, Object &actor, float
     //
     // Besides the Caller, scripts do not seem to use other arguments with
     // AssignCommand.
+
+    bool foundCaller = false;
     for (Argument &arg : executionCtx->args) {
         if (arg.kind == script::ArgKind::Caller) {
             arg.var.objectId = actor.id();
+            foundCaller = true;
+            break;
         }
+    }
+    if (!foundCaller) {
+        executionCtx->args.emplace_back(script::ArgKind::Caller,
+                                        Variable::ofObject(actor.id()));
     }
 
     // FIXME: keep ExecutionContext::callerId until transition to using
