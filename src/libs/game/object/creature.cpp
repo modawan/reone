@@ -548,38 +548,40 @@ void Creature::stopTalking() {
     }
 }
 
-void Creature::onObjectSeen(const std::shared_ptr<Object> &object) {
-    _perception.seen.insert(object);
-    _perception.lastPerception = PerceptionType::Seen;
-    _perception.lastPerceived = object;
-    runOnNoticeScript();
-}
-
-void Creature::runOnNoticeScript() {
-    if (!_onNotice.empty()) {
-        _game.scriptRunner().run(_onNotice, _id, _perception.lastPerceived->id());
+void Creature::setObjectSeen(const std::shared_ptr<Object> &object, bool seen) {
+    if (seen) {
+        _perception.seen.insert(object);
+    } else {
+        _perception.seen.erase(object);
     }
 }
 
-void Creature::onObjectVanished(const std::shared_ptr<Object> &object) {
-    _perception.seen.erase(object);
-    _perception.lastPerception = PerceptionType::NotSeen;
-    _perception.lastPerceived = object;
-    runOnNoticeScript();
+void Creature::setObjectHeard(const std::shared_ptr<Object> &object, bool heard) {
+    if (heard) {
+        _perception.heard.insert(object);
+    } else {
+        _perception.heard.erase(object);
+    }
 }
 
-void Creature::onObjectHeard(const std::shared_ptr<Object> &object) {
-    _perception.heard.insert(object);
-    _perception.lastPerception = PerceptionType::Heard;
-    _perception.lastPerceived = object;
-    runOnNoticeScript();
-}
+void Creature::runOnNotice(const Object &object, bool heard, bool seen) {
+    // Execute onNotice once to handle both "heard" and "seen" perception
+    // checks. k_ai_master script checks them in sequence, and performs
+    // differently when an object is just "heard" assuming that it is not
+    // "seen".
 
-void Creature::onObjectInaudible(const std::shared_ptr<Object> &object) {
-    _perception.heard.erase(object);
-    _perception.lastPerception = PerceptionType::NotHeard;
-    _perception.lastPerceived = object;
-    runOnNoticeScript();
+    if (_onNotice.empty()) {
+        return;
+    }
+
+    _game.scriptRunner().run(
+        _onNotice,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::LastPerceived, Variable::ofObject(object.id())},
+         {script::ArgKind::LastPerceptionHeard, Variable::ofInt(heard)},
+         {script::ArgKind::LastPerceptionInaudible, Variable::ofInt(!heard)},
+         {script::ArgKind::LastPerceptionSeen, Variable::ofInt(seen)},
+         {script::ArgKind::LastPerceptionVanished, Variable::ofInt(!seen)}});
 }
 
 void Creature::activateCombat() {

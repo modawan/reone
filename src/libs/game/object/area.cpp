@@ -1215,23 +1215,23 @@ void Area::doUpdatePerception() {
 
             // Hearing
             bool wasHeard = creature->perception().heard.count(other) > 0;
-            if (!wasHeard && heard) {
-                debug(str(boost::format("%s heard by %s") % other->tag() % creature->tag()), LogChannel::Perception);
-                creature->onObjectHeard(other);
-            } else if (wasHeard && !heard) {
-                debug(str(boost::format("%s inaudible to %s") % other->tag() % creature->tag()), LogChannel::Perception);
-                creature->onObjectInaudible(other);
+            bool wasSeen = creature->perception().seen.count(other) > 0;
+
+            if (wasHeard == heard && wasSeen == seen) {
+                continue; // no change in perception
             }
 
-            // Sight
-            bool wasSeen = creature->perception().seen.count(other) > 0;
-            if (!wasSeen && seen) {
-                debug(str(boost::format("%s seen by %s") % other->tag() % creature->tag()), LogChannel::Perception);
-                creature->onObjectSeen(other);
-            } else if (wasSeen && !seen) {
-                debug(str(boost::format("%s vanished from %s") % other->tag() % creature->tag()), LogChannel::Perception);
-                creature->onObjectVanished(other);
+            if (wasHeard != heard) {
+                debug(str(boost::format("%s %s %s") % other->tag() % (heard ? "heard by" : "inaudible by") % creature->tag()), LogChannel::Perception);
+                creature->setObjectHeard(other, heard);
             }
+
+            if (wasSeen != seen) {
+                debug(str(boost::format("%s %s %s") % other->tag() % (seen ? "seen by" : "vanished from") % creature->tag()), LogChannel::Perception);
+                creature->setObjectSeen(other, seen);
+            }
+
+            creature->runOnNotice(*other, heard, seen);
         }
     }
 }

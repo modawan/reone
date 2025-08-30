@@ -2235,30 +2235,34 @@ static Variable BeginConversation(const std::vector<Variable> &args, const Routi
 
 static Variable GetLastPerceived(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    auto caller = checkCreature(getCaller(ctx));
-    auto perceived = caller->perception().lastPerceived;
-    return Variable::ofObject(getObjectIdOrInvalid(perceived));
+    if (const Variable *percieved = ctx.execution.findArg(ArgKind::LastPerceived)) {
+        return *percieved;
+    }
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetLastPerceptionHeard(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    auto caller = checkCreature(getCaller(ctx));
-    bool heard = caller->perception().lastPerception == PerceptionType::Heard;
-    return Variable::ofInt(static_cast<int>(heard));
+    if (const Variable *heard = ctx.execution.findArg(ArgKind::LastPerceptionHeard)) {
+        return *heard;
+    }
+    return Variable::ofInt(0);
 }
 
 static Variable GetLastPerceptionInaudible(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    auto caller = checkCreature(getCaller(ctx));
-    bool inaudible = caller->perception().lastPerception == PerceptionType::NotHeard;
-    return Variable::ofInt(static_cast<int>(inaudible));
+    if (const Variable *inaudible = ctx.execution.findArg(ArgKind::LastPerceptionInaudible)) {
+        return *inaudible;
+    }
+    return Variable::ofInt(0);
 }
 
 static Variable GetLastPerceptionSeen(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    auto caller = checkCreature(getCaller(ctx));
-    bool seen = caller->perception().lastPerception == PerceptionType::Seen;
-    return Variable::ofInt(static_cast<int>(seen));
+    if (const Variable *seen = ctx.execution.findArg(ArgKind::LastPerceptionSeen)) {
+        return *seen;
+    }
+    return Variable::ofInt(0);
 }
 
 static Variable GetLastClosedBy(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -2269,9 +2273,10 @@ static Variable GetLastClosedBy(const std::vector<Variable> &args, const Routine
 
 static Variable GetLastPerceptionVanished(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    auto caller = checkCreature(getCaller(ctx));
-    bool vanished = caller->perception().lastPerception == PerceptionType::NotSeen;
-    return Variable::ofInt(static_cast<int>(vanished));
+    if (const Variable *vanished = ctx.execution.findArg(ArgKind::LastPerceptionVanished)) {
+        return *vanished;
+    }
+    return Variable::ofInt(0);
 }
 
 static Variable GetFirstInPersistentObject(const std::vector<Variable> &args, const RoutineContext &ctx) {

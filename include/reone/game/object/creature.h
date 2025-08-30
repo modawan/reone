@@ -75,8 +75,6 @@ public:
         float hearingRange {0.0f};
         std::set<std::shared_ptr<Object>> seen;
         std::set<std::shared_ptr<Object>> heard;
-        PerceptionType lastPerception {PerceptionType::Seen};
-        std::shared_ptr<Object> lastPerceived;
     };
 
     struct CombatState {
@@ -194,6 +192,10 @@ public:
     void onObjectVanished(const std::shared_ptr<Object> &object);
     void onObjectHeard(const std::shared_ptr<Object> &object);
     void onObjectInaudible(const std::shared_ptr<Object> &object);
+
+    void setObjectSeen(const std::shared_ptr<Object> &object, bool seen);
+    void setObjectHeard(const std::shared_ptr<Object> &object, bool heard);
+    void runOnNotice(const Object &object, bool heard, bool seen);
 
     const Perception &perception() const { return _perception; }
 
@@ -323,7 +325,6 @@ private:
     void updateCombat(float dt);
 
     inline void runDeathScript();
-    inline void runOnNoticeScript();
 
     ModelType parseModelType(const std::string &s) const;
 
