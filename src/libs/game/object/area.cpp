@@ -755,7 +755,10 @@ void Area::runOnEnterScript() {
     if (!player)
         return;
 
-    _game.scriptRunner().run(_onEnter, _id, player->id());
+    _game.scriptRunner().run(
+        _onEnter,
+        {{script::ArgKind::Caller, script::Variable::ofObject(_id)},
+         {script::ArgKind::EnteringObject, script::Variable::ofObject(player->id())}});
 }
 
 void Area::runOnExitScript() {
@@ -766,7 +769,10 @@ void Area::runOnExitScript() {
     if (!player)
         return;
 
-    _game.scriptRunner().run(_onExit, _id, player->id());
+    _game.scriptRunner().run(
+        _onExit,
+        {{script::ArgKind::Caller, script::Variable::ofObject(_id)},
+         {script::ArgKind::ExitingObject, script::Variable::ofObject(player->id())}});
 }
 
 void Area::destroyObject(const Object &object) {
@@ -880,7 +886,11 @@ void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer) 
             return;
         }
         if (!trigger->getOnEnter().empty()) {
-            _game.scriptRunner().run(trigger->getOnEnter(), trigger->id(), triggerrer->id());
+            _game.scriptRunner().run(
+                trigger->getOnEnter(),
+                {{script::ArgKind::Caller, script::Variable::ofObject(trigger->id())},
+                 {script::ArgKind::EnteringObject,
+                  script::Variable::ofObject(triggerrer->id())}});
         }
     }
 }

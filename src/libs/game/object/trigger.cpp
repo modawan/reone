@@ -94,9 +94,16 @@ void Trigger::update(float dt) {
     }
     for (auto &tenant : tenantsToRemove) {
         _tenants.erase(tenant);
-        if (!_onExit.empty()) {
-            _game.scriptRunner().run(_onExit, _id, tenant->id());
+
+        // FIXME: run onEnter too?
+        if (_onExit.empty()) {
+            continue;
         }
+
+        _game.scriptRunner().run(
+            _onExit,
+            {{script::ArgKind::Caller, script::Variable::ofObject(_id)},
+             {script::ArgKind::ExitingObject, script::Variable::ofObject(tenant->id())}});
     }
 }
 
