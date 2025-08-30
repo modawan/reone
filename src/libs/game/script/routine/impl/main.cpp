@@ -162,7 +162,20 @@ static Variable ExecuteScript(const std::vector<Variable> &args, const RoutineCo
     // Transform
 
     // Execute
-    ctx.game.scriptRunner().run(sScript, oTarget->id(), kObjectInvalid, kObjectInvalid, nScriptVar);
+    std::vector<script::Argument> scriptArgs;
+    scriptArgs.emplace_back(script::ArgKind::Caller, Variable::ofObject(oTarget->id()));
+    scriptArgs.emplace_back(script::ArgKind::ScriptVar, Variable::ofInt(nScriptVar));
+
+    // Copy all arguments from the parent execution context. This essentially
+    // extends lifetime of arguments to the callee script. For example, onNotice
+    // scripts call ExecuteScript for k_ai_master, which in turn needs
+    // GetLastPerception and other perception arguments.
+    for (const Argument &origArg : ctx.execution.args) {
+        scriptArgs.emplace_back(origArg);
+    }
+
+    ctx.game.scriptRunner().run(sScript, scriptArgs);
+
     return Variable::ofNull();
 }
 
@@ -4659,7 +4672,10 @@ static Variable EndGame(const std::vector<Variable> &args, const RoutineContext 
 
 static Variable GetRunScriptVar(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    return Variable::ofInt(ctx.execution.scriptVar);
+    if (const Variable *var = ctx.execution.findArg(ArgKind::ScriptVar)) {
+        return *var;
+    }
+    return Variable::ofInt(-1);
 }
 
 static Variable GetCreatureMovmentType(const std::vector<Variable> &args, const RoutineContext &ctx) {
