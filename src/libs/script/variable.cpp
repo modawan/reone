@@ -150,6 +150,10 @@ const char *argKindToString(ArgKind kind) {
         return "EnteringObject";
     case ArgKind::ExitingObject:
         return "ExitingObject";
+    case ArgKind::LastClosedBy:
+        return "LastClosedBy";
+    case ArgKind::LastOpenedBy:
+        return "LastOpenedBy";
     case ArgKind::LastPerceived:
         return "LastPerceived";
     case ArgKind::LastPerceptionHeard:
@@ -195,6 +199,12 @@ Argument Argument::fromString(std::string str) {
     if (kind == "ExitingObject") {
         return {ArgKind::ExitingObject, Variable::ofObject(std::stoul(value))};
     }
+    if (kind == "LastClosedBy") {
+        return {ArgKind::LastClosedBy, Variable::ofObject(std::stoul(value))};
+    }
+    if (kind == "LastOpenedBy") {
+        return {ArgKind::LastOpenedBy, Variable::ofObject(std::stoul(value))};
+    }
     if (kind == "LastPerceived") {
         return {ArgKind::LastPerceived, Variable::ofObject(std::stoul(value))};
     }
@@ -219,6 +229,8 @@ void Argument::verify() {
     case ArgKind::Caller:
     case ArgKind::EnteringObject:
     case ArgKind::ExitingObject:
+    case ArgKind::LastClosedBy:
+    case ArgKind::LastOpenedBy:
     case ArgKind::LastPerceived: {
         if (var.type != VariableType::Object || var.objectId == kObjectSelf) {
             throw std::invalid_argument(toString() + ": expected an object != self");
