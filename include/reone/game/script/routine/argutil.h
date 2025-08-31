@@ -45,7 +45,6 @@ class Sound;
 class Talent;
 
 std::shared_ptr<Object> getCaller(const RoutineContext &ctx);
-std::shared_ptr<Object> getTriggerrer(const RoutineContext &ctx);
 
 int getInt(const std::vector<script::Variable> &args, int index);
 float getFloat(const std::vector<script::Variable> &args, int index);

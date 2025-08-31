@@ -45,14 +45,11 @@ public:
 
     int run(
         const std::string &resRef,
-        uint32_t callerId = script::kObjectInvalid,
-        uint32_t triggerrerId = script::kObjectInvalid,
-        int userDefinedEventNumber = -1,
-        int scriptVar = -1);
-
-    int run(
-        const std::string &resRef,
         const std::vector<script::Argument> &args);
+
+    // Run a script with a single ArgKind::Caller argument. When callerId is 0,
+    // run a script without arguments.
+    int run(const std::string &resRef, uint32_t callerId = 0);
 
 private:
     script::IRoutines &_routines;

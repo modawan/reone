@@ -58,10 +58,6 @@ void DoCommandAction::execute(std::shared_ptr<Action> self, Object &actor, float
                                         Variable::ofObject(actor.id()));
     }
 
-    // FIXME: keep ExecutionContext::callerId until transition to using
-    // arguments in complete.
-    executionCtx->callerId = actor.id();
-
     std::shared_ptr<ScriptProgram> program(_actionToDo->savedState->program);
     VirtualMachine(program, std::move(executionCtx)).run();
     complete();

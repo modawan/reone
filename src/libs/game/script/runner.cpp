@@ -30,27 +30,6 @@ namespace reone {
 
 namespace game {
 
-int ScriptRunner::run(const std::string &resRef, uint32_t callerId, uint32_t triggerrerId, int userDefinedEventNumber, int scriptVar) {
-    if (callerId == kObjectSelf) {
-        throw std::invalid_argument("Invalid callerId: " + std::to_string(callerId));
-    }
-    if (triggerrerId == kObjectSelf) {
-        throw std::invalid_argument("Invalid triggerrerId: " + std::to_string(triggerrerId));
-    }
-
-    auto program = _scripts.get(resRef);
-    if (!program)
-        return -1;
-
-    auto ctx = std::make_unique<ExecutionContext>();
-    ctx->routines = &_routines;
-    ctx->callerId = callerId;
-    ctx->triggererId = triggerrerId;
-    ctx->scriptVar = scriptVar;
-
-    return VirtualMachine(program, std::move(ctx)).run();
-}
-
 int ScriptRunner::run(const std::string &resRef, const std::vector<Argument> &args) {
     auto program = _scripts.get(resRef);
     if (!program)
@@ -61,6 +40,14 @@ int ScriptRunner::run(const std::string &resRef, const std::vector<Argument> &ar
     ctx->args = args;
 
     return VirtualMachine(program, std::move(ctx)).run();
+}
+
+int ScriptRunner::run(const std::string &resRef, uint32_t callerId) {
+    std::vector<Argument> args;
+    if (callerId) {
+        args.emplace_back(script::ArgKind::Caller, Variable::ofObject(callerId));
+    }
+    return run(resRef, args);
 }
 
 } // namespace game

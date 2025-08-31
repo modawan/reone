@@ -453,13 +453,13 @@ int Creature::getNeededXP() const {
 
 void Creature::runSpawnScript() {
     if (!_onSpawn.empty()) {
-        _game.scriptRunner().run(_onSpawn, _id, kObjectInvalid);
+        _game.scriptRunner().run(_onSpawn, _id);
     }
 }
 
 void Creature::runEndRoundScript() {
     if (!_onEndRound.empty()) {
-        _game.scriptRunner().run(_onEndRound, _id, kObjectInvalid);
+        _game.scriptRunner().run(_onEndRound, _id);
     }
 }
 
@@ -501,7 +501,7 @@ void Creature::die() {
 
 void Creature::runDeathScript() {
     if (!_onDeath.empty()) {
-        _game.scriptRunner().run(_onDeath, _id, kObjectInvalid);
+        _game.scriptRunner().run(_onDeath, _id);
     }
 }
 
