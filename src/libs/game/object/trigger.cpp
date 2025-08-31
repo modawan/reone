@@ -95,7 +95,6 @@ void Trigger::update(float dt) {
     for (auto &tenant : tenantsToRemove) {
         _tenants.erase(tenant);
 
-        // FIXME: run onEnter too?
         if (_onExit.empty()) {
             continue;
         }
@@ -109,6 +108,15 @@ void Trigger::update(float dt) {
 
 void Trigger::addTenant(const std::shared_ptr<Object> &object) {
     _tenants.insert(object);
+    if (_onEnter.empty()) {
+        return;
+    }
+
+    _game.scriptRunner().run(
+        _onEnter,
+        {{script::ArgKind::Caller, script::Variable::ofObject(_id)},
+         {script::ArgKind::EnteringObject,
+          script::Variable::ofObject(object->id())}});
 }
 
 bool Trigger::isIn(const glm::vec2 &point) const {
