@@ -152,11 +152,12 @@ void Door::onOpen(const Object &triggerer) {
     if (_onOpen.empty()) {
         return;
     }
-    // FIXME: add ClickingObject and EnteringObject.
     _game.scriptRunner().run(
         _onOpen,
         {{script::ArgKind::Caller, Variable::ofObject(_id)},
-         {script::ArgKind::LastOpenedBy, Variable::ofObject(triggerer.id())}});
+         {script::ArgKind::LastOpenedBy, Variable::ofObject(triggerer.id())},
+         {script::ArgKind::ClickingObject, Variable::ofObject(triggerer.id())},
+         {script::ArgKind::EnteringObject, Variable::ofObject(triggerer.id())}});
 }
 
 void Door::onFailToOpen(const Object &triggerer) {
@@ -164,10 +165,10 @@ void Door::onFailToOpen(const Object &triggerer) {
         return;
     }
 
-    // FIXME: add ClickingObject.
     _game.scriptRunner().run(
         _onFailToOpen,
-        {{script::ArgKind::Caller, Variable::ofObject(_id)}});
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::ClickingObject, Variable::ofObject(triggerer.id())}});
 }
 
 void Door::setLocked(bool locked) {
