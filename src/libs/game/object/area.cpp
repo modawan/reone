@@ -885,13 +885,6 @@ void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer) 
             _game.scheduleModuleTransition(trigger->linkedToModule(), trigger->linkedTo());
             return;
         }
-        if (!trigger->getOnEnter().empty()) {
-            _game.scriptRunner().run(
-                trigger->getOnEnter(),
-                {{script::ArgKind::Caller, script::Variable::ofObject(trigger->id())},
-                 {script::ArgKind::EnteringObject,
-                  script::Variable::ofObject(triggerrer->id())}});
-        }
     }
 }
 
