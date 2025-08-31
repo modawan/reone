@@ -166,6 +166,8 @@ const char *argKindToString(ArgKind kind) {
         return "LastPerceptionSeen";
     case ArgKind::LastPerceptionVanished:
         return "LastPerceptionVanished";
+    case ArgKind::LastUsedBy:
+        return "LastUsedBy";
     }
 
     throw std::logic_error("Unsupported arg kind: " +
@@ -225,6 +227,9 @@ Argument Argument::fromString(std::string str) {
     if (kind == "LastPerceptionVanished") {
         return {ArgKind::LastPerceptionVanished, Variable::ofInt(std::stoi(value))};
     }
+    if (kind == "LastUsedBy") {
+        return {ArgKind::LastUsedBy, Variable::ofObject(std::stoul(value))};
+    }
 
     throw std::logic_error("Unsupported arg kind: " + kind);
 }
@@ -237,7 +242,8 @@ void Argument::verify() {
     case ArgKind::ExitingObject:
     case ArgKind::LastClosedBy:
     case ArgKind::LastOpenedBy:
-    case ArgKind::LastPerceived: {
+    case ArgKind::LastPerceived:
+    case ArgKind::LastUsedBy: {
         if (var.type != VariableType::Object || var.objectId == kObjectSelf) {
             throw std::invalid_argument(toString() + ": expected an object != self");
         }

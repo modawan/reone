@@ -2878,7 +2878,10 @@ static Variable GetLastWeaponUsed(const std::vector<Variable> &args, const Routi
 
 static Variable GetLastUsedBy(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetLastUsedBy");
+    if (const Variable *usedBy = ctx.execution.findArg(ArgKind::LastUsedBy)) {
+        return *usedBy;
+    }
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetAbilityModifier(const std::vector<Variable> &args, const RoutineContext &ctx) {

@@ -94,8 +94,10 @@ void Placeable::runOnUsed(std::shared_ptr<Object> usedBy) {
     std::vector<script::Argument> args;
     args.emplace_back(script::ArgKind::Caller, Variable::ofObject(_id));
 
-    // FIXME: implement GetLastUsedBy
-    // usedBy ? usedBy->id() : kObjectInvalid;
+    if (usedBy) {
+        args.emplace_back(script::ArgKind::LastUsedBy,
+                          Variable::ofObject(usedBy->id()));
+    }
 
     _game.scriptRunner().run(_onUsed, args);
 }
