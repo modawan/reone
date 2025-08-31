@@ -146,6 +146,8 @@ const char *argKindToString(ArgKind kind) {
         return "ScriptVar";
     case ArgKind::UserDefinedEventNumber:
         return "UserDefinedEventNumber";
+    case ArgKind::ClickingObject:
+        return "ClickingObject";
     case ArgKind::EnteringObject:
         return "EnteringObject";
     case ArgKind::ExitingObject:
@@ -193,6 +195,9 @@ Argument Argument::fromString(std::string str) {
     if (kind == "UserDefinedEventNumber") {
         return {ArgKind::UserDefinedEventNumber, Variable::ofInt(std::stoi(value))};
     }
+    if (kind == "ClickingObject") {
+        return {ArgKind::ClickingObject, Variable::ofObject(std::stoul(value))};
+    }
     if (kind == "EnteringObject") {
         return {ArgKind::EnteringObject, Variable::ofObject(std::stoul(value))};
     }
@@ -227,6 +232,7 @@ Argument Argument::fromString(std::string str) {
 void Argument::verify() {
     switch (kind) {
     case ArgKind::Caller:
+    case ArgKind::ClickingObject:
     case ArgKind::EnteringObject:
     case ArgKind::ExitingObject:
     case ArgKind::LastClosedBy:

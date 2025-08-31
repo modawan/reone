@@ -2850,7 +2850,10 @@ static Variable GetLocked(const std::vector<Variable> &args, const RoutineContex
 
 static Variable GetClickingObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetClickingObject");
+    if (const Variable *object = ctx.execution.findArg(ArgKind::ClickingObject)) {
+        return *object;
+    }
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable SetAssociateListenPatterns(const std::vector<Variable> &args, const RoutineContext &ctx) {
