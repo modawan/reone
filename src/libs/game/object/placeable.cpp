@@ -87,15 +87,31 @@ void Placeable::loadTransformFromGIT(const resource::generated::GIT_Placeable_Li
 }
 
 void Placeable::runOnUsed(std::shared_ptr<Object> usedBy) {
-    if (!_onUsed.empty()) {
-        _game.scriptRunner().run(_onUsed, _id, usedBy ? usedBy->id() : kObjectInvalid);
+    if (_onUsed.empty()) {
+        return;
     }
+
+    std::vector<script::Argument> args;
+    args.emplace_back(script::ArgKind::Caller, Variable::ofObject(_id));
+
+    // FIXME: implement GetLastUsedBy
+    // usedBy ? usedBy->id() : kObjectInvalid;
+
+    _game.scriptRunner().run(_onUsed, args);
 }
 
 void Placeable::runOnInvDisturbed(std::shared_ptr<Object> triggerrer) {
-    if (!_onInvDisturbed.empty()) {
-        _game.scriptRunner().run(_onInvDisturbed, _id, triggerrer ? triggerrer->id() : kObjectInvalid);
+    if (_onInvDisturbed.empty()) {
+        return;
     }
+
+    std::vector<script::Argument> args;
+    args.emplace_back(script::ArgKind::Caller, Variable::ofObject(_id));
+
+    // FIXME: implement LastDisturbed
+    // triggerrer ? triggerrer->id() : kObjectInvalid
+
+    _game.scriptRunner().run(_onInvDisturbed, args);
 }
 
 void Placeable::loadUTP(const resource::generated::UTP &utp) {

@@ -1021,17 +1021,18 @@ void Game::consoleWarp(const IConsole::TokenList &tokens) {
 
 void Game::consoleRunScript(const IConsole::TokenList &tokens) {
     if (tokens.size() < 3) {
-        _console.printLine("Usage: runscript resref caller_id [triggerrer_id [event_number [script_var]]], e.g. runscript k_ai_master 1 2 3 4");
+        _console.printLine("Usage: runscript resref [kind:value ...], e.g. runscript k_ai_master Caller:4 ScriptVar:2");
         return;
     }
 
     std::string resRef = tokens[1];
-    auto callerId = static_cast<uint32_t>(stoi(tokens[2]));
-    auto triggerrerId = tokens.size() > 3 ? static_cast<uint32_t>(stoi(tokens[3])) : kObjectInvalid;
-    int eventNumber = tokens.size() > 4 ? stoi(tokens[4]) : -1;
-    int scriptVar = tokens.size() > 5 ? stoi(tokens[5]) : -1;
 
-    int result = scriptRunner().run(resRef, callerId, triggerrerId, eventNumber, scriptVar);
+    std::vector<script::Argument> vars;
+    for (size_t i = 1; i < tokens.size(); ++i) {
+        vars.push_back(script::Argument::fromString(tokens[i]));
+    }
+
+    int result = scriptRunner().run(resRef, vars);
     _console.printLine(str(boost::format("%s -> %d") % resRef % result));
 }
 

@@ -210,15 +210,11 @@ int VirtualMachine::run() {
         insOff = _context->savedState->insOffset;
     }
 
-    // FIXME: keep ExecutionContext::callerId until transition to using
-    // arguments in complete.
     if (Logger::instance.isChannelEnabled(LogChannel::Script)) {
         std::stringstream ss;
-        ss << boost::format("Run '%s': offset=%04x, caller=%u, triggerrer=%u") %
+        ss << boost::format("Run '%s': Offset=%04x") %
                   _program->name() %
-                  insOff %
-                  _context->callerId %
-                  _context->triggererId;
+                  insOff;
 
         if (!_context->args.empty()) {
             for (const Argument &var : _context->args) {
@@ -368,9 +364,7 @@ void VirtualMachine::executeCONSTO(const Instruction &ins) {
         return;
     }
 
-    // FIXME: keep ExecutionContext::callerId until transition to using
-    // arguments in complete.
-    _stack.push_back(Variable::ofObject(_context->callerId));
+    _stack.push_back(Variable::ofObject(kObjectInvalid));
     logResults(1);
 }
 

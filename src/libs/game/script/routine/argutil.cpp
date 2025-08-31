@@ -115,21 +115,13 @@ static inline void throwIfInvalidTalent(const std::shared_ptr<Talent> &talent) {
 }
 
 std::shared_ptr<Object> getCaller(const RoutineContext &ctx) {
-    // FIXME: keep ExecutionContext::callerId until transition to using
-    // arguments in complete.
-    uint32_t id = ctx.execution.callerId;
+    uint32_t id = kObjectInvalid;
     if (const Variable *caller = ctx.execution.findArg(ArgKind::Caller)) {
         id = caller->objectId;
     }
 
     auto object = ctx.game.getObjectById(id);
     throwIfInvalidObject(id, object);
-    return object;
-}
-
-std::shared_ptr<Object> getTriggerrer(const RoutineContext &ctx) {
-    auto object = ctx.game.getObjectById(ctx.execution.triggererId);
-    throwIfInvalidObject(ctx.execution.triggererId, object);
     return object;
 }
 
@@ -165,10 +157,6 @@ std::shared_ptr<Object> getObject(const std::vector<Variable> &args, int index, 
     if (objectId == kObjectSelf) {
         if (const Variable *caller = ctx.execution.findArg(ArgKind::Caller)) {
             objectId = caller->objectId;
-        } else {
-            // FIXME: keep ExecutionContext::callerId until transition to using
-            // arguments in complete.
-            objectId = ctx.execution.callerId;
         }
     }
     auto object = ctx.game.getObjectById(objectId);

@@ -31,9 +31,6 @@ class IRoutines;
 struct ExecutionContext {
     IRoutines *routines {nullptr};
     std::shared_ptr<ExecutionState> savedState;
-    uint32_t callerId {kObjectInvalid};
-    uint32_t triggererId {kObjectInvalid};
-    int scriptVar {-1};
 
     std::vector<Argument> args;
 
