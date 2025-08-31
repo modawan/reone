@@ -2267,8 +2267,10 @@ static Variable GetLastPerceptionSeen(const std::vector<Variable> &args, const R
 
 static Variable GetLastClosedBy(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    auto triggerrer = getTriggerrer(ctx);
-    return Variable::ofObject(getObjectIdOrInvalid(triggerrer));
+    if (const Variable *lastClosed = ctx.execution.findArg(ArgKind::LastClosedBy)) {
+        return *lastClosed;
+    }
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetLastPerceptionVanished(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3266,8 +3268,10 @@ static Variable GetAttemptedSpellTarget(const std::vector<Variable> &args, const
 
 static Variable GetLastOpenedBy(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    auto triggerrer = getTriggerrer(ctx);
-    return Variable::ofObject(getObjectIdOrInvalid(triggerrer));
+    if (const Variable *opened = ctx.execution.findArg(ArgKind::LastOpenedBy)) {
+        return *opened;
+    }
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetHasSpell(const std::vector<Variable> &args, const RoutineContext &ctx) {

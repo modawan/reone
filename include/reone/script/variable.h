@@ -89,6 +89,8 @@ enum class ArgKind {
     UserDefinedEventNumber,
     EnteringObject,
     ExitingObject,
+    LastClosedBy,
+    LastOpenedBy,
     LastPerceived,
     LastPerceptionHeard,
     LastPerceptionInaudible,
