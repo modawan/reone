@@ -186,12 +186,15 @@ void Combat::startAttack(Attack &attack, bool duel) {
     _lastHostile[attack.target->id()] = attack.attacker->id();
     _lastHostile[attack.attacker->id()] = attack.target->id();
 
+    if (attack.target->type() == ObjectType::Creature) {
+        static_cast<Creature &>(*attack.target).activateCombat();
+    }
+
     if (duel) {
         auto target = std::static_pointer_cast<Creature>(attack.target);
         target->face(*attack.attacker);
         target->setMovementType(Creature::MovementType::None);
         target->setMovementRestricted(true);
-        target->activateCombat();
         target->setAttackTarget(attack.attacker);
         target->playAnimation(animation.targetAnimation, animation.attackerWieldType, animation.animationVariant);
     }
@@ -204,7 +207,10 @@ static void finishAttack(Combat::Attack &attack) {
     attack.attacker->deactivateCombat(kDeactivateDelay);
     attack.attacker->setAttackTarget(nullptr);
     attack.attacker->setMovementRestricted(false);
-    attack.attacker->runEndRoundScript();
+
+    if (attack.target->type() == ObjectType::Creature) {
+        static_cast<Creature &>(*attack.target).deactivateCombat(kDeactivateDelay);
+    }
 }
 
 void Combat::finishRound(Round &round) {
@@ -215,9 +221,24 @@ void Combat::finishRound(Round &round) {
     round.state = RoundState::Finished;
     debug(str(boost::format("Finish round: %s -> %s") % round.attack1->attacker->tag() % round.attack1->target->tag()), LogChannel::Combat);
 
+    std::set<Object *> objects; // TODO: SmallSet
+    objects.insert(round.attack1->attacker.get());
+    objects.insert(round.attack1->target.get());
+    if (round.attack2) {
+        objects.insert(round.attack2->attacker.get());
+        objects.insert(round.attack2->target.get());
+    }
+
     _lastAttacks[round.attack1->attacker->id()] = std::move(round.attack1);
     if (round.attack2) {
         _lastAttacks[round.attack2->attacker->id()] = std::move(round.attack2);
+    }
+
+    for (Object *obj : objects) {
+        if (obj->type() != ObjectType::Creature) {
+            continue;
+        }
+        static_cast<Creature *>(obj)->runEndRoundScript();
     }
 }
 
