@@ -68,7 +68,7 @@ public:
         Filtering minFilter {Filtering::LinearMipmapLinear};
         Filtering magFilter {Filtering::Linear};
         Wrapping wrap {Wrapping::Repeat};
-        glm::vec3 borderColor {0.0f};
+        glm::vec4 borderColor {0.0f};
         float anisotropy {1.0f};
     };
 
