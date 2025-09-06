@@ -73,8 +73,8 @@ public:
     struct Perception {
         float sightRange {0.0f};
         float hearingRange {0.0f};
-        std::set<std::shared_ptr<Object>> seen;
-        std::set<std::shared_ptr<Object>> heard;
+        std::set<uint32_t> seen;
+        std::set<uint32_t> heard;
     };
 
     struct CombatState {

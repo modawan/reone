@@ -1107,8 +1107,8 @@ bool Area::matchesCriterias(const Creature &creature, const SearchCriteriaList &
             if (!target)
                 return false;
 
-            bool seen = creature.perception().seen.count(target) > 0;
-            bool heard = creature.perception().heard.count(target) > 0;
+            bool seen = creature.perception().seen.count(target->id()) > 0;
+            bool heard = creature.perception().heard.count(target->id()) > 0;
             bool matches = false;
             auto perception = static_cast<PerceptionType>(criteria.second);
             switch (perception) {
@@ -1207,8 +1207,8 @@ void Area::doUpdatePerception() {
             }
 
             // Hearing
-            bool wasHeard = creature->perception().heard.count(other) > 0;
-            bool wasSeen = creature->perception().seen.count(other) > 0;
+            bool wasHeard = creature->perception().heard.count(other->id()) > 0;
+            bool wasSeen = creature->perception().seen.count(other->id()) > 0;
 
             if (wasHeard == heard && wasSeen == seen) {
                 continue; // no change in perception
