@@ -463,6 +463,14 @@ void Creature::runEndRoundScript() {
     }
 }
 
+void Creature::runDialogueScript(uint32_t speakerId, int32_t listenNumber) {
+    _game.scriptRunner().run(
+        _onDialogue,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::LastSpeaker, Variable::ofObject(speakerId)},
+         {script::ArgKind::ListenPatternNumber, Variable::ofInt(listenNumber)}});
+}
+
 void Creature::giveXP(int amount) {
     _xp += amount;
 }

@@ -38,6 +38,7 @@ set(TESTS_HEADERS
 set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/audio/format/wavreader.cpp
     ${TESTS_SOURCE_DIR}/game/pathfinder.cpp
+    ${TESTS_SOURCE_DIR}/game/messagebus.cpp
     ${TESTS_SOURCE_DIR}/graphics/aabb.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/bwmreader.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/mdlmdxreader.cpp

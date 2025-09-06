@@ -98,6 +98,8 @@ enum class ArgKind {
     LastPerceptionSeen,
     LastPerceptionVanished,
     LastUsedBy,
+    LastSpeaker,
+    ListenPatternNumber,
 };
 
 struct Argument {

@@ -236,6 +236,7 @@ public:
 
     void runSpawnScript();
     void runEndRoundScript();
+    void runDialogueScript(uint32_t speakerId, int32_t listenNumber);
 
     // END Scripts
 
@@ -244,6 +245,13 @@ public:
     void onEventSignalled(const std::string &name) override;
 
     // END IAnimationEventListener
+
+    // Listeners
+
+    bool isListening() { return _isListening; }
+    void setIsListening(bool value) { _isListening = value; }
+
+    // END Listeners
 
 private:
     Gender _gender {Gender::Male};
@@ -290,6 +298,7 @@ private:
     int _walkmeshMaterial {-1};
     int _gold {0}; /**< aka credits */
     std::string _envmap;
+    bool _isListening {false};
 
     std::shared_ptr<audio::AudioSource> _audioSourceVoice;
     std::shared_ptr<audio::AudioSource> _audioSourceFootstep;
