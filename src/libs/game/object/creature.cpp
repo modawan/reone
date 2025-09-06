@@ -550,17 +550,17 @@ void Creature::stopTalking() {
 
 void Creature::setObjectSeen(const std::shared_ptr<Object> &object, bool seen) {
     if (seen) {
-        _perception.seen.insert(object);
+        _perception.seen.insert(object->id());
     } else {
-        _perception.seen.erase(object);
+        _perception.seen.erase(object->id());
     }
 }
 
 void Creature::setObjectHeard(const std::shared_ptr<Object> &object, bool heard) {
     if (heard) {
-        _perception.heard.insert(object);
+        _perception.heard.insert(object->id());
     } else {
-        _perception.heard.erase(object);
+        _perception.heard.erase(object->id());
     }
 }
 
