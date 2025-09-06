@@ -141,6 +141,7 @@ Texture::Properties getTextureProperties(TextureUsage usage) {
     } else if (usage == TextureUsage::Font) {
         properties.minFilter = Texture::Filtering::Linear;
         properties.wrap = Texture::Wrapping::ClampToBorder;
+        properties.borderColor = glm::vec4(0.0f);
     }
 
     return properties;
