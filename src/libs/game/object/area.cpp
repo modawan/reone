@@ -651,6 +651,7 @@ void Area::update(float dt) {
         object->update(dt);
     }
     updatePerception(dt);
+    updateMessageBus();
     updateHeartbeat(dt);
 }
 
@@ -1227,6 +1228,23 @@ void Area::doUpdatePerception() {
             creature->runOnNotice(*other, heard, seen);
         }
     }
+}
+
+void Area::updateMessageBus() {
+    _messageBus.update([this](uint32_t speakerId, uint32_t listenerId,
+                              int32_t number, TalkVolume volume) {
+        auto listener = _game.getObjectById(listenerId);
+        if (listener->type() != ObjectType::Creature) {
+            return;
+        }
+        Creature &creature = static_cast<Creature &>(*listener);
+
+        bool heard = creature.perception().heard.count(speakerId);
+        if (!creature.isListening() || !heard) {
+            return;
+        }
+        creature.runDialogueScript(speakerId, number);
+    });
 }
 
 Object *Area::getObjectAt(int x, int y) const {

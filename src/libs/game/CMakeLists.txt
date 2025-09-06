@@ -278,6 +278,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/selectoverlay.h
     ${GAME_INCLUDE_DIR}/gui/sounds.h
     ${GAME_INCLUDE_DIR}/location.h
+    ${GAME_INCLUDE_DIR}/messagebus.h
     ${GAME_INCLUDE_DIR}/object.h
     ${GAME_INCLUDE_DIR}/object/area.h
     ${GAME_INCLUDE_DIR}/object/camera.h
@@ -469,6 +470,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/saveload.cpp
     ${GAME_SOURCE_DIR}/gui/selectoverlay.cpp
     ${GAME_SOURCE_DIR}/gui/sounds.cpp
+    ${GAME_SOURCE_DIR}/messagebus.cpp
     ${GAME_SOURCE_DIR}/object.cpp
     ${GAME_SOURCE_DIR}/object/area.cpp
     ${GAME_SOURCE_DIR}/object/camera/animated.cpp

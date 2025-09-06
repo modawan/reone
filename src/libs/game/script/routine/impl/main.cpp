@@ -1530,9 +1530,10 @@ static Variable GetIsListening(const std::vector<Variable> &args, const RoutineC
     auto oObject = getObject(args, 0, ctx);
 
     // Transform
+    auto creature = checkCreature(oObject);
 
     // Execute
-    throw RoutineNotImplementedException("GetIsListening");
+    return Variable::ofInt(creature->isListening());
 }
 
 static Variable SetListening(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -1541,9 +1542,11 @@ static Variable SetListening(const std::vector<Variable> &args, const RoutineCon
     auto bValue = getInt(args, 1);
 
     // Transform
+    auto creature = checkCreature(oObject);
 
     // Execute
-    throw RoutineNotImplementedException("SetListening");
+    creature->setIsListening(bValue);
+    return Variable::ofNull();
 }
 
 static Variable SetListenPattern(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -1553,9 +1556,11 @@ static Variable SetListenPattern(const std::vector<Variable> &args, const Routin
     auto nNumber = getIntOrElse(args, 2, 0);
 
     // Transform
+    auto creature = checkCreature(oObject);
 
     // Execute
-    throw RoutineNotImplementedException("SetListenPattern");
+    ctx.game.module()->area()->messageBus().addListener(creature->id(), sPattern, nNumber);
+    return Variable::ofNull();
 }
 
 static Variable TestStringAgainstPattern(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -1732,8 +1737,11 @@ static Variable GetGlobalString(const std::vector<Variable> &args, const Routine
 }
 
 static Variable GetListenPatternNumber(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    throw RoutineNotImplementedException("GetListenPatternNumber");
+    if (const Variable *number = ctx.execution.findArg(ArgKind::ListenPatternNumber)) {
+        return *number;
+    }
+
+    return Variable::ofInt(-1);
 }
 
 static Variable GetWaypointByTag(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -1932,9 +1940,17 @@ static Variable SpeakString(const std::vector<Variable> &args, const RoutineCont
     auto nTalkVolume = getIntOrElse(args, 1, 0);
 
     // Transform
+    auto object = getCaller(ctx);
+
+    if (nTalkVolume < 0 || nTalkVolume > (int32_t)TalkVolume::Last) {
+        throw RoutineArgumentException(str(boost::format("Invalid talk volume: %d") % nTalkVolume));
+    }
+
+    auto volume = static_cast<TalkVolume>(nTalkVolume);
 
     // Execute
-    throw RoutineNotImplementedException("SpeakString");
+    ctx.game.module()->area()->messageBus().addMessage(object->id(), sStringToSpeak, volume);
+    return Variable::ofNull();
 }
 
 static Variable GetSpellTargetLocation(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -2218,8 +2234,11 @@ static Variable GetName(const std::vector<Variable> &args, const RoutineContext 
 }
 
 static Variable GetLastSpeaker(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    throw RoutineNotImplementedException("GetLastSpeaker");
+    if (const Variable *speaker = ctx.execution.findArg(ArgKind::LastSpeaker)) {
+        return *speaker;
+    }
+
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable BeginConversation(const std::vector<Variable> &args, const RoutineContext &ctx) {

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "reone/game/messagebus.h"
 #include "reone/graphics/texture.h"
 #include "reone/graphics/types.h"
 #include "reone/input/event.h"
@@ -207,6 +208,13 @@ public:
 
     // END Scripts
 
+    // Listeners
+
+    MessageBus &messageBus() { return _messageBus; }
+    void updateMessageBus();
+
+    // END Listeners
+
 private:
     std::string _sceneName;
 
@@ -252,6 +260,10 @@ private:
     std::set<uint32_t> _objectsToDestroy;
 
     // END Objects
+
+    // Listeners
+    MessageBus _messageBus;
+    // END Listeners
 
     // Stealth
 
