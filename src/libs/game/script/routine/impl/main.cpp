@@ -4647,10 +4647,12 @@ static Variable GetLastHostileActor(const std::vector<Variable> &args, const Rou
     // Load
     auto oVictim = getObjectOrCaller(args, 0, ctx);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("GetLastHostileActor");
+    if (uint32_t hostileId = ctx.game.combat().getLastHostile(*oVictim)) {
+        return Variable::ofObject(hostileId);
+    }
+
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable ExportAllCharacters(const std::vector<Variable> &args, const RoutineContext &ctx) {

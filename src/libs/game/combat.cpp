@@ -183,7 +183,11 @@ void Combat::startAttack(Attack &attack, bool duel) {
     attack.attacker->setAttackTarget(attack.target);
     attack.attacker->playAnimation(animation.attackerAnimation, animation.attackerWieldType, animation.animationVariant);
 
+    _lastHostile[attack.target->id()] = attack.attacker->id();
+
     if (duel) {
+        _lastHostile[attack.attacker->id()] = attack.target->id();
+
         auto target = std::static_pointer_cast<Creature>(attack.target);
         target->face(*attack.attacker);
         target->setMovementType(Creature::MovementType::None);
@@ -497,6 +501,14 @@ void Combat::resetProjectile(Round &round) {
 
 const Combat::Attack *Combat::getLastAttack(Creature &creature) {
     return _lastAttacks[creature.id()].get();
+}
+
+uint32_t Combat::getLastHostile(Object &object) {
+    auto it = _lastHostile.find(object.id());
+    if (it != _lastHostile.end()) {
+        return it->second;
+    }
+    return 0;
 }
 
 } // namespace game
