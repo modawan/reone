@@ -364,7 +364,7 @@ void Object::clearAllEffects() {
     _effects.clear();
 }
 
-void Object::die() {
+void Object::damage(int amount, const Object *damager) {
 }
 
 void Object::startStuntMode() {

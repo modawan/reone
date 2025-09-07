@@ -20,6 +20,7 @@
 #include "reone/system/logutil.h"
 
 #include "reone/game/object.h"
+#include "reone/game/object/creature.h"
 
 namespace reone {
 
@@ -27,7 +28,7 @@ namespace game {
 
 void DamageEffect::applyTo(Object &object) {
     debug(str(boost::format("Damage taken: %s %d") % object.tag() % _amount));
-    object.setCurrentHitPoints(glm::max(object.isMinOneHP() ? 1 : 0, object.currentHitPoints() - _amount));
+    object.damage(_amount, _damager.get());
 }
 
 } // namespace game

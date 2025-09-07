@@ -44,7 +44,7 @@ public:
     virtual ~Object() = default;
 
     virtual void update(float dt);
-    virtual void die();
+    virtual void damage(int amount, const Object *damager);
 
     void face(const Object &other);
     void face(const glm::vec3 &point);
