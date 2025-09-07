@@ -172,6 +172,10 @@ const char *argKindToString(ArgKind kind) {
         return "LastSpeaker";
     case ArgKind::ListenPatternNumber:
         return "ListenPatternNumber";
+    case ArgKind::LastAttacker:
+        return "LastAttacker";
+    case ArgKind::LastDamager:
+        return "LastDamager";
     }
 
     throw std::logic_error("Unsupported arg kind: " +
@@ -240,6 +244,12 @@ Argument Argument::fromString(std::string str) {
     if (kind == "ListenPatternNumber") {
         return {ArgKind::ListenPatternNumber, Variable::ofInt(std::stoi(value))};
     }
+    if (kind == "LastAttacker") {
+        return {ArgKind::LastAttacker, Variable::ofObject(std::stoul(value))};
+    }
+    if (kind == "LastDamager") {
+        return {ArgKind::LastDamager, Variable::ofObject(std::stoul(value))};
+    }
 
     throw std::logic_error("Unsupported arg kind: " + kind);
 }
@@ -254,7 +264,9 @@ void Argument::verify() {
     case ArgKind::LastOpenedBy:
     case ArgKind::LastPerceived:
     case ArgKind::LastUsedBy:
-    case ArgKind::LastSpeaker: {
+    case ArgKind::LastSpeaker:
+    case ArgKind::LastAttacker:
+    case ArgKind::LastDamager: {
         if (var.type != VariableType::Object || var.objectId == kObjectSelf) {
             throw std::invalid_argument(toString() + ": expected an object != self");
         }

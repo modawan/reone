@@ -368,10 +368,16 @@ static Variable GetLastAttacker(const std::vector<Variable> &args, const Routine
     // Load
     auto oAttackee = getObjectOrCaller(args, 0, ctx);
 
-    // Transform
+    // Ignore oAttackee - this argument is not used in K1 and K2. Given that
+    // nwscript.nss mentions that GetLastAttacker is supposed to be used only in
+    // onAttacked scripts (and apparently in onDamaged and onDeath scripts as
+    // well), it does not make sense to query objects other than the caller.
 
     // Execute
-    throw RoutineNotImplementedException("GetLastAttacker");
+    if (const Variable *attacker = ctx.execution.findArg(ArgKind::LastAttacker)) {
+        return *attacker;
+    }
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetNearestCreature(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3064,7 +3070,10 @@ static Variable GetTotalDamageDealt(const std::vector<Variable> &args, const Rou
 
 static Variable GetLastDamager(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetLastDamager");
+    if (const Variable *damager = ctx.execution.findArg(ArgKind::LastDamager)) {
+        return *damager;
+    }
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetLastDisarmed(const std::vector<Variable> &args, const RoutineContext &ctx) {

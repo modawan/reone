@@ -237,6 +237,7 @@ public:
     void runSpawnScript();
     void runEndRoundScript();
     void runDialogueScript(uint32_t speakerId, int32_t listenNumber);
+    void runAttackedScript(uint32_t attackerId);
 
     // END Scripts
 
@@ -333,6 +334,7 @@ private:
     void updateCombat(float dt);
 
     void runDeathScript(uint32_t damagerId);
+    void runDamagedScript(uint32_t damagerId);
 
     ModelType parseModelType(const std::string &s) const;
 

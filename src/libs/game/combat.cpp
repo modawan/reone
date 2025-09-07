@@ -365,6 +365,10 @@ void Combat::applyAttackResult(const Attack &attack, bool offHand) {
 
     debug(str(boost::format("Attack %s: %s -> %s") % attackResultDesc(attack.resultType) % attack.attacker->tag() % attack.target->tag()), LogChannel::Combat);
 
+    if (attack.target->type() == ObjectType::Creature) {
+        static_cast<Creature &>(*attack.target).runAttackedScript(attack.attacker->id());
+    }
+
     switch (attack.resultType) {
     case AttackResultType::Miss:
     case AttackResultType::AttackResisted:
