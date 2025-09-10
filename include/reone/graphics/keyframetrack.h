@@ -76,11 +76,23 @@ public:
 private:
     std::vector<Keyframe> _keyframes;
 
+    template <typename T = Value,
+              typename std::enable_if_t<!std::is_same<glm::quat, T>::value, int> = 0>
     Value interpolateKeyframes(const Keyframe &lhs, const Keyframe &rhs, float factor) const {
         if (lhs.time == rhs.time) {
             return lhs.value;
         }
         return glm::mix(lhs.value, rhs.value, factor);
+    }
+
+    // For quaternions we have to use slerp to always take a shorter path.
+    template <typename T = Value,
+              typename std::enable_if_t<std::is_same<glm::quat, T>::value, int> = 1>
+    Value interpolateKeyframes(const Keyframe &lhs, const Keyframe &rhs, float factor) const {
+        if (lhs.time == rhs.time) {
+            return lhs.value;
+        }
+        return glm::slerp(lhs.value, rhs.value, factor);
     }
 };
 
