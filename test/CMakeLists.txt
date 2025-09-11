@@ -45,6 +45,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/graphics/format/tgareader.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/tpcreader.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/txireader.cpp
+    ${TESTS_SOURCE_DIR}/graphics/keyframetrack.cpp
     ${TESTS_SOURCE_DIR}/graphics/walkmesh.cpp
     ${TESTS_SOURCE_DIR}/resource/format/2dareader.cpp
     ${TESTS_SOURCE_DIR}/resource/format/2dawriter.cpp
