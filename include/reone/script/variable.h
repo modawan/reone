@@ -100,6 +100,8 @@ enum class ArgKind {
     LastUsedBy,
     LastSpeaker,
     ListenPatternNumber,
+    LastAttacker,
+    LastDamager,
 };
 
 struct Argument {

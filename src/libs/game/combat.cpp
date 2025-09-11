@@ -183,7 +183,11 @@ void Combat::startAttack(Attack &attack, bool duel) {
     attack.attacker->setAttackTarget(attack.target);
     attack.attacker->playAnimation(animation.attackerAnimation, animation.attackerWieldType, animation.animationVariant);
 
+    _lastHostile[attack.target->id()] = attack.attacker->id();
+
     if (duel) {
+        _lastHostile[attack.attacker->id()] = attack.target->id();
+
         auto target = std::static_pointer_cast<Creature>(attack.target);
         target->face(*attack.attacker);
         target->setMovementType(Creature::MovementType::None);
@@ -211,6 +215,11 @@ void Combat::finishRound(Round &round) {
     }
     round.state = RoundState::Finished;
     debug(str(boost::format("Finish round: %s -> %s") % round.attack1->attacker->tag() % round.attack1->target->tag()), LogChannel::Combat);
+
+    _lastAttacks[round.attack1->attacker->id()] = std::move(round.attack1);
+    if (round.attack2) {
+        _lastAttacks[round.attack2->attacker->id()] = std::move(round.attack2);
+    }
 }
 
 static bool isAttackSuccessful(AttackResultType result) {
@@ -331,6 +340,30 @@ Combat::AttackAnimation Combat::determineAttackAnimation(const Attack &attack, b
     return result;
 }
 
+static const char *attackResultDesc(AttackResultType type) {
+    switch (type) {
+    case AttackResultType::Miss:
+        return "missed";
+    case AttackResultType::AttackResisted:
+        return "resisted";
+    case AttackResultType::AttackFailed:
+        return "failed";
+    case AttackResultType::Parried:
+        return "parried";
+    case AttackResultType::Deflected:
+        return "deflected";
+    case AttackResultType::HitSuccessful:
+        return "hit";
+    case AttackResultType::AutomaticHit:
+        return "automatic hit";
+    case AttackResultType::CriticalHit:
+        return "critical hit";
+    case AttackResultType::Invalid:
+        break;
+    }
+    return "invalid";
+}
+
 void Combat::applyAttackResult(const Attack &attack, bool offHand) {
     // Determine critical hit multiplier
     int criticalHitMultiplier = 2;
@@ -339,48 +372,44 @@ void Combat::applyAttackResult(const Attack &attack, bool offHand) {
         criticalHitMultiplier = weapon->criticalHitMultiplier();
     }
 
+    debug(str(boost::format("Attack %s: %s -> %s") % attackResultDesc(attack.resultType) % attack.attacker->tag() % attack.target->tag()), LogChannel::Combat);
+
+    if (attack.target->type() == ObjectType::Creature) {
+        static_cast<Creature &>(*attack.target).runAttackedScript(attack.attacker->id());
+    }
+
     switch (attack.resultType) {
     case AttackResultType::Miss:
     case AttackResultType::AttackResisted:
     case AttackResultType::AttackFailed:
     case AttackResultType::Parried:
     case AttackResultType::Deflected:
-        debug(str(boost::format("Attack missed: %s -> %s") % attack.attacker->tag() % attack.target->tag()), LogChannel::Combat);
-        break;
+        return;
     case AttackResultType::HitSuccessful:
-    case AttackResultType::AutomaticHit: {
-        debug(str(boost::format("Attack hit: %s -> %s") % attack.attacker->tag() % attack.target->tag()), LogChannel::Combat);
-        if (attack.damage == -1) {
-            auto effects = getDamageEffects(attack.attacker, offHand);
-            for (auto &effect : effects) {
-                attack.target->applyEffect(effect, DurationType::Instant);
-            }
-        } else {
-            auto effect = _game.newEffect<DamageEffect>(
-                attack.damage,
-                DamageType::Universal,
-                DamagePower::Normal,
-                attack.attacker);
-            attack.target->applyEffect(std::move(effect), DurationType::Instant);
-        }
-        break;
-    }
+    case AttackResultType::AutomaticHit:
     case AttackResultType::CriticalHit: {
-        debug(str(boost::format("Attack critical hit: %s -> %s") % attack.attacker->tag() % attack.target->tag()), LogChannel::Combat);
+        int multiplier = (attack.resultType == AttackResultType::CriticalHit) ? 2 : 1;
+
         if (attack.damage == -1) {
             auto effects = getDamageEffects(attack.attacker, offHand, criticalHitMultiplier);
             for (auto &effect : effects) {
                 attack.target->applyEffect(effect, DurationType::Instant);
             }
-        } else {
-            std::shared_ptr<DamageEffect> effect(_game.newEffect<DamageEffect>(criticalHitMultiplier * attack.damage, DamageType::Universal, DamagePower::Normal, attack.attacker));
-            attack.target->applyEffect(std::move(effect), DurationType::Instant);
+            return;
         }
+
+        auto effect = _game.newEffect<DamageEffect>(
+            multiplier * attack.damage,
+            DamageType::Universal,
+            DamagePower::Normal,
+            attack.attacker);
+        attack.target->applyEffect(std::move(effect), DurationType::Instant);
+        return;
+    }
+    case AttackResultType::Invalid:
         break;
     }
-    default:
-        throw std::logic_error("Invalid attack result: " + std::to_string(static_cast<int>(attack.resultType)));
-    }
+    throw std::logic_error("Invalid attack result: " + std::to_string(static_cast<int>(attack.resultType)));
 }
 
 std::vector<std::shared_ptr<DamageEffect>> Combat::getDamageEffects(std::shared_ptr<Creature> damager, bool offHand, int multiplier) const {
@@ -468,6 +497,18 @@ void Combat::resetProjectile(Round &round) {
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
     sceneGraph.removeRoot(*round.projectile);
     round.projectile.reset();
+}
+
+const Combat::Attack *Combat::getLastAttack(Creature &creature) {
+    return _lastAttacks[creature.id()].get();
+}
+
+uint32_t Combat::getLastHostile(Object &object) {
+    auto it = _lastHostile.find(object.id());
+    if (it != _lastHostile.end()) {
+        return it->second;
+    }
+    return 0;
 }
 
 } // namespace game

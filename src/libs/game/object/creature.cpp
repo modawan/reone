@@ -182,7 +182,6 @@ bool Creature::isSelectable() const {
 void Creature::update(float dt) {
     Object::update(dt);
     updateModelAnimation();
-    updateHealth();
     updateCombat(dt);
 }
 
@@ -233,11 +232,31 @@ void Creature::updateModelAnimation() {
     _animDirty = false;
 }
 
-void Creature::updateHealth() {
-    if (_currentHitPoints > 0 || _immortal || _dead)
+void Creature::damage(int amount, const Object *damager) {
+    if (_dead) {
         return;
+    }
 
-    die();
+    if (amount == std::numeric_limits<int>::max()) {
+        _currentHitPoints = 0; // special case for Death effect
+    } else {
+        _currentHitPoints = std::max(isMinOneHP() ? 1 : 0, _currentHitPoints - amount);
+    }
+
+    runDamagedScript(damager ? damager->id() : script::kObjectInvalid);
+
+    if (_immortal || _currentHitPoints > 0) {
+        return;
+    }
+
+    _dead = true;
+    _name = _services.resource.strings.getText(kStrRefRemains);
+
+    debug(str(boost::format("Creature %s is dead") % _tag));
+
+    playSound(SoundSetEntry::Dead);
+    playAnimation(getDieAnimation());
+    runDeathScript(damager ? damager->id() : script::kObjectInvalid);
 }
 
 void Creature::updateCombat(float dt) {
@@ -495,22 +514,36 @@ void Creature::playSound(SoundSetEntry entry, bool positional) {
         std::move(position));
 }
 
-void Creature::die() {
-    _currentHitPoints = 0;
-    _dead = true;
-    _name = _services.resource.strings.getText(kStrRefRemains);
-
-    debug(str(boost::format("Creature %s is dead") % _tag));
-
-    playSound(SoundSetEntry::Dead);
-    playAnimation(getDieAnimation());
-    runDeathScript();
+void Creature::runAttackedScript(uint32_t attackerId) {
+    if (_onAttacked.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(
+        _onAttacked,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::LastAttacker, Variable::ofObject(attackerId)}});
 }
 
-void Creature::runDeathScript() {
-    if (!_onDeath.empty()) {
-        _game.scriptRunner().run(_onDeath, _id);
+void Creature::runDamagedScript(uint32_t damagerId) {
+    if (_onDamaged.empty()) {
+        return;
     }
+    _game.scriptRunner().run(
+        _onDamaged,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::LastAttacker, Variable::ofObject(damagerId)},
+         {script::ArgKind::LastDamager, Variable::ofObject(damagerId)}});
+}
+
+void Creature::runDeathScript(uint32_t damagerId) {
+    if (_onDeath.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(
+        _onDeath,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::LastAttacker, Variable::ofObject(damagerId)},
+         {script::ArgKind::LastDamager, Variable::ofObject(damagerId)}});
 }
 
 CreatureWieldType Creature::getWieldType() const {

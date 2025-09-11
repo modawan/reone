@@ -368,10 +368,16 @@ static Variable GetLastAttacker(const std::vector<Variable> &args, const Routine
     // Load
     auto oAttackee = getObjectOrCaller(args, 0, ctx);
 
-    // Transform
+    // Ignore oAttackee - this argument is not used in K1 and K2. Given that
+    // nwscript.nss mentions that GetLastAttacker is supposed to be used only in
+    // onAttacked scripts (and apparently in onDamaged and onDeath scripts as
+    // well), it does not make sense to query objects other than the caller.
 
     // Execute
-    throw RoutineNotImplementedException("GetLastAttacker");
+    if (const Variable *attacker = ctx.execution.findArg(ArgKind::LastAttacker)) {
+        return *attacker;
+    }
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetNearestCreature(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3064,7 +3070,10 @@ static Variable GetTotalDamageDealt(const std::vector<Variable> &args, const Rou
 
 static Variable GetLastDamager(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetLastDamager");
+    if (const Variable *damager = ctx.execution.findArg(ArgKind::LastDamager)) {
+        return *damager;
+    }
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetLastDisarmed(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4638,10 +4647,12 @@ static Variable GetLastHostileActor(const std::vector<Variable> &args, const Rou
     // Load
     auto oVictim = getObjectOrCaller(args, 0, ctx);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("GetLastHostileActor");
+    if (uint32_t hostileId = ctx.game.combat().getLastHostile(*oVictim)) {
+        return Variable::ofObject(hostileId);
+    }
+
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable ExportAllCharacters(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5340,19 +5351,31 @@ static Variable GetLastHostileTarget(const std::vector<Variable> &args, const Ro
     auto oAttacker = getObjectOrCaller(args, 0, ctx);
 
     // Transform
+    auto attacker = checkCreature(oAttacker);
 
     // Execute
-    throw RoutineNotImplementedException("GetLastHostileTarget");
+    const Combat::Attack *attack = ctx.game.combat().getLastAttack(*attacker);
+    if (!attack) {
+        return Variable::ofObject(kObjectInvalid);
+    }
+
+    return Variable::ofObject(attack->target->id());
 }
 
-static Variable GetLastAttackObjectAction(const std::vector<Variable> &args, const RoutineContext &ctx) {
+static Variable GetLastAttackAction(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto oAttacker = getObjectOrCaller(args, 0, ctx);
 
     // Transform
+    auto attacker = checkCreature(oAttacker);
 
     // Execute
-    throw RoutineNotImplementedException("GetLastAttackObjectAction");
+    const Combat::Attack *attack = ctx.game.combat().getLastAttack(*attacker);
+    if (!attack || !attack->action) {
+        return Variable::ofInt(static_cast<int>(ActionType::QueueEmpty));
+    }
+
+    return Variable::ofInt(static_cast<int>(attack->action->type()));
 }
 
 static Variable GetLastForcePowerUsed(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5380,9 +5403,15 @@ static Variable GetLastAttackResult(const std::vector<Variable> &args, const Rou
     auto oAttacker = getObjectOrCaller(args, 0, ctx);
 
     // Transform
+    auto attacker = checkCreature(oAttacker);
 
     // Execute
-    throw RoutineNotImplementedException("GetLastAttackResult");
+    const Combat::Attack *attack = ctx.game.combat().getLastAttack(*attacker);
+    if (attack) {
+        return Variable::ofInt(static_cast<int>(attack->resultType));
+    }
+
+    return Variable::ofInt(static_cast<int>(AttackResultType::Invalid));
 }
 
 static Variable GetWasForcePowerSuccessful(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7150,7 +7179,7 @@ void Routines::registerMainKotorRoutines() {
     insert(719, "SetGlobalFadeIn", R_VOID, {R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT}, &SetGlobalFadeIn);
     insert(720, "SetGlobalFadeOut", R_VOID, {R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT}, &SetGlobalFadeOut);
     insert(721, "GetLastHostileTarget", R_OBJECT, {R_OBJECT}, &GetLastHostileTarget);
-    insert(722, "GetLastAttackObjectAction", R_INT, {R_OBJECT}, &GetLastAttackObjectAction);
+    insert(722, "GetLastAttackAction", R_INT, {R_OBJECT}, &GetLastAttackAction);
     insert(723, "GetLastForcePowerUsed", R_INT, {R_OBJECT}, &GetLastForcePowerUsed);
     insert(724, "GetLastCombatFeatUsed", R_INT, {R_OBJECT}, &GetLastCombatFeatUsed);
     insert(725, "GetLastAttackResult", R_INT, {R_OBJECT}, &GetLastAttackResult);
@@ -7706,7 +7735,7 @@ void Routines::registerMainTslRoutines() {
     insert(719, "SetGlobalFadeIn", R_VOID, {R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT}, &SetGlobalFadeIn);
     insert(720, "SetGlobalFadeOut", R_VOID, {R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT, R_FLOAT}, &SetGlobalFadeOut);
     insert(721, "GetLastHostileTarget", R_OBJECT, {R_OBJECT}, &GetLastHostileTarget);
-    insert(722, "GetLastAttackObjectAction", R_INT, {R_OBJECT}, &GetLastAttackObjectAction);
+    insert(722, "GetLastAttackAction", R_INT, {R_OBJECT}, &GetLastAttackAction);
     insert(723, "GetLastForcePowerUsed", R_INT, {R_OBJECT}, &GetLastForcePowerUsed);
     insert(724, "GetLastCombatFeatUsed", R_INT, {R_OBJECT}, &GetLastCombatFeatUsed);
     insert(725, "GetLastAttackResult", R_INT, {R_OBJECT}, &GetLastAttackResult);

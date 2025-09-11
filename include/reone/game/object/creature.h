@@ -105,7 +105,7 @@ public:
     void update(float dt) override;
 
     void clearAllActions() override;
-    void die() override;
+    void damage(int amount, const Object *damager) override;
 
     void giveXP(int amount);
 
@@ -237,6 +237,7 @@ public:
     void runSpawnScript();
     void runEndRoundScript();
     void runDialogueScript(uint32_t speakerId, int32_t listenNumber);
+    void runAttackedScript(uint32_t attackerId);
 
     // END Scripts
 
@@ -330,10 +331,10 @@ private:
     void loadTransformFromGIT(const resource::generated::GIT_Creature_List &git);
 
     void updateModel();
-    void updateHealth();
     void updateCombat(float dt);
 
-    inline void runDeathScript();
+    void runDeathScript(uint32_t damagerId);
+    void runDamagedScript(uint32_t damagerId);
 
     ModelType parseModelType(const std::string &s) const;
 
