@@ -1081,67 +1081,78 @@ std::shared_ptr<Creature> Area::getNearestCreature(const std::shared_ptr<Object>
     return nth < candidates.size() ? candidates[nth].first : nullptr;
 }
 
+static bool matchesReputation(const Creature &creature, const Object *target,
+                              ReputationType reputation, IReputes &reputes) {
+    if (!target || target->type() != ObjectType::Creature) {
+        return false;
+    }
+    const Creature &targetCreature = static_cast<const Creature &>(*target);
+
+    switch (reputation) {
+    case ReputationType::Friend:
+        return reputes.getIsFriend(creature, targetCreature);
+    case ReputationType::Enemy:
+        return reputes.getIsEnemy(creature, targetCreature);
+    case ReputationType::Neutral:
+        return reputes.getIsNeutral(creature, targetCreature);
+    }
+    return false;
+}
+
+static bool matchesPerception(const Creature &creature, const Object *target,
+                              PerceptionType perception) {
+    if (!target || target->type() != ObjectType::Creature) {
+        return false;
+    }
+    const Creature &targetCreature = static_cast<const Creature &>(*target);
+
+    bool seen = targetCreature.perception().seen.count(creature.id());
+    bool heard = targetCreature.perception().heard.count(creature.id());
+
+    switch (perception) {
+    case PerceptionType::SeenAndHeard:
+        return seen && heard;
+    case PerceptionType::NotSeenAndNotHeard:
+        return !seen && !heard;
+    case PerceptionType::HeardAndNotSeen:
+        return heard && !seen;
+    case PerceptionType::SeenAndNotHeard:
+        return seen && !heard;
+    case PerceptionType::NotHeard:
+        return !heard;
+    case PerceptionType::Heard:
+        return heard;
+    case PerceptionType::NotSeen:
+        return !seen;
+    case PerceptionType::Seen:
+        return seen;
+    }
+    return false;
+}
+
 bool Area::matchesCriterias(const Creature &creature, const SearchCriteriaList &criterias, std::shared_ptr<Object> target) const {
+    if (!target || target->type() != ObjectType::Creature) {
+        // Reputation and Perception checks need a target
+        return false;
+    }
+
+    Creature &targetCreature = *std::static_pointer_cast<Creature>(target);
+
     for (auto &criteria : criterias) {
         switch (criteria.first) {
         case CreatureType::Reputation: {
             auto reputation = static_cast<ReputationType>(criteria.second);
-            switch (reputation) {
-            case ReputationType::Friend:
-                if (!target || !_services.game.reputes.getIsFriend(creature, *std::static_pointer_cast<Creature>(target)))
-                    return false;
-                break;
-            case ReputationType::Enemy:
-                if (!target || !_services.game.reputes.getIsEnemy(creature, *std::static_pointer_cast<Creature>(target)))
-                    return false;
-                break;
-            case ReputationType::Neutral:
-                if (!target || !_services.game.reputes.getIsNeutral(creature, *std::static_pointer_cast<Creature>(target)))
-                    return false;
-                break;
-            default:
-                break;
+            if (!matchesReputation(creature, target.get(), reputation, _services.game.reputes)) {
+                return false;
             }
             break;
         }
         case CreatureType::Perception: {
-            if (!target)
-                return false;
-
-            bool seen = creature.perception().seen.count(target->id()) > 0;
-            bool heard = creature.perception().heard.count(target->id()) > 0;
             bool matches = false;
             auto perception = static_cast<PerceptionType>(criteria.second);
-            switch (perception) {
-            case PerceptionType::SeenAndHeard:
-                matches = seen && heard;
-                break;
-            case PerceptionType::NotSeenAndNotHeard:
-                matches = !seen && !heard;
-                break;
-            case PerceptionType::HeardAndNotSeen:
-                matches = heard && !seen;
-                break;
-            case PerceptionType::SeenAndNotHeard:
-                matches = seen && !heard;
-                break;
-            case PerceptionType::NotHeard:
-                matches = !heard;
-                break;
-            case PerceptionType::Heard:
-                matches = heard;
-                break;
-            case PerceptionType::NotSeen:
-                matches = !seen;
-                break;
-            case PerceptionType::Seen:
-                matches = seen;
-                break;
-            default:
-                break;
-            }
-            if (!matches)
+            if (!matchesPerception(creature, target.get(), perception)) {
                 return false;
+            }
             break;
         }
         default:
