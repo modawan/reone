@@ -31,6 +31,7 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
 
     bool reached = creatureActor->navigateTo(dest, _run, _range, dt);
     if (reached) {
+        creatureActor->face(dest);
         complete();
     }
 }
