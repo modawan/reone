@@ -1091,8 +1091,12 @@ static bool matchesReputation(const Creature &creature, const Object *target,
     switch (reputation) {
     case ReputationType::Friend:
         return reputes.getIsFriend(creature, targetCreature);
-    case ReputationType::Enemy:
-        return reputes.getIsEnemy(creature, targetCreature);
+    case ReputationType::Enemy: {
+        // Do not consider dead enemies as enemies. Scripts use
+        // GetNearestCreature to find a new target, and targeting dead bodies is
+        // a poor tactic.
+        return !creature.isDead() && reputes.getIsEnemy(creature, targetCreature);
+    }
     case ReputationType::Neutral:
         return reputes.getIsNeutral(creature, targetCreature);
     }
