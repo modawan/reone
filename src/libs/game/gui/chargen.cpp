@@ -340,6 +340,15 @@ void CharacterGeneration::finish() {
         player->setImmortal(true);
         player->attributes() = _character.attributes;
 
+        player->setOnHeartbeat("k_hen_heartbt01");
+        player->setOnSpawn("k_hen_spawn01");
+        player->setOnNotice("k_hen_percept01");
+        player->setOnEndRound("k_hen_combend01");
+        player->setOnAttacked("k_hen_attacked01");
+        player->setOnDamaged("k_hen_damage01");
+        player->setOnBlocked("k_hen_blocked01");
+        player->setOnDialogue("k_hen_dialogue01");
+
         Party &party = _game.party();
         party.clear();
         party.addMember(kNpcPlayer, player);
