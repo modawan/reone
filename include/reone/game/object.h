@@ -54,7 +54,6 @@ public:
 
     virtual bool isSelectable() const;
     bool isOpen() const { return _open; }
-    bool isInLineOfSight(const Object &other, float fov) const;
 
     bool isMinOneHP() const { return _minOneHP; }
     bool isDead() const { return _dead; }
