@@ -239,6 +239,19 @@ public:
     void runDialogueScript(uint32_t speakerId, int32_t listenNumber);
     void runAttackedScript(uint32_t attackerId);
 
+    void setOnHeartbeat(std::string onHeartbeat) { _onHeartbeat = onHeartbeat; }
+    void setOnSpawn(std::string onSpawn) { _onSpawn = onSpawn; }
+    void setOnDeath(std::string onDeath) { _onDeath = onDeath; }
+    void setOnNotice(std::string onNotice) { _onNotice = onNotice; }
+    void setOnEndRound(std::string onEndRound) { _onEndRound = onEndRound; }
+    void setOnSpellAt(std::string onSpellAt) { _onSpellAt = onSpellAt; }
+    void setOnAttacked(std::string onAttacked) { _onAttacked = onAttacked; }
+    void setOnDamaged(std::string onDamaged) { _onDamaged = onDamaged; }
+    void setOnDisturbed(std::string onDisturbed) { _onDisturbed = onDisturbed; }
+    void setOnEndDialogue(std::string onEndDialogue) { _onEndDialogue = onEndDialogue; }
+    void setOnBlocked(std::string onBlocked) { _onBlocked = onBlocked; }
+    void setOnDialogue(std::string onDialogue) { _onDialogue = onDialogue; }
+
     // END Scripts
 
     // IAnimationEventListener
