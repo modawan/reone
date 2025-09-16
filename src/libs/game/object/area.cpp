@@ -610,6 +610,7 @@ void Area::loadParty(const glm::vec3 &position, float facing, bool fromSave) {
         }
         landObject(*member);
         add(member);
+        member->runSpawnScript();
     }
 }
 
