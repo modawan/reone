@@ -27,6 +27,7 @@
 #include "reone/graphics/uniforms.h"
 #include "reone/graphics/walkmesh.h"
 #include "reone/scene/collision.h"
+#include "reone/scene/drawdebug.h"
 #include "reone/scene/node/camera.h"
 #include "reone/scene/node/emitter.h"
 #include "reone/scene/node/grass.h"
@@ -169,6 +170,7 @@ void SceneGraph::update(float dt) {
     updateSounds();
     prepareOpaqueLeafs();
     prepareTransparentLeafs();
+    updateDrawDebug(dt);
 }
 
 void SceneGraph::cullRoots() {
@@ -524,6 +526,9 @@ Texture &SceneGraph::render(const glm::ivec2 &dim) {
                 renderLensFlares(pass);
             }
         });
+        pipeline.inRenderPass(RenderPassName::Debug, [this, &camera](auto &pass) {
+            renderDrawDebug(pass, _graphicsSvc, _resourceSvc);
+        });
     }
 
     return pipeline.render();
@@ -835,6 +840,9 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
         outCollision.normal = root->absoluteTransform() * glm::vec4(face->normal, 0.0f);
         outCollision.material = face->material;
         minDistance = distance;
+
+        glm::vec4 bordo(0.496f, 0.109f, 0.191f, 1.0f);
+        drawDebugTriangle(face->vertices[0], face->vertices[1], face->vertices[2], bordo, "perception");
     }
 
     return minDistance != std::numeric_limits<float>::max();

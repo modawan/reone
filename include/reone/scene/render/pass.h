@@ -47,7 +47,8 @@ enum class RenderPassName {
     PointLightShadows,
     OpaqueGeometry,
     TransparentGeometry,
-    PostProcessing
+    PostProcessing,
+    Debug
 };
 
 struct ParticleInstance {

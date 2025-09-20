@@ -56,7 +56,13 @@ public:
 
     float measure(std::string_view text) const;
 
+    void renderLine(std::string_view line,
+                    const glm::vec3 &position,
+                    glm::vec3 &textOffset);
+
     float height() const { return _height; }
+
+    Texture &texture() { return *_texture; }
 
 private:
     struct Glyph {

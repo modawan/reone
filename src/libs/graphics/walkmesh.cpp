@@ -16,6 +16,7 @@
  */
 
 #include "reone/graphics/walkmesh.h"
+#include "reone/scene/drawdebug.h"
 
 namespace reone {
 

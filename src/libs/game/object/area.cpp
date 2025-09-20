@@ -46,6 +46,7 @@
 #include "reone/resource/strings.h"
 #include "reone/scene/collision.h"
 #include "reone/scene/di/services.h"
+#include "reone/scene/drawdebug.h"
 #include "reone/scene/graphs.h"
 #include "reone/scene/node/grass.h"
 #include "reone/scene/node/grasscluster.h"
@@ -1197,11 +1198,36 @@ void Area::updatePerception(float dt) {
 
 void Area::doUpdatePerception() {
     // For each creature, determine a list of creatures it sees
+    clearDrawDebug("perception");
+
     ObjectList &creatures = getObjectsByType(ObjectType::Creature);
     for (auto &object : creatures) {
         // Skip dead creatures
         if (object->isDead())
             continue;
+
+        {
+            glm::vec4 color(0.0f, 0.77f, 0.64f, 1.0f);
+            glm::vec3 z(0.0f, 0.0f, 2.0f);
+            std::string id = std::to_string(object->id()) + ":";
+            id += object->tag();
+            drawDebugText(id.c_str(), object->position() + z, color, 1.0, "perception");
+        }
+
+        {
+            glm::vec4 color(1.0f, 0.0f, 0.0f, 1.0f);
+            glm::vec3 z(0.0f, 0.0f, 1.7f);
+            drawDebugPoint(object->position() + z, color, 1.0, "perception");
+        }
+
+        {
+            glm::vec4 color(0.1f, 8.0f, 0.1f, 1.0f);
+            glm::vec3 z(0.0f, 0.0f, 1.7f);
+            graphics::AABB aabb = object->sceneNode()->aabb();
+            drawDebugAABB(aabb.min() + object->position(),
+                          aabb.max() + object->position(),
+                          color, "perception");
+        }
 
         auto creature = std::static_pointer_cast<Creature>(object);
         float hearingRange2 = creature->perception().hearingRange * creature->perception().hearingRange;
@@ -1221,6 +1247,16 @@ void Area::doUpdatePerception() {
             }
             if (distance2 <= sightRange2) {
                 seen = isObjectSeen(*creature, *other);
+            }
+
+            if (seen || heard) {
+                glm::vec4 grey(0.386f, 0.386f, 0.386f, 1.0f);
+                glm::vec4 pink(0.863f, 0.363f, 0.679f, 1.0f);
+                glm::vec4 color = seen ? pink : grey;
+                glm::vec3 z(0.0f, 0.0f, 1.7f);
+
+                drawDebugLine(creature->position() + z, other->position() + z, color, 0.015,
+                              "perception");
             }
 
             // Hearing
