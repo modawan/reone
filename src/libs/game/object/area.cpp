@@ -726,6 +726,11 @@ bool Area::isObjectSeen(const Creature &subject, const Object &object) const {
     if (!subject.isInLineOfSight(object, kLineOfSightFOV)) {
         return false;
     }
+
+    if (!object.visible()) {
+        return false;
+    }
+
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
 
     glm::vec3 origin(subject.position());
