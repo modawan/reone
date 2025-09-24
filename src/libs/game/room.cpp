@@ -30,6 +30,7 @@ namespace game {
 
 void Room::addTenant(Object *object) {
     _tenants.insert(object);
+    object->setVisible(_visible);
 }
 
 void Room::removeTenant(Object *object) {
