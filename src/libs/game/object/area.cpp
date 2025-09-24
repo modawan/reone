@@ -119,8 +119,8 @@ void Area::load(std::string name, const Gff &are, const Gff &git, bool fromSave)
     auto gitParsed = resource::generated::parseGIT(git);
 
     loadARE(areParsed);
-    loadGIT(gitParsed);
     loadLYT();
+    loadGIT(gitParsed);
     loadVIS();
     loadPTH();
 }
