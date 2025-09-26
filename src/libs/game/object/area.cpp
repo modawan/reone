@@ -119,8 +119,8 @@ void Area::load(std::string name, const Gff &are, const Gff &git, bool fromSave)
     auto gitParsed = resource::generated::parseGIT(git);
 
     loadARE(areParsed);
-    loadGIT(gitParsed);
     loadLYT();
+    loadGIT(gitParsed);
     loadVIS();
     loadPTH();
 }
@@ -726,6 +726,11 @@ bool Area::isObjectSeen(const Creature &subject, const Object &object) const {
     if (!subject.isInLineOfSight(object, kLineOfSightFOV)) {
         return false;
     }
+
+    if (!object.visible()) {
+        return false;
+    }
+
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
 
     glm::vec3 origin(subject.position());
