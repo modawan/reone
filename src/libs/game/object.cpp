@@ -393,16 +393,6 @@ std::shared_ptr<Effect> Object::getNextEffect() {
     return (_effectIndex < _effects.size()) ? _effects[_effectIndex++].effect : nullptr;
 }
 
-bool Object::isInLineOfSight(const Object &other, float fov) const {
-    if (other._position == _position) {
-        return true;
-    }
-    auto normal = _orientation * glm::vec3(0.0f, 1.0f, 0.0f);
-    auto dir = glm::normalize(glm::vec3(glm::vec2(other._position - _position), 0.0f));
-    float dot = glm::dot(normal, dir);
-    return dot > 0.0f && glm::acos(dot) < fov;
-}
-
 } // namespace game
 
 } // namespace reone

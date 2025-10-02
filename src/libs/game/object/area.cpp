@@ -71,7 +71,6 @@ namespace game {
 static constexpr float kDefaultFieldOfView = 75.0f;
 static constexpr float kUpdatePerceptionInterval = 1.0f; // seconds
 static constexpr float kLineOfSightHeight = 1.7f;        // TODO: make it appearance-based
-static constexpr float kLineOfSightFOV = glm::radians(60.0f);
 
 static constexpr float kMaxCollisionDistance = 8.0f;
 static constexpr float kMaxCollisionDistance2 = kMaxCollisionDistance * kMaxCollisionDistance;
@@ -723,10 +722,6 @@ bool Area::moveCreatureTowards(const std::shared_ptr<Creature> &creature, const 
 }
 
 bool Area::isObjectSeen(const Creature &subject, const Object &object) const {
-    if (!subject.isInLineOfSight(object, kLineOfSightFOV)) {
-        return false;
-    }
-
     if (!object.visible()) {
         return false;
     }
