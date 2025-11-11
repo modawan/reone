@@ -25,6 +25,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/action/castspellatlocation.h
     ${GAME_INCLUDE_DIR}/action/castspellatobject.h
     ${GAME_INCLUDE_DIR}/action/closedoor.h
+    ${GAME_INCLUDE_DIR}/action/cutsceneattack.h
     ${GAME_INCLUDE_DIR}/action/docommand.h
     ${GAME_INCLUDE_DIR}/action/equipitem.h
     ${GAME_INCLUDE_DIR}/action/equipmostdamagingmelee.h
@@ -317,13 +318,15 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/types.h)
 
 set(GAME_SOURCES
+    ${GAME_SOURCE_DIR}/action.cpp
     ${GAME_SOURCE_DIR}/action/attackobject.cpp
     ${GAME_SOURCE_DIR}/action/barkstring.cpp
     ${GAME_SOURCE_DIR}/action/castfakespellatlocation.cpp
     ${GAME_SOURCE_DIR}/action/castfakespellatobject.cpp
     ${GAME_SOURCE_DIR}/action/castspellatobject.cpp
-    ${GAME_SOURCE_DIR}/action/commonactions.cpp
     ${GAME_SOURCE_DIR}/action/closedoor.cpp
+    ${GAME_SOURCE_DIR}/action/cutsceneattack.cpp
+    ${GAME_SOURCE_DIR}/action/commonactions.cpp
     ${GAME_SOURCE_DIR}/action/docommand.cpp
     ${GAME_SOURCE_DIR}/action/equipitem.cpp
     ${GAME_SOURCE_DIR}/action/equipmostdamagingmelee.cpp

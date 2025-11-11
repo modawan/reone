@@ -916,6 +916,8 @@ enum class ActionType {
     SwitchWeapons = 0x1024,
     PutDownItem = 0x1025,
 
+    CutsceneAttack = 0x5000,
+
     Invalid = 0xffff,
     QueueEmpty = 0xfffe
 };

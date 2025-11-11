@@ -37,8 +37,22 @@ public:
         return true;
     }
 
+    /**
+     * Execute the action. This function is called every update until it is
+     * either complete(), or cancelled, or the actor it belongs to is dead.
+     */
     virtual void execute(std::shared_ptr<Action> self, Object &actor, float dt);
 
+    /**
+     * Cancel the action. This function is called only once when either
+     * ClearAllActions is called, or the the actor it belongs to is dead.
+     */
+    virtual void cancel(std::shared_ptr<Action> self, Object &actor) {}
+
+    /**
+     * Actions must call complete() once they are done. Completed actions are
+     * removed from the action queue, allowing subsequent actions to execute.
+     */
     void complete() { _completed = true; }
 
     ActionType type() const { return _type; }
@@ -68,6 +82,11 @@ protected:
         _type(type) {
     }
 };
+
+/**
+ * Returns true for attacks, feats, some spells (force powers, grenades).
+ */
+bool isHostileAction(Action &action);
 
 } // namespace game
 
