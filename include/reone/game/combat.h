@@ -22,27 +22,64 @@
 #include "action.h"
 #include "effect/damage.h"
 #include "object/creature.h"
+#include "reone/system/smallvector.h"
 #include "types.h"
 
 namespace reone {
 
 namespace game {
 
-constexpr float kDetectionRange = 20.0f;
-
 class Game;
 struct ServicesView;
 
-class Combat {
-public:
-    struct Attack {
-        std::shared_ptr<Creature> attacker;
-        std::shared_ptr<Object> target;
-        std::shared_ptr<Action> action; /**< action to complete on round end */
-        AttackResultType resultType {AttackResultType::Invalid};
-        int damage {-1};
+/**
+ * Combat round consists of either one or two actions. Second action is only
+ * present when both combatants are creatures.
+ */
+struct CombatRound {
+    explicit CombatRound(const std::shared_ptr<Action> &action,
+                         uint32_t attacker, uint32_t target) {
+        actions.emplace_back(action, attacker, target);
+    }
+
+    enum State {
+        Pending,
+        FirstAction,
+        SecondAction,
+        Finished
     };
 
+    struct RoundAction {
+        RoundAction(const std::shared_ptr<Action> &action,
+                    uint32_t attacker, uint32_t target) :
+            action(action),
+            attacker(attacker), target(target) {}
+
+        std::shared_ptr<Action> action;
+        uint32_t attacker {0};
+        uint32_t target {0};
+    };
+
+    SmallVector<RoundAction, 2> actions;
+
+    State state {Pending};
+    bool duel {false};
+    float time {0.0f};
+
+    bool canExecute(Action &action) const;
+};
+
+/**
+ * Combat is used schedule attacks and form rounds. When a creature starts an
+ * attack, Combat creates a new round for it. If the target attacks back, and
+ * the original attack is not finished yet, the corresponding round becomes a
+ * duel (a CombatRound with more than 1 attack).
+ *
+ * Actions may handle duel rounds differently. For example, melee duels enable
+ * "cinematic" animations.
+ */
+class Combat {
+public:
     Combat(
         Game &game,
         ServicesView &services) :
@@ -51,91 +88,33 @@ public:
     }
 
     /**
-     * Appends the attack to an existing combat round, or starts a new round,
-     * based on attacker and target.
-     *
-     * @param resultType result type of the attack, Invalid to calculate
-     * @param damage damage to inflict, -1 to calculate
+     * Adds an action to an existing combat round, or starts a new round, based
+     * on attacker and target.
      */
-    void addAttack(
-        std::shared_ptr<Creature> attacker,
-        std::shared_ptr<Object> target,
-        std::shared_ptr<Action> action,
-        AttackResultType resultType = AttackResultType::Invalid,
-        int damage = -1);
+    const CombatRound &addAction(const std::shared_ptr<Action> &action, Object &actor);
 
     void update(float dt);
 
-    const Attack *getLastAttack(Creature &creature);
-    uint32_t getLastHostile(Object &object);
-
-private:
-    enum class RoundState {
-        Started,
-        FirstAttack,
-        SecondAttack,
-        Finished
-    };
+public:
+    using RoundQueue = std::deque<std::unique_ptr<CombatRound>>;
 
     /**
-     * Combat round consists of either one or two attacks. Second attack is only
-     * present when both combatants are creatures.
+     * Returns a list of past (completed) rounds as well as current rounds
+     * ordered from oldest to newest.
      */
-    struct Round {
-        std::unique_ptr<Attack> attack1;
-        std::unique_ptr<Attack> attack2;
-        bool duel {false};
+    const RoundQueue &rounds() const { return _rounds; }
 
-        RoundState state {RoundState::Started};
-        float time {0.0f};
-
-        std::shared_ptr<scene::ModelSceneNode> projectile;
-        glm::vec3 projectileDir {0.0f};
-    };
-
-    struct AttackAnimation {
-        CreatureWieldType attackerWieldType {CreatureWieldType::None};
-        CombatAnimation attackerAnimation {CombatAnimation::None};
-        CombatAnimation targetAnimation {CombatAnimation::None};
-        int animationVariant {1};
-    };
-
-    using RoundMap = std::map<uint32_t, std::unique_ptr<Round>>;
-    using LastAttackMap = std::map<uint32_t, std::unique_ptr<Attack>>;
-    using LastHostileMap = std::map<uint32_t, uint32_t>;
-
+private:
     Game &_game;
     ServicesView &_services;
 
-    RoundMap _roundByAttacker;
-    LastAttackMap _lastAttacks;
-    LastHostileMap _lastHostile;
+    RoundQueue _rounds;
 
-    void updateRound(Round &round, float dt);
-    void startAttack(Attack &attack, bool duel);
-    void resetProjectile(Round &round);
-    void finishRound(Round &round);
+    void updateRound(CombatRound &round, float dt);
+    void finishRound(CombatRound &round);
 
-    // Attack
-
-    AttackResultType determineAttackResult(const Attack &attack, bool offHand = false) const;
-    AttackAnimation determineAttackAnimation(const Attack &attack, bool duel) const;
-    void applyAttackResult(const Attack &attack, bool offHand = false);
-
-    // END Attack
-
-    // Damage
-
-    std::vector<std::shared_ptr<DamageEffect>> getDamageEffects(std::shared_ptr<Creature> damager, bool offHand = false, int multiplier = 1) const;
-
-    // END Damage
-
-    // Projectiles
-
-    void fireProjectile(const std::shared_ptr<Creature> &attacker, const std::shared_ptr<Object> &target, Round &round);
-    void updateProjectile(Round &round, float dt);
-
-    // END Projectiles
+    CombatRound *findRoundForAction(const std::shared_ptr<Action> &action, uint32_t attacker);
+    CombatRound *tryAppendAction(const std::shared_ptr<Action> &action, uint32_t attacker, uint32_t target);
 };
 
 } // namespace game
