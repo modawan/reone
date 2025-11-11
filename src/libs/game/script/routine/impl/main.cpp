@@ -15,6 +15,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "reone/game/action/attackobject.h"
+#include "reone/game/action/cutsceneattack.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/jumptolocation.h"
 #include "reone/game/action/jumptoobject.h"
@@ -4148,7 +4150,10 @@ static Variable CutsceneAttack(const std::vector<Variable> &args, const RoutineC
 
     // Execute
     auto caller = checkCreature(getCaller(ctx));
-    ctx.game.combat().addAttack(caller, oTarget, nullptr, attackResult, nDamage);
+
+    auto action = ctx.game.newAction<CutsceneAttackAction>(
+        std::move(oTarget), nAnimation, attackResult, nDamage);
+    caller->addAction(std::move(action));
     return Variable::ofNull();
 }
 
@@ -4648,8 +4653,14 @@ static Variable GetLastHostileActor(const std::vector<Variable> &args, const Rou
     auto oVictim = getObjectOrCaller(args, 0, ctx);
 
     // Execute
-    if (uint32_t hostileId = ctx.game.combat().getLastHostile(*oVictim)) {
-        return Variable::ofObject(hostileId);
+    const Combat::RoundQueue &rounds = ctx.game.combat().rounds();
+    for (auto it = rounds.rbegin(), end = rounds.rend(); it != end; ++it) {
+        for (const CombatRound::RoundAction &action : (*it)->actions) {
+            bool hostile = isHostileAction(*action.action);
+            if (action.target == oVictim->id() && hostile) {
+                return Variable::ofObject(action.attacker);
+            }
+        }
     }
 
     return Variable::ofObject(kObjectInvalid);
@@ -5354,12 +5365,18 @@ static Variable GetLastHostileTarget(const std::vector<Variable> &args, const Ro
     auto attacker = checkCreature(oAttacker);
 
     // Execute
-    const Combat::Attack *attack = ctx.game.combat().getLastAttack(*attacker);
-    if (!attack) {
-        return Variable::ofObject(kObjectInvalid);
+    // TODO: rbegin/end pair for iteration on rounds
+    const Combat::RoundQueue &rounds = ctx.game.combat().rounds();
+    for (auto it = rounds.rbegin(), end = rounds.rend(); it != end; ++it) {
+        for (const CombatRound::RoundAction &action : (*it)->actions) {
+            bool hostile = isHostileAction(*action.action);
+            if (action.attacker == attacker->id() && hostile) {
+                return Variable::ofObject(action.target);
+            }
+        }
     }
 
-    return Variable::ofObject(attack->target->id());
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetLastAttackAction(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5370,19 +5387,22 @@ static Variable GetLastAttackAction(const std::vector<Variable> &args, const Rou
     auto attacker = checkCreature(oAttacker);
 
     // Execute
-    const Combat::Attack *attack = ctx.game.combat().getLastAttack(*attacker);
-    if (!attack || !attack->action) {
-        return Variable::ofInt(static_cast<int>(ActionType::QueueEmpty));
+    const Combat::RoundQueue &rounds = ctx.game.combat().rounds();
+    for (auto it = rounds.rbegin(), end = rounds.rend(); it != end; ++it) {
+        for (const CombatRound::RoundAction &action : (*it)->actions) {
+            bool hostile = isHostileAction(*action.action);
+            if (action.attacker == attacker->id() && hostile) {
+                return Variable::ofInt(static_cast<int>(action.action->type()));
+            }
+        }
     }
 
-    return Variable::ofInt(static_cast<int>(attack->action->type()));
+    return Variable::ofInt(static_cast<int>(ActionType::QueueEmpty));
 }
 
 static Variable GetLastForcePowerUsed(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto oAttacker = getObjectOrCaller(args, 0, ctx);
-
-    // Transform
 
     // Execute
     throw RoutineNotImplementedException("GetLastForcePowerUsed");
@@ -5406,9 +5426,23 @@ static Variable GetLastAttackResult(const std::vector<Variable> &args, const Rou
     auto attacker = checkCreature(oAttacker);
 
     // Execute
-    const Combat::Attack *attack = ctx.game.combat().getLastAttack(*attacker);
-    if (attack) {
-        return Variable::ofInt(static_cast<int>(attack->resultType));
+    const Combat::RoundQueue &rounds = ctx.game.combat().rounds();
+    for (auto it = rounds.rbegin(), end = rounds.rend(); it != end; ++it) {
+        for (const CombatRound::RoundAction &action : (*it)->actions) {
+
+            AttackResultType result = AttackResultType::Invalid;
+            switch (action.action->type()) {
+            case ActionType::AttackObject:
+                cast<AttackObjectAction>(*action.action).result();
+                break;
+            default:
+                break;
+            }
+
+            if (result != AttackResultType::Invalid) {
+                return Variable::ofInt(static_cast<int>(result));
+            }
+        }
     }
 
     return Variable::ofInt(static_cast<int>(AttackResultType::Invalid));

@@ -649,7 +649,7 @@ std::shared_ptr<Object> Creature::getAttemptedAttackTarget() const {
     std::shared_ptr<Object> target;
     switch (action->type()) {
     case ActionType::AttackObject:
-        target = static_cast<AttackObjectAction *>(action.get())->attackee();
+        target = cast<AttackObjectAction>(*action).target();
         break;
     default:
         break;

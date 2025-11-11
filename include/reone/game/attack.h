@@ -30,6 +30,8 @@ class ISceneGraph;
 
 namespace game {
 
+class Action;
+class CombatRound;
 class Creature;
 class Game;
 class Item;
@@ -201,6 +203,26 @@ private:
     TimeEvents _events;
     SmallVector<Projectile, 16> _projectiles;
 };
+
+class AttackSchedule {
+public:
+    enum State {
+        WaitAttack,
+        Attack,
+        WaitDamage,
+        Damage,
+        WaitFinish,
+        Finish,
+    };
+
+    State update(const CombatRound &round, Action &action, float dt);
+
+private:
+    State _state {WaitAttack};
+    float _time {0.0f};
+};
+
+bool navigateToAttackTarget(Creature &attacker, Object &actor, float dt, bool &reachedOnce);
 
 } // namespace game
 

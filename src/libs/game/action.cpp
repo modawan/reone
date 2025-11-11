@@ -28,6 +28,17 @@ void Action::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     complete();
 }
 
+bool isHostileAction(Action &action) {
+    // TODO: handle feats and spells
+    switch (action.type()) {
+    case ActionType::AttackObject:
+        return true;
+    default:
+        break;
+    }
+    return false;
+}
+
 } // namespace game
 
 } // namespace reone

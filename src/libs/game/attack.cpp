@@ -22,6 +22,7 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
 #include "reone/scene/graph.h"
+#include "reone/system/arrayref.h"
 #include "reone/system/randomutil.h"
 
 #include <algorithm>
@@ -217,29 +218,30 @@ void AttackBuffer::applyEffects(Creature &attacker, Object &target, Game &game) 
 }
 
 AttackResultType AttackBuffer::result() const {
-    const AttackResultType sorted[] {
+    AttackResultType sorted[] {
         AttackResultType::Invalid,
-        AttackResultType::HitSuccessful,
-        AttackResultType::CriticalHit,
-        AttackResultType::AutomaticHit,
         AttackResultType::Miss,
         AttackResultType::AttackResisted,
         AttackResultType::AttackFailed,
         AttackResultType::Parried,
-        AttackResultType::Deflected};
-    unsigned sortedLen = sizeof(sorted) / sizeof(*sorted);
+        AttackResultType::Deflected,
+        AttackResultType::HitSuccessful,
+        AttackResultType::CriticalHit,
+        AttackResultType::AutomaticHit,
+    };
+    ArrayRef<AttackResultType> sortedByScore(sorted);
 
     unsigned bestIndex = 0;
 
     for (const Attack &attack : _attacks) {
-        for (unsigned i = 0; i < sortedLen; ++i) {
-            if (sorted[i] == attack.result) {
+        for (unsigned i = 0; i < sortedByScore.size(); ++i) {
+            if (sortedByScore[i] == attack.result) {
                 bestIndex = std::max(bestIndex, i);
             }
         }
     }
 
-    return sorted[bestIndex];
+    return sortedByScore[bestIndex];
 }
 
 void Projectile::fire(Creature &attacker, Object &target, scene::ISceneGraph &sceneGraph) {
@@ -367,6 +369,59 @@ void ProjectileSequence::reset() {
     for (Projectile &proj : _projectiles) {
         proj.reset();
     }
+}
+
+AttackSchedule::State AttackSchedule::update(
+    const CombatRound &round, Action &action, float dt) {
+
+    _time += dt;
+
+    switch (_state) {
+    case AttackSchedule::WaitAttack: {
+        if (round.canExecute(action)) {
+            _state = AttackSchedule::Attack;
+        }
+        break;
+    }
+    case AttackSchedule::Attack: {
+        _state = AttackSchedule::WaitDamage;
+        break;
+    }
+    case AttackSchedule::WaitDamage: {
+        if (_time >= kAttackDamageDelay) {
+            _state = AttackSchedule::Damage;
+        }
+        break;
+    }
+    case AttackSchedule::Damage: {
+        _state = AttackSchedule::WaitFinish;
+        break;
+    }
+    case AttackSchedule::WaitFinish: {
+        if (round.state == CombatRound::Finished) {
+            _state = AttackSchedule::Finish;
+        }
+        break;
+    }
+    case AttackSchedule::Finish: {
+        break;
+    }
+    }
+
+    return _state;
+}
+
+bool navigateToAttackTarget(Creature &attacker, Object &target, float dt, bool &reachedOnce) {
+    if (reachedOnce) {
+        return true;
+    }
+
+    if (!attacker.navigateTo(target.position(), true, attacker.getAttackRange(), dt)) {
+        return false;
+    }
+
+    reachedOnce = true;
+    return true;
 }
 
 } // namespace game
