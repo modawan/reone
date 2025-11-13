@@ -44,6 +44,10 @@ class Object : public scene::IUser, boost::noncopyable {
 public:
     virtual ~Object() = default;
 
+    static bool classof(Object *from) {
+        return true;
+    }
+
     virtual void update(float dt);
     virtual void die();
 
