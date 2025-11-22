@@ -351,14 +351,15 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/action/surrendertoenemies.cpp
     ${GAME_SOURCE_DIR}/action/switchweapons.cpp
     ${GAME_SOURCE_DIR}/action/takeitem.cpp
+    ${GAME_SOURCE_DIR}/action.cpp
     ${GAME_SOURCE_DIR}/action/unequipitem.cpp
     ${GAME_SOURCE_DIR}/action/unlockobject.cpp
     ${GAME_SOURCE_DIR}/action/usefeat.cpp
     ${GAME_SOURCE_DIR}/action/useskill.cpp
     ${GAME_SOURCE_DIR}/action/usetalentonobject.cpp
     ${GAME_SOURCE_DIR}/action/wait.cpp
-    ${GAME_SOURCE_DIR}/action.cpp
     ${GAME_SOURCE_DIR}/animationutil.cpp
+    ${GAME_SOURCE_DIR}/attack.cpp
     ${GAME_SOURCE_DIR}/camerastyles.cpp
     ${GAME_SOURCE_DIR}/combat.cpp
     ${GAME_SOURCE_DIR}/d20/attributes.cpp

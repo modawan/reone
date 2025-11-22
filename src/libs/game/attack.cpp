@@ -1,0 +1,247 @@
+/*
+ * Copyright (c) 2025 The reone project contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+#include "reone/game/attack.h"
+
+#include "reone/game/di/services.h"
+#include "reone/game/game.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/object/item.h"
+#include "reone/scene/graph.h"
+#include "reone/system/randomutil.h"
+
+#include <algorithm>
+
+namespace reone {
+
+namespace game {
+
+static constexpr char kModelEventDetonate[] = "detonate";
+static constexpr float kProjectileSpeed = 16.0f;
+
+bool isMeleeWieldType(CreatureWieldType type) {
+    switch (type) {
+    case CreatureWieldType::SingleSword:
+    case CreatureWieldType::DoubleBladedSword:
+    case CreatureWieldType::DualSwords:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool isRangedWieldType(CreatureWieldType type) {
+    switch (type) {
+    case CreatureWieldType::BlasterPistol:
+    case CreatureWieldType::DualPistols:
+    case CreatureWieldType::BlasterRifle:
+    case CreatureWieldType::HeavyWeapon:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool isAttackSuccessful(AttackResultType result) {
+    switch (result) {
+    case AttackResultType::HitSuccessful:
+    case AttackResultType::CriticalHit:
+    case AttackResultType::AutomaticHit:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static const char *attackResultDesc(AttackResultType type) {
+    switch (type) {
+    case AttackResultType::Miss:
+        return "missed";
+    case AttackResultType::AttackResisted:
+        return "resisted";
+    case AttackResultType::AttackFailed:
+        return "failed";
+    case AttackResultType::Parried:
+        return "parried";
+    case AttackResultType::Deflected:
+        return "deflected";
+    case AttackResultType::HitSuccessful:
+        return "hit";
+    case AttackResultType::AutomaticHit:
+        return "automatic hit";
+    case AttackResultType::CriticalHit:
+        return "critical hit";
+    case AttackResultType::Invalid:
+        break;
+    }
+    return "invalid";
+}
+
+static int getWeaponAttackBonus(const Creature &attacker, const Item &weapon) {
+    auto rightWeapon(attacker.getEquippedItem(InventorySlots::rightWeapon));
+    auto leftWeapon(attacker.getEquippedItem(InventorySlots::leftWeapon));
+
+    Ability ability = weapon.isRanged() ? Ability::Dexterity : Ability::Strength;
+    int modifier = attacker.attributes().getAbilityModifier(ability);
+
+    int penalty = 0;
+    if (rightWeapon && leftWeapon) {
+        // TODO: support Dueling and Two-Weapon Fighting feats
+        bool offHand = (&weapon != rightWeapon.get());
+        penalty = offHand ? 10 : 6;
+    }
+
+    int effects = attacker.attributes().getAggregateAttackBonus();
+
+    debug(str(boost::format("getWeaponAttackBonus: modifier(%d) + effects(%d) - penalty(%d)") % modifier % effects % penalty),
+          LogChannel::Combat);
+
+    return modifier + effects - penalty;
+}
+
+AttackResultType computeWeaponAttack(
+    const Creature &attacker, const Object &target, const Item &weapon,
+    int rollBonus, int threatBonus) {
+
+    // Determine defense of a target
+    int defense;
+    if (target.type() == ObjectType::Creature) {
+        defense = static_cast<const Creature &>(target).getDefense();
+    } else {
+        defense = 10;
+    }
+
+    // Attack roll
+    int roll = randomInt(1, 20);
+
+    if (roll == 1) {
+        debug(str(boost::format("computeWeaponAttack: miss: roll(1)")), LogChannel::Combat);
+        return AttackResultType::Miss;
+    }
+
+    int bonus = getWeaponAttackBonus(attacker, weapon) + rollBonus;
+
+    AttackResultType result;
+    if (roll == 20) {
+        result = AttackResultType::AutomaticHit;
+    } else if ((roll + bonus) >= defense) {
+        result = AttackResultType::HitSuccessful;
+    } else {
+        debug(str(boost::format("computeWeaponAttack: miss: roll(%d), bonus(%d), defense(%d)") % roll % bonus % defense), LogChannel::Combat);
+        return AttackResultType::Miss;
+    }
+
+    // Critical threat
+    int criticalThreat = weapon.criticalThreat() + threatBonus;
+    if (roll > (20 - criticalThreat)) {
+        // Critical hit roll
+        int criticalRoll = randomInt(1, 20);
+        if ((criticalRoll + bonus) >= defense) {
+            debug(str(boost::format("computeWeaponAttack: critical hit: roll(%d), critical roll(%d),"
+                                    " bonus(%d), defense(%d), critical threat(%d)") %
+                      roll % criticalRoll % bonus % defense % criticalThreat),
+                  LogChannel::Combat);
+            return AttackResultType::CriticalHit;
+        }
+    }
+
+    debug(str(boost::format("computeWeaponAttack: %s: roll(%d), bonus(%d), defense(%d), critical threat(%d)") % attackResultDesc(result) % roll % bonus % defense % criticalThreat));
+
+    return result;
+}
+
+void computeWeaponDamage(
+    const Creature &attacker, const Object &target, const Item &weapon,
+    AttackResultType result, int damageBonus, ISmallVector<Damage> &damage) {
+
+    int criticalHitMultiplier = weapon.criticalHitMultiplier();
+    int multiplier = result == AttackResultType::CriticalHit
+                         ? criticalHitMultiplier
+                         : 1;
+
+    int amount = damageBonus;
+    for (int i = 0; i < weapon.numDice(); ++i) {
+        amount += randomInt(1, weapon.dieToRoll());
+    }
+
+    DamageType type = static_cast<DamageType>(weapon.damageFlags());
+
+    // FIXME: weapon damage may have multiple damage effects (1d8 energy + 1d4
+    // sonic, for example).
+    damage.push_back({multiplier * amount, type, DamagePower::Normal});
+
+    debug(str(boost::format("computeWeaponDamage: %s -> %s (%d)") % attacker.tag() % target.tag() % amount),
+          LogChannel::Combat);
+}
+
+void AttackBuffer::addWeaponAttack(
+    const Creature &attacker, const Object &target, const Item &weapon,
+    int attackRollBonus, int attackThreatBonus, int damageBonus) {
+
+    AttackResultType result = computeWeaponAttack(
+        attacker, target, weapon, attackRollBonus, attackThreatBonus);
+
+    _attacks.emplace_back(result);
+
+    if (!isAttackSuccessful(result)) {
+        return;
+    }
+
+    computeWeaponDamage(attacker, target, weapon, result,
+                        damageBonus, _attacks.back().damage);
+}
+
+void AttackBuffer::applyEffects(Creature &attacker, Object &target, Game &game) {
+    for (Attack &attack : _attacks) {
+        for (Damage &damage : attack.damage) {
+            auto effect = game.newEffect<DamageEffect>(
+                damage.amount, damage.type, damage.power, attacker.id());
+
+            target.applyEffect(std::move(effect), DurationType::Instant);
+        }
+    }
+}
+
+AttackResultType AttackBuffer::result() const {
+    const AttackResultType sorted[] {
+        AttackResultType::Invalid,
+        AttackResultType::HitSuccessful,
+        AttackResultType::CriticalHit,
+        AttackResultType::AutomaticHit,
+        AttackResultType::Miss,
+        AttackResultType::AttackResisted,
+        AttackResultType::AttackFailed,
+        AttackResultType::Parried,
+        AttackResultType::Deflected};
+    unsigned sortedLen = sizeof(sorted) / sizeof(*sorted);
+
+    unsigned bestIndex = 0;
+
+    for (const Attack &attack : _attacks) {
+        for (unsigned i = 0; i < sortedLen; ++i) {
+            if (sorted[i] == attack.result) {
+                bestIndex = std::max(bestIndex, i);
+            }
+        }
+    }
+
+    return sorted[bestIndex];
+}
+
+} // namespace game
+
+} // namespace reone
