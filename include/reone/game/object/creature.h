@@ -133,6 +133,7 @@ public:
     float walkSpeed() const { return _walkSpeed; }
     float runSpeed() const { return _runSpeed; }
     CreatureAttributes &attributes() { return _attributes; }
+    const CreatureAttributes &attributes() const { return _attributes; }
     Faction faction() const { return _faction; }
     int xp() const { return _xp; }
     RacialType racialType() const { return _race; }
