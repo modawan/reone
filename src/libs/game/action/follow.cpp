@@ -30,7 +30,9 @@ void FollowAction::execute(std::shared_ptr<Action> self, Object &actor, float dt
     float distance2 = creatureActor->getSquareDistanceTo(glm::vec2(dest));
     bool run = distance2 > kDistanceWalk * kDistanceWalk;
 
-    creatureActor->navigateTo(dest, run, _followDistance, dt);
+    if (creatureActor->navigateTo(dest, run, _followDistance, dt)) {
+        complete();
+    }
 }
 
 } // namespace game
