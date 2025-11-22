@@ -48,6 +48,7 @@ set(SYSTEM_HEADERS
     ${SYSTEM_INCLUDE_DIR}/textwriter.h
     ${SYSTEM_INCLUDE_DIR}/threadpool.h
     ${SYSTEM_INCLUDE_DIR}/threadutil.h
+    ${SYSTEM_INCLUDE_DIR}/timeevents.h
     ${SYSTEM_INCLUDE_DIR}/timer.h
     ${SYSTEM_INCLUDE_DIR}/timespan.h
     ${SYSTEM_INCLUDE_DIR}/types.h
@@ -67,6 +68,7 @@ set(SYSTEM_SOURCES
     ${SYSTEM_SOURCE_DIR}/textwriter.cpp
     ${SYSTEM_SOURCE_DIR}/threadpool.cpp
     ${SYSTEM_SOURCE_DIR}/threadutil.cpp
+    ${SYSTEM_SOURCE_DIR}/timeevents.cpp
     ${SYSTEM_SOURCE_DIR}/unicodeutil.cpp)
 
 add_library(system STATIC ${SYSTEM_HEADERS} ${SYSTEM_SOURCES} ${CLANG_FORMAT_PATH})

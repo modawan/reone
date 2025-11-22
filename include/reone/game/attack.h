@@ -19,6 +19,7 @@
 
 #include "reone/game/types.h"
 #include "reone/system/smallvector.h"
+#include "reone/system/timeevents.h"
 
 namespace reone {
 
@@ -124,6 +125,81 @@ private:
     };
 
     SmallVector<Attack, 8> _attacks;
+};
+
+/**
+ * Projectile is a visual effect of a blaster shot flying from a weapon towards
+ * a target on a straight line trajectory.
+ */
+class Projectile {
+public:
+    enum Source {
+        Main,
+        Offhand,
+    };
+
+    /**
+     * Create a projectile that fires from either the main hand (from a single
+     * blaster or a rifle) or the offhand (dual blasters).
+     */
+    explicit Projectile(Source source) :
+        _source(source) {}
+
+    ~Projectile() { reset(); }
+
+    /**
+     * Fires a projectile from \p attacker to \p target. This adds a new model
+     * to the \p sceneGraph located at the weapon attachment slot.
+     */
+    void fire(Creature &attacker, Object &target, scene::ISceneGraph &sceneGraph);
+
+    /**
+     * Move the model created by fire() towards the target. When the target is
+     * reached, return true. The caller may either continue calling update() to
+     * keep the projectile flying in the same direction, or call reset() to
+     * remove it.
+     */
+    bool update(float dt);
+
+    /**
+     * Remove the projectile model from the scene graph.
+     */
+    void reset();
+
+private:
+    Source _source;
+    std::shared_ptr<scene::ModelSceneNode> _model;
+    glm::vec3 _target {0.0f};
+};
+
+/**
+ * ProjectileSequence keeps track of multiple projectiles that are supposed to
+ * fire at specific time points that match the animation.
+ */
+class ProjectileSequence {
+public:
+    /**
+     * Add a projectile to the sequence.
+     */
+    void push_back(float time, Projectile::Source source);
+
+    /**
+     * Keep track of time and fire projectiles when necessary. Remove
+     * projectiles that reach the target.
+     *
+     * FIXME: we may need *some* projectiles to miss - add another parameter to
+     * push_back().
+     */
+    void update(float dt, Creature &attacker, Object &target, scene::ISceneGraph &sceneGraph);
+
+    /**
+     * Remove all projectile models.
+     */
+    void reset();
+
+private:
+    TimeEvents _events;
+    SmallVector<Projectile, 16> _projectiles;
 };
 
 } // namespace game

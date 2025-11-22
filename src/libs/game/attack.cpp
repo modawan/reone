@@ -242,6 +242,133 @@ AttackResultType AttackBuffer::result() const {
     return sorted[bestIndex];
 }
 
+void Projectile::fire(Creature &attacker, Object &target, scene::ISceneGraph &sceneGraph) {
+    auto attackerModel = std::static_pointer_cast<scene::ModelSceneNode>(attacker.sceneNode());
+    auto targetModel = std::static_pointer_cast<scene::ModelSceneNode>(target.sceneNode());
+    if (!attackerModel || !targetModel)
+        return;
+
+    int slot = 0;
+    const char *attachment = nullptr;
+
+    switch (_source) {
+    case Projectile::Main: {
+        slot = InventorySlots::rightWeapon;
+        attachment = "rhand";
+        break;
+    }
+    case Projectile::Offhand:
+        slot = InventorySlots::leftWeapon;
+        attachment = "lhand";
+        break;
+    }
+    assert(slot && attachment && "unhandled projectile source");
+
+    std::shared_ptr<Item> weapon(attacker.getEquippedItem(slot));
+    if (!weapon)
+        return;
+
+    std::shared_ptr<Item::AmmunitionType> ammunitionType(weapon->ammunitionType());
+    if (!ammunitionType)
+        return;
+
+    auto weaponModel = static_cast<scene::ModelSceneNode *>(attackerModel->getAttachment(attachment));
+    if (!weaponModel)
+        return;
+
+    // Determine projectile position
+    glm::vec3 projectilePos;
+    auto bulletHook = weaponModel->getNodeByName("bullethook");
+    if (bulletHook) {
+        projectilePos = bulletHook->origin();
+    } else {
+        projectilePos = weaponModel->origin();
+    }
+
+    // Determine projectile direction
+    auto impact = targetModel->getNodeByName("impact");
+    if (impact) {
+        _target = impact->origin();
+    } else {
+        _target = targetModel->origin();
+    }
+
+    // Create and add a projectile to the scene graph
+    _model = sceneGraph.newModel(*ammunitionType->model, scene::ModelUsage::Projectile);
+    _model->signalEvent(kModelEventDetonate);
+    _model->setLocalTransform(glm::translate(projectilePos));
+    sceneGraph.addRoot(_model);
+
+    // Play shot sound, if any
+    weapon->playShotSound(0, projectilePos);
+}
+
+bool Projectile::update(float dt) {
+    if (!_model) {
+        return false;
+    }
+
+    glm::vec3 position = _model->origin();
+    glm::vec3 vec = _target - position;
+    float length = glm::length(vec);
+
+    float dist = dt * kProjectileSpeed;
+    if (dist >= length) {
+        return true;
+    }
+
+    glm::vec3 dir = vec / length;
+    position += dir * dist;
+
+    float facing = glm::half_pi<float>() - glm::atan(dir.x, dir.y);
+
+    glm::mat4 transform(1.0f);
+    transform = glm::translate(transform, position);
+    transform *= glm::eulerAngleZ(facing);
+
+    _model->setLocalTransform(transform);
+
+    return false;
+}
+
+void Projectile::reset() {
+    if (!_model) {
+        return;
+    }
+
+    _model->graph().removeRoot(*_model);
+    _model.reset();
+}
+
+void ProjectileSequence::push_back(float time, Projectile::Source source) {
+    _projectiles.emplace_back(source);
+    _events.push_back(time, _projectiles.size());
+}
+
+void ProjectileSequence::update(float dt, Creature &attacker, Object &target,
+                                scene::ISceneGraph &sceneGraph) {
+    // Update projectiles in flight
+    for (Projectile &proj : _projectiles) {
+        if (proj.update(dt)) {
+            // Projectile hit the target
+            proj.reset();
+        }
+    }
+
+    // Fire new projectiles
+    _events.update(dt);
+    while (TimeEvents::Event ev = _events.next()) {
+        size_t index = ev - 1;
+        _projectiles[index].fire(attacker, target, sceneGraph);
+    }
+}
+
+void ProjectileSequence::reset() {
+    for (Projectile &proj : _projectiles) {
+        proj.reset();
+    }
+}
+
 } // namespace game
 
 } // namespace reone
