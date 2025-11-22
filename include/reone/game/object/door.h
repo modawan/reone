@@ -43,6 +43,10 @@ public:
             services) {
     }
 
+    static bool classof(Object *from) {
+        return from->type() == ObjectType::Door;
+    }
+
     void loadFromGIT(const resource::generated::GIT_Door_List &git);
     void loadFromBlueprint(const std::string &resRef);
 

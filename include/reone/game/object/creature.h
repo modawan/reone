@@ -98,6 +98,10 @@ public:
             services) {
     }
 
+    static bool classof(Object *from) {
+        return from->type() == ObjectType::Creature;
+    }
+
     void loadFromGIT(const resource::generated::GIT_Creature_List &git);
     void loadFromBlueprint(const std::string &resRef);
     void loadAppearance();

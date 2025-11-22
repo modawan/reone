@@ -43,6 +43,10 @@ public:
             services) {
     }
 
+    static bool classof(Object *from) {
+        return from->type() == ObjectType::Placeable;
+    }
+
     void loadFromGIT(const resource::generated::GIT_Placeable_List &git);
     void loadFromBlueprint(const std::string &resRef);
 

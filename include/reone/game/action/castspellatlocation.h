@@ -43,6 +43,10 @@ public:
         _instantSpell(instantSpell) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::CastSpellAtLocation;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override {
         complete();
     }

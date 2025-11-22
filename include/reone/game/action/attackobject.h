@@ -34,6 +34,10 @@ public:
         _passive(passive) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::AttackObject;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
     std::shared_ptr<Object> attackee() const { return _attackee; }

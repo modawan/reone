@@ -36,6 +36,10 @@ public:
         _actionToDo(std::move(actionToDo)) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::DoCommand;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
     std::shared_ptr<script::ExecutionContext> actionToDo() const { return _actionToDo; }

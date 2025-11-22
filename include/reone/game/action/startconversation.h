@@ -45,6 +45,10 @@ public:
         _ignoreStartRange(ignoreStartRange) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::StartConversation;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
     bool isStartRangeIgnored() const { return _ignoreStartRange; }

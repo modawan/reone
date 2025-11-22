@@ -69,6 +69,10 @@ public:
         Game &game,
         ServicesView &services);
 
+    static bool classof(Object *from) {
+        return from->type() == ObjectType::Area;
+    }
+
     void load(std::string name, const resource::Gff &are, const resource::Gff &git, bool fromSave = false);
 
     bool handle(const input::Event &event);

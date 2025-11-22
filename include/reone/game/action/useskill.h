@@ -39,6 +39,10 @@ public:
         _itemUsed(std::move(itemUsed)) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::UseSkill;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
     SkillType skill() const { return _skill; }

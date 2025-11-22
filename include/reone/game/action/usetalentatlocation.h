@@ -36,6 +36,10 @@ public:
         _targetLocation(std::move(targetLocation)) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::UseTalentAtLocation;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override {
         complete();
     }
