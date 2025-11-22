@@ -30,6 +30,10 @@ public:
         _target(std::move(target)) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::OpenLock;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
 private:

@@ -34,6 +34,10 @@ public:
         _followDistance(followDistance) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::Follow;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
 private:

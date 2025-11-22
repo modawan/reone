@@ -21,6 +21,7 @@
 #include "reone/scene/graph.h"
 #include "reone/scene/node.h"
 #include "reone/scene/user.h"
+#include "reone/system/cast.h"
 #include "reone/system/timer.h"
 
 #include "action.h"
@@ -42,6 +43,10 @@ class Room;
 class Object : public scene::IUser, boost::noncopyable {
 public:
     virtual ~Object() = default;
+
+    static bool classof(Object *from) {
+        return true;
+    }
 
     virtual void update(float dt);
     virtual void damage(int amount, const Object *damager);

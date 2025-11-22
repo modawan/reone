@@ -29,6 +29,10 @@ public:
         Action(game, services, ActionType::FollowLeader) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::FollowLeader;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 };
 
