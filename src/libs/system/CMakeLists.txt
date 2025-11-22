@@ -26,13 +26,14 @@ set(SYSTEM_HEADERS
     ${SYSTEM_INCLUDE_DIR}/di/services.h
     ${SYSTEM_INCLUDE_DIR}/exception/endofstream.h
     ${SYSTEM_INCLUDE_DIR}/exception/filenotfound.h
-    ${SYSTEM_INCLUDE_DIR}/exception/validation.h
     ${SYSTEM_INCLUDE_DIR}/exception/notimplemented.h
+    ${SYSTEM_INCLUDE_DIR}/exception/validation.h
     ${SYSTEM_INCLUDE_DIR}/fileutil.h
     ${SYSTEM_INCLUDE_DIR}/hexutil.h
     ${SYSTEM_INCLUDE_DIR}/logger.h
     ${SYSTEM_INCLUDE_DIR}/logutil.h
     ${SYSTEM_INCLUDE_DIR}/randomutil.h
+    ${SYSTEM_INCLUDE_DIR}/smallset.h
     ${SYSTEM_INCLUDE_DIR}/smallvector.h
     ${SYSTEM_INCLUDE_DIR}/stream/fileinput.h
     ${SYSTEM_INCLUDE_DIR}/stream/fileoutput.h
