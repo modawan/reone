@@ -17,6 +17,7 @@ set(SYSTEM_INCLUDE_DIR ${REONE_INCLUDE_DIR}/reone/system)
 set(SYSTEM_SOURCE_DIR ${CMAKE_SOURCE_DIR}/src/libs/system)
 
 set(SYSTEM_HEADERS
+    ${SYSTEM_INCLUDE_DIR}/arrayref.h
     ${SYSTEM_INCLUDE_DIR}/binaryreader.h
     ${SYSTEM_INCLUDE_DIR}/binarywriter.h
     ${SYSTEM_INCLUDE_DIR}/cache.h
