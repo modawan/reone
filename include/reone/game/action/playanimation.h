@@ -38,6 +38,10 @@ public:
         _durationSeconds(durationSeconds) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::PlayAnimation;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
 private:

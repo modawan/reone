@@ -33,6 +33,10 @@ public:
         _giveTo(std::move(giveTo)) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::GiveItem;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
 private:

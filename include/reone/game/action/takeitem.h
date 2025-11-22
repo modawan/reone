@@ -33,6 +33,10 @@ public:
         _takeFrom(std::move(takeFrom)) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::TakeItem;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
 private:

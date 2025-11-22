@@ -30,6 +30,10 @@ public:
         _versus(std::move(versus)) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::EquipMostDamagingRanged;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
 private:

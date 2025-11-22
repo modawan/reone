@@ -42,6 +42,10 @@ public:
             services) {
     }
 
+    static bool classof(Object *from) {
+        return from->type() == ObjectType::Trigger;
+    }
+
     void loadFromGIT(const resource::generated::GIT_TriggerList &git);
     void loadFromBlueprint(const std::string &resRef);
 

@@ -53,6 +53,10 @@ public:
             services) {
     }
 
+    static bool classof(Object *from) {
+        return from->type() == ObjectType::Item;
+    }
+
     void loadFromBlueprint(const std::string &resRef);
 
     void update(float dt) override;

@@ -38,6 +38,10 @@ public:
             game,
             services) {
     }
+
+    static bool classof(Object *from) {
+        return from->type() == ObjectType::Store;
+    }
 };
 
 } // namespace game

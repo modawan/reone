@@ -36,6 +36,10 @@ public:
         _moveAwayRange(moveAwayRange) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::MoveAwayFromLocation;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override {
         complete();
     }

@@ -33,6 +33,10 @@ public:
         _location(std::move(location)) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::JumpToLocation;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
 private:

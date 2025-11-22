@@ -33,6 +33,10 @@ public:
         _item(std::move(item)) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::PutDownItem;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override {
         complete();
     }

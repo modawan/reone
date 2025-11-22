@@ -40,6 +40,10 @@ public:
         _force(force) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::MoveToObject;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
     bool isRun() const { return _run; }
