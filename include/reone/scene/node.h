@@ -80,6 +80,7 @@ public:
     const graphics::AABB &aabb() const { return _aabb; }
     IUser *user() { return _user; }
     const IUser *user() const { return _user; }
+    ISceneGraph &graph() { return _sceneGraph; }
 
     void setUser(IUser &user) {
         _user = &user;
