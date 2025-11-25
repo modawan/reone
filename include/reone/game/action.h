@@ -33,6 +33,10 @@ class Action : boost::noncopyable {
 public:
     virtual ~Action() = default;
 
+    static bool classof(Action *from) {
+        return true;
+    }
+
     virtual void execute(std::shared_ptr<Action> self, Object &actor, float dt);
 
     void complete() { _completed = true; }

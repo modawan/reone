@@ -41,6 +41,10 @@ public:
             services) {
     }
 
+    static bool classof(Object *from) {
+        return from->type() == ObjectType::Camera;
+    }
+
     virtual bool handle(const input::Event &event) {
         return false;
     }

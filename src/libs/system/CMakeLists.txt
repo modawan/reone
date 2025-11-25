@@ -20,6 +20,7 @@ set(SYSTEM_HEADERS
     ${SYSTEM_INCLUDE_DIR}/binaryreader.h
     ${SYSTEM_INCLUDE_DIR}/binarywriter.h
     ${SYSTEM_INCLUDE_DIR}/cache.h
+    ${SYSTEM_INCLUDE_DIR}/cast.h
     ${SYSTEM_INCLUDE_DIR}/checkutil.h
     ${SYSTEM_INCLUDE_DIR}/clock.h
     ${SYSTEM_INCLUDE_DIR}/di/module.h

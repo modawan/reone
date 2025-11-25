@@ -32,6 +32,10 @@ public:
         _object(std::move(object)) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::OpenContainer;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
 private:

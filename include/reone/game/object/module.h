@@ -62,6 +62,10 @@ public:
             services) {
     }
 
+    static bool classof(Object *from) {
+        return from->type() == ObjectType::Module;
+    }
+
     void load(std::string name, const resource::Gff &ifo, bool fromSave = false);
     void loadParty(const std::string &entry = "", bool fromSave = false);
 
