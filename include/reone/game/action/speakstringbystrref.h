@@ -34,6 +34,10 @@ public:
         _talkVolume(talkVolume) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::SpeakStringByStrRef;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override {
         complete();
     }

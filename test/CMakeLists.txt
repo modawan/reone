@@ -37,8 +37,8 @@ set(TESTS_HEADERS
 
 set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/audio/format/wavreader.cpp
-    ${TESTS_SOURCE_DIR}/game/pathfinder.cpp
     ${TESTS_SOURCE_DIR}/game/messagebus.cpp
+    ${TESTS_SOURCE_DIR}/game/pathfinder.cpp
     ${TESTS_SOURCE_DIR}/graphics/aabb.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/bwmreader.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/mdlmdxreader.cpp
@@ -68,11 +68,15 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/script/format/ncsreader.cpp
     ${TESTS_SOURCE_DIR}/script/format/ncswriter.cpp
     ${TESTS_SOURCE_DIR}/script/virtualmachine.cpp
+    ${TESTS_SOURCE_DIR}/system/arrayref.cpp
     ${TESTS_SOURCE_DIR}/system/binaryreader.cpp
     ${TESTS_SOURCE_DIR}/system/binarywriter.cpp
     ${TESTS_SOURCE_DIR}/system/cache.cpp
+    ${TESTS_SOURCE_DIR}/system/cast.cpp
     ${TESTS_SOURCE_DIR}/system/fileutil.cpp
     ${TESTS_SOURCE_DIR}/system/hexutil.cpp
+    ${TESTS_SOURCE_DIR}/system/smallset.cpp
+    ${TESTS_SOURCE_DIR}/system/smallvector.cpp
     ${TESTS_SOURCE_DIR}/system/stream/fileinput.cpp
     ${TESTS_SOURCE_DIR}/system/stream/fileoutput.cpp
     ${TESTS_SOURCE_DIR}/system/stream/memoryinput.cpp

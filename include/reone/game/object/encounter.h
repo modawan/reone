@@ -42,6 +42,10 @@ public:
             services) {
     }
 
+    static bool classof(Object *from) {
+        return from->type() == ObjectType::Encounter;
+    }
+
     void loadFromGIT(const resource::generated::GIT_Encounter_List &git);
 
 private:

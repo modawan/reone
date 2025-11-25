@@ -29,6 +29,10 @@ public:
         Action(game, services, ActionType::ResumeConversation) {
     }
 
+    static bool classof(Action *from) {
+        return from->type() == ActionType::ResumeConversation;
+    }
+
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 };
 

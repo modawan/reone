@@ -19,28 +19,58 @@
 
 #include "../action.h"
 
+#include "reone/game/attack.h"
+
 namespace reone {
+
+namespace scene {
+class ModelSceneNode;
+}
 
 namespace game {
 
+/**
+ * Perform a basic attack of the target using the current weapon.
+ */
 class AttackObjectAction : public Action {
 public:
-    AttackObjectAction(Game &game,
-                       ServicesView &services,
-                       std::shared_ptr<Object> attackee,
+    AttackObjectAction(Game &game, ServicesView &services,
+                       const std::shared_ptr<Object> &target,
                        bool passive = false) :
         Action(game, services, ActionType::AttackObject),
-        _attackee(std::move(attackee)),
-        _passive(passive) {
+        _target(target),
+        _passive(passive) {}
+
+    static bool classof(Action *from) {
+        return from->type() == ActionType::AttackObject;
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    void cancel(std::shared_ptr<Action> self, Object &actor) override;
+    const std::shared_ptr<Object> &target() const { return _target; }
 
-    std::shared_ptr<Object> attackee() const { return _attackee; }
+    AttackResultType result() const { return _attacks.result(); }
 
 private:
-    std::shared_ptr<Object> _attackee;
+    void addProjectiles(CreatureWieldType wield);
+
+    void finish(Creature &attacker);
+
+    enum State {
+        Move,
+        Wait,
+        Attack,
+        Hit,
+    };
+
+    std::shared_ptr<Object> _target;
     bool _passive;
+
+    AttackBuffer _attacks;
+    State _state {Move};
+    float _time {0.0f};
+
+    ProjectileSequence _projectiles;
 };
 
 } // namespace game

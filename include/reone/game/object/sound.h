@@ -46,6 +46,10 @@ public:
             services) {
     }
 
+    static bool classof(Object *from) {
+        return from->type() == ObjectType::Sound;
+    }
+
     void loadFromGIT(const resource::generated::GIT_SoundList &git);
     void loadFromBlueprint(const std::string &resRef);
 

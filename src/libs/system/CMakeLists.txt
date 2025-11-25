@@ -17,22 +17,26 @@ set(SYSTEM_INCLUDE_DIR ${REONE_INCLUDE_DIR}/reone/system)
 set(SYSTEM_SOURCE_DIR ${CMAKE_SOURCE_DIR}/src/libs/system)
 
 set(SYSTEM_HEADERS
+    ${SYSTEM_INCLUDE_DIR}/arrayref.h
     ${SYSTEM_INCLUDE_DIR}/binaryreader.h
     ${SYSTEM_INCLUDE_DIR}/binarywriter.h
     ${SYSTEM_INCLUDE_DIR}/cache.h
+    ${SYSTEM_INCLUDE_DIR}/cast.h
     ${SYSTEM_INCLUDE_DIR}/checkutil.h
     ${SYSTEM_INCLUDE_DIR}/clock.h
     ${SYSTEM_INCLUDE_DIR}/di/module.h
     ${SYSTEM_INCLUDE_DIR}/di/services.h
     ${SYSTEM_INCLUDE_DIR}/exception/endofstream.h
     ${SYSTEM_INCLUDE_DIR}/exception/filenotfound.h
-    ${SYSTEM_INCLUDE_DIR}/exception/validation.h
     ${SYSTEM_INCLUDE_DIR}/exception/notimplemented.h
+    ${SYSTEM_INCLUDE_DIR}/exception/validation.h
     ${SYSTEM_INCLUDE_DIR}/fileutil.h
     ${SYSTEM_INCLUDE_DIR}/hexutil.h
     ${SYSTEM_INCLUDE_DIR}/logger.h
     ${SYSTEM_INCLUDE_DIR}/logutil.h
     ${SYSTEM_INCLUDE_DIR}/randomutil.h
+    ${SYSTEM_INCLUDE_DIR}/smallset.h
+    ${SYSTEM_INCLUDE_DIR}/smallvector.h
     ${SYSTEM_INCLUDE_DIR}/stream/fileinput.h
     ${SYSTEM_INCLUDE_DIR}/stream/fileoutput.h
     ${SYSTEM_INCLUDE_DIR}/stream/input.h
@@ -44,6 +48,7 @@ set(SYSTEM_HEADERS
     ${SYSTEM_INCLUDE_DIR}/textwriter.h
     ${SYSTEM_INCLUDE_DIR}/threadpool.h
     ${SYSTEM_INCLUDE_DIR}/threadutil.h
+    ${SYSTEM_INCLUDE_DIR}/timeevents.h
     ${SYSTEM_INCLUDE_DIR}/timer.h
     ${SYSTEM_INCLUDE_DIR}/timespan.h
     ${SYSTEM_INCLUDE_DIR}/types.h
@@ -63,6 +68,7 @@ set(SYSTEM_SOURCES
     ${SYSTEM_SOURCE_DIR}/textwriter.cpp
     ${SYSTEM_SOURCE_DIR}/threadpool.cpp
     ${SYSTEM_SOURCE_DIR}/threadutil.cpp
+    ${SYSTEM_SOURCE_DIR}/timeevents.cpp
     ${SYSTEM_SOURCE_DIR}/unicodeutil.cpp)
 
 add_library(system STATIC ${SYSTEM_HEADERS} ${SYSTEM_SOURCES} ${CLANG_FORMAT_PATH})
