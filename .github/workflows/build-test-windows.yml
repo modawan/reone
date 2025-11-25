@@ -5,7 +5,7 @@ on:
   pull_request:
   workflow_dispatch:
 env:
-  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  VCPKG_DEFAULT_BINARY_CACHE: "${{github.workspace}}/vcpkg-cache"
 
 jobs:
   build:
@@ -20,8 +20,17 @@ jobs:
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: ${{ runner.os }}-vcpkg-cache-1
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-binary-cache-1
+
       - name: Install dependencies
         run: |-
+          md -Force $env:VCPKG_DEFAULT_BINARY_CACHE
           vcpkg install --triplet x64-windows `
             boost-algorithm boost-endian boost-format boost-functional boost-program-options `
             glm sdl2 glew openal-soft libmad ffmpeg wxwidgets gtest
