@@ -49,7 +49,7 @@ public:
     }
 
     virtual void update(float dt);
-    virtual void damage(int amount, const Object *damager);
+    virtual void damage(int amount, uint32_t damager);
 
     void face(const Object &other);
     void face(const glm::vec3 &point);

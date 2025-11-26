@@ -28,7 +28,7 @@ namespace game {
 
 void DamageEffect::applyTo(Object &object) {
     debug(str(boost::format("Damage taken: %s %d") % object.tag() % _amount));
-    object.damage(_amount, _damager.get());
+    object.damage(_amount, _damager);
 }
 
 } // namespace game

@@ -232,7 +232,7 @@ void Creature::updateModelAnimation() {
     _animDirty = false;
 }
 
-void Creature::damage(int amount, const Object *damager) {
+void Creature::damage(int amount, uint32_t damager) {
     if (_dead) {
         return;
     }
@@ -243,7 +243,7 @@ void Creature::damage(int amount, const Object *damager) {
         _currentHitPoints = std::max(isMinOneHP() ? 1 : 0, _currentHitPoints - amount);
     }
 
-    runDamagedScript(damager ? damager->id() : script::kObjectInvalid);
+    runDamagedScript(damager ? damager : script::kObjectInvalid);
 
     if (_immortal || _currentHitPoints > 0) {
         return;
@@ -256,7 +256,7 @@ void Creature::damage(int amount, const Object *damager) {
 
     playSound(SoundSetEntry::Dead);
     playAnimation(getDieAnimation());
-    runDeathScript(damager ? damager->id() : script::kObjectInvalid);
+    runDeathScript(damager);
 }
 
 void Creature::updateCombat(float dt) {
