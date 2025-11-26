@@ -157,7 +157,7 @@ static Variable EffectDamage(const std::vector<Variable> &args, const RoutineCon
     auto damagePower = static_cast<DamagePower>(nDamagePower);
 
     // Execute
-    auto effect = ctx.game.newEffect<DamageEffect>(nDamageAmount, damageType, damagePower, nullptr);
+    auto effect = ctx.game.newEffect<DamageEffect>(nDamageAmount, damageType, damagePower, 0);
     return Variable::ofEffect(std::move(effect));
 }
 

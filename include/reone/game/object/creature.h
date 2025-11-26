@@ -109,7 +109,7 @@ public:
     void update(float dt) override;
 
     void clearAllActions() override;
-    void damage(int amount, const Object *damager) override;
+    void damage(int amount, uint32_t damager) override;
 
     void giveXP(int amount);
 

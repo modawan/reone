@@ -971,7 +971,7 @@ void Game::consoleKill(const IConsole::TokenList &tokens) {
         100000,
         DamageType::Universal,
         DamagePower::Normal,
-        std::shared_ptr<Creature>());
+        /*damager=*/ 0);
     object->applyEffect(std::move(effect), DurationType::Instant);
 }
 

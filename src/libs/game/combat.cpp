@@ -422,7 +422,7 @@ void Combat::applyAttackResult(const Attack &attack, bool offHand) {
             multiplier * attack.damage,
             DamageType::Universal,
             DamagePower::Normal,
-            attack.attacker);
+            attack.attacker->id());
         attack.target->applyEffect(std::move(effect), DurationType::Instant);
         return;
     }
@@ -444,7 +444,7 @@ std::vector<std::shared_ptr<DamageEffect>> Combat::getDamageEffects(std::shared_
         type = static_cast<DamageType>(weapon->damageFlags());
     }
     amount = glm::max(1, amount);
-    std::shared_ptr<DamageEffect> effect(_game.newEffect<DamageEffect>(multiplier * amount, type, DamagePower::Normal, std::move(damager)));
+    std::shared_ptr<DamageEffect> effect(_game.newEffect<DamageEffect>(multiplier * amount, type, DamagePower::Normal, damager->id()));
 
     return std::vector<std::shared_ptr<DamageEffect>> {std::move(effect)};
 }

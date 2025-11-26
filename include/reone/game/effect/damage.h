@@ -30,25 +30,25 @@ public:
     DamageEffect(int amount,
                  DamageType type,
                  DamagePower power,
-                 std::shared_ptr<Creature> damager) :
+                 uint32_t damager) :
         Effect(EffectType::Damage),
         _amount(amount),
         _type(type),
         _power(power),
-        _damager(std::move(damager)) {
+        _damager(damager) {
     }
 
     void applyTo(Object &object) override;
 
     int amount() const { return _amount; }
     DamageType type() const { return _type; }
-    std::shared_ptr<Creature> damager() const { return _damager; }
+    uint32_t damager() const { return _damager; }
 
 private:
     int _amount;
     DamageType _type;
     DamagePower _power;
-    std::shared_ptr<Creature> _damager;
+    uint32_t _damager;
 };
 
 } // namespace game
