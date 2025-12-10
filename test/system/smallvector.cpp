@@ -54,7 +54,9 @@ TEST(SmallVector, ctor_dtor) {
             S &o = const_cast<S &>(other);
             ctor = o.ctor;
             dtor = o.dtor;
-            ++(*ctor);
+            if (ctor) {
+                ++(*ctor);
+            }
         }
 
         explicit S(int v) :
@@ -94,28 +96,29 @@ TEST(SmallVector, ctor_dtor) {
     EXPECT_EQ(ctor, 3);
     EXPECT_EQ(dtor, 1);
 
+    // Reallocate forces a copy
     v.push_back(s);
-    EXPECT_EQ(ctor, 4);
-    EXPECT_EQ(dtor, 1);
-
-    v.resize(1);
-    EXPECT_EQ(ctor, 4);
+    EXPECT_EQ(ctor, 6);
     EXPECT_EQ(dtor, 3);
 
+    v.resize(1);
+    EXPECT_EQ(ctor, 6);
+    EXPECT_EQ(dtor, 5);
+
     v.resize(0);
-    EXPECT_EQ(ctor, 4);
-    EXPECT_EQ(dtor, 4);
+    EXPECT_EQ(ctor, 6);
+    EXPECT_EQ(dtor, 6);
 
     // Check dtor after resize
     v.resize(1);
-    EXPECT_EQ(ctor, 4);
-    EXPECT_EQ(dtor, 4);
+    EXPECT_EQ(ctor, 6);
+    EXPECT_EQ(dtor, 6);
 
     v.back().dtor = &dtor;
 
     v.resize(0);
-    EXPECT_EQ(ctor, 4);
-    EXPECT_EQ(dtor, 5);
+    EXPECT_EQ(ctor, 6);
+    EXPECT_EQ(dtor, 7);
 
     // Check emplace back
     EXPECT_EQ(v.emplace_back(42).value, 42);
@@ -125,13 +128,135 @@ TEST(SmallVector, ctor_dtor) {
     v.emplace_back(43);
     v[0].dtor = &dtor;
     v[1].dtor = &dtor;
+    EXPECT_EQ(dtor, 7);
+
+    // Erase forces dtor of the erased element, as well as dtor and ctor for
+    // subsequent elements due to memmove.
+    v.erase(&v[0]);
+    EXPECT_EQ(dtor, 9);
+    v.erase(&v[0]);
+    EXPECT_EQ(dtor, 10);
+    EXPECT_TRUE(v.empty());
+}
+
+TEST(SmallVector, dtor) {
+    SmallVector<std::string, 2> v;
+    v.push_back("1");
+    v.push_back("2");
+    v.push_back("3");
+}
+
+TEST(SmallVector, move) {
+    struct S {
+        int *move {nullptr};
+        int *dtor {nullptr};
+
+        S() = default;
+
+        S(int *m, int *d) :
+            move(m), dtor(d) {}
+
+        S(S &&other) {
+            S &o = const_cast<S &>(other);
+            move = o.move;
+            dtor = o.dtor;
+            if (move) {
+                ++(*move);
+            }
+        }
+
+        S(const S &other) {
+            S &o = const_cast<S &>(other);
+            move = o.move;
+            dtor = o.dtor;
+        }
+
+        ~S() {
+            if (dtor) {
+                ++(*dtor);
+            }
+        }
+    };
+
+    int move = 0;
+    int dtor = 0;
+
+    SmallVector<S, 2> v;
+    v.emplace_back(&move, &dtor);
+    v.emplace_back(&move, &dtor);
+    EXPECT_EQ(move, 0);
+
+    // Reallocation moves elements from co-allocated storage to heap.
+    v.emplace_back(&move, &dtor);
+    EXPECT_EQ(move, 2);
+    EXPECT_EQ(dtor, 2);
+
+    // Erase calls dtor of the erased element, and moves all elements that
+    // follow it.
+    v.erase(&v[0]);
+    EXPECT_EQ(move, 4);
     EXPECT_EQ(dtor, 5);
 
-    v.erase(&v[0]);
-    EXPECT_EQ(dtor, 6);
-    v.erase(&v[0]);
+    // Insert moves all elements following the inserted element.
+    S ins;
+    v.insert(&v[0], ins);
+    EXPECT_EQ(move, 6);
     EXPECT_EQ(dtor, 7);
-    EXPECT_TRUE(v.empty());
+}
+
+TEST(SmallVector, move_assign) {
+    SmallVector<SmallVector<int, 2>, 2> v;
+
+    SmallVector<int, 2> v0;
+    v0.push_back(1);
+    v0.push_back(2);
+    v.emplace_back(std::move(v0));
+
+    SmallVector<int, 2> v1;
+    v1.push_back(3);
+    v1.push_back(4);
+    v1.push_back(5);
+    v.emplace_back(std::move(v1));
+
+    SmallVector<int, 2> v2;
+    v2.push_back(6);
+    v.emplace_back(std::move(v2));
+
+    // Move operation should take content of a SmallVector, and reset it.
+    EXPECT_EQ(v0.size(), 0);
+    EXPECT_EQ(v1.size(), 0);
+    EXPECT_EQ(v1.size(), 0);
+
+    // Check that "moved" SmallVectors are still functional.
+    v0.push_back(7);
+    v1.push_back(8);
+    v2.push_back(9);
+    v2.push_back(10);
+    v2.push_back(11);
+
+    EXPECT_EQ(v[0][0], 1);
+    EXPECT_EQ(v[0][1], 2);
+    EXPECT_EQ(v[1][0], 3);
+    EXPECT_EQ(v[1][1], 4);
+    EXPECT_EQ(v[1][2], 5);
+    EXPECT_EQ(v[2][0], 6);
+
+    EXPECT_EQ(v0[0], 7);
+    EXPECT_EQ(v1[0], 8);
+    EXPECT_EQ(v2[0], 9);
+    EXPECT_EQ(v2[1], 10);
+    EXPECT_EQ(v2[2], 11);
+}
+
+TEST(SmallVector, string) {
+    SmallVector<std::string, 2> v;
+    v.push_back("a");
+    v.push_back("b");
+    v.push_back("c");
+
+    EXPECT_EQ(v[0], "a");
+    EXPECT_EQ(v[1], "b");
+    EXPECT_EQ(v[2], "c");
 }
 
 TEST(SmallVector, reserve) {

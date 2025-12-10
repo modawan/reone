@@ -202,6 +202,14 @@ protected:
      */
     ISmallSet(T *begin, int64_t smallCapacity) :
         Base(begin, smallCapacity) {}
+
+    /**
+     * Assign contents of another SmallSet of the same type T and co-allocated
+     * Capacity.
+     */
+    void moveAssign(ISmallSet<T> &&other, T *coallocBegin, T *coallocBeginOther, int64_t coallocSize) {
+        Base::moveAssign(std::move(other), coallocBegin, coallocBeginOther, coallocSize);
+    }
 };
 
 template <typename T, size_t Capacity>
@@ -211,6 +219,12 @@ public:
         ISmallSet<T>((T *)_coalloc, Capacity) {}
 
     SmallSet(const SmallSet<T, Capacity> &) = delete;
+
+    SmallSet(SmallSet<T, Capacity> &&other) :
+        ISmallSet<T>((T *)_coalloc, Capacity) {
+        ISmallSet<T>::moveAssign(
+            std::move(other), (T *)_coalloc, (T *)other._coalloc, Capacity);
+    }
 
 private:
     /**

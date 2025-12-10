@@ -168,17 +168,23 @@ public:
 
         size_t moveElements = end() - insertBefore;
         if (!moveElements) {
-            // Append, nothing to memmove.
+            // Append, nothing to move.
             push_back(value);
             return &back();
         }
+
+        // Grow may reallocate, so keep indices instead of pointers.
         size_t moveStart = insertBefore - _begin;
         grow(_size + 1);
         ++_size;
-        memmove(&_begin[moveStart + 1], &_begin[moveStart],
-                sizeof(T) * moveElements);
-        iterator insertedIt = &_begin[moveStart];
-        createCopy(insertedIt, value);
+
+        T *begin = &_begin[moveStart];
+        T *end = &_begin[moveStart + moveElements];
+        T *dest = &_begin[moveStart + 1];
+        moveRangeForward(begin, end, dest);
+
+        iterator insertedIt = begin;
+        createCopy(begin, value);
         return insertedIt;
     }
 
@@ -191,12 +197,12 @@ public:
         iterator moveIt = eraseIt + 1;
         size_t moveElements = end() - moveIt;
         if (!moveElements) {
-            // Erase last, nothing to memmove.
+            // Erase last, nothing to move.
             resize(_size - 1);
             return;
         }
         destroy(eraseIt);
-        memmove(eraseIt, moveIt, sizeof(T) * moveElements);
+        moveRangeBackward(moveIt, end(), eraseIt);
         --_size;
     }
 
@@ -257,6 +263,32 @@ protected:
      */
     bool isSmall() const { return _capacity <= 0; }
 
+    /**
+     * Assign contents of another SmallVector of the same type T and
+     * co-allocated Capacity.
+     */
+    void moveAssign(ISmallVector<T> &&other, T *coallocBegin, T *coallocBeginOther, int64_t coallocSize) {
+        if (!isSmall()) {
+            free(_begin);
+        }
+
+        if (other.isSmall()) {
+            moveRange(other.begin(), other.end(), coallocBegin);
+            _begin = coallocBegin;
+            _capacity = other._capacity;
+            _size = other._size;
+        } else {
+            _begin = other._begin;
+            _capacity = other._capacity;
+            _size = other._size;
+        }
+
+        // Prevent dtor from doing anything
+        other._begin = coallocBeginOther;
+        other._capacity = -coallocSize;
+        other._size = 0;
+    }
+
     T *_begin;
     size_t _size;
     int64_t _capacity;
@@ -310,6 +342,62 @@ private:
     }
 
     /**
+     * Move elements from \p begin to \dest. Memory regions must not overlap.
+     */
+    void moveRange(T *begin, T *end, T *dest) {
+        while (begin != end) {
+            new (dest++) T(std::move(*begin));
+            destroy(begin++);
+        }
+    }
+
+    /**
+     * Move elements forward from \p begin to \dest. Memory regions may overlap.
+     *
+     * This function moves in reverse order: elements at the back are moved
+     * first.
+     */
+    void moveRangeForward(T *begin, T *end, T *dest) {
+        assert(end >= begin && "invalid arguments");
+        assert(dest >= begin && "dest ptr must follow source ptr");
+        assert(begin >= _begin && "invalid source");
+        assert(end <= this->end() && "source overflow");
+
+        size_t count = end - begin;
+        assert((dest + count) <= this->end() && "dest overflow");
+
+        T *rsrc = end - 1;
+        T *rend = begin - 1;
+        T *rdst = dest + count - 1;
+
+        while (rsrc != rend) {
+            new (rdst--) T(std::move(*rsrc));
+            destroy(rsrc--);
+        }
+    }
+
+    /**
+     * Move elements backward from \p begin to \dest. Memory regions may overlap.
+     *
+     * This function moves in forward order: elements at the front are moved
+     * first.
+     */
+    void moveRangeBackward(T *begin, T *end, T *dest) {
+        assert(end >= begin && "invalid arguments");
+        assert(begin >= dest && "dest ptr must follow source ptr");
+        assert(begin >= _begin && "invalid source");
+        assert(end <= this->end() && "source overflow");
+
+        size_t count = end - begin;
+        assert((dest + count) <= this->end() && "dest overflow");
+
+        while (begin != end) {
+            new (dest++) T(std::move(*begin));
+            destroy(begin++);
+        }
+    }
+
+    /**
      * Reserve up to \p new_cap or by a factor of 1.5, whatever is higher.
      */
     void grow(size_t new_cap) {
@@ -327,7 +415,7 @@ private:
         assert(isSmall());
         size_t size_bytes = sizeof(T) * new_cap;
         T *heap = (T *)malloc(size_bytes);
-        memcpyElements(heap, _begin, _size);
+        moveRange(begin(), end(), heap);
         _begin = heap;
         _capacity = new_cap;
     }
@@ -337,29 +425,14 @@ private:
      */
     void reallocHeap(size_t new_cap) {
         assert(!isSmall() && new_cap != 0);
-        _begin = (T *)realloc(_begin, sizeof(T) * new_cap);
+        size_t size_bytes = sizeof(T) * new_cap;
+
+        T *heap = (T *)malloc(size_bytes);
+        moveRange(begin(), end(), heap);
+        free(_begin);
+
+        _begin = heap;
         _capacity = new_cap;
-    }
-
-    void memcpyElements(T *dest, T *source, size_t count) {
-        assert(source >= _begin && "memcpy invalid source");
-        assert((source + count) <= end() && "memcpy source overflow");
-        assert((dest + count) <= end() && "memcpy dest overflow");
-        assert(!((dest >= _begin && dest < end())
-                 || ((dest + count) >= _begin && (dest + count) < end()))
-               && "memcpy regions must not overlap");
-
-        size_t bytes = sizeof(T) * count;
-        memcpy(dest, source, bytes);
-    }
-
-    void memmoveElements(T *dest, T *source, size_t count) {
-        assert(source >= _begin && "memcpy invalid source");
-        assert((source + count) <= end() && "memcpy source overflow");
-        assert((dest + count) <= end() && "memcpy dest overflow");
-
-        size_t bytes = sizeof(T) * count;
-        memmove(dest, source, bytes);
     }
 };
 
@@ -375,6 +448,12 @@ public:
         ISmallVector<T>((T *)_coalloc, Capacity) {}
 
     SmallVector(const SmallVector<T, Capacity> &) = delete;
+
+    SmallVector(SmallVector<T, Capacity> &&other) :
+        ISmallVector<T>((T *)_coalloc, Capacity) {
+        ISmallVector<T>::moveAssign(
+            std::move(other), (T *)_coalloc, (T *)other._coalloc, Capacity);
+    }
 
 private:
     /**
