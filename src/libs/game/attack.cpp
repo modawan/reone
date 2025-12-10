@@ -21,6 +21,8 @@
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
+#include "reone/game/projectiles.h"
+#include "reone/scene/collision.h"
 #include "reone/scene/graph.h"
 #include "reone/system/arrayref.h"
 #include "reone/system/randomutil.h"
@@ -295,6 +297,22 @@ void Projectile::fire(Creature &attacker, Object &target, scene::ISceneGraph &sc
         _target = targetModel->origin();
     }
 
+    if (_miss) {
+        float offsetRadius = 1.5f * glm::length(targetModel->origin() - _target);
+        glm::vec3 offsetDir = glm::normalize(
+            glm::vec3(randomFloat(0.0f, 1.0f),
+                      randomFloat(0.0f, 1.0f),
+                      randomFloat(0.0f, 1.0f)));
+        glm::vec3 offsetTarget = _target + offsetDir * offsetRadius;
+        glm::vec3 dir = _target - projectilePos;
+        _target = projectilePos + dir * 1000.0f;
+
+        scene::Collision collision;
+        if (sceneGraph.testLineOfSight(projectilePos, _target, collision)) {
+            _target = collision.intersection;
+        }
+    }
+
     // Create and add a projectile to the scene graph
     _model = sceneGraph.newModel(*ammunitionType->model, scene::ModelUsage::Projectile);
     _model->signalEvent(kModelEventDetonate);
@@ -342,8 +360,8 @@ void Projectile::reset() {
     _model.reset();
 }
 
-void ProjectileSequence::push_back(float time, Projectile::Source source) {
-    _projectiles.emplace_back(source);
+void ProjectileSequence::push_back(float time, Projectile::Source source, bool miss) {
+    _projectiles.emplace_back(source, miss);
     _events.push_back(time, _projectiles.size());
 }
 
@@ -368,6 +386,25 @@ void ProjectileSequence::update(float dt, Creature &attacker, Object &target,
 void ProjectileSequence::reset() {
     for (Projectile &proj : _projectiles) {
         proj.reset();
+    }
+}
+
+static void addProjectile(ProjectileSequence &seq, std::pair<float, int> timeKind, bool miss) {
+    float time = timeKind.first;
+    float kind = timeKind.second;
+    seq.push_back(time, kind == 0 ? Projectile::Main : Projectile::Offhand, miss);
+}
+
+void addProjectilesFromSpec(ProjectileSequence &seq, const ProjectileSpec &spec) {
+    uint32_t remainingMisses = spec.misses;
+    size_t numProjectiles = spec.projectiles.size();
+    for (size_t i = 0; i < numProjectiles; ++i) {
+        bool autoMiss = (i + remainingMisses) >= numProjectiles;
+        bool miss = autoMiss || (remainingMisses && randomInt(0, 1));
+        if (miss) {
+            --remainingMisses;
+        }
+        addProjectile(seq, spec.projectiles[i], miss);
     }
 }
 
