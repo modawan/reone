@@ -36,6 +36,7 @@ class Creature;
 class Game;
 class Item;
 class Object;
+class ProjectileSpec;
 class ServicesView;
 
 static constexpr float kAttackDamageDelay = 1.0f;
@@ -144,8 +145,8 @@ public:
      * Create a projectile that fires from either the main hand (from a single
      * blaster or a rifle) or the offhand (dual blasters).
      */
-    explicit Projectile(Source source) :
-        _source(source) {}
+    explicit Projectile(Source source, bool miss) :
+        _source(source), _miss(miss) {}
 
     ~Projectile() { reset(); }
 
@@ -170,6 +171,7 @@ public:
 
 private:
     Source _source;
+    bool _miss;
     std::shared_ptr<scene::ModelSceneNode> _model;
     glm::vec3 _target {0.0f};
 };
@@ -183,14 +185,11 @@ public:
     /**
      * Add a projectile to the sequence.
      */
-    void push_back(float time, Projectile::Source source);
+    void push_back(float time, Projectile::Source source, bool miss);
 
     /**
      * Keep track of time and fire projectiles when necessary. Remove
      * projectiles that reach the target.
-     *
-     * FIXME: we may need *some* projectiles to miss - add another parameter to
-     * push_back().
      */
     void update(float dt, Creature &attacker, Object &target, scene::ISceneGraph &sceneGraph);
 
@@ -203,6 +202,8 @@ private:
     TimeEvents _events;
     SmallVector<Projectile, 16> _projectiles;
 };
+
+void addProjectilesFromSpec(ProjectileSequence &seq, const ProjectileSpec &spec);
 
 class AttackSchedule {
 public:

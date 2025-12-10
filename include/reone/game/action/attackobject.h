@@ -39,7 +39,7 @@ public:
                        bool passive = false) :
         Action(game, services, ActionType::AttackObject),
         _target(target),
-        _passive(passive) {}
+        _passive(passive), _services(services) {}
 
     static bool classof(Action *from) {
         return from->type() == ActionType::AttackObject;
@@ -52,12 +52,13 @@ public:
     AttackResultType result() const { return _attacks.result(); }
 
 private:
-    void addProjectiles(CreatureWieldType wield);
+    void addProjectiles(const Creature &creature);
 
     void finish(Creature &attacker);
 
     std::shared_ptr<Object> _target;
     bool _passive;
+    ServicesView &_services;
 
     AttackSchedule _schedule;
     AttackBuffer _attacks;
