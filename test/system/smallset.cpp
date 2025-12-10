@@ -250,3 +250,58 @@ TEST(SmallSet, sort) {
     EXPECT_EQ(2, v[3]);
     EXPECT_EQ(3, v[4]);
 }
+
+TEST(SmallSet, move_assign) {
+    SmallVector<SmallSet<int, 2>, 2> v;
+
+    SmallSet<int, 2> v0;
+    v0.insert(1);
+    v0.insert(2);
+    v.emplace_back(std::move(v0));
+
+    SmallSet<int, 2> v1;
+    v1.insert(3);
+    v1.insert(4);
+    v1.insert(5);
+    v.emplace_back(std::move(v1));
+
+    SmallSet<int, 2> v2;
+    v2.insert(6);
+    v.emplace_back(std::move(v2));
+
+    // Move operation should take content of a SmallSet, and reset it.
+    EXPECT_EQ(v0.size(), 0);
+    EXPECT_EQ(v1.size(), 0);
+    EXPECT_EQ(v1.size(), 0);
+
+    // Check that "moved" SmallVectors are still functional.
+    v0.insert(7);
+    v1.insert(8);
+    v2.insert(9);
+    v2.insert(10);
+    v2.insert(11);
+
+    EXPECT_EQ(v[0][0], 1);
+    EXPECT_EQ(v[0][1], 2);
+    EXPECT_EQ(v[1][0], 3);
+    EXPECT_EQ(v[1][1], 4);
+    EXPECT_EQ(v[1][2], 5);
+    EXPECT_EQ(v[2][0], 6);
+
+    EXPECT_EQ(v0[0], 7);
+    EXPECT_EQ(v1[0], 8);
+    EXPECT_EQ(v2[0], 9);
+    EXPECT_EQ(v2[1], 10);
+    EXPECT_EQ(v2[2], 11);
+}
+
+TEST(SmallSet, string) {
+    SmallSet<std::string, 2> v;
+    v.insert("b");
+    v.insert("a");
+    v.insert("c");
+
+    EXPECT_EQ(v[0], "a");
+    EXPECT_EQ(v[1], "b");
+    EXPECT_EQ(v[2], "c");
+}
