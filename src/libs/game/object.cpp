@@ -64,9 +64,12 @@ void Object::setLocalNumber(int index, int value) {
     _localNumbers[index] = value;
 }
 
-void Object::clearAllActions() {
+void Object::clearAllActions(bool force) {
     while (!_actions.empty()) {
         const std::shared_ptr<Action> &action = _actions.back();
+        if (!force && action->locked()) {
+            break;
+        }
         _actions.back()->cancel(action, *this);
         _actions.pop_back();
     }
@@ -89,7 +92,7 @@ void Object::delayAction(std::shared_ptr<Action> action, float seconds) {
 
 void Object::updateActions(float dt) {
     if (isDead()) {
-        clearAllActions();
+        clearAllActions(/*force=*/true);
         return;
     }
     removeCompletedActions();

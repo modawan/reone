@@ -168,7 +168,7 @@ public:
 
     // Actions
 
-    virtual void clearAllActions();
+    virtual void clearAllActions(bool force = false);
 
     void addAction(std::shared_ptr<Action> action);
     void addActionOnTop(std::shared_ptr<Action> action);

@@ -58,6 +58,7 @@ void CutsceneAttackAction::execute(std::shared_ptr<Action> self, Object &actor, 
     // Gameplay updates
     switch (state) {
     case AttackSchedule::Attack: {
+        lock();
         resource::ITwoDAs &twoDas = _services.resource.twoDas;
         attack(attacker, getAnimationName(_animation, twoDas));
 

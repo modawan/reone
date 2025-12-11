@@ -108,7 +108,7 @@ public:
 
     void update(float dt) override;
 
-    void clearAllActions() override;
+    void clearAllActions(bool force = false) override;
     void damage(int amount, uint32_t damager) override;
 
     void giveXP(int amount);

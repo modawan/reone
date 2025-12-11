@@ -267,8 +267,8 @@ void Creature::updateCombat(float dt) {
     }
 }
 
-void Creature::clearAllActions() {
-    Object::clearAllActions();
+void Creature::clearAllActions(bool force) {
+    Object::clearAllActions(force);
     setMovementType(MovementType::None);
 }
 
