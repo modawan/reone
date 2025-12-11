@@ -55,6 +55,18 @@ public:
      */
     void complete() { _completed = true; }
 
+    /**
+     * Locked action cannot be cancelled, unless the creature it belongs to is dead.
+     */
+    bool locked() const { return _locked; }
+
+    /**
+     * Lock the action to prevent it from being cancelled. AI scripts may
+     * request to cancel all actions. Actions that are already in progress
+     * (attack, open lock, etc.) should be locked.
+     */
+    void lock() { _locked = true; }
+
     ActionType type() const { return _type; }
 
     bool isUserAction() const { return _userAction; }
@@ -72,6 +84,7 @@ protected:
 
     bool _userAction {false};
     bool _completed {false};
+    bool _locked {false};
 
     Action(
         Game &game,

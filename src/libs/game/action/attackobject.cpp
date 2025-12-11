@@ -183,6 +183,7 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
     // Gameplay updates
     switch (state) {
     case AttackSchedule::Attack: {
+        lock();
         attacker.setMovementType(Creature::MovementType::None);
         attacker.setMovementRestricted(true);
 
