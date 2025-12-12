@@ -225,6 +225,8 @@ private:
 
 bool navigateToAttackTarget(Creature &attacker, Object &actor, float dt, bool &reachedOnce);
 
+std::string getRangedAttackAnim(Creature &attacker, int kind);
+
 } // namespace game
 
 } // namespace reone

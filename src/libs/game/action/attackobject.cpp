@@ -68,10 +68,6 @@ static std::string getMeleeParryAnim(CreatureWieldType targetWield, int variant)
     return str(boost::format("g%dr1") % static_cast<int>(targetWield));
 }
 
-static std::string getRangedAttackAnim(CreatureWieldType attackerWield) {
-    return str(boost::format("b%da1") % static_cast<int>(attackerWield));
-}
-
 static std::string getRangedDamageAnim(CreatureWieldType targetWield) {
     return str(boost::format("g%dd1") % static_cast<int>(targetWield));
 }
@@ -108,7 +104,7 @@ static void attack(const CombatRound &round, Creature &attacker, Object &target,
 
     std::string attackAnim = isMelee
                                  ? getMeleeAttackAnim(attackerWield, targetWield, variant, round.duel)
-                                 : getRangedAttackAnim(attackerWield);
+                                 : getRangedAttackAnim(attacker, /*kind=*/1);
 
     attacker.playAnimation(attackAnim, animProp);
 
