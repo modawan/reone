@@ -246,29 +246,50 @@ AttackResultType AttackBuffer::result() const {
     return sortedByScore[bestIndex];
 }
 
+std::shared_ptr<Item> determineProjectileWeapon(Creature &attacker, Projectile::Source source) {
+    int slot = (source == Projectile::Main)
+                   ? InventorySlots::rightWeapon
+                   : InventorySlots::leftWeapon;
+
+    std::shared_ptr<Item> weapon(attacker.getEquippedItem(slot));
+    if (!weapon) {
+        slot = (source == Projectile::Main)
+                   ? InventorySlots::leftWeapon
+                   : InventorySlots::rightWeapon;
+
+        weapon = attacker.getEquippedItem(slot);
+    }
+
+    return weapon;
+}
+
+static glm::vec3 determineProjectileOrigin(scene::ModelSceneNode &model, Projectile::Source source) {
+    std::string attachment = (source == Projectile::Main) ? "rhand" : "lhand";
+    auto weaponModel = static_cast<scene::ModelSceneNode *>(model.getAttachment(attachment));
+    if (weaponModel) {
+        auto bulletHook = weaponModel->getNodeByName("bullethook");
+        if (bulletHook) {
+            return bulletHook->origin();
+        }
+        weaponModel->origin();
+    }
+
+    // Droids do not have weapon model, but they have hooks in the main (body) model.
+    std::string directAttachment = (source == Projectile::Main) ? "rbullet" : "lbullet";
+    if (scene::SceneNode *direct = model.getNodeByName(directAttachment)) {
+        return direct->origin();
+    }
+
+    return model.origin();
+}
+
 void Projectile::fire(Creature &attacker, Object &target, scene::ISceneGraph &sceneGraph) {
     auto attackerModel = std::static_pointer_cast<scene::ModelSceneNode>(attacker.sceneNode());
     auto targetModel = std::static_pointer_cast<scene::ModelSceneNode>(target.sceneNode());
     if (!attackerModel || !targetModel)
         return;
 
-    int slot = 0;
-    const char *attachment = nullptr;
-
-    switch (_source) {
-    case Projectile::Main: {
-        slot = InventorySlots::rightWeapon;
-        attachment = "rhand";
-        break;
-    }
-    case Projectile::Offhand:
-        slot = InventorySlots::leftWeapon;
-        attachment = "lhand";
-        break;
-    }
-    assert(slot && attachment && "unhandled projectile source");
-
-    std::shared_ptr<Item> weapon(attacker.getEquippedItem(slot));
+    std::shared_ptr<Item> weapon = determineProjectileWeapon(attacker, _source);
     if (!weapon)
         return;
 
@@ -276,18 +297,7 @@ void Projectile::fire(Creature &attacker, Object &target, scene::ISceneGraph &sc
     if (!ammunitionType)
         return;
 
-    auto weaponModel = static_cast<scene::ModelSceneNode *>(attackerModel->getAttachment(attachment));
-    if (!weaponModel)
-        return;
-
-    // Determine projectile position
-    glm::vec3 projectilePos;
-    auto bulletHook = weaponModel->getNodeByName("bullethook");
-    if (bulletHook) {
-        projectilePos = bulletHook->origin();
-    } else {
-        projectilePos = weaponModel->origin();
-    }
+    glm::vec3 projectilePos = determineProjectileOrigin(*attackerModel, _source);
 
     // Determine projectile direction
     auto impact = targetModel->getNodeByName("impact");
@@ -459,6 +469,30 @@ bool navigateToAttackTarget(Creature &attacker, Object &target, float dt, bool &
 
     reachedOnce = true;
     return true;
+}
+
+static bool hasAnim(const graphics::Model &model, const std::string &anim) {
+    return model.animations().count(anim);
+}
+
+std::string getRangedAttackAnim(Creature &attacker, int kind) {
+    CreatureWieldType wield = attacker.getWieldType();
+    assert(isRangedWieldType(wield) && "invalid wield");
+
+    auto attackerModel = std::static_pointer_cast<scene::ModelSceneNode>(attacker.sceneNode());
+    const graphics::Model &model = attackerModel->model();
+
+    std::string animByWield = str(boost::format("b%da%d") % static_cast<int>(wield) % kind);
+    if (hasAnim(model, animByWield)) {
+        return animByWield;
+    }
+
+    std::string animBasic = str(boost::format("b0a%d") % kind);
+    if (hasAnim(model, animBasic)) {
+        return animBasic;
+    }
+
+    return "";
 }
 
 } // namespace game
