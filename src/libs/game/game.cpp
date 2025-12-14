@@ -833,10 +833,33 @@ CameraType Game::getConversationCamera(int &cameraId) const {
     return _conversation->getCamera(cameraId);
 }
 
-void Game::consoleInfo(const IConsole::TokenList &tokens) {
+std::shared_ptr<Object> Game::getCommandTargetObject() {
     auto object = module()->area()->selectedObject();
     if (!object) {
-        _console.printLine("No object is selected");
+        object = party().getLeader();
+    }
+    if (object) {
+        return object;
+    }
+    _console.printLine("No object is selected");
+    return nullptr;
+}
+
+std::shared_ptr<Creature> Game::getCommandTargetCreature() {
+    auto object = getCommandTargetObject();
+    if (!object) {
+        return nullptr;
+    }
+    if (auto creature = dyn_cast<Creature>(object)) {
+        return creature;
+    }
+    _console.printLine("Selected object must be a creature");
+    return nullptr;
+}
+
+void Game::consoleInfo(const IConsole::TokenList &tokens) {
+    auto object = getCommandTargetObject();
+    if (!object) {
         return;
     }
     glm::vec3 position(object->position());
@@ -851,23 +874,14 @@ void Game::consoleInfo(const IConsole::TokenList &tokens) {
        << " "
        << "pos=[" << position.x << ", " << position.y << ", " << position.z << "]";
 
-    switch (object->type()) {
-    case ObjectType::Creature: {
-        auto creature = std::static_pointer_cast<Creature>(object);
+    if (auto creature = dyn_cast<Creature>(object)) {
         ss << " "
            << "app=" << creature->appearance()
            << " "
            << "fac=" << static_cast<int>(creature->faction());
-        break;
-    }
-    case ObjectType::Placeable: {
-        auto placeable = std::static_pointer_cast<Placeable>(object);
+    } else if (auto placeable = dyn_cast<Placeable>(object)) {
         ss << " "
            << "app=" << placeable->appearance();
-        break;
-    }
-    default:
-        break;
     }
 
     _console.printLine(ss.str());
@@ -901,9 +915,8 @@ void Game::consoleListGlobals(const IConsole::TokenList &tokens) {
 }
 
 void Game::consoleListLocals(const IConsole::TokenList &tokens) {
-    auto object = module()->area()->selectedObject();
+    auto object = getCommandTargetObject();
     if (!object) {
-        _console.printLine("No object is selected");
         return;
     }
 
@@ -919,13 +932,9 @@ void Game::consoleListLocals(const IConsole::TokenList &tokens) {
 }
 
 void Game::consoleListAnim(const IConsole::TokenList &tokens) {
-    auto object = module()->area()->selectedObject();
+    auto object = getCommandTargetObject();
     if (!object) {
-        object = party().getLeader();
-        if (!object) {
-            _console.printLine("No object is selected");
-            return;
-        }
+        return;
     }
 
     std::string substr;
@@ -949,22 +958,17 @@ void Game::consolePlayAnim(const IConsole::TokenList &tokens) {
         _console.printLine("Usage: playanim anim_name");
         return;
     }
-    auto object = module()->area()->selectedObject();
+    auto object = getCommandTargetObject();
     if (!object) {
-        object = party().getLeader();
-        if (!object) {
-            _console.printLine("No object is selected");
-            return;
-        }
+        return;
     }
     auto model = std::static_pointer_cast<ModelSceneNode>(object->sceneNode());
     model->playAnimation(tokens[1], nullptr, AnimationProperties::fromFlags(AnimationFlags::loop));
 }
 
 void Game::consoleKill(const IConsole::TokenList &tokens) {
-    auto object = module()->area()->selectedObject();
+    auto object = getCommandTargetObject();
     if (!object) {
-        _console.printLine("No object is selected");
         return;
     }
     auto effect = newEffect<DamageEffect>(
@@ -980,15 +984,11 @@ void Game::consoleAddItem(const IConsole::TokenList &tokens) {
         _console.printLine("Usage: additem item_tpl [size]");
         return;
     }
-    auto object = module()->area()->selectedObject();
+    auto object = getCommandTargetObject();
     if (!object) {
-        object = party().getLeader();
-        if (!object) {
-            _console.printLine("No object is selected");
-            return;
-        }
+        return;
     }
-    int stackSize = static_cast<int>(tokens.size()) > 2 ? stoi(tokens[2]) : 1;
+    int stackSize = (tokens.size()) > 2 ? std::stoi(tokens[2]) : 1;
     object->addItem(tokens[1], stackSize);
 }
 
@@ -997,18 +997,13 @@ void Game::consoleGiveXP(const IConsole::TokenList &tokens) {
         _console.printLine("Usage: givexp amount");
         return;
     }
-
-    auto object = module()->area()->selectedObject();
-    if (!object) {
-        object = party().getLeader();
-    }
-    if (!object || object->type() != ObjectType::Creature) {
-        _console.printLine("No creature is selected");
+    auto creature = getCommandTargetCreature();
+    if (!creature) {
         return;
     }
 
-    int amount = stoi(tokens[1]);
-    std::static_pointer_cast<Creature>(object)->giveXP(amount);
+    int amount = std::stoi(tokens[1]);
+    creature->giveXP(amount);
 }
 
 void Game::consoleWarp(const IConsole::TokenList &tokens) {
@@ -1041,7 +1036,7 @@ void Game::consoleShowAABB(const IConsole::TokenList &tokens) {
         _console.printLine("Usage: showaabb 1|0");
         return;
     }
-    bool show = stoi(tokens[1]);
+    bool show = std::stoi(tokens[1]);
     setShowAABB(show);
 }
 
@@ -1050,7 +1045,7 @@ void Game::consoleShowWalkmesh(const IConsole::TokenList &tokens) {
         _console.printLine("Usage: showwalkmesh 1|0");
         return;
     }
-    bool show = stoi(tokens[1]);
+    bool show = std::stoi(tokens[1]);
     setShowWalkmesh(show);
 }
 
@@ -1059,7 +1054,7 @@ void Game::consoleShowTriggers(const IConsole::TokenList &tokens) {
         _console.printLine("Usage: showtriggers 1|0");
         return;
     }
-    bool show = stoi(tokens[1]);
+    bool show = std::stoi(tokens[1]);
     setShowTriggers(show);
 }
 
