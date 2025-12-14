@@ -447,6 +447,18 @@ private:
 
     void registerConsoleCommands();
 
+    /**
+     * Returns the currently selected object, or the party leader. Otherwise
+     * returns nullptr.
+     */
+    std::shared_ptr<Object> getCommandTargetObject();
+
+    /**
+     * Returns the currently selected Creature object, or the party
+     * leader. Otherwise returns nullptr.
+     */
+    std::shared_ptr<Creature> getCommandTargetCreature();
+
     void consoleInfo(const IConsole::TokenList &tokens);
     void consoleListGlobals(const IConsole::TokenList &tokens);
     void consoleListLocals(const IConsole::TokenList &tokens);
