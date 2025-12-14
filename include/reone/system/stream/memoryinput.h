@@ -33,6 +33,10 @@ public:
         _length(bytes.size()) {
     }
 
+    MemoryInputStream(char *data, size_t length) :
+        _data(data), _length(length) {
+    }
+
     void seek(int64_t off, SeekOrigin origin) override {
         if (origin == SeekOrigin::Begin) {
             _position = off;
@@ -57,7 +61,7 @@ public:
     size_t position() override { return _position; }
     size_t length() override { return _length; }
 
-private:
+protected:
     char *_data;
     size_t _length;
 

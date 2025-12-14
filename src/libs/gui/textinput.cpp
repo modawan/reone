@@ -16,6 +16,7 @@
  */
 
 #include "reone/gui/textinput.h"
+#include "reone/system/clipboard.h"
 
 namespace reone {
 
@@ -55,6 +56,10 @@ static inline bool isShiftPressed(const input::KeyEvent &event) {
     return event.mod & input::KeyModifiers::shift;
 }
 
+static inline bool isControlPressed(const input::KeyEvent &event) {
+    return event.mod & input::KeyModifiers::control;
+}
+
 bool TextInput::handleKeyDown(const input::KeyEvent &event) {
     if (!isKeyAllowed(event)) {
         return false;
@@ -64,6 +69,11 @@ bool TextInput::handleKeyDown(const input::KeyEvent &event) {
     bool letter = isLetterKey(event);
     bool symbol = isSymbolKey(event);
     bool shift = isShiftPressed(event);
+
+    if (isControlPressed(event) && event.code == input::KeyCode::V && !event.repeat) {
+        _buffer.write(getClipboard()->str());
+        return true;
+    }
 
     if (event.code == input::KeyCode::Backspace) {
         backspace();

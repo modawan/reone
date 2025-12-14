@@ -23,6 +23,7 @@ set(SYSTEM_HEADERS
     ${SYSTEM_INCLUDE_DIR}/cache.h
     ${SYSTEM_INCLUDE_DIR}/cast.h
     ${SYSTEM_INCLUDE_DIR}/checkutil.h
+    ${SYSTEM_INCLUDE_DIR}/clipboard.h
     ${SYSTEM_INCLUDE_DIR}/clock.h
     ${SYSTEM_INCLUDE_DIR}/di/module.h
     ${SYSTEM_INCLUDE_DIR}/di/services.h
@@ -59,6 +60,7 @@ set(SYSTEM_HEADERS
 set(SYSTEM_SOURCES
     ${SYSTEM_SOURCE_DIR}/binaryreader.cpp
     ${SYSTEM_SOURCE_DIR}/binarywriter.cpp
+    ${SYSTEM_SOURCE_DIR}/clipboard.cpp
     ${SYSTEM_SOURCE_DIR}/clock.cpp
     ${SYSTEM_SOURCE_DIR}/di/module.cpp
     ${SYSTEM_SOURCE_DIR}/fileutil.cpp
