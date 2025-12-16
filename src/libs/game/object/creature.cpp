@@ -243,7 +243,8 @@ void Creature::damage(int amount, uint32_t damager) {
         _currentHitPoints = std::max(isMinOneHP() ? 1 : 0, _currentHitPoints - amount);
     }
 
-    runDamagedScript(damager ? damager : script::kObjectInvalid);
+    damager = damager ? damager : script::kObjectInvalid;
+    runDamagedScript(damager);
 
     if (_immortal || _currentHitPoints > 0) {
         return;
