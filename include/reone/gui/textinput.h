@@ -18,6 +18,7 @@
 #pragma once
 
 #include "reone/input/event.h"
+#include "reone/system/textbuffer.h"
 
 namespace reone {
 
@@ -35,21 +36,25 @@ struct TextInputFlags {
 
 class TextInput {
 public:
-    TextInput(int mask);
+    TextInput(TextBuffer &buffer, int mask) :
+        _buffer(buffer), _mask(mask) {}
 
-    void clear();
     bool handle(const input::Event &event);
 
-    const std::string &text() const { return _text; }
-
-    void setText(std::string text);
+    void setMinOffset(size_t minOffset) { _minOffset = minOffset; }
+    void clear();
+    void setText(std::string_view text);
 
 private:
+    TextBuffer &_buffer;
+    int _minOffset {0};
     int _mask {0};
-    std::string _text;
 
     bool handleKeyDown(const input::KeyEvent &event);
     bool isKeyAllowed(const input::KeyEvent &event) const;
+
+    void insert(char c);
+    void backspace();
 };
 
 } // namespace gui

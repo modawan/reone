@@ -55,7 +55,7 @@ void NameEntry::onGUILoaded() {
 
 bool NameEntry::handle(const input::Event &event) {
     if (event.type == input::EventType::KeyDown && _input.handle(event)) {
-        _controls.NAME_BOX_EDIT->setTextMessage(_input.text());
+        _controls.NAME_BOX_EDIT->setTextMessage(std::string(_buffer.str()));
         return true;
     }
     return _gui->handle(event);

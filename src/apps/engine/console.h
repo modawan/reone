@@ -23,6 +23,7 @@
 #include "reone/graphics/types.h"
 #include "reone/gui/textinput.h"
 #include "reone/input/event.h"
+#include "reone/system/textbuffer.h"
 
 namespace reone {
 
@@ -47,7 +48,7 @@ public:
         _graphicsOpt(graphicsOpt),
         _graphicsSvc(graphicsSvc),
         _resourceSvc(resourceSvc),
-        _input(gui::TextInputFlags::console) {
+        _input(_buffer, gui::TextInputFlags::console) {
     }
 
     ~Console() {
@@ -62,6 +63,8 @@ public:
 
     void registerCommand(std::string name, std::string description, CommandHandler handler) override;
     void printLine(const std::string &text) override;
+
+    void execute(std::string_view command);
 
 private:
     struct Command {
@@ -78,14 +81,17 @@ private:
 
     std::shared_ptr<graphics::Font> _font;
     bool _open {false};
+    TextBuffer _buffer;
+    size_t _inputOffset {0};
     gui::TextInput _input;
-    std::deque<std::string> _output;
-    int _outputOffset {0};
-    std::stack<std::string> _history;
+    size_t _scrollOffset {0};
+    std::vector<std::string> _history;
+    size_t _historyIndex {0};
 
     // Commands
 
-    std::list<Command> _commands;
+    std::list<Command>
+        _commands;
     std::unordered_map<std::string, std::reference_wrapper<Command>> _nameToCommand;
 
     // END Commands
@@ -94,7 +100,7 @@ private:
     bool handleKeyUp(const input::KeyEvent &event);
 
     void executeInputText();
-    void trimOutput();
+    void setPrompt();
 
     void renderBackground();
     void renderLines();
