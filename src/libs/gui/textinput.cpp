@@ -21,14 +21,6 @@ namespace reone {
 
 namespace gui {
 
-TextInput::TextInput(int mask) :
-    _mask(mask) {
-}
-
-void TextInput::clear() {
-    _text.clear();
-}
-
 bool TextInput::handle(const input::Event &event) {
     switch (event.type) {
     case input::EventType::KeyDown:
@@ -74,64 +66,62 @@ bool TextInput::handleKeyDown(const input::KeyEvent &event) {
     bool shift = isShiftPressed(event);
 
     if (event.code == input::KeyCode::Backspace) {
-        if (!_text.empty()) {
-            _text.resize(_text.size() - 1);
-        }
+        backspace();
     } else if (event.code == input::KeyCode::Space) {
-        _text += static_cast<char>(event.code);
+        insert(static_cast<char>(event.code));
     } else if (digit) {
         if (shift) {
             if (event.code == input::KeyCode::Key1) {
-                _text += "!";
+                insert('!');
             } else if (event.code == input::KeyCode::Key2) {
-                _text += "@";
+                insert('@');
             } else if (event.code == input::KeyCode::Key3) {
-                _text += "#";
+                insert('#');
             } else if (event.code == input::KeyCode::Key4) {
-                _text += "$";
+                insert('$');
             } else if (event.code == input::KeyCode::Key5) {
-                _text += "%";
+                insert('%');
             } else if (event.code == input::KeyCode::Key6) {
-                _text += "^";
+                insert('^');
             } else if (event.code == input::KeyCode::Key7) {
-                _text += "&";
+                insert('&');
             } else if (event.code == input::KeyCode::Key8) {
-                _text += "*";
+                insert('*');
             } else if (event.code == input::KeyCode::Key9) {
-                _text += "(";
+                insert('(');
             } else if (event.code == input::KeyCode::Key0) {
-                _text += ")";
+                insert(')');
             }
         } else {
-            _text += static_cast<char>(event.code);
+            insert(static_cast<char>(event.code));
         }
     } else if (letter) {
-        _text += shift ? toupper(static_cast<char>(event.code)) : static_cast<char>(event.code);
+        insert(shift ? toupper(static_cast<char>(event.code)) : static_cast<char>(event.code));
     } else if (symbol) {
         if (shift) {
             if (event.code == input::KeyCode::Minus) {
-                _text += "_";
+                insert('_');
             } else if (event.code == input::KeyCode::Equals) {
-                _text += "+";
+                insert('+');
             } else if (event.code == input::KeyCode::LeftBracket) {
-                _text += "{";
+                insert('{');
             } else if (event.code == input::KeyCode::RightBracket) {
-                _text += "}";
+                insert('}');
             } else if (event.code == input::KeyCode::Semicolon) {
-                _text += ":";
+                insert(':');
             } else if (event.code == input::KeyCode::Quote) {
-                _text += "\"";
+                insert('\"');
             } else if (event.code == input::KeyCode::Comma) {
-                _text += "<";
+                insert('<');
             } else if (event.code == input::KeyCode::Period) {
-                _text += ">";
+                insert('>');
             } else if (event.code == input::KeyCode::Slash) {
-                _text += "?";
+                insert('?');
             } else if (event.code == input::KeyCode::Backslash) {
-                _text += "|";
+                insert('|');
             }
         } else {
-            _text += static_cast<char>(event.code);
+            insert(static_cast<char>(event.code));
         }
     }
 
@@ -157,8 +147,27 @@ bool TextInput::isKeyAllowed(const input::KeyEvent &event) const {
     return false;
 }
 
-void TextInput::setText(std::string text) {
-    _text = std::move(text);
+void TextInput::insert(char c) {
+    _buffer.write(c);
+}
+
+void TextInput::backspace() {
+    if (_buffer.tell() == _minOffset) {
+        return;
+    }
+    _buffer.erase();
+}
+
+void TextInput::clear() {
+    _buffer.seekEnd(0);
+    while (_buffer.tell() != _minOffset) {
+        _buffer.erase();
+    }
+}
+
+void TextInput::setText(std::string_view text) {
+    clear();
+    _buffer.write(text);
 }
 
 } // namespace gui

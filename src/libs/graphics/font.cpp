@@ -51,7 +51,7 @@ void Font::load(std::shared_ptr<Texture> texture) {
     }
 }
 
-void Font::render(const std::string &text, const glm::vec3 &position, const glm::vec3 &color, TextGravity gravity) {
+void Font::render(std::string_view text, const glm::vec3 &position, const glm::vec3 &color, TextGravity gravity) {
     if (text.empty()) {
         return;
     }
@@ -91,7 +91,7 @@ void Font::render(const std::string &text, const glm::vec3 &position, const glm:
     }
 }
 
-glm::vec2 Font::getTextOffset(const std::string &text, TextGravity gravity) const {
+glm::vec2 Font::getTextOffset(std::string_view text, TextGravity gravity) const {
     float w = measure(text);
 
     switch (gravity) {
@@ -115,7 +115,7 @@ glm::vec2 Font::getTextOffset(const std::string &text, TextGravity gravity) cons
     }
 };
 
-float Font::measure(const std::string &text) const {
+float Font::measure(std::string_view text) const {
     float w = 0.0f;
     for (const char &glyph : text) {
         w += _glyphs[reinterpret_cast<const unsigned char &>(glyph)].size.x;

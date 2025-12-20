@@ -25,23 +25,24 @@
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/fonts.h"
 #include "reone/system/checkutil.h"
+#include "reone/system/stringutil.h"
 
 using namespace reone::graphics;
 
 namespace reone {
 
-static constexpr int kMaxOutputLineCount = 100;
 static constexpr int kVisibleLineCount = 15;
-
 static constexpr float kTextOffset = 3.0f;
 
 void Console::init() {
     checkThat(!_inited, "Must not be initialized");
     _font = _resourceSvc.fonts.get("fnt_console");
+    setPrompt();
 
     registerCommand("clear", "", [this](const auto &tokens) {
-        _output.clear();
-        _outputOffset = 0;
+        _buffer.clear();
+        _scrollOffset = 0;
+        setPrompt();
     });
     registerCommand("help", "", [this](const auto &tokens) {
         printLine("Available commands:");
@@ -76,36 +77,17 @@ void Console::registerCommand(std::string name, std::string description, Command
     _nameToCommand.insert({ref.name, ref});
 }
 
-void Console::printLine(const std::string &text) {
-    std::vector<std::string> lines;
-    boost::split(lines, text, boost::is_any_of("\n"), boost::token_compress_on);
-
-    for (const auto &line : lines) {
-        float maxWidth = _graphicsOpt.width - 2.0f * kTextOffset;
-        std::ostringstream ss;
-        for (size_t i = 0; i < line.length(); ++i) {
-            ss << line[i];
-            std::string s = ss.str();
-            float w = _font->measure(s);
-            if (w >= maxWidth) {
-                _output.push_front(s.substr(0, s.length() - 1));
-                ss.str("");
-                ss << line[i];
-            }
-        }
-        if (ss.tellp() > 0) {
-            _output.push_front(ss.str());
-        }
-    }
-
-    trimOutput();
-    _outputOffset = 0;
+void Console::setPrompt() {
+    _buffer.seekEnd(0);
+    _buffer.write("> ");
+    _inputOffset = _buffer.tell();
+    _input.setMinOffset(_inputOffset);
 }
 
-void Console::trimOutput() {
-    for (int i = static_cast<int>(_output.size()) - kMaxOutputLineCount; i > 0; --i) {
-        _output.pop_back();
-    }
+void Console::printLine(const std::string &text) {
+    _buffer.write(text);
+    _buffer.write('\n');
+    _scrollOffset = 0;
 }
 
 bool Console::handle(const input::Event &event) {
@@ -132,36 +114,67 @@ bool Console::handle(const input::Event &event) {
 }
 
 bool Console::handleMouseWheel(const input::MouseWheelEvent &event) {
+    size_t orig = _buffer.tell();
+    if (_scrollOffset) {
+        _buffer.seekSet(_scrollOffset);
+    } else {
+        _buffer.seekEnd(0);
+    }
+
     bool up = event.y < 0;
     if (up) {
-        if (_outputOffset > 0) {
-            --_outputOffset;
-        }
+        _buffer.seekCur(1);
+        _buffer.search("\n");
     } else {
-        if (_outputOffset < static_cast<int>(_output.size()) - kVisibleLineCount + 1) {
-            ++_outputOffset;
-        }
+        _buffer.rsearch("\n");
     }
+
+    // Stop scrolling at the beginning of the first line
+    if (_buffer.tell() == 0) {
+        _buffer.seekSet(orig);
+        return true;
+    }
+
+    _scrollOffset = _buffer.tell();
+    _buffer.seekSet(orig);
+
+    // Disable scroll offset once we get back to the input line
+    if (_scrollOffset == _buffer.tell()) {
+        _scrollOffset = 0;
+    }
+
     return true;
 }
 
 bool Console::handleKeyUp(const input::KeyEvent &event) {
     switch (event.code) {
     case input::KeyCode::Return: {
-        std::string text(_input.text());
-        if (!text.empty()) {
-            executeInputText();
-            _history.push(_input.text());
+        _buffer.write('\n');
+        executeInputText();
+        return true;
+    }
+    case input::KeyCode::Up: {
+        if (_history.empty()) {
+            return true;
+        }
+        if (_historyIndex != 0) {
+            --_historyIndex;
+            _input.setText(_history[_historyIndex]);
+        }
+        return true;
+    }
+    case input::KeyCode::Down: {
+        if (_history.empty()) {
+            return true;
+        }
+        if (_historyIndex < (_history.size() - 1)) {
+            ++_historyIndex;
+            _input.setText(_history[_historyIndex]);
+        } else {
             _input.clear();
         }
         return true;
     }
-    case input::KeyCode::Up:
-        if (!_history.empty()) {
-            _input.setText(_history.top());
-            _history.pop();
-        }
-        return true;
     default:
         break;
     }
@@ -169,16 +182,44 @@ bool Console::handleKeyUp(const input::KeyEvent &event) {
 }
 
 void Console::executeInputText() {
+    _buffer.seekEnd(0);
+    size_t cmdBegin = _inputOffset;
+    size_t cmdEnd = _buffer.tell();
+    size_t cmdSize = cmdEnd - cmdBegin;
+
+    std::string multiline(string_strip(_buffer.str().substr(cmdBegin, cmdSize)));
+    if (!multiline.empty()) {
+        _history.push_back(multiline);
+        _historyIndex = _history.size();
+    }
+
+    while (cmdBegin < cmdEnd) {
+        _buffer.seekSet(cmdBegin);
+        std::string_view line = _buffer.readline();
+        cmdBegin = _buffer.tell();
+
+        assert(!line.empty() && "missing \n terminator");
+        line = string_strip(line);
+        if (line.empty()) {
+            continue;
+        }
+
+        _buffer.seekEnd(0);
+        execute(line);
+    }
+    setPrompt();
+}
+
+void Console::execute(std::string_view command) {
     game::ConsoleArgs::TokenList tokens;
-    boost::split(tokens, _input.text(), boost::is_space(), boost::token_compress_on);
+    boost::split(tokens, command, boost::is_space(), boost::token_compress_on);
     if (tokens.empty()) {
         return;
     }
 
-    const std::string &name = tokens[0];
-    auto commandByName = _nameToCommand.find(name);
+    auto commandByName = _nameToCommand.find(tokens[0]);
     if (commandByName == _nameToCommand.end()) {
-        printLine("Unrecognized command: " + name);
+        printLine("Unrecognized command: " + tokens[0]);
         return;
     }
     auto &handler = commandByName->second.get().handler;
@@ -222,21 +263,39 @@ void Console::renderBackground() {
 }
 
 void Console::renderLines() {
+    if (_buffer.empty()) {
+        return;
+    }
+
+    size_t cursor = _buffer.tell();
+    if (_scrollOffset) {
+        _buffer.seekSet(_scrollOffset);
+    } else {
+        _buffer.seekEnd(0);
+    }
+
     float height = kVisibleLineCount * _font->height();
     glm::vec3 position {kTextOffset, _graphicsOpt.height - 0.5f * _font->height(), 0.0f};
+    int lineNo = 0;
 
-    // Input
-
-    std::string text {"> " + _input.text()};
-    _font->render(text, position, glm::vec3(1.0f), TextGravity::RightCenter);
-
-    // Output
-
-    for (int i = 0; i < kVisibleLineCount - 1 && i < static_cast<int>(_output.size()) - _outputOffset; ++i) {
-        const auto &line = _output[static_cast<size_t>(i) + _outputOffset];
+    // Render an empty line at the end of the buffer, becase readlineReverse is
+    // going to skip past it.
+    _buffer.seekCur(-1);
+    if (_buffer.read() == '\n') {
         position.y -= _font->height();
-        _font->render(line, position, glm::vec3(1.0f), TextGravity::RightCenter);
+        ++lineNo;
     }
+
+    for (; lineNo < kVisibleLineCount; ++lineNo) {
+        std::string_view line = _buffer.readlineReverse();
+        if (line.empty()) {
+            break;
+        }
+        line = string_strip(line);
+        _font->render(line, position, glm::vec3(1.0f), TextGravity::RightCenter);
+        position.y -= _font->height();
+    }
+    _buffer.seekSet(cursor);
 }
 
 } // namespace reone
