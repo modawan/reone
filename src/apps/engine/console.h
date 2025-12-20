@@ -62,6 +62,7 @@ public:
 
     void registerCommand(std::string name, std::string description, CommandHandler handler) override;
     void printLine(const std::string &text) override;
+    void execute(std::string command);
 
 private:
     struct Command {
@@ -93,7 +94,6 @@ private:
     bool handleMouseWheel(const input::MouseWheelEvent &event);
     bool handleKeyUp(const input::KeyEvent &event);
 
-    void executeInputText();
     void trimOutput();
 
     void renderBackground();

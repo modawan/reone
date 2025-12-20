@@ -133,6 +133,18 @@ void Engine::init() {
         *_services,
         *_console);
     _game->init();
+
+    if (!_options.commandsFile.empty()) {
+        std::ifstream file(_options.commandsFile);
+        if (!file.good()) {
+            throw std::runtime_error("Failed to open commands file: " + _options.commandsFile);
+        }
+        for (std::string line; std::getline(file, line);) {
+            if (!line.empty()) {
+                _console->execute(line);
+            }
+        }
+    }
 }
 
 void Engine::deinit() {
