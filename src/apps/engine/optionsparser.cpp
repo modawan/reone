@@ -41,6 +41,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options_description descCommon;
     descCommon.add_options()                                                                                                    //
         ("game", value<std::string>(), "path to game directory")                                                                //
+        ("commands-file", value<std::string>()->default_value(""), "execute console commands from a file at startup")           //
         ("dev", value<bool>()->default_value(options->game.developer), "enable developer mode")                                 //
         ("width", value<int>()->default_value(options->graphics.width), "render width")                                         //
         ("height", value<int>()->default_value(options->graphics.height), "render height")                                      //
@@ -140,6 +141,8 @@ std::unique_ptr<Options> OptionsParser::parse() {
         logChannels.insert(LogChannel::Script3);
     }
     options->logging.channels = std::move(logChannels);
+
+    options->commandsFile = vars["commands-file"].as<std::string>();
 
     return options;
 }
