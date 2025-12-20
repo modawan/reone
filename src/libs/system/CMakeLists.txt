@@ -44,6 +44,8 @@ set(SYSTEM_HEADERS
     ${SYSTEM_INCLUDE_DIR}/stream/memoryoutput.h
     ${SYSTEM_INCLUDE_DIR}/stream/output.h
     ${SYSTEM_INCLUDE_DIR}/stringbuilder.h
+    ${SYSTEM_INCLUDE_DIR}/stringutil.h
+    ${SYSTEM_INCLUDE_DIR}/textbuffer.h
     ${SYSTEM_INCLUDE_DIR}/textreader.h
     ${SYSTEM_INCLUDE_DIR}/textwriter.h
     ${SYSTEM_INCLUDE_DIR}/threadpool.h
@@ -64,6 +66,8 @@ set(SYSTEM_SOURCES
     ${SYSTEM_SOURCE_DIR}/logger.cpp
     ${SYSTEM_SOURCE_DIR}/randomutil.cpp
     ${SYSTEM_SOURCE_DIR}/stream/memoryinput.cpp
+    ${SYSTEM_SOURCE_DIR}/stringutil.cpp
+    ${SYSTEM_SOURCE_DIR}/textbuffer.cpp
     ${SYSTEM_SOURCE_DIR}/textreader.cpp
     ${SYSTEM_SOURCE_DIR}/textwriter.cpp
     ${SYSTEM_SOURCE_DIR}/threadpool.cpp
