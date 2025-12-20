@@ -41,7 +41,7 @@ public:
     bool empty() const { return _data.empty(); }
 
     /**
-     * Returns the position of the ecursors.
+     * Returns the position of the cursor.
      */
     size_t tell() { return _cur; }
 
@@ -63,7 +63,7 @@ public:
 
     /**
      * Move the cursor by \p offset relative to the end of the buffer. Note that
-     * the end of the buffer points the next character after the last one.
+     * the end of the buffer points to the next character after the last one.
      */
     void seekEnd(long offset) {
         _cur = _data.size();
@@ -111,31 +111,33 @@ public:
     /**
      * Search for a pattern forward starting from the cursor. If \p sub is
      * found, set the cursor at the beginning of the substring and return
-     * true. Otherwise set the cursor at the end of the buffer and return false.
+     * true. Otherwise set the cursor to the end of the buffer and return false.
      */
     bool search(StringRef sub);
 
     /**
      * Search for a pattern backward starting from the character before the
      * cursor. If \p sub is found, set the cursor at the beginning of the
-     * substring and return true. Otherwise set the cursor at the beginning of
+     * substring and return true. Otherwise set the cursor to the beginning of
      * the buffer and return false.
      */
     bool rsearch(StringRef sub);
 
     /**
      * Start from the cursor, search for a line break (\n or the end of the
-     * buffer), and return a substring between these two positions. This
-     * function leaves the cursor one character forward from the line break, or
-     * at the end of the buffer.
+     * buffer), and return a substring between these two positions. The returned
+     * string includes a trailing \n if it was found. This function leaves the
+     * cursor one character forward from the line break, or at the end of the
+     * buffer.
      */
     StringRef readline();
 
     /**
      * Start from the cursor, search backward for a line break (\n or the
      * beginning of the buffer), and return a substring between these two
-     * positions. This function sets the cursor one character forward from the
-     * line break at the beginning of the substring, or at the beginning of the
+     * positions. The returned string includes a trailing \n if it was
+     * found. This function sets the cursor one character forward from the line
+     * break at the beginning of the substring, or at the beginning of the
      * buffer.
      */
     StringRef readlineReverse();
