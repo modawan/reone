@@ -83,6 +83,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/system/stream/memoryoutput.cpp
     ${TESTS_SOURCE_DIR}/system/stringbuilder.cpp
     ${TESTS_SOURCE_DIR}/system/stringref.cpp
+    ${TESTS_SOURCE_DIR}/system/textbuffer.cpp
     ${TESTS_SOURCE_DIR}/system/textreader.cpp
     ${TESTS_SOURCE_DIR}/system/textwriter.cpp
     ${TESTS_SOURCE_DIR}/system/threadpool.cpp
