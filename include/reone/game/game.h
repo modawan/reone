@@ -465,6 +465,11 @@ private:
      */
     std::shared_ptr<Creature> getConsoleLeader();
 
+    /**
+     * Returns the current Area.
+     */
+    std::shared_ptr<Area> getConsoleArea();
+
     void consoleInfo(const ConsoleArgs &tokens);
     void consoleListGlobals(const ConsoleArgs &tokens);
     void consoleListLocals(const ConsoleArgs &tokens);
@@ -478,6 +483,14 @@ private:
     void consoleShowAABB(const ConsoleArgs &tokens);
     void consoleShowWalkmesh(const ConsoleArgs &tokens);
     void consoleShowTriggers(const ConsoleArgs &tokens);
+    void consoleSpawnCreature(const ConsoleArgs &tokens);
+    void consoleSpawnCompanion(const ConsoleArgs &tokens);
+    void consoleSelectObjectById(const ConsoleArgs &tokens);
+    void consoleSelectLeader(const ConsoleArgs &tokens);
+    void consoleSetFaction(const ConsoleArgs &tokens);
+    void consoleSetPosition(const ConsoleArgs &tokens);
+    void consoleProfessionalTools(const ConsoleArgs &tokens);
+    void consoleKillRoom(const ConsoleArgs &tokens);
 
     // END Console commands
 };
