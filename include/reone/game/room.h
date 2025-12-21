@@ -62,6 +62,7 @@ public:
 
     void addTenant(Object *object);
     void removeTenant(Object *object);
+    const std::set<Object *> tenants() const { return _tenants; }
 
     // END Tenants
 
