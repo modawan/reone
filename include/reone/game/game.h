@@ -459,6 +459,11 @@ private:
      */
     std::shared_ptr<Creature> getCommandTargetCreature();
 
+    /**
+     * Returns the current Area, or nullptr if nothing is loaded yet.
+     */
+    std::shared_ptr<Area> getCommandArea();
+
     void consoleInfo(const IConsole::TokenList &tokens);
     void consoleListGlobals(const IConsole::TokenList &tokens);
     void consoleListLocals(const IConsole::TokenList &tokens);
@@ -472,6 +477,14 @@ private:
     void consoleShowAABB(const IConsole::TokenList &tokens);
     void consoleShowWalkmesh(const IConsole::TokenList &tokens);
     void consoleShowTriggers(const IConsole::TokenList &tokens);
+    void consoleSpawnCreature(const IConsole::TokenList &tokens);
+    void consoleSpawnCompanion(const IConsole::TokenList &tokens);
+    void consoleSelectObjectById(const IConsole::TokenList &tokens);
+    void consoleSelectLeader(const IConsole::TokenList &tokens);
+    void consoleSetFaction(const IConsole::TokenList &tokens);
+    void consoleSetPosition(const IConsole::TokenList &tokens);
+    void consoleProfessionalTools(const IConsole::TokenList &tokens);
+    void consoleKillRoom(const IConsole::TokenList &tokens);
 
     // END Console commands
 };

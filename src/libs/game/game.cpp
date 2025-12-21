@@ -25,6 +25,8 @@
 #include "reone/game/di/services.h"
 #include "reone/game/location.h"
 #include "reone/game/party.h"
+#include "reone/game/reputes.h"
+#include "reone/game/room.h"
 #include "reone/game/script/routines.h"
 #include "reone/game/surfaces.h"
 #include "reone/graphics/context.h"
@@ -66,6 +68,7 @@
 #include "reone/system/exception/validation.h"
 #include "reone/system/fileutil.h"
 #include "reone/system/logutil.h"
+#include "reone/system/smallset.h"
 #include "reone/system/threadutil.h"
 
 using namespace reone::audio;
@@ -106,6 +109,14 @@ void Game::registerConsoleCommands() {
     _console.registerCommand("showaabb", "toggle rendering AABB", std::bind(&Game::consoleShowAABB, this, std::placeholders::_1));
     _console.registerCommand("showwalkmesh", "toggle rendering walkmesh", std::bind(&Game::consoleShowWalkmesh, this, std::placeholders::_1));
     _console.registerCommand("showtriggers", "toggle rendering triggers", std::bind(&Game::consoleShowTriggers, this, std::placeholders::_1));
+    _console.registerCommand("spawncreature", "spawn a creature", std::bind(&Game::consoleSpawnCreature, this, std::placeholders::_1));
+    _console.registerCommand("spawncompanion", "spawn a companion", std::bind(&Game::consoleSpawnCompanion, this, std::placeholders::_1));
+    _console.registerCommand("selectobjectbyid", "select an object by id", std::bind(&Game::consoleSelectObjectById, this, std::placeholders::_1));
+    _console.registerCommand("selectleader", "select the party leader", std::bind(&Game::consoleSelectLeader, this, std::placeholders::_1));
+    _console.registerCommand("setfaction", "change faction of a creature", std::bind(&Game::consoleSetFaction, this, std::placeholders::_1));
+    _console.registerCommand("setposition", "change position of a creature", std::bind(&Game::consoleSetPosition, this, std::placeholders::_1));
+    _console.registerCommand("professionaltools", "add various combat items to the inventory", std::bind(&Game::consoleProfessionalTools, this, std::placeholders::_1));
+    _console.registerCommand("killroom", "kill all hostile creatures in a room of the selected object", std::bind(&Game::consoleKillRoom, this, std::placeholders::_1));
 }
 
 void Game::initLocalServices() {
@@ -833,8 +844,21 @@ CameraType Game::getConversationCamera(int &cameraId) const {
     return _conversation->getCamera(cameraId);
 }
 
+std::shared_ptr<Area> Game::getCommandArea() {
+    std::shared_ptr<Area> area = module()->area();
+    if (area) {
+        return area;
+    }
+    _console.printLine("Area is not loaded");
+    return nullptr;
+}
+
 std::shared_ptr<Object> Game::getCommandTargetObject() {
-    auto object = module()->area()->selectedObject();
+    std::shared_ptr<Area> area = getCommandArea();
+    if (!area) {
+        return nullptr;
+    }
+    auto object = area->selectedObject();
     if (!object) {
         object = party().getLeader();
     }
@@ -859,9 +883,6 @@ std::shared_ptr<Creature> Game::getCommandTargetCreature() {
 
 void Game::consoleInfo(const IConsole::TokenList &tokens) {
     auto object = getCommandTargetObject();
-    if (!object) {
-        return;
-    }
     glm::vec3 position(object->position());
 
     std::stringstream ss;
@@ -1056,6 +1077,260 @@ void Game::consoleShowTriggers(const IConsole::TokenList &tokens) {
     }
     bool show = std::stoi(tokens[1]);
     setShowTriggers(show);
+}
+
+void Game::consoleSpawnCreature(const IConsole::TokenList &tokens) {
+    if (tokens.size() < 2) {
+        _console.printLine("Usage: spawncreature creature_template [id]");
+        return;
+    }
+    std::string res = tokens[1];
+
+    std::shared_ptr<Area> area = getCommandArea();
+    if (!area) {
+        return;
+    }
+
+    std::shared_ptr<Creature> leader = _party.getLeader();
+    if (!leader) {
+        _console.printLine("No party leader");
+        return;
+    }
+
+    std::shared_ptr<Creature> creature;
+    if (tokens.size() >= 3) {
+        // Spawn a creature with the given ID.
+        int id = std::stoi(tokens[2]);
+        creature = std::make_shared<Creature>(id, kSceneMain, *this, _services);
+        auto itInserted = _objectById.insert(std::make_pair(creature->id(), creature));
+        if (itInserted.second == false) {
+            _console.printLine(str(boost::format("Object with id %d already exists") % id));
+        }
+    } else {
+        creature = newCreature();
+    }
+
+    creature->loadFromBlueprint(res);
+    creature->setPosition(leader->position());
+    creature->setFacing(leader->getFacing());
+    creature->setFaction(Faction::Neutral);
+
+    area->landObject(*creature);
+    area->add(creature);
+    creature->runSpawnScript();
+}
+
+void Game::consoleSpawnCompanion(const IConsole::TokenList &tokens) {
+    if (tokens.size() < 3) {
+        _console.printLine("Usage: spawncompanion creature npcindex [id]");
+        return;
+    }
+
+    std::string res = tokens[1];
+    int npc = stoi(tokens[2]);
+
+    std::shared_ptr<Creature> leader = _party.getLeader();
+    if (!leader) {
+        _console.printLine("No party leader");
+    }
+
+    std::shared_ptr<Area> area = getCommandArea();
+    if (!area) {
+        return;
+    }
+
+    std::shared_ptr<Creature> companion;
+    if (tokens.size() >= 4) {
+        // Spawn a creature with the given ID.
+        int id = std::stoi(tokens[3]);
+        companion = std::make_shared<Creature>(id, kSceneMain, *this, _services);
+        auto itInserted = _objectById.insert(std::make_pair(companion->id(), companion));
+        if (itInserted.second == false) {
+            _console.printLine(str(boost::format("Object with id %d already exists") % id));
+        }
+    } else {
+        companion = newCreature();
+    }
+
+    companion->loadFromBlueprint(res);
+    companion->setPosition(leader->position());
+    companion->setFacing(leader->getFacing());
+    companion->setFaction(leader->faction());
+
+    area->landObject(*companion);
+    area->add(companion);
+    companion->runSpawnScript();
+    _party.addMember(npc, companion);
+}
+
+void Game::consoleSelectObjectById(const IConsole::TokenList &tokens) {
+    if (tokens.size() < 2) {
+        _console.printLine("Usage: selectobjectbyid id");
+        return;
+    }
+    int id = std::stoi(tokens[1]);
+
+    std::shared_ptr<Object> object = getObjectById(id);
+    if (!object) {
+        _console.printLine("Object not found");
+        return;
+    }
+
+    std::shared_ptr<Area> area = getCommandArea();
+    if (!area) {
+        return;
+    }
+    area->selectObject(object);
+}
+
+void Game::consoleSelectLeader(const IConsole::TokenList &tokens) {
+    if (tokens.size() != 1) {
+        _console.printLine("Usage: selectleader");
+        return;
+    }
+
+    std::shared_ptr<Creature> leader = party().getLeader();
+    if (!leader) {
+        _console.printLine("Object not found");
+        return;
+    }
+
+    std::shared_ptr<Area> area = getCommandArea();
+    if (!area) {
+        return;
+    }
+    area->selectObject(leader);
+}
+
+void Game::consoleSetFaction(const IConsole::TokenList &tokens) {
+    if (tokens.size() < 2) {
+        _console.printLine("Usage: setfaction number");
+        return;
+    }
+    int faction = std::stoi(tokens[1]);
+
+    auto creature = getCommandTargetCreature();
+    creature->setFaction(static_cast<Faction>(faction));
+}
+
+void Game::consoleSetPosition(const IConsole::TokenList &tokens) {
+    if (tokens.size() < 4) {
+        _console.printLine("Usage: setposition x y z");
+        return;
+    }
+    float x = std::stof(tokens[1]);
+    float y = std::stof(tokens[2]);
+    float z = std::stof(tokens[3]);
+
+    std::shared_ptr<Creature> creature = getCommandTargetCreature();
+    std::shared_ptr<Area> area = getCommandArea();
+    if (!creature || !area) {
+        return;
+    }
+    creature->setPosition(glm::vec3(x, y, z));
+    area->determineObjectRoom(*creature);
+
+    auto leader = party().getLeader();
+    if (&*creature == &*leader) {
+        area->onPartyLeaderMoved(/*roomChanged=*/true);
+    }
+}
+
+void Game::consoleProfessionalTools(const IConsole::TokenList &tokens) {
+    if (tokens.size() != 1) {
+        _console.printLine("Usage: professionaltools");
+        return;
+    }
+
+    std::vector<std::pair<std::string, int>> items = {
+        // Ranged weapons
+        {"g_w_blstrcrbn001", 1},
+        {"g_w_blstrpstl001", 2},
+        {"g_w_blstrrfl001", 1},
+        {"g_w_bowcstr001", 1},
+        {"g_w_dsrptpstl001", 2},
+        {"g_w_dsrptrfl001", 1},
+        {"g_w_ionblstr02", 2},
+        {"g_w_ionrfl01", 1},
+        {"g_w_rptnblstr01", 1},
+        {"g_w_sonicpstl01", 2},
+        {"g_w_sonicrfl01", 1},
+
+        // Melee weapons
+        {"g_w_dblsbr001", 1},
+        {"g_w_dblswrd001", 1},
+        {"g_w_gaffi001", 1},
+        {"g_w_lghtsbr01", 2},
+        {"g_w_lngswrd01", 2},
+        {"g_w_stunbaton01", 1},
+        {"g_w_waraxe001", 1},
+
+        // Grenades
+        {"g_w_adhsvgren001", 10},
+        {"g_w_cryobgren001", 10},
+        {"g_w_firegren001", 10},
+        {"g_w_flashgren001", 10},
+        {"g_w_fraggren01", 10},
+        {"g_w_iongren01", 10},
+        {"g_w_poisngren01", 10},
+        {"g_w_sonicgren01", 10},
+        {"g_w_stungren01", 10},
+        {"g_w_thermldet01", 10},
+
+        // Mines
+        {"g_i_trapkit001", 10},
+        {"g_i_trapkit004", 10},
+        {"g_i_trapkit007", 10},
+        {"g_i_trapkit010", 10},
+
+        // Consumables
+        {"g_i_frarmbnds01", 10},
+        {"g_i_medeqpmnt01", 10},
+        {"g_i_medeqpmnt04", 10},
+        {"g_i_adrnaline001", 10},
+        {"g_i_adrnaline002", 10},
+        {"g_i_adrnaline003", 10},
+    };
+
+    auto creature = getCommandTargetCreature();
+    if (!creature) {
+        return;
+    }
+    for (auto &kv : items) {
+        creature->addItem(kv.first, kv.second);
+    }
+}
+
+void Game::consoleKillRoom(const IConsole::TokenList &tokens) {
+    if (tokens.size() != 1) {
+        _console.printLine("Usage: professionaltools");
+        return;
+    }
+
+    std::shared_ptr<Creature> target = Game::getCommandTargetCreature();
+    if (!target) {
+        return;
+    }
+
+    Room *room = target->room();
+    if (!room) {
+        _console.printLine("No room found for the selected creature");
+        return;
+    }
+
+    SmallSet<Creature *, 16> enemies;
+    for (Object *object : room->tenants()) {
+        Creature *creature = dyn_cast<Creature>(object);
+        if (!creature || creature->isDead() ||
+            !_services.game.reputes.getIsEnemy(*target, *creature)) {
+            continue;
+        }
+        enemies.insert(creature);
+    }
+
+    for (Creature *enemy : enemies) {
+        enemy->damage(std::numeric_limits<int>::max(), 0);
+    }
 }
 
 } // namespace game
