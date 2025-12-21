@@ -36,6 +36,11 @@ struct Options {
 
     Logging logging;
 
+    /**
+     * Execute console commands from a file at startup.
+     */
+    std::string commandsFile;
+
     std::unique_ptr<game::OptionsView> toView() {
         return std::make_unique<game::OptionsView>(game, graphics, audio);
     }

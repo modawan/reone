@@ -150,7 +150,7 @@ bool Console::handleKeyUp(const input::KeyEvent &event) {
     case input::KeyCode::Return: {
         std::string text(_input.text());
         if (!text.empty()) {
-            executeInputText();
+            execute(_input.text());
             _history.push(_input.text());
             _input.clear();
         }
@@ -168,9 +168,9 @@ bool Console::handleKeyUp(const input::KeyEvent &event) {
     return false;
 }
 
-void Console::executeInputText() {
+void Console::execute(std::string command) {
     TokenList tokens;
-    boost::split(tokens, _input.text(), boost::is_space(), boost::token_compress_on);
+    boost::split(tokens, command, boost::is_space(), boost::token_compress_on);
     if (tokens.empty()) {
         return;
     }
