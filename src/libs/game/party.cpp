@@ -26,9 +26,7 @@ namespace reone {
 
 namespace game {
 
-static constexpr int kMaxMemberCount = 3;
-
-static constexpr char kBlueprintResRefCarth[] = "p_juhani";
+static constexpr char kBlueprintResRefCarth[] = "p_carth";
 static constexpr char kBlueprintResRefBastila[] = "p_bastilla";
 static constexpr char kBlueprintResRefAtton[] = "p_atton";
 static constexpr char kBlueprintResRefKreia[] = "p_kreia";
@@ -75,10 +73,6 @@ bool Party::removeAvailableMember(int npc) {
 }
 
 bool Party::addMember(int npc, std::shared_ptr<Creature> creature) {
-    if (_members.size() == kMaxMemberCount) {
-        warn("Party: cannot add another member");
-        return false;
-    }
     Member member;
     member.npc = npc;
     member.creature = creature;
@@ -92,25 +86,13 @@ void Party::clear() {
 }
 
 void Party::switchLeader() {
-    int count = static_cast<int>(_members.size());
-    if (count < 2)
+    if (_members.size() <= 1) {
         return;
+    }
 
-    switch (count) {
-    case 2: {
-        Member tmp(_members[0]);
-        _members[0] = _members[1];
-        _members[1] = tmp;
-        break;
-    }
-    case 3: {
-        Member tmp(_members[0]);
-        _members[0] = _members[1];
-        _members[1] = _members[2];
-        _members[2] = tmp;
-        break;
-    }
-    }
+    Member tmp(_members[0]);
+    _members.erase(_members.begin());
+    _members.push_back(tmp);
 
     onLeaderChanged();
 }

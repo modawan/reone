@@ -297,15 +297,19 @@ void HUD::renderHealth(int memberIndex) {
         return;
 
     Party &party = _game.party();
-    std::shared_ptr<Creature> member(party.getMember(memberIndex));
     std::vector<Label *> backLabels {
         _controls.LBL_BACK1.get(),
         _controls.LBL_BACK2.get(),
         _controls.LBL_BACK3.get()};
 
+    if (memberIndex >= backLabels.size()) {
+        return;
+    }
+
     Label &LBL_CHAR = *backLabels[memberIndex];
     const Control::Extent &extent = LBL_CHAR.extent();
 
+    std::shared_ptr<Creature> member(party.getMember(memberIndex));
     float w = 5.0f;
     float h = glm::clamp(member->currentHitPoints() / static_cast<float>(member->hitPoints()), 0.0f, 1.0f) * extent.height;
 
