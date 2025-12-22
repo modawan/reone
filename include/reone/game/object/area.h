@@ -88,9 +88,11 @@ public:
     void update3rdPersonCameraFacing();
     void update3rdPersonCameraTarget();
     void landObject(Object &object);
+    void add(const std::shared_ptr<Object> &object);
 
     bool moveCreature(const std::shared_ptr<Creature> &creature, const glm::vec2 &dir, bool run, float dt);
     bool moveCreatureTowards(const std::shared_ptr<Creature> &creature, const glm::vec2 &dest, bool run, float dt);
+    void determineObjectRoom(Object &object);
 
     bool isUnescapable() const { return _unescapable; }
 
@@ -293,7 +295,6 @@ private:
     void loadVIS();
     void loadPTH();
 
-    void add(const std::shared_ptr<Object> &object);
     void doDestroyObject(uint32_t objectId);
     void doDestroyObjects();
     void updateVisibility();
@@ -311,7 +312,6 @@ private:
      */
     resource::Visibility fixVisibility(const resource::Visibility &visiblity);
 
-    void determineObjectRoom(Object &object);
     void checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer);
 
     // Loading ARE
