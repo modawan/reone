@@ -22,6 +22,7 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/projectiles.h"
 #include "reone/scene/graphs.h"
 #include "reone/system/randomutil.h"
 
@@ -67,10 +68,6 @@ static std::string getMeleeParryAnim(CreatureWieldType targetWield, int variant)
     return str(boost::format("g%dr1") % static_cast<int>(targetWield));
 }
 
-static std::string getRangedAttackAnim(CreatureWieldType attackerWield) {
-    return str(boost::format("b%da1") % static_cast<int>(attackerWield));
-}
-
 static std::string getRangedDamageAnim(CreatureWieldType targetWield) {
     return str(boost::format("g%dd1") % static_cast<int>(targetWield));
 }
@@ -107,7 +104,7 @@ static void attack(const CombatRound &round, Creature &attacker, Object &target,
 
     std::string attackAnim = isMelee
                                  ? getMeleeAttackAnim(attackerWield, targetWield, variant, round.duel)
-                                 : getRangedAttackAnim(attackerWield);
+                                 : getRangedAttackAnim(attacker, /*kind=*/1);
 
     attacker.playAnimation(attackAnim, animProp);
 
@@ -134,33 +131,16 @@ static void attack(const CombatRound &round, Creature &attacker, Object &target,
  * TODO: refactor this to be tied to the animation, not wield type. We need to
  * use it for CutsceneAttack as well.
  */
-void AttackObjectAction::addProjectiles(CreatureWieldType wield) {
-    switch (wield) {
-    case CreatureWieldType::BlasterPistol: {
-        // Match b5a1 animation.
-        _projectiles.push_back(0.45f, Projectile::Main);
-        _projectiles.push_back(0.95f, Projectile::Main);
+void AttackObjectAction::addProjectiles(const Creature &creature) {
+    ProjectileSpec *spec = _services.game.projectiles.get(
+        ProjectileAttackType::Basic, creature.getWieldType(), creature.appearance());
+
+    if (!spec) {
+        // no projectiles for this attack
         return;
     }
-    case CreatureWieldType::DualPistols: {
-        // Match b6a1 animation.
-        _projectiles.push_back(0.23f, Projectile::Offhand);
-        _projectiles.push_back(0.39f, Projectile::Main);
-        _projectiles.push_back(0.82f, Projectile::Offhand);
-        _projectiles.push_back(1.0f, Projectile::Main);
-        return;
-    }
-    case CreatureWieldType::HeavyWeapon:
-    case CreatureWieldType::BlasterRifle: {
-        // Match b7a1 and b9a1 animation.
-        _projectiles.push_back(0.2f, Projectile::Main);
-        _projectiles.push_back(0.66f, Projectile::Main);
-        _projectiles.push_back(1.2f, Projectile::Main);
-        return;
-    }
-    default:
-        return;
-    }
+
+    addProjectilesFromSpec(_projectiles, *spec);
 }
 
 void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
@@ -193,7 +173,7 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
             target->runAttackedScript(attacker.id());
         }
 
-        addProjectiles(attacker.getWieldType());
+        addProjectiles(attacker);
         return;
     }
     case AttackSchedule::Damage: {

@@ -21,6 +21,8 @@
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
+#include "reone/game/projectiles.h"
+#include "reone/scene/collision.h"
 #include "reone/scene/graph.h"
 #include "reone/system/arrayref.h"
 #include "reone/system/randomutil.h"
@@ -244,29 +246,50 @@ AttackResultType AttackBuffer::result() const {
     return sortedByScore[bestIndex];
 }
 
+std::shared_ptr<Item> determineProjectileWeapon(Creature &attacker, Projectile::Source source) {
+    int slot = (source == Projectile::Main)
+                   ? InventorySlots::rightWeapon
+                   : InventorySlots::leftWeapon;
+
+    std::shared_ptr<Item> weapon(attacker.getEquippedItem(slot));
+    if (!weapon) {
+        slot = (source == Projectile::Main)
+                   ? InventorySlots::leftWeapon
+                   : InventorySlots::rightWeapon;
+
+        weapon = attacker.getEquippedItem(slot);
+    }
+
+    return weapon;
+}
+
+static glm::vec3 determineProjectileOrigin(scene::ModelSceneNode &model, Projectile::Source source) {
+    std::string attachment = (source == Projectile::Main) ? "rhand" : "lhand";
+    auto weaponModel = static_cast<scene::ModelSceneNode *>(model.getAttachment(attachment));
+    if (weaponModel) {
+        auto bulletHook = weaponModel->getNodeByName("bullethook");
+        if (bulletHook) {
+            return bulletHook->origin();
+        }
+        weaponModel->origin();
+    }
+
+    // Droids do not have weapon model, but they have hooks in the main (body) model.
+    std::string directAttachment = (source == Projectile::Main) ? "rbullet" : "lbullet";
+    if (scene::SceneNode *direct = model.getNodeByName(directAttachment)) {
+        return direct->origin();
+    }
+
+    return model.origin();
+}
+
 void Projectile::fire(Creature &attacker, Object &target, scene::ISceneGraph &sceneGraph) {
     auto attackerModel = std::static_pointer_cast<scene::ModelSceneNode>(attacker.sceneNode());
     auto targetModel = std::static_pointer_cast<scene::ModelSceneNode>(target.sceneNode());
     if (!attackerModel || !targetModel)
         return;
 
-    int slot = 0;
-    const char *attachment = nullptr;
-
-    switch (_source) {
-    case Projectile::Main: {
-        slot = InventorySlots::rightWeapon;
-        attachment = "rhand";
-        break;
-    }
-    case Projectile::Offhand:
-        slot = InventorySlots::leftWeapon;
-        attachment = "lhand";
-        break;
-    }
-    assert(slot && attachment && "unhandled projectile source");
-
-    std::shared_ptr<Item> weapon(attacker.getEquippedItem(slot));
+    std::shared_ptr<Item> weapon = determineProjectileWeapon(attacker, _source);
     if (!weapon)
         return;
 
@@ -274,18 +297,7 @@ void Projectile::fire(Creature &attacker, Object &target, scene::ISceneGraph &sc
     if (!ammunitionType)
         return;
 
-    auto weaponModel = static_cast<scene::ModelSceneNode *>(attackerModel->getAttachment(attachment));
-    if (!weaponModel)
-        return;
-
-    // Determine projectile position
-    glm::vec3 projectilePos;
-    auto bulletHook = weaponModel->getNodeByName("bullethook");
-    if (bulletHook) {
-        projectilePos = bulletHook->origin();
-    } else {
-        projectilePos = weaponModel->origin();
-    }
+    glm::vec3 projectilePos = determineProjectileOrigin(*attackerModel, _source);
 
     // Determine projectile direction
     auto impact = targetModel->getNodeByName("impact");
@@ -293,6 +305,22 @@ void Projectile::fire(Creature &attacker, Object &target, scene::ISceneGraph &sc
         _target = impact->origin();
     } else {
         _target = targetModel->origin();
+    }
+
+    if (_miss) {
+        float offsetRadius = 1.5f * glm::length(targetModel->origin() - _target);
+        glm::vec3 offsetDir = glm::normalize(
+            glm::vec3(randomFloat(0.0f, 1.0f),
+                      randomFloat(0.0f, 1.0f),
+                      randomFloat(0.0f, 1.0f)));
+        glm::vec3 offsetTarget = _target + offsetDir * offsetRadius;
+        glm::vec3 dir = _target - projectilePos;
+        _target = projectilePos + dir * 1000.0f;
+
+        scene::Collision collision;
+        if (sceneGraph.testLineOfSight(projectilePos, _target, collision)) {
+            _target = collision.intersection;
+        }
     }
 
     // Create and add a projectile to the scene graph
@@ -342,8 +370,8 @@ void Projectile::reset() {
     _model.reset();
 }
 
-void ProjectileSequence::push_back(float time, Projectile::Source source) {
-    _projectiles.emplace_back(source);
+void ProjectileSequence::push_back(float time, Projectile::Source source, bool miss) {
+    _projectiles.emplace_back(source, miss);
     _events.push_back(time, _projectiles.size());
 }
 
@@ -368,6 +396,25 @@ void ProjectileSequence::update(float dt, Creature &attacker, Object &target,
 void ProjectileSequence::reset() {
     for (Projectile &proj : _projectiles) {
         proj.reset();
+    }
+}
+
+static void addProjectile(ProjectileSequence &seq, std::pair<float, int> timeKind, bool miss) {
+    float time = timeKind.first;
+    float kind = timeKind.second;
+    seq.push_back(time, kind == 0 ? Projectile::Main : Projectile::Offhand, miss);
+}
+
+void addProjectilesFromSpec(ProjectileSequence &seq, const ProjectileSpec &spec) {
+    uint32_t remainingMisses = spec.misses;
+    size_t numProjectiles = spec.projectiles.size();
+    for (size_t i = 0; i < numProjectiles; ++i) {
+        bool autoMiss = (i + remainingMisses) >= numProjectiles;
+        bool miss = autoMiss || (remainingMisses && randomInt(0, 1));
+        if (miss) {
+            --remainingMisses;
+        }
+        addProjectile(seq, spec.projectiles[i], miss);
     }
 }
 
@@ -422,6 +469,30 @@ bool navigateToAttackTarget(Creature &attacker, Object &target, float dt, bool &
 
     reachedOnce = true;
     return true;
+}
+
+static bool hasAnim(const graphics::Model &model, const std::string &anim) {
+    return model.animations().count(anim);
+}
+
+std::string getRangedAttackAnim(Creature &attacker, int kind) {
+    CreatureWieldType wield = attacker.getWieldType();
+    assert(isRangedWieldType(wield) && "invalid wield");
+
+    auto attackerModel = std::static_pointer_cast<scene::ModelSceneNode>(attacker.sceneNode());
+    const graphics::Model &model = attackerModel->model();
+
+    std::string animByWield = str(boost::format("b%da%d") % static_cast<int>(wield) % kind);
+    if (hasAnim(model, animByWield)) {
+        return animByWield;
+    }
+
+    std::string animBasic = str(boost::format("b0a%d") % kind);
+    if (hasAnim(model, animBasic)) {
+        return animBasic;
+    }
+
+    return "";
 }
 
 } // namespace game

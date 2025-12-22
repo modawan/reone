@@ -32,6 +32,7 @@
 #include "../gui/sounds.h"
 #include "../options.h"
 #include "../portraits.h"
+#include "../projectiles.h"
 #include "../reputes.h"
 #include "../surfaces.h"
 #include "../types.h"
@@ -88,6 +89,7 @@ private:
     std::unique_ptr<Skills> _skills;
     std::unique_ptr<Spells> _spells;
     std::unique_ptr<Surfaces> _surfaces;
+    std::unique_ptr<Projectiles> _projectiles;
 
     std::unique_ptr<GameServices> _services;
 };
