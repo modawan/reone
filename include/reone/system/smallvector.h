@@ -409,12 +409,35 @@ private:
     }
 
     /**
+     * Allocate memory of size \p newCap with malloc. Abort the program on
+     * overflow or out-of-memory.
+     */
+    T *allocate(size_t newCap) {
+        // Malloc does not support allocations greater than PTRDIFF_MAX.
+        size_t maxCap = std::numeric_limits<ptrdiff_t>::max() / sizeof(T);
+        bool overflow = newCap > maxCap;
+        assert(!overflow && "capacity overflow");
+        if (overflow) {
+            abort();
+        }
+
+        size_t sizeBytes = sizeof(T) * newCap;
+        T *heap = (T *)malloc(sizeBytes);
+
+        assert(heap && "malloc returned null");
+        if (!heap) {
+            abort();
+        }
+
+        return heap;
+    }
+
+    /**
      * Make a heap allocation and copy data from co-allocated storage.
      */
     void allocHeap(size_t new_cap) {
         assert(isSmall());
-        size_t size_bytes = sizeof(T) * new_cap;
-        T *heap = (T *)malloc(size_bytes);
+        T *heap = allocate(new_cap);
         moveRange(begin(), end(), heap);
         _begin = heap;
         _capacity = new_cap;
@@ -425,9 +448,7 @@ private:
      */
     void reallocHeap(size_t new_cap) {
         assert(!isSmall() && new_cap != 0);
-        size_t size_bytes = sizeof(T) * new_cap;
-
-        T *heap = (T *)malloc(size_bytes);
+        T *heap = allocate(new_cap);
         moveRange(begin(), end(), heap);
         free(_begin);
 
