@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "reone/system/stringref.h"
 #include "types.h"
 
 namespace reone {
@@ -49,12 +50,12 @@ public:
     void load(std::shared_ptr<Texture> texture);
 
     void render(
-        const std::string &text,
+        StringRef text,
         const glm::vec3 &position,
         const glm::vec3 &color = glm::vec3(1.0f, 1.0f, 1.0f),
         TextGravity align = TextGravity::CenterCenter);
 
-    float measure(const std::string &text) const;
+    float measure(StringRef text) const;
 
     float height() const { return _height; }
 
@@ -79,7 +80,7 @@ private:
 
     // END Services
 
-    glm::vec2 getTextOffset(const std::string &text, TextGravity gravity) const;
+    glm::vec2 getTextOffset(StringRef text, TextGravity gravity) const;
 };
 
 } // namespace graphics

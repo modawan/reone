@@ -94,7 +94,7 @@ public:
     template <typename U>
     ArrayRef<T> &operator=(U) = delete;
 
-private:
+protected:
     const T *_begin;
     size_t _size;
 };

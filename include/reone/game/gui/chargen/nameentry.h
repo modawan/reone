@@ -45,7 +45,7 @@ public:
         ServicesView &services) :
         GameGUI(game, services),
         _charGen(charGen),
-        _input(gui::TextInputFlags::lettersWhitespace) {
+        _input(_buffer, gui::TextInputFlags::lettersWhitespace) {
         _resRef = guiResRef("name");
     }
 
@@ -66,6 +66,7 @@ private:
     Controls _controls;
 
     CharacterGeneration &_charGen;
+    TextBuffer _buffer;
     gui::TextInput _input;
 
     void onGUILoaded() override;
