@@ -33,6 +33,7 @@ void GameModule::init() {
     _spells = std::make_unique<Spells>(_resource.textures(), _resource.strings(), _resource.twoDas());
     _surfaces = std::make_unique<Surfaces>(_resource.twoDas());
     _projectiles = std::make_unique<Projectiles>(_resource.twoDas());
+    _animations = std::make_unique<Animations>(_resource.twoDas());
 
     _services = std::make_unique<GameServices>(
         *_cameraStyles,
@@ -45,7 +46,8 @@ void GameModule::init() {
         *_skills,
         *_spells,
         *_surfaces,
-        *_projectiles);
+        *_projectiles,
+        *_animations);
 
     _cameraStyles->init();
     _guiSounds->init();
@@ -53,6 +55,7 @@ void GameModule::init() {
     _reputes->init();
     _surfaces->init();
     _projectiles->init();
+    _animations->init();
 }
 
 void GameModule::deinit() {
