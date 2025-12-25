@@ -207,23 +207,23 @@ public:
     }
 
     /**
-     * Resize the vector. When \p new_size is greater than size(), new elements
-     * are initialized by a default constructor. When \p new_size is less that
+     * Resize the vector. When \p newSize is greater than size(), new elements
+     * are initialized by a default constructor. When \p newSize is less that
      * size(), exceeding elements at the end of the vector are destroyed.
      *
      * This function may reallocate storage and invalidate pointers that are
      * saved elsewhere.
      */
-    void resize(size_t new_size) {
+    void resize(size_t newSize) {
         size_t orig_size = _size;
-        if (new_size > orig_size) {
-            reserve(new_size);
-            createRangeDefault(_begin + orig_size, _begin + new_size);
-            _size = new_size;
+        if (newSize > orig_size) {
+            reserve(newSize);
+            createRangeDefault(_begin + orig_size, _begin + newSize);
+            _size = newSize;
             return;
         }
-        _size = new_size;
-        destroyRange(_begin + new_size, _begin + orig_size);
+        _size = newSize;
+        destroyRange(_begin + newSize, _begin + orig_size);
     }
 
     /**
@@ -232,17 +232,17 @@ public:
      * This function may reallocate storage and invalidate pointers that are
      * saved elsewhere.
      */
-    void reserve(size_t new_cap) {
-        if (new_cap <= capacity()) {
+    void reserve(size_t newCap) {
+        if (newCap <= capacity()) {
             return;
         }
 
         if (isSmall()) {
-            allocHeap(new_cap);
+            allocHeap(newCap);
             return;
         }
 
-        reallocHeap(new_cap);
+        reallocHeap(newCap);
     }
 
 protected:
@@ -398,41 +398,62 @@ private:
     }
 
     /**
-     * Reserve up to \p new_cap or by a factor of 1.5, whatever is higher.
+     * Reserve up to \p newCap or by a factor of 1.5, whatever is higher.
      */
-    void grow(size_t new_cap) {
-        if (capacity() >= new_cap) {
+    void grow(size_t newCap) {
+        if (capacity() >= newCap) {
             return;
         }
-        size_t grow_cap = capacity() * 1.5f;
-        reserve(grow_cap > new_cap ? grow_cap : new_cap);
+        size_t growCap = capacity() * 1.5f;
+        reserve(growCap > newCap ? growCap : newCap);
+    }
+
+    /**
+     * Allocate memory of size \p newCap with malloc. Abort the program on
+     * overflow or out-of-memory.
+     */
+    T *allocate(size_t newCap) {
+        // Malloc does not support allocations greater than PTRDIFF_MAX.
+        size_t maxCap = std::numeric_limits<ptrdiff_t>::max() / sizeof(T);
+        bool overflow = newCap > maxCap;
+        assert(!overflow && "capacity overflow");
+        if (overflow) {
+            abort();
+        }
+
+        size_t sizeBytes = sizeof(T) * newCap;
+        T *heap = (T *)malloc(sizeBytes);
+
+        assert(heap && "malloc returned null");
+        if (!heap) {
+            abort();
+        }
+
+        return heap;
     }
 
     /**
      * Make a heap allocation and copy data from co-allocated storage.
      */
-    void allocHeap(size_t new_cap) {
+    void allocHeap(size_t newCap) {
         assert(isSmall());
-        size_t size_bytes = sizeof(T) * new_cap;
-        T *heap = (T *)malloc(size_bytes);
+        T *heap = allocate(newCap);
         moveRange(begin(), end(), heap);
         _begin = heap;
-        _capacity = new_cap;
+        _capacity = newCap;
     }
 
     /**
      * Reallocate a heap allocation to a larger size.
      */
-    void reallocHeap(size_t new_cap) {
-        assert(!isSmall() && new_cap != 0);
-        size_t size_bytes = sizeof(T) * new_cap;
-
-        T *heap = (T *)malloc(size_bytes);
+    void reallocHeap(size_t newCap) {
+        assert(!isSmall() && newCap != 0);
+        T *heap = allocate(newCap);
         moveRange(begin(), end(), heap);
         free(_begin);
 
         _begin = heap;
-        _capacity = new_cap;
+        _capacity = newCap;
     }
 };
 
