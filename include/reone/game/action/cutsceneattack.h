@@ -37,15 +37,20 @@ public:
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    void cancel(std::shared_ptr<Action> self, Object &actor) override;
     const std::shared_ptr<Object> &target() const { return _target; }
 
 private:
+    void addProjectiles(const Creature &creature, std::string attackAnim);
+    void finish(Creature &attacker);
+
     std::shared_ptr<Object> _target;
     int _animation;
     AttackResultType _result;
     int _damage;
 
     AttackSchedule _schedule;
+    ProjectileSequence _projectiles;
 };
 
 } // namespace game

@@ -73,6 +73,8 @@ static void attack(const CombatRound &round, Creature &attacker, Object &target,
     int variant = randomInt(1, 5);
 
     CreatureWieldType attackerWield = attacker.getWieldType();
+
+    // TODO: support stun batons and unarmed.
     bool isMelee = isMeleeWieldType(attacker.getWieldType());
 
     std::string attackAnim = isMelee

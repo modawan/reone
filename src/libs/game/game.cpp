@@ -20,6 +20,7 @@
 #include "reone/audio/context.h"
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
+#include "reone/game/action/cutsceneattack.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/combat.h"
 #include "reone/game/debug.h"
@@ -127,6 +128,7 @@ void Game::initConsole() {
     registerConsoleCommand("autoskipentries", "add a sequence of entries to skip", &Game::consoleAutoSkipEntries);
     registerConsoleCommand("autoskipreplies", "add a sequence of replies to pick", &Game::consoleAutoSkipReplies);
     registerConsoleCommand("startconversation", "starts a conversation with the selected object", &Game::consoleStartConversation);
+    registerConsoleCommand("cutsceneattack", "attack an object by id with a pre-determined animation and result", &Game::consoleCutsceneAttack);
 }
 
 void Game::initLocalServices() {
@@ -1328,6 +1330,25 @@ void Game::consoleStartConversation(const ConsoleArgs &args) {
 
     auto action = newAction<StartConversationAction>(target, target->conversation());
     leader->addAction(std::move(action));
+}
+
+void Game::consoleCutsceneAttack(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 4, 4, "target_id animation_id result damage");
+
+    std::shared_ptr<Creature> actor = getConsoleTargetCreature();
+
+    std::shared_ptr<Object> target = getObjectById(args.get<uint32_t>(1).value());
+    if (!target) {
+        throw std::runtime_error("Target not found");
+    }
+
+    int anim = args.get<int>(2).value();
+    AttackResultType result = args.getEnum<AttackResultType>(3).value();
+    int damage = args.get<int>(4).value();
+
+    auto action = newAction<CutsceneAttackAction>(
+        std::move(target), anim, result, damage);
+    actor->addAction(std::move(action));
 }
 
 } // namespace game
