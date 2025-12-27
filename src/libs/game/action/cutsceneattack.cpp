@@ -17,11 +17,13 @@
 
 #include "reone/game/action/cutsceneattack.h"
 
+#include "reone/game/animations.h"
 #include "reone/game/attack.h"
 #include "reone/game/combat.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/projectiles.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/scene/graphs.h"
 #include "reone/system/randomutil.h"
@@ -40,11 +42,79 @@ std::string getAnimationName(int index, resource::ITwoDAs &twoDas) {
     return boost::to_lower_copy(animations->getString(index, "name"));
 }
 
-static void attack(Creature &attacker, std::string animation) {
+static void attack(const CombatRound &round, Creature &attacker, Object &target,
+                   AttackResultType result, std::string attackAnim,
+                   const IAnimations &anims) {
+
     scene::AnimationProperties animProp =
         scene::AnimationProperties::fromFlags(scene::AnimationFlags::blend);
 
-    attacker.playAnimation(animation, animProp);
+    attacker.playAnimation(attackAnim, animProp);
+    attacker.face(target);
+
+    if (round.duel) {
+        auto &targetCreature = cast<Creature>(target);
+        CreatureWieldType targetWield = targetCreature.getWieldType();
+        targetCreature.face(attacker);
+        std::string resultAnim = anims.getAttackResult(attackAnim, targetWield, result);
+        targetCreature.playAnimation(resultAnim, animProp);
+    }
+}
+
+bool isNumber(const std::string &s) {
+    if (s.empty()) {
+        return false;
+    }
+    for (char c : s) {
+        if (!std::isdigit(c)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+using ProjectileAttack = std::pair<ProjectileAttackType, CreatureWieldType>;
+
+std::optional<ProjectileAttack> determineProjectile(std::string anim) {
+    auto notFound = std::optional<ProjectileAttack>();
+
+    if (anim.size() < 4 || anim[0] != 'b') {
+        return notFound;
+    }
+
+    size_t aPos = anim.find('a', 1);
+    if (aPos == anim.npos || (aPos + 1) == anim.size()) {
+        return notFound;
+    }
+
+    std::string wield = anim.substr(1, aPos - 1);
+    std::string type = anim.substr(aPos + 1);
+
+    if (!isNumber(wield) || !isNumber(type)) {
+        return notFound;
+    }
+
+    return std::optional(
+        std::make_pair(static_cast<ProjectileAttackType>(std::stoi(type)),
+                       static_cast<CreatureWieldType>(std::stoi(wield))));
+}
+
+void CutsceneAttackAction::addProjectiles(const Creature &creature, std::string attackAnim) {
+    auto maybeProjectile = determineProjectile(attackAnim);
+    if (!maybeProjectile) {
+        return;
+    }
+
+    auto [type, wield] = maybeProjectile.value();
+
+    ProjectileSpec *spec = _services.game.projectiles.get(type, wield, creature.appearance());
+    if (!spec) {
+        // no projectiles for this attack
+        return;
+    }
+
+    addProjectilesFromSpec(_projectiles, *spec);
 }
 
 void CutsceneAttackAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
@@ -59,8 +129,10 @@ void CutsceneAttackAction::execute(std::shared_ptr<Action> self, Object &actor, 
     switch (state) {
     case AttackSchedule::Attack: {
         lock();
-        resource::ITwoDAs &twoDas = _services.resource.twoDas;
-        attack(attacker, getAnimationName(_animation, twoDas));
+        const IAnimations &anims = _services.game.animations;
+        std::string attackAnim = anims.getNameById(_animation);
+        attack(round, attacker, *_target, _result, attackAnim, _services.game.animations);
+        addProjectiles(attacker, attackAnim);
 
         if (auto target = dyn_cast<Creature>(_target)) {
             target->runAttackedScript(attacker.id());
@@ -75,13 +147,36 @@ void CutsceneAttackAction::execute(std::shared_ptr<Action> self, Object &actor, 
         break;
     }
     case AttackSchedule::Finish: {
-        attacker.setMovementRestricted(false);
-        complete();
+        finish(attacker);
         return;
     }
     default:
         break;
     }
+
+    // Projectiles
+    switch (state) {
+    case AttackSchedule::Damage:
+    case AttackSchedule::WaitDamage:
+    case AttackSchedule::WaitFinish: {
+        auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
+        _projectiles.update(dt, attacker, *_target, sceneGraph);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+void CutsceneAttackAction::cancel(std::shared_ptr<Action> self, Object &actor) {
+    Creature &attacker = cast<Creature>(actor);
+    finish(attacker);
+}
+
+void CutsceneAttackAction::finish(Creature &attacker) {
+    attacker.setMovementRestricted(false);
+    _projectiles.reset();
+    complete();
 }
 
 } // namespace game
