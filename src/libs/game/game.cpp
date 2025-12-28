@@ -837,7 +837,7 @@ CameraType Game::getConversationCamera(int &cameraId) const {
     return _conversation->getCamera(cameraId);
 }
 
-std::shared_ptr<Object> Game::getCommandTargetObject() {
+std::shared_ptr<Object> Game::getConsoleTargetObject() {
     auto object = module()->area()->selectedObject();
     if (!object) {
         object = party().getLeader();
@@ -845,27 +845,38 @@ std::shared_ptr<Object> Game::getCommandTargetObject() {
     if (object) {
         return object;
     }
-    _console.printLine("No object is selected");
-    return nullptr;
+    throw std::runtime_error("No object is selected");
 }
 
-std::shared_ptr<Creature> Game::getCommandTargetCreature() {
-    auto object = getCommandTargetObject();
-    if (!object) {
-        return nullptr;
+std::shared_ptr<Creature> Game::getConsoleTargetCreature() {
+    if (auto object = module()->area()->selectedObject()) {
+        if (auto creature = dyn_cast<Creature>(object)) {
+            return creature;
+        }
+        throw std::runtime_error("Selected object must be a creature");
     }
-    if (auto creature = dyn_cast<Creature>(object)) {
-        return creature;
+
+    return getConsoleLeader();
+}
+
+std::shared_ptr<Creature> Game::getConsoleLeader() {
+    if (std::shared_ptr<Creature> leader = _party.getLeader()) {
+        return leader;
     }
-    _console.printLine("Selected object must be a creature");
-    return nullptr;
+    throw std::runtime_error("No party leader");
+}
+
+static void consoleCheckUsage(const IConsole::TokenList &tokens,
+                              size_t minArgs, size_t maxArgs,
+                              std::string_view usage) {
+    size_t numArgs = tokens.size() - 1;
+    if (numArgs < minArgs || numArgs > maxArgs) {
+        throw std::runtime_error(str(boost::format("Usage: %s %s") % tokens[0] % usage));
+    }
 }
 
 void Game::consoleInfo(const IConsole::TokenList &tokens) {
-    auto object = getCommandTargetObject();
-    if (!object) {
-        return;
-    }
+    auto object = getConsoleTargetObject();
     glm::vec3 position(object->position());
 
     std::stringstream ss;
@@ -919,10 +930,7 @@ void Game::consoleListGlobals(const IConsole::TokenList &tokens) {
 }
 
 void Game::consoleListLocals(const IConsole::TokenList &tokens) {
-    auto object = getCommandTargetObject();
-    if (!object) {
-        return;
-    }
+    auto object = getConsoleTargetObject();
 
     auto &booleans = object->localBooleans();
     for (auto &var : booleans) {
@@ -936,10 +944,7 @@ void Game::consoleListLocals(const IConsole::TokenList &tokens) {
 }
 
 void Game::consoleListAnim(const IConsole::TokenList &tokens) {
-    auto object = getCommandTargetObject();
-    if (!object) {
-        return;
-    }
+    auto object = getConsoleTargetObject();
 
     std::string substr;
     if (static_cast<int>(tokens.size()) > 1) {
@@ -958,23 +963,15 @@ void Game::consoleListAnim(const IConsole::TokenList &tokens) {
 }
 
 void Game::consolePlayAnim(const IConsole::TokenList &tokens) {
-    if (tokens.size() < 2) {
-        _console.printLine("Usage: playanim anim_name");
-        return;
-    }
-    auto object = getCommandTargetObject();
-    if (!object) {
-        return;
-    }
+    consoleCheckUsage(tokens, 1, 1, "anim_name");
+
+    auto object = getConsoleTargetObject();
     auto model = std::static_pointer_cast<ModelSceneNode>(object->sceneNode());
     model->playAnimation(tokens[1], nullptr, AnimationProperties::fromFlags(AnimationFlags::loop));
 }
 
 void Game::consoleKill(const IConsole::TokenList &tokens) {
-    auto object = getCommandTargetObject();
-    if (!object) {
-        return;
-    }
+    auto object = getConsoleTargetObject();
     auto effect = newEffect<DamageEffect>(
         100000,
         DamageType::Universal,
@@ -984,48 +981,28 @@ void Game::consoleKill(const IConsole::TokenList &tokens) {
 }
 
 void Game::consoleAddItem(const IConsole::TokenList &tokens) {
-    if (tokens.size() < 2) {
-        _console.printLine("Usage: additem item_tpl [size]");
-        return;
-    }
-    auto object = getCommandTargetObject();
-    if (!object) {
-        return;
-    }
+    consoleCheckUsage(tokens, 1, 2, "item_tpl [size]");
+    auto object = getConsoleTargetObject();
     int stackSize = (tokens.size()) > 2 ? std::stoi(tokens[2]) : 1;
     object->addItem(tokens[1], stackSize);
 }
 
 void Game::consoleGiveXP(const IConsole::TokenList &tokens) {
-    if (tokens.size() < 2) {
-        _console.printLine("Usage: givexp amount");
-        return;
-    }
-    auto creature = getCommandTargetCreature();
-    if (!creature) {
-        return;
-    }
-
+    consoleCheckUsage(tokens, 1, 1, "amount");
+    auto creature = getConsoleTargetCreature();
     int amount = std::stoi(tokens[1]);
     creature->giveXP(amount);
 }
 
 void Game::consoleWarp(const IConsole::TokenList &tokens) {
-    if (tokens.size() < 2) {
-        _console.printLine("Usage: warp module");
-        return;
-    }
+    consoleCheckUsage(tokens, 1, 1, "module");
     loadModule(tokens[1]);
 }
 
 void Game::consoleRunScript(const IConsole::TokenList &tokens) {
-    if (tokens.size() < 3) {
-        _console.printLine("Usage: runscript resref [kind:value ...], e.g. runscript k_ai_master Caller:4 ScriptVar:2");
-        return;
-    }
+    consoleCheckUsage(tokens, 1, 1024, "resref [kind:value ...]");
 
     std::string resRef = tokens[1];
-
     std::vector<script::Argument> vars;
     for (size_t i = 1; i < tokens.size(); ++i) {
         vars.push_back(script::Argument::fromString(tokens[i]));
@@ -1036,28 +1013,19 @@ void Game::consoleRunScript(const IConsole::TokenList &tokens) {
 }
 
 void Game::consoleShowAABB(const IConsole::TokenList &tokens) {
-    if (tokens.size() < 2) {
-        _console.printLine("Usage: showaabb 1|0");
-        return;
-    }
+    consoleCheckUsage(tokens, 1, 1, "1|0");
     bool show = std::stoi(tokens[1]);
     setShowAABB(show);
 }
 
 void Game::consoleShowWalkmesh(const IConsole::TokenList &tokens) {
-    if (tokens.size() < 2) {
-        _console.printLine("Usage: showwalkmesh 1|0");
-        return;
-    }
+    consoleCheckUsage(tokens, 1, 1, "1|0");
     bool show = std::stoi(tokens[1]);
     setShowWalkmesh(show);
 }
 
 void Game::consoleShowTriggers(const IConsole::TokenList &tokens) {
-    if (tokens.size() < 2) {
-        _console.printLine("Usage: showtriggers 1|0");
-        return;
-    }
+    consoleCheckUsage(tokens, 1, 1, "1|0");
     bool show = std::stoi(tokens[1]);
     setShowTriggers(show);
 }

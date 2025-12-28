@@ -451,16 +451,19 @@ private:
     void registerConsoleCommand(std::string name, std::string description, ConsoleCommandHandler handler);
 
     /**
-     * Returns the currently selected object, or the party leader. Otherwise
-     * returns nullptr.
+     * Returns the currently selected object, or the party leader.
      */
-    std::shared_ptr<Object> getCommandTargetObject();
+    std::shared_ptr<Object> getConsoleTargetObject();
 
     /**
-     * Returns the currently selected Creature object, or the party
-     * leader. Otherwise returns nullptr.
+     * Returns the currently selected Creature object, or the party leader.
      */
-    std::shared_ptr<Creature> getCommandTargetCreature();
+    std::shared_ptr<Creature> getConsoleTargetCreature();
+
+    /**
+     * Returns the leader creature.
+     */
+    std::shared_ptr<Creature> getConsoleLeader();
 
     void consoleInfo(const IConsole::TokenList &tokens);
     void consoleListGlobals(const IConsole::TokenList &tokens);
