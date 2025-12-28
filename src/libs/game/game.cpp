@@ -81,7 +81,7 @@ namespace reone {
 namespace game {
 
 void Game::init() {
-    registerConsoleCommands();
+    initConsole();
     initLocalServices();
     setSceneSurfaces();
     setCursorType(CursorType::Default);
@@ -92,20 +92,24 @@ void Game::init() {
     openMainMenu();
 }
 
-void Game::registerConsoleCommands() {
-    _console.registerCommand("info", "information on selected object", std::bind(&Game::consoleInfo, this, std::placeholders::_1));
-    _console.registerCommand("listglobals", "list global variables", std::bind(&Game::consoleListGlobals, this, std::placeholders::_1));
-    _console.registerCommand("listlocals", "list local variables", std::bind(&Game::consoleListLocals, this, std::placeholders::_1));
-    _console.registerCommand("runscript", "run script", std::bind(&Game::consoleRunScript, this, std::placeholders::_1));
-    _console.registerCommand("listanim", "list animations of selected object", std::bind(&Game::consoleListAnim, this, std::placeholders::_1));
-    _console.registerCommand("playanim", "play animation on selected object", std::bind(&Game::consolePlayAnim, this, std::placeholders::_1));
-    _console.registerCommand("warp", "warp to a module", std::bind(&Game::consoleWarp, this, std::placeholders::_1));
-    _console.registerCommand("kill", "kill selected object", std::bind(&Game::consoleKill, this, std::placeholders::_1));
-    _console.registerCommand("additem", "add item to selected object", std::bind(&Game::consoleAddItem, this, std::placeholders::_1));
-    _console.registerCommand("givexp", "give experience to selected creature", std::bind(&Game::consoleGiveXP, this, std::placeholders::_1));
-    _console.registerCommand("showaabb", "toggle rendering AABB", std::bind(&Game::consoleShowAABB, this, std::placeholders::_1));
-    _console.registerCommand("showwalkmesh", "toggle rendering walkmesh", std::bind(&Game::consoleShowWalkmesh, this, std::placeholders::_1));
-    _console.registerCommand("showtriggers", "toggle rendering triggers", std::bind(&Game::consoleShowTriggers, this, std::placeholders::_1));
+void Game::registerConsoleCommand(std::string name, std::string description, ConsoleCommandHandler handler) {
+    _console.registerCommand(name, description, std::bind(handler, this, std::placeholders::_1));
+}
+
+void Game::initConsole() {
+    registerConsoleCommand("info", "information on selected object", &Game::consoleInfo);
+    registerConsoleCommand("listglobals", "list global variables", &Game::consoleListGlobals);
+    registerConsoleCommand("listlocals", "list local variables", &Game::consoleListLocals);
+    registerConsoleCommand("runscript", "run script", &Game::consoleRunScript);
+    registerConsoleCommand("listanim", "list animations of selected object", &Game::consoleListAnim);
+    registerConsoleCommand("playanim", "play animation on selected object", &Game::consolePlayAnim);
+    registerConsoleCommand("warp", "warp to a module", &Game::consoleWarp);
+    registerConsoleCommand("kill", "kill selected object", &Game::consoleKill);
+    registerConsoleCommand("additem", "add item to selected object", &Game::consoleAddItem);
+    registerConsoleCommand("givexp", "give experience to selected creature", &Game::consoleGiveXP);
+    registerConsoleCommand("showaabb", "toggle rendering AABB", &Game::consoleShowAABB);
+    registerConsoleCommand("showwalkmesh", "toggle rendering walkmesh", &Game::consoleShowWalkmesh);
+    registerConsoleCommand("showtriggers", "toggle rendering triggers", &Game::consoleShowTriggers);
 }
 
 void Game::initLocalServices() {
