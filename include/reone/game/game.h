@@ -445,7 +445,10 @@ private:
 
     // Console commands
 
-    void registerConsoleCommands();
+    void initConsole();
+
+    using ConsoleCommandHandler = void (Game::*)(const IConsole::TokenList &);
+    void registerConsoleCommand(std::string name, std::string description, ConsoleCommandHandler handler);
 
     /**
      * Returns the currently selected object, or the party leader. Otherwise
