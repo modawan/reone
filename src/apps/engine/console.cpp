@@ -169,19 +169,21 @@ bool Console::handleKeyUp(const input::KeyEvent &event) {
 }
 
 void Console::executeInputText() {
-    TokenList tokens;
+    game::ConsoleArgs::TokenList tokens;
     boost::split(tokens, _input.text(), boost::is_space(), boost::token_compress_on);
     if (tokens.empty()) {
         return;
     }
-    auto commandByName = _nameToCommand.find(tokens[0]);
+
+    const std::string &name = tokens[0];
+    auto commandByName = _nameToCommand.find(name);
     if (commandByName == _nameToCommand.end()) {
-        printLine("Unrecognized command: " + tokens[0]);
+        printLine("Unrecognized command: " + name);
         return;
     }
     auto &handler = commandByName->second.get().handler;
     try {
-        handler(tokens);
+        handler(std::move(tokens));
     } catch (const std::exception &ex) {
         printLine("Command failed: " + std::string(ex.what()));
     }
