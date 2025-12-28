@@ -447,7 +447,7 @@ private:
 
     void initConsole();
 
-    using ConsoleCommandHandler = void (Game::*)(const IConsole::TokenList &);
+    using ConsoleCommandHandler = void (Game::*)(const ConsoleArgs &);
     void registerConsoleCommand(std::string name, std::string description, ConsoleCommandHandler handler);
 
     /**
@@ -465,19 +465,19 @@ private:
      */
     std::shared_ptr<Creature> getConsoleLeader();
 
-    void consoleInfo(const IConsole::TokenList &tokens);
-    void consoleListGlobals(const IConsole::TokenList &tokens);
-    void consoleListLocals(const IConsole::TokenList &tokens);
-    void consoleListAnim(const IConsole::TokenList &tokens);
-    void consolePlayAnim(const IConsole::TokenList &tokens);
-    void consoleKill(const IConsole::TokenList &tokens);
-    void consoleAddItem(const IConsole::TokenList &tokens);
-    void consoleGiveXP(const IConsole::TokenList &tokens);
-    void consoleWarp(const IConsole::TokenList &tokens);
-    void consoleRunScript(const IConsole::TokenList &tokens);
-    void consoleShowAABB(const IConsole::TokenList &tokens);
-    void consoleShowWalkmesh(const IConsole::TokenList &tokens);
-    void consoleShowTriggers(const IConsole::TokenList &tokens);
+    void consoleInfo(const ConsoleArgs &tokens);
+    void consoleListGlobals(const ConsoleArgs &tokens);
+    void consoleListLocals(const ConsoleArgs &tokens);
+    void consoleListAnim(const ConsoleArgs &tokens);
+    void consolePlayAnim(const ConsoleArgs &tokens);
+    void consoleKill(const ConsoleArgs &tokens);
+    void consoleAddItem(const ConsoleArgs &tokens);
+    void consoleGiveXP(const ConsoleArgs &tokens);
+    void consoleWarp(const ConsoleArgs &tokens);
+    void consoleRunScript(const ConsoleArgs &tokens);
+    void consoleShowAABB(const ConsoleArgs &tokens);
+    void consoleShowWalkmesh(const ConsoleArgs &tokens);
+    void consoleShowTriggers(const ConsoleArgs &tokens);
 
     // END Console commands
 };

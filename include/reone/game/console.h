@@ -17,14 +17,72 @@
 
 #pragma once
 
+#include <charconv>
+#include <optional>
+#include <string>
+#include <type_traits>
+
 namespace reone {
 
 namespace game {
 
-class IConsole {
+class ConsoleArgs {
 public:
     using TokenList = std::vector<std::string>;
-    using CommandHandler = std::function<void(const TokenList &)>;
+
+    ConsoleArgs(TokenList tokens) :
+        _tokens(std::move(tokens)) {}
+
+    std::optional<std::string_view> operator[](size_t i) const {
+        return i < _tokens.size() ? _tokens[i] : std::optional<std::string_view>();
+    }
+
+    /**
+     * Returns the argument at index \p i converted to type T (integer or
+     * floating-point).
+     */
+    template <typename T>
+    std::optional<T> get(size_t i) const {
+        auto arg = (*this)[i];
+        if (!arg) {
+            return std::optional<T>();
+        }
+
+        std::string_view str = arg.value();
+        const char *begin = str.data();
+        const char *end = str.data() + str.size();
+
+        T value;
+        std::from_chars_result result = std::from_chars(begin, end, value);
+
+        if (result.ec != std::errc {} || result.ptr != end) {
+            return std::optional<T>();
+        }
+        return value;
+    }
+
+    /**
+     * Returns the argument at index \p i converted to an enum type. Note that
+     * this functions does not check that the resulting value is actually a
+     * valid enum case.
+     */
+    template <typename EnumTy>
+    std::optional<EnumTy> getEnum(size_t i) const {
+        if (auto val = get<std::underlying_type_t<EnumTy>>(i)) {
+            return static_cast<EnumTy>(val.value());
+        }
+        return std::optional<EnumTy>();
+    }
+
+    size_t size() const { return _tokens.size(); }
+
+protected:
+    TokenList _tokens;
+};
+
+class IConsole {
+public:
+    using CommandHandler = std::function<void(const ConsoleArgs &)>;
 
     virtual ~IConsole() = default;
 
