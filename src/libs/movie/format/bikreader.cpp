@@ -223,12 +223,14 @@ private:
         int ret;
         while ((ret = av_read_frame(_formatCtx, &packet)) >= 0) {
             if (packet.stream_index != _videoStreamIdx) {
+                av_packet_unref(&packet);
                 continue;
             }
             _lastPacketTimestamp = packet.pts;
 
             avcodec_send_packet(_videoCodecCtx, &packet);
             ret = avcodec_receive_frame(_videoCodecCtx, _avFrame);
+            av_packet_unref(&packet);
             if (ret == AVERROR(EAGAIN)) {
                 continue;
             } else if (ret < 0) {
@@ -255,7 +257,6 @@ private:
         if (ret < 0) {
             _ended = true;
         }
-        av_packet_unref(&packet);
     }
 
     void loadAudioClip() {
@@ -265,9 +266,11 @@ private:
         int ret;
         while ((ret = av_read_frame(_formatCtx, &packet)) >= 0) {
             if (packet.stream_index != _audioStreamIdx) {
+                av_packet_unref(&packet);
                 continue;
             }
             avcodec_send_packet(_audioCodecCtx, &packet);
+            av_packet_unref(&packet);
             while ((ret = avcodec_receive_frame(_audioCodecCtx, _avFrame)) >= 0) {
                 // Resample frame
                 int numSamples = swr_get_out_samples(_swrContext, _avFrame->nb_samples);
@@ -294,7 +297,6 @@ private:
                 }
             }
         }
-        av_packet_unref(&packet);
     }
 
     void seekBeginning() {
