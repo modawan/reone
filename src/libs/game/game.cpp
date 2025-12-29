@@ -121,6 +121,9 @@ void Game::initConsole() {
     registerConsoleCommand("setposition", "change position of a creature", &Game::consoleSetPosition);
     registerConsoleCommand("professionaltools", "add various combat items to the inventory", &Game::consoleProfessionalTools);
     registerConsoleCommand("killroom", "kill all hostile creatures in a room of the selected object", &Game::consoleKillRoom);
+    registerConsoleCommand("autoskipenable", "enable auto-skip for conversations", &Game::consoleAutoSkipEnable);
+    registerConsoleCommand("autoskipentries", "add a sequence of entries to skip", &Game::consoleAutoSkipEntries);
+    registerConsoleCommand("autoskipreplies", "add a sequence of replies to pick", &Game::consoleAutoSkipReplies);
 }
 
 void Game::initLocalServices() {
@@ -767,6 +770,7 @@ void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     auto dialog = _services.resource.dialogs.get(resRef);
     bool computerConversation = dialog->conversationType == ConversationType::Computer;
     _conversation = computerConversation ? _computer.get() : static_cast<Conversation *>(_dialog.get());
+    _conversation->setAutoSkip(&_conversationAutoSkip);
     _conversation->start(dialog, owner);
 }
 
@@ -1249,6 +1253,46 @@ void Game::consoleKillRoom(const ConsoleArgs &args) {
 
     for (Creature *creature : targets) {
         creature->damage(std::numeric_limits<int>::max(), 0);
+    }
+}
+
+void Game::consoleAutoSkipEnable(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "1|0");
+    _conversationAutoSkip.enabled = args.get<int>(1).value();
+}
+
+void Game::consoleAutoSkipEntries(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 1024, "1|0 ...");
+
+    auto &entries = _conversationAutoSkip.entries;
+    entries = std::queue<bool>();
+
+    if (args.size() <= 1) {
+        return;
+    }
+
+    for (size_t i = 1; i < args.size(); ++i) {
+        entries.push(args.get<int>(i).value());
+    }
+}
+
+void Game::consoleAutoSkipReplies(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 1024, "number|? ...");
+
+    auto &replies = _conversationAutoSkip.replies;
+    replies = std::queue<std::optional<int>>();
+
+    if (args.size() <= 1) {
+        return;
+    }
+
+    for (size_t i = 1; i < args.size(); ++i) {
+        int val = args.get<int>(i).value();
+        if (!val) {
+            replies.push(std::optional<int>());
+            continue;
+        }
+        replies.push(val - 1);
     }
 }
 
