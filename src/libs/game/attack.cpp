@@ -472,7 +472,15 @@ bool navigateToAttackTarget(Creature &attacker, Object &target, float dt, bool &
 }
 
 static bool hasAnim(const graphics::Model &model, const std::string &anim) {
-    return model.animations().count(anim);
+    if (model.animations().count(anim)) {
+        return true;
+    }
+
+    if (std::shared_ptr<graphics::Model> super = model.superModel()) {
+        return hasAnim(*super, anim);
+    }
+
+    return false;
 }
 
 std::string getRangedAttackAnim(Creature &attacker, int kind) {
