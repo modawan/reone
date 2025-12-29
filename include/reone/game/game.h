@@ -487,6 +487,7 @@ private:
     void consoleSpawnCreature(const ConsoleArgs &tokens);
     void consoleSpawnCompanion(const ConsoleArgs &tokens);
     void consoleSelectObjectById(const ConsoleArgs &tokens);
+    void consoleSelectObjectByTag(const ConsoleArgs &tokens);
     void consoleSelectLeader(const ConsoleArgs &tokens);
     void consoleSetFaction(const ConsoleArgs &tokens);
     void consoleSetPosition(const ConsoleArgs &tokens);
