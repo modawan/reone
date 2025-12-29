@@ -147,6 +147,14 @@ void Conversation::loadEntry(int index, bool start) {
     if (!_currentEntry->script.empty()) {
         _game.scriptRunner().run(_currentEntry->script, _owner->id());
     }
+
+    if (_autoSkip) {
+        if (std::optional<bool> skip = _autoSkip->trySkipEntry()) {
+            if (skip.value()) {
+                endCurrentEntry();
+            }
+        }
+    }
 }
 
 void Conversation::onLoadEntry() {
@@ -297,6 +305,10 @@ void Conversation::endCurrentEntry() {
     } else if (_replies.empty()) {
         debug("Finish (no active replies", LogChannel::Conversation);
         finish();
+    } else if (_autoSkip) {
+        if (std::optional<int> reply = _autoSkip->trySkipReply()) {
+            pickReply(reply.value());
+        }
     }
 }
 
@@ -348,6 +360,24 @@ void Conversation::pause() {
 
 void Conversation::resume() {
     _paused = false;
+}
+
+std::optional<int> Conversation::AutoSkip::trySkipReply() {
+    if (!enabled || replies.empty()) {
+        return std::optional<int>();
+    }
+    auto reply = replies.front();
+    replies.pop();
+    return reply;
+}
+
+std::optional<bool> Conversation::AutoSkip::trySkipEntry() {
+    if (!enabled || entries.empty()) {
+        return std::optional<bool>();
+    }
+    auto entry = entries.front();
+    entries.pop();
+    return entry;
 }
 
 } // namespace game

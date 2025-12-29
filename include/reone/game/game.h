@@ -359,6 +359,7 @@ private:
     std::unique_ptr<LoadingScreen> _loadScreen;
 
     Conversation *_conversation {nullptr}; /**< pointer to either DialogGUI or ComputerGUI  */
+    Conversation::AutoSkip _conversationAutoSkip;
 
     // END GUI
 
@@ -491,6 +492,9 @@ private:
     void consoleSetPosition(const ConsoleArgs &tokens);
     void consoleProfessionalTools(const ConsoleArgs &tokens);
     void consoleKillRoom(const ConsoleArgs &tokens);
+    void consoleAutoSkipEnable(const ConsoleArgs &tokens);
+    void consoleAutoSkipEntries(const ConsoleArgs &tokens);
+    void consoleAutoSkipReplies(const ConsoleArgs &tokens);
 
     // END Console commands
 };

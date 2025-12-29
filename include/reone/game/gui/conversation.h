@@ -48,6 +48,17 @@ public:
 
     void resume();
 
+    struct AutoSkip {
+        std::queue<std::optional<int>> replies;
+        std::queue<bool> entries;
+        bool enabled {false};
+
+        std::optional<int> trySkipReply();
+        std::optional<bool> trySkipEntry();
+    };
+
+    void setAutoSkip(AutoSkip *skip) { _autoSkip = skip; }
+
 protected:
     std::shared_ptr<resource::Dialog> _dialog;
     std::shared_ptr<Object> _owner;
@@ -74,6 +85,7 @@ private:
     float _entryDuration {0.0f};
     std::vector<const resource::Dialog::EntryReply *> _replies;
     bool _autoPickFirstReply {false};
+    AutoSkip *_autoSkip {nullptr};
 
     void loadConversationBackground();
     void loadCameraModel();
