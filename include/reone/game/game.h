@@ -495,6 +495,7 @@ private:
     void consoleAutoSkipEnable(const ConsoleArgs &tokens);
     void consoleAutoSkipEntries(const ConsoleArgs &tokens);
     void consoleAutoSkipReplies(const ConsoleArgs &tokens);
+    void consoleStartConversation(const ConsoleArgs &tokens);
 
     // END Console commands
 };

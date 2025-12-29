@@ -20,6 +20,7 @@
 #include "reone/audio/context.h"
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
+#include "reone/game/action/startconversation.h"
 #include "reone/game/combat.h"
 #include "reone/game/debug.h"
 #include "reone/game/di/services.h"
@@ -124,6 +125,7 @@ void Game::initConsole() {
     registerConsoleCommand("autoskipenable", "enable auto-skip for conversations", &Game::consoleAutoSkipEnable);
     registerConsoleCommand("autoskipentries", "add a sequence of entries to skip", &Game::consoleAutoSkipEntries);
     registerConsoleCommand("autoskipreplies", "add a sequence of replies to pick", &Game::consoleAutoSkipReplies);
+    registerConsoleCommand("startconversation", "starts a conversation with the selected object", &Game::consoleStartConversation);
 }
 
 void Game::initLocalServices() {
@@ -1294,6 +1296,16 @@ void Game::consoleAutoSkipReplies(const ConsoleArgs &args) {
         }
         replies.push(val - 1);
     }
+}
+
+void Game::consoleStartConversation(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+
+    auto leader = getConsoleLeader();
+    auto target = getConsoleTargetObject();
+
+    auto action = newAction<StartConversationAction>(target, target->conversation());
+    leader->addAction(std::move(action));
 }
 
 } // namespace game
