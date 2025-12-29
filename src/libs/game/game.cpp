@@ -117,6 +117,7 @@ void Game::initConsole() {
     registerConsoleCommand("spawncreature", "spawn a creature", &Game::consoleSpawnCreature);
     registerConsoleCommand("spawncompanion", "spawn a companion", &Game::consoleSpawnCompanion);
     registerConsoleCommand("selectobjectbyid", "select an object by id", &Game::consoleSelectObjectById);
+    registerConsoleCommand("selectobjectbytag", "select an object by tag", &Game::consoleSelectObjectByTag);
     registerConsoleCommand("selectleader", "select the party leader", &Game::consoleSelectLeader);
     registerConsoleCommand("setfaction", "change faction of a creature", &Game::consoleSetFaction);
     registerConsoleCommand("setposition", "change position of a creature", &Game::consoleSetPosition);
@@ -1127,6 +1128,20 @@ void Game::consoleSelectObjectById(const ConsoleArgs &args) {
     }
 
     getConsoleArea()->selectObject(object);
+}
+
+void Game::consoleSelectObjectByTag(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "tag");
+    std::string_view tag = args[1].value();
+
+    for (auto [id, object] : _objectById) {
+        if (object->tag() == tag) {
+            getConsoleArea()->selectObject(object);
+            return;
+        }
+    }
+
+    throw std::runtime_error("Object not found");
 }
 
 void Game::consoleSelectLeader(const ConsoleArgs &args) {
