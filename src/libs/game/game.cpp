@@ -849,7 +849,7 @@ CameraType Game::getConversationCamera(int &cameraId) const {
 }
 
 std::shared_ptr<Object> Game::getConsoleTargetObject() {
-    auto object = module()->area()->selectedObject();
+    auto object = getConsoleArea()->selectedObject();
     if (!object) {
         object = party().getLeader();
     }
@@ -860,7 +860,7 @@ std::shared_ptr<Object> Game::getConsoleTargetObject() {
 }
 
 std::shared_ptr<Creature> Game::getConsoleTargetCreature() {
-    if (auto object = module()->area()->selectedObject()) {
+    if (auto object = getConsoleArea()->selectedObject()) {
         if (auto creature = dyn_cast<Creature>(object)) {
             return creature;
         }
@@ -878,7 +878,12 @@ std::shared_ptr<Creature> Game::getConsoleLeader() {
 }
 
 std::shared_ptr<Area> Game::getConsoleArea() {
-    if (std::shared_ptr<Area> area = module()->area()) {
+    std::shared_ptr<Module> mod = module();
+    if (!mod) {
+        throw std::runtime_error("Module is not loaded");
+    }
+
+    if (std::shared_ptr<Area> area = mod->area()) {
         return area;
     }
     throw std::runtime_error("Area is not loaded");
