@@ -90,17 +90,6 @@ void LevelUpMenu::setStep(int step) {
 void LevelUpMenu::doSetStep(int step) {
     _step = step;
 
-    _controls.LBL_1->setSelectable(false);
-    _controls.LBL_2->setSelectable(false);
-    _controls.LBL_3->setSelectable(false);
-    _controls.LBL_4->setSelectable(false);
-    _controls.LBL_5->setSelectable(false);
-    _controls.BTN_STEPNAME1->setSelectable(false);
-    _controls.BTN_STEPNAME2->setSelectable(false);
-    _controls.BTN_STEPNAME3->setSelectable(false);
-    _controls.BTN_STEPNAME4->setSelectable(false);
-    _controls.BTN_STEPNAME5->setSelectable(false);
-
     _controls.LBL_1->setDisabled(_step != 0);
     _controls.LBL_2->setDisabled(_step != 1);
     _controls.LBL_3->setDisabled(_step != 2);
