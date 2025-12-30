@@ -737,6 +737,13 @@ void Game::openSaveLoad(SaveLoadMode mode) {
 }
 
 void Game::openLevelUp() {
+    if (!_charGen) {
+        _charGen = tryLoadGUI<CharacterGeneration>();
+    }
+    if (!_charGen) {
+        return;
+    }
+
     setRelativeMouseMode(false);
     setCursorType(CursorType::Default);
     _charGen->startLevelUp();
