@@ -1023,7 +1023,7 @@ void Game::consoleRunScript(const ConsoleArgs &args) {
 
     std::string resRef(args[1].value());
     std::vector<script::Argument> vars;
-    for (size_t i = 1; i < args.size(); ++i) {
+    for (size_t i = 2; i < args.size(); ++i) {
         vars.push_back(script::Argument::fromString(std::string(args[i].value())));
     }
 
