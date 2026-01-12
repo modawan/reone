@@ -129,6 +129,12 @@ void Game::initConsole() {
     registerConsoleCommand("autoskipreplies", "add a sequence of replies to pick", &Game::consoleAutoSkipReplies);
     registerConsoleCommand("startconversation", "starts a conversation with the selected object", &Game::consoleStartConversation);
     registerConsoleCommand("cutsceneattack", "attack an object by id with a pre-determined animation and result", &Game::consoleCutsceneAttack);
+    registerConsoleCommand("setability", "set ability value (strength, dexterity, etc.)", &Game::consoleSetAbility);
+    registerConsoleCommand("setskill", "set skill value (computer use, repair, etc.)", &Game::consoleSetSkill);
+    registerConsoleCommand("addfeat", "add feat by type", &Game::consoleAddOrRemoveFeat);
+    registerConsoleCommand("removefeat", "remove feat by type", &Game::consoleAddOrRemoveFeat);
+    registerConsoleCommand("addspell", "add spell by type", &Game::consoleAddOrRemoveSpell);
+    registerConsoleCommand("removespell", "remove spell by type", &Game::consoleAddOrRemoveSpell);
 }
 
 void Game::initLocalServices() {
@@ -1349,6 +1355,67 @@ void Game::consoleCutsceneAttack(const ConsoleArgs &args) {
     auto action = newAction<CutsceneAttackAction>(
         std::move(target), anim, result, damage);
     actor->addAction(std::move(action));
+}
+
+void Game::consoleSetAbility(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 2, 2, "ability value");
+    std::shared_ptr<Creature> actor = getConsoleTargetCreature();
+    std::optional<Ability> ability = args.getEnum<Ability>(1);
+    if (!ability) {
+        throw std::runtime_error("Invalid ability: must be a number");
+    }
+    std::optional<int> value = args.get<int>(2);
+    if (!value) {
+        throw std::runtime_error("Invalid value");
+    }
+    actor->attributes().setAbilityScore(ability.value(), value.value());
+}
+
+void Game::consoleSetSkill(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 2, 2, "skill value");
+    std::shared_ptr<Creature> actor = getConsoleTargetCreature();
+    std::optional<SkillType> skill = args.getEnum<SkillType>(1);
+    if (!skill) {
+        throw std::runtime_error("Invalid skill: must be a number");
+    }
+
+    std::optional<int> value = args.get<int>(2);
+    if (!value) {
+        throw std::runtime_error("Invalid value");
+    }
+    actor->attributes().setSkillRank(skill.value(), value.value());
+}
+
+void Game::consoleAddOrRemoveFeat(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "feat");
+    std::shared_ptr<Creature> actor = getConsoleTargetCreature();
+    std::optional<FeatType> feat = args.getEnum<FeatType>(1);
+    if (!feat) {
+        throw std::runtime_error("Invalid feat: must be a number");
+    }
+
+    CreatureAttributes &attrs = actor->attributes();
+    if (args[0].value() == "addfeat") {
+        attrs.addFeat(feat.value());
+    } else {
+        attrs.removeFeat(feat.value());
+    }
+}
+
+void Game::consoleAddOrRemoveSpell(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "spell");
+    std::shared_ptr<Creature> actor = getConsoleTargetCreature();
+    std::optional<SpellType> spell = args.getEnum<SpellType>(1);
+    if (!spell) {
+        throw std::runtime_error("Invalid spell: must be a number");
+    }
+
+    CreatureAttributes &attrs = actor->attributes();
+    if (args[0].value() == "addspell") {
+        attrs.addSpell(spell.value());
+    } else {
+        attrs.removeSpell(spell.value());
+    }
 }
 
 } // namespace game
