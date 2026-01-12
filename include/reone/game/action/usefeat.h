@@ -18,6 +18,7 @@
 #pragma once
 
 #include "../action.h"
+#include "reone/game/attack.h"
 
 namespace reone {
 
@@ -40,11 +41,26 @@ public:
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
+    void cancel(std::shared_ptr<Action> self, Object &actor) override;
+
+    const std::shared_ptr<Object> &target() const { return _target; }
+
+    AttackResultType result() const { return _attacks.result(); }
+
     FeatType feat() const { return _feat; }
 
 private:
+    void addProjectiles(const Creature &creature, FeatType feat);
+    void finish(Creature &attacker);
+
     FeatType _feat;
     std::shared_ptr<Object> _target;
+
+    AttackSchedule _schedule;
+    AttackBuffer _attacks;
+    bool _reachedTarget {false};
+
+    ProjectileSequence _projectiles;
 };
 
 } // namespace game
