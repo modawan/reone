@@ -498,6 +498,10 @@ private:
     void consoleAutoSkipReplies(const ConsoleArgs &tokens);
     void consoleStartConversation(const ConsoleArgs &tokens);
     void consoleCutsceneAttack(const ConsoleArgs &tokens);
+    void consoleSetAbility(const ConsoleArgs &tokens);
+    void consoleSetSkill(const ConsoleArgs &tokens);
+    void consoleAddOrRemoveFeat(const ConsoleArgs &tokens);
+    void consoleAddOrRemoveSpell(const ConsoleArgs &tokens);
 
     // END Console commands
 };
