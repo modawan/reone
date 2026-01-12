@@ -18,6 +18,7 @@
 #include "reone/game/combat.h"
 
 #include "reone/game/action/attackobject.h"
+#include "reone/game/action/usefeat.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/scene/di/services.h"
@@ -50,6 +51,9 @@ bool CombatRound::canExecute(Action &action) const {
 static Object *getTarget(Action &action) {
     if (auto *attack = dyn_cast<AttackObjectAction>(&action)) {
         return attack->target().get();
+    }
+    if (auto *feat = dyn_cast<UseFeatAction>(&action)) {
+        return feat->target().get();
     }
 
     return nullptr;

@@ -23,6 +23,7 @@
 #include "reone/scene/di/module.h"
 #include "reone/script/di/module.h"
 
+#include "../animations.h"
 #include "../camerastyles.h"
 #include "../d20/classes.h"
 #include "../d20/feats.h"
@@ -90,6 +91,7 @@ private:
     std::unique_ptr<Spells> _spells;
     std::unique_ptr<Surfaces> _surfaces;
     std::unique_ptr<Projectiles> _projectiles;
+    std::unique_ptr<Animations> _animations;
 
     std::unique_ptr<GameServices> _services;
 };

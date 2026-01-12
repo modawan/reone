@@ -66,6 +66,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/action/usetalentatlocation.h
     ${GAME_INCLUDE_DIR}/action/usetalentonobject.h
     ${GAME_INCLUDE_DIR}/action/wait.h
+    ${GAME_INCLUDE_DIR}/animations.h
     ${GAME_INCLUDE_DIR}/animationutil.h
     ${GAME_INCLUDE_DIR}/camerastyle.h
     ${GAME_INCLUDE_DIR}/camerastyles.h
@@ -362,6 +363,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/action/useskill.cpp
     ${GAME_SOURCE_DIR}/action/usetalentonobject.cpp
     ${GAME_SOURCE_DIR}/action/wait.cpp
+    ${GAME_SOURCE_DIR}/animations.cpp
     ${GAME_SOURCE_DIR}/animationutil.cpp
     ${GAME_SOURCE_DIR}/attack.cpp
     ${GAME_SOURCE_DIR}/camerastyles.cpp

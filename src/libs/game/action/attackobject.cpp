@@ -17,6 +17,7 @@
 
 #include "reone/game/action/attackobject.h"
 
+#include "reone/game/animations.h"
 #include "reone/game/attack.h"
 #include "reone/game/combat.h"
 #include "reone/game/di/services.h"
@@ -48,36 +49,8 @@ static std::string getMeleeAttackAnim(CreatureWieldType attackerWield,
     return str(boost::format("g%da%d") % static_cast<int>(attackerWield) % variant);
 }
 
-static std::string getMeleeDamageAnim(CreatureWieldType targetWield, int variant) {
-    if (isMeleeWieldType(targetWield)) {
-        return str(boost::format("c%dd%d") % static_cast<int>(targetWield) % variant);
-    }
-
-    // No damage animation for melee attacker -> ranged target, so use combat
-    // stance animation.
-    return str(boost::format("g%dr1") % static_cast<int>(targetWield));
-}
-
-static std::string getMeleeParryAnim(CreatureWieldType targetWield, int variant) {
-    if (isMeleeWieldType(targetWield)) {
-        return str(boost::format("c%dp%d") % static_cast<int>(targetWield) % variant);
-    }
-
-    // No parry animation for melee attacker -> ranged target, so use combat
-    // stance animation.
-    return str(boost::format("g%dr1") % static_cast<int>(targetWield));
-}
-
-static std::string getRangedDamageAnim(CreatureWieldType targetWield) {
-    return str(boost::format("g%dd1") % static_cast<int>(targetWield));
-}
-
-static std::string getRangedDodgeAnim(CreatureWieldType targetWield) {
-    return str(boost::format("g%dg1") % static_cast<int>(targetWield));
-}
-
 static void attack(const CombatRound &round, Creature &attacker, Object &target,
-                   AttackBuffer &attacks) {
+                   const IAnimations &anims, AttackBuffer &attacks) {
 
     if (auto main = attacker.getEquippedItem(InventorySlots::rightWeapon)) {
         attacks.addWeaponAttack(attacker, target, *main);
@@ -112,16 +85,8 @@ static void attack(const CombatRound &round, Creature &attacker, Object &target,
         auto &opponent = cast<Creature>(target);
         opponent.face(attacker);
 
-        std::string hitAnim = isMelee
-                                  ? getMeleeDamageAnim(targetWield, variant)
-                                  : getRangedDamageAnim(targetWield);
-
-        std::string missAnim = isMelee
-                                   ? getMeleeParryAnim(targetWield, variant)
-                                   : getRangedDodgeAnim(targetWield);
-
-        std::string anim = isAttackSuccessful(attacks.result()) ? hitAnim : missAnim;
-        opponent.playAnimation(anim, animProp);
+        std::string resultAnim = anims.getAttackResult(attackAnim, targetWield, attacks.result());
+        opponent.playAnimation(resultAnim, animProp);
     }
 }
 
@@ -167,7 +132,7 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         attacker.setMovementType(Creature::MovementType::None);
         attacker.setMovementRestricted(true);
 
-        attack(round, attacker, *_target, _attacks);
+        attack(round, attacker, *_target, _services.game.animations, _attacks);
 
         if (auto target = dyn_cast<Creature>(_target)) {
             target->runAttackedScript(attacker.id());
