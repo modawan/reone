@@ -271,7 +271,7 @@ static glm::vec3 determineProjectileOrigin(scene::ModelSceneNode &model, Project
         if (bulletHook) {
             return bulletHook->origin();
         }
-        weaponModel->origin();
+        return weaponModel->origin();
     }
 
     // Droids do not have weapon model, but they have hooks in the main (body) model.
@@ -281,6 +281,17 @@ static glm::vec3 determineProjectileOrigin(scene::ModelSceneNode &model, Project
     }
 
     return model.origin();
+}
+
+static std::optional<glm::vec3> determineMuzzleFlashOrigin(scene::ModelSceneNode &model, Projectile::Source source) {
+    std::string attachment = (source == Projectile::Main) ? "rhand" : "lhand";
+    auto weaponModel = static_cast<scene::ModelSceneNode *>(model.getAttachment(attachment));
+    if (weaponModel) {
+        if (auto muzzleHook = weaponModel->getNodeByName("muzzlehook")) {
+            return muzzleHook->origin();
+        }
+    }
+    return std::nullopt;
 }
 
 void Projectile::fire(Creature &attacker, Object &target, scene::ISceneGraph &sceneGraph) {
@@ -329,6 +340,16 @@ void Projectile::fire(Creature &attacker, Object &target, scene::ISceneGraph &sc
     _model->setLocalTransform(glm::translate(projectilePos));
     sceneGraph.addRoot(_model);
 
+    if (ammunitionType->muzzleFlash) {
+        glm::vec3 origin = determineMuzzleFlashOrigin(*attackerModel, _source)
+                               .value_or(projectilePos);
+
+        _flash = sceneGraph.newModel(*ammunitionType->muzzleFlash, scene::ModelUsage::Projectile);
+        _flash->setLocalTransform(glm::translate(projectilePos));
+        _flash->signalEvent(kModelEventDetonate);
+        sceneGraph.addRoot(_flash);
+    }
+
     // Play shot sound, if any
     weapon->playShotSound(0, projectilePos);
 }
@@ -368,6 +389,8 @@ void Projectile::reset() {
 
     _model->graph().removeRoot(*_model);
     _model.reset();
+    _flash->graph().removeRoot(*_flash);
+    _flash.reset();
 }
 
 void ProjectileSequence::push_back(float time, Projectile::Source source, bool miss) {
