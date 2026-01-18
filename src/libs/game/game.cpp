@@ -20,6 +20,7 @@
 #include "reone/audio/context.h"
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
+#include "reone/game/action/cutsceneattack.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/combat.h"
 #include "reone/game/debug.h"
@@ -127,6 +128,13 @@ void Game::initConsole() {
     registerConsoleCommand("autoskipentries", "add a sequence of entries to skip", &Game::consoleAutoSkipEntries);
     registerConsoleCommand("autoskipreplies", "add a sequence of replies to pick", &Game::consoleAutoSkipReplies);
     registerConsoleCommand("startconversation", "starts a conversation with the selected object", &Game::consoleStartConversation);
+    registerConsoleCommand("cutsceneattack", "attack an object by id with a pre-determined animation and result", &Game::consoleCutsceneAttack);
+    registerConsoleCommand("setability", "set ability value (strength, dexterity, etc.)", &Game::consoleSetAbility);
+    registerConsoleCommand("setskill", "set skill value (computer use, repair, etc.)", &Game::consoleSetSkill);
+    registerConsoleCommand("addfeat", "add feat by type", &Game::consoleAddOrRemoveFeat);
+    registerConsoleCommand("removefeat", "remove feat by type", &Game::consoleAddOrRemoveFeat);
+    registerConsoleCommand("addspell", "add spell by type", &Game::consoleAddOrRemoveSpell);
+    registerConsoleCommand("removespell", "remove spell by type", &Game::consoleAddOrRemoveSpell);
 }
 
 void Game::initLocalServices() {
@@ -1328,6 +1336,67 @@ void Game::consoleStartConversation(const ConsoleArgs &args) {
 
     auto action = newAction<StartConversationAction>(target, target->conversation());
     leader->addAction(std::move(action));
+}
+
+void Game::consoleCutsceneAttack(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 4, 4, "target_id animation_id result damage");
+
+    std::shared_ptr<Creature> actor = getConsoleTargetCreature();
+
+    std::shared_ptr<Object> target = getObjectById(args.get<uint32_t>(1).value());
+    if (!target) {
+        throw std::runtime_error("Target not found");
+    }
+
+    int anim = args.get<int>(2).value();
+    AttackResultType result = args.getEnum<AttackResultType>(3).value();
+    int damage = args.get<int>(4).value();
+
+    auto action = newAction<CutsceneAttackAction>(
+        std::move(target), anim, result, damage);
+    actor->addAction(std::move(action));
+}
+
+void Game::consoleSetAbility(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 2, 2, "ability value");
+    std::shared_ptr<Creature> actor = getConsoleTargetCreature();
+    Ability ability = args.getEnum<Ability>(1).value();
+    int value = args.get<int>(2).value();
+    actor->attributes().setAbilityScore(ability, value);
+}
+
+void Game::consoleSetSkill(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 2, 2, "skill value");
+    std::shared_ptr<Creature> actor = getConsoleTargetCreature();
+    SkillType skill = args.getEnum<SkillType>(1).value();
+    int value = args.get<int>(2).value();
+    actor->attributes().setSkillRank(skill, value);
+}
+
+void Game::consoleAddOrRemoveFeat(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "feat");
+    std::shared_ptr<Creature> actor = getConsoleTargetCreature();
+    FeatType feat = args.getEnum<FeatType>(1).value();
+
+    CreatureAttributes &attrs = actor->attributes();
+    if (args[0].value() == "addfeat") {
+        attrs.addFeat(feat);
+    } else {
+        attrs.removeFeat(feat);
+    }
+}
+
+void Game::consoleAddOrRemoveSpell(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "spell");
+    std::shared_ptr<Creature> actor = getConsoleTargetCreature();
+    SpellType spell = args.getEnum<SpellType>(1).value();
+
+    CreatureAttributes &attrs = actor->attributes();
+    if (args[0].value() == "addspell") {
+        attrs.addSpell(spell);
+    } else {
+        attrs.removeSpell(spell);
+    }
 }
 
 } // namespace game
