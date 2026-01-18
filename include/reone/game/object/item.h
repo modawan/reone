@@ -35,6 +35,7 @@ class Item : public Object {
 public:
     struct AmmunitionType {
         std::shared_ptr<graphics::Model> model;
+        std::shared_ptr<graphics::Model> muzzleFlash;
         std::shared_ptr<audio::AudioClip> shotSound1;
         std::shared_ptr<audio::AudioClip> shotSound2;
         std::shared_ptr<audio::AudioClip> impactSound1;

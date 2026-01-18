@@ -173,6 +173,7 @@ private:
     Source _source;
     bool _miss;
     std::shared_ptr<scene::ModelSceneNode> _model;
+    std::shared_ptr<scene::ModelSceneNode> _flash;
     glm::vec3 _target {0.0f};
 };
 
