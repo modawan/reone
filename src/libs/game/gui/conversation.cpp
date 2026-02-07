@@ -42,7 +42,7 @@ namespace reone {
 
 namespace game {
 
-static constexpr float kDefaultEntryDuration = 10.0f;
+static constexpr float kDefaultEntryDuration = 3.0f;
 
 static bool g_allEntriesSkippable = false;
 
