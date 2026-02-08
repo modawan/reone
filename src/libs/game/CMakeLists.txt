@@ -184,6 +184,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/footstepsounds.h
     ${GAME_INCLUDE_DIR}/game.h
     ${GAME_INCLUDE_DIR}/gui.h
+    ${GAME_INCLUDE_DIR}/gui/actionslot.h
     ${GAME_INCLUDE_DIR}/gui/barkbubble.h
     ${GAME_INCLUDE_DIR}/gui/chargen.h
     ${GAME_INCLUDE_DIR}/gui/chargen/abilities.h
@@ -448,6 +449,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/effect.cpp
     ${GAME_SOURCE_DIR}/footstepsounds.cpp
     ${GAME_SOURCE_DIR}/game.cpp
+    ${GAME_SOURCE_DIR}/gui/actionslot.cpp
     ${GAME_SOURCE_DIR}/gui/barkbubble.cpp
     ${GAME_SOURCE_DIR}/gui/chargen/abilities.cpp
     ${GAME_SOURCE_DIR}/gui/chargen/classselect.cpp
