@@ -22,6 +22,7 @@
 #include "reone/input/event.h"
 
 #include "../contextaction.h"
+#include "actionslot.h"
 
 namespace reone {
 
@@ -45,11 +46,6 @@ public:
     void render();
 
 private:
-    struct ActionSlot {
-        std::vector<ContextAction> actions;
-        uint32_t indexSelected {0};
-    };
-
     Game &_game;
     ServicesView &_services;
 

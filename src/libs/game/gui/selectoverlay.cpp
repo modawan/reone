@@ -30,12 +30,9 @@
 #include "reone/resource/resources.h"
 
 #include "reone/game/action/attackobject.h"
+#include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/useskill.h"
-#include "reone/game/d20/feat.h"
-#include "reone/game/d20/feats.h"
-#include "reone/game/d20/skill.h"
-#include "reone/game/d20/skills.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/party.h"
@@ -57,8 +54,6 @@ static constexpr int kActionBarMargin = 3;
 static constexpr int kActionBarPadding = 3;
 static constexpr int kActionWidth = 35;
 static constexpr int kActionHeight = 59;
-
-static std::string g_attackIcon("i_attack");
 
 SelectionOverlay::SelectionOverlay(
     Game &game,
@@ -388,33 +383,7 @@ void SelectionOverlay::renderActionIcon(int index) {
     if (slot.indexSelected >= slot.actions.size())
         return;
 
-    std::shared_ptr<Texture> texture;
     const ContextAction &action = slot.actions[slot.indexSelected];
-    switch (action.type) {
-    case ActionType::AttackObject:
-        texture = _services.resource.textures.get(g_attackIcon, TextureUsage::GUI);
-        break;
-    case ActionType::UseFeat: {
-        std::shared_ptr<Feat> feat(_services.game.feats.get(action.feat));
-        if (feat) {
-            texture = feat->icon;
-        }
-        break;
-    }
-    case ActionType::UseSkill: {
-        std::shared_ptr<Skill> skill(_services.game.skills.get(action.skill));
-        if (skill) {
-            texture = skill->icon;
-        }
-        break;
-    }
-    default:
-        break;
-    }
-    if (!texture)
-        return;
-
-    _services.graphics.context.bindTexture(*texture);
 
     float frameX, frameY;
     getActionScreenCoords(index, frameX, frameY);
@@ -426,12 +395,7 @@ void SelectionOverlay::renderActionIcon(int index) {
     transform = glm::translate(transform, glm::vec3(frameX, y, 0.0f));
     transform = glm::scale(transform, glm::vec3(kActionWidth, kActionWidth, 1.0f));
 
-    _services.graphics.uniforms.setLocals([this, transform](auto &locals) {
-        locals.reset();
-        locals.model = std::move(transform);
-    });
-    _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpTexture));
-    _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+    renderContextActionIcon(action, transform, _services);
 }
 
 glm::vec3 SelectionOverlay::getColorFromSelectedObject() const {
