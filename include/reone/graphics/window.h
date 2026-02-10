@@ -69,6 +69,9 @@ public:
 
     void setRelativeMouseMode(bool relative) override;
 
+    SDL_Window *sdlWindow() { return _window; };
+    SDL_GLContext sdlContext() { return _context; };
+
 private:
     GraphicsOptions &_options;
 
