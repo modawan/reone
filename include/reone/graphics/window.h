@@ -65,6 +65,9 @@ public:
         return _closeRequested;
     }
 
+    SDL_Window *sdlWindow() { return _window; };
+    SDL_GLContext sdlContext() { return _context; };
+
 private:
     GraphicsOptions &_options;
 

@@ -63,8 +63,11 @@ if(BUILD_LAUNCHER OR BUILD_TOOLKIT)
     include(${wxWidgets_USE_FILE})
 endif()
 
+set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/extern/imgui)
+
 set(REONE_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
-include_directories(${Boost_INCLUDE_DIRS} ${SDL2_INCLUDE_DIRS} ${MAD_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/extern/glm ${REONE_INCLUDE_DIR})
+include_directories(${Boost_INCLUDE_DIRS} ${SDL2_INCLUDE_DIRS} ${MAD_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/extern/glm ${IMGUI_DIR} ${REONE_INCLUDE_DIR})
+
 
 add_compile_definitions(BOOST_BIND_GLOBAL_PLACEHOLDERS)
 

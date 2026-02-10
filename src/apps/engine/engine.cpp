@@ -18,6 +18,9 @@
 #include "engine.h"
 
 #include "SDL2/SDL.h"
+#include "backends/imgui_impl_opengl3.h"
+#include "backends/imgui_impl_sdl2.h"
+#include "imgui.h"
 
 #include "reone/graphics/window.h"
 #include "reone/resource/exception/notfound.h"
@@ -41,12 +44,61 @@ static constexpr int kProfilerUpdateTimeIndex = 1;
 static constexpr int kProfilerRenderGraphicsTimeIndex = 2;
 static constexpr int kProfilerRenderAudioTimeIndex = 3;
 
+static void imguiInit() {
+    // Setup Dear ImGui context
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO &io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    ImGui::GetStyle().FontScaleMain = 1.5f;
+}
+
+static void imguiInitWindow(Window &w) {
+    ImGui_ImplSDL2_InitForOpenGL(w.sdlWindow(), w.sdlContext());
+    ImGui_ImplOpenGL3_Init();
+}
+
+static bool imguiHandle(SDL_Event &ev) {
+    ImGuiIO &io = ImGui::GetIO();
+    ImGui_ImplSDL2_ProcessEvent(&ev);
+    return io.WantCaptureMouse || io.WantCaptureKeyboard;
+}
+
+static void imguiNewFrame() {
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplSDL2_NewFrame();
+    ImGui::NewFrame();
+
+    if (!ImGui::GetIO().WantCaptureMouse) {
+        // Switch to software cursor when it leaves ImGui windows.
+        ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+    }
+    ImGui::ShowDemoWindow();
+}
+
+static void imguiRender() {
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+}
+
+static void imguiShutdown() {
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplSDL2_Shutdown();
+    ImGui::DestroyContext();
+}
+
 void Engine::init() {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
         throw std::runtime_error("SDL_Init failed: " + std::string(SDL_GetError()));
     }
+
     _window = std::make_unique<Window>(_options.graphics);
     _window->init();
+
+    imguiInit();
+    imguiInitWindow(*_window);
 
     _optionsView = _options.toView();
     GameProbe probe {_options.game.path};
@@ -211,6 +263,7 @@ int Engine::run() {
             break;
         }
         _profiler->measure(kMainThreadName, kProfilerUpdateTimeIndex, [this, &frameTime]() {
+            imguiNewFrame();
             _game->update(frameTime);
             bool showcur = _game->cursorType() == CursorType::None;
             bool relmouse = _game->relativeMouseMode();
@@ -227,6 +280,7 @@ int Engine::run() {
             _game->render();
             _profiler->render();
             _console->render();
+            imguiRender();
             _window->swap();
         });
         _profiler->measure(kMainThreadName, kProfilerRenderAudioTimeIndex, [this]() {
@@ -234,6 +288,7 @@ int Engine::run() {
         });
     }
 
+    imguiShutdown();
     return 0;
 }
 
@@ -244,6 +299,9 @@ void Engine::processEvents(bool &quit) {
         if (sdlEvent.type == SDL_QUIT) {
             quit = true;
             break;
+        }
+        if (imguiHandle(sdlEvent)) {
+            continue;
         }
         if (!_window->isAssociatedWith(sdlEvent)) {
             continue;
