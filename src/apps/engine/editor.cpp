@@ -45,6 +45,10 @@ void Editor::twoDa() {
     ImGui::End();
 }
 
+void Editor::imGuiDemo() {
+    ImGui::ShowDemoWindow(&_showImGuiDemo);
+}
+
 void Editor::update(float dt) {
     if (!_enabled) {
         return;
@@ -67,6 +71,7 @@ void Editor::update(float dt) {
             if (ImGui::MenuItem("ImGui Item Picker")) {
                 ImGui::DebugStartItemPicker();
             }
+            ImGui::MenuItem("ImGui Demo", nullptr, &_showImGuiDemo);
             ImGui::EndMenu();
         }
         ImGui::EndMenuBar();
@@ -75,6 +80,9 @@ void Editor::update(float dt) {
 
     if (_showTwoDa) {
         twoDa();
+    }
+    if (_showImGuiDemo) {
+        imGuiDemo();
     }
 }
 

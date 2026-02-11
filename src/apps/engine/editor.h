@@ -37,6 +37,9 @@ private:
     void twoDa();
     bool _showTwoDa {false};
 
+    void imGuiDemo();
+    bool _showImGuiDemo {false};
+
 private:
     Engine &_engine;
     bool _enabled {false};
