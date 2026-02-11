@@ -313,6 +313,7 @@ void Engine::processEvents(bool &quit) {
             break;
         }
         if (!_window->isAssociatedWith(sdlEvent)) {
+            imguiHandle(sdlEvent);
             continue;
         }
         if (_window->handle(sdlEvent)) {
