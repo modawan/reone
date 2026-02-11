@@ -36,15 +36,12 @@
 
 namespace reone {
 
+class Editor;
+
 class Engine : boost::noncopyable {
 public:
-    Engine(Options &options) :
-        _options(options) {
-    }
-
-    ~Engine() {
-        deinit();
-    }
+    Engine(Options &options);
+    ~Engine();
 
     void init();
     void deinit();
@@ -55,6 +52,8 @@ public:
     int run();
 
 private:
+    friend class Editor;
+
     struct FrameStates {
         static constexpr int rendered = 0;
         static constexpr int updating = 1;
@@ -82,6 +81,7 @@ private:
     std::unique_ptr<game::Game> _game;
     std::unique_ptr<Profiler> _profiler;
     std::unique_ptr<Console> _console;
+    std::unique_ptr<Editor> _editor;
 
     std::queue<input::Event> _events;
 

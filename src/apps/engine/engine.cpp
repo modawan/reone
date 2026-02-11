@@ -16,6 +16,7 @@
  */
 
 #include "engine.h"
+#include "editor.h"
 
 #include "SDL2/SDL.h"
 #include "backends/imgui_impl_opengl3.h"
@@ -75,7 +76,6 @@ static void imguiNewFrame() {
         // Switch to software cursor when it leaves ImGui windows.
         ImGui::SetMouseCursor(ImGuiMouseCursor_None);
     }
-    ImGui::ShowDemoWindow();
 }
 
 static void imguiRender() {
@@ -87,6 +87,14 @@ static void imguiShutdown() {
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();
+}
+
+Engine::Engine(Options &options) :
+    _options(options) {
+}
+
+Engine::~Engine() {
+    deinit();
 }
 
 void Engine::init() {
@@ -186,6 +194,8 @@ void Engine::init() {
         *_console);
     _game->init();
 
+    _editor = std::make_unique<Editor>(*this);
+
     if (!_options.commandsFile.empty()) {
         std::ifstream file(_options.commandsFile);
         if (!file.good()) {
@@ -270,6 +280,7 @@ int Engine::run() {
             showCursor(showcur);
             setRelativeMouseMode(relmouse);
             _profiler->update(frameTime);
+            _editor->update(frameTime);
         });
         _profiler->measure(kMainThreadName, kProfilerRenderGraphicsTimeIndex, [this]() {
             _services->graphics.statistic.resetDrawCalls();
@@ -280,6 +291,7 @@ int Engine::run() {
             _game->render();
             _profiler->render();
             _console->render();
+            _editor->render();
             imguiRender();
             _window->swap();
         });
@@ -300,9 +312,6 @@ void Engine::processEvents(bool &quit) {
             quit = true;
             break;
         }
-        if (imguiHandle(sdlEvent)) {
-            continue;
-        }
         if (!_window->isAssociatedWith(sdlEvent)) {
             continue;
         }
@@ -318,6 +327,12 @@ void Engine::processEvents(bool &quit) {
             continue;
         }
         if (_profiler->handle(*event)) {
+            continue;
+        }
+        if (_editor->handle(*event)) {
+            continue;
+        }
+        if (imguiHandle(sdlEvent)) {
             continue;
         }
         unhandled.push(*event);
