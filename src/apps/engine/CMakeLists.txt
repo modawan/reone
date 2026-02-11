@@ -20,7 +20,8 @@ set(ENGINE_HEADERS
     ${ENGINE_SOURCE_DIR}/engine.h
     ${ENGINE_SOURCE_DIR}/options.h
     ${ENGINE_SOURCE_DIR}/optionsparser.h
-    ${ENGINE_SOURCE_DIR}/profiler.h)
+    ${ENGINE_SOURCE_DIR}/profiler.h
+    ${ENGINE_SOURCE_DIR}/editor.h)
 
 set(ENGINE_HEADERS
     ${CMAKE_SOURCE_DIR}/src/apps/highperfgfx.cpp
@@ -28,15 +29,25 @@ set(ENGINE_HEADERS
     ${ENGINE_SOURCE_DIR}/engine.cpp
     ${ENGINE_SOURCE_DIR}/main.cpp
     ${ENGINE_SOURCE_DIR}/optionsparser.cpp
-    ${ENGINE_SOURCE_DIR}/profiler.cpp)
+    ${ENGINE_SOURCE_DIR}/profiler.cpp
+    ${ENGINE_SOURCE_DIR}/editor.cpp)
 
 if(WIN32)
     list(APPEND ENGINE_HEADERS ${CMAKE_SOURCE_DIR}/assets/reone.rc)
 endif()
 
+add_library(imgui STATIC
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_demo.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp)
+
 add_executable(engine ${ENGINE_HEADERS} ${ENGINE_HEADERS} ${CLANG_FORMAT_PATH})
 set_target_properties(engine PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}$<$<CONFIG:Debug>:/debug>/bin)
 target_precompile_headers(engine PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
-target_link_libraries(engine PRIVATE game ${Boost_PROGRAM_OPTIONS_LIBRARY})
+target_link_libraries(engine PRIVATE game ${Boost_PROGRAM_OPTIONS_LIBRARY} imgui)
 
 list(APPEND InstallTargets engine)
