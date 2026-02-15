@@ -17,6 +17,12 @@
 
 #pragma once
 
+#include "reone/resource/id.h"
+
+#include <map>
+#include <string>
+#include <vector>
+
 namespace reone {
 
 namespace input {
@@ -24,6 +30,26 @@ struct Event;
 }
 
 class Engine;
+
+// 2DA Table windows
+class TableFilter {
+public:
+    void setupRowIndexFilter();
+    void setupColumnFilters();
+
+    bool nextRow();
+    bool nextColumn(std::string_view column);
+
+    void setNumColumns(size_t num) { _columnFilters.resize(num); }
+
+private:
+    std::string _rowIndexStr;
+    std::optional<size_t> _rowIndex;
+    std::vector<std::string> _columnFilters;
+
+    size_t _nextRowIndex {0};
+    size_t _nextColumnIndex {0};
+};
 
 class Editor {
 public:
@@ -34,9 +60,19 @@ public:
     void render();
 
 private:
+    // 2DA List window
     void twoDa();
     bool _showTwoDa {false};
 
+    struct TwoDaTableContext {
+        bool show {false};
+        TableFilter filter;
+    };
+
+    void twoDaRes(const resource::ResourceId &res, TwoDaTableContext &context);
+    std::map<resource::ResourceId, TwoDaTableContext> _twoDaContext;
+
+    // DearImGui Demo showcasing different widgets.
     void imGuiDemo();
     bool _showImGuiDemo {false};
 
