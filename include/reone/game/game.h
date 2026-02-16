@@ -502,6 +502,7 @@ private:
     void consoleSetSkill(const ConsoleArgs &tokens);
     void consoleAddOrRemoveFeat(const ConsoleArgs &tokens);
     void consoleAddOrRemoveSpell(const ConsoleArgs &tokens);
+    void consoleCastSpellAtObject(const ConsoleArgs &tokens);
 
     // END Console commands
 };

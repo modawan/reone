@@ -68,8 +68,10 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/action/wait.h
     ${GAME_INCLUDE_DIR}/animations.h
     ${GAME_INCLUDE_DIR}/animationutil.h
+    ${GAME_INCLUDE_DIR}/attack.h
     ${GAME_INCLUDE_DIR}/camerastyle.h
     ${GAME_INCLUDE_DIR}/camerastyles.h
+    ${GAME_INCLUDE_DIR}/castspell.h
     ${GAME_INCLUDE_DIR}/character.h
     ${GAME_INCLUDE_DIR}/combat.h
     ${GAME_INCLUDE_DIR}/contextaction.h
@@ -367,6 +369,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/animationutil.cpp
     ${GAME_SOURCE_DIR}/attack.cpp
     ${GAME_SOURCE_DIR}/camerastyles.cpp
+    ${GAME_SOURCE_DIR}/castspell.cpp
     ${GAME_SOURCE_DIR}/combat.cpp
     ${GAME_SOURCE_DIR}/d20/attributes.cpp
     ${GAME_SOURCE_DIR}/d20/class.cpp

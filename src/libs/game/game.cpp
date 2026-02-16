@@ -20,9 +20,11 @@
 #include "reone/audio/context.h"
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
+#include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/cutsceneattack.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/combat.h"
+#include "reone/game/d20/spells.h"
 #include "reone/game/debug.h"
 #include "reone/game/di/services.h"
 #include "reone/game/location.h"
@@ -135,6 +137,7 @@ void Game::initConsole() {
     registerConsoleCommand("removefeat", "remove feat by type", &Game::consoleAddOrRemoveFeat);
     registerConsoleCommand("addspell", "add spell by type", &Game::consoleAddOrRemoveSpell);
     registerConsoleCommand("removespell", "remove spell by type", &Game::consoleAddOrRemoveSpell);
+    registerConsoleCommand("castspellatobject", "cast spell at object", &Game::consoleCastSpellAtObject);
 }
 
 void Game::initLocalServices() {
@@ -1416,6 +1419,43 @@ void Game::consoleAddOrRemoveSpell(const ConsoleArgs &args) {
     } else {
         attrs.removeSpell(spell.value());
     }
+}
+
+void Game::consoleCastSpellAtObject(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 3, "spell ischeat item");
+
+    auto leader = getConsoleLeader();
+    auto target = getConsoleTargetObject();
+
+    std::optional<SpellType> spellType = args.getEnum<SpellType>(1);
+    if (!spellType) {
+        throw std::runtime_error("Invalid spell: must be a number");
+    }
+
+    std::shared_ptr<Spell> spell = _services.game.spells.get(spellType.value());
+    if (!spell) {
+        throw std::runtime_error("Unknown spell");
+    }
+
+    bool cheat = args.get<int>(2).value_or(false);
+    std::optional<std::string_view> spellItem = args[3];
+    std::optional<std::shared_ptr<Item>> item;
+    if (spellItem) {
+        for (const std::shared_ptr<Item> &inventoryItem : leader->items()) {
+            if (inventoryItem->blueprintResRef() == spellItem.value()) {
+                item = inventoryItem;
+                break;
+            }
+        }
+        if (!cheat && !item) {
+            throw std::runtime_error("Item is not in the inventory");
+        }
+    }
+
+    auto action = newAction<CastSpellAtObjectAction>(
+        spell, std::move(target), std::move(item), cheat);
+
+    leader->addAction(std::move(action));
 }
 
 } // namespace game
