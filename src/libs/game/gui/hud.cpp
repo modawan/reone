@@ -25,9 +25,11 @@
 #include "reone/gui/control/label.h"
 #include "reone/system/logutil.h"
 
+#include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/d20/feat.h"
 #include "reone/game/d20/feats.h"
+#include "reone/game/d20/spell.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
@@ -364,6 +366,17 @@ void HUD::refreshActionQueueItems() const {
                 std::shared_ptr<Feat> feat(_services.game.feats.get(featAction->feat()));
                 if (feat) {
                     item.setBorderFill(feat->icon);
+                }
+                break;
+            }
+            case ActionType::CastSpellAtObject: {
+                auto castSpell = cast<CastSpellAtObjectAction>(actions[i]);
+                if (const auto &spellIcon = castSpell->spell()->icon) {
+                    item.setBorderFill(spellIcon);
+                } else if (auto maybeItem = castSpell->item()) {
+                    item.setBorderFill(maybeItem.value()->icon());
+                } else {
+                    item.setBorderFill("");
                 }
                 break;
             }
