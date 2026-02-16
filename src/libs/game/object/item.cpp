@@ -148,7 +148,17 @@ void Item::loadUTI(const resource::generated::UTI &uti) {
 
     loadAmmunitionType();
 
-    // TODO: load properties
+    // TODO: load other properties
+    for (const auto &utiProp : uti.PropertiesList) {
+        auto property = static_cast<ItemProperty>(utiProp.PropertyName);
+        switch (property) {
+        case ItemProperty::ActivateItem:
+            _activateSpell = static_cast<SpellType>(utiProp.Subtype);
+            break;
+        default:
+            break;
+        }
+    }
 
     // Unused fields:
     //

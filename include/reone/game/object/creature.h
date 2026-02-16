@@ -31,6 +31,7 @@
 #include "reone/system/timer.h"
 
 #include "../d20/attributes.h"
+#include "../d20/itemattributes.h"
 #include "../object.h"
 
 #include "item.h"
@@ -134,6 +135,8 @@ public:
     float runSpeed() const { return _runSpeed; }
     CreatureAttributes &attributes() { return _attributes; }
     const CreatureAttributes &attributes() const { return _attributes; }
+    ItemAttributes &itemAttributes() { return _itemAttributes; }
+    const ItemAttributes &itemAttributes() const { return _itemAttributes; }
     Faction faction() const { return _faction; }
     int xp() const { return _xp; }
     RacialType racialType() const { return _race; }
@@ -284,6 +287,7 @@ private:
     MovementType _movementType {MovementType::None};
     bool _talking {false};
     CreatureAttributes _attributes;
+    ItemAttributes _itemAttributes;
     Faction _faction {Faction::Invalid};
     bool _movementRestricted {false};
     CombatState _combatState;
