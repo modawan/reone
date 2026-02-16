@@ -23,10 +23,15 @@ namespace reone {
 
 namespace game {
 
+class Spell;
+class Item;
+
 struct ContextAction {
     ActionType type {ActionType::Invalid};
     FeatType feat {FeatType::Invalid};
     SkillType skill {SkillType::Invalid};
+    std::shared_ptr<Spell> spell;
+    std::shared_ptr<Item> item;
 
     ContextAction(ActionType type) :
         type(type) {}
@@ -34,6 +39,8 @@ struct ContextAction {
         type(ActionType::UseFeat), feat(feat) {}
     ContextAction(SkillType skill) :
         type(ActionType::UseSkill), skill(skill) {}
+    ContextAction(std::shared_ptr<Item> item, std::shared_ptr<Spell> spell) :
+        type(ActionType::CastSpellAtObject), spell(spell), item(item) {}
 };
 
 } // namespace game

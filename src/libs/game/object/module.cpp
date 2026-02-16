@@ -332,6 +332,11 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
                     actions.push_back(ContextAction(FeatType::Flurry));
                 }
             }
+
+            auto &itemAttrs = _game.party().getLeader()->itemAttributes();
+            for (const auto &[item, spell] : itemAttrs.attackingSpells()) {
+                actions.push_back(ContextAction(item, spell));
+            }
         }
         break;
     }

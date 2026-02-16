@@ -58,6 +58,14 @@ void renderContextActionIcon(const ContextAction &action, glm::mat4 transform, S
         }
         break;
     }
+    case ActionType::CastSpellAtObject: {
+        if (const auto &spellIcon = action.spell->icon) {
+            texture = spellIcon;
+        } else if (action.item) {
+            texture = action.item->icon();
+        }
+        break;
+    }
     default:
         break;
     }
