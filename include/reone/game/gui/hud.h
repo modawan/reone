@@ -25,6 +25,7 @@
 
 #include "../gui.h"
 
+#include "actionbar.h"
 #include "barkbubble.h"
 #include "selectoverlay.h"
 
@@ -36,7 +37,8 @@ class HUD : public GameGUI {
 public:
     HUD(Game &game, ServicesView &services) :
         GameGUI(game, services),
-        _select(game, services) {
+        _select(game, services),
+        _actionBar(game, services) {
         _resRef = guiResRef("mipc28x6");
     }
 
@@ -49,24 +51,6 @@ public:
 private:
     struct Controls {
         std::shared_ptr<gui::Button> BTN_ABI;
-        std::shared_ptr<gui::Button> BTN_ACTION0;
-        std::shared_ptr<gui::Button> BTN_ACTION1;
-        std::shared_ptr<gui::Button> BTN_ACTION2;
-        std::shared_ptr<gui::Button> BTN_ACTION3;
-        std::shared_ptr<gui::Button> BTN_ACTION4;
-        std::shared_ptr<gui::Button> BTN_ACTION5;
-        std::shared_ptr<gui::Button> BTN_ACTIONDOWN0;
-        std::shared_ptr<gui::Button> BTN_ACTIONDOWN1;
-        std::shared_ptr<gui::Button> BTN_ACTIONDOWN2;
-        std::shared_ptr<gui::Button> BTN_ACTIONDOWN3;
-        std::shared_ptr<gui::Button> BTN_ACTIONDOWN4;
-        std::shared_ptr<gui::Button> BTN_ACTIONDOWN5;
-        std::shared_ptr<gui::Button> BTN_ACTIONUP0;
-        std::shared_ptr<gui::Button> BTN_ACTIONUP1;
-        std::shared_ptr<gui::Button> BTN_ACTIONUP2;
-        std::shared_ptr<gui::Button> BTN_ACTIONUP3;
-        std::shared_ptr<gui::Button> BTN_ACTIONUP4;
-        std::shared_ptr<gui::Button> BTN_ACTIONUP5;
         std::shared_ptr<gui::Button> BTN_CHAR;
         std::shared_ptr<gui::Button> BTN_CHAR1;
         std::shared_ptr<gui::Button> BTN_CHAR2;
@@ -91,14 +75,6 @@ private:
         std::shared_ptr<gui::Button> BTN_TARGETUP0;
         std::shared_ptr<gui::Button> BTN_TARGETUP1;
         std::shared_ptr<gui::Button> BTN_TARGETUP2;
-        std::shared_ptr<gui::Button> LBL_ACTION0;
-        std::shared_ptr<gui::Button> LBL_ACTION1;
-        std::shared_ptr<gui::Button> LBL_ACTION2;
-        std::shared_ptr<gui::Button> LBL_ACTION3;
-        std::shared_ptr<gui::Button> LBL_ACTION4;
-        std::shared_ptr<gui::Button> LBL_ACTION5;
-        std::shared_ptr<gui::Label> LBL_ACTIONDESC;
-        std::shared_ptr<gui::Label> LBL_ACTIONDESCBG;
         std::shared_ptr<gui::Label> LBL_ARROW;
         std::shared_ptr<gui::Label> LBL_ARROW_MARGIN;
         std::shared_ptr<gui::Label> LBL_BACK1;
@@ -170,6 +146,7 @@ private:
     Controls _controls;
 
     SelectionOverlay _select;
+    ActionBar _actionBar;
     std::unique_ptr<BarkBubble> _barkBubble;
 
     void preload(gui::IGUI &gui) override;
@@ -177,24 +154,6 @@ private:
 
     void bindControls() {
         _controls.BTN_ABI = findControl<gui::Button>("BTN_ABI");
-        _controls.BTN_ACTION0 = findControl<gui::Button>("BTN_ACTION0");
-        _controls.BTN_ACTION1 = findControl<gui::Button>("BTN_ACTION1");
-        _controls.BTN_ACTION2 = findControl<gui::Button>("BTN_ACTION2");
-        _controls.BTN_ACTION3 = findControl<gui::Button>("BTN_ACTION3");
-        _controls.BTN_ACTION4 = findControl<gui::Button>("BTN_ACTION4");
-        _controls.BTN_ACTION5 = findControl<gui::Button>("BTN_ACTION5");
-        _controls.BTN_ACTIONDOWN0 = findControl<gui::Button>("BTN_ACTIONDOWN0");
-        _controls.BTN_ACTIONDOWN1 = findControl<gui::Button>("BTN_ACTIONDOWN1");
-        _controls.BTN_ACTIONDOWN2 = findControl<gui::Button>("BTN_ACTIONDOWN2");
-        _controls.BTN_ACTIONDOWN3 = findControl<gui::Button>("BTN_ACTIONDOWN3");
-        _controls.BTN_ACTIONDOWN4 = findControl<gui::Button>("BTN_ACTIONDOWN4");
-        _controls.BTN_ACTIONDOWN5 = findControl<gui::Button>("BTN_ACTIONDOWN5");
-        _controls.BTN_ACTIONUP0 = findControl<gui::Button>("BTN_ACTIONUP0");
-        _controls.BTN_ACTIONUP1 = findControl<gui::Button>("BTN_ACTIONUP1");
-        _controls.BTN_ACTIONUP2 = findControl<gui::Button>("BTN_ACTIONUP2");
-        _controls.BTN_ACTIONUP3 = findControl<gui::Button>("BTN_ACTIONUP3");
-        _controls.BTN_ACTIONUP4 = findControl<gui::Button>("BTN_ACTIONUP4");
-        _controls.BTN_ACTIONUP5 = findControl<gui::Button>("BTN_ACTIONUP5");
         _controls.BTN_CHAR = findControl<gui::Button>("BTN_CHAR");
         _controls.BTN_CHAR1 = findControl<gui::Button>("BTN_CHAR1");
         _controls.BTN_CHAR2 = findControl<gui::Button>("BTN_CHAR2");
@@ -219,14 +178,6 @@ private:
         _controls.BTN_TARGETUP0 = findControl<gui::Button>("BTN_TARGETUP0");
         _controls.BTN_TARGETUP1 = findControl<gui::Button>("BTN_TARGETUP1");
         _controls.BTN_TARGETUP2 = findControl<gui::Button>("BTN_TARGETUP2");
-        _controls.LBL_ACTION0 = findControl<gui::Button>("LBL_ACTION0");
-        _controls.LBL_ACTION1 = findControl<gui::Button>("LBL_ACTION1");
-        _controls.LBL_ACTION2 = findControl<gui::Button>("LBL_ACTION2");
-        _controls.LBL_ACTION3 = findControl<gui::Button>("LBL_ACTION3");
-        _controls.LBL_ACTION4 = findControl<gui::Button>("LBL_ACTION4");
-        _controls.LBL_ACTION5 = findControl<gui::Button>("LBL_ACTION5");
-        _controls.LBL_ACTIONDESC = findControl<gui::Label>("LBL_ACTIONDESC");
-        _controls.LBL_ACTIONDESCBG = findControl<gui::Label>("LBL_ACTIONDESCBG");
         _controls.LBL_ARROW = findControl<gui::Label>("LBL_ARROW");
         _controls.LBL_ARROW_MARGIN = findControl<gui::Label>("LBL_ARROW_MARGIN");
         _controls.LBL_BACK1 = findControl<gui::Label>("LBL_BACK1");

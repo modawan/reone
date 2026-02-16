@@ -63,6 +63,20 @@ void HUD::preload(IGUI &gui) {
 void HUD::onGUILoaded() {
     bindControls();
 
+    _actionBar.addDescription(
+        findControl<gui::Label>("LBL_ACTIONDESC"),
+        findControl<gui::Label>("LBL_ACTIONDESCBG"));
+
+    for (int i = 0; i < 5; ++i) {
+        auto action = findControl<gui::Button>(str(boost::format("BTN_ACTION%d") % i));
+        auto up = findControl<gui::Button>(str(boost::format("BTN_ACTIONUP%d") % i));
+        auto down = findControl<gui::Button>(str(boost::format("BTN_ACTIONDOWN%d") % i));
+
+        if (action && up && down) {
+            _actionBar.addSlot(action, up, down);
+        }
+    }
+
     _controls.BTN_CLEARALL->setVisible(false);
     _controls.BTN_TARGET0->setVisible(false);
     _controls.BTN_TARGET1->setVisible(false);
@@ -73,8 +87,6 @@ void HUD::onGUILoaded() {
     _controls.BTN_TARGETUP0->setVisible(false);
     _controls.BTN_TARGETUP1->setVisible(false);
     _controls.BTN_TARGETUP2->setVisible(false);
-    _controls.LBL_ACTIONDESCBG->setVisible(false);
-    _controls.LBL_ACTIONDESC->setVisible(false);
     _controls.LBL_ARROW_MARGIN->setVisible(false);
     _controls.LBL_CASH->setVisible(false);
     _controls.LBL_CMBTEFCTINC1->setVisible(false);
@@ -105,18 +117,6 @@ void HUD::onGUILoaded() {
     _controls.LBL_NAMEBG->setVisible(false);
     _controls.LBL_PLOTXP->setVisible(false);
     _controls.LBL_STEALTHXP->setVisible(false);
-    _controls.BTN_ACTION0->setVisible(false);
-    _controls.BTN_ACTION1->setVisible(false);
-    _controls.BTN_ACTION2->setVisible(false);
-    _controls.BTN_ACTION3->setVisible(false);
-    _controls.BTN_ACTIONDOWN0->setVisible(false);
-    _controls.BTN_ACTIONDOWN1->setVisible(false);
-    _controls.BTN_ACTIONDOWN2->setVisible(false);
-    _controls.BTN_ACTIONDOWN3->setVisible(false);
-    _controls.BTN_ACTIONUP0->setVisible(false);
-    _controls.BTN_ACTIONUP1->setVisible(false);
-    _controls.BTN_ACTIONUP2->setVisible(false);
-    _controls.BTN_ACTIONUP3->setVisible(false);
     _controls.LBL_ARROW->setVisible(false);
     _controls.BTN_TARGET0->setVisible(false);
     _controls.TB_PAUSE->setVisible(false);
@@ -125,12 +125,6 @@ void HUD::onGUILoaded() {
 
     if (_game.isTSL()) {
         _controls.BTN_SWAPWEAPONS->setVisible(false);
-        _controls.BTN_ACTION4->setVisible(false);
-        _controls.BTN_ACTION5->setVisible(false);
-        _controls.BTN_ACTIONDOWN4->setVisible(false);
-        _controls.BTN_ACTIONDOWN5->setVisible(false);
-        _controls.BTN_ACTIONUP4->setVisible(false);
-        _controls.BTN_ACTIONUP5->setVisible(false);
     } else {
         _controls.LBL_COMBATBG1->setVisible(false);
         _controls.LBL_COMBATBG2->setVisible(false);
@@ -261,6 +255,7 @@ void HUD::update(float dt) {
     }
 
     _select.update();
+    _actionBar.update();
     _barkBubble->update(dt);
 
     // Hide minimap when there is no image to display
@@ -279,6 +274,7 @@ void HUD::render() {
 
     _barkBubble->render();
     _select.render();
+    _actionBar.render();
 }
 
 void HUD::renderMinimap() {

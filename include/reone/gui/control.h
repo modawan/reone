@@ -122,6 +122,7 @@ public:
 
     bool isVisible() const { return _visible; }
     bool isSelectable() const { return _selectable; }
+    bool isSelected() const { return _selected; }
     bool isDisabled() const { return _disabled; }
 
     int id() const { return _id; }
@@ -193,6 +194,7 @@ public:
 
     void setOnClick(std::function<void()> fn) { _onClick = std::move(fn); }
     void setOnSelectionChanged(std::function<void(bool)> fn) { _onSelectedChanged = std::move(fn); }
+    void setOnMouseWheel(std::function<void(int, int)> fn) { _onMouseWheel = std::move(fn); }
 
     // END Event listeners
 
@@ -231,6 +233,7 @@ protected:
 
     std::function<void()> _onClick;
     std::function<void(bool)> _onSelectedChanged;
+    std::function<void(int, int)> _onMouseWheel;
 
     // END Event listeners
 

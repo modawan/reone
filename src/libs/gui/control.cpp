@@ -175,7 +175,10 @@ bool Control::handleMouseMotion(int x, int y) {
 }
 
 bool Control::handleMouseWheel(int x, int y) {
-    return false;
+    if (_onMouseWheel) {
+        _onMouseWheel(x, y);
+    }
+    return true;
 }
 
 bool Control::handleClick(int x, int y) {
