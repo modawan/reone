@@ -78,7 +78,7 @@ bool TextInput::handleKeyDown(const input::KeyEvent &event) {
     if (event.code == input::KeyCode::Backspace) {
         backspace();
     } else if (event.code == input::KeyCode::Space) {
-        insert(static_cast<char>(event.code));
+        insert(' ');
     } else if (digit) {
         if (shift) {
             if (event.code == input::KeyCode::Key1) {
