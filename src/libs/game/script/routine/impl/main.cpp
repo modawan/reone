@@ -2218,7 +2218,11 @@ static Variable GetUserDefinedEventNumber(const std::vector<Variable> &args, con
 
 static Variable GetSpellId(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetSpellId");
+    if (const Variable *spell = ctx.execution.findArg(ArgKind::SpellId)) {
+        return *spell;
+    }
+
+    return Variable::ofInt(-1);
 }
 
 static Variable RandomName(const std::vector<Variable> &args, const RoutineContext &ctx) {

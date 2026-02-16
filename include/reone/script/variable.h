@@ -102,6 +102,7 @@ enum class ArgKind {
     ListenPatternNumber,
     LastAttacker,
     LastDamager,
+    SpellId,
 };
 
 struct Argument {

@@ -176,6 +176,8 @@ const char *argKindToString(ArgKind kind) {
         return "LastAttacker";
     case ArgKind::LastDamager:
         return "LastDamager";
+    case ArgKind::SpellId:
+        return "SpellId";
     }
 
     throw std::logic_error("Unsupported arg kind: " +
@@ -250,6 +252,9 @@ Argument Argument::fromString(std::string str) {
     if (kind == "LastDamager") {
         return {ArgKind::LastDamager, Variable::ofObject(std::stoul(value))};
     }
+    if (kind == "SpellId") {
+        return {ArgKind::SpellId, Variable::ofInt(std::stoul(value))};
+    }
 
     throw std::logic_error("Unsupported arg kind: " + kind);
 }
@@ -278,7 +283,8 @@ void Argument::verify() {
     case ArgKind::LastPerceptionInaudible:
     case ArgKind::LastPerceptionSeen:
     case ArgKind::LastPerceptionVanished:
-    case ArgKind::ListenPatternNumber: {
+    case ArgKind::ListenPatternNumber:
+    case ArgKind::SpellId: {
         if (var.type != VariableType::Int) {
             throw std::invalid_argument(toString() + ": expected an integer");
         }
