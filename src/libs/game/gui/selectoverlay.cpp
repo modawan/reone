@@ -137,6 +137,14 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
     case ActionType::UseSkill:
         action = _game.newAction<UseSkillAction>(ctxAction.skill, selectedObject);
         break;
+    case ActionType::CastSpellAtObject: {
+        std::optional<std::shared_ptr<Item>> item =
+            ctxAction.item ? std::optional(ctxAction.item) : std::nullopt;
+
+        action = _game.newAction<CastSpellAtObjectAction>(
+            ctxAction.spell, selectedObject, item);
+        break;
+    }
     default:
         break;
     }
@@ -220,6 +228,13 @@ void SelectionOverlay::update() {
                     case ActionType::UseSkill:
                         _actionSlots[1].actions.push_back(action);
                         break;
+                    case ActionType::CastSpellAtObject: {
+                        if (action.item) {
+                            _actionSlots[2].actions.push_back(action);
+                        } else {
+                            _actionSlots[1].actions.push_back(action);
+                        }
+                    }
                     default:
                         break;
                     }
