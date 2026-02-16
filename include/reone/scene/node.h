@@ -60,6 +60,7 @@ public:
 
     bool isEnabled() const { return _enabled; }
     bool isCulled() const { return _culled; }
+    bool isCullingEnabled() const { return _cullingEnabled; }
     bool isPoint() const { return _point; }
 
     glm::vec3 origin() const;
@@ -90,6 +91,7 @@ public:
 
     void setEnabled(bool enabled) { _enabled = enabled; }
     void setCulled(bool culled) { _culled = culled; }
+    void setCullingEnabled(bool enabled) { _cullingEnabled = enabled; }
 
     // END Flags
 
@@ -122,6 +124,15 @@ protected:
     bool _enabled {true};
     bool _culled {false}; /**< has this node been frustum- or distance-culled? */
     bool _point {true};   /**< is this node represented by a single point?  */
+
+    /**
+     * Can this node be culled?
+     *
+     * For some nodes we disable culling because their position is changed
+     * significantly by animations. For example, a node may be at zero position,
+     * which is out of frame, but an animation moves in frame.
+     */
+    bool _cullingEnabled {true};
 
     // END Flags
 
