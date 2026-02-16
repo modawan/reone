@@ -91,6 +91,7 @@ public:
     int baseItemType() const { return _baseItem; }
     int criticalThreat() const { return _criticalThreat; }
     int criticalHitMultiplier() const { return _criticalHitMultiplier; }
+    std::optional<SpellType> activateSpell() const { return _activateSpell; }
 
     void setDropable(bool dropable);
     void setStackSize(int size);
@@ -126,6 +127,7 @@ private:
     int _addCost {0};
     std::string _description;
     bool _stolen {false};
+    std::optional<SpellType> _activateSpell;
 
     std::shared_ptr<audio::AudioSource> _audioSource;
 

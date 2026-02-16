@@ -163,6 +163,10 @@ std::shared_ptr<Item> Object::addItem(const std::string &resRef, int stackSize, 
         result->setDropable(dropable);
 
         _items.push_back(result);
+
+        if (Creature *creature = dyn_cast<Creature>(this)) {
+            creature->itemAttributes().addItem(result, _services.game);
+        }
     }
 
     return result;
@@ -190,6 +194,9 @@ bool Object::removeItem(const std::shared_ptr<Item> &item, bool &last) {
     } else {
         last = true;
         _items.erase(maybeItem);
+        if (Creature *creature = dyn_cast<Creature>(this)) {
+            creature->itemAttributes().removeItem(item);
+        }
     }
 
     return true;
