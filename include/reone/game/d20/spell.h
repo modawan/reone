@@ -23,13 +23,26 @@
 
 namespace reone {
 
+namespace audio {
+class AudioClip;
+}
+
 namespace game {
 
 struct Spell {
+    SpellType type;
     std::string name;
     std::string description;
     std::shared_ptr<graphics::Texture> icon;
     uint32_t pips {1}; // 1-3, position in a feat chain
+    uint32_t category {0};
+    std::string impactScript;
+    std::string castAnim;
+    std::shared_ptr<audio::AudioClip> castSound;
+    float conjTime {0.0f};
+    float castTime {0.0f};
+    uint32_t itemTargeting {0};
+    bool hostile {false};
 };
 
 } // namespace game

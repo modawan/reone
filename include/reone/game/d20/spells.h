@@ -28,6 +28,7 @@ namespace resource {
 class Strings;
 class TwoDAs;
 class Textures;
+class AudioClips;
 
 } // namespace resource
 
@@ -44,9 +45,11 @@ class Spells : public ISpells, boost::noncopyable {
 public:
     Spells(
         resource::Textures &textures,
+        resource::AudioClips &audioClips,
         resource::Strings &strings,
         resource::TwoDAs &twoDas) :
         _textures(textures),
+        _audioClips(audioClips),
         _strings(strings),
         _twoDas(twoDas) {
     }
@@ -61,6 +64,7 @@ private:
     // Services
 
     resource::Textures &_textures;
+    resource::AudioClips &_audioClips;
     resource::Strings &_strings;
     resource::TwoDAs &_twoDas;
 
