@@ -50,6 +50,7 @@ public:
 
     virtual void update(float dt);
     virtual void damage(int amount, uint32_t damager);
+    void heal(int amount) { damage(-amount, 0); }
 
     void face(const Object &other);
     void face(const glm::vec3 &point);

@@ -16,13 +16,14 @@
  */
 
 #include "reone/game/effect/heal.h"
+#include "reone/game/object.h"
 
 namespace reone {
 
 namespace game {
 
 void HealEffect::applyTo(Object &object) {
-    // TODO: implement
+    object.heal(_damageToHeal);
 }
 
 } // namespace game
