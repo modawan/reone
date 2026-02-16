@@ -237,6 +237,12 @@ void Creature::damage(int amount, uint32_t damager) {
         return;
     }
 
+    if (amount < 0) {
+        // Heal instead of damage.
+        _currentHitPoints = std::min(maxHitPoints(), _currentHitPoints - amount);
+        return;
+    }
+
     if (amount == std::numeric_limits<int>::max()) {
         _currentHitPoints = 0; // special case for Death effect
     } else {
