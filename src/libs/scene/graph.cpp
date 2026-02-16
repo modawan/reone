@@ -173,11 +173,20 @@ void SceneGraph::update(float dt) {
 
 void SceneGraph::cullRoots() {
     for (auto &root : _modelRoots) {
-        bool culled =
-            !root->isEnabled() ||
-            root->getSquareDistanceTo(*_activeCamera) > root->drawDistance() * root->drawDistance() ||
-            !_activeCamera->isInFrustum(*root);
+        if (!root->isEnabled()) {
+            root->setCulled(true);
+            continue;
+        }
 
+        if (!root->isCullingEnabled()) {
+            root->setCulled(false);
+            continue; // disable distance and frustum culling
+        }
+
+        float distanceToCamera = root->getSquareDistanceTo(*_activeCamera);
+        float drawDistance = root->drawDistance() * root->drawDistance();
+
+        bool culled = (distanceToCamera > drawDistance) || (!_activeCamera->isInFrustum(*root));
         root->setCulled(culled);
     }
 }

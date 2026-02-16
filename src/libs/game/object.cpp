@@ -379,6 +379,7 @@ void Object::damage(int amount, uint32_t damager) {
 void Object::startStuntMode() {
     if (_sceneNode) {
         _sceneNode->setLocalTransform(glm::mat4(1.0f));
+        _sceneNode->setCullingEnabled(false);
     }
     _stunt = true;
 }
@@ -389,6 +390,7 @@ void Object::stopStuntMode() {
 
     if (_sceneNode) {
         _sceneNode->setLocalTransform(_transform);
+        _sceneNode->setCullingEnabled(true);
     }
     _stunt = false;
 }
