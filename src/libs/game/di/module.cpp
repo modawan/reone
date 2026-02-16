@@ -30,7 +30,7 @@ void GameModule::init() {
     _portraits = std::make_unique<Portraits>(_resource.textures(), _resource.twoDas());
     _reputes = std::make_unique<Reputes>(_resource.twoDas());
     _skills = std::make_unique<Skills>(_resource.textures(), _resource.strings(), _resource.twoDas());
-    _spells = std::make_unique<Spells>(_resource.textures(), _resource.strings(), _resource.twoDas());
+    _spells = std::make_unique<Spells>(_resource.textures(), _resource.audioClips(), _resource.strings(), _resource.twoDas());
     _surfaces = std::make_unique<Surfaces>(_resource.twoDas());
     _projectiles = std::make_unique<Projectiles>(_resource.twoDas());
     _animations = std::make_unique<Animations>(_resource.twoDas());
