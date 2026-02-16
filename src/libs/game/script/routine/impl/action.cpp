@@ -62,6 +62,7 @@
 #include "reone/game/action/usetalentatlocation.h"
 #include "reone/game/action/usetalentonobject.h"
 #include "reone/game/action/wait.h"
+#include "reone/game/d20/spells.h"
 #include "reone/game/game.h"
 #include "reone/game/script/routine/argutil.h"
 #include "reone/game/script/routine/context.h"
@@ -275,13 +276,16 @@ static Variable ActionCastSpellAtObject(const std::vector<Variable> &args, const
     auto bInstantSpell = getIntOrElse(args, 6, 0);
 
     // Transform
-    auto spell = static_cast<SpellType>(nSpell);
+    auto spell = ctx.services.game.spells.get(static_cast<SpellType>(nSpell));
+    if (!spell) {
+        return Variable::ofNull();
+    }
     auto cheat = static_cast<bool>(bCheat);
     auto projectilePathType = static_cast<ProjectilePathType>(nProjectilePathType);
     auto instantSpell = static_cast<bool>(bInstantSpell);
 
     // Execute
-    auto action = ctx.game.newAction<CastSpellAtObjectAction>(spell, std::move(oTarget), nMetaMagic, cheat, nDomainLevel, projectilePathType, instantSpell);
+    auto action = ctx.game.newAction<CastSpellAtObjectAction>(std::move(spell), std::move(oTarget), /*item=*/std::nullopt);
     getCaller(ctx)->addAction(std::move(action));
     return Variable::ofNull();
 }

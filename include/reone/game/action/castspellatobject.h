@@ -18,49 +18,42 @@
 #pragma once
 
 #include "../action.h"
+#include "../castspell.h"
 #include "../object.h"
 #include "../types.h"
 
 namespace reone {
 
 namespace game {
+class Item;
+class Spell;
 
 class CastSpellAtObjectAction : public Action {
 public:
     CastSpellAtObjectAction(
         Game &game,
         ServicesView &services,
-        SpellType spell,
+        std::shared_ptr<Spell> spell,
         std::shared_ptr<Object> target,
-        int metaMagic,
-        bool cheat,
-        int domainLevel,
-        ProjectilePathType projectilePathType,
-        bool instantSpell) :
-        Action(game, services, ActionType::CastSpellAtObject),
-        _spell(spell),
-        _target(std::move(target)),
-        _metaMagic(metaMagic),
-        _cheat(cheat),
-        _domainLevel(domainLevel),
-        _projectilePathType(projectilePathType),
-        _instantSpell(instantSpell) {
-    }
+        std::optional<std::shared_ptr<Item>> item,
+        bool cheat = false);
 
     static bool classof(Action *from) {
         return from->type() == ActionType::CastSpellAtObject;
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    void finish(Creature &caster);
+
+    const std::shared_ptr<Spell> &spell() const { return _spell; }
+    const std::optional<std::shared_ptr<Item>> &item() const { return _item; }
 
 private:
-    SpellType _spell;
+    std::shared_ptr<Spell> _spell;
     std::shared_ptr<Object> _target;
-    int _metaMagic;
+    std::optional<std::shared_ptr<Item>> _item;
+    SpellSchedule _schedule;
     bool _cheat;
-    int _domainLevel;
-    ProjectilePathType _projectilePathType;
-    bool _instantSpell;
 };
 
 } // namespace game
