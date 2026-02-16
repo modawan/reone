@@ -316,20 +316,26 @@ void Conversation::onEntryEnded() {
 }
 
 bool Conversation::handleKeyUp(const input::KeyEvent &event) {
-    char code = static_cast<char>(event.code);
-    if (code >= static_cast<char>(input::KeyCode::Key1) && code <= static_cast<char>(input::KeyCode::Key9)) {
-        int index = code - static_cast<char>(input::KeyCode::Key1);
-        if (_entryEnded) {
-            if (index >= 0 && index < static_cast<int>(_replies.size())) {
-                pickReply(index);
-            } else {
-                debug("Invalid reply index: " + std::to_string(index), LogChannel::Conversation);
-            }
-            return true;
-        }
+    if (!_entryEnded) {
+        return false;
     }
 
-    return false;
+    using IntKeyCode = std::underlying_type_t<input::KeyCode>;
+    auto code = static_cast<IntKeyCode>(event.code);
+    auto key1 = static_cast<IntKeyCode>(input::KeyCode::Key1);
+    auto key9 = static_cast<IntKeyCode>(input::KeyCode::Key9);
+
+    if (code < key1 || code > key9) {
+        return false;
+    }
+
+    size_t index = code - key1;
+    if (index < _replies.size()) {
+        pickReply(index);
+    } else {
+        debug("Invalid reply index: " + std::to_string(index), LogChannel::Conversation);
+    }
+    return true;
 }
 
 void Conversation::update(float dt) {
