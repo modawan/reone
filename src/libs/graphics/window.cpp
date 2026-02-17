@@ -17,7 +17,7 @@
 
 #include "reone/graphics/window.h"
 
-#include "SDL2/SDL.h"
+#include "SDL3/SDL.h"
 
 #include "reone/system/checkutil.h"
 #include "reone/system/threadutil.h"
@@ -33,13 +33,12 @@ void Window::init() {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    int flags = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI;
+    int flags = SDL_WINDOW_OPENGL | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (_options.fullscreen) {
         flags |= SDL_WINDOW_FULLSCREEN;
     }
     _window = SDL_CreateWindow(
         "reone",
-        SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
         _options.width * _options.winScale / 100,
         _options.height * _options.winScale / 100,
         flags);
@@ -60,26 +59,28 @@ void Window::deinit() {
     if (!_inited) {
         return;
     }
-    SDL_GL_DeleteContext(_context);
+    SDL_GL_DestroyContext(_context);
     SDL_DestroyWindow(_window);
     _inited = false;
 }
 
 bool Window::isAssociatedWith(const SDL_Event &event) const {
-    switch (event.type) {
-    case SDL_WINDOWEVENT:
+    if (event.type >= SDL_EVENT_WINDOW_FIRST && event.type <= SDL_EVENT_WINDOW_LAST) {
         return event.window.windowID == _windowID;
-    case SDL_KEYDOWN:
+    }
+
+    switch (event.type) {
+    case SDL_EVENT_KEY_DOWN:
         return event.key.windowID == _windowID;
-    case SDL_KEYUP:
+    case SDL_EVENT_KEY_UP:
         return event.key.windowID == _windowID;
-    case SDL_MOUSEMOTION:
+    case SDL_EVENT_MOUSE_MOTION:
         return event.motion.windowID == _windowID;
-    case SDL_MOUSEBUTTONDOWN:
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
         return event.button.windowID == _windowID;
-    case SDL_MOUSEBUTTONUP:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
         return event.button.windowID == _windowID;
-    case SDL_MOUSEWHEEL:
+    case SDL_EVENT_MOUSE_WHEEL:
         return event.wheel.windowID == _windowID;
     default:
         return false;
@@ -88,31 +89,18 @@ bool Window::isAssociatedWith(const SDL_Event &event) const {
 
 bool Window::handle(const SDL_Event &event) {
     switch (event.type) {
-    case SDL_WINDOWEVENT:
-        if (handleWindowEvent(event.window)) {
-            return true;
-        }
-        break;
-    case SDL_KEYDOWN:
+    case SDL_EVENT_KEY_DOWN:
         if (handleKeyDownEvent(event.key)) {
             return true;
         }
         break;
-    default:
-        break;
-    }
-    return false;
-}
-
-bool Window::handleWindowEvent(const SDL_WindowEvent &event) {
-    switch (event.event) {
-    case SDL_WINDOWEVENT_FOCUS_GAINED:
+    case SDL_EVENT_WINDOW_FOCUS_GAINED:
         _inFocus = true;
         return true;
-    case SDL_WINDOWEVENT_FOCUS_LOST:
+    case SDL_EVENT_WINDOW_FOCUS_LOST:
         _inFocus = false;
         return true;
-    case SDL_WINDOWEVENT_CLOSE:
+    case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
         _closeRequested = true;
         return true;
     default:
@@ -122,9 +110,9 @@ bool Window::handleWindowEvent(const SDL_WindowEvent &event) {
 }
 
 bool Window::handleKeyDownEvent(const SDL_KeyboardEvent &event) {
-    switch (event.keysym.scancode) {
+    switch (event.scancode) {
     case SDL_SCANCODE_C:
-        if (event.keysym.mod & KMOD_CTRL) {
+        if (event.mod & SDL_KMOD_CTRL) {
             _closeRequested = true;
             return true;
         }
@@ -137,6 +125,10 @@ bool Window::handleKeyDownEvent(const SDL_KeyboardEvent &event) {
 
 void Window::swap() {
     SDL_GL_SwapWindow(_window);
+}
+
+void Window::setRelativeMouseMode(bool isRelative) {
+    SDL_SetWindowRelativeMouseMode(_window, isRelative);
 }
 
 } // namespace graphics

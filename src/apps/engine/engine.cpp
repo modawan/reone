@@ -17,7 +17,7 @@
 
 #include "engine.h"
 
-#include "SDL2/SDL.h"
+#include "SDL3/SDL.h"
 
 #include "reone/graphics/window.h"
 #include "reone/resource/exception/notfound.h"
@@ -42,7 +42,7 @@ static constexpr int kProfilerRenderGraphicsTimeIndex = 2;
 static constexpr int kProfilerRenderAudioTimeIndex = 3;
 
 void Engine::init() {
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
         throw std::runtime_error("SDL_Init failed: " + std::string(SDL_GetError()));
     }
     _window = std::make_unique<Window>(_options.graphics);
@@ -241,7 +241,7 @@ void Engine::processEvents(bool &quit) {
     std::queue<input::Event> unhandled;
     SDL_Event sdlEvent;
     while (SDL_PollEvent(&sdlEvent)) {
-        if (sdlEvent.type == SDL_QUIT) {
+        if (sdlEvent.type == SDL_EVENT_QUIT) {
             quit = true;
             break;
         }
@@ -274,7 +274,11 @@ void Engine::showCursor(bool show) {
     if (_showCursor == show) {
         return;
     }
-    SDL_ShowCursor(show ? SDL_ENABLE : SDL_DISABLE);
+    if (show) {
+        SDL_ShowCursor();
+    } else {
+        SDL_HideCursor();
+    }
     _showCursor = show;
 }
 
@@ -282,7 +286,7 @@ void Engine::setRelativeMouseMode(bool relative) {
     if (_relativeMouseMode == relative) {
         return;
     }
-    SDL_SetRelativeMouseMode(relative ? SDL_TRUE : SDL_FALSE);
+    _window->setRelativeMouseMode(relative);
     _relativeMouseMode = relative;
 }
 
@@ -292,39 +296,39 @@ static constexpr int scaleWinCoord(int coord, int winScale) {
 
 std::optional<input::Event> Engine::eventFromSDLEvent(const SDL_Event &sdlEvent) const {
     switch (sdlEvent.type) {
-    case SDL_KEYDOWN:
+    case SDL_EVENT_KEY_DOWN:
         return input::Event::newKeyDown(input::KeyEvent {
-            sdlEvent.key.state == SDL_PRESSED,
-            static_cast<input::KeyCode>(sdlEvent.key.keysym.sym),
-            sdlEvent.key.keysym.mod,
-            static_cast<bool>(sdlEvent.key.repeat)});
-    case SDL_KEYUP:
+            sdlEvent.key.down,
+            static_cast<input::KeyCode>(sdlEvent.key.key),
+            sdlEvent.key.mod,
+            sdlEvent.key.repeat});
+    case SDL_EVENT_KEY_UP:
         return input::Event::newKeyUp(input::KeyEvent {
-            sdlEvent.key.state == SDL_PRESSED,
-            static_cast<input::KeyCode>(sdlEvent.key.keysym.sym),
-            sdlEvent.key.keysym.mod,
-            static_cast<bool>(sdlEvent.key.repeat)});
-    case SDL_MOUSEMOTION:
+            sdlEvent.key.down,
+            static_cast<input::KeyCode>(sdlEvent.key.key),
+            sdlEvent.key.mod,
+            sdlEvent.key.repeat});
+    case SDL_EVENT_MOUSE_MOTION:
         return input::Event::newMouseMotion(input::MouseMotionEvent {
             scaleWinCoord(sdlEvent.motion.x, _options.graphics.winScale),
             scaleWinCoord(sdlEvent.motion.y, _options.graphics.winScale),
             sdlEvent.motion.xrel,
             sdlEvent.motion.yrel});
-    case SDL_MOUSEBUTTONDOWN:
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
         return input::Event::newMouseButtonDown(input::MouseButtonEvent {
             static_cast<input::MouseButton>(sdlEvent.button.button),
-            sdlEvent.button.state == SDL_PRESSED,
+            sdlEvent.button.down,
             sdlEvent.button.clicks,
             scaleWinCoord(sdlEvent.button.x, _options.graphics.winScale),
             scaleWinCoord(sdlEvent.button.y, _options.graphics.winScale)});
-    case SDL_MOUSEBUTTONUP:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
         return input::Event::newMouseButtonUp(input::MouseButtonEvent {
             static_cast<input::MouseButton>(sdlEvent.button.button),
-            sdlEvent.button.state == SDL_PRESSED,
+            sdlEvent.button.down,
             sdlEvent.button.clicks,
             scaleWinCoord(sdlEvent.button.x, _options.graphics.winScale),
             scaleWinCoord(sdlEvent.button.y, _options.graphics.winScale)});
-    case SDL_MOUSEWHEEL: {
+    case SDL_EVENT_MOUSE_WHEEL: {
         return input::Event::newMouseWheel(input::MouseWheelEvent {
             sdlEvent.wheel.x,
             sdlEvent.wheel.y,
