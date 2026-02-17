@@ -35,6 +35,8 @@ public:
 
     virtual void swap() = 0;
 
+    virtual void setRelativeMouseMode(bool isRelative) = 0;
+
     virtual bool isInFocus() const = 0;
     virtual bool isCloseRequested() const = 0;
 };
@@ -65,6 +67,8 @@ public:
         return _closeRequested;
     }
 
+    void setRelativeMouseMode(bool relative) override;
+
 private:
     GraphicsOptions &_options;
 
@@ -78,7 +82,6 @@ private:
     bool _inFocus {true};
     bool _closeRequested {false};
 
-    bool handleWindowEvent(const SDL_WindowEvent &event);
     bool handleKeyDownEvent(const SDL_KeyboardEvent &event);
 };
 

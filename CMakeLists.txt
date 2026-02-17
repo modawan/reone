@@ -41,11 +41,11 @@ find_package(MAD REQUIRED)
 
 if(MSVC)
     find_package(OpenAL CONFIG REQUIRED)
-    find_package(SDL2 CONFIG REQUIRED)
+    find_package(SDL3 CONFIG REQUIRED)
 else()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(OpenAL REQUIRED openal)
-    pkg_check_modules(SDL2 REQUIRED sdl2)
+    pkg_check_modules(SDL3 REQUIRED sdl3)
     find_package(Threads REQUIRED)
 endif()
 
@@ -64,7 +64,7 @@ if(BUILD_LAUNCHER OR BUILD_TOOLKIT)
 endif()
 
 set(REONE_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
-include_directories(${Boost_INCLUDE_DIRS} ${SDL2_INCLUDE_DIRS} ${MAD_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/extern/glm ${REONE_INCLUDE_DIR})
+include_directories(${Boost_INCLUDE_DIRS} ${SDL3_INCLUDE_DIRS} ${MAD_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/extern/glm ${REONE_INCLUDE_DIR})
 
 add_compile_definitions(BOOST_BIND_GLOBAL_PLACEHOLDERS)
 

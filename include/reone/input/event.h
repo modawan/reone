@@ -171,14 +171,14 @@ struct KeyEvent {
 struct MouseMotionEvent {
     int32_t x;
     int32_t y;
-    int32_t xrel;
-    int32_t yrel;
+    float xrel;
+    float yrel;
 
     MouseMotionEvent(
         int32_t x,
         int32_t y,
-        int32_t xrel,
-        int32_t yrel) :
+        float xrel,
+        float yrel) :
         x(x),
         y(y),
         xrel(xrel),
@@ -220,12 +220,12 @@ enum class MouseWheelDirection {
 };
 
 struct MouseWheelEvent {
-    int32_t x;
-    int32_t y;
+    float x;
+    float y;
     MouseWheelDirection direction;
 
-    MouseWheelEvent(int32_t x,
-                    int32_t y,
+    MouseWheelEvent(float x,
+                    float y,
                     MouseWheelDirection direction) :
         x(x),
         y(y),
