@@ -25,16 +25,16 @@ jobs:
         id: vcpkg-installed
         with:
           path: ${{ env.VCPKG_ROOT }}/installed
-          key: ${{ runner.os }}-vcpkg-installed
+          key: ${{ runner.os }}-vcpkg-installed-v2
           restore-keys: |
-            ${{ runner.os }}-vcpkg-installed
+            ${{ runner.os }}-vcpkg-installed-v2
 
       - name: Install dependencies
         if: steps.vcpkg-installed.outputs.cache-hit != 'true'
         run: |-
           vcpkg install --triplet x64-windows `
             boost-algorithm boost-endian boost-format boost-functional boost-program-options `
-            glm sdl2 glew openal-soft libmad ffmpeg wxwidgets gtest
+            glm sdl2 sdl3 glew openal-soft libmad ffmpeg wxwidgets gtest
 
       - name: Generate solution
         run: |-
