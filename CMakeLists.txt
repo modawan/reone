@@ -36,7 +36,6 @@ option(ENABLE_ASAN "enable address sanitizer" OFF)
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 find_package(Boost REQUIRED COMPONENTS program_options exception)
 find_package(OpenGL REQUIRED)
-find_package(GLEW REQUIRED)
 find_package(MAD REQUIRED)
 
 if(MSVC)
@@ -64,7 +63,8 @@ if(BUILD_LAUNCHER OR BUILD_TOOLKIT)
 endif()
 
 set(REONE_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
-include_directories(${Boost_INCLUDE_DIRS} ${SDL3_INCLUDE_DIRS} ${MAD_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/extern/glm ${REONE_INCLUDE_DIR})
+set(GLAD_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/extern/glad/include)
+include_directories(${Boost_INCLUDE_DIRS} ${SDL3_INCLUDE_DIRS} ${MAD_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/extern/glm ${REONE_INCLUDE_DIR} ${GLAD_INCLUDE_DIR})
 
 add_compile_definitions(BOOST_BIND_GLOBAL_PLACEHOLDERS)
 
