@@ -42,10 +42,26 @@ void Context::init() {
         return;
     }
     checkMainThread();
-    GLenum error = glewInit();
-    if (error != GLEW_OK) {
-        throw std::runtime_error(str(boost::format("glewInit failed: %s") % glewGetErrorString(error)));
+    if (!gladLoadGL(SDL_GL_GetProcAddress)) {
+        // Attempt to retrieve basic version information manually for diagnosis
+        // Use manual glGetString which might work even if GLAD failed to load everything
+        const GLubyte *version = glGetString(GL_VERSION);
+        const GLubyte *renderer = glGetString(GL_RENDERER);
+        const GLubyte *vendor = glGetString(GL_VENDOR);
+
+        std::string versionStr = version ? (const char *)version : "Unknown";
+        std::string rendererStr = renderer ? (const char *)renderer : "Unknown";
+        std::string vendorStr = vendor ? (const char *)vendor : "Unknown";
+
+        throw std::runtime_error(str(boost::format(
+                                         "gladLoadGLLoader failed to initialize OpenGL context.\n"
+                                         "  GL_VERSION: %s\n"
+                                         "  GL_RENDERER: %s\n"
+                                         "  GL_VENDOR: %s\n"
+                                         "  Ensure your graphics driver supports OpenGL 4.0 Core Profile.") %
+                                     versionStr % rendererStr % vendorStr));
     }
+
     int maxBuffers;
     glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxBuffers);
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
