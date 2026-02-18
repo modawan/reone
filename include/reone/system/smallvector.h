@@ -115,7 +115,7 @@ public:
     }
 
     const_reference back() const {
-        return const_cast<ISmallVector<T> &>(*this)->back();
+        return const_cast<ISmallVector<T> &>(*this).back();
     }
 
     reference front() {
@@ -124,7 +124,7 @@ public:
     }
 
     const_reference front() const {
-        return const_cast<ISmallVector<T> &>(*this)->front();
+        return const_cast<ISmallVector<T> &>(*this).front();
     }
 
     /**
