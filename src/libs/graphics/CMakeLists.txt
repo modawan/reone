@@ -15,6 +15,7 @@
 
 set(GRAPHICS_INCLUDE_DIR ${REONE_INCLUDE_DIR}/reone/graphics)
 set(GRAPHICS_SOURCE_DIR ${CMAKE_SOURCE_DIR}/src/libs/graphics)
+set(GLAD_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/extern/glad/include)
 
 set(GRAPHICS_HEADERS
     ${GRAPHICS_INCLUDE_DIR}/aabb.h
@@ -68,6 +69,7 @@ set(GRAPHICS_HEADERS
     ${GRAPHICS_INCLUDE_DIR}/window.h)
 
 set(GRAPHICS_SOURCES
+    ${CMAKE_SOURCE_DIR}/extern/glad/src/gl.c
     ${GRAPHICS_SOURCE_DIR}/aabb.cpp
     ${GRAPHICS_SOURCE_DIR}/animation.cpp
     ${GRAPHICS_SOURCE_DIR}/camera.cpp
@@ -108,8 +110,10 @@ set(GRAPHICS_SOURCES
 add_library(graphics STATIC ${GRAPHICS_HEADERS} ${GRAPHICS_SOURCES} ${CLANG_FORMAT_PATH})
 set_target_properties(graphics PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}$<$<CONFIG:Debug>:/debug>/lib)
 set_target_properties(graphics PROPERTIES DEBUG_POSTFIX "d")
+set_source_files_properties(${CMAKE_SOURCE_DIR}/extern/glad/src/gl.c PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 target_precompile_headers(graphics PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
-target_link_libraries(graphics PRIVATE GLEW::GLEW ${OPENGL_LIBRARIES})
+target_include_directories(graphics PRIVATE ${GLAD_INCLUDE_DIR})
+target_link_libraries(graphics PRIVATE ${OPENGL_LIBRARIES} ${CMAKE_DL_LIBS})
 
 if(MSVC)
     target_link_libraries(graphics PRIVATE SDL3::SDL3)
