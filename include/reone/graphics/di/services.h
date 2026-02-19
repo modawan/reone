@@ -28,7 +28,6 @@ class IShaderRegistry;
 class IStatistic;
 class ITextureRegistry;
 class IUniforms;
-class IWindow;
 
 struct GraphicsServices {
     IContext &context;

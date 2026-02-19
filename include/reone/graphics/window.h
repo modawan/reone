@@ -26,22 +26,7 @@ namespace graphics {
 
 class Cursor;
 
-class IWindow {
-public:
-    virtual ~IWindow() = default;
-
-    virtual bool isAssociatedWith(const SDL_Event &event) const = 0;
-    virtual bool handle(const SDL_Event &event) = 0;
-
-    virtual void swap() = 0;
-
-    virtual void setRelativeMouseMode(bool isRelative) = 0;
-
-    virtual bool isInFocus() const = 0;
-    virtual bool isCloseRequested() const = 0;
-};
-
-class Window : public IWindow, boost::noncopyable {
+class Window : boost::noncopyable {
 public:
     Window(GraphicsOptions &options) :
         _options(options) {
@@ -54,20 +39,20 @@ public:
     void init();
     void deinit();
 
-    bool isAssociatedWith(const SDL_Event &event) const override;
-    bool handle(const SDL_Event &event) override;
+    bool isAssociatedWith(const SDL_Event &event) const;
+    bool handle(const SDL_Event &event);
 
-    void swap() override;
+    void swap();
 
-    bool isInFocus() const override {
+    bool isInFocus() const {
         return _inFocus;
     }
 
-    bool isCloseRequested() const override {
+    bool isCloseRequested() const {
         return _closeRequested;
     }
 
-    void setRelativeMouseMode(bool relative) override;
+    void setRelativeMouseMode(bool relative);
 
 private:
     GraphicsOptions &_options;
