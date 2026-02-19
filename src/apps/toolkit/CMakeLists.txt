@@ -78,7 +78,7 @@ target_link_libraries(toolkit PRIVATE tools ${wxWidgets_LIBRARIES} ${Boost_PROGR
 if(MSVC)
     target_link_libraries(toolkit PRIVATE SDL3::SDL3)
 else()
-    target_link_libraries(toolkit PRIVATE ${SDL3_LIBRARIES})
+    target_link_libraries(toolkit PRIVATE ${SDL3_LIBRARIES} ${SDL3_LDFLAGS})
 endif()
 
 list(APPEND InstallTargets toolkit)
