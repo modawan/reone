@@ -63,6 +63,11 @@ void RetroRenderPipeline::initRenderTargets() {
     _targets.pointLightShadowsDepth->init();
 
     _targets.shadows = std::make_shared<Framebuffer>();
+    // Always attach a depth buffer during initialization. Render
+    // calls glClear(GL_DEPTH_BUFFER_BIT) before a depth buffer is
+    // attached. If nothing is attached before glClear, some drivers
+    // trip and never recover.
+    _targets.shadows->attachDepth(_targets.pointLightShadowsDepth);
     _targets.shadows->init();
 
     // Opaque framebuffer
