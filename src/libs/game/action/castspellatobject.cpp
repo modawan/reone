@@ -61,6 +61,9 @@ void CastSpellAtObjectAction::execute(std::shared_ptr<Action> self, Object &acto
 
     const CombatRound &round = _game.combat().addAction(self, actor);
     SpellSchedule::State state = _schedule.update(round, *self, dt);
+    if (_grenade) {
+        _grenade->update(state, *_target, dt);
+    }
 
     // Gameplay updates
     switch (state) {
@@ -83,7 +86,15 @@ void CastSpellAtObjectAction::execute(std::shared_ptr<Action> self, Object &acto
         scene::AnimationProperties animProp =
             scene::AnimationProperties::fromFlags(scene::AnimationFlags::blend);
 
-        caster.playAnimation((_spell->itemTargeting ? "activate" : "inject"), animProp);
+        if (_spell->projModel) {
+            // Throw a grenade.
+            _grenade = Grenade();
+            _grenade->fire(caster, *_spell->projModel, /*swingTime=*/0.8f, /*throwTime=*/0.5f);
+            caster.playAnimation("throwgren");
+        } else {
+            // Activate an item.
+            caster.playAnimation((_spell->itemTargeting ? "activate" : "inject"), animProp);
+        }
         return;
     }
     case SpellSchedule::Cast: {

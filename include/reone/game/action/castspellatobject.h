@@ -53,6 +53,7 @@ private:
     std::shared_ptr<Object> _target;
     std::optional<std::shared_ptr<Item>> _item;
     SpellSchedule _schedule;
+    std::optional<Grenade> _grenade;
     bool _cheat;
 };
 

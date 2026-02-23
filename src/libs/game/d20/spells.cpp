@@ -20,6 +20,7 @@
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/audioclips.h"
+#include "reone/resource/provider/models.h"
 #include "reone/resource/provider/textures.h"
 #include "reone/resource/strings.h"
 
@@ -50,6 +51,7 @@ void Spells::init() {
         float castTime = spells->getInt(row, "casttime") / 1000.0f;
         uint32_t itemTargeting = spells->getInt(row, "itemtargeting");
         bool hostile = spells->getBool(row, "hostilesetting");
+        std::string projModel = spells->getString(row, "projmodel");
 
         auto spell = std::make_shared<Spell>();
         spell->type = type;
@@ -65,6 +67,7 @@ void Spells::init() {
         spell->castTime = castTime;
         spell->itemTargeting = itemTargeting;
         spell->hostile = hostile;
+        spell->projModel = projModel.empty() ? nullptr : _models.get(projModel);
         _spells.insert(std::make_pair(type, std::move(spell)));
     }
 }
