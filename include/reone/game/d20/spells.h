@@ -29,6 +29,7 @@ class Strings;
 class TwoDAs;
 class Textures;
 class AudioClips;
+class Models;
 
 } // namespace resource
 
@@ -46,10 +47,12 @@ public:
     Spells(
         resource::Textures &textures,
         resource::AudioClips &audioClips,
+        resource::Models &models,
         resource::Strings &strings,
         resource::TwoDAs &twoDas) :
         _textures(textures),
         _audioClips(audioClips),
+        _models(models),
         _strings(strings),
         _twoDas(twoDas) {
     }
@@ -65,6 +68,7 @@ private:
 
     resource::Textures &_textures;
     resource::AudioClips &_audioClips;
+    resource::Models &_models;
     resource::Strings &_strings;
     resource::TwoDAs &_twoDas;
 

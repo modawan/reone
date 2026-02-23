@@ -19,10 +19,21 @@
 
 namespace reone {
 
+namespace scene {
+class ModelSceneNode;
+class ISceneGraph;
+} // namespace scene
+
+namespace graphics {
+class Model;
+}
+
 namespace game {
 
 class Action;
 class CombatRound;
+class Creature;
+class Object;
 
 class SpellSchedule {
 public:
@@ -47,6 +58,37 @@ private:
     float _time {0.0f};
     float _conjTime {0.0f};
     float _castTime {0.0f};
+};
+
+class Grenade {
+public:
+    ~Grenade();
+
+    enum State {
+        Swing,
+        Throw,
+        Wait,
+        Explode,
+        Finish,
+    };
+
+    void fire(Creature &caster, graphics::Model &projModel, float swingTime, float throwTime);
+    void update(SpellSchedule::State spellState, Object &target, float dt);
+
+private:
+    // Compute parameters for a parabolic trajectory from origin to target.
+    void computeTrajectory(glm::vec3 origin, glm::vec3 target, float throwTime);
+
+private:
+    State _state {Swing};
+    std::shared_ptr<scene::ModelSceneNode> _projNode;
+    float _time {0.0f};
+    float _swingTime {0.0f};
+    float _throwTime {0.0f};
+    glm::vec3 _throwOrigin;
+    glm::vec3 _throwTarget;
+    glm::vec3 _throwVelocity;
+    glm::vec3 _throwAccel;
 };
 
 } // namespace game

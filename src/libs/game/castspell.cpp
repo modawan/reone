@@ -72,5 +72,97 @@ SpellSchedule::State SpellSchedule::update(
     return _state;
 }
 
+static scene::SceneNode &determineGrenadeAttachment(scene::ModelSceneNode &model) {
+    if (scene::ModelNodeSceneNode *handHook = model.getNodeByName("rhand")) {
+        return *handHook;
+    }
+
+    return model;
+}
+
+void Grenade::fire(Creature &caster, graphics::Model &projModel, float swingTime, float throwTime) {
+    auto casterNode = std::static_pointer_cast<scene::ModelSceneNode>(caster.sceneNode());
+    scene::SceneNode &attachmentNode = determineGrenadeAttachment(*casterNode);
+
+    // Create a grenade node and attach it to caster's hand for the duration of
+    // the swing.
+    scene::ISceneGraph &graph = casterNode->graph();
+    _projNode = graph.newModel(projModel, scene::ModelUsage::Projectile);
+    attachmentNode.addChild(*_projNode);
+
+    // Keep the grenade attached for swingTime seconds.
+    _swingTime = swingTime;
+    _throwTime = throwTime;
+}
+
+void Grenade::computeTrajectory(glm::vec3 origin, glm::vec3 target, float time) {
+    // Position at any time point t, with initial velocity V, origin X', and
+    // acceleration g: X = X' + Vt + gt^2/2
+
+    // TODO: instead of solving this for time, we can complicate things more
+    // with variable initial velocity and angle.
+
+    _throwAccel = glm::vec3(0.0f, 0.0f, -9.81f);
+    _throwVelocity = ((target - origin) / time) - (_throwAccel * time * 0.5f);
+    _throwOrigin = origin;
+    _throwTarget = target;
+    _throwTime = time;
+}
+
+void Grenade::update(SpellSchedule::State spellState, Object &target, float dt) {
+    _time += dt;
+
+    switch (_state) {
+    case Swing: {
+        if (_time < _swingTime) {
+            // Keep the grenade attached.
+            return;
+        }
+
+        glm::vec3 origin = _projNode->origin();
+
+        computeTrajectory(origin, target.position(), _throwTime);
+
+        // Detach the grenade and transition to Throw state.
+        _projNode->parent()->removeChild(*_projNode);
+        _projNode->setLocalTransform(glm::translate(origin));
+        _projNode->graph().addRoot(_projNode);
+        _state = Throw;
+        return;
+    }
+    case Throw: {
+        if (_time < (_swingTime + _throwTime)) {
+            float t = _time - _swingTime;
+            glm::vec3 pos = _throwOrigin + (_throwVelocity * t) + (_throwAccel * t * t * 0.5f);
+            _projNode->setLocalTransform(glm::translate(pos));
+            return;
+        }
+        _projNode->setLocalTransform(glm::translate(_throwTarget));
+        _state = Wait;
+        return;
+    }
+    case Wait: {
+        if ((int)spellState < (int)SpellSchedule::Effect) {
+            return;
+        }
+        _state = Explode;
+        return;
+    }
+    case Explode: {
+        _projNode->graph().removeRoot(*_projNode);
+        _projNode.reset();
+        _state = Finish;
+    }
+    default:
+        return;
+    }
+}
+
+Grenade::~Grenade() {
+    if (_projNode) {
+        _projNode->graph().removeRoot(*_projNode);
+    }
+}
+
 } // namespace game
 } // namespace reone

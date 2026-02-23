@@ -27,6 +27,10 @@ namespace audio {
 class AudioClip;
 }
 
+namespace graphics {
+class Model;
+}
+
 namespace game {
 
 struct Spell {
@@ -43,6 +47,7 @@ struct Spell {
     float castTime {0.0f};
     uint32_t itemTargeting {0};
     bool hostile {false};
+    std::shared_ptr<graphics::Model> projModel;
 };
 
 } // namespace game
