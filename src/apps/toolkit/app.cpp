@@ -20,6 +20,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
+#include "SDL3/SDL.h"
 
 #include "reone/system/logger.h"
 #include "reone/system/threadutil.h"
@@ -37,6 +38,12 @@ bool ToolkitApp::OnInit() {
         LogSeverity::Debug,
         std::set<LogChannel> {LogChannel::Global, LogChannel::Resources, LogChannel::Graphics, LogChannel::Audio},
         "toolkit.log");
+
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+        throw std::runtime_error("SDL_Init failed: " + std::string(SDL_GetError()));
+    }
+    SDL_GL_LoadLibrary(NULL);
+
     wxImage::AddHandler(new wxTGAHandler);
     m_viewModel = std::make_unique<ResourceExplorerViewModel>();
     auto frame = new ResourceExplorerFrame {*m_viewModel};
