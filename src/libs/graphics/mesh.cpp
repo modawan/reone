@@ -178,7 +178,7 @@ void Mesh::computeVertexDataFromVertices() {
 
 void Mesh::computeVerticesFromVertexData() {
     size_t numVertices = _vertexData.size() / (_vertexLayout.stride / sizeof(float));
-    _vertices.resize(numVertices);
+    _vertices.reserve(numVertices);
     for (size_t i = 0; i < numVertices; ++i) {
         Vertex vertex;
         float *dataPtr;
