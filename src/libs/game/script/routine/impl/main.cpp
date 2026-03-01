@@ -29,6 +29,7 @@
 #include "reone/game/script/routines.h"
 #include "reone/game/talent.h"
 #include "reone/resource/strings.h"
+#include "reone/scene/collision.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/routine/exception/argument.h"
 #include "reone/script/routine/exception/notimplemented.h"
@@ -1198,7 +1199,49 @@ static Variable GetAlignmentGoodEvil(const std::vector<Variable> &args, const Ro
     throw RoutineNotImplementedException("GetAlignmentGoodEvil");
 }
 
-static Variable GetFirstObjectInShape(const std::vector<Variable> &args, const RoutineContext &ctx) {
+struct ShapeParams {
+    float size;
+    float sizeSquared;
+    glm::vec3 target;
+};
+
+bool operator==(struct ShapeParams &lhs, struct ShapeParams &rhs) {
+    // Ignore sizeSquared: if size is the same, so is a square of size.
+    return lhs.size == rhs.size && lhs.target == rhs.target;
+}
+
+static bool matchSphere(const glm::vec3 &position, const ShapeParams &params) {
+    return glm::length2(params.target - position) < params.sizeSquared;
+}
+
+static bool matchCube(const glm::vec3 &position, const ShapeParams &params) {
+    glm::vec3 dist = glm::abs(params.target - position);
+    return dist.x < params.size && dist.y < params.size && dist.z < params.size;
+}
+
+static bool checkLineOfSight(glm::vec3 origin, Object &object, ISceneGraph &sceneGraph) {
+    const float kLineOfSightHeight = 1.7f;
+    origin += kLineOfSightHeight;
+    glm::vec3 dest = object.position();
+    dest += kLineOfSightHeight;
+
+    Collision collision;
+    if (sceneGraph.testLineOfSight(origin, dest, collision)) {
+        return collision.user == &object ||
+               glm::distance2(origin, dest) < glm::distance2(origin, collision.intersection);
+    }
+
+    return true;
+}
+
+struct ObjectsInShape : public EngineType {
+    std::vector<uint32_t> objects;
+    Shape shape;
+    ShapeParams params;
+};
+
+static Variable
+GetFirstObjectInShape(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nShape = getInt(args, 0);
     auto fSize = getFloat(args, 1);
@@ -1208,9 +1251,71 @@ static Variable GetFirstObjectInShape(const std::vector<Variable> &args, const R
     auto vOrigin = getVectorOrElse(args, 5, glm::vec3(0.0f, 0.0f, 0.0f));
 
     // Transform
+    auto shape = static_cast<Shape>(nShape);
+    ShapeParams params;
+    params.size = fSize;
+    params.sizeSquared = fSize * fSize;
+    params.target = lTarget->position();
+
+    bool (*matcher)(const glm::vec3 &, const ShapeParams &);
+    switch (shape) {
+    case Shape::Sphere: {
+        matcher = matchSphere;
+        break;
+    }
+    case Shape::Cube: {
+        matcher = matchCube;
+        break;
+    }
+    default:
+        throw RoutineNotImplementedException("GetFirstObjectInShape");
+    }
 
     // Execute
-    throw RoutineNotImplementedException("GetFirstObjectInShape");
+    auto area = ctx.game.module()->area();
+    if (!area) {
+        return Variable::ofObject(script::kObjectInvalid);
+    }
+
+    SmallVector<uint32_t, 16> foundObjects;
+    for (const std::shared_ptr<Object> &object : area->objects()) {
+        int32_t type = static_cast<int32_t>(object->type());
+        if (!(type & nObjectFilter)) {
+            continue;
+        }
+        if (!matcher(object->position(), params)) {
+            continue;
+        }
+        if (!checkLineOfSight(params.target, *object, area->graph())) {
+            continue;
+        }
+        foundObjects.push_back(object->id());
+    }
+
+    if (foundObjects.empty()) {
+        return Variable::ofObject(script::kObjectInvalid);
+    }
+
+    // Take the first object to return from this function.
+    uint32_t firstObject = foundObjects.back();
+    foundObjects.resize(foundObjects.size() - 1);
+    if (foundObjects.empty()) {
+        return Variable::ofObject(firstObject);
+    }
+
+    // Save other objects for subsequent GetNextObjectInShape.
+    auto objectsArg = std::make_shared<ObjectsInShape>();
+    objectsArg->objects.reserve(foundObjects.size());
+    for (uint32_t object : foundObjects) {
+        objectsArg->objects.push_back(object);
+    }
+    objectsArg->shape = shape;
+    objectsArg->params = params;
+
+    ctx.execution.args.push_back(
+        Argument(ArgKind::ObjectsInShape, Variable::ofCustom(objectsArg)));
+
+    return Variable::ofObject(firstObject);
 }
 
 static Variable GetNextObjectInShape(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -1223,9 +1328,41 @@ static Variable GetNextObjectInShape(const std::vector<Variable> &args, const Ro
     auto vOrigin = getVectorOrElse(args, 5, glm::vec3(0.0f, 0.0f, 0.0f));
 
     // Transform
+    auto shape = static_cast<Shape>(nShape);
+    ShapeParams params;
+    params.size = fSize;
+    params.sizeSquared = fSize * fSize;
+    params.target = lTarget->position();
 
     // Execute
-    throw RoutineNotImplementedException("GetNextObjectInShape");
+
+    // Iterate over script arguments backwards to pick the last object list. We
+    // ignore all other lists, even if they are not exausted yet.
+    auto &scriptArgs = ctx.execution.args;
+    for (auto it = scriptArgs.rbegin(), end = scriptArgs.rend(); it != end; ++it) {
+        if (it->kind != ArgKind::ObjectsInShape) {
+            continue;
+        }
+        assert(it->var.type == VariableType::Custom);
+
+        auto objects = std::static_pointer_cast<ObjectsInShape>(it->var.engineType);
+        bool sameShape = objects->shape == shape && objects->params == params;
+        if (!sameShape) {
+            continue;
+        }
+
+        if (objects->objects.empty()) {
+            // We found a match, but the list is exausted.
+            return Variable::ofObject(script::kObjectInvalid);
+        }
+
+        uint32_t nextObject = objects->objects.back();
+        objects->objects.pop_back();
+        return Variable::ofObject(nextObject);
+    }
+
+    // No previous GetFirstObjectInShape.
+    return Variable::ofObject(script::kObjectInvalid);
 }
 
 static Variable SignalEvent(const std::vector<Variable> &args, const RoutineContext &ctx) {

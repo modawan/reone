@@ -110,6 +110,14 @@ Variable Variable::ofAction(std::shared_ptr<ExecutionContext> context) {
     return result;
 }
 
+Variable Variable::ofCustom(std::shared_ptr<EngineType> engineType) {
+    Variable result;
+    result.type = VariableType::Custom;
+    result.engineType = std::move(engineType);
+    result.id = ++g_id;
+    return result;
+}
+
 const std::string Variable::toString() const {
     switch (type) {
     case VariableType::Void:
@@ -134,6 +142,8 @@ const std::string Variable::toString() const {
         return str(boost::format("%%%u:talent") % id);
     case VariableType::Action:
         return str(boost::format("%%%u:action") % id);
+    case VariableType::Custom:
+        return str(boost::format("%%%u:custom") % id);
     default:
         throw std::logic_error("Unsupported variable type: " + std::to_string(static_cast<int>(type)));
     }
@@ -181,6 +191,8 @@ const char *argKindToString(ArgKind kind) {
         return "SpellId";
     case ArgKind::SpellLocation:
         return "SpellLocation";
+    case ArgKind::ObjectsInShape:
+        return "ObjectsInShape";
     }
 
     throw std::logic_error("Unsupported arg kind: " +
@@ -312,6 +324,13 @@ void Argument::verify() {
     case ArgKind::SpellLocation: {
         if (var.type != VariableType::Location) {
             throw std::invalid_argument(toString() + ": expected a location");
+        }
+        return;
+    }
+
+    case ArgKind::ObjectsInShape: {
+        if (var.type != VariableType::Custom) {
+            throw std::invalid_argument(toString() + ": expected a custom object");
         }
         return;
     }

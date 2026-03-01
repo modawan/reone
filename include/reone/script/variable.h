@@ -81,6 +81,7 @@ struct Variable {
     static Variable ofLocation(std::shared_ptr<EngineType> engineType);
     static Variable ofTalent(std::shared_ptr<EngineType> engineType);
     static Variable ofAction(std::shared_ptr<ExecutionContext> context);
+    static Variable ofCustom(std::shared_ptr<EngineType> engineType);
 };
 
 enum class ArgKind {
@@ -104,6 +105,7 @@ enum class ArgKind {
     LastDamager,
     SpellId,
     SpellLocation,
+    ObjectsInShape,
 };
 
 struct Argument {
