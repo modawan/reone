@@ -16,6 +16,7 @@
  */
 
 #include "reone/script/variable.h"
+#include "reone/game/location.h"
 
 namespace reone {
 
@@ -178,6 +179,8 @@ const char *argKindToString(ArgKind kind) {
         return "LastDamager";
     case ArgKind::SpellId:
         return "SpellId";
+    case ArgKind::SpellLocation:
+        return "SpellLocation";
     }
 
     throw std::logic_error("Unsupported arg kind: " +
@@ -255,6 +258,21 @@ Argument Argument::fromString(std::string str) {
     if (kind == "SpellId") {
         return {ArgKind::SpellId, Variable::ofInt(std::stoul(value))};
     }
+    if (kind == "SpellLocation") {
+        float values[4];
+        for (int i = 0; i < 3; ++i) {
+            size_t comma = value.find(',');
+            if (comma == std::string_view::npos) {
+                throw std::logic_error("Failed to parse location: " + value);
+            }
+            values[i] = std::stof(value.substr(0, comma));
+            value = value.substr(comma + 1);
+        }
+        glm::vec3 position(values[0], values[1], values[2]);
+        float facing = values[3];
+        auto location = std::make_shared<game::Location>(position, facing);
+        return {ArgKind::SpellLocation, Variable::ofLocation(std::move(location))};
+    }
 
     throw std::logic_error("Unsupported arg kind: " + kind);
 }
@@ -287,6 +305,13 @@ void Argument::verify() {
     case ArgKind::SpellId: {
         if (var.type != VariableType::Int) {
             throw std::invalid_argument(toString() + ": expected an integer");
+        }
+        return;
+    }
+
+    case ArgKind::SpellLocation: {
+        if (var.type != VariableType::Location) {
+            throw std::invalid_argument(toString() + ": expected a location");
         }
         return;
     }

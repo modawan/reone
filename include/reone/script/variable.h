@@ -103,6 +103,7 @@ enum class ArgKind {
     LastAttacker,
     LastDamager,
     SpellId,
+    SpellLocation,
 };
 
 struct Argument {
