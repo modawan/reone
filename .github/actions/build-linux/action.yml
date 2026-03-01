@@ -1,0 +1,32 @@
+name: 'Build and run tests on Linux'
+runs:
+  using: "composite"
+  steps:
+      - name: Install dependencies
+        shell: bash
+        run: |-
+          apt-get update
+          apt install --no-install-recommends -y \
+            cmake build-essential g++ \
+            libboost-all-dev libsdl2-dev libsdl3-dev libglew-dev libopenal-dev libmad0-dev libwxgtk3.2-dev libgmock-dev \
+            libavcodec-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev
+
+      - name: Create Build Environment
+        shell: bash
+        working-directory: ${{github.workspace}}
+        run: cmake -E make_directory build
+
+      - name: Configure CMake
+        shell: bash
+        working-directory: ${{github.workspace}}/build
+        run: cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        shell: bash
+        working-directory: ${{github.workspace}}/build
+        run: cmake --build .
+
+      - name: Run Unit Tests
+        shell: bash
+        working-directory: ${{github.workspace}}/build
+        run: ctest -VV
