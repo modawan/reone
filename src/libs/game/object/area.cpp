@@ -1276,6 +1276,10 @@ Object *Area::getObjectAt(int x, int y) const {
     return dynamic_cast<Object *>(model->user());
 }
 
+scene::ISceneGraph &Area::graph() {
+    return _services.scene.graphs.get(_sceneName);
+}
+
 } // namespace game
 
 } // namespace reone

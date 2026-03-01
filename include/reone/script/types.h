@@ -210,7 +210,8 @@ enum class VariableType {
     Event,
     Location,
     Talent,
-    Action
+    Action,
+    Custom,
 };
 
 } // namespace script

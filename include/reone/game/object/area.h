@@ -221,6 +221,12 @@ public:
 
     // END Listeners
 
+    // Scene
+
+    scene::ISceneGraph &graph();
+
+    // END Scene
+
 private:
     std::string _sceneName;
 
