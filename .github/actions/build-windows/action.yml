@@ -1,0 +1,46 @@
+name: Build and run tests on Windows
+runs:
+  using: "composite"
+  steps:
+    - name: Export GitHub Actions cache environment variables
+      uses: actions/github-script@v7
+      with:
+        script: |
+          core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+          core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+    - name: Restore vcpkg
+      uses: actions/cache@v4
+      id: vcpkg-installed
+      with:
+        path: ${{ env.VCPKG_ROOT }}/installed
+        key: ${{ runner.os }}-vcpkg-installed-v2
+        restore-keys: |
+          ${{ runner.os }}-vcpkg-installed-v2
+
+    - name: Install dependencies
+      shell: bash
+      if: steps.vcpkg-installed.outputs.cache-hit != 'true'
+      run: |-
+        vcpkg install --triplet x64-windows \
+          boost-algorithm boost-endian boost-format boost-functional boost-program-options \
+          glm sdl2 sdl3 glew openal-soft libmad ffmpeg wxwidgets gtest \
+
+    - name: Generate solution
+      shell: bash
+      run: |-
+        mkdir build
+        cmake -S . -B build \
+          -G "Visual Studio 17 2022" -A x64 \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake \
+
+    - name: Build solution
+      shell: bash
+      working-directory: ${{github.workspace}}/build
+      run: cmake --build . --config Release
+
+    - name: Run tests
+      shell: bash
+      working-directory: ${{github.workspace}}/build
+      run: ctest -VV -C Release
