@@ -41,9 +41,11 @@ CastSpellAtObjectAction::CastSpellAtObjectAction(
     _cheat(cheat) {}
 
 static void runScript(Game &game, const Spell &spell, const Object &target) {
+    auto location = std::make_shared<Location>(target.position(), target.getFacing());
     std::vector<script::Argument> args = {
         {script::ArgKind::Caller, script::Variable::ofObject(target.id())},
         {script::ArgKind::SpellId, script::Variable::ofInt(static_cast<int>(spell.type))},
+        {script::ArgKind::SpellLocation, script::Variable::ofLocation(std::move(location))},
     };
     game.scriptRunner().run(spell.impactScript, args);
 }

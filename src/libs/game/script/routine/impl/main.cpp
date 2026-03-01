@@ -1963,7 +1963,10 @@ static Variable SpeakString(const std::vector<Variable> &args, const RoutineCont
 
 static Variable GetSpellTargetLocation(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetSpellTargetLocation");
+    if (const Variable *location = ctx.execution.findArg(ArgKind::SpellLocation)) {
+        return *location;
+    }
+    return Variable::ofLocation(nullptr);
 }
 
 static Variable GetPositionFromLocation(const std::vector<Variable> &args, const RoutineContext &ctx) {
