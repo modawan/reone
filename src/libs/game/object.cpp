@@ -279,6 +279,7 @@ void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType dur
         appliedEffect.durationType = durationType;
         appliedEffect.duration = duration;
         _effects.push_back(std::move(appliedEffect));
+        applyInstantEffect(*_effects.back().effect);
     }
 }
 
@@ -294,7 +295,6 @@ void Object::updateEffects(float dt) {
             effect.duration = glm::max(0.0f, effect.duration - dt);
         }
         if (temporary && effect.duration == 0.0f) {
-            applyInstantEffect(*effect.effect);
             it = _effects.erase(it);
         } else {
             ++it;

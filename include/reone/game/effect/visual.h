@@ -32,10 +32,13 @@ public:
     }
 
     void applyTo(Object &object) override;
+    void setLocation(glm::vec3 loc) { _location = loc; }
+    float duration() const;
 
 private:
     int _visualEffectId;
     bool _missEffect;
+    glm::vec3 _location;
 };
 
 } // namespace game

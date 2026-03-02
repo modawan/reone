@@ -20,6 +20,7 @@
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/jumptolocation.h"
 #include "reone/game/action/jumptoobject.h"
+#include "reone/game/effect/visual.h"
 #include "reone/game/event.h"
 #include "reone/game/game.h"
 #include "reone/game/reputes.h"
@@ -2027,9 +2028,27 @@ static Variable ApplyEffectAtLocation(const std::vector<Variable> &args, const R
     auto fDuration = getFloatOrElse(args, 3, 0.0f);
 
     // Transform
+    auto duration = static_cast<DurationType>(nDurationType);
+
+    // Only visual effects have a location.
+    if (eEffect->type() != EffectType::Visual) {
+        return Variable::ofNull();
+    }
+    auto effect = std::static_pointer_cast<VisualEffect>(eEffect);
+    effect->setLocation(lLocation->position());
+
+    // Visual effects without duration make no sense - adjust duration and type
+    // to at least match the effect.
+    fDuration = std::max(fDuration, effect->duration());
+    if (duration == DurationType::Instant && fDuration > 0.0f) {
+        duration = DurationType::Temporary;
+    }
 
     // Execute
-    throw RoutineNotImplementedException("ApplyEffectAtLocation");
+    std::shared_ptr<Area> area = ctx.game.module()->area();
+    area->applyEffect(effect, duration, fDuration);
+
+    return Variable::ofNull();
 }
 
 static Variable GetIsPC(const std::vector<Variable> &args, const RoutineContext &ctx) {
