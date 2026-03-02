@@ -16,17 +16,95 @@
  */
 
 #include "reone/game/effect/visual.h"
+#include "reone/audio/mixer.h"
+#include "reone/game/di/services.h"
+#include "reone/game/object.h"
+#include "reone/game/object/area.h"
+#include "reone/game/visualeffects.h"
+#include "reone/graphics/animation.h"
+#include "reone/graphics/model.h"
+#include "reone/scene/graph.h"
 
 namespace reone {
 
 namespace game {
 
+VisualEffect::VisualEffect(int visualEffectId, bool missEffect, ServicesView &services) :
+    Effect(EffectType::Visual),
+    _visualEffectId(visualEffectId),
+    _missEffect(missEffect),
+    _desc(services.game.visualEffects.get(visualEffectId).value_or(nullptr)),
+    _services(services) {
+}
+
+VisualEffect::~VisualEffect() {
+    if (_node) {
+        scene::ISceneGraph &graph = _node->graph();
+        graph.removeRoot(*_node);
+    }
+}
+
+static float durationAnim(const std::shared_ptr<graphics::Model> &model) {
+    if (!model) {
+        return 0.0f;
+    }
+
+    if (std::shared_ptr<graphics::Animation> anim = model->getAnimation("impact")) {
+        return anim->length();
+    };
+
+    return 0.0f;
+}
+
+static float durationSound(const std::shared_ptr<audio::AudioClip> &sound) {
+    if (!sound) {
+        return 0.0f;
+    }
+
+    return sound->duration();
+}
+
 void VisualEffect::applyTo(Object &object) {
-    // TODO: implement
+    if (!_desc || !_location) {
+        return;
+    }
+
+    scene::ISceneGraph *graph = nullptr;
+    if (Area *area = dyn_cast<Area>(&object)) {
+        graph = &area->graph();
+    } else if (auto node = object.sceneNode()) {
+        graph = &node->graph();
+    }
+
+    if (!graph) {
+        return;
+    }
+
+    if (_desc->impRootMNode) {
+        _node = graph->newModel(*_desc->impRootMNode, scene::ModelUsage::Projectile);
+        graph->addRoot(_node);
+        _node->setLocalTransform(glm::translate(_location.value()));
+        _node->playAnimation("impact");
+    }
+
+    if (_desc->soundImpact) {
+        _services.audio.mixer.play(
+            _desc->soundImpact,
+            audio::AudioType::Sound,
+            /*gain=*/1.0f,
+            /*loop=*/false,
+            _location);
+    }
 }
 
 float VisualEffect::duration() const {
-    return 0.0f;
+    if (!_desc) {
+        return 0.0f;
+    }
+
+    float anim = durationAnim(_desc->impRootMNode);
+    float sound = durationSound(_desc->soundImpact);
+    return std::max(anim, sound);
 }
 
 } // namespace game
