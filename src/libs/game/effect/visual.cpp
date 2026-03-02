@@ -25,6 +25,10 @@ void VisualEffect::applyTo(Object &object) {
     // TODO: implement
 }
 
+float VisualEffect::duration() const {
+    return 0.0f;
+}
+
 } // namespace game
 
 } // namespace reone
