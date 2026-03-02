@@ -42,6 +42,7 @@ class ISpells;
 class ISurfaces;
 class IProjectiles;
 class IAnimations;
+class IVisualEffects;
 
 struct GameServices {
     ICameraStyles &cameraStyles;
@@ -56,6 +57,7 @@ struct GameServices {
     ISurfaces &surfaces;
     IProjectiles &projectiles;
     IAnimations &animations;
+    IVisualEffects &visualEffects;
 
     GameServices(
         ICameraStyles &cameraStyles,
@@ -69,7 +71,8 @@ struct GameServices {
         ISpells &spells,
         ISurfaces &surfaces,
         IProjectiles &projectiles,
-        IAnimations &animations) :
+        IAnimations &animations,
+        IVisualEffects &visualEffects) :
         cameraStyles(cameraStyles),
         classes(classes),
         feats(feats),
@@ -81,7 +84,8 @@ struct GameServices {
         spells(spells),
         surfaces(surfaces),
         projectiles(projectiles),
-        animations(animations) {
+        animations(animations),
+        visualEffects(visualEffects) {
     }
 };
 

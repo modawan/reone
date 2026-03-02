@@ -21,15 +21,19 @@
 
 namespace reone {
 
+namespace scene {
+class ModelSceneNode;
+}
+
 namespace game {
+
+class ServicesView;
+struct VisualEffectDesc;
 
 class VisualEffect : public Effect {
 public:
-    VisualEffect(int visualEffectId, bool missEffect) :
-        Effect(EffectType::Visual),
-        _visualEffectId(visualEffectId),
-        _missEffect(missEffect) {
-    }
+    VisualEffect(int visualEffectId, bool missEffect, ServicesView &services);
+    ~VisualEffect();
 
     void applyTo(Object &object) override;
     void setLocation(glm::vec3 loc) { _location = loc; }
@@ -38,7 +42,11 @@ public:
 private:
     int _visualEffectId;
     bool _missEffect;
-    glm::vec3 _location;
+    const VisualEffectDesc *_desc {nullptr};
+    std::optional<glm::vec3> _location;
+    ServicesView &_services;
+
+    std::shared_ptr<scene::ModelSceneNode> _node;
 };
 
 } // namespace game

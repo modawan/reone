@@ -412,7 +412,7 @@ static Variable EffectVisualEffect(const std::vector<Variable> &args, const Rout
     bool missEffect = static_cast<bool>(nMissEffect);
 
     // Execute
-    auto effect = ctx.game.newEffect<VisualEffect>(nVisualEffectId, missEffect);
+    auto effect = ctx.game.newEffect<VisualEffect>(nVisualEffectId, missEffect, ctx.services);
     return Variable::ofEffect(std::move(effect));
 }
 

@@ -37,6 +37,7 @@
 #include "../reputes.h"
 #include "../surfaces.h"
 #include "../types.h"
+#include "../visualeffects.h"
 
 #include "services.h"
 
@@ -92,6 +93,7 @@ private:
     std::unique_ptr<Surfaces> _surfaces;
     std::unique_ptr<Projectiles> _projectiles;
     std::unique_ptr<Animations> _animations;
+    std::unique_ptr<VisualEffects> _visualEffects;
 
     std::unique_ptr<GameServices> _services;
 };

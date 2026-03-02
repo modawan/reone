@@ -322,7 +322,8 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/surface.h
     ${GAME_INCLUDE_DIR}/surfaces.h
     ${GAME_INCLUDE_DIR}/talent.h
-    ${GAME_INCLUDE_DIR}/types.h)
+    ${GAME_INCLUDE_DIR}/types.h
+    ${GAME_INCLUDE_DIR}/visualeffects.h)
 
 set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/action.cpp
@@ -517,7 +518,8 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/script/routine/impl/minigame.cpp
     ${GAME_SOURCE_DIR}/script/routines.cpp
     ${GAME_SOURCE_DIR}/script/runner.cpp
-    ${GAME_SOURCE_DIR}/surfaces.cpp)
+    ${GAME_SOURCE_DIR}/surfaces.cpp
+    ${GAME_SOURCE_DIR}/visualeffects.cpp)
 
 add_library(game STATIC ${GAME_HEADERS} ${GAME_SOURCES} ${CLANG_FORMAT_PATH})
 set_target_properties(game PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}$<$<CONFIG:Debug>:/debug>/lib)
