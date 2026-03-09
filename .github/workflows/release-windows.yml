@@ -1,0 +1,32 @@
+name: Build a release on Windows
+on:
+  push:
+    tags: ["*"]
+  workflow_dispatch:
+env:
+  VCPKG_ROOT: C:/vcpkg
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-windows
+
+      - name: Zip
+        working-directory: ${{github.workspace}}/build
+        run: |-
+          mkdir reone-${{ github.ref }}
+          mv bin reone-${{ github.ref }}/
+          7z a -r reone-${{ github.ref }}.zip reone-${{ github.ref }}
+
+      - name: Tag a release
+        shell: bash
+        working-directory: ${{github.workspace}}/build
+        run: |-
+          gh release create ${{ github.ref }} reone-${{ github.ref }}.zip \
+            --title "Reone ${{ github.ref }}" \
+            --notes ${{github.sha}} \
+            --draft --prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
