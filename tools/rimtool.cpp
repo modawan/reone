@@ -18,7 +18,7 @@
 #include "tools.h"
 
 #include <iostream>
-
+#include <boost/filesystem/fstream.hpp>
 #include "../src/resource/typeutil.h"
 
 using namespace std;

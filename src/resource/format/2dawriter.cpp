@@ -18,6 +18,8 @@
 #include "2dawriter.h"
 
 #include <stdexcept>
+#include <algorithm>
+#include <boost/filesystem/fstream.hpp>
 
 #include <boost/filesystem/fstream.hpp>
 
@@ -76,7 +78,7 @@ void TwoDaWriter::writeData() {
     for (int i = 0; i < _twoDa->getRowCount(); ++i) {
         for (size_t j = 0; j < columnCount; ++j) {
             const string &value = _twoDa->rows()[i].values[j];
-            auto maybeData = find_if(data.begin(), data.end(), [&](auto &pair) { return pair.first == value; });
+            auto maybeData = std::find_if(data.begin(), data.end(), [&](auto &pair) { return pair.first == value; });
             if (maybeData != data.end()) {
                 _writer->putUint16(maybeData->second);
             } else {

@@ -140,6 +140,8 @@ void Game::setCursorType(CursorType type) {
 }
 
 void Game::playVideo(const string &name) {
+    return;
+
     fs::path path(getPathIgnoreCase(_path, "movies/" + name + ".bik"));
 
     BikFile bik(path);

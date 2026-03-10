@@ -21,7 +21,7 @@ add_subdirectory(external/s3tc)
 
 option(BUILD_TOOLS "build tools executable" ON)
 option(BUILD_TESTS "build unit tests" OFF)
-option(ENABLE_VIDEO "enable video playback" ON)
+option(ENABLE_VIDEO "enable video playback" OFF)
 option(USE_EXTERNAL_GLM "use GLM library from external subdirectory" ON)
 
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)

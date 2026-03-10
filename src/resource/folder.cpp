@@ -21,6 +21,8 @@
 
 #include "typeutil.h"
 
+#include <boost/filesystem/fstream.hpp>
+
 using namespace std;
 
 namespace fs = boost::filesystem;

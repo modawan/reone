@@ -20,6 +20,7 @@
 #include <functional>
 #include <string>
 #include <vector>
+#include <stdint.h>
 
 #include <boost/noncopyable.hpp>
 

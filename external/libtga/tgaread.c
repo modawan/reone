@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "tga.h"
+#include <string.h>
 
 
 size_t

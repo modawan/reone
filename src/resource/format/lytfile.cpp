@@ -18,6 +18,7 @@
 #include "lytfile.h"
 
 #include <boost/algorithm/string.hpp>
+#include <boost/filesystem/fstream.hpp>
 
 using namespace std;
 

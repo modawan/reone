@@ -18,7 +18,7 @@
 #include "objectselect.h"
 
 #include <stdexcept>
-
+#include <algorithm>
 #include "glm/vec3.hpp"
 
 #include "object/area.h"

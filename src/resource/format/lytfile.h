@@ -19,7 +19,7 @@
 
 #include <boost/filesystem.hpp>
 #include <boost/noncopyable.hpp>
-
+#include <memory>
 #include "glm/vec3.hpp"
 
 namespace reone {

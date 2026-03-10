@@ -18,7 +18,7 @@
 #include "mdlfile.h"
 
 #include <boost/algorithm/string.hpp>
-
+#include <boost/filesystem/fstream.hpp>
 #include "glm/ext.hpp"
 
 #include "../../common/log.h"

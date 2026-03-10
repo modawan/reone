@@ -18,6 +18,7 @@
 #include "binfile.h"
 
 #include <boost/format.hpp>
+#include <boost/filesystem/fstream.hpp>
 
 using namespace std;
 

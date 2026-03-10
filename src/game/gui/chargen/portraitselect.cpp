@@ -32,6 +32,8 @@
 
 #include "chargen.h"
 
+#include <algorithm>
+
 using namespace std;
 using namespace std::placeholders;
 
@@ -168,7 +170,7 @@ void PortraitSelection::updatePortraits() {
 
 void PortraitSelection::resetCurrentPortrait() {
     const StaticCreatureBlueprint &character = _charGen->character();
-    auto maybePortrait = find_if(_portraits.begin(), _portraits.end(), [&character](const Portrait &portrait) {
+    auto maybePortrait = std::find_if(_portraits.begin(), _portraits.end(), [&character](const Portrait &portrait) {
         return
             portrait.appearanceNumber == character.appearance() ||
             portrait.appearanceS == character.appearance() ||

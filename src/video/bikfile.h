@@ -20,6 +20,7 @@
 #include <boost/filesystem/path.hpp>
 
 #include "../audio/types.h"
+#include <memory>
 
 namespace reone {
 

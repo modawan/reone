@@ -21,6 +21,7 @@
 #include <memory>
 
 #include <boost/filesystem.hpp>
+#include <boost/filesystem/fstream.hpp>
 
 #include "../common/streamreader.h"
 #include "../common/streamwriter.h"

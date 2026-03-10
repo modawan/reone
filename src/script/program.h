@@ -19,7 +19,7 @@
 
 #include <string>
 #include <unordered_map>
-
+#include <stdint.h>
 #include <boost/noncopyable.hpp>
 
 namespace reone {

@@ -31,6 +31,7 @@ Pathfinder::Edge::Edge(uint16_t toIndex, float length) : toIndex(toIndex), lengt
 }
 
 void Pathfinder::load(const vector<Path::Point> &points, const unordered_map<int, float> &pointZ) {
+    return;
     for (uint16_t i = 0; i < points.size(); ++i) {
         const Path::Point &point = points[i];
         glm::vec3 pointVec(point.x, point.y, pointZ.find(i)->second);

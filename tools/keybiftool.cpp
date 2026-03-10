@@ -22,6 +22,7 @@
 
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/filesystem/fstream.hpp>
 
 #include "../src/common/pathutil.h"
 #include "../src/resource/typeutil.h"

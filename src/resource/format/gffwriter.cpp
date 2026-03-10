@@ -20,6 +20,7 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <queue>
+#include <algorithm>
 
 #include <boost/filesystem/fstream.hpp>
 
@@ -204,7 +205,7 @@ void GffWriter::processTree() {
 
             // Append or use existing field label
             int labelIdx;
-            auto maybeLabel = find(_context.labels.begin(), _context.labels.end(), field.label);
+            auto maybeLabel = std::find(_context.labels.begin(), _context.labels.end(), field.label);
             if (maybeLabel != _context.labels.end()) {
                 labelIdx = static_cast<int>(distance(_context.labels.begin(), maybeLabel));
             } else {
