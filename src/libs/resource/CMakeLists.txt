@@ -64,6 +64,7 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/parser/gff/gui.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/gvt.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/ifo.h
+    ${RESOURCE_INCLUDE_DIR}/parser/gff/nfo.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/pth.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/utc.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/utd.h
@@ -141,6 +142,7 @@ set(RESOURCE_SOURCES
     ${RESOURCE_SOURCE_DIR}/parser/gff/gui.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/gvt.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/ifo.cpp
+    ${RESOURCE_SOURCE_DIR}/parser/gff/nfo.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/pth.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/utc.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/utd.cpp
