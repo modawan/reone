@@ -29,6 +29,7 @@
 #include "reone/resource/resources.h"
 #include "reone/resource/strings.h"
 #include "reone/script/types.h"
+#include "reone/system/logutil.h"
 
 
 using namespace reone::audio;
@@ -49,6 +50,28 @@ static int g_strRefRemove = 38456;
 
 static glm::vec3 g_kotorColorOn = {0.984314f, 1.0f, 0};
 static glm::vec3 g_kotorColorAdded = {0, 0.831373f, 0.090196f};
+
+static bool isTraskAutoDialogTrace(const PartySelectionContext &ctx) {
+    return ctx.exitScript == "k_pend_reset";
+}
+
+static std::string describeTraceObject(const std::shared_ptr<Object> &object) {
+    if (!object) {
+        return "null";
+    }
+    return "#" + std::to_string(object->id()) +
+           " tag='" + object->tag() +
+           "' blueprint='" + object->blueprintResRef() +
+           "' conv='" + object->conversation() + "'";
+}
+
+static std::string describeTraceParty(const Party &party) {
+    std::string result("size=" + std::to_string(party.getSize()));
+    for (int i = 0; i < party.getSize(); ++i) {
+        result += " member" + std::to_string(i) + "=" + describeTraceObject(party.getMember(i));
+    }
+    return result;
+}
 
 PartySelection::PartySelection(Game &game, ServicesView &services) :
     GameGUI(game, services) {
@@ -78,17 +101,19 @@ void PartySelection::onGUILoaded() {
         onAcceptButtonClick();
     });
     _controls.BTN_DONE->setOnClick([this]() {
+        if (isTraskAutoDialogTrace(_context)) {
+            info("reone trask autodialog trace: partyselect close path=BTN_DONE before changeParty " + describeTraceParty(_game.party()));
+        }
         changeParty();
         _game.openInGame();
-        if (!_context.exitScript.empty()) {
-            _game.scriptRunner().run(_context.exitScript);
-        }
+        runExitScript();
     });
     _controls.BTN_BACK->setOnClick([this]() {
-        _game.openInGame();
-        if (!_context.exitScript.empty()) {
-            _game.scriptRunner().run(_context.exitScript);
+        if (isTraskAutoDialogTrace(_context)) {
+            info("reone trask autodialog trace: partyselect close path=BTN_BACK no changeParty " + describeTraceParty(_game.party()));
         }
+        _game.openInGame();
+        runExitScript();
     });
     _controls.BTN_NPC0->setOnClick([this]() {
         onNpcButtonClick(0);
@@ -134,6 +159,13 @@ void PartySelection::onGUILoaded() {
 void PartySelection::prepare(const PartySelectionContext &ctx) {
     _context = ctx;
     _availableCount = kMaxFollowerCount;
+
+    if (isTraskAutoDialogTrace(_context)) {
+        info("reone trask autodialog trace: partyselect prepare exitScript='" + _context.exitScript +
+             "' forceNpc1=" + std::to_string(_context.forceNpc1) +
+             " forceNpc2=" + std::to_string(_context.forceNpc2) +
+             " " + describeTraceParty(_game.party()));
+    }
 
     for (int i = 0; i < kNpcCount; ++i) {
         _added[i] = false;
@@ -303,6 +335,20 @@ void PartySelection::changeParty() {
     }
 
     area->reloadParty();
+}
+
+void PartySelection::runExitScript() {
+    if (_context.exitScript.empty()) {
+        return;
+    }
+
+    auto leader = _game.party().getLeader();
+    if (isTraskAutoDialogTrace(_context)) {
+        info("reone trask autodialog trace: partyselect runExitScript exitScript='" + _context.exitScript +
+             "' caller=" + describeTraceObject(leader) +
+             " " + describeTraceParty(_game.party()));
+    }
+    _game.scriptRunner().run(_context.exitScript, leader ? leader->id() : 0);
 }
 
 } // namespace game

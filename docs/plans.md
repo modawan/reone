@@ -133,3 +133,54 @@ Non-goals:
 - Do not force any first-Sith actor hostile.
 - Do not port donor combat, reciprocal hostility, boarding-party, encounter, journal, Carth content, launcher, or modernization changes.
 - Do not add broad diagnostics unless this minimal port fails validation or cannot be isolated.
+
+## Tiny Migration Milestone: K1 Trask Auto-Dialogue Dispatch
+
+Goal: restore the early Endar Spire scripted Trask follow-up conversations by fixing the shared conversation fallback and party-selection exit-script callback paths.
+
+Acceptance criteria:
+
+- `ActionStartConversation` calls with an empty dialogue resref can fall back to the target object's default conversation.
+- Party-selection exit scripts run with the current party leader/player as caller so K1 callback scripts that begin with caller-sensitive actions can dispatch their follow-up conversations.
+- The changes are limited to shared script dispatch/callback wiring and do not alter Trask content, trigger geometry, combat legality, hostility, boarding-party persistence, encounter sequencing, item behavior, or cutscene logic.
+- The previously integrated trigger-owned delayed-action fix remains unchanged.
+- K1 and K2 smoke/eval pass after the change.
+
+Verification:
+
+- Build the engine target.
+- Run generic smoke/eval with `-AllowMissingGame`.
+- Run K1 smoke/eval.
+- Run K2 smoke/eval.
+- Human K1 verification should reach the Trask join and first-door handoff band and confirm both scripted follow-up dialogues auto-play without manual Trask conversation.
+
+Non-goals:
+
+- Do not port donor party-selection forced-companion work in this milestone.
+- Do not port donor combat, reciprocal hostility, boarding-party, encounter, journal, Carth content, launcher, or modernization changes.
+- Do not add broad diagnostics unless this minimal dispatch fix fails validation or cannot be isolated.
+
+## Tiny Migration Milestone: Action Continuation-Safe ClearAllActions
+
+Goal: preserve active assigned action continuations when a queued script action calls `ClearAllActions()`.
+
+Acceptance criteria:
+
+- `Object::clearAllActions(false)` no longer erases the currently executing action frame or continuation actions behind it when invoked from that active action.
+- Forced clears and clears outside active action execution retain existing behavior.
+- The change is generic action queue semantics, not Trask-specific content logic.
+- K1 and K2 smoke/eval pass after the change.
+
+Verification:
+
+- Build the engine target.
+- Run generic smoke/eval with `-AllowMissingGame`.
+- Run K1 smoke/eval.
+- Run K2 smoke/eval.
+- Human K1 verification should close party selection after Trask joins and confirm the trace reaches `ActionStartConversation`/`Area::startDialog` and the unlock-door dialogue auto-plays.
+
+Non-goals:
+
+- Do not port donor party-selection forced-companion work.
+- Do not port combat, hostility, boarding-party, encounter, journal, content, launcher, or modernization changes.
+- Do not turn temporary Trask trace logging into a permanent broad logging system.

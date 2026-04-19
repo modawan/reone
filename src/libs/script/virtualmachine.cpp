@@ -33,6 +33,44 @@ namespace script {
 static constexpr int kStartInstructionOffset = 13;
 static constexpr float kFloatTolerance = 1e-5;
 
+static bool isTraskAutoDialogTraceRoutine(const std::string &routineName) {
+    return routineName == "ClearAllActions" ||
+           routineName == "GetPartyMemberByIndex" ||
+           routineName == "AssignCommand" ||
+           routineName == "ActionStartConversation" ||
+           routineName == "SetGlobalNumber";
+}
+
+static std::string describeTraskTraceVariables(const std::vector<Variable> &args) {
+    if (args.empty()) {
+        return "[]";
+    }
+    std::string result("[");
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (i != 0) {
+            result += ", ";
+        }
+        result += args[i].toString();
+    }
+    result += "]";
+    return result;
+}
+
+static std::string describeTraskTraceContextArgs(const std::vector<Argument> &args) {
+    if (args.empty()) {
+        return "[]";
+    }
+    std::string result("[");
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (i != 0) {
+            result += ", ";
+        }
+        result += args[i].toString();
+    }
+    result += "]";
+    return result;
+}
+
 VirtualMachine::VirtualMachine(std::shared_ptr<ScriptProgram> program, std::unique_ptr<ExecutionContext> context) :
     _context(std::move(context)),
     _program(std::move(program)) {
@@ -401,7 +439,17 @@ void VirtualMachine::executeACTION(const Instruction &ins) {
         }
     }
 
+    bool traskTrace = _program->name() == "k_pend_reset" && isTraskAutoDialogTraceRoutine(routine.name());
+    if (traskTrace) {
+        info(str(boost::format("reone trask autodialog trace: vm action begin script='%s' offset=%04x routine='%s' args=%s contextArgs=%s") %
+                 _program->name() % ins.offset % routine.name() % describeTraskTraceVariables(args) % describeTraskTraceContextArgs(_context->args)));
+    }
+
     Variable retValue = routine.invoke(args, *_context);
+    if (traskTrace) {
+        info(str(boost::format("reone trask autodialog trace: vm action end script='%s' offset=%04x routine='%s' result=%s") %
+                 _program->name() % ins.offset % routine.name() % retValue.toString()));
+    }
     if (Logger::instance.isChannelEnabled(LogChannel::Script2)) {
         std::vector<std::string> argStrings;
         for (auto &arg : args) {

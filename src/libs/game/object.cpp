@@ -65,6 +65,23 @@ void Object::setLocalNumber(int index, int value) {
 }
 
 void Object::clearAllActions(bool force) {
+    if (!force) {
+        auto executingAction = _executingAction.lock();
+        if (executingAction) {
+            while (!_actions.empty() && _actions.front() != executingAction) {
+                const std::shared_ptr<Action> &action = _actions.front();
+                if (action->locked()) {
+                    break;
+                }
+                action->cancel(action, *this);
+                _actions.pop_front();
+            }
+            if (!_actions.empty() && _actions.front() == executingAction) {
+                return;
+            }
+        }
+    }
+
     while (!_actions.empty()) {
         const std::shared_ptr<Action> &action = _actions.back();
         if (!force && action->locked()) {
@@ -129,7 +146,14 @@ void Object::executeActions(float dt) {
         return;
     }
     std::shared_ptr<Action> action(_actions.front());
-    action->execute(action, *this, dt);
+    _executingAction = action;
+    try {
+        action->execute(action, *this, dt);
+    } catch (...) {
+        _executingAction.reset();
+        throw;
+    }
+    _executingAction.reset();
 }
 
 bool Object::hasUserActionsPending() const {

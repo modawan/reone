@@ -20,12 +20,34 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/party.h"
+#include "reone/system/logutil.h"
 
 namespace reone {
 
 namespace game {
 
 static constexpr float kMaxConversationDistance = 4.0f;
+
+static bool containsTraskTraceToken(const std::string &value) {
+    return value.find("trask") != std::string::npos;
+}
+
+static bool isTraskTraceObject(const std::shared_ptr<Object> &object) {
+    return object &&
+           (containsTraskTraceToken(object->tag()) ||
+            containsTraskTraceToken(object->blueprintResRef()) ||
+            containsTraskTraceToken(object->conversation()));
+}
+
+static std::string describeTraskTraceObject(const std::shared_ptr<Object> &object) {
+    if (!object) {
+        return "null";
+    }
+    return "#" + std::to_string(object->id()) +
+           " tag='" + object->tag() +
+           "' blueprint='" + object->blueprintResRef() +
+           "' conv='" + object->conversation() + "'";
+}
 
 void StartConversationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto actorPtr = _game.getObjectById(actor.id());
@@ -35,6 +57,15 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
         actorPtr->type() != ObjectType::Creature ||
         _ignoreStartRange ||
         creatureActor->navigateTo(_objectToConverse->position(), true, kMaxConversationDistance, dt);
+
+    bool traskTrace = isTraskTraceObject(actorPtr) || isTraskTraceObject(_objectToConverse);
+    if (traskTrace) {
+        info("reone trask autodialog trace: StartConversationAction execute reached=" + std::to_string(static_cast<int>(reached)) +
+             " actor=" + describeTraskTraceObject(actorPtr) +
+             " target=" + describeTraskTraceObject(_objectToConverse) +
+             " dialogResRef='" + _dialogResRef + "'" +
+             " ignoreStartRange=" + std::to_string(static_cast<int>(_ignoreStartRange)));
+    }
 
     if (reached) {
         bool isActorLeader = _game.party().getLeader() == actorPtr;

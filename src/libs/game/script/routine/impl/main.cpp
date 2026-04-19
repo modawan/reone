@@ -63,6 +63,42 @@ namespace reone {
 
 namespace game {
 
+static bool containsTraskTraceToken(const std::string &value) {
+    return value.find("trask") != std::string::npos;
+}
+
+static bool isTraskTraceObject(const std::shared_ptr<Object> &object) {
+    return object &&
+           (containsTraskTraceToken(object->tag()) ||
+            containsTraskTraceToken(object->blueprintResRef()) ||
+            containsTraskTraceToken(object->conversation()));
+}
+
+static std::string describeTraskTraceObject(const std::shared_ptr<Object> &object) {
+    if (!object) {
+        return "null";
+    }
+    return "#" + std::to_string(object->id()) +
+           " tag='" + object->tag() +
+           "' blueprint='" + object->blueprintResRef() +
+           "' conv='" + object->conversation() + "'";
+}
+
+static std::string describeTraskTraceArgs(const std::vector<script::Argument> &args) {
+    if (args.empty()) {
+        return "[]";
+    }
+    std::string result("[");
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (i != 0) {
+            result += ", ";
+        }
+        result += args[i].toString();
+    }
+    result += "]";
+    return result;
+}
+
 static Variable Random(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nMaxInteger = getInt(args, 0);
@@ -139,6 +175,11 @@ static Variable AssignCommand(const std::vector<Variable> &args, const RoutineCo
     // Transform
 
     // Execute
+    if (isTraskTraceObject(oActionSubject)) {
+        info("reone trask autodialog trace: AssignCommand subject=" + describeTraskTraceObject(oActionSubject) +
+             " savedState=" + std::string(aActionToAssign && aActionToAssign->savedState ? "yes" : "no") +
+             " actionArgs=" + (aActionToAssign ? describeTraskTraceArgs(aActionToAssign->args) : "null"));
+    }
     auto commandAction = ctx.game.newAction<DoCommandAction>(std::move(aActionToAssign));
     oActionSubject->addAction(std::move(commandAction));
     return Variable::ofNull();
@@ -5439,6 +5480,18 @@ static Variable ShowPartySelectionGUI(const std::vector<Variable> &args, const R
     auto exitScript = boost::to_lower_copy(sExitScript);
 
     // Execute
+    if (exitScript == "k_pend_reset") {
+        std::string callerDesc("none");
+        if (const Variable *caller = ctx.execution.findArg(ArgKind::Caller)) {
+            callerDesc = describeTraskTraceObject(ctx.game.getObjectById(caller->objectId));
+        }
+        info("reone trask autodialog trace: ShowPartySelectionGUI exitScript='" + exitScript +
+             "' forceNpc1=" + std::to_string(nForceNPC1) +
+             " forceNpc2=" + std::to_string(nForceNPC2) +
+             " allowCancel=" + std::to_string(nAllowCancel) +
+             " caller=" + callerDesc +
+             " parentArgs=" + describeTraskTraceArgs(ctx.execution.args));
+    }
     PartySelectionContext partyCtx;
     partyCtx.exitScript = exitScript;
     partyCtx.forceNpc1 = nForceNPC1;

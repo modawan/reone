@@ -165,6 +165,7 @@ private:
     void refreshAvailableCount();
     void refreshNpcButtons();
     void removeNpc(int npc);
+    void runExitScript();
 
     gui::ToggleButton &getNpcButton(int npc);
 
