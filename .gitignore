@@ -1,4 +1,5 @@
 .cache/
+.agent/
 .vs/
 .vscode/
 build/

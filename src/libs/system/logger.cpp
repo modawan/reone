@@ -98,6 +98,13 @@ void Logger::append(std::string message,
     }
 }
 
+void Logger::flush() {
+    if (!_inited || !buffer) {
+        return;
+    }
+    flush(buffer->get());
+}
+
 void Logger::flush(std::ostringstream &buffer) {
     if (!_stream) {
         return;
@@ -106,6 +113,7 @@ void Logger::flush(std::ostringstream &buffer) {
     {
         std::lock_guard<std::mutex> lock {_streamMutex};
         _stream->write(&str[0], str.length());
+        _stream->flush();
     }
     buffer.str("");
 }

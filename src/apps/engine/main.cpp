@@ -22,6 +22,7 @@
 #endif
 
 #include "reone/system/logger.h"
+#include "reone/system/logutil.h"
 #include "reone/system/threadutil.h"
 
 #include "engine.h"
@@ -31,6 +32,7 @@ using namespace reone;
 using namespace reone::graphics;
 
 static constexpr char kLogFilename[] = "engine.log";
+static constexpr char kEngineStartupMessage[] = "reone smoke signal: engine startup";
 
 int main(int argc, char **argv) {
 #ifdef _WIN32
@@ -48,6 +50,8 @@ int main(int argc, char **argv) {
     }
     try {
         Logger::instance.init(options->logging.severity, options->logging.channels, kLogFilename);
+        info(kEngineStartupMessage);
+        Logger::instance.flush();
     } catch (const std::exception &ex) {
         std::cerr << "Error initializing logging: " << ex.what() << std::endl;
         return 2;
