@@ -412,15 +412,8 @@ void Game::setCursorType(CursorType type) {
 }
 
 void Game::playVideo(const std::string &name) {
-    _movie = _services.resource.movies.get(name);
-    if (!_movie) {
-        return;
-    }
-
-    if (_music) {
-        _music->stop();
-        _music.reset();
-    }
+    _moduleTransitionMovies.clear();
+    startVideo(name);
 }
 
 void Game::playMusic(const std::string &resRef) {
@@ -526,14 +519,6 @@ void Game::renderGUI() {
     }
 }
 
-void Game::updateMovie(float dt) {
-    _movie->update(dt);
-
-    if (_movie->isFinished()) {
-        _movie.reset();
-    }
-}
-
 void Game::updateMusic() {
     if (_musicResRef.empty()) {
         return;
@@ -563,6 +548,51 @@ void Game::stopMovement() {
 void Game::scheduleModuleTransition(const std::string &moduleName, const std::string &entry) {
     _nextModule = moduleName;
     _nextEntry = entry;
+    _moduleTransitionMovies.clear();
+}
+
+void Game::scheduleModuleTransitionWithMovies(const std::string &moduleName, const std::string &entry, std::vector<std::string> movies) {
+    _nextModule = moduleName;
+    _nextEntry = entry;
+    _moduleTransitionMovies = std::move(movies);
+
+    if (!_movie) {
+        playNextModuleTransitionMovie();
+    }
+}
+
+bool Game::startVideo(const std::string &name) {
+    _movie = _services.resource.movies.get(name);
+    if (!_movie) {
+        return false;
+    }
+
+    if (_music) {
+        _music->stop();
+        _music.reset();
+    }
+    return true;
+}
+
+bool Game::playNextModuleTransitionMovie() {
+    while (!_moduleTransitionMovies.empty()) {
+        auto name = std::move(_moduleTransitionMovies.front());
+        _moduleTransitionMovies.erase(_moduleTransitionMovies.begin());
+
+        if (startVideo(name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void Game::updateMovie(float dt) {
+    _movie->update(dt);
+
+    if (_movie->isFinished()) {
+        _movie.reset();
+        playNextModuleTransitionMovie();
+    }
 }
 
 void Game::updateCamera(float dt) {
