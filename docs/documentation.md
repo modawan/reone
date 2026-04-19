@@ -450,3 +450,63 @@ Human verification needed:
 
 - Automated smoke validates startup, but it does not press overlay hotkeys or move through trigger volumes.
 - Human in-game verification should launch with developer mode enabled and confirm `Ctrl+Shift+A` shows/hides entity labels, and trigger zones change to `tested`, `inside`, and `enter` states when crossed.
+
+## 2026-04-19: K1 Early Carth Cutscene / Trigger Delayed-Action Parity Slice
+
+Bug description:
+
+- In K1's early Endar Spire handoff path, the Carth-related message/cutscene progression after the first-room/Trask-door band can fail to appear.
+- The old branch identified this as a shared engine delayed-action issue rather than a Carth content hack: `k_pend_trig02` runs with the trigger as caller and schedules a `DelayCommand`; that delayed action is owned by the trigger object.
+- Before the old fix, trigger objects ran tenant maintenance but skipped base `Object::update(dt)`, so trigger-owned delayed actions did not mature or execute.
+
+Donor fix source:
+
+- `D:\reone-master\docs\documentation.md`, lines 2440-2506: old diagnosis and implementation summary.
+- `D:\reone-master\docs\plans.md`, lines 1290-1332: tiny milestone describing the selected fix.
+- `D:\reone-master\src\libs\game\object\trigger.cpp`, lines 163-165: `Trigger::update` calls `Object::update(dt)` before trigger tenant maintenance.
+
+Minimal port:
+
+- Ported only the causal runtime behavior: `Trigger::update(float dt)` now calls `Object::update(dt)` before developer debug timers and tenant exit maintenance.
+- This lets trigger-owned action queues, delayed actions, and effects process through the existing modawan base object update path.
+
+What was intentionally not ported:
+
+- Donor scoped `DelayCommand` scheduling logs in script routines.
+- Donor `DoCommandAction` execution/result logs.
+- Donor live-log eval gates and old K1 combat-entry legal-data tests.
+- Donor first-Sith combat, hostility, reciprocal-hostility, boarding-party persistence, encounter band-aids, target inspector/event feed, launcher changes, or content hacks.
+
+Why those were excluded:
+
+- The minimal causal fix is the base `Object::update(dt)` call on trigger objects.
+- The donor logging/eval changes were useful during old investigation but are not required to restore the delayed action behavior in this bounded parity slice.
+- The excluded combat/hostility and encounter changes belong to older compensating runtime work and are outside this single-bug branch.
+
+Validation:
+
+- Build:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Config RelWithDebInfo -Target engine -Configure`
+  - Result: passed. `D:\git\reone-modawan-main\build\bin\engine.exe` was produced.
+- Smoke test without game install:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\smoke_test.ps1 -AllowMissingGame`
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\eval_smoke.ps1 -SmokeDir .\.agent\logs\smoke_latest -AllowMissingGame`
+  - Result: passed. Launch was skipped by design.
+- K1 smoke/eval:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\smoke_test.ps1 -GameDir 'D:\SteamLibrary\steamapps\common\swkotor' -Game k1`
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\eval_smoke.ps1 -SmokeDir .\.agent\logs\smoke_latest`
+  - Result: passed. Smoke artifacts were written to `.agent\logs\smoke_20260419_143200`.
+- K2 smoke/eval:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\smoke_test.ps1 -GameDir 'D:\SteamLibrary\steamapps\common\Knights of the Old Republic II' -Game k2`
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\eval_smoke.ps1 -SmokeDir .\.agent\logs\smoke_latest`
+  - Result: passed. Smoke artifacts were written to `.agent\logs\smoke_20260419_143241`.
+- Artifact check:
+  - `D:\git\reone-modawan-main\build\bin\engine.exe` exists.
+  - `D:\git\reone-modawan-main\build\bin\shaderpack.erf` exists.
+- `git diff --check`
+  - Result: no whitespace errors; only CRLF normalization warnings.
+
+Human verification needed:
+
+- Automated smoke verifies startup only; it does not drive the Endar Spire sequence.
+- Launch K1 with the rebuilt engine, play through the early Endar Spire first-room/Trask-door/Carth handoff band without console or forced combat, and confirm the previously missing Carth-related message/cutscene progression occurs.

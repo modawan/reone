@@ -108,3 +108,28 @@ Non-goals:
 - Do not port donor target inspector or event feed in this milestone.
 - Do not port donor launcher developer-option controls in this milestone.
 - Do not port donor gameplay behavior or modernize runtime systems.
+
+## Tiny Migration Milestone: K1 Trigger-Owned Delayed Actions
+
+Goal: restore the old K1 early Carth/Trask handoff parity fix by allowing delayed actions queued on trigger objects to execute.
+
+Acceptance criteria:
+
+- `Trigger::update(float dt)` runs base `Object::update(dt)` before trigger tenant maintenance.
+- The change is limited to trigger-owned base action/effect processing and does not alter trigger containment geometry, script dispatch arguments, combat legality, hostility, boarding-party persistence, encounter sequencing, or Carth content.
+- Donor logging/eval instrumentation is not ported unless needed to prove a blocker.
+- K1 and K2 smoke/eval pass after the change.
+
+Verification:
+
+- Build the engine target.
+- Run generic smoke/eval with `-AllowMissingGame`.
+- Run K1 smoke/eval.
+- Run K2 smoke/eval.
+- Human K1 verification should reach the early Endar Spire first-room/Trask-door/Carth handoff band and confirm the previously missing Carth-related cutscene/message progression occurs.
+
+Non-goals:
+
+- Do not force any first-Sith actor hostile.
+- Do not port donor combat, reciprocal hostility, boarding-party, encounter, journal, Carth content, launcher, or modernization changes.
+- Do not add broad diagnostics unless this minimal port fails validation or cannot be isolated.

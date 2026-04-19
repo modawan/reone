@@ -87,6 +87,8 @@ void Trigger::loadFromBlueprint(const std::string &resRef) {
 }
 
 void Trigger::update(float dt) {
+    Object::update(dt);
+
     _debugTestAge = glm::max(0.0f, _debugTestAge - dt);
     _debugInsideAge = glm::max(0.0f, _debugInsideAge - dt);
     _debugEnterAge = glm::max(0.0f, _debugEnterAge - dt);
