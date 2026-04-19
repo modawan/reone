@@ -29,6 +29,13 @@ namespace game {
 
 class Trigger : public Object {
 public:
+    enum class DebugState {
+        Default,
+        Tested,
+        Inside,
+        Entered
+    };
+
     Trigger(
         uint32_t id,
         std::string sceneName,
@@ -56,6 +63,12 @@ public:
     bool isIn(const glm::vec2 &point) const;
     bool isTenant(const std::shared_ptr<Object> &object) const;
 
+    const std::vector<glm::vec3> &geometry() const { return _geometry; }
+    DebugState debugState() const;
+
+    void markDebugTested(bool inside);
+    void markDebugEntered();
+
     const std::string &getOnEnter() const { return _onEnter; }
     const std::string &getOnExit() const { return _onExit; }
 
@@ -79,6 +92,9 @@ private:
     std::vector<glm::vec3> _geometry;
     std::set<std::shared_ptr<Object>> _tenants;
     std::string _keyName;
+    float _debugTestAge {0.0f};
+    float _debugInsideAge {0.0f};
+    float _debugEnterAge {0.0f};
 
     // Scripts
 

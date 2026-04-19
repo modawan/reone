@@ -37,6 +37,10 @@ namespace reone {
 
 namespace game {
 
+static constexpr float kDebugTestDuration = 0.25f;
+static constexpr float kDebugInsideDuration = 0.25f;
+static constexpr float kDebugEnterDuration = 1.5f;
+
 void Trigger::loadFromGIT(const resource::generated::GIT_TriggerList &git) {
     std::string templateResRef(boost::to_lower_copy(git.TemplateResRef));
     loadFromBlueprint(templateResRef);
@@ -83,6 +87,10 @@ void Trigger::loadFromBlueprint(const std::string &resRef) {
 }
 
 void Trigger::update(float dt) {
+    _debugTestAge = glm::max(0.0f, _debugTestAge - dt);
+    _debugInsideAge = glm::max(0.0f, _debugInsideAge - dt);
+    _debugEnterAge = glm::max(0.0f, _debugEnterAge - dt);
+
     std::set<std::shared_ptr<Object>> tenantsToRemove;
     for (auto &tenant : _tenants) {
         if (tenant) {
@@ -126,6 +134,30 @@ bool Trigger::isIn(const glm::vec2 &point) const {
 bool Trigger::isTenant(const std::shared_ptr<Object> &object) const {
     auto maybeTenant = find(_tenants.begin(), _tenants.end(), object);
     return maybeTenant != _tenants.end();
+}
+
+Trigger::DebugState Trigger::debugState() const {
+    if (_debugEnterAge > 0.0f) {
+        return DebugState::Entered;
+    }
+    if (!_tenants.empty() || _debugInsideAge > 0.0f) {
+        return DebugState::Inside;
+    }
+    if (_debugTestAge > 0.0f) {
+        return DebugState::Tested;
+    }
+    return DebugState::Default;
+}
+
+void Trigger::markDebugTested(bool inside) {
+    _debugTestAge = kDebugTestDuration;
+    if (inside) {
+        _debugInsideAge = kDebugInsideDuration;
+    }
+}
+
+void Trigger::markDebugEntered() {
+    _debugEnterAge = kDebugEnterDuration;
 }
 
 void Trigger::loadUTT(const resource::generated::UTT &utt) {
