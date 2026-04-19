@@ -3,3 +3,6 @@
 .vs/
 .vscode/
 build/
+
+engine.log
+reone.cfg
