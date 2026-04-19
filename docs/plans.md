@@ -136,13 +136,13 @@ Non-goals:
 
 ## Tiny Migration Milestone: K1 Trask Auto-Dialogue Dispatch
 
-Goal: restore the early Endar Spire scripted Trask follow-up conversations by fixing the shared conversation fallback and party-selection exit-script callback paths.
+Goal: restore the early Endar Spire scripted Trask follow-up conversations by fixing shared conversation fallback and assigned-action continuation semantics.
 
 Acceptance criteria:
 
 - `ActionStartConversation` calls with an empty dialogue resref can fall back to the target object's default conversation.
-- Party-selection exit scripts run with the current party leader/player as caller so K1 callback scripts that begin with caller-sensitive actions can dispatch their follow-up conversations.
-- The changes are limited to shared script dispatch/callback wiring and do not alter Trask content, trigger geometry, combat legality, hostility, boarding-party persistence, encounter sequencing, item behavior, or cutscene logic.
+- `Object::clearAllActions(false)` preserves the active assigned action frame and queued continuation behind it when invoked from that active frame.
+- The changes are limited to shared script/action semantics and do not alter Trask content, trigger geometry, combat legality, hostility, boarding-party persistence, encounter sequencing, item behavior, or cutscene logic.
 - The previously integrated trigger-owned delayed-action fix remains unchanged.
 - K1 and K2 smoke/eval pass after the change.
 
@@ -177,10 +177,34 @@ Verification:
 - Run generic smoke/eval with `-AllowMissingGame`.
 - Run K1 smoke/eval.
 - Run K2 smoke/eval.
-- Human K1 verification should close party selection after Trask joins and confirm the trace reaches `ActionStartConversation`/`Area::startDialog` and the unlock-door dialogue auto-plays.
+- Human K1 verification should close party selection after Trask joins and confirm the unlock-door dialogue auto-plays without temporary trace logging.
 
 Non-goals:
 
 - Do not port donor party-selection forced-companion work.
 - Do not port combat, hostility, boarding-party, encounter, journal, content, launcher, or modernization changes.
 - Do not turn temporary Trask trace logging into a permanent broad logging system.
+
+## Tiny Migration Milestone: Stable Dev Tools Cleanup
+
+Goal: remove temporary Trask tracing and keep developer tools on the existing launcher Developer Mode path.
+
+Acceptance criteria:
+
+- Temporary `reone trask autodialog trace:` log points are removed after live validation.
+- The temporary party-selection caller helper is removed because the assigned action continuation fix is causal and `DoCommandAction` supplies the assigned actor as caller.
+- The launcher Developer Mode area documents the current dev-tool hotkeys without adding a parallel config path.
+- Trigger, dialogue fallback, and action continuation fixes remain intact.
+- K1 and K2 smoke/eval pass after the cleanup.
+
+Verification:
+
+- Build engine and launcher targets.
+- Run generic smoke/eval with `-AllowMissingGame`.
+- Run K1 smoke/eval.
+- Run K2 smoke/eval.
+- Human verification should launch through `launcher.exe`, check Developer Mode, confirm the hotkey help is visible, and confirm `Ctrl+Shift+D/T/A/W` still work in game.
+
+Non-goals:
+
+- Do not add gameplay fixes, donor gameplay behavior, combat/hostility/boarding-party changes, broad launcher redesign, Dear ImGui work, or modernization.

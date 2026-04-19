@@ -78,27 +78,6 @@ static constexpr float kMaxCollisionDistance2 = kMaxCollisionDistance * kMaxColl
 static glm::vec3 g_defaultAmbientColor {0.2f};
 static CameraStyle g_defaultCameraStyle {"", 3.2f, 83.0f, 0.45f, 55.0f};
 
-static bool containsTraskTraceToken(const std::string &value) {
-    return value.find("trask") != std::string::npos;
-}
-
-static bool isTraskTraceObject(const std::shared_ptr<Object> &object) {
-    return object &&
-           (containsTraskTraceToken(object->tag()) ||
-            containsTraskTraceToken(object->blueprintResRef()) ||
-            containsTraskTraceToken(object->conversation()));
-}
-
-static std::string describeTraskTraceObject(const std::shared_ptr<Object> &object) {
-    if (!object) {
-        return "null";
-    }
-    return "#" + std::to_string(object->id()) +
-           " tag='" + object->tag() +
-           "' blueprint='" + object->blueprintResRef() +
-           "' conv='" + object->conversation() + "'";
-}
-
 Area::Area(
     uint32_t id,
     std::string sceneName,
@@ -822,11 +801,6 @@ void Area::startDialog(const std::shared_ptr<Object> &object, const std::string 
     std::string finalResRef(resRef);
     if (resRef.empty()) {
         finalResRef = object->conversation();
-    }
-    if (isTraskTraceObject(object)) {
-        info("reone trask autodialog trace: Area::startDialog owner=" + describeTraskTraceObject(object) +
-             " inputResRef='" + resRef +
-             "' finalResRef='" + finalResRef + "'");
     }
     if (finalResRef.empty()) {
         return;

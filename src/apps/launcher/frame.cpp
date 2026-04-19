@@ -50,6 +50,8 @@ LauncherFrame::LauncherFrame() :
 
     _checkBoxDev = new wxCheckBox(this, wxID_ANY, "Developer Mode", wxDefaultPosition, wxDefaultSize);
     _checkBoxDev->SetValue(_config.devMode);
+    auto devToolsHelp = new wxStaticText(this, wxID_ANY, "Developer tools: Ctrl+Shift+D overlay, Ctrl+Shift+T triggers, Ctrl+Shift+A labels, Ctrl+Shift+W watch", wxDefaultPosition, wxDefaultSize);
+    devToolsHelp->Wrap(600);
 
     // END Setup controls
 
@@ -341,6 +343,7 @@ LauncherFrame::LauncherFrame() :
     topSizer2->SetMinSize(640, 100);
     topSizer2->Add(gameSizer, wxSizerFlags(0).Expand().Border(wxALL, 3));
     topSizer2->Add(_checkBoxDev, wxSizerFlags(0).Expand().Border(wxALL, 3));
+    topSizer2->Add(devToolsHelp, wxSizerFlags(0).Expand().Border(wxLEFT | wxRIGHT | wxBOTTOM, 3));
     topSizer2->Add(topSizer, wxSizerFlags(0).Expand().Border(wxALL, 3));
     topSizer2->Add(new wxButton(this, WindowID::launch, "Launch"), wxSizerFlags(0).Expand().Border(wxALL, 3));
     topSizer2->Add(new wxButton(this, WindowID::saveConfig, "Save Configuration"), wxSizerFlags(0).Expand().Border(wxALL, 3));

@@ -532,8 +532,8 @@ Minimal fix:
 - Kept the already-integrated trigger delayed-action fix as-is.
 - Fixed the shared conversation dispatcher in `src\libs\game\object\area.cpp` so `Area::startDialog` validates the resolved dialogue resref after falling back to `object->conversation()`.
 - This allows scripted `ActionStartConversation` calls with an empty dialogue resref to use the target object's default conversation, matching the manual-talk path.
-- After live verification showed the first Trask callback still did not auto-play after party selection, fixed `src\libs\game\gui\partyselect.cpp` so the party-selection exit script runs as the current party leader/player instead of running with no caller.
-- This gives K1's `k_pend_reset` a valid `OBJECT_SELF` for its caller-sensitive `ClearAllActions()` and follow-up conversation assignment without changing sequence content.
+- A short-lived party-selection caller follow-up was tested during diagnosis, but later live tracing showed it was not the causal fix.
+- The final causal follow-up is documented in the action continuation section below: assigned `DoCommandAction` already supplies the assigned actor as `OBJECT_SELF`, and `ClearAllActions()` needed to preserve the active assigned action continuation.
 
 What was intentionally not ported:
 
@@ -544,7 +544,7 @@ What was intentionally not ported:
 
 Why those were excluded:
 
-- The missing auto-dialogue shape is explained by two shared dispatch issues: the conversation fallback returned before `Game::startDialog` could run, and the party-selection exit script callback ran without a caller.
+- The missing auto-dialogue shape is explained by shared engine dispatch issues: the conversation fallback returned before `Game::startDialog` could run, and the assigned action continuation could be erased by `ClearAllActions()`.
 - The trigger delayed-action donor fix was already integrated and validated in the previous slice.
 - The old party-selection donor work addresses roster corruption around the Trask join flow, not this empty-dialog-resref dispatch failure.
 - No K1 content hack or gameplay/runtime combat change is needed for this slice.
@@ -582,61 +582,9 @@ Human verification needed:
 Live verification follow-up:
 
 - Human testing confirmed the Carth-side trigger delayed-action fix works, but the first Trask auto-dialogue still did not play immediately after Trask joins the party.
-- The remaining first-half cause is a separate shared callback issue: the party-selection GUI ran its configured exit script with no caller, while K1's `k_pend_reset` expects a valid `OBJECT_SELF` before it can pass `ClearAllActions()` and assign Trask's follow-up conversation.
-- The minimal follow-up fix keeps the sequence content untouched and runs the party-selection exit script as the current party leader/player after the party screen closes.
-- This avoids running the callback as the pre-party Trask object, which could cancel the delayed cleanup queued by the join script.
+- A temporary party-selection caller patch and trace logging proved the party screen closed, `k_pend_reset` ran, Trask was resolved, and `AssignCommand` queued the follow-up work.
+- The trace also proved the real remaining failure was lower-level: the assigned action chain died immediately after `ClearAllActions()`.
 - No donor combat, hostility, boarding-party, encounter, first-door content, party roster, or modernization code was ported.
-
-## 2026-04-19: Temporary K1 Trask Auto-Dialogue Trace
-
-Purpose:
-
-- This is a temporary instrumentation slice only.
-- It is meant to identify the exact live failure point after Trask joins the party and the party-selection screen closes.
-- It does not intentionally change gameplay, combat, hostility, encounter, party roster, item, cutscene, or dialogue content behavior.
-
-Temporary trace prefix:
-
-- All added trace lines use `reone trask autodialog trace:` so they can be filtered from `build\bin\engine.log`.
-
-Temporary trace points:
-
-- `src\libs\game\script\routine\impl\main.cpp`
-  - `ShowPartySelectionGUI`: logs only when the exit script is `k_pend_reset`; records forced NPC args, allow-cancel arg, caller object, and parent script args.
-  - `AssignCommand`: logs when the command subject is a Trask-like object; records the subject and saved action context.
-- `src\libs\game\gui\partyselect.cpp`
-  - `PartySelection::prepare`: logs only for `k_pend_reset`; records forced NPCs and current party state.
-  - `BTN_DONE` close callback: logs that Done closed party selection before `changeParty()`.
-  - `BTN_BACK` close callback: logs that Back closed party selection without `changeParty()`.
-  - `PartySelection::runExitScript`: logs the exact exit script, selected caller, and party state before dispatch.
-- `src\libs\game\script\runner.cpp`
-  - `ScriptRunner::run`: logs begin/missing/end only for `k_pend_reset`, including script args and VM result.
-- `src\libs\script\virtualmachine.cpp`
-  - `VirtualMachine::executeACTION`: logs begin/end only inside script `k_pend_reset` and only for `ClearAllActions`, `GetPartyMemberByIndex`, `AssignCommand`, `ActionStartConversation`, and `SetGlobalNumber`.
-- `src\libs\game\action\startconversation.cpp`
-  - `StartConversationAction::execute`: logs only when the actor or target is Trask-like; records reached/not-reached, actor, target, dialog resref, and range-ignore flag.
-- `src\libs\game\object\area.cpp`
-  - `Area::startDialog`: logs only when the dialogue owner is Trask-like; records input resref and resolved final resref.
-
-Manual evidence capture:
-
-- Rebuild the engine.
-- Launch `D:\git\reone-modawan-main\build\bin\launcher.exe`.
-- Start K1, play normally until Trask joins and party management closes.
-- Close the game after confirming whether the unlock-door dialogue auto-plays.
-- Inspect `D:\git\reone-modawan-main\build\bin\engine.log` and filter for `reone trask autodialog trace:`.
-
-Hypotheses tested:
-
-- No `ShowPartySelectionGUI` trace means the live path is not using the expected K1 party-selection script call.
-- `ShowPartySelectionGUI` without `PartySelection::prepare` means the GUI context is not reaching the party-selection screen.
-- `PartySelection::prepare` without a close-path trace means the screen is closing through an uninstrumented path.
-- Close-path trace without `runExitScript` means the exit-script dispatch helper is not reached.
-- `runExitScript` without `ScriptRunner::run begin` means dispatch does not enter the script runner.
-- Script runner begin without VM actions means `k_pend_reset` is missing, empty, or halting before the traced calls.
-- VM `AssignCommand` without later `ActionStartConversation` or `StartConversationAction` means the assigned action is not executing.
-- `StartConversationAction` without `Area::startDialog` means the action is blocked before dialogue dispatch, likely by range/navigation.
-- `Area::startDialog` with an empty final resref means dialogue owner/default conversation resolution is still wrong.
 
 ## 2026-04-19: K1 Trask Auto-Dialogue Action Continuation Fix
 
@@ -660,15 +608,16 @@ Minimal fix:
 - Forced clears still clear the queue, and clears outside active action execution keep the existing queue-clearing behavior.
 - This is a shared action semantics fix; it has no Trask-specific, Endar-Spire-specific, dialogue-content-specific, combat, hostility, encounter, boarding-party, item, or modernization branch.
 
-Temporary instrumentation status:
+Cleanup status:
 
-- The temporary `reone trask autodialog trace:` logs remain in this validation build so the next live run can prove whether the preserved continuation reaches `ActionStartConversation()` and `Area::startDialog()`.
-- Once live verification confirms the exact path, remove or reduce the temporary trace lines.
+- Human testing confirmed the preserved continuation now reaches the scripted follow-up dialogue.
+- The temporary `reone trask autodialog trace:` instrumentation was removed after validation.
+- The earlier party-selection caller patch was removed because `DoCommandAction` already updates the resumed saved script context caller to the assigned actor; the causal fix is the action continuation-safe clear.
 
 What was intentionally not changed:
 
 - No K1 content scripts, dialogue files, module data, Trask-specific special cases, combat legality, reciprocal hostility, boarding-party hostility persistence, encounter sequencing, item behavior, PR #77 work, Dear ImGui work, or modernization were ported or added.
-- The earlier party-selection caller patch is not treated as the causal live fix; the latest trace shows the real blocker is the action queue clear inside the assigned command chain. It can be reconsidered after live validation of the engine fix.
+- The earlier party-selection caller patch is not retained; the latest trace showed the real blocker was the action queue clear inside the assigned command chain.
 
 Validation:
 
@@ -693,5 +642,75 @@ Validation:
 Human verification needed:
 
 - Automated smoke verifies startup only; it does not drive the Trask sequence.
-- Launch K1 with the rebuilt engine, close party selection after Trask joins, and confirm whether the unlock-door dialogue auto-plays.
-- Filter `D:\git\reone-modawan-main\build\bin\engine.log` for `reone trask autodialog trace:` and confirm the preserved continuation reaches `ActionStartConversation` and `Area::startDialog`.
+- Launch K1 with the rebuilt engine, close party selection after Trask joins, and confirm the unlock-door dialogue auto-plays.
+- Let Trask open the first door and confirm the follow-up dialogue auto-plays.
+
+## 2026-04-19: Stable Branch Cleanup and Developer Tools Launcher Polish
+
+Cleanup done:
+
+- Removed the temporary `reone trask autodialog trace:` instrumentation from script dispatch, party selection, the VM action hook, `StartConversationAction`, and `Area::startDialog`.
+- Removed the temporary party-selection caller helper and restored party-selection exit scripts to the existing plain `ScriptRunner::run(_context.exitScript)` path.
+- Kept the real engine fixes intact: trigger-owned delayed actions, empty dialogue-resref fallback, and continuation-safe `ClearAllActions()`.
+
+Party-selection patch decision:
+
+- The party-selection caller patch was removed.
+- Live tracing showed it was not the causal Trask fix: the assigned `DoCommandAction` path updates the saved script context caller to the assigned actor before resuming the VM.
+- With that behavior, `k_pend_reset` does not need the party-selection screen to provide a special caller for the assigned Trask continuation.
+
+Developer tools access:
+
+- The developer tools continue to use the existing launcher Developer Mode checkbox and `-Dev`/`--dev` flow.
+- No parallel custom launcher path or new config flag was added.
+- The launcher now labels the Developer Mode area with the current in-game tool hotkeys.
+
+Hotkeys:
+
+- `Ctrl+Shift+D`: toggle the developer overlay.
+- `Ctrl+Shift+T`: toggle trigger zones and trigger state labels.
+- `Ctrl+Shift+A`: toggle entity/world labels.
+- `Ctrl+Shift+W`: toggle the watch panel.
+
+How to enable:
+
+- Check Developer Mode in `launcher.exe`, or launch with `scripts\run_k1.ps1 -Dev` / `scripts\run_k2.ps1 -Dev`.
+- Enter an in-game module and use the hotkeys above.
+
+How to disable:
+
+- Launch without Developer Mode, or hide the overlay/tools with the same hotkeys.
+
+Validation:
+
+- `git diff --check`
+  - Result: no whitespace errors; only CRLF normalization warnings.
+- Build:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Config RelWithDebInfo -Target engine -Configure`
+  - Result: passed. `D:\git\reone-modawan-main\build\bin\engine.exe` was rebuilt at 2026-04-19 17:22:14 local time.
+  - CMake still emits a non-blocking Boost CMP0167 developer warning through vcpkg.
+- Launcher build:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Config RelWithDebInfo -Target launcher`
+  - Result: passed. `D:\git\reone-modawan-main\build\bin\launcher.exe` was rebuilt at 2026-04-19 17:22:45 local time.
+- Smoke test without game install:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\smoke_test.ps1 -AllowMissingGame`
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\eval_smoke.ps1 -SmokeDir .\.agent\logs\smoke_latest -AllowMissingGame`
+  - Result: passed. Launch was skipped by design.
+- K1 smoke/eval:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\smoke_test.ps1 -GameDir 'D:\SteamLibrary\steamapps\common\swkotor' -Game k1`
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\eval_smoke.ps1 -SmokeDir .\.agent\logs\smoke_latest`
+  - Result: passed. Smoke artifacts were written to `.agent\logs\smoke_20260419_172329`.
+- K2 smoke/eval:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\smoke_test.ps1 -GameDir 'D:\SteamLibrary\steamapps\common\Knights of the Old Republic II' -Game k2`
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\eval_smoke.ps1 -SmokeDir .\.agent\logs\smoke_latest`
+  - Result: passed. Smoke artifacts were written to `.agent\logs\smoke_20260419_172412`.
+- Artifact check:
+  - `D:\git\reone-modawan-main\build\bin\engine.exe` exists.
+  - `D:\git\reone-modawan-main\build\bin\launcher.exe` exists.
+  - `D:\git\reone-modawan-main\build\bin\shaderpack.erf` exists.
+
+Human verification needed:
+
+- Automated smoke validates startup only; it does not press launcher checkboxes or in-game overlay hotkeys.
+- Launch through `D:\git\reone-modawan-main\build\bin\launcher.exe`, confirm the Developer Mode area shows the hotkey help, check Developer Mode, and confirm `Ctrl+Shift+D`, `Ctrl+Shift+T`, `Ctrl+Shift+A`, and `Ctrl+Shift+W` still work in game.
+- Because the party-selection caller patch was removed after the deeper action fix, re-check the K1 Trask join and first-door handoff once in game: the unlock-door and "take the lead" dialogues should still auto-play.
