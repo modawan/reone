@@ -175,7 +175,7 @@ public:
     // Object Selection
 
     void hilightObject(std::shared_ptr<Object> object);
-    void selectObject(std::shared_ptr<Object> object);
+    void selectObject(std::shared_ptr<Object> object, bool force = false);
 
     std::shared_ptr<Object> hilightedObject() const { return _hilightedObject; }
     std::shared_ptr<Object> selectedObject() const { return _selectedObject; }
@@ -244,6 +244,7 @@ private:
     Timer _perceptionTimer;
     std::shared_ptr<Object> _hilightedObject;
     std::shared_ptr<Object> _selectedObject;
+    bool _forceSelection {false};
 
     // Scripts
 

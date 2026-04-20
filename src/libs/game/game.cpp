@@ -138,6 +138,8 @@ void Game::initConsole() {
     registerConsoleCommand("addspell", "add spell by type", &Game::consoleAddOrRemoveSpell);
     registerConsoleCommand("removespell", "remove spell by type", &Game::consoleAddOrRemoveSpell);
     registerConsoleCommand("castspellatobject", "cast spell at object", &Game::consoleCastSpellAtObject);
+    registerConsoleCommand("opendoor", "open a selected door object", &Game::consoleOpenCloseDoor);
+    registerConsoleCommand("closedoor", "close a selected door object", &Game::consoleOpenCloseDoor);
 }
 
 void Game::initLocalServices() {
@@ -1145,7 +1147,7 @@ void Game::consoleSelectObjectById(const ConsoleArgs &args) {
         throw std::runtime_error("Object not found");
     }
 
-    getConsoleArea()->selectObject(object);
+    getConsoleArea()->selectObject(object, /*force=*/true);
 }
 
 void Game::consoleSelectObjectByTag(const ConsoleArgs &args) {
@@ -1154,7 +1156,7 @@ void Game::consoleSelectObjectByTag(const ConsoleArgs &args) {
 
     for (auto [id, object] : _objectById) {
         if (object->tag() == tag) {
-            getConsoleArea()->selectObject(object);
+            getConsoleArea()->selectObject(object, /*force=*/true);
             return;
         }
     }
@@ -1456,6 +1458,35 @@ void Game::consoleCastSpellAtObject(const ConsoleArgs &args) {
         spell, std::move(target), std::move(item), cheat);
 
     leader->addAction(std::move(action));
+}
+
+void Game::consoleOpenCloseDoor(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 1, "[triggerer_id]");
+
+    auto target = dyn_cast<Door>(getConsoleTargetObject());
+    if (!target) {
+        throw std::runtime_error("Selected object must be a door");
+    }
+
+    auto triggerer_id = args.get<uint32_t>(1);
+    std::shared_ptr<Object> triggerer;
+    if (triggerer_id) {
+        if (uint32_t id = triggerer_id.value()) {
+            triggerer = getObjectById(id);
+        }
+    } else {
+        triggerer = getConsoleLeader();
+    }
+
+    if (args[0].value() == "opendoor") {
+        target->open();
+        if (triggerer) {
+            target->onOpen(*triggerer);
+        }
+    } else {
+        target->close();
+        // There is no Door::onClose yet
+    }
 }
 
 } // namespace game
