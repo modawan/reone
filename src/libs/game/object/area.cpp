@@ -1027,7 +1027,7 @@ void Area::updateObjectSelection() {
             }
         }
     }
-    if (_selectedObject) {
+    if (_selectedObject && !_forceSelection) {
         if (!_selectedObject->isSelectable()) {
             _selectedObject.reset();
         } else {
@@ -1044,8 +1044,9 @@ void Area::hilightObject(std::shared_ptr<Object> object) {
     _hilightedObject = std::move(object);
 }
 
-void Area::selectObject(std::shared_ptr<Object> object) {
+void Area::selectObject(std::shared_ptr<Object> object, bool force) {
     _selectedObject = std::move(object);
+    _forceSelection = force;
 }
 
 std::shared_ptr<Object> Area::getNearestObject(const glm::vec3 &origin, int nth, const std::function<bool(const std::shared_ptr<Object> &)> &predicate) {
