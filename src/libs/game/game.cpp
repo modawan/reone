@@ -567,6 +567,8 @@ bool Game::startVideo(const std::string &name) {
         return false;
     }
 
+    _services.audio.mixer.stop(AudioType::Sound);
+
     if (_music) {
         _music->stop();
         _music.reset();
