@@ -877,11 +877,14 @@ void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer) 
 
     for (auto &object : _objectsByType[ObjectType::Trigger]) {
         auto trigger = std::static_pointer_cast<Trigger>(object);
-        if (trigger->isTenant(triggerrer) || !trigger->isIn(position2d)) {
+        bool inside = trigger->isIn(position2d);
+        trigger->markDebugTested(inside);
+        if (trigger->isTenant(triggerrer) || !inside) {
             continue;
         }
         debug(str(boost::format("Trigger '%s' triggerred by '%s'") % trigger->tag() % triggerrer->tag()));
         trigger->addTenant(triggerrer);
+        trigger->markDebugEntered();
 
         if (!trigger->linkedToModule().empty()) {
             _game.scheduleModuleTransition(trigger->linkedToModule(), trigger->linkedTo());

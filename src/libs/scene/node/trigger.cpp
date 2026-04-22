@@ -102,9 +102,14 @@ void TriggerSceneNode::init() {
 }
 
 void TriggerSceneNode::render(IRenderPass &pass) {
+    _graphicsSvc.uniforms.setWalkmesh([this](auto &walkmesh) {
+        walkmesh.materials[kMaxWalkmeshMaterials - 1] = _debugColor;
+    });
+
     Material material;
     material.type = MaterialType::Walkmesh;
-    material.faceCulling = FaceCullMode::Back;
+    material.faceCulling = FaceCullMode::None;
+    material.polygonMode = PolygonMode::Line;
     pass.draw(*_mesh, material, _absTransform, _absTransformInv);
 }
 
