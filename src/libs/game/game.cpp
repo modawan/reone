@@ -35,6 +35,7 @@
 #include "reone/game/surfaces.h"
 #include "reone/graphics/context.h"
 #include "reone/graphics/di/services.h"
+#include "reone/graphics/font.h"
 #include "reone/graphics/format/tgawriter.h"
 #include "reone/graphics/meshregistry.h"
 #include "reone/graphics/renderbuffer.h"
@@ -53,6 +54,7 @@
 #include "reone/resource/provider/audioclips.h"
 #include "reone/resource/provider/cursors.h"
 #include "reone/resource/provider/dialogs.h"
+#include "reone/resource/provider/fonts.h"
 #include "reone/resource/provider/gffs.h"
 #include "reone/resource/provider/lips.h"
 #include "reone/resource/provider/models.h"
@@ -86,6 +88,125 @@ using namespace reone::script;
 namespace reone {
 
 namespace game {
+
+static constexpr char kDeveloperOverlayToggleHelp[] = "Ctrl+Shift+D";
+static constexpr char kDeveloperTriggerToggleHelp[] = "Ctrl+Shift+T";
+static constexpr char kDeveloperActorToggleHelp[] = "Ctrl+Shift+A";
+static constexpr char kDeveloperActorLongToggleHelp[] = "Ctrl+Shift+L";
+static constexpr char kDeveloperWatchToggleHelp[] = "Ctrl+Shift+W";
+static constexpr float kDeveloperActorLabelDistance = 32.0f;
+
+static const char *screenName(Game::Screen screen) {
+    switch (screen) {
+    case Game::Screen::None:
+        return "None";
+    case Game::Screen::MainMenu:
+        return "MainMenu";
+    case Game::Screen::Loading:
+        return "Loading";
+    case Game::Screen::CharacterGeneration:
+        return "CharacterGeneration";
+    case Game::Screen::InGame:
+        return "InGame";
+    case Game::Screen::InGameMenu:
+        return "InGameMenu";
+    case Game::Screen::Conversation:
+        return "Conversation";
+    case Game::Screen::Container:
+        return "Container";
+    case Game::Screen::PartySelection:
+        return "PartySelection";
+    case Game::Screen::SaveLoad:
+        return "SaveLoad";
+    default:
+        return "Unknown";
+    }
+}
+
+static const char *cameraTypeName(CameraType type) {
+    switch (type) {
+    case CameraType::FirstPerson:
+        return "FirstPerson";
+    case CameraType::ThirdPerson:
+        return "ThirdPerson";
+    case CameraType::Static:
+        return "Static";
+    case CameraType::Animated:
+        return "Animated";
+    case CameraType::Dialog:
+        return "Dialog";
+    default:
+        return "Unknown";
+    }
+}
+
+static const char *objectTypeName(ObjectType type) {
+    switch (type) {
+    case ObjectType::Creature:
+        return "creature";
+    case ObjectType::Item:
+        return "item";
+    case ObjectType::Trigger:
+        return "trigger";
+    case ObjectType::Door:
+        return "door";
+    case ObjectType::Waypoint:
+        return "waypoint";
+    case ObjectType::Placeable:
+        return "placeable";
+    case ObjectType::Store:
+        return "store";
+    case ObjectType::Encounter:
+        return "encounter";
+    case ObjectType::Sound:
+        return "sound";
+    case ObjectType::Module:
+        return "module";
+    case ObjectType::Area:
+        return "area";
+    case ObjectType::Room:
+        return "room";
+    case ObjectType::Camera:
+        return "camera";
+    default:
+        return "object";
+    }
+}
+
+static bool isDeveloperOverlayChord(const input::KeyEvent &event) {
+    bool control = (event.mod & input::KeyModifiers::control) != 0;
+    bool shift = (event.mod & input::KeyModifiers::shift) != 0;
+    return control && shift;
+}
+
+static const char *triggerDebugStateName(Trigger::DebugState state) {
+    switch (state) {
+    case Trigger::DebugState::Entered:
+        return "enter";
+    case Trigger::DebugState::Inside:
+        return "inside";
+    case Trigger::DebugState::Tested:
+        return "tested";
+    default:
+        return "default";
+    }
+}
+
+static int getDebugFaction(const std::shared_ptr<Object> &object) {
+    if (!object) {
+        return -1;
+    }
+    if (auto creature = dyn_cast<Creature>(object)) {
+        return static_cast<int>(creature->faction());
+    }
+    if (auto door = dyn_cast<Door>(object)) {
+        return static_cast<int>(door->faction());
+    }
+    if (auto placeable = dyn_cast<Placeable>(object)) {
+        return static_cast<int>(placeable->faction());
+    }
+    return -1;
+}
 
 void Game::init() {
     initConsole();
@@ -254,6 +375,10 @@ bool Game::handleKeyDown(const input::KeyEvent &event) {
     if (event.repeat)
         return false;
 
+    if (handleDeveloperKeyDown(event)) {
+        return true;
+    }
+
     switch (event.code) {
     case input::KeyCode::Minus:
         if (_options.game.developer && _gameSpeed > 1.0f) {
@@ -281,6 +406,59 @@ bool Game::handleKeyDown(const input::KeyEvent &event) {
     }
 
     return false;
+}
+
+bool Game::handleDeveloperKeyDown(const input::KeyEvent &event) {
+    if (!_options.game.developer || _screen != Screen::InGame) {
+        return false;
+    }
+    if (!isDeveloperOverlayChord(event)) {
+        return false;
+    }
+
+    switch (event.code) {
+    case input::KeyCode::D:
+        _developerOverlay.visible = !_developerOverlay.visible;
+        return true;
+    case input::KeyCode::T:
+        if (!_developerOverlay.visible) {
+            _developerOverlay.visible = true;
+            _developerOverlay.triggers = true;
+        } else {
+            _developerOverlay.triggers = !_developerOverlay.triggers;
+        }
+        return true;
+    case input::KeyCode::A:
+        if (!_developerOverlay.visible) {
+            _developerOverlay.visible = true;
+            _developerOverlay.actorLabels = true;
+        } else {
+            _developerOverlay.actorLabels = !_developerOverlay.actorLabels;
+        }
+        return true;
+    case input::KeyCode::L:
+        if (!_developerOverlay.visible) {
+            _developerOverlay.visible = true;
+            _developerOverlay.actorLabels = true;
+            _developerOverlay.longActorLabels = true;
+        } else if (!_developerOverlay.actorLabels) {
+            _developerOverlay.actorLabels = true;
+            _developerOverlay.longActorLabels = true;
+        } else {
+            _developerOverlay.longActorLabels = !_developerOverlay.longActorLabels;
+        }
+        return true;
+    case input::KeyCode::W:
+        if (!_developerOverlay.visible) {
+            _developerOverlay.visible = true;
+            _developerOverlay.watchedValues = true;
+        } else {
+            _developerOverlay.watchedValues = !_developerOverlay.watchedValues;
+        }
+        return true;
+    default:
+        return false;
+    }
 }
 
 bool Game::handleMouseMotion(const input::MouseMotionEvent &event) {
@@ -517,6 +695,292 @@ void Game::renderGUI() {
     if (_cursor && !_relativeMouseMode) {
         _cursor->render();
     }
+    renderDeveloperOverlay();
+}
+
+void Game::renderDeveloperOverlay() {
+    if (!_options.game.developer || !_developerOverlay.visible || !_module || _screen != Screen::InGame) {
+        return;
+    }
+    if (!_developerFont) {
+        _developerFont = _services.resource.fonts.get("fnt_console");
+    }
+    if (!_developerFont) {
+        return;
+    }
+
+    auto camera = getActiveCamera();
+    bool hasCamera = camera != nullptr;
+    glm::mat4 projection(1.0f);
+    glm::mat4 view(1.0f);
+    if (camera) {
+        projection = camera->cameraSceneNode()->camera()->projection();
+        view = camera->cameraSceneNode()->camera()->view();
+    }
+
+    _services.graphics.uniforms.setGlobals([this](auto &globals) {
+        globals.reset();
+        globals.projection = glm::ortho(
+            0.0f,
+            static_cast<float>(_options.graphics.width),
+            static_cast<float>(_options.graphics.height),
+            0.0f, 0.0f, 100.0f);
+        globals.projectionInv = glm::inverse(globals.projection);
+    });
+    _services.graphics.context.withBlendMode(BlendMode::Normal, [this]() {
+        renderDeveloperBanner();
+    });
+    _services.graphics.context.withBlendMode(BlendMode::Normal, [this, hasCamera, &projection, &view]() {
+        if (_developerOverlay.triggers && hasCamera) {
+            renderDeveloperTriggerOverlay(projection, view);
+        }
+        if (_developerOverlay.actorLabels && hasCamera) {
+            renderDeveloperActorLabels(projection, view);
+        }
+        if (_developerOverlay.watchedValues) {
+            renderDeveloperWatchedValues();
+        }
+    });
+}
+
+void Game::renderDeveloperBanner() {
+    std::vector<std::string> lines;
+    lines.push_back("DEV OBSERVABILITY");
+    lines.push_back(str(boost::format("%s overlay | %s triggers") %
+                        kDeveloperOverlayToggleHelp %
+                        kDeveloperTriggerToggleHelp));
+    lines.push_back(str(boost::format("%s labels (%s) | %s verbose") %
+                        kDeveloperActorToggleHelp %
+                        (_developerOverlay.longActorLabels ? "long" : "short") %
+                        kDeveloperActorLongToggleHelp));
+    lines.push_back(str(boost::format("%s watch | ` console | F5 profiler") %
+                        kDeveloperWatchToggleHelp));
+    lines.push_back("V camera | +/- speed");
+
+    float maxWidth = 0.0f;
+    for (const auto &line : lines) {
+        maxWidth = glm::max(maxWidth, _developerFont->measure(line));
+    }
+    renderDeveloperPanel(
+        lines,
+        glm::vec2(0.5f * (static_cast<float>(_options.graphics.width) - maxWidth - 14.0f), 12.0f),
+        glm::vec3(0.58f, 1.0f, 0.58f));
+}
+
+void Game::renderDeveloperTriggerOverlay(const glm::mat4 &projection, const glm::mat4 &view) {
+    static glm::vec4 viewport(0.0f, 0.0f, 1.0f, 1.0f);
+    auto area = _module ? _module->area() : nullptr;
+    if (!area) {
+        return;
+    }
+
+    const auto &opts = _options.graphics;
+    for (const auto &object : area->getObjectsByType(ObjectType::Trigger)) {
+        auto trigger = dyn_cast<Trigger>(object);
+        if (!trigger) {
+            continue;
+        }
+        const auto &geometry = trigger->geometry();
+        if (geometry.empty()) {
+            continue;
+        }
+
+        glm::vec3 centroid(0.0f);
+        for (const auto &localPoint : geometry) {
+            centroid += trigger->position() + localPoint;
+        }
+
+        // Trigger geometry now renders through the main scene pipeline; the overlay only adds labels.
+        auto state = trigger->debugState();
+        glm::vec4 color = trigger->debugColor();
+        centroid /= static_cast<float>(geometry.size());
+        glm::vec3 labelScreen = glm::project(centroid, view, projection, viewport);
+        if (labelScreen.z >= 0.0f && labelScreen.z < 1.0f) {
+            std::string label = str(boost::format("#%u %s") %
+                                    trigger->id() %
+                                    trigger->tag());
+            if (!trigger->blueprintResRef().empty()) {
+                label += " " + trigger->blueprintResRef();
+            }
+            label += str(boost::format(" [%s]") % triggerDebugStateName(state));
+            glm::vec3 position(opts.width * labelScreen.x, opts.height * (1.0f - labelScreen.y), 0.0f);
+            renderDeveloperText(label, position, glm::vec3(color), TextGravity::CenterBottom);
+        }
+    }
+}
+
+void Game::renderDeveloperActorLabels(const glm::mat4 &projection, const glm::mat4 &view) {
+    auto area = _module ? _module->area() : nullptr;
+    auto leader = _party.getLeader();
+    if (!area || !leader) {
+        return;
+    }
+
+    const auto &opts = _options.graphics;
+    int rendered = 0;
+    for (const auto &object : area->objects()) {
+        bool supported = object->type() == ObjectType::Creature ||
+                         object->type() == ObjectType::Door ||
+                         object->type() == ObjectType::Placeable;
+        bool inspected = object == area->hilightedObject() || object == area->selectedObject();
+        if (!supported && !inspected) {
+            continue;
+        }
+
+        float distance = object->getDistanceTo(*leader);
+        if (!inspected && distance > kDeveloperActorLabelDistance) {
+            continue;
+        }
+
+        glm::vec3 screen = area->getSelectableScreenCoords(object, projection, view);
+        if (screen.z >= 1.0f) {
+            continue;
+        }
+
+        int faction = getDebugFaction(object);
+        bool hostile = false;
+        auto creature = dyn_cast<Creature>(object);
+        if (creature) {
+            hostile = !creature->isDead() && _services.game.reputes.getIsEnemy(*leader, *creature);
+        }
+
+        glm::vec3 color = inspected ? glm::vec3(1.0f, 1.0f, 1.0f) : (hostile ? glm::vec3(1.0f, 0.42f, 0.36f) : glm::vec3(0.68f, 0.92f, 1.0f));
+        std::string label;
+        if (_developerOverlay.longActorLabels) {
+            label = str(boost::format("#%u %s %s f=%d H=%d sel=%d cmd=%d vis=%d plot=%d") %
+                        object->id() %
+                        object->tag() %
+                        object->blueprintResRef() %
+                        faction %
+                        static_cast<int>(hostile) %
+                        static_cast<int>(object->isSelectable()) %
+                        static_cast<int>(object->isCommandable()) %
+                        static_cast<int>(object->visible()) %
+                        static_cast<int>(object->plotFlag()));
+        } else {
+            label = str(boost::format("#%u %s") %
+                        object->id() %
+                        object->tag());
+            if (!object->blueprintResRef().empty()) {
+                label += " " + object->blueprintResRef();
+            }
+            if (hostile) {
+                label += " [enemy]";
+            }
+            if (inspected) {
+                label += str(boost::format(" [%s") % objectTypeName(object->type()));
+                if (faction >= 0) {
+                    label += str(boost::format(" f=%d") % faction);
+                }
+                label += "]";
+            }
+        }
+
+        glm::vec3 position(opts.width * screen.x, opts.height * (1.0f - screen.y) - 18.0f - (rendered % 2) * 10.0f, 0.0f);
+        renderDeveloperText(label, position, color, TextGravity::CenterBottom);
+        if (++rendered >= 16) {
+            break;
+        }
+    }
+}
+
+void Game::renderDeveloperWatchedValues() {
+    auto area = _module ? _module->area() : nullptr;
+    auto leader = _party.getLeader();
+    auto selected = area ? area->selectedObject() : nullptr;
+    auto hover = area ? area->hilightedObject() : nullptr;
+    std::string room = leader && leader->room() ? leader->room()->name() : "-";
+    glm::vec3 position = leader ? leader->position() : glm::vec3(0.0f);
+
+    std::vector<std::string> lines;
+    lines.push_back(str(boost::format("Watch (%s)") % kDeveloperWatchToggleHelp));
+    lines.push_back(str(boost::format("screen=%s module=%s area=%s camera=%s") %
+                        screenName(_screen) %
+                        (_module ? _module->name() : "-") %
+                        (area ? area->localizedName() : "-") %
+                        cameraTypeName(_cameraType)));
+    lines.push_back(str(boost::format("speed=%.1fx paused=%d relativeMouse=%d room=%s") %
+                        _gameSpeed %
+                        static_cast<int>(_paused) %
+                        static_cast<int>(_relativeMouseMode) %
+                        room));
+    lines.push_back(str(boost::format("leader=#%u %s hp=%d/%d pos=%.2f,%.2f,%.2f") %
+                        (leader ? leader->id() : 0) %
+                        (leader ? leader->tag() : "-") %
+                        (leader ? leader->currentHitPoints() : -1) %
+                        (leader ? leader->maxHitPoints() : -1) %
+                        position.x %
+                        position.y %
+                        position.z));
+    lines.push_back(str(boost::format("selected=#%u %s/%s type=%s hp=%d/%d") %
+                        (selected ? selected->id() : 0) %
+                        (selected ? selected->tag() : "-") %
+                        (selected ? selected->blueprintResRef() : "-") %
+                        (selected ? objectTypeName(selected->type()) : "-") %
+                        (selected ? selected->currentHitPoints() : -1) %
+                        (selected ? selected->maxHitPoints() : -1)));
+    lines.push_back(str(boost::format("hover=#%u %s/%s type=%s hp=%d/%d") %
+                        (hover ? hover->id() : 0) %
+                        (hover ? hover->tag() : "-") %
+                        (hover ? hover->blueprintResRef() : "-") %
+                        (hover ? objectTypeName(hover->type()) : "-") %
+                        (hover ? hover->currentHitPoints() : -1) %
+                        (hover ? hover->maxHitPoints() : -1)));
+
+    float maxWidth = 0.0f;
+    for (const auto &line : lines) {
+        maxWidth = glm::max(maxWidth, _developerFont->measure(line));
+    }
+    float panelWidth = maxWidth + 14.0f;
+    float panelHeight = (_developerFont->height() + 2.0f) * static_cast<float>(lines.size()) + 10.0f;
+    renderDeveloperPanel(
+        lines,
+        glm::vec2(static_cast<float>(_options.graphics.width) - panelWidth - 4.0f, 16.0f + panelHeight),
+        glm::vec3(0.92f));
+}
+
+void Game::renderDeveloperText(const std::string &text, const glm::vec3 &position, const glm::vec3 &color, TextGravity gravity) {
+    if (!_developerFont) {
+        return;
+    }
+    _developerFont->render(text, position + glm::vec3(1.0f, 1.0f, 0.0f), glm::vec3(0.0f), gravity);
+    _developerFont->render(text, position, color, gravity);
+}
+
+void Game::renderDeveloperPanel(const std::vector<std::string> &lines, glm::vec2 position, glm::vec3 color) {
+    if (!_developerFont || lines.empty()) {
+        return;
+    }
+
+    float maxWidth = 0.0f;
+    for (const auto &line : lines) {
+        maxWidth = glm::max(maxWidth, _developerFont->measure(line));
+    }
+    float lineHeight = _developerFont->height() + 2.0f;
+    glm::vec2 size(maxWidth + 14.0f, lineHeight * lines.size() + 10.0f);
+    position.x = glm::clamp(position.x, 4.0f, static_cast<float>(_options.graphics.width) - size.x - 4.0f);
+    position.y = glm::clamp(position.y, 4.0f, static_cast<float>(_options.graphics.height) - size.y - 4.0f);
+
+    renderDeveloperRect(position, size, glm::vec4(0.0f, 0.0f, 0.0f, 0.58f));
+    glm::vec3 textPosition(position.x + 7.0f, position.y + 5.0f, 0.0f);
+    for (const auto &line : lines) {
+        renderDeveloperText(line, textPosition, color, TextGravity::RightBottom);
+        textPosition.y += lineHeight;
+    }
+}
+
+void Game::renderDeveloperRect(glm::vec2 position, glm::vec2 size, glm::vec4 color) {
+    glm::mat4 transform(1.0f);
+    transform = glm::translate(transform, glm::vec3(position.x, position.y, 0.0f));
+    transform = glm::scale(transform, glm::vec3(size.x, size.y, 1.0f));
+
+    _services.graphics.uniforms.setLocals([transform, color](auto &locals) {
+        locals.reset();
+        locals.model = transform;
+        locals.color = color;
+    });
+    _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpColor));
+    _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
 }
 
 void Game::updateMusic() {
@@ -643,7 +1107,11 @@ void Game::updateSceneGraph(float dt) {
     sceneGraph.setUpdateRoots(!_paused);
     sceneGraph.setRenderAABB(isShowAABBEnabled());
     sceneGraph.setRenderWalkmeshes(isShowWalkmeshEnabled());
-    sceneGraph.setRenderTriggers(isShowTriggersEnabled());
+    bool renderDeveloperTriggers = _options.game.developer &&
+                                   _screen == Screen::InGame &&
+                                   _developerOverlay.visible &&
+                                   _developerOverlay.triggers;
+    sceneGraph.setRenderTriggers(isShowTriggersEnabled() || renderDeveloperTriggers);
     sceneGraph.update(dt);
 }
 

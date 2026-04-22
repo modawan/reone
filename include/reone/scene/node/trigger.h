@@ -53,8 +53,13 @@ public:
 
     bool isIn(const glm::vec2 &pt) const;
 
+    void setDebugColor(glm::vec4 color) {
+        _debugColor = std::move(color);
+    }
+
 private:
     std::vector<glm::vec3> _geometry;
+    glm::vec4 _debugColor {0.48f, 0.74f, 1.0f, 1.0f};
 
     std::unique_ptr<graphics::Mesh> _mesh;
 };

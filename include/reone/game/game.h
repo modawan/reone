@@ -17,10 +17,9 @@
 
 #pragma once
 
-#include <queue>
-
 #include "reone/audio/source.h"
 #include "reone/graphics/cursor.h"
+#include "reone/graphics/types.h"
 #include "reone/input/event.h"
 #include "reone/movie/movie.h"
 #include "reone/script/routines.h"
@@ -65,11 +64,20 @@
 #include "script/runner.h"
 #include "talent.h"
 
+#include <queue>
+#include <vector>
+
 namespace reone {
 
 namespace gui {
 
 class GUI;
+
+}
+
+namespace graphics {
+
+class Font;
 
 }
 
@@ -323,6 +331,17 @@ private:
 
     Screen _screen {Screen::None};
 
+    struct DeveloperOverlay {
+        bool visible {false};
+        bool triggers {true};
+        bool actorLabels {true};
+        bool longActorLabels {false};
+        bool watchedValues {true};
+    };
+
+    DeveloperOverlay _developerOverlay;
+    std::shared_ptr<graphics::Font> _developerFont;
+
     std::shared_ptr<movie::IMovie> _movie;
     std::queue<std::string> _moduleTransitionMovies;
     resource::CursorType _cursorType {resource::CursorType::None};
@@ -403,6 +422,7 @@ private:
     bool handleMouseMotion(const input::MouseMotionEvent &event);
     bool handleMouseButtonDown(const input::MouseButtonEvent &event);
     bool handleMouseButtonUp(const input::MouseButtonEvent &event);
+    bool handleDeveloperKeyDown(const input::KeyEvent &event);
 
     void onModuleSelected(const std::string &name);
     void renderHUD();
@@ -425,6 +445,14 @@ private:
 
     void renderScene();
     void renderGUI();
+    void renderDeveloperOverlay();
+    void renderDeveloperBanner();
+    void renderDeveloperTriggerOverlay(const glm::mat4 &projection, const glm::mat4 &view);
+    void renderDeveloperActorLabels(const glm::mat4 &projection, const glm::mat4 &view);
+    void renderDeveloperWatchedValues();
+    void renderDeveloperText(const std::string &text, const glm::vec3 &position, const glm::vec3 &color, graphics::TextGravity gravity = graphics::TextGravity::LeftTop);
+    void renderDeveloperPanel(const std::vector<std::string> &lines, glm::vec2 position, glm::vec3 color);
+    void renderDeveloperRect(glm::vec2 position, glm::vec2 size, glm::vec4 color);
 
     // END Rendering
 

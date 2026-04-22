@@ -55,6 +55,7 @@ public:
     bool isUsable() const { return _usable; }
 
     int appearance() const { return _appearance; }
+    Faction faction() const { return _faction; }
     std::shared_ptr<scene::WalkmeshSceneNode> walkmesh() const { return _walkmesh; }
 
     // Scripts

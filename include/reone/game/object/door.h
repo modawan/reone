@@ -66,6 +66,7 @@ public:
     const std::string &getOnFailToOpen() const { return _onFailToOpen; }
 
     int genericType() const { return _genericType; }
+    Faction faction() const { return _faction; }
     const std::string &linkedToModule() const { return _linkedToModule; }
     const std::string &linkedTo() const { return _linkedTo; }
     const std::string &transitionDestin() const { return _transitionDestin; }

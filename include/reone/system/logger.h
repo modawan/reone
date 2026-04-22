@@ -34,6 +34,8 @@ public:
                 LogChannel channel,
                 LogSeverity severity);
 
+    void flush();
+
     bool isChannelEnabled(LogChannel channel) const {
         return _enabledChannels.count(channel) > 0;
     }

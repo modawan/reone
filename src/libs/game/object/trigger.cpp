@@ -37,6 +37,23 @@ namespace reone {
 
 namespace game {
 
+static constexpr float kDebugTestDuration = 0.25f;
+static constexpr float kDebugInsideDuration = 0.25f;
+static constexpr float kDebugEnterDuration = 1.5f;
+
+static glm::vec4 debugColorForState(Trigger::DebugState state) {
+    switch (state) {
+    case Trigger::DebugState::Entered:
+        return glm::vec4(1.0f, 0.42f, 0.12f, 0.95f);
+    case Trigger::DebugState::Inside:
+        return glm::vec4(0.16f, 0.95f, 0.38f, 0.95f);
+    case Trigger::DebugState::Tested:
+        return glm::vec4(1.0f, 0.88f, 0.18f, 0.95f);
+    default:
+        return glm::vec4(0.48f, 0.74f, 1.0f, 0.85f);
+    }
+}
+
 void Trigger::loadFromGIT(const resource::generated::GIT_TriggerList &git) {
     std::string templateResRef(boost::to_lower_copy(git.TemplateResRef));
     loadFromBlueprint(templateResRef);
@@ -53,6 +70,7 @@ void Trigger::loadFromGIT(const resource::generated::GIT_TriggerList &git) {
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     _sceneNode = sceneGraph.newTrigger(_geometry);
     _sceneNode->setLocalTransform(glm::translate(_position));
+    syncDebugVisual();
 }
 
 void Trigger::loadTransformFromGIT(const resource::generated::GIT_TriggerList &git) {
@@ -85,6 +103,10 @@ void Trigger::loadFromBlueprint(const std::string &resRef) {
 void Trigger::update(float dt) {
     Object::update(dt);
 
+    _debugTestAge = glm::max(0.0f, _debugTestAge - dt);
+    _debugInsideAge = glm::max(0.0f, _debugInsideAge - dt);
+    _debugEnterAge = glm::max(0.0f, _debugEnterAge - dt);
+
     std::set<std::shared_ptr<Object>> tenantsToRemove;
     for (auto &tenant : _tenants) {
         if (tenant) {
@@ -106,10 +128,13 @@ void Trigger::update(float dt) {
             {{script::ArgKind::Caller, script::Variable::ofObject(_id)},
              {script::ArgKind::ExitingObject, script::Variable::ofObject(tenant->id())}});
     }
+
+    syncDebugVisual();
 }
 
 void Trigger::addTenant(const std::shared_ptr<Object> &object) {
     _tenants.insert(object);
+    syncDebugVisual();
     if (_onEnter.empty()) {
         return;
     }
@@ -128,6 +153,43 @@ bool Trigger::isIn(const glm::vec2 &point) const {
 bool Trigger::isTenant(const std::shared_ptr<Object> &object) const {
     auto maybeTenant = find(_tenants.begin(), _tenants.end(), object);
     return maybeTenant != _tenants.end();
+}
+
+Trigger::DebugState Trigger::debugState() const {
+    if (_debugEnterAge > 0.0f) {
+        return DebugState::Entered;
+    }
+    if (!_tenants.empty() || _debugInsideAge > 0.0f) {
+        return DebugState::Inside;
+    }
+    if (_debugTestAge > 0.0f) {
+        return DebugState::Tested;
+    }
+    return DebugState::Default;
+}
+
+glm::vec4 Trigger::debugColor() const {
+    return debugColorForState(debugState());
+}
+
+void Trigger::markDebugTested(bool inside) {
+    _debugTestAge = kDebugTestDuration;
+    if (inside) {
+        _debugInsideAge = kDebugInsideDuration;
+    }
+    syncDebugVisual();
+}
+
+void Trigger::markDebugEntered() {
+    _debugEnterAge = kDebugEnterDuration;
+    syncDebugVisual();
+}
+
+void Trigger::syncDebugVisual() {
+    if (!_sceneNode) {
+        return;
+    }
+    static_cast<TriggerSceneNode *>(_sceneNode.get())->setDebugColor(debugColor());
 }
 
 void Trigger::loadUTT(const resource::generated::UTT &utt) {
