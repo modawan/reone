@@ -802,7 +802,7 @@ void Area::startDialog(const std::shared_ptr<Object> &object, const std::string 
     if (resRef.empty()) {
         finalResRef = object->conversation();
     }
-    if (resRef.empty()) {
+    if (finalResRef.empty()) {
         return;
     }
     _game.startDialog(object, finalResRef);

@@ -256,6 +256,7 @@ protected:
 
     std::deque<std::shared_ptr<Action>> _actions;
     std::vector<DelayedAction> _delayed;
+    std::weak_ptr<Action> _executingAction;
 
     // END Actions
 
