@@ -565,13 +565,14 @@ void Game::scheduleModuleTransitionWithMovies(const std::string &moduleName, con
 }
 
 bool Game::startVideo(const std::string &name) {
+    _services.audio.mixer.stopAll();
+    _music.reset();
+
     _movie = _services.resource.movies.get(name);
     if (!_movie) {
         return false;
     }
 
-    _services.audio.mixer.stopAll();
-    _music.reset();
     return true;
 }
 
