@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <queue>
+
 #include "reone/audio/source.h"
 #include "reone/graphics/cursor.h"
 #include "reone/input/event.h"
@@ -322,7 +324,7 @@ private:
     Screen _screen {Screen::None};
 
     std::shared_ptr<movie::IMovie> _movie;
-    std::vector<std::string> _moduleTransitionMovies;
+    std::queue<std::string> _moduleTransitionMovies;
     resource::CursorType _cursorType {resource::CursorType::None};
     std::shared_ptr<graphics::Cursor> _cursor;
     float _gameSpeed {1.0f};

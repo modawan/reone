@@ -45,6 +45,13 @@ void AudioMixer::stop(AudioType type) {
     }
 }
 
+void AudioMixer::stopAll() {
+    for (auto &source : _sources) {
+        source.source->stop();
+    }
+    _sources.clear();
+}
+
 std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
                                               AudioType type,
                                               float gain,

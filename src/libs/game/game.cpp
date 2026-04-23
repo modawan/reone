@@ -412,7 +412,7 @@ void Game::setCursorType(CursorType type) {
 }
 
 void Game::playVideo(const std::string &name) {
-    _moduleTransitionMovies.clear();
+    _moduleTransitionMovies = std::queue<std::string>();
     startVideo(name);
 }
 
@@ -548,13 +548,16 @@ void Game::stopMovement() {
 void Game::scheduleModuleTransition(const std::string &moduleName, const std::string &entry) {
     _nextModule = moduleName;
     _nextEntry = entry;
-    _moduleTransitionMovies.clear();
+    _moduleTransitionMovies = std::queue<std::string>();
 }
 
 void Game::scheduleModuleTransitionWithMovies(const std::string &moduleName, const std::string &entry, std::vector<std::string> movies) {
     _nextModule = moduleName;
     _nextEntry = entry;
-    _moduleTransitionMovies = std::move(movies);
+    _moduleTransitionMovies = std::queue<std::string>();
+    for (auto &movie : movies) {
+        _moduleTransitionMovies.push(std::move(movie));
+    }
 
     if (!_movie) {
         playNextModuleTransitionMovie();
@@ -567,19 +570,15 @@ bool Game::startVideo(const std::string &name) {
         return false;
     }
 
-    _services.audio.mixer.stop(AudioType::Sound);
-
-    if (_music) {
-        _music->stop();
-        _music.reset();
-    }
+    _services.audio.mixer.stopAll();
+    _music.reset();
     return true;
 }
 
 bool Game::playNextModuleTransitionMovie() {
     while (!_moduleTransitionMovies.empty()) {
         auto name = std::move(_moduleTransitionMovies.front());
-        _moduleTransitionMovies.erase(_moduleTransitionMovies.begin());
+        _moduleTransitionMovies.pop();
 
         if (startVideo(name)) {
             return true;

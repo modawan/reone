@@ -33,6 +33,7 @@ public:
 
     virtual void render() = 0;
     virtual void stop(AudioType type) = 0;
+    virtual void stopAll() = 0;
 
     virtual std::shared_ptr<AudioSource> play(
         std::shared_ptr<AudioClip> clip,
@@ -50,6 +51,7 @@ public:
 
     void render() override;
     void stop(AudioType type) override;
+    void stopAll() override;
 
     std::shared_ptr<AudioSource> play(
         std::shared_ptr<AudioClip> clip,
