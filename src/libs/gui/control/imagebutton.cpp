@@ -43,6 +43,9 @@ static const char kIconFontResRef[] = "dialogfont10x10a";
 void ImageButton::load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) {
     Control::load(gui, protoItem);
     _iconFont = _resourceSvc.fonts.get(kIconFontResRef);
+    if (!_iconFont) {
+        _iconFont = _text.font;
+    }
 }
 
 void ImageButton::render(
@@ -106,7 +109,7 @@ void ImageButton::renderIcon(
             {_extent.height, _extent.height});
     }
 
-    if (!iconText.empty()) {
+    if (!iconText.empty() && _iconFont) {
         glm::vec3 position(0.0f);
         position.x = static_cast<float>(offset.x + _extent.left + _extent.height);
         position.y = static_cast<float>(offset.y + _extent.top + _extent.height - 0.5f * _iconFont->height());
