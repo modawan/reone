@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <queue>
+
 #include "reone/audio/source.h"
 #include "reone/graphics/cursor.h"
 #include "reone/input/event.h"
@@ -183,6 +185,7 @@ public:
     void loadModule(const std::string &name, std::string entry = "");
 
     void scheduleModuleTransition(const std::string &moduleName, const std::string &entry);
+    void scheduleModuleTransitionWithMovies(const std::string &moduleName, const std::string &entry, std::vector<std::string> movies);
 
     // END Module loading
 
@@ -321,6 +324,7 @@ private:
     Screen _screen {Screen::None};
 
     std::shared_ptr<movie::IMovie> _movie;
+    std::queue<std::string> _moduleTransitionMovies;
     resource::CursorType _cursorType {resource::CursorType::None};
     std::shared_ptr<graphics::Cursor> _cursor;
     float _gameSpeed {1.0f};
@@ -408,6 +412,8 @@ private:
 
     // Updates
 
+    bool startVideo(const std::string &name);
+    bool playNextModuleTransitionMovie();
     void updateMovie(float dt);
     void updateMusic();
     void updateCamera(float dt);

@@ -46,6 +46,8 @@ public:
 class MockAudioMixer : public IAudioMixer, boost::noncopyable {
 public:
     MOCK_METHOD(void, render, (), (override));
+    MOCK_METHOD(void, stop, (AudioType), (override));
+    MOCK_METHOD(void, stopAll, (), (override));
     MOCK_METHOD(std::shared_ptr<AudioSource>, play, (std::shared_ptr<AudioClip>, AudioType, float, bool, std::optional<glm::vec3>), (override));
 };
 

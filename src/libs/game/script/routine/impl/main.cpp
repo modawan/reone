@@ -4389,9 +4389,25 @@ static Variable StartNewModule(const std::vector<Variable> &args, const RoutineC
     // Transform
     auto moduleName = boost::to_lower_copy(sModuleName);
     auto waypoint = boost::to_lower_copy(sWayPoint);
+    std::vector<std::string> movies;
+    auto addMovie = [&movies](const std::string &movie) {
+        if (!movie.empty()) {
+            movies.push_back(boost::to_lower_copy(movie));
+        }
+    };
+    addMovie(sMovie1);
+    addMovie(sMovie2);
+    addMovie(sMovie3);
+    addMovie(sMovie4);
+    addMovie(sMovie5);
+    addMovie(sMovie6);
 
     // Execute
-    ctx.game.scheduleModuleTransition(moduleName, waypoint);
+    if (movies.empty()) {
+        ctx.game.scheduleModuleTransition(moduleName, waypoint);
+    } else {
+        ctx.game.scheduleModuleTransitionWithMovies(moduleName, waypoint, std::move(movies));
+    }
     return Variable::ofNull();
 }
 

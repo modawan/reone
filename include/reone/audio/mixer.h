@@ -32,6 +32,8 @@ public:
     virtual ~IAudioMixer() = default;
 
     virtual void render() = 0;
+    virtual void stop(AudioType type) = 0;
+    virtual void stopAll() = 0;
 
     virtual std::shared_ptr<AudioSource> play(
         std::shared_ptr<AudioClip> clip,
@@ -48,6 +50,8 @@ public:
     }
 
     void render() override;
+    void stop(AudioType type) override;
+    void stopAll() override;
 
     std::shared_ptr<AudioSource> play(
         std::shared_ptr<AudioClip> clip,
@@ -57,9 +61,14 @@ public:
         std::optional<glm::vec3> = std::nullopt) override;
 
 private:
+    struct ActiveSource {
+        std::shared_ptr<AudioSource> source;
+        AudioType type {AudioType::Sound};
+    };
+
     AudioOptions &_options;
 
-    std::vector<std::shared_ptr<AudioSource>> _sources;
+    std::vector<ActiveSource> _sources;
 
     float gainByType(AudioType type, float gain) const;
 };

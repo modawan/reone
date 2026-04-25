@@ -23,7 +23,7 @@ namespace audio {
 
 void AudioMixer::render() {
     for (auto it = _sources.begin(); it != _sources.end();) {
-        auto &source = *it;
+        auto &source = it->source;
         source->render();
         if (!source->isPlaying()) {
             it = _sources.erase(it);
@@ -31,6 +31,25 @@ void AudioMixer::render() {
             ++it;
         }
     }
+}
+
+void AudioMixer::stop(AudioType type) {
+    for (auto it = _sources.begin(); it != _sources.end();) {
+        if (it->type != type) {
+            ++it;
+            continue;
+        }
+
+        it->source->stop();
+        it = _sources.erase(it);
+    }
+}
+
+void AudioMixer::stopAll() {
+    for (auto &source : _sources) {
+        source.source->stop();
+    }
+    _sources.clear();
 }
 
 std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
@@ -45,7 +64,7 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
         std::move(position));
     source->init();
     source->play();
-    _sources.push_back(source);
+    _sources.push_back(ActiveSource {source, type});
     return source;
 }
 
