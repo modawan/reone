@@ -65,6 +65,26 @@ void Object::setLocalNumber(int index, int value) {
 }
 
 void Object::clearAllActions(bool force) {
+    // If the current front action clears the queue while it is executing, keep
+    // that action and its queued continuation alive instead of trimming from the
+    // back and deleting the follow-up it is about to hand off to.
+    if (!force) {
+        auto executingAction = _executingAction.lock();
+        if (executingAction) {
+            while (!_actions.empty() && _actions.front() != executingAction) {
+                const std::shared_ptr<Action> &action = _actions.front();
+                if (action->locked()) {
+                    break;
+                }
+                action->cancel(action, *this);
+                _actions.pop_front();
+            }
+            if (!_actions.empty() && _actions.front() == executingAction) {
+                return;
+            }
+        }
+    }
+
     while (!_actions.empty()) {
         const std::shared_ptr<Action> &action = _actions.back();
         if (!force && action->locked()) {
@@ -129,7 +149,14 @@ void Object::executeActions(float dt) {
         return;
     }
     std::shared_ptr<Action> action(_actions.front());
-    action->execute(action, *this, dt);
+    _executingAction = action;
+    try {
+        action->execute(action, *this, dt);
+    } catch (...) {
+        _executingAction.reset();
+        throw;
+    }
+    _executingAction.reset();
 }
 
 bool Object::hasUserActionsPending() const {
