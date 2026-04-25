@@ -51,6 +51,7 @@ public:
     void loadFromBlueprint(const std::string &resRef);
 
     bool isSelectable() const override;
+    void damage(int amount, uint32_t damager) override;
 
     void open();
     void close();
@@ -58,6 +59,7 @@ public:
     bool isLocked() const { return _locked; }
     bool isStatic() const { return _static; }
     bool isKeyRequired() const { return _keyRequired; }
+    bool isNotBlastable() const { return _notBlastable; }
 
     void onOpen(const Object &triggerer);
     void onFailToOpen(const Object &triggerer);
@@ -95,6 +97,7 @@ private:
     int _hardness {0};
     int _fortitude {0};
     bool _lockable {false};
+    bool _notBlastable {false};
     std::string _keyName;
 
     // Walkmeshes
@@ -121,6 +124,8 @@ private:
 
     void loadUTD(const resource::generated::UTD &utd);
     void loadTransformFromGIT(const resource::generated::GIT_Door_List &git);
+    void runDamagedScript(uint32_t damagerId);
+    void runDeathScript(uint32_t damagerId);
 
     void updateTransform() override;
 };

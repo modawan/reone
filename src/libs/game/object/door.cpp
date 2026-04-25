@@ -17,6 +17,9 @@
 
 #include "reone/game/object/door.h"
 
+#include <algorithm>
+#include <limits>
+
 #include "reone/graphics/di/services.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
@@ -112,6 +115,34 @@ bool Door::isSelectable() const {
     return !_static && !_open;
 }
 
+void Door::damage(int amount, uint32_t damager) {
+    if (_dead || _plot || _notBlastable) {
+        return;
+    }
+    if (amount <= 0) {
+        return;
+    }
+
+    int currentHitPoints = _currentHitPoints > 0 ? _currentHitPoints : _hitPoints;
+    if (amount == std::numeric_limits<int>::max()) {
+        _currentHitPoints = isMinOneHP() ? 1 : 0;
+    } else {
+        _currentHitPoints = std::max(isMinOneHP() ? 1 : 0, currentHitPoints - amount);
+    }
+
+    damager = damager ? damager : script::kObjectInvalid;
+    runDamagedScript(damager);
+
+    if (_currentHitPoints > 0) {
+        return;
+    }
+
+    _dead = true;
+    _locked = false;
+    open();
+    runDeathScript(damager);
+}
+
 void Door::open() {
     auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
     if (model) {
@@ -171,6 +202,28 @@ void Door::onFailToOpen(const Object &triggerer) {
          {script::ArgKind::ClickingObject, Variable::ofObject(triggerer.id())}});
 }
 
+void Door::runDamagedScript(uint32_t damagerId) {
+    if (_onDamaged.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(
+        _onDamaged,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::LastAttacker, Variable::ofObject(damagerId)},
+         {script::ArgKind::LastDamager, Variable::ofObject(damagerId)}});
+}
+
+void Door::runDeathScript(uint32_t damagerId) {
+    if (_onDeath.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(
+        _onDeath,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::LastAttacker, Variable::ofObject(damagerId)},
+         {script::ArgKind::LastDamager, Variable::ofObject(damagerId)}});
+}
+
 void Door::setLocked(bool locked) {
     _locked = locked;
 }
@@ -196,6 +249,7 @@ void Door::loadUTD(const resource::generated::UTD &utd) {
     _fortitude = utd.Fort;
     _genericType = utd.GenericType;
     _static = utd.Static;
+    _notBlastable = utd.NotBlastable;
 
     _onClosed = utd.OnClosed;   // always empty, but could be useful
     _onDamaged = utd.OnDamaged; // always empty, but could be useful

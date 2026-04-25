@@ -69,20 +69,24 @@ bool Reputes::getIsEnemy(const Creature &left, const Creature &right) const {
         return left.isMinOneHP() && right.isMinOneHP();
     }
 
+    return getIsEnemy(left.faction(), right.faction());
+}
+
+bool Reputes::getIsEnemy(Faction left, Faction right) const {
     return getRepute(left, right) < 50;
 }
 
 bool Reputes::getIsFriend(const Creature &left, const Creature &right) const {
-    return getRepute(left, right) > 50;
+    return getRepute(left.faction(), right.faction()) > 50;
 }
 
 bool Reputes::getIsNeutral(const Creature &left, const Creature &right) const {
-    return getRepute(left, right) == 50;
+    return getRepute(left.faction(), right.faction()) == 50;
 }
 
-int Reputes::getRepute(const Creature &left, const Creature &right) const {
-    int leftFaction = static_cast<int>(left.faction());
-    int rightFaction = static_cast<int>(right.faction());
+int Reputes::getRepute(Faction left, Faction right) const {
+    int leftFaction = static_cast<int>(left);
+    int rightFaction = static_cast<int>(right);
 
     if (leftFaction < 0 || leftFaction >= g_factionValues.size() ||
         rightFaction < 0 || rightFaction >= g_factionValues[leftFaction].size())
