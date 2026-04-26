@@ -348,7 +348,8 @@ void ListBox::renderItemWithButtonProtoIcon(
     glm::ivec2 iconSize(originalExtent.height, originalExtent.height);
 
     if (item.iconFrame) {
-        pass.drawImage(*item.iconFrame, iconPosition, iconSize, glm::vec4(_protoItem->border().color, 1.0f));
+        glm::vec3 frameColor(item.invalid ? glm::vec3(1.0f, 0.0f, 0.0f) : _protoItem->border().color);
+        pass.drawImage(*item.iconFrame, iconPosition, iconSize, glm::vec4(frameColor, 1.0f));
     }
     if (item.iconTexture) {
         pass.drawImage(*item.iconTexture, iconPosition, iconSize);

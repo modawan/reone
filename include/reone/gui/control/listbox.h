@@ -38,6 +38,7 @@ public:
         std::string iconText;
         std::shared_ptr<graphics::Texture> iconTexture;
         std::shared_ptr<graphics::Texture> iconFrame;
+        bool invalid {false};
 
         std::vector<std::string> _textLines;
     };

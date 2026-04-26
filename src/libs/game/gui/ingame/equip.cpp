@@ -465,6 +465,7 @@ std::shared_ptr<Texture> Equipment::getEmptySlotIcon(Slot slot) const {
 
 void Equipment::updateItems() {
     _controls.LB_ITEMS->clearItems();
+    std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
 
     if (_activeSlot != Slot::None) {
         ListBox::Item lbItem;
@@ -491,6 +492,11 @@ void Equipment::updateItems() {
         lbItem.text = item->localizedName();
         lbItem.iconTexture = item->icon();
         lbItem.iconFrame = getItemFrameTexture(item->stackSize());
+        lbItem.invalid = _activeSlot != Slot::None &&
+                         !canEquipItemInSlot(
+                             resolveActualEquipSlot(getInventorySlot(_activeSlot), item, *partyLeader),
+                             *item,
+                             *partyLeader);
 
         if (item->stackSize() > 1) {
             lbItem.iconText = std::to_string(item->stackSize());
