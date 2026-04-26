@@ -28,6 +28,7 @@
 #include "reone/gui/gui.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/resources.h"
+#include "reone/scene/render/pass.h"
 #include "reone/system/logutil.h"
 
 using namespace reone::graphics;
@@ -50,7 +51,7 @@ void ListBox::addItem(Item &&item) {
     if (!_protoItem)
         return;
 
-    item._textLines = breakText(item.text, *_protoItem->text().font, _protoItem->extent().width);
+    item._textLines = breakText(item.text, *_protoItem->text().font, getItemTextWidth());
     _items.push_back(item);
 
     updateItemSlots();
@@ -60,7 +61,7 @@ void ListBox::addTextLinesAsItems(const std::string &text) {
     if (!_protoItem)
         return;
 
-    std::vector<std::string> lines(breakText(text, *_protoItem->text().font, _protoItem->extent().width));
+    std::vector<std::string> lines(breakText(text, *_protoItem->text().font, getItemTextWidth()));
     for (auto &line : lines) {
         Item item;
         item.text = line;
@@ -207,6 +208,8 @@ void ListBox::render(const glm::ivec2 &screenSize,
         auto imageButton = std::dynamic_pointer_cast<ImageButton>(_protoItem);
         if (imageButton) {
             imageButton->render(itemOffset, item._textLines, item.iconText, item.iconTexture, item.iconFrame, pass);
+        } else if (shouldRenderItemIconsForButtonProto()) {
+            renderItemWithButtonProtoIcon(screenSize, itemOffset, item, pass);
         } else {
             _protoItem->setTextLines(item._textLines);
             _protoItem->render(screenSize, itemOffset, pass);
@@ -287,6 +290,69 @@ void ListBox::setSelectionMode(SelectionMode mode) {
 
 void ListBox::setProtoMatchContent(bool match) {
     _protoMatchContent = match;
+}
+
+void ListBox::setRenderItemIconsForButtonProto(bool render) {
+    _renderItemIconsForButtonProto = render;
+
+    if (!_protoItem)
+        return;
+
+    for (auto &item : _items) {
+        item._textLines = breakText(item.text, *_protoItem->text().font, getItemTextWidth());
+    }
+    updateItemSlots();
+}
+
+int ListBox::getItemTextWidth() const {
+    if (!_protoItem)
+        return 0;
+
+    int width = _protoItem->extent().width;
+    if (shouldRenderItemIconsForButtonProto()) {
+        width -= _protoItem->extent().height;
+        if (width < 0) {
+            width = 0;
+        }
+    }
+    return width;
+}
+
+bool ListBox::shouldRenderItemIconsForButtonProto() const {
+    return _renderItemIconsForButtonProto && static_cast<bool>(std::dynamic_pointer_cast<Button>(_protoItem));
+}
+
+void ListBox::renderItemWithButtonProtoIcon(
+    const glm::ivec2 &screenSize,
+    const glm::ivec2 &offset,
+    const Item &item,
+    IRenderPass &pass) {
+
+    Control::Extent originalExtent(_protoItem->extent());
+    Control::Extent textExtent(originalExtent);
+    textExtent.left += originalExtent.height;
+    textExtent.width -= originalExtent.height;
+    if (textExtent.width < 0) {
+        textExtent.width = 0;
+    }
+
+    _protoItem->setExtent(textExtent);
+    _protoItem->setTextLines(item._textLines);
+    _protoItem->render(screenSize, offset, pass);
+    _protoItem->setExtent(originalExtent);
+
+    if (!item.iconFrame && !item.iconTexture)
+        return;
+
+    glm::ivec2 iconPosition(offset.x + originalExtent.left, offset.y + originalExtent.top);
+    glm::ivec2 iconSize(originalExtent.height, originalExtent.height);
+
+    if (item.iconFrame) {
+        pass.drawImage(*item.iconFrame, iconPosition, iconSize, glm::vec4(_protoItem->border().color, 1.0f));
+    }
+    if (item.iconTexture) {
+        pass.drawImage(*item.iconTexture, iconPosition, iconSize);
+    }
 }
 
 const ListBox::Item &ListBox::getItemAt(int index) const {
