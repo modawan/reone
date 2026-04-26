@@ -77,6 +77,7 @@ public:
     void setExtentHeight(int height) override;
     void setSelectionMode(SelectionMode mode);
     void setProtoMatchContent(bool match);
+    void setRenderItemIconsForButtonProto(bool render);
 
     int getItemCount() const;
     const Item &getItemAt(int index) const;
@@ -101,6 +102,7 @@ private:
     int _selectedItemIndex {-1};
     int _itemMargin {0};
     bool _protoMatchContent {false}; /**< proto item height must match its content */
+    bool _renderItemIconsForButtonProto {false};
 
     // Event listeners
 
@@ -110,7 +112,14 @@ private:
 
     void updateItemSlots();
 
+    int getItemTextWidth() const;
     int getItemIndex(int y) const;
+    bool shouldRenderItemIconsForButtonProto() const;
+    void renderItemWithButtonProtoIcon(
+        const glm::ivec2 &screenSize,
+        const glm::ivec2 &offset,
+        const Item &item,
+        scene::IRenderPass &pass);
 };
 
 } // namespace gui

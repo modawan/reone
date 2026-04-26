@@ -135,13 +135,13 @@ void Equipment::onGUILoaded() {
 }
 
 void Equipment::configureItemsListBox() {
-    _controls.LB_ITEMS->changeProtoItemType(ControlType::ImageButton);
+    _controls.LB_ITEMS->setRenderItemIconsForButtonProto(true);
     _controls.LB_ITEMS->setPadding(5);
     _controls.LB_ITEMS->setOnItemClick([this](const std::string &item) {
         onItemsListBoxItemClick(item);
     });
 
-    auto &protoItem = static_cast<ImageButton &>(_controls.LB_ITEMS->protoItem());
+    auto &protoItem = _controls.LB_ITEMS->protoItem();
     protoItem.setBorderColor(_baseColor);
     protoItem.setHilightColor(_hilightColor);
 }
