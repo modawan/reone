@@ -137,6 +137,7 @@ private:
     InGameMenu &_inGameMenu;
 
     Slot _selectedSlot {Slot::None};
+    Slot _activeSlot {Slot::None};
     int _selectedItemIdx {-1};
 
     void onGUILoaded() override;
@@ -206,6 +207,7 @@ private:
     void updateEquipment();
     void updateItems();
     void updatePortraits();
+    void activateSlot(Slot slot);
     void selectSlot(Slot slot);
 
     std::shared_ptr<graphics::Texture> getItemFrameTexture(int stackSize) const;
