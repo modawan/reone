@@ -56,6 +56,7 @@ void GameModule::init() {
     _portraits->init();
     _reputes->init();
     _feats->init();
+    _skills->init();
     _spells->init();
     _surfaces->init();
     _projectiles->init();
