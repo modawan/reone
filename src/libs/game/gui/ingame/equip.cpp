@@ -192,8 +192,8 @@ void Equipment::onItemsListBoxItemClick(const std::string &item) {
             }
         }
     }
-    int slot = getInventorySlot(_activeSlot);
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
+    int slot = resolveActualEquipSlot(getInventorySlot(_activeSlot), itemObj, *partyLeader);
     std::shared_ptr<Item> equipped(partyLeader->getEquippedItem(slot));
 
     if (equipped != itemObj) {
@@ -270,6 +270,32 @@ void Equipment::selectSlot(Slot slot) {
 void Equipment::activateSlot(Slot slot) {
     _activeSlot = slot;
     updateItems();
+}
+
+int Equipment::resolveActualEquipSlot(int requestedSlot, const std::shared_ptr<Item> &item, const Creature &creature) const {
+    if (!item)
+        return requestedSlot;
+
+    int mainHandSlot = -1;
+    if (requestedSlot == InventorySlots::leftWeapon) {
+        mainHandSlot = InventorySlots::rightWeapon;
+    } else if (requestedSlot == InventorySlots::leftWeapon2) {
+        mainHandSlot = InventorySlots::rightWeapon2;
+    } else {
+        return requestedSlot;
+    }
+
+    if (creature.getEquippedItem(mainHandSlot) || creature.getEquippedItem(requestedSlot))
+        return requestedSlot;
+
+    switch (item->weaponWield()) {
+    case WeaponWield::StunBaton:
+    case WeaponWield::SingleSword:
+    case WeaponWield::BlasterPistol:
+        return item->isEquippable(mainHandSlot) ? mainHandSlot : requestedSlot;
+    default:
+        return requestedSlot;
+    }
 }
 
 void Equipment::updateEquipment() {
