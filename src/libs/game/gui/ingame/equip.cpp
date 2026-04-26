@@ -115,16 +115,19 @@ void Equipment::onGUILoaded() {
     });
 
     for (auto &slotButton : _btnInv) {
-        slotButton.second->setOnClick([&]() {
-            selectSlot(slotButton.first);
+        auto slot = slotButton.first;
+        slotButton.second->setOnClick([this, slot]() {
+            selectSlot(slot);
         });
-        slotButton.second->setOnSelectionChanged([&](bool selected) {
+        slotButton.second->setOnSelectionChanged([this, slot](bool selected) {
             if (!selected)
                 return;
 
+            activateSlot(slot);
+
             std::string slotDesc;
 
-            auto maybeStrRef = g_slotStrRefs.find(slotButton.first);
+            auto maybeStrRef = g_slotStrRefs.find(slot);
             if (maybeStrRef != g_slotStrRefs.end()) {
                 slotDesc = _services.resource.strings.getText(maybeStrRef->second);
             }
@@ -176,7 +179,7 @@ static int getInventorySlot(Equipment::Slot slot) {
 }
 
 void Equipment::onItemsListBoxItemClick(const std::string &item) {
-    if (_selectedSlot == Slot::None)
+    if (_activeSlot == Slot::None)
         return;
 
     std::shared_ptr<Creature> player(_game.party().player());
@@ -189,7 +192,7 @@ void Equipment::onItemsListBoxItemClick(const std::string &item) {
             }
         }
     }
-    int slot = getInventorySlot(_selectedSlot);
+    int slot = getInventorySlot(_activeSlot);
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
     std::shared_ptr<Item> equipped(partyLeader->getEquippedItem(slot));
 
@@ -261,6 +264,11 @@ void Equipment::selectSlot(Slot slot) {
     }
     _selectedSlot = slot;
 
+    activateSlot(slot);
+}
+
+void Equipment::activateSlot(Slot slot) {
+    _activeSlot = slot;
     updateItems();
 }
 
@@ -349,7 +357,7 @@ std::shared_ptr<Texture> Equipment::getEmptySlotIcon(Slot slot) const {
 void Equipment::updateItems() {
     _controls.LB_ITEMS->clearItems();
 
-    if (_selectedSlot != Slot::None) {
+    if (_activeSlot != Slot::None) {
         ListBox::Item lbItem;
         lbItem.tag = "[none]";
         lbItem.text = _services.resource.strings.getText(kStrRefNone);
@@ -361,11 +369,11 @@ void Equipment::updateItems() {
     std::shared_ptr<Creature> player(_game.party().player());
 
     for (auto &item : player->items()) {
-        if (_selectedSlot == Slot::None) {
+        if (_activeSlot == Slot::None) {
             if (!item->isEquippable())
                 continue;
         } else {
-            int slot = getInventorySlot(_selectedSlot);
+            int slot = getInventorySlot(_activeSlot);
             if (!item->isEquippable(slot))
                 continue;
         }
