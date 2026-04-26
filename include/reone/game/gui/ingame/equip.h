@@ -211,6 +211,7 @@ private:
     void activateSlot(Slot slot);
     void selectSlot(Slot slot);
     int resolveActualEquipSlot(int requestedSlot, const std::shared_ptr<Item> &item, const Creature &creature) const;
+    bool canEquipItemInSlot(int slot, const Item &item, const Creature &creature) const;
 
     std::shared_ptr<graphics::Texture> getItemFrameTexture(int stackSize) const;
     std::shared_ptr<graphics::Texture> getEmptySlotIcon(Slot slot) const;

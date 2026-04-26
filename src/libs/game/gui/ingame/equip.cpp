@@ -178,6 +178,51 @@ static int getInventorySlot(Equipment::Slot slot) {
     }
 }
 
+static bool isMainHandWeaponSlot(int slot) {
+    return slot == InventorySlots::rightWeapon || slot == InventorySlots::rightWeapon2;
+}
+
+static bool isOffHandWeaponSlot(int slot) {
+    return slot == InventorySlots::leftWeapon || slot == InventorySlots::leftWeapon2;
+}
+
+static int getPairedMainHandSlot(int offHandSlot) {
+    return offHandSlot == InventorySlots::leftWeapon2 ? InventorySlots::rightWeapon2 : InventorySlots::rightWeapon;
+}
+
+static int getPairedOffHandSlot(int mainHandSlot) {
+    return mainHandSlot == InventorySlots::rightWeapon2 ? InventorySlots::leftWeapon2 : InventorySlots::leftWeapon;
+}
+
+static bool isOneHandedWeapon(const Item &item) {
+    switch (item.weaponWield()) {
+    case WeaponWield::StunBaton:
+    case WeaponWield::SingleSword:
+    case WeaponWield::BlasterPistol:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool isTwoHandedWeapon(const Item &item) {
+    switch (item.weaponWield()) {
+    case WeaponWield::DoubleBladedSword:
+    case WeaponWield::BlasterRifle:
+    case WeaponWield::HeavyWeapon:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool areWeaponsCompatible(const Item &mainHand, const Item &offHand) {
+    return isOneHandedWeapon(mainHand) &&
+           isOneHandedWeapon(offHand) &&
+           mainHand.weaponType() == offHand.weaponType() &&
+           mainHand.weaponType() != WeaponType::None;
+}
+
 void Equipment::onItemsListBoxItemClick(const std::string &item) {
     if (_activeSlot == Slot::None)
         return;
@@ -196,10 +241,20 @@ void Equipment::onItemsListBoxItemClick(const std::string &item) {
     int slot = resolveActualEquipSlot(getInventorySlot(_activeSlot), itemObj, *partyLeader);
     std::shared_ptr<Item> equipped(partyLeader->getEquippedItem(slot));
 
-    if (equipped != itemObj) {
+    if (itemObj && !canEquipItemInSlot(slot, *itemObj, *partyLeader))
+        return;
+
+    bool clearPairedOffHand = !itemObj && isMainHandWeaponSlot(slot);
+    std::shared_ptr<Item> pairedOffHand(clearPairedOffHand ? partyLeader->getEquippedItem(getPairedOffHandSlot(slot)) : nullptr);
+
+    if (equipped != itemObj || pairedOffHand) {
         if (equipped) {
             partyLeader->unequip(equipped);
             player->addItem(equipped);
+        }
+        if (pairedOffHand) {
+            partyLeader->unequip(pairedOffHand);
+            player->addItem(pairedOffHand);
         }
         if (itemObj) {
             bool last;
@@ -298,6 +353,32 @@ int Equipment::resolveActualEquipSlot(int requestedSlot, const std::shared_ptr<I
     default:
         return requestedSlot;
     }
+}
+
+bool Equipment::canEquipItemInSlot(int slot, const Item &item, const Creature &creature) const {
+    if (isOffHandWeaponSlot(slot)) {
+        if (isTwoHandedWeapon(item))
+            return false;
+
+        auto mainHand = creature.getEquippedItem(getPairedMainHandSlot(slot));
+        if (!mainHand)
+            return false;
+
+        return areWeaponsCompatible(*mainHand, item);
+    }
+
+    if (isMainHandWeaponSlot(slot)) {
+        auto offHand = creature.getEquippedItem(getPairedOffHandSlot(slot));
+        if (!offHand)
+            return true;
+
+        if (isTwoHandedWeapon(item))
+            return false;
+
+        return areWeaponsCompatible(item, *offHand);
+    }
+
+    return true;
 }
 
 void Equipment::updateEquipment() {
