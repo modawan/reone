@@ -251,7 +251,9 @@ void Equipment::selectSlot(Slot slot) {
 
     for (auto &lbl : _lblInv) {
         lbl.second->setVisible(noneSelected);
-        lbl.second->setVisible(noneSelected);
+    }
+    for (auto &btn : _btnInv) {
+        btn.second->setVisible(noneSelected);
     }
 
     _controls.LB_DESC->setVisible(!noneSelected);
