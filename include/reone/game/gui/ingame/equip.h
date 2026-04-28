@@ -63,6 +63,7 @@ public:
     }
 
     void update();
+    void update(float dt) override;
 
 private:
     static constexpr int kNumControlsBar = 5;
@@ -204,6 +205,8 @@ private:
     }
 
     void configureItemsListBox();
+    void clearCandidateDescription();
+    void updateCandidateDescription();
     void updateEquipment();
     void updateItems();
     void updatePortraits();

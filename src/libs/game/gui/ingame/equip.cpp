@@ -96,6 +96,7 @@ void Equipment::onGUILoaded() {
     // _controls.btnCharLeft->setVisible(false);
     // _controls.btnCharRight->setVisible(false);
     _controls.LB_DESC->setVisible(false);
+    _controls.LB_DESC->setProtoMatchContent(true);
     _controls.LBL_CANTEQUIP->setVisible(false);
 
     configureItemsListBox();
@@ -148,6 +149,50 @@ void Equipment::configureItemsListBox() {
     auto &protoItem = _controls.LB_ITEMS->protoItem();
     protoItem.setBorderColor(_baseColor);
     protoItem.setHilightColor(_hilightColor);
+}
+
+void Equipment::clearCandidateDescription() {
+    _selectedItemIdx = -1;
+    _controls.LB_DESC->clearItems();
+}
+
+void Equipment::updateCandidateDescription() {
+    if (_selectedSlot == Slot::None) {
+        clearCandidateDescription();
+        return;
+    }
+
+    int selectedItemIdx = _controls.LB_ITEMS->selectedItemIndex();
+    if (selectedItemIdx == _selectedItemIdx)
+        return;
+
+    _selectedItemIdx = selectedItemIdx;
+    _controls.LB_DESC->clearItems();
+
+    if (selectedItemIdx < 0 || selectedItemIdx >= _controls.LB_ITEMS->getItemCount())
+        return;
+
+    const ListBox::Item &lbItem = _controls.LB_ITEMS->getItemAt(selectedItemIdx);
+    if (lbItem.tag == "[none]")
+        return;
+
+    std::shared_ptr<Item> itemObj;
+    std::shared_ptr<Creature> player(_game.party().player());
+    for (auto &playerItem : player->items()) {
+        if (playerItem->tag() == lbItem.tag) {
+            itemObj = playerItem;
+            break;
+        }
+    }
+    if (!itemObj)
+        return;
+
+    std::string description(itemObj->localizedName());
+    if (!itemObj->descIdentified().empty()) {
+        description += "\n\n";
+        description += itemObj->descIdentified();
+    }
+    _controls.LB_DESC->addTextLinesAsItems(description);
 }
 
 static int getInventorySlot(Equipment::Slot slot) {
@@ -245,6 +290,11 @@ void Equipment::update() {
     _controls.LBL_DEF->setTextMessage(std::to_string(partyLeader->getDefense()));
 }
 
+void Equipment::update(float dt) {
+    GameGUI::update(dt);
+    updateCandidateDescription();
+}
+
 void Equipment::updatePortraits() {
     if (_game.isTSL())
         return;
@@ -280,10 +330,14 @@ void Equipment::selectSlot(Slot slot) {
     _selectedSlot = slot;
 
     activateSlot(slot);
+    if (noneSelected) {
+        clearCandidateDescription();
+    }
 }
 
 void Equipment::activateSlot(Slot slot) {
     _activeSlot = slot;
+    clearCandidateDescription();
     updateItems();
 }
 
@@ -371,6 +425,7 @@ std::shared_ptr<Texture> Equipment::getEmptySlotIcon(Slot slot) const {
 
 void Equipment::updateItems() {
     _controls.LB_ITEMS->clearItems();
+    clearCandidateDescription();
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
 
     if (_activeSlot != Slot::None) {
