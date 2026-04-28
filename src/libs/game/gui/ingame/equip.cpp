@@ -140,6 +140,7 @@ void Equipment::onGUILoaded() {
 }
 
 void Equipment::configureItemsListBox() {
+    _controls.LB_ITEMS->setItemsInteractive(false);
     _controls.LB_ITEMS->setRenderItemIconsForButtonProto(true);
     _controls.LB_ITEMS->setPadding(5);
     _controls.LB_ITEMS->setOnItemClick([this](const std::string &item) {
@@ -225,7 +226,7 @@ static int getInventorySlot(Equipment::Slot slot) {
 }
 
 void Equipment::onItemsListBoxItemClick(const std::string &item) {
-    if (_activeSlot == Slot::None)
+    if (_selectedSlot == Slot::None)
         return;
 
     std::shared_ptr<Creature> player(_game.party().player());
@@ -239,7 +240,7 @@ void Equipment::onItemsListBoxItemClick(const std::string &item) {
         }
     }
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-    EquipmentCandidateDecision decision(evaluateEquipmentCandidate(*partyLeader, getInventorySlot(_activeSlot), itemObj.get()));
+    EquipmentCandidateDecision decision(evaluateEquipmentCandidate(*partyLeader, getInventorySlot(_selectedSlot), itemObj.get()));
     if (!decision.valid)
         return;
 
@@ -342,6 +343,7 @@ void Equipment::selectSlot(Slot slot) {
 
 void Equipment::activateSlot(Slot slot) {
     _activeSlot = slot;
+    _controls.LB_ITEMS->setItemsInteractive(_selectedSlot != Slot::None);
     clearCandidateDescription();
     updateItems();
 }

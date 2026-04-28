@@ -91,7 +91,7 @@ void ListBox::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIt
 }
 
 bool ListBox::handleMouseMotion(int x, int y) {
-    if (_selectionMode == SelectionMode::OnHover) {
+    if (_itemsInteractive && _selectionMode == SelectionMode::OnHover) {
         _selectedItemIndex = getItemIndex(y);
     }
     return false;
@@ -167,6 +167,9 @@ void ListBox::updateItemSlots() {
 }
 
 bool ListBox::handleClick(int x, int y) {
+    if (!_itemsInteractive)
+        return false;
+
     int itemIdx = getItemIndex(y);
     if (itemIdx == -1)
         return false;
@@ -286,6 +289,13 @@ void ListBox::changeProtoItemType(ControlType type) {
 
 void ListBox::setSelectionMode(SelectionMode mode) {
     _selectionMode = mode;
+}
+
+void ListBox::setItemsInteractive(bool interactive) {
+    _itemsInteractive = interactive;
+    if (!interactive) {
+        clearSelection();
+    }
 }
 
 void ListBox::setProtoMatchContent(bool match) {
