@@ -77,6 +77,7 @@ public:
     void setExtent(Extent extent) override;
     void setExtentHeight(int height) override;
     void setSelectionMode(SelectionMode mode);
+    void setSelectedItemIndex(int index);
     void setItemsInteractive(bool interactive);
     void setProtoMatchContent(bool match);
     void setRenderItemIconsForButtonProto(bool render);

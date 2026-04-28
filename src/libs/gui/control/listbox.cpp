@@ -291,6 +291,10 @@ void ListBox::setSelectionMode(SelectionMode mode) {
     _selectionMode = mode;
 }
 
+void ListBox::setSelectedItemIndex(int index) {
+    _selectedItemIndex = index >= 0 && index < getItemCount() ? index : -1;
+}
+
 void ListBox::setItemsInteractive(bool interactive) {
     _itemsInteractive = interactive;
     if (!interactive) {
