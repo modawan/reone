@@ -177,7 +177,7 @@ bool GUI::handle(const input::Event &event) {
             if (control) {
                 debug("Control clicked: " + control->get().tag(), LogChannel::GUI);
                 onClick(control->get().tag());
-                return control->get().handleClick(ctrlCoords.x, ctrlCoords.y);
+                return control->get().handleClick(ctrlCoords.x, ctrlCoords.y, event.button.clicks);
             }
         }
         break;

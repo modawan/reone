@@ -216,6 +216,8 @@ private:
     std::shared_ptr<graphics::Texture> getItemFrameTexture(int stackSize) const;
     std::shared_ptr<graphics::Texture> getEmptySlotIcon(Slot slot) const;
 
+    void confirmSelectedCandidate();
+    void confirmCandidateItem(const std::string &item);
     void onItemsListBoxItemClick(const std::string &item);
 };
 

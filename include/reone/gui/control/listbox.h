@@ -67,7 +67,7 @@ public:
     void load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) override;
     bool handleMouseMotion(int x, int y) override;
     bool handleMouseWheel(int x, int y) override;
-    bool handleClick(int x, int y) override;
+    bool handleClick(int x, int y, int clicks = 1) override;
     void render(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass) override;
     void stretch(float x, float y, int mask) override;
 
@@ -92,6 +92,7 @@ public:
     // Event listeners
 
     void setOnItemClick(std::function<void(const std::string &)> fn) { _onItemClick = std::move(fn); }
+    void setOnItemDoubleClick(std::function<void(const std::string &)> fn) { _onItemDoubleClick = std::move(fn); }
 
     // END Event listeners
 
@@ -111,6 +112,7 @@ private:
     // Event listeners
 
     std::function<void(const std::string &)> _onItemClick;
+    std::function<void(const std::string &)> _onItemDoubleClick;
 
     // END Event listeners
 

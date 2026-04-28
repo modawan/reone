@@ -110,7 +110,7 @@ void Equipment::onGUILoaded() {
         if (_selectedSlot == Slot::None) {
             _game.openInGame();
         } else {
-            selectSlot(Slot::None);
+            confirmSelectedCandidate();
         }
     });
     _controls.BTN_BACK->setOnClick([this]() {
@@ -146,10 +146,14 @@ void Equipment::onGUILoaded() {
 
 void Equipment::configureItemsListBox() {
     _controls.LB_ITEMS->setItemsInteractive(false);
+    _controls.LB_ITEMS->setSelectionMode(ListBox::SelectionMode::OnClick);
     _controls.LB_ITEMS->setRenderItemIconsForButtonProto(true);
     _controls.LB_ITEMS->setPadding(5);
     _controls.LB_ITEMS->setOnItemClick([this](const std::string &item) {
         onItemsListBoxItemClick(item);
+    });
+    _controls.LB_ITEMS->setOnItemDoubleClick([this](const std::string &item) {
+        confirmSelectedCandidate();
     });
 
     auto &protoItem = _controls.LB_ITEMS->protoItem();
@@ -235,7 +239,15 @@ static int getInventorySlot(Equipment::Slot slot) {
     }
 }
 
-void Equipment::onItemsListBoxItemClick(const std::string &item) {
+void Equipment::confirmSelectedCandidate() {
+    int selectedItemIdx = _controls.LB_ITEMS->selectedItemIndex();
+    if (selectedItemIdx < 0 || selectedItemIdx >= _controls.LB_ITEMS->getItemCount())
+        return;
+
+    confirmCandidateItem(_controls.LB_ITEMS->getItemAt(selectedItemIdx).tag);
+}
+
+void Equipment::confirmCandidateItem(const std::string &item) {
     if (_selectedSlot == Slot::None)
         return;
     if (item == kEquippedItemTag)
@@ -292,6 +304,10 @@ void Equipment::onItemsListBoxItemClick(const std::string &item) {
         updateEquipment();
         selectSlot(Slot::None);
     }
+}
+
+void Equipment::onItemsListBoxItemClick(const std::string &item) {
+    updateCandidateDescription();
 }
 
 void Equipment::update() {
@@ -358,6 +374,7 @@ void Equipment::activateSlot(Slot slot) {
     _controls.LB_ITEMS->setItemsInteractive(_selectedSlot != Slot::None);
     clearCandidateDescription();
     updateItems();
+    updateCandidateDescription();
 }
 
 void Equipment::updateEquipment() {

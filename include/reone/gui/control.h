@@ -186,7 +186,7 @@ public:
 
     virtual bool handleMouseMotion(int x, int y);
     virtual bool handleMouseWheel(int x, int y);
-    virtual bool handleClick(int x, int y);
+    virtual bool handleClick(int x, int y, int clicks = 1);
 
     // END User input
 
