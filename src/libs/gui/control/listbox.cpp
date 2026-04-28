@@ -166,7 +166,7 @@ void ListBox::updateItemSlots() {
     }
 }
 
-bool ListBox::handleClick(int x, int y) {
+bool ListBox::handleClick(int x, int y, int clicks) {
     if (!_itemsInteractive)
         return false;
 
@@ -179,6 +179,9 @@ bool ListBox::handleClick(int x, int y) {
     }
     if (_onItemClick) {
         _onItemClick(_items[itemIdx].tag);
+    }
+    if (clicks > 1 && _onItemDoubleClick) {
+        _onItemDoubleClick(_items[itemIdx].tag);
     }
 
     return true;
