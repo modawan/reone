@@ -18,6 +18,7 @@
 #include "reone/game/gui/ingame/equip.h"
 
 #include "reone/game/di/services.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/ingame.h"
 #include "reone/game/object/creature.h"
@@ -178,51 +179,6 @@ static int getInventorySlot(Equipment::Slot slot) {
     }
 }
 
-static bool isMainHandWeaponSlot(int slot) {
-    return slot == InventorySlots::rightWeapon || slot == InventorySlots::rightWeapon2;
-}
-
-static bool isOffHandWeaponSlot(int slot) {
-    return slot == InventorySlots::leftWeapon || slot == InventorySlots::leftWeapon2;
-}
-
-static int getPairedMainHandSlot(int offHandSlot) {
-    return offHandSlot == InventorySlots::leftWeapon2 ? InventorySlots::rightWeapon2 : InventorySlots::rightWeapon;
-}
-
-static int getPairedOffHandSlot(int mainHandSlot) {
-    return mainHandSlot == InventorySlots::rightWeapon2 ? InventorySlots::leftWeapon2 : InventorySlots::leftWeapon;
-}
-
-static bool isOneHandedWeapon(const Item &item) {
-    switch (item.weaponWield()) {
-    case WeaponWield::StunBaton:
-    case WeaponWield::SingleSword:
-    case WeaponWield::BlasterPistol:
-        return true;
-    default:
-        return false;
-    }
-}
-
-static bool isTwoHandedWeapon(const Item &item) {
-    switch (item.weaponWield()) {
-    case WeaponWield::DoubleBladedSword:
-    case WeaponWield::BlasterRifle:
-    case WeaponWield::HeavyWeapon:
-        return true;
-    default:
-        return false;
-    }
-}
-
-static bool areWeaponsCompatible(const Item &mainHand, const Item &offHand) {
-    return isOneHandedWeapon(mainHand) &&
-           isOneHandedWeapon(offHand) &&
-           mainHand.weaponType() == offHand.weaponType() &&
-           mainHand.weaponType() != WeaponType::None;
-}
-
 void Equipment::onItemsListBoxItemClick(const std::string &item) {
     if (_activeSlot == Slot::None)
         return;
@@ -238,14 +194,16 @@ void Equipment::onItemsListBoxItemClick(const std::string &item) {
         }
     }
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-    int slot = resolveActualEquipSlot(getInventorySlot(_activeSlot), itemObj, *partyLeader);
-    std::shared_ptr<Item> equipped(partyLeader->getEquippedItem(slot));
-
-    if (itemObj && !canEquipItemInSlot(slot, *itemObj, *partyLeader))
+    EquipmentCandidateDecision decision(evaluateEquipmentCandidate(*partyLeader, getInventorySlot(_activeSlot), itemObj.get()));
+    if (!decision.valid)
         return;
 
-    bool clearPairedOffHand = !itemObj && isMainHandWeaponSlot(slot);
-    std::shared_ptr<Item> pairedOffHand(clearPairedOffHand ? partyLeader->getEquippedItem(getPairedOffHandSlot(slot)) : nullptr);
+    int slot = decision.actualSlot;
+    std::shared_ptr<Item> equipped(partyLeader->getEquippedItem(slot));
+
+    bool clearPairedOffHand = decision.action == EquipmentCandidateAction::ClearMainHandAndOffHand ||
+                              decision.action == EquipmentCandidateAction::EquipAndClearOffHand;
+    std::shared_ptr<Item> pairedOffHand(clearPairedOffHand ? partyLeader->getEquippedItem(decision.pairedSlot) : nullptr);
 
     if (equipped != itemObj || pairedOffHand) {
         if (equipped) {
@@ -327,58 +285,6 @@ void Equipment::selectSlot(Slot slot) {
 void Equipment::activateSlot(Slot slot) {
     _activeSlot = slot;
     updateItems();
-}
-
-int Equipment::resolveActualEquipSlot(int requestedSlot, const std::shared_ptr<Item> &item, const Creature &creature) const {
-    if (!item)
-        return requestedSlot;
-
-    int mainHandSlot = -1;
-    if (requestedSlot == InventorySlots::leftWeapon) {
-        mainHandSlot = InventorySlots::rightWeapon;
-    } else if (requestedSlot == InventorySlots::leftWeapon2) {
-        mainHandSlot = InventorySlots::rightWeapon2;
-    } else {
-        return requestedSlot;
-    }
-
-    if (creature.getEquippedItem(mainHandSlot) || creature.getEquippedItem(requestedSlot))
-        return requestedSlot;
-
-    switch (item->weaponWield()) {
-    case WeaponWield::StunBaton:
-    case WeaponWield::SingleSword:
-    case WeaponWield::BlasterPistol:
-        return item->isEquippable(mainHandSlot) ? mainHandSlot : requestedSlot;
-    default:
-        return requestedSlot;
-    }
-}
-
-bool Equipment::canEquipItemInSlot(int slot, const Item &item, const Creature &creature) const {
-    if (isOffHandWeaponSlot(slot)) {
-        if (isTwoHandedWeapon(item))
-            return false;
-
-        auto mainHand = creature.getEquippedItem(getPairedMainHandSlot(slot));
-        if (!mainHand)
-            return false;
-
-        return areWeaponsCompatible(*mainHand, item);
-    }
-
-    if (isMainHandWeaponSlot(slot)) {
-        auto offHand = creature.getEquippedItem(getPairedOffHandSlot(slot));
-        if (!offHand)
-            return true;
-
-        if (isTwoHandedWeapon(item))
-            return false;
-
-        return areWeaponsCompatible(item, *offHand);
-    }
-
-    return true;
 }
 
 void Equipment::updateEquipment() {
@@ -479,12 +385,15 @@ void Equipment::updateItems() {
     std::shared_ptr<Creature> player(_game.party().player());
 
     for (auto &item : player->items()) {
+        EquipmentCandidateDecision decision;
+        bool hasDecision = false;
         if (_activeSlot == Slot::None) {
             if (!item->isEquippable())
                 continue;
         } else {
-            int slot = getInventorySlot(_activeSlot);
-            if (!item->isEquippable(slot))
+            decision = evaluateEquipmentCandidate(*partyLeader, getInventorySlot(_activeSlot), item.get());
+            hasDecision = true;
+            if (!decision.visible)
                 continue;
         }
         ListBox::Item lbItem;
@@ -492,11 +401,9 @@ void Equipment::updateItems() {
         lbItem.text = item->localizedName();
         lbItem.iconTexture = item->icon();
         lbItem.iconFrame = getItemFrameTexture(item->stackSize());
-        lbItem.invalid = _activeSlot != Slot::None &&
-                         !canEquipItemInSlot(
-                             resolveActualEquipSlot(getInventorySlot(_activeSlot), item, *partyLeader),
-                             *item,
-                             *partyLeader);
+        if (hasDecision) {
+            lbItem.invalid = !decision.valid;
+        }
 
         if (item->stackSize() > 1) {
             lbItem.iconText = std::to_string(item->stackSize());
