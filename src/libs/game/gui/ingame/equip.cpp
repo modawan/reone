@@ -250,7 +250,10 @@ void Equipment::onItemsListBoxItemClick(const std::string &item) {
                               decision.action == EquipmentCandidateAction::EquipAndClearOffHand;
     std::shared_ptr<Item> pairedOffHand(clearPairedOffHand ? partyLeader->getEquippedItem(decision.pairedSlot) : nullptr);
 
-    if (equipped != itemObj || pairedOffHand) {
+    bool clearAction = decision.action == EquipmentCandidateAction::ClearSlot ||
+                       decision.action == EquipmentCandidateAction::ClearMainHandAndOffHand;
+    bool equipmentChanged = equipped != itemObj || pairedOffHand;
+    if (equipmentChanged) {
         if (equipped) {
             partyLeader->unequip(equipped);
             player->addItem(equipped);
@@ -271,6 +274,8 @@ void Equipment::onItemsListBoxItemClick(const std::string &item) {
                 }
             }
         }
+    }
+    if (equipmentChanged || clearAction) {
         updateEquipment();
         selectSlot(Slot::None);
     }
