@@ -38,6 +38,9 @@ namespace reone {
 namespace game {
 
 static constexpr int kStrRefNone = 363;
+static constexpr char kNoneItemTag[] = "[none]";
+static constexpr char kEquippedItemTag[] = "[equipped]";
+static constexpr char kEquippedItemSuffix[] = " (equipped)";
 
 static std::unordered_map<Equipment::Slot, std::string> g_slotNames = {
     {Equipment::Slot::Implant, "IMPLANT"},
@@ -64,6 +67,8 @@ static std::unordered_map<Equipment::Slot, int32_t> g_slotStrRefs = {
     {Equipment::Slot::WeapR, 31379},
     {Equipment::Slot::WeapL2, 31378},
     {Equipment::Slot::WeapR2, 31379}};
+
+static int getInventorySlot(Equipment::Slot slot);
 
 void Equipment::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
@@ -174,15 +179,20 @@ void Equipment::updateCandidateDescription() {
         return;
 
     const ListBox::Item &lbItem = _controls.LB_ITEMS->getItemAt(selectedItemIdx);
-    if (lbItem.tag == "[none]")
+    if (lbItem.tag == kNoneItemTag)
         return;
 
     std::shared_ptr<Item> itemObj;
-    std::shared_ptr<Creature> player(_game.party().player());
-    for (auto &playerItem : player->items()) {
-        if (playerItem->tag() == lbItem.tag) {
-            itemObj = playerItem;
-            break;
+    if (lbItem.tag == kEquippedItemTag) {
+        std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
+        itemObj = partyLeader->getEquippedItem(getInventorySlot(_selectedSlot));
+    } else {
+        std::shared_ptr<Creature> player(_game.party().player());
+        for (auto &playerItem : player->items()) {
+            if (playerItem->tag() == lbItem.tag) {
+                itemObj = playerItem;
+                break;
+            }
         }
     }
     if (!itemObj)
@@ -228,10 +238,12 @@ static int getInventorySlot(Equipment::Slot slot) {
 void Equipment::onItemsListBoxItemClick(const std::string &item) {
     if (_selectedSlot == Slot::None)
         return;
+    if (item == kEquippedItemTag)
+        return;
 
     std::shared_ptr<Creature> player(_game.party().player());
     std::shared_ptr<Item> itemObj;
-    if (item != "[none]") {
+    if (item != kNoneItemTag) {
         for (auto &playerItem : player->items()) {
             if (playerItem->tag() == item) {
                 itemObj = playerItem;
@@ -434,19 +446,37 @@ void Equipment::updateItems() {
     _controls.LB_ITEMS->clearItems();
     clearCandidateDescription();
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
+    std::shared_ptr<Item> equipped;
 
     if (_activeSlot != Slot::None) {
         ListBox::Item lbItem;
-        lbItem.tag = "[none]";
+        lbItem.tag = kNoneItemTag;
         lbItem.text = _services.resource.strings.getText(kStrRefNone);
         lbItem.iconTexture = _services.resource.textures.get("inone", TextureUsage::GUI);
         lbItem.iconFrame = getItemFrameTexture(1);
 
         _controls.LB_ITEMS->addItem(std::move(lbItem));
+
+        equipped = partyLeader->getEquippedItem(getInventorySlot(_activeSlot));
+        if (equipped) {
+            ListBox::Item equippedItem;
+            equippedItem.tag = kEquippedItemTag;
+            equippedItem.text = equipped->localizedName() + kEquippedItemSuffix;
+            equippedItem.iconTexture = equipped->icon();
+            equippedItem.iconFrame = getItemFrameTexture(equipped->stackSize());
+
+            if (equipped->stackSize() > 1) {
+                equippedItem.iconText = std::to_string(equipped->stackSize());
+            }
+            _controls.LB_ITEMS->addItem(std::move(equippedItem));
+        }
     }
     std::shared_ptr<Creature> player(_game.party().player());
 
     for (auto &item : player->items()) {
+        if (item == equipped)
+            continue;
+
         EquipmentCandidateDecision decision;
         bool hasDecision = false;
         if (_activeSlot == Slot::None) {
@@ -471,6 +501,9 @@ void Equipment::updateItems() {
             lbItem.iconText = std::to_string(item->stackSize());
         }
         _controls.LB_ITEMS->addItem(std::move(lbItem));
+    }
+    if (_selectedSlot != Slot::None) {
+        _controls.LB_ITEMS->setSelectedItemIndex(equipped ? 1 : 0);
     }
 }
 
