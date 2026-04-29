@@ -70,6 +70,17 @@ bool areWeaponsCompatible(const Item &mainHand, const Item &offHand) {
            mainHand.weaponType() != WeaponType::None;
 }
 
+static int getCandidateEquipSlot(int requestedSlot) {
+    switch (requestedSlot) {
+    case InventorySlots::rightWeapon2:
+        return InventorySlots::rightWeapon;
+    case InventorySlots::leftWeapon2:
+        return InventorySlots::leftWeapon;
+    default:
+        return requestedSlot;
+    }
+}
+
 static int resolveActualEquipSlot(int requestedSlot, const Item &item, const Creature &creature) {
     if (!isOffHandWeaponSlot(requestedSlot))
         return requestedSlot;
@@ -78,7 +89,7 @@ static int resolveActualEquipSlot(int requestedSlot, const Item &item, const Cre
     if (creature.getEquippedItem(mainHandSlot) || creature.getEquippedItem(requestedSlot))
         return requestedSlot;
 
-    return isOneHandedWeapon(item) && item.isEquippable(mainHandSlot) ? mainHandSlot : requestedSlot;
+    return isOneHandedWeapon(item) && item.isEquippable(getCandidateEquipSlot(mainHandSlot)) ? mainHandSlot : requestedSlot;
 }
 
 EquipmentSlotActivationDecision evaluateEquipmentSlotActivation(
@@ -122,7 +133,7 @@ EquipmentCandidateDecision evaluateEquipmentCandidate(
         return result;
     }
 
-    if (!item->isEquippable(requestedSlot)) {
+    if (!item->isEquippable(getCandidateEquipSlot(requestedSlot))) {
         result.action = EquipmentCandidateAction::Reject;
         result.reason = EquipmentCandidateReason::NotEquippableInRequestedSlot;
         return result;

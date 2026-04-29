@@ -72,6 +72,17 @@ static const std::string g_maskHookNode("gogglehook");
 static const std::string g_rightHandNode("rhand");
 static const std::string g_leftHandNode("lhand");
 
+static int getEquipabilitySlot(int slot) {
+    switch (slot) {
+    case InventorySlots::rightWeapon2:
+        return InventorySlots::rightWeapon;
+    case InventorySlots::leftWeapon2:
+        return InventorySlots::leftWeapon;
+    default:
+        return slot;
+    }
+}
+
 void Creature::Path::selectNextPoint() {
     size_t pointCount = points.size();
     if (pointIdx < pointCount) {
@@ -349,7 +360,7 @@ bool Creature::equip(const std::string &resRef) {
 }
 
 bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
-    if (!item->isEquippable(slot)) {
+    if (!item->isEquippable(getEquipabilitySlot(slot))) {
         return false;
     }
 
