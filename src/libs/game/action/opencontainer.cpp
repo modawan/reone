@@ -26,7 +26,7 @@ namespace reone {
 namespace game {
 
 void OpenContainerAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    if (!_object || actor.type() != ObjectType::Creature) {
+    if (!_object || !isa<Creature>(actor)) {
         complete();
         return;
     }
