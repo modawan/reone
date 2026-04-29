@@ -300,11 +300,15 @@ void Equipment::confirmCandidateItem(const std::string &item) {
             bool last;
             if (player->removeItem(itemObj, last)) {
                 if (last) {
-                    partyLeader->equip(slot, itemObj);
+                    if (!partyLeader->equip(slot, itemObj)) {
+                        player->addItem(itemObj);
+                    }
                 } else {
                     std::shared_ptr<Item> clonedItem = _game.newItem();
                     clonedItem->loadFromBlueprint(itemObj->blueprintResRef());
-                    partyLeader->equip(slot, clonedItem);
+                    if (!partyLeader->equip(slot, clonedItem)) {
+                        player->addItem(itemObj);
+                    }
                 }
             }
         }
