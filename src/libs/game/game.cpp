@@ -1981,7 +1981,7 @@ void Game::consoleOpenCloseDoor(const ConsoleArgs &args) {
     if (args[0].value() == "opendoor") {
         target->open();
         if (triggerer) {
-            target->onOpen(*triggerer);
+            target->onOpen(triggerer->id());
         }
     } else {
         target->close();

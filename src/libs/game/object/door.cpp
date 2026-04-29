@@ -140,6 +140,7 @@ void Door::damage(int amount, uint32_t damager) {
     _dead = true;
     _locked = false;
     open();
+    onOpen(damager);
     runDeathScript(damager);
 }
 
@@ -179,16 +180,16 @@ void Door::close() {
     _open = false;
 }
 
-void Door::onOpen(const Object &triggerer) {
+void Door::onOpen(uint32_t triggererId) {
     if (_onOpen.empty()) {
         return;
     }
     _game.scriptRunner().run(
         _onOpen,
         {{script::ArgKind::Caller, Variable::ofObject(_id)},
-         {script::ArgKind::LastOpenedBy, Variable::ofObject(triggerer.id())},
-         {script::ArgKind::ClickingObject, Variable::ofObject(triggerer.id())},
-         {script::ArgKind::EnteringObject, Variable::ofObject(triggerer.id())}});
+         {script::ArgKind::LastOpenedBy, Variable::ofObject(triggererId)},
+         {script::ArgKind::ClickingObject, Variable::ofObject(triggererId)},
+         {script::ArgKind::EnteringObject, Variable::ofObject(triggererId)}});
 }
 
 void Door::onFailToOpen(const Object &triggerer) {

@@ -61,7 +61,7 @@ public:
     bool isKeyRequired() const { return _keyRequired; }
     bool isNotBlastable() const { return _notBlastable; }
 
-    void onOpen(const Object &triggerer);
+    void onOpen(uint32_t triggererId);
     void onFailToOpen(const Object &triggerer);
 
     const std::string &getOnOpen() const { return _onOpen; }

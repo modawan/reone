@@ -45,7 +45,7 @@ void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float 
         if (_door->isLocked()) {
             _door->onFailToOpen(actor);
         } else {
-            _door->onOpen(actor);
+            _door->onOpen(actor.id());
         }
     }
 

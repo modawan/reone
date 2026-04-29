@@ -44,7 +44,7 @@ bool unlockDoor(Door &door, Object &actor, float distance, float dt) {
 
     door.setLocked(false);
     door.open();
-    door.onOpen(actor);
+    door.onOpen(actor.id());
 
     return true;
 }
