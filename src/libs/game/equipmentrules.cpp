@@ -81,6 +81,26 @@ static int resolveActualEquipSlot(int requestedSlot, const Item &item, const Cre
     return isOneHandedWeapon(item) && item.isEquippable(mainHandSlot) ? mainHandSlot : requestedSlot;
 }
 
+EquipmentSlotActivationDecision evaluateEquipmentSlotActivation(
+    const Creature &creature,
+    int requestedSlot) {
+
+    EquipmentSlotActivationDecision result;
+    result.requestedSlot = requestedSlot;
+
+    if (!isOffHandWeaponSlot(requestedSlot))
+        return result;
+
+    result.pairedSlot = getPairedMainHandSlot(requestedSlot);
+    auto mainHand = creature.getEquippedItem(result.pairedSlot);
+    if (mainHand && isTwoHandedWeapon(*mainHand)) {
+        result.available = false;
+        result.reason = EquipmentSlotActivationReason::OffHandBlockedByTwoHandedMainHand;
+    }
+
+    return result;
+}
+
 EquipmentCandidateDecision evaluateEquipmentCandidate(
     const Creature &creature,
     int requestedSlot,

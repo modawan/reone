@@ -54,6 +54,18 @@ struct EquipmentCandidateDecision {
     EquipmentCandidateReason reason {EquipmentCandidateReason::None};
 };
 
+enum class EquipmentSlotActivationReason {
+    None,
+    OffHandBlockedByTwoHandedMainHand
+};
+
+struct EquipmentSlotActivationDecision {
+    bool available {true};
+    int requestedSlot {-1};
+    int pairedSlot {-1};
+    EquipmentSlotActivationReason reason {EquipmentSlotActivationReason::None};
+};
+
 bool isMainHandWeaponSlot(int slot);
 bool isOffHandWeaponSlot(int slot);
 int getPairedMainHandSlot(int offHandSlot);
@@ -67,6 +79,10 @@ EquipmentCandidateDecision evaluateEquipmentCandidate(
     const Creature &creature,
     int requestedSlot,
     const Item *item);
+
+EquipmentSlotActivationDecision evaluateEquipmentSlotActivation(
+    const Creature &creature,
+    int requestedSlot);
 
 } // namespace game
 
