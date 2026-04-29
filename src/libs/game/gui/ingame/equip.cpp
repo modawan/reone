@@ -38,6 +38,7 @@ namespace reone {
 namespace game {
 
 static constexpr int kStrRefNone = 363;
+static constexpr int kStrRefBlockedByTwoHandedMainHand = 42344;
 static constexpr char kNoneItemTag[] = "[none]";
 static constexpr char kEquippedItemTag[] = "[equipped]";
 static constexpr char kEquippedItemSuffix[] = " (equipped)";
@@ -124,6 +125,14 @@ void Equipment::onGUILoaded() {
     for (auto &slotButton : _btnInv) {
         auto slot = slotButton.first;
         slotButton.second->setOnClick([this, slot]() {
+            std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
+            auto activation = evaluateEquipmentSlotActivation(*partyLeader, getInventorySlot(slot));
+            if (!activation.available) {
+                _controls.LBL_CANTEQUIP->setTextMessage(_services.resource.strings.getText(kStrRefBlockedByTwoHandedMainHand));
+                _controls.LBL_CANTEQUIP->setVisible(true);
+                return;
+            }
+
             selectSlot(slot);
         });
         slotButton.second->setOnSelectionChanged([this, slot](bool selected) {
@@ -372,6 +381,8 @@ void Equipment::selectSlot(Slot slot) {
 void Equipment::activateSlot(Slot slot) {
     _activeSlot = slot;
     _controls.LB_ITEMS->setItemsInteractive(_selectedSlot != Slot::None);
+    _controls.LBL_CANTEQUIP->setTextMessage("");
+    _controls.LBL_CANTEQUIP->setVisible(false);
     clearCandidateDescription();
     updateItems();
     updateCandidateDescription();
@@ -464,8 +475,11 @@ void Equipment::updateItems() {
     clearCandidateDescription();
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
     std::shared_ptr<Item> equipped;
+    int activeInventorySlot = -1;
 
     if (_activeSlot != Slot::None) {
+        activeInventorySlot = getInventorySlot(_activeSlot);
+
         ListBox::Item lbItem;
         lbItem.tag = kNoneItemTag;
         lbItem.text = _services.resource.strings.getText(kStrRefNone);
@@ -474,7 +488,11 @@ void Equipment::updateItems() {
 
         _controls.LB_ITEMS->addItem(std::move(lbItem));
 
-        equipped = partyLeader->getEquippedItem(getInventorySlot(_activeSlot));
+        auto activation = evaluateEquipmentSlotActivation(*partyLeader, activeInventorySlot);
+        if (!activation.available)
+            return;
+
+        equipped = partyLeader->getEquippedItem(activeInventorySlot);
         if (equipped) {
             ListBox::Item equippedItem;
             equippedItem.tag = kEquippedItemTag;
@@ -500,7 +518,7 @@ void Equipment::updateItems() {
             if (!item->isEquippable())
                 continue;
         } else {
-            decision = evaluateEquipmentCandidate(*partyLeader, getInventorySlot(_activeSlot), item.get());
+            decision = evaluateEquipmentCandidate(*partyLeader, activeInventorySlot, item.get());
             hasDecision = true;
             if (!decision.visible)
                 continue;
