@@ -327,7 +327,9 @@ int ListBox::getItemTextWidth() const {
 
     int width = _protoItem->extent().width;
     if (shouldRenderItemIconsForButtonProto()) {
-        width -= _protoItem->extent().height;
+        // Button-proto item icons render in a square gutter sized from the row height.
+        int itemIconWidth = _protoItem->extent().height;
+        width -= itemIconWidth;
         if (width < 0) {
             width = 0;
         }
@@ -346,9 +348,10 @@ void ListBox::renderItemWithButtonProtoIcon(
     IRenderPass &pass) {
 
     Control::Extent originalExtent(_protoItem->extent());
+    int itemIconWidth = originalExtent.height;
     Control::Extent textExtent(originalExtent);
-    textExtent.left += originalExtent.height;
-    textExtent.width -= originalExtent.height;
+    textExtent.left += itemIconWidth;
+    textExtent.width -= itemIconWidth;
     if (textExtent.width < 0) {
         textExtent.width = 0;
     }
@@ -362,14 +365,23 @@ void ListBox::renderItemWithButtonProtoIcon(
         return;
 
     glm::ivec2 iconPosition(offset.x + originalExtent.left, offset.y + originalExtent.top);
-    glm::ivec2 iconSize(originalExtent.height, originalExtent.height);
+    glm::ivec2 iconSize(itemIconWidth, originalExtent.height);
 
     if (item.iconFrame) {
-        glm::vec3 frameColor(item.invalid ? glm::vec3(1.0f, 0.0f, 0.0f) : _protoItem->border().color);
+        glm::vec3 frameColor(_protoItem->isSelected() ? _protoItem->hilight().color : _protoItem->border().color);
+        if (item.invalid) {
+            frameColor = glm::vec3(1.0f, 0.0f, 0.0f);
+        }
         pass.drawImage(*item.iconFrame, iconPosition, iconSize, glm::vec4(frameColor, 1.0f));
     }
     if (item.iconTexture) {
         pass.drawImage(*item.iconTexture, iconPosition, iconSize);
+    }
+    if (!item.iconText.empty() && _protoItem->text().font) {
+        glm::vec3 position(0.0f);
+        position.x = static_cast<float>(iconPosition.x + iconSize.x);
+        position.y = static_cast<float>(iconPosition.y + iconSize.y - 0.5f * _protoItem->text().font->height());
+        _protoItem->text().font->render(item.iconText, position, _protoItem->text().color, TextGravity::LeftCenter);
     }
 }
 

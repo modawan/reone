@@ -63,9 +63,15 @@ bool isTwoHandedWeapon(const Item &item) {
     }
 }
 
+bool weaponRequiresEmptyPairedSlot(const Item &item) {
+    return isTwoHandedWeapon(item) || item.weaponWield() == WeaponWield::StunBaton;
+}
+
 bool areWeaponsCompatible(const Item &mainHand, const Item &offHand) {
     return isOneHandedWeapon(mainHand) &&
            isOneHandedWeapon(offHand) &&
+           !weaponRequiresEmptyPairedSlot(mainHand) &&
+           !weaponRequiresEmptyPairedSlot(offHand) &&
            mainHand.weaponType() == offHand.weaponType() &&
            mainHand.weaponType() != WeaponType::None;
 }
@@ -104,9 +110,9 @@ EquipmentSlotActivationDecision evaluateEquipmentSlotActivation(
 
     result.pairedSlot = getPairedMainHandSlot(requestedSlot);
     auto mainHand = creature.getEquippedItem(result.pairedSlot);
-    if (mainHand && isTwoHandedWeapon(*mainHand)) {
+    if (mainHand && weaponRequiresEmptyPairedSlot(*mainHand)) {
         result.available = false;
-        result.reason = EquipmentSlotActivationReason::OffHandBlockedByTwoHandedMainHand;
+        result.reason = EquipmentSlotActivationReason::OffHandBlockedByMainHandWeapon;
     }
 
     return result;
@@ -151,6 +157,12 @@ EquipmentCandidateDecision evaluateEquipmentCandidate(
             result.reason = EquipmentCandidateReason::TwoHandedInOffHand;
             return result;
         }
+        if (weaponRequiresEmptyPairedSlot(*item)) {
+            result.valid = false;
+            result.action = EquipmentCandidateAction::Reject;
+            result.reason = EquipmentCandidateReason::WeaponRequiresEmptyPairedSlot;
+            return result;
+        }
 
         result.pairedSlot = getPairedMainHandSlot(result.actualSlot);
         auto mainHand = creature.getEquippedItem(result.pairedSlot);
@@ -161,7 +173,7 @@ EquipmentCandidateDecision evaluateEquipmentCandidate(
             return result;
         }
 
-        if (isTwoHandedWeapon(*mainHand)) {
+        if (weaponRequiresEmptyPairedSlot(*mainHand)) {
             result.valid = false;
             result.action = EquipmentCandidateAction::Reject;
             result.reason = EquipmentCandidateReason::IncompatibleWithMainHand;
@@ -182,9 +194,9 @@ EquipmentCandidateDecision evaluateEquipmentCandidate(
         if (!offHand)
             return result;
 
-        if (isTwoHandedWeapon(*item)) {
+        if (weaponRequiresEmptyPairedSlot(*item)) {
             result.action = EquipmentCandidateAction::EquipAndClearOffHand;
-            result.reason = EquipmentCandidateReason::MainHandTwoHandedClearsOffHand;
+            result.reason = EquipmentCandidateReason::MainHandWeaponClearsOffHand;
             return result;
         }
 
