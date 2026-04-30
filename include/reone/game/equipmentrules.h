@@ -39,9 +39,10 @@ enum class EquipmentCandidateReason {
     NotEquippableInRequestedSlot,
     OffHandRequiresMainHand,
     TwoHandedInOffHand,
+    WeaponRequiresEmptyPairedSlot,
     IncompatibleWithMainHand,
     IncompatibleWithOffHand,
-    MainHandTwoHandedClearsOffHand
+    MainHandWeaponClearsOffHand
 };
 
 struct EquipmentCandidateDecision {
@@ -56,7 +57,7 @@ struct EquipmentCandidateDecision {
 
 enum class EquipmentSlotActivationReason {
     None,
-    OffHandBlockedByTwoHandedMainHand
+    OffHandBlockedByMainHandWeapon
 };
 
 struct EquipmentSlotActivationDecision {
@@ -73,6 +74,7 @@ int getPairedOffHandSlot(int mainHandSlot);
 
 bool isOneHandedWeapon(const Item &item);
 bool isTwoHandedWeapon(const Item &item);
+bool weaponRequiresEmptyPairedSlot(const Item &item);
 bool areWeaponsCompatible(const Item &mainHand, const Item &offHand);
 
 EquipmentCandidateDecision evaluateEquipmentCandidate(

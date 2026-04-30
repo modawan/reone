@@ -259,8 +259,10 @@ void Equipment::confirmSelectedCandidate() {
 void Equipment::confirmCandidateItem(const std::string &item) {
     if (_selectedSlot == Slot::None)
         return;
-    if (item == kEquippedItemTag)
+    if (item == kEquippedItemTag) {
+        selectSlot(Slot::None);
         return;
+    }
 
     std::shared_ptr<Creature> player(_game.party().player());
     std::shared_ptr<Item> itemObj;
@@ -549,9 +551,21 @@ void Equipment::updateItems() {
 std::shared_ptr<Texture> Equipment::getItemFrameTexture(int stackSize) const {
     std::string resRef;
     if (_game.isTSL()) {
-        resRef = stackSize > 1 ? "uibit_eqp_itm3" : "uibit_eqp_itm1";
+        if (stackSize >= 100) {
+            resRef = "uibit_eqp_itm3";
+        } else if (stackSize > 1) {
+            resRef = "uibit_eqp_itm2";
+        } else {
+            resRef = "uibit_eqp_itm1";
+        }
     } else {
-        resRef = stackSize > 1 ? "lbl_hex_7" : "lbl_hex_3";
+        if (stackSize >= 100) {
+            resRef = "lbl_hex_7";
+        } else if (stackSize > 1) {
+            resRef = "lbl_hex_6";
+        } else {
+            resRef = "lbl_hex_3";
+        }
     }
     return _services.resource.textures.get(resRef, TextureUsage::GUI);
 }
