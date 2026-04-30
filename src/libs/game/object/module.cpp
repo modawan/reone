@@ -40,6 +40,16 @@ namespace reone {
 
 namespace game {
 
+static bool canBashDoor(const Door &door, const Creature &actor, const IReputes &reputes) {
+    return door.isLocked() &&
+           door.isSelectable() &&
+           !door.isDead() &&
+           !door.plotFlag() &&
+           !door.isNotBlastable() &&
+           reputes.getIsEnemy(actor.faction(), door.faction()) &&
+           (door.hitPoints() > 0 || door.currentHitPoints() > 0);
+}
+
 void Module::load(std::string name, const Gff &ifo, bool fromSave) {
     _name = std::move(name);
 
@@ -342,7 +352,11 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
     }
     case ObjectType::Door: {
         auto door = std::static_pointer_cast<Door>(object);
-        if (door->isLocked() && !door->isKeyRequired() && _game.party().getLeader()->attributes().hasSkill(SkillType::Security)) {
+        auto leader = _game.party().getLeader();
+        if (canBashDoor(*door, *leader, _services.game.reputes)) {
+            actions.push_back(ContextAction(ActionType::AttackObject));
+        }
+        if (door->isLocked() && !door->isKeyRequired() && leader->attributes().hasSkill(SkillType::Security)) {
             actions.push_back(ContextAction(SkillType::Security));
         }
         break;

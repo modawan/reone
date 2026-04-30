@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "types.h"
+
 namespace reone {
 
 namespace resource {
@@ -34,6 +36,7 @@ public:
     virtual ~IReputes() = default;
 
     virtual bool getIsEnemy(const Creature &left, const Creature &right) const = 0;
+    virtual bool getIsEnemy(Faction left, Faction right) const = 0;
     virtual bool getIsFriend(const Creature &left, const Creature &right) const = 0;
     virtual bool getIsNeutral(const Creature &left, const Creature &right) const = 0;
 };
@@ -47,13 +50,14 @@ public:
     void init();
 
     bool getIsEnemy(const Creature &left, const Creature &right) const override;
+    bool getIsEnemy(Faction left, Faction right) const override;
     bool getIsFriend(const Creature &left, const Creature &right) const override;
     bool getIsNeutral(const Creature &left, const Creature &right) const override;
 
 private:
     resource::TwoDAs &_twoDas;
 
-    int getRepute(const Creature &left, const Creature &right) const;
+    int getRepute(Faction left, Faction right) const;
 };
 
 } // namespace game
