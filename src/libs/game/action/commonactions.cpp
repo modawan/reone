@@ -19,6 +19,7 @@
 #include "reone/game/object.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
+#include "reone/game/object/placeable.h"
 
 namespace reone {
 
@@ -45,6 +46,28 @@ bool unlockDoor(Door &door, Object &actor, float distance, float dt) {
     door.setLocked(false);
     door.open();
     door.onOpen(actor.id());
+
+    return true;
+}
+
+bool unlockPlaceable(Placeable &placeable, Object &actor, float distance, float dt) {
+    if (actor.type() == ObjectType::Creature) {
+        auto &creature = static_cast<Creature &>(actor);
+        bool reached = creature.navigateTo(placeable.position(), true, distance, dt);
+        if (!reached) {
+            return false;
+        }
+        creature.face(placeable);
+        creature.playAnimation(AnimationType::LoopingUnlockDoor);
+    }
+
+    // FIXME: wait for animation to play
+
+    if (placeable.isKeyRequired()) {
+        return true;
+    }
+
+    placeable.setLocked(false);
 
     return true;
 }
