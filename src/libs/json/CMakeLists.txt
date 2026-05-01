@@ -22,6 +22,7 @@ set(JSON_HEADERS
 
 set(JSON_SOURCES
     ${JSON_SOURCE_DIR}/gff.cpp
+    ${JSON_SOURCE_DIR}/gvt.cpp
     ${JSON_SOURCE_DIR}/util.cpp)
 
 add_library(json STATIC ${JSON_HEADERS} ${JSON_SOURCES} ${CLANG_FORMAT_PATH})

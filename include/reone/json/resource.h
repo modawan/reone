@@ -23,11 +23,13 @@ namespace reone {
 
 namespace resource {
 class Gff;
+struct GVT;
 }
 
 namespace json {
 
 boost::json::object fromGff(const resource::Gff &gff);
+boost::json::object fromGvt(const resource::GVT &gvt);
 
 } // namespace json
 } // namespace reone
