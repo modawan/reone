@@ -183,6 +183,7 @@ TEST(GffReader, should_read_gff) {
     // then
 
     auto gff = reader.root();
+    EXPECT_EQ("RES V3.2", gff->signature());
     EXPECT_EQ(16ll, gff->fields().size());
     EXPECT_EQ(static_cast<int>(Gff::FieldType::Byte), static_cast<int>(gff->fields()[0].type));
     EXPECT_EQ(static_cast<int>(Gff::FieldType::Int), static_cast<int>(gff->fields()[1].type));
