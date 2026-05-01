@@ -86,6 +86,7 @@ public:
     const Item &getItemAt(int index) const;
 
     Control &protoItem() const { return *_protoItem; }
+    Control *protoItemOrNull() const { return _protoItem.get(); }
     Control &scrollBar() const { return *_scrollBar; }
     int selectedItemIndex() const { return _selectedItemIndex; }
 
