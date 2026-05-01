@@ -25,7 +25,7 @@ namespace reone {
 namespace resource {
 
 void GffReader::load() {
-    _gff.skipBytes(8); // signature
+    std::string signature = _gff.readString(8);
 
     _structOffset = _gff.readUint32();
     _structCount = _gff.readUint32();
@@ -41,6 +41,7 @@ void GffReader::load() {
     _listIndicesCount = _gff.readUint32();
 
     _root = std::move(readStruct(0));
+    _root->setSignature(signature);
 }
 
 std::unique_ptr<Gff> GffReader::readStruct(int idx) {

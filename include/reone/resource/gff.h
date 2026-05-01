@@ -200,12 +200,17 @@ public:
     std::vector<std::shared_ptr<Gff>> getList(const std::string &name) const;
     ByteBuffer getData(const std::string &name) const;
 
+    const std::optional<std::string> &signature() const { return _signature; }
     uint32_t type() const { return _type; }
     std::vector<Field> &fields() { return _fields; }
     const std::vector<Field> &fields() const { return _fields; }
 
     void setType(uint32_t type) {
         _type = type;
+    }
+
+    void setSignature(std::string signature) {
+        _signature = signature;
     }
 
     std::shared_ptr<Gff> deepCopy() const {
@@ -231,6 +236,7 @@ public:
     }
 
 private:
+    std::optional<std::string> _signature;
     uint32_t _type {0};
     std::vector<Field> _fields;
 
