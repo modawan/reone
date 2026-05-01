@@ -67,6 +67,7 @@ public:
     }
 
     void load(std::string name, const resource::Gff &ifo, bool fromSave = false);
+    void activate();
     void loadParty(const std::string &entry = "", bool fromSave = false);
 
     bool handle(const input::Event &event);

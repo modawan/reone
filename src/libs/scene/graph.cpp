@@ -71,32 +71,44 @@ static const std::vector<float> g_shadowCascadeDivisors {
     0.045f,
     0.135f};
 
+template <typename T>
+static void addRootUnique(std::list<std::shared_ptr<T>> &roots, std::shared_ptr<T> node) {
+    auto it = std::find_if(
+        roots.begin(),
+        roots.end(),
+        [&node](auto &root) { return root.get() == node.get(); });
+    if (it == roots.end()) {
+        roots.push_back(std::move(node));
+    }
+}
+
 void SceneGraph::clear() {
     _modelRoots.clear();
     _walkmeshRoots.clear();
+    _triggerRoots.clear();
     _soundRoots.clear();
     _grassRoots.clear();
     _activeLights.clear();
 }
 
 void SceneGraph::addRoot(std::shared_ptr<ModelSceneNode> node) {
-    _modelRoots.push_back(node);
+    addRootUnique(_modelRoots, std::move(node));
 }
 
 void SceneGraph::addRoot(std::shared_ptr<WalkmeshSceneNode> node) {
-    _walkmeshRoots.push_back(node);
+    addRootUnique(_walkmeshRoots, std::move(node));
 }
 
 void SceneGraph::addRoot(std::shared_ptr<TriggerSceneNode> node) {
-    _triggerRoots.push_back(node);
+    addRootUnique(_triggerRoots, std::move(node));
 }
 
 void SceneGraph::addRoot(std::shared_ptr<GrassSceneNode> node) {
-    _grassRoots.push_back(node);
+    addRootUnique(_grassRoots, std::move(node));
 }
 
 void SceneGraph::addRoot(std::shared_ptr<SoundSceneNode> node) {
-    _soundRoots.push_back(node);
+    addRootUnique(_soundRoots, std::move(node));
 }
 
 void SceneGraph::removeRoot(ModelSceneNode &node) {

@@ -516,6 +516,7 @@ void Game::loadModule(const std::string &name, std::string entry) {
             auto maybeModule = _loadedModules.find(name);
             if (maybeModule != _loadedModules.end()) {
                 _module = maybeModule->second;
+                _module->activate();
             } else {
                 _module = newModule();
                 _objectById.insert(std::make_pair(_module->id(), _module));
