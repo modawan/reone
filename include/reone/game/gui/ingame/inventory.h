@@ -29,6 +29,12 @@ class ListBox;
 
 } // namespace gui
 
+namespace graphics {
+
+class Texture;
+
+}
+
 namespace game {
 
 class InventoryMenu : public GameGUI {
@@ -39,6 +45,7 @@ public:
     }
 
     void refreshPortraits();
+    void refreshItems();
 
 private:
     struct Controls {
@@ -74,8 +81,13 @@ private:
     };
 
     Controls _controls;
+    int _selectedItemIdx {-1};
 
     void onGUILoaded() override;
+    void configureItemsListBox();
+    void updateItemDescription();
+    void clearItemDescription();
+    std::shared_ptr<graphics::Texture> getItemFrameTexture(int stackSize) const;
 
     void bindControls() {
         _controls.BTN_ALL = findControl<gui::Button>("BTN_ALL");
