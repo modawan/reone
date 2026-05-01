@@ -175,3 +175,4 @@ add_library(resource STATIC ${RESOURCE_HEADERS} ${RESOURCE_SOURCES} ${CLANG_FORM
 set_target_properties(resource PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}$<$<CONFIG:Debug>:/debug>/lib)
 set_target_properties(resource PROPERTIES DEBUG_POSTFIX "d")
 target_precompile_headers(resource PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
+target_link_libraries(resource PRIVATE movie graphics)
