@@ -604,9 +604,6 @@ void Area::loadParty(const glm::vec3 &position, float facing, bool fromSave) {
     for (int i = 0; i < party.getSize(); ++i) {
         auto member = party.getMember(i);
         if (!fromSave) {
-            if (member->isStuntMode()) {
-                member->stopStuntMode();
-            }
             member->setPosition(position);
             member->setFacing(facing);
         }

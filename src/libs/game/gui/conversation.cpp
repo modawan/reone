@@ -120,6 +120,18 @@ void Conversation::finish() {
 void Conversation::onFinish() {
 }
 
+void Conversation::cleanupForModuleTransition() {
+    if (!_dialog) {
+        return;
+    }
+    if (_currentVoice) {
+        _currentVoice->stop();
+        _currentVoice.reset();
+    }
+    _lipAnimation.reset();
+    onFinish();
+}
+
 void Conversation::loadEntry(int index, bool start) {
     debug("Load entry " + std::to_string(index), LogChannel::Conversation);
     _currentEntry = &_dialog->getEntry(index);
