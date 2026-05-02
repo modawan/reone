@@ -254,6 +254,7 @@ public:
     std::vector<glm::vec3> faceVertexCoords(const Face &face) const;
     glm::vec2 faceUV1(const Face &face, const glm::vec3 &baryPosition) const;
     glm::vec2 faceUV2(const Face &face, const glm::vec3 &baryPosition) const;
+    std::optional<glm::vec2> tryFaceUV2(const Face &face, const glm::vec3 &baryPosition) const;
 
     int vertexCount() const { return _vertices.size(); }
     const std::vector<Face> &faces() const { return _faces; }
