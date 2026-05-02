@@ -69,8 +69,8 @@ int main(int argc, char **argv) {
 
     if (!hasMountedGameData(options->game.path)) {
         std::cerr
-            << "reone web: no mounted game data at /game. "
-            << "Provide KotOR assets through a preloaded Emscripten file package before launch."
+            << "reone web: no mounted game data at /game (need swkotor.exe or swkotor2.exe). "
+            << "Pick your install folder in Chrome/Edge (File System Access), or use CMake embedded preload."
             << std::endl;
         return 0;
     }

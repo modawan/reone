@@ -68,7 +68,7 @@ void main() {
         float diff = max(0.0, dot(normal, lightDir));
         float attenuation = lightAttenuationQuadratic(uLights[i], lightDist);
         vec3 lightColor = uLights[i].color.rgb;
-        if (uLights[i].ambientOnly) {
+        if (uLights[i].ambientOnly > 0.0) {
             ambient += uLights[i].multiplier * attenuation * uAmbientColor.rgb * lightColor;
         } else {
             diffuse += uLights[i].multiplier * diff * attenuation * uDiffuseColor.rgb * lightColor;

@@ -31,9 +31,14 @@ option(ENABLE_MP3 "enable MP3 decoding" ON)
 option(ENABLE_ASAN "enable address sanitizer" OFF)
 
 option(REONE_PLATFORM_WEB "build browser/WebAssembly target" OFF)
-option(REONE_WEB_PTHREADS "enable pthreads for browser/WebAssembly target" OFF)
-set(REONE_WEB_GAME_DIR "" CACHE PATH "Path to KotOR game directory to preload into /game for WebAssembly build")
-set(REONE_WEB_PRELOAD_ITEMS "" CACHE STRING "Semicolon-separated paths under REONE_WEB_GAME_DIR to preload into /game (empty means full game dir)")
+option(REONE_WEB_PTHREADS "experimental WebAssembly pthreads (not KotOR.js default); needs COOP/COEP at runtime" OFF)
+set(REONE_WEB_ASSET_PROFILE "none" CACHE STRING "Web asset preload: none (browser uses File System Access like KotOR.js), full, or custom")
+set(REONE_WEB_GAME_DIR "" CACHE PATH "Embeds game tree into engine.data via file_packager (requires REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON; omit for KotOR.js-parity FS Access)")
+set(REONE_WEB_PRELOAD_ITEMS "" CACHE STRING "Semicolon-separated paths under REONE_WEB_GAME_DIR to preload into /game (profile custom only)")
+option(REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE "Allow embedding REONE_WEB_GAME_DIR via Emscripten file_packager (NOT KotOR.js parity; multi-GB engine.data)" OFF)
+option(REONE_WEB_LZ4_PRELOAD "LZ4-compress embedded game preload (-sLZ4: smaller engine.data, chunked decode, lower peak RAM)" ON)
+
+set_property(CACHE REONE_WEB_ASSET_PROFILE PROPERTY STRINGS none full custom)
 
 if(EMSCRIPTEN)
     set(REONE_PLATFORM_WEB ON CACHE BOOL "build browser/WebAssembly target" FORCE)

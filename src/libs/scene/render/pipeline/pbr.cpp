@@ -480,8 +480,10 @@ void PBRRenderPipeline::combineOpaqueGeometry() {
     _context.bindTexture(*_targets.dbDirectionalLightShadows, TextureUnits::shadowMapArray);
     _context.bindTexture(*_targets.dbPointLightShadows, TextureUnits::shadowMapCube);
     _context.bindTexture(_pbrTextures.brdf(), TextureUnits::brdfLUT);
-    _context.bindTexture(_pbrTextures.irradianceMapArray(), TextureUnits::irradianceMapArray);
-    _context.bindTexture(_pbrTextures.prefilteredEnvMapArray(), TextureUnits::prefilteredEnvMapArray);
+    if (_context.cubeMapArraySupported()) {
+        _context.bindTexture(_pbrTextures.irradianceMapArray(), TextureUnits::irradianceMapArray);
+        _context.bindTexture(_pbrTextures.prefilteredEnvMapArray(), TextureUnits::prefilteredEnvMapArray);
+    }
     if (_options.ssao) {
         _context.bindTexture(*_targets.cbSSAO, TextureUnits::ssao);
     }

@@ -14,8 +14,8 @@ layout(location = 0) out vec4 fragColor1;
 layout(location = 1) out vec4 fragColor2;
 
 void main() {
-    float oneOverGridX = 1.0 / uGridSize.x;
-    float oneOverGridY = 1.0 / uGridSize.y;
+    float oneOverGridX = 1.0 / float(uGridSize.x);
+    float oneOverGridY = 1.0 / float(uGridSize.y);
 
     vec2 uv = fragUV1;
     uv.x *= oneOverGridX;
@@ -23,8 +23,8 @@ void main() {
 
     int frame = int(uParticles[fragInstanceID].positionFrame.w);
     if (frame > 0) {
-        uv.y += oneOverGridY * (frame / uGridSize.x);
-        uv.x += oneOverGridX * (frame % uGridSize.x);
+        uv.y += oneOverGridY * float(frame / uGridSize.x);
+        uv.x += oneOverGridX * float(frame % uGridSize.x);
     }
 
     vec4 mainTexSample = texture(sMainTex, uv);

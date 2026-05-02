@@ -1,0 +1,70 @@
+# Copyright (c) 2020-2023 The reone project contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Build WASM
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: reone-wasm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Validates serve.py manifest + Range only (optional HTTP game mirror). KotOR.js-style FS Access is not exercised in CI.
+  serve-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: tools/web serve smoke (manifest + Range)
+        run: cd tools/web && python test_serve_smoke.py
+
+  # Default browser build has no baked game assets; runtime uses File System Access (see tools/web/gamefs.js).
+  engine-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libboost-all-dev
+
+      - name: Cache emsdk
+        uses: actions/cache@v4
+        id: emsdk-cache
+        with:
+          path: ~/emsdk
+          key: emsdk-${{ runner.os }}-${{ hashFiles('.github/workflows/build-wasm.yml') }}
+
+      - name: Install Emscripten SDK
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$HOME/emsdk"
+          cd "$HOME/emsdk"
+          ./emsdk install latest
+          ./emsdk activate latest
+
+      - name: Configure and build engine (WASM)
+        run: |
+          source "$HOME/emsdk/emsdk_env.sh"
+          emcmake cmake -G Ninja -S . -B build-web \
+            -DREONE_PLATFORM_WEB=ON \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-web --target engine -j "$(nproc)"
+        shell: bash
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reone-engine-wasm
+          path: |
+            build-web/bin/engine.html
+            build-web/bin/engine.js
+            build-web/bin/engine.wasm
+          if-no-files-found: error

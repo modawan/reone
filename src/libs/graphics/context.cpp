@@ -23,6 +23,10 @@
 #include "reone/system/logutil.h"
 #include "reone/system/threadutil.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/html5_webgl.h>
+#endif
+
 namespace reone {
 
 namespace graphics {
@@ -65,6 +69,13 @@ void Context::init() {
 #endif
                                      versionStr % rendererStr % vendorStr));
     }
+
+#ifdef __EMSCRIPTEN__
+    EMSCRIPTEN_WEBGL_CONTEXT_HANDLE webglCtx = emscripten_webgl_get_current_context();
+    _cubeMapArraySupported = webglCtx && emscripten_webgl_enable_extension(webglCtx, "EXT_texture_cube_map_array");
+#else
+    _cubeMapArraySupported = true;
+#endif
 
     int maxBuffers;
     glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxBuffers);

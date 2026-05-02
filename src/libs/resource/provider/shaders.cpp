@@ -227,7 +227,20 @@ std::shared_ptr<Shader> Shaders::initShader(ShaderType type, std::string resRef)
         sources.push_front(defines.string());
     }
 #ifdef __EMSCRIPTEN__
-    sources.push_front("#version 300 es\nprecision highp float;\nprecision highp int;\n#define REONE_WEB\n\n");
+    {
+        StringBuilder webHeader;
+        webHeader.append("#version 300 es\n");
+        webHeader.append("precision highp float;\n");
+        webHeader.append("precision highp int;\n");
+        if (type == ShaderType::Fragment) {
+            // WebGL GLSL ES requires explicit sampler precisions (desktop GL does not).
+            webHeader.append("precision highp sampler2D;\n");
+            webHeader.append("precision highp sampler2DArray;\n");
+            webHeader.append("precision highp samplerCube;\n");
+        }
+        webHeader.append("#define REONE_WEB\n\n");
+        sources.push_front(webHeader.string());
+    }
 #else
     sources.push_front("#version 400 core\n\n");
 #endif

@@ -44,9 +44,19 @@ namespace reone {
 
 namespace graphics {
 
+void PBRTextures::requestEnvMapDerived(EnvMapDerivedRequest request) {
+    if (!_context.cubeMapArraySupported()) {
+        return;
+    }
+    _envMapDerivedRequests.insert(std::move(request));
+}
+
 void PBRTextures::refresh() {
     if (!_brdfLUT) {
         initBRDFLUT();
+    }
+    if (!_context.cubeMapArraySupported()) {
+        return;
     }
     if (!_irradianceMapArray) {
         initIrradianceMapArray();

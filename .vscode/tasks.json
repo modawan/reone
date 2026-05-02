@@ -90,13 +90,13 @@
       "type": "shell",
       "command": "emcmake cmake -S . -B build-web -G Ninja -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release",
       "windows": {
-        "command": "C:\\GitHub\\emsdk\\upstream\\emscripten\\emcmake.bat cmake -S . -B build-web -G Ninja -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release -DREONE_WEB_GAME_DIR=\"${input:webGameDir}\""
+        "command": "C:\\GitHub\\emsdk\\upstream\\emscripten\\emcmake.bat cmake -S . -B build-web -G Ninja -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release -DREONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON -DREONE_WEB_ASSET_PROFILE=full -DREONE_WEB_GAME_DIR=\"${input:webGameDir}\""
       },
       "linux": {
-        "command": "emcmake cmake -S . -B build-web -G Ninja -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release -DREONE_WEB_GAME_DIR=\"${input:webGameDir}\""
+        "command": "emcmake cmake -S . -B build-web -G Ninja -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release -DREONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON -DREONE_WEB_ASSET_PROFILE=full -DREONE_WEB_GAME_DIR=\"${input:webGameDir}\""
       },
       "osx": {
-        "command": "emcmake cmake -S . -B build-web -G Ninja -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release -DREONE_WEB_GAME_DIR=\"${input:webGameDir}\""
+        "command": "emcmake cmake -S . -B build-web -G Ninja -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release -DREONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON -DREONE_WEB_ASSET_PROFILE=full -DREONE_WEB_GAME_DIR=\"${input:webGameDir}\""
       },
       "group": "build",
       "problemMatcher": []

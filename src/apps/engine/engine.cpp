@@ -187,7 +187,7 @@ int Engine::run() {
     _ticks = clock.millis();
 
 #ifdef __EMSCRIPTEN__
-    emscripten_set_main_loop_arg(runFrameCallback, this, 0, true);
+    emscripten_set_main_loop_arg(runFrameCallback, this, 0, false);
 #else
     while (runFrame()) {
     }
