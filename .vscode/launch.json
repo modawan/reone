@@ -1,0 +1,145 @@
+{
+  "version": "0.2.0",
+  "inputs": [
+    {
+      "id": "gameDir",
+      "type": "promptString",
+      "description": "Absolute path to KotOR game directory",
+      "default": "C:/Games/Knights of the Old Republic"
+    },
+    {
+      "id": "webPort",
+      "type": "promptString",
+      "description": "Port for local web server",
+      "default": "4024"
+    }
+  ],
+  "configurations": [
+    {
+      "name": "CMake: Debug active launch target",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${command:cmake.launchTargetPath}",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb"
+    },
+    {
+      "name": "CMake: Debug active launch target (Windows Visual Studio Debugger)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${command:cmake.launchTargetPath}",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Engine: Debug (Windows Visual Studio Debugger)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "preLaunchTask": "cmake: build engine (debug)",
+      "program": "${workspaceFolder}/build-debug/bin/engine.exe",
+      "args": [
+        "--game",
+        "${input:gameDir}"
+      ],
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Engine: Debug (build-debug)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "cmake: build engine (debug)",
+      "program": "${workspaceFolder}/build-debug/bin/engine",
+      "args": [
+        "--game",
+        "${input:gameDir}"
+      ],
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb"
+    },
+    {
+      "name": "Tests: Debug (build-debug)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "cmake: build tests (debug)",
+      "program": "${workspaceFolder}/build-debug/bin/tests",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb"
+    },
+    {
+      "name": "Tests: Debug (Windows Visual Studio Debugger)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "preLaunchTask": "cmake: build tests (debug)",
+      "program": "${workspaceFolder}/build-debug/bin/tests.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Python: Serve WASM build",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/tools/web/serve.py",
+      "args": [
+        "--directory",
+        "${workspaceFolder}/build-web/bin",
+        "--port",
+        "${input:webPort}"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Browser: reone WASM (Chrome)",
+      "type": "chrome",
+      "request": "launch",
+      "preLaunchTask": "wasm: serve (build-web/bin)",
+      "url": "http://localhost:${input:webPort}/engine.html",
+      "webRoot": "${workspaceFolder}/build-web/bin"
+    },
+    {
+      "name": "Browser: reone WASM (Edge)",
+      "type": "msedge",
+      "request": "launch",
+      "preLaunchTask": "wasm: serve (build-web/bin)",
+      "url": "http://localhost:${input:webPort}/engine.html",
+      "webRoot": "${workspaceFolder}/build-web/bin"
+    },
+    {
+      "name": "Attach: C++ process",
+      "type": "cppdbg",
+      "request": "attach",
+      "program": "${command:cmake.launchTargetPath}",
+      "processId": "${command:pickProcess}",
+      "MIMode": "gdb"
+    },
+    {
+      "name": "Attach: C++ process (Windows Visual Studio Debugger)",
+      "type": "cppvsdbg",
+      "request": "attach",
+      "program": "${command:cmake.launchTargetPath}",
+      "processId": "${command:pickProcess}"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "WASM: Build + Serve + Open Browser",
+      "configurations": [
+        "Browser: reone WASM (Chrome)"
+      ]
+    }
+  ]
+}
