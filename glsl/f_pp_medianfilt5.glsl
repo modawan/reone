@@ -1,6 +1,10 @@
 uniform sampler2D sMainTex;
 
+#ifndef REONE_WEB
 noperspective in vec2 fragUV1;
+#else
+in vec2 fragUV1;
+#endif
 
 out vec4 fragColor;
 

@@ -27,18 +27,57 @@ option(BUILD_TOOLKIT "build toolkit application" ON)
 option(BUILD_DATAMINER "build dataminer application" ON)
 
 option(ENABLE_MOVIE "enable movie playback" ON)
+option(ENABLE_MP3 "enable MP3 decoding" ON)
 option(ENABLE_ASAN "enable address sanitizer" OFF)
+
+option(REONE_PLATFORM_WEB "build browser/WebAssembly target" OFF)
+option(REONE_WEB_PTHREADS "enable pthreads for browser/WebAssembly target" OFF)
+set(REONE_WEB_GAME_DIR "" CACHE PATH "Path to KotOR game directory to preload into /game for WebAssembly build")
+set(REONE_WEB_PRELOAD_ITEMS "" CACHE STRING "Semicolon-separated paths under REONE_WEB_GAME_DIR to preload into /game (empty means full game dir)")
+
+if(EMSCRIPTEN)
+    set(REONE_PLATFORM_WEB ON CACHE BOOL "build browser/WebAssembly target" FORCE)
+endif()
+
+if(REONE_PLATFORM_WEB)
+    set(BUILD_LAUNCHER OFF CACHE BOOL "build launcher application" FORCE)
+    set(BUILD_TOOLKIT OFF CACHE BOOL "build toolkit application" FORCE)
+    set(BUILD_DATAMINER OFF CACHE BOOL "build dataminer application" FORCE)
+    set(BUILD_TESTS OFF CACHE BOOL "build tests" FORCE)
+    set(ENABLE_MOVIE OFF CACHE BOOL "enable movie playback" FORCE)
+    set(ENABLE_MP3 OFF CACHE BOOL "enable MP3 decoding" FORCE)
+    set(CMAKE_EXECUTABLE_SUFFIX ".html" CACHE INTERNAL "")
+endif()
 
 # END Options
 
 # Dependencies
 
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
-find_package(Boost REQUIRED COMPONENTS program_options exception)
-find_package(OpenGL REQUIRED)
-find_package(MAD REQUIRED)
 
-if(MSVC)
+if(REONE_PLATFORM_WEB)
+    find_package(Boost REQUIRED)
+else()
+    find_package(Boost REQUIRED COMPONENTS program_options exception)
+endif()
+
+if(NOT REONE_PLATFORM_WEB)
+    find_package(OpenGL REQUIRED)
+endif()
+
+if(ENABLE_MP3)
+    find_package(MAD REQUIRED)
+endif()
+
+if(REONE_PLATFORM_WEB)
+    add_compile_options("SHELL:-sUSE_SDL=3")
+    add_link_options("SHELL:-sUSE_SDL=3")
+    add_compile_options(-fexceptions)
+    add_link_options("SHELL:-sDISABLE_EXCEPTION_CATCHING=0")
+    if(NOT TARGET SDL3::SDL3)
+        add_library(SDL3::SDL3 INTERFACE IMPORTED)
+    endif()
+elseif(MSVC)
     find_package(OpenAL CONFIG REQUIRED)
     find_package(SDL3 CONFIG REQUIRED)
 else()
@@ -67,6 +106,19 @@ set(GLAD_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/extern/glad/include)
 include_directories(${Boost_INCLUDE_DIRS} ${SDL3_INCLUDE_DIRS} ${MAD_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/extern/glm ${REONE_INCLUDE_DIR} ${GLAD_INCLUDE_DIR})
 
 add_compile_definitions(BOOST_BIND_GLOBAL_PLACEHOLDERS)
+
+if(ENABLE_MP3)
+    add_compile_definitions(R_ENABLE_MP3)
+endif()
+
+if(REONE_PLATFORM_WEB)
+    add_compile_definitions(R_PLATFORM_WEB)
+endif()
+
+if(REONE_PLATFORM_WEB AND REONE_WEB_PTHREADS)
+    add_compile_options(-pthread)
+    add_link_options(-pthread -sPTHREAD_POOL_SIZE=2)
+endif()
 
 if(MSVC)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
@@ -99,13 +151,21 @@ add_subdirectory(src/libs/scene) # scene static library
 add_subdirectory(src/libs/movie) # movie static library
 add_subdirectory(src/libs/script) # script static library
 add_subdirectory(src/libs/game) # game static library
-add_subdirectory(src/libs/tools) # tools static library
+
+set(InstallLibraryTargets system resource graphics audio scene movie script gui game)
+
+if(NOT REONE_PLATFORM_WEB)
+    add_subdirectory(src/libs/tools) # tools static library
+    list(APPEND InstallLibraryTargets tools)
+endif()
 
 # END Libraries
 
 # Applications
 
-add_subdirectory(src/apps/shaderpack) # shaderpack application
+if(NOT REONE_PLATFORM_WEB)
+    add_subdirectory(src/apps/shaderpack) # shaderpack application
+endif()
 add_subdirectory(src/apps/engine) # engine application
 
 if(BUILD_LAUNCHER)
@@ -134,6 +194,6 @@ if(UNIX AND NOT APPLE)
 endif()
 
 install(TARGETS ${InstallTargets} DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(TARGETS system resource graphics audio scene movie script gui game tools DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(TARGETS ${InstallLibraryTargets} DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 # END Installation

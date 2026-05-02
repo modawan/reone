@@ -54,6 +54,11 @@ public:
      */
     int run();
 
+    /**
+     * @return true while the engine should continue running
+     */
+    bool runFrame();
+
 private:
     struct FrameStates {
         static constexpr int rendered = 0;

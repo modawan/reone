@@ -28,7 +28,11 @@ static GLenum getShaderTypeGL(ShaderType type) {
     case ShaderType::Vertex:
         return GL_VERTEX_SHADER;
     case ShaderType::Geometry:
+#ifdef GL_GEOMETRY_SHADER
         return GL_GEOMETRY_SHADER;
+#else
+        throw std::invalid_argument("Geometry shaders are not supported by this graphics backend");
+#endif
     case ShaderType::Fragment:
         return GL_FRAGMENT_SHADER;
     default:

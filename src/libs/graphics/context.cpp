@@ -58,13 +58,19 @@ void Context::init() {
                                          "  GL_VERSION: %s\n"
                                          "  GL_RENDERER: %s\n"
                                          "  GL_VENDOR: %s\n"
+#ifdef __EMSCRIPTEN__
+                                         "  Ensure your browser supports WebGL 2.") %
+#else
                                          "  Ensure your graphics driver supports OpenGL 4.0 Core Profile.") %
+#endif
                                      versionStr % rendererStr % vendorStr));
     }
 
     int maxBuffers;
     glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxBuffers);
+#ifndef __EMSCRIPTEN__
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+#endif
 
     glm::ivec4 viewport(0.0f);
     glGetIntegerv(GL_VIEWPORT, &viewport[0]);
@@ -380,11 +386,16 @@ void Context::setDepthMask(bool enabled) {
 }
 
 void Context::setPolygonMode(PolygonMode mode) {
+#ifdef __EMSCRIPTEN__
+    // WebGL2/OpenGL ES does not expose glPolygonMode.
+    (void)mode;
+#else
     if (mode == PolygonMode::Line) {
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     } else {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
+#endif
 }
 
 void Context::setFaceCullMode(FaceCullMode mode) {

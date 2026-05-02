@@ -82,7 +82,7 @@ set_target_properties(system PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_
 set_target_properties(system PROPERTIES DEBUG_POSTFIX "d")
 target_precompile_headers(system PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
 
-if(MSVC)
+if(REONE_PLATFORM_WEB OR MSVC)
     target_link_libraries(system PRIVATE SDL3::SDL3)
 else()
     target_link_libraries(system PRIVATE ${SDL3_LIBRARIES} ${SDL3_LDFLAGS} Threads::Threads)

@@ -19,6 +19,10 @@
 
 #include "SDL3/SDL.h"
 
+#ifdef __EMSCRIPTEN__
+#include "emscripten.h"
+#endif
+
 #include "reone/graphics/window.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/gameprobe.h"
@@ -33,6 +37,14 @@ using namespace reone::scene;
 using namespace reone::script;
 
 namespace reone {
+
+#ifdef __EMSCRIPTEN__
+static void runFrameCallback(void *engine) {
+    if (!static_cast<Engine *>(engine)->runFrame()) {
+        emscripten_cancel_main_loop();
+    }
+}
+#endif
 
 static const std::string kMainThreadName {"main"};
 
@@ -174,67 +186,79 @@ int Engine::run() {
     auto &clock = _services->system.clock;
     _ticks = clock.millis();
 
-    bool quit = false;
-    while (!quit) {
-        processEvents(quit);
-        if (quit) {
-            break;
-        }
-        bool focus = _window->isInFocus();
-        if (!focus) {
-            std::this_thread::sleep_for(std::chrono::milliseconds {100});
-            continue;
-        }
-        uint64_t ticks = clock.micros();
-        auto frameTime = (ticks - _ticks) / 10e5f;
-        _ticks = ticks;
-        _profiler->measure(kMainThreadName, kProfilerInputTimeIndex, [this, &quit]() {
-            while (!_events.empty()) {
-                auto event = _events.front();
-                _events.pop();
-                if (_profiler->handle(event)) {
-                    continue;
-                }
-                if (_console->handle(event)) {
-                    continue;
-                }
-                if (_game->handle(event)) {
-                    if (_game->isQuitRequested()) {
-                        quit = true;
-                        break;
-                    }
-                    continue;
-                }
-            }
-        });
-        if (quit) {
-            break;
-        }
-        _profiler->measure(kMainThreadName, kProfilerUpdateTimeIndex, [this, &frameTime]() {
-            _game->update(frameTime);
-            bool showcur = _game->cursorType() == CursorType::None;
-            bool relmouse = _game->relativeMouseMode();
-            showCursor(showcur);
-            setRelativeMouseMode(relmouse);
-            _profiler->update(frameTime);
-        });
-        _profiler->measure(kMainThreadName, kProfilerRenderGraphicsTimeIndex, [this]() {
-            _services->graphics.statistic.resetDrawCalls();
-            if (_options.graphics.pbr) {
-                _services->graphics.pbrTextures.refresh();
-            }
-            _services->graphics.context.clearColorDepth();
-            _game->render();
-            _profiler->render();
-            _console->render();
-            _window->swap();
-        });
-        _profiler->measure(kMainThreadName, kProfilerRenderAudioTimeIndex, [this]() {
-            _services->audio.mixer.render();
-        });
+#ifdef __EMSCRIPTEN__
+    emscripten_set_main_loop_arg(runFrameCallback, this, 0, true);
+#else
+    while (runFrame()) {
     }
+#endif
 
     return 0;
+}
+
+bool Engine::runFrame() {
+    auto &clock = _services->system.clock;
+
+    bool quit = false;
+    processEvents(quit);
+    if (quit) {
+        return false;
+    }
+    bool focus = _window->isInFocus();
+    if (!focus) {
+#ifndef __EMSCRIPTEN__
+        std::this_thread::sleep_for(std::chrono::milliseconds {100});
+#endif
+        return true;
+    }
+    uint64_t ticks = clock.micros();
+    auto frameTime = (ticks - _ticks) / 10e5f;
+    _ticks = ticks;
+    _profiler->measure(kMainThreadName, kProfilerInputTimeIndex, [this, &quit]() {
+        while (!_events.empty()) {
+            auto event = _events.front();
+            _events.pop();
+            if (_profiler->handle(event)) {
+                continue;
+            }
+            if (_console->handle(event)) {
+                continue;
+            }
+            if (_game->handle(event)) {
+                if (_game->isQuitRequested()) {
+                    quit = true;
+                    break;
+                }
+                continue;
+            }
+        }
+    });
+    if (quit) {
+        return false;
+    }
+    _profiler->measure(kMainThreadName, kProfilerUpdateTimeIndex, [this, &frameTime]() {
+        _game->update(frameTime);
+        bool showcur = _game->cursorType() == CursorType::None;
+        bool relmouse = _game->relativeMouseMode();
+        showCursor(showcur);
+        setRelativeMouseMode(relmouse);
+        _profiler->update(frameTime);
+    });
+    _profiler->measure(kMainThreadName, kProfilerRenderGraphicsTimeIndex, [this]() {
+        _services->graphics.statistic.resetDrawCalls();
+        if (_options.graphics.pbr) {
+            _services->graphics.pbrTextures.refresh();
+        }
+        _services->graphics.context.clearColorDepth();
+        _game->render();
+        _profiler->render();
+        _console->render();
+        _window->swap();
+    });
+    _profiler->measure(kMainThreadName, kProfilerRenderAudioTimeIndex, [this]() {
+        _services->audio.mixer.render();
+    });
+    return true;
 }
 
 void Engine::processEvents(bool &quit) {

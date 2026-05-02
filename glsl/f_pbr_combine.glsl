@@ -29,7 +29,11 @@ uniform sampler2D sSSAO;
 uniform sampler2D sSSR;
 #endif
 
+#ifndef REONE_WEB
 noperspective in vec2 fragUV1;
+#else
+in vec2 fragUV1;
+#endif
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec4 fragHilights;
