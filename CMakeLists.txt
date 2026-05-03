@@ -37,6 +37,7 @@ set(REONE_WEB_GAME_DIR "" CACHE PATH "Embeds game tree into engine.data via file
 set(REONE_WEB_PRELOAD_ITEMS "" CACHE STRING "Semicolon-separated paths under REONE_WEB_GAME_DIR to preload into /game (profile custom only)")
 option(REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE "Allow embedding REONE_WEB_GAME_DIR via Emscripten file_packager (NOT KotOR.js parity; multi-GB engine.data)" OFF)
 option(REONE_WEB_LZ4_PRELOAD "LZ4-compress embedded game preload (-sLZ4: smaller engine.data, chunked decode, lower peak RAM)" ON)
+option(REONE_WEB_DEBUG_RUNTIME "Emscripten ASSERTIONS (larger wasm; KotOR.js-style shipping keeps this OFF)" OFF)
 
 set_property(CACHE REONE_WEB_ASSET_PROFILE PROPERTY STRINGS none full custom)
 

@@ -36,15 +36,18 @@ using namespace reone::resource;
 using namespace reone::scene;
 using namespace reone::script;
 
-namespace reone {
-
 #ifdef __EMSCRIPTEN__
-static void runFrameCallback(void *engine) {
-    if (!static_cast<Engine *>(engine)->runFrame()) {
+extern "C" {
+static void reone_em_run_frame(void *enginePtr) {
+    auto *engine = static_cast<reone::Engine *>(enginePtr);
+    if (!engine->runFrame()) {
         emscripten_cancel_main_loop();
     }
 }
+}
 #endif
+
+namespace reone {
 
 static const std::string kMainThreadName {"main"};
 
@@ -187,7 +190,9 @@ int Engine::run() {
     _ticks = clock.millis();
 
 #ifdef __EMSCRIPTEN__
-    emscripten_set_main_loop_arg(runFrameCallback, this, 0, false);
+    // simulateInfiniteLoop must be true: otherwise this returns, main() exits, and static
+    // g_webEngine in main.cpp is destroyed while the browser still invokes the loop (dynCall → "null function").
+    emscripten_set_main_loop_arg(reone_em_run_frame, this, 0, true);
 #else
     while (runFrame()) {
     }
@@ -352,14 +357,13 @@ std::optional<input::Event> Engine::eventFromSDLEvent(const SDL_Event &sdlEvent)
             sdlEvent.button.clicks,
             scaleWinCoord(sdlEvent.button.x, _options.graphics.winScale),
             scaleWinCoord(sdlEvent.button.y, _options.graphics.winScale)});
-    case SDL_EVENT_MOUSE_WHEEL: {
+    case SDL_EVENT_MOUSE_WHEEL:
         return input::Event::newMouseWheel(input::MouseWheelEvent {
             sdlEvent.wheel.x,
             sdlEvent.wheel.y,
             static_cast<input::MouseWheelDirection>(sdlEvent.wheel.direction)});
     default:
         return std::nullopt;
-    }
     }
 }
 

@@ -67,6 +67,9 @@ if(REONE_PLATFORM_WEB)
         -sGL_ENABLE_GET_PROC_ADDRESS=1
         -lidbfs.js
         "SHELL:--preload-file \"${CMAKE_SOURCE_DIR}/glsl@/glsl\"")
+    if(REONE_WEB_DEBUG_RUNTIME)
+        target_link_options(engine PRIVATE -sASSERTIONS=2)
+    endif()
 
     if(REONE_WEB_GAME_DIR)
         if(NOT REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE)
