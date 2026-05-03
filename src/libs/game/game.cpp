@@ -491,6 +491,10 @@ bool Game::handleMouseButtonUp(const input::MouseButtonEvent &event) {
 void Game::loadModule(const std::string &name, std::string entry) {
     info("Loading module '" + name + "'");
 
+    if (_screen == Screen::Conversation && _conversation) {
+        _conversation->cleanupForModuleTransition();
+    }
+
     withLoadingScreen("load_" + name, [this, &name, &entry]() {
         loadInGameMenus();
 

@@ -41,6 +41,7 @@ public:
     void update(float dt) override;
 
     void start(const std::shared_ptr<resource::Dialog> &dialog, const std::shared_ptr<Object> &owner);
+    void cleanupForModuleTransition();
 
     CameraType getCamera(int &cameraId) const;
 
