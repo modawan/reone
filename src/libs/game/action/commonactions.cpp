@@ -51,7 +51,7 @@ bool unlockDoor(Door &door, Object &actor, float distance, float dt) {
 }
 
 bool unlockPlaceable(Placeable &placeable, Object &actor, float distance, float dt) {
-    if (actor.type() == ObjectType::Creature) {
+    if (auto *creature = dyn_cast<Creature>(&actor)) {
         auto &creature = static_cast<Creature &>(actor);
         bool reached = creature.navigateTo(placeable.position(), true, distance, dt);
         if (!reached) {
