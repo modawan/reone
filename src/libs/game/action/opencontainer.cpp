@@ -31,7 +31,7 @@ void OpenContainerAction::execute(std::shared_ptr<Action> self, Object &actor, f
         complete();
         return;
     }
-    if (auto placeable = std::dynamic_pointer_cast<Placeable>(_object)) {
+    if (auto placeable = dyn_cast<Placeable>(_object)) {
         if (placeable->isLocked()) {
             complete();
             return;
