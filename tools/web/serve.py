@@ -180,6 +180,18 @@ class ReusableThreadingTCPServer(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
 
+class ReusableDualStackThreadingTCPServer(socketserver.ThreadingTCPServer):
+    """Listen on IPv6 ``::`` with ``IPV6_V6ONLY=0`` so ``localhost`` (often ::1) and IPv4 clients both work."""
+
+    allow_reuse_address = True
+    daemon_threads = True
+    address_family = socket.AF_INET6
+
+    def server_bind(self) -> None:
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        super().server_bind()
+
+
 def _handler_factory(web_directory: pathlib.Path, game_root: pathlib.Path | None):
     wd = web_directory.resolve()
     gr = game_root.resolve() if game_root else None
@@ -207,9 +219,23 @@ def main():
     game_root = pathlib.Path(args.game_root).resolve() if args.game_root else None
     handler_factory = _handler_factory(directory, game_root)
 
-    with ReusableThreadingTCPServer(("127.0.0.1", args.port), handler_factory) as server:
+    listen_dual_stack = True
+    try:
+        server_cm = ReusableDualStackThreadingTCPServer(("::", args.port), handler_factory)
+    except OSError:
+        listen_dual_stack = False
+        server_cm = ReusableThreadingTCPServer(("127.0.0.1", args.port), handler_factory)
+
+    with server_cm as server:
         extra = f" game-root={game_root}" if game_root else ""
         print(f"Serving {directory} at http://127.0.0.1:{args.port}{extra}", flush=True)
+        if listen_dual_stack:
+            print(f"Also reachable at http://localhost:{args.port}{extra} (dual-stack IPv6/IPv4)", flush=True)
+        else:
+            print(
+                f"If http://localhost:{args.port} fails, use http://127.0.0.1:{args.port} (IPv6 bind unavailable).",
+                flush=True,
+            )
         server.serve_forever()
 
 

@@ -20,10 +20,17 @@
 #ifdef __EMSCRIPTEN__
 
 #include <algorithm>
+#include <cstring>
 
 #include <emscripten.h>
 
 namespace reone {
+
+namespace {
+
+constexpr size_t kWebMirrorReadChunk = 256 * 1024;
+
+} // namespace
 
 // Requires -sASYNCIFY=1 on the final link: suspends the whole C++ stack while awaiting JS I/O.
 EM_ASYNC_JS(double, reone_web_file_length, (const char *path), {
@@ -59,6 +66,31 @@ WebFileInputStream::WebFileInputStream(const std::filesystem::path &path) :
     _length = static_cast<size_t>(len);
 }
 
+void WebFileInputStream::invalidateBuffer() {
+    _bufLen = 0;
+}
+
+void WebFileInputStream::refillBuffer() {
+    size_t pos = static_cast<size_t>(_position);
+    if (_bufLen != 0 && pos >= _bufFileOffset && pos < _bufFileOffset + _bufLen) {
+        return;
+    }
+    if (pos >= _length) {
+        return;
+    }
+    size_t chunk = std::min(kWebMirrorReadChunk, _length - pos);
+    _buf.resize(chunk);
+    int r = reone_web_file_read(_path.c_str(), static_cast<double>(pos), _buf.data(), static_cast<int>(chunk));
+    if (r < 0) {
+        throw std::runtime_error("Failed to read web game file: " + _path);
+    }
+    if (r == 0) {
+        throw std::runtime_error("Unexpected EOF reading web game file: " + _path);
+    }
+    _bufFileOffset = pos;
+    _bufLen = static_cast<size_t>(r);
+}
+
 void WebFileInputStream::seek(int64_t offset, SeekOrigin origin) {
     if (origin == SeekOrigin::Begin) {
         _position = offset;
@@ -72,6 +104,7 @@ void WebFileInputStream::seek(int64_t offset, SeekOrigin origin) {
     if (_position < 0) {
         _position = 0;
     }
+    invalidateBuffer();
 }
 
 int WebFileInputStream::readByte() {
@@ -84,13 +117,23 @@ int WebFileInputStream::read(char *buf, int len) {
     if (len <= 0 || static_cast<size_t>(_position) >= _length) {
         return 0;
     }
-    auto clamped = std::min<size_t>(static_cast<size_t>(len), _length - static_cast<size_t>(_position));
-    int n = reone_web_file_read(_path.c_str(), static_cast<double>(_position), buf, static_cast<int>(clamped));
-    if (n < 0) {
-        throw std::runtime_error("Failed to read web game file: " + _path);
+    int total = 0;
+    while (total < len && static_cast<size_t>(_position) < _length) {
+        refillBuffer();
+        size_t pos = static_cast<size_t>(_position);
+        if (_bufLen == 0 || pos < _bufFileOffset || pos >= _bufFileOffset + _bufLen) {
+            break;
+        }
+        size_t offInBuf = pos - _bufFileOffset;
+        size_t avail = _bufLen - offInBuf;
+        size_t need = static_cast<size_t>(len - total);
+        size_t remain = _length - pos;
+        size_t n = std::min({avail, need, remain});
+        std::memcpy(buf + total, _buf.data() + offInBuf, n);
+        total += static_cast<int>(n);
+        _position += static_cast<int64_t>(n);
     }
-    _position += n;
-    return n;
+    return total;
 }
 
 size_t WebFileInputStream::position() {

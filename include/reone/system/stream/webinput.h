@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include "input.h"
 
 namespace reone {
@@ -38,9 +40,17 @@ public:
     size_t length() override;
 
 private:
+    void invalidateBuffer();
+
+    /** One ranged HTTP fetch per chunk instead of per read(); avoids browser connection_limits / ERR_INVALID_ARGUMENT. */
+    void refillBuffer();
+
     std::string _path;
     int64_t _position {0};
     size_t _length {0};
+    std::vector<char> _buf;
+    size_t _bufFileOffset {0};
+    size_t _bufLen {0};
 };
 
 #endif

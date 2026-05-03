@@ -325,25 +325,128 @@
         return Number.isFinite(len) ? len : -1;
     }
 
+    /** Limit parallel mirror fetches — Chromium hits ERR_INVALID_ARGUMENT when hundreds of Range requests overlap. */
+    var mirrorFetchInflight = {};
+    var mirrorFetchActive = 0;
+    var mirrorFetchWaiters = [];
+    var mirrorFetchMaxConcurrent =
+        typeof Module.reoneWebMirrorMaxConcurrentFetches === "number" &&
+        Module.reoneWebMirrorMaxConcurrentFetches > 0
+            ? Module.reoneWebMirrorMaxConcurrentFetches
+            : 8;
+
+    function mirrorFetchReleaseSlot() {
+        mirrorFetchActive--;
+        var w = mirrorFetchWaiters.shift();
+        if (w) {
+            w();
+        }
+    }
+
+    function mirrorFetchAcquireSlot() {
+        return new Promise(function (resolve) {
+            function tryEnter() {
+                if (mirrorFetchActive < mirrorFetchMaxConcurrent) {
+                    mirrorFetchActive++;
+                    resolve(mirrorFetchReleaseSlot);
+                } else {
+                    mirrorFetchWaiters.push(tryEnter);
+                }
+            }
+            tryEnter();
+        });
+    }
+
     async function fetchMirrorRange(relPosix, rangeStart, rangeLen) {
         var url = httpGameFileUrl(relPosix);
-        var headers = {};
-        if (typeof rangeStart === "number") {
-            var end = typeof rangeLen === "number" && rangeLen > 0 ? rangeStart + rangeLen - 1 : rangeStart;
-            headers.Range = "bytes=" + rangeStart + "-" + end;
+        var endInclusive =
+            typeof rangeStart === "number"
+                ? typeof rangeLen === "number" && rangeLen > 0
+                    ? rangeStart + rangeLen - 1
+                    : rangeStart
+                : "full";
+        var inflightKey = url + "|" + rangeStart + ":" + endInclusive;
+        if (mirrorFetchInflight[inflightKey]) {
+            return mirrorFetchInflight[inflightKey];
         }
-        var resp = await fetch(url, { credentials: "same-origin", headers: headers });
-        if (resp.status === 416) {
-            return { bytes: new Uint8Array(0), total: -1 };
+        mirrorFetchInflight[inflightKey] = (async function () {
+            var releaseSlot = await mirrorFetchAcquireSlot();
+            try {
+                var headers = {};
+                if (typeof rangeStart === "number") {
+                    headers.Range = "bytes=" + rangeStart + "-" + endInclusive;
+                }
+                var resp = await fetch(url, { credentials: "same-origin", headers: headers });
+                if (resp.status === 416) {
+                    return { bytes: new Uint8Array(0), total: -1 };
+                }
+                if (!resp.ok && resp.status !== 206) {
+                    throw new Error("reone web: " + url + " -> HTTP " + resp.status);
+                }
+                var buf = await resp.arrayBuffer();
+                return {
+                    bytes: new Uint8Array(buf),
+                    total: parseContentLengthFromHeaders(resp.headers, buf.byteLength),
+                };
+            } finally {
+                delete mirrorFetchInflight[inflightKey];
+                releaseSlot();
+            }
+        })();
+        return mirrorFetchInflight[inflightKey];
+    }
+
+    /** HTTP mirror: many C++ streams stat the same path in parallel — dedupe length probes + cache small files in RAM. */
+    var mirrorLengthCache = {};
+    var mirrorLengthInflight = {};
+    var mirrorFullBytes = {};
+    var mirrorFullInflight = {};
+    var MIRROR_FULL_CACHE_MAX = 8 * 1024 * 1024;
+
+    async function mirrorHttpTotalBytes(relLower, originalPath) {
+        if (Object.prototype.hasOwnProperty.call(mirrorLengthCache, relLower)) {
+            return mirrorLengthCache[relLower];
         }
-        if (!resp.ok && resp.status !== 206) {
-            throw new Error("reone web: " + url + " -> HTTP " + resp.status);
+        if (mirrorLengthInflight[relLower]) {
+            return mirrorLengthInflight[relLower];
         }
-        var buf = await resp.arrayBuffer();
-        return {
-            bytes: new Uint8Array(buf),
-            total: parseContentLengthFromHeaders(resp.headers, buf.byteLength),
-        };
+        mirrorLengthInflight[relLower] = (async function () {
+            try {
+                var r = await fetchMirrorRange(originalPath, 0, 1);
+                var t = r.total;
+                mirrorLengthCache[relLower] = t;
+                return t;
+            } finally {
+                delete mirrorLengthInflight[relLower];
+            }
+        })();
+        return mirrorLengthInflight[relLower];
+    }
+
+    async function mirrorHttpEnsureFullBytes(relLower, originalPath) {
+        if (mirrorFullBytes[relLower]) {
+            return mirrorFullBytes[relLower];
+        }
+        if (mirrorFullInflight[relLower]) {
+            return mirrorFullInflight[relLower];
+        }
+        var total = mirrorLengthCache[relLower];
+        if (typeof total !== "number" || total < 0 || total > MIRROR_FULL_CACHE_MAX) {
+            return null;
+        }
+        mirrorFullInflight[relLower] = (async function () {
+            try {
+                var r =
+                    total === 0
+                        ? { bytes: new Uint8Array(0), total: 0 }
+                        : await fetchMirrorRange(originalPath, 0, total);
+                mirrorFullBytes[relLower] = r.bytes || new Uint8Array(0);
+                return mirrorFullBytes[relLower];
+            } finally {
+                delete mirrorFullInflight[relLower];
+            }
+        })();
+        return mirrorFullInflight[relLower];
     }
 
     Module.reoneWebFileLengthAsync = async function (path) {
@@ -362,7 +465,7 @@
         var original = lookup[rel];
         if (!original) return -1;
         try {
-            return (await fetchMirrorRange(original, 0, 1)).total;
+            return await mirrorHttpTotalBytes(rel, original);
         } catch (e) {
             console.error("reone web: stat failed:", rel, e);
             return -1;
@@ -389,6 +492,21 @@
         var original = lookup[rel];
         if (!original) return null;
         try {
+            var totalKnown = mirrorLengthCache[rel];
+            if (
+                typeof totalKnown === "number" &&
+                totalKnown >= 0 &&
+                totalKnown <= MIRROR_FULL_CACHE_MAX
+            ) {
+                var full = mirrorFullBytes[rel];
+                if (!full) {
+                    full = await mirrorHttpEnsureFullBytes(rel, original);
+                }
+                if (full && offset < full.length) {
+                    var end = Math.min(offset + len, full.length);
+                    return full.subarray(offset, end);
+                }
+            }
             return (await fetchMirrorRange(original, offset, len)).bytes;
         } catch (e) {
             console.error("reone web: range read failed:", rel, offset, len, e);
