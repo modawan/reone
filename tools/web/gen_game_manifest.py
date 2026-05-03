@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright (c) 2020-2023 The reone project contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Emit game-manifest.json for serve.py --game-root; gamefs.js loads it when present (dev/CI). KotOR.js retail flow is File System Access only."""
+"""Emit game-manifest.json for serve.py --game-root; gamefs.js loads it when present (dev/CI). retail flow is File System Access only."""
 
 from __future__ import annotations
 

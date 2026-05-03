@@ -516,7 +516,7 @@ build/
 build-web/
 .history/
 
-# KotOR.js parity: never commit installs or staged game trees (copyrighted).
+# never commit installs or staged game trees (copyrighted).
 tools/web/_minimal_kotor/
 tools/web/web-game-staged/
 tools/web/_smoke_menu.png

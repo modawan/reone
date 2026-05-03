@@ -2,7 +2,7 @@
 
 ## Main theme (read first)
 
-**Match [KotOR.js](https://github.com/KobaltBlu/KotOR.js) for browser assets:** no shipping or embedding the retail install in the web artifact; **on-demand** access via **File System Access** (`showDirectoryPicker`, directory/file handles, IndexedDB persistence — see KotOR.js `GameFileSystem.ts`). Emscripten **`file_packager` must not bake `/game`** unless you explicitly opt in with **`REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON`** (non-parity, huge `engine.data`, browser-hostile). Default CMake is **`REONE_WEB_ASSET_PROFILE=none`** and **`REONE_WEB_GAME_DIR` unset**. *(KotOR.js itself is TypeScript + THREE.js, not WASM; “parity” here means the same **asset delivery model** for reone’s WASM build.)*
+no shipping or embedding the retail install in the web artifact; **on-demand** access via **File System Access** (`showDirectoryPicker`, directory/file handles, IndexedDB persistence). Emscripten `**file_packager` must not bake `/game`** unless you explicitly opt in with `**REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON**` (non-parity, huge `engine.data`, browser-hostile). Default CMake is `**REONE_WEB_ASSET_PROFILE=none**` and `**REONE_WEB_GAME_DIR` unset**.
 
 ---
 
@@ -10,7 +10,7 @@ This guide covers building and running `reone` in a browser with WebAssembly (Em
 
 The browser target disables native-only tools, omits movie/MP3 codecs by default on web, and focuses on bringing up `engine` with WebGL2.
 
-**Design priority:** same as above — **[KobaltBlu/KotOR.js](https://github.com/KobaltBlu/KotOR.js)**-style game directory handling (File System Access, no baked install by default). ReOne’s WASM/JS glue follows that model first; embedded preload is **opt-in only** (`REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE`).
+**Design priority:** same as above game directory handling (File System Access, no baked install by default). ReOne’s WASM/JS glue follows that model first; embedded preload is **opt-in only** (`REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE`).
 
 ## What Gets Built
 
@@ -18,9 +18,9 @@ The browser target disables native-only tools, omits movie/MP3 codecs by default
 - Output directory: `build-web/bin`
 - Artifacts:
   - `engine.html`
-  - `engine.js` (includes `tools/web/gamefs.js` via Emscripten `**--pre-js`**, same pattern class as typical KotOR.js-style FS glue)
+  - `engine.js` (includes `tools/web/gamefs.js` via Emscripten `**--pre-js`**, same pattern class as typical
   - `engine.wasm`
-  - Optional `engine.data` when using **embedded preload** (non–KotOR.js parity; CI/smoke or special cases only)
+  - Optional `engine.data` when using **embedded preload** (CI/smoke or special cases only)
 
 ## Prerequisites
 
@@ -28,7 +28,7 @@ The browser target disables native-only tools, omits movie/MP3 codecs by default
 
 - CMake (3.16+)
 - Python 3 (`tools/web/serve.py`, optional `tools/web/gen_game_manifest.py` for local mirrors)
-- Emscripten SDK (`emsdk`) — **pin or compare versions with KotOR.js** if lazy file behavior differs from theirs on “latest”
+- Emscripten SDK (`emsdk`)
 - Ninja
 - Boost headers available to CMake (`find_package(Boost)` — web build does not need `program_options` linked)
 
@@ -76,26 +76,26 @@ emcmake cmake -G Ninja -S . -B build-web -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_T
 C:\path\to\emsdk\upstream\emscripten\emcmake.bat cmake -G Ninja -S . -B build-web -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release -DBoost_INCLUDE_DIR=C:/path/to/boost/include
 ```
 
-## KotOR.js alignment (default): File System Access API
+## File System Access API
 
-Like **KotOR.js**, the normal browser build **does not bake the game into the repo**. At runtime, `gamefs.js` (linked via `**--pre-js`**) waits for a folder the user selects that contains `**chitin.key`** at the install root. The handle can be remembered in **IndexedDB** (same idea as KotOR.js storing launcher-related handles).
+The normal browser build **does not bake the game into the repo**. At runtime, `gamefs.js` (linked via `**--pre-js`**) waits for a folder the user selects that contains `**chitin.key`** at the install root. The handle can be remembered in **IndexedDB**.
 
 Requirements:
 
 - **Chromium-class browser** (`showDirectoryPicker`): Chrome, Edge, etc.
 - **Secure context** (HTTPS or `http://localhost`)
-- User grants **read/write** on the folder (same permission model KotOR.js uses for browser builds)
+- User grants **read/write** on the folder uses for browser builds
 
 Optional: before loading `engine.js`, set `Module.reoneGameDirectoryHandle` to an existing `FileSystemDirectoryHandle` (advanced/same-origin shells only). Otherwise the overlay in `gamefs.js` collects the folder after load.
 
-After you pick the install folder, `gamefs.js` copies files into Emscripten `**MEMFS`** under `**/game`** using `**FS.writeFile`** (modern browsers block main-thread `**FS.createLazyFile**`, unlike older Emscripten/worker setups). Paths are stored **lowercased** so lookups match the engine’s case-insensitive layout.
+After you pick the install folder, `gamefs.js` indexes file handles into lightweight Emscripten `**MEMFS`** marker paths under `**/game`**. Actual archive/data bytes are **not copied up front**: web builds read exact byte ranges on demand through `WebFileInputStream` using `FileSystemFileHandle.getFile()` + `Blob.slice(...)` (or HTTP `Range` for the local smoke mirror). Paths are stored **lowercased** so lookups match the engine’s case-insensitive layout.
 
-- **RAM**: a full install can use **several GB** of browser memory. Close other tabs; prefer a 64-bit browser.
-- **Skips (default)**: top-level `**movies/`**, `**streammusic/`**, and `**saves/**` are not copied (saves time/RAM; usually enough to reach the main menu). For a full tree (everything KotOR.js could touch), set `**Module.reoneWebFsNoSkip = true**` before `engine.js`, or set `**Module.reoneWebFsSkipTopDirs = []**` (empty array: no directory skips). `**reoneWebFsSkipTopDirs**` can also list lower-case top-level folder names to skip; omit or leave unset to use the default list above (ignored when `**reoneWebFsNoSkip**` is true).
+- **RAM**: startup no longer mirrors the full install into browser memory; memory scales with decoded resources and requested archive slices.
+- **Skips (default)**: top-level `**movies/`**, `**streammusic/`**, and `**saves/**` are not indexed (saves startup work; usually enough to reach the main menu). For a full tree, set `**Module.reoneWebFsNoSkip = true**` before `engine.js`, or set `**Module.reoneWebFsSkipTopDirs = []**` (empty array: no directory skips). `**reoneWebFsSkipTopDirs**` can also list lower-case top-level folder names to skip; omit or leave unset to use the default list above (ignored when `**reoneWebFsNoSkip**` is true).
 
-### Embedded preload (optional; not KotOR.js parity)
+### Embedded preload (optional)
 
-KotOR.js does **not** embed the install into the build. ReOne matches that by default (`REONE_WEB_ASSET_PROFILE=none`, `REONE_WEB_GAME_DIR` unset).
+Whether to embed the install into the build. ReOne matches that by default (`REONE_WEB_ASSET_PROFILE=none`, `REONE_WEB_GAME_DIR` unset).
 
 **CMake will refuse `REONE_WEB_GAME_DIR` unless you also pass `-DREONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON`.** That keeps accidental multi‑GB `file_packager` runs out of normal developer flows.
 
@@ -110,15 +110,14 @@ emcmake cmake -G Ninja -S . -B build-web \
   -DREONE_WEB_ASSET_PROFILE=full
 ```
 
-Custom subsets: same **`REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON`** as above, then `-DREONE_WEB_ASSET_PROFILE=custom` plus `-DREONE_WEB_PRELOAD_ITEMS='rel/path/a;rel/path/b'` (CMake list, semicolon-separated).
+Custom subsets: same `**REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON**` as above, then `-DREONE_WEB_ASSET_PROFILE=custom` plus `-DREONE_WEB_PRELOAD_ITEMS='rel/path/a;rel/path/b'` (CMake list, semicolon-separated).
 
-Default **KotOR.js-aligned** builds embed **no** game files, so `/game` is empty until you pick a folder.
+Default builds embed **no** game files, so `/game` is empty until you pick a folder.
 
 If you use CMake `**full`** / `**custom`** embed, set `**Module.reoneAssumeEmbeddedGamePreload = true`** before `engine.js` so the folder picker is skipped (non-parity). Otherwise `gamefs.js` still tries File System Access and mounting may conflict with existing nodes.
 
-### Experimental: pthreads (not KotOR.js default)
-
-**KotOR.js does not drive the default story around threading.** ReOne keeps `**REONE_WEB_PTHREADS` OFF** by default. Turning it on is **experimental** (different perf/debug surface, COOP/COEP requirements).
+### Experimental: pthreads
+** ReOne keeps `**REONE_WEB_PTHREADS` OFF** by default. Turning it on is **experimental** (different perf/debug surface, COOP/COEP requirements).
 
 ```bash
 emcmake cmake -G Ninja -S . -B build-web-pthreads \
@@ -139,7 +138,7 @@ cmake --build build-web --target engine -j 8
 
 The helper server sets **WASM MIME**, **COOP / COEP / CORP** headers and serves the build output.
 
-**Default (FS Access — KotOR.js alignment):**
+**Default (FS Access):**
 
 ```bash
 python tools/web/serve.py --directory build-web/bin --port 4204
@@ -159,7 +158,7 @@ Use **Choose folder…** and select your KotOR install root (must contain `chiti
 
 ### Optional: HTTP mirror of game files (tooling only)
 
-`serve.py` can also expose a **static mirror** of a game directory (`--game-root`) with `**/game-manifest.json`** and ranged `**/game-files/...`**. That is **not** wired into `gamefs.js` and is **not** KotOR.js parity — useful for tests or external harnesses (see `tools/web/test_serve_smoke.py`).
+`serve.py` can also expose a **static mirror** of a game directory (`--game-root`) with `**/game-manifest.json`** and ranged `**/game-files/...`**. This is wired into `gamefs.js` for automation only: the manifest is indexed, and resource bytes are fetched lazily with HTTP `Range` requests instead of copying the install into MEMFS. Retail/browser use should still prefer File System Access.
 
 Do **not** rely on a plain `python -m http.server` for WASM + experimental pthreads: missing COOP/COEP breaks `SharedArrayBuffer`; missing `.wasm` MIME types breaks instantiation.
 
@@ -189,7 +188,7 @@ Web builds use Emscripten’s SDL3 port (`-sUSE_SDL=3`); no system SDL3 is requi
 
 ### Page loads but engine exits immediately on web
 
-- **FS Access mode**: Confirm you picked the folder that contains `**chitin.key`** (same as KotOR.js). Use a Chromium-class browser.
+- **FS Access mode**: Confirm you picked the folder that contains `**chitin.key`**. Use a Chromium-class browser.
 - **Full/custom embed**: confirm `REONE_WEB_ASSET_PROFILE` and `/game/chitin.key` after preload.
 
 ### Blank canvas / shader errors

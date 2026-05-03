@@ -49,12 +49,14 @@ endif()
 
 if(REONE_PLATFORM_WEB)
     if(REONE_WEB_ASSET_PROFILE STREQUAL "minimal")
-        message(FATAL_ERROR "REONE_WEB_ASSET_PROFILE=minimal was removed. Use none (default KotOR.js-parity: File System Access), full, or custom. Clear CMake cache when upgrading.")
+        message(FATAL_ERROR [[REONE_WEB_ASSET_PROFILE=minimal was removed. Use none (default KotOR.js-parity: File System Access), full, or custom. Clear CMake cache when upgrading.]])
     endif()
-    # MEMFS copy (HTTP mirror or FS Access) needs a large heap for a real KotOR tree; keep below typical browser limits.
+    # Lazy range reads keep game archives out of MEMFS; allow growth for decoded resources and renderer state.
     set(_REONE_WEB_MAX_MEMORY 4294967296)
     target_link_options(engine PRIVATE
         "SHELL:--pre-js \"${CMAKE_SOURCE_DIR}/tools/web/gamefs.js\""
+        # WebFileInputStream uses EM_ASYNC_JS + fetch/File System Access; sync XHR cannot read binary on the main thread.
+        -sASYNCIFY=1
         -sALLOW_MEMORY_GROWTH=1
         "SHELL:-sMAXIMUM_MEMORY=${_REONE_WEB_MAX_MEMORY}"
         -sENVIRONMENT=web
@@ -64,6 +66,7 @@ if(REONE_PLATFORM_WEB)
         -sGL_ENABLE_GET_PROC_ADDRESS=1
         -lidbfs.js
         "SHELL:--preload-file \"${CMAKE_SOURCE_DIR}/glsl@/glsl\"")
+    message(STATUS "reone web: Asyncify is on for lazy /game I/O; wasm links are much faster with -DCMAKE_BUILD_TYPE=Release than Debug")
     if(REONE_WEB_DEBUG_RUNTIME)
         target_link_options(engine PRIVATE -sASSERTIONS=2)
     endif()
@@ -73,11 +76,15 @@ if(REONE_PLATFORM_WEB)
 
     if(REONE_WEB_GAME_DIR)
         if(NOT REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE)
-            message(FATAL_ERROR
-                "REONE_WEB_GAME_DIR is set but REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=OFF.\n"
-                "KotOR.js (https://github.com/KobaltBlu/KotOR.js) does not ship the install in the web bundle — it uses File System Access and reads files on demand.\n"
-                "Reone matches that by default: unset REONE_WEB_GAME_DIR and use tools/web/gamefs.js (folder picker → MEMFS copy / IndexedDB handle).\n"
-                "If you truly need a non-parity embedded tree (e.g. Safari CI), configure with -DREONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON explicitly.")
+            message(FATAL_ERROR [[
+REONE_WEB_GAME_DIR is set but REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=OFF.
+
+KotOR.js (https://github.com/KobaltBlu/KotOR.js) does not ship the install in the web bundle; it uses File System Access and reads files on demand.
+
+Reone matches that by default: unset REONE_WEB_GAME_DIR and use tools/web/gamefs.js (folder picker + IndexedDB handle + on-demand range reads).
+
+If you truly need a non-parity embedded tree (e.g. Safari CI), configure with -DREONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON explicitly.
+]])
         endif()
         if(REONE_WEB_ASSET_PROFILE STREQUAL "none")
             message(FATAL_ERROR "REONE_WEB_GAME_DIR is set but REONE_WEB_ASSET_PROFILE=none (default KotOR.js-parity build embeds no game files). Unset REONE_WEB_GAME_DIR, or set REONE_WEB_ASSET_PROFILE to full or custom.")
@@ -110,7 +117,7 @@ if(REONE_PLATFORM_WEB)
             message(FATAL_ERROR "REONE_WEB_GAME_DIR does not exist: ${REONE_WEB_GAME_DIR}")
         endif()
     else()
-        message(STATUS "reone web: no REONE_WEB_GAME_DIR — game files come from File System Access at runtime (KotOR.js parity); see tools/web/gamefs.js")
+        message(STATUS "reone web: no REONE_WEB_GAME_DIR — game files come from File System Access at runtime; see tools/web/gamefs.js")
     endif()
 
     if(REONE_WEB_GAME_DIR AND NOT REONE_WEB_ASSET_PROFILE STREQUAL "none")

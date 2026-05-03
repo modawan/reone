@@ -120,6 +120,7 @@ endif()
 
 if(REONE_PLATFORM_WEB)
     add_compile_definitions(R_PLATFORM_WEB)
+    add_compile_definitions(BOOST_NO_CXX98_FUNCTION_BASE)
 endif()
 
 if(REONE_PLATFORM_WEB AND REONE_WEB_PTHREADS)

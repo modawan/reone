@@ -17,21 +17,32 @@
 
 #pragma once
 
-#include "../types.h"
+#include "input.h"
 
 namespace reone {
 
-class IInputStream : boost::noncopyable {
+#ifdef __EMSCRIPTEN__
+
+class WebFileInputStream : public IInputStream {
 public:
-    virtual ~IInputStream() = default;
+    WebFileInputStream(const std::filesystem::path &path);
 
-    virtual void seek(int64_t offset, SeekOrigin origin = SeekOrigin::Begin) = 0;
+    void seek(int64_t offset, SeekOrigin origin) override;
 
-    virtual int readByte() = 0;
-    virtual int read(char *buf, int len) = 0;
+    int readByte() override;
 
-    virtual size_t position() = 0;
-    virtual size_t length() = 0;
+    int read(char *buf, int len) override;
+
+    size_t position() override;
+
+    size_t length() override;
+
+private:
+    std::string _path;
+    int64_t _position {0};
+    size_t _length {0};
 };
+
+#endif
 
 } // namespace reone

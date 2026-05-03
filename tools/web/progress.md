@@ -1,8 +1,8 @@
-Original prompt: ReOne WASM playability and openkotor-site integration — `gamefs.js` (KotOR.js-style FS Access via `--pre-js`), `serve.py`, optional manifest tooling for HTTP mirrors, CI WASM build, openkotor-site `/play/*` routes, `vercel.json` COOP/COEP, docs.
+Original prompt: ReOne WASM playability and openkotor-site integration — `gamefs.js` (FS Access via `--pre-js`), `serve.py`, optional manifest tooling for HTTP mirrors, CI WASM build, openkotor-site `/play/*` routes, `vercel.json` COOP/COEP, docs.
 
 ## Done (implementation)
 
-- [`gamefs.js`](gamefs.js) is linked with Emscripten `--pre-js` (KotOR.js-style glue bundled with `engine.js`).
+- [`gamefs.js`](gamefs.js) is linked with Emscripten `--pre-js`.
 - [`serve.py`](serve.py): default port **4204**, `--game-root`, Range requests for lazy files.
 - [`gen_game_manifest.py`](gen_game_manifest.py) emits `game-manifest.json`.
 - [`test_serve_smoke.py`](test_serve_smoke.py) verifies manifest + Range (runs in CI).
@@ -16,7 +16,7 @@ Requires locally:
 3. `python tools/web/serve.py --directory build-web/bin --game-root "C:/Path/To/KotOR"`.
 4. Open `http://localhost:4204/engine.html` — expect main menu; verify Network loads `/game-manifest.json` and ranged `/game-files/...`.
 
-**Fallback:** embedded preload only with explicit `-DREONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON` plus `-DREONE_WEB_GAME_DIR=...` (large `engine.data`; not KotOR.js parity).
+**Fallback:** embedded preload only with explicit `-DREONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON` plus `-DREONE_WEB_GAME_DIR=...` (large `engine.data`).
 
 ## TODO / suggestions
 

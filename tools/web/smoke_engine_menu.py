@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Load engine.html locally and poll until the menu likely appeared or timeout.
 
-KotOR.js parity: ship no game data in the wasm bundle; point the browser at a local
+ship no game data in the wasm bundle; point the browser at a local
 install via File System Access *or* run ``serve.py --game-root`` so ``gamefs.js`` can
 fetch ``/game-manifest.json`` + ``/game-files/...`` (dev/CI only).
 """
@@ -148,7 +148,7 @@ def main() -> int:
     ap.add_argument(
         "--spawn-serve",
         action="store_true",
-        help="Start tools/web/serve.py on a free port (needs --game-root); KotOR.js-parity HTTP mirror",
+        help="Start tools/web/serve.py on a free port (needs --game-root)",
     )
     ap.add_argument(
         "--game-root",
@@ -176,7 +176,7 @@ def main() -> int:
         if not game_root or not game_root.is_dir():
             print(
                 "Smoke --spawn-serve requires --game-root or REONE_WEB_SMOKE_GAME_ROOT "
-                "pointing at a KotOR install (matches KotOR.js: files stay on disk).",
+                "pointing at a KotOR install (files stay on disk).",
                 file=sys.stderr,
             )
             return 2

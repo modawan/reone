@@ -1,12 +1,12 @@
-// KobaltBlu/KotOR.js-style browser game dir: full install under /game via the File System Access API (chitin.key at root).
-// Bundled via Emscripten --pre-js with the WASM module (same class of setup as KotOR.js glue, not a separate shell script).
+// browser game dir: full install under /game via the File System Access API (chitin.key at root).
+// Bundled via Emscripten --pre-js with the WASM module.
 //
-// Emscripten FS.createLazyFile uses synchronous XHR / worker-only paths and aborts on the browser main thread, so we copy
-// each picked file into MEMFS with FS.writeFile after file.arrayBuffer(). Optional skips reduce RAM/time (movies/music/saves).
-// Set Module.reoneWebFsNoSkip = true before engine.js for a full tree like KotOR.js exposes (needs enough browser RAM).
+// Keep game data out of the wasm bundle: index the selected folder into lightweight /game marker files,
+// then let WebFileInputStream read exact byte ranges from FileSystemFileHandle/Blob.slice on demand.
+// Optional skips reduce startup indexing work (movies/music/saves); set Module.reoneWebFsNoSkip = true to index all folders.
 //
-// Dev/automation: if same-origin GET /game-manifest.json succeeds (serve.py --game-root), we fetch listed files from
-// /game-files/... into MEMFS before wasm starts — no game data in git; mirror is read from the user's local install path.
+// Dev/automation: if same-origin GET /game-manifest.json succeeds (serve.py --game-root), we index listed files and
+// read /game-files/... with Range requests on demand — no game data in git or embedded wasm artifacts.
 (function () {
     if (typeof Module === "undefined") {
         Module = {};
@@ -165,7 +165,7 @@
         root.id = "reone-fs-gate";
         root.innerHTML =
             '<div id="reone-fs-gate-inner"><h2>Select KotOR installation</h2>' +
-            '<p>Choose the folder that contains <strong>chitin.key</strong> (same layout as KotOR.js). Files stay on your device.</p>' +
+            '<p>Choose the folder that contains <strong>chitin.key</strong>. Files stay on your device.</p>' +
             '<button type="button" id="reone-fs-gate-btn">Choose folder…</button>' +
             '<p class="err" id="reone-fs-gate-err" hidden></p></div>';
         document.body.appendChild(root);
@@ -288,9 +288,116 @@
         return "/game-files/" + parts.map(encodeURIComponent).join("/");
     }
 
+    function normalizeGamePath(path) {
+        var p = String(path || "").replace(/\\/g, "/").toLowerCase();
+        p = p.replace(/^\/+/, "");
+        if (p === "game") {
+            return "";
+        }
+        if (p.indexOf("game/") === 0) {
+            p = p.slice(5);
+        }
+        return p.replace(/^\/+/, "");
+    }
+
+    function ensureEmptyFile(path) {
+        try {
+            FS.stat(path);
+            return;
+        } catch (e) {
+            // Create marker below.
+        }
+        var parentFs = path.slice(0, path.lastIndexOf("/"));
+        ensureDirectory(parentFs);
+        FS.writeFile(path, new Uint8Array(0));
+    }
+
+    function parseContentLengthFromHeaders(headers, fallbackLength) {
+        var contentRange = headers.get("Content-Range") || "";
+        var slash = contentRange.lastIndexOf("/");
+        if (slash !== -1) {
+            var total = Number(contentRange.slice(slash + 1));
+            if (Number.isFinite(total)) {
+                return total;
+            }
+        }
+        var len = Number(headers.get("Content-Length") || fallbackLength || "-1");
+        return Number.isFinite(len) ? len : -1;
+    }
+
+    async function fetchMirrorRange(relPosix, rangeStart, rangeLen) {
+        var url = httpGameFileUrl(relPosix);
+        var headers = {};
+        if (typeof rangeStart === "number") {
+            var end = typeof rangeLen === "number" && rangeLen > 0 ? rangeStart + rangeLen - 1 : rangeStart;
+            headers.Range = "bytes=" + rangeStart + "-" + end;
+        }
+        var resp = await fetch(url, { credentials: "same-origin", headers: headers });
+        if (resp.status === 416) {
+            return { bytes: new Uint8Array(0), total: -1 };
+        }
+        if (!resp.ok && resp.status !== 206) {
+            throw new Error("reone web: " + url + " -> HTTP " + resp.status);
+        }
+        var buf = await resp.arrayBuffer();
+        return {
+            bytes: new Uint8Array(buf),
+            total: parseContentLengthFromHeaders(resp.headers, buf.byteLength),
+        };
+    }
+
+    Module.reoneWebFileLengthAsync = async function (path) {
+        var rel = normalizeGamePath(path);
+        var handleFiles = Module.reoneWebHandleFiles || {};
+        var handle = handleFiles[rel];
+        if (handle) {
+            try {
+                return (await handle.getFile()).size;
+            } catch (e) {
+                console.error("reone web: File System Access stat failed:", rel, e);
+                return -1;
+            }
+        }
+        var lookup = Module.reoneWebHttpMirrorFiles || {};
+        var original = lookup[rel];
+        if (!original) return -1;
+        try {
+            return (await fetchMirrorRange(original, 0, 1)).total;
+        } catch (e) {
+            console.error("reone web: stat failed:", rel, e);
+            return -1;
+        }
+    };
+
+    Module.reoneWebFileReadAsync = async function (path, offset, len) {
+        var rel = normalizeGamePath(path);
+        if (len <= 0) {
+            return new Uint8Array(0);
+        }
+        var handleFiles = Module.reoneWebHandleFiles || {};
+        var handle = handleFiles[rel];
+        if (handle) {
+            try {
+                var file = await handle.getFile();
+                return new Uint8Array(await file.slice(offset, offset + len).arrayBuffer());
+            } catch (e) {
+                console.error("reone web: File System Access range read failed:", rel, offset, len, e);
+                return null;
+            }
+        }
+        var lookup = Module.reoneWebHttpMirrorFiles || {};
+        var original = lookup[rel];
+        if (!original) return null;
+        try {
+            return (await fetchMirrorRange(original, offset, len)).bytes;
+        } catch (e) {
+            console.error("reone web: range read failed:", rel, offset, len, e);
+            return null;
+        }
+    };
+
     /**
-     * Load /game from tools/web/serve.py --game-root (game-manifest.json + ranged /game-files/...).
-     * KotOR.js parity for shipping remains FS Access; this path is for local dev/CI only.
+     * Expose /game from tools/web/serve.py --game-root (game-manifest.json + ranged /game-files/...).
      */
     async function tryMountFromHttpMirror() {
         if (truthyEmbOpt(Module.reoneWebFsDisableHttpMirror)) {
@@ -316,7 +423,7 @@
 
         ensureDirectory("/game");
         transitionGateToLoadingUi();
-        setGateLoadingMessage("Loading game files from local server mirror…");
+        setGateLoadingMessage("Indexing game files from local server mirror…");
 
         var dirs = Array.isArray(man.directories) ? man.directories : [];
         for (var d = 0; d < dirs.length; ++d) {
@@ -329,59 +436,32 @@
         }
 
         var files = man.files;
-        var filtered = [];
+        var lookup = {};
+        var indexed = 0;
         for (var fi = 0; fi < files.length; ++fi) {
             var relF = String(files[fi]).replace(/\\/g, "/");
-            if (!shouldSkipHttpMirrorSubtree(relF.toLowerCase())) {
-                filtered.push(relF);
+            var lowF = relF.toLowerCase();
+            if (shouldSkipHttpMirrorSubtree(lowF)) {
+                continue;
             }
-        }
-
-        var loaded = 0;
-        var totalListed = files.length;
-        var mirrorConcurrency = 8;
-        if (typeof Module.reoneWebFsMirrorConcurrency === "number" && Module.reoneWebFsMirrorConcurrency > 0) {
-            mirrorConcurrency = Module.reoneWebFsMirrorConcurrency | 0;
-        }
-
-        async function fetchOne(relPath) {
-            var normLower = relPath.toLowerCase();
-            var url = httpGameFileUrl(relPath);
-            var fr = await fetch(url, { credentials: "same-origin" });
-            if (!fr.ok) {
-                throw new Error("reone web: " + url + " -> HTTP " + fr.status);
-            }
-            var buf = await fr.arrayBuffer();
-            return { normLower: normLower, buf: buf };
-        }
-
-        for (var start = 0; start < filtered.length; start += mirrorConcurrency) {
-            var batch = filtered.slice(start, start + mirrorConcurrency);
-            var results = await Promise.all(batch.map(function (rp) {
-                return fetchOne(rp);
-            }));
-            for (var b = 0; b < results.length; ++b) {
-                var item = results[b];
-                var fsPath = "/game/" + item.normLower;
-                var parentFs = fsPath.slice(0, fsPath.lastIndexOf("/"));
-                ensureDirectory(parentFs);
-                FS.writeFile(fsPath, new Uint8Array(item.buf));
-                loaded++;
-            }
-            if ((loaded & 31) === 0 || loaded === filtered.length) {
+            lookup[lowF] = relF;
+            ensureEmptyFile("/game/" + lowF);
+            indexed++;
+            if ((indexed & 255) === 0) {
                 setGateLoadingMessage(
-                    "Loaded " +
-                        loaded +
-                        " files from server mirror… (subset of " +
-                        totalListed +
-                        " listed; skipped heavy folders — see gamefs.js)"
+                    "Indexed " +
+                        indexed +
+                        " lazy game files from server mirror… (no archive bytes copied)"
                 );
                 await new Promise(function (r) {
                     setTimeout(r, 0);
                 });
             }
         }
-        setGateLoadingMessage("Finished (" + loaded + " files). Starting engine…");
+
+        Module.reoneWebHttpMirrorFiles = lookup;
+        Module.reoneWebLazyGameFsActive = true;
+        setGateLoadingMessage("Indexed " + indexed + " lazy game files. Starting engine…");
         return true;
     }
 
@@ -410,6 +490,7 @@
         ensureDirectory("/game");
         var fileCount = 0;
         var skippedTrees = 0;
+        var handleFiles = {};
 
         async function walk(dirHandle, relPrefix) {
             var entries = [];
@@ -437,18 +518,14 @@
 
                 var fsRel = normLower;
                 var fsPath = "/game/" + fsRel;
-                var parentFs = fsPath.slice(0, fsPath.lastIndexOf("/"));
-                ensureDirectory(parentFs);
-
-                var file = await entry.getFile();
-                var buf = await file.arrayBuffer();
-                FS.writeFile(fsPath, new Uint8Array(buf));
+                handleFiles[fsRel] = entry;
+                ensureEmptyFile(fsPath);
                 fileCount++;
                 if ((fileCount & 63) === 0) {
                     setGateLoadingMessage(
-                        "Copied " +
+                        "Indexed " +
                             fileCount +
-                            " files into browser memory…" +
+                            " lazy files from your KotOR install…" +
                             (skippedTrees ? " (" + skippedTrees + " heavy folders skipped)" : "")
                     );
                     await new Promise(function (r) {
@@ -460,12 +537,14 @@
 
         transitionGateToLoadingUi();
         setGateLoadingMessage(
-            "Copying your KotOR install into browser memory (first launch can take several minutes). " +
-                "movies/, streammusic/, and saves/ are skipped by default — set Module.reoneWebFsNoSkip=true before engine.js to mount everything."
+            "Indexing your KotOR install for on-demand reads. " +
+                "movies/, streammusic/, and saves/ are skipped by default — set Module.reoneWebFsNoSkip=true before engine.js to index everything."
         );
 
         await walk(rootHandle, "");
-        setGateLoadingMessage("Finished (" + fileCount + " files). Starting engine…");
+        Module.reoneWebHandleFiles = handleFiles;
+        Module.reoneWebLazyGameFsActive = true;
+        setGateLoadingMessage("Finished indexing " + fileCount + " lazy files. Starting engine…");
     }
 
     Module.preRun.push(function () {
@@ -494,7 +573,7 @@
                     injectGateUi();
                     showGateError(
                         (e && e.message ? String(e.message) + " — " : "") +
-                            "Pick your KotOR install folder below (same as KotOR.js), or fix serve.py --game-root + game-manifest.json."
+                            "Pick your KotOR install folder below, or fix serve.py --game-root + game-manifest.json."
                     );
                 }
 

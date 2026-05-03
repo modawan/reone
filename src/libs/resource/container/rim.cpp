@@ -18,14 +18,14 @@
 #include "reone/resource/container/rim.h"
 
 #include "reone/resource/format/rimreader.h"
-#include "reone/system/stream/fileinput.h"
+#include "reone/system/stream/gameinput.h"
 
 namespace reone {
 
 namespace resource {
 
 void RimResourceContainer::init() {
-    _rim = std::make_unique<FileInputStream>(_path);
+    _rim = openGameInputStream(_path);
 
     auto reader = RimReader(*_rim);
     reader.load();
