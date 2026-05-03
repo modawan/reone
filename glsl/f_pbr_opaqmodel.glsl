@@ -67,6 +67,6 @@ void main() {
     fragLightmapColor = isFeatureEnabled(FEATURE_LIGHTMAP)
                             ? vec4(texture(sLightmap, fragUV2).rgb, features)
                             : vec4(vec3(1.0), features);
-    fragSelfIllumColor = vec4(uSelfIllumColor.rgb, uEnvMapDerivedLayer / 255.0);
+    fragSelfIllumColor = vec4(uSelfIllumColor.rgb, float(uEnvMapDerivedLayer) / 255.0);
     fragEyeNormal = vec4(eyeNormal, 0.0);
 }

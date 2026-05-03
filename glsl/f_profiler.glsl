@@ -15,8 +15,8 @@ out vec4 fragColor;
 void main() {
     vec3 color = vec3(0.0);
     float texelSize = 1.0 / (float(NUM_FRAMES) * SCALE);
-    int i = int(99 * fragUV1.x) / 4;
-    int j = int(99 * fragUV1.x) % 4;
+    int i = int(99.0 * fragUV1.x) / 4;
+    int j = int(99.0 * fragUV1.x) % 4;
     float value1 = uSeriesValues1[i][j];
     if (value1 > 0.0 && value1 < fragUV1.y && fragUV1.y < value1 + texelSize) {
         color = uSeriesColors[0].rgb;

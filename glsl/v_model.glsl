@@ -54,9 +54,16 @@ void main() {
         fragPos = uDanglyPositions[gl_VertexID];
 
     } else if (isFeatureEnabled(FEATURE_SABER)) {
+#ifndef REONE_WEB
         float signum = 2.0 * (gl_VertexID / 88) - 1.0;
         float hdist = ((gl_VertexID % 88) / 4) / 21.0;
         float vdist = (gl_VertexID % 4) / 3.0;
+#else
+        float vertexId = float(gl_VertexID);
+        float signum = 2.0 * floor(vertexId / 88.0) - 1.0;
+        float hdist = floor(mod(vertexId, 88.0) / 4.0) / 21.0;
+        float vdist = mod(vertexId, 4.0) / 3.0;
+#endif
         fragPos = vec4(P.xyz + 0.5 * signum * hdist * vdist * uSaberDisplacement.xyz, 1.0);
 
     } else {

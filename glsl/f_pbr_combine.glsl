@@ -20,8 +20,10 @@ uniform sampler2D sGBufDepth;
 uniform sampler2D sBRDFLUT;
 uniform sampler2DArray sShadowMap;
 uniform samplerCube sShadowMapCube;
+#ifndef REONE_WEB
 uniform samplerCubeArray sIrradianceMapArray;
 uniform samplerCubeArray sPrefilteredEnvMapArray;
+#endif
 #ifdef R_SSAO
 uniform sampler2D sSSAO;
 #endif
@@ -29,7 +31,11 @@ uniform sampler2D sSSAO;
 uniform sampler2D sSSR;
 #endif
 
+#ifndef REONE_WEB
 noperspective in vec2 fragUV1;
+#else
+in vec2 fragUV1;
+#endif
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec4 fragHilights;
@@ -65,9 +71,15 @@ void main() {
 #else
     float ao = 1.0;
 #endif
+#ifdef REONE_WEB
+    // Many WebGL2 contexts lack GL_EXT_texture_cube_map_array; layered IBL is optional for parity builds.
+    vec3 irradianceSample = vec3(0.0);
+    vec3 prefilteredEnvMapSample = vec3(0.0);
+#else
     int envMapDerivedLayer = int(round(selfIllumSample.a * 255.0));
-    vec3 irradianceSample = texture(sIrradianceMapArray, vec4(R, envMapDerivedLayer)).rgb;
-    vec3 prefilteredEnvMapSample = textureLod(sPrefilteredEnvMapArray, vec4(R, envMapDerivedLayer), roughness * MAX_REFLECTION_LOD).rgb;
+    vec3 irradianceSample = texture(sIrradianceMapArray, vec4(R, float(envMapDerivedLayer))).rgb;
+    vec3 prefilteredEnvMapSample = textureLod(sPrefilteredEnvMapArray, vec4(R, float(envMapDerivedLayer)), roughness * MAX_REFLECTION_LOD).rgb;
+#endif
 #ifdef R_SSR
     vec3 environment = mix(
         gammaToLinear(prefilteredEnvMapSample),
@@ -81,13 +93,13 @@ void main() {
     bool shadowsEnabled;
     bool fogEnabled;
     unpackGeometryFeatures(lightmapSample.a, envmapped, shadowsEnabled, fogEnabled);
-    environment *= int(envmapped);
+    environment *= float(envmapped);
 
     float shadow = getShadow(eyePos, fragPosWorld, normal, sShadowMap, sShadowMapCube);
     shadow = max(shadow, 1.0 - rgbToLuma(lightmapSample.rgb));
-    shadow *= int(shadowsEnabled);
+    shadow *= float(shadowsEnabled);
 
-    float fog = int(fogEnabled) * getFog(fragPosWorld);
+    float fog = float(fogEnabled) * getFog(fragPosWorld);
 
     vec3 ambientD = vec3(0.0);
     vec3 ambientS = vec3(0.0);
@@ -101,7 +113,7 @@ void main() {
         vec3 F0 = mix(vec3(0.04), albedo, metallic);
 
         vec3 irradiance = gammaToLinear(uWorldAmbientColor.rgb);
-        irradiance += int(envmapped) * gammaToLinear(irradianceSample);
+        irradiance += float(envmapped) * gammaToLinear(irradianceSample);
 
         // lights
         {
@@ -120,7 +132,7 @@ void main() {
                 }
                 float attenuation = lightAttenuationQuadratic(uLights[i], lightDist);
                 vec3 radiance = uLights[i].multiplier * attenuation * gammaToLinear(uLights[i].color.rgb);
-                if (uLights[i].ambientOnly) {
+                if (uLights[i].ambientOnly > 0.0) {
                     irradiance += radiance;
                 } else {
                     vec3 L = normalize(fragToLight);

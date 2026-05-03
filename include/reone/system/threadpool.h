@@ -69,6 +69,13 @@ public:
 
     std::shared_ptr<Task> enqueue(TaskFunc func) override {
         auto task = std::make_shared<Task>(std::move(func));
+
+        if (_running && _threads.empty()) {
+            // Web/non-threaded mode: execute tasks synchronously.
+            (*task)();
+            return task;
+        }
+
         {
             std::lock_guard<std::mutex> lock(_mutex);
             _tasks.push(task);

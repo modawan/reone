@@ -1181,6 +1181,7 @@ void Game::openMainMenu() {
     if (!_mainMenu) {
         return;
     }
+    info("Opening main menu");
     if (!_saveLoad) {
         _saveLoad = tryLoadGUI<SaveLoad>();
     }

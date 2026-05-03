@@ -18,7 +18,7 @@
 #include "reone/resource/container/exe.h"
 
 #include "reone/resource/format/pereader.h"
-#include "reone/system/stream/fileinput.h"
+#include "reone/system/stream/gameinput.h"
 
 namespace reone {
 
@@ -29,7 +29,7 @@ static std::unordered_map<PEResType, ResType> kPEResTypeToResType {
     {PEResType::CursorGroup, ResType::CursorGroup}};
 
 void ExeResourceContainer::init() {
-    _exe = std::make_unique<FileInputStream>(_path);
+    _exe = openGameInputStream(_path);
 
     auto reader = PeReader(*_exe);
     reader.load();

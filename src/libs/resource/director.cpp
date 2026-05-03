@@ -99,7 +99,24 @@ std::set<std::string> ResourceDirector::moduleNames() {
 }
 
 void ResourceDirector::loadGlobalResources() {
-    _resources.addERF(getFileIgnoreCase(std::filesystem::current_path(), kShaderPackFilename));
+    auto shaderPackPath = findFileIgnoreCase(std::filesystem::current_path(), kShaderPackFilename);
+    if (shaderPackPath) {
+        _resources.addERF(*shaderPackPath);
+    }
+#ifdef __EMSCRIPTEN__
+    else {
+        auto glslPath = findFileIgnoreCase(std::filesystem::current_path(), "glsl");
+        if (glslPath) {
+            _resources.addFolder(*glslPath);
+        } else {
+            throw ResourceNotFoundException("shaderpack.erf or /glsl folder not found");
+        }
+    }
+#else
+    else {
+        throw ResourceNotFoundException(kShaderPackFilename);
+    }
+#endif
 
     auto keyPath = findFileIgnoreCase(_gamePath, kKeyFilename);
     if (keyPath) {

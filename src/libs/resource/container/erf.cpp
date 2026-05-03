@@ -18,13 +18,14 @@
 #include "reone/resource/container/erf.h"
 
 #include "reone/resource/format/erfreader.h"
+#include "reone/system/stream/gameinput.h"
 
 namespace reone {
 
 namespace resource {
 
 void ErfResourceContainer::init() {
-    _erf = std::make_unique<FileInputStream>(_path);
+    _erf = openGameInputStream(_path);
 
     auto reader = ErfReader(*_erf);
     reader.load();

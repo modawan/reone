@@ -1,0 +1,54 @@
+{
+  "cmake.configureOnOpen": true,
+  "cmake.generator": "Ninja",
+  "cmake.parallelJobs": 8,
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.configureSettings": {
+    "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+    "BUILD_TESTS": "ON",
+    "ENABLE_MOVIE": "ON",
+    "ENABLE_MP3": "ON"
+  },
+  "cmake.copyCompileCommands": "${workspaceFolder}/compile_commands.json",
+  "cmake.ctestArgs": [
+    "--output-on-failure",
+    "--timeout",
+    "180"
+  ],
+  "cmake.showOptionsMovedNotification": false,
+
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  "C_Cpp.default.cppStandard": "c++17",
+  "C_Cpp.errorSquiggles": "enabledIfIncludesResolve",
+
+  "clang-format.style": "file",
+  "editor.formatOnSave": true,
+  "[cpp]": {
+    "editor.defaultFormatter": "xaver.clang-format"
+  },
+  "[c]": {
+    "editor.defaultFormatter": "xaver.clang-format"
+  },
+
+  "files.associations": {
+    "*.tpp": "cpp",
+    "*.ipp": "cpp",
+    "*.inl": "cpp"
+  },
+
+  "files.exclude": {
+    "**/build": true,
+    "**/build-*": true,
+    "**/.mypy_cache": true,
+    "**/.history": true
+  },
+  "search.exclude": {
+    "**/build": true,
+    "**/build-*": true,
+    "**/.mypy_cache": true,
+    "**/.history": true
+  },
+
+  "terminal.integrated.cwd": "${workspaceFolder}",
+  "testing.automaticallyOpenPeekView": "never"
+}

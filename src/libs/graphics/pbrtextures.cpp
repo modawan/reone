@@ -44,9 +44,19 @@ namespace reone {
 
 namespace graphics {
 
+void PBRTextures::requestEnvMapDerived(EnvMapDerivedRequest request) {
+    if (!_context.cubeMapArraySupported()) {
+        return;
+    }
+    _envMapDerivedRequests.insert(std::move(request));
+}
+
 void PBRTextures::refresh() {
     if (!_brdfLUT) {
         initBRDFLUT();
+    }
+    if (!_context.cubeMapArraySupported()) {
+        return;
     }
     if (!_irradianceMapArray) {
         initIrradianceMapArray();
@@ -200,9 +210,11 @@ void PBRTextures::refreshPrefilteredEnvMap(const EnvMapDerivedRequest &request, 
     }
     _context.resetDrawFramebuffer();
 
+#if !defined(__EMSCRIPTEN__)
     glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, _prefilteredEnvMapArray->nameGL());
     glGenerateMipmap(GL_TEXTURE_CUBE_MAP_ARRAY);
     glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, 0);
+#endif
 }
 
 } // namespace graphics

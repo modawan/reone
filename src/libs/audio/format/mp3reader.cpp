@@ -18,11 +18,20 @@
 #include "reone/audio/format/mp3reader.h"
 
 #include "reone/audio/clip.h"
+#include "reone/system/exception/notimplemented.h"
 #include "reone/system/stream/input.h"
 
 namespace reone {
 
 namespace audio {
+
+#ifndef R_ENABLE_MP3
+
+void Mp3Reader::load(IInputStream &stream) {
+    throw NotImplementedException("MP3 decoding is not enabled in this build");
+}
+
+#else
 
 static inline int scale(mad_fixed_t sample) {
     // round
@@ -107,6 +116,8 @@ mad_flow Mp3Reader::outputFunc(void *playbuf, mad_header const *header, mad_pcm 
 
     return MAD_FLOW_CONTINUE;
 }
+
+#endif
 
 } // namespace audio
 

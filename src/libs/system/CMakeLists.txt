@@ -40,10 +40,12 @@ set(SYSTEM_HEADERS
     ${SYSTEM_INCLUDE_DIR}/smallvector.h
     ${SYSTEM_INCLUDE_DIR}/stream/fileinput.h
     ${SYSTEM_INCLUDE_DIR}/stream/fileoutput.h
+    ${SYSTEM_INCLUDE_DIR}/stream/gameinput.h
     ${SYSTEM_INCLUDE_DIR}/stream/input.h
     ${SYSTEM_INCLUDE_DIR}/stream/memoryinput.h
     ${SYSTEM_INCLUDE_DIR}/stream/memoryoutput.h
     ${SYSTEM_INCLUDE_DIR}/stream/output.h
+    ${SYSTEM_INCLUDE_DIR}/stream/webinput.h
     ${SYSTEM_INCLUDE_DIR}/stringbuilder.h
     ${SYSTEM_INCLUDE_DIR}/stringutil.h
     ${SYSTEM_INCLUDE_DIR}/textbuffer.h
@@ -68,6 +70,7 @@ set(SYSTEM_SOURCES
     ${SYSTEM_SOURCE_DIR}/logger.cpp
     ${SYSTEM_SOURCE_DIR}/randomutil.cpp
     ${SYSTEM_SOURCE_DIR}/stream/memoryinput.cpp
+    ${SYSTEM_SOURCE_DIR}/stream/webinput.cpp
     ${SYSTEM_SOURCE_DIR}/stringutil.cpp
     ${SYSTEM_SOURCE_DIR}/textbuffer.cpp
     ${SYSTEM_SOURCE_DIR}/textreader.cpp
@@ -82,7 +85,7 @@ set_target_properties(system PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_
 set_target_properties(system PROPERTIES DEBUG_POSTFIX "d")
 target_precompile_headers(system PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
 
-if(MSVC)
+if(REONE_PLATFORM_WEB OR MSVC)
     target_link_libraries(system PRIVATE SDL3::SDL3)
 else()
     target_link_libraries(system PRIVATE ${SDL3_LIBRARIES} ${SDL3_LDFLAGS} Threads::Threads)

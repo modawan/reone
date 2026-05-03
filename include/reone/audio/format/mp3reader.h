@@ -17,7 +17,9 @@
 
 #pragma once
 
+#ifdef R_ENABLE_MP3
 #include "mad.h"
+#endif
 
 #include "reone/system/types.h"
 
@@ -40,9 +42,11 @@ private:
     std::shared_ptr<AudioClip> _stream;
     bool _done {false};
 
+#ifdef R_ENABLE_MP3
     static mad_flow inputFunc(void *playbuf, mad_stream *stream);
     static mad_flow headerFunc(void *playbuf, mad_header const *header);
     static mad_flow outputFunc(void *playbuf, mad_header const *header, mad_pcm *pcm);
+#endif
 };
 
 class IMp3ReaderFactory {

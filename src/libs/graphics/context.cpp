@@ -23,6 +23,10 @@
 #include "reone/system/logutil.h"
 #include "reone/system/threadutil.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/html5_webgl.h>
+#endif
+
 namespace reone {
 
 namespace graphics {
@@ -58,13 +62,26 @@ void Context::init() {
                                          "  GL_VERSION: %s\n"
                                          "  GL_RENDERER: %s\n"
                                          "  GL_VENDOR: %s\n"
+#ifdef __EMSCRIPTEN__
+                                         "  Ensure your browser supports WebGL 2.") %
+#else
                                          "  Ensure your graphics driver supports OpenGL 4.0 Core Profile.") %
+#endif
                                      versionStr % rendererStr % vendorStr));
     }
 
+#ifdef __EMSCRIPTEN__
+    EMSCRIPTEN_WEBGL_CONTEXT_HANDLE webglCtx = emscripten_webgl_get_current_context();
+    _cubeMapArraySupported = webglCtx && emscripten_webgl_enable_extension(webglCtx, "EXT_texture_cube_map_array");
+#else
+    _cubeMapArraySupported = true;
+#endif
+
     int maxBuffers;
     glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxBuffers);
+#ifndef __EMSCRIPTEN__
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+#endif
 
     glm::ivec4 viewport(0.0f);
     glGetIntegerv(GL_VIEWPORT, &viewport[0]);
@@ -357,7 +374,6 @@ void Context::setDepthTestMode(DepthTestMode mode) {
     } else {
         glEnable(GL_DEPTH_TEST);
         switch (mode) {
-            break;
         case DepthTestMode::Equal:
             glDepthFunc(GL_EQUAL);
             break;
@@ -380,11 +396,16 @@ void Context::setDepthMask(bool enabled) {
 }
 
 void Context::setPolygonMode(PolygonMode mode) {
+#ifdef __EMSCRIPTEN__
+    // WebGL2/OpenGL ES does not expose glPolygonMode.
+    (void)mode;
+#else
     if (mode == PolygonMode::Line) {
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     } else {
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
+#endif
 }
 
 void Context::setFaceCullMode(FaceCullMode mode) {

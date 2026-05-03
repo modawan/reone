@@ -98,8 +98,10 @@ void Shaders::init() {
     auto vertText = initShader(ShaderType::Vertex, kVertText);
     auto vertWalkmesh = initShader(ShaderType::Vertex, kVertWalkmesh);
 
+#ifndef __EMSCRIPTEN__
     auto geomDirLightShadows = initShader(ShaderType::Geometry, kGeometryDirLightShadows);
     auto geomPointLightShadows = initShader(ShaderType::Geometry, kGeometryPointLightShadows);
+#endif
 
     auto fragColor = initShader(ShaderType::Fragment, kFragColor);
     auto fragRetroOpaqueModel = initShader(ShaderType::Fragment, kFragRetroOpaqueModel);
@@ -146,14 +148,18 @@ void Shaders::init() {
     _shaderRegistry.add(ShaderProgramId::pbrSSAO, initShaderProgram({vertPassthrough, fragPBRSSAO}));
     _shaderRegistry.add(ShaderProgramId::pbrSSR, initShaderProgram({vertPassthrough, fragPBRSSR}));
     _shaderRegistry.add(ShaderProgramId::pbrWalkmesh, initShaderProgram({vertWalkmesh, fragPBRWalkmesh}));
+#ifndef __EMSCRIPTEN__
     _shaderRegistry.add(ShaderProgramId::dirLightShadows, initShaderProgram({vertShadows, geomDirLightShadows, fragNull}));
+#endif
     _shaderRegistry.add(ShaderProgramId::mvpColor, initShaderProgram({vertMVP, fragColor}));
     _shaderRegistry.add(ShaderProgramId::mvpTexture, initShaderProgram({vertMVP, fragTexture}));
     _shaderRegistry.add(ShaderProgramId::ndcTexture, initShaderProgram({vertPassthrough, fragTextureNoPerspective}));
     _shaderRegistry.add(ShaderProgramId::oitBlend, initShaderProgram({vertPassthrough, fragOITBlend}));
     _shaderRegistry.add(ShaderProgramId::oitModel, initShaderProgram({vertModel, fragOITModel}));
     _shaderRegistry.add(ShaderProgramId::oitParticles, initShaderProgram({vertParticles, fragOITParticles}));
+#ifndef __EMSCRIPTEN__
     _shaderRegistry.add(ShaderProgramId::pointLightShadows, initShaderProgram({vertShadows, geomPointLightShadows, fragPointLightShadows}));
+#endif
     _shaderRegistry.add(ShaderProgramId::postBoxBlur4, initShaderProgram({vertPassthrough, fragPostBoxBlur4}));
     _shaderRegistry.add(ShaderProgramId::postFXAA, initShaderProgram({vertPassthrough, fragPostFXAA}));
     _shaderRegistry.add(ShaderProgramId::postGaussianBlur13, initShaderProgram({vertPassthrough, fragPostGaussianBlur13}));
@@ -220,10 +226,31 @@ std::shared_ptr<Shader> Shaders::initShader(ShaderType type, std::string resRef)
         defines.append("\n");
         sources.push_front(defines.string());
     }
+#ifdef __EMSCRIPTEN__
+    {
+        StringBuilder webHeader;
+        webHeader.append("#version 300 es\n");
+        webHeader.append("precision highp float;\n");
+        webHeader.append("precision highp int;\n");
+        if (type == ShaderType::Fragment) {
+            // WebGL GLSL ES requires explicit sampler precisions (desktop GL does not).
+            webHeader.append("precision highp sampler2D;\n");
+            webHeader.append("precision highp sampler2DArray;\n");
+            webHeader.append("precision highp samplerCube;\n");
+        }
+        webHeader.append("#define REONE_WEB\n\n");
+        sources.push_front(webHeader.string());
+    }
+#else
     sources.push_front("#version 400 core\n\n");
+#endif
 
     auto shader = std::make_unique<Shader>(type, std::move(sources));
-    shader->init();
+    try {
+        shader->init();
+    } catch (const std::exception &ex) {
+        throw std::runtime_error(str(boost::format("Shader '%1%' failed: %2%") % resRef % ex.what()));
+    }
     return shader;
 }
 

@@ -1,0 +1,203 @@
+{
+  "version": "2.0.0",
+  "inputs": [
+    {
+      "id": "gameDir",
+      "type": "promptString",
+      "description": "Absolute path to KotOR game directory",
+      "default": "C:/Games/Knights of the Old Republic"
+    },
+    {
+      "id": "webPort",
+      "type": "promptString",
+      "description": "Port for local web server",
+      "default": "4024"
+    },
+    {
+      "id": "webGameDir",
+      "type": "promptString",
+      "description": "Absolute path to KotOR game directory for WASM preload (must contain swkotor.exe/swkotor2.exe and game assets)",
+      "default": "C:/Games/Knights of the Old Republic"
+    }
+  ],
+  "tasks": [
+    {
+      "label": "cmake: configure (debug)",
+      "type": "shell",
+      "command": "cmake -S . -B build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "cmake: configure (release)",
+      "type": "shell",
+      "command": "cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "cmake: build engine (debug)",
+      "type": "shell",
+      "dependsOn": "cmake: configure (debug)",
+      "command": "cmake --build build-debug --target engine -j 8",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "cmake: build engine (release)",
+      "type": "shell",
+      "dependsOn": "cmake: configure (release)",
+      "command": "cmake --build build-release --target engine -j 8",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "cmake: build all (debug)",
+      "type": "shell",
+      "dependsOn": "cmake: configure (debug)",
+      "command": "cmake --build build-debug -j 8",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "cmake: build tests (debug)",
+      "type": "shell",
+      "dependsOn": "cmake: configure (debug)",
+      "command": "cmake --build build-debug --target tests -j 8",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "ctest: run (debug)",
+      "type": "shell",
+      "dependsOn": "cmake: build tests (debug)",
+      "command": "ctest --test-dir build-debug --output-on-failure -C Debug",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "run: engine (debug)",
+      "type": "shell",
+      "dependsOn": "cmake: build engine (debug)",
+      "command": "./build-debug/bin/engine --game \"${input:gameDir}\"",
+      "windows": {
+        "command": ".\\build-debug\\bin\\engine.exe --game \"${input:gameDir}\""
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "wasm: configure (release)",
+      "type": "shell",
+      "command": "emcmake cmake -S . -B build-web -G Ninja -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release",
+      "windows": {
+        "command": "C:\\GitHub\\emsdk\\upstream\\emscripten\\emcmake.bat cmake -S . -B build-web -G Ninja -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release -DREONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON -DREONE_WEB_ASSET_PROFILE=full -DREONE_WEB_GAME_DIR=\"${input:webGameDir}\""
+      },
+      "linux": {
+        "command": "emcmake cmake -S . -B build-web -G Ninja -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release -DREONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON -DREONE_WEB_ASSET_PROFILE=full -DREONE_WEB_GAME_DIR=\"${input:webGameDir}\""
+      },
+      "osx": {
+        "command": "emcmake cmake -S . -B build-web -G Ninja -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release -DREONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON -DREONE_WEB_ASSET_PROFILE=full -DREONE_WEB_GAME_DIR=\"${input:webGameDir}\""
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "wasm: configure (release, windows emcmake.bat)",
+      "type": "shell",
+      "windows": {
+        "command": "C:\\GitHub\\emsdk\\upstream\\emscripten\\emcmake.bat cmake -S . -B build-web -G Ninja -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release"
+      },
+      "linux": {
+        "command": "emcmake cmake -S . -B build-web -G Ninja -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release"
+      },
+      "osx": {
+        "command": "emcmake cmake -S . -B build-web -G Ninja -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "wasm: configure (pthreads)",
+      "type": "shell",
+      "command": "emcmake cmake -S . -B build-web-pthreads -G Ninja -DREONE_PLATFORM_WEB=ON -DREONE_WEB_PTHREADS=ON -DCMAKE_BUILD_TYPE=Release",
+      "windows": {
+        "command": "C:\\GitHub\\emsdk\\upstream\\emscripten\\emcmake.bat cmake -S . -B build-web-pthreads -G Ninja -DREONE_PLATFORM_WEB=ON -DREONE_WEB_PTHREADS=ON -DCMAKE_BUILD_TYPE=Release"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "wasm: build engine",
+      "type": "shell",
+      "dependsOn": "wasm: configure (release)",
+      "command": "cmake --build build-web --target engine -j 8",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "wasm: build engine (pthreads)",
+      "type": "shell",
+      "dependsOn": "wasm: configure (pthreads)",
+      "command": "cmake --build build-web-pthreads --target engine -j 8",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "wasm: serve (build-web/bin)",
+      "type": "shell",
+      "dependsOn": "wasm: build engine",
+      "command": "python tools/web/serve.py --directory build-web/bin --port ${input:webPort}",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "wasm-server",
+        "pattern": {
+          "regexp": "^(.*)$",
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^.*$",
+          "endsPattern": "^Serving .+ at http://localhost:[0-9]+$"
+        }
+      }
+    },
+    {
+      "label": "wasm: open browser",
+      "type": "shell",
+      "command": "xdg-open http://localhost:${input:webPort}/engine.html?reoneFs=picker",
+      "linux": {
+        "command": "xdg-open http://localhost:${input:webPort}/engine.html?reoneFs=picker"
+      },
+      "osx": {
+        "command": "open http://localhost:${input:webPort}/engine.html?reoneFs=picker"
+      },
+      "windows": {
+        "command": "start http://localhost:${input:webPort}/engine.html?reoneFs=picker"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "clean: remove build dirs",
+      "type": "shell",
+      "linux": {
+        "command": "rm -rf build build-debug build-release build-web build-web-pthreads"
+      },
+      "osx": {
+        "command": "rm -rf build build-debug build-release build-web build-web-pthreads"
+      },
+      "windows": {
+        "command": "cmd /c \"if exist build rmdir /s /q build & if exist build-debug rmdir /s /q build-debug & if exist build-release rmdir /s /q build-release & if exist build-web rmdir /s /q build-web & if exist build-web-pthreads rmdir /s /q build-web-pthreads\""
+      },
+      "problemMatcher": []
+    }
+  ],
+  "options": {
+    "shell": {
+      "executable": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-Command"
+      ]
+    }
+  }
+}
