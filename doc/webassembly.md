@@ -22,6 +22,10 @@ The browser target disables native-only tools, omits movie/MP3 codecs by default
   - `engine.wasm`
   - Optional `engine.data` when using **embedded preload** (CI/smoke or special cases only)
 
+### `build-web-docker` vs `build-web` on Windows
+
+The Docker workflow (`Dockerfile.emscripten`, build dir `build-web-docker`) configures Ninja with **Linux paths** (for example `/usr/bin/cmake`). Treat **`build-web-docker` as Docker-only**: do not run `ninja` there from native Windows — it will fail trying to invoke those paths. On Windows, configure a fresh tree with **`emcmake … -B build-web`** (or another empty directory) and build there, **or** run the Docker command from the Dockerfile and copy **`engine.html` / `engine.js` / `engine.wasm`** out of the container output; do not expect an in-place rebuild of `build-web-docker` without Docker.
+
 ## Prerequisites
 
 ### Common
@@ -76,21 +80,49 @@ emcmake cmake -G Ninja -S . -B build-web -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_T
 C:\path\to\emsdk\upstream\emscripten\emcmake.bat cmake -G Ninja -S . -B build-web -DREONE_PLATFORM_WEB=ON -DCMAKE_BUILD_TYPE=Release -DBoost_INCLUDE_DIR=C:/path/to/boost/include
 ```
 
-## File System Access API
+## Game files: pick exactly one runtime mode
 
-The normal browser build **does not bake the game into the repo**. At runtime, `gamefs.js` (linked via `**--pre-js`**) waits for a folder the user selects that contains `**chitin.key`** at the install root. The handle can be remembered in **IndexedDB**.
+There are **two** supported ways to supply a KotOR install to the WASM engine. They are **mutually exclusive** for mental models: either the **browser** reads your disk via File System Access, or **`serve.py`** exposes an HTTP mirror for tooling. Mixing them “just because” creates confusing DevTools noise.
+
+### Mode A — File System Access (default / retail parity)
+
+- **What:** User selects the install folder in the browser (`showDirectoryPicker`). Same idea as KotOR.js.
+- **Serve:** Static WASM only — **do not pass** `--game-root` to `serve.py`.
+- **URL:** Use `**/engine.html?reoneFs=picker**` so `gamefs.js` **never** probes `/game-manifest.json` (no fake “failed to load manifest” red herrings when no mirror exists).
+  - Equivalent JS flag (advanced): `Module.reoneWebFsDisableHttpMirror = true` before `engine.js`.
+- **Pick:** Choose the directory that contains **`chitin.key`** (e.g. Steam `…\steamapps\common\swkotor`).
+- **Persistence:** Last-used handle can be stored in **IndexedDB** (same origin).
+
+### Mode B — HTTP lazy mirror (CI / automation only)
+
+- **What:** `serve.py --game-root /path/to/KotOR` serves `game-manifest.json` + ranged `/game-files/…`; no folder picker.
+- **Prepare:** `python tools/web/gen_game_manifest.py "/path/to/KotOR"` writes `game-manifest.json` next to the install.
+- **Do not use** `?reoneFs=picker` here — you want the mirror probe to succeed.
+
+### Environment variables (Web FS smoke tests only)
+
+| Variable | Used by | Meaning |
+|----------|---------|--------|
+| **`REONE_WEB_SMOKE_GAME_ROOT`** | `tools/web/smoke_engine_menu.py` when `--game-root` omitted | Absolute KotOR path **only** for **`--spawn-serve`** HTTP mirror automation. **Not** read by `serve.py`, CMake, or `gamefs.js`. |
+| **`PLAYWRIGHT_HEADED`** | smoke script | Set `1` / `true` if you need a visible browser window. |
+
+There is **no** repository-wide env var that replaces the folder picker for Mode A.
+
+---
+
+## File System Access API (detail)
 
 Requirements:
 
 - **Chromium-class browser** (`showDirectoryPicker`): Chrome, Edge, etc.
 - **Secure context** (HTTPS or `http://localhost`)
-- User grants **read/write** on the folder uses for browser builds
+- User grants **read/write** on the folder for browser builds
 
 Optional: before loading `engine.js`, set `Module.reoneGameDirectoryHandle` to an existing `FileSystemDirectoryHandle` (advanced/same-origin shells only). Otherwise the overlay in `gamefs.js` collects the folder after load.
 
-After you pick the install folder, `gamefs.js` indexes file handles into lightweight Emscripten `**MEMFS`** marker paths under `**/game`**. Actual archive/data bytes are **not copied up front**: web builds read exact byte ranges on demand through `WebFileInputStream` using `FileSystemFileHandle.getFile()` + `Blob.slice(...)` (or HTTP `Range` for the local smoke mirror). Paths are stored **lowercased** so lookups match the engine’s case-insensitive layout.
+After you pick the install folder, `gamefs.js` indexes file handles into lightweight Emscripten `**MEMFS`** marker paths under `**/game`**. Actual archive/data bytes are **not copied up front**: web builds read exact byte ranges on demand through `WebFileInputStream` using `FileSystemFileHandle.getFile()` + `Blob.slice(...)` (or HTTP `Range` in Mode B only). Paths are stored **lowercased** so lookups match the engine’s case-insensitive layout.
 
-- **RAM**: startup no longer mirrors the full install into browser memory; memory scales with decoded resources and requested archive slices.
+- **RAM**: startup does not mirror the full install into browser memory; memory scales with decoded resources and requested archive slices.
 - **Skips (default)**: top-level `**movies/`**, `**streammusic/`**, and `**saves/**` are not indexed (saves startup work; usually enough to reach the main menu). For a full tree, set `**Module.reoneWebFsNoSkip = true**` before `engine.js`, or set `**Module.reoneWebFsSkipTopDirs = []**` (empty array: no directory skips). `**reoneWebFsSkipTopDirs**` can also list lower-case top-level folder names to skip; omit or leave unset to use the default list above (ignored when `**reoneWebFsNoSkip**` is true).
 
 ### Embedded preload (optional)
@@ -138,27 +170,27 @@ cmake --build build-web --target engine -j 8
 
 The helper server sets **WASM MIME**, **COOP / COEP / CORP** headers and serves the build output.
 
-**Default (FS Access):**
+**Mode A — folder picker (no `--game-root`):**
 
 ```bash
 python tools/web/serve.py --directory build-web/bin --port 4204
 ```
 
-Open:
+Open (note query — skips HTTP mirror probe):
 
 ```text
-http://localhost:4204/engine.html
+http://localhost:4204/engine.html?reoneFs=picker
 ```
 
 Use **Choose folder…** and select your KotOR install root (must contain `chitin.key`), e.g. Steam:
 
 ```text
-...\steamapps\common\swkotor
+G:\SteamLibrary\steamapps\common\swkotor
 ```
 
-### Optional: HTTP mirror of game files (tooling only)
+### Mode B — HTTP mirror (tooling / `smoke_engine_menu.py --spawn-serve` only)
 
-`serve.py` can also expose a **static mirror** of a game directory (`--game-root`) with `**/game-manifest.json`** and ranged `**/game-files/...`**. This is wired into `gamefs.js` for automation only: the manifest is indexed, and resource bytes are fetched lazily with HTTP `Range` requests instead of copying the install into MEMFS. Retail/browser use should still prefer File System Access.
+`serve.py --game-root …` exposes `game-manifest.json` + ranged `/game-files/…`. Playwright smoke tests use **`REONE_WEB_SMOKE_GAME_ROOT`** or `--game-root` — that variable **only** feeds `--spawn-serve`, not the retail picker flow.
 
 Do **not** rely on a plain `python -m http.server` for WASM + experimental pthreads: missing COOP/COEP breaks `SharedArrayBuffer`; missing `.wasm` MIME types breaks instantiation.
 

@@ -2,8 +2,9 @@ Original prompt: ReOne WASM playability and openkotor-site integration — `game
 
 ## Done (implementation)
 
+- [`serve.py`](serve.py) (2026-05-03): port **4204**, `--game-root`, Range lazy files; default bind **127.0.0.1**; **`allow_reuse_address=False` on Windows** to avoid port-sharing empty responses (`net::ERR_EMPTY_RESPONSE`); optional **`--host ::`** for dual-stack.
+- [`smoke_engine_menu.py`](smoke_engine_menu.py): **HTTP preflight** fails fast (exit **3**) when `/game-manifest.json` is 503 (no `--game-root`).
 - [`gamefs.js`](gamefs.js) is linked with Emscripten `--pre-js`.
-- [`serve.py`](serve.py): default port **4204**, `--game-root`, Range requests for lazy files.
 - [`gen_game_manifest.py`](gen_game_manifest.py) emits `game-manifest.json`.
 - [`test_serve_smoke.py`](test_serve_smoke.py) verifies manifest + Range (runs in CI).
 

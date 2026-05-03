@@ -7,9 +7,26 @@
 //
 // Dev/automation: if same-origin GET /game-manifest.json succeeds (serve.py --game-root), we index listed files and
 // read /game-files/... with Range requests on demand — no game data in git or embedded wasm artifacts.
+//
+// Retail / folder-picker testing: open engine.html?reoneFs=picker — skips the HTTP mirror probe entirely (no
+// /game-manifest.json fetch). Same as Module.reoneWebFsDisableHttpMirror = true before engine.js loads.
 (function () {
     if (typeof Module === "undefined") {
         Module = {};
+    }
+
+    try {
+        if (typeof location !== "undefined" && location.search) {
+            var qMode = new URLSearchParams(location.search).get("reoneFs");
+            if (qMode) {
+                var m = String(qMode).toLowerCase();
+                if (m === "picker" || m === "fs" || m === "access") {
+                    Module.reoneWebFsDisableHttpMirror = true;
+                }
+            }
+        }
+    } catch (e) {
+        /* ignore malformed URL in non-browser shells */
     }
 
     var previousPreRun = Module.preRun || [];
@@ -335,6 +352,56 @@
             ? Module.reoneWebMirrorMaxConcurrentFetches
             : 8;
 
+    /**
+     * Completed Range responses (inflight only dedupes *concurrent* identical keys). Without this,
+     * sequential repeats — e.g. many streams hitting the same BIF slice — hammer the server (lightmaps4.bif storms).
+     */
+    var mirrorRangeCache = {};
+    var mirrorRangeCacheLru = [];
+    var MIRROR_RANGE_CACHE_MAX_KEYS =
+        typeof Module.reoneWebMirrorRangeCacheMaxKeys === "number" && Module.reoneWebMirrorRangeCacheMaxKeys > 0
+            ? Module.reoneWebMirrorRangeCacheMaxKeys
+            : 2048;
+    var MIRROR_RANGE_CACHE_MAX_BYTES =
+        typeof Module.reoneWebMirrorRangeCacheMaxBytesPerRange === "number" &&
+        Module.reoneWebMirrorRangeCacheMaxBytesPerRange > 0
+            ? Module.reoneWebMirrorRangeCacheMaxBytesPerRange
+            : 512 * 1024;
+
+    function mirrorRangeCacheTouch(key) {
+        var i = mirrorRangeCacheLru.indexOf(key);
+        if (i >= 0) {
+            mirrorRangeCacheLru.splice(i, 1);
+        }
+        mirrorRangeCacheLru.push(key);
+    }
+
+    function mirrorRangeCacheRemember(key, bytes, total) {
+        if (!bytes || bytes.byteLength === 0 || bytes.byteLength > MIRROR_RANGE_CACHE_MAX_BYTES) {
+            return;
+        }
+        while (mirrorRangeCacheLru.length >= MIRROR_RANGE_CACHE_MAX_KEYS) {
+            var drop = mirrorRangeCacheLru.shift();
+            if (drop) {
+                delete mirrorRangeCache[drop];
+            }
+        }
+        mirrorRangeCache[key] = {
+            bytes: new Uint8Array(bytes),
+            total: typeof total === "number" ? total : -1,
+        };
+        mirrorRangeCacheTouch(key);
+    }
+
+    function mirrorRangeCacheGet(key) {
+        var e = mirrorRangeCache[key];
+        if (!e) {
+            return null;
+        }
+        mirrorRangeCacheTouch(key);
+        return { bytes: e.bytes, total: e.total };
+    }
+
     function mirrorFetchReleaseSlot() {
         mirrorFetchActive--;
         var w = mirrorFetchWaiters.shift();
@@ -366,6 +433,10 @@
                     : rangeStart
                 : "full";
         var inflightKey = url + "|" + rangeStart + ":" + endInclusive;
+        var cached = mirrorRangeCacheGet(inflightKey);
+        if (cached) {
+            return Promise.resolve(cached);
+        }
         if (mirrorFetchInflight[inflightKey]) {
             return mirrorFetchInflight[inflightKey];
         }
@@ -384,10 +455,12 @@
                     throw new Error("reone web: " + url + " -> HTTP " + resp.status);
                 }
                 var buf = await resp.arrayBuffer();
-                return {
+                var out = {
                     bytes: new Uint8Array(buf),
                     total: parseContentLengthFromHeaders(resp.headers, buf.byteLength),
                 };
+                mirrorRangeCacheRemember(inflightKey, out.bytes, out.total);
+                return out;
             } finally {
                 delete mirrorFetchInflight[inflightKey];
                 releaseSlot();
@@ -535,6 +608,9 @@
             if (!man || !Array.isArray(man.files)) {
                 return false;
             }
+            if (man.files.length === 0) {
+                return false;
+            }
         } catch (e) {
             return false;
         }
@@ -575,6 +651,10 @@
                     setTimeout(r, 0);
                 });
             }
+        }
+
+        if (indexed === 0) {
+            return false;
         }
 
         Module.reoneWebHttpMirrorFiles = lookup;

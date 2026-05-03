@@ -2,11 +2,20 @@ from __future__ import annotations
 
 import argparse
 import http.server
+import json
 import mimetypes
 import pathlib
 import socket
 import socketserver
+import sys
 import urllib.parse
+
+# Served when ``--game-root`` is omitted so the browser does not log a failed network
+# request for ``/game-manifest.json``. File picker / embedded preload modes ignore empty manifests.
+_GAME_MANIFEST_STUB_BYTES = json.dumps(
+    {"files": [], "directories": [], "reoneHttpMirror": False},
+    separators=(",", ":"),
+).encode("utf-8")
 
 
 def _parse_bytes_range(range_header: str | None, file_size: int) -> tuple[int, int] | None:
@@ -113,7 +122,12 @@ class WebBuildRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def _serve_game_manifest(self):
         if not self._lazy_game_root:
-            self.send_error(503, "Set --game-root to serve /game-manifest.json")
+            self.send_response(http.HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(_GAME_MANIFEST_STUB_BYTES)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(_GAME_MANIFEST_STUB_BYTES)
             return
         manifest_path = self._lazy_game_root / "game-manifest.json"
         if not manifest_path.is_file():
@@ -176,14 +190,16 @@ class WebBuildRequestHandler(http.server.SimpleHTTPRequestHandler):
 
 
 class ReusableThreadingTCPServer(socketserver.ThreadingTCPServer):
-    allow_reuse_address = True
+    """On Windows, ``SO_REUSEADDR`` allows multiple unrelated listeners on the same port (broken HTTP)."""
+
+    allow_reuse_address = sys.platform != "win32"
     daemon_threads = True
 
 
 class ReusableDualStackThreadingTCPServer(socketserver.ThreadingTCPServer):
     """Listen on IPv6 ``::`` with ``IPV6_V6ONLY=0`` so ``localhost`` (often ::1) and IPv4 clients both work."""
 
-    allow_reuse_address = True
+    allow_reuse_address = sys.platform != "win32"
     daemon_threads = True
     address_family = socket.AF_INET6
 
@@ -211,6 +227,11 @@ def main():
         help="KotOR install directory (serves /game-manifest.json and /game-files/... for lazy loading)",
     )
     parser.add_argument("--port", type=int, default=4204, help="localhost port")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Bind address (default 127.0.0.1, matches smoke tests). Use :: for dual-stack IPv6+IPv4.",
+    )
     args = parser.parse_args()
 
     mimetypes.add_type("application/wasm", ".wasm")
@@ -219,21 +240,48 @@ def main():
     game_root = pathlib.Path(args.game_root).resolve() if args.game_root else None
     handler_factory = _handler_factory(directory, game_root)
 
-    listen_dual_stack = True
-    try:
-        server_cm = ReusableDualStackThreadingTCPServer(("::", args.port), handler_factory)
-    except OSError:
-        listen_dual_stack = False
-        server_cm = ReusableThreadingTCPServer(("127.0.0.1", args.port), handler_factory)
+    host = (args.host or "127.0.0.1").strip()
+    listen_dual_stack = False
+    if host in ("::", "[::]", "all-ipv6"):
+        listen_dual_stack = True
+        try:
+            server_cm = ReusableDualStackThreadingTCPServer(("::", args.port), handler_factory)
+        except OSError as e:
+            print(f"Dual-stack bind on :: failed ({e}); falling back to 127.0.0.1.", flush=True)
+            listen_dual_stack = False
+            server_cm = ReusableThreadingTCPServer(("127.0.0.1", args.port), handler_factory)
+    else:
+        try:
+            server_cm = ReusableThreadingTCPServer((host, args.port), handler_factory)
+        except OSError as e:
+            if sys.platform == "win32" and getattr(e, "winerror", None) == 10048:
+                print(
+                    f"Port {args.port} is already in use. Another process may be bound there; "
+                    f"on Windows multiple `SO_REUSEADDR` servers caused empty HTTP responses. "
+                    f"Stop other listeners or pick `--port`. Original error: {e}",
+                    flush=True,
+                )
+            raise
 
     with server_cm as server:
         extra = f" game-root={game_root}" if game_root else ""
-        print(f"Serving {directory} at http://127.0.0.1:{args.port}{extra}", flush=True)
-        if listen_dual_stack:
-            print(f"Also reachable at http://localhost:{args.port}{extra} (dual-stack IPv6/IPv4)", flush=True)
+        if host == "0.0.0.0":
+            print(f"Serving {directory} on 0.0.0.0:{args.port} (try http://127.0.0.1:{args.port}){extra}", flush=True)
+        elif listen_dual_stack:
+            print(f"Serving {directory} dual-stack :: — http://127.0.0.1:{args.port}{extra}", flush=True)
+            print(f"Also http://[::1]:{args.port}{extra}", flush=True)
+        else:
+            print(f"Serving {directory} at http://{host}:{args.port}{extra}", flush=True)
+        if game_root:
+            print(
+                "HTTP game mirror: ON (lazy Range reads via /game-manifest.json + /game-files/...). "
+                "Do not use this for retail folder-picker testing.",
+                flush=True,
+            )
         else:
             print(
-                f"If http://localhost:{args.port} fails, use http://127.0.0.1:{args.port} (IPv6 bind unavailable).",
+                "HTTP game mirror: OFF. Folder picker / File System Access: open "
+                f"http://127.0.0.1:{args.port}/engine.html?reoneFs=picker",
                 flush=True,
             )
         server.serve_forever()

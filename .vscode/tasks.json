@@ -164,15 +164,15 @@
     {
       "label": "wasm: open browser",
       "type": "shell",
-      "command": "xdg-open http://localhost:${input:webPort}/engine.html",
+      "command": "xdg-open http://localhost:${input:webPort}/engine.html?reoneFs=picker",
       "linux": {
-        "command": "xdg-open http://localhost:${input:webPort}/engine.html"
+        "command": "xdg-open http://localhost:${input:webPort}/engine.html?reoneFs=picker"
       },
       "osx": {
-        "command": "open http://localhost:${input:webPort}/engine.html"
+        "command": "open http://localhost:${input:webPort}/engine.html?reoneFs=picker"
       },
       "windows": {
-        "command": "start http://localhost:${input:webPort}/engine.html"
+        "command": "start http://localhost:${input:webPort}/engine.html?reoneFs=picker"
       },
       "problemMatcher": []
     },
