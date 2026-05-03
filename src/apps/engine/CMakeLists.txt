@@ -51,11 +51,8 @@ if(REONE_PLATFORM_WEB)
     if(REONE_WEB_ASSET_PROFILE STREQUAL "minimal")
         message(FATAL_ERROR "REONE_WEB_ASSET_PROFILE=minimal was removed. Use none (default KotOR.js-parity: File System Access), full, or custom. Clear CMake cache when upgrading.")
     endif()
-    # Embedded /game trees exceed 1 GiB once unpacked in MEMFS; FS-Access-only builds stay smaller at runtime.
-    set(_REONE_WEB_MAX_MEMORY 1073741824)
-    if(REONE_WEB_GAME_DIR)
-        set(_REONE_WEB_MAX_MEMORY 4294967296)
-    endif()
+    # MEMFS copy (HTTP mirror or FS Access) needs a large heap for a real KotOR tree; keep below typical browser limits.
+    set(_REONE_WEB_MAX_MEMORY 4294967296)
     target_link_options(engine PRIVATE
         "SHELL:--pre-js \"${CMAKE_SOURCE_DIR}/tools/web/gamefs.js\""
         -sALLOW_MEMORY_GROWTH=1
@@ -69,6 +66,9 @@ if(REONE_PLATFORM_WEB)
         "SHELL:--preload-file \"${CMAKE_SOURCE_DIR}/glsl@/glsl\"")
     if(REONE_WEB_DEBUG_RUNTIME)
         target_link_options(engine PRIVATE -sASSERTIONS=2)
+    endif()
+    if(REONE_WEB_SAFE_HEAP)
+        target_link_options(engine PRIVATE -sSAFE_HEAP=2)
     endif()
 
     if(REONE_WEB_GAME_DIR)

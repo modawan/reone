@@ -4,6 +4,9 @@
 // Emscripten FS.createLazyFile uses synchronous XHR / worker-only paths and aborts on the browser main thread, so we copy
 // each picked file into MEMFS with FS.writeFile after file.arrayBuffer(). Optional skips reduce RAM/time (movies/music/saves).
 // Set Module.reoneWebFsNoSkip = true before engine.js for a full tree like KotOR.js exposes (needs enough browser RAM).
+//
+// Dev/automation: if same-origin GET /game-manifest.json succeeds (serve.py --game-root), we fetch listed files from
+// /game-files/... into MEMFS before wasm starts — no game data in git; mirror is read from the user's local install path.
 (function () {
     if (typeof Module === "undefined") {
         Module = {};
@@ -242,6 +245,146 @@
         return false;
     }
 
+    /**
+     * serve.py HTTP mirror: extra top-level folders to skip so dev/CI reaches the engine quickly.
+     * streamwaves is often 10k+ tiny WAVs; Override is frequently thousands of mods — neither is required
+     * to boot to the main menu shell. streamsounds is smaller but still omit-for-speed unless opted in.
+     */
+    function shouldSkipHttpMirrorSubtree(relPosixLower) {
+        if (shouldSkipSubtree(relPosixLower)) {
+            return true;
+        }
+        if (truthyEmbOpt(Module.reoneWebFsNoSkip)) {
+            return false;
+        }
+        if (Array.isArray(Module.reoneWebFsMirrorExtraSkipTopDirs)) {
+            var seg = relPosixLower.split("/").filter(Boolean)[0];
+            if (!seg) {
+                return false;
+            }
+            var extra = Module.reoneWebFsMirrorExtraSkipTopDirs;
+            for (var i = 0; i < extra.length; ++i) {
+                if (seg === String(extra[i]).toLowerCase()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        var seg0 = relPosixLower.split("/").filter(Boolean)[0];
+        if (!seg0) {
+            return false;
+        }
+        var defaults = ["streamwaves", "override", "streamsounds"];
+        for (var j = 0; j < defaults.length; ++j) {
+            if (seg0 === defaults[j]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function httpGameFileUrl(relPosix) {
+        var parts = relPosix.split("/").filter(Boolean);
+        return "/game-files/" + parts.map(encodeURIComponent).join("/");
+    }
+
+    /**
+     * Load /game from tools/web/serve.py --game-root (game-manifest.json + ranged /game-files/...).
+     * KotOR.js parity for shipping remains FS Access; this path is for local dev/CI only.
+     */
+    async function tryMountFromHttpMirror() {
+        if (truthyEmbOpt(Module.reoneWebFsDisableHttpMirror)) {
+            return false;
+        }
+        var manifestUrl =
+            typeof Module.reoneWebGameManifestUrl === "string"
+                ? Module.reoneWebGameManifestUrl
+                : "/game-manifest.json";
+        var man;
+        try {
+            var resp = await fetch(manifestUrl, { credentials: "same-origin" });
+            if (!resp.ok) {
+                return false;
+            }
+            man = await resp.json();
+            if (!man || !Array.isArray(man.files)) {
+                return false;
+            }
+        } catch (e) {
+            return false;
+        }
+
+        ensureDirectory("/game");
+        transitionGateToLoadingUi();
+        setGateLoadingMessage("Loading game files from local server mirror…");
+
+        var dirs = Array.isArray(man.directories) ? man.directories : [];
+        for (var d = 0; d < dirs.length; ++d) {
+            var relDir = String(dirs[d]).replace(/\\/g, "/");
+            var lowDir = relDir.toLowerCase();
+            if (shouldSkipHttpMirrorSubtree(lowDir)) {
+                continue;
+            }
+            ensureDirectory("/game/" + lowDir);
+        }
+
+        var files = man.files;
+        var filtered = [];
+        for (var fi = 0; fi < files.length; ++fi) {
+            var relF = String(files[fi]).replace(/\\/g, "/");
+            if (!shouldSkipHttpMirrorSubtree(relF.toLowerCase())) {
+                filtered.push(relF);
+            }
+        }
+
+        var loaded = 0;
+        var totalListed = files.length;
+        var mirrorConcurrency = 8;
+        if (typeof Module.reoneWebFsMirrorConcurrency === "number" && Module.reoneWebFsMirrorConcurrency > 0) {
+            mirrorConcurrency = Module.reoneWebFsMirrorConcurrency | 0;
+        }
+
+        async function fetchOne(relPath) {
+            var normLower = relPath.toLowerCase();
+            var url = httpGameFileUrl(relPath);
+            var fr = await fetch(url, { credentials: "same-origin" });
+            if (!fr.ok) {
+                throw new Error("reone web: " + url + " -> HTTP " + fr.status);
+            }
+            var buf = await fr.arrayBuffer();
+            return { normLower: normLower, buf: buf };
+        }
+
+        for (var start = 0; start < filtered.length; start += mirrorConcurrency) {
+            var batch = filtered.slice(start, start + mirrorConcurrency);
+            var results = await Promise.all(batch.map(function (rp) {
+                return fetchOne(rp);
+            }));
+            for (var b = 0; b < results.length; ++b) {
+                var item = results[b];
+                var fsPath = "/game/" + item.normLower;
+                var parentFs = fsPath.slice(0, fsPath.lastIndexOf("/"));
+                ensureDirectory(parentFs);
+                FS.writeFile(fsPath, new Uint8Array(item.buf));
+                loaded++;
+            }
+            if ((loaded & 31) === 0 || loaded === filtered.length) {
+                setGateLoadingMessage(
+                    "Loaded " +
+                        loaded +
+                        " files from server mirror… (subset of " +
+                        totalListed +
+                        " listed; skipped heavy folders — see gamefs.js)"
+                );
+                await new Promise(function (r) {
+                    setTimeout(r, 0);
+                });
+            }
+        }
+        setGateLoadingMessage("Finished (" + loaded + " files). Starting engine…");
+        return true;
+    }
+
     function transitionGateToLoadingUi() {
         var inner = document.getElementById("reone-fs-gate-inner");
         if (!inner) {
@@ -340,10 +483,25 @@
                     return;
                 }
 
+                try {
+                    if (await tryMountFromHttpMirror()) {
+                        removeGateUi();
+                        done();
+                        return;
+                    }
+                } catch (e) {
+                    console.error("reone web: HTTP game mirror failed:", e);
+                    injectGateUi();
+                    showGateError(
+                        (e && e.message ? String(e.message) + " — " : "") +
+                            "Pick your KotOR install folder below (same as KotOR.js), or fix serve.py --game-root + game-manifest.json."
+                    );
+                }
+
                 if (typeof window.showDirectoryPicker !== "function") {
                     injectGateUi();
                     showGateError(
-                        "This browser does not support the File System Access API (same limitation as KotOR.js in non-Chromium browsers). Use Chrome or Edge, or build with CMake embedded preload (REONE_WEB_ASSET_PROFILE full/custom); see doc/webassembly.md."
+                        "No game mirror found at /game-manifest.json and this browser does not support folder selection (File System Access). Use Chrome or Edge with a local KotOR folder, or run: python tools/web/serve.py --directory …/bin --game-root \"…/Your KotOR\" (see doc/webassembly.md)."
                     );
                     done();
                     return;

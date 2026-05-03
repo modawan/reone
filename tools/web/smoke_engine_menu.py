@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
-"""Load engine.html locally and poll until the menu likely appeared or timeout."""
+"""Load engine.html locally and poll until the menu likely appeared or timeout.
+
+KotOR.js parity: ship no game data in the wasm bundle; point the browser at a local
+install via File System Access *or* run ``serve.py --game-root`` so ``gamefs.js`` can
+fetch ``/game-manifest.json`` + ``/game-files/...`` (dev/CI only).
+"""
 from __future__ import annotations
 
 import argparse
 import asyncio
 import os
+import pathlib
+import socket
+import subprocess
 import sys
+import time
 
 
 async def run(url: str, out_png: str, timeout_s: float, interval_s: float) -> int:
@@ -20,14 +29,21 @@ async def run(url: str, out_png: str, timeout_s: float, interval_s: float) -> in
     goto_ms = min(600_000, max(120_000, int(timeout_s * 1000)))
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=not headed,
-            args=[
-                "--ignore-gpu-blocklist",
-                "--use-gl=angle",
-                "--disable-dev-shm-usage",
-            ],
-        )
+        browser_name = (os.environ.get("REONE_WEB_SMOKE_BROWSER") or "chromium").strip().lower()
+        if browser_name == "firefox":
+            browser = await p.firefox.launch(
+                headless=not headed,
+            )
+        else:
+            browser = await p.chromium.launch(
+                headless=not headed,
+                args=[
+                    "--ignore-gpu-blocklist",
+                    "--use-gl=angle",
+                    "--disable-dev-shm-usage",
+                    "--disable-http-cache",
+                ],
+            )
         context = await browser.new_context(
             viewport={"width": 1280, "height": 720},
             ignore_https_errors=True,
@@ -43,7 +59,7 @@ async def run(url: str, out_png: str, timeout_s: float, interval_s: float) -> in
         page.on("console", _on_console)
         page.on("pageerror", lambda exc: print(f"[pageerror] {exc}"))
 
-        print(f"Navigating {url} … (goto timeout {goto_ms} ms, headed={headed})", flush=True)
+        print(f"Navigating {url} ... (goto timeout {goto_ms} ms, headed={headed})", flush=True)
         await page.goto(url, wait_until="domcontentloaded", timeout=goto_ms)
 
         i = 0
@@ -60,6 +76,10 @@ async def run(url: str, out_png: str, timeout_s: float, interval_s: float) -> in
             print(f"[{i * interval_s:.0f}s] status={status!r}", flush=True)
             if tail.strip():
                 print(f"  output tail: {tail!r}", flush=True)
+            if "Exception" in status and (outp or "").strip():
+                print("--- #output (full) ---", flush=True)
+                print((outp or "").strip(), flush=True)
+                print("--- end #output ---", flush=True)
 
             low = (outp or "").lower()
             if "engine failure:" in low:
@@ -67,14 +87,6 @@ async def run(url: str, out_png: str, timeout_s: float, interval_s: float) -> in
                 await page.screenshot(path=out_png, full_page=True)
                 await browser.close()
                 return 2
-
-            # Logger prints: " INFO [main][global] reone smoke signal: engine startup"
-            if "reone smoke signal: engine startup" in low:
-                print("Engine startup log seen; waiting for main menu draw…", flush=True)
-                await asyncio.sleep(35.0)
-                await page.screenshot(path=out_png, full_page=True)
-                await browser.close()
-                return 0
 
             if any(
                 x in low
@@ -89,15 +101,42 @@ async def run(url: str, out_png: str, timeout_s: float, interval_s: float) -> in
                 await browser.close()
                 return 0
 
-            # Do not gl.readPixels here — it can stall or lose the WebGL context in headless Chromium.
+            # Do not gl.readPixels here - it can stall or lose the WebGL context in headless Chromium.
 
             await asyncio.sleep(interval_s)
             i += 1
 
-        print("Timeout — saving final screenshot.", flush=True)
+        print("Timeout - saving final screenshot.", flush=True)
         await page.screenshot(path=out_png, full_page=True)
         await browser.close()
         return 1
+
+
+def _free_port() -> int:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def _spawn_local_mirror(web_bin: pathlib.Path, game_root: pathlib.Path, port: int) -> subprocess.Popen:
+    repo_root = pathlib.Path(__file__).resolve().parents[2]
+    gen = repo_root / "tools" / "web" / "gen_game_manifest.py"
+    serve = repo_root / "tools" / "web" / "serve.py"
+    subprocess.run([sys.executable, str(gen), str(game_root)], check=True)
+    return subprocess.Popen(
+        [
+            sys.executable,
+            str(serve),
+            "--directory",
+            str(web_bin),
+            "--game-root",
+            str(game_root),
+            "--port",
+            str(port),
+        ],
+    )
 
 
 def main() -> int:
@@ -106,8 +145,59 @@ def main() -> int:
     ap.add_argument("--out", default="tools/web/_smoke_menu.png")
     ap.add_argument("--timeout", type=float, default=1800.0, help="seconds (default 30 min)")
     ap.add_argument("--interval", type=float, default=10.0)
+    ap.add_argument(
+        "--spawn-serve",
+        action="store_true",
+        help="Start tools/web/serve.py on a free port (needs --game-root); KotOR.js-parity HTTP mirror",
+    )
+    ap.add_argument(
+        "--game-root",
+        type=pathlib.Path,
+        default=None,
+        help="Retail KotOR dir (chitin.key + swkotor.exe); also reads REONE_WEB_SMOKE_GAME_ROOT",
+    )
+    ap.add_argument(
+        "--web-bin",
+        type=pathlib.Path,
+        default=pathlib.Path("build-web/bin"),
+        help="Directory containing engine.html",
+    )
     args = ap.parse_args()
-    return asyncio.run(run(args.url, args.out, args.timeout, args.interval))
+
+    url = args.url
+    proc: subprocess.Popen | None = None
+    game_root = args.game_root or (
+        pathlib.Path(os.environ["REONE_WEB_SMOKE_GAME_ROOT"])
+        if os.environ.get("REONE_WEB_SMOKE_GAME_ROOT")
+        else None
+    )
+
+    if args.spawn_serve:
+        if not game_root or not game_root.is_dir():
+            print(
+                "Smoke --spawn-serve requires --game-root or REONE_WEB_SMOKE_GAME_ROOT "
+                "pointing at a KotOR install (matches KotOR.js: files stay on disk).",
+                file=sys.stderr,
+            )
+            return 2
+        port = _free_port()
+        proc = _spawn_local_mirror(args.web_bin.resolve(), game_root.resolve(), port)
+        time.sleep(2.0)
+        if proc.poll() is not None:
+            print("serve.py exited early (check --web-bin and port).", file=sys.stderr)
+            return 2
+        url = f"http://127.0.0.1:{port}/engine.html"
+        print(f"Serving wasm from {args.web_bin} with mirror {game_root} -> {url}", flush=True)
+
+    try:
+        return asyncio.run(run(url, args.out, args.timeout, args.interval))
+    finally:
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                proc.kill()
 
 
 if __name__ == "__main__":

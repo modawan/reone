@@ -38,6 +38,7 @@ set(REONE_WEB_PRELOAD_ITEMS "" CACHE STRING "Semicolon-separated paths under REO
 option(REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE "Allow embedding REONE_WEB_GAME_DIR via Emscripten file_packager (NOT KotOR.js parity; multi-GB engine.data)" OFF)
 option(REONE_WEB_LZ4_PRELOAD "LZ4-compress embedded game preload (-sLZ4: smaller engine.data, chunked decode, lower peak RAM)" ON)
 option(REONE_WEB_DEBUG_RUNTIME "Emscripten ASSERTIONS (larger wasm; KotOR.js-style shipping keeps this OFF)" OFF)
+option(REONE_WEB_SAFE_HEAP "Emscripten SAFE_HEAP=2 (slow; catches bad pointers / table corruption)" OFF)
 
 set_property(CACHE REONE_WEB_ASSET_PROFILE PROPERTY STRINGS none full custom)
 

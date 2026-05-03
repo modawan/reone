@@ -37,14 +37,28 @@ using namespace reone::scene;
 using namespace reone::script;
 
 #ifdef __EMSCRIPTEN__
+namespace {
+
+reone::Engine *g_emscriptenLoopEngine = nullptr;
+
 extern "C" {
-static void reone_em_run_frame(void *enginePtr) {
-    auto *engine = static_cast<reone::Engine *>(enginePtr);
+
+EMSCRIPTEN_KEEPALIVE
+void reone_em_run_frame(void) {
+    reone::Engine *engine = g_emscriptenLoopEngine;
+    if (!engine) {
+        emscripten_cancel_main_loop();
+        return;
+    }
     if (!engine->runFrame()) {
+        g_emscriptenLoopEngine = nullptr;
         emscripten_cancel_main_loop();
     }
 }
-}
+
+} // extern "C"
+
+} // namespace
 #endif
 
 namespace reone {
@@ -190,9 +204,11 @@ int Engine::run() {
     _ticks = clock.millis();
 
 #ifdef __EMSCRIPTEN__
-    // simulateInfiniteLoop must be true: otherwise this returns, main() exits, and static
-    // g_webEngine in main.cpp is destroyed while the browser still invokes the loop (dynCall → "null function").
-    emscripten_set_main_loop_arg(reone_em_run_frame, this, 0, true);
+    // simulateInfiniteLoop must be true: otherwise main() returns and static g_webEngine in main.cpp is destroyed
+    // while the browser still invokes the loop (dynCall → "null function").
+    // Use emscripten_set_main_loop (no userdata pointer): some Chromium/WebGL stacks break indirect invoke_vi on _arg.
+    g_emscriptenLoopEngine = this;
+    emscripten_set_main_loop(reone_em_run_frame, 0, true);
 #else
     while (runFrame()) {
     }

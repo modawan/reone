@@ -374,7 +374,6 @@ void Context::setDepthTestMode(DepthTestMode mode) {
     } else {
         glEnable(GL_DEPTH_TEST);
         switch (mode) {
-            break;
         case DepthTestMode::Equal:
             glDepthFunc(GL_EQUAL);
             break;

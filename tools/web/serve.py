@@ -207,9 +207,9 @@ def main():
     game_root = pathlib.Path(args.game_root).resolve() if args.game_root else None
     handler_factory = _handler_factory(directory, game_root)
 
-    with ReusableThreadingTCPServer(("localhost", args.port), handler_factory) as server:
+    with ReusableThreadingTCPServer(("127.0.0.1", args.port), handler_factory) as server:
         extra = f" game-root={game_root}" if game_root else ""
-        print(f"Serving {directory} at http://localhost:{args.port}{extra}", flush=True)
+        print(f"Serving {directory} at http://127.0.0.1:{args.port}{extra}", flush=True)
         server.serve_forever()
 
 
