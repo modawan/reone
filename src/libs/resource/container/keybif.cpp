@@ -20,15 +20,15 @@
 #include "reone/resource/format/bifreader.h"
 #include "reone/resource/format/keyreader.h"
 #include "reone/system/fileutil.h"
-#include "reone/system/stream/fileinput.h"
+#include "reone/system/stream/gameinput.h"
 
 namespace reone {
 
 namespace resource {
 
 void KeyBifResourceContainer::init() {
-    auto key = FileInputStream(_keyPath);
-    auto keyReader = KeyReader(key);
+    auto key = openGameInputStream(_keyPath);
+    auto keyReader = KeyReader(*key);
     keyReader.load();
 
     auto gamePath = _keyPath.parent_path();
@@ -42,7 +42,7 @@ void KeyBifResourceContainer::init() {
     for (auto i = 0; i < keyReader.files().size(); ++i) {
         auto &file = keyReader.files()[i];
         auto bifPath = getFileIgnoreCase(gamePath, file.filename);
-        auto bif = std::make_unique<FileInputStream>(bifPath);
+        auto bif = openGameInputStream(bifPath);
         auto bifReader = BifReader(*bif);
         bifReader.load();
 

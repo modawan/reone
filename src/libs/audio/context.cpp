@@ -25,6 +25,11 @@ namespace audio {
 
 void Context::init() {
     checkMainThread();
+#if defined(__EMSCRIPTEN__)
+    // OpenAL-soft on Emscripten wires browser audio callbacks that have triggered dynCall
+    // "null function" crashes under headless Chromium/ANGLE; mixer.play is already a no-op on wasm.
+    return;
+#endif
     _device = alcOpenDevice(nullptr);
     if (!_device) {
         throw std::runtime_error("alcOpenDevice failed");
@@ -53,6 +58,10 @@ void Context::setListenerPosition(glm::vec3 position) {
     if (_listenerPosition == position) {
         return;
     }
+#if defined(__EMSCRIPTEN__)
+    _listenerPosition = std::move(position);
+    return;
+#endif
     alListener3f(AL_POSITION, position.x, position.y, position.z);
     _listenerPosition = std::move(position);
 }

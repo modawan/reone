@@ -28,10 +28,13 @@ float getDirectionalLightShadow(vec3 viewPos, vec3 worldPos, sampler2DArray tex)
         return 0.0;
 
     float shadow = 0.0;
-    vec2 texelSize = 1.0 / vec2(textureSize(tex, 0));
+    // GLES 3.0 / WebGL2: textureSize(sampler2DArray) is ivec3 (width, height, layers).
+    ivec3 shadowMapDims = textureSize(tex, 0);
+    vec2 texelSize = vec2(1.0) / max(vec2(shadowMapDims.xy), vec2(1.0));
     for (int x = -1; x <= 1; ++x) {
         for (int y = -1; y <= 1; ++y) {
-            float pcfDepth = texture(tex, vec3(projCoords.xy + vec2(x, y) * texelSize, cascade)).r;
+            vec2 o = vec2(float(x), float(y));
+            float pcfDepth = texture(tex, vec3(projCoords.xy + o * texelSize, float(cascade))).r;
             shadow += currentDepth > pcfDepth ? 1.0 : 0.0;
         }
     }
@@ -49,7 +52,7 @@ float getPointLightShadow(vec3 worldPos, samplerCube tex) {
         float closestDepth = 2500.0 * texture(tex, fragToLight + PCF_SAMPLE_RADIUS * PCF_SAMPLE_OFFSETS[i]).r;
         shadow += currentDepth > closestDepth ? 1.0 : 0.0;
     }
-    shadow /= NUM_PCF_SAMPLES;
+    shadow /= float(NUM_PCF_SAMPLES);
     shadow *= 1.0 - smoothstep(uShadowRadius, 2.0 * uShadowRadius, currentDepth);
 
     return shadow;

@@ -17,21 +17,36 @@
 
 #pragma once
 
-#include "../types.h"
+#include "fileinput.h"
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+
+#include "webinput.h"
+#endif
 
 namespace reone {
 
-class IInputStream : boost::noncopyable {
-public:
-    virtual ~IInputStream() = default;
+inline bool isGamePath(const std::filesystem::path &path) {
+    auto generic = path.generic_string();
+    return generic == "/game" || generic.rfind("/game/", 0) == 0;
+}
 
-    virtual void seek(int64_t offset, SeekOrigin origin = SeekOrigin::Begin) = 0;
+#ifdef __EMSCRIPTEN__
+inline bool isWebLazyGameFsActive() {
+    return EM_ASM_INT({
+        return Module.reoneWebLazyGameFsActive ? 1 : 0;
+    }) != 0;
+}
+#endif
 
-    virtual int readByte() = 0;
-    virtual int read(char *buf, int len) = 0;
-
-    virtual size_t position() = 0;
-    virtual size_t length() = 0;
-};
+inline std::unique_ptr<IInputStream> openGameInputStream(const std::filesystem::path &path) {
+#ifdef __EMSCRIPTEN__
+    if (isGamePath(path) && isWebLazyGameFsActive()) {
+        return std::make_unique<WebFileInputStream>(path);
+    }
+#endif
+    return std::make_unique<FileInputStream>(path);
+}
 
 } // namespace reone

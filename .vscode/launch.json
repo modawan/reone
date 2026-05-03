@@ -107,7 +107,7 @@
       "type": "chrome",
       "request": "launch",
       "preLaunchTask": "wasm: serve (build-web/bin)",
-      "url": "http://localhost:${input:webPort}/engine.html",
+      "url": "http://localhost:${input:webPort}/engine.html?reoneFs=picker",
       "webRoot": "${workspaceFolder}/build-web/bin"
     },
     {
@@ -115,7 +115,7 @@
       "type": "msedge",
       "request": "launch",
       "preLaunchTask": "wasm: serve (build-web/bin)",
-      "url": "http://localhost:${input:webPort}/engine.html",
+      "url": "http://localhost:${input:webPort}/engine.html?reoneFs=picker",
       "webRoot": "${workspaceFolder}/build-web/bin"
     },
     {

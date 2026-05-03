@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "reone/system/stream/fileinput.h"
+#include "reone/system/stream/input.h"
 
 #include "../container.h"
 
@@ -49,7 +49,7 @@ private:
     };
 
     std::filesystem::path _path;
-    std::unique_ptr<FileInputStream> _rim;
+    std::unique_ptr<IInputStream> _rim;
 
     std::unordered_set<ResourceId> _resourceIds;
     std::unordered_map<ResourceId, Resource> _idToResource;

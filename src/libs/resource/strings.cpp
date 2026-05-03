@@ -20,7 +20,7 @@
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/talktable.h"
 #include "reone/system/fileutil.h"
-#include "reone/system/stream/fileinput.h"
+#include "reone/system/stream/gameinput.h"
 
 namespace reone {
 
@@ -31,8 +31,8 @@ void Strings::init(const std::filesystem::path &gameDir) {
     if (!tlkPath) {
         return;
     }
-    auto tlk = FileInputStream(*tlkPath);
-    auto tlkReader = TlkReader(tlk);
+    auto tlk = openGameInputStream(*tlkPath);
+    auto tlkReader = TlkReader(*tlk);
     tlkReader.load();
     _table = tlkReader.table();
 }

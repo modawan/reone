@@ -473,7 +473,7 @@ Texture &SceneGraph::render(const glm::ivec2 &dim) {
                 light.color = glm::vec4(_activeLights[i]->color(), 1.0f);
                 light.multiplier = _activeLights[i]->multiplier() * _activeLights[i]->strength();
                 light.radius = _activeLights[i]->radius();
-                light.ambientOnly = static_cast<int>(_activeLights[i]->modelNode().light()->ambientOnly);
+                light.ambientOnly = _activeLights[i]->modelNode().light()->ambientOnly ? 1.0f : 0.0f;
                 light.dynamicType = _activeLights[i]->modelNode().light()->dynamicType;
             }
             if (hasShadowLight()) {

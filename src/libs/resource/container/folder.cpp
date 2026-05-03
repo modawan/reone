@@ -18,7 +18,7 @@
 #include "reone/resource/container/folder.h"
 
 #include "reone/resource/typeutil.h"
-#include "reone/system/stream/fileinput.h"
+#include "reone/system/stream/gameinput.h"
 
 namespace reone {
 
@@ -55,15 +55,15 @@ std::optional<ByteBuffer> FolderResourceContainer::findResourceData(const Resour
     }
     auto &resource = it->second;
 
-    auto stream = FileInputStream(resource.path);
-    auto len = stream.length();
+    auto stream = openGameInputStream(resource.path);
+    auto len = stream->length();
     if (len == 0) {
         return ByteBuffer();
     }
 
     ByteBuffer buf;
     buf.resize(len);
-    stream.read(&buf[0], buf.size());
+    stream->read(&buf[0], buf.size());
 
     return buf;
 }

@@ -211,10 +211,18 @@ void Texture::refresh() {
     }
     if (isMipmapFilter(_properties.minFilter)) {
         auto target = getTargetGL();
+#if defined(__EMSCRIPTEN__)
+        // WebGL frequently rejects glGenerateMipmap (compressed BC formats, some sized internals,
+        // cube map arrays). Desktop builds rely on auto mipmaps; use base-level filtering on web.
+        bool nearestMin = _properties.minFilter == Texture::Filtering::NearestMipmapNearest ||
+            _properties.minFilter == Texture::Filtering::NearestMipmapLinear;
+        glTexParameteri(target, GL_TEXTURE_MIN_FILTER, nearestMin ? GL_NEAREST : GL_LINEAR);
+#else
         glGenerateMipmap(target);
         if (_properties.anisotropy > 1.0f) {
             glTexParameterf(target, GL_TEXTURE_MAX_ANISOTROPY_EXT, _properties.anisotropy);
         }
+#endif
     }
 }
 

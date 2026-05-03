@@ -19,8 +19,9 @@ layout(location = 1) out vec4 fragHilights;
 
 void main() {
     vec2 uv = vec2(0.5) * fragUV1;
-    uv.y += 0.5 * (int(uGrassClusters[fragInstanceID].positionVariant[3]) / 2);
-    uv.x += 0.5 * (int(uGrassClusters[fragInstanceID].positionVariant[3]) % 2);
+    int pv = int(uGrassClusters[fragInstanceID].positionVariant[3]);
+    uv.y += 0.5 * float(pv / 2);
+    uv.x += 0.5 * float(pv % 2);
 
     vec4 mainTexSample = texture(sMainTex, uv);
     hashedAlphaTest(mainTexSample.a, fragPos.xyz);

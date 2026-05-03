@@ -7,7 +7,7 @@ float packGeometryFeatures(bool envmap, bool shadows, bool fog) {
     mask |= int(envmap) * GEOMETRY_FEATURE_ENVMAP;
     mask |= int(shadows) * GEOMETRY_FEATURE_SHADOWS;
     mask |= int(fog) * GEOMETRY_FEATURE_FOG;
-    return mask / 255.0;
+    return float(mask) / 255.0;
 }
 
 void unpackGeometryFeatures(float mask,

@@ -60,7 +60,7 @@ struct alignas(16) GlobalUniformsLight {
     glm::vec4 color {1.0f};
     float multiplier {1.0f};
     float radius {1.0f};
-    int ambientOnly {0};
+    float ambientOnly {0.0f};
     int dynamicType {0};
 };
 

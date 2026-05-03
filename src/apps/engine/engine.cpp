@@ -36,15 +36,32 @@ using namespace reone::resource;
 using namespace reone::scene;
 using namespace reone::script;
 
-namespace reone {
-
 #ifdef __EMSCRIPTEN__
-static void runFrameCallback(void *engine) {
-    if (!static_cast<Engine *>(engine)->runFrame()) {
+namespace {
+
+reone::Engine *g_emscriptenLoopEngine = nullptr;
+
+extern "C" {
+
+EMSCRIPTEN_KEEPALIVE
+void reone_em_run_frame(void) {
+    reone::Engine *engine = g_emscriptenLoopEngine;
+    if (!engine) {
+        emscripten_cancel_main_loop();
+        return;
+    }
+    if (!engine->runFrame()) {
+        g_emscriptenLoopEngine = nullptr;
         emscripten_cancel_main_loop();
     }
 }
+
+} // extern "C"
+
+} // namespace
 #endif
+
+namespace reone {
 
 static const std::string kMainThreadName {"main"};
 
@@ -187,7 +204,11 @@ int Engine::run() {
     _ticks = clock.millis();
 
 #ifdef __EMSCRIPTEN__
-    emscripten_set_main_loop_arg(runFrameCallback, this, 0, true);
+    // simulateInfiniteLoop must be true: otherwise main() returns and static g_webEngine in main.cpp is destroyed
+    // while the browser still invokes the loop (dynCall → "null function").
+    // Use emscripten_set_main_loop (no userdata pointer): some Chromium/WebGL stacks break indirect invoke_vi on _arg.
+    g_emscriptenLoopEngine = this;
+    emscripten_set_main_loop(reone_em_run_frame, 0, true);
 #else
     while (runFrame()) {
     }
@@ -352,14 +373,13 @@ std::optional<input::Event> Engine::eventFromSDLEvent(const SDL_Event &sdlEvent)
             sdlEvent.button.clicks,
             scaleWinCoord(sdlEvent.button.x, _options.graphics.winScale),
             scaleWinCoord(sdlEvent.button.y, _options.graphics.winScale)});
-    case SDL_EVENT_MOUSE_WHEEL: {
+    case SDL_EVENT_MOUSE_WHEEL:
         return input::Event::newMouseWheel(input::MouseWheelEvent {
             sdlEvent.wheel.x,
             sdlEvent.wheel.y,
             static_cast<input::MouseWheelDirection>(sdlEvent.wheel.direction)});
     default:
         return std::nullopt;
-    }
     }
 }
 
