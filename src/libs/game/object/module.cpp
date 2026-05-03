@@ -382,7 +382,7 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
         break;
     }
     case ObjectType::Placeable: {
-        auto placeable = std::static_pointer_cast<Placeable>(object);
+        auto placeable = cast<Placeable>(object);
         auto leader = _game.party().getLeader();
         if (canBashPlaceable(*placeable, *leader, _services.game.reputes)) {
             actions.push_back(ContextAction(ActionType::AttackObject));
