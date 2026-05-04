@@ -16,14 +16,20 @@
  */
 
 #include "reone/game/action/equipitem.h"
+#include "reone/game/object/creature.h"
 
 namespace reone {
 
 namespace game {
 
 void EquipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    // TODO: implement
-
+    auto *creature = dyn_cast<Creature>(&actor);
+    if (!creature) {
+        complete();
+        return;
+    }
+    creature->equip(_inventorySlot, _item);
+    creature->playAnimation(CombatAnimation::Draw, creature->getWieldType());
     complete();
 }
 
