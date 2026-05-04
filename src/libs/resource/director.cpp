@@ -179,15 +179,15 @@ void ResourceDirector::loadModuleResources(const std::string &name) {
     auto &resources = _resources;
     auto rimPath = findFileIgnoreCase(*modulesPath, name + ".rim");
     if (rimPath) {
-        resources.addRIM(*rimPath, true);
+        resources.addRIM(*rimPath, ContainerKind::Local);
     }
     auto rimsPath = findFileIgnoreCase(*modulesPath, name + "_s.rim");
     if (rimsPath) {
-        resources.addRIM(*rimsPath, true);
+        resources.addRIM(*rimsPath, ContainerKind::Local);
     }
     auto modPath = findFileIgnoreCase(*modulesPath, name + ".mod");
     if (modPath) {
-        resources.addERF(*modPath, true);
+        resources.addERF(*modPath, ContainerKind::Local);
     }
     if (!rimPath && !rimsPath && !modPath) {
         throw ResourceNotFoundException("Module archives not found: " + name);
@@ -197,14 +197,14 @@ void ResourceDirector::loadModuleResources(const std::string &name) {
     if (lipsPath) {
         auto locModPath = findFileIgnoreCase(*lipsPath, name + "_loc.mod");
         if (locModPath) {
-            resources.addERF(*locModPath, true);
+            resources.addERF(*locModPath, ContainerKind::Local);
         }
     }
 
     if (_gameId == GameID::TSL) {
         auto dlgErfPath = findFileIgnoreCase(*modulesPath, name + "_dlg.erf");
         if (dlgErfPath) {
-            resources.addERF(*dlgErfPath, true);
+            resources.addERF(*dlgErfPath, ContainerKind::Local);
         }
     }
 }

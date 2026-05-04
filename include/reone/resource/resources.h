@@ -27,12 +27,18 @@ namespace reone {
 
 namespace resource {
 
-struct ResourceContainerLocalPair {
-    std::unique_ptr<IResourceContainer> provider;
-    bool local {false};
+enum class ContainerKind {
+    Global,
+    Local,
+    Save,
 };
 
-using ResourceContainerList = std::list<ResourceContainerLocalPair>;
+struct ResourceContainerPair {
+    std::unique_ptr<IResourceContainer> provider;
+    ContainerKind kind;
+};
+
+using ResourceContainerList = std::list<ResourceContainerPair>;
 
 class IResources {
 public:
@@ -40,12 +46,13 @@ public:
 
     virtual void clear() = 0;
     virtual void clearLocal() = 0;
+    virtual void clearSave() = 0;
 
-    virtual void addKEY(const std::filesystem::path &path) = 0;
-    virtual void addERF(const std::filesystem::path &path, bool local = false) = 0;
-    virtual void addRIM(const std::filesystem::path &path, bool local = false) = 0;
     virtual void addEXE(const std::filesystem::path &path) = 0;
-    virtual void addFolder(const std::filesystem::path &path) = 0;
+    virtual void addKEY(const std::filesystem::path &path) = 0;
+    virtual void addERF(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) = 0;
+    virtual void addRIM(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) = 0;
+    virtual void addFolder(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) = 0;
 
     virtual Resource get(const ResourceId &id) = 0;
     virtual std::optional<Resource> find(const ResourceId &id) = 0;
@@ -58,21 +65,29 @@ public:
     }
 
     void clearLocal() override {
-        auto toErase = std::remove_if(_containers.begin(), _containers.end(), [](auto &pair) {
-            return pair.local;
+        clearSome(ContainerKind::Local);
+    }
+
+    void clearSave() override {
+        clearSome(ContainerKind::Save);
+    }
+
+    void clearSome(ContainerKind kind) {
+        auto toErase = std::remove_if(_containers.begin(), _containers.end(), [kind](auto &pair) {
+            return pair.kind == kind;
         });
         _containers.erase(toErase, _containers.end());
     }
 
-    void add(std::unique_ptr<IResourceContainer> provider, bool local = false) {
-        _containers.push_front(ResourceContainerLocalPair {std::move(provider), local});
+    void add(std::unique_ptr<IResourceContainer> provider, ContainerKind kind = ContainerKind::Global) {
+        _containers.push_front(ResourceContainerPair {std::move(provider), kind});
     }
 
-    void addKEY(const std::filesystem::path &path) override;
-    void addERF(const std::filesystem::path &path, bool local = false) override;
-    void addRIM(const std::filesystem::path &path, bool local = false) override;
     void addEXE(const std::filesystem::path &path) override;
-    void addFolder(const std::filesystem::path &path) override;
+    void addKEY(const std::filesystem::path &path) override;
+    void addERF(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
+    void addRIM(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
+    void addFolder(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
 
     Resource get(const ResourceId &id) override;
     std::optional<Resource> find(const ResourceId &id) override;

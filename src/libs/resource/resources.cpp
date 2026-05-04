@@ -31,31 +31,31 @@ namespace resource {
 void Resources::addKEY(const std::filesystem::path &path) {
     auto provider = std::make_unique<KeyBifResourceContainer>(path);
     provider->init();
-    _containers.push_front(ResourceContainerLocalPair {std::move(provider), false});
+    _containers.push_front(ResourceContainerPair {std::move(provider), ContainerKind::Global});
 }
 
-void Resources::addERF(const std::filesystem::path &path, bool local) {
+void Resources::addERF(const std::filesystem::path &path, ContainerKind kind) {
     auto provider = std::make_unique<ErfResourceContainer>(path);
     provider->init();
-    _containers.push_front(ResourceContainerLocalPair {std::move(provider), local});
+    _containers.push_front(ResourceContainerPair {std::move(provider), kind});
 }
 
-void Resources::addRIM(const std::filesystem::path &path, bool local) {
+void Resources::addRIM(const std::filesystem::path &path, ContainerKind kind) {
     auto provider = std::make_unique<RimResourceContainer>(path);
     provider->init();
-    _containers.push_front(ResourceContainerLocalPair {std::move(provider), local});
+    _containers.push_front(ResourceContainerPair {std::move(provider), kind});
 }
 
 void Resources::addEXE(const std::filesystem::path &path) {
     auto provider = std::make_unique<ExeResourceContainer>(path);
     provider->init();
-    _containers.push_front(ResourceContainerLocalPair {std::move(provider), false});
+    _containers.push_front(ResourceContainerPair {std::move(provider), ContainerKind::Global});
 }
 
-void Resources::addFolder(const std::filesystem::path &path) {
+void Resources::addFolder(const std::filesystem::path &path, ContainerKind kind) {
     auto provider = std::make_unique<FolderResourceContainer>(path);
     provider->init();
-    _containers.push_front(ResourceContainerLocalPair {std::move(provider), false});
+    _containers.push_front(ResourceContainerPair {std::move(provider), kind});
 }
 
 Resource Resources::get(const ResourceId &id) {
@@ -67,10 +67,10 @@ Resource Resources::get(const ResourceId &id) {
 }
 
 std::optional<Resource> Resources::find(const ResourceId &id) {
-    for (auto &[provider, local] : _containers) {
+    for (auto &[provider, kind] : _containers) {
         auto data = provider->findResourceData(id);
         if (data) {
-            return Resource {*data, local};
+            return Resource {*data};
         }
     }
     return std::nullopt;
