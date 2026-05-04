@@ -25,7 +25,6 @@ namespace resource {
 
 struct Resource {
     ByteBuffer data;
-    bool local {false};
 };
 
 } // namespace resource
