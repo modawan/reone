@@ -24,6 +24,48 @@ namespace reone {
 
 namespace resource {
 
+std::optional<bool> Gff::findBool(std::string_view name) const {
+    if (const Field *field = get(name)) {
+        return field->intValue;
+    }
+    return std::nullopt;
+}
+
+std::optional<int> Gff::findInt(std::string_view name) const {
+    if (const Field *field = get(name)) {
+        return field->intValue;
+    }
+    return std::nullopt;
+}
+
+std::optional<uint32_t> Gff::findUint(std::string_view name) const {
+    if (const Field *field = get(name)) {
+        return field->uintValue;
+    }
+    return std::nullopt;
+}
+
+std::optional<float> Gff::findFloat(std::string_view name) const {
+    if (const Field *field = get(name)) {
+        return field->floatValue;
+    }
+    return std::nullopt;
+}
+
+Gff::OptionalStr Gff::findString(std::string_view name) const {
+    if (const Field *field = get(name)) {
+        return &field->strValue;
+    }
+    return nullptr;
+}
+
+Gff::OptionalList Gff::findList(std::string_view name) const {
+    if (const Field *field = get(name)) {
+        return &field->children;
+    }
+    return nullptr;
+}
+
 bool Gff::getBool(const std::string &name, bool defValue) const {
     const Field *field = get(name);
     if (!field)
@@ -32,7 +74,7 @@ bool Gff::getBool(const std::string &name, bool defValue) const {
     return field->intValue != 0;
 }
 
-const Gff::Field *Gff::get(const std::string &name) const {
+const Gff::Field *Gff::get(std::string_view name) const {
     auto maybeField = std::find_if(
         _fields.begin(),
         _fields.end(),

@@ -119,7 +119,7 @@ void Area::load(std::string name, const Gff &are, const Gff &git, bool fromSave)
 
     loadARE(areParsed);
     loadLYT();
-    loadGIT(gitParsed);
+    loadGIT(gitParsed, git);
     loadVIS();
     loadPTH();
 }
@@ -209,9 +209,9 @@ void Area::loadFog(const resource::generated::ARE &are) {
     sceneGraph.setFog(fogProperties);
 }
 
-void Area::loadGIT(const resource::generated::GIT &git) {
+void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff) {
     loadProperties(git);
-    loadCreatures(git);
+    loadCreatures(gff);
     loadDoors(git);
     loadPlaceables(git);
     loadWaypoints(git);
@@ -229,10 +229,10 @@ void Area::loadProperties(const resource::generated::GIT &git) {
     }
 }
 
-void Area::loadCreatures(const resource::generated::GIT &git) {
-    for (auto &creatureStruct : git.Creature_List) {
+void Area::loadCreatures(const resource::Gff &gff) {
+    for (const auto &creatureGff : gff.getList("Creature List")) {
         std::shared_ptr<Creature> creature = _game.newCreature(_sceneName);
-        creature->loadFromGIT(creatureStruct);
+        creature->deserialize(*creatureGff);
         landObject(*creature);
         add(creature);
     }

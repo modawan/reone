@@ -185,6 +185,17 @@ public:
         _type(type), _fields(std::move(fields)) {
     }
 
+    std::optional<bool> findBool(std::string_view name) const;
+    std::optional<int> findInt(std::string_view name) const;
+    std::optional<uint32_t> findUint(std::string_view name) const;
+    std::optional<float> findFloat(std::string_view name) const;
+
+    using OptionalStr = const std::string *;
+    OptionalStr findString(std::string_view name) const;
+
+    using OptionalList = const std::vector<std::shared_ptr<Gff>> *;
+    OptionalList findList(std::string_view name) const;
+
     bool getBool(const std::string &name, bool defValue = false) const;
     int getInt(const std::string &name, int defValue = 0) const;
     int64_t readInt64(const std::string &name, int64_t defValue = 0) const;
@@ -240,7 +251,7 @@ private:
     uint32_t _type {0};
     std::vector<Field> _fields;
 
-    const Field *get(const std::string &name) const;
+    const Field *get(std::string_view name) const;
 };
 
 } // namespace resource

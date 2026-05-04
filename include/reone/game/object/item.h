@@ -25,9 +25,12 @@
 
 #include "../object.h"
 #include "../types.h"
-#include "reone/resource/parser/gff/uti.h"
 
 namespace reone {
+
+namespace resources {
+class Gff;
+}
 
 namespace game {
 
@@ -59,6 +62,7 @@ public:
     }
 
     void loadFromBlueprint(const std::string &resRef);
+    bool deserialize(const resource::Gff &gff);
 
     void update(float dt) override;
 
@@ -113,7 +117,7 @@ private:
     int _damageFlags {0};
     WeaponType _weaponType {WeaponType::None};
     WeaponWield _weaponWield {WeaponWield::None};
-    bool _dropable {true};
+    bool _dropable {false};
     int _stackSize {1};
     bool _identified {true};
     bool _equipped {false};
@@ -132,11 +136,8 @@ private:
     std::shared_ptr<audio::AudioSource> _audioSource;
 
     // Blueprint
-
-    void loadUTI(const resource::generated::UTI &uti);
-
+    bool deserializeAll(const resource::Gff &gff, int max_recursion);
     void loadAmmunitionType();
-
     // END Blueprint
 };
 
