@@ -17,19 +17,25 @@
 
 #pragma once
 
-#include <boost/json.hpp>
-
 namespace reone {
 
 namespace resource {
+
 class Gff;
-struct GVT;
-}
 
-namespace json {
+struct GVT {
+    using Boolean = std::pair<std::string, bool>;
+    using Number = std::pair<std::string, int>;
+    using String = std::pair<std::string, std::string>;
+    using Location = std::pair<std::string, std::pair<glm::vec3, glm::vec3>>;
 
-boost::json::object fromGff(const resource::Gff &gff);
-boost::json::object fromGvt(const resource::GVT &gvt);
+    std::vector<Boolean> booleans;
+    std::vector<Number> numbers;
+    std::vector<String> strings;
+    std::vector<Location> locations;
+};
 
-} // namespace json
+GVT parseGVT(const Gff &gff);
+
+} // namespace resource
 } // namespace reone

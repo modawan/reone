@@ -17,19 +17,31 @@
 
 #pragma once
 
-#include <boost/json.hpp>
-
 namespace reone {
 
 namespace resource {
+
 class Gff;
-struct GVT;
-}
 
-namespace json {
+struct NFO {
+    std::string areaName;
+    std::string lastModule;
+    uint32_t timePlayed;
+    bool cheatUsed;
+    std::string savegameName;
+    uint32_t gameplayHint;
+    uint32_t storyHint;
+    std::string live1;
+    std::string live2;
+    std::string live3;
+    std::string live4;
+    std::string live5;
+    std::string live6;
+    uint32_t liveContent;
+    std::string portrait0;
+};
 
-boost::json::object fromGff(const resource::Gff &gff);
-boost::json::object fromGvt(const resource::GVT &gvt);
+NFO parseNFO(const Gff &gff);
 
-} // namespace json
+} // namespace resource
 } // namespace reone
