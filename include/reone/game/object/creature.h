@@ -23,7 +23,6 @@
 #include "reone/resource/format/2dareader.h"
 #include "reone/resource/format/gffreader.h"
 #include "reone/resource/parser/gff/git.h"
-#include "reone/resource/parser/gff/utc.h"
 #include "reone/resource/types.h"
 #include "reone/scene/animeventlistener.h"
 #include "reone/scene/node/model.h"
@@ -37,6 +36,10 @@
 #include "item.h"
 
 namespace reone {
+
+namespace resources {
+class Gff;
+}
 
 namespace game {
 
@@ -90,22 +93,16 @@ public:
         uint32_t id,
         std::string sceneName,
         Game &game,
-        ServicesView &services) :
-        Object(
-            id,
-            ObjectType::Creature,
-            std::move(sceneName),
-            game,
-            services) {
-    }
+        ServicesView &services);
 
     static bool classof(Object *from) {
         return from->type() == ObjectType::Creature;
     }
 
-    void loadFromGIT(const resource::generated::GIT_Creature_List &git);
     void loadFromBlueprint(const std::string &resRef);
     void loadAppearance();
+
+    bool deserialize(const resource::Gff &gff);
 
     void update(float dt) override;
 
@@ -143,6 +140,7 @@ public:
     Subrace subrace() const { return _subrace; }
     NPCAIStyle aiStyle() const { return _aiStyle; }
     int walkmeshMaterial() const { return _walkmeshMaterial; }
+    bool isPC() const { return _isPC; }
 
     void setGender(Gender gender) { _gender = gender; }
     void setAppearance(int appearance) { _appearance = appearance; }
@@ -401,15 +399,15 @@ private:
     // END Animation
 
     // Blueprint
-
-    void loadUTC(const resource::generated::UTC &utc);
-
-    void loadNameFromUTC(const resource::generated::UTC &utc);
-    void loadSoundSetFromUTC(const resource::generated::UTC &utc);
-    void loadBodyBagFromUTC(const resource::generated::UTC &utc);
-    void loadAttributesFromUTC(const resource::generated::UTC &utc);
-    void loadPerceptionRangeFromUTC(const resource::generated::UTC &utc);
-
+    bool deserializeAll(const resource::Gff &gff, int max_recursion);
+    bool deserializeName(const resource::Gff &gff);
+    bool deserializeSoundSet(const resource::Gff &gff);
+    bool deserializeBodyBag(const resource::Gff &gff);
+    bool deserializeAttributes(const resource::Gff &gff);
+    bool deserializeClass(const resource::Gff &gff);
+    bool deserializePerception(const resource::Gff &gff);
+    bool deserializeEquipItems(const resource::Gff &gff);
+    bool deserializeItems(const resource::Gff &gff);
     // END Blueprint
 };
 
