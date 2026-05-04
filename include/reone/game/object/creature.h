@@ -23,7 +23,7 @@
 #include "reone/resource/format/2dareader.h"
 #include "reone/resource/format/gffreader.h"
 #include "reone/resource/parser/gff/git.h"
-#include "reone/resource/parser/gff/utc.h"
+#include "reone/resource/strings.h"
 #include "reone/resource/types.h"
 #include "reone/scene/animeventlistener.h"
 #include "reone/scene/node/model.h"
@@ -37,6 +37,10 @@
 #include "item.h"
 
 namespace reone {
+
+namespace resource {
+class Gff;
+}
 
 namespace game {
 
@@ -90,22 +94,16 @@ public:
         uint32_t id,
         std::string sceneName,
         Game &game,
-        ServicesView &services) :
-        Object(
-            id,
-            ObjectType::Creature,
-            std::move(sceneName),
-            game,
-            services) {
-    }
+        ServicesView &services);
 
     static bool classof(Object *from) {
         return from->type() == ObjectType::Creature;
     }
 
-    void loadFromGIT(const resource::generated::GIT_Creature_List &git);
     void loadFromBlueprint(const std::string &resRef);
     void loadAppearance();
+
+    void deserialize(const resource::Gff &gff);
 
     void update(float dt) override;
 
@@ -143,6 +141,7 @@ public:
     Subrace subrace() const { return _subrace; }
     NPCAIStyle aiStyle() const { return _aiStyle; }
     int walkmeshMaterial() const { return _walkmeshMaterial; }
+    bool isPC() const { return _isPC; }
 
     void setGender(Gender gender) { _gender = gender; }
     void setAppearance(int appearance) { _appearance = appearance; }
@@ -276,47 +275,73 @@ public:
     // END Listeners
 
 private:
+    // Serializable
+    RacialType _race {RacialType::Unknown};
+    Subrace _subrace {Subrace::None};
+    uint32_t _appearance {0};
     Gender _gender {Gender::Male};
-    int _appearance {0};
+    uint16_t _portraitId {0};
+    bool _isPC {false};
+    Faction _faction {Faction::Invalid};
+    bool _disarmable {false};
+    bool _noPermDeath {false};
+    bool _notReorienting {false};
+    uint8_t _bodyVariation {0};
+    uint8_t _textureVar {0};
+    bool _partyInteract {false};
+    int32_t _walkRate {0};
+    uint8_t _naturalAC {0};
+    int16_t _forcePoints {0};
+    int16_t _currentForce {0};
+    int16_t _refBonus {0};
+    int16_t _willBonus {0};
+    int16_t _fortBonus {0};
+    uint8_t _goodEvil {0};
+    float _challengeRating {0};
+
+    std::string _onNotice;
+    std::string _onSpellAt;
+    std::string _onAttacked;
+    std::string _onDamaged;
+    std::string _onDisturbed;
+    std::string _onEndRound;
+    std::string _onEndDialogue;
+    std::string _onDialogue;
+    std::string _onSpawn;
+    std::string _onDeath;
+    std::string _onBlocked;
+
+    resource::LocString _firstName;
+    resource::LocString _lastName;
+
+    uint16_t _soundSetId {0xFFFF};
+    uint8_t _bodyBagId {0xFF};
+    uint8_t _perceptionId {0xFF};
+
+    CreatureAttributes _attributes;
+    std::map<int, std::shared_ptr<Item>> _equipment;
+    // END Serializable
+
     ModelType _modelType {ModelType::Creature};
     std::shared_ptr<graphics::Texture> _portrait;
-    std::map<int, std::shared_ptr<Item>> _equipment;
+
     std::shared_ptr<Path> _path;
     float _walkSpeed {0.0f};
     float _runSpeed {0.0f};
     MovementType _movementType {MovementType::None};
     bool _talking {false};
-    CreatureAttributes _attributes;
+
     ItemAttributes _itemAttributes;
-    Faction _faction {Faction::Invalid};
+
     bool _movementRestricted {false};
     CombatState _combatState;
-    int _portraitId {0};
     bool _immortal {false};
     int _xp {0};
     std::shared_ptr<resource::SoundSet> _soundSet;
     BodyBag _bodyBag;
     Perception _perception;
-    RacialType _race {RacialType::Unknown};
-    Subrace _subrace {Subrace::None};
     NPCAIStyle _aiStyle {NPCAIStyle::DefaultAttack};
-    bool _isPC {false};
-    bool _noPermDeath {false};
-    bool _notReorienting {false};
-    int _bodyVariation {0};
-    int _textureVar {0};
-    bool _partyInteract {false};
-    int _walkRate {0};
-    int _naturalAC {0};
-    int _forcePoints {0};
-    int _currentForce {0};
-    int _refBonus {0};
-    int _willBonus {0};
-    int _fortBonus {0};
-    int _goodEvil {0};
-    int _lawfulChaotic {0};
-    int _challengeRating {0};
-    bool _disarmable {false};
+
     uint32_t _footstepType {0};
     int _walkmeshMaterial {-1};
     int _gold {0}; /**< aka credits */
@@ -335,18 +360,6 @@ private:
     // END Animation
 
     // Scripts
-
-    std::string _onSpawn;
-    std::string _onDeath;
-    std::string _onNotice;
-    std::string _onEndRound;
-    std::string _onSpellAt;
-    std::string _onAttacked;
-    std::string _onDamaged;
-    std::string _onDisturbed;
-    std::string _onEndDialogue;
-    std::string _onBlocked;
-    std::string _onDialogue;
 
     // END Scripts
 
@@ -401,15 +414,14 @@ private:
     // END Animation
 
     // Blueprint
-
-    void loadUTC(const resource::generated::UTC &utc);
-
-    void loadNameFromUTC(const resource::generated::UTC &utc);
-    void loadSoundSetFromUTC(const resource::generated::UTC &utc);
-    void loadBodyBagFromUTC(const resource::generated::UTC &utc);
-    void loadAttributesFromUTC(const resource::generated::UTC &utc);
-    void loadPerceptionRangeFromUTC(const resource::generated::UTC &utc);
-
+    void deserializeAll(const resource::Gff &gff);
+    void deserializeName(const resource::Gff &gff);
+    void deserializeSoundSet(const resource::Gff &gff);
+    void deserializeBodyBag(const resource::Gff &gff);
+    void deserializeAttributes(const resource::Gff &gff);
+    void deserializeClass(const resource::Gff &gff);
+    void deserializePerception(const resource::Gff &gff);
+    void deserializeEquipItems(const resource::Gff &gff);
     // END Blueprint
 };
 

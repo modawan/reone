@@ -99,6 +99,7 @@ private:
     bool _lockable {false};
     bool _notBlastable {false};
     std::string _keyName;
+    bool _autoRemoveKey;
 
     // Walkmeshes
 
@@ -115,6 +116,7 @@ private:
     std::string _onClick;
     std::string _onClosed;
     std::string _onDamaged;
+    std::string _onDeath;
     std::string _onLock;
     std::string _onUnlock;
     std::string _onMeleeAttacked;

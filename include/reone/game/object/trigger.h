@@ -93,6 +93,7 @@ private:
     std::vector<glm::vec3> _geometry;
     std::set<std::shared_ptr<Object>> _tenants;
     std::string _keyName;
+    bool _autoRemoveKey;
     float _debugTestAge {0.0f};
     float _debugInsideAge {0.0f};
     float _debugEnterAge {0.0f};
