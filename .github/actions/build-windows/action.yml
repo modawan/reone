@@ -24,7 +24,7 @@ runs:
       run: |-
         vcpkg install --triplet x64-windows \
           boost-algorithm boost-endian boost-format boost-functional boost-program-options boost-json \
-          glm sdl2 sdl3 glew openal-soft libmad ffmpeg wxwidgets gtest \
+          glm sdl2 sdl3 glew openal-soft libmad ffmpeg wxwidgets gtest
 
     - name: Generate solution
       shell: bash
@@ -33,7 +33,7 @@ runs:
         cmake -S . -B build \
           -G "Visual Studio 17 2022" -A x64 \
           -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake \
+          -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
 
     - name: Build solution
       shell: bash
