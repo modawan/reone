@@ -20,6 +20,7 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/placeable.h"
 
 namespace reone {
 
@@ -29,6 +30,12 @@ void OpenContainerAction::execute(std::shared_ptr<Action> self, Object &actor, f
     if (!_object || !isa<Creature>(actor)) {
         complete();
         return;
+    }
+    if (auto *placeable = dyn_cast<Placeable>(_object.get())) {
+        if (placeable->isLocked()) {
+            complete();
+            return;
+        }
     }
 
     auto &creatureActor = cast<Creature>(actor);

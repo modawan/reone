@@ -50,6 +50,24 @@ static bool canBashDoor(const Door &door, const Creature &actor, const IReputes 
            (door.hitPoints() > 0 || door.currentHitPoints() > 0);
 }
 
+static bool canUseSecurityOnPlaceable(const Placeable &placeable, const Creature &actor) {
+    return placeable.hasInventory() &&
+           placeable.isLocked() &&
+           !placeable.isKeyRequired() &&
+           actor.attributes().hasSkill(SkillType::Security);
+}
+
+static bool canBashPlaceable(const Placeable &placeable, const Creature &actor, const IReputes &reputes) {
+    return placeable.hasInventory() &&
+           placeable.isLocked() &&
+           placeable.isSelectable() &&
+           !placeable.isDead() &&
+           !placeable.plotFlag() &&
+           !placeable.isNotBlastable() &&
+           reputes.getIsEnemy(actor.faction(), placeable.faction()) &&
+           (placeable.hitPoints() > 0 || placeable.currentHitPoints() > 0);
+}
+
 void Module::load(std::string name, const Gff &ifo, bool fromSave) {
     _name = std::move(name);
 
@@ -271,7 +289,9 @@ void Module::onPlaceableClick(const std::shared_ptr<Placeable> &placeable) {
 
     if (placeable->hasInventory()) {
         partyLeader->clearAllActions();
-        partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
+        if (!placeable->isLocked()) {
+            partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
+        }
     } else if (!placeable->conversation().empty()) {
         partyLeader->clearAllActions();
         partyLeader->addAction(_game.newAction<StartConversationAction>(placeable, placeable->conversation()));
@@ -357,6 +377,17 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
             actions.push_back(ContextAction(ActionType::AttackObject));
         }
         if (door->isLocked() && !door->isKeyRequired() && leader->attributes().hasSkill(SkillType::Security)) {
+            actions.push_back(ContextAction(SkillType::Security));
+        }
+        break;
+    }
+    case ObjectType::Placeable: {
+        auto placeable = cast<Placeable>(object);
+        auto leader = _game.party().getLeader();
+        if (canBashPlaceable(*placeable, *leader, _services.game.reputes)) {
+            actions.push_back(ContextAction(ActionType::AttackObject));
+        }
+        if (canUseSecurityOnPlaceable(*placeable, *leader)) {
             actions.push_back(ContextAction(SkillType::Security));
         }
         break;

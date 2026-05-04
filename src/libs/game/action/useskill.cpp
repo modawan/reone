@@ -21,6 +21,7 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/placeable.h"
 #include "reone/game/script/runner.h"
 #include "reone/system/logutil.h"
 
@@ -31,9 +32,24 @@ namespace game {
 void UseSkillAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     switch (_skill) {
     case SkillType::Security: {
-        if (_target && _target->type() == ObjectType::Door) {
+        if (!_target) {
+            warn("ActionExecutor: unsupported Security target: null");
+            complete();
+            return;
+        }
+        if (_target->type() == ObjectType::Door) {
             Door &door = static_cast<Door &>(*_target);
             if (unlockDoor(door, actor, kDefaultMaxObjectDistance, dt)) {
+                complete();
+            }
+            return;
+        }
+        if (_target->type() == ObjectType::Placeable) {
+            auto &placeable = static_cast<Placeable &>(*_target);
+            if (unlockPlaceable(placeable, actor, kDefaultMaxObjectDistance, dt)) {
+                if (placeable.hasInventory() && !placeable.isLocked()) {
+                    _game.openContainer(_target);
+                }
                 complete();
             }
             return;

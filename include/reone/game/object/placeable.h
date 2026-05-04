@@ -50,16 +50,24 @@ public:
     void loadFromGIT(const resource::generated::GIT_Placeable_List &git);
     void loadFromBlueprint(const std::string &resRef);
 
+    void damage(int amount, uint32_t damager) override;
+
     bool hasInventory() const { return _hasInventory; }
     bool isSelectable() const override { return _usable; }
     bool isUsable() const { return _usable; }
+    bool isLocked() const { return _locked; }
+    bool isKeyRequired() const { return _keyRequired; }
+    bool isNotBlastable() const { return _notBlastable; }
 
     int appearance() const { return _appearance; }
     Faction faction() const { return _faction; }
     std::shared_ptr<scene::WalkmeshSceneNode> walkmesh() const { return _walkmesh; }
 
+    void setLocked(bool locked) { _locked = locked; }
+
     // Scripts
 
+    void onOpen(uint32_t triggererId);
     void runOnUsed(std::shared_ptr<Object> usedBy);
     void runOnInvDisturbed(std::shared_ptr<Object> triggerrer);
 
@@ -79,6 +87,7 @@ private:
     int _fortitude {0};
     bool _partyInteract {false};
     bool _static {false};
+    bool _notBlastable {false};
 
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmesh;
 
@@ -102,6 +111,8 @@ private:
 
     void loadUTP(const resource::generated::UTP &utp);
     void loadTransformFromGIT(const resource::generated::GIT_Placeable_List &git);
+    void runDamagedScript(uint32_t damagerId);
+    void runDeathScript(uint32_t damagerId);
 
     void updateTransform() override;
 };

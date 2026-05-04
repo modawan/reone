@@ -17,6 +17,9 @@
 
 #include "reone/game/object/placeable.h"
 
+#include <algorithm>
+#include <limits>
+
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/script/runner.h"
@@ -86,6 +89,45 @@ void Placeable::loadTransformFromGIT(const resource::generated::GIT_Placeable_Li
     updateTransform();
 }
 
+void Placeable::damage(int amount, uint32_t damager) {
+    if (_dead || _plot || _notBlastable) {
+        return;
+    }
+    if (amount <= 0) {
+        return;
+    }
+
+    int currentHitPoints = _currentHitPoints > 0 ? _currentHitPoints : _hitPoints;
+    if (amount == std::numeric_limits<int>::max()) {
+        _currentHitPoints = isMinOneHP() ? 1 : 0;
+    } else {
+        _currentHitPoints = std::max(isMinOneHP() ? 1 : 0, currentHitPoints - amount);
+    }
+
+    damager = damager ? damager : script::kObjectInvalid;
+    runDamagedScript(damager);
+
+    if (_currentHitPoints > 0) {
+        return;
+    }
+
+    _dead = true;
+    _locked = false;
+    _open = true;
+    onOpen(damager);
+    runDeathScript(damager);
+}
+
+void Placeable::onOpen(uint32_t triggererId) {
+    if (_onOpen.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(
+        _onOpen,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::LastOpenedBy, Variable::ofObject(triggererId)}});
+}
+
 void Placeable::runOnUsed(std::shared_ptr<Object> usedBy) {
     if (_onUsed.empty()) {
         return;
@@ -116,6 +158,28 @@ void Placeable::runOnInvDisturbed(std::shared_ptr<Object> triggerrer) {
     _game.scriptRunner().run(_onInvDisturbed, args);
 }
 
+void Placeable::runDamagedScript(uint32_t damagerId) {
+    if (_onDamaged.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(
+        _onDamaged,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::LastAttacker, Variable::ofObject(damagerId)},
+         {script::ArgKind::LastDamager, Variable::ofObject(damagerId)}});
+}
+
+void Placeable::runDeathScript(uint32_t damagerId) {
+    if (_onDeath.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(
+        _onDeath,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::LastAttacker, Variable::ofObject(damagerId)},
+         {script::ArgKind::LastDamager, Variable::ofObject(damagerId)}});
+}
+
 void Placeable::loadUTP(const resource::generated::UTP &utp) {
     _tag = boost::to_lower_copy(utp.Tag);
     _name = _services.resource.strings.getText(utp.LocName.first);
@@ -139,6 +203,7 @@ void Placeable::loadUTP(const resource::generated::UTP &utp) {
     _partyInteract = utp.PartyInteract;
     _static = utp.Static;
     _usable = utp.Useable;
+    _notBlastable = utp.NotBlastable;
 
     _onClosed = boost::to_lower_copy(utp.OnClosed);
     _onDamaged = boost::to_lower_copy(utp.OnDamaged); // always empty, but could be useful
