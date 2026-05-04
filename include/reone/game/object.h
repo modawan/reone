@@ -31,6 +31,10 @@
 
 namespace reone {
 
+namespace resource {
+class Gff;
+}
+
 namespace game {
 
 struct ServicesView;
@@ -47,6 +51,8 @@ public:
     static bool classof(Object *from) {
         return true;
     }
+
+    void deserialize(const resource::Gff &gff);
 
     virtual void update(float dt);
     virtual void damage(int amount, uint32_t damager);
@@ -221,27 +227,30 @@ protected:
     Game &_game;
     ServicesView &_services;
 
+    // Serializable
     std::string _tag;
     std::string _blueprintResRef;
-    std::string _name;
     std::string _conversation;
+    std::string _onHeartbeat;
+    std::string _onUserDefined;
     bool _minOneHP {false};
-    int _hitPoints {0};
-    int _maxHitPoints {0};
-    int _currentHitPoints {0};
-    bool _dead {false};
     bool _plot {false};
     bool _commandable {true};
-    bool _autoRemoveKey {false};
     bool _interruptable {false};
-    bool _isInConversation {false};
-
+    int16_t _hitPoints {0};
+    int16_t _maxHitPoints {0};
+    int16_t _currentHitPoints {0};
     glm::vec3 _position {0.0f};
     glm::quat _orientation {1.0f, 0.0f, 0.0f, 0.0f};
+    std::vector<std::shared_ptr<Item>> _items; // FIXME: deserialize
+    // END Serializable
+
+    std::string _name;
+    bool _dead {false};
+    bool _isInConversation {false};
     glm::mat4 _transform {1.0f};
     bool _visible {true};
     Room *_room {nullptr};
-    std::vector<std::shared_ptr<Item>> _items;
     std::deque<AppliedEffect> _effects;
     bool _open {false};
     bool _stunt {false};
@@ -266,14 +275,6 @@ protected:
     std::map<int, int> _localNumbers;
 
     // END Local variables
-
-    // Scripts
-
-    std::string _onDeath;
-    std::string _onHeartbeat;
-    std::string _onUserDefined;
-
-    // END Scripts
 
     Object(
         uint32_t id,

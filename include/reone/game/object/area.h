@@ -341,10 +341,10 @@ private:
 
     // Loading GIT
 
-    void loadGIT(const resource::generated::GIT &git);
+    void loadGIT(const resource::generated::GIT &git, const resource::Gff &gff);
 
     void loadProperties(const resource::generated::GIT &git);
-    void loadCreatures(const resource::generated::GIT &git);
+    void loadCreatures(const resource::Gff &gff);
     void loadDoors(const resource::generated::GIT &git);
     void loadPlaceables(const resource::generated::GIT &git);
     void loadWaypoints(const resource::generated::GIT &git);

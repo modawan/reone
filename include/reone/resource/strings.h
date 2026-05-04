@@ -53,6 +53,55 @@ private:
     void stripDeveloperNotes(std::string &str);
 };
 
+class LocString {
+public:
+    LocString() :
+        _id(-1) {}
+    LocString(int32_t id, std::string ref, IStrings &strings) :
+        _id(id), _ref(ref) {
+        if (_id >= 0) {
+            _loc = strings.getText(id);
+        }
+    }
+
+    operator std::string_view() const {
+        return str();
+    }
+
+    const std::string &str() const {
+        return _loc;
+    }
+
+private:
+    int32_t _id;
+    std::string _ref;
+    std::string _loc;
+};
+
+class StrRef {
+public:
+    StrRef() :
+        _id(-1) {}
+    StrRef(int32_t id, IStrings &strings) :
+        _id(id) {
+        if (_id >= 0) {
+            _str = strings.getText(id);
+        }
+    }
+
+    operator std::string_view() const {
+        return str();
+    }
+
+    const std::string &str() const {
+        return _str;
+    }
+
+private:
+    int32_t _id;
+    std::string _str;
+};
+
 } // namespace resource
 
 } // namespace reone

@@ -35,6 +35,7 @@
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/exception/notfound.h"
+#include "reone/resource/gff.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/gffs.h"
 #include "reone/resource/provider/models.h"
@@ -83,6 +84,19 @@ static int getEquipabilitySlot(int slot) {
     }
 }
 
+Creature::Creature(
+    uint32_t id,
+    std::string sceneName,
+    Game &game,
+    ServicesView &services) :
+    Object(id, ObjectType::Creature, std::move(sceneName), game, services) {
+
+    // Workaround: the original engine does not retain perception range in
+    // savegames. Set default ranges to match PercepRngDefault from ranges.2da.
+    _perception.sightRange = 20.0f;
+    _perception.hearingRange = 20.0f;
+}
+
 void Creature::Path::selectNextPoint() {
     size_t pointCount = points.size();
     if (pointIdx < pointCount) {
@@ -90,18 +104,12 @@ void Creature::Path::selectNextPoint() {
     }
 }
 
-void Creature::loadFromGIT(const resource::generated::GIT_Creature_List &git) {
-    std::string templateResRef(boost::to_lower_copy(git.TemplateResRef));
-    loadFromBlueprint(templateResRef);
-    loadTransformFromGIT(git);
-}
-
 void Creature::loadFromBlueprint(const std::string &resRef) {
     auto utc = _services.resource.gffs.get(resRef, ResType::Utc);
     if (!utc) {
         return;
     }
-    loadUTC(resource::generated::parseUTC(*utc));
+    deserialize(*utc);
     loadAppearance();
 }
 
@@ -1318,154 +1326,211 @@ std::string Creature::getWeaponModelName(int slot) const {
     return modelName;
 }
 
-void Creature::loadUTC(const resource::generated::UTC &utc) {
-    _blueprintResRef = boost::to_lower_copy(utc.TemplateResRef);
-    _race = static_cast<RacialType>(utc.Race);         // index into racialtypes.2da
-    _subrace = static_cast<Subrace>(utc.SubraceIndex); // index into subrace.2da
-    _appearance = utc.Appearance_Type;                 // index into appearance.2da
-    _gender = static_cast<Gender>(utc.Gender);         // index into gender.2da
-    _portraitId = utc.PortraitId;                      // index into portrait.2da
-    _tag = boost::to_lower_copy(utc.Tag);
-    _conversation = boost::to_lower_copy(utc.Conversation);
-    _isPC = utc.IsPC;                               // always 0
-    _faction = static_cast<Faction>(utc.FactionID); // index into repute.2da
-    _disarmable = utc.Disarmable;
-    _plot = utc.Plot;
-    _interruptable = utc.Interruptable;
-    _noPermDeath = utc.NoPermDeath;
-    _notReorienting = utc.NotReorienting;
-    _bodyVariation = utc.BodyVariation;
-    _textureVar = utc.TextureVar;
-    _minOneHP = utc.Min1HP;
-    _partyInteract = utc.PartyInteract;
-    _walkRate = utc.WalkRate; // index into creaturespeed.2da
-    _naturalAC = utc.NaturalAC;
-    _hitPoints = utc.HitPoints;
-    _currentHitPoints = utc.CurrentHitPoints;
-    _maxHitPoints = utc.MaxHitPoints;
-    _forcePoints = utc.ForcePoints;
-    _currentForce = utc.CurrentForce;
-    _refBonus = utc.refbonus;
-    _willBonus = utc.willbonus;
-    _fortBonus = utc.fortbonus;
-    _goodEvil = utc.GoodEvil;
-    _challengeRating = utc.ChallengeRating;
-
-    _onHeartbeat = boost::to_lower_copy(utc.ScriptHeartbeat);
-    _onNotice = boost::to_lower_copy(utc.ScriptOnNotice);
-    _onSpellAt = boost::to_lower_copy(utc.ScriptSpellAt);
-    _onAttacked = boost::to_lower_copy(utc.ScriptAttacked);
-    _onDamaged = boost::to_lower_copy(utc.ScriptDamaged);
-    _onDisturbed = boost::to_lower_copy(utc.ScriptDisturbed);
-    _onEndRound = boost::to_lower_copy(utc.ScriptEndRound);
-    _onEndDialogue = boost::to_lower_copy(utc.ScriptEndDialogu);
-    _onDialogue = boost::to_lower_copy(utc.ScriptDialogue);
-    _onSpawn = boost::to_lower_copy(utc.ScriptSpawn);
-    _onDeath = boost::to_lower_copy(utc.ScriptDeath);
-    _onUserDefined = boost::to_lower_copy(utc.ScriptUserDefine);
-    _onBlocked = boost::to_lower_copy(utc.ScriptOnBlocked);
-
-    loadNameFromUTC(utc);
-    loadSoundSetFromUTC(utc);
-    loadBodyBagFromUTC(utc);
-    loadAttributesFromUTC(utc);
-    loadPerceptionRangeFromUTC(utc);
-
-    for (auto &item : utc.Equip_ItemList) {
-        equip(boost::to_lower_copy(item.EquippedRes));
+void Creature::deserialize(const resource::Gff &gff) {
+    std::string templateRes;
+    if (gff.readResRef(templateRes, "TemplateResRef")) {
+        if (auto utc = _services.resource.gffs.get(templateRes, ResType::Utc)) {
+            deserializeAll(*utc);
+        }
     }
-    for (auto &item : utc.ItemList) {
-        std::string resRef(boost::to_lower_copy(item.InventoryRes));
-        bool dropable = item.Dropable;
-        addItem(resRef, 1, dropable);
-    }
+    deserializeAll(gff);
 
-    // Unused fields:
-    //
-    // - Phenotype (not applicable, always 0)
-    // - Description (not applicable)
-    // - Subrace (unknown, we already use SubraceIndex)
-    // - Deity (not applicable, always empty)
-    // - LawfulChaotic (not applicable)
-    // - ScriptRested (not applicable, mostly empty)
-    // - PaletteID (toolset only)
-    // - Comment (toolset only)
+    updateTransform();
+    loadAppearance();
 }
 
-void Creature::loadNameFromUTC(const resource::generated::UTC &utc) {
-    std::string firstName(_services.resource.strings.getText(utc.FirstName.first));
-    std::string lastName(_services.resource.strings.getText(utc.LastName.first));
-    if (!firstName.empty() && !lastName.empty()) {
-        _name = firstName + " " + lastName;
-    } else if (!firstName.empty()) {
-        _name = firstName;
-    }
+void Creature::deserializeAll(const resource::Gff &gff) {
+    Object::deserialize(gff);
+
+    // index into racialtypes.2da
+    gff.readEnum(_race, "Race");
+
+    // index into subrace.2da
+    gff.readEnum(_subrace, "SubraceIndex");
+
+    // index into appearance.2da
+    gff.readEnum(_appearance, "Appearance_Type");
+
+    // in dex into gender.2da
+    gff.readEnum(_gender, "Gender");
+
+    // index into portrait.2da
+    gff.readWord(_portraitId, "PortraitId");
+
+    gff.readBool(_isPC, "IsPC");
+
+    // index into repute.2da
+    gff.readEnum(_faction, "FactionID");
+
+    gff.readBool(_disarmable, "Disarmable");
+    gff.readBool(_noPermDeath, "NoPermDeath");
+    gff.readBool(_notReorienting, "NotReorienting");
+    gff.readByte(_bodyVariation, "BodyVariation");
+    gff.readByte(_textureVar, "TextureVar");
+    gff.readBool(_partyInteract, "PartyInteract");
+
+    // index into creaturespeed.2da
+    gff.readInt(_walkRate, "WalkRate");
+
+    gff.readByte(_naturalAC, "NaturalAC");
+    gff.readShort(_forcePoints, "ForcePoints");
+    gff.readShort(_currentForce, "CurrentForce");
+    gff.readShort(_refBonus, "refbonus");
+    gff.readShort(_willBonus, "willbonus");
+    gff.readShort(_fortBonus, "fortbonus");
+    gff.readByte(_goodEvil, "GoodEvil");
+    gff.readFloat(_challengeRating, "ChallengeRating");
+
+    gff.readResRef(_onNotice, "ScriptOnNotice");
+    gff.readResRef(_onSpellAt, "ScriptSpellAt");
+    gff.readResRef(_onAttacked, "ScriptAttacked");
+    gff.readResRef(_onDamaged, "ScriptDamaged");
+    gff.readResRef(_onDisturbed, "ScriptDisturbed");
+    gff.readResRef(_onEndRound, "ScriptEndRound");
+    gff.readResRef(_onEndDialogue, "ScriptEndDialogu");
+    gff.readResRef(_onDialogue, "ScriptDialogue");
+    gff.readResRef(_onSpawn, "ScriptSpawn");
+    gff.readResRef(_onDeath, "ScriptDeath");
+    gff.readResRef(_onBlocked, "ScriptOnBlocked");
+
+    deserializeName(gff);
+    deserializeSoundSet(gff);
+    deserializeBodyBag(gff);
+    deserializeAttributes(gff);
+    deserializePerception(gff);
+    deserializeEquipItems(gff);
 }
 
-void Creature::loadSoundSetFromUTC(const resource::generated::UTC &utc) {
-    uint32_t soundSetIdx = utc.SoundSetFile;
-    if (soundSetIdx == 0xffff) {
+void Creature::deserializeName(const resource::Gff &gff) {
+    gff.readLocString(_firstName, "FirstName", _services.resource.strings);
+    gff.readLocString(_lastName, "LastName", _services.resource.strings);
+
+    _name = _firstName.str();
+    const std::string &last = _lastName.str();
+    if (!_name.empty() && !last.empty()) {
+        _name += ' ';
+    }
+    _name += last;
+}
+
+void Creature::deserializeSoundSet(const resource::Gff &gff) {
+    gff.readWord(_soundSetId, "SoundSetFile");
+    if (_soundSetId == 0xffff) {
         return;
     }
+
     std::shared_ptr<TwoDA> soundSetTable(_services.resource.twoDas.get("soundset"));
     if (!soundSetTable) {
         return;
     }
-    std::string soundSetResRef(soundSetTable->getString(soundSetIdx, "resref"));
+    std::string soundSetResRef(soundSetTable->getString(_soundSetId, "resref"));
     if (!soundSetResRef.empty()) {
         _soundSet = _services.resource.soundSets.get(soundSetResRef);
     }
 }
 
-void Creature::loadBodyBagFromUTC(const resource::generated::UTC &utc) {
+void Creature::deserializeBodyBag(const resource::Gff &gff) {
+    gff.readByte(_bodyBagId, "BodyBag");
+    if (_bodyBagId == 0xFF) {
+        return;
+    }
+
     std::shared_ptr<TwoDA> bodyBags(_services.resource.twoDas.get("bodybag"));
     if (!bodyBags) {
         return;
     }
-    int bodyBag = utc.BodyBag;
-    _bodyBag.name = _services.resource.strings.getText(bodyBags->getInt(bodyBag, "name"));
-    _bodyBag.appearance = bodyBags->getInt(bodyBag, "appearance");
-    _bodyBag.corpse = bodyBags->getBool(bodyBag, "corpse");
+    _bodyBag.name = _services.resource.strings.getText(bodyBags->getInt(_bodyBagId, "name"));
+    _bodyBag.appearance = bodyBags->getInt(_bodyBagId, "appearance");
+    _bodyBag.corpse = bodyBags->getBool(_bodyBagId, "corpse");
+    return;
 }
 
-void Creature::loadAttributesFromUTC(const resource::generated::UTC &utc) {
+void Creature::deserializeAttributes(const resource::Gff &gff) {
     CreatureAttributes &attributes = _attributes;
-    attributes.setAbilityScore(Ability::Strength, utc.Str);
-    attributes.setAbilityScore(Ability::Dexterity, utc.Dex);
-    attributes.setAbilityScore(Ability::Constitution, utc.Con);
-    attributes.setAbilityScore(Ability::Intelligence, utc.Int);
-    attributes.setAbilityScore(Ability::Wisdom, utc.Wis);
-    attributes.setAbilityScore(Ability::Charisma, utc.Cha);
-
-    for (auto &classStrct : utc.ClassList) {
-        auto clazz = static_cast<ClassType>(classStrct.Class);
-        int level = classStrct.ClassLevel;
-        attributes.addClassLevels(_services.game.classes.get(clazz).get(), level);
-        for (auto &spellStrct : classStrct.KnownList0) {
-            auto spell = static_cast<SpellType>(spellStrct.Spell);
-            attributes.addSpell(spell);
+    {
+        uint8_t value;
+        if (gff.readByte(value, "Str")) {
+            attributes.setAbilityScore(Ability::Strength, value);
+        }
+        if (gff.readByte(value, "Dex")) {
+            attributes.setAbilityScore(Ability::Dexterity, value);
+        }
+        if (gff.readByte(value, "Con")) {
+            attributes.setAbilityScore(Ability::Constitution, value);
+        }
+        if (gff.readByte(value, "Int")) {
+            attributes.setAbilityScore(Ability::Intelligence, value);
+        }
+        if (gff.readByte(value, "Wis")) {
+            attributes.setAbilityScore(Ability::Wisdom, value);
+        }
+        if (gff.readByte(value, "Cha")) {
+            attributes.setAbilityScore(Ability::Charisma, value);
         }
     }
 
-    for (size_t i = 0; i < utc.SkillList.size(); ++i) {
-        SkillType skill = static_cast<SkillType>(i);
-        attributes.setSkillRank(skill, utc.SkillList[i].Rank);
+    for (const auto &clazz : gff.getList("ClassList")) {
+        deserializeClass(*clazz);
     }
 
-    for (auto &featStrct : utc.FeatList) {
-        auto feat = static_cast<FeatType>(featStrct.Feat);
-        _attributes.addFeat(feat);
+    int skillType = 0;
+    for (const auto &skill : gff.getList("SkillList")) {
+        attributes.setSkillRank(
+            static_cast<SkillType>(skillType++), skill->getUint("Rank"));
+    }
+
+    for (const auto &feat : gff.getList("FeatList")) {
+        auto featType = static_cast<FeatType>(feat->getUint("Feat"));
+        _attributes.addFeat(featType);
     }
 }
 
-void Creature::loadPerceptionRangeFromUTC(const resource::generated::UTC &utc) {
+void Creature::deserializeClass(const resource::Gff &gff) {
+    auto clazz = _services.game.classes.get(
+        static_cast<ClassType>(gff.getInt("Class")));
+    if (!clazz) {
+        return;
+    }
+
+    int16_t level;
+    if (gff.readShort(level, "ClassLevel")) {
+        _attributes.addClassLevels(clazz.get(), level);
+    }
+
+    for (const auto &spell : gff.getList("KnownList0")) {
+        auto spellType = static_cast<SpellType>(spell->getUint("Spell"));
+        _attributes.addSpell(spellType);
+    }
+}
+
+void Creature::deserializePerception(const resource::Gff &gff) {
+    gff.readByte(_perceptionId, "PerceptionRange");
+    if (_perceptionId == 0xFF) {
+        return;
+    }
+
     std::shared_ptr<TwoDA> ranges(_services.resource.twoDas.get("ranges"));
     if (!ranges) {
         return;
     }
-    int rangeIdx = utc.PerceptionRange;
-    _perception.sightRange = ranges->getFloat(rangeIdx, "primaryrange");
-    _perception.hearingRange = ranges->getFloat(rangeIdx, "secondaryrange");
+
+    _perception.sightRange = ranges->getFloat(_perceptionId, "primaryrange");
+    _perception.hearingRange = ranges->getFloat(_perceptionId, "secondaryrange");
+}
+
+void Creature::deserializeEquipItems(const resource::Gff &gff) {
+    for (const auto &itemGff : gff.getList("Equip_ItemList")) {
+        std::shared_ptr<Item> item = _game.newItem();
+        item->deserialize(*itemGff);
+        if (item->isEquippable(InventorySlots::body)) {
+            equip(InventorySlots::body, item);
+        } else if (item->isEquippable(InventorySlots::rightWeapon)) {
+            equip(InventorySlots::rightWeapon, item);
+        } else {
+            addItem(item);
+            warn(str(boost::format("item is not equippable: %s") % item->tag()));
+        }
+    }
 }
 
 } // namespace game

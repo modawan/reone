@@ -24,6 +24,134 @@ namespace reone {
 
 namespace resource {
 
+bool Gff::readByte(uint8_t &val, std::string_view label) const {
+    if (const Field *field = get(label)) {
+        val = field->uintValue;
+        return true;
+    }
+    return false;
+}
+
+bool Gff::readChar(int8_t &val, std::string_view label) const {
+    if (const Field *field = get(label)) {
+        val = field->intValue;
+        return true;
+    }
+    return false;
+}
+
+bool Gff::readWord(uint16_t &val, std::string_view label) const {
+    if (const Field *field = get(label)) {
+        val = field->uintValue;
+        return true;
+    }
+    return false;
+}
+
+bool Gff::readShort(int16_t &val, std::string_view label) const {
+    if (const Field *field = get(label)) {
+        val = field->intValue;
+        return true;
+    }
+    return false;
+}
+
+bool Gff::readDword(uint32_t &val, std::string_view label) const {
+    if (const Field *field = get(label)) {
+        val = field->uintValue;
+        return true;
+    }
+    return false;
+}
+
+bool Gff::readInt(int32_t &val, std::string_view label) const {
+    if (const Field *field = get(label)) {
+        val = field->intValue;
+        return true;
+    }
+    return false;
+}
+
+bool Gff::readDword64(uint64_t &val, std::string_view label) const {
+    if (const Field *field = get(label)) {
+        val = field->uint64Value;
+        return true;
+    }
+    return false;
+}
+
+bool Gff::readInt64(int64_t &val, std::string_view label) const {
+    if (const Field *field = get(label)) {
+        val = field->int64Value;
+        return true;
+    }
+    return false;
+}
+
+bool Gff::readFloat(float &val, std::string_view label) const {
+    if (const Field *field = get(label)) {
+        val = field->floatValue;
+        return true;
+    }
+    return false;
+}
+
+bool Gff::readDouble(double &val, std::string_view label) const {
+    if (const Field *field = get(label)) {
+        val = field->doubleValue;
+        return true;
+    }
+    return false;
+}
+
+bool Gff::readVector(glm::vec3 &val, std::string_view label) const {
+    if (const Field *field = get(label)) {
+        val = field->vecValue;
+        return true;
+    }
+    return false;
+}
+
+bool Gff::readOrientation(glm::quat &val, std::string_view label) const {
+    if (const Field *field = get(label)) {
+        val = field->quatValue;
+        return true;
+    }
+    return false;
+}
+
+bool Gff::readString(std::string &val, std::string_view label) const {
+    if (const Field *field = get(label)) {
+        val = field->strValue;
+        return true;
+    }
+    return false;
+}
+
+bool Gff::readResRef(std::string &val, std::string_view label) const {
+    if (const Field *field = get(label)) {
+        val = boost::to_lower_copy(field->strValue);
+        return true;
+    }
+    return false;
+}
+
+bool Gff::readLocString(LocString &val, std::string_view label, IStrings &strings) const {
+    if (const Field *field = get(label)) {
+        val = LocString(field->intValue, field->strValue, strings);
+        return true;
+    }
+    return false;
+}
+
+bool Gff::readStrRef(StrRef &val, std::string_view label, IStrings &strings) const {
+    if (const Field *field = get(label)) {
+        val = StrRef(field->intValue, strings);
+        return true;
+    }
+    return false;
+}
+
 bool Gff::getBool(const std::string &name, bool defValue) const {
     const Field *field = get(name);
     if (!field)
@@ -32,7 +160,7 @@ bool Gff::getBool(const std::string &name, bool defValue) const {
     return field->intValue != 0;
 }
 
-const Gff::Field *Gff::get(const std::string &name) const {
+const Gff::Field *Gff::get(std::string_view name) const {
     auto maybeField = std::find_if(
         _fields.begin(),
         _fields.end(),
@@ -49,7 +177,7 @@ int Gff::getInt(const std::string &name, int defValue) const {
     return field->intValue;
 }
 
-int64_t Gff::readInt64(const std::string &name, int64_t defValue) const {
+int64_t Gff::getInt64(const std::string &name, int64_t defValue) const {
     const Field *field = get(name);
     if (!field)
         return defValue;
@@ -65,7 +193,7 @@ uint32_t Gff::getUint(const std::string &name, uint32_t defValue) const {
     return field->uintValue;
 }
 
-uint64_t Gff::readUint64(const std::string &name, uint64_t defValue) const {
+uint64_t Gff::getUint64(const std::string &name, uint64_t defValue) const {
     const Field *field = get(name);
     if (!field)
         return defValue;
@@ -121,14 +249,6 @@ glm::quat Gff::getOrientation(const std::string &name, glm::quat defValue) const
     return field->quatValue;
 }
 
-std::shared_ptr<Gff> Gff::findStruct(const std::string &name) const {
-    const Field *field = get(name);
-    if (!field)
-        return nullptr;
-
-    return field->children[0];
-}
-
 std::vector<std::shared_ptr<Gff>> Gff::getList(const std::string &name) const {
     const Field *field = get(name);
     if (!field)
@@ -143,6 +263,14 @@ ByteBuffer Gff::getData(const std::string &name) const {
         return ByteBuffer();
 
     return field->data;
+}
+
+std::shared_ptr<Gff> Gff::findStruct(std::string_view name) const {
+    const Field *field = get(name);
+    if (!field)
+        return nullptr;
+
+    return field->children[0];
 }
 
 std::string Gff::Field::toString() const {
