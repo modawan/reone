@@ -137,6 +137,7 @@ public:
     std::shared_ptr<Module> module() const { return _module; }
     CameraType cameraType() const { return _cameraType; }
     const std::set<std::string> &moduleNames() const { return _moduleNames; }
+    const std::set<std::string> &saveNames() const { return _saveNames; }
 
     void initLocalServices();
     void setSceneSurfaces();
@@ -190,10 +191,14 @@ public:
     /**
      * @param entry waypoint tag to spawn at, or empty string to spawn at default location
      */
-    void loadModule(const std::string &name, std::string entry = "");
+    void loadModule(const std::string &name, std::string entry = "", bool fromSave = false);
 
     void scheduleModuleTransition(const std::string &moduleName, const std::string &entry);
     void scheduleModuleTransitionWithMovies(const std::string &moduleName, const std::string &entry, std::vector<std::string> movies);
+
+    // Load a savegame. Name must be one of savegame directores returned by
+    // ResourceDirector::saveNames().
+    void loadGame(std::string_view name);
 
     // END Module loading
 
@@ -350,6 +355,7 @@ private:
     CameraType _cameraType {CameraType::ThirdPerson};
     bool _paused {false};
     std::set<std::string> _moduleNames;
+    std::set<std::string> _saveNames;
     bool _quitRequested {false};
     bool _relativeMouseMode {false};
 
@@ -414,6 +420,7 @@ private:
     void stopMovement();
 
     void loadDefaultParty();
+    bool loadParty();
     void loadNextModule();
     void playMusic(const std::string &resRef);
     void toggleInGameCameraType();
@@ -538,6 +545,8 @@ private:
     void consoleAddOrRemoveSpell(const ConsoleArgs &tokens);
     void consoleCastSpellAtObject(const ConsoleArgs &tokens);
     void consoleOpenCloseDoor(const ConsoleArgs &tokens);
+    void consoleListGames(const ConsoleArgs &tokens);
+    void consoleLoadGame(const ConsoleArgs &tokens);
 
     // END Console commands
 };

@@ -176,7 +176,9 @@ class MockResourceDirector : public IResourceDirector, boost::noncopyable {
 public:
     MOCK_METHOD(void, init, (), (override));
     MOCK_METHOD(void, onModuleLoad, (const std::string &name), (override));
+    MOCK_METHOD(void, onGameLoad, (std::string_view name), (override));
     MOCK_METHOD(std::set<std::string>, moduleNames, (), (override));
+    MOCK_METHOD(std::set<std::string>, saveNames, (), (override));
 };
 
 class TestResourceModule : boost::noncopyable {

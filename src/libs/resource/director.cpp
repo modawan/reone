@@ -47,6 +47,7 @@ static constexpr char kSoundsDirectoryName[] = "streamsounds";
 static constexpr char kWavesDirectoryName[] = "streamwaves";
 static constexpr char kVoiceDirectoryName[] = "streamvoice";
 static constexpr char kModulesDirectoryName[] = "modules";
+static constexpr char kSavesDirectoryName[] = "saves";
 static constexpr char kLipsDirectoryName[] = "lips";
 static constexpr char kOverrideDirectoryName[] = "override";
 
@@ -82,6 +83,11 @@ void ResourceDirector::onModuleLoad(const std::string &name) {
     loadModuleResources(name);
 }
 
+void ResourceDirector::onGameLoad(std::string_view name) {
+    _resources.clearSave();
+    loadSaveGameResources(name);
+}
+
 std::set<std::string> ResourceDirector::moduleNames() {
     auto moduleNames = std::set<std::string>();
     auto modulesPath = findFileIgnoreCase(_gamePath, kModulesDirectoryName);
@@ -96,6 +102,18 @@ std::set<std::string> ResourceDirector::moduleNames() {
         }
     }
     return moduleNames;
+}
+
+std::set<std::string> ResourceDirector::saveNames() {
+    auto names = std::set<std::string>();
+    auto savesPath = findFileIgnoreCase(_gamePath, kSavesDirectoryName);
+    if (!savesPath) {
+        throw ResourceNotFoundException("Saves directory not found");
+    }
+    for (auto &entry : std::filesystem::directory_iterator(*savesPath)) {
+        names.insert(boost::to_lower_copy(entry.path().filename().string()));
+    }
+    return names;
 }
 
 void ResourceDirector::loadGlobalResources() {
@@ -184,6 +202,30 @@ void ResourceDirector::loadModuleResources(const std::string &name) {
     if (_gameId == GameID::TSL) {
         loadERF(*modulesPath, name + "_dlg", ContainerKind::Local);
     }
+}
+
+void ResourceDirector::loadSaveGameResources(std::string_view name) {
+    auto allSavesPath = findFileIgnoreCase(_gamePath, kSavesDirectoryName);
+    if (!allSavesPath) {
+        throw ResourceNotFoundException("Saves directory not found");
+    }
+
+    auto savePath = findFileIgnoreCase(*allSavesPath, name);
+    if (!savePath) {
+        throw ResourceNotFoundException(str(boost::format("Save directory not found: %s") % name));
+    }
+
+    // Add savegame directory itself, so we can load globalvars.res
+    // partytable.res and savenfo.res.
+    _resources.addFolder(*savePath);
+
+    _savegamePath = findFileIgnoreCase(*savePath, "savegame.sav");
+    if (!_savegamePath) {
+        throw ResourceNotFoundException("savegame.sav not found");
+    }
+
+    // Add savegame resource archive.
+    _resources.addERF(*_savegamePath);
 }
 
 void ResourceDirector::loadRIM(const std::filesystem::path &path, const std::string &name, ContainerKind kind) {
