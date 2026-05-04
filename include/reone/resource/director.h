@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "resources.h"
 #include "types.h"
 
 namespace reone {
@@ -99,6 +100,8 @@ private:
 
     void loadGlobalResources();
     void loadModuleResources(const std::string &name);
+    void loadRIM(const std::filesystem::path &path, const std::string &name, ContainerKind kind);
+    void loadERF(const std::filesystem::path &path, const std::string &name, ContainerKind kind);
 };
 
 } // namespace resource

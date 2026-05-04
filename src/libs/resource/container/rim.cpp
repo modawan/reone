@@ -25,9 +25,7 @@ namespace reone {
 namespace resource {
 
 void RimResourceContainer::init() {
-    _rim = std::make_unique<FileInputStream>(_path);
-
-    auto reader = RimReader(*_rim);
+    auto reader = RimReader(_storage.stream());
     reader.load();
 
     for (auto &rimResource : reader.resources()) {
@@ -52,8 +50,9 @@ std::optional<ByteBuffer> RimResourceContainer::findResourceData(const ResourceI
     ByteBuffer buf;
     buf.resize(resource.fileSize);
 
-    _rim->seek(resource.offset, SeekOrigin::Begin);
-    _rim->read(&buf[0], buf.size());
+    IInputStream &rim = _storage.stream();
+    rim.seek(resource.offset, SeekOrigin::Begin);
+    rim.read(&buf[0], buf.size());
 
     return buf;
 }

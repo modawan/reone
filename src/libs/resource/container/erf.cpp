@@ -24,9 +24,7 @@ namespace reone {
 namespace resource {
 
 void ErfResourceContainer::init() {
-    _erf = std::make_unique<FileInputStream>(_path);
-
-    auto reader = ErfReader(*_erf);
+    auto reader = ErfReader(_storage.stream());
     reader.load();
 
     auto &keys = reader.keys();
@@ -54,8 +52,9 @@ std::optional<ByteBuffer> ErfResourceContainer::findResourceData(const ResourceI
     ByteBuffer buf;
     buf.resize(resource.fileSize);
 
-    _erf->seek(resource.offset, SeekOrigin::Begin);
-    _erf->read(&buf[0], buf.size());
+    IInputStream &erf = _storage.stream();
+    erf.seek(resource.offset, SeekOrigin::Begin);
+    erf.read(&buf[0], buf.size());
 
     return buf;
 }

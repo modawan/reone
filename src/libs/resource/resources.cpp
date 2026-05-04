@@ -40,8 +40,20 @@ void Resources::addERF(const std::filesystem::path &path, ContainerKind kind) {
     _containers.push_front(ResourceContainerPair {std::move(provider), kind});
 }
 
+void Resources::addMemERF(ByteBuffer buffer, ContainerKind kind) {
+    auto provider = std::make_unique<ErfResourceContainer>(std::move(buffer));
+    provider->init();
+    _containers.push_front(ResourceContainerPair {std::move(provider), kind});
+}
+
 void Resources::addRIM(const std::filesystem::path &path, ContainerKind kind) {
     auto provider = std::make_unique<RimResourceContainer>(path);
+    provider->init();
+    _containers.push_front(ResourceContainerPair {std::move(provider), kind});
+}
+
+void Resources::addMemRIM(ByteBuffer buffer, ContainerKind kind) {
+    auto provider = std::make_unique<RimResourceContainer>(buffer);
     provider->init();
     _containers.push_front(ResourceContainerPair {std::move(provider), kind});
 }
