@@ -53,6 +53,9 @@ void GrassSceneNode::init() {
             continue;
         }
         _grassFaces.push_back(static_cast<int>(faceIdx));
+        if (!_aabbNode.mesh()->mesh->tryFaceUV2(face, glm::vec3(1.0f, 0.0f, 0.0f))) {
+            _hasLightmapUV = false;
+        }
     }
 
     // Pre-allocate grass clusters
@@ -127,7 +130,10 @@ void GrassSceneNode::update(float dt) {
             }
             glm::vec3 baryPosition(getRandomBarycentric());
             glm::vec3 position(barycentricToCartesian(verts[0], verts[1], verts[2], baryPosition));
-            glm::vec2 lightmapUV(mesh->faceUV2(face, baryPosition));
+            glm::vec2 lightmapUV {0.0f};
+            if (_hasLightmapUV) {
+                lightmapUV = *mesh->tryFaceUV2(face, baryPosition);
+            }
             auto cluster = _clusterPool.top();
             _clusterPool.pop();
             cluster->setLocalTransform(glm::translate(position));
@@ -144,7 +150,7 @@ void GrassSceneNode::renderLeafs(IRenderPass &pass, const std::vector<SceneNode 
         return;
     }
     std::optional<std::reference_wrapper<Texture>> lightmap;
-    if (!_aabbNode.mesh()->lightmap.empty()) {
+    if (_hasLightmapUV && !_aabbNode.mesh()->lightmap.empty()) {
         lightmap = *_resourceSvc.textures.get(_aabbNode.mesh()->lightmap, TextureUsage::Lightmap);
     }
     auto instances = std::vector<GrassInstance>(leafs.size());

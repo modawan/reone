@@ -277,10 +277,24 @@ glm::vec2 Mesh::faceUV1(const Face &face, const glm::vec3 &baryPosition) const {
 
 glm::vec2 Mesh::faceUV2(const Face &face, const glm::vec3 &baryPosition) const {
     checkNotEqual("UV offset", _vertexLayout.offUV2, 1);
+    auto uv = tryFaceUV2(face, baryPosition);
+    if (!uv) {
+        throw std::runtime_error("Face has no second UV channel");
+    }
+    return *uv;
+}
+
+std::optional<glm::vec2> Mesh::tryFaceUV2(const Face &face, const glm::vec3 &baryPosition) const {
+    if (_vertexLayout.offUV2 == -1) {
+        return std::nullopt;
+    }
     std::vector<glm::vec2> uv;
     uv.reserve(3);
     for (int i = 0; i < 3; ++i) {
         const auto &vertex = _vertices[face.vertices[i]];
+        if (!vertex.uv2) {
+            return std::nullopt;
+        }
         uv.push_back(*vertex.uv2);
     }
     return barycentricToCartesian(uv[0], uv[1], uv[2], baryPosition);
