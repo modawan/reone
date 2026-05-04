@@ -171,41 +171,55 @@ void ResourceDirector::loadGlobalResources() {
 }
 
 void ResourceDirector::loadModuleResources(const std::string &name) {
-    auto modulesPath = findFileIgnoreCase(_gamePath, kModulesDirectoryName);
+    std::optional<std::filesystem::path> modulesPath = findFileIgnoreCase(_gamePath, kModulesDirectoryName);
     if (!modulesPath) {
         throw ResourceNotFoundException("Modules directory not found");
     }
 
-    auto &resources = _resources;
-    auto rimPath = findFileIgnoreCase(*modulesPath, name + ".rim");
-    if (rimPath) {
-        resources.addRIM(*rimPath, ContainerKind::Local);
-    }
-    auto rimsPath = findFileIgnoreCase(*modulesPath, name + "_s.rim");
-    if (rimsPath) {
-        resources.addRIM(*rimsPath, ContainerKind::Local);
-    }
-    auto modPath = findFileIgnoreCase(*modulesPath, name + ".mod");
-    if (modPath) {
-        resources.addERF(*modPath, ContainerKind::Local);
-    }
-    if (!rimPath && !rimsPath && !modPath) {
-        throw ResourceNotFoundException("Module archives not found: " + name);
-    }
-
-    auto lipsPath = findFileIgnoreCase(_gamePath, kLipsDirectoryName);
-    if (lipsPath) {
-        auto locModPath = findFileIgnoreCase(*lipsPath, name + "_loc.mod");
-        if (locModPath) {
-            resources.addERF(*locModPath, ContainerKind::Local);
-        }
-    }
+    loadRIM(*modulesPath, name, ContainerKind::Local);
+    loadRIM(*modulesPath, name + "_s", ContainerKind::Local);
+    loadERF(*modulesPath, name, ContainerKind::Local);
+    loadERF(*modulesPath, name + "_loc", ContainerKind::Local);
 
     if (_gameId == GameID::TSL) {
-        auto dlgErfPath = findFileIgnoreCase(*modulesPath, name + "_dlg.erf");
-        if (dlgErfPath) {
-            resources.addERF(*dlgErfPath, ContainerKind::Local);
-        }
+        loadERF(*modulesPath, name + "_dlg", ContainerKind::Local);
+    }
+}
+
+void ResourceDirector::loadRIM(const std::filesystem::path &path, const std::string &name, ContainerKind kind) {
+    // Try to find a module with the same name in already loaded resources.
+    // Same idea as in loadERF.
+    std::optional<Resource> res = _resources.find(ResourceId(name, ResType::Res));
+    if (res) {
+        _resources.addMemRIM(res->data, kind);
+        return;
+    }
+
+    if (auto rimPath = findFileIgnoreCase(path, name + ".rim")) {
+        _resources.addRIM(*rimPath, kind);
+    }
+}
+
+void ResourceDirector::loadERF(const std::filesystem::path &path, const std::string &name, ContainerKind kind) {
+    // Try to find a module with the same name in already loaded resources.
+    //
+    // This allows us to support savegame archives: savegame.sav is an ERF
+    // archive that contains ERF modules. When loading from a save game we add
+    // savegame.sav ERF container. Module lookups resolve to modules from this
+    // container, and fall back to filesystem search if the module is not in the
+    // save archive.
+    std::optional<Resource> res = _resources.find(ResourceId(name, ResType::Mod));
+    if (res) {
+        _resources.addMemERF(res->data, kind);
+        return;
+    }
+
+    if (auto modPath = findFileIgnoreCase(path, name + ".mod")) {
+        _resources.addERF(*modPath, kind);
+    }
+
+    if (auto erfPath = findFileIgnoreCase(path, name + ".erf")) {
+        _resources.addERF(*erfPath, kind);
     }
 }
 

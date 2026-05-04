@@ -51,7 +51,9 @@ public:
     virtual void addEXE(const std::filesystem::path &path) = 0;
     virtual void addKEY(const std::filesystem::path &path) = 0;
     virtual void addERF(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) = 0;
+    virtual void addMemERF(ByteBuffer buffer, ContainerKind kind) = 0;
     virtual void addRIM(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) = 0;
+    virtual void addMemRIM(ByteBuffer buffer, ContainerKind kind = ContainerKind::Global) = 0;
     virtual void addFolder(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) = 0;
 
     virtual Resource get(const ResourceId &id) = 0;
@@ -86,7 +88,9 @@ public:
     void addEXE(const std::filesystem::path &path) override;
     void addKEY(const std::filesystem::path &path) override;
     void addERF(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
+    void addMemERF(ByteBuffer buffer, ContainerKind kind) override;
     void addRIM(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
+    void addMemRIM(ByteBuffer buffer, ContainerKind kind = ContainerKind::Global) override;
     void addFolder(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
 
     Resource get(const ResourceId &id) override;

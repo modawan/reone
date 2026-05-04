@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,42 +18,33 @@
 #pragma once
 
 #include "reone/system/stream/fileinput.h"
-
-#include "../container.h"
-#include "utils.h"
+#include "reone/system/stream/memoryinput.h"
 
 namespace reone {
 
 namespace resource {
 
-class RimResourceContainer : public IResourceContainer, boost::noncopyable {
+class Storage {
 public:
-    RimResourceContainer(Storage storage) :
-        _storage(std::move(storage)) {}
+    Storage(std::filesystem::path path) :
+        _path(path), _file(std::make_unique<FileInputStream>(_path)) {}
+    Storage(ByteBuffer buffer) :
+        _buffer(buffer), _mem(std::make_unique<MemoryInputStream>(_buffer)) {}
 
-    void init();
-
-    // IResourceContainer
-
-    std::optional<ByteBuffer> findResourceData(const ResourceId &id) override;
-
-    const std::unordered_set<ResourceId> &resourceIds() const override { return _resourceIds; }
-
-    // END IResourceContainer
+    IInputStream &stream() {
+        assert((_file || _mem) && "uninitialized storage");
+        if (_file) {
+            return *_file;
+        }
+        return *_mem;
+    }
 
 private:
-    struct Resource {
-        ResourceId id;
-        uint32_t offset {0};
-        uint32_t fileSize {0};
-    };
-
-    Storage _storage;
-
-    std::unordered_set<ResourceId> _resourceIds;
-    std::unordered_map<ResourceId, Resource> _idToResource;
+    std::filesystem::path _path;
+    std::unique_ptr<FileInputStream> _file;
+    ByteBuffer _buffer;
+    std::unique_ptr<MemoryInputStream> _mem;
 };
 
 } // namespace resource
-
 } // namespace reone
