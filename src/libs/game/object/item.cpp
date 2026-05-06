@@ -148,8 +148,19 @@ void Item::loadUTI(const resource::generated::UTI &uti) {
 
     loadAmmunitionType();
 
-    // TODO: load other properties
+    _properties.clear();
     for (const auto &utiProp : uti.PropertiesList) {
+        PropertyEntry entry;
+        entry.chanceAppear = utiProp.ChanceAppear;
+        entry.costTable = utiProp.CostTable;
+        entry.costValue = utiProp.CostValue;
+        entry.paramTable = utiProp.Param1;
+        entry.paramValue = utiProp.Param1Value;
+        entry.propertyName = utiProp.PropertyName;
+        entry.subtype = utiProp.Subtype;
+        entry.upgradeType = utiProp.UpgradeType;
+        _properties.push_back(entry);
+
         auto property = static_cast<ItemProperty>(utiProp.PropertyName);
         switch (property) {
         case ItemProperty::ActivateItem:

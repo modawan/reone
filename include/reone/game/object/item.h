@@ -42,6 +42,17 @@ public:
         std::shared_ptr<audio::AudioClip> impactSound2;
     };
 
+    struct PropertyEntry {
+        uint8_t chanceAppear {0};
+        uint8_t costTable {0};
+        uint16_t costValue {0};
+        uint8_t paramTable {0};
+        uint8_t paramValue {0};
+        uint16_t propertyName {0};
+        uint16_t subtype {0};
+        uint8_t upgradeType {0};
+    };
+
     Item(
         uint32_t id,
         Game &game,
@@ -87,11 +98,13 @@ public:
     std::shared_ptr<graphics::Texture> icon() const { return _icon; }
     WeaponType weaponType() const { return _weaponType; }
     WeaponWield weaponWield() const { return _weaponWield; }
+    const std::string &description() const { return _description; }
     const std::string &descIdentified() const { return _descIdentified; }
     int baseItemType() const { return _baseItem; }
     int criticalThreat() const { return _criticalThreat; }
     int criticalHitMultiplier() const { return _criticalHitMultiplier; }
     std::optional<SpellType> activateSpell() const { return _activateSpell; }
+    const std::vector<PropertyEntry> &properties() const { return _properties; }
 
     void setDropable(bool dropable);
     void setStackSize(int size);
@@ -128,6 +141,7 @@ private:
     std::string _description;
     bool _stolen {false};
     std::optional<SpellType> _activateSpell;
+    std::vector<PropertyEntry> _properties;
 
     std::shared_ptr<audio::AudioSource> _audioSource;
 

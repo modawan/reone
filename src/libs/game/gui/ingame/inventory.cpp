@@ -23,6 +23,7 @@
 
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/itemdescription.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
 #include "reone/game/party.h"
@@ -58,6 +59,9 @@ void InventoryMenu::onGUILoaded() {
     }
 
     configureItemsListBox();
+    if (_controls.LB_DESCRIPTION) {
+        _controls.LB_DESCRIPTION->setProtoMatchContent(true);
+    }
 
     if (!_game.isTSL()) {
         if (_controls.LBL_VIT) {
@@ -189,13 +193,8 @@ void InventoryMenu::updateItemDescription() {
         return;
     }
 
-    std::string description(itemObj->localizedName());
-    if (!itemObj->descIdentified().empty()) {
-        description += "\n\n";
-        description += itemObj->descIdentified();
-    }
     if (_controls.LB_DESCRIPTION) {
-        _controls.LB_DESCRIPTION->addTextLinesAsItems(description);
+        _controls.LB_DESCRIPTION->addTextLinesAsItems(joinItemDescriptionLines(buildItemDescriptionLines(*itemObj, _services)));
     }
 }
 
