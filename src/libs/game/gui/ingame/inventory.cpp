@@ -29,6 +29,9 @@
 #include "reone/game/party.h"
 #include "reone/resource/provider/textures.h"
 
+#include <algorithm>
+#include <array>
+
 using namespace reone::audio;
 
 using namespace reone::graphics;
@@ -38,6 +41,19 @@ using namespace reone::resource;
 namespace reone {
 
 namespace game {
+
+static constexpr char kEquippedItemSuffix[] = " (equipped)";
+
+static constexpr std::array<int, 9> kInventoryEquippedSlots {
+    InventorySlots::head,
+    InventorySlots::body,
+    InventorySlots::hands,
+    InventorySlots::rightWeapon,
+    InventorySlots::leftWeapon,
+    InventorySlots::leftArm,
+    InventorySlots::rightArm,
+    InventorySlots::implant,
+    InventorySlots::belt};
 
 void InventoryMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
@@ -124,6 +140,7 @@ void InventoryMenu::refreshItems() {
     }
 
     _controls.LB_ITEMS->clearItems();
+    _listedItems.clear();
     clearItemDescription();
 
     std::shared_ptr<Creature> player(_game.party().player());
@@ -131,7 +148,33 @@ void InventoryMenu::refreshItems() {
         return;
     }
 
+    std::shared_ptr<Creature> activeCreature(_game.party().getLeader());
+    if (activeCreature) {
+        for (int slot : kInventoryEquippedSlots) {
+            std::shared_ptr<Item> equipped(activeCreature->getEquippedItem(slot));
+            if (!equipped) {
+                continue;
+            }
+
+            ListBox::Item equippedItem;
+            equippedItem.tag = equipped->tag();
+            equippedItem.text = equipped->localizedName() + kEquippedItemSuffix;
+            equippedItem.iconTexture = equipped->icon();
+            equippedItem.iconFrame = getItemFrameTexture(equipped->stackSize());
+
+            if (equipped->stackSize() > 1) {
+                equippedItem.iconText = std::to_string(equipped->stackSize());
+            }
+            _controls.LB_ITEMS->addItem(std::move(equippedItem));
+            _listedItems.push_back(equipped);
+        }
+    }
+
     for (auto &item : player->items()) {
+        if (!item || std::find(_listedItems.begin(), _listedItems.end(), item) != _listedItems.end()) {
+            continue;
+        }
+
         ListBox::Item lbItem;
         lbItem.tag = item->tag();
         lbItem.text = item->localizedName();
@@ -142,6 +185,7 @@ void InventoryMenu::refreshItems() {
             lbItem.iconText = std::to_string(item->stackSize());
         }
         _controls.LB_ITEMS->addItem(std::move(lbItem));
+        _listedItems.push_back(item);
     }
 
     if (_controls.LB_ITEMS->getItemCount() > 0) {
@@ -172,23 +216,10 @@ void InventoryMenu::updateItemDescription() {
         _controls.LB_DESCRIPTION->clearItems();
     }
 
-    if (selectedItemIdx < 0 || selectedItemIdx >= _controls.LB_ITEMS->getItemCount()) {
-        return;
-    }
-
-    const ListBox::Item &lbItem = _controls.LB_ITEMS->getItemAt(selectedItemIdx);
-    std::shared_ptr<Creature> player(_game.party().player());
-    if (!player) {
-        return;
-    }
-
-    std::shared_ptr<Item> itemObj;
-    for (auto &playerItem : player->items()) {
-        if (playerItem->tag() == lbItem.tag) {
-            itemObj = playerItem;
-            break;
-        }
-    }
+    std::shared_ptr<Item> itemObj(
+        selectedItemIdx >= 0 && selectedItemIdx < static_cast<int>(_listedItems.size())
+            ? _listedItems[selectedItemIdx]
+            : nullptr);
     if (!itemObj) {
         return;
     }
