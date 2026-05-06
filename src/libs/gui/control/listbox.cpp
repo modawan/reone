@@ -31,6 +31,8 @@
 #include "reone/scene/render/pass.h"
 #include "reone/system/logutil.h"
 
+#include <sstream>
+
 using namespace reone::graphics;
 using namespace reone::resource;
 using namespace reone::scene;
@@ -61,11 +63,27 @@ void ListBox::addTextLinesAsItems(const std::string &text) {
     if (!_protoItem)
         return;
 
-    std::vector<std::string> lines(breakText(text, *_protoItem->text().font, getItemTextWidth()));
-    for (auto &line : lines) {
+    std::istringstream stream(text);
+    std::string logicalLine;
+    while (std::getline(stream, logicalLine)) {
+        std::vector<std::string> lines;
+        if (logicalLine.empty()) {
+            lines.push_back("");
+        } else {
+            lines = breakText(logicalLine, *_protoItem->text().font, getItemTextWidth());
+        }
+
+        for (auto &line : lines) {
+            Item item;
+            item.text = line;
+            item._textLines = std::vector<std::string> {line};
+            _items.push_back(std::move(item));
+        }
+    }
+
+    if (!text.empty() && text.back() == '\n') {
         Item item;
-        item.text = line;
-        item._textLines = std::vector<std::string> {line};
+        item._textLines = std::vector<std::string> {""};
         _items.push_back(std::move(item));
     }
 
