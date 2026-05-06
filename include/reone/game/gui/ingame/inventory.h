@@ -88,6 +88,7 @@ private:
 
     void onGUILoaded() override;
     void configureItemsListBox();
+    void refreshStats();
     void updateItemDescription();
     void clearItemDescription();
     std::shared_ptr<graphics::Texture> getItemFrameTexture(int stackSize) const;

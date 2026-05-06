@@ -80,12 +80,6 @@ void InventoryMenu::onGUILoaded() {
     }
 
     if (!_game.isTSL()) {
-        if (_controls.LBL_VIT) {
-            _controls.LBL_VIT->setVisible(false);
-        }
-        if (_controls.LBL_DEF) {
-            _controls.LBL_DEF->setVisible(false);
-        }
         if (_controls.BTN_CHANGE1) {
             _controls.BTN_CHANGE1->setSelectable(false);
         }
@@ -117,6 +111,8 @@ void InventoryMenu::configureItemsListBox() {
 }
 
 void InventoryMenu::refreshPortraits() {
+    refreshStats();
+
     if (!!_game.isTSL())
         return;
 
@@ -132,6 +128,42 @@ void InventoryMenu::refreshPortraits() {
 
     _controls.BTN_CHANGE2->setBorderFill(partyMember2 ? partyMember2->portrait() : nullptr);
     _controls.BTN_CHANGE2->setHilightFill(partyMember2 ? partyMember2->portrait() : nullptr);
+}
+
+void InventoryMenu::refreshStats() {
+    if (_game.isTSL()) {
+        if (_controls.LBL_VIT) {
+            _controls.LBL_VIT->setTextMessage("");
+            _controls.LBL_VIT->setVisible(false);
+        }
+        if (_controls.LBL_DEF) {
+            _controls.LBL_DEF->setTextMessage("");
+            _controls.LBL_DEF->setVisible(false);
+        }
+        return;
+    }
+
+    std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
+    if (!partyLeader) {
+        if (_controls.LBL_VIT) {
+            _controls.LBL_VIT->setTextMessage("");
+            _controls.LBL_VIT->setVisible(false);
+        }
+        if (_controls.LBL_DEF) {
+            _controls.LBL_DEF->setTextMessage("");
+            _controls.LBL_DEF->setVisible(false);
+        }
+        return;
+    }
+
+    if (_controls.LBL_VIT) {
+        _controls.LBL_VIT->setTextMessage(std::to_string(partyLeader->currentHitPoints()) + "/\n" + std::to_string(partyLeader->hitPoints()));
+        _controls.LBL_VIT->setVisible(true);
+    }
+    if (_controls.LBL_DEF) {
+        _controls.LBL_DEF->setTextMessage(std::to_string(partyLeader->getDefense()));
+        _controls.LBL_DEF->setVisible(true);
+    }
 }
 
 void InventoryMenu::refreshItems() {
