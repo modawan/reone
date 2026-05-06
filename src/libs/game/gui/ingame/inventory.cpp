@@ -27,6 +27,8 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
 #include "reone/game/party.h"
+#include "reone/resource/2da.h"
+#include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/textures.h"
 
 #include <algorithm>
@@ -43,6 +45,8 @@ namespace reone {
 namespace game {
 
 static constexpr char kEquippedItemSuffix[] = " (equipped)";
+static constexpr char kK1InventoryTitlePrefix[] = "Party Inventory - ";
+static constexpr glm::vec3 kK2InventoryFilterSelectedColor {1.0f, 1.0f, 1.0f};
 
 static constexpr std::array<int, 9> kInventoryEquippedSlots {
     InventorySlots::head,
@@ -54,6 +58,187 @@ static constexpr std::array<int, 9> kInventoryEquippedSlots {
     InventorySlots::rightArm,
     InventorySlots::implant,
     InventorySlots::belt};
+
+struct BaseItemFilterInfo {
+    std::optional<int> itemType;
+    std::optional<int> storePanelSort;
+    std::optional<int> weaponType;
+};
+
+static BaseItemFilterInfo getBaseItemFilterInfo(ServicesView &services, const Item &item) {
+    BaseItemFilterInfo info;
+    auto baseItems = services.resource.twoDas.get("baseitems");
+    if (!baseItems) {
+        return info;
+    }
+
+    int baseItemType = item.baseItemType();
+    info.itemType = baseItems->getIntOpt(baseItemType, "itemtype");
+    info.storePanelSort = baseItems->getIntOpt(baseItemType, "storepanelsort");
+    info.weaponType = baseItems->getIntOpt(baseItemType, "weapontype");
+    return info;
+}
+
+static bool isDatapad(const Item &item, const BaseItemFilterInfo &baseItem) {
+    return baseItem.itemType == 24 || item.itemClass() == "i_datapad";
+}
+
+static bool isWeapon(const Item &item, const BaseItemFilterInfo &baseItem) {
+    if (item.weaponType() != WeaponType::None) {
+        return true;
+    }
+    if (baseItem.weaponType && *baseItem.weaponType != static_cast<int>(WeaponType::None)) {
+        return true;
+    }
+    if (baseItem.itemType) {
+        switch (*baseItem.itemType) {
+        case 0:
+        case 1:
+        case 2:
+        case 3:
+        case 4:
+        case 5:
+        case 39:
+        case 40:
+        case 41:
+            return true;
+        default:
+            break;
+        }
+    }
+    if (baseItem.storePanelSort) {
+        switch (*baseItem.storePanelSort) {
+        case 20:
+        case 25:
+        case 30:
+        case 35:
+        case 40:
+        case 45:
+            return true;
+        default:
+            break;
+        }
+    }
+    return false;
+}
+
+static bool isArmor(const Item &item, const BaseItemFilterInfo &baseItem) {
+    return item.isEquippable() && !isWeapon(item, baseItem);
+}
+
+static bool isUseable(const Item &item, const BaseItemFilterInfo &baseItem) {
+    if (item.activateSpell()) {
+        return true;
+    }
+    if (!baseItem.storePanelSort) {
+        return false;
+    }
+
+    switch (*baseItem.storePanelSort) {
+    case 1:
+    case 50:
+        return true;
+    case 80:
+        return !isDatapad(item, baseItem);
+    default:
+        return false;
+    }
+}
+
+static bool isUtility(const Item &item, const BaseItemFilterInfo &baseItem) {
+    if (item.plotFlag() || isWeapon(item, baseItem) || isArmor(item, baseItem) || isUseable(item, baseItem)) {
+        return false;
+    }
+    if (isDatapad(item, baseItem)) {
+        return true;
+    }
+    if (baseItem.storePanelSort) {
+        switch (*baseItem.storePanelSort) {
+        case 2:
+        case 85:
+        case 90:
+        case 95:
+            return true;
+        default:
+            break;
+        }
+    }
+    if (baseItem.itemType) {
+        switch (*baseItem.itemType) {
+        case 27:
+        case 28:
+        case 29:
+        case 30:
+        case 42:
+        case 43:
+        case 46:
+        case 50:
+        case 51:
+            return true;
+        default:
+            break;
+        }
+    }
+    return false;
+}
+
+static InventoryFilter nextK1Filter(InventoryFilter filter) {
+    switch (filter) {
+    case InventoryFilter::All:
+        return InventoryFilter::Quest;
+    case InventoryFilter::Quest:
+        return InventoryFilter::Equippable;
+    case InventoryFilter::Equippable:
+        return InventoryFilter::Utility;
+    case InventoryFilter::Utility:
+        return InventoryFilter::Useable;
+    case InventoryFilter::Useable:
+        return InventoryFilter::All;
+    default:
+        return InventoryFilter::All;
+    }
+}
+
+static std::string k1FilterTitle(InventoryFilter filter) {
+    switch (filter) {
+    case InventoryFilter::Quest:
+        return std::string(kK1InventoryTitlePrefix) + "Quest Items";
+    case InventoryFilter::Equippable:
+        return std::string(kK1InventoryTitlePrefix) + "Equippable";
+    case InventoryFilter::Utility:
+        return std::string(kK1InventoryTitlePrefix) + "Utility Items";
+    case InventoryFilter::Useable:
+        return std::string(kK1InventoryTitlePrefix) + "Useable Items";
+    case InventoryFilter::New:
+        return std::string(kK1InventoryTitlePrefix) + "New Items";
+    default:
+        return std::string(kK1InventoryTitlePrefix) + "All Items";
+    }
+}
+
+static std::string k1NextFilterAction(InventoryFilter filter) {
+    switch (nextK1Filter(filter)) {
+    case InventoryFilter::Quest:
+        return "Show Quest Items";
+    case InventoryFilter::Equippable:
+        return "Show Equippable";
+    case InventoryFilter::Utility:
+        return "Show Utility Items";
+    case InventoryFilter::Useable:
+        return "Show Useable Items";
+    default:
+        return "Show All Items";
+    }
+}
+
+static void updateK2FilterButton(const std::shared_ptr<Button> &button, bool selected, const glm::vec3 &baseColor) {
+    if (!button) {
+        return;
+    }
+
+    button->setSelected(selected);
+    button->setTextColor(selected ? kK2InventoryFilterSelectedColor : baseColor);
+}
 
 void InventoryMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
@@ -75,6 +260,7 @@ void InventoryMenu::onGUILoaded() {
     }
 
     configureItemsListBox();
+    configureFilterControls();
     if (_controls.LB_DESCRIPTION) {
         _controls.LB_DESCRIPTION->setProtoMatchContent(true);
     }
@@ -85,9 +271,6 @@ void InventoryMenu::onGUILoaded() {
         }
         if (_controls.BTN_CHANGE2) {
             _controls.BTN_CHANGE2->setSelectable(false);
-        }
-        if (_controls.BTN_QUESTITEMS) {
-            _controls.BTN_QUESTITEMS->setDisabled(true);
         }
     }
 }
@@ -108,6 +291,53 @@ void InventoryMenu::configureItemsListBox() {
         protoItem->setBorderColor(_baseColor);
         protoItem->setHilightColor(_hilightColor);
     }
+}
+
+void InventoryMenu::configureFilterControls() {
+    if (_game.isTSL()) {
+        if (_controls.BTN_ALL) {
+            _controls.BTN_ALL->setOnClick([this]() {
+                setFilter(InventoryFilter::All);
+            });
+        }
+        if (_controls.BTN_DATAPADS) {
+            _controls.BTN_DATAPADS->setOnClick([this]() {
+                setFilter(InventoryFilter::Datapad);
+            });
+        }
+        if (_controls.BTN_WEAPONS) {
+            _controls.BTN_WEAPONS->setOnClick([this]() {
+                setFilter(InventoryFilter::Weapon);
+            });
+        }
+        if (_controls.BTN_ARMOR) {
+            _controls.BTN_ARMOR->setOnClick([this]() {
+                setFilter(InventoryFilter::Armor);
+            });
+        }
+        if (_controls.BTN_USEABLE) {
+            _controls.BTN_USEABLE->setOnClick([this]() {
+                setFilter(InventoryFilter::Useable);
+            });
+        }
+        if (_controls.BTN_QUESTS) {
+            _controls.BTN_QUESTS->setOnClick([this]() {
+                setFilter(InventoryFilter::Quest);
+            });
+        }
+        if (_controls.BTN_MISC) {
+            _controls.BTN_MISC->setOnClick([this]() {
+                setFilter(InventoryFilter::Misc);
+            });
+        }
+    } else if (_controls.BTN_QUESTITEMS) {
+        _controls.BTN_QUESTITEMS->setDisabled(false);
+        _controls.BTN_QUESTITEMS->setOnClick([this]() {
+            advanceK1Filter();
+        });
+    }
+
+    updateFilterControls();
 }
 
 void InventoryMenu::refreshPortraits() {
@@ -166,6 +396,74 @@ void InventoryMenu::refreshStats() {
     }
 }
 
+void InventoryMenu::advanceK1Filter() {
+    setFilter(nextK1Filter(_filter));
+}
+
+void InventoryMenu::setFilter(InventoryFilter filter) {
+    if (_filter == filter) {
+        updateFilterControls();
+        return;
+    }
+    _filter = filter;
+    updateFilterControls();
+    refreshItems();
+}
+
+void InventoryMenu::updateFilterControls() {
+    if (_game.isTSL()) {
+        updateK2FilterButton(_controls.BTN_ALL, _filter == InventoryFilter::All, _baseColor);
+        updateK2FilterButton(_controls.BTN_DATAPADS, _filter == InventoryFilter::Datapad, _baseColor);
+        updateK2FilterButton(_controls.BTN_WEAPONS, _filter == InventoryFilter::Weapon, _baseColor);
+        updateK2FilterButton(_controls.BTN_ARMOR, _filter == InventoryFilter::Armor, _baseColor);
+        updateK2FilterButton(_controls.BTN_USEABLE, _filter == InventoryFilter::Useable, _baseColor);
+        updateK2FilterButton(_controls.BTN_QUESTS, _filter == InventoryFilter::Quest, _baseColor);
+        updateK2FilterButton(_controls.BTN_MISC, _filter == InventoryFilter::Misc, _baseColor);
+        return;
+    }
+
+    if (_controls.LBL_INV) {
+        _controls.LBL_INV->setTextMessage(k1FilterTitle(_filter));
+    }
+    if (_controls.BTN_QUESTITEMS) {
+        _controls.BTN_QUESTITEMS->setTextMessage(k1NextFilterAction(_filter));
+        _controls.BTN_QUESTITEMS->setDisabled(false);
+    }
+}
+
+bool InventoryMenu::itemMatchesFilter(const Item &item) const {
+    BaseItemFilterInfo baseItem(getBaseItemFilterInfo(_services, item));
+    switch (_filter) {
+    case InventoryFilter::All:
+        return true;
+    case InventoryFilter::New:
+        // New item tracking is not retained by the runtime inventory yet.
+        return false;
+    case InventoryFilter::Quest:
+        return item.plotFlag();
+    case InventoryFilter::Equippable:
+        return item.isEquippable();
+    case InventoryFilter::Utility:
+        return isUtility(item, baseItem);
+    case InventoryFilter::Useable:
+        return isUseable(item, baseItem);
+    case InventoryFilter::Datapad:
+        return isDatapad(item, baseItem);
+    case InventoryFilter::Weapon:
+        return isWeapon(item, baseItem);
+    case InventoryFilter::Armor:
+        return isArmor(item, baseItem);
+    case InventoryFilter::Misc:
+        return !item.plotFlag() &&
+               !isDatapad(item, baseItem) &&
+               !isWeapon(item, baseItem) &&
+               !isArmor(item, baseItem) &&
+               !isUseable(item, baseItem);
+    default:
+        return true;
+    }
+}
+
 void InventoryMenu::refreshItems() {
     if (!_controls.LB_ITEMS) {
         return;
@@ -184,7 +482,7 @@ void InventoryMenu::refreshItems() {
     if (activeCreature) {
         for (int slot : kInventoryEquippedSlots) {
             std::shared_ptr<Item> equipped(activeCreature->getEquippedItem(slot));
-            if (!equipped) {
+            if (!equipped || !itemMatchesFilter(*equipped)) {
                 continue;
             }
 
@@ -204,6 +502,9 @@ void InventoryMenu::refreshItems() {
 
     for (auto &item : player->items()) {
         if (!item || std::find(_listedItems.begin(), _listedItems.end(), item) != _listedItems.end()) {
+            continue;
+        }
+        if (!itemMatchesFilter(*item)) {
             continue;
         }
 

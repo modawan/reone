@@ -39,6 +39,19 @@ namespace game {
 
 class Item;
 
+enum class InventoryFilter {
+    All,
+    New,
+    Quest,
+    Equippable,
+    Utility,
+    Useable,
+    Datapad,
+    Weapon,
+    Armor,
+    Misc
+};
+
 class InventoryMenu : public GameGUI {
 public:
     InventoryMenu(Game &game, ServicesView &services) :
@@ -83,12 +96,18 @@ private:
     };
 
     Controls _controls;
+    InventoryFilter _filter {InventoryFilter::All};
     int _selectedItemIdx {-1};
     std::vector<std::shared_ptr<Item>> _listedItems;
 
     void onGUILoaded() override;
     void configureItemsListBox();
+    void configureFilterControls();
     void refreshStats();
+    void advanceK1Filter();
+    void setFilter(InventoryFilter filter);
+    void updateFilterControls();
+    bool itemMatchesFilter(const Item &item) const;
     void updateItemDescription();
     void clearItemDescription();
     std::shared_ptr<graphics::Texture> getItemFrameTexture(int stackSize) const;
