@@ -21,6 +21,7 @@
 #include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/ingame.h"
+#include "reone/game/itemdescription.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
 #include "reone/game/party.h"
@@ -211,12 +212,7 @@ void Equipment::updateCandidateDescription() {
     if (!itemObj)
         return;
 
-    std::string description(itemObj->localizedName());
-    if (!itemObj->descIdentified().empty()) {
-        description += "\n\n";
-        description += itemObj->descIdentified();
-    }
-    _controls.LB_DESC->addTextLinesAsItems(description);
+    _controls.LB_DESC->addTextLinesAsItems(joinItemDescriptionLines(buildItemDescriptionLines(*itemObj, _services)));
 }
 
 static int getInventorySlot(Equipment::Slot slot) {
