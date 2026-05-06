@@ -37,6 +37,8 @@ class Texture;
 
 namespace game {
 
+class Item;
+
 class InventoryMenu : public GameGUI {
 public:
     InventoryMenu(Game &game, ServicesView &services) :
@@ -82,6 +84,7 @@ private:
 
     Controls _controls;
     int _selectedItemIdx {-1};
+    std::vector<std::shared_ptr<Item>> _listedItems;
 
     void onGUILoaded() override;
     void configureItemsListBox();
