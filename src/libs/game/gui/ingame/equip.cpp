@@ -72,6 +72,14 @@ static std::unordered_map<Equipment::Slot, int32_t> g_slotStrRefs = {
 
 static int getInventorySlot(Equipment::Slot slot);
 
+static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox, const glm::vec3 &baseColor) {
+    if (!listBox) {
+        return;
+    }
+    listBox->setBorderColor(baseColor);
+    listBox->setTintBorderFill(true);
+}
+
 void Equipment::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
@@ -170,6 +178,11 @@ void Equipment::configureItemsListBox() {
     auto &protoItem = _controls.LB_ITEMS->protoItem();
     protoItem.setBorderColor(_baseColor);
     protoItem.setHilightColor(_hilightColor);
+
+    if (_game.isTSL()) {
+        tintK2PanelFill(_controls.LB_ITEMS, _baseColor);
+        tintK2PanelFill(_controls.LB_DESC, _baseColor);
+    }
 }
 
 void Equipment::clearCandidateDescription() {

@@ -59,6 +59,14 @@ static constexpr std::array<int, 9> kInventoryEquippedSlots {
     InventorySlots::implant,
     InventorySlots::belt};
 
+static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox, const glm::vec3 &baseColor) {
+    if (!listBox) {
+        return;
+    }
+    listBox->setBorderColor(baseColor);
+    listBox->setTintBorderFill(true);
+}
+
 struct BaseItemFilterInfo {
     std::optional<int> itemType;
     std::optional<int> storePanelSort;
@@ -278,6 +286,11 @@ void InventoryMenu::onGUILoaded() {
 void InventoryMenu::configureItemsListBox() {
     if (!_controls.LB_ITEMS) {
         return;
+    }
+
+    if (_game.isTSL()) {
+        tintK2PanelFill(_controls.LB_ITEMS, _baseColor);
+        tintK2PanelFill(_controls.LB_DESCRIPTION, _baseColor);
     }
 
     _controls.LB_ITEMS->setSelectionMode(ListBox::SelectionMode::OnClick);
