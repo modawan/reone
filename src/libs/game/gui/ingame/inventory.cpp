@@ -67,6 +67,13 @@ static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox, const glm::
     listBox->setTintBorderFill(true);
 }
 
+static void enableBorderFillTint(const std::shared_ptr<Label> &label) {
+    if (!label) {
+        return;
+    }
+    label->setTintBorderFill(true);
+}
+
 struct BaseItemFilterInfo {
     std::optional<int> itemType;
     std::optional<int> storePanelSort;
@@ -269,6 +276,11 @@ void InventoryMenu::onGUILoaded() {
 
     configureItemsListBox();
     configureFilterControls();
+    if (_game.isTSL()) {
+        enableBorderFillTint(_controls.LBL_BAR1);
+        enableBorderFillTint(_controls.LBL_BAR2);
+        enableBorderFillTint(_controls.LBL_BAR6);
+    }
     if (_controls.LB_DESCRIPTION) {
         _controls.LB_DESCRIPTION->setProtoMatchContent(true);
     }
