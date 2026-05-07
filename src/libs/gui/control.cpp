@@ -257,7 +257,7 @@ void Control::renderBorder(const Border &border,
                 *border.fill,
                 {_extent.left + border.dimension + offset.x, _extent.top + border.dimension + offset.y},
                 {size.x - 2 * border.dimension, size.y - 2 * border.dimension},
-                glm::vec4(1.0f),
+                _tintBorderFill ? glm::vec4(color, 1.0f) : glm::vec4(1.0f),
                 uv);
         });
     }
