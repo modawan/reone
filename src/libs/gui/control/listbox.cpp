@@ -42,6 +42,7 @@ namespace reone {
 namespace gui {
 
 static constexpr int kItemPadding = 3;
+static constexpr glm::vec3 kInvalidItemBorderColor {1.0f, 0.0f, 0.0f};
 
 void ListBox::clearItems() {
     _items.clear();
@@ -376,7 +377,10 @@ void ListBox::renderItemWithButtonProtoIcon(
 
     _protoItem->setExtent(textExtent);
     _protoItem->setTextLines(item._textLines);
+    _protoItem->setBorderColorOverride(kInvalidItemBorderColor);
+    _protoItem->setUseBorderColorOverride(item.invalid);
     _protoItem->render(screenSize, offset, pass);
+    _protoItem->setUseBorderColorOverride(false);
     _protoItem->setExtent(originalExtent);
 
     if (!item.iconFrame && !item.iconTexture)
@@ -388,7 +392,7 @@ void ListBox::renderItemWithButtonProtoIcon(
     if (item.iconFrame) {
         glm::vec3 frameColor(_protoItem->isSelected() ? _protoItem->hilight().color : _protoItem->border().color);
         if (item.invalid) {
-            frameColor = glm::vec3(1.0f, 0.0f, 0.0f);
+            frameColor = kInvalidItemBorderColor;
         }
         pass.drawImage(*item.iconFrame, iconPosition, iconSize, glm::vec4(frameColor, 1.0f));
     }
