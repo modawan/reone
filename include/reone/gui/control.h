@@ -159,6 +159,7 @@ public:
     void setTextColor(glm::vec3 color);
     void setTextMessage(std::string text);
     void setTextFont(std::shared_ptr<graphics::Font> font);
+    void setTintBorderFill(bool tint) { _tintBorderFill = tint; }
     void setUseBorderColorOverride(bool use);
     void setVisible(bool visible);
 
@@ -215,6 +216,7 @@ protected:
     bool _disabled {false};
     bool _selected {false};
     bool _selectable {false};
+    bool _tintBorderFill {false};
     glm::vec3 _borderColorOverride {1.0f};
     bool _useBorderColorOverride {false};
     std::vector<std::string> _textLines;
