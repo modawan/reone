@@ -72,6 +72,13 @@ static std::unordered_map<Equipment::Slot, int32_t> g_slotStrRefs = {
 
 static int getInventorySlot(Equipment::Slot slot);
 
+static void enableBorderFillTint(const std::shared_ptr<Control> &control) {
+    if (!control) {
+        return;
+    }
+    control->setTintBorderFill(true);
+}
+
 static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox, const glm::vec3 &baseColor) {
     if (!listBox) {
         return;
@@ -113,6 +120,7 @@ void Equipment::onGUILoaded() {
     _controls.LB_DESC->setVisible(false);
     _controls.LB_DESC->setProtoMatchContent(true);
     _controls.LBL_CANTEQUIP->setVisible(false);
+    tintK2LoadoutOverlay();
     updateK2LoadoutOverlayVisibility(true);
 
     configureItemsListBox();
@@ -393,6 +401,20 @@ void Equipment::selectSlot(Slot slot) {
     if (noneSelected) {
         clearCandidateDescription();
     }
+}
+
+void Equipment::tintK2LoadoutOverlay() {
+    if (!_game.isTSL())
+        return;
+
+    // Preserve the muted K2 panel colours authored in equip_p.gui.
+    enableBorderFillTint(_controls.LBL_BACK1);
+    enableBorderFillTint(_controls.LBL_DEF_BACK);
+    enableBorderFillTint(_controls.LBL_BAR1);
+    enableBorderFillTint(_controls.LBL_BAR2);
+    enableBorderFillTint(_controls.LBL_BAR3);
+    enableBorderFillTint(_controls.LBL_BAR4);
+    enableBorderFillTint(_controls.LBL_BAR5);
 }
 
 void Equipment::updateK2LoadoutOverlayVisibility(bool visible) {
