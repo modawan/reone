@@ -29,6 +29,14 @@ namespace reone {
 
 namespace game {
 
+static void tintK2TopNavigationIcon(const std::shared_ptr<ImageButton> &button, const glm::vec3 &baseColor) {
+    if (!button) {
+        return;
+    }
+    button->setBorderColor(baseColor);
+    button->setTintBorderFill(true);
+}
+
 void InGameMenu::preload(IGUI &gui) {
     if (_game.isTSL()) {
         gui.setResolution(800, 600);
@@ -37,6 +45,17 @@ void InGameMenu::preload(IGUI &gui) {
 
 void InGameMenu::onGUILoaded() {
     bindControls();
+
+    if (_game.isTSL()) {
+        tintK2TopNavigationIcon(_controls.LBLH_EQU, _baseColor);
+        tintK2TopNavigationIcon(_controls.LBLH_INV, _baseColor);
+        tintK2TopNavigationIcon(_controls.LBLH_CHA, _baseColor);
+        tintK2TopNavigationIcon(_controls.LBLH_ABI, _baseColor);
+        tintK2TopNavigationIcon(_controls.LBLH_MSG, _baseColor);
+        tintK2TopNavigationIcon(_controls.LBLH_JOU, _baseColor);
+        tintK2TopNavigationIcon(_controls.LBLH_MAP, _baseColor);
+        tintK2TopNavigationIcon(_controls.LBLH_OPT, _baseColor);
+    }
 
     // _controls.BTN_EQU->setVisible(false);
     // _controls.BTN_INV->setVisible(false);
