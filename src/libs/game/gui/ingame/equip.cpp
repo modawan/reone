@@ -105,6 +105,7 @@ void Equipment::onGUILoaded() {
     _controls.LB_DESC->setVisible(false);
     _controls.LB_DESC->setProtoMatchContent(true);
     _controls.LBL_CANTEQUIP->setVisible(false);
+    updateK2LoadoutOverlayVisibility(true);
 
     configureItemsListBox();
 
@@ -366,6 +367,7 @@ void Equipment::selectSlot(Slot slot) {
 
     _controls.LB_DESC->setVisible(!noneSelected);
     _controls.LBL_SLOTNAME->setVisible(noneSelected);
+    updateK2LoadoutOverlayVisibility(noneSelected);
 
     if (!_game.isTSL()) {
         _controls.LBL_PORT_BORD->setVisible(noneSelected);
@@ -378,6 +380,35 @@ void Equipment::selectSlot(Slot slot) {
     if (noneSelected) {
         clearCandidateDescription();
     }
+}
+
+void Equipment::updateK2LoadoutOverlayVisibility(bool visible) {
+    if (!_game.isTSL())
+        return;
+
+    auto setVisible = [visible](auto &control) {
+        if (control) {
+            control->setVisible(visible);
+        }
+    };
+
+    // K2's normal loadout/stat art overlaps the candidate description panel.
+    setVisible(_controls.BTN_SWAPWEAPONS);
+    setVisible(_controls.LBL_ATKL);
+    setVisible(_controls.LBL_ATKR);
+    setVisible(_controls.LBL_ATTACKMOD);
+    setVisible(_controls.LBL_ATTACK_INFO);
+    setVisible(_controls.LBL_BACK1);
+    setVisible(_controls.LBL_DAMAGE);
+    setVisible(_controls.LBL_DAMTEXT);
+    setVisible(_controls.LBL_DEF);
+    setVisible(_controls.LBL_DEF_BACK);
+    setVisible(_controls.LBL_DEF_INFO);
+    setVisible(_controls.LBL_DEF_TEXT);
+    setVisible(_controls.LBL_SELECTTITLE);
+    setVisible(_controls.LBL_TOHIT);
+    setVisible(_controls.LBL_TOHITL);
+    setVisible(_controls.LBL_TOHITR);
 }
 
 void Equipment::activateSlot(Slot slot) {
