@@ -22,7 +22,7 @@
 using namespace reone;
 using namespace reone::resource;
 
-// Writer a file from an ERF container into the current directory.
+// Write a file from an ERF container into the current directory.
 static void extract(ResourceId id, IInputStream &file, size_t size) {
     std::string name = id.string();
     std::ofstream outs(name, std::ios::binary);
