@@ -69,6 +69,7 @@ public:
     bool isMember(int npc) const;
     bool isMember(const Object &object) const;
 
+    std::shared_ptr<Creature> getMemberByNPC(int npc) const;
     std::shared_ptr<Creature> getMember(int index) const;
     int getNPCByMemberIndex(int index) const;
 
@@ -81,6 +82,7 @@ public:
 
     bool isMemberAvailable(int npc) const;
 
+    std::shared_ptr<Creature> getOrCreateAvailableMember(int npc);
     const std::string &getAvailableMember(int npc) const;
 
     // END Available members
@@ -96,6 +98,7 @@ private:
 
     std::shared_ptr<Creature> _player;
     std::map<int, std::string> _availableMembers;
+    std::map<int, std::shared_ptr<Creature>> _materializedMembers;
     std::vector<Member> _members;
     bool _solo {false};
 
