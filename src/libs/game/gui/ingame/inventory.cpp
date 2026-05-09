@@ -32,7 +32,6 @@
 #include "reone/resource/provider/textures.h"
 
 #include <algorithm>
-#include <array>
 
 using namespace reone::audio;
 
@@ -48,16 +47,22 @@ static constexpr char kEquippedItemSuffix[] = " (equipped)";
 static constexpr char kK1InventoryTitlePrefix[] = "Party Inventory - ";
 static constexpr glm::vec3 kK2InventoryFilterSelectedColor {1.0f, 1.0f, 1.0f};
 
-static constexpr std::array<int, 9> kInventoryEquippedSlots {
-    InventorySlots::head,
-    InventorySlots::body,
-    InventorySlots::hands,
-    InventorySlots::rightWeapon,
-    InventorySlots::leftWeapon,
-    InventorySlots::leftArm,
-    InventorySlots::rightArm,
-    InventorySlots::implant,
-    InventorySlots::belt};
+static bool isInventoryListedEquipmentSlot(int slot) {
+    switch (slot) {
+    case InventorySlots::head:
+    case InventorySlots::body:
+    case InventorySlots::hands:
+    case InventorySlots::rightWeapon:
+    case InventorySlots::leftWeapon:
+    case InventorySlots::leftArm:
+    case InventorySlots::rightArm:
+    case InventorySlots::implant:
+    case InventorySlots::belt:
+        return true;
+    default:
+        return false;
+    }
+}
 
 static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox, const glm::vec3 &baseColor) {
     if (!listBox) {
@@ -505,8 +510,11 @@ void InventoryMenu::refreshItems() {
 
     std::shared_ptr<Creature> activeCreature(_game.party().getLeader());
     if (activeCreature) {
-        for (int slot : kInventoryEquippedSlots) {
-            std::shared_ptr<Item> equipped(activeCreature->getEquippedItem(slot));
+        for (const auto &equipment : activeCreature->equipment()) {
+            if (!isInventoryListedEquipmentSlot(equipment.first)) {
+                continue;
+            }
+            std::shared_ptr<Item> equipped(equipment.second);
             if (!equipped || !itemMatchesFilter(*equipped)) {
                 continue;
             }
