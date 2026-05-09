@@ -112,8 +112,31 @@ const std::string &Party::getAvailableMember(int npc) const {
     return _availableMembers.find(npc)->second;
 }
 
+std::shared_ptr<Creature> Party::createAvailableMember(int npc) {
+    auto maybeBlueprint = _availableMembers.find(npc);
+    if (maybeBlueprint == _availableMembers.end()) {
+        return nullptr;
+    }
+
+    auto creature = _game.newCreature();
+    creature->loadFromBlueprint(maybeBlueprint->second);
+    creature->setFaction(Faction::Friendly1);
+    creature->setImmortal(true);
+
+    return creature;
+}
+
 std::shared_ptr<Creature> Party::getMember(int index) const {
     return _members.size() > index ? _members[index].creature : nullptr;
+}
+
+std::shared_ptr<Creature> Party::getMemberByNPC(int npc) const {
+    for (auto &member : _members) {
+        if (member.npc == npc) {
+            return member.creature;
+        }
+    }
+    return nullptr;
 }
 
 int Party::getNPCByMemberIndex(int index) const {

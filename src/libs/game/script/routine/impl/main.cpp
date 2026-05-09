@@ -208,7 +208,42 @@ static Variable SwitchPlayerCharacter(const std::vector<Variable> &args, const R
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SwitchPlayerCharacter");
+    Party &party = ctx.game.party();
+    if (party.getMemberByNPC(nNPC)) {
+        party.setPartyLeader(nNPC);
+        return Variable::ofInt(1);
+    }
+
+    std::shared_ptr<Creature> creature;
+    if (nNPC == kNpcPlayer) {
+        creature = party.player();
+    } else {
+        creature = party.createAvailableMember(nNPC);
+    }
+    if (!creature) {
+        warn("Party: NPC not found: " + std::to_string(nNPC));
+        return Variable::ofInt(0);
+    }
+
+    auto currentLeader = party.getLeader();
+    glm::vec3 position(currentLeader ? currentLeader->position() : creature->position());
+    float facing = currentLeader ? currentLeader->getFacing() : creature->getFacing();
+
+    auto module = ctx.game.module();
+    auto area = module ? module->area() : nullptr;
+    if (area) {
+        area->unloadParty();
+    }
+
+    party.clear();
+    party.addMember(nNPC, creature);
+
+    if (area) {
+        area->loadParty(position, facing);
+        area->onPartyLeaderMoved(true);
+        area->update3rdPersonCameraFacing();
+    }
+    return Variable::ofInt(1);
 }
 
 static Variable SetTime(const std::vector<Variable> &args, const RoutineContext &ctx) {

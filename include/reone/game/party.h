@@ -69,6 +69,7 @@ public:
     bool isMember(int npc) const;
     bool isMember(const Object &object) const;
 
+    std::shared_ptr<Creature> getMemberByNPC(int npc) const;
     std::shared_ptr<Creature> getMember(int index) const;
     int getNPCByMemberIndex(int index) const;
 
@@ -81,6 +82,7 @@ public:
 
     bool isMemberAvailable(int npc) const;
 
+    std::shared_ptr<Creature> createAvailableMember(int npc);
     const std::string &getAvailableMember(int npc) const;
 
     // END Available members
