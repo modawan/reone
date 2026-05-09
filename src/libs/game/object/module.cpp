@@ -84,6 +84,10 @@ void Module::load(std::string name, const Gff &ifo, bool fromSave) {
     }
 }
 
+void Module::activate() {
+    _area->activate();
+}
+
 void Module::loadInfo(const resource::generated::IFO &ifo) {
     // Entry location
 

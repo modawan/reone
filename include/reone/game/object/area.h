@@ -74,6 +74,7 @@ public:
     }
 
     void load(std::string name, const resource::Gff &are, const resource::Gff &git, bool fromSave = false);
+    void activate();
 
     bool handle(const input::Event &event);
     void update(float dt);
@@ -301,6 +302,9 @@ private:
     void loadLYT();
     void loadVIS();
     void loadPTH();
+    void applySceneProperties();
+    void attachRoomToSceneGraph(Room &room);
+    void attachObjectToSceneGraph(const std::shared_ptr<Object> &object);
 
     void doDestroyObject(uint32_t objectId);
     void doDestroyObjects();

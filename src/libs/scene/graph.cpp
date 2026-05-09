@@ -74,29 +74,30 @@ static const std::vector<float> g_shadowCascadeDivisors {
 void SceneGraph::clear() {
     _modelRoots.clear();
     _walkmeshRoots.clear();
+    _triggerRoots.clear();
     _soundRoots.clear();
     _grassRoots.clear();
     _activeLights.clear();
 }
 
 void SceneGraph::addRoot(std::shared_ptr<ModelSceneNode> node) {
-    _modelRoots.push_back(node);
+    _modelRoots.push_back(std::move(node));
 }
 
 void SceneGraph::addRoot(std::shared_ptr<WalkmeshSceneNode> node) {
-    _walkmeshRoots.push_back(node);
+    _walkmeshRoots.push_back(std::move(node));
 }
 
 void SceneGraph::addRoot(std::shared_ptr<TriggerSceneNode> node) {
-    _triggerRoots.push_back(node);
+    _triggerRoots.push_back(std::move(node));
 }
 
 void SceneGraph::addRoot(std::shared_ptr<GrassSceneNode> node) {
-    _grassRoots.push_back(node);
+    _grassRoots.push_back(std::move(node));
 }
 
 void SceneGraph::addRoot(std::shared_ptr<SoundSceneNode> node) {
-    _soundRoots.push_back(node);
+    _soundRoots.push_back(std::move(node));
 }
 
 void SceneGraph::removeRoot(ModelSceneNode &node) {

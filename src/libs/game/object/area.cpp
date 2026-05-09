@@ -124,6 +124,19 @@ void Area::load(std::string name, const Gff &are, const Gff &git, bool fromSave)
     loadPTH();
 }
 
+void Area::activate() {
+    applySceneProperties();
+
+    for (auto &pair : _rooms) {
+        attachRoomToSceneGraph(*pair.second);
+        // Enable room walkmeshes for initial party landing; loadParty recalculates visibility after placement.
+        pair.second->setVisible(true);
+    }
+    for (auto &object : _objects) {
+        attachObjectToSceneGraph(object);
+    }
+}
+
 void Area::loadARE(const resource::generated::ARE &are) {
     _localizedName = _services.resource.strings.getText(are.Name.first);
 
@@ -158,8 +171,7 @@ void Area::loadCameraStyle(const resource::generated::ARE &are) {
 void Area::loadAmbientColor(const resource::generated::ARE &are) {
     _ambientColor = are.DynAmbientColor > 0 ? Gff::colorFromUint32(are.DynAmbientColor) : g_defaultAmbientColor;
 
-    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
-    sceneGraph.setAmbientLightColor(_ambientColor);
+    applySceneProperties();
 }
 
 void Area::loadScripts(const resource::generated::ARE &are) {
@@ -200,7 +212,13 @@ void Area::loadFog(const resource::generated::ARE &are) {
     _fogFar = are.SunFogFar;
     _fogColor = Gff::colorFromUint32(are.SunFogColor);
 
+    applySceneProperties();
+}
+
+void Area::applySceneProperties() {
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    sceneGraph.setAmbientLightColor(_ambientColor);
+
     auto fogProperties = FogProperties();
     fogProperties.enabled = _fogEnabled;
     fogProperties.nearPlane = _fogNear;
@@ -442,7 +460,23 @@ void Area::add(const std::shared_ptr<Object> &object) {
     _objectsByTag[object->tag()].push_back(object);
 
     determineObjectRoom(*object);
+    attachObjectToSceneGraph(object);
+}
 
+void Area::attachRoomToSceneGraph(Room &room) {
+    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    if (room.model()) {
+        sceneGraph.addRoot(room.model());
+    }
+    if (room.walkmesh()) {
+        sceneGraph.addRoot(room.walkmesh());
+    }
+    if (room.grass()) {
+        sceneGraph.addRoot(room.grass());
+    }
+}
+
+void Area::attachObjectToSceneGraph(const std::shared_ptr<Object> &object) {
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     auto sceneNode = object->sceneNode();
     if (sceneNode) {
