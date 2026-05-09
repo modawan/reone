@@ -106,6 +106,12 @@ enum class ArgKind {
     SpellId,
     SpellLocation,
     ObjectsInShape,
+    ScriptParam1,
+    ScriptParam2,
+    ScriptParam3,
+    ScriptParam4,
+    ScriptParam5,
+    ScriptStringParam,
 };
 
 struct Argument {

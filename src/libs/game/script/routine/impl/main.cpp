@@ -4142,12 +4142,19 @@ static Variable GetCurrentStealthXP(const std::vector<Variable> &args, const Rou
 
 static Variable GetNumStackedItems(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oItem = getObject(args, 0, ctx);
+    if (args.empty() || args[0].type != VariableType::Object) {
+        return Variable::ofInt(0);
+    }
 
     // Transform
+    auto object = ctx.game.getObjectById(args[0].objectId);
+    if (!object || object->type() != ObjectType::Item) {
+        return Variable::ofInt(0);
+    }
+    auto item = std::static_pointer_cast<Item>(object);
 
     // Execute
-    throw RoutineNotImplementedException("GetNumStackedItems");
+    return Variable::ofInt(item->stackSize());
 }
 
 static Variable SurrenderToEnemies(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6043,9 +6050,29 @@ static Variable GetScriptParameter(const std::vector<Variable> &args, const Rout
     auto nIndex = getInt(args, 0);
 
     // Transform
+    const Variable *param = nullptr;
+    switch (nIndex) {
+    case 1:
+        param = ctx.execution.findArg(ArgKind::ScriptParam1);
+        break;
+    case 2:
+        param = ctx.execution.findArg(ArgKind::ScriptParam2);
+        break;
+    case 3:
+        param = ctx.execution.findArg(ArgKind::ScriptParam3);
+        break;
+    case 4:
+        param = ctx.execution.findArg(ArgKind::ScriptParam4);
+        break;
+    case 5:
+        param = ctx.execution.findArg(ArgKind::ScriptParam5);
+        break;
+    default:
+        break;
+    }
 
     // Execute
-    throw RoutineNotImplementedException("GetScriptParameter");
+    return Variable::ofInt(param ? param->intValue : 0);
 }
 
 static Variable SetFadeUntilScript(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6515,7 +6542,8 @@ static Variable ModifyWillSavingThrowBase(const std::vector<Variable> &args, con
 
 static Variable GetScriptStringParameter(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetScriptStringParameter");
+    const Variable *param = ctx.execution.findArg(ArgKind::ScriptStringParam);
+    return Variable::ofString(param ? param->strValue : "");
 }
 
 static Variable GetObjectPersonalSpace(const std::vector<Variable> &args, const RoutineContext &ctx) {
