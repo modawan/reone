@@ -97,7 +97,9 @@
         "--directory",
         "${workspaceFolder}/build-web/bin",
         "--port",
-        "${input:webPort}"
+        "${input:webPort}",
+        "--nuke-port",
+        "--nuke-common-ports"
       ],
       "console": "integratedTerminal",
       "justMyCode": true
@@ -107,7 +109,7 @@
       "type": "chrome",
       "request": "launch",
       "preLaunchTask": "wasm: serve (build-web/bin)",
-      "url": "http://localhost:${input:webPort}/engine.html?reoneFs=picker",
+      "url": "http://localhost:${input:webPort}/engine.html",
       "webRoot": "${workspaceFolder}/build-web/bin"
     },
     {
@@ -115,7 +117,7 @@
       "type": "msedge",
       "request": "launch",
       "preLaunchTask": "wasm: serve (build-web/bin)",
-      "url": "http://localhost:${input:webPort}/engine.html?reoneFs=picker",
+      "url": "http://localhost:${input:webPort}/engine.html",
       "webRoot": "${workspaceFolder}/build-web/bin"
     },
     {

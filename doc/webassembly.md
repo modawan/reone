@@ -196,7 +196,7 @@ Do **not** rely on a plain `python -m http.server` for WASM + experimental pthre
 
 ## CI
 
-Workflow `.github/workflows/build-wasm.yml` builds `engine` with Emscripten on Ubuntu and uploads `engine.html`, `engine.js`, and `engine.wasm` as artifacts. It does **not** exercise the File System Access picker (non-automatable in default CI). The `**serve-smoke`** job only validates `serve.py` manifest + Range behavior for optional tooling.
+Workflow `.github/workflows/build-wasm.yml` builds `engine` with Emscripten on Ubuntu and uploads `engine.html`, `engine.js`, `engine.wasm`, and `engine.data` (glsl preload) as artifacts. It does **not** exercise the File System Access picker (non-automatable in default CI). The **serve-smoke** job validates `serve.py` manifest + HTTP Range behavior for lazy `/game-files/` reads.
 
 ## Production hosting and OpenKotOR site
 

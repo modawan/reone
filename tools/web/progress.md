@@ -6,7 +6,12 @@ Original prompt: ReOne WASM playability and openkotor-site integration — `game
 - [`smoke_engine_menu.py`](smoke_engine_menu.py): **HTTP preflight** fails fast (exit **3**) when `/game-manifest.json` is 503 (no `--game-root`).
 - [`gamefs.js`](gamefs.js) is linked with Emscripten `--pre-js`.
 - [`gen_game_manifest.py`](gen_game_manifest.py) emits `game-manifest.json`.
-- [`test_serve_smoke.py`](test_serve_smoke.py) verifies manifest + Range (runs in CI).
+- [`test_serve_smoke.py`](test_serve_smoke.py) verifies manifest + Range; **`.github/workflows/build-wasm.yml`** runs it plus a live `gen_game_manifest` + `serve.py` integration step, then builds `engine` with Emscripten and uploads `engine.{html,js,wasm,data}`.
+
+### KotOR.js vs ReOne (why a “1 GB .wasm” is not KotOR.js)
+
+- **KobaltBlu/KotOR.js** is a **JavaScript** engine (Webpack → `dist/`), uses **`wicg-file-system-access`** types in devDeps — game data is **not** in the repo or in a giant WASM blob; the browser reads the user’s install via **File System Access** (same model as ReOne’s default `gamefs.js`).
+- A **multi‑GB** artifact with ReOne is almost always **`engine.data`** from **`--preload-file`** / **`file_packager`** after **`REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON`** + full install — **not** normal parity builds. Default CMake is **`REONE_WEB_ASSET_PROFILE=none`** (no baked `/game`).
 
 ## Manual acceptance (main menu)
 
@@ -23,7 +28,7 @@ Requires locally:
 
 - After first successful menu capture, add screenshot to PR / docs.
 - If pthread WASM is enabled, confirm COOP/COEP on production host (see openkotor-site `vercel.json`).
-- Consider deleting `test_serve_smoke.py` from developer flows if a fuller integration test is added later.
+- If **`build-wasm.yml`** fails after an Emscripten upgrade, pin **`version:`** under **`emscripten-core/setup-emsdk`** (see [setup-emsdk README](https://github.com/emscripten-core/setup-emsdk)).
 
 ## develop-web-game workflow (OpenKotOR site)
 

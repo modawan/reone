@@ -1,70 +1,97 @@
-# Copyright (c) 2020-2023 The reone project contributors
-# SPDX-License-Identifier: GPL-3.0-or-later
-
-name: Build WASM
+# Build reone `engine` for WebAssembly (Emscripten + SDL3 port).
+# Artifacts are engine code + glsl preload only — no retail game files (KotOR.js parity).
+name: Build WASM engine
 
 on:
-  push:
-    branches: [master, main]
-  pull_request:
   workflow_dispatch:
+  push:
+    branches: [main, master]
+  pull_request:
 
 concurrency:
-  group: reone-wasm-${{ github.workflow }}-${{ github.ref }}
+  group: wasm-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # Validates serve.py manifest + Range only (optional HTTP game mirror). KotOR.js-style FS Access is not exercised in CI.
   serve-smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: tools/web serve smoke (manifest + Range)
-        run: cd tools/web && python test_serve_smoke.py
+          python-version: "3.11"
+      - name: Module smoke (serve.py handler + Range)
+        working-directory: tools/web
+        run: python3 test_serve_smoke.py
 
-  # Default browser build has no baked game assets; runtime uses File System Access (see tools/web/gamefs.js).
-  engine-wasm:
+      - name: Integration smoke (gen_game_manifest + live serve.py)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/web-empty /tmp/gr
+          printf 'xy' > /tmp/gr/swkotor.exe
+          python3 tools/web/gen_game_manifest.py /tmp/gr --strict
+          python3 tools/web/serve.py --directory /tmp/web-empty --game-root /tmp/gr --port 28765 &
+          pid=$!
+          sleep 1
+          curl -fsS "http://127.0.0.1:28765/game-manifest.json" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'swkotor.exe' in d['files'], d"
+          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Range: bytes=0-0" "http://127.0.0.1:28765/game-files/swkotor.exe")
+          test "$code" = "206"
+          kill "$pid"
+
+  wasm:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install toolchain packages
+      - name: Install Ninja, ccache and Boost (headers only via copy step below)
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libboost-all-dev
+          sudo apt-get install -y ninja-build ccache libboost-dev
 
-      - name: Cache emsdk
+      - name: Cache ccache
         uses: actions/cache@v4
-        id: emsdk-cache
         with:
-          path: ~/emsdk
-          key: emsdk-${{ runner.os }}-${{ hashFiles('.github/workflows/build-wasm.yml') }}
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-emscripten-${{ hashFiles('CMakeLists.txt', 'src/apps/engine/CMakeLists.txt') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-emscripten-
 
-      - name: Install Emscripten SDK
-        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+      - name: Isolate Boost headers for emcc
         run: |
-          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$HOME/emsdk"
-          cd "$HOME/emsdk"
-          ./emsdk install latest
-          ./emsdk activate latest
+          sudo mkdir -p /opt/reone/boost-include
+          sudo cp -a /usr/include/boost /opt/reone/boost-include/
 
-      - name: Configure and build engine (WASM)
+      # Official installer (see https://github.com/emscripten-core/setup-emsdk); pins optional via `version:`.
+      - uses: emscripten-core/setup-emsdk@v15
+        with:
+          actions-cache-folder: ${{ github.workspace }}/.emsdk-cache
+
+      - name: Build SDL3 cache (Emscripten ports)
         run: |
-          source "$HOME/emsdk/emsdk_env.sh"
+          set -euo pipefail
+          embuilder build sdl3
+
+      - name: Configure (Release, KotOR.js-parity asset profile)
+        run: |
+          set -euo pipefail
           emcmake cmake -G Ninja -S . -B build-web \
-            -DREONE_PLATFORM_WEB=ON \
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-web --target engine -j "$(nproc)"
-        shell: bash
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBoost_INCLUDE_DIR=/opt/reone/boost-include \
+            -DBoost_NO_BOOST_CMAKE=ON
 
-      - uses: actions/upload-artifact@v4
+      - name: Build engine
+        run: |
+          set -euo pipefail
+          cmake --build build-web --target engine
+
+      - name: Upload WASM artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: reone-engine-wasm
+          if-no-files-found: error
           path: |
             build-web/bin/engine.html
             build-web/bin/engine.js
             build-web/bin/engine.wasm
-          if-no-files-found: error
+            build-web/bin/engine.data

@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 from collections import deque
 import os
 import pathlib
+import signal
 import socket
 import subprocess
 import sys
@@ -20,6 +22,12 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+_tools_web = pathlib.Path(__file__).resolve().parent
+if str(_tools_web) not in sys.path:
+    sys.path.insert(0, str(_tools_web))
+
+from web_bundle_paths import resolve_web_build_directory
 
 
 async def run(url: str, out_png: str, timeout_s: float, interval_s: float) -> int:
@@ -165,6 +173,208 @@ def _free_port() -> int:
     return port
 
 
+def _localhost_listen_port_from_url(url: str) -> int | None:
+    """Return TCP port if ``url`` targets loopback; else None."""
+    try:
+        p = urllib.parse.urlparse(url)
+        host = (p.hostname or "").strip().lower()
+        if host not in ("127.0.0.1", "localhost", "::1"):
+            return None
+        return p.port or (443 if (p.scheme or "").lower() == "https" else 80)
+    except Exception:
+        return None
+
+
+def _powershell_encoded_command(script: str) -> list[str]:
+    payload = script.encode("utf-16-le")
+    enc = base64.b64encode(payload).decode("ascii")
+    return [
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-EncodedCommand",
+        enc,
+    ]
+
+
+def _kill_windows_tools_web_serve_py() -> None:
+    """Terminate any ``tools/web/serve.py`` (or ``tools\\web\\serve.py``) listener left from a crashed smoke run."""
+    ps = r"""
+$ErrorActionPreference = 'SilentlyContinue'
+Get-CimInstance Win32_Process | Where-Object {
+    $_.CommandLine -and (
+        $_.CommandLine -match '[\\/]tools[\\/]web[\\/]serve\.py' -or
+        ($_.CommandLine -match 'serve\.py' -and $_.CommandLine -match '--game-root')
+    )
+} | ForEach-Object {
+    Write-Host ('[smoke nuke] stopping serve.py PID ' + $_.ProcessId)
+    Stop-Process -Id $_.ProcessId -Force
+}
+"""
+    try:
+        subprocess.run(
+            _powershell_encoded_command(ps),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+        print(f"[smoke nuke] PowerShell serve.py cleanup failed: {e}", flush=True)
+
+
+def _kill_unix_tools_web_serve_py() -> None:
+    proc_root = pathlib.Path("/proc")
+    if not proc_root.is_dir():
+        return
+    for pid_dir in proc_root.glob("[0-9]*"):
+        try:
+            raw = (pid_dir / "cmdline").read_bytes()
+        except OSError:
+            continue
+        cmd = raw.replace(b"\0", b" ").decode("utf-8", "replace")
+        if "serve.py" not in cmd or "tools" not in cmd:
+            continue
+        if "/web/serve.py" not in cmd and "web/serve.py" not in cmd:
+            continue
+        try:
+            pid = int(pid_dir.name)
+            print(f"[smoke nuke] SIGTERM serve.py PID {pid}", flush=True)
+            os.kill(pid, signal.SIGTERM)
+        except (ValueError, ProcessLookupError, PermissionError):
+            pass
+
+
+def _kill_windows_listen_port(port: int) -> None:
+    try:
+        r = subprocess.run(
+            ["netstat", "-ano", "-p", "tcp"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+        print(f"[smoke nuke] netstat failed: {e}", flush=True)
+        return
+    needle = f":{port}"
+    for line in r.stdout.splitlines():
+        if "LISTENING" not in line:
+            continue
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        local = parts[1]
+        if not local.endswith(needle):
+            continue
+        pid_s = parts[-1]
+        if not pid_s.isdigit():
+            continue
+        print(f"[smoke nuke] taskkill LISTENING :{port} PID {pid_s}", flush=True)
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", pid_s],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+
+def _kill_unix_listen_port(port: int) -> None:
+    try:
+        r = subprocess.run(
+            ["lsof", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return
+    for pid_s in r.stdout.strip().split():
+        if not pid_s.isdigit():
+            continue
+        try:
+            pid = int(pid_s)
+            print(f"[smoke nuke] SIGTERM listener PID {pid} :{port}", flush=True)
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
+# Extra ports often left bound after interrupted smoke/serve cycles (Windows SO_REUSEADDR footguns).
+_SMOKE_EXTRA_LOOPBACK_PORTS = (4204, 4205, 4206, 4207, 4208, 11152)
+
+
+def _nuke_stale_http_for_smoke(url: str) -> None:
+    """Kill leftover ``serve.py`` and anything LISTENING on the loopback port implied by ``url``."""
+    print("[smoke nuke] killing stale tools/web/serve.py and localhost listeners …", flush=True)
+    if sys.platform == "win32":
+        _kill_windows_tools_web_serve_py()
+    else:
+        _kill_unix_tools_web_serve_py()
+    time.sleep(0.4)
+    lp = _localhost_listen_port_from_url(url)
+    ports_to_clear = set(_SMOKE_EXTRA_LOOPBACK_PORTS)
+    if lp is not None:
+        ports_to_clear.add(lp)
+    for port in sorted(ports_to_clear):
+        if sys.platform == "win32":
+            _kill_windows_listen_port(port)
+        else:
+            _kill_unix_listen_port(port)
+    time.sleep(0.3)
+
+
+def _terminate_server_proc(proc: subprocess.Popen | None) -> None:
+    """Stop ``serve.py`` subprocess and any child worker threads (Windows needs /T)."""
+    if proc is None:
+        return
+    pid = proc.pid
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        return
+    try:
+        proc.terminate()
+        proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def _resolve_web_bin(web_bin: pathlib.Path) -> pathlib.Path:
+    """If CMake wrote reone-web-output-dir.txt (Windows wasm output redirect), use that directory."""
+    return resolve_web_build_directory(web_bin.expanduser().resolve())
+
+
+def _preflight_local_wasm(web_bin: pathlib.Path) -> int:
+    """Catch truncated engine.wasm (e.g. wasm-ld 'permission denied' on Windows leaves a 0-byte file)."""
+    wasm = web_bin / "engine.wasm"
+    if not wasm.is_file():
+        return 0
+    try:
+        n = wasm.stat().st_size
+    except OSError as e:
+        print(f"Smoke: cannot stat {wasm}: {e}", file=sys.stderr)
+        return 4
+    if n < 32768:
+        print(
+            f"Smoke: {wasm} is only {n} bytes — wasm link likely failed or file is locked.\n"
+            "Close any browser tab, Playwright, or serve.py using this tree; delete engine.wasm; "
+            "then rebuild: cmake --build build-web --target engine",
+            file=sys.stderr,
+        )
+        return 4
+    return 0
+
+
 def _preflight_http(url: str) -> int:
     """Return 0 if ``url`` responds with HTTP; 4 on connection/empty response; 3 if HTTP mirror has no files."""
     try:
@@ -232,6 +442,7 @@ def _spawn_local_mirror(web_bin: pathlib.Path, game_root: pathlib.Path, port: in
             "--port",
             str(port),
         ],
+        cwd=str(repo_root),
     )
 
 
@@ -258,6 +469,11 @@ def main() -> int:
         help="Start tools/web/serve.py on a free port (needs --game-root)",
     )
     ap.add_argument(
+        "--no-nuke-stale-servers",
+        action="store_true",
+        help="Do not kill leftover serve.py / listeners before running (default: nuke ON)",
+    )
+    ap.add_argument(
         "--game-root",
         type=pathlib.Path,
         default=None,
@@ -271,6 +487,9 @@ def main() -> int:
     )
     args = ap.parse_args()
 
+    if not args.no_nuke_stale_servers:
+        _nuke_stale_http_for_smoke(args.url)
+
     url = args.url
     proc: subprocess.Popen | None = None
     game_root = args.game_root or (
@@ -278,6 +497,8 @@ def main() -> int:
         if os.environ.get("REONE_WEB_SMOKE_GAME_ROOT")
         else None
     )
+
+    web_bin_resolved = _resolve_web_bin(args.web_bin)
 
     if args.spawn_serve:
         if not game_root or not game_root.is_dir():
@@ -287,14 +508,21 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 2
+        wchk = _preflight_local_wasm(web_bin_resolved)
+        if wchk != 0:
+            return wchk
         port = _free_port()
-        proc = _spawn_local_mirror(args.web_bin.resolve(), game_root.resolve(), port)
+        proc = _spawn_local_mirror(web_bin_resolved, game_root.resolve(), port)
         time.sleep(2.0)
         if proc.poll() is not None:
             print("serve.py exited early (check --web-bin and port).", file=sys.stderr)
             return 2
         url = f"http://127.0.0.1:{port}/engine.html"
-        print(f"Serving wasm from {args.web_bin} with mirror {game_root} -> {url}", flush=True)
+        print(f"Serving wasm from {web_bin_resolved} with mirror {game_root} -> {url}", flush=True)
+    else:
+        wchk = _preflight_local_wasm(web_bin_resolved)
+        if wchk != 0:
+            return wchk
 
     pre = _preflight_http(url)
     if pre != 0:
@@ -303,12 +531,7 @@ def main() -> int:
     try:
         return asyncio.run(run(url, args.out, args.timeout, args.interval))
     finally:
-        if proc is not None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+        _terminate_server_proc(proc)
 
 
 if __name__ == "__main__":

@@ -146,7 +146,7 @@
       "label": "wasm: serve (build-web/bin)",
       "type": "shell",
       "dependsOn": "wasm: build engine",
-      "command": "python tools/web/serve.py --directory build-web/bin --port ${input:webPort}",
+      "command": "python tools/web/serve.py --directory build-web/bin --port ${input:webPort} --nuke-port --nuke-common-ports",
       "isBackground": true,
       "problemMatcher": {
         "owner": "wasm-server",
@@ -157,22 +157,22 @@
         "background": {
           "activeOnStart": true,
           "beginsPattern": "^.*$",
-          "endsPattern": "^Serving .+ at http://localhost:[0-9]+$"
+          "endsPattern": "^Serving .+(127\\.0\\.0\\.1|localhost):[0-9]+"
         }
       }
     },
     {
       "label": "wasm: open browser",
       "type": "shell",
-      "command": "xdg-open http://localhost:${input:webPort}/engine.html?reoneFs=picker",
+      "command": "xdg-open http://localhost:${input:webPort}/engine.html",
       "linux": {
-        "command": "xdg-open http://localhost:${input:webPort}/engine.html?reoneFs=picker"
+        "command": "xdg-open http://localhost:${input:webPort}/engine.html"
       },
       "osx": {
-        "command": "open http://localhost:${input:webPort}/engine.html?reoneFs=picker"
+        "command": "open http://localhost:${input:webPort}/engine.html"
       },
       "windows": {
-        "command": "start http://localhost:${input:webPort}/engine.html?reoneFs=picker"
+        "command": "start http://localhost:${input:webPort}/engine.html"
       },
       "problemMatcher": []
     },

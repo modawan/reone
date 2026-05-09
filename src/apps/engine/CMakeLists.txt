@@ -38,7 +38,38 @@ if(WIN32)
 endif()
 
 add_executable(engine ${ENGINE_HEADERS} ${ENGINE_SOURCES} ${CLANG_FORMAT_PATH})
-set_target_properties(engine PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}$<$<CONFIG:Debug>:/debug>/bin)
+
+set(_reone_engine_runtime_dir "${CMAKE_BINARY_DIR}$<$<CONFIG:Debug>:/debug>/bin")
+# Emscripten cross-compiles with WIN32=OFF; use host OS so Windows developers still match this branch.
+if(REONE_PLATFORM_WEB AND CMAKE_HOST_WIN32)
+    set(REONE_WEB_WIN_WASM_OUTPUT_DIR "" CACHE PATH
+        "Windows host only: explicit directory for engine.html/js/wasm when wasm-ld cannot write under the build tree or %TEMP% (Controlled Folder Access / AV).")
+    option(REONE_WEB_WIN_WASM_OUTSIDE_REPO "Write engine.html/js/wasm outside the build tree (see REONE_WEB_WIN_WASM_OUTPUT_DIR or %TEMP%/reone-emscripten-*)" ON)
+    if(REONE_WEB_WIN_WASM_OUTSIDE_REPO)
+        string(SHA256 _reone_wasm_out_hash "${CMAKE_BINARY_DIR}")
+        string(SUBSTRING "${_reone_wasm_out_hash}" 0 16 _reone_wasm_out_tag)
+        if(REONE_WEB_WIN_WASM_OUTPUT_DIR)
+            set(_reone_engine_runtime_dir "${REONE_WEB_WIN_WASM_OUTPUT_DIR}")
+        elseif(NOT "$ENV{TEMP}" STREQUAL "")
+            set(_reone_engine_runtime_dir "$ENV{TEMP}/reone-emscripten-${_reone_wasm_out_tag}")
+        else()
+            set(_reone_engine_runtime_dir "$ENV{TMP}/reone-emscripten-${_reone_wasm_out_tag}")
+        endif()
+        file(MAKE_DIRECTORY "${_reone_engine_runtime_dir}")
+        file(WRITE "${CMAKE_BINARY_DIR}/reone-web-output-dir.txt" "${_reone_engine_runtime_dir}\n")
+        message(STATUS "reone web: Windows wasm bundle directory: ${_reone_engine_runtime_dir}")
+    else()
+        if(EXISTS "${CMAKE_BINARY_DIR}/reone-web-output-dir.txt")
+            file(REMOVE "${CMAKE_BINARY_DIR}/reone-web-output-dir.txt")
+        endif()
+    endif()
+elseif(REONE_PLATFORM_WEB)
+    if(EXISTS "${CMAKE_BINARY_DIR}/reone-web-output-dir.txt")
+        file(REMOVE "${CMAKE_BINARY_DIR}/reone-web-output-dir.txt")
+    endif()
+endif()
+
+set_target_properties(engine PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${_reone_engine_runtime_dir}")
 target_precompile_headers(engine PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
 
 if(REONE_PLATFORM_WEB)
@@ -51,24 +82,41 @@ if(REONE_PLATFORM_WEB)
     if(REONE_WEB_ASSET_PROFILE STREQUAL "minimal")
         message(FATAL_ERROR [[REONE_WEB_ASSET_PROFILE=minimal was removed. Use none (default KotOR.js-parity: File System Access), full, or custom. Clear CMake cache when upgrading.]])
     endif()
+    if(EXISTS "${CMAKE_BINARY_DIR}/bin/engine.data.orig")
+        message(FATAL_ERROR "Stale ${CMAKE_BINARY_DIR}/bin/engine.data.orig detected. This usually means an accidental embedded preload from an old build tree. Delete it before configuring.")
+    endif()
     # Lazy range reads keep game archives out of MEMFS; allow growth for decoded resources and renderer state.
     set(_REONE_WEB_MAX_MEMORY 4294967296)
+    target_compile_options(engine PRIVATE
+        $<$<CONFIG:Release>:-Oz>
+        $<$<CONFIG:Release>:-g0>)
     target_link_options(engine PRIVATE
         "SHELL:--pre-js \"${CMAKE_SOURCE_DIR}/tools/web/gamefs.js\""
         # WebFileInputStream uses EM_ASYNC_JS + fetch/File System Access; sync XHR cannot read binary on the main thread.
         -sASYNCIFY=1
+        "SHELL:-sASYNCIFY_IMPORTS=['reone_web_file_length','reone_web_file_read']"
+        # Do not use ASYNCIFY_ONLY here: EM_ASYNC_JS suspends deep under Engine::run; instrumenting
+        # only main leaves unwound frames un-instrumented → RuntimeError: unreachable in Asyncify.
         -sALLOW_MEMORY_GROWTH=1
         "SHELL:-sMAXIMUM_MEMORY=${_REONE_WEB_MAX_MEMORY}"
         -sENVIRONMENT=web
+        -sASSERTIONS=0
+        -sEXCEPTION_DEBUG=0
         -sMIN_WEBGL_VERSION=2
         -sMAX_WEBGL_VERSION=2
         -sFULL_ES3=1
         -sGL_ENABLE_GET_PROC_ADDRESS=1
         -lidbfs.js
         "SHELL:--preload-file \"${CMAKE_SOURCE_DIR}/glsl@/glsl\"")
+    # ``--pre-js`` is not modeled as a link input for Ninja; tie gamefs.js to main.o so edits relink wasm.
+    set_source_files_properties(${ENGINE_SOURCE_DIR}/main.cpp PROPERTIES
+        OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/tools/web/gamefs.js")
     message(STATUS "reone web: Asyncify is on for lazy /game I/O; wasm links are much faster with -DCMAKE_BUILD_TYPE=Release than Debug")
     if(REONE_WEB_DEBUG_RUNTIME)
         target_link_options(engine PRIVATE -sASSERTIONS=2)
+    else()
+        # Override CMAKE_EXE_LINKER_FLAGS/toolchain presets that inject -sASSERTIONS=2 (last emcc flag wins).
+        target_link_options(engine PRIVATE "SHELL:-sSTACK_OVERFLOW_CHECK=0" "SHELL:-sASSERTIONS=0")
     endif()
     if(REONE_WEB_SAFE_HEAP)
         target_link_options(engine PRIVATE -sSAFE_HEAP=2)
@@ -134,6 +182,53 @@ If you truly need a non-parity embedded tree (e.g. Safari CI), configure with -D
                         "$<TARGET_FILE_DIR:engine>/engine.html"
                 COMMENT "Patch engine.html for embedded /game (skip File System Access picker)")
         endif()
+    endif()
+
+    # Real wasm/html/js land under %TEMP%/… or REONE_WEB_WIN_WASM_OUTPUT_DIR; copy into CMAKE_BINARY_DIR/bin
+    # so ``serve.py --directory …/bin`` matches docs and cannot show a lone stale engine.data.
+    if(CMAKE_HOST_WIN32 AND REONE_WEB_WIN_WASM_OUTSIDE_REPO)
+        get_filename_component(_reone_web_stage_bin "${CMAKE_BINARY_DIR}/bin" ABSOLUTE)
+        get_filename_component(_reone_web_run_bin "${_reone_engine_runtime_dir}" ABSOLUTE)
+        # Normalize slashes so we never skip staging when paths differ only by \ vs /.
+        file(TO_CMAKE_PATH "${_reone_web_stage_bin}" _reone_web_stage_cmp)
+        file(TO_CMAKE_PATH "${_reone_web_run_bin}" _reone_web_run_cmp)
+        if(NOT _reone_web_stage_cmp STREQUAL _reone_web_run_cmp)
+            add_custom_command(
+                TARGET engine
+                POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory "${_reone_web_stage_bin}"
+                COMMAND ${CMAKE_COMMAND} -E copy "${_reone_web_run_bin}/engine.html" "${_reone_web_stage_bin}/engine.html"
+                COMMAND ${CMAKE_COMMAND} -E copy "${_reone_web_run_bin}/engine.js" "${_reone_web_stage_bin}/engine.js"
+                COMMAND ${CMAKE_COMMAND} -E copy "${_reone_web_run_bin}/engine.wasm" "${_reone_web_stage_bin}/engine.wasm"
+                COMMAND ${CMAKE_COMMAND} -E copy "${_reone_web_run_bin}/engine.data" "${_reone_web_stage_bin}/engine.data"
+                COMMENT "Stage wasm bundle into build tree bin/ for serve.py --directory bin")
+        endif()
+    endif()
+
+    find_program(REONE_PYTHON_VERIFY NAMES python3 python)
+    if(REONE_PYTHON_VERIFY)
+        add_custom_command(
+            TARGET engine
+            POST_BUILD
+            COMMAND "${REONE_PYTHON_VERIFY}" "${CMAKE_SOURCE_DIR}/tools/web/verify_wasm_bundle.py"
+                    "$<TARGET_FILE_DIR:engine>"
+            COMMENT "Verify wasm bundle at Emscripten output directory")
+        if(CMAKE_HOST_WIN32 AND REONE_WEB_WIN_WASM_OUTSIDE_REPO)
+            get_filename_component(_reone_web_verify_stage "${CMAKE_BINARY_DIR}/bin" ABSOLUTE)
+            get_filename_component(_reone_web_verify_run "${_reone_engine_runtime_dir}" ABSOLUTE)
+            file(TO_CMAKE_PATH "${_reone_web_verify_stage}" _reone_web_verify_stage_c)
+            file(TO_CMAKE_PATH "${_reone_web_verify_run}" _reone_web_verify_run_c)
+            if(NOT _reone_web_verify_stage_c STREQUAL _reone_web_verify_run_c)
+                add_custom_command(
+                    TARGET engine
+                    POST_BUILD
+                    COMMAND "${REONE_PYTHON_VERIFY}" "${CMAKE_SOURCE_DIR}/tools/web/verify_wasm_bundle.py"
+                            "${_reone_web_verify_stage}"
+                    COMMENT "Verify staged wasm bundle under build tree bin/")
+            endif()
+        endif()
+    else()
+        message(WARNING "reone web: Python not found — wasm bundle POST_BUILD verification skipped")
     endif()
 endif()
 

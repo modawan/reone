@@ -28,7 +28,7 @@ namespace reone {
 
 namespace {
 
-constexpr size_t kWebMirrorReadChunk = 256 * 1024;
+constexpr size_t kWebMirrorReadChunk = 1 * 1024 * 1024;
 
 } // namespace
 
@@ -78,16 +78,17 @@ void WebFileInputStream::refillBuffer() {
     if (pos >= _length) {
         return;
     }
-    size_t chunk = std::min(kWebMirrorReadChunk, _length - pos);
+    size_t readStart = (pos / kWebMirrorReadChunk) * kWebMirrorReadChunk;
+    size_t chunk = std::min(kWebMirrorReadChunk, _length - readStart);
     _buf.resize(chunk);
-    int r = reone_web_file_read(_path.c_str(), static_cast<double>(pos), _buf.data(), static_cast<int>(chunk));
+    int r = reone_web_file_read(_path.c_str(), static_cast<double>(readStart), _buf.data(), static_cast<int>(chunk));
     if (r < 0) {
         throw std::runtime_error("Failed to read web game file: " + _path);
     }
     if (r == 0) {
         throw std::runtime_error("Unexpected EOF reading web game file: " + _path);
     }
-    _bufFileOffset = pos;
+    _bufFileOffset = readStart;
     _bufLen = static_cast<size_t>(r);
 }
 

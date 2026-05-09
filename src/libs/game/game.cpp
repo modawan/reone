@@ -77,6 +77,10 @@
 #include "reone/system/smallset.h"
 #include "reone/system/threadutil.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 using namespace reone::audio;
 using namespace reone::graphics;
 using namespace reone::gui;
@@ -1182,6 +1186,13 @@ void Game::openMainMenu() {
         return;
     }
     info("Opening main menu");
+#ifdef __EMSCRIPTEN__
+    EM_ASM({
+        if (typeof Module === "object" && Module.reoneWebOnEngineReady) {
+            Module.reoneWebOnEngineReady();
+        }
+    });
+#endif
     if (!_saveLoad) {
         _saveLoad = tryLoadGUI<SaveLoad>();
     }

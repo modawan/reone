@@ -14,7 +14,7 @@ def main():
     (td / "game-manifest.json").write_text('{"files":["a.bin"]}', encoding="utf-8")
     (td / "a.bin").write_bytes(b"0123456789")
 
-    factory = serve_mod._handler_factory(td, td)
+    factory = serve_mod._handler_factory(td, td, 0)
     srv = serve_mod.ReusableThreadingTCPServer(("localhost", 0), factory)
     port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()

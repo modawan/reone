@@ -19,6 +19,16 @@ project(reone)
 set(CMAKE_CXX_STANDARD 17)
 set(CLANG_FORMAT_PATH ${CMAKE_SOURCE_DIR}/.clang-format)
 
+# Rebuild speed-up for large web targets: prefer sccache, then ccache.
+if(NOT DEFINED CMAKE_C_COMPILER_LAUNCHER AND NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
+    find_program(REONE_COMPILER_CACHE NAMES sccache ccache)
+    if(REONE_COMPILER_CACHE)
+        set(CMAKE_C_COMPILER_LAUNCHER "${REONE_COMPILER_CACHE}" CACHE STRING "C compiler launcher" FORCE)
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${REONE_COMPILER_CACHE}" CACHE STRING "CXX compiler launcher" FORCE)
+        message(STATUS "reone: using compiler cache launcher: ${REONE_COMPILER_CACHE}")
+    endif()
+endif()
+
 # Options
 
 option(BUILD_TESTS "build tests" ON)

@@ -350,7 +350,7 @@
         typeof Module.reoneWebMirrorMaxConcurrentFetches === "number" &&
         Module.reoneWebMirrorMaxConcurrentFetches > 0
             ? Module.reoneWebMirrorMaxConcurrentFetches
-            : 8;
+            : 24;
 
     /**
      * Completed Range responses (inflight only dedupes *concurrent* identical keys). Without this,
@@ -366,7 +366,7 @@
         typeof Module.reoneWebMirrorRangeCacheMaxBytesPerRange === "number" &&
         Module.reoneWebMirrorRangeCacheMaxBytesPerRange > 0
             ? Module.reoneWebMirrorRangeCacheMaxBytesPerRange
-            : 512 * 1024;
+            : 2 * 1024 * 1024;
 
     function mirrorRangeCacheTouch(key) {
         var i = mirrorRangeCacheLru.indexOf(key);
@@ -400,6 +400,54 @@
         }
         mirrorRangeCacheTouch(key);
         return { bytes: e.bytes, total: e.total };
+    }
+
+    function parseInflightKey(key) {
+        var pipe = key.lastIndexOf("|");
+        var colon = key.lastIndexOf(":");
+        if (pipe <= 0 || colon <= pipe + 1) {
+            return null;
+        }
+        var url = key.slice(0, pipe);
+        var start = Number(key.slice(pipe + 1, colon));
+        var end = Number(key.slice(colon + 1));
+        if (!Number.isFinite(start) || !Number.isFinite(end)) {
+            return null;
+        }
+        return { url: url, start: start, end: end };
+    }
+
+    function mirrorRangeCacheGetContaining(url, rangeStart, rangeEndInclusive) {
+        if (
+            typeof rangeStart !== "number" ||
+            !Number.isFinite(rangeStart) ||
+            typeof rangeEndInclusive !== "number" ||
+            !Number.isFinite(rangeEndInclusive)
+        ) {
+            return null;
+        }
+        for (var i = mirrorRangeCacheLru.length - 1; i >= 0; --i) {
+            var key = mirrorRangeCacheLru[i];
+            var parsed = parseInflightKey(key);
+            if (!parsed || parsed.url !== url) {
+                continue;
+            }
+            if (parsed.start > rangeStart || parsed.end < rangeEndInclusive) {
+                continue;
+            }
+            var e = mirrorRangeCache[key];
+            if (!e || !e.bytes) {
+                continue;
+            }
+            var from = rangeStart - parsed.start;
+            var to = from + (rangeEndInclusive - rangeStart + 1);
+            if (from < 0 || to > e.bytes.length) {
+                continue;
+            }
+            mirrorRangeCacheTouch(key);
+            return { bytes: e.bytes.subarray(from, to), total: e.total };
+        }
+        return null;
     }
 
     function mirrorFetchReleaseSlot() {
@@ -436,6 +484,10 @@
         var cached = mirrorRangeCacheGet(inflightKey);
         if (cached) {
             return Promise.resolve(cached);
+        }
+        var containing = mirrorRangeCacheGetContaining(url, rangeStart, endInclusive);
+        if (containing) {
+            return Promise.resolve(containing);
         }
         if (mirrorFetchInflight[inflightKey]) {
             return mirrorFetchInflight[inflightKey];
@@ -474,7 +526,30 @@
     var mirrorLengthInflight = {};
     var mirrorFullBytes = {};
     var mirrorFullInflight = {};
-    var MIRROR_FULL_CACHE_MAX = 8 * 1024 * 1024;
+    // Whole-file RAM cache only for *small* mirror files. Larger files (e.g. dialog.tlk ~5 MiB) previously used a
+    // single Range for bytes=0-(N-1); combined with Asyncify + concurrent fetch slots that could stall headless runs.
+    // Override with Module.reoneWebMirrorFullCacheMaxBytes (e.g. 64 << 20) when profiling desktop browsers only.
+    var MIRROR_FULL_CACHE_MAX =
+        typeof Module.reoneWebMirrorFullCacheMaxBytes === "number" && Module.reoneWebMirrorFullCacheMaxBytes > 0
+            ? Module.reoneWebMirrorFullCacheMaxBytes
+            : 2 * 1024 * 1024;
+    // Default off: fire-and-forget prefetches compete for the same fetch slot pool as synchronous reads under Asyncify.
+    // Set Module.reoneWebMirrorPrefetchBytes (e.g. 1<<20) to re-enable read-ahead tuning on desktop.
+    var MIRROR_PREFETCH_BYTES =
+        typeof Module.reoneWebMirrorPrefetchBytes === "number" && Module.reoneWebMirrorPrefetchBytes > 0
+            ? Module.reoneWebMirrorPrefetchBytes
+            : 0;
+
+    function queueMirrorPrefetch(relLower, originalPath, offset) {
+        if (!originalPath || typeof offset !== "number" || !Number.isFinite(offset) || offset < 0) {
+            return;
+        }
+        var total = mirrorLengthCache[relLower];
+        if (typeof total === "number" && total >= 0 && offset >= total) {
+            return;
+        }
+        fetchMirrorRange(originalPath, offset, MIRROR_PREFETCH_BYTES).catch(function () {});
+    }
 
     async function mirrorHttpTotalBytes(relLower, originalPath) {
         if (Object.prototype.hasOwnProperty.call(mirrorLengthCache, relLower)) {
@@ -537,6 +612,7 @@
         var lookup = Module.reoneWebHttpMirrorFiles || {};
         var original = lookup[rel];
         if (!original) return -1;
+        queueGateReadStatus("Loading " + original + " (stat)…");
         try {
             return await mirrorHttpTotalBytes(rel, original);
         } catch (e) {
@@ -564,6 +640,15 @@
         var lookup = Module.reoneWebHttpMirrorFiles || {};
         var original = lookup[rel];
         if (!original) return null;
+        queueGateReadStatus(
+            "Loading " +
+                original +
+                " (" +
+                Math.max(0, Math.floor(offset)) +
+                "+" +
+                Math.max(0, Math.floor(len)) +
+                ")…"
+        );
         try {
             var totalKnown = mirrorLengthCache[rel];
             if (
@@ -580,7 +665,12 @@
                     return full.subarray(offset, end);
                 }
             }
-            return (await fetchMirrorRange(original, offset, len)).bytes;
+            var readResult = await fetchMirrorRange(original, offset, len);
+            if (readResult && readResult.bytes && readResult.bytes.length > 0) {
+                queueMirrorPrefetch(rel, original, offset + readResult.bytes.length);
+                return readResult.bytes;
+            }
+            return readResult ? readResult.bytes : null;
         } catch (e) {
             console.error("reone web: range read failed:", rel, offset, len, e);
             return null;
@@ -684,6 +774,35 @@
         }
     }
 
+    var gateReadStatus = {
+        queued: false,
+        latest: "",
+    };
+
+    function queueGateReadStatus(line) {
+        gateReadStatus.latest = line;
+        if (gateReadStatus.queued) {
+            return;
+        }
+        gateReadStatus.queued = true;
+        var flush = function () {
+            gateReadStatus.queued = false;
+            if (gateReadStatus.latest) {
+                setGateLoadingMessage(gateReadStatus.latest);
+            }
+        };
+        if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+            window.requestAnimationFrame(flush);
+            return;
+        }
+        setTimeout(flush, 100);
+    }
+
+    Module.reoneWebOnEngineReady = function () {
+        setGateLoadingMessage("Main menu ready.");
+        removeGateUi();
+    };
+
     async function mountFromDirectoryHandle(rootHandle) {
         ensureDirectory("/game");
         var fileCount = 0;
@@ -762,7 +881,7 @@
 
                 try {
                     if (await tryMountFromHttpMirror()) {
-                        removeGateUi();
+                        setGateLoadingMessage("Indexed lazy files. Fetching game resources…");
                         done();
                         return;
                     }
@@ -825,7 +944,7 @@
                 }
 
                 await mountFromDirectoryHandle(rootHandle);
-                removeGateUi();
+                setGateLoadingMessage("Indexed lazy files. Fetching game resources…");
                 done();
             })
             .catch(function (err) {
