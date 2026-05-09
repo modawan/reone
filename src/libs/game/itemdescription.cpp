@@ -546,11 +546,6 @@ static std::string damageTypeName(int flags) {
     if (flags == 0) {
         return "";
     }
-    // Physical is the aggregate damage type; keep it as one label instead of
-    // expanding its component bits.
-    if (flags == static_cast<int>(DamageType::Physical)) {
-        return "Physical";
-    }
 
     std::vector<std::pair<int, std::string>> names {
         {static_cast<int>(DamageType::Bludgeoning), "Bludgeoning"},
