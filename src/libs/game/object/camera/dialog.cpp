@@ -25,6 +25,7 @@
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
 #include "reone/scene/node/camera.h"
+#include "reone/system/logutil.h"
 
 using namespace reone::graphics;
 using namespace reone::scene;
@@ -35,10 +36,74 @@ namespace game {
 
 static constexpr float kMinDialogCameraDistance = 0.0001f;
 
+enum class DialogCameraWarning {
+    CannotResolveEndpoints,
+    InvalidResolvedEndpoints,
+    InvalidDirection,
+    InvalidTransformEndpoints,
+    InvalidTransform,
+    Count
+};
+
 static bool isFinite(const glm::vec3 &position) {
     return std::isfinite(position.x) &&
            std::isfinite(position.y) &&
            std::isfinite(position.z);
+}
+
+static bool isFinite(const glm::mat4 &transform) {
+    for (int col = 0; col < 4; ++col) {
+        for (int row = 0; row < 4; ++row) {
+            if (!std::isfinite(transform[col][row])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static glm::vec3 fallbackDirection() {
+    return glm::vec3(1.0f, 0.0f, 0.0f);
+}
+
+static void warnOnce(DialogCameraWarning warning, const char *message) {
+    static bool warned[static_cast<int>(DialogCameraWarning::Count)] {};
+    int index = static_cast<int>(warning);
+    if (!warned[index]) {
+        warned[index] = true;
+        warn(message);
+    }
+}
+
+static bool resolveEndpoints(glm::vec3 &listenerPosition, glm::vec3 &speakerPosition) {
+    bool listenerFinite = isFinite(listenerPosition);
+    bool speakerFinite = isFinite(speakerPosition);
+
+    if (!listenerFinite && !speakerFinite) {
+        warnOnce(DialogCameraWarning::CannotResolveEndpoints, "DialogCamera: cannot resolve camera endpoints");
+        return false;
+    }
+
+    glm::vec3 fallbackDir(fallbackDirection());
+    if (listenerFinite && !speakerFinite) {
+        speakerPosition = listenerPosition + fallbackDir;
+        return true;
+    }
+    if (!listenerFinite && speakerFinite) {
+        listenerPosition = speakerPosition - fallbackDir;
+        return true;
+    }
+
+    glm::vec3 listenerToSpeaker(speakerPosition - listenerPosition);
+    float distance = glm::length(listenerToSpeaker);
+    if (!std::isfinite(distance) || distance < kMinDialogCameraDistance) {
+        // Some dialog/computer paths supply coincident endpoints; keep the
+        // center stable while giving the camera a real direction.
+        glm::vec3 center(listenerPosition);
+        listenerPosition = center - 0.5f * fallbackDir;
+        speakerPosition = center + 0.5f * fallbackDir;
+    }
+    return true;
 }
 
 void DialogCamera::load() {
@@ -72,21 +137,23 @@ void DialogCamera::updateSceneNode() {
     static glm::vec3 up(0.0f, 0.0f, 1.0f);
     static glm::vec3 down(0.0f, 0.0f, -1.0f);
 
-    glm::vec3 listenerPosition(isFinite(_listenerPosition) ? _listenerPosition : glm::vec3(0.0f));
-    glm::vec3 speakerPosition(isFinite(_speakerPosition) ? _speakerPosition : listenerPosition + glm::vec3(1.0f, 0.0f, 0.0f));
-    if (!isFinite(_listenerPosition) && isFinite(_speakerPosition)) {
-        listenerPosition = speakerPosition - glm::vec3(1.0f, 0.0f, 0.0f);
+    glm::vec3 listenerPosition(_listenerPosition);
+    glm::vec3 speakerPosition(_speakerPosition);
+    if (!resolveEndpoints(listenerPosition, speakerPosition)) {
+        return;
     }
 
     glm::vec3 listenerToSpeaker(speakerPosition - listenerPosition);
     float distance = glm::length(listenerToSpeaker);
     if (!std::isfinite(distance) || distance < kMinDialogCameraDistance) {
-        // Some computer/dialog paths provide coincident endpoints; avoid normalizing a zero vector.
-        listenerToSpeaker = glm::vec3(1.0f, 0.0f, 0.0f);
-        speakerPosition = listenerPosition + listenerToSpeaker;
-        distance = 1.0f;
+        warnOnce(DialogCameraWarning::InvalidResolvedEndpoints, "DialogCamera: invalid resolved camera endpoints");
+        return;
     }
     glm::vec3 dir(listenerToSpeaker / distance);
+    if (!isFinite(dir)) {
+        warnOnce(DialogCameraWarning::InvalidDirection, "DialogCamera: invalid camera direction");
+        return;
+    }
     glm::vec3 center(0.5f * (listenerPosition + speakerPosition));
 
     glm::vec3 eye(0.0f);
@@ -143,8 +210,17 @@ void DialogCamera::updateSceneNode() {
         eye = collision.intersection;
     }
 
+    if (!isFinite(eye) || !isFinite(target)) {
+        warnOnce(DialogCameraWarning::InvalidTransformEndpoints, "DialogCamera: invalid camera transform endpoints");
+        return;
+    }
+
     glm::mat4 transform(1.0f);
     transform *= glm::inverse(glm::lookAt(eye, target, up));
+    if (!isFinite(transform)) {
+        warnOnce(DialogCameraWarning::InvalidTransform, "DialogCamera: invalid camera transform");
+        return;
+    }
 
     _sceneNode->setLocalTransform(transform);
 }
