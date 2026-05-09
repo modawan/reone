@@ -199,6 +199,10 @@ void ResourceDirector::loadModuleResources(const std::string &name) {
     loadERF(*modulesPath, name, ContainerKind::Local);
     loadERF(*modulesPath, name + "_loc", ContainerKind::Local);
 
+    if (auto lipsPath = findFileIgnoreCase(_gamePath, kLipsDirectoryName)) {
+        loadERF(*lipsPath, name + "_loc", ContainerKind::Local);
+    }
+
     if (_gameId == GameID::TSL) {
         loadERF(*modulesPath, name + "_dlg", ContainerKind::Local);
     }
