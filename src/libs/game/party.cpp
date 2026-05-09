@@ -67,7 +67,6 @@ bool Party::removeAvailableMember(int npc) {
     auto maybeMember = _availableMembers.find(npc);
     if (maybeMember != _availableMembers.end()) {
         _availableMembers.erase(maybeMember);
-        _materializedMembers.erase(npc);
         return true;
     }
     return false;
@@ -113,12 +112,7 @@ const std::string &Party::getAvailableMember(int npc) const {
     return _availableMembers.find(npc)->second;
 }
 
-std::shared_ptr<Creature> Party::getOrCreateAvailableMember(int npc) {
-    auto maybeMaterialized = _materializedMembers.find(npc);
-    if (maybeMaterialized != _materializedMembers.end()) {
-        return maybeMaterialized->second;
-    }
-
+std::shared_ptr<Creature> Party::createAvailableMember(int npc) {
     auto maybeBlueprint = _availableMembers.find(npc);
     if (maybeBlueprint == _availableMembers.end()) {
         return nullptr;
@@ -129,7 +123,6 @@ std::shared_ptr<Creature> Party::getOrCreateAvailableMember(int npc) {
     creature->setFaction(Faction::Friendly1);
     creature->setImmortal(true);
 
-    _materializedMembers.insert(std::make_pair(npc, creature));
     return creature;
 }
 

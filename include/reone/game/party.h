@@ -82,7 +82,7 @@ public:
 
     bool isMemberAvailable(int npc) const;
 
-    std::shared_ptr<Creature> getOrCreateAvailableMember(int npc);
+    std::shared_ptr<Creature> createAvailableMember(int npc);
     const std::string &getAvailableMember(int npc) const;
 
     // END Available members
@@ -98,7 +98,6 @@ private:
 
     std::shared_ptr<Creature> _player;
     std::map<int, std::string> _availableMembers;
-    std::map<int, std::shared_ptr<Creature>> _materializedMembers;
     std::vector<Member> _members;
     bool _solo {false};
 
