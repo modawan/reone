@@ -46,6 +46,35 @@ static constexpr float kDefaultEntryDuration = 3.0f;
 
 static bool g_allEntriesSkippable = false;
 
+static script::ArgKind getScriptParamArgKind(size_t index) {
+    switch (index) {
+    case 0:
+        return script::ArgKind::ScriptParam1;
+    case 1:
+        return script::ArgKind::ScriptParam2;
+    case 2:
+        return script::ArgKind::ScriptParam3;
+    case 3:
+        return script::ArgKind::ScriptParam4;
+    case 4:
+    default:
+        return script::ArgKind::ScriptParam5;
+    }
+}
+
+template <typename Params>
+static std::vector<script::Argument> makeScriptArgs(uint32_t callerId, const Params &params) {
+    std::vector<script::Argument> args;
+    if (callerId) {
+        args.emplace_back(script::ArgKind::Caller, script::Variable::ofObject(callerId));
+    }
+    for (size_t i = 0; i < params.ints.size(); ++i) {
+        args.emplace_back(getScriptParamArgKind(i), script::Variable::ofInt(params.ints[i]));
+    }
+    args.emplace_back(script::ArgKind::ScriptStringParam, script::Variable::ofString(params.str));
+    return args;
+}
+
 void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::shared_ptr<Object> &owner) {
     debug("Start " + dialog->resRef, LogChannel::Conversation);
 
@@ -95,15 +124,53 @@ void Conversation::loadStartEntry() {
 
 int Conversation::indexOfFirstActive(const std::vector<Dialog::EntryReplyLink> &links) {
     for (auto &link : links) {
-        if (link.active.empty() || evaluateCondition(link.active)) {
+        if (isLinkActive(link)) {
             return link.index;
         }
     }
     return -1;
 }
 
-bool Conversation::evaluateCondition(const std::string &scriptResRef) {
-    return _game.scriptRunner().run(scriptResRef, _owner->id()) != 0;
+bool Conversation::isLinkActive(const Dialog::EntryReplyLink &link) {
+    std::optional<bool> active;
+    if (!link.active.empty()) {
+        active = evaluateCondition(link.active, link.params);
+        if (link.notActive) {
+            active = !active.value();
+        }
+    }
+    std::optional<bool> active2;
+    if (!link.active2.empty()) {
+        active2 = evaluateCondition(link.active2, link.params2);
+        if (link.notActive2) {
+            active2 = !active2.value();
+        }
+    }
+    if (!active && !active2) {
+        return true;
+    }
+    if (!active) {
+        return active2.value();
+    }
+    if (!active2) {
+        return active.value();
+    }
+    return link.logic == 1 ? active.value() || active2.value() : active.value() && active2.value();
+}
+
+bool Conversation::evaluateCondition(const std::string &scriptResRef, const Dialog::EntryReplyLink::ConditionParams &params) {
+    return _game.scriptRunner().run(scriptResRef, makeScriptArgs(_owner ? _owner->id() : 0, params)) != 0;
+}
+
+void Conversation::runScript(const std::string &scriptResRef, const Dialog::EntryReply::ActionParams &params) {
+    if (!scriptResRef.empty()) {
+        _game.scriptRunner().run(scriptResRef, makeScriptArgs(_owner ? _owner->id() : 0, params));
+    }
+}
+
+void Conversation::runScripts(const Dialog::EntryReply &node) {
+    runScript(node.script, node.actionParams);
+    runScript(node.script2, node.actionParams2);
 }
 
 void Conversation::finish() {
@@ -155,10 +222,8 @@ void Conversation::loadEntry(int index, bool start) {
         return;
     }
 
-    // Run entry script
-    if (!_currentEntry->script.empty()) {
-        _game.scriptRunner().run(_currentEntry->script, _owner->id());
-    }
+    // Run entry scripts
+    runScripts(*_currentEntry);
 
     if (_autoSkip) {
         if (std::optional<bool> skip = _autoSkip->trySkipEntry()) {
@@ -229,7 +294,7 @@ void Conversation::scheduleEndOfEntry() {
 void Conversation::loadReplies() {
     _replies.clear();
     for (auto &link : _currentEntry->replies) {
-        if (link.active.empty() || evaluateCondition(link.active)) {
+        if (isLinkActive(link)) {
             _replies.push_back(&_dialog->getReply(link.index));
         }
     }
@@ -258,10 +323,8 @@ void Conversation::pickReply(int index) {
     debug("Pick reply " + std::to_string(index), LogChannel::Conversation);
     const Dialog::EntryReply &reply = *_replies[index];
 
-    // Run reply script
-    if (!reply.script.empty()) {
-        _game.scriptRunner().run(reply.script, _owner->id());
-    }
+    // Run reply scripts
+    runScripts(reply);
 
     int entryIdx = indexOfFirstActive(reply.entries);
     if (entryIdx == -1) {

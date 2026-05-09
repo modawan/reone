@@ -63,6 +63,14 @@ Dialog::EntryReplyLink Dialogs::getEntryReplyLink(const resource::generated::DLG
     Dialog::EntryReplyLink link;
     link.index = dlg.Index;
     link.active = dlg.Active;
+    link.active2 = dlg.Active2;
+    link.notActive = dlg.Not != 0;
+    link.notActive2 = dlg.Not2 != 0;
+    link.logic = dlg.Logic;
+    link.params.ints = {dlg.Param1, dlg.Param2, dlg.Param3, dlg.Param4, dlg.Param5};
+    link.params.str = dlg.ParamStrA;
+    link.params2.ints = {dlg.Param1b, dlg.Param2b, dlg.Param3b, dlg.Param4b, dlg.Param5b};
+    link.params2.str = dlg.ParamStrB;
 
     return link;
 }
@@ -75,8 +83,13 @@ Dialog::EntryReply Dialogs::getEntryReply(const resource::generated::DLG_EntryRe
     entry.text = strRef == -1 ? "" : _strings.getText(strRef);
     entry.voResRef = dlg.VO_ResRef;
     entry.script = dlg.Script;
+    entry.script2 = dlg.Script2;
     entry.sound = dlg.Sound;
     entry.listener = dlg.Listener;
+    entry.actionParams.ints = {dlg.ActionParam1, dlg.ActionParam2, dlg.ActionParam3, dlg.ActionParam4, dlg.ActionParam5};
+    entry.actionParams.str = dlg.ActionParamStrA;
+    entry.actionParams2.ints = {dlg.ActionParam1b, dlg.ActionParam2b, dlg.ActionParam3b, dlg.ActionParam4b, dlg.ActionParam5b};
+    entry.actionParams2.str = dlg.ActionParamStrB;
     entry.delay = dlg.Delay;
     entry.waitFlags = dlg.WaitFlags;
     entry.cameraId = dlg.CameraID;

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <array>
+
 #include "types.h"
 
 namespace reone {
@@ -34,8 +36,19 @@ struct Dialog {
     };
 
     struct EntryReplyLink {
+        struct ConditionParams {
+            std::array<int, 5> ints {0, 0, 0, 0, 0};
+            std::string str;
+        };
+
         int index {0};
         std::string active;
+        std::string active2;
+        bool notActive {false};
+        bool notActive2 {false};
+        int logic {0};
+        ConditionParams params;
+        ConditionParams params2;
     };
 
     struct ParticipantAnimation {
@@ -44,12 +57,20 @@ struct Dialog {
     };
 
     struct EntryReply {
+        struct ActionParams {
+            std::array<int, 5> ints {0, 0, 0, 0, 0};
+            std::string str;
+        };
+
         std::string speaker;
         std::string text;
         std::string voResRef;
         std::string script;
+        std::string script2;
         std::string sound;
         std::string listener;
+        ActionParams actionParams;
+        ActionParams actionParams2;
         int delay {0};
         int waitFlags {0};
         int cameraId {-1};
