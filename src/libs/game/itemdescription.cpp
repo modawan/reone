@@ -29,6 +29,8 @@
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/strings.h"
 
+#include <boost/algorithm/string/case_conv.hpp>
+
 #include <iterator>
 #include <map>
 #include <regex>
@@ -71,13 +73,6 @@ struct DerivedProperties {
     RangeBonus massiveCriticals;
     bool foldedDefenseBonus {false};
 };
-
-static std::string lowerASCII(std::string value) {
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-    });
-    return value;
-}
 
 static std::string trim(std::string value) {
     auto begin = std::find_if(value.begin(), value.end(), [](unsigned char ch) {
@@ -165,8 +160,10 @@ static std::optional<RangeBonus> parseRangeBonus(std::string value) {
         return RangeBonus {*maybeValue, *maybeValue};
     }
 
-    static const std::regex kLooseIntRegex("([+-]?\\d+)");
-    if (std::regex_search(value, match, kLooseIntRegex)) {
+    // Exact numeric cells are handled above; this keeps free-form 2DA labels
+    // like "+2 bonus" readable.
+    static const std::regex kEmbeddedIntRegex("([+-]?\\d+)");
+    if (std::regex_search(value, match, kEmbeddedIntRegex)) {
         int amount = std::stoi(match[1].str());
         return RangeBonus {amount, amount};
     }
@@ -182,19 +179,11 @@ static std::optional<std::string> cell(
         return std::nullopt;
     }
 
-    std::unordered_map<std::string, int> columnIndices;
-    for (int i = 0; i < static_cast<int>(twoDa.columns().size()); ++i) {
-        columnIndices.insert(std::make_pair(lowerASCII(twoDa.columns()[i]), i));
-    }
-
-    for (auto &column : columns) {
-        auto it = columnIndices.find(lowerASCII(column));
-        if (it == columnIndices.end()) {
-            continue;
-        }
-        const std::string &value = twoDa.rows()[row].values[it->second];
-        if (!isDeletedCell(value)) {
-            return value;
+    for (const auto &column : columns) {
+        if (auto maybeValue = twoDa.getStringOpt(row, column)) {
+            if (!isDeletedCell(*maybeValue)) {
+                return maybeValue;
+            }
         }
     }
     return std::nullopt;
@@ -215,7 +204,7 @@ static std::shared_ptr<TwoDA> getTwoDA(ServicesView &services, const std::string
     if (resRef.empty()) {
         return nullptr;
     }
-    return services.resource.twoDas.get(lowerASCII(resRef));
+    return services.resource.twoDas.get(boost::to_lower_copy(resRef));
 }
 
 static std::string resolveRowText(ServicesView &services, const std::string &tableName, int row) {
@@ -261,7 +250,7 @@ static std::string resolvePropertyDefResRef(ServicesView &services, int property
         return "";
     }
     auto maybeCell = cell(*itemPropDef, property, columns);
-    return maybeCell ? lowerASCII(trim(*maybeCell)) : "";
+    return maybeCell ? boost::to_lower_copy(trim(*maybeCell)) : "";
 }
 
 static std::string resolveIndexedTableName(ServicesView &services, const std::string &tableName, int row) {
@@ -281,11 +270,11 @@ static std::string resolveIndexedTableName(ServicesView &services, const std::st
     if (!maybeCell) {
         return "";
     }
-    std::string value(lowerASCII(trim(*maybeCell)));
+    std::string value(boost::to_lower_copy(trim(*maybeCell)));
     if (auto maybeStrRef = parseInt(value)) {
         std::string text(services.resource.strings.getText(*maybeStrRef));
         if (!text.empty()) {
-            return lowerASCII(text);
+            return boost::to_lower_copy(text);
         }
     }
     return value;
@@ -557,6 +546,8 @@ static std::string damageTypeName(int flags) {
     if (flags == 0) {
         return "";
     }
+    // Physical is the aggregate damage type; keep it as one label instead of
+    // expanding its component bits.
     if (flags == static_cast<int>(DamageType::Physical)) {
         return "Physical";
     }
@@ -636,7 +627,7 @@ static std::optional<bool> baseItemBool(ServicesView &services, const Item &item
         return std::nullopt;
     }
 
-    std::string value(lowerASCII(trim(*maybeCell)));
+    std::string value(boost::to_lower_copy(trim(*maybeCell)));
     if (value == "true" || value == "yes") {
         return true;
     }
