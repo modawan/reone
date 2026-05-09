@@ -17,6 +17,8 @@
 
 #include "reone/game/object/camera/dialog.h"
 
+#include <cmath>
+
 #include "reone/game/di/services.h"
 #include "reone/graphics/types.h"
 #include "reone/scene/collision.h"
@@ -30,6 +32,14 @@ using namespace reone::scene;
 namespace reone {
 
 namespace game {
+
+static constexpr float kMinDialogCameraDistance = 0.0001f;
+
+static bool isFinite(const glm::vec3 &position) {
+    return std::isfinite(position.x) &&
+           std::isfinite(position.y) &&
+           std::isfinite(position.z);
+}
 
 void DialogCamera::load() {
     auto &scene = _services.scene.graphs.get(_sceneName);
@@ -62,10 +72,22 @@ void DialogCamera::updateSceneNode() {
     static glm::vec3 up(0.0f, 0.0f, 1.0f);
     static glm::vec3 down(0.0f, 0.0f, -1.0f);
 
-    glm::vec3 listenerToSpeaker(_speakerPosition - _listenerPosition);
+    glm::vec3 listenerPosition(isFinite(_listenerPosition) ? _listenerPosition : glm::vec3(0.0f));
+    glm::vec3 speakerPosition(isFinite(_speakerPosition) ? _speakerPosition : listenerPosition + glm::vec3(1.0f, 0.0f, 0.0f));
+    if (!isFinite(_listenerPosition) && isFinite(_speakerPosition)) {
+        listenerPosition = speakerPosition - glm::vec3(1.0f, 0.0f, 0.0f);
+    }
+
+    glm::vec3 listenerToSpeaker(speakerPosition - listenerPosition);
     float distance = glm::length(listenerToSpeaker);
-    glm::vec3 dir(glm::normalize(listenerToSpeaker));
-    glm::vec3 center(0.5f * (_listenerPosition + _speakerPosition));
+    if (!std::isfinite(distance) || distance < kMinDialogCameraDistance) {
+        // Some computer/dialog paths provide coincident endpoints; avoid normalizing a zero vector.
+        listenerToSpeaker = glm::vec3(1.0f, 0.0f, 0.0f);
+        speakerPosition = listenerPosition + listenerToSpeaker;
+        distance = 1.0f;
+    }
+    glm::vec3 dir(listenerToSpeaker / distance);
+    glm::vec3 center(0.5f * (listenerPosition + speakerPosition));
 
     glm::vec3 eye(0.0f);
     glm::vec3 target(0.0f);
@@ -76,12 +98,12 @@ void DialogCamera::updateSceneNode() {
         eye += glm::min(0.25f * distance, 1.0f) * glm::cross(dir, down);
         eye += 0.1f * up;
 
-        target = _speakerPosition;
+        target = speakerPosition;
         target -= 0.1f * distance * glm::cross(dir, down);
         target += 0.1f * up;
         break;
     case Variant::SpeakerFar:
-        eye = _listenerPosition;
+        eye = listenerPosition;
         eye -= 0.5f * distance * dir;
         eye += 0.5f * distance * glm::cross(dir, down);
 
@@ -93,12 +115,12 @@ void DialogCamera::updateSceneNode() {
         eye += glm::min(0.25f * distance, 1.0f) * glm::cross(dir, down);
         eye += 0.1f * up;
 
-        target = _listenerPosition;
+        target = listenerPosition;
         target -= 0.1f * distance * glm::cross(dir, down);
         target += 0.1f * up;
         break;
     case Variant::ListenerFar:
-        eye = _speakerPosition;
+        eye = speakerPosition;
         eye += 0.5f * distance * dir;
         eye += 0.5f * distance * glm::cross(dir, down);
 
