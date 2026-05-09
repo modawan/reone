@@ -70,6 +70,7 @@ private:
     std::vector<int> _grassFaces;
     std::stack<GrassClusterSceneNode *> _clusterPool;                          /**< pre-allocated pool of clusters */
     std::map<int, std::vector<GrassClusterSceneNode *>> _materializedClusters; /**< materialized clusters grouped by face */
+    bool _hasLightmapUV {true};
 };
 
 } // namespace scene
