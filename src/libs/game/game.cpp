@@ -17,6 +17,9 @@
 
 #include "reone/game/game.h"
 
+#include <cctype>
+#include <exception>
+
 #include "reone/audio/context.h"
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
@@ -598,6 +601,7 @@ void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
     _globalBooleans.clear();
     _globalNumbers.clear();
     _globalLocations.clear();
+    _customTokens.clear();
 
     for (auto &[name, value] : gvt.strings) {
         setGlobalString(name, value);
@@ -1238,6 +1242,40 @@ std::string Game::getGlobalString(const std::string &name) const {
 std::shared_ptr<Location> Game::getGlobalLocation(const std::string &name) const {
     auto it = _globalLocations.find(name);
     return it != _globalLocations.end() ? it->second : nullptr;
+}
+
+void Game::setCustomToken(int token, std::string value) {
+    _customTokens[token] = std::move(value);
+}
+
+std::string Game::substituteCustomTokens(std::string str) const {
+    size_t start = 0;
+    while ((start = str.find("<CUSTOM", start)) != std::string::npos) {
+        size_t digitsStart = start + 7;
+        size_t digitsEnd = digitsStart;
+        while (digitsEnd < str.size() && std::isdigit(static_cast<unsigned char>(str[digitsEnd]))) {
+            ++digitsEnd;
+        }
+        if (digitsEnd == digitsStart || digitsEnd >= str.size() || str[digitsEnd] != '>') {
+            start = digitsStart;
+            continue;
+        }
+        int token = 0;
+        try {
+            token = std::stoi(str.substr(digitsStart, digitsEnd - digitsStart));
+        } catch (const std::exception &) {
+            start = digitsEnd + 1;
+            continue;
+        }
+        auto it = _customTokens.find(token);
+        if (it == _customTokens.end()) {
+            start = digitsEnd + 1;
+            continue;
+        }
+        str.replace(start, digitsEnd - start + 1, it->second);
+        start += it->second.size();
+    }
+    return str;
 }
 
 void Game::setGlobalBoolean(const std::string &name, bool value) {

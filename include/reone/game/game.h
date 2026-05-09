@@ -321,6 +321,9 @@ public:
     const std::map<std::string, int> &globalNumbers() const { return _globalNumbers; }
     const std::map<std::string, std::shared_ptr<Location>> &globalLocations() const { return _globalLocations; }
 
+    void setCustomToken(int token, std::string value);
+    std::string substituteCustomTokens(std::string str) const;
+
     void setGlobalBoolean(const std::string &name, bool value);
     void setGlobalLocation(const std::string &name, const std::shared_ptr<Location> &location);
     void setGlobalNumber(const std::string &name, int value);
@@ -418,6 +421,7 @@ private:
     std::map<std::string, bool> _globalBooleans;
     std::map<std::string, int> _globalNumbers;
     std::map<std::string, std::shared_ptr<Location>> _globalLocations;
+    std::map<int, std::string> _customTokens;
 
     // END Global variables
 
