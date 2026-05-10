@@ -230,7 +230,7 @@ void Area::applySceneProperties() {
 void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff) {
     loadProperties(git);
     loadCreatures(gff);
-    loadDoors(git);
+    loadDoors(gff);
     loadPlaceables(gff);
     loadWaypoints(git);
     loadTriggers(git);
@@ -256,10 +256,10 @@ void Area::loadCreatures(const resource::Gff &gff) {
     }
 }
 
-void Area::loadDoors(const resource::generated::GIT &git) {
-    for (auto &doorStruct : git.Door_List) {
+void Area::loadDoors(const resource::Gff &gff) {
+    for (auto &doorGff : gff.getList("Door List")) {
         std::shared_ptr<Door> door = _game.newDoor(_sceneName);
-        door->loadFromGIT(doorStruct);
+        door->deserialize(*doorGff);
         add(door);
     }
 }

@@ -47,25 +47,94 @@ namespace reone {
 
 namespace game {
 
-void Door::loadFromGIT(const resource::generated::GIT_Door_List &git) {
-    std::string templateResRef(boost::to_lower_copy(git.TemplateResRef));
-    loadFromBlueprint(templateResRef);
-
-    _linkedToModule = boost::to_lower_copy(git.LinkedToModule);
-    _linkedTo = boost::to_lower_copy(git.LinkedTo);
-    _linkedToFlags = git.LinkedToFlags;
-    _transitionDestin = _services.resource.strings.getText(git.TransitionDestin.first);
-
-    loadTransformFromGIT(git);
+void Door::deserialize(const resource::Gff &gff) {
+    std::string templateRes;
+    if (gff.readResRef(templateRes, "TemplateResRef")) {
+        if (auto utd = _services.resource.gffs.get(templateRes, ResType::Utd)) {
+            deserializeAll(*utd);
+        }
+    }
+    deserializeAll(gff);
+    loadAppearance();
+    updateTransform();
 }
 
-void Door::loadFromBlueprint(const std::string &resRef) {
-    std::shared_ptr<Gff> utd(_services.resource.gffs.get(resRef, ResType::Utd));
-    if (!utd) {
-        return;
+void Door::deserializeAll(const resource::Gff &gff) {
+    if (gff.readString(_tag, "Tag")) {
+        boost::to_lower(_tag);
     }
-    auto utdParsed = resource::generated::parseUTD(*utd);
-    loadUTD(utdParsed);
+    if (gff.readLocString(_locName, "LocName", _services.resource.strings)) {
+        _name = _locName.str();
+    }
+
+    gff.readDword(_appearance, "Appearance");
+    gff.readByte(_genericType, "GenericType");
+    gff.readBool(_isOpen, "OpenState");
+    gff.readBool(_autoRemoveKey, "AutoRemoveKey");
+    {
+        float bearing;
+        if (gff.readFloat(bearing, "Bearing")) {
+            _orientation = glm::quat(glm::vec3(0.0f, 0.0f, bearing));
+        }
+    }
+    gff.readFloat(_position[0], "X");
+    gff.readFloat(_position[1], "Y");
+    gff.readFloat(_position[2], "Z");
+    gff.readEnum(_faction, "Faction");
+    gff.readByte(_fort, "Fort");
+    gff.readByte(_will, "Will");
+    gff.readByte(_ref, "Ref");
+    if (gff.readShort(_hitPoints, "HP")) {
+        _maxHitPoints = _hitPoints;
+    }
+    gff.readShort(_currentHitPoints, "CurrentHP");
+    gff.readBool(_plot, "Plot");
+    gff.readBool(_minOneHP, "Min1HP");
+    gff.readString(_keyName, "KeyName");
+    gff.readBool(_keyRequired, "KeyRequired");
+    gff.readByte(_openLockDC, "OpenLockDC");
+    gff.readByte(_closeLockDC, "CloseLockDC");
+    gff.readByte(_secretDoorDC, "SecretDoorDC");
+    gff.readResRef(_conversation, "Conversation");
+    gff.readWord(_portraitId, "PortraitId");
+    gff.readByte(_hardness, "Hardness");
+    gff.readResRef(_onClosed, "OnClosed");
+    gff.readResRef(_onDamaged, "OnDamaged");
+    gff.readResRef(_onDeath, "OnDeath");
+    gff.readResRef(_onDisarm, "OnDisarm");
+    gff.readResRef(_onHeartbeat, "OnHeartbeat");
+    gff.readResRef(_onLock, "OnLock");
+    gff.readResRef(_onMeleeAttacked, "OnMeleeAttacked");
+    gff.readResRef(_onOpen, "OnOpen");
+    gff.readResRef(_onSpellCastAt, "OnSpellCastAt");
+    gff.readResRef(_onTrapTriggered, "OnTrapTriggered");
+    gff.readResRef(_onUnlock, "OnUnlock");
+    gff.readResRef(_onUserDefined, "OnUserDefined");
+    gff.readResRef(_onClick, "OnClick");
+    gff.readResRef(_onFailToOpen, "OnFailToOpen");
+    gff.readResRef(_onDialog, "OnDialog");
+    gff.readByte(_trapType, "TrapType");
+    gff.readBool(_trapDisarmable, "TrapDisarmable");
+    gff.readBool(_trapDetectable, "TrapDetectable");
+    gff.readByte(_disarmDC, "DisarmDC");
+    gff.readByte(_trapDetectDC, "TrapDetectDC");
+    gff.readByte(_trapFlag, "TrapFlag");
+    gff.readBool(_trapOneShot, "TrapOneShot");
+    gff.readBool(_locked, "Locked");
+    gff.readBool(_lockable, "Lockable");
+    gff.readByte(_linkedToFlags, "LinkedToFlags");
+    gff.readString(_linkedTo, "LinkedTo");
+    gff.readResRef(_linkedToModule, "LinkedToModule");
+    gff.readWord(_loadScreenId, "LoadScreenID");
+    gff.readLocString(_description, "Description", _services.resource.strings);
+    gff.readBool(_static, "Static");
+    gff.readBool(_notBlastable, "NotBlastable");
+    gff.readLocString(_transitionDestin, "TransitionDestin", _services.resource.strings);
+
+    // FIXME: deserialize EffectList, ActionList
+}
+
+void Door::loadAppearance() {
     std::shared_ptr<TwoDA> doors(_services.resource.twoDas.get("genericdoors"));
     std::string modelName(boost::to_lower_copy(doors->getString(_genericType, "modelname")));
 
@@ -99,16 +168,6 @@ void Door::loadFromBlueprint(const std::string &resRef) {
         _walkmeshOpen2->setUser(*this);
         _walkmeshOpen2->setEnabled(false);
     }
-}
-
-void Door::loadTransformFromGIT(const resource::generated::GIT_Door_List &git) {
-    _position[0] = git.X;
-    _position[1] = git.Y;
-    _position[2] = git.Z;
-
-    _orientation = glm::quat(glm::vec3(0.0f, 0.0f, git.Bearing));
-
-    updateTransform();
 }
 
 bool Door::isSelectable() const {
@@ -227,65 +286,6 @@ void Door::runDeathScript(uint32_t damagerId) {
 
 void Door::setLocked(bool locked) {
     _locked = locked;
-}
-
-void Door::loadUTD(const resource::generated::UTD &utd) {
-    _tag = boost::to_lower_copy(utd.Tag);
-    _name = _services.resource.strings.getText(utd.LocName.first);
-    _blueprintResRef = boost::to_lower_copy(utd.TemplateResRef);
-    _autoRemoveKey = utd.AutoRemoveKey;
-    _conversation = boost::to_lower_copy(utd.Conversation);
-    _interruptable = utd.Interruptable;
-    _faction = static_cast<Faction>(utd.Faction);
-    _plot = utd.Plot;
-    _minOneHP = utd.Min1HP;
-    _keyRequired = utd.KeyRequired;
-    _lockable = utd.Lockable;
-    _locked = utd.Locked;
-    _openLockDC = utd.OpenLockDC;
-    _keyName = utd.KeyName;
-    _hitPoints = utd.HP;
-    _currentHitPoints = utd.CurrentHP;
-    _hardness = utd.Hardness;
-    _fortitude = utd.Fort;
-    _genericType = utd.GenericType;
-    _static = utd.Static;
-    _notBlastable = utd.NotBlastable;
-
-    _onClosed = utd.OnClosed;   // always empty, but could be useful
-    _onDamaged = utd.OnDamaged; // always empty, but could be useful
-    _onDeath = utd.OnDeath;
-    _onHeartbeat = utd.OnHeartbeat;
-    _onLock = utd.OnLock;                   // always empty, but could be useful
-    _onMeleeAttacked = utd.OnMeleeAttacked; // always empty, but could be useful
-    _onOpen = utd.OnOpen;
-    _onSpellCastAt = utd.OnSpellCastAt; // always empty, but could be useful
-    _onUnlock = utd.OnUnlock;           // always empty, but could be useful
-    _onUserDefined = utd.OnUserDefined;
-    _onClick = utd.OnClick;
-    _onFailToOpen = utd.OnFailToOpen;
-
-    // Unused fields:
-    //
-    // - Description (always -1)
-    // - CloseLockDC (always 0)
-    // - PortraitId (not applicable, mostly 0)
-    // - TrapDetectable (not applicable, always 1)
-    // - TrapDetectDC (not applicable, always 0)
-    // - TrapDisarmable (not applicable, always 1)
-    // - DisarmDC (not applicable, mostly 28)
-    // - TrapFlag (not applicable, always 0)
-    // - TrapOneShot (not applicable, always 1)
-    // - TrapType (not applicable)
-    // - AnimationState (always 0)
-    // - Appearance (always 0)
-    // - Ref (always 0)
-    // - Will (always 0)
-    // - OnDisarm (not applicable, always empty)
-    // - OnTrapTriggered (not applicable, always empty)
-    // - LoadScreenID (always 0)
-    // - PaletteID (toolset only)
-    // - Comment (toolset only)
 }
 
 void Door::updateTransform() {
