@@ -231,7 +231,7 @@ void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff
     loadProperties(git);
     loadCreatures(gff);
     loadDoors(git);
-    loadPlaceables(git);
+    loadPlaceables(gff);
     loadWaypoints(git);
     loadTriggers(git);
     loadSounds(git);
@@ -264,10 +264,10 @@ void Area::loadDoors(const resource::generated::GIT &git) {
     }
 }
 
-void Area::loadPlaceables(const resource::generated::GIT &git) {
-    for (auto &placeableStruct : git.Placeable_List) {
+void Area::loadPlaceables(const resource::Gff &gff) {
+    for (auto &placeableGff : gff.getList("Placeable List")) {
         std::shared_ptr<Placeable> placeable = _game.newPlaceable(_sceneName);
-        placeable->loadFromGIT(placeableStruct);
+        placeable->deserialize(*placeableGff);
         add(placeable);
     }
 }
