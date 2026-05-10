@@ -1032,6 +1032,11 @@ std::shared_ptr<Object> Area::createObject(ObjectType type, const std::string &b
         return nullptr;
     }
 
+    if (location) {
+        object->setPosition(location->position());
+        object->setFacing(location->facing());
+    }
+
     add(object);
 
     auto creature = std::dynamic_pointer_cast<Creature>(object);
