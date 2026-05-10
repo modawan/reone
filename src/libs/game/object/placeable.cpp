@@ -46,19 +46,114 @@ namespace reone {
 
 namespace game {
 
-void Placeable::loadFromGIT(const resource::generated::GIT_Placeable_List &git) {
-    std::string templateResRef(boost::to_lower_copy(git.TemplateResRef));
-    loadFromBlueprint(templateResRef);
-    loadTransformFromGIT(git);
-}
-
 void Placeable::loadFromBlueprint(const std::string &resRef) {
     std::shared_ptr<Gff> utp(_services.resource.gffs.get(resRef, ResType::Utp));
     if (!utp) {
         return;
     }
-    auto utpParsed = resource::generated::parseUTP(*utp);
-    loadUTP(utpParsed);
+    deserialize(*utp);
+}
+
+void Placeable::deserialize(const resource::Gff &gff) {
+    std::string templateRes;
+    if (gff.readResRef(templateRes, "TemplateResRef")) {
+        if (auto utp = _services.resource.gffs.get(templateRes, ResType::Utp)) {
+            deserializeAll(*utp);
+        }
+    }
+    deserializeAll(gff);
+    loadAppearance();
+    updateTransform();
+}
+
+void Placeable::deserializeAll(const resource::Gff &gff) {
+    if (gff.readString(_tag, "Tag")) {
+        boost::to_lower(_tag);
+    }
+    if (gff.readLocString(_locName, "LocName", _services.resource.strings)) {
+        _name = _locName.str();
+    }
+    gff.readBool(_autoRemoveKey, "AutoRemoveKey");
+    gff.readEnum(_faction, "Faction");
+    gff.readBool(_plot, "Plot");
+    gff.readBool(_minOneHP, "Min1HP");
+    gff.readByte(_openLockDC, "OpenLockDCk");
+    gff.readString(_keyName, "KeyName");
+    gff.readBool(_trapDisarmable, "TrapDisarmable");
+    gff.readBool(_trapDetectable, "TrapDetectable");
+    gff.readByte(_disarmDC, "DisarmDC");
+    gff.readByte(_trapDetectDC, "TrapDetectDC");
+    gff.readByte(_trapFlag, "TrapFlag");
+    gff.readBool(_trapOneShot, "TrapOneShot");
+    gff.readByte(_trapType, "TrapType");
+    gff.readBool(_usable, "Useable");
+    gff.readBool(_static, "Static");
+    gff.readBool(_notBlastable, "NotBlastable");
+    gff.readBool(_groundPile, "GroundPile");
+    gff.readDword(_appearance, "Appearance");
+    if (gff.readShort(_hitPoints, "HP")) {
+        _maxHitPoints = _hitPoints;
+    }
+    gff.readShort(_currentHitPoints, "CurrentHP");
+    gff.readByte(_hardness, "Hardness");
+    gff.readByte(_fort, "Fort");
+    gff.readByte(_will, "Will");
+    gff.readByte(_ref, "Ref");
+    gff.readBool(_lockable, "Lockable");
+    gff.readBool(_locked, "Locked");
+    gff.readBool(_hasInventory, "HasInventory");
+    gff.readBool(_keyRequired, "KeyRequired");
+    gff.readByte(_closeLockDC, "CloseLockDC");
+    gff.readBool(_open, "Open");
+    gff.readBool(_partyInteract, "PartyInteract");
+    gff.readWord(_portraitId, "PortraitId");
+    gff.readResRef(_conversation, "Conversation");
+    gff.readByte(_bodyBagId, "BodyBag");
+    gff.readBool(_dieWhenEmpty, "DieWhenEmpty");
+    gff.readByte(_lightState, "LightState");
+    gff.readLocString(_description, "Description", _services.resource.strings);
+    gff.readResRef(_onClosed, "OnClosed");
+    gff.readResRef(_onDamaged, "OnDamaged");
+    gff.readResRef(_onDeath, "OnDeath");
+    gff.readResRef(_onDisarm, "OnDisarm");
+    gff.readResRef(_onHeartbeat, "OnHeartbeat");
+    gff.readResRef(_onInvDisturbed, "OnInvDisturbed");
+    gff.readResRef(_onLock, "OnLock");
+    gff.readResRef(_onMeleeAttacked, "OnMeleeAttacked");
+    gff.readResRef(_onOpen, "OnOpen");
+    gff.readResRef(_onSpellCastAt, "OnSpellCastAt");
+    gff.readResRef(_onUnlock, "OnUnlock");
+    gff.readResRef(_onUsed, "OnUsed");
+    gff.readResRef(_onUserDefined, "OnUserDefined");
+    gff.readResRef(_onDialog, "OnDialog");
+    gff.readResRef(_onEndDialogue, "OnEndDialogue");
+    gff.readResRef(_onTrapTriggered, "OnTrapTriggered");
+    gff.readInt(_animation, "Animation");
+    {
+        float bearing;
+        if (gff.readFloat(bearing, "Bearing")) {
+            _orientation = glm::quat(glm::vec3(0.0f, 0.0f, bearing));
+        }
+    }
+    gff.readFloat(_position[0], "X");
+    gff.readFloat(_position[1], "Y");
+    gff.readFloat(_position[2], "Z");
+    gff.readBool(_isBodyBag, "IsBodyBag");
+    gff.readBool(_isBodyBagVisible, "IsBodyBagVisible");
+    gff.readBool(_isCorpse, "IsCorpse");
+    gff.readBool(_commandable, "Commandable");
+
+    for (const auto &itemGff : gff.getList("ItemList")) {
+        std::shared_ptr<Item> item = _game.newItem();
+        item->deserialize(*itemGff);
+        item->setDropable(true);
+        addItem(item);
+    }
+
+    // FIXME: deserialize EffectList, ActionList
+}
+
+void Placeable::loadAppearance() {
     std::shared_ptr<TwoDA> placeables(_services.resource.twoDas.get("placeables"));
     std::string modelName(boost::to_lower_copy(placeables->getString(_appearance, "modelname")));
 
@@ -77,16 +172,6 @@ void Placeable::loadFromBlueprint(const std::string &resRef) {
     if (walkmesh) {
         _walkmesh = sceneGraph.newWalkmesh(*walkmesh);
     }
-}
-
-void Placeable::loadTransformFromGIT(const resource::generated::GIT_Placeable_List &git) {
-    _position[0] = git.X;
-    _position[1] = git.Y;
-    _position[2] = git.Z;
-
-    _orientation = glm::quat(glm::vec3(0.0f, 0.0f, git.Bearing));
-
-    updateTransform();
 }
 
 void Placeable::damage(int amount, uint32_t damager) {
@@ -178,75 +263,6 @@ void Placeable::runDeathScript(uint32_t damagerId) {
         {{script::ArgKind::Caller, Variable::ofObject(_id)},
          {script::ArgKind::LastAttacker, Variable::ofObject(damagerId)},
          {script::ArgKind::LastDamager, Variable::ofObject(damagerId)}});
-}
-
-void Placeable::loadUTP(const resource::generated::UTP &utp) {
-    _tag = boost::to_lower_copy(utp.Tag);
-    _name = _services.resource.strings.getText(utp.LocName.first);
-    _blueprintResRef = boost::to_lower_copy(utp.TemplateResRef);
-    _conversation = boost::to_lower_copy(utp.Conversation);
-    _interruptable = utp.Interruptable;
-    _faction = static_cast<Faction>(utp.Faction);
-    _plot = utp.Plot;
-    _minOneHP = utp.Min1HP;
-    _keyRequired = utp.KeyRequired;
-    _lockable = utp.Lockable;
-    _locked = utp.Locked;
-    _openLockDC = utp.OpenLockDC;
-    _animationState = utp.AnimationState;
-    _appearance = utp.Appearance;
-    _hitPoints = utp.HP;
-    _currentHitPoints = utp.CurrentHP;
-    _hardness = utp.Hardness;
-    _fortitude = utp.Fort;
-    _hasInventory = utp.HasInventory;
-    _partyInteract = utp.PartyInteract;
-    _static = utp.Static;
-    _usable = utp.Useable;
-    _notBlastable = utp.NotBlastable;
-
-    _onClosed = boost::to_lower_copy(utp.OnClosed);
-    _onDamaged = boost::to_lower_copy(utp.OnDamaged); // always empty, but could be useful
-    _onDeath = boost::to_lower_copy(utp.OnDeath);
-    _onHeartbeat = boost::to_lower_copy(utp.OnHeartbeat);
-    _onLock = boost::to_lower_copy(utp.OnLock);                   // always empty, but could be useful
-    _onMeleeAttacked = boost::to_lower_copy(utp.OnMeleeAttacked); // always empty, but could be useful
-    _onOpen = boost::to_lower_copy(utp.OnOpen);
-    _onSpellCastAt = boost::to_lower_copy(utp.OnSpellCastAt);
-    _onUnlock = boost::to_lower_copy(utp.OnUnlock); // always empty, but could be useful
-    _onUserDefined = boost::to_lower_copy(utp.OnUserDefined);
-    _onEndDialogue = boost::to_lower_copy(utp.OnEndDialogue);
-    _onInvDisturbed = boost::to_lower_copy(utp.OnInvDisturbed);
-    _onUsed = boost::to_lower_copy(utp.OnUsed);
-
-    for (auto &itemStrct : utp.ItemList) {
-        std::string resRef(boost::to_lower_copy(itemStrct.InventoryRes));
-        addItem(resRef, 1, true);
-    }
-
-    // These fields are ignored as being most likely unused:
-    //
-    // - Description (not applicable, mostly -1)
-    // - AutoRemoveKey (not applicable, always 0)
-    // - CloseLockDC (not applicable, always 0)
-    // - PortraitId (not applicable, always 0)
-    // - TrapDetectable (not applicable, always 1)
-    // - TrapDetectDC (not applicable, always 0)
-    // - TrapDisarmable (not applicable, always 1)
-    // - DisarmDC (not applicable)
-    // - TrapFlag (not applicable, always 0)
-    // - TrapOneShot (not applicable, always 1)
-    // - TrapType (not applicable, mostly 0)
-    // - KeyName (not applicable, always empty)
-    // - Ref (not applicable, always 0)
-    // - Will (not applicable, always 0)
-    // - Type (obsolete, always 0)
-    // - OnDisarm (not applicable, always empty)
-    // - OnTrapTriggered (not applicable, always empty)
-    // - BodyBag (not applicable, always 0)
-    // - Type (obsolete, always 0)
-    // - PaletteID (toolset only)
-    // - Comment (toolset only)
 }
 
 void Placeable::updateTransform() {

@@ -69,7 +69,6 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/parser/gff/utd.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/ute.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/utm.h
-    ${RESOURCE_INCLUDE_DIR}/parser/gff/utp.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/uts.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/utt.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/utw.h
@@ -145,7 +144,6 @@ set(RESOURCE_SOURCES
     ${RESOURCE_SOURCE_DIR}/parser/gff/utd.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/ute.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/utm.cpp
-    ${RESOURCE_SOURCE_DIR}/parser/gff/utp.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/uts.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/utt.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/utw.cpp

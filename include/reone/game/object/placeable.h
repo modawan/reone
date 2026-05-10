@@ -21,8 +21,6 @@
 #include "reone/scene/node/walkmesh.h"
 
 #include "../object.h"
-#include "reone/resource/parser/gff/git.h"
-#include "reone/resource/parser/gff/utp.h"
 
 namespace reone {
 
@@ -47,8 +45,8 @@ public:
         return from->type() == ObjectType::Placeable;
     }
 
-    void loadFromGIT(const resource::generated::GIT_Placeable_List &git);
     void loadFromBlueprint(const std::string &resRef);
+    void deserialize(const resource::Gff &gff);
 
     void damage(int amount, uint32_t damager) override;
 
@@ -74,45 +72,75 @@ public:
     // END Scripts
 
 private:
-    int _appearance {0};
-    bool _hasInventory {false};
-    bool _usable {false};
+    // Serializable
+    resource::LocString _locName;
+    bool _autoRemoveKey {false};
     Faction _faction {Faction::Invalid};
-    bool _keyRequired {false};
-    bool _lockable {false};
-    bool _locked {false};
-    int _openLockDC {0};
-    int _animationState {0};
-    int _hardness {0};
-    int _fortitude {0};
-    bool _partyInteract {false};
+    uint8_t _openLockDC {0};
+    std::string _keyName;
+    bool _trapDisarmable {true};
+    bool _trapDetectable {true};
+    uint8_t _disarmDC {0};
+    uint8_t _trapDetectDC {0};
+    uint8_t _trapFlag {0};
+    bool _trapOneShot {true};
+    uint8_t _trapType {0};
+    bool _usable {false};
     bool _static {false};
     bool _notBlastable {false};
+    bool _groundPile {false};
+    uint32_t _appearance {0};
+    uint8_t _hardness {0};
+    uint8_t _fort {0};
+    uint8_t _will {0};
+    uint8_t _ref {0};
+    bool _lockable {false};
+    bool _locked {false};
+    bool _hasInventory {false};
+    bool _keyRequired {false};
+    uint8_t _closeLockDC {0};
+    bool _open {false};
+    bool _partyInteract {false};
+    uint16_t _portraitId {0};
+    uint8_t _bodyBagId {0xFF};
+    bool _dieWhenEmpty {false};
+    uint8_t _lightState {0};
+    resource::LocString _description;
 
-    std::shared_ptr<scene::WalkmeshSceneNode> _walkmesh;
-
-    std::unique_ptr<resource::generated::UTP> _utp;
-
-    // Scripts
-
-    std::string _onUsed;
-    std::string _onInvDisturbed;
     std::string _onClosed;
     std::string _onDamaged;
     std::string _onDeath;
+    std::string _onDisarm;
+    std::string _onInvDisturbed;
     std::string _onLock;
     std::string _onMeleeAttacked;
     std::string _onOpen;
     std::string _onSpellCastAt;
     std::string _onUnlock;
+    std::string _onUsed;
+    std::string _onDialog;
     std::string _onEndDialogue;
+    std::string _onTrapTriggered;
+
+    int32_t _animation {-1};
+    bool _isBodyBag {false};
+    bool _isBodyBagVisible {true};
+    bool _isCorpse {false};
+
+    // END Serializable
+
+    int _animationState {0};
+    std::shared_ptr<scene::WalkmeshSceneNode> _walkmesh;
+
+    // Scripts
 
     // END Scripts
 
-    void loadUTP(const resource::generated::UTP &utp);
-    void loadTransformFromGIT(const resource::generated::GIT_Placeable_List &git);
     void runDamagedScript(uint32_t damagerId);
     void runDeathScript(uint32_t damagerId);
+
+    void deserializeAll(const resource::Gff &gff);
+    void loadAppearance();
 
     void updateTransform() override;
 };
