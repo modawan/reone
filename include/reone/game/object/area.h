@@ -345,7 +345,7 @@ private:
 
     void loadProperties(const resource::generated::GIT &git);
     void loadCreatures(const resource::Gff &gff);
-    void loadDoors(const resource::generated::GIT &git);
+    void loadDoors(const resource::Gff &gff);
     void loadPlaceables(const resource::Gff &gff);
     void loadWaypoints(const resource::generated::GIT &git);
     void loadTriggers(const resource::generated::GIT &git);

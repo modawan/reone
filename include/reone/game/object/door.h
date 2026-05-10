@@ -21,8 +21,6 @@
 #include "reone/scene/node/walkmesh.h"
 
 #include "../object.h"
-#include "reone/resource/parser/gff/git.h"
-#include "reone/resource/parser/gff/utd.h"
 
 namespace reone {
 
@@ -47,8 +45,8 @@ public:
         return from->type() == ObjectType::Door;
     }
 
-    void loadFromGIT(const resource::generated::GIT_Door_List &git);
     void loadFromBlueprint(const std::string &resRef);
+    void deserialize(const resource::Gff &gff);
 
     bool isSelectable() const override;
     void damage(int amount, uint32_t damager) override;
@@ -71,7 +69,7 @@ public:
     Faction faction() const { return _faction; }
     const std::string &linkedToModule() const { return _linkedToModule; }
     const std::string &linkedTo() const { return _linkedTo; }
-    const std::string &transitionDestin() const { return _transitionDestin; }
+    const std::string &transitionDestin() const { return _transitionDestin.str(); }
 
     void setLocked(bool locked);
 
@@ -84,22 +82,56 @@ public:
     // END Walkmeshes
 
 private:
-    bool _locked {false};
-    int _genericType {0};
-    bool _static {false};
-    bool _keyRequired {false};
-    std::string _linkedToModule;
-    std::string _linkedTo;
-    int _linkedToFlags {0};
-    std::string _transitionDestin;
+    // Serializable
+    resource::LocString _locName;
+    uint32_t _appearance {0};
+    uint8_t _genericType {0};
+    bool _isOpen {false};
+    bool _autoRemoveKey {false};
     Faction _faction {Faction::Invalid};
-    int _openLockDC {0};
-    int _hardness {0};
-    int _fortitude {0};
-    bool _lockable {false};
-    bool _notBlastable {false};
+    uint8_t _fort {0};
+    uint8_t _will {0};
+    uint8_t _ref {0};
     std::string _keyName;
-    bool _autoRemoveKey;
+    bool _keyRequired {false};
+    uint8_t _openLockDC {0};
+    uint8_t _closeLockDC {0};
+    uint8_t _secretDoorDC {0};
+    uint16_t _portraitId {0};
+    uint8_t _hardness {0};
+
+    std::string _onClosed;
+    std::string _onDamaged;
+    std::string _onDeath;
+    std::string _onDisarm;
+    std::string _onLock;
+    std::string _onMeleeAttacked;
+    std::string _onOpen;
+    std::string _onSpellCastAt;
+    std::string _onTrapTriggered;
+    std::string _onUnlock;
+    std::string _onClick;
+    std::string _onFailToOpen;
+    std::string _onDialog;
+
+    uint8_t _trapType {0};
+    bool _trapDisarmable {true};
+    bool _trapDetectable {true};
+    uint8_t _disarmDC {0};
+    uint8_t _trapDetectDC {0};
+    uint8_t _trapFlag {0};
+    bool _trapOneShot {true};
+    bool _locked {false};
+    bool _lockable {false};
+    uint8_t _linkedToFlags {0};
+    std::string _linkedTo;
+    std::string _linkedToModule;
+    uint16_t _loadScreenId {0};
+    resource::LocString _description;
+    bool _static {false};
+    bool _notBlastable {false};
+    resource::LocString _transitionDestin;
+    // END Serializable
 
     // Walkmeshes
 
@@ -111,24 +143,13 @@ private:
 
     // Scripts
 
-    std::string _onOpen;
-    std::string _onFailToOpen;
-    std::string _onClick;
-    std::string _onClosed;
-    std::string _onDamaged;
-    std::string _onDeath;
-    std::string _onLock;
-    std::string _onUnlock;
-    std::string _onMeleeAttacked;
-    std::string _onSpellCastAt;
-
     // END Scripts
 
-    void loadUTD(const resource::generated::UTD &utd);
-    void loadTransformFromGIT(const resource::generated::GIT_Door_List &git);
     void runDamagedScript(uint32_t damagerId);
     void runDeathScript(uint32_t damagerId);
 
+    void deserializeAll(const resource::Gff &gff);
+    void loadAppearance();
     void updateTransform() override;
 };
 
