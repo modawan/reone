@@ -783,7 +783,7 @@ bool SceneGraph::testElevation(const glm::vec2 &position, Collision &outCollisio
         }
         auto objSpaceOrigin = glm::vec3(root->absoluteTransformInverse() * glm::vec4(origin, 1.0f));
         float distance = 0.0f;
-        auto face = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, down, 2.0f * kElevationTestZ, distance);
+        auto face = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, down, 2.0f * kElevationTestZ, /*ignoreBackface=*/true, distance);
         if (!face || distance >= minDistance) {
             continue;
         }
@@ -827,7 +827,7 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
             dirLocal = root->absoluteTransformInverse() * glm::vec4 {dir, 0.0f};
         }
         float distance = 0.0f;
-        auto face = root->walkmesh().raycast(_lineOfSightSurfaces, originLocal, dirLocal, maxDistance, distance);
+        auto face = root->walkmesh().raycast(_lineOfSightSurfaces, originLocal, dirLocal, maxDistance, /*ignoreBackface=*/false, distance);
         if (!face || distance > minDistance) {
             continue;
         }
@@ -860,7 +860,7 @@ bool SceneGraph::testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const 
         glm::vec3 objSpaceOrigin(root->absoluteTransformInverse() * glm::vec4(origin, 1.0f));
         glm::vec3 objSpaceDir(root->absoluteTransformInverse() * glm::vec4(dir, 0.0f));
         float distance = 0.0f;
-        auto face = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, objSpaceDir, kMaxCollisionDistanceWalk, distance);
+        auto face = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, objSpaceDir, kMaxCollisionDistanceWalk, /*ignoreBackface=*/false, distance);
         if (!face || distance > maxDistance || distance > minDistance) {
             continue;
         }

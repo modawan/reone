@@ -26,11 +26,12 @@ const Walkmesh::Face *Walkmesh::raycast(
     const glm::vec3 &origin,
     const glm::vec3 &dir,
     float maxDistance,
+    bool ignoreBackface,
     float &outDistance) const {
 
     // For area walkmeshes, find intersection via AABB tree
     if (_rootAabb) {
-        return raycastAABB(surfaces, origin, dir, maxDistance, outDistance);
+        return raycastAABB(surfaces, origin, dir, maxDistance, ignoreBackface, outDistance);
     }
 
     // For placeable and door walkmeshes, test all faces for intersection
@@ -38,9 +39,10 @@ const Walkmesh::Face *Walkmesh::raycast(
     float minDistance = std::numeric_limits<float>::max();
     std::optional<std::reference_wrapper<const Face>> intersected;
     for (auto &face : _faces) {
-        if (!raycastFace(surfaces, face, origin, dir, maxDistance, distance)) {
+        if (!raycastFace(surfaces, face, origin, dir, maxDistance, ignoreBackface, distance)) {
             continue;
         }
+
         if (distance < minDistance) {
             minDistance = distance;
             intersected = face;
@@ -59,6 +61,7 @@ const Walkmesh::Face *Walkmesh::raycastAABB(
     const glm::vec3 &origin,
     const glm::vec3 &dir,
     float maxDistance,
+    bool ignoreBackface,
     float &outDistance) const {
 
     float distance = 0.0f;
@@ -75,7 +78,7 @@ const Walkmesh::Face *Walkmesh::raycastAABB(
         // Test ray/face intersection for tree leafs
         if (aabb->faceIdx != -1) {
             const Face &face = _faces[aabb->faceIdx];
-            if (raycastFace(surfaces, face, origin, dir, maxDistance, distance)) {
+            if (raycastFace(surfaces, face, origin, dir, maxDistance, ignoreBackface, distance)) {
                 outDistance = distance;
                 return &face;
             }
@@ -105,6 +108,7 @@ bool Walkmesh::raycastFace(
     const glm::vec3 &origin,
     const glm::vec3 &dir,
     float maxDistance,
+    bool ignoreBackface,
     float &outDistance) const {
 
     if (surfaces.count(face.material) == 0) {
@@ -119,6 +123,9 @@ bool Walkmesh::raycastFace(
     float distance = 0.0f;
 
     if (glm::intersectRayTriangle(origin, dir, p0, p1, p2, baryPosition, distance) && distance > 0.0f && distance < maxDistance) {
+        if (ignoreBackface && glm::dot(face.normal, dir) > 0) {
+            return false;
+        }
         outDistance = distance;
         return true;
     }
