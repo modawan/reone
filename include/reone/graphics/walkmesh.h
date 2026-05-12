@@ -48,6 +48,7 @@ public:
         const glm::vec3 &origin,
         const glm::vec3 &dir,
         float maxDistance,
+        bool ignoreBackface,
         float &outDistance) const;
 
     bool contains(const glm::vec2 &point) const;
@@ -75,6 +76,7 @@ private:
         const glm::vec3 &origin,
         const glm::vec3 &dir,
         float maxDistance,
+        bool ignoreBackface,
         float &outDistance) const;
 
     bool raycastFace(
@@ -83,6 +85,7 @@ private:
         const glm::vec3 &origin,
         const glm::vec3 &dir,
         float maxDistance,
+        bool ignoreBackface,
         float &outDistance) const;
 
     friend class BwmReader;
