@@ -4143,13 +4143,21 @@ static Variable GetCurrentStealthXP(const std::vector<Variable> &args, const Rou
 static Variable GetNumStackedItems(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     if (args.empty() || args[0].type != VariableType::Object) {
-        return Variable::ofInt(0);
+        return Variable::ofInt(-1);
     }
 
     // Transform
-    auto object = ctx.game.getObjectById(args[0].objectId);
+    uint32_t objectId = args[0].objectId;
+    if (objectId == kObjectSelf) {
+        if (const Variable *caller = ctx.execution.findArg(ArgKind::Caller)) {
+            objectId = caller->objectId;
+        } else {
+            objectId = kObjectInvalid;
+        }
+    }
+    auto object = ctx.game.getObjectById(objectId);
     if (!object || object->type() != ObjectType::Item) {
-        return Variable::ofInt(0);
+        return Variable::ofInt(-1);
     }
     auto item = std::static_pointer_cast<Item>(object);
 
