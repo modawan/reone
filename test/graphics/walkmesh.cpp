@@ -159,3 +159,45 @@ TEST(Walkmesh, should_find_ray_walkmesh_intersection__ignore_backface) {
     EXPECT_EQ(0, face->index);
     EXPECT_NEAR(2.0f, distance, 1e-5);
 }
+
+TEST(Walkmesh, should_find_ray_walkmesh_intersection__multi_level) {
+    // given
+    auto walkmesh = Walkmesh();
+
+    // Bottom triangle (facing up)
+    walkmesh.add(Walkmesh::Face {0, 0, std::vector<glm::vec3> {glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec3(1.0f, -1.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)}, glm::vec3(0.0f, 0.0f, 1.0f)});
+
+    // Top triangle (facing up)
+    walkmesh.add(Walkmesh::Face {1, 0, std::vector<glm::vec3> {glm::vec3(-1.0f, -1.0f, 1.0f), glm::vec3(1.0f, -1.0f, 1.0f), glm::vec3(0.0f, 1.0f, 1.0f)}, glm::vec3(0.0f, 0.0f, 1.0f)});
+
+    auto rootAabb = std::make_shared<Walkmesh::AABB>();
+    rootAabb->value = AABB(glm::vec3(-1.0f, -1.0f, -0.2f), glm::vec3(1.0f, 1.0f, 1.2f));
+
+    // Bottom AABB
+    rootAabb->right = std::make_shared<Walkmesh::AABB>();
+    rootAabb->right->value = AABB(glm::vec3(-1.0f, -1.0f, -0.2f), glm::vec3(1.0f, 1.0f, 0.2f));
+    rootAabb->right->faceIdx = 0;
+
+    // Top AABB
+    rootAabb->left = std::make_shared<Walkmesh::AABB>();
+    rootAabb->left->value = AABB(glm::vec3(-1.0f, -1.0f, 0.8f), glm::vec3(1.0f, 1.0f, 1.2f));
+    rootAabb->left->faceIdx = 1;
+
+    walkmesh.setRootAABB(rootAabb);
+
+    // With both triangles are facing up, we should pick the one
+    // closer to the origin.
+    float distance = -1.0f;
+    auto face = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(0.0f, 0.0f, 1.1f), glm::vec3(0.0f, 0.0f, -1.0f), 10.0f, /*ignoreBackface=*/true, distance);
+    EXPECT_TRUE(face);
+    EXPECT_EQ(1, face->index);
+    EXPECT_NEAR(0.1f, distance, 1e-5);
+
+    // Now move the origin closer to the bottom triangle. Raycast
+    // should pick it instead of the top triangle.
+    distance = -1.0f;
+    face = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(0.0f, 0.0f, 0.2f), glm::vec3(0.0f, 0.0f, -1.0f), 10.0f, /*ignoreBackface=*/true, distance);
+    EXPECT_TRUE(face);
+    EXPECT_EQ(0, face->index);
+    EXPECT_NEAR(0.2f, distance, 1e-5);
+}

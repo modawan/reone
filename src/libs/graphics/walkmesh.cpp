@@ -69,8 +69,10 @@ const Walkmesh::Face *Walkmesh::raycastAABB(
     std::stack<AABB *> aabbs;
     aabbs.push(_rootAabb.get());
 
-    auto invDir = 1.0f / dir;
+    outDistance = std::numeric_limits<float>::max();
+    const Face *result = nullptr;
 
+    auto invDir = 1.0f / dir;
     while (!aabbs.empty()) {
         auto aabb = aabbs.top();
         aabbs.pop();
@@ -79,8 +81,10 @@ const Walkmesh::Face *Walkmesh::raycastAABB(
         if (aabb->faceIdx != -1) {
             const Face &face = _faces[aabb->faceIdx];
             if (raycastFace(surfaces, face, origin, dir, maxDistance, ignoreBackface, distance)) {
-                outDistance = distance;
-                return &face;
+                if (distance < outDistance) {
+                    result = &face;
+                    outDistance = distance;
+                }
             }
             continue;
         }
@@ -99,7 +103,7 @@ const Walkmesh::Face *Walkmesh::raycastAABB(
         }
     }
 
-    return nullptr;
+    return result;
 }
 
 bool Walkmesh::raycastFace(

@@ -51,7 +51,6 @@ static constexpr int kMaxFlareLights = 4;
 static constexpr int kMaxSoundCount = 4;
 
 static constexpr float kShadowFadeSpeed = 2.0f;
-static constexpr float kElevationTestZ = 1024.0f;
 
 static constexpr float kLightRadiusBias = 64.0f;
 
@@ -764,13 +763,12 @@ std::vector<LightSceneNode *> SceneGraph::computeClosestLights(int count, const 
     return lights;
 }
 
-bool SceneGraph::testElevation(const glm::vec2 &position, Collision &outCollision) const {
+bool SceneGraph::testElevation(const glm::vec3 &position, Collision &outCollision) const {
     static glm::vec3 down(0.0f, 0.0f, -1.0f);
 
     bool walkable = false;
     float minDistance = std::numeric_limits<float>::max();
-
-    glm::vec3 origin {position, kElevationTestZ};
+    glm::vec3 origin {position.x, position.y, position.z + 0.1f};
     for (auto &root : _walkmeshRoots) {
         if (!root->isEnabled()) {
             continue;
