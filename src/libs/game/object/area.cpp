@@ -421,7 +421,7 @@ void Area::loadPTH() {
     for (size_t i = 0; i < path->points.size(); ++i) {
         const Path::Point &point = path->points[i];
         Collision collision;
-        if (!sceneGraph.testElevation(glm::vec2(point.x, point.y), collision)) {
+        if (!sceneGraph.testElevation(glm::vec3(point.x, point.y, scene::kElevationTestZ), collision)) {
             warn(str(boost::format("Point %d elevation not found") % i));
             continue;
         }

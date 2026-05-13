@@ -57,6 +57,8 @@ struct ResourceServices;
 
 namespace scene {
 
+static constexpr float kElevationTestZ = 1024.0f;
+
 struct Collision;
 
 class IAnimationEventListener;
@@ -72,7 +74,7 @@ public:
 
     virtual void clear() = 0;
 
-    virtual bool testElevation(const glm::vec2 &position, Collision &outCollision) const = 0;
+    virtual bool testElevation(const glm::vec3 &position, Collision &outCollision) const = 0;
     virtual bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const = 0;
     virtual bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const = 0;
 
@@ -240,7 +242,7 @@ public:
 
     // Collision detection and object picking
 
-    bool testElevation(const glm::vec2 &position, Collision &outCollision) const override;
+    bool testElevation(const glm::vec3 &position, Collision &outCollision) const override;
     bool testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest, Collision &outCollision) const override;
     bool testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const IUser *excludeUser, Collision &outCollision) const override;
 
