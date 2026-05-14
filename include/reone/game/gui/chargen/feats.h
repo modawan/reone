@@ -21,6 +21,7 @@
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
 
+#include "../../types.h"
 #include "../../gui.h"
 
 namespace reone {
@@ -69,7 +70,10 @@ private:
     Controls _controls;
 
     CharacterGeneration &_charGen;
+    std::vector<FeatType> _candidates;
+    std::set<FeatType> _selectedFeats;
     int _points {0};
+    bool _levelUp {false};
 
     void onGUILoaded() override;
 
@@ -91,6 +95,9 @@ private:
     }
 
     void loadLevelUpCandidates();
+    void refreshControls();
+    void updateCharacter();
+    void toggleSelectedFeat(FeatType feat);
     void onFeatSelected(const std::string &feat);
 };
 
