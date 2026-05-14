@@ -17,9 +17,12 @@
 
 #include "reone/game/gui/chargen/feats.h"
 
+#include "reone/game/d20/classes.h"
+#include "reone/game/d20/feats.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
 #include "reone/gui/control/button.h"
+#include "reone/gui/control/listbox.h"
 
 using namespace reone::audio;
 
@@ -34,6 +37,11 @@ namespace game {
 void CharGenFeats::onGUILoaded() {
     bindControls();
 
+    _controls.LB_DESC->setProtoMatchContent(true);
+    _controls.LB_FEATS->setOnItemClick([this](const std::string &item) {
+        onFeatSelected(item);
+    });
+
     _controls.BTN_ACCEPT->setOnClick([this]() {
         _charGen.goToNextStep();
         _charGen.openSteps();
@@ -43,6 +51,54 @@ void CharGenFeats::onGUILoaded() {
     });
     _controls.BTN_SELECT->setDisabled(true);
     _controls.BTN_RECOMMENDED->setDisabled(true);
+}
+
+void CharGenFeats::reset(bool levelUp) {
+    _points = 0;
+    _controls.LB_FEATS->clearItems();
+    _controls.LB_DESC->clearItems();
+    _controls.STD_REMAINING_SELECTIONS_LBL->setTextMessage("0");
+
+    if (levelUp) {
+        loadLevelUpCandidates();
+    }
+
+    _controls.BTN_ACCEPT->setDisabled(levelUp && _points > 0);
+    _controls.BTN_SELECT->setDisabled(true);
+    _controls.BTN_RECOMMENDED->setDisabled(true);
+}
+
+void CharGenFeats::loadLevelUpCandidates() {
+    const CreatureAttributes &attributes = _charGen.character().attributes;
+    std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(attributes.getEffectiveClass()));
+
+    _points = _services.game.feats.getLevelUpChoiceCount(attributes, *clazz);
+    _controls.STD_REMAINING_SELECTIONS_LBL->setTextMessage(std::to_string(_points));
+
+    std::vector<FeatType> candidates(_services.game.feats.getLevelUpCandidates(attributes, *clazz));
+    for (auto featType : candidates) {
+        std::shared_ptr<Feat> feat(_services.game.feats.get(featType));
+        if (!feat) {
+            continue;
+        }
+
+        ListBox::Item item;
+        item.tag = std::to_string(static_cast<int>(featType));
+        item.text = feat->name;
+        item.iconTexture = feat->icon;
+        _controls.LB_FEATS->addItem(std::move(item));
+    }
+}
+
+void CharGenFeats::onFeatSelected(const std::string &feat) {
+    auto featType = static_cast<FeatType>(std::stoi(feat));
+    std::shared_ptr<Feat> featInfo(_services.game.feats.get(featType));
+    if (!featInfo) {
+        return;
+    }
+
+    _controls.LB_DESC->clearItems();
+    _controls.LB_DESC->addTextLinesAsItems(featInfo->description);
 }
 
 } // namespace game

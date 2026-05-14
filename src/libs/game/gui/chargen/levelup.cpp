@@ -17,6 +17,8 @@
 
 #include "reone/game/gui/chargen/levelup.h"
 
+#include "reone/game/d20/classes.h"
+#include "reone/game/d20/feats.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
 #include "reone/gui/control/button.h"
@@ -46,6 +48,9 @@ void LevelUpMenu::onGUILoaded() {
     _controls.BTN_STEPNAME2->setOnClick([this]() {
         _charGen.openSkills();
     });
+    _controls.BTN_STEPNAME3->setOnClick([this]() {
+        _charGen.openFeats();
+    });
     _controls.BTN_STEPNAME5->setOnClick([this]() {
         _charGen.finish();
     });
@@ -54,17 +59,18 @@ void LevelUpMenu::onGUILoaded() {
 void LevelUpMenu::reset() {
     int nextLevel = _charGen.character().attributes.getAggregateLevel() + 1;
     _hasAttributes = nextLevel % 4 == 0;
+    _hasFeats = hasFeatChoices();
 
-    // TODO: feats and Force Powers are not yet implemented
+    // TODO: Force Powers are not yet implemented
 
     _controls.LBL_1->setVisible(_hasAttributes);
-    _controls.LBL_3->setVisible(false);
+    _controls.LBL_3->setVisible(_hasFeats);
     _controls.LBL_4->setVisible(false);
     _controls.LBL_NUM1->setVisible(_hasAttributes);
-    _controls.LBL_NUM3->setVisible(false);
+    _controls.LBL_NUM3->setVisible(_hasFeats);
     _controls.LBL_NUM4->setVisible(false);
     _controls.BTN_STEPNAME1->setVisible(_hasAttributes);
-    _controls.BTN_STEPNAME3->setVisible(false);
+    _controls.BTN_STEPNAME3->setVisible(_hasFeats);
     _controls.BTN_STEPNAME4->setVisible(false);
 }
 
@@ -74,6 +80,9 @@ void LevelUpMenu::goToNextStep() {
         doSetStep(1);
         break;
     case 1:
+        doSetStep(_hasFeats ? 2 : 4);
+        break;
+    case 2:
         doSetStep(4);
         break;
     default:
@@ -116,6 +125,12 @@ void LevelUpMenu::doSetStep(int step) {
     _controls.BTN_STEPNAME3->setSelected(_step == 2);
     _controls.BTN_STEPNAME4->setSelected(_step == 3);
     _controls.BTN_STEPNAME5->setSelected(_step == 4);
+}
+
+bool LevelUpMenu::hasFeatChoices() const {
+    const CreatureAttributes &attributes = _charGen.character().attributes;
+    std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(attributes.getEffectiveClass()));
+    return _services.game.feats.getLevelUpChoiceCount(attributes, *clazz) > 0;
 }
 
 } // namespace game

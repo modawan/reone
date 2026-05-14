@@ -299,6 +299,7 @@ void CharacterGeneration::openSkills() {
 }
 
 void CharacterGeneration::openFeats() {
+    _charGenFeats->reset(_type == Type::LevelUp);
     _controls.MODEL_LBL->setVisible(false);
     changeScreen(CharGenScreen::Feats);
 }

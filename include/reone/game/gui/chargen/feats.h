@@ -46,6 +46,8 @@ public:
         _resRef = guiResRef("ftchrgen");
     }
 
+    void reset(bool levelUp);
+
 private:
     struct Controls {
         std::shared_ptr<gui::Button> BTN_ACCEPT;
@@ -67,6 +69,7 @@ private:
     Controls _controls;
 
     CharacterGeneration &_charGen;
+    int _points {0};
 
     void onGUILoaded() override;
 
@@ -86,6 +89,9 @@ private:
         _controls.STD_SELECTIONS_REMAINING_LBL = findControl<gui::Label>("STD_SELECTIONS_REMAINING_LBL");
         _controls.SUB_TITLE_LBL = findControl<gui::Label>("SUB_TITLE_LBL");
     }
+
+    void loadLevelUpCandidates();
+    void onFeatSelected(const std::string &feat);
 };
 
 } // namespace game
