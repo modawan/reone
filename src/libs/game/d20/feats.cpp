@@ -22,12 +22,19 @@
 #include "reone/resource/provider/textures.h"
 #include "reone/resource/strings.h"
 
+#include "reone/game/d20/attributes.h"
+#include "reone/game/d20/class.h"
+
 using namespace reone::graphics;
 using namespace reone::resource;
 
 namespace reone {
 
 namespace game {
+
+static bool isValidFeat(FeatType type) {
+    return type != FeatType::Invalid;
+}
 
 void Feats::init() {
     std::shared_ptr<TwoDA> feats(_twoDas.get("feat"));
@@ -61,6 +68,47 @@ void Feats::init() {
 std::shared_ptr<Feat> Feats::get(FeatType type) const {
     auto it = _feats.find(type);
     return it != _feats.end() ? it->second : nullptr;
+}
+
+int Feats::getLevelUpChoiceCount(const CreatureAttributes &attributes, const CreatureClass &clazz) const {
+    int nextClassLevel = attributes.getClassLevel(clazz.type()) + 1;
+    return clazz.getFeatGain(nextClassLevel);
+}
+
+bool Feats::isLevelUpCandidate(FeatType type, const CreatureAttributes &attributes, const CreatureClass &clazz) const {
+    if (!isValidFeat(type) || attributes.hasFeat(type) || !clazz.isFeatSelectable(type)) {
+        return false;
+    }
+
+    std::shared_ptr<Feat> feat(get(type));
+    if (!feat) {
+        return false;
+    }
+
+    int nextCharacterLevel = attributes.getAggregateLevel() + 1;
+    if (nextCharacterLevel < static_cast<int>(feat->minCharLevel)) {
+        return false;
+    }
+
+    if (isValidFeat(feat->preReqFeat1) && !attributes.hasFeat(feat->preReqFeat1)) {
+        return false;
+    }
+    if (isValidFeat(feat->preReqFeat2) && !attributes.hasFeat(feat->preReqFeat2)) {
+        return false;
+    }
+
+    return true;
+}
+
+std::vector<FeatType> Feats::getLevelUpCandidates(const CreatureAttributes &attributes, const CreatureClass &clazz) const {
+    std::vector<FeatType> result;
+    for (auto &feat : _feats) {
+        if (isLevelUpCandidate(feat.first, attributes, clazz)) {
+            result.push_back(feat.first);
+        }
+    }
+    std::sort(result.begin(), result.end());
+    return result;
 }
 
 } // namespace game

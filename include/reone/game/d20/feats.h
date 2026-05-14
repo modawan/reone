@@ -33,6 +33,9 @@ class Textures;
 
 namespace game {
 
+class CreatureAttributes;
+class CreatureClass;
+
 class IFeats {
 public:
     virtual ~IFeats() = default;
@@ -40,6 +43,9 @@ public:
     virtual void init() = 0;
 
     virtual std::shared_ptr<Feat> get(FeatType type) const = 0;
+    virtual int getLevelUpChoiceCount(const CreatureAttributes &attributes, const CreatureClass &clazz) const = 0;
+    virtual bool isLevelUpCandidate(FeatType type, const CreatureAttributes &attributes, const CreatureClass &clazz) const = 0;
+    virtual std::vector<FeatType> getLevelUpCandidates(const CreatureAttributes &attributes, const CreatureClass &clazz) const = 0;
 };
 
 class Feats : public IFeats, boost::noncopyable {
@@ -56,6 +62,9 @@ public:
     void init() override;
 
     std::shared_ptr<Feat> get(FeatType type) const override;
+    int getLevelUpChoiceCount(const CreatureAttributes &attributes, const CreatureClass &clazz) const override;
+    bool isLevelUpCandidate(FeatType type, const CreatureAttributes &attributes, const CreatureClass &clazz) const override;
+    std::vector<FeatType> getLevelUpCandidates(const CreatureAttributes &attributes, const CreatureClass &clazz) const override;
 
 private:
     std::unordered_map<FeatType, std::shared_ptr<Feat>> _feats;
