@@ -611,6 +611,10 @@ CreatureWieldType Creature::getWieldType() const {
         }
     }
 
+    if (attributes().hasFeat(FeatType::ComplexUnarmedAnims)) {
+        return CreatureWieldType::HandToHandComplex;
+    }
+
     return CreatureWieldType::HandToHand;
 }
 

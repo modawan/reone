@@ -49,6 +49,23 @@ static std::string getMeleeAttackAnim(CreatureWieldType attackerWield,
     return str(boost::format("g%da%d") % static_cast<int>(attackerWield) % variant);
 }
 
+static std::string getUnarmedAttackAnim(CreatureWieldType attackerWield, CreatureWieldType targetWield, int variant, bool duel) {
+    if (attackerWield == CreatureWieldType::HandToHandComplex) {
+        if (duel && targetWield == attackerWield) {
+            return str(boost::format("c%da%d") % static_cast<int>(attackerWield) % variant);
+        }
+    }
+
+    // Fallback to a basic unarmed animation.
+    variant = variant % 3;
+    return str(boost::format("g8a%d") % variant);
+}
+
+static std::string getStunBatonAttackAnim(int variant) {
+    variant = variant % 3;
+    return str(boost::format("g1a%d") % variant);
+}
+
 static void attack(const CombatRound &round, Creature &attacker, Object &target,
                    const IAnimations &anims, AttackBuffer &attacks) {
 
@@ -59,7 +76,7 @@ static void attack(const CombatRound &round, Creature &attacker, Object &target,
             attacks.addWeaponAttack(attacker, target, *offhand);
         }
     } else {
-        // TODO: handle Unarmed
+        attacks.addUnarmedAttack(attacker, target);
     }
 
     scene::AnimationProperties animProp =
@@ -74,12 +91,34 @@ static void attack(const CombatRound &round, Creature &attacker, Object &target,
 
     CreatureWieldType attackerWield = attacker.getWieldType();
 
-    // TODO: support stun batons and unarmed.
-    bool isMelee = isMeleeWieldType(attacker.getWieldType());
-
-    std::string attackAnim = isMelee
-                                 ? getMeleeAttackAnim(attackerWield, targetWield, variant, round.duel)
-                                 : getRangedAttackAnim(attacker, /*kind=*/1);
+    std::string attackAnim;
+    switch (attackerWield) {
+    case CreatureWieldType::None: {
+        assert(0 && "Monster attacks are not supported");
+        break;
+    }
+    case CreatureWieldType::SingleSword:
+    case CreatureWieldType::DoubleBladedSword:
+    case CreatureWieldType::DualSwords: {
+        attackAnim = getMeleeAttackAnim(attackerWield, targetWield, variant, round.duel);
+        break;
+    }
+    case CreatureWieldType::BlasterPistol:
+    case CreatureWieldType::DualPistols:
+    case CreatureWieldType::BlasterRifle:
+    case CreatureWieldType::HeavyWeapon: {
+        attackAnim = getRangedAttackAnim(attacker, /*kind=*/1);
+        break;
+    }
+    case CreatureWieldType::HandToHand:
+    case CreatureWieldType::HandToHandComplex: {
+        attackAnim = getUnarmedAttackAnim(attackerWield, targetWield, variant, round.duel);
+        break;
+    }
+    case CreatureWieldType::StunBaton:
+        attackAnim = getStunBatonAttackAnim(variant);
+        break;
+    }
 
     attacker.playAnimation(attackAnim, animProp);
 
@@ -94,9 +133,6 @@ static void attack(const CombatRound &round, Creature &attacker, Object &target,
 
 /**
  * Add projectiles matching the corresponding attack animation.
- *
- * TODO: refactor this to be tied to the animation, not wield type. We need to
- * use it for CutsceneAttack as well.
  */
 void AttackObjectAction::addProjectiles(const Creature &creature) {
     ProjectileSpec *spec = _services.game.projectiles.get(

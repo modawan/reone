@@ -191,7 +191,7 @@ std::string Animations::getAttackResult(std::string attackAnim,
         if (isRangedWieldType(targetWield)) {
             return getNameById(it->second.dodge);
         }
-        return getNameById(it->second.damage);
+        return getNameById(it->second.parry);
     }
 
     return std::string();

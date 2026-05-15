@@ -90,6 +90,16 @@ static std::optional<ProjectileAttackType> getProjectileType(FeatType feat) {
     }
 }
 
+static std::string getStunBatonAttackAnim(int variant) {
+    variant = variant % 2;
+    return str(boost::format("g1a%d") % variant);
+}
+
+static std::string getUnarmedAttackAnim(int variant) {
+    variant = variant % 2;
+    return str(boost::format("g8a%d") % variant);
+}
+
 static std::string getAttackAnim(FeatType feat, CreatureWieldType attackerWield) {
     const char *format = getAnimFormat(feat);
     if (!format) {
