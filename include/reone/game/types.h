@@ -81,7 +81,8 @@ enum class CreatureWieldType {
     DualPistols = 6,
     BlasterRifle = 7,
     HandToHand = 8,
-    HeavyWeapon = 9
+    HeavyWeapon = 9,
+    HandToHandComplex = 10,
 };
 
 enum class DamageType {
@@ -629,6 +630,7 @@ enum class FeatType {
     Spirit = 204,
     ForceChain = 205,
     WarVeteran = 206,
+    ComplexUnarmedAnims = 207,
     FightingSpirit = 236,
     HeroicResolve = 237,
     PreciseShot = 240,

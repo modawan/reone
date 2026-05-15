@@ -116,14 +116,11 @@ static int getWeaponAttackBonus(const Creature &attacker, const Item &weapon) {
     return modifier + effects - penalty;
 }
 
-AttackResultType computeWeaponAttack(
-    const Creature &attacker, const Object &target, const Item &weapon,
-    int rollBonus, int threatBonus) {
-
+static AttackResultType computeAttack(const Creature &attacker, const Object &target, int rollBonus, int threatBonus) {
     // Determine defense of a target
     int defense;
-    if (target.type() == ObjectType::Creature) {
-        defense = static_cast<const Creature &>(target).getDefense();
+    if (const auto *creature = dyn_cast<Creature>(&target)) {
+        defense = creature->getDefense();
     } else {
         defense = 10;
     }
@@ -132,42 +129,46 @@ AttackResultType computeWeaponAttack(
     int roll = randomInt(1, 20);
 
     if (roll == 1) {
-        debug(str(boost::format("computeWeaponAttack: miss: roll(1)")), LogChannel::Combat);
+        debug(str(boost::format("computeAttack: miss: roll(1)")), LogChannel::Combat);
         return AttackResultType::Miss;
     }
-
-    int bonus = getWeaponAttackBonus(attacker, weapon) + rollBonus;
 
     AttackResultType result;
     if (roll == 20) {
         result = AttackResultType::AutomaticHit;
-    } else if ((roll + bonus) >= defense) {
+    } else if ((roll + rollBonus) >= defense) {
         result = AttackResultType::HitSuccessful;
     } else {
-        debug(str(boost::format("computeWeaponAttack: miss: roll(%d), bonus(%d), defense(%d)") % roll % bonus % defense), LogChannel::Combat);
+        debug(str(boost::format("computeAttack: miss: roll(%d), bonus(%d), defense(%d)") % roll % rollBonus % defense), LogChannel::Combat);
         return AttackResultType::Miss;
     }
 
     // Critical threat
-    int criticalThreat = weapon.criticalThreat() + threatBonus;
-    if (roll > (20 - criticalThreat)) {
+    if (roll > (20 - threatBonus)) {
         // Critical hit roll
         int criticalRoll = randomInt(1, 20);
-        if ((criticalRoll + bonus) >= defense) {
-            debug(str(boost::format("computeWeaponAttack: critical hit: roll(%d), critical roll(%d),"
-                                    " bonus(%d), defense(%d), critical threat(%d)") %
-                      roll % criticalRoll % bonus % defense % criticalThreat),
+        if ((criticalRoll + rollBonus) >= defense) {
+            debug(str(boost::format("computeAttack: critical hit: roll(%d), critical roll(%d),"
+                                    " bonus(%d), defense(%d), critical threat(20 - %d)") %
+                      roll % criticalRoll % rollBonus % defense % threatBonus),
                   LogChannel::Combat);
             return AttackResultType::CriticalHit;
         }
     }
 
-    debug(str(boost::format("computeWeaponAttack: %s: roll(%d), bonus(%d), defense(%d), critical threat(%d)") % attackResultDesc(result) % roll % bonus % defense % criticalThreat));
+    debug(str(boost::format("computeAttack: %s: roll(%d), bonus(%d), defense(%d), critical threat(20 - %d)") % attackResultDesc(result) % roll % rollBonus % defense % threatBonus));
 
     return result;
 }
 
-void computeWeaponDamage(
+/**
+ * Calculate damage for an attack with a weapon.
+ *
+ * It adds a descriptor to \p damage based on \p weapon damage amount and
+ * type. When \result is a critical hit, the amount is multiplied by the \p
+ * weapon critical multiplier.
+ */
+static void computeWeaponDamage(
     const Creature &attacker, const Object &target, const Item &weapon,
     AttackResultType result, int damageBonus, ISmallVector<Damage> &damage) {
 
@@ -191,12 +192,29 @@ void computeWeaponDamage(
           LogChannel::Combat);
 }
 
+static void computeUnarmedDamage(
+    const Creature &attacker, const Object &target,
+    AttackResultType result, int damageBonus, ISmallVector<Damage> &damage) {
+
+    int multiplier = (result == AttackResultType::CriticalHit) ? 2 : 1;
+
+    int amount = damageBonus + 1; // FIXME: fixed damage in K1?
+
+    damage.push_back({multiplier * amount, DamageType::Bludgeoning, DamagePower::Normal});
+
+    debug(str(boost::format("computeUnarmedDamage: %s -> %s (%d)") % attacker.tag() % target.tag() % amount),
+          LogChannel::Combat);
+}
+
 void AttackBuffer::addWeaponAttack(
     const Creature &attacker, const Object &target, const Item &weapon,
     int attackRollBonus, int attackThreatBonus, int damageBonus) {
 
-    AttackResultType result = computeWeaponAttack(
-        attacker, target, weapon, attackRollBonus, attackThreatBonus);
+    attackRollBonus += getWeaponAttackBonus(attacker, weapon);
+    attackThreatBonus += weapon.criticalThreat();
+
+    AttackResultType result = computeAttack(
+        attacker, target, attackRollBonus, attackThreatBonus);
 
     _attacks.emplace_back(result);
 
@@ -206,6 +224,20 @@ void AttackBuffer::addWeaponAttack(
 
     computeWeaponDamage(attacker, target, weapon, result,
                         damageBonus, _attacks.back().damage);
+}
+
+void AttackBuffer::addUnarmedAttack(const Creature &attacker, const Object &target,
+                                    int attackRollBonus, int attackThreatBonus, int damageBonus) {
+    AttackResultType result = computeAttack(
+        attacker, target, attackRollBonus, attackThreatBonus);
+
+    _attacks.emplace_back(result);
+
+    if (!isAttackSuccessful(result)) {
+        return;
+    }
+
+    computeUnarmedDamage(attacker, target, result, damageBonus, _attacks.back().damage);
 }
 
 void AttackBuffer::applyEffects(Creature &attacker, Object &target, Game &game) {
