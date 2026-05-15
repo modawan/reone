@@ -383,7 +383,7 @@ void ResourceExplorerViewModel::loadResources() {
         if (file.is_directory() ||
             (file.is_regular_file() && kFilesArchiveExtensions.count(extension) > 0)) {
             container = true;
-        } else if (file.is_regular_file() && getResTypeByExt(extension.substr(1), false) != ResType::Invalid) {
+        } else if (file.is_regular_file() && !extension.empty() && getResTypeByExt(extension.substr(1), false) != ResType::Invalid) {
             container = false;
         } else {
             continue;
