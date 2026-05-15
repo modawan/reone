@@ -69,7 +69,7 @@ public:
         Game &game,
         ServicesView &services);
 
-    static bool classof(Object *from) {
+    static bool classof(const Object *from) {
         return from->type() == ObjectType::Area;
     }
 
