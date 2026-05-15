@@ -39,6 +39,7 @@ void CharGenFeats::onGUILoaded() {
 
     _controls.LB_DESC->setProtoMatchContent(true);
     _controls.LB_FEATS->setSelectionMode(ListBox::SelectionMode::OnClick);
+    _controls.LB_FEATS->setRenderItemIconsForButtonProto(true);
     _controls.LB_FEATS->setOnItemClick([this](const std::string &item) {
         onFeatSelected(item);
     });
@@ -120,6 +121,9 @@ void CharGenFeats::toggleSelectedFeat(FeatType feat) {
     auto maybeSelectedFeat = _selectedFeats.find(feat);
     if (maybeSelectedFeat != _selectedFeats.end()) {
         _selectedFeats.erase(maybeSelectedFeat);
+    } else if (_points == 1) {
+        _selectedFeats.clear();
+        _selectedFeats.insert(feat);
     } else if (_selectedFeats.size() < static_cast<size_t>(_points)) {
         _selectedFeats.insert(feat);
     }
