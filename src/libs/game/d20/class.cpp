@@ -30,6 +30,19 @@ namespace reone {
 namespace game {
 
 static const char kSkillsTwoDAResRef[] = "skills";
+static const char kFeatTwoDAResRef[] = "feat";
+static const char kFeatGainTwoDAResRef[] = "featgain";
+
+static bool hasColumn(const TwoDA &twoDa, const std::string &column) {
+    return std::find(twoDa.columns().begin(), twoDa.columns().end(), column) != twoDa.columns().end();
+}
+
+static std::optional<int> getLevel(const TwoDA &twoDa, int row) {
+    if (auto level = twoDa.getIntOpt(row, "label")) {
+        return level;
+    }
+    return twoDa.getIntOpt(row, "level");
+}
 
 void CreatureClass::load(const TwoDA &twoDa, int row) {
     _name = _strings.getText(twoDa.getInt(row, "name"));
@@ -53,6 +66,12 @@ void CreatureClass::load(const TwoDA &twoDa, int row) {
 
     std::string attackBonusTable(boost::to_lower_copy(twoDa.getString(row, "attackbonustable")));
     loadAttackBonuses(attackBonusTable);
+
+    std::string featsPrefix(boost::to_lower_copy(twoDa.getString(row, "featstable")));
+    loadSelectableFeats(featsPrefix);
+
+    std::string featGainPrefix(boost::to_lower_copy(twoDa.getString(row, "featgain")));
+    loadFeatGains(featGainPrefix);
 }
 
 void CreatureClass::loadClassSkills(const std::string &skillsTable) {
@@ -85,6 +104,44 @@ void CreatureClass::loadAttackBonuses(const std::string &attackBonusTable) {
     }
 }
 
+void CreatureClass::loadSelectableFeats(const std::string &featsPrefix) {
+    if (featsPrefix.empty()) {
+        return;
+    }
+
+    std::shared_ptr<TwoDA> feats(_twoDas.get(kFeatTwoDAResRef));
+    std::string listColumn(featsPrefix + "_list");
+    if (!feats || !hasColumn(*feats, listColumn)) {
+        return;
+    }
+
+    for (int row = 0; row < feats->getRowCount(); ++row) {
+        int listValue = feats->getInt(row, listColumn, 4);
+        if (listValue == 0 || listValue == 1) {
+            _selectableFeats.insert(static_cast<FeatType>(row));
+        }
+    }
+}
+
+void CreatureClass::loadFeatGains(const std::string &featGainPrefix) {
+    if (featGainPrefix.empty()) {
+        return;
+    }
+
+    std::shared_ptr<TwoDA> featGain(_twoDas.get(kFeatGainTwoDAResRef));
+    std::string regularGainColumn(featGainPrefix + "_reg");
+    if (!featGain || !hasColumn(*featGain, regularGainColumn)) {
+        return;
+    }
+
+    for (int row = 0; row < featGain->getRowCount(); ++row) {
+        auto level = getLevel(*featGain, row);
+        if (level) {
+            _featGainsByLevel.insert(std::make_pair(*level, featGain->getInt(row, regularGainColumn, 0)));
+        }
+    }
+}
+
 bool CreatureClass::isClassSkill(SkillType skill) const {
     return _classSkills.count(skill) > 0;
 }
@@ -102,6 +159,11 @@ int CreatureClass::getAttackBonus(int level) const {
         throw std::out_of_range(str(boost::format("Level out of range: %d/%d") % level % static_cast<int>(_attackBonuses.size())));
     }
     return _attackBonuses[level - 1];
+}
+
+int CreatureClass::getFeatGain(int level) const {
+    auto maybeFeatGain = _featGainsByLevel.find(level);
+    return maybeFeatGain != _featGainsByLevel.end() ? maybeFeatGain->second : 0;
 }
 
 } // namespace game
