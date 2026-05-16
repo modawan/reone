@@ -19,6 +19,7 @@ set(GUI_SOURCE_DIR ${CMAKE_SOURCE_DIR}/src/libs/gui)
 set(GUI_HEADERS
     ${GUI_INCLUDE_DIR}/control.h
     ${GUI_INCLUDE_DIR}/control/button.h
+    ${GUI_INCLUDE_DIR}/control/iconchain.h
     ${GUI_INCLUDE_DIR}/control/imagebutton.h
     ${GUI_INCLUDE_DIR}/control/label.h
     ${GUI_INCLUDE_DIR}/control/listbox.h
@@ -37,6 +38,7 @@ set(GUI_HEADERS
 
 set(GUI_SOURCES
     ${GUI_SOURCE_DIR}/control.cpp
+    ${GUI_SOURCE_DIR}/control/iconchain.cpp
     ${GUI_SOURCE_DIR}/control/imagebutton.cpp
     ${GUI_SOURCE_DIR}/control/listbox.cpp
     ${GUI_SOURCE_DIR}/control/progressbar.cpp

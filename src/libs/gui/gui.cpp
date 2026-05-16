@@ -24,6 +24,7 @@
 #include "reone/graphics/texture.h"
 #include "reone/graphics/uniforms.h"
 #include "reone/gui/control/button.h"
+#include "reone/gui/control/iconchain.h"
 #include "reone/gui/control/imagebutton.h"
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
@@ -343,6 +344,9 @@ std::unique_ptr<Control> GUI::newControl(
         break;
     case ControlType::ListBox:
         control = std::make_unique<ListBox>(*this, _sceneGraphs, _graphicsSvc, _resourceSvc);
+        break;
+    case ControlType::IconChain:
+        control = std::make_unique<IconChain>(*this, _sceneGraphs, _graphicsSvc, _resourceSvc);
         break;
     default:
         debug("Unsupported control type: " + std::to_string(static_cast<int>(type)), LogChannel::GUI);
