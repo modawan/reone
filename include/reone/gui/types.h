@@ -31,7 +31,8 @@ enum class ControlType {
     Slider = 8,
     ScrollBar = 9,
     ProgressBar = 10,
-    ListBox = 11
+    ListBox = 11,
+    IconChain = 12
 };
 
 } // namespace gui
