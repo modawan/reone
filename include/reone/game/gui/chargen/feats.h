@@ -30,6 +30,7 @@ namespace reone {
 namespace gui {
 
 class Button;
+class IconChain;
 
 }
 
@@ -60,6 +61,7 @@ private:
         std::shared_ptr<gui::Label> LBL_BAR1;
         std::shared_ptr<gui::Label> LBL_BAR2;
         std::shared_ptr<gui::Label> LBL_NAME;
+        std::shared_ptr<gui::IconChain> ICONCHAIN_FEATS;
         std::shared_ptr<gui::ListBox> LB_DESC;
         std::shared_ptr<gui::ListBox> LB_FEATS;
         std::shared_ptr<gui::Label> MAIN_TITLE_LBL;
@@ -97,8 +99,14 @@ private:
 
     void loadLevelUpDisplayEntries();
     void refreshControls();
+    void refreshSelectionControls();
+    void refreshIconChain();
+    void refreshIconChainSelection();
+    void refreshListBox();
     void updateCharacter();
     void toggleSelectedFeat(FeatType feat);
+    void showFeatDescription(FeatType feat);
+    void onFeatFocused(const std::string &feat);
     void onFeatSelected(const std::string &feat);
 };
 

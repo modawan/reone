@@ -57,6 +57,7 @@ public:
 
     void clearItems();
     void addItem(Item item);
+    void setItemSelected(const std::string &tag, bool selected);
 
     bool handleMouseMotion(int x, int y) override;
     bool handleMouseWheel(int x, int y) override;

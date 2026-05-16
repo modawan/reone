@@ -38,6 +38,15 @@ void IconChain::addItem(Item item) {
     _items.push_back(std::move(item));
 }
 
+void IconChain::setItemSelected(const std::string &tag, bool selected) {
+    for (auto &item : _items) {
+        if (item.tag == tag) {
+            item.selected = selected;
+            return;
+        }
+    }
+}
+
 bool IconChain::handleMouseMotion(int x, int y) {
     int itemIdx = getItemIndex(x, y);
     if (itemIdx == _focusedItemIndex) {
