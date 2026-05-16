@@ -58,6 +58,7 @@ public:
     MOCK_METHOD(int, getLevelUpChoiceCount, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
     MOCK_METHOD(bool, isLevelUpCandidate, (FeatType type, const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
     MOCK_METHOD(std::vector<FeatType>, getLevelUpCandidates, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
+    MOCK_METHOD(std::vector<FeatDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz), (const override));
 };
 
 class MockFootstepSounds : public IFootstepSounds, boost::noncopyable {

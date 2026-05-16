@@ -21,6 +21,7 @@
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
 
+#include "../../d20/feats.h"
 #include "../../types.h"
 #include "../../gui.h"
 
@@ -70,7 +71,7 @@ private:
     Controls _controls;
 
     CharacterGeneration &_charGen;
-    std::vector<FeatType> _candidates;
+    std::vector<FeatDisplayEntry> _displayEntries;
     std::set<FeatType> _selectedFeats;
     int _points {0};
     bool _levelUp {false};
@@ -94,7 +95,7 @@ private:
         _controls.SUB_TITLE_LBL = findControl<gui::Label>("SUB_TITLE_LBL");
     }
 
-    void loadLevelUpCandidates();
+    void loadLevelUpDisplayEntries();
     void refreshControls();
     void updateCharacter();
     void toggleSelectedFeat(FeatType feat);

@@ -69,12 +69,12 @@ void CharGenFeats::onGUILoaded() {
 void CharGenFeats::reset(bool levelUp) {
     _levelUp = levelUp;
     _points = 0;
-    _candidates.clear();
+    _displayEntries.clear();
     _selectedFeats.clear();
     _controls.LB_DESC->clearItems();
 
     if (levelUp) {
-        loadLevelUpCandidates();
+        loadLevelUpDisplayEntries();
     }
 
     refreshControls();
@@ -82,12 +82,12 @@ void CharGenFeats::reset(bool levelUp) {
     _controls.BTN_RECOMMENDED->setDisabled(true);
 }
 
-void CharGenFeats::loadLevelUpCandidates() {
+void CharGenFeats::loadLevelUpDisplayEntries() {
     const CreatureAttributes &attributes = _charGen.character().attributes;
     std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(attributes.getEffectiveClass()));
 
     _points = _services.game.feats.getLevelUpChoiceCount(attributes, *clazz);
-    _candidates = _services.game.feats.getLevelUpCandidates(attributes, *clazz);
+    _displayEntries = _services.game.feats.getLevelUpDisplayEntries(attributes, *clazz);
 }
 
 void CharGenFeats::refreshControls() {
@@ -95,15 +95,36 @@ void CharGenFeats::refreshControls() {
     _controls.BTN_ACCEPT->setDisabled(_levelUp && _selectedFeats.size() != static_cast<size_t>(_points));
 
     _controls.LB_FEATS->clearItems();
-    for (auto featType : _candidates) {
-        std::shared_ptr<Feat> feat(_services.game.feats.get(featType));
+    for (auto &entry : _displayEntries) {
+        std::shared_ptr<Feat> feat(_services.game.feats.get(entry.type));
         if (!feat) {
             continue;
         }
 
+        std::string availabilityText;
+        switch (entry.availability) {
+        case FeatAvailability::Owned:
+            availabilityText = "[OWNED] ";
+            break;
+        case FeatAvailability::Selectable:
+            availabilityText = "[CAN PICK] ";
+            break;
+        case FeatAvailability::LockedMinLevel:
+            availabilityText = "[LOCKED: level] ";
+            break;
+        case FeatAvailability::LockedMissingPrerequisite:
+            availabilityText = "[LOCKED: prereq] ";
+            break;
+        }
+
+        std::string tierIndent;
+        if (entry.tier > 1) {
+            tierIndent = std::string(static_cast<size_t>(entry.tier - 1) * 2, ' ');
+        }
+
         ListBox::Item item;
-        item.tag = std::to_string(static_cast<int>(featType));
-        item.text = (_selectedFeats.count(featType) > 0 ? "* " : "") + feat->name;
+        item.tag = std::to_string(static_cast<int>(entry.type));
+        item.text = tierIndent + (_selectedFeats.count(entry.type) > 0 ? "* " : "") + availabilityText + feat->name;
         item.iconTexture = feat->icon;
         _controls.LB_FEATS->addItem(std::move(item));
     }
@@ -140,7 +161,12 @@ void CharGenFeats::onFeatSelected(const std::string &feat) {
     _controls.LB_DESC->clearItems();
     _controls.LB_DESC->addTextLinesAsItems(featInfo->description);
 
-    if (_levelUp) {
+    auto maybeDisplayEntry = std::find_if(
+        _displayEntries.begin(), _displayEntries.end(),
+        [&featType](auto &entry) { return entry.type == featType; });
+    if (_levelUp &&
+        maybeDisplayEntry != _displayEntries.end() &&
+        maybeDisplayEntry->availability == FeatAvailability::Selectable) {
         toggleSelectedFeat(featType);
     }
 }
