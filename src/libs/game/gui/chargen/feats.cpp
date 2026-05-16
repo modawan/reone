@@ -22,6 +22,7 @@
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
 #include "reone/gui/control/button.h"
+#include "reone/gui/control/iconchain.h"
 #include "reone/gui/control/listbox.h"
 
 using namespace reone::audio;
@@ -34,8 +35,31 @@ namespace reone {
 
 namespace game {
 
+static constexpr int kFeatIconCellSize = 48;
+static constexpr int kFeatIconCellSpacingX = 8;
+static constexpr int kFeatIconCellSpacingY = 8;
+static constexpr int kFeatIconColumnCount = 3;
+
 void CharGenFeats::onGUILoaded() {
     bindControls();
+
+    auto iconChainControl = std::shared_ptr<Control>(_gui->newControl(ControlType::IconChain, "ICONCHAIN_FEATS"));
+    _controls.ICONCHAIN_FEATS = std::static_pointer_cast<IconChain>(iconChainControl);
+    _controls.ICONCHAIN_FEATS->setExtent(_controls.LB_FEATS->extent());
+    _controls.ICONCHAIN_FEATS->setPadding(_controls.LB_FEATS->padding());
+    _controls.ICONCHAIN_FEATS->setBorder(_controls.LB_FEATS->border());
+    _controls.ICONCHAIN_FEATS->setHilight(_controls.LB_FEATS->border());
+    _controls.ICONCHAIN_FEATS->setHilightColor(_hilightColor);
+    _controls.ICONCHAIN_FEATS->setCellSize(kFeatIconCellSize);
+    _controls.ICONCHAIN_FEATS->setCellSpacing(kFeatIconCellSpacingX, kFeatIconCellSpacingY);
+    _controls.ICONCHAIN_FEATS->setVisible(false);
+    _controls.ICONCHAIN_FEATS->setOnItemFocus([this](const std::string &item) {
+        onFeatFocused(item);
+    });
+    _controls.ICONCHAIN_FEATS->setOnItemClick([this](const std::string &item) {
+        onFeatSelected(item);
+    });
+    _gui->addControlToBack(_controls.ICONCHAIN_FEATS);
 
     _controls.LB_DESC->setProtoMatchContent(true);
     _controls.LB_FEATS->setSelectionMode(ListBox::SelectionMode::OnClick);
@@ -91,9 +115,90 @@ void CharGenFeats::loadLevelUpDisplayEntries() {
 }
 
 void CharGenFeats::refreshControls() {
+    refreshSelectionControls();
+    refreshIconChain();
+    refreshListBox();
+}
+
+void CharGenFeats::refreshSelectionControls() {
     _controls.STD_REMAINING_SELECTIONS_LBL->setTextMessage(std::to_string(_points - static_cast<int>(_selectedFeats.size())));
     _controls.BTN_ACCEPT->setDisabled(_levelUp && _selectedFeats.size() != static_cast<size_t>(_points));
+}
 
+void CharGenFeats::refreshIconChain() {
+    _controls.ICONCHAIN_FEATS->clearItems();
+    _controls.ICONCHAIN_FEATS->setVisible(_levelUp);
+    if (!_levelUp) {
+        return;
+    }
+
+    _controls.ICONCHAIN_FEATS->setColumnCount(kFeatIconColumnCount);
+
+    std::map<FeatType, int> chainRowCounts;
+    std::vector<FeatType> chainRoots;
+    for (auto &entry : _displayEntries) {
+        FeatType chainRoot = entry.chainRoot != FeatType::Invalid ? entry.chainRoot : entry.type;
+        int wrappedRowCount = entry.visualIndex / kFeatIconColumnCount + 1;
+
+        auto maybeChainRows = chainRowCounts.insert({chainRoot, wrappedRowCount});
+        if (maybeChainRows.second) {
+            chainRoots.push_back(chainRoot);
+        } else {
+            maybeChainRows.first->second = std::max(maybeChainRows.first->second, wrappedRowCount);
+        }
+    }
+
+    std::map<FeatType, int> chainRowBases;
+    int nextRow = 0;
+    for (auto chainRoot : chainRoots) {
+        chainRowBases.insert({chainRoot, nextRow});
+        nextRow += chainRowCounts.at(chainRoot);
+    }
+
+    for (auto &entry : _displayEntries) {
+        std::shared_ptr<Feat> feat(_services.game.feats.get(entry.type));
+        if (!feat) {
+            continue;
+        }
+
+        FeatType chainRoot = entry.chainRoot != FeatType::Invalid ? entry.chainRoot : entry.type;
+
+        IconChain::Item item;
+        item.tag = std::to_string(static_cast<int>(entry.type));
+        item.row = chainRowBases.at(chainRoot) + entry.visualIndex / kFeatIconColumnCount;
+        item.column = entry.visualIndex % kFeatIconColumnCount;
+        item.iconTexture = feat->icon;
+        item.selected = _selectedFeats.count(entry.type) > 0;
+        switch (entry.availability) {
+        case FeatAvailability::Owned:
+            item.state = IconChain::State::Owned;
+            break;
+        case FeatAvailability::Selectable:
+            item.state = IconChain::State::Selectable;
+            break;
+        case FeatAvailability::LockedMinLevel:
+        case FeatAvailability::LockedMissingPrerequisite:
+            item.state = IconChain::State::Locked;
+            break;
+        }
+        _controls.ICONCHAIN_FEATS->addItem(std::move(item));
+    }
+}
+
+void CharGenFeats::refreshIconChainSelection() {
+    if (!_levelUp) {
+        return;
+    }
+
+    for (auto &entry : _displayEntries) {
+        _controls.ICONCHAIN_FEATS->setItemSelected(
+            std::to_string(static_cast<int>(entry.type)),
+            _selectedFeats.count(entry.type) > 0);
+    }
+}
+
+void CharGenFeats::refreshListBox() {
+    _controls.LB_FEATS->setVisible(!_levelUp);
     _controls.LB_FEATS->clearItems();
     for (auto &entry : _displayEntries) {
         std::shared_ptr<Feat> feat(_services.game.feats.get(entry.type));
@@ -148,18 +253,27 @@ void CharGenFeats::toggleSelectedFeat(FeatType feat) {
     } else if (_selectedFeats.size() < static_cast<size_t>(_points)) {
         _selectedFeats.insert(feat);
     }
-    refreshControls();
+    refreshSelectionControls();
+    refreshIconChainSelection();
 }
 
-void CharGenFeats::onFeatSelected(const std::string &feat) {
-    auto featType = static_cast<FeatType>(std::stoi(feat));
-    std::shared_ptr<Feat> featInfo(_services.game.feats.get(featType));
+void CharGenFeats::showFeatDescription(FeatType feat) {
+    std::shared_ptr<Feat> featInfo(_services.game.feats.get(feat));
     if (!featInfo) {
         return;
     }
 
     _controls.LB_DESC->clearItems();
     _controls.LB_DESC->addTextLinesAsItems(featInfo->description);
+}
+
+void CharGenFeats::onFeatFocused(const std::string &feat) {
+    showFeatDescription(static_cast<FeatType>(std::stoi(feat)));
+}
+
+void CharGenFeats::onFeatSelected(const std::string &feat) {
+    auto featType = static_cast<FeatType>(std::stoi(feat));
+    showFeatDescription(featType);
 
     auto maybeDisplayEntry = std::find_if(
         _displayEntries.begin(), _displayEntries.end(),
