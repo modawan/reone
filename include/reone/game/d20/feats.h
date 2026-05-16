@@ -36,6 +36,21 @@ namespace game {
 class CreatureAttributes;
 class CreatureClass;
 
+enum class FeatAvailability {
+    Owned,
+    Selectable,
+    LockedMinLevel,
+    LockedMissingPrerequisite
+};
+
+struct FeatDisplayEntry {
+    FeatType type {FeatType::Invalid};
+    FeatAvailability availability {FeatAvailability::Owned};
+    FeatType chainRoot {FeatType::Invalid};
+    int tier {0};
+    int visualIndex {0};
+};
+
 class IFeats {
 public:
     virtual ~IFeats() = default;
@@ -46,6 +61,7 @@ public:
     virtual int getLevelUpChoiceCount(const CreatureAttributes &attributes, const CreatureClass &clazz) const = 0;
     virtual bool isLevelUpCandidate(FeatType type, const CreatureAttributes &attributes, const CreatureClass &clazz) const = 0;
     virtual std::vector<FeatType> getLevelUpCandidates(const CreatureAttributes &attributes, const CreatureClass &clazz) const = 0;
+    virtual std::vector<FeatDisplayEntry> getLevelUpDisplayEntries(const CreatureAttributes &attributes, const CreatureClass &clazz) const = 0;
 };
 
 class Feats : public IFeats, boost::noncopyable {
@@ -65,6 +81,7 @@ public:
     int getLevelUpChoiceCount(const CreatureAttributes &attributes, const CreatureClass &clazz) const override;
     bool isLevelUpCandidate(FeatType type, const CreatureAttributes &attributes, const CreatureClass &clazz) const override;
     std::vector<FeatType> getLevelUpCandidates(const CreatureAttributes &attributes, const CreatureClass &clazz) const override;
+    std::vector<FeatDisplayEntry> getLevelUpDisplayEntries(const CreatureAttributes &attributes, const CreatureClass &clazz) const override;
 
 private:
     std::unordered_map<FeatType, std::shared_ptr<Feat>> _feats;

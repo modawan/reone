@@ -68,7 +68,7 @@ void CreatureClass::load(const TwoDA &twoDa, int row) {
     loadAttackBonuses(attackBonusTable);
 
     std::string featsPrefix(boost::to_lower_copy(twoDa.getString(row, "featstable")));
-    loadSelectableFeats(featsPrefix);
+    loadFeatListValues(featsPrefix);
 
     std::string featGainPrefix(boost::to_lower_copy(twoDa.getString(row, "featgain")));
     loadFeatGains(featGainPrefix);
@@ -104,7 +104,7 @@ void CreatureClass::loadAttackBonuses(const std::string &attackBonusTable) {
     }
 }
 
-void CreatureClass::loadSelectableFeats(const std::string &featsPrefix) {
+void CreatureClass::loadFeatListValues(const std::string &featsPrefix) {
     if (featsPrefix.empty()) {
         return;
     }
@@ -117,9 +117,7 @@ void CreatureClass::loadSelectableFeats(const std::string &featsPrefix) {
 
     for (int row = 0; row < feats->getRowCount(); ++row) {
         int listValue = feats->getInt(row, listColumn, 4);
-        if (listValue == 0 || listValue == 1) {
-            _selectableFeats.insert(static_cast<FeatType>(row));
-        }
+        _featListValues.insert(std::make_pair(static_cast<FeatType>(row), listValue));
     }
 }
 
@@ -164,6 +162,11 @@ int CreatureClass::getAttackBonus(int level) const {
 int CreatureClass::getFeatGain(int level) const {
     auto maybeFeatGain = _featGainsByLevel.find(level);
     return maybeFeatGain != _featGainsByLevel.end() ? maybeFeatGain->second : 0;
+}
+
+int CreatureClass::getFeatListValue(FeatType feat) const {
+    auto maybeFeatListValue = _featListValues.find(feat);
+    return maybeFeatListValue != _featListValues.end() ? maybeFeatListValue->second : 4;
 }
 
 } // namespace game
