@@ -42,6 +42,7 @@ static constexpr int kFeatIconColumnCount = 3;
 
 void CharGenFeats::onGUILoaded() {
     bindControls();
+    _defaultFeatNameText = _controls.LBL_NAME->text().text;
 
     auto iconChainControl = std::shared_ptr<Control>(_gui->newControl(ControlType::IconChain, "ICONCHAIN_FEATS"));
     _controls.ICONCHAIN_FEATS = std::static_pointer_cast<IconChain>(iconChainControl);
@@ -56,8 +57,11 @@ void CharGenFeats::onGUILoaded() {
     _controls.ICONCHAIN_FEATS->setOnItemFocus([this](const std::string &item) {
         onFeatFocused(item);
     });
-    _controls.ICONCHAIN_FEATS->setOnItemClick([this](const std::string &item) {
-        onFeatSelected(item);
+    _controls.ICONCHAIN_FEATS->setOnItemFocusCleared([this]() {
+        resetFocusedFeatName();
+    });
+    _controls.ICONCHAIN_FEATS->setOnItemDoubleClick([this](const std::string &item) {
+        onFeatActivated(item);
     });
     _gui->addControlToBack(_controls.ICONCHAIN_FEATS);
 
@@ -65,7 +69,10 @@ void CharGenFeats::onGUILoaded() {
     _controls.LB_FEATS->setSelectionMode(ListBox::SelectionMode::OnClick);
     _controls.LB_FEATS->setRenderItemIconsForButtonProto(true);
     _controls.LB_FEATS->setOnItemClick([this](const std::string &item) {
-        onFeatSelected(item);
+        onFeatFocused(item);
+    });
+    _controls.LB_FEATS->setOnItemDoubleClick([this](const std::string &item) {
+        onFeatActivated(item);
     });
 
     _controls.BTN_ACCEPT->setOnClick([this]() {
@@ -86,6 +93,9 @@ void CharGenFeats::onGUILoaded() {
             _charGen.openSteps();
         }
     });
+    _controls.BTN_SELECT->setOnClick([this]() {
+        activateFocusedFeat();
+    });
     _controls.BTN_SELECT->setDisabled(true);
     _controls.BTN_RECOMMENDED->setDisabled(true);
 }
@@ -96,6 +106,7 @@ void CharGenFeats::reset(bool levelUp) {
     _displayEntries.clear();
     _selectedFeats.clear();
     _controls.LB_DESC->clearItems();
+    resetFocusedFeatName();
 
     if (levelUp) {
         loadLevelUpDisplayEntries();
@@ -263,15 +274,21 @@ void CharGenFeats::showFeatDescription(FeatType feat) {
         return;
     }
 
+    _controls.LBL_NAME->setTextMessage(featInfo->name);
     _controls.LB_DESC->clearItems();
     _controls.LB_DESC->addTextLinesAsItems(featInfo->description);
 }
 
-void CharGenFeats::onFeatFocused(const std::string &feat) {
-    showFeatDescription(static_cast<FeatType>(std::stoi(feat)));
+void CharGenFeats::resetFocusedFeatName() {
+    _controls.LBL_NAME->setTextMessage(_defaultFeatNameText);
 }
 
-void CharGenFeats::onFeatSelected(const std::string &feat) {
+void CharGenFeats::onFeatFocused(const std::string &feat) {
+    showFeatDescription(static_cast<FeatType>(std::stoi(feat)));
+    _controls.BTN_SELECT->setDisabled(!_levelUp);
+}
+
+void CharGenFeats::onFeatActivated(const std::string &feat) {
     auto featType = static_cast<FeatType>(std::stoi(feat));
     showFeatDescription(featType);
 
@@ -283,6 +300,14 @@ void CharGenFeats::onFeatSelected(const std::string &feat) {
         maybeDisplayEntry->availability == FeatAvailability::Selectable) {
         toggleSelectedFeat(featType);
     }
+}
+
+void CharGenFeats::activateFocusedFeat() {
+    const IconChain::Item *item = _controls.ICONCHAIN_FEATS->focusedItem();
+    if (!item) {
+        return;
+    }
+    onFeatActivated(item->tag);
 }
 
 } // namespace game

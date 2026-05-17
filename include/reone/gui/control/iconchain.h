@@ -58,6 +58,7 @@ public:
     void clearItems();
     void addItem(Item item);
     void setItemSelected(const std::string &tag, bool selected);
+    const Item *focusedItem() const;
 
     bool handleMouseMotion(int x, int y) override;
     bool handleMouseWheel(int x, int y) override;
@@ -72,7 +73,8 @@ public:
     // Event listeners
 
     void setOnItemFocus(std::function<void(const std::string &)> fn) { _onItemFocus = std::move(fn); }
-    void setOnItemClick(std::function<void(const std::string &)> fn) { _onItemClick = std::move(fn); }
+    void setOnItemFocusCleared(std::function<void()> fn) { _onItemFocusCleared = std::move(fn); }
+    void setOnItemDoubleClick(std::function<void(const std::string &)> fn) { _onItemDoubleClick = std::move(fn); }
 
     // END Event listeners
 
@@ -87,7 +89,8 @@ private:
     // Event listeners
 
     std::function<void(const std::string &)> _onItemFocus;
-    std::function<void(const std::string &)> _onItemClick;
+    std::function<void()> _onItemFocusCleared;
+    std::function<void(const std::string &)> _onItemDoubleClick;
 
     // END Event listeners
 
@@ -96,6 +99,7 @@ private:
     int getVisibleRowCount() const;
     int getMaxRow() const;
     int getItemIndex(int x, int y) const;
+    void clearFocusedItem();
     Extent getItemExtent(const Item &item) const;
     glm::vec3 getItemBorderColor(const Item &item, bool focused) const;
     glm::vec4 getItemIconColor(const Item &item) const;

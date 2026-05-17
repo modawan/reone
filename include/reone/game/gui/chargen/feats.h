@@ -75,6 +75,7 @@ private:
     CharacterGeneration &_charGen;
     std::vector<FeatDisplayEntry> _displayEntries;
     std::set<FeatType> _selectedFeats;
+    std::string _defaultFeatNameText;
     int _points {0};
     bool _levelUp {false};
 
@@ -106,8 +107,10 @@ private:
     void updateCharacter();
     void toggleSelectedFeat(FeatType feat);
     void showFeatDescription(FeatType feat);
+    void resetFocusedFeatName();
     void onFeatFocused(const std::string &feat);
-    void onFeatSelected(const std::string &feat);
+    void onFeatActivated(const std::string &feat);
+    void activateFocusedFeat();
 };
 
 } // namespace game
