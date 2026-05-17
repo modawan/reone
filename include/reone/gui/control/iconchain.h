@@ -40,6 +40,31 @@ public:
         bool selected {false};
     };
 
+    struct CellStyle {
+        struct BorderColors {
+            glm::vec3 locked {1.0f};
+            glm::vec3 selectable {1.0f};
+            glm::vec3 owned {1.0f};
+            glm::vec3 selected {1.0f};
+        };
+
+        struct FocusedBorderColors {
+            glm::vec3 locked {1.0f};
+            glm::vec3 selectable {1.0f};
+            glm::vec3 owned {1.0f};
+            glm::vec3 selected {1.0f};
+        };
+
+        std::shared_ptr<graphics::Texture> backgroundTexture;
+        std::shared_ptr<Border> itemBorder;
+        std::shared_ptr<BorderColors> borderColors;
+        std::shared_ptr<FocusedBorderColors> focusedBorderColors;
+        int iconSize {0};
+        bool dimLockedBackground {false};
+        bool drawItemBorderFill {true};
+        bool onlyDrawItemBorderWhenBright {false};
+    };
+
     IconChain(
         IGUI &gui,
         scene::ISceneGraphs &sceneGraphs,
@@ -63,12 +88,17 @@ public:
     bool handleMouseMotion(int x, int y) override;
     bool handleMouseWheel(int x, int y) override;
     bool handleClick(int x, int y, int clicks = 1) override;
+    void update(float dt) override;
     void render(const glm::ivec2 &screenSize, const glm::ivec2 &offset, scene::IRenderPass &pass) override;
     void setSelected(bool selected) override;
 
     void setColumnCount(int count);
     void setCellSize(int size);
     void setCellSpacing(int x, int y);
+    void setCellOrigin(int x, int y);
+    void setCellStep(int x, int y);
+    void setRowOffsets(std::vector<int> offsets);
+    void setCellStyle(CellStyle style);
 
     // Event listeners
 
@@ -83,8 +113,13 @@ private:
     int _columnCount {0};
     int _cellSize {0};
     glm::ivec2 _cellSpacing {0};
+    glm::ivec2 _cellOrigin {-1};
+    glm::ivec2 _cellStep {0};
+    std::vector<int> _rowOffsets;
+    CellStyle _cellStyle;
     int _rowOffset {0};
     int _focusedItemIndex {-1};
+    float _focusedBorderPulsePhase {0.0f};
 
     // Event listeners
 
@@ -96,14 +131,29 @@ private:
 
     bool hasValidPosition(const Item &item) const;
     bool isItemVisible(const Extent &extent) const;
+    int getCellOriginX() const;
+    int getCellOriginY() const;
+    int getCellStepX() const;
+    int getCellStepY() const;
     int getVisibleRowCount() const;
     int getMaxRow() const;
     int getItemIndex(int x, int y) const;
     void clearFocusedItem();
     Extent getItemExtent(const Item &item) const;
+    Extent getItemIconExtent(const Extent &itemExtent) const;
+    bool isItemBright(const Item &item) const;
+    glm::vec4 getCellBackgroundColor(const Item &item) const;
     glm::vec3 getItemBorderColor(const Item &item, bool focused) const;
     glm::vec4 getItemIconColor(const Item &item) const;
+    std::optional<glm::vec3> getFocusedBorderColor(const Item &item, bool focused) const;
+    float getFocusedBorderPulseFactor() const;
     void renderItemBorder(
+        const Item &item,
+        bool focused,
+        const Extent &extent,
+        const glm::ivec2 &offset,
+        scene::IRenderPass &pass);
+    void renderFocusedBorder(
         const Item &item,
         bool focused,
         const Extent &extent,

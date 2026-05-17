@@ -25,8 +25,10 @@ namespace reone {
 
 namespace gui {
 
-static constexpr glm::vec3 kLockedItemColor {0.45f};
+static constexpr glm::vec3 kDarkItemColor {0.45f};
 static constexpr glm::vec3 kSelectedItemColor {1.0f};
+static constexpr float kFocusedBorderPulseCyclesPerSecond = 1.0f;
+static constexpr float kFocusedBorderPulseMinFactor = 0.55f;
 
 void IconChain::clearItems() {
     _items.clear();
@@ -89,6 +91,12 @@ bool IconChain::handleClick(int x, int y, int clicks) {
     return true;
 }
 
+void IconChain::update(float dt) {
+    Control::update(dt);
+    _focusedBorderPulsePhase += dt * kFocusedBorderPulseCyclesPerSecond;
+    _focusedBorderPulsePhase -= std::floor(_focusedBorderPulsePhase);
+}
+
 void IconChain::render(const glm::ivec2 &screenSize,
                        const glm::ivec2 &offset,
                        IRenderPass &pass) {
@@ -110,15 +118,25 @@ void IconChain::render(const glm::ivec2 &screenSize,
         }
 
         bool focused = static_cast<int>(i) == _focusedItemIndex;
-        renderItemBorder(item, focused, itemExtent, offset, pass);
-
-        if (item.iconTexture) {
+        if (_cellStyle.backgroundTexture) {
             pass.drawImage(
-                *item.iconTexture,
+                *_cellStyle.backgroundTexture,
                 {offset.x + itemExtent.left, offset.y + itemExtent.top},
                 {itemExtent.width, itemExtent.height},
+                getCellBackgroundColor(item));
+        }
+
+        if (item.iconTexture) {
+            Extent iconExtent(getItemIconExtent(itemExtent));
+            pass.drawImage(
+                *item.iconTexture,
+                {offset.x + iconExtent.left, offset.y + iconExtent.top},
+                {iconExtent.width, iconExtent.height},
                 getItemIconColor(item));
         }
+
+        renderItemBorder(item, focused, itemExtent, offset, pass);
+        renderFocusedBorder(item, focused, itemExtent, offset, pass);
     }
 }
 
@@ -141,8 +159,30 @@ void IconChain::setCellSpacing(int x, int y) {
     _cellSpacing.y = y;
 }
 
+void IconChain::setCellOrigin(int x, int y) {
+    _cellOrigin.x = x;
+    _cellOrigin.y = y;
+}
+
+void IconChain::setCellStep(int x, int y) {
+    _cellStep.x = x;
+    _cellStep.y = y;
+}
+
+void IconChain::setRowOffsets(std::vector<int> offsets) {
+    _rowOffsets = std::move(offsets);
+}
+
+void IconChain::setCellStyle(CellStyle style) {
+    _cellStyle = std::move(style);
+}
+
 bool IconChain::hasValidPosition(const Item &item) const {
     if (_cellSize <= 0 || item.row < _rowOffset || item.column < 0) {
+        return false;
+    }
+    if (!_rowOffsets.empty() &&
+        item.row - _rowOffset >= static_cast<int>(_rowOffsets.size())) {
         return false;
     }
     return _columnCount == 0 || item.column < _columnCount;
@@ -160,11 +200,19 @@ bool IconChain::isItemVisible(const Extent &extent) const {
 }
 
 int IconChain::getVisibleRowCount() const {
-    if (_cellSize <= 0) {
+    if (!_rowOffsets.empty()) {
+        return static_cast<int>(_rowOffsets.size());
+    }
+
+    int rowStep = getCellStepY();
+    if (_cellSize <= 0 || rowStep <= 0) {
         return 0;
     }
-    int availableHeight = _extent.height - 2 * _padding;
-    return std::max(1, (availableHeight + _cellSpacing.y) / (_cellSize + _cellSpacing.y));
+    int availableHeight = _extent.height - getCellOriginY();
+    if (availableHeight < _cellSize) {
+        return 0;
+    }
+    return 1 + (availableHeight - _cellSize) / rowStep;
 }
 
 int IconChain::getMaxRow() const {
@@ -205,14 +253,43 @@ void IconChain::clearFocusedItem() {
 
 Control::Extent IconChain::getItemExtent(const Item &item) const {
     Extent extent;
-    extent.left = _extent.left + _padding + item.column * (_cellSize + _cellSpacing.x);
-    extent.top = _extent.top + _padding + (item.row - _rowOffset) * (_cellSize + _cellSpacing.y);
+    extent.left = _extent.left + getCellOriginX() + item.column * getCellStepX();
+    int visibleRow = item.row - _rowOffset;
+    extent.top = _extent.top + (_rowOffsets.empty()
+                                     ? getCellOriginY() + visibleRow * getCellStepY()
+                                     : _rowOffsets[visibleRow]);
     extent.width = _cellSize;
     extent.height = _cellSize;
     return extent;
 }
 
+Control::Extent IconChain::getItemIconExtent(const Extent &itemExtent) const {
+    if (_cellStyle.iconSize <= 0 || _cellStyle.iconSize >= _cellSize) {
+        return itemExtent;
+    }
+
+    Extent extent(itemExtent);
+    extent.width = _cellStyle.iconSize;
+    extent.height = _cellStyle.iconSize;
+    extent.left += (_cellSize - extent.width) / 2;
+    extent.top += (_cellSize - extent.height) / 2;
+    return extent;
+}
+
 glm::vec3 IconChain::getItemBorderColor(const Item &item, bool focused) const {
+    if (_cellStyle.borderColors) {
+        if (item.selected) {
+            return _cellStyle.borderColors->selected;
+        }
+        switch (item.state) {
+        case State::Owned:
+            return _cellStyle.borderColors->owned;
+        case State::Selectable:
+            return _cellStyle.borderColors->selectable;
+        case State::Locked:
+            return _cellStyle.borderColors->locked;
+        }
+    }
     if (item.selected) {
         return kSelectedItemColor;
     }
@@ -220,7 +297,7 @@ glm::vec3 IconChain::getItemBorderColor(const Item &item, bool focused) const {
         return _hilight->color;
     }
     if (item.state == State::Locked) {
-        return kLockedItemColor;
+        return kDarkItemColor;
     }
     if (item.state == State::Selectable && _hilight) {
         return _hilight->color;
@@ -229,10 +306,63 @@ glm::vec3 IconChain::getItemBorderColor(const Item &item, bool focused) const {
 }
 
 glm::vec4 IconChain::getItemIconColor(const Item &item) const {
-    if (item.state == State::Locked) {
-        return glm::vec4(kLockedItemColor, 1.0f);
+    if (!isItemBright(item)) {
+        return glm::vec4(kDarkItemColor, 1.0f);
     }
     return glm::vec4(1.0f);
+}
+
+float IconChain::getFocusedBorderPulseFactor() const {
+    float wave = 0.5f - 0.5f * std::cos(glm::two_pi<float>() * _focusedBorderPulsePhase);
+    return glm::mix(kFocusedBorderPulseMinFactor, 1.0f, wave);
+}
+
+std::optional<glm::vec3> IconChain::getFocusedBorderColor(const Item &item, bool focused) const {
+    if (!focused || !_cellStyle.focusedBorderColors) {
+        return std::nullopt;
+    }
+
+    if (item.selected) {
+        return _cellStyle.focusedBorderColors->selected;
+    }
+
+    switch (item.state) {
+    case State::Owned:
+        return _cellStyle.focusedBorderColors->owned;
+    case State::Selectable:
+        return _cellStyle.focusedBorderColors->selectable;
+    case State::Locked:
+        return _cellStyle.focusedBorderColors->locked;
+    }
+
+    return std::nullopt;
+}
+
+bool IconChain::isItemBright(const Item &item) const {
+    return item.state == State::Owned || item.selected;
+}
+
+glm::vec4 IconChain::getCellBackgroundColor(const Item &item) const {
+    if (_cellStyle.dimLockedBackground && item.state == State::Locked && !isItemBright(item)) {
+        return glm::vec4(kDarkItemColor, 1.0f);
+    }
+    return glm::vec4(1.0f);
+}
+
+int IconChain::getCellStepX() const {
+    return _cellStep.x > 0 ? _cellStep.x : _cellSize + _cellSpacing.x;
+}
+
+int IconChain::getCellStepY() const {
+    return _cellStep.y > 0 ? _cellStep.y : _cellSize + _cellSpacing.y;
+}
+
+int IconChain::getCellOriginX() const {
+    return _cellOrigin.x >= 0 ? _cellOrigin.x : _padding;
+}
+
+int IconChain::getCellOriginY() const {
+    return _cellOrigin.y >= 0 ? _cellOrigin.y : _padding;
 }
 
 void IconChain::renderItemBorder(
@@ -242,7 +372,13 @@ void IconChain::renderItemBorder(
     const glm::ivec2 &offset,
     IRenderPass &pass) {
 
-    const std::shared_ptr<Border> &border = (focused && _hilight) ? _hilight : _border;
+    if (_cellStyle.onlyDrawItemBorderWhenBright && !isItemBright(item)) {
+        return;
+    }
+
+    const std::shared_ptr<Border> &border = _cellStyle.itemBorder
+                                               ? _cellStyle.itemBorder
+                                               : (focused && _hilight) ? _hilight : _border;
     if (!border) {
         return;
     }
@@ -251,7 +387,45 @@ void IconChain::renderItemBorder(
     _extent = extent;
     setBorderColorOverride(getItemBorderColor(item, focused));
     setUseBorderColorOverride(true);
-    renderBorder(*border, offset, {extent.width, extent.height}, pass);
+    if (_cellStyle.drawItemBorderFill || !border->fill) {
+        renderBorder(*border, offset, {extent.width, extent.height}, pass);
+    } else {
+        Border borderWithoutFill(*border);
+        borderWithoutFill.fill.reset();
+        renderBorder(borderWithoutFill, offset, {extent.width, extent.height}, pass);
+    }
+    setUseBorderColorOverride(false);
+    _extent = originalExtent;
+}
+
+void IconChain::renderFocusedBorder(
+    const Item &item,
+    bool focused,
+    const Extent &extent,
+    const glm::ivec2 &offset,
+    IRenderPass &pass) {
+
+    auto maybeColor = getFocusedBorderColor(item, focused);
+    if (!maybeColor) {
+        return;
+    }
+
+    const std::shared_ptr<Border> &border = _cellStyle.itemBorder ? _cellStyle.itemBorder : _border;
+    if (!border) {
+        return;
+    }
+
+    Extent originalExtent(_extent);
+    _extent = extent;
+    setBorderColorOverride(*maybeColor * getFocusedBorderPulseFactor());
+    setUseBorderColorOverride(true);
+    if (_cellStyle.drawItemBorderFill || !border->fill) {
+        renderBorder(*border, offset, {extent.width, extent.height}, pass);
+    } else {
+        Border borderWithoutFill(*border);
+        borderWithoutFill.fill.reset();
+        renderBorder(borderWithoutFill, offset, {extent.width, extent.height}, pass);
+    }
     setUseBorderColorOverride(false);
     _extent = originalExtent;
 }
