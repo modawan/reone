@@ -24,6 +24,7 @@
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/iconchain.h"
 #include "reone/gui/control/listbox.h"
+#include "reone/resource/provider/textures.h"
 
 using namespace reone::audio;
 
@@ -35,10 +36,23 @@ namespace reone {
 
 namespace game {
 
-static constexpr int kFeatIconCellSize = 48;
-static constexpr int kFeatIconCellSpacingX = 8;
-static constexpr int kFeatIconCellSpacingY = 8;
+static constexpr int kFeatIconCellSize = 40;
 static constexpr int kFeatIconColumnCount = 3;
+static constexpr int kFeatIconSize = 32;
+static constexpr int kK1VisibleFeatRows = 5;
+static constexpr int kTSLVisibleFeatRows = 7;
+static constexpr char kK1FeatCellFill[] = "lbl_indent";
+static constexpr char kK1FeatCellBorderCorner[] = "border2d";
+static constexpr char kK1FeatCellBorderEdge[] = "border1d";
+static constexpr int kK1FeatCellBorderDimension = 8;
+static constexpr glm::vec3 kK1FeatBorderGreen {0.278431f, 0.921569f, 0.105882f};
+static constexpr glm::vec3 kK1FeatBorderGreenDim = 0.7f * kK1FeatBorderGreen;
+static constexpr glm::vec3 kK1FeatBorderGold {0.980392f, 1.0f, 0.0f};
+static constexpr glm::vec3 kK1FeatBorderRed {0.698039f, 0.0f, 0.0f};
+static constexpr glm::vec3 kTSLLockedFeatBorderColor {0.698039f, 0.0f, 0.0f};
+static constexpr glm::vec3 kTSLSelectableFeatBorderColor {0.05098f, 0.34902f, 0.270588f};
+static constexpr glm::vec3 kTSLOwnedFeatBorderColor {0.101961f, 0.698039f, 0.54902f};
+static constexpr glm::vec3 kTSLSelectedFeatBorderColor {1.0f};
 
 void CharGenFeats::onGUILoaded() {
     bindControls();
@@ -49,10 +63,81 @@ void CharGenFeats::onGUILoaded() {
     _controls.ICONCHAIN_FEATS->setExtent(_controls.LB_FEATS->extent());
     _controls.ICONCHAIN_FEATS->setPadding(_controls.LB_FEATS->padding());
     _controls.ICONCHAIN_FEATS->setBorder(_controls.LB_FEATS->border());
-    _controls.ICONCHAIN_FEATS->setHilight(_controls.LB_FEATS->border());
-    _controls.ICONCHAIN_FEATS->setHilightColor(_hilightColor);
+    if (!_game.isTSL()) {
+        _controls.ICONCHAIN_FEATS->setHilight(_controls.LB_FEATS->border());
+        _controls.ICONCHAIN_FEATS->setHilightColor(_hilightColor);
+    }
+    _controls.ICONCHAIN_FEATS->setTintBorderFill(_game.isTSL());
     _controls.ICONCHAIN_FEATS->setCellSize(kFeatIconCellSize);
-    _controls.ICONCHAIN_FEATS->setCellSpacing(kFeatIconCellSpacingX, kFeatIconCellSpacingY);
+    auto &featListExtent = _controls.LB_FEATS->extent();
+    auto &featProtoExtent = _controls.LB_FEATS->protoItem().extent();
+    int featContentInsetY = featProtoExtent.top - featListExtent.top;
+    int featOriginY = featContentInsetY;
+    int featRowStep = featProtoExtent.height;
+    if (!_game.isTSL()) {
+        int featContentHeight = featListExtent.height - 2 * featContentInsetY;
+        int remainingHeight = featContentHeight - kK1VisibleFeatRows * kFeatIconCellSize;
+        int featGapCount = kK1VisibleFeatRows + 1;
+        int featRowGap = (remainingHeight + featGapCount / 2) / featGapCount;
+        featOriginY += featRowGap;
+        featRowStep = kFeatIconCellSize + featRowGap;
+    } else {
+        int featFillInsetY = _controls.LB_FEATS->border().dimension;
+        int featFillHeight = featListExtent.height - 2 * featFillInsetY;
+        int featRowRange = featFillHeight - kFeatIconCellSize;
+        int featGapCount = kTSLVisibleFeatRows - 1;
+        std::vector<int> featRowOffsets;
+        featRowOffsets.reserve(kTSLVisibleFeatRows);
+        for (int row = 0; row < kTSLVisibleFeatRows; ++row) {
+            featRowOffsets.push_back(
+                featFillInsetY + (row * featRowRange + featGapCount / 2) / featGapCount);
+        }
+        _controls.ICONCHAIN_FEATS->setRowOffsets(std::move(featRowOffsets));
+    }
+    _controls.ICONCHAIN_FEATS->setCellOrigin(
+        featProtoExtent.left - featListExtent.left,
+        featOriginY);
+    _controls.ICONCHAIN_FEATS->setCellStep(
+        (featProtoExtent.width - kFeatIconCellSize) / (kFeatIconColumnCount - 1),
+        featRowStep);
+    IconChain::CellStyle cellStyle;
+    if (!_game.isTSL()) {
+        cellStyle.backgroundTexture = _services.resource.textures.get(
+            kK1FeatCellFill,
+            TextureUsage::GUI);
+        cellStyle.itemBorder = std::make_shared<Control::Border>();
+        cellStyle.itemBorder->corner = _services.resource.textures.get(
+            kK1FeatCellBorderCorner,
+            TextureUsage::GUI);
+        cellStyle.itemBorder->edge = _services.resource.textures.get(
+            kK1FeatCellBorderEdge,
+            TextureUsage::GUI);
+        cellStyle.itemBorder->dimension = kK1FeatCellBorderDimension;
+        cellStyle.borderColors = std::make_shared<IconChain::CellStyle::BorderColors>();
+        cellStyle.borderColors->owned = kK1FeatBorderGreenDim;
+        cellStyle.borderColors->selected = kK1FeatBorderGreen;
+        cellStyle.focusedBorderColors = std::make_shared<IconChain::CellStyle::FocusedBorderColors>();
+        cellStyle.focusedBorderColors->locked = kK1FeatBorderRed;
+        cellStyle.focusedBorderColors->selectable = kK1FeatBorderGold;
+        cellStyle.focusedBorderColors->owned = kK1FeatBorderGreen;
+        cellStyle.focusedBorderColors->selected = kK1FeatBorderGreen;
+        cellStyle.onlyDrawItemBorderWhenBright = true;
+    } else {
+        cellStyle.borderColors = std::make_shared<IconChain::CellStyle::BorderColors>();
+        cellStyle.borderColors->locked = kTSLLockedFeatBorderColor;
+        cellStyle.borderColors->selectable = kTSLSelectableFeatBorderColor;
+        cellStyle.borderColors->owned = kTSLOwnedFeatBorderColor;
+        cellStyle.borderColors->selected = kTSLSelectedFeatBorderColor;
+        cellStyle.focusedBorderColors = std::make_shared<IconChain::CellStyle::FocusedBorderColors>();
+        cellStyle.focusedBorderColors->locked = kTSLLockedFeatBorderColor;
+        cellStyle.focusedBorderColors->selectable = kTSLSelectableFeatBorderColor;
+        cellStyle.focusedBorderColors->owned = kTSLOwnedFeatBorderColor;
+        cellStyle.focusedBorderColors->selected = kTSLSelectedFeatBorderColor;
+    }
+    cellStyle.iconSize = kFeatIconSize;
+    cellStyle.dimLockedBackground = !_game.isTSL();
+    cellStyle.drawItemBorderFill = !_game.isTSL();
+    _controls.ICONCHAIN_FEATS->setCellStyle(std::move(cellStyle));
     _controls.ICONCHAIN_FEATS->setVisible(false);
     _controls.ICONCHAIN_FEATS->setOnItemFocus([this](const std::string &item) {
         onFeatFocused(item);
