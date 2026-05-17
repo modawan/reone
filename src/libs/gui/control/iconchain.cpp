@@ -31,7 +31,7 @@ static constexpr glm::vec3 kSelectedItemColor {1.0f};
 void IconChain::clearItems() {
     _items.clear();
     _rowOffset = 0;
-    _focusedItemIndex = -1;
+    clearFocusedItem();
 }
 
 void IconChain::addItem(Item item) {
@@ -47,16 +47,14 @@ void IconChain::setItemSelected(const std::string &tag, bool selected) {
     }
 }
 
-bool IconChain::handleMouseMotion(int x, int y) {
-    int itemIdx = getItemIndex(x, y);
-    if (itemIdx == _focusedItemIndex) {
-        return false;
+const IconChain::Item *IconChain::focusedItem() const {
+    if (_focusedItemIndex < 0 || _focusedItemIndex >= static_cast<int>(_items.size())) {
+        return nullptr;
     }
+    return &_items[_focusedItemIndex];
+}
 
-    _focusedItemIndex = itemIdx;
-    if (_focusedItemIndex != -1 && _onItemFocus) {
-        _onItemFocus(_items[_focusedItemIndex].tag);
-    }
+bool IconChain::handleMouseMotion(int x, int y) {
     return false;
 }
 
@@ -64,12 +62,12 @@ bool IconChain::handleMouseWheel(int x, int y) {
     int maxRowOffset = std::max(0, getMaxRow() - getVisibleRowCount() + 1);
     if (y < 0 && _rowOffset < maxRowOffset) {
         ++_rowOffset;
-        _focusedItemIndex = -1;
+        clearFocusedItem();
         return true;
     }
     if (y > 0 && _rowOffset > 0) {
         --_rowOffset;
-        _focusedItemIndex = -1;
+        clearFocusedItem();
         return true;
     }
     return false;
@@ -82,8 +80,11 @@ bool IconChain::handleClick(int x, int y, int clicks) {
     }
 
     _focusedItemIndex = itemIdx;
-    if (_onItemClick) {
-        _onItemClick(_items[itemIdx].tag);
+    if (_onItemFocus) {
+        _onItemFocus(_items[itemIdx].tag);
+    }
+    if (clicks > 1 && _onItemDoubleClick) {
+        _onItemDoubleClick(_items[itemIdx].tag);
     }
     return true;
 }
@@ -123,9 +124,6 @@ void IconChain::render(const glm::ivec2 &screenSize,
 
 void IconChain::setSelected(bool selected) {
     Control::setSelected(selected);
-    if (!selected) {
-        _focusedItemIndex = -1;
-    }
 }
 
 void IconChain::setColumnCount(int count) {
@@ -192,6 +190,17 @@ int IconChain::getItemIndex(int x, int y) const {
         }
     }
     return -1;
+}
+
+void IconChain::clearFocusedItem() {
+    if (_focusedItemIndex == -1) {
+        return;
+    }
+
+    _focusedItemIndex = -1;
+    if (_onItemFocusCleared) {
+        _onItemFocusCleared();
+    }
 }
 
 Control::Extent IconChain::getItemExtent(const Item &item) const {
