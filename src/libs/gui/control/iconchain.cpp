@@ -32,12 +32,21 @@ static constexpr float kFocusedBorderPulseMinFactor = 0.55f;
 
 void IconChain::clearItems() {
     _items.clear();
+    _links.clear();
     _rowOffset = 0;
     clearFocusedItem();
 }
 
 void IconChain::addItem(Item item) {
     _items.push_back(std::move(item));
+}
+
+void IconChain::clearLinks() {
+    _links.clear();
+}
+
+void IconChain::addLink(Link link) {
+    _links.push_back(std::move(link));
 }
 
 void IconChain::setItemSelected(const std::string &tag, bool selected) {
@@ -106,6 +115,29 @@ void IconChain::render(const glm::ivec2 &screenSize,
 
     Control::render(screenSize, offset, pass);
 
+    for (auto &item : _items) {
+        if (!hasValidPosition(item)) {
+            continue;
+        }
+
+        Extent itemExtent(getItemExtent(item));
+        if (!isItemVisible(itemExtent)) {
+            continue;
+        }
+
+        if (_cellStyle.backgroundTexture) {
+            pass.drawImage(
+                *_cellStyle.backgroundTexture,
+                {offset.x + itemExtent.left, offset.y + itemExtent.top},
+                {itemExtent.width, itemExtent.height},
+                getCellBackgroundColor(item));
+        }
+    }
+
+    for (auto &link : _links) {
+        renderLink(link, offset, pass);
+    }
+
     for (size_t i = 0; i < _items.size(); ++i) {
         const Item &item = _items[i];
         if (!hasValidPosition(item)) {
@@ -118,14 +150,6 @@ void IconChain::render(const glm::ivec2 &screenSize,
         }
 
         bool focused = static_cast<int>(i) == _focusedItemIndex;
-        if (_cellStyle.backgroundTexture) {
-            pass.drawImage(
-                *_cellStyle.backgroundTexture,
-                {offset.x + itemExtent.left, offset.y + itemExtent.top},
-                {itemExtent.width, itemExtent.height},
-                getCellBackgroundColor(item));
-        }
-
         if (item.iconTexture) {
             Extent iconExtent(getItemIconExtent(itemExtent));
             pass.drawImage(
@@ -240,6 +264,13 @@ int IconChain::getItemIndex(int x, int y) const {
     return -1;
 }
 
+const IconChain::Item *IconChain::findItem(const std::string &tag) const {
+    auto maybeItem = std::find_if(
+        _items.begin(), _items.end(),
+        [&tag](auto &item) { return item.tag == tag; });
+    return maybeItem != _items.end() ? &*maybeItem : nullptr;
+}
+
 void IconChain::clearFocusedItem() {
     if (_focusedItemIndex == -1) {
         return;
@@ -315,6 +346,49 @@ glm::vec4 IconChain::getItemIconColor(const Item &item) const {
 float IconChain::getFocusedBorderPulseFactor() const {
     float wave = 0.5f - 0.5f * std::cos(glm::two_pi<float>() * _focusedBorderPulsePhase);
     return glm::mix(kFocusedBorderPulseMinFactor, 1.0f, wave);
+}
+
+void IconChain::renderLink(
+    const Link &link,
+    const glm::ivec2 &offset,
+    IRenderPass &pass) const {
+
+    if (!_cellStyle.linkTexture) {
+        return;
+    }
+
+    auto source = findItem(link.sourceTag);
+    auto target = findItem(link.targetTag);
+    if (!source || !target ||
+        source->row != target->row ||
+        target->column != source->column + 1 ||
+        !hasValidPosition(*source) ||
+        !hasValidPosition(*target)) {
+        return;
+    }
+
+    Extent sourceExtent(getItemExtent(*source));
+    Extent targetExtent(getItemExtent(*target));
+    if (!isItemVisible(sourceExtent) || !isItemVisible(targetExtent)) {
+        return;
+    }
+
+    glm::ivec2 linkSize = _cellStyle.linkSize;
+    if (linkSize.x <= 0) {
+        linkSize.x = _cellStyle.linkTexture->width();
+    }
+    if (linkSize.y <= 0) {
+        linkSize.y = _cellStyle.linkTexture->height();
+    }
+
+    int sourceRight = sourceExtent.left + sourceExtent.width;
+    int gapWidth = targetExtent.left - sourceRight;
+    int linkLeft = sourceRight + (gapWidth - linkSize.x) / 2;
+    int linkTop = sourceExtent.top + (sourceExtent.height - linkSize.y) / 2;
+    pass.drawImage(
+        *_cellStyle.linkTexture,
+        {offset.x + linkLeft, offset.y + linkTop},
+        linkSize);
 }
 
 std::optional<glm::vec3> IconChain::getFocusedBorderColor(const Item &item, bool focused) const {

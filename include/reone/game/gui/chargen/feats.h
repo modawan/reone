@@ -103,6 +103,7 @@ private:
     void refreshSelectionControls();
     void refreshIconChain();
     void refreshIconChainSelection();
+    void refreshIconChainLinks();
     void refreshListBox();
     void updateCharacter();
     void toggleSelectedFeat(FeatType feat);
