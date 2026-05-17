@@ -40,6 +40,11 @@ public:
         bool selected {false};
     };
 
+    struct Link {
+        std::string sourceTag;
+        std::string targetTag;
+    };
+
     struct CellStyle {
         struct BorderColors {
             glm::vec3 locked {1.0f};
@@ -56,9 +61,11 @@ public:
         };
 
         std::shared_ptr<graphics::Texture> backgroundTexture;
+        std::shared_ptr<graphics::Texture> linkTexture;
         std::shared_ptr<Border> itemBorder;
         std::shared_ptr<BorderColors> borderColors;
         std::shared_ptr<FocusedBorderColors> focusedBorderColors;
+        glm::ivec2 linkSize {0};
         int iconSize {0};
         bool dimLockedBackground {false};
         bool drawItemBorderFill {true};
@@ -82,6 +89,8 @@ public:
 
     void clearItems();
     void addItem(Item item);
+    void clearLinks();
+    void addLink(Link link);
     void setItemSelected(const std::string &tag, bool selected);
     const Item *focusedItem() const;
 
@@ -110,6 +119,7 @@ public:
 
 private:
     std::vector<Item> _items;
+    std::vector<Link> _links;
     int _columnCount {0};
     int _cellSize {0};
     glm::ivec2 _cellSpacing {0};
@@ -138,6 +148,7 @@ private:
     int getVisibleRowCount() const;
     int getMaxRow() const;
     int getItemIndex(int x, int y) const;
+    const Item *findItem(const std::string &tag) const;
     void clearFocusedItem();
     Extent getItemExtent(const Item &item) const;
     Extent getItemIconExtent(const Extent &itemExtent) const;
@@ -147,6 +158,10 @@ private:
     glm::vec4 getItemIconColor(const Item &item) const;
     std::optional<glm::vec3> getFocusedBorderColor(const Item &item, bool focused) const;
     float getFocusedBorderPulseFactor() const;
+    void renderLink(
+        const Link &link,
+        const glm::ivec2 &offset,
+        scene::IRenderPass &pass) const;
     void renderItemBorder(
         const Item &item,
         bool focused,

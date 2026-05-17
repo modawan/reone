@@ -39,9 +39,12 @@ namespace game {
 static constexpr int kFeatIconCellSize = 40;
 static constexpr int kFeatIconColumnCount = 3;
 static constexpr int kFeatIconSize = 32;
+static constexpr int kK1FeatArrowSize = 32;
+static constexpr int kTSLFeatArrowSize = 32;
 static constexpr int kK1VisibleFeatRows = 5;
 static constexpr int kTSLVisibleFeatRows = 7;
 static constexpr char kK1FeatCellFill[] = "lbl_indent";
+static constexpr char kK1FeatArrow[] = "lbl_skarr";
 static constexpr char kK1FeatCellBorderCorner[] = "border2d";
 static constexpr char kK1FeatCellBorderEdge[] = "border1d";
 static constexpr int kK1FeatCellBorderDimension = 8;
@@ -53,6 +56,44 @@ static constexpr glm::vec3 kTSLLockedFeatBorderColor {0.698039f, 0.0f, 0.0f};
 static constexpr glm::vec3 kTSLSelectableFeatBorderColor {0.05098f, 0.34902f, 0.270588f};
 static constexpr glm::vec3 kTSLOwnedFeatBorderColor {0.101961f, 0.698039f, 0.54902f};
 static constexpr glm::vec3 kTSLSelectedFeatBorderColor {1.0f};
+static constexpr char kTSLFeatArrow[] = "uibit_abi_arrow";
+
+static std::map<FeatType, glm::ivec2> getFeatIconPositions(
+    const std::vector<FeatDisplayEntry> &entries) {
+
+    std::map<FeatType, int> chainRowCounts;
+    std::vector<FeatType> chainRoots;
+    for (auto &entry : entries) {
+        FeatType chainRoot = entry.chainRoot != FeatType::Invalid ? entry.chainRoot : entry.type;
+        int wrappedRowCount = entry.visualIndex / kFeatIconColumnCount + 1;
+
+        auto maybeChainRows = chainRowCounts.insert({chainRoot, wrappedRowCount});
+        if (maybeChainRows.second) {
+            chainRoots.push_back(chainRoot);
+        } else {
+            maybeChainRows.first->second = std::max(maybeChainRows.first->second, wrappedRowCount);
+        }
+    }
+
+    std::map<FeatType, int> chainRowBases;
+    int nextRow = 0;
+    for (auto chainRoot : chainRoots) {
+        chainRowBases.insert({chainRoot, nextRow});
+        nextRow += chainRowCounts.at(chainRoot);
+    }
+
+    std::map<FeatType, glm::ivec2> result;
+    for (auto &entry : entries) {
+        FeatType chainRoot = entry.chainRoot != FeatType::Invalid ? entry.chainRoot : entry.type;
+        result.insert({
+            entry.type,
+            {
+                entry.visualIndex % kFeatIconColumnCount,
+                chainRowBases.at(chainRoot) + entry.visualIndex / kFeatIconColumnCount
+            }});
+    }
+    return result;
+}
 
 void CharGenFeats::onGUILoaded() {
     bindControls();
@@ -105,6 +146,10 @@ void CharGenFeats::onGUILoaded() {
         cellStyle.backgroundTexture = _services.resource.textures.get(
             kK1FeatCellFill,
             TextureUsage::GUI);
+        cellStyle.linkTexture = _services.resource.textures.get(
+            kK1FeatArrow,
+            TextureUsage::GUI);
+        cellStyle.linkSize = {kK1FeatArrowSize, kK1FeatArrowSize};
         cellStyle.itemBorder = std::make_shared<Control::Border>();
         cellStyle.itemBorder->corner = _services.resource.textures.get(
             kK1FeatCellBorderCorner,
@@ -123,6 +168,10 @@ void CharGenFeats::onGUILoaded() {
         cellStyle.focusedBorderColors->selected = kK1FeatBorderGreen;
         cellStyle.onlyDrawItemBorderWhenBright = true;
     } else {
+        cellStyle.linkTexture = _services.resource.textures.get(
+            kTSLFeatArrow,
+            TextureUsage::GUI);
+        cellStyle.linkSize = {kTSLFeatArrowSize, kTSLFeatArrowSize};
         cellStyle.borderColors = std::make_shared<IconChain::CellStyle::BorderColors>();
         cellStyle.borderColors->locked = kTSLLockedFeatBorderColor;
         cellStyle.borderColors->selectable = kTSLSelectableFeatBorderColor;
@@ -230,26 +279,7 @@ void CharGenFeats::refreshIconChain() {
 
     _controls.ICONCHAIN_FEATS->setColumnCount(kFeatIconColumnCount);
 
-    std::map<FeatType, int> chainRowCounts;
-    std::vector<FeatType> chainRoots;
-    for (auto &entry : _displayEntries) {
-        FeatType chainRoot = entry.chainRoot != FeatType::Invalid ? entry.chainRoot : entry.type;
-        int wrappedRowCount = entry.visualIndex / kFeatIconColumnCount + 1;
-
-        auto maybeChainRows = chainRowCounts.insert({chainRoot, wrappedRowCount});
-        if (maybeChainRows.second) {
-            chainRoots.push_back(chainRoot);
-        } else {
-            maybeChainRows.first->second = std::max(maybeChainRows.first->second, wrappedRowCount);
-        }
-    }
-
-    std::map<FeatType, int> chainRowBases;
-    int nextRow = 0;
-    for (auto chainRoot : chainRoots) {
-        chainRowBases.insert({chainRoot, nextRow});
-        nextRow += chainRowCounts.at(chainRoot);
-    }
+    auto itemPositions = getFeatIconPositions(_displayEntries);
 
     for (auto &entry : _displayEntries) {
         std::shared_ptr<Feat> feat(_services.game.feats.get(entry.type));
@@ -257,12 +287,10 @@ void CharGenFeats::refreshIconChain() {
             continue;
         }
 
-        FeatType chainRoot = entry.chainRoot != FeatType::Invalid ? entry.chainRoot : entry.type;
-
         IconChain::Item item;
         item.tag = std::to_string(static_cast<int>(entry.type));
-        item.row = chainRowBases.at(chainRoot) + entry.visualIndex / kFeatIconColumnCount;
-        item.column = entry.visualIndex % kFeatIconColumnCount;
+        item.column = itemPositions.at(entry.type).x;
+        item.row = itemPositions.at(entry.type).y;
         item.iconTexture = feat->icon;
         item.selected = _selectedFeats.count(entry.type) > 0;
         switch (entry.availability) {
@@ -279,6 +307,8 @@ void CharGenFeats::refreshIconChain() {
         }
         _controls.ICONCHAIN_FEATS->addItem(std::move(item));
     }
+
+    refreshIconChainLinks();
 }
 
 void CharGenFeats::refreshIconChainSelection() {
@@ -290,6 +320,58 @@ void CharGenFeats::refreshIconChainSelection() {
         _controls.ICONCHAIN_FEATS->setItemSelected(
             std::to_string(static_cast<int>(entry.type)),
             _selectedFeats.count(entry.type) > 0);
+    }
+
+    refreshIconChainLinks();
+}
+
+void CharGenFeats::refreshIconChainLinks() {
+    _controls.ICONCHAIN_FEATS->clearLinks();
+    if (!_levelUp) {
+        return;
+    }
+
+    CreatureAttributes effectiveAttributes(_charGen.character().attributes);
+    for (auto feat : _selectedFeats) {
+        effectiveAttributes.addFeat(feat);
+    }
+    std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(effectiveAttributes.getEffectiveClass()));
+    auto itemPositions = getFeatIconPositions(_displayEntries);
+
+    for (size_t i = 1; i < _displayEntries.size(); ++i) {
+        const FeatDisplayEntry &source = _displayEntries[i - 1];
+        const FeatDisplayEntry &target = _displayEntries[i];
+        FeatType sourceChainRoot = source.chainRoot != FeatType::Invalid ? source.chainRoot : source.type;
+        FeatType targetChainRoot = target.chainRoot != FeatType::Invalid ? target.chainRoot : target.type;
+        if (sourceChainRoot != targetChainRoot ||
+            target.visualIndex != source.visualIndex + 1) {
+            continue;
+        }
+
+        auto sourcePosition = itemPositions.find(source.type);
+        auto targetPosition = itemPositions.find(target.type);
+        if (sourcePosition == itemPositions.end() ||
+            targetPosition == itemPositions.end() ||
+            sourcePosition->second.y != targetPosition->second.y ||
+            targetPosition->second.x != sourcePosition->second.x + 1) {
+            continue;
+        }
+
+        bool sourceEffectivelyOwned = effectiveAttributes.hasFeat(source.type);
+        bool targetEffectivelyOwned = effectiveAttributes.hasFeat(target.type);
+        bool targetSelectable = clazz &&
+                                _services.game.feats.isLevelUpCandidate(
+                                    target.type,
+                                    effectiveAttributes,
+                                    *clazz);
+        if (!sourceEffectivelyOwned || (!targetEffectivelyOwned && !targetSelectable)) {
+            continue;
+        }
+
+        IconChain::Link link;
+        link.sourceTag = std::to_string(static_cast<int>(source.type));
+        link.targetTag = std::to_string(static_cast<int>(target.type));
+        _controls.ICONCHAIN_FEATS->addLink(std::move(link));
     }
 }
 
