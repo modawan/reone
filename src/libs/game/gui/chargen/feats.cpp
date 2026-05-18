@@ -17,9 +17,12 @@
 
 #include "reone/game/gui/chargen/feats.h"
 
+#include "reone/game/d20/classes.h"
+#include "reone/game/d20/feats.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
 #include "reone/gui/control/button.h"
+#include "reone/gui/control/listbox.h"
 
 using namespace reone::audio;
 
@@ -34,15 +37,112 @@ namespace game {
 void CharGenFeats::onGUILoaded() {
     bindControls();
 
+    _controls.LB_DESC->setProtoMatchContent(true);
+    _controls.LB_FEATS->setSelectionMode(ListBox::SelectionMode::OnClick);
+    _controls.LB_FEATS->setRenderItemIconsForButtonProto(true);
+    _controls.LB_FEATS->setOnItemClick([this](const std::string &item) {
+        onFeatSelected(item);
+    });
+
     _controls.BTN_ACCEPT->setOnClick([this]() {
+        if (_levelUp) {
+            if (_selectedFeats.size() != static_cast<size_t>(_points)) {
+                return;
+            }
+            updateCharacter();
+        }
         _charGen.goToNextStep();
         _charGen.openSteps();
     });
     _controls.BTN_BACK->setOnClick([this]() {
-        _charGen.openSteps();
+        _selectedFeats.clear();
+        if (_levelUp) {
+            _charGen.openSkills();
+        } else {
+            _charGen.openSteps();
+        }
     });
     _controls.BTN_SELECT->setDisabled(true);
     _controls.BTN_RECOMMENDED->setDisabled(true);
+}
+
+void CharGenFeats::reset(bool levelUp) {
+    _levelUp = levelUp;
+    _points = 0;
+    _candidates.clear();
+    _selectedFeats.clear();
+    _controls.LB_DESC->clearItems();
+
+    if (levelUp) {
+        loadLevelUpCandidates();
+    }
+
+    refreshControls();
+    _controls.BTN_SELECT->setDisabled(true);
+    _controls.BTN_RECOMMENDED->setDisabled(true);
+}
+
+void CharGenFeats::loadLevelUpCandidates() {
+    const CreatureAttributes &attributes = _charGen.character().attributes;
+    std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(attributes.getEffectiveClass()));
+
+    _points = _services.game.feats.getLevelUpChoiceCount(attributes, *clazz);
+    _candidates = _services.game.feats.getLevelUpCandidates(attributes, *clazz);
+}
+
+void CharGenFeats::refreshControls() {
+    _controls.STD_REMAINING_SELECTIONS_LBL->setTextMessage(std::to_string(_points - static_cast<int>(_selectedFeats.size())));
+    _controls.BTN_ACCEPT->setDisabled(_levelUp && _selectedFeats.size() != static_cast<size_t>(_points));
+
+    _controls.LB_FEATS->clearItems();
+    for (auto featType : _candidates) {
+        std::shared_ptr<Feat> feat(_services.game.feats.get(featType));
+        if (!feat) {
+            continue;
+        }
+
+        ListBox::Item item;
+        item.tag = std::to_string(static_cast<int>(featType));
+        item.text = (_selectedFeats.count(featType) > 0 ? "* " : "") + feat->name;
+        item.iconTexture = feat->icon;
+        _controls.LB_FEATS->addItem(std::move(item));
+    }
+}
+
+void CharGenFeats::updateCharacter() {
+    Character character(_charGen.character());
+    for (auto feat : _selectedFeats) {
+        character.attributes.addFeat(feat);
+    }
+    _charGen.setCharacter(std::move(character));
+}
+
+void CharGenFeats::toggleSelectedFeat(FeatType feat) {
+    auto maybeSelectedFeat = _selectedFeats.find(feat);
+    if (maybeSelectedFeat != _selectedFeats.end()) {
+        _selectedFeats.erase(maybeSelectedFeat);
+    } else if (_points == 1) {
+        _selectedFeats.clear();
+        _selectedFeats.insert(feat);
+    } else if (_selectedFeats.size() < static_cast<size_t>(_points)) {
+        _selectedFeats.insert(feat);
+    }
+    refreshControls();
+}
+
+void CharGenFeats::onFeatSelected(const std::string &feat) {
+    auto featType = static_cast<FeatType>(std::stoi(feat));
+    std::shared_ptr<Feat> featInfo(_services.game.feats.get(featType));
+    if (!featInfo) {
+        return;
+    }
+
+    _controls.LB_DESC->clearItems();
+    _controls.LB_DESC->addTextLinesAsItems(featInfo->description);
+
+    if (_levelUp) {
+        toggleSelectedFeat(featType);
+    }
 }
 
 } // namespace game
