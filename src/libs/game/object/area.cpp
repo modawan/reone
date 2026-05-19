@@ -232,7 +232,7 @@ void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff
     loadCreatures(gff);
     loadDoors(gff);
     loadPlaceables(gff);
-    loadWaypoints(git);
+    loadWaypoints(gff);
     loadTriggers(gff);
     loadSounds(git);
     loadCameras(git);
@@ -272,10 +272,10 @@ void Area::loadPlaceables(const resource::Gff &gff) {
     }
 }
 
-void Area::loadWaypoints(const resource::generated::GIT &git) {
-    for (auto &waypointStruct : git.WaypointList) {
+void Area::loadWaypoints(const resource::Gff &gff) {
+    for (auto &waypointGff : gff.getList("WaypointList")) {
         std::shared_ptr<Waypoint> waypoint = _game.newWaypoint(_sceneName);
-        waypoint->loadFromGIT(waypointStruct);
+        waypoint->deserialize(*waypointGff);
         add(waypoint);
     }
 }
