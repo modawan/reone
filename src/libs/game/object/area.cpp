@@ -233,7 +233,7 @@ void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff
     loadDoors(gff);
     loadPlaceables(gff);
     loadWaypoints(git);
-    loadTriggers(git);
+    loadTriggers(gff);
     loadSounds(git);
     loadCameras(git);
     loadEncounters(git);
@@ -280,10 +280,10 @@ void Area::loadWaypoints(const resource::generated::GIT &git) {
     }
 }
 
-void Area::loadTriggers(const resource::generated::GIT &git) {
-    for (auto &gffs : git.TriggerList) {
+void Area::loadTriggers(const resource::Gff &gff) {
+    for (auto &triggerGff : gff.getList("TriggerList")) {
         std::shared_ptr<Trigger> trigger = _game.newTrigger(_sceneName);
-        trigger->loadFromGIT(gffs);
+        trigger->deserialize(*triggerGff);
         add(trigger);
     }
 }
