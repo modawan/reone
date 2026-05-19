@@ -69,7 +69,6 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/parser/gff/ute.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/utm.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/uts.h
-    ${RESOURCE_INCLUDE_DIR}/parser/gff/utt.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/utw.h
     ${RESOURCE_INCLUDE_DIR}/path.h
     ${RESOURCE_INCLUDE_DIR}/provider/2das.h
@@ -143,7 +142,6 @@ set(RESOURCE_SOURCES
     ${RESOURCE_SOURCE_DIR}/parser/gff/ute.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/utm.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/uts.cpp
-    ${RESOURCE_SOURCE_DIR}/parser/gff/utt.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/utw.cpp
     ${RESOURCE_SOURCE_DIR}/provider/2das.cpp
     ${RESOURCE_SOURCE_DIR}/provider/audioclips.cpp
