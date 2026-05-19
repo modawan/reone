@@ -32,54 +32,50 @@ namespace reone {
 
 namespace game {
 
-void Waypoint::loadFromGIT(const resource::generated::GIT_WaypointList &git) {
-    std::string templateResRef(boost::to_lower_copy(git.TemplateResRef));
-    loadFromBlueprint(templateResRef);
-
-    _tag = git.Tag;
-    _hasMapNote = git.HasMapNote;
-    _mapNote = _services.resource.strings.getText(git.MapNote.first);
-    _mapNoteEnabled = git.MapNoteEnabled;
-    _tag = boost::to_lower_copy(git.Tag);
-
-    loadTransformFromGIT(git);
-}
-
 void Waypoint::loadFromBlueprint(const std::string &resRef) {
     std::shared_ptr<Gff> utw(_services.resource.gffs.get(resRef, ResType::Utw));
-    if (utw) {
-        auto utwParsed = resource::generated::parseUTW(*utw);
-        loadUTW(utwParsed);
+    if (!utw) {
+        return;
     }
+    deserialize(*utw);
 }
 
-void Waypoint::loadTransformFromGIT(const resource::generated::GIT_WaypointList &git) {
-    _position[0] = git.XPosition;
-    _position[1] = git.YPosition;
-    _position[2] = git.ZPosition;
-
-    float cosine = git.XOrientation;
-    float sine = git.YOrientation;
-    _orientation = glm::quat(glm::vec3(0.0f, 0.0f, -glm::atan(cosine, sine)));
-
+void Waypoint::deserialize(const resource::Gff &gff) {
+    std::string templateRes;
+    if (gff.readResRef(templateRes, "TemplateResRef")) {
+        if (auto utw = _services.resource.gffs.get(templateRes, ResType::Utw)) {
+            deserializeAll(*utw);
+        }
+    }
+    deserializeAll(gff);
     updateTransform();
 }
 
-void Waypoint::loadUTW(const resource::generated::UTW &utw) {
-    _appearance = utw.Appearance;
-    _blueprintResRef = boost::to_lower_copy(utw.TemplateResRef);
-    _tag = boost::to_lower_copy(utw.Tag);
-    _name = _services.resource.strings.getText(utw.LocalizedName.first);
-    _hasMapNote = utw.HasMapNote;
-    _mapNote = _services.resource.strings.getText(utw.MapNote.first);
-    _mapNoteEnabled = utw.MapNoteEnabled;
+void Waypoint::deserializeAll(const resource::Gff &gff) {
+    if (gff.readString(_tag, "Tag")) {
+        boost::to_lower(_tag);
+    }
+    gff.readLocString(_locName, "LocalizedName", _services.resource.strings);
+    gff.readFloat(_position[0], "XPosition");
+    gff.readFloat(_position[1], "YPosition");
+    gff.readFloat(_position[2], "ZPosition");
+    {
+        float cosine, sine;
+        if (gff.readFloat(cosine, "XOrientation") && gff.readFloat(sine, "YOrientation")) {
+            _orientation = glm::quat(glm::vec3(0.0f, 0.0f, -glm::atan(cosine, sine)));
+        }
+    }
+    gff.readBool(_hasMapNote, "HasMapNote");
+    gff.readBool(_mapNoteEnabled, "MapNoteEnabled");
+    gff.readLocString(_mapNote, "MapNote", _services.resource.strings);
 
-    // Unused fields:
-    //
-    // - LinkedTo (not applicable, always empty)
-    // - Description (toolset only)
-    // - PaletteID (toolset only)
-    // - Comment (toolset only)
+    gff.readBool(_commandable, "Commandable");
+
+    // Not handled:
+    // VarTable
+    // SWVarTable
+    // ActionList
+    // Commandable
 }
 
 } // namespace game

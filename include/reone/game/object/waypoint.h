@@ -17,11 +17,8 @@
 
 #pragma once
 
-#include "reone/resource/format/gffreader.h"
-
 #include "../object.h"
-#include "reone/resource/parser/gff/git.h"
-#include "reone/resource/parser/gff/utw.h"
+#include "reone/resource/strings.h"
 
 namespace reone {
 
@@ -46,22 +43,22 @@ public:
         return from->type() == ObjectType::Waypoint;
     }
 
-    void loadFromGIT(const resource::generated::GIT_WaypointList &git);
     void loadFromBlueprint(const std::string &resRef);
+    void deserialize(const resource::Gff &gff);
 
     bool isMapNoteEnabled() const { return _mapNoteEnabled; }
 
-    const std::string &mapNote() const { return _mapNote; }
+    const std::string &mapNote() const { return _mapNote.str(); }
 
 private:
-    int _appearance {0};
+    // Serializable
     bool _hasMapNote {false};
-    std::string _mapNote;
     bool _mapNoteEnabled {false};
+    resource::LocString _mapNote;
+    resource::LocString _locName;
+    // END Serializable
 
-    void loadTransformFromGIT(const resource::generated::GIT_WaypointList &git);
-
-    void loadUTW(const resource::generated::UTW &utw);
+    void deserializeAll(const resource::Gff &gff);
 };
 
 } // namespace game
