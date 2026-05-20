@@ -108,7 +108,7 @@ std::set<std::string> ResourceDirector::saveNames() {
     auto names = std::set<std::string>();
     auto savesPath = findFileIgnoreCase(_gamePath, kSavesDirectoryName);
     if (!savesPath) {
-        throw ResourceNotFoundException("Saves directory not found");
+        return names;
     }
     for (auto &entry : std::filesystem::directory_iterator(*savesPath)) {
         names.insert(boost::to_lower_copy(entry.path().filename().string()));
