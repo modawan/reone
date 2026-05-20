@@ -37,6 +37,13 @@ static void tintK2TopNavigationIcon(const std::shared_ptr<ImageButton> &button, 
     button->setTintBorderFill(true);
 }
 
+static void configureTopNavigationIcon(const std::shared_ptr<ImageButton> &button) {
+    if (!button) {
+        return;
+    }
+    button->setSelectable(false);
+}
+
 void InGameMenu::preload(IGUI &gui) {
     if (_game.isTSL()) {
         gui.setResolution(800, 600);
@@ -45,6 +52,15 @@ void InGameMenu::preload(IGUI &gui) {
 
 void InGameMenu::onGUILoaded() {
     bindControls();
+
+    configureTopNavigationIcon(_controls.LBLH_EQU);
+    configureTopNavigationIcon(_controls.LBLH_INV);
+    configureTopNavigationIcon(_controls.LBLH_CHA);
+    configureTopNavigationIcon(_controls.LBLH_ABI);
+    configureTopNavigationIcon(_controls.LBLH_MSG);
+    configureTopNavigationIcon(_controls.LBLH_JOU);
+    configureTopNavigationIcon(_controls.LBLH_MAP);
+    configureTopNavigationIcon(_controls.LBLH_OPT);
 
     if (_game.isTSL()) {
         tintK2TopNavigationIcon(_controls.LBLH_EQU, _baseColor);
@@ -207,14 +223,14 @@ void InGameMenu::changeTab(InGameMenuTab tab) {
 }
 
 void InGameMenu::updateTabButtons() {
-    _controls.BTN_EQU->setSelected(_tab == InGameMenuTab::Equipment);
-    _controls.BTN_INV->setSelected(_tab == InGameMenuTab::Inventory);
-    _controls.BTN_CHAR->setSelected(_tab == InGameMenuTab::Character);
-    _controls.BTN_ABI->setSelected(_tab == InGameMenuTab::Abilities);
-    _controls.BTN_MSG->setSelected(_tab == InGameMenuTab::Messages);
-    _controls.BTN_JOU->setSelected(_tab == InGameMenuTab::Journal);
-    _controls.BTN_MAP->setSelected(_tab == InGameMenuTab::Map);
-    _controls.BTN_OPT->setSelected(_tab == InGameMenuTab::Options);
+    _controls.LBLH_EQU->setSelected(_tab == InGameMenuTab::Equipment);
+    _controls.LBLH_INV->setSelected(_tab == InGameMenuTab::Inventory);
+    _controls.LBLH_CHA->setSelected(_tab == InGameMenuTab::Character);
+    _controls.LBLH_ABI->setSelected(_tab == InGameMenuTab::Abilities);
+    _controls.LBLH_MSG->setSelected(_tab == InGameMenuTab::Messages);
+    _controls.LBLH_JOU->setSelected(_tab == InGameMenuTab::Journal);
+    _controls.LBLH_MAP->setSelected(_tab == InGameMenuTab::Map);
+    _controls.LBLH_OPT->setSelected(_tab == InGameMenuTab::Options);
 }
 
 void InGameMenu::openInventory() {
