@@ -84,6 +84,12 @@ void HUD::onGUILoaded() {
             _actionBar.addSlot(action, up, down);
         }
     }
+    if (_game.isTSL()) {
+        if (auto down = findControl<gui::Button>("BTN_ACTIONDOWN5")) {
+            down->setBorderFillTransform(gui::Control::Border::FillTransform::Rotate180);
+            down->setHilightFillTransform(gui::Control::Border::FillTransform::Rotate180);
+        }
+    }
 
     _controls.BTN_CLEARALL->setVisible(false);
     _controls.BTN_TARGET0->setVisible(false);
