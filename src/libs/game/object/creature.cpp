@@ -241,11 +241,17 @@ void Creature::updateModelAnimation() {
         break;
     }
 
-    if (talkAnim) {
+    if (talkAnim && anim) {
         model->playAnimation(*anim, nullptr, AnimationProperties::fromFlags(AnimationFlags::loopOverlay | AnimationFlags::propagate));
         model->playAnimation(*talkAnim, _lipAnimation.get(), AnimationProperties::fromFlags(AnimationFlags::loopOverlay | AnimationFlags::propagate));
     } else {
-        model->playAnimation(*anim, nullptr, AnimationProperties::fromFlags(AnimationFlags::loopBlend | AnimationFlags::propagate));
+        if (anim) {
+            model->playAnimation(*anim, nullptr, AnimationProperties::fromFlags(AnimationFlags::loopBlend | AnimationFlags::propagate));
+        }
+
+        if (talkAnim) {
+            model->playAnimation(*talkAnim, _lipAnimation.get(), AnimationProperties::fromFlags(AnimationFlags::loopBlend | AnimationFlags::propagate));
+        }
     }
 
     _animDirty = false;
