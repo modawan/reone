@@ -249,6 +249,12 @@ void Control::renderBorder(const Border &border,
     glm::mat3x4 uv(1.0f);
 
     if (border.fill) {
+        if (border.fillTransform == Border::FillTransform::Rotate180) {
+            uv = glm::mat3x4(
+                glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
+                glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
+                glm::vec4(1.0f, 1.0f, 0.0f, 0.0f));
+        }
         auto blending = border.fill->features().blending == Texture::Blending::Additive
                             ? BlendMode::Additive
                             : BlendMode::Normal;
@@ -541,6 +547,12 @@ void Control::setBorderFill(std::shared_ptr<Texture> texture) {
     }
 }
 
+void Control::setBorderFillTransform(Border::FillTransform transform) {
+    if (_border) {
+        _border->fillTransform = transform;
+    }
+}
+
 void Control::setBorderColor(glm::vec3 color) {
     _border->color = std::move(color);
 }
@@ -582,6 +594,12 @@ void Control::setHilightFill(std::shared_ptr<Texture> texture) {
             _hilight = std::make_shared<Border>();
         }
         _hilight->fill = std::move(texture);
+    }
+}
+
+void Control::setHilightFillTransform(Border::FillTransform transform) {
+    if (_hilight) {
+        _hilight->fillTransform = transform;
     }
 }
 

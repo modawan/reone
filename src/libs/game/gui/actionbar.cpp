@@ -28,6 +28,14 @@ namespace game {
 
 static constexpr int kActionWidth = 26;
 
+static void rotateActionBarArrow(std::shared_ptr<gui::Button> button) {
+    if (!button) {
+        return;
+    }
+    button->setBorderFillTransform(gui::Control::Border::FillTransform::Rotate180);
+    button->setHilightFillTransform(gui::Control::Border::FillTransform::Rotate180);
+}
+
 void ActionBar::addDescription(std::shared_ptr<gui::Label> desc,
                                std::shared_ptr<gui::Label> background) {
     _desc = desc;
@@ -40,6 +48,7 @@ void ActionBar::addDescription(std::shared_ptr<gui::Label> desc,
 void ActionBar::addSlot(std::shared_ptr<gui::Button> button,
                         std::shared_ptr<gui::Button> up,
                         std::shared_ptr<gui::Button> down) {
+    rotateActionBarArrow(down);
 
     size_t slotIndex = _slots.size();
     _slots.push_back({ActionSlot(), button, up, down});
