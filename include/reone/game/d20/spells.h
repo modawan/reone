@@ -25,11 +25,11 @@ namespace reone {
 
 namespace resource {
 
-class Strings;
-class TwoDAs;
-class Textures;
-class AudioClips;
-class Models;
+class IStrings;
+class ITwoDAs;
+class ITextures;
+class IAudioClips;
+class IModels;
 
 } // namespace resource
 
@@ -45,11 +45,11 @@ public:
 class Spells : public ISpells, boost::noncopyable {
 public:
     Spells(
-        resource::Textures &textures,
-        resource::AudioClips &audioClips,
-        resource::Models &models,
-        resource::Strings &strings,
-        resource::TwoDAs &twoDas) :
+        resource::ITextures &textures,
+        resource::IAudioClips &audioClips,
+        resource::IModels &models,
+        resource::IStrings &strings,
+        resource::ITwoDAs &twoDas) :
         _textures(textures),
         _audioClips(audioClips),
         _models(models),
@@ -66,11 +66,11 @@ private:
 
     // Services
 
-    resource::Textures &_textures;
-    resource::AudioClips &_audioClips;
-    resource::Models &_models;
-    resource::Strings &_strings;
-    resource::TwoDAs &_twoDas;
+    resource::ITextures &_textures;
+    resource::IAudioClips &_audioClips;
+    resource::IModels &_models;
+    resource::IStrings &_strings;
+    resource::ITwoDAs &_twoDas;
 
     // END Services
 };
