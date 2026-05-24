@@ -111,6 +111,7 @@ public:
     void damage(int amount, uint32_t damager) override;
 
     void giveXP(int amount);
+    void setXP(int xp);
 
     void playSound(resource::SoundSetEntry entry, bool positional = true);
 
@@ -149,7 +150,6 @@ public:
     void setFaction(Faction faction) { _faction = faction; }
     void setMovementRestricted(bool restricted) { _movementRestricted = restricted; }
     void setImmortal(bool immortal) { _immortal = immortal; }
-    void setXP(int xp) { _xp = xp; }
     void setAIStyle(NPCAIStyle style) { _aiStyle = style; }
     void setWalkmeshMaterial(int material) { _walkmeshMaterial = material; }
 

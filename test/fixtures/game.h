@@ -71,6 +71,7 @@ class MockGUISounds : public IGUISounds, boost::noncopyable {
 public:
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnClick, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnEnter, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnLevelUpNotify, (), (const override));
 };
 
 class MockPortraits : public IPortraits, boost::noncopyable {

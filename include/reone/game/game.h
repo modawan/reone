@@ -150,6 +150,7 @@ public:
     void openInGame();
     void openInGameMenu(InGameMenuTab tab);
     void openLevelUp();
+    void notifyLevelUpPending(const Creature &creature);
     void openContainer(const std::shared_ptr<Object> &container);
     void openPartySelection(const PartySelectionContext &ctx);
     void openSaveLoad(SaveLoadMode mode);

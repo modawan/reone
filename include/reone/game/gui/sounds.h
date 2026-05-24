@@ -41,6 +41,7 @@ public:
 
     virtual std::shared_ptr<audio::AudioClip> getOnClick() const = 0;
     virtual std::shared_ptr<audio::AudioClip> getOnEnter() const = 0;
+    virtual std::shared_ptr<audio::AudioClip> getOnLevelUpNotify() const = 0;
 };
 
 class GUISounds : public IGUISounds, boost::noncopyable {
@@ -57,6 +58,7 @@ public:
 
     std::shared_ptr<audio::AudioClip> getOnClick() const override { return _onClick; }
     std::shared_ptr<audio::AudioClip> getOnEnter() const override { return _onEnter; }
+    std::shared_ptr<audio::AudioClip> getOnLevelUpNotify() const override { return _onLevelUpNotify; }
 
 private:
     resource::AudioClips &_audioClips;
@@ -64,6 +66,7 @@ private:
 
     std::shared_ptr<audio::AudioClip> _onClick;
     std::shared_ptr<audio::AudioClip> _onEnter;
+    std::shared_ptr<audio::AudioClip> _onLevelUpNotify;
 
     void loadSound(const resource::TwoDA &twoDa, const std::string &label, std::shared_ptr<audio::AudioClip> &sound);
 };
