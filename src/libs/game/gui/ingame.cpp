@@ -17,7 +17,14 @@
 
 #include "reone/game/gui/ingame.h"
 
+#include <algorithm>
+
+#include "reone/game/d20/classes.h"
+#include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/party.h"
+#include "reone/game/types.h"
 
 using namespace reone::audio;
 
@@ -55,6 +62,7 @@ void InGameMenu::onGUILoaded() {
         tintK2TopNavigationIcon(_controls.LBLH_JOU, _baseColor);
         tintK2TopNavigationIcon(_controls.LBLH_MAP, _baseColor);
         tintK2TopNavigationIcon(_controls.LBLH_OPT, _baseColor);
+        refreshK2Footer();
     }
 
     // _controls.BTN_EQU->setVisible(false);
@@ -178,6 +186,8 @@ GameGUI *InGameMenu::getActiveTabGUI() const {
 void InGameMenu::update(float dt) {
     GameGUI::update(dt);
 
+    refreshK2Footer();
+
     auto tabGui = getActiveTabGUI();
     if (tabGui) {
         tabGui->update(dt);
@@ -204,6 +214,81 @@ void InGameMenu::changeTab(InGameMenuTab tab) {
     }
     _tab = tab;
     updateTabButtons();
+    refreshK2Footer();
+}
+
+void InGameMenu::refreshK2Footer() {
+    if (!_game.isTSL()) {
+        return;
+    }
+
+    auto hide = [](const auto &control) {
+        if (control) {
+            control->setVisible(false);
+        }
+    };
+
+    hide(_controls.BTN_CHANGE2);
+    hide(_controls.BTN_CHANGE3);
+    hide(_controls.LBL_BACK2);
+    hide(_controls.LBL_BACK3);
+    hide(_controls.LBL_CHAR2);
+    hide(_controls.LBL_CHAR3);
+    hide(_controls.LBL_LEVELUP2);
+    hide(_controls.LBL_LEVELUP3);
+    hide(_controls.LBL_LEFT_ARROW);
+    hide(_controls.LBL_RIGHT_ARROW);
+    hide(_controls.LBL_CMBTEFCTINC1);
+    hide(_controls.LBL_CMBTEFCTRED1);
+    hide(_controls.LBL_DEBILATATED1);
+    hide(_controls.LBL_DISABLE1);
+    hide(_controls.PB_FORCE1);
+
+    auto leader = _game.party().getLeader();
+    if (!leader) {
+        hide(_controls.LBL_BACK1);
+        hide(_controls.LBL_CHAR1);
+        hide(_controls.LBL_CHARNAME);
+        hide(_controls.LBL_TOP_CLASS1);
+        hide(_controls.LBL_TOP_CLASS1LEVEL);
+        hide(_controls.LBL_TOP_CLASS2);
+        hide(_controls.LBL_TOP_CLASS2LEVEL);
+        hide(_controls.LBL_LEVELUP1);
+        hide(_controls.PB_VIT1);
+        return;
+    }
+
+    _controls.LBL_BACK1->setVisible(true);
+    _controls.LBL_CHAR1->setVisible(true);
+    _controls.LBL_CHAR1->setBorderFill(leader->portrait());
+    _controls.LBL_CHARNAME->setVisible(true);
+    _controls.LBL_CHARNAME->setTextMessage(leader->name());
+
+    auto &attributes = leader->attributes();
+    auto describeClass = [this](ClassType clazz) {
+        return clazz == ClassType::Invalid ? std::string() : _services.game.classes.get(clazz)->name();
+    };
+    auto describeLevel = [](int level) {
+        return level == 0 ? std::string() : std::to_string(level);
+    };
+
+    _controls.LBL_TOP_CLASS1->setVisible(true);
+    _controls.LBL_TOP_CLASS1->setTextMessage(describeClass(attributes.getClassByPosition(1)));
+    _controls.LBL_TOP_CLASS1LEVEL->setVisible(true);
+    _controls.LBL_TOP_CLASS1LEVEL->setTextMessage(describeLevel(attributes.getLevelByPosition(1)));
+    _controls.LBL_TOP_CLASS2->setVisible(true);
+    _controls.LBL_TOP_CLASS2->setTextMessage(describeClass(attributes.getClassByPosition(2)));
+    _controls.LBL_TOP_CLASS2LEVEL->setVisible(true);
+    _controls.LBL_TOP_CLASS2LEVEL->setTextMessage(describeLevel(attributes.getLevelByPosition(2)));
+
+    _controls.LBL_LEVELUP1->setVisible(leader->isLevelUpPending());
+
+    int hitPoints = leader->hitPoints();
+    int vitalityPercent = hitPoints > 0
+        ? std::clamp(100 * leader->currentHitPoints() / hitPoints, 0, 100)
+        : 0;
+    _controls.PB_VIT1->setVisible(true);
+    _controls.PB_VIT1->setValue(vitalityPercent);
 }
 
 void InGameMenu::updateTabButtons() {

@@ -94,6 +94,8 @@ private:
         std::shared_ptr<gui::Label> LBL_LEVELUP1;
         std::shared_ptr<gui::Label> LBL_LEVELUP2;
         std::shared_ptr<gui::Label> LBL_LEVELUP3;
+        std::shared_ptr<gui::Label> LBL_LEFT_ARROW;
+        std::shared_ptr<gui::Label> LBL_RIGHT_ARROW;
         std::shared_ptr<gui::Label> LBL_SECTITLE;
         std::shared_ptr<gui::Label> LBL_TOP_CLASS1;
         std::shared_ptr<gui::Label> LBL_TOP_CLASS1LEVEL;
@@ -152,6 +154,8 @@ private:
         _controls.LBL_LEVELUP1 = findControl<gui::Label>("LBL_LEVELUP1");
         _controls.LBL_LEVELUP2 = findControl<gui::Label>("LBL_LEVELUP2");
         _controls.LBL_LEVELUP3 = findControl<gui::Label>("LBL_LEVELUP3");
+        _controls.LBL_LEFT_ARROW = findControl<gui::Label>("LBL_LEFT_ARROW");
+        _controls.LBL_RIGHT_ARROW = findControl<gui::Label>("LBL_RIGHT_ARROW");
         _controls.LBL_SECTITLE = findControl<gui::Label>("LBL_SECTITLE");
         _controls.LBL_TOP_CLASS1 = findControl<gui::Label>("LBL_TOP_CLASS1");
         _controls.LBL_TOP_CLASS1LEVEL = findControl<gui::Label>("LBL_TOP_CLASS1LEVEL");
@@ -163,6 +167,7 @@ private:
 
     void updateTabButtons();
     void changeTab(InGameMenuTab tab);
+    void refreshK2Footer();
 
     void loadCharacter();
     void loadEquipment();
