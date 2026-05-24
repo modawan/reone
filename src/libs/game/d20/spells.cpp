@@ -32,6 +32,47 @@ namespace reone {
 
 namespace game {
 
+static const std::vector<std::pair<ClassType, std::string>> kClassLevelColumns = {
+    {ClassType::JediGuardian, "guardian"},
+    {ClassType::JediConsular, "consular"},
+    {ClassType::JediSentinel, "sentinel"},
+    {ClassType::JediWeaponMaster, "weapmstr"},
+    {ClassType::JediMaster, "jedimaster"},
+    {ClassType::JediWatchman, "watchman"},
+    {ClassType::SithMarauder, "marauder"},
+    {ClassType::SithLord, "sithlord"},
+    {ClassType::SithAssassin, "assassin"}};
+
+static std::optional<SpellType> parseSpellType(const std::string &value) {
+    if (value.empty()) {
+        return std::nullopt;
+    }
+
+    try {
+        size_t parsedLength = 0;
+        int parsed = std::stoi(value, &parsedLength);
+        if (parsedLength == value.size() && parsed >= 0) {
+            return static_cast<SpellType>(parsed);
+        }
+    } catch (const std::exception &) {
+    }
+
+    return std::nullopt;
+}
+
+static std::vector<SpellType> parsePrerequisites(const std::string &value) {
+    std::vector<SpellType> result;
+    std::vector<std::string> tokens;
+    boost::split(tokens, value, boost::is_any_of("_"));
+    for (const auto &token : tokens) {
+        auto maybeSpell = parseSpellType(token);
+        if (maybeSpell) {
+            result.push_back(*maybeSpell);
+        }
+    }
+    return result;
+}
+
 void Spells::init() {
     std::shared_ptr<TwoDA> spells(_twoDas.get("spells"));
     if (!spells)
@@ -43,6 +84,9 @@ void Spells::init() {
         std::string description(_strings.getText(spells->getInt(row, "spelldesc", -1)));
         std::shared_ptr<Texture> icon(_textures.get(spells->getString(row, "iconresref"), TextureUsage::GUI));
         uint32_t pips = spells->getHexInt(row, "pips");
+        std::vector<SpellType> prerequisites(parsePrerequisites(spells->getString(row, "prerequisites")));
+        std::optional<SpellType> masterSpell(parseSpellType(spells->getString(row, "masterspell")));
+        int userType = spells->getInt(row, "usertype", -1);
         uint32_t category = spells->getHexInt(row, "category");
         std::string impactScript = spells->getString(row, "impactscript");
         std::string castAnim = spells->getString(row, "castanim");
@@ -59,6 +103,15 @@ void Spells::init() {
         spell->description = std::move(description);
         spell->icon = std::move(icon);
         spell->pips = pips;
+        spell->prerequisites = std::move(prerequisites);
+        spell->masterSpell = masterSpell;
+        spell->userType = userType;
+        for (const auto &[clazz, column] : kClassLevelColumns) {
+            auto maybeRequirement = spells->getIntOpt(row, column);
+            if (maybeRequirement) {
+                spell->classLevelRequirements.emplace(clazz, *maybeRequirement);
+            }
+        }
         spell->category = category;
         spell->impactScript = impactScript;
         spell->castAnim = castAnim;
