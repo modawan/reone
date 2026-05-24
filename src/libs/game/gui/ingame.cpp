@@ -18,6 +18,7 @@
 #include "reone/game/gui/ingame.h"
 
 #include <algorithm>
+#include <array>
 
 #include "reone/game/d20/classes.h"
 #include "reone/game/di/services.h"
@@ -230,37 +231,62 @@ void InGameMenu::refreshK2Footer() {
 
     hide(_controls.BTN_CHANGE2);
     hide(_controls.BTN_CHANGE3);
-    hide(_controls.LBL_BACK2);
-    hide(_controls.LBL_BACK3);
-    hide(_controls.LBL_CHAR2);
-    hide(_controls.LBL_CHAR3);
-    hide(_controls.LBL_LEVELUP2);
-    hide(_controls.LBL_LEVELUP3);
     hide(_controls.LBL_LEFT_ARROW);
     hide(_controls.LBL_RIGHT_ARROW);
     hide(_controls.LBL_CMBTEFCTINC1);
+    hide(_controls.LBL_CMBTEFCTINC2);
+    hide(_controls.LBL_CMBTEFCTINC3);
     hide(_controls.LBL_CMBTEFCTRED1);
+    hide(_controls.LBL_CMBTEFCTRED2);
+    hide(_controls.LBL_CMBTEFCTRED3);
     hide(_controls.LBL_DEBILATATED1);
+    hide(_controls.LBL_DEBILATATED2);
+    hide(_controls.LBL_DEBILATATED3);
     hide(_controls.LBL_DISABLE1);
+    hide(_controls.LBL_DISABLE2);
+    hide(_controls.LBL_DISABLE3);
     hide(_controls.PB_FORCE1);
 
-    auto leader = _game.party().getLeader();
+    Party &party = _game.party();
+    std::array<std::shared_ptr<Label>, 3> backLabels {
+        _controls.LBL_BACK1,
+        _controls.LBL_BACK2,
+        _controls.LBL_BACK3};
+    std::array<std::shared_ptr<Label>, 3> portraitLabels {
+        _controls.LBL_CHAR1,
+        _controls.LBL_CHAR2,
+        _controls.LBL_CHAR3};
+    std::array<std::shared_ptr<Label>, 3> levelUpLabels {
+        _controls.LBL_LEVELUP1,
+        _controls.LBL_LEVELUP2,
+        _controls.LBL_LEVELUP3};
+
+    for (int i = 0; i < 3; ++i) {
+        auto member = party.getMember(i);
+        if (!member) {
+            hide(backLabels[i]);
+            hide(portraitLabels[i]);
+            hide(levelUpLabels[i]);
+            continue;
+        }
+
+        backLabels[i]->setVisible(true);
+        portraitLabels[i]->setVisible(true);
+        portraitLabels[i]->setBorderFill(member->portrait());
+        levelUpLabels[i]->setVisible(member->isLevelUpPending());
+    }
+
+    auto leader = party.getLeader();
     if (!leader) {
-        hide(_controls.LBL_BACK1);
-        hide(_controls.LBL_CHAR1);
         hide(_controls.LBL_CHARNAME);
         hide(_controls.LBL_TOP_CLASS1);
         hide(_controls.LBL_TOP_CLASS1LEVEL);
         hide(_controls.LBL_TOP_CLASS2);
         hide(_controls.LBL_TOP_CLASS2LEVEL);
-        hide(_controls.LBL_LEVELUP1);
         hide(_controls.PB_VIT1);
         return;
     }
 
-    _controls.LBL_BACK1->setVisible(true);
-    _controls.LBL_CHAR1->setVisible(true);
-    _controls.LBL_CHAR1->setBorderFill(leader->portrait());
     _controls.LBL_CHARNAME->setVisible(true);
     _controls.LBL_CHARNAME->setTextMessage(leader->name());
 
@@ -280,8 +306,6 @@ void InGameMenu::refreshK2Footer() {
     _controls.LBL_TOP_CLASS2->setTextMessage(describeClass(attributes.getClassByPosition(2)));
     _controls.LBL_TOP_CLASS2LEVEL->setVisible(true);
     _controls.LBL_TOP_CLASS2LEVEL->setTextMessage(describeLevel(attributes.getLevelByPosition(2)));
-
-    _controls.LBL_LEVELUP1->setVisible(leader->isLevelUpPending());
 
     int hitPoints = leader->hitPoints();
     int vitalityPercent = hitPoints > 0
