@@ -106,6 +106,7 @@ private:
     CharacterGeneration &_charGen;
     CreatureAttributes _attributes;
     int _points {0};
+    int _allocationLevel {1};
 
     void onGUILoaded() override;
 
