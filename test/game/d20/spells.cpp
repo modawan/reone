@@ -20,6 +20,7 @@
 
 #include "../../fixtures/resource.h"
 
+#include "reone/game/d20/classes.h"
 #include "reone/game/d20/spells.h"
 #include "reone/resource/2da.h"
 
@@ -62,11 +63,29 @@ protected:
     NiceMock<MockStrings> strings;
     NiceMock<MockTwoDAs> twoDas;
     std::unique_ptr<Spells> spells;
+    std::unique_ptr<Classes> classes;
+    std::unique_ptr<CreatureClass> guardian;
 
     void load(std::shared_ptr<TwoDA> table) {
         EXPECT_CALL(twoDas, get("spells")).WillOnce(Return(std::move(table)));
         spells = std::make_unique<Spells>(textures, audioClips, models, strings, twoDas);
         spells->init();
+    }
+
+    CreatureClass &getGuardian() {
+        if (!guardian) {
+            classes = std::make_unique<Classes>(strings, twoDas);
+            guardian = std::make_unique<CreatureClass>(ClassType::JediGuardian, *classes, strings, twoDas);
+        }
+        return *guardian;
+    }
+
+    static const SpellDisplayEntry &getEntry(const std::vector<SpellDisplayEntry> &entries, SpellType type) {
+        auto maybeEntry = std::find_if(entries.begin(), entries.end(), [&](const SpellDisplayEntry &entry) {
+            return entry.type == type;
+        });
+        EXPECT_NE(maybeEntry, entries.end());
+        return *maybeEntry;
     }
 };
 
@@ -160,4 +179,123 @@ TEST_F(SpellsTest, should_ignore_blank_and_malformed_prerequisites) {
 
     EXPECT_THAT(spells->get(static_cast<SpellType>(0))->prerequisites, ElementsAre(SpellType::ForcePush, SpellType::ForceWhirlwind));
     EXPECT_TRUE(spells->get(static_cast<SpellType>(1))->prerequisites.empty());
+}
+
+TEST_F(SpellsTest, should_build_k1_display_chains_from_prerequisites_in_source_root_order) {
+    auto table = makeSpellsTable(
+        {"prerequisites", "usertype", "guardian"},
+        51,
+        {{static_cast<int>(SpellType::ForcePush), {{"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::ForceWhirlwind), {{"prerequisites", "23"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::ForceWave), {{"prerequisites", "23_27"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::Shock), {{"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::Lightning), {{"prerequisites", "43"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::ForceStorm), {{"prerequisites", "43_35"}, {"usertype", "1"}, {"guardian", "0"}}}});
+    load(std::move(table));
+
+    CreatureAttributes attributes;
+    auto entries = spells->getLevelUpDisplayEntries(attributes, getGuardian(), {});
+    std::vector<SpellType> visibleTypes;
+    for (const auto &entry : entries) {
+        if (entry.visible) {
+            visibleTypes.push_back(entry.type);
+        }
+    }
+
+    EXPECT_THAT(visibleTypes, ElementsAre(
+                                  SpellType::ForcePush,
+                                  SpellType::ForceWhirlwind,
+                                  SpellType::ForceWave,
+                                  SpellType::Shock,
+                                  SpellType::Lightning,
+                                  SpellType::ForceStorm));
+
+    const auto &wave = getEntry(entries, SpellType::ForceWave);
+    EXPECT_EQ(wave.displayParent, SpellType::ForceWhirlwind);
+    EXPECT_EQ(wave.chainRoot, SpellType::ForcePush);
+    EXPECT_EQ(wave.visualDepth, 2);
+
+    const auto &storm = getEntry(entries, SpellType::ForceStorm);
+    EXPECT_EQ(storm.displayParent, SpellType::Lightning);
+    EXPECT_EQ(storm.chainRoot, SpellType::Shock);
+    EXPECT_EQ(storm.visualDepth, 2);
+}
+
+TEST_F(SpellsTest, should_expose_known_and_chosen_prerequisites_as_candidate_context) {
+    auto table = makeSpellsTable(
+        {"prerequisites", "usertype", "guardian"},
+        28,
+        {{static_cast<int>(SpellType::ForcePush), {{"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::ForceWhirlwind), {{"prerequisites", "23"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::ForceWave), {{"prerequisites", "23_27"}, {"usertype", "1"}, {"guardian", "0"}}}});
+    load(std::move(table));
+
+    CreatureAttributes attributes;
+    auto entries = spells->getLevelUpDisplayEntries(attributes, getGuardian(), {});
+    EXPECT_EQ(getEntry(entries, SpellType::ForcePush).availability, SpellAvailability::Selectable);
+    EXPECT_EQ(getEntry(entries, SpellType::ForceWhirlwind).availability, SpellAvailability::LockedMissingPrerequisite);
+    EXPECT_FALSE(spells->isLevelUpCandidate(SpellType::ForceWhirlwind, attributes, getGuardian(), {}));
+
+    attributes.addSpell(SpellType::ForcePush);
+    entries = spells->getLevelUpDisplayEntries(attributes, getGuardian(), {});
+    EXPECT_EQ(getEntry(entries, SpellType::ForcePush).availability, SpellAvailability::Known);
+    EXPECT_EQ(getEntry(entries, SpellType::ForceWhirlwind).availability, SpellAvailability::Selectable);
+    EXPECT_TRUE(spells->isLevelUpCandidate(SpellType::ForceWhirlwind, attributes, getGuardian(), {}));
+    EXPECT_THAT(spells->getLevelUpCandidates(attributes, getGuardian(), {}), Contains(SpellType::ForceWhirlwind));
+
+    std::set<SpellType> chosen {SpellType::ForceWhirlwind};
+    entries = spells->getLevelUpDisplayEntries(attributes, getGuardian(), chosen);
+    EXPECT_EQ(getEntry(entries, SpellType::ForceWhirlwind).availability, SpellAvailability::Chosen);
+    EXPECT_EQ(getEntry(entries, SpellType::ForceWave).availability, SpellAvailability::Selectable);
+    EXPECT_TRUE(spells->isLevelUpCandidate(SpellType::ForceWave, attributes, getGuardian(), chosen));
+}
+
+TEST_F(SpellsTest, should_build_tsl_chains_from_prerequisites_when_pips_do_not_express_depth) {
+    auto table = makeSpellsTable(
+        {"pips", "prerequisites", "usertype", "guardian"},
+        138,
+        {{static_cast<int>(SpellType::Cure), {{"pips", "2"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::Heal), {{"pips", "3"}, {"prerequisites", "10"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::MasterHeal), {{"pips", "3"}, {"prerequisites", "10_28"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::ForceBarrier), {{"pips", "3"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::ImprovedForceBarrier), {{"pips", "3"}, {"prerequisites", "135"}, {"usertype", "1"}, {"guardian", "0"}}},
+         {static_cast<int>(SpellType::MasterForceBarrier), {{"pips", "3"}, {"prerequisites", "135_136"}, {"usertype", "1"}, {"guardian", "0"}}}});
+    load(std::move(table));
+
+    CreatureAttributes attributes;
+    auto entries = spells->getLevelUpDisplayEntries(attributes, getGuardian(), {});
+
+    EXPECT_EQ(getEntry(entries, SpellType::Heal).visualDepth, 1);
+    EXPECT_EQ(getEntry(entries, SpellType::MasterHeal).visualDepth, 2);
+    EXPECT_EQ(getEntry(entries, SpellType::ImprovedForceBarrier).visualDepth, 1);
+    EXPECT_EQ(getEntry(entries, SpellType::MasterForceBarrier).visualDepth, 2);
+    EXPECT_EQ(spells->get(SpellType::ForceBarrier)->pips, 3);
+    EXPECT_EQ(spells->get(SpellType::ImprovedForceBarrier)->pips, 3);
+    EXPECT_EQ(spells->get(SpellType::MasterForceBarrier)->pips, 3);
+}
+
+TEST_F(SpellsTest, should_filter_non_picker_rows_and_preserve_class_gate_locking) {
+    auto table = makeSpellsTable(
+        {"usertype", "guardian"},
+        5,
+        {{0, {{"usertype", "1"}, {"guardian", "2"}}},
+         {1, {{"usertype", "4"}, {"guardian", "0"}}},
+         {2, {{"usertype", "6"}, {"guardian", "0"}}},
+         {3, {{"usertype", "-2"}, {"guardian", "0"}}},
+         {4, {{"usertype", "1"}, {"guardian", "-1"}}}});
+    load(std::move(table));
+
+    CreatureAttributes attributes;
+    auto entries = spells->getLevelUpDisplayEntries(attributes, getGuardian(), {});
+    EXPECT_TRUE(getEntry(entries, static_cast<SpellType>(0)).visible);
+    EXPECT_EQ(getEntry(entries, static_cast<SpellType>(0)).availability, SpellAvailability::LockedClassLevel);
+    EXPECT_FALSE(getEntry(entries, static_cast<SpellType>(1)).visible);
+    EXPECT_FALSE(getEntry(entries, static_cast<SpellType>(2)).visible);
+    EXPECT_FALSE(getEntry(entries, static_cast<SpellType>(3)).visible);
+    EXPECT_FALSE(getEntry(entries, static_cast<SpellType>(4)).visible);
+
+    attributes.addClassLevels(&getGuardian(), 1);
+    entries = spells->getLevelUpDisplayEntries(attributes, getGuardian(), {});
+    EXPECT_EQ(getEntry(entries, static_cast<SpellType>(0)).availability, SpellAvailability::Selectable);
+    EXPECT_TRUE(spells->isLevelUpCandidate(static_cast<SpellType>(0), attributes, getGuardian(), {}));
 }

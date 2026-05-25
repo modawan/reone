@@ -35,11 +35,53 @@ class IModels;
 
 namespace game {
 
+class CreatureAttributes;
+class CreatureClass;
+
+enum class SpellAvailability {
+    Hidden,
+    Known,
+    Chosen,
+    Selectable,
+    LockedClassLevel,
+    LockedMissingPrerequisite
+};
+
+struct SpellDisplayEntry {
+    SpellType type;
+    std::string name;
+    std::string description;
+    std::shared_ptr<graphics::Texture> icon;
+    std::vector<SpellType> prerequisites;
+    SpellAvailability availability {SpellAvailability::Hidden};
+    bool visible {false};
+    bool known {false};
+    bool chosen {false};
+    bool selectable {false};
+    std::optional<SpellType> displayParent;
+    SpellType chainRoot {SpellType::All};
+    int visualDepth {0};
+    int sourceOrder {0};
+};
+
 class ISpells {
 public:
     virtual ~ISpells() = default;
 
     virtual std::shared_ptr<Spell> get(SpellType type) const = 0;
+    virtual bool isLevelUpCandidate(
+        SpellType type,
+        const CreatureAttributes &attributes,
+        const CreatureClass &clazz,
+        const std::set<SpellType> &chosen) const = 0;
+    virtual std::vector<SpellType> getLevelUpCandidates(
+        const CreatureAttributes &attributes,
+        const CreatureClass &clazz,
+        const std::set<SpellType> &chosen) const = 0;
+    virtual std::vector<SpellDisplayEntry> getLevelUpDisplayEntries(
+        const CreatureAttributes &attributes,
+        const CreatureClass &clazz,
+        const std::set<SpellType> &chosen) const = 0;
 };
 
 class Spells : public ISpells, boost::noncopyable {
@@ -60,6 +102,19 @@ public:
     void init();
 
     std::shared_ptr<Spell> get(SpellType type) const override;
+    bool isLevelUpCandidate(
+        SpellType type,
+        const CreatureAttributes &attributes,
+        const CreatureClass &clazz,
+        const std::set<SpellType> &chosen) const override;
+    std::vector<SpellType> getLevelUpCandidates(
+        const CreatureAttributes &attributes,
+        const CreatureClass &clazz,
+        const std::set<SpellType> &chosen) const override;
+    std::vector<SpellDisplayEntry> getLevelUpDisplayEntries(
+        const CreatureAttributes &attributes,
+        const CreatureClass &clazz,
+        const std::set<SpellType> &chosen) const override;
 
 private:
     std::unordered_map<SpellType, std::shared_ptr<Spell>> _spells;
