@@ -73,6 +73,7 @@ private:
 
     CharacterGeneration &_charGen;
     std::vector<SpellDisplayEntry> _displayEntries;
+    std::set<SpellType> _selectedPowers;
     std::string _defaultPowerNameText;
     int _powerGain {0};
 
@@ -97,11 +98,18 @@ private:
 
     void loadDisplayEntries();
     void refreshControls();
+    void refreshSelectionControls();
     void refreshIconChain();
+    void refreshIconChainSelection();
     void refreshIconChainLinks(const std::map<SpellType, glm::ivec2> &positions);
+    void updateCharacter();
+    void toggleSelectedPower(SpellType power);
+    void removeInvalidSelectedPowers();
     void showPowerDescription(SpellType type);
     void resetFocusedPowerName();
     void onPowerFocused(const std::string &power);
+    void onPowerActivated(const std::string &power);
+    void activateFocusedPower();
 };
 
 } // namespace game
