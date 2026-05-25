@@ -55,6 +55,21 @@ static constexpr glm::vec3 kTSLOwnedPowerBorderColor {0.101961f, 0.698039f, 0.54
 static constexpr glm::vec3 kTSLChosenPowerBorderColor {1.0f};
 static constexpr char kTSLPowerArrow[] = "uibit_abi_arrow";
 
+static IconChain::State getPowerIconState(SpellAvailability availability) {
+    switch (availability) {
+    case SpellAvailability::Known:
+        return IconChain::State::Owned;
+    case SpellAvailability::Chosen:
+    case SpellAvailability::Selectable:
+        return IconChain::State::Selectable;
+    case SpellAvailability::Hidden:
+    case SpellAvailability::LockedClassLevel:
+    case SpellAvailability::LockedMissingPrerequisite:
+        return IconChain::State::Locked;
+    }
+    return IconChain::State::Locked;
+}
+
 static std::map<SpellType, glm::ivec2> getPowerIconPositions(
     const std::vector<SpellDisplayEntry> &entries) {
 
@@ -180,15 +195,24 @@ void CharGenPowers::onGUILoaded() {
     _controls.ICONCHAIN_POWERS->setOnItemFocusCleared([this]() {
         resetFocusedPowerName();
     });
+    _controls.ICONCHAIN_POWERS->setOnItemDoubleClick([this](const std::string &item) {
+        onPowerActivated(item);
+    });
     _gui->addControlToBack(_controls.ICONCHAIN_POWERS);
 
     _controls.LB_DESC->setProtoMatchContent(true);
     _controls.LB_POWERS->setVisible(false);
-    _controls.SELECT_BTN->setDisabled(true);
-    _controls.SELECT_BTN->setVisible(false);
+    _controls.SELECT_BTN->setOnClick([this]() {
+        activateFocusedPower();
+    });
+    _controls.SELECT_BTN->setVisible(true);
     _controls.RECOMMENDED_BTN->setDisabled(true);
     _controls.RECOMMENDED_BTN->setVisible(false);
     _controls.ACCEPT_BTN->setOnClick([this]() {
+        if (_selectedPowers.size() != static_cast<size_t>(_powerGain)) {
+            return;
+        }
+        updateCharacter();
         _charGen.goToNextStep();
         _charGen.openSteps();
     });
@@ -198,8 +222,11 @@ void CharGenPowers::onGUILoaded() {
 }
 
 void CharGenPowers::reset() {
+    _powerGain = 0;
     _displayEntries.clear();
+    _selectedPowers.clear();
     _controls.LB_DESC->clearItems();
+    _controls.SELECT_BTN->setDisabled(true);
     resetFocusedPowerName();
     loadDisplayEntries();
     refreshControls();
@@ -215,12 +242,18 @@ void CharGenPowers::loadDisplayEntries() {
 
     int targetClassLevel = attributes.getClassLevel(clazz->type()) + 1;
     _powerGain = clazz->getPowerGain(targetClassLevel);
-    _displayEntries = _services.game.spells.getLevelUpDisplayEntries(attributes, *clazz, {});
+    _displayEntries = _services.game.spells.getLevelUpDisplayEntries(attributes, *clazz, _selectedPowers);
 }
 
 void CharGenPowers::refreshControls() {
-    _controls.SELECTIONS_REMAINING_LBL->setTextMessage(std::to_string(_powerGain));
+    refreshSelectionControls();
     refreshIconChain();
+}
+
+void CharGenPowers::refreshSelectionControls() {
+    int remaining = _powerGain - static_cast<int>(_selectedPowers.size());
+    _controls.SELECTIONS_REMAINING_LBL->setTextMessage(std::to_string(remaining));
+    _controls.ACCEPT_BTN->setDisabled(remaining != 0);
 }
 
 void CharGenPowers::refreshIconChain() {
@@ -240,20 +273,7 @@ void CharGenPowers::refreshIconChain() {
         item.row = positions.at(entry.type).y;
         item.iconTexture = entry.icon;
         item.selected = entry.chosen;
-        switch (entry.availability) {
-        case SpellAvailability::Known:
-            item.state = IconChain::State::Owned;
-            break;
-        case SpellAvailability::Chosen:
-        case SpellAvailability::Selectable:
-            item.state = IconChain::State::Selectable;
-            break;
-        case SpellAvailability::Hidden:
-        case SpellAvailability::LockedClassLevel:
-        case SpellAvailability::LockedMissingPrerequisite:
-            item.state = IconChain::State::Locked;
-            break;
-        }
+        item.state = getPowerIconState(entry.availability);
         if (firstVisible.empty()) {
             firstVisible = item.tag;
         }
@@ -267,10 +287,37 @@ void CharGenPowers::refreshIconChain() {
     }
 }
 
+void CharGenPowers::refreshIconChainSelection() {
+    for (const auto &entry : _displayEntries) {
+        if (!entry.visible) {
+            continue;
+        }
+
+        std::string tag = std::to_string(static_cast<int>(entry.type));
+        _controls.ICONCHAIN_POWERS->setItemSelected(tag, entry.chosen);
+        _controls.ICONCHAIN_POWERS->setItemState(tag, getPowerIconState(entry.availability));
+    }
+
+    refreshIconChainLinks(getPowerIconPositions(_displayEntries));
+}
+
 void CharGenPowers::refreshIconChainLinks(const std::map<SpellType, glm::ivec2> &positions) {
     _controls.ICONCHAIN_POWERS->clearLinks();
     for (const auto &entry : _displayEntries) {
         if (!entry.visible || !entry.displayParent) {
+            continue;
+        }
+
+        auto sourceEntry = std::find_if(
+            _displayEntries.begin(), _displayEntries.end(),
+            [&entry](const SpellDisplayEntry &candidate) { return candidate.type == *entry.displayParent; });
+        bool sourceEffectivelyKnown = sourceEntry != _displayEntries.end() &&
+                                      (sourceEntry->availability == SpellAvailability::Known ||
+                                       sourceEntry->availability == SpellAvailability::Chosen);
+        bool targetReachable = entry.availability == SpellAvailability::Known ||
+                               entry.availability == SpellAvailability::Chosen ||
+                               entry.availability == SpellAvailability::Selectable;
+        if (!sourceEffectivelyKnown || !targetReachable) {
             continue;
         }
 
@@ -288,6 +335,54 @@ void CharGenPowers::refreshIconChainLinks(const std::map<SpellType, glm::ivec2> 
         link.targetTag = std::to_string(static_cast<int>(entry.type));
         _controls.ICONCHAIN_POWERS->addLink(std::move(link));
     }
+}
+
+void CharGenPowers::updateCharacter() {
+    Character character(_charGen.character());
+    for (auto power : _selectedPowers) {
+        character.attributes.addSpell(power);
+    }
+    _charGen.setCharacter(std::move(character));
+}
+
+void CharGenPowers::toggleSelectedPower(SpellType power) {
+    auto maybeSelectedPower = _selectedPowers.find(power);
+    if (maybeSelectedPower != _selectedPowers.end()) {
+        _selectedPowers.erase(maybeSelectedPower);
+        removeInvalidSelectedPowers();
+    } else if (_selectedPowers.size() < static_cast<size_t>(_powerGain)) {
+        _selectedPowers.insert(power);
+    }
+
+    std::string focusedPower = std::to_string(static_cast<int>(power));
+    loadDisplayEntries();
+    refreshSelectionControls();
+    refreshIconChainSelection();
+    onPowerFocused(focusedPower);
+}
+
+void CharGenPowers::removeInvalidSelectedPowers() {
+    const CreatureAttributes &attributes = _charGen.character().attributes;
+    std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(attributes.getEffectiveClass()));
+    if (!clazz) {
+        _selectedPowers.clear();
+        return;
+    }
+
+    bool removed;
+    do {
+        removed = false;
+        for (auto power : _selectedPowers) {
+            std::set<SpellType> prerequisiteChoices(_selectedPowers);
+            prerequisiteChoices.erase(power);
+            if (!_services.game.spells.isLevelUpCandidate(
+                    power, attributes, *clazz, prerequisiteChoices)) {
+                _selectedPowers.erase(power);
+                removed = true;
+                break;
+            }
+        }
+    } while (removed);
 }
 
 void CharGenPowers::showPowerDescription(SpellType type) {
@@ -308,7 +403,42 @@ void CharGenPowers::resetFocusedPowerName() {
 }
 
 void CharGenPowers::onPowerFocused(const std::string &power) {
-    showPowerDescription(static_cast<SpellType>(std::stoi(power)));
+    auto powerType = static_cast<SpellType>(std::stoi(power));
+    showPowerDescription(powerType);
+
+    auto maybeDisplayEntry = std::find_if(
+        _displayEntries.begin(), _displayEntries.end(),
+        [&powerType](const SpellDisplayEntry &entry) { return entry.type == powerType; });
+    bool canActivate = maybeDisplayEntry != _displayEntries.end() &&
+                       (maybeDisplayEntry->chosen ||
+                        (maybeDisplayEntry->selectable &&
+                         _selectedPowers.size() < static_cast<size_t>(_powerGain)));
+    _controls.SELECT_BTN->setDisabled(!canActivate);
+}
+
+void CharGenPowers::onPowerActivated(const std::string &power) {
+    auto powerType = static_cast<SpellType>(std::stoi(power));
+    showPowerDescription(powerType);
+
+    auto maybeDisplayEntry = std::find_if(
+        _displayEntries.begin(), _displayEntries.end(),
+        [&powerType](const SpellDisplayEntry &entry) { return entry.type == powerType; });
+    if (maybeDisplayEntry == _displayEntries.end()) {
+        return;
+    }
+    if (maybeDisplayEntry->chosen ||
+        (maybeDisplayEntry->selectable &&
+         _selectedPowers.size() < static_cast<size_t>(_powerGain))) {
+        toggleSelectedPower(powerType);
+    }
+}
+
+void CharGenPowers::activateFocusedPower() {
+    const IconChain::Item *item = _controls.ICONCHAIN_POWERS->focusedItem();
+    if (!item) {
+        return;
+    }
+    onPowerActivated(item->tag);
 }
 
 } // namespace game

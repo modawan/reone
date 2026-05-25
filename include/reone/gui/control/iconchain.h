@@ -92,6 +92,7 @@ public:
     void clearLinks();
     void addLink(Link link);
     void setItemSelected(const std::string &tag, bool selected);
+    void setItemState(const std::string &tag, State state);
     void focusItem(const std::string &tag);
     const Item *focusedItem() const;
 

@@ -240,6 +240,7 @@ TEST_F(SpellsTest, should_expose_known_and_chosen_prerequisites_as_candidate_con
     entries = spells->getLevelUpDisplayEntries(attributes, getGuardian(), {});
     EXPECT_EQ(getEntry(entries, SpellType::ForcePush).availability, SpellAvailability::Known);
     EXPECT_EQ(getEntry(entries, SpellType::ForceWhirlwind).availability, SpellAvailability::Selectable);
+    EXPECT_FALSE(spells->isLevelUpCandidate(SpellType::ForcePush, attributes, getGuardian(), {}));
     EXPECT_TRUE(spells->isLevelUpCandidate(SpellType::ForceWhirlwind, attributes, getGuardian(), {}));
     EXPECT_THAT(spells->getLevelUpCandidates(attributes, getGuardian(), {}), Contains(SpellType::ForceWhirlwind));
 
@@ -247,6 +248,7 @@ TEST_F(SpellsTest, should_expose_known_and_chosen_prerequisites_as_candidate_con
     entries = spells->getLevelUpDisplayEntries(attributes, getGuardian(), chosen);
     EXPECT_EQ(getEntry(entries, SpellType::ForceWhirlwind).availability, SpellAvailability::Chosen);
     EXPECT_EQ(getEntry(entries, SpellType::ForceWave).availability, SpellAvailability::Selectable);
+    EXPECT_FALSE(spells->isLevelUpCandidate(SpellType::ForceWhirlwind, attributes, getGuardian(), chosen));
     EXPECT_TRUE(spells->isLevelUpCandidate(SpellType::ForceWave, attributes, getGuardian(), chosen));
 }
 
