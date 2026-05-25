@@ -92,6 +92,7 @@ public:
     void clearLinks();
     void addLink(Link link);
     void setItemSelected(const std::string &tag, bool selected);
+    void focusItem(const std::string &tag);
     const Item *focusedItem() const;
 
     bool handleMouseMotion(int x, int y) override;

@@ -85,6 +85,7 @@ void CharacterGeneration::onGUILoaded() {
     loadAbilities();
     loadSkills();
     loadFeats();
+    loadPowers();
     loadLevelUp();
 }
 
@@ -128,6 +129,11 @@ void CharacterGeneration::loadFeats() {
     _charGenFeats->init();
 }
 
+void CharacterGeneration::loadPowers() {
+    _charGenPowers = std::make_unique<CharGenPowers>(*this, _game, _services);
+    _charGenPowers->init();
+}
+
 void CharacterGeneration::loadNameEntry() {
     _nameEntry = std::make_unique<NameEntry>(*this, _game, _services);
     _nameEntry->init();
@@ -163,6 +169,8 @@ GameGUI *CharacterGeneration::getSubGUI() const {
         return _charGenSkills.get();
     case CharGenScreen::Feats:
         return _charGenFeats.get();
+    case CharGenScreen::Powers:
+        return _charGenPowers.get();
     case CharGenScreen::Name:
         return _nameEntry.get();
     case CharGenScreen::LevelUp:
@@ -302,6 +310,12 @@ void CharacterGeneration::openFeats() {
     _charGenFeats->reset(_type == Type::LevelUp);
     _controls.MODEL_LBL->setVisible(false);
     changeScreen(CharGenScreen::Feats);
+}
+
+void CharacterGeneration::openPowers() {
+    _charGenPowers->reset();
+    _controls.MODEL_LBL->setVisible(false);
+    changeScreen(CharGenScreen::Powers);
 }
 
 void CharacterGeneration::openNameEntry() {

@@ -31,6 +31,7 @@
 #include "chargen/levelup.h"
 #include "chargen/nameentry.h"
 #include "chargen/portraitselect.h"
+#include "chargen/powers.h"
 #include "chargen/quick.h"
 #include "chargen/quickorcustom.h"
 #include "chargen/skills.h"
@@ -55,6 +56,7 @@ enum class CharGenScreen {
     Abilities,
     Skills,
     Feats,
+    Powers,
     LevelUp
 };
 
@@ -84,6 +86,7 @@ public:
     void openAbilities();
     void openSkills();
     void openFeats();
+    void openPowers();
     void openPortraitSelection();
     void openQuick();
     void openQuickOrCustom();
@@ -178,6 +181,7 @@ private:
     std::unique_ptr<CharGenAbilities> _abilities;
     std::unique_ptr<CharGenSkills> _charGenSkills;
     std::unique_ptr<CharGenFeats> _charGenFeats;
+    std::unique_ptr<CharGenPowers> _charGenPowers;
     std::unique_ptr<NameEntry> _nameEntry;
     std::unique_ptr<LevelUpMenu> _levelUp;
 
@@ -258,6 +262,7 @@ private:
     void loadAbilities();
     void loadSkills();
     void loadFeats();
+    void loadPowers();
     void loadLevelUp();
 
     // END Loading
