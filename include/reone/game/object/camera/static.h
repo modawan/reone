@@ -39,12 +39,20 @@ public:
         _aspect(aspect) {
     }
 
-    void loadFromGIT(const resource::generated::GIT_CameraList &git);
+    void deserialize(const resource::Gff &gff);
 
 private:
-    float _aspect;
+    // Serializable
 
-    void loadTransformFromGIT(const resource::generated::GIT_CameraList &git);
+    // Separate orientation and pitch, as opposed to Object::_orientation where
+    // they are multiplied.
+    glm::quat _staticOrientation;
+    float _staticPitch {0.0f};
+    float _height {0.0f};
+
+    // END Serializable
+
+    float _aspect;
 };
 
 } // namespace game

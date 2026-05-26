@@ -18,7 +18,7 @@
 #include "reone/game/object/camera/static.h"
 
 #include "reone/game/di/services.h"
-#include "reone/game/object/camera.h"
+#include "reone/resource/gff.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
 
@@ -29,28 +29,22 @@ namespace reone {
 
 namespace game {
 
-void StaticCamera::loadFromGIT(const resource::generated::GIT_CameraList &git) {
-    _cameraId = git.CameraID;
-    _fieldOfView = git.FieldOfView;
+void StaticCamera::deserialize(const resource::Gff &gff) {
+    gff.readInt(_cameraId, "CameraID");
+    gff.readFloat(_fieldOfView, "FieldOfView");
+    gff.readFloat(_height, "Height");
+    if (gff.readVector(_position, "Position")) {
+        _position.z += _height;
+    }
+
+    // Keep orientation and pitch separate, so we can serialize them back.
+    gff.readOrientation(_staticOrientation, "Orientation");
+    gff.readFloat(_staticPitch, "Pitch");
+    _orientation = _staticOrientation * glm::quat_cast(glm::eulerAngleX(glm::radians(_staticPitch)));
 
     auto &scene = _services.scene.graphs.get(_sceneName);
     _sceneNode = scene.newCamera();
     cameraSceneNode()->setPerspectiveProjection(glm::radians(_fieldOfView), _aspect, kDefaultClipPlaneNear, kDefaultClipPlaneFar);
-
-    loadTransformFromGIT(git);
-}
-
-void StaticCamera::loadTransformFromGIT(const resource::generated::GIT_CameraList &git) {
-    glm::vec3 position(git.Position);
-    float height = git.Height;
-
-    _position = glm::vec3(position.x, position.y, position.z + height);
-
-    glm::quat orientation(git.Orientation);
-    float pitch = git.Pitch;
-
-    _orientation = std::move(orientation);
-    _orientation *= glm::quat_cast(glm::eulerAngleX(glm::radians(pitch)));
 
     updateTransform();
 }
