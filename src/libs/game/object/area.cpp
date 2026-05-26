@@ -234,7 +234,7 @@ void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff
     loadPlaceables(gff);
     loadWaypoints(gff);
     loadTriggers(gff);
-    loadSounds(git);
+    loadSounds(gff);
     loadCameras(gff);
     loadEncounters(git);
 }
@@ -288,10 +288,10 @@ void Area::loadTriggers(const resource::Gff &gff) {
     }
 }
 
-void Area::loadSounds(const resource::generated::GIT &git) {
-    for (auto &soundStruct : git.SoundList) {
+void Area::loadSounds(const resource::Gff &gff) {
+    for (auto &soundGff : gff.getList("SoundList")) {
         std::shared_ptr<Sound> sound = _game.newSound(_sceneName);
-        sound->loadFromGIT(soundStruct);
+        sound->deserialize(*soundGff);
         add(sound);
     }
 }
