@@ -27,6 +27,7 @@
 #include "reone/game/d20/spells.h"
 #include "reone/game/debug.h"
 #include "reone/game/di/services.h"
+#include "reone/game/gui/sounds.h"
 #include "reone/game/location.h"
 #include "reone/game/party.h"
 #include "reone/game/reputes.h"
@@ -1336,6 +1337,13 @@ void Game::openLevelUp() {
     setCursorType(CursorType::Default);
     _charGen->startLevelUp();
     changeScreen(Screen::CharacterGeneration);
+}
+
+void Game::notifyLevelUpPending(const Creature &creature) {
+    if (!_party.isMember(creature)) {
+        return;
+    }
+    _services.audio.mixer.play(_services.game.guiSounds.getOnLevelUpNotify(), AudioType::Sound);
 }
 
 void Game::startCharacterGeneration() {

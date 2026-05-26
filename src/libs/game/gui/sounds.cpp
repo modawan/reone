@@ -35,6 +35,7 @@ void GUISounds::init() {
     }
     loadSound(*sounds, "Clicked_Default", _onClick);
     loadSound(*sounds, "Entered_Default", _onEnter);
+    loadSound(*sounds, "Level_Up_Notify", _onLevelUpNotify);
 }
 
 void GUISounds::loadSound(const TwoDA &twoDa, const std::string &label, std::shared_ptr<AudioClip> &sound) {
@@ -47,6 +48,7 @@ void GUISounds::loadSound(const TwoDA &twoDa, const std::string &label, std::sha
 void GUISounds::deinit() {
     _onClick.reset();
     _onEnter.reset();
+    _onLevelUpNotify.reset();
 }
 
 } // namespace game

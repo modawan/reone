@@ -517,7 +517,16 @@ void Creature::runDialogueScript(uint32_t speakerId, int32_t listenNumber) {
 }
 
 void Creature::giveXP(int amount) {
-    _xp += amount;
+    setXP(_xp + amount);
+}
+
+void Creature::setXP(int xp) {
+    bool wasLevelUpPending = isLevelUpPending();
+    _xp = xp;
+
+    if (!wasLevelUpPending && isLevelUpPending()) {
+        _game.notifyLevelUpPending(*this);
+    }
 }
 
 void Creature::playSound(SoundSetEntry entry, bool positional) {
