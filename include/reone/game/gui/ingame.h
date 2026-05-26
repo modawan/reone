@@ -88,12 +88,22 @@ private:
         std::shared_ptr<gui::Label> LBL_CHAR3;
         std::shared_ptr<gui::Label> LBL_CHARNAME;
         std::shared_ptr<gui::Label> LBL_CMBTEFCTINC1;
+        std::shared_ptr<gui::Label> LBL_CMBTEFCTINC2;
+        std::shared_ptr<gui::Label> LBL_CMBTEFCTINC3;
         std::shared_ptr<gui::Label> LBL_CMBTEFCTRED1;
+        std::shared_ptr<gui::Label> LBL_CMBTEFCTRED2;
+        std::shared_ptr<gui::Label> LBL_CMBTEFCTRED3;
         std::shared_ptr<gui::Label> LBL_DEBILATATED1;
+        std::shared_ptr<gui::Label> LBL_DEBILATATED2;
+        std::shared_ptr<gui::Label> LBL_DEBILATATED3;
         std::shared_ptr<gui::Label> LBL_DISABLE1;
+        std::shared_ptr<gui::Label> LBL_DISABLE2;
+        std::shared_ptr<gui::Label> LBL_DISABLE3;
         std::shared_ptr<gui::Label> LBL_LEVELUP1;
         std::shared_ptr<gui::Label> LBL_LEVELUP2;
         std::shared_ptr<gui::Label> LBL_LEVELUP3;
+        std::shared_ptr<gui::Label> LBL_LEFT_ARROW;
+        std::shared_ptr<gui::Label> LBL_RIGHT_ARROW;
         std::shared_ptr<gui::Label> LBL_SECTITLE;
         std::shared_ptr<gui::Label> LBL_TOP_CLASS1;
         std::shared_ptr<gui::Label> LBL_TOP_CLASS1LEVEL;
@@ -146,12 +156,22 @@ private:
         _controls.LBL_CHAR3 = findControl<gui::Label>("LBL_CHAR3");
         _controls.LBL_CHARNAME = findControl<gui::Label>("LBL_CHARNAME");
         _controls.LBL_CMBTEFCTINC1 = findControl<gui::Label>("LBL_CMBTEFCTINC1");
+        _controls.LBL_CMBTEFCTINC2 = findControl<gui::Label>("LBL_CMBTEFCTINC2");
+        _controls.LBL_CMBTEFCTINC3 = findControl<gui::Label>("LBL_CMBTEFCTINC3");
         _controls.LBL_CMBTEFCTRED1 = findControl<gui::Label>("LBL_CMBTEFCTRED1");
+        _controls.LBL_CMBTEFCTRED2 = findControl<gui::Label>("LBL_CMBTEFCTRED2");
+        _controls.LBL_CMBTEFCTRED3 = findControl<gui::Label>("LBL_CMBTEFCTRED3");
         _controls.LBL_DEBILATATED1 = findControl<gui::Label>("LBL_DEBILATATED1");
+        _controls.LBL_DEBILATATED2 = findControl<gui::Label>("LBL_DEBILATATED2");
+        _controls.LBL_DEBILATATED3 = findControl<gui::Label>("LBL_DEBILATATED3");
         _controls.LBL_DISABLE1 = findControl<gui::Label>("LBL_DISABLE1");
+        _controls.LBL_DISABLE2 = findControl<gui::Label>("LBL_DISABLE2");
+        _controls.LBL_DISABLE3 = findControl<gui::Label>("LBL_DISABLE3");
         _controls.LBL_LEVELUP1 = findControl<gui::Label>("LBL_LEVELUP1");
         _controls.LBL_LEVELUP2 = findControl<gui::Label>("LBL_LEVELUP2");
         _controls.LBL_LEVELUP3 = findControl<gui::Label>("LBL_LEVELUP3");
+        _controls.LBL_LEFT_ARROW = findControl<gui::Label>("LBL_LEFT_ARROW");
+        _controls.LBL_RIGHT_ARROW = findControl<gui::Label>("LBL_RIGHT_ARROW");
         _controls.LBL_SECTITLE = findControl<gui::Label>("LBL_SECTITLE");
         _controls.LBL_TOP_CLASS1 = findControl<gui::Label>("LBL_TOP_CLASS1");
         _controls.LBL_TOP_CLASS1LEVEL = findControl<gui::Label>("LBL_TOP_CLASS1LEVEL");
@@ -163,6 +183,7 @@ private:
 
     void updateTabButtons();
     void changeTab(InGameMenuTab tab);
+    void refreshK2Footer();
 
     void loadCharacter();
     void loadEquipment();
