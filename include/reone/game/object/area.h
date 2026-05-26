@@ -350,7 +350,7 @@ private:
     void loadWaypoints(const resource::Gff &gff);
     void loadTriggers(const resource::Gff &gff);
     void loadSounds(const resource::generated::GIT &git);
-    void loadCameras(const resource::generated::GIT &git);
+    void loadCameras(const resource::Gff &gff);
     void loadEncounters(const resource::generated::GIT &git);
     void loadStores(const resource::generated::GIT &git);
 

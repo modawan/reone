@@ -235,7 +235,7 @@ void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff
     loadWaypoints(gff);
     loadTriggers(gff);
     loadSounds(git);
-    loadCameras(git);
+    loadCameras(gff);
     loadEncounters(git);
 }
 
@@ -296,10 +296,10 @@ void Area::loadSounds(const resource::generated::GIT &git) {
     }
 }
 
-void Area::loadCameras(const resource::generated::GIT &git) {
-    for (auto &cameraStruct : git.CameraList) {
+void Area::loadCameras(const resource::Gff &gff) {
+    for (auto &cameraGff : gff.getList("CameraList")) {
         std::shared_ptr<StaticCamera> camera = _game.newStaticCamera(_cameraAspect, _sceneName);
-        camera->loadFromGIT(cameraStruct);
+        camera->deserialize(*cameraGff);
         add(camera);
     }
 }
