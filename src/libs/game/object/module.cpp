@@ -271,7 +271,7 @@ void Module::onCreatureClick(const std::shared_ptr<Creature> &creature) {
             partyLeader->addAction(std::move(action));
         } else if (!creature->conversation().empty()) {
             partyLeader->clearAllActions();
-            partyLeader->addAction(_game.newAction<StartConversationAction>(creature, creature->conversation()));
+            partyLeader->addAction(_game.newAction<StartConversationAction>(creature, ""));
         }
     }
 }
@@ -298,7 +298,7 @@ void Module::onPlaceableClick(const std::shared_ptr<Placeable> &placeable) {
         }
     } else if (!placeable->conversation().empty()) {
         partyLeader->clearAllActions();
-        partyLeader->addAction(_game.newAction<StartConversationAction>(placeable, placeable->conversation()));
+        partyLeader->addAction(_game.newAction<StartConversationAction>(placeable, ""));
     } else {
         placeable->runOnUsed(std::move(partyLeader));
     }

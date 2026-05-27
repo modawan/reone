@@ -1922,7 +1922,7 @@ void Game::consoleStartConversation(const ConsoleArgs &args) {
     auto leader = getConsoleLeader();
     auto target = getConsoleTargetObject();
 
-    auto action = newAction<StartConversationAction>(target, target->conversation());
+    auto action = newAction<StartConversationAction>(target, "");
     leader->addAction(std::move(action));
 }
 

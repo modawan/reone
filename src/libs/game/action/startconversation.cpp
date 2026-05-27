@@ -31,21 +31,32 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
     auto actorPtr = _game.getObjectById(actor.id());
 
     // Creatures should move to the target before starting the dialog.
+    // Triggers and other objects can start the dialog immediately
     if (auto creatureActor = dyn_cast<Creature>(actorPtr)) {
         bool reached =
             _ignoreStartRange ||
             creatureActor->navigateTo(_objectToConverse->position(), true, kMaxConversationDistance, dt);
 
-        if (reached) {
-            bool isActorLeader = _game.party().getLeader() == actorPtr;
-            _game.module()->area()->startDialog(isActorLeader ? _objectToConverse : actorPtr, _dialogResRef);
-            complete();
+        if (!reached) {
+            return;
         }
-        return;
     }
 
-    // Triggers and other objects can start the dialog immediately
-    _game.module()->area()->startDialog(_objectToConverse, _dialogResRef);
+    // When scripts do not specify DialogResRef, it takes a default
+    // value of caller->conversation() before StartConversationAction
+    // object is constructed.
+    //
+    // When the player initiates a conversation, DialogResRef should
+    // be empty.
+    //
+    // Therefore, if DialogResRef is empty, we must always select
+    // _objectToConverse and use its conversation() as the dialog.
+    //
+    // Otherwise, if DialogResRef is set, select Actor as the dialog
+    // owner.
+
+    std::shared_ptr<Object> dialogOwner = _dialogResRef.empty() ? _objectToConverse : actorPtr;
+    _game.module()->area()->startDialog(dialogOwner, _dialogResRef);
     complete();
 }
 
