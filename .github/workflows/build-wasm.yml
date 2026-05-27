@@ -5,7 +5,7 @@ name: Build WASM engine
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches: [main, master, "cursor/**"]
   pull_request:
 
 concurrency:
@@ -83,7 +83,10 @@ jobs:
       - name: Build engine
         run: |
           set -euo pipefail
-          cmake --build build-web --target engine
+          cmake --build build-web --target engine -j "$(nproc)"
+
+      - name: Verify wasm bundle (html, js, wasm, glsl data)
+        run: python3 tools/web/verify_wasm_bundle.py build-web/bin
 
       - name: Upload WASM artifacts
         uses: actions/upload-artifact@v4

@@ -12,27 +12,36 @@ import sys
 MIN_WASM = 32768
 MIN_HTML = 200
 MIN_JS = 500
-_NAMES = ("engine.html", "engine.js", "engine.wasm", "engine.data")
+_REQUIRED = ("engine.html", "engine.js", "engine.wasm")
+_OPTIONAL = ("engine.data",)  # glsl preload (--preload-file glsl@/glsl); absent only if link failed early
+
+
+def _check_file(p: pathlib.Path, n: str, required: bool) -> list[str]:
+    errs: list[str] = []
+    if not p.is_file():
+        if required:
+            errs.append(f"verify_wasm_bundle: missing {p}")
+        return errs
+    try:
+        sz = p.stat().st_size
+    except OSError as e:
+        errs.append(f"verify_wasm_bundle: cannot stat {p}: {e}")
+        return errs
+    if n == "engine.wasm" and sz < MIN_WASM:
+        errs.append(f"verify_wasm_bundle: {p} is only {sz} bytes (link failed or file locked?)")
+    if n == "engine.html" and sz < MIN_HTML:
+        errs.append(f"verify_wasm_bundle: {p} looks truncated ({sz} bytes)")
+    if n == "engine.js" and sz < MIN_JS:
+        errs.append(f"verify_wasm_bundle: {p} looks truncated ({sz} bytes)")
+    return errs
 
 
 def _check_dir(d: pathlib.Path) -> list[str]:
     errs: list[str] = []
-    for n in _NAMES:
-        p = d / n
-        if not p.is_file():
-            errs.append(f"verify_wasm_bundle: missing {p}")
-            continue
-        try:
-            sz = p.stat().st_size
-        except OSError as e:
-            errs.append(f"verify_wasm_bundle: cannot stat {p}: {e}")
-            continue
-        if n == "engine.wasm" and sz < MIN_WASM:
-            errs.append(f"verify_wasm_bundle: {p} is only {sz} bytes (link failed or file locked?)")
-        if n == "engine.html" and sz < MIN_HTML:
-            errs.append(f"verify_wasm_bundle: {p} looks truncated ({sz} bytes)")
-        if n == "engine.js" and sz < MIN_JS:
-            errs.append(f"verify_wasm_bundle: {p} looks truncated ({sz} bytes)")
+    for n in _REQUIRED:
+        errs.extend(_check_file(d / n, n, required=True))
+    for n in _OPTIONAL:
+        errs.extend(_check_file(d / n, n, required=False))
     return errs
 
 

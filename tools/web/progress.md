@@ -1,5 +1,11 @@
 Original prompt: ReOne WASM playability and openkotor-site integration — `gamefs.js` (FS Access via `--pre-js`), `serve.py`, optional manifest tooling for HTTP mirrors, CI WASM build, openkotor-site `/play/*` routes, `vercel.json` COOP/COEP, docs.
 
+## PR status (2026-05-27)
+
+- [modawan/reone#111](https://github.com/modawan/reone/pull/111) is **OPEN (draft)** — it was **not** merged on GitHub.
+- A prior local-only `git merge upstream/master` was **reverted**; branch tip is again `origin/cursor/web-wasm-gles-and-fs-access`.
+- CI for fork PRs runs on **OpenKotOR/reone** when the head branch is pushed; `modawan/reone` may show “no checks” for cross-repo PRs until workflows are approved on the fork.
+
 ## Done (implementation)
 
 - [`serve.py`](serve.py) (2026-05-03): port **4204**, `--game-root`, Range lazy files; default bind **127.0.0.1**; **`allow_reuse_address=False` on Windows** to avoid port-sharing empty responses (`net::ERR_EMPTY_RESPONSE`); optional **`--host ::`** for dual-stack.
