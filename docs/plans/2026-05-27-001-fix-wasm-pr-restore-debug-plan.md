@@ -1,7 +1,7 @@
 ---
 title: "fix: Restore WASM PR branch, fix build/CI, reach menu smoke"
 type: fix
-status: active
+status: completed
 date: 2026-05-27
 origin: user request — undo mistaken local upstream merge; PR #111 must stay open
 ---
