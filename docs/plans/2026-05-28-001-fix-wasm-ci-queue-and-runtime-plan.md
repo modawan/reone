@@ -1,7 +1,7 @@
 ---
 title: "fix: Unblock WASM CI queue and validate runtime smoke"
 type: fix
-status: active
+status: completed
 date: 2026-05-28
 origin: docs/plans/2026-05-27-002-fix-wasm-ci-green-plan.md
 ---

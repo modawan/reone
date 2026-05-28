@@ -5,6 +5,8 @@ Original prompt: ReOne WASM playability and openkotor-site integration — `game
 - Local **Release** wasm build succeeded with emsdk **5.0.7**: `build-web/bin/engine.{html,js,wasm,data}` (~7.5 MB wasm) passes `verify_wasm_bundle.py`.
 - `test_serve_smoke.py` passes.
 - Menu Playwright smoke needs `pip install playwright && python -m playwright install chromium` plus a real KotOR install (`--game-root`).
+- **CI parity script:** `tools/web/ci_build_wasm.sh` (same steps as `.github/workflows/build-wasm.yml`).
+- **CI queue (2026-05-28):** OpenKotOR `Build WASM` runs may sit in `queued` when GitHub-hosted runner pools are saturated; local `ci_build_wasm.sh` is the authoritative green path until Actions assigns a runner.
 
 ## PR status (2026-05-27)
 
