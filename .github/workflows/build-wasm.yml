@@ -65,6 +65,7 @@ jobs:
       # Official installer (see https://github.com/emscripten-core/setup-emsdk); pins optional via `version:`.
       - uses: emscripten-core/setup-emsdk@v15
         with:
+          version: 5.0.7
           actions-cache-folder: ${{ github.workspace }}/.emsdk-cache
 
       - name: Build SDL3 cache (Emscripten ports)

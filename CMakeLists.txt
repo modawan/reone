@@ -72,6 +72,11 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
+# CMake 3.30+ removed FindBoost; keep classic discovery for Emscripten header-only web builds.
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 OLD)
+endif()
+
 if(REONE_PLATFORM_WEB)
     find_package(Boost REQUIRED)
 else()

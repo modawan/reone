@@ -1,5 +1,11 @@
 Original prompt: ReOne WASM playability and openkotor-site integration — `gamefs.js` (FS Access via `--pre-js`), `serve.py`, optional manifest tooling for HTTP mirrors, CI WASM build, openkotor-site `/play/*` routes, `vercel.json` COOP/COEP, docs.
 
+## Build verification (2026-05-27)
+
+- Local **Release** wasm build succeeded with emsdk **5.0.7**: `build-web/bin/engine.{html,js,wasm,data}` (~7.5 MB wasm) passes `verify_wasm_bundle.py`.
+- `test_serve_smoke.py` passes.
+- Menu Playwright smoke needs `pip install playwright && python -m playwright install chromium` plus a real KotOR install (`--game-root`).
+
 ## PR status (2026-05-27)
 
 - [modawan/reone#111](https://github.com/modawan/reone/pull/111) is **OPEN (draft)** — it was **not** merged on GitHub.
