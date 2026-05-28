@@ -200,7 +200,7 @@ Workflow `.github/workflows/build-wasm.yml` runs a single **`wasm-ci`** job on `
 
 **Local parity:** `source emsdk_env.sh` then `./tools/web/ci_build_wasm.sh`.
 
-**If Actions stays `queued` with zero steps for 15+ minutes** (API `runner_id: 0`, `updatedAt` not moving): this is usually **org runner pool / billing**, not a wasm compile failure. Check OpenKotOR **Settings → Actions** and spending limits; cancel stale queued workflows on `master` (CodeQL, Auto Assign); use **workflow_dispatch** after the pool recovers. Do not stack pushes — concurrency cancels the in-flight run.
+**If Actions stays `queued` with zero steps for 15+ minutes** (API `runner_id: 0`, `updatedAt` not moving): see **`doc/ci-actions-unblock.md`** (force-cancel, `workflow_dispatch`, admin recovery). Do not stack pushes — concurrency cancels the in-flight run.
 
 ## Production hosting and OpenKotOR site
 
