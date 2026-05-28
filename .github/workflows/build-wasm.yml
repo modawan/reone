@@ -5,7 +5,8 @@ name: Build WASM engine
 on:
   workflow_dispatch:
   push:
-    branches: [main, master, "cursor/**"]
+    # WASM branch work only — avoid queuing wasm-ci on unrelated master pushes.
+    branches: ["cursor/**"]
     paths:
       - ".github/workflows/build-wasm.yml"
       - "CMakeLists.txt"
@@ -35,7 +36,7 @@ concurrency:
 
 jobs:
   wasm-ci:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, wasm-ci]
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
