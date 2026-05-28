@@ -11,11 +11,6 @@ on:
 permissions:
   contents: read
 
-# Cancel superseded pushes on the same branch so only the latest run holds the concurrency slot.
-concurrency:
-  group: wasm-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   wasm-ci:
     runs-on: ubuntu-latest
