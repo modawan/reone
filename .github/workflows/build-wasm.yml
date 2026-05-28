@@ -8,18 +8,25 @@ on:
     branches: [main, master, "cursor/**"]
   pull_request:
 
+permissions:
+  contents: read
+
+# One job = one runner slot (avoids double-queue on busy free-tier pools).
 concurrency:
-  group: wasm-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: wasm-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  serve-smoke:
+  wasm-ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Module smoke (serve.py handler + Range)
         working-directory: tools/web
         run: python3 test_serve_smoke.py
@@ -38,16 +45,10 @@ jobs:
           test "$code" = "206"
           kill "$pid"
 
-  wasm:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-
       - name: Install Ninja, ccache and Boost (headers only via copy step below)
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build ccache libboost-dev
+          sudo apt-get install -y ninja-build ccache libboost-dev curl
 
       - name: Cache ccache
         uses: actions/cache@v4
@@ -62,7 +63,6 @@ jobs:
           sudo mkdir -p /opt/reone/boost-include
           sudo cp -a /usr/include/boost /opt/reone/boost-include/
 
-      # Official installer (see https://github.com/emscripten-core/setup-emsdk); pins optional via `version:`.
       - uses: emscripten-core/setup-emsdk@v15
         with:
           version: 5.0.7
@@ -88,6 +88,15 @@ jobs:
 
       - name: Verify wasm bundle (html, js, wasm, glsl data)
         run: python3 tools/web/verify_wasm_bundle.py build-web/bin
+
+      - name: Smoke engine.html is served
+        run: |
+          set -euo pipefail
+          python3 tools/web/serve.py --directory build-web/bin --port 28766 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          sleep 1
+          curl -fsS "http://127.0.0.1:28766/engine.html" | grep -qi '<html'
 
       - name: Upload WASM artifacts
         uses: actions/upload-artifact@v4
