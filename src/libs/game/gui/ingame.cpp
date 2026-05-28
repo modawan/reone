@@ -17,7 +17,15 @@
 
 #include "reone/game/gui/ingame.h"
 
+#include <algorithm>
+#include <array>
+
+#include "reone/game/d20/classes.h"
+#include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/party.h"
+#include "reone/game/types.h"
 
 using namespace reone::audio;
 
@@ -29,6 +37,21 @@ namespace reone {
 
 namespace game {
 
+static void tintK2TopNavigationIcon(const std::shared_ptr<ImageButton> &button, const glm::vec3 &baseColor) {
+    if (!button) {
+        return;
+    }
+    button->setBorderColor(baseColor);
+    button->setTintBorderFill(true);
+}
+
+static void configureTopNavigationIcon(const std::shared_ptr<ImageButton> &button) {
+    if (!button) {
+        return;
+    }
+    button->setSelectable(false);
+}
+
 void InGameMenu::preload(IGUI &gui) {
     if (_game.isTSL()) {
         gui.setResolution(800, 600);
@@ -37,6 +60,27 @@ void InGameMenu::preload(IGUI &gui) {
 
 void InGameMenu::onGUILoaded() {
     bindControls();
+
+    configureTopNavigationIcon(_controls.LBLH_EQU);
+    configureTopNavigationIcon(_controls.LBLH_INV);
+    configureTopNavigationIcon(_controls.LBLH_CHA);
+    configureTopNavigationIcon(_controls.LBLH_ABI);
+    configureTopNavigationIcon(_controls.LBLH_MSG);
+    configureTopNavigationIcon(_controls.LBLH_JOU);
+    configureTopNavigationIcon(_controls.LBLH_MAP);
+    configureTopNavigationIcon(_controls.LBLH_OPT);
+
+    if (_game.isTSL()) {
+        tintK2TopNavigationIcon(_controls.LBLH_EQU, _baseColor);
+        tintK2TopNavigationIcon(_controls.LBLH_INV, _baseColor);
+        tintK2TopNavigationIcon(_controls.LBLH_CHA, _baseColor);
+        tintK2TopNavigationIcon(_controls.LBLH_ABI, _baseColor);
+        tintK2TopNavigationIcon(_controls.LBLH_MSG, _baseColor);
+        tintK2TopNavigationIcon(_controls.LBLH_JOU, _baseColor);
+        tintK2TopNavigationIcon(_controls.LBLH_MAP, _baseColor);
+        tintK2TopNavigationIcon(_controls.LBLH_OPT, _baseColor);
+        refreshK2Footer();
+    }
 
     // _controls.BTN_EQU->setVisible(false);
     // _controls.BTN_INV->setVisible(false);
@@ -159,6 +203,8 @@ GameGUI *InGameMenu::getActiveTabGUI() const {
 void InGameMenu::update(float dt) {
     GameGUI::update(dt);
 
+    refreshK2Footer();
+
     auto tabGui = getActiveTabGUI();
     if (tabGui) {
         tabGui->update(dt);
@@ -185,21 +231,120 @@ void InGameMenu::changeTab(InGameMenuTab tab) {
     }
     _tab = tab;
     updateTabButtons();
+    refreshK2Footer();
+}
+
+void InGameMenu::refreshK2Footer() {
+    if (!_game.isTSL()) {
+        return;
+    }
+
+    auto hide = [](const auto &control) {
+        if (control) {
+            control->setVisible(false);
+        }
+    };
+
+    hide(_controls.BTN_CHANGE2);
+    hide(_controls.BTN_CHANGE3);
+    hide(_controls.LBL_LEFT_ARROW);
+    hide(_controls.LBL_RIGHT_ARROW);
+    hide(_controls.LBL_CMBTEFCTINC1);
+    hide(_controls.LBL_CMBTEFCTINC2);
+    hide(_controls.LBL_CMBTEFCTINC3);
+    hide(_controls.LBL_CMBTEFCTRED1);
+    hide(_controls.LBL_CMBTEFCTRED2);
+    hide(_controls.LBL_CMBTEFCTRED3);
+    hide(_controls.LBL_DEBILATATED1);
+    hide(_controls.LBL_DEBILATATED2);
+    hide(_controls.LBL_DEBILATATED3);
+    hide(_controls.LBL_DISABLE1);
+    hide(_controls.LBL_DISABLE2);
+    hide(_controls.LBL_DISABLE3);
+    hide(_controls.PB_FORCE1);
+
+    Party &party = _game.party();
+    std::array<std::shared_ptr<Label>, 3> backLabels {
+        _controls.LBL_BACK1,
+        _controls.LBL_BACK2,
+        _controls.LBL_BACK3};
+    std::array<std::shared_ptr<Label>, 3> portraitLabels {
+        _controls.LBL_CHAR1,
+        _controls.LBL_CHAR2,
+        _controls.LBL_CHAR3};
+    std::array<std::shared_ptr<Label>, 3> levelUpLabels {
+        _controls.LBL_LEVELUP1,
+        _controls.LBL_LEVELUP2,
+        _controls.LBL_LEVELUP3};
+
+    for (int i = 0; i < 3; ++i) {
+        auto member = party.getMember(i);
+        if (!member) {
+            hide(backLabels[i]);
+            hide(portraitLabels[i]);
+            hide(levelUpLabels[i]);
+            continue;
+        }
+
+        backLabels[i]->setVisible(true);
+        portraitLabels[i]->setVisible(true);
+        portraitLabels[i]->setBorderFill(member->portrait());
+        levelUpLabels[i]->setVisible(member->isLevelUpPending());
+    }
+
+    auto leader = party.getLeader();
+    if (!leader) {
+        hide(_controls.LBL_CHARNAME);
+        hide(_controls.LBL_TOP_CLASS1);
+        hide(_controls.LBL_TOP_CLASS1LEVEL);
+        hide(_controls.LBL_TOP_CLASS2);
+        hide(_controls.LBL_TOP_CLASS2LEVEL);
+        hide(_controls.PB_VIT1);
+        return;
+    }
+
+    _controls.LBL_CHARNAME->setVisible(true);
+    _controls.LBL_CHARNAME->setTextMessage(leader->name());
+
+    auto &attributes = leader->attributes();
+    auto describeClass = [this](ClassType clazz) {
+        return clazz == ClassType::Invalid ? std::string() : _services.game.classes.get(clazz)->name();
+    };
+    auto describeLevel = [](int level) {
+        return level == 0 ? std::string() : std::to_string(level);
+    };
+
+    _controls.LBL_TOP_CLASS1->setVisible(true);
+    _controls.LBL_TOP_CLASS1->setTextMessage(describeClass(attributes.getClassByPosition(1)));
+    _controls.LBL_TOP_CLASS1LEVEL->setVisible(true);
+    _controls.LBL_TOP_CLASS1LEVEL->setTextMessage(describeLevel(attributes.getLevelByPosition(1)));
+    _controls.LBL_TOP_CLASS2->setVisible(true);
+    _controls.LBL_TOP_CLASS2->setTextMessage(describeClass(attributes.getClassByPosition(2)));
+    _controls.LBL_TOP_CLASS2LEVEL->setVisible(true);
+    _controls.LBL_TOP_CLASS2LEVEL->setTextMessage(describeLevel(attributes.getLevelByPosition(2)));
+
+    int hitPoints = leader->hitPoints();
+    int vitalityPercent = hitPoints > 0
+        ? std::clamp(100 * leader->currentHitPoints() / hitPoints, 0, 100)
+        : 0;
+    _controls.PB_VIT1->setVisible(true);
+    _controls.PB_VIT1->setValue(vitalityPercent);
 }
 
 void InGameMenu::updateTabButtons() {
-    _controls.BTN_EQU->setSelected(_tab == InGameMenuTab::Equipment);
-    _controls.BTN_INV->setSelected(_tab == InGameMenuTab::Inventory);
-    _controls.BTN_CHAR->setSelected(_tab == InGameMenuTab::Character);
-    _controls.BTN_ABI->setSelected(_tab == InGameMenuTab::Abilities);
-    _controls.BTN_MSG->setSelected(_tab == InGameMenuTab::Messages);
-    _controls.BTN_JOU->setSelected(_tab == InGameMenuTab::Journal);
-    _controls.BTN_MAP->setSelected(_tab == InGameMenuTab::Map);
-    _controls.BTN_OPT->setSelected(_tab == InGameMenuTab::Options);
+    _controls.LBLH_EQU->setSelected(_tab == InGameMenuTab::Equipment);
+    _controls.LBLH_INV->setSelected(_tab == InGameMenuTab::Inventory);
+    _controls.LBLH_CHA->setSelected(_tab == InGameMenuTab::Character);
+    _controls.LBLH_ABI->setSelected(_tab == InGameMenuTab::Abilities);
+    _controls.LBLH_MSG->setSelected(_tab == InGameMenuTab::Messages);
+    _controls.LBLH_JOU->setSelected(_tab == InGameMenuTab::Journal);
+    _controls.LBLH_MAP->setSelected(_tab == InGameMenuTab::Map);
+    _controls.LBLH_OPT->setSelected(_tab == InGameMenuTab::Options);
 }
 
 void InGameMenu::openInventory() {
     _inventory->refreshPortraits();
+    _inventory->refreshItems();
     changeTab(InGameMenuTab::Inventory);
 }
 

@@ -47,6 +47,14 @@ namespace game {
 
 static std::string g_attackIcon("i_attack");
 
+static void tintK2HUDMenuButton(const std::shared_ptr<Button> &button, const glm::vec3 &baseColor) {
+    if (!button) {
+        return;
+    }
+    button->setBorderColor(baseColor);
+    button->setTintBorderFill(true);
+}
+
 void HUD::preload(IGUI &gui) {
     gui.setResolution(800, 600);
     gui.setScaling(GUI::ScalingMode::PositionRelativeToCenter);
@@ -74,6 +82,12 @@ void HUD::onGUILoaded() {
 
         if (action && up && down) {
             _actionBar.addSlot(action, up, down);
+        }
+    }
+    if (_game.isTSL()) {
+        if (auto down = findControl<gui::Button>("BTN_ACTIONDOWN5")) {
+            down->setBorderFillTransform(gui::Control::Border::FillTransform::Rotate180);
+            down->setHilightFillTransform(gui::Control::Border::FillTransform::Rotate180);
         }
     }
 
@@ -125,6 +139,14 @@ void HUD::onGUILoaded() {
 
     if (_game.isTSL()) {
         _controls.BTN_SWAPWEAPONS->setVisible(false);
+        tintK2HUDMenuButton(_controls.BTN_EQU, _baseColor);
+        tintK2HUDMenuButton(_controls.BTN_INV, _baseColor);
+        tintK2HUDMenuButton(_controls.BTN_CHAR, _baseColor);
+        tintK2HUDMenuButton(_controls.BTN_ABI, _baseColor);
+        tintK2HUDMenuButton(_controls.BTN_MSG, _baseColor);
+        tintK2HUDMenuButton(_controls.BTN_JOU, _baseColor);
+        tintK2HUDMenuButton(_controls.BTN_MAP, _baseColor);
+        tintK2HUDMenuButton(_controls.BTN_OPT, _baseColor);
     } else {
         _controls.LBL_COMBATBG1->setVisible(false);
         _controls.LBL_COMBATBG2->setVisible(false);

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "reone/resource/strings.h"
 #include "reone/system/types.h"
 
 namespace reone {
@@ -185,27 +186,66 @@ public:
         _type(type), _fields(std::move(fields)) {
     }
 
+    bool readByte(uint8_t &val, std::string_view label) const;
+    bool readChar(int8_t &val, std::string_view label) const;
+    bool readWord(uint16_t &val, std::string_view label) const;
+    bool readShort(int16_t &val, std::string_view label) const;
+    bool readDword(uint32_t &val, std::string_view label) const;
+    bool readInt(int32_t &val, std::string_view label) const;
+    bool readDword64(uint64_t &val, std::string_view label) const;
+    bool readInt64(int64_t &val, std::string_view label) const;
+    bool readFloat(float &val, std::string_view label) const;
+    bool readDouble(double &val, std::string_view label) const;
+    bool readVector(glm::vec3 &val, std::string_view label) const;
+    bool readOrientation(glm::quat &val, std::string_view label) const;
+    bool readString(std::string &val, std::string_view label) const;
+    bool readResRef(std::string &val, std::string_view label) const;
+    bool readLocString(LocString &val, std::string_view label, IStrings &strings) const;
+    bool readStrRef(StrRef &val, std::string_view label, IStrings &strings) const;
+
+    template <class T>
+    bool readEnum(T &value, const std::string &label) const {
+        if (const Field *field = get(label)) {
+            value = static_cast<T>(field->uintValue);
+            return true;
+        }
+        return false;
+    }
+
+    bool readBool(bool &value, std::string_view label) const {
+        if (const Field *field = get(label)) {
+            value = field->uintValue;
+            return true;
+        }
+        return false;
+    }
+
     bool getBool(const std::string &name, bool defValue = false) const;
-    int getInt(const std::string &name, int defValue = 0) const;
-    int64_t readInt64(const std::string &name, int64_t defValue = 0) const;
+    int32_t getInt(const std::string &name, int32_t defValue = 0) const;
+    int64_t getInt64(const std::string &name, int64_t defValue = 0) const;
     uint32_t getUint(const std::string &name, uint32_t defValue = 0) const;
-    uint64_t readUint64(const std::string &name, uint64_t defValue = 0) const;
+    uint64_t getUint64(const std::string &name, uint64_t defValue = 0) const;
     glm::vec3 getColor(const std::string &name, glm::vec3 defValue = glm::vec3(0.0f)) const;
     float getFloat(const std::string &name, float defValue = 0.0f) const;
     double getDouble(const std::string &name, double defValue = 0.0) const;
     std::string getString(const std::string &name, std::string defValue = "") const;
     glm::vec3 getVector(const std::string &name, glm::vec3 defValue = glm::vec3(0.0f)) const;
     glm::quat getOrientation(const std::string &name, glm::quat defValue = glm::quat(1.0f, 0.0f, 0.0f, 0.0f)) const;
-    std::shared_ptr<Gff> findStruct(const std::string &name) const;
     std::vector<std::shared_ptr<Gff>> getList(const std::string &name) const;
     ByteBuffer getData(const std::string &name) const;
+    std::shared_ptr<Gff> findStruct(std::string_view name) const;
 
+    const std::optional<std::string> &signature() const { return _signature; }
     uint32_t type() const { return _type; }
     std::vector<Field> &fields() { return _fields; }
     const std::vector<Field> &fields() const { return _fields; }
 
     void setType(uint32_t type) {
         _type = type;
+    }
+
+    void setSignature(std::string signature) {
+        _signature = signature;
     }
 
     std::shared_ptr<Gff> deepCopy() const {
@@ -227,14 +267,15 @@ public:
 
     template <class T>
     T getEnum(const std::string &name, T defValue) const {
-        return static_cast<T>(getInt(name, static_cast<int>(defValue)));
+        return static_cast<T>(getInt(name, static_cast<int32_t>(defValue)));
     }
 
 private:
+    std::optional<std::string> _signature;
     uint32_t _type {0};
     std::vector<Field> _fields;
 
-    const Field *get(const std::string &name) const;
+    const Field *get(std::string_view name) const;
 };
 
 } // namespace resource

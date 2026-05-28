@@ -105,7 +105,7 @@ std::vector<uint32_t> Cursors::getCursorNamesFromCursorGroup(uint32_t name) {
 }
 
 std::shared_ptr<Texture> Cursors::newTextureFromCursor(uint32_t name) {
-    auto [data, _] = _resources.get(ResourceId(std::to_string(name), ResType::Cursor));
+    auto [data] = _resources.get(ResourceId(std::to_string(name), ResType::Cursor));
     auto stream = MemoryInputStream(data);
 
     CurReader cur(stream);

@@ -119,9 +119,22 @@ void Area::load(std::string name, const Gff &are, const Gff &git, bool fromSave)
 
     loadARE(areParsed);
     loadLYT();
-    loadGIT(gitParsed);
+    loadGIT(gitParsed, git);
     loadVIS();
     loadPTH();
+}
+
+void Area::activate() {
+    applySceneProperties();
+
+    for (auto &pair : _rooms) {
+        attachRoomToSceneGraph(*pair.second);
+        // Enable room walkmeshes for initial party landing; loadParty recalculates visibility after placement.
+        pair.second->setVisible(true);
+    }
+    for (auto &object : _objects) {
+        attachObjectToSceneGraph(object);
+    }
 }
 
 void Area::loadARE(const resource::generated::ARE &are) {
@@ -158,8 +171,7 @@ void Area::loadCameraStyle(const resource::generated::ARE &are) {
 void Area::loadAmbientColor(const resource::generated::ARE &are) {
     _ambientColor = are.DynAmbientColor > 0 ? Gff::colorFromUint32(are.DynAmbientColor) : g_defaultAmbientColor;
 
-    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
-    sceneGraph.setAmbientLightColor(_ambientColor);
+    applySceneProperties();
 }
 
 void Area::loadScripts(const resource::generated::ARE &are) {
@@ -200,7 +212,13 @@ void Area::loadFog(const resource::generated::ARE &are) {
     _fogFar = are.SunFogFar;
     _fogColor = Gff::colorFromUint32(are.SunFogColor);
 
+    applySceneProperties();
+}
+
+void Area::applySceneProperties() {
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    sceneGraph.setAmbientLightColor(_ambientColor);
+
     auto fogProperties = FogProperties();
     fogProperties.enabled = _fogEnabled;
     fogProperties.nearPlane = _fogNear;
@@ -209,13 +227,13 @@ void Area::loadFog(const resource::generated::ARE &are) {
     sceneGraph.setFog(fogProperties);
 }
 
-void Area::loadGIT(const resource::generated::GIT &git) {
+void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff) {
     loadProperties(git);
-    loadCreatures(git);
-    loadDoors(git);
-    loadPlaceables(git);
-    loadWaypoints(git);
-    loadTriggers(git);
+    loadCreatures(gff);
+    loadDoors(gff);
+    loadPlaceables(gff);
+    loadWaypoints(gff);
+    loadTriggers(gff);
     loadSounds(git);
     loadCameras(git);
     loadEncounters(git);
@@ -229,43 +247,43 @@ void Area::loadProperties(const resource::generated::GIT &git) {
     }
 }
 
-void Area::loadCreatures(const resource::generated::GIT &git) {
-    for (auto &creatureStruct : git.Creature_List) {
+void Area::loadCreatures(const resource::Gff &gff) {
+    for (const auto &creatureGff : gff.getList("Creature List")) {
         std::shared_ptr<Creature> creature = _game.newCreature(_sceneName);
-        creature->loadFromGIT(creatureStruct);
+        creature->deserialize(*creatureGff);
         landObject(*creature);
         add(creature);
     }
 }
 
-void Area::loadDoors(const resource::generated::GIT &git) {
-    for (auto &doorStruct : git.Door_List) {
+void Area::loadDoors(const resource::Gff &gff) {
+    for (auto &doorGff : gff.getList("Door List")) {
         std::shared_ptr<Door> door = _game.newDoor(_sceneName);
-        door->loadFromGIT(doorStruct);
+        door->deserialize(*doorGff);
         add(door);
     }
 }
 
-void Area::loadPlaceables(const resource::generated::GIT &git) {
-    for (auto &placeableStruct : git.Placeable_List) {
+void Area::loadPlaceables(const resource::Gff &gff) {
+    for (auto &placeableGff : gff.getList("Placeable List")) {
         std::shared_ptr<Placeable> placeable = _game.newPlaceable(_sceneName);
-        placeable->loadFromGIT(placeableStruct);
+        placeable->deserialize(*placeableGff);
         add(placeable);
     }
 }
 
-void Area::loadWaypoints(const resource::generated::GIT &git) {
-    for (auto &waypointStruct : git.WaypointList) {
+void Area::loadWaypoints(const resource::Gff &gff) {
+    for (auto &waypointGff : gff.getList("WaypointList")) {
         std::shared_ptr<Waypoint> waypoint = _game.newWaypoint(_sceneName);
-        waypoint->loadFromGIT(waypointStruct);
+        waypoint->deserialize(*waypointGff);
         add(waypoint);
     }
 }
 
-void Area::loadTriggers(const resource::generated::GIT &git) {
-    for (auto &gffs : git.TriggerList) {
+void Area::loadTriggers(const resource::Gff &gff) {
+    for (auto &triggerGff : gff.getList("TriggerList")) {
         std::shared_ptr<Trigger> trigger = _game.newTrigger(_sceneName);
-        trigger->loadFromGIT(gffs);
+        trigger->deserialize(*triggerGff);
         add(trigger);
     }
 }
@@ -403,7 +421,7 @@ void Area::loadPTH() {
     for (size_t i = 0; i < path->points.size(); ++i) {
         const Path::Point &point = path->points[i];
         Collision collision;
-        if (!sceneGraph.testElevation(glm::vec2(point.x, point.y), collision)) {
+        if (!sceneGraph.testElevation(glm::vec3(point.x, point.y, scene::kElevationTestZ), collision)) {
             warn(str(boost::format("Point %d elevation not found") % i));
             continue;
         }
@@ -442,7 +460,23 @@ void Area::add(const std::shared_ptr<Object> &object) {
     _objectsByTag[object->tag()].push_back(object);
 
     determineObjectRoom(*object);
+    attachObjectToSceneGraph(object);
+}
 
+void Area::attachRoomToSceneGraph(Room &room) {
+    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    if (room.model()) {
+        sceneGraph.addRoot(room.model());
+    }
+    if (room.walkmesh()) {
+        sceneGraph.addRoot(room.walkmesh());
+    }
+    if (room.grass()) {
+        sceneGraph.addRoot(room.grass());
+    }
+}
+
+void Area::attachObjectToSceneGraph(const std::shared_ptr<Object> &object) {
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     auto sceneNode = object->sceneNode();
     if (sceneNode) {
@@ -996,6 +1030,11 @@ std::shared_ptr<Object> Area::createObject(ObjectType type, const std::string &b
     }
     if (!object) {
         return nullptr;
+    }
+
+    if (location) {
+        object->setPosition(location->position());
+        object->setFacing(location->facing());
     }
 
     add(object);

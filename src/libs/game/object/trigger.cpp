@@ -54,50 +54,93 @@ static glm::vec4 debugColorForState(Trigger::DebugState state) {
     }
 }
 
-void Trigger::loadFromGIT(const resource::generated::GIT_TriggerList &git) {
-    std::string templateResRef(boost::to_lower_copy(git.TemplateResRef));
-    loadFromBlueprint(templateResRef);
+void Trigger::loadFromBlueprint(const std::string &resRef) {
+    std::shared_ptr<Gff> utt(_services.resource.gffs.get(resRef, ResType::Utt));
+    if (!utt) {
+        return;
+    }
+    deserialize(*utt);
+}
 
-    // _tag = boost::to_lower_copy(gffs.getString("Tag"));
-    _transitionDestin = _services.resource.strings.getText(git.TransitionDestin.first);
-    _linkedToModule = boost::to_lower_copy(git.LinkedToModule);
-    _linkedTo = boost::to_lower_copy(git.LinkedTo);
-    _linkedToFlags = git.LinkedToFlags;
+void Trigger::deserialize(const resource::Gff &gff) {
+    std::string templateRes;
+    if (gff.readResRef(templateRes, "TemplateResRef")) {
+        if (auto utt = _services.resource.gffs.get(templateRes, ResType::Utt)) {
+            deserializeAll(*utt);
+        }
+    }
+    deserializeAll(gff);
+    loadAppearance();
+    updateTransform();
+}
 
-    loadTransformFromGIT(git);
-    loadGeometryFromGIT(git);
+void Trigger::deserializeAll(const resource::Gff &gff) {
+    gff.readResRef(_onHeartbeat, "ScriptHeartbeat");
+    gff.readResRef(_onEnter, "ScriptOnEnter");
+    gff.readResRef(_onExit, "ScriptOnExit");
+    gff.readResRef(_onUserDefined, "ScriptUserDefine");
+    gff.readResRef(_onTrapTriggered, "OnTrapTriggered");
+    gff.readResRef(_onDisarm, "OnDisarm");
+    gff.readByte(_trapType, "TrapType");
+    gff.readBool(_trapOneShot, "TrapOneShot");
+    if (gff.readString(_linkedTo, "LinkedTo")) {
+        boost::to_lower(_linkedTo);
+    }
+    gff.readByte(_linkedToFlags, "LinkedToFlags");
+    gff.readResRef(_linkedToModule, "LinkedToModule");
+    gff.readBool(_autoRemoveKey, "AutoRemoveKey");
+    if (gff.readString(_tag, "Tag")) {
+        boost::to_lower(_tag);
+    }
+    if (gff.readLocString(_locName, "LocalizedName", _services.resource.strings)) {
+        _name = _locName.str();
+    }
+    gff.readEnum(_faction, "Faction");
+    gff.readString(_keyName, "KeyName");
+    gff.readBool(_trapDisarmable, "TrapDisarmable");
+    gff.readBool(_trapDetectable, "TrapDetectable");
+    gff.readInt(_triggerType, "Type");
+    gff.readFloat(_highlightHeight, "HighlightHeight");
 
+    gff.readFloat(_position[0], "XPosition");
+    gff.readFloat(_position[1], "YPosition");
+    gff.readFloat(_position[2], "ZPosition");
+    {
+        float cosine, sine;
+        if (gff.readFloat(cosine, "XOrientation") && gff.readFloat(sine, "YOrientation")) {
+            _orientation = glm::quat(glm::vec3(0.0f, 0.0f, -glm::atan(cosine, sine)));
+        }
+    }
+    gff.readWord(_loadScreenId, "LoadScreenID");
+    gff.readLocString(_transitionDestin, "TransitionDestin", _services.resource.strings);
+    gff.readBool(_setByPlayerParty, "SetByPlayerParty");
+    gff.readBool(_commandable, "Commandable");
+
+    auto geometry = gff.getList("Geometry");
+    if (!geometry.empty()) {
+        _geometry.clear();
+        for (auto &point : geometry) {
+            float x = point->getFloat("PointX");
+            float y = point->getFloat("PointY");
+            float z = point->getFloat("PointZ");
+            _geometry.push_back(glm::vec3(x, y, z));
+        }
+    }
+
+    // Not handled:
+    // - OnClick
+    // - CreatorId (IDs are not deserialized)
+    // - Cursor
+    // - PortraitId
+    // - VarTable
+    // - SWVarTable
+}
+
+void Trigger::loadAppearance() {
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     _sceneNode = sceneGraph.newTrigger(_geometry);
     _sceneNode->setLocalTransform(glm::translate(_position));
     syncDebugVisual();
-}
-
-void Trigger::loadTransformFromGIT(const resource::generated::GIT_TriggerList &git) {
-    _position.x = git.XPosition;
-    _position.y = git.YPosition;
-    _position.z = git.ZPosition;
-
-    // Orientation is ignored as per Bioware specification
-
-    updateTransform();
-}
-
-void Trigger::loadGeometryFromGIT(const resource::generated::GIT_TriggerList &git) {
-    for (auto &pointStruct : git.Geometry) {
-        float x = pointStruct.PointX;
-        float y = pointStruct.PointY;
-        float z = pointStruct.PointZ;
-        _geometry.push_back(glm::vec3(x, y, z));
-    }
-}
-
-void Trigger::loadFromBlueprint(const std::string &resRef) {
-    std::shared_ptr<Gff> utt(_services.resource.gffs.get(resRef, ResType::Utt));
-    if (utt) {
-        auto uttParsed = resource::generated::parseUTT(*utt);
-        loadUTT(uttParsed);
-    }
 }
 
 void Trigger::update(float dt) {
@@ -190,40 +233,6 @@ void Trigger::syncDebugVisual() {
         return;
     }
     static_cast<TriggerSceneNode *>(_sceneNode.get())->setDebugColor(debugColor());
-}
-
-void Trigger::loadUTT(const resource::generated::UTT &utt) {
-    _tag = boost::to_lower_copy(utt.Tag);
-    _blueprintResRef = boost::to_lower_copy(utt.TemplateResRef);
-    _name = _services.resource.strings.getText(utt.LocalizedName.first);
-    _autoRemoveKey = utt.AutoRemoveKey; // always 0, but could be useful
-    _faction = static_cast<Faction>(utt.Faction);
-    _keyName = utt.KeyName;
-    _triggerType = utt.Type; // could be Generic, Area Transition or Trap
-    _trapDetectable = utt.TrapDetectable;
-    _trapDetectDC = utt.TrapDetectDC;
-    _trapDisarmable = utt.TrapDisarmable;
-    _disarmDC = utt.DisarmDC;
-    _trapFlag = utt.TrapFlag;
-    _trapType = utt.TrapType; // index into traps.2da
-
-    _onDisarm = boost::to_lower_copy(utt.OnDisarm);               // always empty, but could be useful
-    _onTrapTriggered = boost::to_lower_copy(utt.OnTrapTriggered); // always empty, but could be useful
-    _onHeartbeat = boost::to_lower_copy(utt.ScriptHeartbeat);
-    _onEnter = boost::to_lower_copy(utt.ScriptOnEnter);
-    _onExit = boost::to_lower_copy(utt.ScriptOnExit);
-    _onUserDefined = boost::to_lower_copy(utt.ScriptUserDefine);
-
-    // Unused fields:
-    //
-    // - Cursor (not applicable)
-    // - HighlightHeight (not applicable)
-    // - LoadScreenID (always 0)
-    // - PortraitId (not applicable, always 0)
-    // - TrapOneShot (always 1)
-    // - OnClick (not applicable)
-    // - PaletteID (toolset only)
-    // - Comment (toolset only)
 }
 
 } // namespace game

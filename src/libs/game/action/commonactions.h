@@ -23,10 +23,15 @@ namespace game {
 
 class Door;
 class Object;
+class Placeable;
 
 // Move an actor to a door, unlock and open it. Returns true when this action is
 // complete.
 bool unlockDoor(Door &door, Object &actor, float distance, float dt);
+
+// Move an actor to a placeable and unlock it. Returns true when this action is
+// complete.
+bool unlockPlaceable(Placeable &placeable, Object &actor, float distance, float dt);
 
 } // namespace game
 

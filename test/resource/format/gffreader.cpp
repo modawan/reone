@@ -183,6 +183,7 @@ TEST(GffReader, should_read_gff) {
     // then
 
     auto gff = reader.root();
+    EXPECT_EQ("RES V3.2", gff->signature());
     EXPECT_EQ(16ll, gff->fields().size());
     EXPECT_EQ(static_cast<int>(Gff::FieldType::Byte), static_cast<int>(gff->fields()[0].type));
     EXPECT_EQ(static_cast<int>(Gff::FieldType::Int), static_cast<int>(gff->fields()[1].type));
@@ -210,8 +211,8 @@ TEST(GffReader, should_read_gff) {
     EXPECT_EQ(0, gff->getUint("Byte"));
     EXPECT_EQ(1, gff->getInt("Int"));
     EXPECT_EQ(2, gff->getUint("Uint"));
-    EXPECT_EQ(3, gff->readInt64("Int64"));
-    EXPECT_EQ(4, gff->readUint64("Uint64"));
+    EXPECT_EQ(3, gff->getInt64("Int64"));
+    EXPECT_EQ(4, gff->getUint64("Uint64"));
     EXPECT_EQ(1.0f, gff->getFloat("Float"));
     EXPECT_EQ(1.0, gff->getDouble("Double"));
     EXPECT_EQ(std::string("John"), gff->getString("CExoString"));

@@ -62,17 +62,13 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/parser/gff/dlg.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/git.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/gui.h
+    ${RESOURCE_INCLUDE_DIR}/parser/gff/gvt.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/ifo.h
+    ${RESOURCE_INCLUDE_DIR}/parser/gff/nfo.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/pth.h
-    ${RESOURCE_INCLUDE_DIR}/parser/gff/utc.h
-    ${RESOURCE_INCLUDE_DIR}/parser/gff/utd.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/ute.h
-    ${RESOURCE_INCLUDE_DIR}/parser/gff/uti.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/utm.h
-    ${RESOURCE_INCLUDE_DIR}/parser/gff/utp.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/uts.h
-    ${RESOURCE_INCLUDE_DIR}/parser/gff/utt.h
-    ${RESOURCE_INCLUDE_DIR}/parser/gff/utw.h
     ${RESOURCE_INCLUDE_DIR}/path.h
     ${RESOURCE_INCLUDE_DIR}/provider/2das.h
     ${RESOURCE_INCLUDE_DIR}/provider/audioclips.h
@@ -138,17 +134,13 @@ set(RESOURCE_SOURCES
     ${RESOURCE_SOURCE_DIR}/parser/gff/dlg.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/git.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/gui.cpp
+    ${RESOURCE_SOURCE_DIR}/parser/gff/gvt.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/ifo.cpp
+    ${RESOURCE_SOURCE_DIR}/parser/gff/nfo.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/pth.cpp
-    ${RESOURCE_SOURCE_DIR}/parser/gff/utc.cpp
-    ${RESOURCE_SOURCE_DIR}/parser/gff/utd.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/ute.cpp
-    ${RESOURCE_SOURCE_DIR}/parser/gff/uti.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/utm.cpp
-    ${RESOURCE_SOURCE_DIR}/parser/gff/utp.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/uts.cpp
-    ${RESOURCE_SOURCE_DIR}/parser/gff/utt.cpp
-    ${RESOURCE_SOURCE_DIR}/parser/gff/utw.cpp
     ${RESOURCE_SOURCE_DIR}/provider/2das.cpp
     ${RESOURCE_SOURCE_DIR}/provider/audioclips.cpp
     ${RESOURCE_SOURCE_DIR}/provider/cursors.cpp
@@ -175,3 +167,4 @@ add_library(resource STATIC ${RESOURCE_HEADERS} ${RESOURCE_SOURCES} ${CLANG_FORM
 set_target_properties(resource PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}$<$<CONFIG:Debug>:/debug>/lib)
 set_target_properties(resource PROPERTIES DEBUG_POSTFIX "d")
 target_precompile_headers(resource PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
+target_link_libraries(resource PRIVATE movie graphics)

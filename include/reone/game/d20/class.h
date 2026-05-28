@@ -70,6 +70,12 @@ public:
     int hitdie() const { return _hitdie; }
     const CreatureAttributes &defaultAttributes() const { return _defaultAttributes; }
     int skillPointBase() const { return _skillPointBase; }
+    int getFeatGain(int level) const;
+    int getFeatListValue(FeatType feat) const;
+    bool isFeatSelectable(FeatType feat) const {
+        int listValue = getFeatListValue(feat);
+        return listValue == 0 || listValue == 1;
+    }
 
 private:
     ClassType _type;
@@ -79,7 +85,9 @@ private:
     CreatureAttributes _defaultAttributes;
     int _skillPointBase {0};
     std::unordered_set<SkillType> _classSkills;
+    std::unordered_map<FeatType, int> _featListValues;
     std::unordered_map<int, SavingThrows> _savingThrowsByLevel;
+    std::unordered_map<int, int> _featGainsByLevel;
     std::vector<int> _attackBonuses;
 
     // Services
@@ -94,6 +102,8 @@ private:
     void loadClassSkills(const std::string &skillsTable);
     void loadSavingThrows(const std::string &savingThrowTable);
     void loadAttackBonuses(const std::string &attackBonusTable);
+    void loadFeatListValues(const std::string &featsPrefix);
+    void loadFeatGains(const std::string &featGainPrefix);
 };
 
 } // namespace game

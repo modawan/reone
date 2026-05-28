@@ -21,6 +21,7 @@
 #include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/ingame.h"
+#include "reone/game/itemdescription.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
 #include "reone/game/party.h"
@@ -71,6 +72,21 @@ static std::unordered_map<Equipment::Slot, int32_t> g_slotStrRefs = {
 
 static int getInventorySlot(Equipment::Slot slot);
 
+static void enableBorderFillTint(const std::shared_ptr<Control> &control) {
+    if (!control) {
+        return;
+    }
+    control->setTintBorderFill(true);
+}
+
+static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox, const glm::vec3 &baseColor) {
+    if (!listBox) {
+        return;
+    }
+    listBox->setBorderColor(baseColor);
+    listBox->setTintBorderFill(true);
+}
+
 void Equipment::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
@@ -104,6 +120,8 @@ void Equipment::onGUILoaded() {
     _controls.LB_DESC->setVisible(false);
     _controls.LB_DESC->setProtoMatchContent(true);
     _controls.LBL_CANTEQUIP->setVisible(false);
+    tintK2LoadoutOverlay();
+    updateK2LoadoutOverlayVisibility(true);
 
     configureItemsListBox();
 
@@ -168,6 +186,11 @@ void Equipment::configureItemsListBox() {
     auto &protoItem = _controls.LB_ITEMS->protoItem();
     protoItem.setBorderColor(_baseColor);
     protoItem.setHilightColor(_hilightColor);
+
+    if (_game.isTSL()) {
+        tintK2PanelFill(_controls.LB_ITEMS, _baseColor);
+        tintK2PanelFill(_controls.LB_DESC, _baseColor);
+    }
 }
 
 void Equipment::clearCandidateDescription() {
@@ -211,12 +234,7 @@ void Equipment::updateCandidateDescription() {
     if (!itemObj)
         return;
 
-    std::string description(itemObj->localizedName());
-    if (!itemObj->descIdentified().empty()) {
-        description += "\n\n";
-        description += itemObj->descIdentified();
-    }
-    _controls.LB_DESC->addTextLinesAsItems(description);
+    _controls.LB_DESC->addTextLinesAsItems(joinItemDescriptionLines(buildItemDescriptionLines(*itemObj, _services)));
 }
 
 static int getInventorySlot(Equipment::Slot slot) {
@@ -370,6 +388,7 @@ void Equipment::selectSlot(Slot slot) {
 
     _controls.LB_DESC->setVisible(!noneSelected);
     _controls.LBL_SLOTNAME->setVisible(noneSelected);
+    updateK2LoadoutOverlayVisibility(noneSelected);
 
     if (!_game.isTSL()) {
         _controls.LBL_PORT_BORD->setVisible(noneSelected);
@@ -382,6 +401,49 @@ void Equipment::selectSlot(Slot slot) {
     if (noneSelected) {
         clearCandidateDescription();
     }
+}
+
+void Equipment::tintK2LoadoutOverlay() {
+    if (!_game.isTSL())
+        return;
+
+    // Preserve the muted K2 panel colours authored in equip_p.gui.
+    enableBorderFillTint(_controls.LBL_BACK1);
+    enableBorderFillTint(_controls.LBL_DEF_BACK);
+    enableBorderFillTint(_controls.LBL_BAR1);
+    enableBorderFillTint(_controls.LBL_BAR2);
+    enableBorderFillTint(_controls.LBL_BAR3);
+    enableBorderFillTint(_controls.LBL_BAR4);
+    enableBorderFillTint(_controls.LBL_BAR5);
+}
+
+void Equipment::updateK2LoadoutOverlayVisibility(bool visible) {
+    if (!_game.isTSL())
+        return;
+
+    auto setVisible = [visible](auto &control) {
+        if (control) {
+            control->setVisible(visible);
+        }
+    };
+
+    // K2's normal loadout/stat art overlaps the candidate description panel.
+    setVisible(_controls.BTN_SWAPWEAPONS);
+    setVisible(_controls.LBL_ATKL);
+    setVisible(_controls.LBL_ATKR);
+    setVisible(_controls.LBL_ATTACKMOD);
+    setVisible(_controls.LBL_ATTACK_INFO);
+    setVisible(_controls.LBL_BACK1);
+    setVisible(_controls.LBL_DAMAGE);
+    setVisible(_controls.LBL_DAMTEXT);
+    setVisible(_controls.LBL_DEF);
+    setVisible(_controls.LBL_DEF_BACK);
+    setVisible(_controls.LBL_DEF_INFO);
+    setVisible(_controls.LBL_DEF_TEXT);
+    setVisible(_controls.LBL_SELECTTITLE);
+    setVisible(_controls.LBL_TOHIT);
+    setVisible(_controls.LBL_TOHITL);
+    setVisible(_controls.LBL_TOHITR);
 }
 
 void Equipment::activateSlot(Slot slot) {

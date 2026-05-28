@@ -208,7 +208,42 @@ static Variable SwitchPlayerCharacter(const std::vector<Variable> &args, const R
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SwitchPlayerCharacter");
+    Party &party = ctx.game.party();
+    if (party.getMemberByNPC(nNPC)) {
+        party.setPartyLeader(nNPC);
+        return Variable::ofInt(1);
+    }
+
+    std::shared_ptr<Creature> creature;
+    if (nNPC == kNpcPlayer) {
+        creature = party.player();
+    } else {
+        creature = party.createAvailableMember(nNPC);
+    }
+    if (!creature) {
+        warn("Party: NPC not found: " + std::to_string(nNPC));
+        return Variable::ofInt(0);
+    }
+
+    auto currentLeader = party.getLeader();
+    glm::vec3 position(currentLeader ? currentLeader->position() : creature->position());
+    float facing = currentLeader ? currentLeader->getFacing() : creature->getFacing();
+
+    auto module = ctx.game.module();
+    auto area = module ? module->area() : nullptr;
+    if (area) {
+        area->unloadParty();
+    }
+
+    party.clear();
+    party.addMember(nNPC, creature);
+
+    if (area) {
+        area->loadParty(position, facing);
+        area->onPartyLeaderMoved(true);
+        area->update3rdPersonCameraFacing();
+    }
+    return Variable::ofInt(1);
 }
 
 static Variable SetTime(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -4107,12 +4142,27 @@ static Variable GetCurrentStealthXP(const std::vector<Variable> &args, const Rou
 
 static Variable GetNumStackedItems(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oItem = getObject(args, 0, ctx);
+    if (args.empty() || args[0].type != VariableType::Object) {
+        return Variable::ofInt(-1);
+    }
 
     // Transform
+    uint32_t objectId = args[0].objectId;
+    if (objectId == kObjectSelf) {
+        if (const Variable *caller = ctx.execution.findArg(ArgKind::Caller)) {
+            objectId = caller->objectId;
+        } else {
+            objectId = kObjectInvalid;
+        }
+    }
+    auto object = ctx.game.getObjectById(objectId);
+    if (!object || object->type() != ObjectType::Item) {
+        return Variable::ofInt(-1);
+    }
+    auto item = std::static_pointer_cast<Item>(object);
 
     // Execute
-    throw RoutineNotImplementedException("GetNumStackedItems");
+    return Variable::ofInt(item->stackSize());
 }
 
 static Variable SurrenderToEnemies(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6008,9 +6058,29 @@ static Variable GetScriptParameter(const std::vector<Variable> &args, const Rout
     auto nIndex = getInt(args, 0);
 
     // Transform
+    const Variable *param = nullptr;
+    switch (nIndex) {
+    case 1:
+        param = ctx.execution.findArg(ArgKind::ScriptParam1);
+        break;
+    case 2:
+        param = ctx.execution.findArg(ArgKind::ScriptParam2);
+        break;
+    case 3:
+        param = ctx.execution.findArg(ArgKind::ScriptParam3);
+        break;
+    case 4:
+        param = ctx.execution.findArg(ArgKind::ScriptParam4);
+        break;
+    case 5:
+        param = ctx.execution.findArg(ArgKind::ScriptParam5);
+        break;
+    default:
+        break;
+    }
 
     // Execute
-    throw RoutineNotImplementedException("GetScriptParameter");
+    return Variable::ofInt(param ? param->intValue : 0);
 }
 
 static Variable SetFadeUntilScript(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6480,7 +6550,8 @@ static Variable ModifyWillSavingThrowBase(const std::vector<Variable> &args, con
 
 static Variable GetScriptStringParameter(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetScriptStringParameter");
+    const Variable *param = ctx.execution.findArg(ArgKind::ScriptStringParam);
+    return Variable::ofString(param ? param->strValue : "");
 }
 
 static Variable GetObjectPersonalSpace(const std::vector<Variable> &args, const RoutineContext &ctx) {

@@ -41,6 +41,7 @@ public:
     void update(float dt) override;
 
     void start(const std::shared_ptr<resource::Dialog> &dialog, const std::shared_ptr<Object> &owner);
+    void cleanupForModuleTransition();
 
     CameraType getCamera(int &cameraId) const;
 
@@ -103,7 +104,10 @@ private:
 
     int indexOfFirstActive(const std::vector<resource::Dialog::EntryReplyLink> &links);
 
-    bool evaluateCondition(const std::string &scriptResRef);
+    bool isLinkActive(const resource::Dialog::EntryReplyLink &link);
+    bool evaluateCondition(const std::string &scriptResRef, const resource::Dialog::EntryReplyLink::ConditionParams &params);
+    void runScript(const std::string &scriptResRef, const resource::Dialog::EntryReply::ActionParams &params);
+    void runScripts(const resource::Dialog::EntryReply &node);
 
     virtual void setMessage(std::string message) = 0;
 

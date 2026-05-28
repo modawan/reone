@@ -69,11 +69,12 @@ public:
         Game &game,
         ServicesView &services);
 
-    static bool classof(Object *from) {
+    static bool classof(const Object *from) {
         return from->type() == ObjectType::Area;
     }
 
     void load(std::string name, const resource::Gff &are, const resource::Gff &git, bool fromSave = false);
+    void activate();
 
     bool handle(const input::Event &event);
     void update(float dt);
@@ -301,6 +302,9 @@ private:
     void loadLYT();
     void loadVIS();
     void loadPTH();
+    void applySceneProperties();
+    void attachRoomToSceneGraph(Room &room);
+    void attachObjectToSceneGraph(const std::shared_ptr<Object> &object);
 
     void doDestroyObject(uint32_t objectId);
     void doDestroyObjects();
@@ -337,14 +341,14 @@ private:
 
     // Loading GIT
 
-    void loadGIT(const resource::generated::GIT &git);
+    void loadGIT(const resource::generated::GIT &git, const resource::Gff &gff);
 
     void loadProperties(const resource::generated::GIT &git);
-    void loadCreatures(const resource::generated::GIT &git);
-    void loadDoors(const resource::generated::GIT &git);
-    void loadPlaceables(const resource::generated::GIT &git);
-    void loadWaypoints(const resource::generated::GIT &git);
-    void loadTriggers(const resource::generated::GIT &git);
+    void loadCreatures(const resource::Gff &gff);
+    void loadDoors(const resource::Gff &gff);
+    void loadPlaceables(const resource::Gff &gff);
+    void loadWaypoints(const resource::Gff &gff);
+    void loadTriggers(const resource::Gff &gff);
     void loadSounds(const resource::generated::GIT &git);
     void loadCameras(const resource::generated::GIT &git);
     void loadEncounters(const resource::generated::GIT &git);

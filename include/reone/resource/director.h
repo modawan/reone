@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "resources.h"
 #include "types.h"
 
 namespace reone {
@@ -49,8 +50,10 @@ public:
 
     virtual void init() = 0;
     virtual void onModuleLoad(const std::string &name) = 0;
+    virtual void onGameLoad(std::string_view name) = 0;
 
     virtual std::set<std::string> moduleNames() = 0;
+    virtual std::set<std::string> saveNames() = 0;
 };
 
 class ResourceDirector : public IResourceDirector, boost::noncopyable {
@@ -81,8 +84,10 @@ public:
 
     void init() override;
     void onModuleLoad(const std::string &name) override;
+    void onGameLoad(std::string_view name) override;
 
     std::set<std::string> moduleNames() override;
+    std::set<std::string> saveNames() override;
 
 private:
     GameID _gameId;
@@ -97,8 +102,15 @@ private:
     IResources &_resources;
     IScripts &_scripts;
 
+    // Set when a savegame is loaded.
+    std::optional<std::filesystem::path> _savegamePath;
+
     void loadGlobalResources();
     void loadModuleResources(const std::string &name);
+    void loadSaveGameResources(std::string_view name);
+
+    void loadRIM(const std::filesystem::path &path, const std::string &name, ContainerKind kind);
+    void loadERF(const std::filesystem::path &path, const std::string &name, ContainerKind kind);
 };
 
 } // namespace resource

@@ -51,7 +51,6 @@ static constexpr int kMaxFlareLights = 4;
 static constexpr int kMaxSoundCount = 4;
 
 static constexpr float kShadowFadeSpeed = 2.0f;
-static constexpr float kElevationTestZ = 1024.0f;
 
 static constexpr float kLightRadiusBias = 64.0f;
 
@@ -74,29 +73,30 @@ static const std::vector<float> g_shadowCascadeDivisors {
 void SceneGraph::clear() {
     _modelRoots.clear();
     _walkmeshRoots.clear();
+    _triggerRoots.clear();
     _soundRoots.clear();
     _grassRoots.clear();
     _activeLights.clear();
 }
 
 void SceneGraph::addRoot(std::shared_ptr<ModelSceneNode> node) {
-    _modelRoots.push_back(node);
+    _modelRoots.push_back(std::move(node));
 }
 
 void SceneGraph::addRoot(std::shared_ptr<WalkmeshSceneNode> node) {
-    _walkmeshRoots.push_back(node);
+    _walkmeshRoots.push_back(std::move(node));
 }
 
 void SceneGraph::addRoot(std::shared_ptr<TriggerSceneNode> node) {
-    _triggerRoots.push_back(node);
+    _triggerRoots.push_back(std::move(node));
 }
 
 void SceneGraph::addRoot(std::shared_ptr<GrassSceneNode> node) {
-    _grassRoots.push_back(node);
+    _grassRoots.push_back(std::move(node));
 }
 
 void SceneGraph::addRoot(std::shared_ptr<SoundSceneNode> node) {
-    _soundRoots.push_back(node);
+    _soundRoots.push_back(std::move(node));
 }
 
 void SceneGraph::removeRoot(ModelSceneNode &node) {
@@ -763,13 +763,12 @@ std::vector<LightSceneNode *> SceneGraph::computeClosestLights(int count, const 
     return lights;
 }
 
-bool SceneGraph::testElevation(const glm::vec2 &position, Collision &outCollision) const {
+bool SceneGraph::testElevation(const glm::vec3 &position, Collision &outCollision) const {
     static glm::vec3 down(0.0f, 0.0f, -1.0f);
 
     bool walkable = false;
     float minDistance = std::numeric_limits<float>::max();
-
-    glm::vec3 origin {position, kElevationTestZ};
+    glm::vec3 origin {position.x, position.y, position.z + 0.1f};
     for (auto &root : _walkmeshRoots) {
         if (!root->isEnabled()) {
             continue;
@@ -782,7 +781,7 @@ bool SceneGraph::testElevation(const glm::vec2 &position, Collision &outCollisio
         }
         auto objSpaceOrigin = glm::vec3(root->absoluteTransformInverse() * glm::vec4(origin, 1.0f));
         float distance = 0.0f;
-        auto face = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, down, 2.0f * kElevationTestZ, distance);
+        auto face = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, down, 2.0f * kElevationTestZ, /*ignoreBackface=*/true, distance);
         if (!face || distance >= minDistance) {
             continue;
         }
@@ -826,7 +825,7 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
             dirLocal = root->absoluteTransformInverse() * glm::vec4 {dir, 0.0f};
         }
         float distance = 0.0f;
-        auto face = root->walkmesh().raycast(_lineOfSightSurfaces, originLocal, dirLocal, maxDistance, distance);
+        auto face = root->walkmesh().raycast(_lineOfSightSurfaces, originLocal, dirLocal, maxDistance, /*ignoreBackface=*/false, distance);
         if (!face || distance > minDistance) {
             continue;
         }
@@ -859,7 +858,7 @@ bool SceneGraph::testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const 
         glm::vec3 objSpaceOrigin(root->absoluteTransformInverse() * glm::vec4(origin, 1.0f));
         glm::vec3 objSpaceDir(root->absoluteTransformInverse() * glm::vec4(dir, 0.0f));
         float distance = 0.0f;
-        auto face = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, objSpaceDir, kMaxCollisionDistanceWalk, distance);
+        auto face = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, objSpaceDir, kMaxCollisionDistanceWalk, /*ignoreBackface=*/false, distance);
         if (!face || distance > maxDistance || distance > minDistance) {
             continue;
         }

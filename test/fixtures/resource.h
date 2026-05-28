@@ -56,11 +56,14 @@ class MockResources : public IResources, boost::noncopyable {
 public:
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(void, clearLocal, (), (override));
-    MOCK_METHOD(void, addKEY, (const std::filesystem::path &path), (override));
-    MOCK_METHOD(void, addERF, (const std::filesystem::path &path, bool local), (override));
-    MOCK_METHOD(void, addRIM, (const std::filesystem::path &path, bool local), (override));
+    MOCK_METHOD(void, clearSave, (), (override));
     MOCK_METHOD(void, addEXE, (const std::filesystem::path &path), (override));
-    MOCK_METHOD(void, addFolder, (const std::filesystem::path &path), (override));
+    MOCK_METHOD(void, addKEY, (const std::filesystem::path &path), (override));
+    MOCK_METHOD(void, addERF, (const std::filesystem::path &path, ContainerKind kind), (override));
+    MOCK_METHOD(void, addMemERF, (ByteBuffer buffer, ContainerKind kind), (override));
+    MOCK_METHOD(void, addRIM, (const std::filesystem::path &path, ContainerKind kind), (override));
+    MOCK_METHOD(void, addMemRIM, (ByteBuffer buffer, ContainerKind kind), (override));
+    MOCK_METHOD(void, addFolder, (const std::filesystem::path &path, ContainerKind kind), (override));
 
     MOCK_METHOD(Resource, get, (const ResourceId &id), (override));
     MOCK_METHOD(std::optional<Resource>, find, (const ResourceId &id), (override));
@@ -173,7 +176,9 @@ class MockResourceDirector : public IResourceDirector, boost::noncopyable {
 public:
     MOCK_METHOD(void, init, (), (override));
     MOCK_METHOD(void, onModuleLoad, (const std::string &name), (override));
+    MOCK_METHOD(void, onGameLoad, (std::string_view name), (override));
     MOCK_METHOD(std::set<std::string>, moduleNames, (), (override));
+    MOCK_METHOD(std::set<std::string>, saveNames, (), (override));
 };
 
 class TestResourceModule : boost::noncopyable {

@@ -78,9 +78,7 @@ void CharGenSkills::onGUILoaded() {
     _controls.COST_POINTS_LBL->setTextMessage("");
 
     _controls.BTN_ACCEPT->setOnClick([this]() {
-        if (_points > 0) {
-            updateCharacter();
-        }
+        updateCharacter();
         _charGen.goToNextStep();
         _charGen.openSteps();
     });
@@ -169,6 +167,7 @@ void CharGenSkills::reset(bool newGame) {
     std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(attributes.getEffectiveClass()));
 
     _points = glm::max(1, (clazz->skillPointBase() + attributes.getAbilityModifier(Ability::Intelligence)) / 2);
+    _allocationLevel = attributes.getAggregateLevel() + (newGame ? 0 : 1);
 
     if (newGame) {
         _points *= 4;
@@ -223,7 +222,8 @@ bool CharGenSkills::canIncreaseSkill(SkillType skill) const {
     ClassType clazz = _charGen.character().attributes.getEffectiveClass();
 
     std::shared_ptr<CreatureClass> creatureClass(_services.game.classes.get(clazz));
-    int maxSkillRank = creatureClass->isClassSkill(skill) ? 4 : 2;
+    int maxClassSkillRank = _allocationLevel + 3;
+    int maxSkillRank = creatureClass->isClassSkill(skill) ? maxClassSkillRank : maxClassSkillRank / 2;
     int pointCost = creatureClass->isClassSkill(skill) ? 1 : 2;
 
     return _points >= pointCost && _attributes.getSkillRank(skill) < maxSkillRank;

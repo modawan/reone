@@ -208,6 +208,8 @@ private:
     void clearCandidateDescription();
     void updateCandidateDescription();
     void updateEquipment();
+    void tintK2LoadoutOverlay();
+    void updateK2LoadoutOverlayVisibility(bool visible);
     void updateItems();
     void updatePortraits();
     void activateSlot(Slot slot);

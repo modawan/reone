@@ -21,13 +21,16 @@
 #include "reone/audio/source.h"
 #include "reone/graphics/model.h"
 #include "reone/graphics/texture.h"
-#include "reone/resource/format/gffreader.h"
+#include "reone/resource/strings.h"
 
 #include "../object.h"
 #include "../types.h"
-#include "reone/resource/parser/gff/uti.h"
 
 namespace reone {
+
+namespace resources {
+class Gff;
+}
 
 namespace game {
 
@@ -42,6 +45,17 @@ public:
         std::shared_ptr<audio::AudioClip> impactSound2;
     };
 
+    struct PropertyEntry {
+        uint8_t chanceAppear {0};
+        uint8_t costTable {0};
+        uint16_t costValue {0};
+        uint8_t paramTable {0};
+        uint8_t paramValue {0};
+        uint16_t propertyName {0};
+        uint16_t subtype {0};
+        uint8_t upgradeType {0};
+    };
+
     Item(
         uint32_t id,
         Game &game,
@@ -54,11 +68,12 @@ public:
             services) {
     }
 
-    static bool classof(Object *from) {
+    static bool classof(const Object *from) {
         return from->type() == ObjectType::Item;
     }
 
     void loadFromBlueprint(const std::string &resRef);
+    void deserialize(const resource::Gff &gff);
 
     void update(float dt) override;
 
@@ -74,7 +89,7 @@ public:
 
     const std::string &baseBodyVariation() const { return _baseBodyVariation; }
     const std::string &itemClass() const { return _itemClass; }
-    const std::string &localizedName() const { return _localizedName; }
+    const std::string &localizedName() const { return _localizedName.str(); }
     float attackRange() const { return static_cast<float>(_attackRange); }
     int bodyVariation() const { return _bodyVariation; }
     int damageFlags() const { return _damageFlags; }
@@ -87,11 +102,13 @@ public:
     std::shared_ptr<graphics::Texture> icon() const { return _icon; }
     WeaponType weaponType() const { return _weaponType; }
     WeaponWield weaponWield() const { return _weaponWield; }
-    const std::string &descIdentified() const { return _descIdentified; }
+    const std::string &description() const { return _description.str(); }
+    const std::string &descIdentified() const { return _descIdentified.str(); }
     int baseItemType() const { return _baseItem; }
     int criticalThreat() const { return _criticalThreat; }
     int criticalHitMultiplier() const { return _criticalHitMultiplier; }
     std::optional<SpellType> activateSpell() const { return _activateSpell; }
+    const std::vector<PropertyEntry> &properties() const { return _properties; }
 
     void setDropable(bool dropable);
     void setStackSize(int size);
@@ -99,12 +116,26 @@ public:
     void setEquipped(bool equipped);
 
 private:
-    std::string _localizedName;
+    // Serializable
+    int32_t _baseItem {0};
+    resource::LocString _localizedName;
+    resource::LocString _description;
+    resource::LocString _descIdentified;
+    uint8_t _charges {0};
+    uint32_t _cost {0};
+    uint32_t _addCost {0};
+    bool _stolen {false};
+    uint16_t _stackSize {1};
+    bool _identified {true};
+    uint8_t _modelVariation {0};
+    uint8_t _bodyVariation {0};
+    uint8_t _textureVariation {0};
+    bool _dropable {false};
+    // END Serializable
+
     std::string _baseBodyVariation;
-    int _bodyVariation {0};
-    int _textureVariation {0};
     std::string _itemClass;
-    int _modelVariation {0};
+
     std::shared_ptr<graphics::Texture> _icon;
     uint32_t _equipableSlots {0};
     int _attackRange {0};
@@ -113,30 +144,23 @@ private:
     int _damageFlags {0};
     WeaponType _weaponType {WeaponType::None};
     WeaponWield _weaponWield {WeaponWield::None};
-    bool _dropable {true};
-    int _stackSize {1};
-    bool _identified {true};
+
     bool _equipped {false};
     std::shared_ptr<AmmunitionType> _ammunitionType;
-    std::string _descIdentified;
-    int _baseItem {0};
+
     int _criticalThreat {0};
     int _criticalHitMultiplier {0};
-    int _charges {0};
-    int _cost {0};
-    int _addCost {0};
-    std::string _description;
-    bool _stolen {false};
+
     std::optional<SpellType> _activateSpell;
+    std::vector<PropertyEntry> _properties;
 
     std::shared_ptr<audio::AudioSource> _audioSource;
 
     // Blueprint
-
-    void loadUTI(const resource::generated::UTI &uti);
-
+    void deserializeAll(const resource::Gff &gff);
+    void deserializeProperties(const resource::Gff &gff);
+    void deserializeBase(const resource::Gff &gff);
     void loadAmmunitionType();
-
     // END Blueprint
 };
 

@@ -64,17 +64,6 @@ struct Damage {
 };
 
 /**
- * Calculate damage for an attack with a weapon.
- *
- * It adds a descriptor to \p damage based on \p weapon damage amount and
- * type. When \result is a critical hit, the amount is multiplied by the \p
- * weapon critical multiplier.
- */
-void computeWeaponDamage(
-    const Creature &attacker, const Object &target, const Item &weapon,
-    AttackResultType result, int damageBonus, ISmallVector<Damage> &damage);
-
-/**
  * Predicate for melee weapon.
  *
  * Stun Baton and Hand-to-Hand is NOT a melee weapon. These require special
@@ -106,6 +95,15 @@ public:
                          int attackRollBonus = 0,
                          int attackThreatBonus = 0,
                          int damageBonus = 0);
+
+    /**
+     * Calculate attack roll and damage effects for an unarmed attack. Damage is
+     * added to AttackBuffer, and can be applied later with applyEffects().
+     */
+    void addUnarmedAttack(const Creature &attacker, const Object &target,
+                          int attackRollBonus = 0,
+                          int attackThreatBonus = 0,
+                          int damageBonus = 0);
 
     /**
      * Apply all previously collected damage effects from \p attacker to \p

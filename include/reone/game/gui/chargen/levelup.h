@@ -79,6 +79,7 @@ private:
     CharacterGeneration &_charGen;
     int _step {0};
     bool _hasAttributes {false};
+    bool _hasFeats {false};
 
     void onGUILoaded() override;
 
@@ -103,6 +104,7 @@ private:
     }
 
     void doSetStep(int step);
+    bool hasFeatChoices() const;
 };
 
 } // namespace game

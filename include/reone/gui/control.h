@@ -86,11 +86,17 @@ public:
     };
 
     struct Border {
+        enum class FillTransform {
+            None,
+            Rotate180
+        };
+
         std::shared_ptr<graphics::Texture> corner;
         std::shared_ptr<graphics::Texture> edge;
         std::shared_ptr<graphics::Texture> fill;
         glm::vec3 color {1.0f};
         int dimension {0};
+        FillTransform fillTransform {FillTransform::None};
     };
 
     struct Text {
@@ -140,6 +146,7 @@ public:
     void setBorder(Border border);
     void setBorderFill(std::string resRef);
     void setBorderFill(std::shared_ptr<graphics::Texture> texture);
+    void setBorderFillTransform(Border::FillTransform transform);
     void setBorderColor(glm::vec3 color);
     void setBorderColorOverride(glm::vec3 color);
     void setDisabled(bool disabled);
@@ -153,12 +160,14 @@ public:
     void setHilightColor(glm::vec3 color);
     void setHilightFill(std::string resRef);
     void setHilightFill(std::shared_ptr<graphics::Texture> texture);
+    void setHilightFillTransform(Border::FillTransform transform);
     void setPadding(int padding);
     void setSceneName(std::string name);
     void setText(Text text);
     void setTextColor(glm::vec3 color);
     void setTextMessage(std::string text);
     void setTextFont(std::shared_ptr<graphics::Font> font);
+    void setTintBorderFill(bool tint) { _tintBorderFill = tint; }
     void setUseBorderColorOverride(bool use);
     void setVisible(bool visible);
 
@@ -215,6 +224,7 @@ protected:
     bool _disabled {false};
     bool _selected {false};
     bool _selectable {false};
+    bool _tintBorderFill {false};
     glm::vec3 _borderColorOverride {1.0f};
     bool _useBorderColorOverride {false};
     std::vector<std::string> _textLines;

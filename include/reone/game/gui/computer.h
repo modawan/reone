@@ -97,6 +97,7 @@ private:
 
     void configureMessage();
     void configureReplies();
+    void hideK1StaticBands();
 
     void setMessage(std::string message) override;
     void setReplyLines(std::vector<std::string> lines) override;

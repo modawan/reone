@@ -47,6 +47,7 @@ static constexpr char kSoundsDirectoryName[] = "streamsounds";
 static constexpr char kWavesDirectoryName[] = "streamwaves";
 static constexpr char kVoiceDirectoryName[] = "streamvoice";
 static constexpr char kModulesDirectoryName[] = "modules";
+static constexpr char kSavesDirectoryName[] = "saves";
 static constexpr char kLipsDirectoryName[] = "lips";
 static constexpr char kOverrideDirectoryName[] = "override";
 
@@ -82,6 +83,11 @@ void ResourceDirector::onModuleLoad(const std::string &name) {
     loadModuleResources(name);
 }
 
+void ResourceDirector::onGameLoad(std::string_view name) {
+    _resources.clearSave();
+    loadSaveGameResources(name);
+}
+
 std::set<std::string> ResourceDirector::moduleNames() {
     auto moduleNames = std::set<std::string>();
     auto modulesPath = findFileIgnoreCase(_gamePath, kModulesDirectoryName);
@@ -96,6 +102,18 @@ std::set<std::string> ResourceDirector::moduleNames() {
         }
     }
     return moduleNames;
+}
+
+std::set<std::string> ResourceDirector::saveNames() {
+    auto names = std::set<std::string>();
+    auto savesPath = findFileIgnoreCase(_gamePath, kSavesDirectoryName);
+    if (!savesPath) {
+        return names;
+    }
+    for (auto &entry : std::filesystem::directory_iterator(*savesPath)) {
+        names.insert(boost::to_lower_copy(entry.path().filename().string()));
+    }
+    return names;
 }
 
 void ResourceDirector::loadGlobalResources() {
@@ -188,41 +206,83 @@ void ResourceDirector::loadGlobalResources() {
 }
 
 void ResourceDirector::loadModuleResources(const std::string &name) {
-    auto modulesPath = findFileIgnoreCase(_gamePath, kModulesDirectoryName);
+    std::optional<std::filesystem::path> modulesPath = findFileIgnoreCase(_gamePath, kModulesDirectoryName);
     if (!modulesPath) {
         throw ResourceNotFoundException("Modules directory not found");
     }
 
-    auto &resources = _resources;
-    auto rimPath = findFileIgnoreCase(*modulesPath, name + ".rim");
-    if (rimPath) {
-        resources.addRIM(*rimPath, true);
-    }
-    auto rimsPath = findFileIgnoreCase(*modulesPath, name + "_s.rim");
-    if (rimsPath) {
-        resources.addRIM(*rimsPath, true);
-    }
-    auto modPath = findFileIgnoreCase(*modulesPath, name + ".mod");
-    if (modPath) {
-        resources.addERF(*modPath, true);
-    }
-    if (!rimPath && !rimsPath && !modPath) {
-        throw ResourceNotFoundException("Module archives not found: " + name);
-    }
+    loadRIM(*modulesPath, name, ContainerKind::Local);
+    loadRIM(*modulesPath, name + "_s", ContainerKind::Local);
+    loadERF(*modulesPath, name, ContainerKind::Local);
+    loadERF(*modulesPath, name + "_loc", ContainerKind::Local);
 
-    auto lipsPath = findFileIgnoreCase(_gamePath, kLipsDirectoryName);
-    if (lipsPath) {
-        auto locModPath = findFileIgnoreCase(*lipsPath, name + "_loc.mod");
-        if (locModPath) {
-            resources.addERF(*locModPath, true);
-        }
+    if (auto lipsPath = findFileIgnoreCase(_gamePath, kLipsDirectoryName)) {
+        loadERF(*lipsPath, name + "_loc", ContainerKind::Local);
     }
 
     if (_gameId == GameID::TSL) {
-        auto dlgErfPath = findFileIgnoreCase(*modulesPath, name + "_dlg.erf");
-        if (dlgErfPath) {
-            resources.addERF(*dlgErfPath, true);
-        }
+        loadERF(*modulesPath, name + "_dlg", ContainerKind::Local);
+    }
+}
+
+void ResourceDirector::loadSaveGameResources(std::string_view name) {
+    auto allSavesPath = findFileIgnoreCase(_gamePath, kSavesDirectoryName);
+    if (!allSavesPath) {
+        throw ResourceNotFoundException("Saves directory not found");
+    }
+
+    auto savePath = findFileIgnoreCase(*allSavesPath, name);
+    if (!savePath) {
+        throw ResourceNotFoundException(str(boost::format("Save directory not found: %s") % name));
+    }
+
+    // Add savegame directory itself, so we can load globalvars.res
+    // partytable.res and savenfo.res.
+    _resources.addFolder(*savePath);
+
+    _savegamePath = findFileIgnoreCase(*savePath, "savegame.sav");
+    if (!_savegamePath) {
+        throw ResourceNotFoundException("savegame.sav not found");
+    }
+
+    // Add savegame resource archive.
+    _resources.addERF(*_savegamePath);
+}
+
+void ResourceDirector::loadRIM(const std::filesystem::path &path, const std::string &name, ContainerKind kind) {
+    // Try to find a module with the same name in already loaded resources.
+    // Same idea as in loadERF.
+    std::optional<Resource> res = _resources.find(ResourceId(name, ResType::Res));
+    if (res) {
+        _resources.addMemRIM(res->data, kind);
+        return;
+    }
+
+    if (auto rimPath = findFileIgnoreCase(path, name + ".rim")) {
+        _resources.addRIM(*rimPath, kind);
+    }
+}
+
+void ResourceDirector::loadERF(const std::filesystem::path &path, const std::string &name, ContainerKind kind) {
+    // Try to find a module with the same name in already loaded resources.
+    //
+    // This allows us to support savegame archives: savegame.sav is an ERF
+    // archive that contains ERF modules. When loading from a save game we add
+    // savegame.sav ERF container. Module lookups resolve to modules from this
+    // container, and fall back to filesystem search if the module is not in the
+    // save archive.
+    std::optional<Resource> res = _resources.find(ResourceId(name, ResType::Mod));
+    if (res) {
+        _resources.addMemERF(res->data, kind);
+        return;
+    }
+
+    if (auto modPath = findFileIgnoreCase(path, name + ".mod")) {
+        _resources.addERF(*modPath, kind);
+    }
+
+    if (auto erfPath = findFileIgnoreCase(path, name + ".erf")) {
+        _resources.addERF(*erfPath, kind);
     }
 }
 

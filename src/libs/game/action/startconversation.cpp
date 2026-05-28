@@ -29,18 +29,24 @@ static constexpr float kMaxConversationDistance = 4.0f;
 
 void StartConversationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto actorPtr = _game.getObjectById(actor.id());
-    auto creatureActor = std::static_pointer_cast<Creature>(actorPtr);
 
-    bool reached =
-        actorPtr->type() != ObjectType::Creature ||
-        _ignoreStartRange ||
-        creatureActor->navigateTo(_objectToConverse->position(), true, kMaxConversationDistance, dt);
+    // Creatures should move to the target before starting the dialog.
+    if (auto creatureActor = dyn_cast<Creature>(actorPtr)) {
+        bool reached =
+            _ignoreStartRange ||
+            creatureActor->navigateTo(_objectToConverse->position(), true, kMaxConversationDistance, dt);
 
-    if (reached) {
-        bool isActorLeader = _game.party().getLeader() == actorPtr;
-        _game.module()->area()->startDialog(isActorLeader ? _objectToConverse : actorPtr, _dialogResRef);
-        complete();
+        if (reached) {
+            bool isActorLeader = _game.party().getLeader() == actorPtr;
+            _game.module()->area()->startDialog(isActorLeader ? _objectToConverse : actorPtr, _dialogResRef);
+            complete();
+        }
+        return;
     }
+
+    // Triggers and other objects can start the dialog immediately
+    _game.module()->area()->startDialog(_objectToConverse, _dialogResRef);
+    complete();
 }
 
 } // namespace game

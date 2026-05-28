@@ -29,6 +29,12 @@ namespace reone {
 
 namespace game {
 
+static void setVisible(const std::shared_ptr<Label> &control, bool visible) {
+    if (control) {
+        control->setVisible(visible);
+    }
+}
+
 void ComputerGUI::preload(IGUI &gui) {
     gui.setScaling(GUI::ScalingMode::Stretch);
 
@@ -41,6 +47,7 @@ void ComputerGUI::onGUILoaded() {
     bindControls();
     configureMessage();
     configureReplies();
+    hideK1StaticBands();
 }
 
 void ComputerGUI::configureMessage() {
@@ -57,6 +64,18 @@ void ComputerGUI::configureReplies() {
         int replyIdx = stoi(item);
         pickReply(replyIdx);
     });
+}
+
+void ComputerGUI::hideK1StaticBands() {
+    if (_game.isTSL()) {
+        return;
+    }
+
+    // K1 computer.gui ships static band overlays that duplicate the terminal background in reone.
+    setVisible(_controls.LBL_STATIC1, false);
+    setVisible(_controls.LBL_STATIC2, false);
+    setVisible(_controls.LBL_STATIC3, false);
+    setVisible(_controls.LBL_STATIC4, false);
 }
 
 void ComputerGUI::setMessage(std::string message) {

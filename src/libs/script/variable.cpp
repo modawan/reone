@@ -193,6 +193,18 @@ const char *argKindToString(ArgKind kind) {
         return "SpellLocation";
     case ArgKind::ObjectsInShape:
         return "ObjectsInShape";
+    case ArgKind::ScriptParam1:
+        return "ScriptParam1";
+    case ArgKind::ScriptParam2:
+        return "ScriptParam2";
+    case ArgKind::ScriptParam3:
+        return "ScriptParam3";
+    case ArgKind::ScriptParam4:
+        return "ScriptParam4";
+    case ArgKind::ScriptParam5:
+        return "ScriptParam5";
+    case ArgKind::ScriptStringParam:
+        return "ScriptStringParam";
     }
 
     throw std::logic_error("Unsupported arg kind: " +
@@ -285,6 +297,24 @@ Argument Argument::fromString(std::string str) {
         auto location = std::make_shared<game::Location>(position, facing);
         return {ArgKind::SpellLocation, Variable::ofLocation(std::move(location))};
     }
+    if (kind == "ScriptParam1") {
+        return {ArgKind::ScriptParam1, Variable::ofInt(std::stoi(value))};
+    }
+    if (kind == "ScriptParam2") {
+        return {ArgKind::ScriptParam2, Variable::ofInt(std::stoi(value))};
+    }
+    if (kind == "ScriptParam3") {
+        return {ArgKind::ScriptParam3, Variable::ofInt(std::stoi(value))};
+    }
+    if (kind == "ScriptParam4") {
+        return {ArgKind::ScriptParam4, Variable::ofInt(std::stoi(value))};
+    }
+    if (kind == "ScriptParam5") {
+        return {ArgKind::ScriptParam5, Variable::ofInt(std::stoi(value))};
+    }
+    if (kind == "ScriptStringParam") {
+        return {ArgKind::ScriptStringParam, Variable::ofString(value)};
+    }
 
     throw std::logic_error("Unsupported arg kind: " + kind);
 }
@@ -317,6 +347,23 @@ void Argument::verify() {
     case ArgKind::SpellId: {
         if (var.type != VariableType::Int) {
             throw std::invalid_argument(toString() + ": expected an integer");
+        }
+        return;
+    }
+    case ArgKind::ScriptParam1:
+    case ArgKind::ScriptParam2:
+    case ArgKind::ScriptParam3:
+    case ArgKind::ScriptParam4:
+    case ArgKind::ScriptParam5: {
+        if (var.type != VariableType::Int) {
+            throw std::invalid_argument(toString() + ": expected an integer");
+        }
+        return;
+    }
+
+    case ArgKind::ScriptStringParam: {
+        if (var.type != VariableType::String) {
+            throw std::invalid_argument(toString() + ": expected a string");
         }
         return;
     }

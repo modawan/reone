@@ -27,6 +27,7 @@
 #include "reone/game/d20/spells.h"
 #include "reone/game/debug.h"
 #include "reone/game/di/services.h"
+#include "reone/game/gui/sounds.h"
 #include "reone/game/location.h"
 #include "reone/game/party.h"
 #include "reone/game/reputes.h"
@@ -50,6 +51,8 @@
 #include "reone/resource/format/erfreader.h"
 #include "reone/resource/format/erfwriter.h"
 #include "reone/resource/format/gffwriter.h"
+#include "reone/resource/parser/gff/gvt.h"
+#include "reone/resource/parser/gff/nfo.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/audioclips.h"
 #include "reone/resource/provider/cursors.h"
@@ -219,6 +222,7 @@ void Game::init() {
     setCursorType(CursorType::Default);
 
     _moduleNames = _services.resource.director.moduleNames();
+    _saveNames = _services.resource.director.saveNames();
 
     playVideo("legal");
     openMainMenu();
@@ -265,6 +269,8 @@ void Game::initConsole() {
     registerConsoleCommand("castspellatobject", "cast spell at object", &Game::consoleCastSpellAtObject);
     registerConsoleCommand("opendoor", "open a selected door object", &Game::consoleOpenCloseDoor);
     registerConsoleCommand("closedoor", "close a selected door object", &Game::consoleOpenCloseDoor);
+    registerConsoleCommand("listgames", "list savegames", &Game::consoleListGames);
+    registerConsoleCommand("loadgame", "load a savegame", &Game::consoleLoadGame);
 }
 
 void Game::initLocalServices() {
@@ -492,10 +498,14 @@ bool Game::handleMouseButtonUp(const input::MouseButtonEvent &event) {
     return false;
 }
 
-void Game::loadModule(const std::string &name, std::string entry) {
+void Game::loadModule(const std::string &name, std::string entry, bool fromSave) {
     info("Loading module '" + name + "'");
 
-    withLoadingScreen("load_" + name, [this, &name, &entry]() {
+    if (_screen == Screen::Conversation && _conversation) {
+        _conversation->cleanupForModuleTransition();
+    }
+
+    withLoadingScreen("load_" + name, [this, &name, &entry, fromSave]() {
         loadInGameMenus();
 
         try {
@@ -516,6 +526,7 @@ void Game::loadModule(const std::string &name, std::string entry) {
             auto maybeModule = _loadedModules.find(name);
             if (maybeModule != _loadedModules.end()) {
                 _module = maybeModule->second;
+                _module->activate();
             } else {
                 _module = newModule();
                 _objectById.insert(std::make_pair(_module->id(), _module));
@@ -525,15 +536,17 @@ void Game::loadModule(const std::string &name, std::string entry) {
                     throw ResourceNotFoundException("Module IFO not found");
                 }
 
-                _module->load(name, *ifo);
+                _module->load(name, *ifo, fromSave);
                 _loadedModules.insert(std::make_pair(name, _module));
             }
 
             if (_party.isEmpty()) {
-                loadDefaultParty();
+                if (!loadParty()) {
+                    loadDefaultParty();
+                }
             }
 
-            _module->loadParty(entry);
+            _module->loadParty(entry, fromSave);
 
             info("Module '" + name + "' loaded successfully");
 
@@ -551,6 +564,69 @@ void Game::loadModule(const std::string &name, std::string entry) {
             error("Failed loading module '" + name + "': " + std::string(e.what()));
         }
     });
+}
+
+void Game::loadGame(std::string_view name) {
+    info(str(boost::format("Loading savegame '%s'") % name));
+
+    _services.resource.director.onGameLoad(name);
+    std::shared_ptr<Gff> globalVars(_services.resource.gffs.get("globalvars", ResType::Res));
+    if (!globalVars) {
+        throw ResourceNotFoundException("globalvars.res not found");
+    }
+
+    GVT gvt = resource::parseGVT(*globalVars);
+    _globalStrings.clear();
+    _globalBooleans.clear();
+    _globalNumbers.clear();
+    _globalLocations.clear();
+
+    for (auto &[name, value] : gvt.strings) {
+        setGlobalString(name, value);
+    }
+
+    for (auto &[name, value] : gvt.booleans) {
+        setGlobalBoolean(name, value);
+    }
+
+    for (auto &[name, value] : gvt.numbers) {
+        setGlobalNumber(name, value);
+    }
+
+    for (auto &[name, value] : gvt.locations) {
+        auto &[pos, rot] = value;
+        float facing = glm::half_pi<float>() - glm::atan(rot.x, rot.y);
+        setGlobalLocation(name, std::make_shared<Location>(pos, facing));
+    }
+
+    std::shared_ptr<Gff> saveInfo(_services.resource.gffs.get("savenfo", ResType::Res));
+    if (!saveInfo) {
+        throw ResourceNotFoundException("saveinfo.res not found");
+    }
+
+    NFO nfo = resource::parseNFO(*saveInfo);
+    loadModule(nfo.lastModule, /*entry=*/"", /*fromSave=*/true);
+}
+
+bool Game::loadParty() {
+    std::shared_ptr<Gff> ifo(_services.resource.gffs.get("module", ResType::Ifo));
+    if (!ifo) {
+        throw ResourceNotFoundException("module.ifo not found");
+    }
+
+    const auto &players = ifo->getList("Mod_PlayerList");
+    if (players.empty()) {
+        return false;
+    }
+
+    std::shared_ptr<Creature> player = newCreature();
+    _objectById.insert(std::make_pair(player->id(), player));
+    player->deserialize(*players.front());
+    player->setTag(kObjectTagPlayer);
+    _party.addMember(kNpcPlayer, player);
+    _party.setPlayer(player);
+
+    return true;
 }
 
 void Game::loadDefaultParty() {
@@ -1273,6 +1349,13 @@ void Game::openLevelUp() {
     setCursorType(CursorType::Default);
     _charGen->startLevelUp();
     changeScreen(Screen::CharacterGeneration);
+}
+
+void Game::notifyLevelUpPending(const Creature &creature) {
+    if (!_party.isMember(creature)) {
+        return;
+    }
+    _services.audio.mixer.play(_services.game.guiSounds.getOnLevelUpNotify(), AudioType::Sound);
 }
 
 void Game::startCharacterGeneration() {
@@ -1999,6 +2082,31 @@ void Game::consoleOpenCloseDoor(const ConsoleArgs &args) {
         target->close();
         // There is no Door::onClose yet
     }
+}
+
+void Game::consoleListGames(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+
+    std::stringstream ss;
+    unsigned index = 0;
+    const char *newline = "";
+    for (const std::string &name : _saveNames) {
+        ss << newline << "[" << index++ << "] " << name;
+        newline = "\n";
+    }
+    _console.printLine(ss.str());
+}
+
+void Game::consoleLoadGame(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "save_id");
+    size_t id = *args.get<size_t>(1);
+    const auto &_saveNames = _services.resource.director.saveNames();
+    if (id >= _saveNames.size()) {
+        throw std::runtime_error("Invalid savegame id");
+    }
+    auto name = _saveNames.begin();
+    std::advance(name, id);
+    loadGame(*name);
 }
 
 } // namespace game

@@ -21,6 +21,7 @@
 #include "reone/game/game.h"
 #include "reone/game/object/item.h"
 #include "reone/game/room.h"
+#include "reone/resource/gff.h"
 #include "reone/system/logutil.h"
 
 using namespace reone::graphics;
@@ -34,6 +35,50 @@ static constexpr float kKeepPathDuration = 1000.0f;
 static constexpr float kDefaultMaxObjectDistance = 2.0f;
 static constexpr float kMaxConversationDistance = 4.0f;
 static constexpr float kDistanceWalk = 4.0f;
+
+void Object::deserialize(const resource::Gff &gff) {
+    if (gff.readString(_tag, "Tag")) {
+        boost::to_lower(_tag);
+    }
+
+    // FIXME: not all of these properties are shared by all object subclasses.
+    gff.readResRef(_blueprintResRef, "TemplateResRef");
+    gff.readResRef(_conversation, "Conversation");
+    gff.readResRef(_onHeartbeat, "ScriptHeartbeat");
+    gff.readResRef(_onUserDefined, "ScriptUserDefine");
+    gff.readBool(_minOneHP, "Min1HP");
+    gff.readBool(_plot, "Plot");
+    gff.readBool(_commandable, "Commandable");
+    gff.readBool(_interruptable, "Interruptable");
+    gff.readShort(_hitPoints, "HitPoints");
+    gff.readShort(_maxHitPoints, "MaxHitPoints");
+    gff.readShort(_currentHitPoints, "CurrentHitPoints");
+
+    gff.readFloat(_position[0], "X");
+    gff.readFloat(_position[0], "XPosition");
+    gff.readFloat(_position[1], "Y");
+    gff.readFloat(_position[1], "YPosition");
+    gff.readFloat(_position[2], "Z");
+    gff.readFloat(_position[2], "ZPosition");
+
+    {
+        float cosine, sine;
+        if (gff.readFloat(cosine, "XOrientation") && gff.readFloat(sine, "YOrientation")) {
+            _orientation = glm::quat(glm::vec3(0.0f, 0.0f, -glm::atan(cosine, sine)));
+        }
+
+        float bearing;
+        if (gff.readFloat(bearing, "Bearing")) {
+            _orientation = glm::quat(glm::vec3(0.0f, 0.0f, bearing));
+        }
+    }
+
+    for (const auto &itemGff : gff.getList("ItemList")) {
+        std::shared_ptr<Item> item = _game.newItem();
+        item->deserialize(*itemGff);
+        addItem(item);
+    }
+}
 
 void Object::update(float dt) {
     updateActions(dt);

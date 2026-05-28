@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,26 +23,19 @@ namespace resource {
 
 class Gff;
 
-namespace generated {
+struct GVT {
+    using Boolean = std::pair<std::string, bool>;
+    using Number = std::pair<std::string, int>;
+    using String = std::pair<std::string, std::string>;
+    using Location = std::pair<std::string, std::pair<glm::vec3, glm::vec3>>;
 
-struct UTW {
-    uint8_t Appearance {0};
-    std::string Comment;
-    std::pair<int, std::string> Description;
-    uint8_t HasMapNote {0};
-    std::string LinkedTo;
-    std::pair<int, std::string> LocalizedName;
-    std::pair<int, std::string> MapNote;
-    uint8_t MapNoteEnabled {0};
-    uint8_t PaletteID {0};
-    std::string Tag;
-    std::string TemplateResRef;
+    std::vector<Boolean> booleans;
+    std::vector<Number> numbers;
+    std::vector<String> strings;
+    std::vector<Location> locations;
 };
 
-UTW parseUTW(const Gff &gff);
-
-} // namespace generated
+GVT parseGVT(const Gff &gff);
 
 } // namespace resource
-
 } // namespace reone

@@ -31,6 +31,8 @@
 #include "reone/scene/render/pass.h"
 #include "reone/system/logutil.h"
 
+#include <sstream>
+
 using namespace reone::graphics;
 using namespace reone::resource;
 using namespace reone::scene;
@@ -40,6 +42,7 @@ namespace reone {
 namespace gui {
 
 static constexpr int kItemPadding = 3;
+static constexpr glm::vec3 kInvalidItemBorderColor {1.0f, 0.0f, 0.0f};
 
 void ListBox::clearItems() {
     _items.clear();
@@ -61,11 +64,27 @@ void ListBox::addTextLinesAsItems(const std::string &text) {
     if (!_protoItem)
         return;
 
-    std::vector<std::string> lines(breakText(text, *_protoItem->text().font, getItemTextWidth()));
-    for (auto &line : lines) {
+    std::istringstream stream(text);
+    std::string logicalLine;
+    while (std::getline(stream, logicalLine)) {
+        std::vector<std::string> lines;
+        if (logicalLine.empty()) {
+            lines.push_back("");
+        } else {
+            lines = breakText(logicalLine, *_protoItem->text().font, getItemTextWidth());
+        }
+
+        for (auto &line : lines) {
+            Item item;
+            item.text = line;
+            item._textLines = std::vector<std::string> {line};
+            _items.push_back(std::move(item));
+        }
+    }
+
+    if (!text.empty() && text.back() == '\n') {
         Item item;
-        item.text = line;
-        item._textLines = std::vector<std::string> {line};
+        item._textLines = std::vector<std::string> {""};
         _items.push_back(std::move(item));
     }
 
@@ -358,7 +377,10 @@ void ListBox::renderItemWithButtonProtoIcon(
 
     _protoItem->setExtent(textExtent);
     _protoItem->setTextLines(item._textLines);
+    _protoItem->setBorderColorOverride(kInvalidItemBorderColor);
+    _protoItem->setUseBorderColorOverride(item.invalid);
     _protoItem->render(screenSize, offset, pass);
+    _protoItem->setUseBorderColorOverride(false);
     _protoItem->setExtent(originalExtent);
 
     if (!item.iconFrame && !item.iconTexture)
@@ -370,7 +392,7 @@ void ListBox::renderItemWithButtonProtoIcon(
     if (item.iconFrame) {
         glm::vec3 frameColor(_protoItem->isSelected() ? _protoItem->hilight().color : _protoItem->border().color);
         if (item.invalid) {
-            frameColor = glm::vec3(1.0f, 0.0f, 0.0f);
+            frameColor = kInvalidItemBorderColor;
         }
         pass.drawImage(*item.iconFrame, iconPosition, iconSize, glm::vec4(frameColor, 1.0f));
     }

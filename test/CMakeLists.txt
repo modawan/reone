@@ -47,6 +47,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/graphics/format/txireader.cpp
     ${TESTS_SOURCE_DIR}/graphics/keyframetrack.cpp
     ${TESTS_SOURCE_DIR}/graphics/walkmesh.cpp
+    ${TESTS_SOURCE_DIR}/json/gff.cpp
     ${TESTS_SOURCE_DIR}/resource/format/2dareader.cpp
     ${TESTS_SOURCE_DIR}/resource/format/2dawriter.cpp
     ${TESTS_SOURCE_DIR}/resource/format/bifreader.cpp
@@ -99,7 +100,7 @@ set_target_properties(tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_D
 target_include_directories(tests PRIVATE ${GTEST_INCLUDE_DIRS})
 
 target_precompile_headers(tests PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
-target_link_libraries(tests PRIVATE tools GTest::gmock_main)
+target_link_libraries(tests PRIVATE tools json GTest::gmock_main)
 
 if(MSVC)
     target_compile_options(tests PRIVATE /bigobj)

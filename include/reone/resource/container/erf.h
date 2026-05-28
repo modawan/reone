@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include "reone/system/stream/input.h"
-
 #include "../container.h"
+#include "utils.h"
 
 namespace reone {
 
@@ -27,9 +26,8 @@ namespace resource {
 
 class ErfResourceContainer : public IResourceContainer, boost::noncopyable {
 public:
-    ErfResourceContainer(std::filesystem::path path) :
-        _path(std::move(path)) {
-    }
+    ErfResourceContainer(Storage storage) :
+        _storage(std::move(storage)) {}
 
     void init();
 
@@ -48,8 +46,7 @@ private:
         uint32_t fileSize {0};
     };
 
-    std::filesystem::path _path;
-    std::unique_ptr<IInputStream> _erf;
+    Storage _storage;
 
     std::unordered_set<ResourceId> _resourceIds;
     std::unordered_map<ResourceId, Resource> _idToResource;

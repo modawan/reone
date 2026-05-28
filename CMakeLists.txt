@@ -35,6 +35,8 @@ option(BUILD_TESTS "build tests" ON)
 option(BUILD_LAUNCHER "build launcher application" ON)
 option(BUILD_TOOLKIT "build toolkit application" ON)
 option(BUILD_DATAMINER "build dataminer application" ON)
+option(BUILD_GFF2JSON "build gff2json application" ON)
+option(BUILD_UNERF "build unerf application" ON)
 
 option(ENABLE_MOVIE "enable movie playback" ON)
 option(ENABLE_MP3 "enable MP3 decoding" ON)
@@ -80,7 +82,7 @@ endif()
 if(REONE_PLATFORM_WEB)
     find_package(Boost REQUIRED)
 else()
-    find_package(Boost REQUIRED COMPONENTS program_options exception)
+    find_package(Boost REQUIRED COMPONENTS program_options exception json)
 endif()
 
 if(NOT REONE_PLATFORM_WEB)
@@ -169,6 +171,7 @@ add_subdirectory(src/libs/resource) # resource static library
 add_subdirectory(src/libs/graphics) # graphics static library
 add_subdirectory(src/libs/audio) # audio static library
 add_subdirectory(src/libs/input) # input static library
+add_subdirectory(src/libs/json) # json static library
 add_subdirectory(src/libs/gui) # gui static library
 add_subdirectory(src/libs/scene) # scene static library
 add_subdirectory(src/libs/movie) # movie static library
@@ -201,6 +204,14 @@ endif()
 
 if(BUILD_DATAMINER)
     add_subdirectory(src/apps/dataminer) # dataminer application
+endif()
+
+if(BUILD_GFF2JSON)
+    add_subdirectory(src/apps/gff2json) # gff2json application
+endif()
+
+if(BUILD_UNERF)
+    add_subdirectory(src/apps/unerf) # unpack ERF files
 endif()
 
 if(BUILD_TESTS)

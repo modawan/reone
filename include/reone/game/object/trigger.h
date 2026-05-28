@@ -20,8 +20,6 @@
 #include "reone/resource/format/gffreader.h"
 
 #include "../object.h"
-#include "reone/resource/parser/gff/git.h"
-#include "reone/resource/parser/gff/utt.h"
 
 namespace reone {
 
@@ -49,12 +47,12 @@ public:
             services) {
     }
 
-    static bool classof(Object *from) {
+    static bool classof(const Object *from) {
         return from->type() == ObjectType::Trigger;
     }
 
-    void loadFromGIT(const resource::generated::GIT_TriggerList &git);
     void loadFromBlueprint(const std::string &resRef);
+    void deserialize(const resource::Gff &gff);
 
     void update(float dt) override;
 
@@ -77,40 +75,40 @@ public:
     const std::string &linkedTo() const { return _linkedTo; }
 
 private:
-    std::string _transitionDestin;
-    std::string _linkedToModule;
-    std::string _linkedTo;
-    int _linkedToFlags {0};
-    Faction _faction {Faction::Invalid};
-    float _hilightHeight {0.0f};
-    int _triggerType {0};
-    bool _trapDetectable {false};
-    int _trapDetectDC {0};
-    bool _trapDisarmable {false};
-    int _disarmDC {0};
-    bool _trapFlag {false};
-    int _trapType {0};
-    std::vector<glm::vec3> _geometry;
-    std::set<std::shared_ptr<Object>> _tenants;
-    std::string _keyName;
-    float _debugTestAge {0.0f};
-    float _debugInsideAge {0.0f};
-    float _debugEnterAge {0.0f};
-
-    // Scripts
-
+    // Serializable
     std::string _onEnter;
     std::string _onExit;
     std::string _onDisarm;
     std::string _onTrapTriggered;
 
-    // END Scripts
+    uint8_t _trapType {0};
+    bool _trapOneShot {true};
+    std::string _linkedTo;
+    uint8_t _linkedToFlags {0};
+    std::string _linkedToModule;
+    bool _autoRemoveKey {false};
+    resource::LocString _locName;
+    Faction _faction {Faction::Invalid};
+    std::string _keyName;
+    bool _trapDisarmable {false};
+    bool _trapDetectable {false};
+    int32_t _triggerType {0};
+    float _highlightHeight {0.1f};
+    uint16_t _loadScreenId {0};
+    resource::LocString _transitionDestin;
+    bool _setByPlayerParty {false};
+    std::vector<glm::vec3> _geometry;
+    // END Serializable
 
-    void loadTransformFromGIT(const resource::generated::GIT_TriggerList &git);
-    void loadGeometryFromGIT(const resource::generated::GIT_TriggerList &git);
+    std::set<std::shared_ptr<Object>> _tenants;
+    float _debugTestAge {0.0f};
+    float _debugInsideAge {0.0f};
+    float _debugEnterAge {0.0f};
+
+    void deserializeAll(const resource::Gff &gff);
+    void loadAppearance();
+
     void syncDebugVisual();
-
-    void loadUTT(const resource::generated::UTT &utt);
 };
 
 } // namespace game

@@ -62,11 +62,12 @@ public:
             services) {
     }
 
-    static bool classof(Object *from) {
+    static bool classof(const Object *from) {
         return from->type() == ObjectType::Module;
     }
 
     void load(std::string name, const resource::Gff &ifo, bool fromSave = false);
+    void activate();
     void loadParty(const std::string &entry = "", bool fromSave = false);
 
     bool handle(const input::Event &event);

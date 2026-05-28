@@ -21,6 +21,8 @@
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
 
+#include "../../d20/feats.h"
+#include "../../types.h"
 #include "../../gui.h"
 
 namespace reone {
@@ -28,6 +30,7 @@ namespace reone {
 namespace gui {
 
 class Button;
+class IconChain;
 
 }
 
@@ -46,6 +49,8 @@ public:
         _resRef = guiResRef("ftchrgen");
     }
 
+    void reset(bool levelUp);
+
 private:
     struct Controls {
         std::shared_ptr<gui::Button> BTN_ACCEPT;
@@ -56,6 +61,7 @@ private:
         std::shared_ptr<gui::Label> LBL_BAR1;
         std::shared_ptr<gui::Label> LBL_BAR2;
         std::shared_ptr<gui::Label> LBL_NAME;
+        std::shared_ptr<gui::IconChain> ICONCHAIN_FEATS;
         std::shared_ptr<gui::ListBox> LB_DESC;
         std::shared_ptr<gui::ListBox> LB_FEATS;
         std::shared_ptr<gui::Label> MAIN_TITLE_LBL;
@@ -67,6 +73,11 @@ private:
     Controls _controls;
 
     CharacterGeneration &_charGen;
+    std::vector<FeatDisplayEntry> _displayEntries;
+    std::set<FeatType> _selectedFeats;
+    std::string _defaultFeatNameText;
+    int _points {0};
+    bool _levelUp {false};
 
     void onGUILoaded() override;
 
@@ -86,6 +97,21 @@ private:
         _controls.STD_SELECTIONS_REMAINING_LBL = findControl<gui::Label>("STD_SELECTIONS_REMAINING_LBL");
         _controls.SUB_TITLE_LBL = findControl<gui::Label>("SUB_TITLE_LBL");
     }
+
+    void loadLevelUpDisplayEntries();
+    void refreshControls();
+    void refreshSelectionControls();
+    void refreshIconChain();
+    void refreshIconChainSelection();
+    void refreshIconChainLinks();
+    void refreshListBox();
+    void updateCharacter();
+    void toggleSelectedFeat(FeatType feat);
+    void showFeatDescription(FeatType feat);
+    void resetFocusedFeatName();
+    void onFeatFocused(const std::string &feat);
+    void onFeatActivated(const std::string &feat);
+    void activateFocusedFeat();
 };
 
 } // namespace game
