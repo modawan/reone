@@ -11,10 +11,10 @@ on:
 permissions:
   contents: read
 
-# One job = one runner slot (avoids double-queue on busy free-tier pools).
+# Cancel superseded pushes on the same branch so only the latest run holds the concurrency slot.
 concurrency:
-  group: wasm-${{ github.ref }}
-  cancel-in-progress: false
+  group: wasm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   wasm-ci:

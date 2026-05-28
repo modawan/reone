@@ -6,6 +6,7 @@ cd "$root"
 
 python3 tools/web/test_serve_smoke.py
 
+# Game-mirror integration (no wasm in --directory); matches CI workflow step.
 mkdir -p /tmp/web-empty /tmp/gr
 printf 'xy' > /tmp/gr/swkotor.exe
 python3 tools/web/gen_game_manifest.py /tmp/gr --strict

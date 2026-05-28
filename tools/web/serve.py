@@ -568,9 +568,16 @@ def main():
             "(CMake/reone-web-output-dir.txt redirect)",
             flush=True,
         )
-    ensure_web_bundle_present(directory)
-    _log_bundle_sizes(directory)
     game_root = pathlib.Path(args.game_root).resolve() if args.game_root else None
+    if game_root and not (directory / "engine.html").is_file():
+        print(
+            f"reone serve: game-mirror-only mode — serving /game-* from {game_root} "
+            f"(no wasm bundle under {directory})",
+            flush=True,
+        )
+    else:
+        ensure_web_bundle_present(directory)
+        _log_bundle_sizes(directory)
     handler_factory = _handler_factory(directory, game_root, os.getpid())
 
     host = (args.host or "127.0.0.1").strip()
