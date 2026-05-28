@@ -26,6 +26,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 # One run per branch; cancel superseded pushes so parallel queued jobs do not exhaust the pool.
 concurrency:

@@ -16,7 +16,7 @@ OpenKotOR `Build WASM` jobs stay `queued` with zero steps while local `ci_build_
 
 - R1. Latest `wasm-ci` run on `cursor/web-wasm-gles-and-fs-access` completes **success** at head SHA.
 - R2. At most one active/queued `Build WASM` run per branch — **done** (`concurrency` + `cancel-in-progress: true`).
-- R3. Local `test_serve_smoke.py` and `ci_build_wasm.sh` remain passing.
+- R3. Local `test_serve_smoke.py` and `ci_build_wasm.sh` remain passing. **Verified 2026-05-28** (`verify_wasm_bundle.py` + serve smoke on existing `build-web/bin`).
 
 ## Findings (2026-05-28 deepen)
 
