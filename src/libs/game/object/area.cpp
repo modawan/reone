@@ -237,6 +237,7 @@ void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff
     loadSounds(gff);
     loadCameras(gff);
     loadEncounters(gff);
+    loadStores(gff);
 }
 
 void Area::loadProperties(const resource::generated::GIT &git) {
@@ -312,9 +313,10 @@ void Area::loadEncounters(const resource::Gff &gff) {
     }
 }
 
-void Area::loadStores(const resource::generated::GIT &git) {
-    for (auto &storeStruct : git.StoreList) {
+void Area::loadStores(const resource::Gff &gff) {
+    for (auto &storeGff : gff.getList("StoreList")) {
         std::shared_ptr<Store> store = _game.newStore(_sceneName);
+        store->deserialize(*storeGff);
         add(store);
     }
 }

@@ -352,7 +352,7 @@ private:
     void loadSounds(const resource::Gff &gff);
     void loadCameras(const resource::Gff &gff);
     void loadEncounters(const resource::Gff &gff);
-    void loadStores(const resource::generated::GIT &git);
+    void loadStores(const resource::Gff &gff);
 
     // END Loading GIT
 
