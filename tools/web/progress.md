@@ -13,7 +13,8 @@ Original prompt: ReOne WASM playability and openkotor-site integration — `game
 
 ## PR status (2026-05-27)
 
-- [modawan/reone#111](https://github.com/modawan/reone/pull/111) is **OPEN (draft)** — it was **not** merged on GitHub.
+- WASM branch merged with `upstream/master` (2026-05-28); pushed to **`origin/master`** (no PR workflow).
+- [modawan/reone#111](https://github.com/modawan/reone/pull/111) remains open on modawan fork (draft); OpenKotOR ships via direct master push.
 - A prior local-only `git merge upstream/master` was **reverted**; branch tip is again `origin/cursor/web-wasm-gles-and-fs-access`.
 - CI for fork PRs runs on **OpenKotOR/reone** when the head branch is pushed; `modawan/reone` may show “no checks” for cross-repo PRs until workflows are approved on the fork.
 
