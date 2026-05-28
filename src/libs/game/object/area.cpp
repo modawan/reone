@@ -236,7 +236,7 @@ void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff
     loadTriggers(gff);
     loadSounds(gff);
     loadCameras(gff);
-    loadEncounters(git);
+    loadEncounters(gff);
 }
 
 void Area::loadProperties(const resource::generated::GIT &git) {
@@ -304,10 +304,10 @@ void Area::loadCameras(const resource::Gff &gff) {
     }
 }
 
-void Area::loadEncounters(const resource::generated::GIT &git) {
-    for (auto &encounterStruct : git.Encounter_List) {
+void Area::loadEncounters(const resource::Gff &gff) {
+    for (auto &encounterGff : gff.getList("Encounter List")) {
         std::shared_ptr<Encounter> encounter = _game.newEncounter(_sceneName);
-        encounter->loadFromGIT(encounterStruct);
+        encounter->deserialize(*encounterGff);
         add(encounter);
     }
 }
