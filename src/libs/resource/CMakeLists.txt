@@ -66,7 +66,6 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/parser/gff/ifo.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/nfo.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/pth.h
-    ${RESOURCE_INCLUDE_DIR}/parser/gff/ute.h
     ${RESOURCE_INCLUDE_DIR}/parser/gff/utm.h
     ${RESOURCE_INCLUDE_DIR}/path.h
     ${RESOURCE_INCLUDE_DIR}/provider/2das.h
@@ -137,7 +136,6 @@ set(RESOURCE_SOURCES
     ${RESOURCE_SOURCE_DIR}/parser/gff/ifo.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/nfo.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/pth.cpp
-    ${RESOURCE_SOURCE_DIR}/parser/gff/ute.cpp
     ${RESOURCE_SOURCE_DIR}/parser/gff/utm.cpp
     ${RESOURCE_SOURCE_DIR}/provider/2das.cpp
     ${RESOURCE_SOURCE_DIR}/provider/audioclips.cpp

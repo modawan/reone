@@ -59,10 +59,6 @@ void Sound::deserializeAll(const resource::Gff &gff) {
         boost::to_lower(_tag);
     }
 
-    if (gff.readLocString(_locName, "LocName", _services.resource.strings)) {
-        _name = _locName.str();
-    }
-
     gff.readBool(_active, "Active");
     gff.readBool(_positional, "Positional");
     gff.readBool(_looping, "Looping");
