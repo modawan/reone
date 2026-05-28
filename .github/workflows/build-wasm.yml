@@ -80,12 +80,6 @@ jobs:
             ./emsdk activate 5.0.7
           fi
           source ./emsdk_env.sh
-          {
-            echo "EMSDK=$EMSDK"
-            echo "EM_CONFIG=$EM_CONFIG"
-            echo "EM_CACHE=$EM_CACHE"
-            echo "PATH=$PATH"
-          } >> "$GITHUB_ENV"
           emcc --version
 
       - name: Cache ccache
