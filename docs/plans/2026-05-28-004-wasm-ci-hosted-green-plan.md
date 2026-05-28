@@ -1,7 +1,7 @@
 ---
 title: "fix: Get hosted Build WASM green on head SHA"
 type: fix
-status: active
+status: completed
 date: 2026-05-28
 deepened: 2026-05-28
 ---

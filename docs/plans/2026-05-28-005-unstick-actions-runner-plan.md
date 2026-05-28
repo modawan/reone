@@ -1,7 +1,7 @@
 ---
 title: "fix: Unstick OpenKotOR Actions runner dispatch for Build WASM"
 type: fix
-status: active
+status: completed
 date: 2026-05-28
 ---
 
