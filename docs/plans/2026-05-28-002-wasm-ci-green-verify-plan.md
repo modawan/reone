@@ -1,7 +1,7 @@
 ---
 title: "fix: Confirm WASM CI green and runtime path"
 type: fix
-status: active
+status: completed
 date: 2026-05-28
 origin: docs/plans/2026-05-28-001-fix-wasm-ci-queue-and-runtime-plan.md
 ---
