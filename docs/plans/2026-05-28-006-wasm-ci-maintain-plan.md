@@ -1,7 +1,7 @@
 ---
 title: "chore: Maintain WASM CI on self-hosted runner"
 type: chore
-status: active
+status: completed
 date: 2026-05-28
 ---
 

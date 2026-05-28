@@ -6,7 +6,8 @@ Original prompt: ReOne WASM playability and openkotor-site integration — `game
 - `test_serve_smoke.py` passes.
 - Menu Playwright smoke needs `pip install playwright && python -m playwright install chromium` plus a real KotOR install (`--game-root`).
 - **CI parity script:** `tools/web/ci_build_wasm.sh` (same steps as `.github/workflows/build-wasm.yml`).
-- **CI queue (2026-05-28):** OpenKotOR `Build WASM` may sit in `queued` with zero steps (`runner_id: 0`, `updatedAt` frozen) — org runner pool or billing, not wasm compile. Cancel stale master workflows if needed; **`verify_wasm_bundle.py` + `test_serve_smoke.py` green locally** (2026-05-28); full rebuild via `ci_build_wasm.sh`.
+- **CI (2026-05-28):** **Green** on self-hosted runner `reone-wasm-BodenPC` — [run 26556694840](https://github.com/OpenKotOR/reone/actions/runs/26556694840) @ `76beb564`. Hosted `ubuntu-latest` may still queue forever (`runner_id: 0`); see `doc/ci-actions-unblock.md`. Runner persistence: `tools/web/install-wasm-runner-service.sh`.
+- **Tracking:** [OpenKotOR/reone#3](https://github.com/OpenKotOR/reone/issues/3) closed with resolution link to first green run [26556275588](https://github.com/OpenKotOR/reone/actions/runs/26556275588).
 - **Concurrency (2026-05-28):** Use `cancel-in-progress: true` per ref so only the latest push queues one `wasm-ci` job. Avoid `cancel-in-progress: false` (later runs stay `pending` behind a stuck `queued` run) and avoid removing concurrency entirely (parallel queued runs exhaust the org pool).
 - **serve.py (fixed):** CI integration smoke uses `--directory /tmp/web-empty --game-root …`; serve now allows **game-mirror-only** mode when `engine.html` is absent but `--game-root` is set.
 
