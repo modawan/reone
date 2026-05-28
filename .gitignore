@@ -520,4 +520,6 @@ build-web/
 tools/web/_minimal_kotor/
 tools/web/web-game-staged/
 tools/web/_smoke_menu.png
+tools/web/_smoke_menu_test.png
+tools/web/.venv/
 .cursor/

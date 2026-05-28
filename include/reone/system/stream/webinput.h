@@ -45,9 +45,12 @@ private:
     /** One ranged HTTP fetch per chunk instead of per read(); avoids browser connection_limits / ERR_INVALID_ARGUMENT. */
     void refillBuffer();
 
+    void ensureLength();
+
     std::string _path;
     int64_t _position {0};
     size_t _length {0};
+    bool _lengthKnown {false};
     std::vector<char> _buf;
     size_t _bufFileOffset {0};
     size_t _bufLen {0};

@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <typeinfo>
 
 #include <boost/format.hpp>
 
@@ -38,6 +39,8 @@
 #endif
 
 #ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+
 static std::unique_ptr<reone::Options> g_webOptions;
 static std::unique_ptr<reone::Engine> g_webEngine;
 
@@ -104,15 +107,29 @@ int main(int argc, char **argv) {
 #endif
         return exitCode;
     } catch (const std::exception &ex) {
-        auto message = str(boost::format("Engine failure: %1%") % ex.what());
+        const char *detail = ex.what();
+        std::string detailStr = (detail && *detail) ? detail : typeid(ex).name();
+        auto message = str(boost::format("Engine failure: %1%") % detailStr);
 #ifdef __EMSCRIPTEN__
         std::cerr << message << std::endl;
+        EM_ASM(
+            {
+                console.error(UTF8ToString($0));
+            },
+            message.c_str());
 #endif
         try {
             error(message);
         } catch (...) {
             std::cerr << message << std::endl;
         }
+        return 3;
+    } catch (...) {
+        const char *message = "Engine failure: unknown exception";
+#ifdef __EMSCRIPTEN__
+        std::cerr << message << std::endl;
+        EM_ASM({ console.error("Engine failure: unknown exception"); });
+#endif
         return 3;
     }
 }

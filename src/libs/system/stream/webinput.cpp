@@ -59,11 +59,18 @@ EM_ASYNC_JS(int, reone_web_file_read, (const char *path, double offset, char *bu
 
 WebFileInputStream::WebFileInputStream(const std::filesystem::path &path) :
     _path(path.generic_string()) {
+}
+
+void WebFileInputStream::ensureLength() {
+    if (_lengthKnown) {
+        return;
+    }
     auto len = reone_web_file_length(_path.c_str());
     if (len < 0) {
         throw std::runtime_error("Failed to stat web game file: " + _path);
     }
     _length = static_cast<size_t>(len);
+    _lengthKnown = true;
 }
 
 void WebFileInputStream::invalidateBuffer() {
@@ -71,6 +78,7 @@ void WebFileInputStream::invalidateBuffer() {
 }
 
 void WebFileInputStream::refillBuffer() {
+    ensureLength();
     size_t pos = static_cast<size_t>(_position);
     if (_bufLen != 0 && pos >= _bufFileOffset && pos < _bufFileOffset + _bufLen) {
         return;
@@ -93,6 +101,7 @@ void WebFileInputStream::refillBuffer() {
 }
 
 void WebFileInputStream::seek(int64_t offset, SeekOrigin origin) {
+    ensureLength();
     if (origin == SeekOrigin::Begin) {
         _position = offset;
     } else if (origin == SeekOrigin::Current) {
@@ -142,6 +151,7 @@ size_t WebFileInputStream::position() {
 }
 
 size_t WebFileInputStream::length() {
+    ensureLength();
     return _length;
 }
 

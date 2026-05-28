@@ -551,6 +551,29 @@
         fetchMirrorRange(originalPath, offset, MIRROR_PREFETCH_BYTES).catch(function () {});
     }
 
+    async function mirrorHttpHeadTotalBytes(relLower, originalPath) {
+        var url = httpGameFileUrl(originalPath);
+        var resp = await fetch(url, { method: "HEAD", credentials: "same-origin" });
+        if (!resp.ok) {
+            throw new Error("reone web: HEAD " + url + " -> HTTP " + resp.status);
+        }
+        var contentRange = resp.headers.get("Content-Range") || "";
+        var slash = contentRange.lastIndexOf("/");
+        if (slash !== -1) {
+            var total = Number(contentRange.slice(slash + 1));
+            if (Number.isFinite(total)) {
+                mirrorLengthCache[relLower] = total;
+                return total;
+            }
+        }
+        var len = Number(resp.headers.get("Content-Length") || "-1");
+        if (Number.isFinite(len) && len >= 0) {
+            mirrorLengthCache[relLower] = len;
+            return len;
+        }
+        return -1;
+    }
+
     async function mirrorHttpTotalBytes(relLower, originalPath) {
         if (Object.prototype.hasOwnProperty.call(mirrorLengthCache, relLower)) {
             return mirrorLengthCache[relLower];
@@ -560,6 +583,14 @@
         }
         mirrorLengthInflight[relLower] = (async function () {
             try {
+                try {
+                    var headTotal = await mirrorHttpHeadTotalBytes(relLower, originalPath);
+                    if (headTotal >= 0) {
+                        return headTotal;
+                    }
+                } catch (headErr) {
+                    console.warn("reone web: HEAD stat failed, falling back to Range:", originalPath, headErr);
+                }
                 var r = await fetchMirrorRange(originalPath, 0, 1);
                 var t = r.total;
                 mirrorLengthCache[relLower] = t;
@@ -569,6 +600,27 @@
             }
         })();
         return mirrorLengthInflight[relLower];
+    }
+
+    var HTTP_MIRROR_BOOT_FILES = ["chitin.key", "swkotor.exe", "dialog.tlk", "patch.erf"];
+
+    async function warmHttpMirrorBootFiles(lookup) {
+        for (var i = 0; i < HTTP_MIRROR_BOOT_FILES.length; ++i) {
+            var rel = HTTP_MIRROR_BOOT_FILES[i].toLowerCase();
+            var original = lookup[rel];
+            if (!original) {
+                continue;
+            }
+            setGateLoadingMessage("Preloading " + original + "…");
+            try {
+                var total = await mirrorHttpTotalBytes(rel, original);
+                if (typeof total === "number" && total >= 0 && total <= MIRROR_FULL_CACHE_MAX) {
+                    await mirrorHttpEnsureFullBytes(rel, original);
+                }
+            } catch (e) {
+                console.warn("reone web: boot preload failed for", original, e);
+            }
+        }
     }
 
     async function mirrorHttpEnsureFullBytes(relLower, originalPath) {
@@ -749,6 +801,8 @@
 
         Module.reoneWebHttpMirrorFiles = lookup;
         Module.reoneWebLazyGameFsActive = true;
+        setGateLoadingMessage("Indexed " + indexed + " lazy game files. Preloading boot archives…");
+        await warmHttpMirrorBootFiles(lookup);
         setGateLoadingMessage("Indexed " + indexed + " lazy game files. Starting engine…");
         return true;
     }
@@ -861,6 +915,19 @@
         await walk(rootHandle, "");
         Module.reoneWebHandleFiles = handleFiles;
         Module.reoneWebLazyGameFsActive = true;
+        setGateLoadingMessage("Preloading boot archives from your install…");
+        for (var bi = 0; bi < HTTP_MIRROR_BOOT_FILES.length; ++bi) {
+            var bootRel = HTTP_MIRROR_BOOT_FILES[bi].toLowerCase();
+            var bootHandle = handleFiles[bootRel];
+            if (!bootHandle) {
+                continue;
+            }
+            try {
+                await bootHandle.getFile();
+            } catch (e) {
+                console.warn("reone web: boot handle preload failed:", bootRel, e);
+            }
+        }
         setGateLoadingMessage("Finished indexing " + fileCount + " lazy files. Starting engine…");
     }
 

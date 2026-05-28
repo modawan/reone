@@ -4,7 +4,13 @@ Original prompt: ReOne WASM playability and openkotor-site integration — `game
 
 - Local **Release** wasm build succeeded with emsdk **5.0.7**: `build-web/bin/engine.{html,js,wasm,data}` (~7.5 MB wasm) passes `verify_wasm_bundle.py`.
 - `test_serve_smoke.py` passes.
-- Menu Playwright smoke needs `pip install playwright && python -m playwright install chromium` plus a real KotOR install (`--game-root`).
+- **Main menu smoke (retail install required):**
+  ```bash
+  export REONE_WEB_SMOKE_GAME_ROOT="/path/to/KotOR"   # chitin.key + swkotor.exe
+  ./tools/web/run_menu_smoke.sh
+  ```
+  Uses `tools/web/.venv` (Playwright). GemRB demo data is **not** a valid KotOR install (KEY/BIF mismatch).
+- Lazy web I/O: `WebFileInputStream` defers HTTP stat until first read (Asyncify-safe).
 - **CI parity script:** `tools/web/ci_build_wasm.sh` (same steps as `.github/workflows/build-wasm.yml`).
 - **CI (2026-05-28):** **Green** on self-hosted runner `reone-wasm-BodenPC` — [run 26556694840](https://github.com/OpenKotOR/reone/actions/runs/26556694840) @ `76beb564`. Hosted `ubuntu-latest` may still queue forever (`runner_id: 0`); see `doc/ci-actions-unblock.md`. Runner persistence: `tools/web/install-wasm-runner-service.sh`.
 - **Tracking:** [OpenKotOR/reone#3](https://github.com/OpenKotOR/reone/issues/3) closed with resolution link to first green run [26556275588](https://github.com/OpenKotOR/reone/actions/runs/26556275588).

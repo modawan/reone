@@ -191,6 +191,13 @@ class WebBuildRequestHandler(http.server.SimpleHTTPRequestHandler):
         if path_only in ("/", ""):
             self._serve_bundle_directory_index(head_only=True)
             return
+        if path_only == "/game-manifest.json":
+            self._serve_game_manifest(head_only=True)
+            return
+        if path_only.startswith("/game-files/"):
+            rel = path_only[len("/game-files/") :]
+            self._serve_lazy_game_file(rel, head_only=True)
+            return
         super().do_HEAD()
 
     def _resolve_under_game_root(self, relative_url_path: str) -> pathlib.Path | None:
@@ -209,14 +216,15 @@ class WebBuildRequestHandler(http.server.SimpleHTTPRequestHandler):
             return None
         return full
 
-    def _serve_game_manifest(self):
+    def _serve_game_manifest(self, *, head_only: bool = False):
         if not self._lazy_game_root:
             self.send_response(http.HTTPStatus.OK)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(_GAME_MANIFEST_STUB_BYTES)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            self.wfile.write(_GAME_MANIFEST_STUB_BYTES)
+            if not head_only:
+                self.wfile.write(_GAME_MANIFEST_STUB_BYTES)
             return
         manifest_path = self._lazy_game_root / "game-manifest.json"
         if not manifest_path.is_file():
@@ -225,9 +233,9 @@ class WebBuildRequestHandler(http.server.SimpleHTTPRequestHandler):
                 "game-manifest.json not found under game root — run tools/web/gen_game_manifest.py",
             )
             return
-        self._send_local_file(manifest_path)
+        self._send_local_file(manifest_path, head_only=head_only)
 
-    def _serve_lazy_game_file(self, relative_url_path: str):
+    def _serve_lazy_game_file(self, relative_url_path: str, *, head_only: bool = False):
         full_path = self._resolve_under_game_root(relative_url_path)
         if full_path is None:
             self.send_error(403 if self._lazy_game_root else 503)
@@ -235,9 +243,9 @@ class WebBuildRequestHandler(http.server.SimpleHTTPRequestHandler):
         if not full_path.is_file():
             self.send_error(404)
             return
-        self._send_local_file(full_path)
+        self._send_local_file(full_path, head_only=head_only)
 
-    def _send_local_file(self, full_path: pathlib.Path):
+    def _send_local_file(self, full_path: pathlib.Path, *, head_only: bool = False):
         file_size = full_path.stat().st_size
         ctype = mimetypes.guess_type(str(full_path))[0] or "application/octet-stream"
         range_pair = _parse_bytes_range(self.headers.get("Range"), file_size)
@@ -255,7 +263,8 @@ class WebBuildRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header("Content-Length", str(file_size))
                 self.send_header("Accept-Ranges", "bytes")
                 self.end_headers()
-                self.copyfile(f, self.wfile)
+                if not head_only:
+                    self.copyfile(f, self.wfile)
                 return
 
             start, end = range_pair
@@ -266,6 +275,8 @@ class WebBuildRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
             self.send_header("Accept-Ranges", "bytes")
             self.end_headers()
+            if head_only:
+                return
             f.seek(start)
             remaining = chunk_len
             buf_size = 256 * 1024

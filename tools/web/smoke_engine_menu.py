@@ -34,7 +34,18 @@ async def run(url: str, out_png: str, timeout_s: float, interval_s: float) -> in
     try:
         from playwright.async_api import async_playwright
     except ImportError:
-        print("Install: pip install playwright && python -m playwright install chromium", file=sys.stderr)
+        venv_py = _tools_web / ".venv" / "bin" / "python"
+        if venv_py.is_file():
+            print(
+                f"Playwright missing for {sys.executable}; re-run with: {venv_py} {' '.join(sys.argv)}",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "Install: cd tools/web && python3 -m venv .venv && .venv/bin/pip install playwright "
+                "&& .venv/bin/python -m playwright install chromium",
+                file=sys.stderr,
+            )
         return 2
 
     deadline = asyncio.get_event_loop().time() + timeout_s

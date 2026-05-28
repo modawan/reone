@@ -19,6 +19,7 @@
 
 #include "reone/resource/format/bifreader.h"
 #include "reone/resource/format/keyreader.h"
+#include "reone/system/exception/filenotfound.h"
 #include "reone/system/fileutil.h"
 #include "reone/system/stream/gameinput.h"
 
@@ -41,7 +42,13 @@ void KeyBifResourceContainer::init() {
 
     for (auto i = 0; i < keyReader.files().size(); ++i) {
         auto &file = keyReader.files()[i];
-        auto bifPath = getFileIgnoreCase(gamePath, file.filename);
+        std::filesystem::path bifPath;
+        try {
+            bifPath = getFileIgnoreCase(gamePath, file.filename);
+        } catch (const FileNotFoundException &) {
+            throw std::runtime_error(
+                "Missing BIF archive: " + file.filename + " (expected under " + gamePath.string() + ")");
+        }
         auto bif = openGameInputStream(bifPath);
         auto bifReader = BifReader(*bif);
         bifReader.load();
