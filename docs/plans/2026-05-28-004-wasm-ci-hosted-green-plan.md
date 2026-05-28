@@ -21,7 +21,8 @@ OpenKotOR `Build WASM` jobs stay `queued` with zero steps while local `ci_build_
 ## Findings (2026-05-28 deepen)
 
 - `OpenKotOR/reone` had multiple simultaneous `queued` jobs: **CodeQL** (~90m), **Auto Assign** (~24m), **Build WASM** (~17m) — all with empty steps → shared runner pool, not a wasm compile failure.
-- Mitigation: cancel stale non-wasm queued runs; avoid new pushes until `wasm-ci` completes; org admin may need to raise concurrency or fix stuck default-branch workflows.
+- After cancelling CodeQL/Auto Assign, **only** `Build WASM` remained queued; API shows `runner_id: 0` and `updatedAt` frozen → **no hosted runner assigned** (org Actions minutes/spending limit, org policy, or GitHub incident — not wasm compile).
+- Mitigation: org admin checks **Settings → Actions → General** and billing; use `workflow_dispatch` after pool recovers; local `./tools/web/ci_build_wasm.sh` proves R3.
 
 ## Implementation
 

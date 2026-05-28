@@ -6,7 +6,23 @@ on:
   workflow_dispatch:
   push:
     branches: [main, master, "cursor/**"]
+    paths:
+      - ".github/workflows/build-wasm.yml"
+      - "CMakeLists.txt"
+      - "src/**"
+      - "include/**"
+      - "glsl/**"
+      - "tools/web/**"
+      - "doc/webassembly.md"
   pull_request:
+    paths:
+      - ".github/workflows/build-wasm.yml"
+      - "CMakeLists.txt"
+      - "src/**"
+      - "include/**"
+      - "glsl/**"
+      - "tools/web/**"
+      - "doc/webassembly.md"
 
 permissions:
   contents: read

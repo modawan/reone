@@ -196,7 +196,11 @@ Do **not** rely on a plain `python -m http.server` for WASM + experimental pthre
 
 ## CI
 
-Workflow `.github/workflows/build-wasm.yml` builds `engine` with Emscripten on Ubuntu and uploads `engine.html`, `engine.js`, `engine.wasm`, and `engine.data` (glsl preload) as artifacts. It does **not** exercise the File System Access picker (non-automatable in default CI). The **serve-smoke** job validates `serve.py` manifest + HTTP Range behavior for lazy `/game-files/` reads.
+Workflow `.github/workflows/build-wasm.yml` runs a single **`wasm-ci`** job on `ubuntu-latest`: `test_serve_smoke.py`, game-mirror integration smoke, Emscripten **5.0.7** link, `verify_wasm_bundle.py`, `engine.html` HTTP smoke, artifact upload. It does **not** exercise the File System Access picker (non-automatable in default CI).
+
+**Local parity:** `source emsdk_env.sh` then `./tools/web/ci_build_wasm.sh`.
+
+**If Actions stays `queued` with zero steps for 15+ minutes** (API `runner_id: 0`, `updatedAt` not moving): this is usually **org runner pool / billing**, not a wasm compile failure. Check OpenKotOR **Settings → Actions** and spending limits; cancel stale queued workflows on `master` (CodeQL, Auto Assign); use **workflow_dispatch** after the pool recovers. Do not stack pushes — concurrency cancels the in-flight run.
 
 ## Production hosting and OpenKotOR site
 
