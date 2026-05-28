@@ -19,6 +19,8 @@
 
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/talktable.h"
+#include "reone/system/exception/endofstream.h"
+#include "reone/system/exception/validation.h"
 #include "reone/system/fileutil.h"
 #include "reone/system/stream/gameinput.h"
 
@@ -31,10 +33,14 @@ void Strings::init(const std::filesystem::path &gameDir) {
     if (!tlkPath) {
         return;
     }
-    auto tlk = openGameInputStream(*tlkPath);
-    auto tlkReader = TlkReader(*tlk);
-    tlkReader.load();
-    _table = tlkReader.table();
+    try {
+        auto tlk = openGameInputStream(*tlkPath);
+        auto tlkReader = TlkReader(*tlk);
+        tlkReader.load();
+        _table = tlkReader.table();
+    } catch (const ValidationException &) {
+        // Unsupported talk table revision (e.g. GemRB demo TLK V1); strings stay empty.
+    }
 }
 
 std::string Strings::getText(int strRef) {

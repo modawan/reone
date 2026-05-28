@@ -45,8 +45,15 @@ static std::unique_ptr<reone::Options> g_webOptions;
 static std::unique_ptr<reone::Engine> g_webEngine;
 
 static bool hasMountedGameData(const std::filesystem::path &gamePath) {
-    return std::filesystem::exists(gamePath / "swkotor.exe") ||
-           std::filesystem::exists(gamePath / "swkotor2.exe");
+    auto hasExe = [](const std::filesystem::path &exe) {
+        if (!std::filesystem::is_regular_file(exe)) {
+            return false;
+        }
+        std::error_code ec;
+        auto sz = std::filesystem::file_size(exe, ec);
+        return !ec && sz >= 512 * 1024;
+    };
+    return hasExe(gamePath / "swkotor.exe") || hasExe(gamePath / "swkotor2.exe");
 }
 #endif
 

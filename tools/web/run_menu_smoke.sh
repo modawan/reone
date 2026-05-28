@@ -14,8 +14,13 @@ if [[ -z "$game_root" ]]; then
   game_root="$("$venv/bin/python" "$root/tools/web/discover_game_root.py" 2>/dev/null || true)"
 fi
 if [[ -z "$game_root" ]]; then
-  echo "Set REONE_WEB_SMOKE_GAME_ROOT to your KotOR folder (chitin.key + swkotor.exe)." >&2
+  echo "No retail KotOR install found." >&2
+  echo "Set REONE_WEB_SMOKE_GAME_ROOT to your game folder (chitin.key >= 64 KiB, swkotor.exe >= 512 KiB, TLK V3.0)." >&2
   echo "Example: export REONE_WEB_SMOKE_GAME_ROOT=\"/path/to/KotOR\"" >&2
+  exit 1
+fi
+if ! "$venv/bin/python" -c "import pathlib, sys; sys.path.insert(0, '$root/tools/web'); from discover_game_root import _is_kotor_root; sys.exit(0 if _is_kotor_root(pathlib.Path('$game_root').resolve()) else 1)"; then
+  echo "Game root failed retail layout checks: $game_root" >&2
   exit 1
 fi
 exec "$venv/bin/python" "$root/tools/web/smoke_engine_menu.py" \

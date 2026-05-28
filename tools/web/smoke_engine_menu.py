@@ -27,6 +27,7 @@ _tools_web = pathlib.Path(__file__).resolve().parent
 if str(_tools_web) not in sys.path:
     sys.path.insert(0, str(_tools_web))
 
+from discover_game_root import _is_kotor_root
 from web_bundle_paths import resolve_web_build_directory
 
 
@@ -236,24 +237,23 @@ Get-CimInstance Win32_Process | Where-Object {
 
 
 def _kill_unix_tools_web_serve_py() -> None:
-    proc_root = pathlib.Path("/proc")
-    if not proc_root.is_dir():
+    try:
+        r = subprocess.run(
+            ["pgrep", "-f", "tools/web/serve.py"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return
-    for pid_dir in proc_root.glob("[0-9]*"):
-        try:
-            raw = (pid_dir / "cmdline").read_bytes()
-        except OSError:
-            continue
-        cmd = raw.replace(b"\0", b" ").decode("utf-8", "replace")
-        if "serve.py" not in cmd or "tools" not in cmd:
-            continue
-        if "/web/serve.py" not in cmd and "web/serve.py" not in cmd:
+    for pid_s in r.stdout.strip().split():
+        if not pid_s.isdigit():
             continue
         try:
-            pid = int(pid_dir.name)
+            pid = int(pid_s)
             print(f"[smoke nuke] SIGTERM serve.py PID {pid}", flush=True)
             os.kill(pid, signal.SIGTERM)
-        except (ValueError, ProcessLookupError, PermissionError):
+        except (ProcessLookupError, PermissionError):
             pass
 
 
@@ -515,7 +515,15 @@ def main() -> int:
         if not game_root or not game_root.is_dir():
             print(
                 "Smoke --spawn-serve requires --game-root or REONE_WEB_SMOKE_GAME_ROOT "
-                "pointing at a KotOR install (files stay on disk).",
+                "pointing at a retail KotOR install (chitin.key + swkotor.exe on disk).",
+                file=sys.stderr,
+            )
+            return 2
+        if not _is_kotor_root(game_root.resolve()):
+            print(
+                f"Game root does not look like retail KotOR 1: {game_root}\n"
+                "Need chitin.key >= 64 KiB, swkotor.exe >= 512 KiB, dialog.tlk TLK V3.0.\n"
+                "GemRB demo folders are not supported. Set REONE_WEB_SMOKE_GAME_ROOT to your install.",
                 file=sys.stderr,
             )
             return 2

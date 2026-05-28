@@ -31,20 +31,26 @@ static std::unordered_map<PEResType, ResType> kPEResTypeToResType {
 void ExeResourceContainer::init() {
     _exe = openGameInputStream(_path);
 
-    auto reader = PeReader(*_exe);
-    reader.load();
+    try {
+        auto reader = PeReader(*_exe);
+        reader.load();
 
-    for (auto &peRes : reader.resources()) {
-        auto resType = kPEResTypeToResType.find(peRes.type);
-        if (resType == kPEResTypeToResType.end()) {
-            continue;
+        for (auto &peRes : reader.resources()) {
+            auto resType = kPEResTypeToResType.find(peRes.type);
+            if (resType == kPEResTypeToResType.end()) {
+                continue;
+            }
+            auto resId = ResourceId(std::to_string(peRes.name), resType->second);
+            _resourceIds.insert(resId);
+            Resource res;
+            res.offset = peRes.offset;
+            res.size = peRes.size;
+            _idToResource.insert(std::make_pair(resId, std::move(res)));
         }
-        auto resId = ResourceId(std::to_string(peRes.name), resType->second);
-        _resourceIds.insert(resId);
-        Resource res;
-        res.offset = peRes.offset;
-        res.size = peRes.size;
-        _idToResource.insert(std::make_pair(resId, std::move(res)));
+    } catch (const std::exception &) {
+        // Web lazy FS may expose a placeholder swkotor.exe marker; cursor resources are optional.
+        _resourceIds.clear();
+        _idToResource.clear();
     }
 }
 

@@ -9,7 +9,30 @@ import sys
 
 
 def _is_kotor_root(p: pathlib.Path) -> bool:
-    return (p / "chitin.key").is_file() and (p / "swkotor.exe").is_file()
+    """Retail KotOR 1 layout — excludes GemRB demo stubs (tiny key/exe, TLK V1)."""
+    key = p / "chitin.key"
+    exe = p / "swkotor.exe"
+    tlk = p / "dialog.tlk"
+    if not key.is_file() or not exe.is_file():
+        return False
+    try:
+        key_sz = key.stat().st_size
+        exe_sz = exe.stat().st_size
+    except OSError:
+        return False
+    # GemRB demo: ~3 KiB key, 0-byte exe; retail key is hundreds of KiB+, exe is multi-MiB.
+    if key_sz < 64 * 1024 or exe_sz < 512 * 1024:
+        return False
+    if tlk.is_file():
+        try:
+            sig = tlk.read_bytes(8)
+        except OSError:
+            return False
+        if sig not in (b"TLK V3.0", b"TLK V1  "):
+            return False
+        if sig == b"TLK V1  ":
+            return False
+    return True
 
 
 def _candidates() -> list[pathlib.Path]:
@@ -26,11 +49,6 @@ def _candidates() -> list[pathlib.Path]:
         pathlib.Path("/mnt/c/GOG Games/Star Wars - KotOR"),
         pathlib.Path("/mnt/c/Program Files (x86)/LucasArts/KOTOR"),
         pathlib.Path("/mnt/d/Steam/steamapps/common/swkotor"),
-        pathlib.Path("/tmp/gemrb-kotor"),
-        pathlib.Path(
-            "/var/lib/flatpak/app/org.gemrb.gemrb/x86_64/stable/"
-            "d8f0a306e9ea69c0ddb88a95a490ad3fa033f09a1e58c8a2b550c9a51a59ea8b/files/share/gemrb/demo"
-        ),
     )
     out.extend(patterns)
     return out
