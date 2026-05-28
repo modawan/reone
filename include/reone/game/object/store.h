@@ -18,7 +18,8 @@
 #pragma once
 
 #include "../object.h"
-#include "reone/resource/parser/gff/utm.h"
+#include "reone/resource/gff.h"
+#include "reone/resource/strings.h"
 
 namespace reone {
 
@@ -42,6 +43,20 @@ public:
     static bool classof(const Object *from) {
         return from->type() == ObjectType::Store;
     }
+
+    void deserialize(const resource::Gff &gff);
+
+private:
+    // Serializable
+    resource::LocString _locName;
+    int32_t _markDown {100};
+    int32_t _markUp {100};
+    std::string _onOpenStore;
+    uint8_t _buySellFlag {0};
+    // END Serializable
+
+    void deserializeAll(const resource::Gff &gff);
+    void deserializeItems(const resource::Gff &gff);
 };
 
 } // namespace game
