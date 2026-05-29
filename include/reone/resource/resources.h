@@ -23,8 +23,6 @@
 #include "resource.h"
 
 #include "reone/extract/finder.h"
-#include "reone/extract/installation.h"
-
 namespace reone {
 
 namespace extract {
