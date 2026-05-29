@@ -80,6 +80,7 @@ private:
     int _step {0};
     bool _hasAttributes {false};
     bool _hasFeats {false};
+    bool _hasPowers {false};
 
     void onGUILoaded() override;
 
@@ -105,6 +106,7 @@ private:
 
     void doSetStep(int step);
     bool hasFeatChoices() const;
+    bool hasPowerChoices() const;
 };
 
 } // namespace game

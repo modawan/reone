@@ -25,8 +25,8 @@ namespace reone {
 
 namespace resource {
 
-class Strings;
-class TwoDAs;
+class IStrings;
+class ITwoDAs;
 
 } // namespace resource
 
@@ -43,7 +43,7 @@ public:
 
 class Classes : public IClasses {
 public:
-    Classes(resource::Strings &strings, resource::TwoDAs &twoDas) :
+    Classes(resource::IStrings &strings, resource::ITwoDAs &twoDas) :
         _strings(strings),
         _twoDas(twoDas) {
     }
@@ -66,8 +66,8 @@ private:
 
     // Services
 
-    resource::Strings &_strings;
-    resource::TwoDAs &_twoDas;
+    resource::IStrings &_strings;
+    resource::ITwoDAs &_twoDas;
 
     // END Services
 

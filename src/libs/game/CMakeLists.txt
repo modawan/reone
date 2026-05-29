@@ -197,6 +197,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/chargen/levelup.h
     ${GAME_INCLUDE_DIR}/gui/chargen/nameentry.h
     ${GAME_INCLUDE_DIR}/gui/chargen/portraitselect.h
+    ${GAME_INCLUDE_DIR}/gui/chargen/powers.h
     ${GAME_INCLUDE_DIR}/gui/chargen/quick.h
     ${GAME_INCLUDE_DIR}/gui/chargen/quickorcustom.h
     ${GAME_INCLUDE_DIR}/gui/chargen/skills.h
@@ -465,6 +466,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/chargen/levelup.cpp
     ${GAME_SOURCE_DIR}/gui/chargen/nameentry.cpp
     ${GAME_SOURCE_DIR}/gui/chargen/portraitselect.cpp
+    ${GAME_SOURCE_DIR}/gui/chargen/powers.cpp
     ${GAME_SOURCE_DIR}/gui/chargen/quick.cpp
     ${GAME_SOURCE_DIR}/gui/chargen/quickorcustom.cpp
     ${GAME_SOURCE_DIR}/gui/chargen/skills.cpp

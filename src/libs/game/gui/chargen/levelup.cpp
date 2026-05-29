@@ -19,6 +19,7 @@
 
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/feats.h"
+#include "reone/game/d20/spells.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
 #include "reone/gui/control/button.h"
@@ -51,6 +52,9 @@ void LevelUpMenu::onGUILoaded() {
     _controls.BTN_STEPNAME3->setOnClick([this]() {
         _charGen.openFeats();
     });
+    _controls.BTN_STEPNAME4->setOnClick([this]() {
+        _charGen.openPowers();
+    });
     _controls.BTN_STEPNAME5->setOnClick([this]() {
         _charGen.finish();
     });
@@ -60,18 +64,17 @@ void LevelUpMenu::reset() {
     int nextLevel = _charGen.character().attributes.getAggregateLevel() + 1;
     _hasAttributes = nextLevel % 4 == 0;
     _hasFeats = hasFeatChoices();
-
-    // TODO: Force Powers are not yet implemented
+    _hasPowers = hasPowerChoices();
 
     _controls.LBL_1->setVisible(_hasAttributes);
     _controls.LBL_3->setVisible(_hasFeats);
-    _controls.LBL_4->setVisible(false);
+    _controls.LBL_4->setVisible(_hasPowers);
     _controls.LBL_NUM1->setVisible(_hasAttributes);
     _controls.LBL_NUM3->setVisible(_hasFeats);
-    _controls.LBL_NUM4->setVisible(false);
+    _controls.LBL_NUM4->setVisible(_hasPowers);
     _controls.BTN_STEPNAME1->setVisible(_hasAttributes);
     _controls.BTN_STEPNAME3->setVisible(_hasFeats);
-    _controls.BTN_STEPNAME4->setVisible(false);
+    _controls.BTN_STEPNAME4->setVisible(_hasPowers);
 }
 
 void LevelUpMenu::goToNextStep() {
@@ -80,9 +83,12 @@ void LevelUpMenu::goToNextStep() {
         doSetStep(1);
         break;
     case 1:
-        doSetStep(_hasFeats ? 2 : 4);
+        doSetStep(_hasFeats ? 2 : (_hasPowers ? 3 : 4));
         break;
     case 2:
+        doSetStep(_hasPowers ? 3 : 4);
+        break;
+    case 3:
         doSetStep(4);
         break;
     default:
@@ -131,6 +137,24 @@ bool LevelUpMenu::hasFeatChoices() const {
     const CreatureAttributes &attributes = _charGen.character().attributes;
     std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(attributes.getEffectiveClass()));
     return _services.game.feats.getLevelUpChoiceCount(attributes, *clazz) > 0;
+}
+
+bool LevelUpMenu::hasPowerChoices() const {
+    const CreatureAttributes &attributes = _charGen.character().attributes;
+    std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(attributes.getEffectiveClass()));
+    if (!clazz) {
+        return false;
+    }
+
+    int targetClassLevel = attributes.getClassLevel(clazz->type()) + 1;
+    if (clazz->getPowerGain(targetClassLevel) <= 0) {
+        return false;
+    }
+
+    auto entries = _services.game.spells.getLevelUpDisplayEntries(attributes, *clazz, {});
+    return std::any_of(entries.begin(), entries.end(), [](const SpellDisplayEntry &entry) {
+        return entry.visible;
+    });
 }
 
 } // namespace game
