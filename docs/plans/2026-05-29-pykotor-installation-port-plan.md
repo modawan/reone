@@ -11,18 +11,17 @@ type: feat
 
 Replace reone's container-stack resource resolution with a C++ port of PyKotor's `Installation` / `FileResource` extract layer using PyKotor literal `SearchLocation` orders. Format Readers/Writers unchanged.
 
-## Progress (2026-05-29 LFG pass 13)
+## Progress (2026-05-29 LFG pass 14)
 
 ### Landed
-- **All CI green** on `1e2bfc49`: WASM + Linux + Windows + CodeQL (`266521221*`)
-- Retail Playwright menu smoke **PASS** (re-run pass 13, ~75s; fresh `_smoke_menu_verify.png`)
-- Stale warp smoke from pass 12 killed (hung `serve.py` + `tail` wrapper); menu gate is authoritative
+- **All CI green** on `179c9593` (`266537340*`) — PR merge-ready
+- Retail Playwright menu smoke **PASS** (~91s)
+- Module warp smoke **PASS** (`--warp end_m01aa`, ~98s to in-game; `EXIT:0`, `_smoke_warp_verify.png`)
+- PyKotor `Installation` port slice complete for engine/toolkit/tests; dataminer container stack deferred
 
 ### Partial / uncertain
-- Module warp smoke (`--warp end_m01aa`) not completed in pass 12 (timeout/hang); defer to manual or longer timeout slice
-- Container stack retirement deferred (dataminer still uses `KeyBifResourceContainer` etc.)
+- Headless canvas luminance probe near-black (known WebGL readback limitation); warp success gated on `reoneWebModuleReady` + logs
 
 ### Next steps
-- Merge [OpenKotOR/reone#4](https://github.com/OpenKotOR/reone/pull/4) when ready
-- Optional: module warp smoke with dedicated timeout budget
+- Merge [OpenKotOR/reone#4](https://github.com/OpenKotOR/reone/pull/4)
 - Dataminer → `Installation` migration (separate slice)
