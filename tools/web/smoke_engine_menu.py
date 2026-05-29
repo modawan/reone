@@ -246,11 +246,17 @@ async def run(
                         )
                         if not ok:
                             print(
-                                "Module.reoneWebWarpAsync/Warp not available (engine export missing?).",
+                                "Module.reoneWebWarpAsync/Warp failed or export missing.",
                                 flush=True,
                             )
+                            await page.screenshot(path=out_png, full_page=True)
+                            await browser.close()
+                            return 2
                     except Exception as e:
                         print(f"Failed to invoke reoneWebWarp: {e}", flush=True)
+                        await page.screenshot(path=out_png, full_page=True)
+                        await browser.close()
+                        return 2
                     warp_sent = True
 
                 if warp_sent and (

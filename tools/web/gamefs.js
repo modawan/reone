@@ -1137,6 +1137,15 @@
         console.log("reone web: module ready (in-game).");
     };
 
+    /** Primary module containers mirrored by ResourceDirector::loadModuleResources. */
+    function moduleEssentialMirrorRelPaths(moduleName) {
+        var low = String(moduleName || "").toLowerCase();
+        if (!low) {
+            return [];
+        }
+        return ["modules/" + low + ".rim", "modules/" + low + ".mod"];
+    }
+
     /** Relative mirror paths needed to load a KotOR module (rim / _s / lips / dlg). */
     function moduleMirrorRelPaths(moduleName) {
         var low = String(moduleName || "").toLowerCase();
@@ -1208,7 +1217,34 @@
 
     /** Preload module archives, then queue a pending module load via reone_web_warp. */
     Module.reoneWebWarpAsync = async function (name) {
+        var low = String(name || "").toLowerCase();
+        if (!low) {
+            console.error("reone web: warp module name required");
+            return false;
+        }
         await Module.reoneWebPreloadModuleFiles(name);
+        var lookup = Module.reoneWebHttpMirrorFiles || {};
+        var essential = moduleEssentialMirrorRelPaths(name);
+        var manifestHasPrimary = false;
+        var primaryReady = false;
+        for (var ei = 0; ei < essential.length; ++ei) {
+            var erel = essential[ei];
+            if (!lookup[erel]) {
+                continue;
+            }
+            manifestHasPrimary = true;
+            if (Module.reoneWebGameFileMemfsComplete("/game/" + erel)) {
+                primaryReady = true;
+                break;
+            }
+        }
+        if (manifestHasPrimary && !primaryReady) {
+            console.error(
+                "reone web: primary module archive not in MEMFS after preload; refusing warp for",
+                name
+            );
+            return false;
+        }
         return Module.reoneWebWarp(name);
     };
 
