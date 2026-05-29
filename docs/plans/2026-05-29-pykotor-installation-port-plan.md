@@ -11,21 +11,20 @@ type: feat
 
 Replace reone's container-stack resource resolution with a C++ port of PyKotor's `Installation` / `FileResource` extract layer using PyKotor literal `SearchLocation` orders. Format Readers/Writers unchanged.
 
-## Progress (2026-05-29 LFG pass 4)
+## Progress (2026-05-29 LFG pass 5)
 
 ### Landed
-- **Smoke fix:** defer module capsule indexing until `module_root` is set (boot no longer reads all `modules/*.rim` over HTTP mirror)
-- Search-order early exit in `Installation::locations` (first hit wins)
-- Chitin/capsule EOF wrapped with path context; wasm magic-byte checks in verify + smoke preflight
-- Retail smoke **PASS**: menu + `end_m01aa` warp (`REONE_WEB_SMOKE_GAME_ROOT` Steam install)
-- Test: `InstallationModuleRoot.skips_module_index_until_module_root_set`
+- Review autofix: `ResourceDirector` clears scope before setting shaderpack/glsl; save load appends folders
+- `texture.cpp` native build fix (ifdef brace structure)
+- Retail smoke **PASS** again after review commit (`9556a369`)
+- OpenKotOR WASM CI **green** @ `9556a369`
 
 ### Partial / uncertain
+- Linux/Windows native CI queued on `9556a369`
 - Native `ctest` not run locally (openal)
-- Container stack still in tree for dataminer
-- `loadLips`/`loadRims` still eager-index all capsules (not on boot canonical path)
+- `talkTableSearchOrder` / `movieSearchOrder` declared but not implemented
 
 ### Next steps
-- OpenKotOR CI green on push
+- Linux CI green confirmation
+- Implement missing finder helpers or remove dead declarations
 - Retire container stack from hot path
-- Optional: lazy lips/rims indexing when module loads
