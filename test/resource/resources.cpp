@@ -56,7 +56,7 @@ TEST(Resources, resolves_override_via_installation) {
         out.close();
     }
 
-    Installation installation(GameID::K1, tmp);
+    Installation installation(GameID::KotOR, tmp);
     Resources resources;
     resources.useInstallation(&installation);
 

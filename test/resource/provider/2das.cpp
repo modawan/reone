@@ -17,10 +17,11 @@
 
 #include <gtest/gtest.h>
 
+#include "reone/extract/installation.h"
 #include "reone/resource/2da.h"
-#include "reone/resource/container/memory.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/resources.h"
+#include "reone/system/stream/fileoutput.h"
 #include "reone/system/stream/memoryoutput.h"
 
 using namespace reone;
@@ -29,17 +30,26 @@ using namespace reone::resource;
 TEST(TwoDAs, should_get_2da_with_caching) {
     // given
 
-    auto resBytes = ByteBuffer();
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_2das";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "override");
+
+    ByteBuffer resBytes;
     auto res = MemoryOutputStream(resBytes);
     res.write("2DA V2.b\n", 9);
     res.write("label\t\0", 7);
     res.write("\x00\x00\x00\x00", 4);
     res.write("\x00\x00\x00\x00", 4);
 
-    auto resources = Resources();
-    auto provider = std::make_unique<MemoryResourceContainer>();
-    provider->add(ResourceId("sample", ResType::TwoDA), std::move(resBytes));
-    resources.add(std::move(provider));
+    {
+        FileOutputStream out(tmp / "override" / "sample.2da");
+        out.write(resBytes.data(), resBytes.size());
+        out.close();
+    }
+
+    extract::Installation installation(GameID::KotOR, tmp);
+    Resources resources;
+    resources.useInstallation(&installation);
 
     auto twoDas = TwoDAs(resources);
 
@@ -56,4 +66,6 @@ TEST(TwoDAs, should_get_2da_with_caching) {
     EXPECT_TRUE(static_cast<bool>(twoDa1));
     EXPECT_TRUE(static_cast<bool>(twoDa2));
     EXPECT_EQ(twoDa1.get(), twoDa2.get());
+
+    std::filesystem::remove_all(tmp);
 }

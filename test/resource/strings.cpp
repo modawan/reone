@@ -72,7 +72,7 @@ TEST(Strings, should_init_talktable_and_get_string_and_sound) {
     overrideTlk.close();
 
     auto strings = Strings();
-    extract::Installation installation(GameID::K1, tmpDirPath);
+    extract::Installation installation(GameID::KotOR, tmpDirPath);
 
     auto expectedText = std::string("Hello, world!");
     auto expectedSound = std::string("some_sound");

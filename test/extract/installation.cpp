@@ -57,7 +57,7 @@ TEST(InstallationSearchOrder, override_beats_modules_and_chitin) {
         out.close();
     }
 
-    Installation installation(GameID::K1, tmp);
+    Installation installation(GameID::KotOR, tmp);
     auto loc = installation.resource(ResourceId("probe", ResType::Txt), canonicalSearchOrder());
     ASSERT_TRUE(loc.has_value());
     auto data = loc->readData();
@@ -75,7 +75,7 @@ TEST(InstallationModuleRoot, filters_module_capsules_by_root) {
     writeErf(tmp / "modules" / "danm13.rim", "probe", ResType::Txt, ByteBuffer {'a'});
     writeErf(tmp / "modules" / "tar_m02.rim", "probe", ResType::Txt, ByteBuffer {'b'});
 
-    Installation installation(GameID::K1, tmp);
+    Installation installation(GameID::KotOR, tmp);
     installation.setModuleRoot("danm13");
     auto loc = installation.resource(ResourceId("probe", ResType::Txt), canonicalSearchOrder());
     ASSERT_TRUE(loc.has_value());
@@ -100,7 +100,7 @@ TEST(InstallationModuleRoot, skips_module_index_until_module_root_set) {
     writeErf(tmp / "modules" / "danm13.rim", "probe", ResType::Txt, ByteBuffer {'a'});
     writeErf(tmp / "modules" / "tar_m02.rim", "probe", ResType::Txt, ByteBuffer {'b'});
 
-    Installation installation(GameID::K1, tmp);
+    Installation installation(GameID::KotOR, tmp);
     auto loc = installation.resource(ResourceId("probe", ResType::Txt), canonicalSearchOrder());
     EXPECT_FALSE(loc.has_value());
 
@@ -130,7 +130,7 @@ TEST(InstallationResolveLooseRelativePath, finds_root_dialog_tlk) {
         out.close();
     }
 
-    Installation installation(GameID::K1, tmp);
+    Installation installation(GameID::KotOR, tmp);
     auto path = installation.resolveLooseRelativePath("dialog.tlk", talkTableSearchOrder());
 
     ASSERT_TRUE(path.has_value());
