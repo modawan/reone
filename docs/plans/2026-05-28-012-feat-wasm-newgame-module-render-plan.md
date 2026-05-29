@@ -1,6 +1,6 @@
 ---
 title: "feat: New Game -> load first module -> render area in browser WASM"
-status: active
+status: completed
 date: 2026-05-28
 type: feat
 ---
@@ -328,19 +328,19 @@ and `master` (no PR), per standing instruction.
 
 ---
 
-## Progress (2026-05-28 pass)
+## Progress (2026-05-29 — milestone complete)
 
 ### Landed
-- R1/R2: `Module.reoneWebPreloadModuleFiles` + `reoneWebWarpAsync` preload module RIM/MOD into MEMFS before warp; `loadModule("end_m01aa")` completes with `reoneWebModuleReady`.
-- R3 (partial): skip geometry-shader shadow passes on `__EMSCRIPTEN__`; WebGL BGR→RGB upload swizzle; empty-mesh draw guard.
-- R4: warp smoke exits 0; `_smoke_module_render.png` shows in-game area (Trask + Endar Spire room).
+- R1–R5 satisfied: `Module.reoneWebPreloadModuleFiles` + `reoneWebWarpAsync`; `loadModule("end_m01aa")` → `reoneWebModuleReady`; area renders in WASM.
+- R3: geometry-shader shadow passes skipped on `__EMSCRIPTEN__`; BGR→RGB upload swizzle; empty-mesh draw guard; FBO feedback-loop unbind (prior pass).
+- R4: `tools/web/run_menu_smoke.sh --warp end_m01aa` exits 0 (re-verified 2026-05-29); `_smoke_module_render.png` shows Endar Spire in-game.
+- Head `a0b5b33e` on `cursor/web-wasm-gles-and-fs-access`; PR [#111](https://github.com/modawan/reone/pull/111) updated.
+- OpenKotOR `Build WASM engine` CI **success** on head (`gh run 26617663753`).
 
 ### Partial / uncertain
-- Canvas luminance probe still reads 0 in headless Chromium; smoke trusts `reoneWebModuleReady` + screenshot instead.
-- `glVertexAttribPointer: Negative stride` warning remains for some MDL layouts (non-fatal; scene still draws).
-- Background lazy I/O (`models.bif` / `sounds.bif`) continues during in-game; not gated.
+- Canvas luminance probe reads 0 in headless Chromium; smoke trusts `reoneWebModuleReady` + screenshot.
+- `glVertexAttribPointer: Negative stride` warning on some MDL layouts (non-fatal).
+- modawan/reone `Build WASM` shows `action_required` on fork PR (workflow approval gate, not compile failure).
 
-### Next steps
-- Optional: decompress DXT textures on web when S3TC unavailable.
-- Drive literal New Game → chargen → module (deferred).
-- Commit to `cursor/web-wasm-gles-and-fs-access`; update PR #111.
+### Follow-up (out of scope)
+- DXT decompression when S3TC unavailable; literal New Game → chargen GUI; `refresh2DArray` BGR swizzle; strict `--require-canvas-luminance` CI gate.
