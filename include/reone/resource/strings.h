@@ -21,9 +21,11 @@
 
 #include "types.h"
 
-#include "reone/extract/installation.h"
-
 namespace reone {
+
+namespace extract {
+class Installation;
+}
 
 namespace resource {
 
