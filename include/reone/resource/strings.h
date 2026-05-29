@@ -21,6 +21,8 @@
 
 #include "types.h"
 
+#include "reone/extract/installation.h"
+
 namespace reone {
 
 namespace resource {
@@ -37,7 +39,7 @@ class Strings : public IStrings {
 public:
     Strings() = default;
 
-    void init(const std::filesystem::path &gameDir);
+    void init(extract::Installation &installation);
 
     std::string getText(int strRef) override;
     std::string getSound(int strRef) override;

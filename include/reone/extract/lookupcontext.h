@@ -15,28 +15,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/resource/provider/movies.h"
+#pragma once
 
-#include "reone/movie/format/bikreader.h"
-
-using namespace reone::movie;
+#include <filesystem>
+#include <vector>
 
 namespace reone {
 
-namespace resource {
+namespace extract {
 
-std::shared_ptr<IMovie> Movies::doGet(std::string name) {
-    auto path = _installation.moviePath(name);
-    if (!path) {
-        return nullptr;
-    }
+struct ResourceLookupContext {
+    std::vector<std::filesystem::path> customFolders;
+    std::vector<std::filesystem::path> customCapsules;
+};
 
-    BikReader bik(*path, _graphicsSvc, _audioPlayer);
-    bik.load();
-
-    return bik.movie();
-}
-
-} // namespace resource
+} // namespace extract
 
 } // namespace reone

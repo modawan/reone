@@ -15,28 +15,37 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/resource/provider/movies.h"
+#pragma once
 
-#include "reone/movie/format/bikreader.h"
-
-using namespace reone::movie;
+#include <vector>
 
 namespace reone {
 
-namespace resource {
+namespace extract {
 
-std::shared_ptr<IMovie> Movies::doGet(std::string name) {
-    auto path = _installation.moviePath(name);
-    if (!path) {
-        return nullptr;
-    }
+/// Mirrors PyKotor SearchLocation (installation.py) plus reone-only Executable.
+enum class SearchLocation {
+    Override = 0,
+    Modules = 1,
+    Chitin = 2,
+    TexturesTpa = 3,
+    TexturesTpb = 4,
+    TexturesTpc = 5,
+    TexturesGui = 6,
+    Music = 7,
+    Sound = 8,
+    Voice = 9,
+    Lips = 10,
+    Rims = 11,
+    CustomModules = 12,
+    CustomFolders = 13,
+    Executable = 14,
+    Root = 15,
+    Movies = 16,
+};
 
-    BikReader bik(*path, _graphicsSvc, _audioPlayer);
-    bik.load();
+using SearchScope = std::vector<SearchLocation>;
 
-    return bik.movie();
-}
-
-} // namespace resource
+} // namespace extract
 
 } // namespace reone

@@ -20,6 +20,7 @@
 #include "reone/audio/clip.h"
 #include "reone/audio/format/mp3reader.h"
 #include "reone/audio/format/wavreader.h"
+#include "reone/extract/finder.h"
 #include "reone/resource/resources.h"
 #include "reone/system/logutil.h"
 #include "reone/system/stream/memoryinput.h"
@@ -35,7 +36,8 @@ std::shared_ptr<AudioClip> AudioClips::doGet(std::string resRef) {
     // A single malformed/unreadable audio resource must never crash the engine to a black screen
     // (e.g. UI click/hover sounds on the main menu). Decode failures degrade to a silent clip.
     try {
-        auto m3pRes = _resources.find(ResourceId(resRef, ResType::Mp3));
+        auto order = extract::soundSearchOrder();
+        auto m3pRes = _resources.find(ResourceId(resRef, ResType::Mp3), order);
         if (m3pRes) {
             auto stream = MemoryInputStream(m3pRes->data);
             auto reader = Mp3Reader();
@@ -43,7 +45,7 @@ std::shared_ptr<AudioClip> AudioClips::doGet(std::string resRef) {
             clip = reader.stream();
         }
         if (!clip) {
-            auto wavRes = _resources.find(ResourceId(resRef, ResType::Wav));
+            auto wavRes = _resources.find(ResourceId(resRef, ResType::Wav), order);
             if (wavRes) {
                 auto stream = MemoryInputStream(wavRes->data);
                 auto mp3ReaderFactory = Mp3ReaderFactory();

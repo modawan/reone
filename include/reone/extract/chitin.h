@@ -15,28 +15,28 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/resource/provider/movies.h"
+#pragma once
 
-#include "reone/movie/format/bikreader.h"
+#include "fileresource.h"
 
-using namespace reone::movie;
+#include <filesystem>
+#include <vector>
 
 namespace reone {
 
-namespace resource {
+namespace extract {
 
-std::shared_ptr<IMovie> Movies::doGet(std::string name) {
-    auto path = _installation.moviePath(name);
-    if (!path) {
-        return nullptr;
-    }
+/// KEY/BIF virtual resource index (PyKotor Chitin).
+class Chitin {
+public:
+    explicit Chitin(std::filesystem::path keyPath);
 
-    BikReader bik(*path, _graphicsSvc, _audioPlayer);
-    bik.load();
+    const std::vector<FileResource> &resources() const { return _resources; }
 
-    return bik.movie();
-}
+private:
+    std::vector<FileResource> _resources;
+};
 
-} // namespace resource
+} // namespace extract
 
 } // namespace reone

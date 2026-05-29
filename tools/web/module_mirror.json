@@ -1,0 +1,14 @@
+{
+  "moduleArchiveRelPaths": [
+    "modules/{module}.rim",
+    "modules/{module}_s.rim",
+    "modules/{module}.mod",
+    "modules/{module}.erf",
+    "modules/{module}_loc.mod",
+    "modules/{module}_loc.erf",
+    "modules/{module}_dlg.mod",
+    "modules/{module}_dlg.erf",
+    "lips/{module}_loc.mod",
+    "lips/{module}_loc.erf"
+  ]
+}

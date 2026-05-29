@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "reone/extract/installation.h"
 #include "reone/graphics/di/services.h"
 #include "reone/movie/movie.h"
 
@@ -41,10 +42,10 @@ public:
 
 class Movies : public IMovies, boost::noncopyable {
 public:
-    Movies(std::filesystem::path gamePath,
+    Movies(extract::Installation &installation,
            graphics::GraphicsServices &graphicsSvc,
            audio::IAudioMixer &audioPlayer) :
-        _gamePath(gamePath),
+        _installation(installation),
         _graphicsSvc(graphicsSvc),
         _audioPlayer(audioPlayer) {
     }
@@ -63,7 +64,7 @@ public:
     }
 
 private:
-    std::filesystem::path _gamePath;
+    extract::Installation &_installation;
     graphics::GraphicsServices &_graphicsSvc;
     audio::IAudioMixer &_audioPlayer;
 

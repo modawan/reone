@@ -94,7 +94,14 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/strings.h
     ${RESOURCE_INCLUDE_DIR}/talktable.h
     ${RESOURCE_INCLUDE_DIR}/types.h
-    ${RESOURCE_INCLUDE_DIR}/typeutil.h)
+    ${RESOURCE_INCLUDE_DIR}/typeutil.h
+    ${REONE_INCLUDE_DIR}/reone/extract/capsule.h
+    ${REONE_INCLUDE_DIR}/reone/extract/chitin.h
+    ${REONE_INCLUDE_DIR}/reone/extract/fileresource.h
+    ${REONE_INCLUDE_DIR}/reone/extract/finder.h
+    ${REONE_INCLUDE_DIR}/reone/extract/installation.h
+    ${REONE_INCLUDE_DIR}/reone/extract/lookupcontext.h
+    ${REONE_INCLUDE_DIR}/reone/extract/searchlocation.h)
 
 set(RESOURCE_SOURCES
     ${RESOURCE_SOURCE_DIR}/2da.cpp
@@ -105,6 +112,11 @@ set(RESOURCE_SOURCES
     ${RESOURCE_SOURCE_DIR}/container/rim.cpp
     ${RESOURCE_SOURCE_DIR}/di/module.cpp
     ${RESOURCE_SOURCE_DIR}/director.cpp
+    ${RESOURCE_SOURCE_DIR}/extract/capsule.cpp
+    ${RESOURCE_SOURCE_DIR}/extract/chitin.cpp
+    ${RESOURCE_SOURCE_DIR}/extract/fileresource.cpp
+    ${RESOURCE_SOURCE_DIR}/extract/finder.cpp
+    ${RESOURCE_SOURCE_DIR}/extract/installation.cpp
     ${RESOURCE_SOURCE_DIR}/format/2dareader.cpp
     ${RESOURCE_SOURCE_DIR}/format/2dawriter.cpp
     ${RESOURCE_SOURCE_DIR}/format/bifreader.cpp

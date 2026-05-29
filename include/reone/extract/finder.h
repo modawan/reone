@@ -15,28 +15,31 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/resource/provider/movies.h"
+#pragma once
 
-#include "reone/movie/format/bikreader.h"
-
-using namespace reone::movie;
+#include "searchlocation.h"
 
 namespace reone {
 
-namespace resource {
+namespace extract {
 
-std::shared_ptr<IMovie> Movies::doGet(std::string name) {
-    auto path = _installation.moviePath(name);
-    if (!path) {
-        return nullptr;
-    }
+/// PyKotor tools/finder.canonical_search_order()
+const SearchScope &canonicalSearchOrder();
 
-    BikReader bik(*path, _graphicsSvc, _audioPlayer);
-    bik.load();
+/// PyKotor Installation.texture_resource_result() default order.
+const SearchScope &textureSearchOrder();
 
-    return bik.movie();
-}
+/// PyKotor Installation.sounds() default order.
+const SearchScope &soundSearchOrder();
 
-} // namespace resource
+/// Loose installation-root files (e.g. dialog.tlk).
+const SearchScope &talkTableSearchOrder();
+
+/// movies/*.bik lookup order.
+const SearchScope &movieSearchOrder();
+
+const char *searchLocationName(SearchLocation location);
+
+} // namespace extract
 
 } // namespace reone

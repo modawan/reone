@@ -17,19 +17,19 @@
 
 #include "reone/resource/strings.h"
 
-#include "reone/resource/exception/notfound.h"
 #include "reone/resource/talktable.h"
 #include "reone/system/exception/endofstream.h"
 #include "reone/system/exception/validation.h"
-#include "reone/system/fileutil.h"
 #include "reone/system/stream/gameinput.h"
 
 namespace reone {
 
 namespace resource {
 
-void Strings::init(const std::filesystem::path &gameDir) {
-    auto tlkPath = findFileIgnoreCase(gameDir, "dialog.tlk");
+void Strings::init(extract::Installation &installation) {
+    auto tlkPath = installation.resolveLooseRelativePath(
+        "dialog.tlk",
+        extract::SearchScope {extract::SearchLocation::Root});
     if (!tlkPath) {
         return;
     }
