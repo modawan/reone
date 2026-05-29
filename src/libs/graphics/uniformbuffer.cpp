@@ -28,9 +28,17 @@ void UniformBuffer::init() {
         return;
     }
     checkMainThread();
+    // std140 rounds a uniform block's size up to a multiple of 16 (a vec4). The C++ mirror structs end in
+    // trailing scalars and are not padded, so sizeof() can be smaller than the shader block. Desktop GL
+    // tolerates an undersized buffer bound via glBindBufferBase, but WebGL2/GLES rejects every draw with
+    // "uniform buffer too small" (black screen). Allocate the rounded-up size; upload only the real bytes.
+    _allocatedSize = (_size + 15) & ~static_cast<ptrdiff_t>(15);
     glGenBuffers(1, &_nameGL);
     glBindBuffer(GL_UNIFORM_BUFFER, _nameGL);
-    glBufferData(GL_UNIFORM_BUFFER, _size, _data, GL_DYNAMIC_DRAW);
+    glBufferData(GL_UNIFORM_BUFFER, _allocatedSize, nullptr, GL_DYNAMIC_DRAW);
+    if (_data && _size > 0) {
+        glBufferSubData(GL_UNIFORM_BUFFER, 0, _size, _data);
+    }
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
     _inited = true;
 }
@@ -53,6 +61,11 @@ void UniformBuffer::unbind(int index) {
 }
 
 void UniformBuffer::refresh() {
+    if (_size > _allocatedSize) {
+        // Grow (and re-pad) if the data outgrew the original allocation; keeps the bound range >= block size.
+        _allocatedSize = (_size + 15) & ~static_cast<ptrdiff_t>(15);
+        glBufferData(GL_UNIFORM_BUFFER, _allocatedSize, nullptr, GL_DYNAMIC_DRAW);
+    }
     glBufferSubData(GL_UNIFORM_BUFFER, 0, _size, _data);
 }
 

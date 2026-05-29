@@ -24,16 +24,18 @@ namespace reone {
 namespace resource {
 
 GameID GameProbe::probe() {
-    // If there is a KotOR executable then game is KotOR
     auto exePathK1 = findFileIgnoreCase(_gamePath, "swkotor.exe");
     if (exePathK1) {
         return GameID::KotOR;
     }
 
-    // If there is a TSL executable then game is TSL
     auto exePathK2 = findFileIgnoreCase(_gamePath, "swkotor2.exe");
     if (exePathK2) {
         return GameID::TSL;
+    }
+
+    if (findFileIgnoreCase(_gamePath, "chitin.key")) {
+        return GameID::KotOR;
     }
 
     throw std::runtime_error("Unable to determine game ID: " + _gamePath.string());

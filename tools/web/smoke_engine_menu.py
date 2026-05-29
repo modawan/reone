@@ -87,7 +87,18 @@ async def run(url: str, out_png: str, timeout_s: float, interval_s: float) -> in
                 pass
 
         page.on("console", _on_console)
-        page.on("pageerror", lambda exc: print(f"[pageerror] {exc}"))
+
+        def _on_pageerror(exc) -> None:
+            # exc is a playwright Error; .stack carries the symbolicated wasm frames
+            # (needs --profiling-funcs in the wasm link to show C++ names).
+            stack = getattr(exc, "stack", None)
+            print(f"[pageerror] {exc}", flush=True)
+            if stack and str(stack).strip() and str(stack).strip() != str(exc).strip():
+                print("--- pageerror stack ---", flush=True)
+                print(stack, flush=True)
+                print("--- end pageerror stack ---", flush=True)
+
+        page.on("pageerror", _on_pageerror)
 
         game_manifest_503 = {"hit": False}
 
@@ -488,7 +499,7 @@ def main() -> int:
         "--game-root",
         type=pathlib.Path,
         default=None,
-        help="Retail KotOR dir (chitin.key + swkotor.exe); also reads REONE_WEB_SMOKE_GAME_ROOT",
+        help="Retail KotOR dir (chitin.key required; swkotor.exe optional); also reads REONE_WEB_SMOKE_GAME_ROOT",
     )
     ap.add_argument(
         "--web-bin",
@@ -515,15 +526,15 @@ def main() -> int:
         if not game_root or not game_root.is_dir():
             print(
                 "Smoke --spawn-serve requires --game-root or REONE_WEB_SMOKE_GAME_ROOT "
-                "pointing at a retail KotOR install (chitin.key + swkotor.exe on disk).",
+                "pointing at a retail KotOR install (chitin.key on disk).",
                 file=sys.stderr,
             )
             return 2
         if not _is_kotor_root(game_root.resolve()):
             print(
                 f"Game root does not look like retail KotOR 1: {game_root}\n"
-                "Need chitin.key >= 64 KiB, swkotor.exe >= 512 KiB, dialog.tlk TLK V3.0.\n"
-                "GemRB demo folders are not supported. Set REONE_WEB_SMOKE_GAME_ROOT to your install.",
+                "Need chitin.key >= 64 KiB and dialog.tlk TLK V3.0 (swkotor.exe optional).\n"
+                "Set REONE_WEB_SMOKE_GAME_ROOT to your install, e.g. SteamLibrary/.../swkotor.",
                 file=sys.stderr,
             )
             return 2

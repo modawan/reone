@@ -16,7 +16,7 @@
     {
       "id": "webGameDir",
       "type": "promptString",
-      "description": "Absolute path to KotOR game directory for WASM preload (must contain swkotor.exe/swkotor2.exe and game assets)",
+      "description": "Absolute path to KotOR game directory for WASM preload (chitin.key + dialog.tlk; swkotor.exe optional)",
       "default": "C:/Games/Knights of the Old Republic"
     }
   ],

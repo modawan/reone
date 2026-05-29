@@ -6,7 +6,7 @@ Original prompt: ReOne WASM playability and openkotor-site integration — `game
 - `test_serve_smoke.py` passes.
 - **Main menu smoke (retail install required):**
   ```bash
-  export REONE_WEB_SMOKE_GAME_ROOT="/path/to/KotOR"   # chitin.key + swkotor.exe
+  export REONE_WEB_SMOKE_GAME_ROOT="/path/to/KotOR"   # chitin.key + dialog.tlk (swkotor.exe optional)
   ./tools/web/run_menu_smoke.sh
   ```
   Uses `tools/web/.venv` (Playwright). GemRB demo data is **not** a valid KotOR install (KEY/BIF mismatch).

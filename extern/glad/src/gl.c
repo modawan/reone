@@ -980,12 +980,21 @@ static int glad_gl_find_core_gl(void) {
     };
     int major = 0;
     int minor = 0;
+    int is_embedded = 0;
     version = (const char*) glad_glGetString(GL_VERSION);
     if (!version) return 0;
     for (i = 0;  prefixes[i];  i++) {
         const size_t length = strlen(prefixes[i]);
         if (strncmp(version, prefixes[i], length) == 0) {
             version += length;
+            /* OpenGL ES / WebGL contexts (prefix indices 0..2) expose the desktop-GL-3.1+
+               function set (UBOs, instancing, samplers) that this desktop loader otherwise
+               gates behind GL_VERSION_3_1..3_3. WebGL2 reports "OpenGL ES 3.0", so without
+               this the UBO entry points (glGetUniformBlockIndex, glUniformBlockBinding, ...)
+               stay NULL and crash as "null function". Desktop GL has no prefix -> unaffected. */
+            if (i <= 2) {
+                is_embedded = 1;
+            }
             break;
         }
     }
@@ -1001,9 +1010,9 @@ static int glad_gl_find_core_gl(void) {
     GLAD_GL_VERSION_2_0 = (major == 2 && minor >= 0) || major > 2;
     GLAD_GL_VERSION_2_1 = (major == 2 && minor >= 1) || major > 2;
     GLAD_GL_VERSION_3_0 = (major == 3 && minor >= 0) || major > 3;
-    GLAD_GL_VERSION_3_1 = (major == 3 && minor >= 1) || major > 3;
-    GLAD_GL_VERSION_3_2 = (major == 3 && minor >= 2) || major > 3;
-    GLAD_GL_VERSION_3_3 = (major == 3 && minor >= 3) || major > 3;
+    GLAD_GL_VERSION_3_1 = (major == 3 && minor >= 1) || major > 3 || (is_embedded && major >= 3);
+    GLAD_GL_VERSION_3_2 = (major == 3 && minor >= 2) || major > 3 || (is_embedded && major >= 3);
+    GLAD_GL_VERSION_3_3 = (major == 3 && minor >= 3) || major > 3 || (is_embedded && major >= 3);
     GLAD_GL_VERSION_4_0 = (major == 4 && minor >= 0) || major > 4;
 
     return GLAD_MAKE_VERSION(major, minor);

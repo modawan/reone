@@ -155,13 +155,25 @@ void Context::bindDrawFramebuffer(Framebuffer &buffer, std::vector<int> colorInd
         _drawFramebuffer = buffer;
     }
     if (!colorIndices.empty()) {
-        auto attachments = std::vector<GLenum>(colorIndices.size());
+        // WebGL2/GLES require glDrawBuffers slot i to be GL_COLOR_ATTACHMENTi or GL_NONE (positional).
+        // Putting COLOR_ATTACHMENTn at slot 0 (for n>0) is INVALID_OPERATION there, so build a positional
+        // array sized to max index + 1, GL_NONE for unused slots. Desktop GL accepts this form too.
+        int maxIndex = 0;
         for (size_t i = 0; i < colorIndices.size(); ++i) {
-            attachments[i] = kColorAttachments[colorIndices[i]];
+            if (colorIndices[i] > maxIndex) {
+                maxIndex = colorIndices[i];
+            }
         }
-        glDrawBuffers(attachments.size(), &attachments[0]);
+        auto attachments = std::vector<GLenum>(static_cast<size_t>(maxIndex) + 1, GL_NONE);
+        for (size_t i = 0; i < colorIndices.size(); ++i) {
+            attachments[colorIndices[i]] = kColorAttachments[colorIndices[i]];
+        }
+        glDrawBuffers(static_cast<GLsizei>(attachments.size()), &attachments[0]);
     } else {
-        glDrawBuffer(GL_NONE);
+        // glDrawBuffer (singular) is desktop-only; glDrawBuffers({GL_NONE}) is the WebGL2/GLES-safe
+        // equivalent for a color-less (depth-only) attachment and is also valid on desktop GL.
+        GLenum none = GL_NONE;
+        glDrawBuffers(1, &none);
     }
 }
 

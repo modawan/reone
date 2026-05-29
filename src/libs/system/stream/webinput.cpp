@@ -29,6 +29,8 @@ namespace reone {
 namespace {
 
 constexpr size_t kWebMirrorReadChunk = 1 * 1024 * 1024;
+/** Max bytes per EM_ASYNC_JS read — large single awaits can stall Asyncify under headless Chrome. */
+constexpr size_t kWebMirrorAsyncReadMax = 256 * 1024;
 
 } // namespace
 
@@ -86,18 +88,35 @@ void WebFileInputStream::refillBuffer() {
     if (pos >= _length) {
         return;
     }
+    // Align the buffer window to the full read chunk (kWebMirrorReadChunk) so the loaded window always
+    // contains pos. Each underlying async read stays capped at kWebMirrorAsyncReadMax. A previous bug
+    // aligned to kWebMirrorReadChunk (1 MiB) but read only kWebMirrorAsyncReadMax (256 KiB), so any pos
+    // more than 256 KiB past a 1 MiB boundary missed the window and read() returned 0 (zero-filled
+    // resources -> corrupt models/WAVs).
     size_t readStart = (pos / kWebMirrorReadChunk) * kWebMirrorReadChunk;
     size_t chunk = std::min(kWebMirrorReadChunk, _length - readStart);
     _buf.resize(chunk);
-    int r = reone_web_file_read(_path.c_str(), static_cast<double>(readStart), _buf.data(), static_cast<int>(chunk));
-    if (r < 0) {
-        throw std::runtime_error("Failed to read web game file: " + _path);
+    size_t filled = 0;
+    while (filled < chunk) {
+        size_t want = std::min(kWebMirrorAsyncReadMax, chunk - filled);
+        int r = reone_web_file_read(
+            _path.c_str(),
+            static_cast<double>(readStart + filled),
+            _buf.data() + filled,
+            static_cast<int>(want));
+        if (r < 0) {
+            throw std::runtime_error("Failed to read web game file: " + _path);
+        }
+        if (r == 0) {
+            break;
+        }
+        filled += static_cast<size_t>(r);
     }
-    if (r == 0) {
+    if (filled == 0) {
         throw std::runtime_error("Unexpected EOF reading web game file: " + _path);
     }
     _bufFileOffset = readStart;
-    _bufLen = static_cast<size_t>(r);
+    _bufLen = filled;
 }
 
 void WebFileInputStream::seek(int64_t offset, SeekOrigin origin) {

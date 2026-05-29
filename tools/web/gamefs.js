@@ -317,6 +317,21 @@
         return p.replace(/^\/+/, "");
     }
 
+    /** MEMFS paths must keep manifest/install casing; C++ directory_iterator is case-sensitive. */
+    function gameMemfsPath(relOriginal) {
+        return "/game/" + String(relOriginal || "").replace(/\\/g, "/");
+    }
+
+    function ensureGameFileParentMemfs(relOriginal) {
+        var rel = String(relOriginal || "").replace(/\\/g, "/");
+        var parts = rel.split("/").filter(Boolean);
+        if (parts.length > 1) {
+            ensureDirectory("/game/" + parts.slice(0, -1).join("/"));
+        } else {
+            ensureDirectory("/game");
+        }
+    }
+
     function ensureEmptyFile(path) {
         try {
             FS.stat(path);
@@ -526,13 +541,21 @@
     var mirrorLengthInflight = {};
     var mirrorFullBytes = {};
     var mirrorFullInflight = {};
+    /** Prefix bytes for huge BIFs (header + variable resource table) — KeyBif::init reads this slice only. */
+    var mirrorBifPrefixBytes = {};
     // Whole-file RAM cache only for *small* mirror files. Larger files (e.g. dialog.tlk ~5 MiB) previously used a
     // single Range for bytes=0-(N-1); combined with Asyncify + concurrent fetch slots that could stall headless runs.
     // Override with Module.reoneWebMirrorFullCacheMaxBytes (e.g. 64 << 20) when profiling desktop browsers only.
     var MIRROR_FULL_CACHE_MAX =
         typeof Module.reoneWebMirrorFullCacheMaxBytes === "number" && Module.reoneWebMirrorFullCacheMaxBytes > 0
             ? Module.reoneWebMirrorFullCacheMaxBytes
-            : 2 * 1024 * 1024;
+            : 24 * 1024 * 1024;
+    /** Boot archives listed in HTTP_MIRROR_BOOT_FILES may exceed MIRROR_FULL_CACHE_MAX (gui ERF ~106 MiB). */
+    var MIRROR_BOOT_FULL_CACHE_MAX =
+        typeof Module.reoneWebMirrorBootFullCacheMaxBytes === "number" &&
+        Module.reoneWebMirrorBootFullCacheMaxBytes > 0
+            ? Module.reoneWebMirrorBootFullCacheMaxBytes
+            : 160 * 1024 * 1024;
     // Default off: fire-and-forget prefetches compete for the same fetch slot pool as synchronous reads under Asyncify.
     // Set Module.reoneWebMirrorPrefetchBytes (e.g. 1<<20) to re-enable read-ahead tuning on desktop.
     var MIRROR_PREFETCH_BYTES =
@@ -602,11 +625,166 @@
         return mirrorLengthInflight[relLower];
     }
 
-    var HTTP_MIRROR_BOOT_FILES = ["chitin.key", "swkotor.exe", "dialog.tlk", "patch.erf"];
+    var HTTP_MIRROR_BOOT_FILES = [
+        "chitin.key",
+        "dialog.tlk",
+        "patch.erf",
+        "lips/global.mod",
+        "lips/localization.mod",
+        "TexturePacks/swpc_tex_gui.erf",
+        "TexturePacks/swpc_tex_tpc.erf",
+    ];
+
+    /** Read exactly len bytes from mirror/prefix cache (loops Range fetches when responses are short). */
+    async function readMirrorBytesExact(rel, original, offset, len) {
+        if (len <= 0) {
+            return new Uint8Array(0);
+        }
+        var prefix = mirrorBifPrefixBytes[rel];
+        if (prefix && prefix.length > 0 && offset < prefix.length) {
+            var endInPrefix = Math.min(offset + len, prefix.length);
+            var fromPrefix = prefix.subarray(offset, endInPrefix);
+            if (fromPrefix.length >= len) {
+                return new Uint8Array(fromPrefix);
+            }
+            var tailExact = await readMirrorBytesExact(rel, original, offset + fromPrefix.length, len - fromPrefix.length);
+            if (!tailExact || tailExact.length === 0) {
+                return fromPrefix.length ? new Uint8Array(fromPrefix) : null;
+            }
+            var mergedPrefix = new Uint8Array(fromPrefix.length + tailExact.length);
+            mergedPrefix.set(fromPrefix, 0);
+            mergedPrefix.set(tailExact, fromPrefix.length);
+            return mergedPrefix;
+        }
+        var out = new Uint8Array(len);
+        var got = 0;
+        while (got < len) {
+            var chunk = await fetchMirrorRange(original, offset + got, len - got);
+            if (!chunk || !chunk.bytes || chunk.bytes.length === 0) {
+                break;
+            }
+            var n = Math.min(chunk.bytes.length, len - got);
+            out.set(chunk.bytes.subarray(0, n), got);
+            got += n;
+        }
+        if (got === 0) {
+            return null;
+        }
+        return got === len ? out : out.subarray(0, got);
+    }
+
+    /** Fetch BIF variable resource tables for archives too large to MEMFS-cache whole (models.bif, sounds.bif). */
+    async function warmHttpMirrorBifIndexTables(lookup) {
+        for (var relKey in lookup) {
+            if (!Object.prototype.hasOwnProperty.call(lookup, relKey)) {
+                continue;
+            }
+            if (!/\.bif$/i.test(relKey)) {
+                continue;
+            }
+            var original = lookup[relKey];
+            var total = mirrorLengthCache[relKey];
+            if (typeof total !== "number") {
+                try {
+                    total = await mirrorHttpTotalBytes(relKey, original);
+                } catch (e) {
+                    console.warn("reone web: BIF index stat failed for", original, e);
+                    continue;
+                }
+            }
+            if (typeof total !== "number" || total <= MIRROR_FULL_CACHE_MAX) {
+                continue;
+            }
+            setGateLoadingMessage("Indexing BIF table " + original + "…");
+            try {
+                var hdr = await readMirrorBytesExact(relKey, original, 0, 20);
+                if (!hdr || hdr.length < 20) {
+                    continue;
+                }
+                var sig = String.fromCharCode.apply(null, hdr.subarray(0, 8));
+                if (sig !== "BIFFV1  ") {
+                    continue;
+                }
+                var dv = new DataView(hdr.buffer, hdr.byteOffset, hdr.byteLength);
+                var nvar = dv.getUint32(8, true);
+                var offTable = dv.getUint32(16, true);
+                var tableEnd = offTable + nvar * 16;
+                if (tableEnd > total || tableEnd < 20) {
+                    continue;
+                }
+                var slice = await readMirrorBytesExact(relKey, original, 0, tableEnd);
+                if (!slice || slice.length < tableEnd) {
+                    console.warn(
+                        "reone web: BIF index short read for",
+                        original,
+                        slice ? slice.length : 0,
+                        "expected",
+                        tableEnd
+                    );
+                    continue;
+                }
+                // Keep the index table in a plain JS cache. C++ pulls it synchronously via EM_ASM
+                // (reoneWebGetBifIndexBytes) during KeyBif::init — no Asyncify, no preRun _malloc.
+                // Do NOT _malloc/HEAPU8 here: warmHttpMirrorBifIndexTables runs in preRun, BEFORE
+                // __wasm_call_ctors initializes the C++ allocator, so calling _malloc traps as
+                // "null function or function signature mismatch".
+                mirrorBifPrefixBytes[relKey] = new Uint8Array(slice);
+            } catch (e) {
+                console.warn("reone web: BIF index preload failed for", original, e);
+            }
+        }
+    }
+
+    /** Synchronous index-table accessor for C++ KeyBif::init. Returns Uint8Array or null. */
+    Module.reoneWebGetBifIndexBytes = function (path) {
+        var rel = normalizeGamePath(path);
+        var bytes = mirrorBifPrefixBytes[rel];
+        return bytes && bytes.length > 0 ? bytes : null;
+    };
+
+    Module.reoneWebGameFileMemfsComplete = function (path) {
+        var rel = normalizeGamePath(path);
+        var lookup = Module.reoneWebHttpMirrorFiles || {};
+        var original = lookup[rel];
+        if (!original) {
+            return false;
+        }
+        var total = mirrorLengthCache[rel];
+        if (typeof total !== "number" || total < 0) {
+            return false;
+        }
+        try {
+            var st = FS.stat(gameMemfsPath(original));
+            return st.size === total;
+        } catch (e) {
+            return false;
+        }
+    };
 
     async function warmHttpMirrorBootFiles(lookup) {
-        for (var i = 0; i < HTTP_MIRROR_BOOT_FILES.length; ++i) {
-            var rel = HTTP_MIRROR_BOOT_FILES[i].toLowerCase();
+        var rels = HTTP_MIRROR_BOOT_FILES.slice();
+        for (var relKey in lookup) {
+            if (!Object.prototype.hasOwnProperty.call(lookup, relKey)) {
+                continue;
+            }
+            if (/^data\/.*\.bif$/i.test(relKey)) {
+                rels.push(relKey);
+            }
+            if (/^lips\/(global|localization)\.mod$/i.test(relKey)) {
+                rels.push(relKey);
+            }
+        }
+        var seen = {};
+        var bootSet = {};
+        for (var bi = 0; bi < HTTP_MIRROR_BOOT_FILES.length; ++bi) {
+            bootSet[String(HTTP_MIRROR_BOOT_FILES[bi]).toLowerCase()] = true;
+        }
+        for (var i = 0; i < rels.length; ++i) {
+            var rel = String(rels[i]).toLowerCase();
+            if (seen[rel]) {
+                continue;
+            }
+            seen[rel] = true;
             var original = lookup[rel];
             if (!original) {
                 continue;
@@ -614,8 +792,9 @@
             setGateLoadingMessage("Preloading " + original + "…");
             try {
                 var total = await mirrorHttpTotalBytes(rel, original);
-                if (typeof total === "number" && total >= 0 && total <= MIRROR_FULL_CACHE_MAX) {
-                    await mirrorHttpEnsureFullBytes(rel, original);
+                var maxFull = bootSet[rel] ? MIRROR_BOOT_FULL_CACHE_MAX : MIRROR_FULL_CACHE_MAX;
+                if (typeof total === "number" && total >= 0 && total <= maxFull) {
+                    await mirrorHttpEnsureFullBytes(rel, original, maxFull);
                 }
             } catch (e) {
                 console.warn("reone web: boot preload failed for", original, e);
@@ -623,15 +802,36 @@
         }
     }
 
-    async function mirrorHttpEnsureFullBytes(relLower, originalPath) {
+    function publishMirrorFullCacheToMemfs(relLower) {
+        var full = mirrorFullBytes[relLower];
+        if (!full || full.length === 0) {
+            return;
+        }
+        var lookup = Module.reoneWebHttpMirrorFiles || {};
+        var original = lookup[relLower] || relLower;
+        ensureGameFileParentMemfs(original);
+        var fsPath = gameMemfsPath(original);
+        try {
+            FS.writeFile(fsPath, full, { canOwn: true });
+        } catch (e) {
+            console.warn("reone web: MEMFS publish failed for", fsPath, e);
+        }
+    }
+
+    async function mirrorHttpEnsureFullBytes(relLower, originalPath, maxBytesOverride) {
         if (mirrorFullBytes[relLower]) {
+            publishMirrorFullCacheToMemfs(relLower);
             return mirrorFullBytes[relLower];
         }
         if (mirrorFullInflight[relLower]) {
             return mirrorFullInflight[relLower];
         }
         var total = mirrorLengthCache[relLower];
-        if (typeof total !== "number" || total < 0 || total > MIRROR_FULL_CACHE_MAX) {
+        var maxFull =
+            typeof maxBytesOverride === "number" && maxBytesOverride > 0
+                ? maxBytesOverride
+                : MIRROR_FULL_CACHE_MAX;
+        if (typeof total !== "number" || total < 0 || total > maxFull) {
             return null;
         }
         mirrorFullInflight[relLower] = (async function () {
@@ -640,7 +840,20 @@
                     total === 0
                         ? { bytes: new Uint8Array(0), total: 0 }
                         : await fetchMirrorRange(originalPath, 0, total);
-                mirrorFullBytes[relLower] = r.bytes || new Uint8Array(0);
+                var bytes = r.bytes || new Uint8Array(0);
+                if (total > 0 && bytes.length !== total) {
+                    throw new Error(
+                        "reone web: full preload size mismatch for " +
+                            originalPath +
+                            " (expected " +
+                            total +
+                            ", got " +
+                            bytes.length +
+                            ")"
+                    );
+                }
+                mirrorFullBytes[relLower] = bytes;
+                publishMirrorFullCacheToMemfs(relLower);
                 return mirrorFullBytes[relLower];
             } finally {
                 delete mirrorFullInflight[relLower];
@@ -673,11 +886,35 @@
         }
     };
 
+    var reoneReadSeq = 0;
+    function reoneReadWatchdog(seq, rel, offset, len) {
+        return setTimeout(function () {
+            var inflightKeys = Object.keys(mirrorFetchInflight);
+            console.warn(
+                "reone web: READ STALL seq=" + seq + " " + rel + " off=" + offset + " len=" + len +
+                    " | mirrorFetchActive=" + mirrorFetchActive +
+                    " waiters=" + mirrorFetchWaiters.length +
+                    " inflight=" + inflightKeys.length +
+                    " :: " + inflightKeys.slice(0, 8).join(" , ")
+            );
+        }, 3000);
+    }
+
     Module.reoneWebFileReadAsync = async function (path, offset, len) {
         var rel = normalizeGamePath(path);
         if (len <= 0) {
             return new Uint8Array(0);
         }
+        var __seq = ++reoneReadSeq;
+        var __wd = reoneReadWatchdog(__seq, rel, offset, len);
+        try {
+            return await reoneWebFileReadAsyncImpl(rel, offset, len);
+        } finally {
+            clearTimeout(__wd);
+        }
+    };
+
+    async function reoneWebFileReadAsyncImpl(rel, offset, len) {
         var handleFiles = Module.reoneWebHandleFiles || {};
         var handle = handleFiles[rel];
         if (handle) {
@@ -714,15 +951,25 @@
                 }
                 if (full && offset < full.length) {
                     var end = Math.min(offset + len, full.length);
-                    return full.subarray(offset, end);
+                    var slice = full.subarray(offset, end);
+                    if (slice.length >= len) {
+                        return new Uint8Array(slice);
+                    }
+                    var tailFull = await readMirrorBytesExact(rel, original, offset + slice.length, len - slice.length);
+                    if (!tailFull || tailFull.length === 0) {
+                        return slice.length ? new Uint8Array(slice) : null;
+                    }
+                    var outFull = new Uint8Array(slice.length + tailFull.length);
+                    outFull.set(slice, 0);
+                    outFull.set(tailFull, slice.length);
+                    return outFull;
                 }
             }
-            var readResult = await fetchMirrorRange(original, offset, len);
-            if (readResult && readResult.bytes && readResult.bytes.length > 0) {
-                queueMirrorPrefetch(rel, original, offset + readResult.bytes.length);
-                return readResult.bytes;
+            var exact = await readMirrorBytesExact(rel, original, offset, len);
+            if (exact && exact.length > 0) {
+                queueMirrorPrefetch(rel, original, offset + exact.length);
             }
-            return readResult ? readResult.bytes : null;
+            return exact;
         } catch (e) {
             console.error("reone web: range read failed:", rel, offset, len, e);
             return null;
@@ -768,7 +1015,7 @@
             if (shouldSkipHttpMirrorSubtree(lowDir)) {
                 continue;
             }
-            ensureDirectory("/game/" + lowDir);
+            ensureDirectory(gameMemfsPath(relDir));
         }
 
         var files = man.files;
@@ -781,7 +1028,7 @@
                 continue;
             }
             lookup[lowF] = relF;
-            ensureEmptyFile("/game/" + lowF);
+            ensureEmptyFile(gameMemfsPath(relF));
             indexed++;
             if ((indexed & 255) === 0) {
                 setGateLoadingMessage(
@@ -803,6 +1050,7 @@
         Module.reoneWebLazyGameFsActive = true;
         setGateLoadingMessage("Indexed " + indexed + " lazy game files. Preloading boot archives…");
         await warmHttpMirrorBootFiles(lookup);
+        await warmHttpMirrorBifIndexTables(lookup);
         setGateLoadingMessage("Indexed " + indexed + " lazy game files. Starting engine…");
         return true;
     }

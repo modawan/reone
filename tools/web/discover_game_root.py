@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print the first KotOR install root found (contains chitin.key + swkotor.exe)."""
+"""Print the first KotOR install root found (retail chitin.key; swkotor.exe optional)."""
 from __future__ import annotations
 
 import argparse
@@ -9,28 +9,24 @@ import sys
 
 
 def _is_kotor_root(p: pathlib.Path) -> bool:
-    """Retail KotOR 1 layout — excludes GemRB demo stubs (tiny key/exe, TLK V1)."""
+    """Retail KotOR 1 — KEY + TLK; matches native resource probe (exe optional)."""
     key = p / "chitin.key"
-    exe = p / "swkotor.exe"
     tlk = p / "dialog.tlk"
-    if not key.is_file() or not exe.is_file():
+    if not key.is_file():
         return False
     try:
-        key_sz = key.stat().st_size
-        exe_sz = exe.stat().st_size
+        if key.stat().st_size < 64 * 1024:
+            return False
     except OSError:
-        return False
-    # GemRB demo: ~3 KiB key, 0-byte exe; retail key is hundreds of KiB+, exe is multi-MiB.
-    if key_sz < 64 * 1024 or exe_sz < 512 * 1024:
         return False
     if tlk.is_file():
         try:
-            sig = tlk.read_bytes(8)
+            sig = tlk.read_bytes()[:8]
         except OSError:
             return False
-        if sig not in (b"TLK V3.0", b"TLK V1  "):
-            return False
         if sig == b"TLK V1  ":
+            return False
+        if sig != b"TLK V3.0":
             return False
     return True
 
@@ -49,6 +45,7 @@ def _candidates() -> list[pathlib.Path]:
         pathlib.Path("/mnt/c/GOG Games/Star Wars - KotOR"),
         pathlib.Path("/mnt/c/Program Files (x86)/LucasArts/KOTOR"),
         pathlib.Path("/mnt/d/Steam/steamapps/common/swkotor"),
+        pathlib.Path("/run/media/brunner56/MyBook/SteamLibrary/steamapps/common/swkotor"),
     )
     out.extend(patterns)
     return out
@@ -69,7 +66,7 @@ def main() -> int:
             else:
                 print(root)
             return 0
-    print("No KotOR install found (need chitin.key and swkotor.exe).", file=sys.stderr)
+    print("No KotOR install found (need chitin.key >= 64 KiB, dialog.tlk TLK V3.0).", file=sys.stderr)
     return 1
 
 

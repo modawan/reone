@@ -45,20 +45,25 @@ static std::unique_ptr<reone::Options> g_webOptions;
 static std::unique_ptr<reone::Engine> g_webEngine;
 
 static bool hasMountedGameData(const std::filesystem::path &gamePath) {
-    auto hasExe = [](const std::filesystem::path &exe) {
-        if (!std::filesystem::is_regular_file(exe)) {
-            return false;
-        }
-        std::error_code ec;
-        auto sz = std::filesystem::file_size(exe, ec);
-        return !ec && sz >= 512 * 1024;
-    };
-    return hasExe(gamePath / "swkotor.exe") || hasExe(gamePath / "swkotor2.exe");
+    const auto keyPath = gamePath / "chitin.key";
+#ifdef __EMSCRIPTEN__
+    // HTTP mirror / FS Access create 0-byte MEMFS markers; bytes load via WebFileInputStream.
+    if (EM_ASM_INT({ return Module.reoneWebLazyGameFsActive ? 1 : 0; }) != 0) {
+        return std::filesystem::exists(keyPath);
+    }
+#endif
+    if (!std::filesystem::is_regular_file(keyPath)) {
+        return false;
+    }
+    std::error_code ec;
+    auto sz = std::filesystem::file_size(keyPath, ec);
+    return !ec && sz >= 64 * 1024;
 }
 #endif
 
 using namespace reone;
 using namespace reone::graphics;
+using reone::graphics::TextureQuality;
 
 static constexpr char kLogFilename[] = "engine.log";
 static constexpr char kEngineStartupMessage[] = "reone smoke signal: engine startup";
@@ -76,10 +81,11 @@ int main(int argc, char **argv) {
     options->graphics.shadowResolution = 1;
     options->graphics.ssr = false;
     options->graphics.ssao = false;
+    options->graphics.textureQuality = TextureQuality::Low;
 
     if (!hasMountedGameData(options->game.path)) {
         std::cerr
-            << "reone web: no mounted game data at /game (need swkotor.exe or swkotor2.exe). "
+            << "reone web: no mounted game data at /game (need chitin.key from your KotOR install). "
             << "Pick your install folder in Chrome/Edge (File System Access), or use CMake embedded preload."
             << std::endl;
         return 0;

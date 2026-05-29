@@ -95,6 +95,10 @@ if(REONE_PLATFORM_WEB)
         # WebFileInputStream uses EM_ASYNC_JS + fetch/File System Access; sync XHR cannot read binary on the main thread.
         -sASYNCIFY=1
         "SHELL:-sASYNCIFY_IMPORTS=['reone_web_file_length','reone_web_file_read']"
+        # KotOR resource init unwinds a deep virtual-dispatch stack (loadGlobalResources -> ErfReader -> readString
+        # -> WebFileInputStream::refillBuffer -> async import). 128 KiB overflows that during rewind and corrupts the
+        # indirect call table -> "null function or function signature mismatch". 1 MiB clears the deepest init paths.
+        "SHELL:-sASYNCIFY_STACK_SIZE=1048576"
         # Do not use ASYNCIFY_ONLY here: EM_ASYNC_JS suspends deep under Engine::run; instrumenting
         # only main leaves unwound frames un-instrumented → RuntimeError: unreachable in Asyncify.
         -sALLOW_MEMORY_GROWTH=1
@@ -113,7 +117,9 @@ if(REONE_PLATFORM_WEB)
         OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/tools/web/gamefs.js")
     message(STATUS "reone web: Asyncify is on for lazy /game I/O; wasm links are much faster with -DCMAKE_BUILD_TYPE=Release than Debug")
     if(REONE_WEB_DEBUG_RUNTIME)
-        target_link_options(engine PRIVATE -sASSERTIONS=2)
+        # --profiling-funcs keeps the wasm name section so "null function or function signature
+        # mismatch" traps symbolicate to real C++ names instead of wasm-function[NNNN].
+        target_link_options(engine PRIVATE -sASSERTIONS=2 --profiling-funcs)
     else()
         # Override CMAKE_EXE_LINKER_FLAGS/toolchain presets that inject -sASSERTIONS=2 (last emcc flag wins).
         target_link_options(engine PRIVATE "SHELL:-sSTACK_OVERFLOW_CHECK=0" "SHELL:-sASSERTIONS=0")

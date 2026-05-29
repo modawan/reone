@@ -224,7 +224,9 @@ void Game::init() {
     _moduleNames = _services.resource.director.moduleNames();
     _saveNames = _services.resource.director.saveNames();
 
+#ifndef __EMSCRIPTEN__
     playVideo("legal");
+#endif
     openMainMenu();
 }
 
@@ -1069,6 +1071,11 @@ void Game::updateMusic() {
     if (_musicResRef.empty()) {
         return;
     }
+#ifndef R_ENABLE_MP3
+#ifdef __EMSCRIPTEN__
+    return;
+#endif
+#endif
     if (_music && _music->isPlaying()) {
         return;
     }

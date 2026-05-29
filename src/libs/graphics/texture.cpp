@@ -158,9 +158,15 @@ void Texture::configure2D() {
 
     switch (_properties.wrap) {
     case Wrapping::ClampToBorder:
+#ifdef __EMSCRIPTEN__
+        // WebGL2/GLES has no GL_CLAMP_TO_BORDER or GL_TEXTURE_BORDER_COLOR; clamp-to-edge is the closest.
+        glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+#else
         glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
         glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
         glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, &_properties.borderColor[0]);
+#endif
         break;
     case Wrapping::ClampToEdge:
         glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -180,10 +186,17 @@ void Texture::configureCubeMap() {
 
     switch (_properties.wrap) {
     case Wrapping::ClampToBorder:
+#ifdef __EMSCRIPTEN__
+        // WebGL2/GLES has no GL_CLAMP_TO_BORDER or GL_TEXTURE_BORDER_COLOR; clamp-to-edge is the closest.
+        glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(target, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+#else
         glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
         glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
         glTexParameteri(target, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
         glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, &_properties.borderColor[0]);
+#endif
         break;
     case Wrapping::ClampToEdge:
         glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -428,7 +441,13 @@ void Texture::flushGPUToCPU() {
     }
     layer.pixels->resize(bpp * _width * _height);
 
+#ifdef __EMSCRIPTEN__
+    // WebGL2/GLES has no glGetTexImage. CPU texture readback would need an FBO + glReadPixels; it is not
+    // on the main-menu path, so leave the (zero-filled) buffer rather than trap on a null GL pointer.
+    (void)layer;
+#else
     glGetTexImage(GL_TEXTURE_2D, 0, getPixelFormatGL(_pixelFormat), getPixelTypeGL(_pixelFormat), &(*layer.pixels)[0]);
+#endif
 }
 
 } // namespace graphics

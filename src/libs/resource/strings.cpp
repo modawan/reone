@@ -40,6 +40,8 @@ void Strings::init(const std::filesystem::path &gameDir) {
         _table = tlkReader.table();
     } catch (const ValidationException &) {
         // Unsupported talk table revision (e.g. GemRB demo TLK V1); strings stay empty.
+    } catch (const EndOfStreamException &) {
+        // Truncated or non-retail talk table.
     }
 }
 

@@ -15,7 +15,7 @@ if [[ -z "$game_root" ]]; then
 fi
 if [[ -z "$game_root" ]]; then
   echo "No retail KotOR install found." >&2
-  echo "Set REONE_WEB_SMOKE_GAME_ROOT to your game folder (chitin.key >= 64 KiB, swkotor.exe >= 512 KiB, TLK V3.0)." >&2
+  echo "Set REONE_WEB_SMOKE_GAME_ROOT to your game folder (chitin.key >= 64 KiB, dialog.tlk TLK V3.0)." >&2
   echo "Example: export REONE_WEB_SMOKE_GAME_ROOT=\"/path/to/KotOR\"" >&2
   exit 1
 fi

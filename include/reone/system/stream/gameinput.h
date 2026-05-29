@@ -40,10 +40,30 @@ inline bool isWebLazyGameFsActive() {
 }
 #endif
 
+#ifdef __EMSCRIPTEN__
+inline bool isWebGameFileMemfsComplete(const std::filesystem::path &path) {
+    return EM_ASM_INT(
+               {
+                   if (typeof Module.reoneWebGameFileMemfsComplete !== "function") {
+                       return 0;
+                   }
+                   return Module.reoneWebGameFileMemfsComplete(UTF8ToString($0)) ? 1 : 0;
+               },
+               path.generic_string().c_str()) != 0;
+}
+#endif
+
 inline std::unique_ptr<IInputStream> openGameInputStream(const std::filesystem::path &path) {
 #ifdef __EMSCRIPTEN__
-    if (isGamePath(path) && isWebLazyGameFsActive()) {
-        return std::make_unique<WebFileInputStream>(path);
+    if (isGamePath(path)) {
+        std::error_code ec;
+        const auto sz = std::filesystem::file_size(path, ec);
+        if (!ec && sz > 0 && isWebGameFileMemfsComplete(path)) {
+            return std::make_unique<FileInputStream>(path);
+        }
+        if (isWebLazyGameFsActive() || (!ec && sz == 0)) {
+            return std::make_unique<WebFileInputStream>(path);
+        }
     }
 #endif
     return std::make_unique<FileInputStream>(path);

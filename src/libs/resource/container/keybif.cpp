@@ -19,18 +19,67 @@
 
 #include "reone/resource/format/bifreader.h"
 #include "reone/resource/format/keyreader.h"
+#include "reone/system/exception/endofstream.h"
 #include "reone/system/exception/filenotfound.h"
 #include "reone/system/fileutil.h"
 #include "reone/system/stream/gameinput.h"
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+
+#include "reone/system/stream/memoryinput.h"
+#endif
 
 namespace reone {
 
 namespace resource {
 
+#ifdef __EMSCRIPTEN__
+namespace {
+
+// Large BIFs (models.bif/sounds.bif) exceed the MEMFS full-cache cap, so JS preloads only their
+// index table (header + variable resource table) into a JS-side cache. Pull those bytes synchronously
+// here — during init(), after __wasm_call_ctors — to avoid the fragile Asyncify file-read path on the
+// deep KEY/BIF init stack. Returns the index bytes, or empty when no cached table exists.
+ByteBuffer getWebBifIndexBytes(const std::filesystem::path &path) {
+    int len = EM_ASM_INT(
+        {
+            if (typeof Module.reoneWebGetBifIndexBytes !== "function") {
+                return -1;
+            }
+            var bytes = Module.reoneWebGetBifIndexBytes(UTF8ToString($0));
+            return bytes ? bytes.length | 0 : -1;
+        },
+        path.generic_string().c_str());
+    if (len <= 0) {
+        return ByteBuffer();
+    }
+    ByteBuffer buf;
+    buf.resize(static_cast<size_t>(len));
+    EM_ASM(
+        {
+            var bytes = Module.reoneWebGetBifIndexBytes(UTF8ToString($0));
+            if (bytes) {
+                HEAPU8.set(bytes.subarray(0, $2), $1);
+            }
+        },
+        path.generic_string().c_str(),
+        buf.data(),
+        len);
+    return buf;
+}
+
+} // namespace
+#endif
+
 void KeyBifResourceContainer::init() {
     auto key = openGameInputStream(_keyPath);
     auto keyReader = KeyReader(*key);
-    keyReader.load();
+    try {
+        keyReader.load();
+    } catch (const EndOfStreamException &) {
+        throw std::runtime_error("EOF reading KEY: " + _keyPath.string());
+    }
 
     auto gamePath = _keyPath.parent_path();
     auto &files = keyReader.files();
@@ -50,11 +99,31 @@ void KeyBifResourceContainer::init() {
                 "Missing BIF archive: " + file.filename + " (expected under " + gamePath.string() + ")");
         }
         auto bif = openGameInputStream(bifPath);
-        auto bifReader = BifReader(*bif);
-        bifReader.load();
+        std::vector<BifReader::ResourceEntry> bifResources;
+#ifdef __EMSCRIPTEN__
+        ByteBuffer webIndex = getWebBifIndexBytes(bifPath);
+        if (!webIndex.empty()) {
+            MemoryInputStream indexStream(webIndex);
+            BifReader indexReader(indexStream);
+            try {
+                indexReader.load();
+            } catch (const EndOfStreamException &) {
+                throw std::runtime_error("EOF reading BIF index: " + bifPath.string());
+            }
+            bifResources = indexReader.resources();
+        } else
+#endif
+        {
+            BifReader bifReader(*bif);
+            try {
+                bifReader.load();
+            } catch (const EndOfStreamException &) {
+                throw std::runtime_error("EOF reading BIF: " + bifPath.string());
+            }
+            bifResources = bifReader.resources();
+        }
 
         auto &keys = bifIdxToKey.at(i);
-        auto &bifResources = bifReader.resources();
 
         for (auto &key : keys) {
             auto &bifResource = bifResources[key->resIdx];
