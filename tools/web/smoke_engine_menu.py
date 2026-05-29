@@ -11,7 +11,6 @@ import argparse
 import asyncio
 import base64
 import json
-import re
 from collections import deque
 import os
 import pathlib
