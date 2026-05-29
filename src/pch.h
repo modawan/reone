@@ -61,7 +61,7 @@
 #include <boost/noncopyable.hpp>
 #include <boost/program_options.hpp>
 
-#include "glad/gl.h"
+#include "glad/gles2.h"
 #include "SDL3/SDL_events.h"
 #include "SDL3/SDL_timer.h"
 

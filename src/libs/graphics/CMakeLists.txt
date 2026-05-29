@@ -18,6 +18,7 @@ set(GRAPHICS_SOURCE_DIR ${CMAKE_SOURCE_DIR}/src/libs/graphics)
 set(GLAD_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/extern/glad/include)
 
 set(GRAPHICS_HEADERS
+    ${GLAD_INCLUDE_DIR}/glad/gles2.h
     ${GRAPHICS_INCLUDE_DIR}/aabb.h
     ${GRAPHICS_INCLUDE_DIR}/animation.h
     ${GRAPHICS_INCLUDE_DIR}/attachment.h
@@ -69,7 +70,7 @@ set(GRAPHICS_HEADERS
     ${GRAPHICS_INCLUDE_DIR}/window.h)
 
 set(GRAPHICS_SOURCES
-    ${CMAKE_SOURCE_DIR}/extern/glad/src/gl.c
+    ${CMAKE_SOURCE_DIR}/extern/glad/src/gles2.cpp
     ${GRAPHICS_SOURCE_DIR}/aabb.cpp
     ${GRAPHICS_SOURCE_DIR}/animation.cpp
     ${GRAPHICS_SOURCE_DIR}/camera.cpp
