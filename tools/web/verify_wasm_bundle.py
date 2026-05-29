@@ -32,7 +32,8 @@ def _check_file(p: pathlib.Path, n: str, required: bool) -> list[str]:
         errs.append(f"verify_wasm_bundle: {p} is only {sz} bytes (link failed or file locked?)")
     if n == "engine.wasm" and sz >= 8:
         try:
-            head = p.read_bytes()[:8]
+            with p.open("rb") as f:
+                head = f.read(8)
             if not head.startswith(_WASM_MAGIC):
                 errs.append(f"verify_wasm_bundle: {p} missing wasm magic (got {head[:4]!r})")
         except OSError as e:
