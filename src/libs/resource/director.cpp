@@ -111,10 +111,10 @@ void ResourceDirector::loadGlobalResources() {
     }
 #endif
 
-    _installation.setCustomFolders(std::move(customFolders));
-    _installation.setCustomCapsules(std::move(customCapsules));
     _installation.clearModuleScope();
     _installation.clearSaveScope();
+    _installation.setCustomFolders(std::move(customFolders));
+    _installation.setCustomCapsules(std::move(customCapsules));
 }
 
 void ResourceDirector::loadModuleResources(const std::string &name) {
@@ -144,7 +144,9 @@ void ResourceDirector::loadSaveGameResources(std::string_view name) {
         throw ResourceNotFoundException("savegame.sav not found");
     }
 
-    _installation.setCustomFolders({*savePath});
+    auto customFolders = _installation.customFolders();
+    customFolders.push_back(*savePath);
+    _installation.setCustomFolders(std::move(customFolders));
     _installation.setCustomCapsules({*savegamePath});
 }
 

@@ -114,6 +114,7 @@ TEST(InstallationModuleRoot, skips_module_index_until_module_root_set) {
     std::filesystem::remove_all(tmp);
 }
 
+TEST(InstallationResolveLooseRelativePath, finds_root_dialog_tlk) {
     auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_root_files";
     std::filesystem::remove_all(tmp);
     std::filesystem::create_directories(tmp / "override");
