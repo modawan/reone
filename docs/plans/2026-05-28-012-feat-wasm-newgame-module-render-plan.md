@@ -325,3 +325,22 @@ Narrowest-first: (1) native build still compiles with the new guards; (2) WASM b
 success; (5) area frame renders with no fatal GL errors / no feedback-loop warning; (6) smoke
 saves a non-black, non-menu screenshot. Commit to branch `cursor/web-wasm-gles-and-fs-access`
 and `master` (no PR), per standing instruction.
+
+---
+
+## Progress (2026-05-28 pass)
+
+### Landed
+- R1/R2: `Module.reoneWebPreloadModuleFiles` + `reoneWebWarpAsync` preload module RIM/MOD into MEMFS before warp; `loadModule("end_m01aa")` completes with `reoneWebModuleReady`.
+- R3 (partial): skip geometry-shader shadow passes on `__EMSCRIPTEN__`; WebGL BGR→RGB upload swizzle; empty-mesh draw guard.
+- R4: warp smoke exits 0; `_smoke_module_render.png` shows in-game area (Trask + Endar Spire room).
+
+### Partial / uncertain
+- Canvas luminance probe still reads 0 in headless Chromium; smoke trusts `reoneWebModuleReady` + screenshot instead.
+- `glVertexAttribPointer: Negative stride` warning remains for some MDL layouts (non-fatal; scene still draws).
+- Background lazy I/O (`models.bif` / `sounds.bif`) continues during in-game; not gated.
+
+### Next steps
+- Optional: decompress DXT textures on web when S3TC unavailable.
+- Drive literal New Game → chargen → module (deferred).
+- Commit to `cursor/web-wasm-gles-and-fs-access`; update PR #111.

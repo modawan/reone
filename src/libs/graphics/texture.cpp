@@ -17,6 +17,8 @@
 
 #include "reone/graphics/texture.h"
 
+#include <vector>
+
 #include "reone/graphics/pixelutil.h"
 #include "reone/graphics/textureutil.h"
 #include "reone/system/exception/notimplemented.h"
@@ -25,6 +27,44 @@
 namespace reone {
 
 namespace graphics {
+
+namespace {
+
+#ifdef __EMSCRIPTEN__
+/** WebGL2 has no GL_BGR/GL_BGRA; swizzle channel order for upload. */
+std::vector<uint8_t> webSwizzleBgrPixels(PixelFormat format, int width, int height, const void *pixelsData, PixelFormat &uploadFormat) {
+    uploadFormat = format;
+    if (!pixelsData || width <= 0 || height <= 0) {
+        return {};
+    }
+    const auto *src = static_cast<const uint8_t *>(pixelsData);
+    const size_t numPixels = static_cast<size_t>(width) * static_cast<size_t>(height);
+    if (format == PixelFormat::BGR8) {
+        std::vector<uint8_t> out(3 * numPixels);
+        for (size_t i = 0; i < numPixels; ++i) {
+            out[3 * i + 0] = src[3 * i + 2];
+            out[3 * i + 1] = src[3 * i + 1];
+            out[3 * i + 2] = src[3 * i + 0];
+        }
+        uploadFormat = PixelFormat::RGB8;
+        return out;
+    }
+    if (format == PixelFormat::BGRA8) {
+        std::vector<uint8_t> out(4 * numPixels);
+        for (size_t i = 0; i < numPixels; ++i) {
+            out[4 * i + 0] = src[4 * i + 2];
+            out[4 * i + 1] = src[4 * i + 1];
+            out[4 * i + 2] = src[4 * i + 0];
+            out[4 * i + 3] = src[4 * i + 3];
+        }
+        uploadFormat = PixelFormat::RGBA8;
+        return out;
+    }
+    return {};
+}
+#endif
+
+} // namespace
 
 static bool isMipmapFilter(Texture::Filtering filter) {
     switch (filter) {
@@ -261,7 +301,26 @@ void Texture::refresh2D() {
             0,
             pixelsSize, pixelsData);
         break;
-    default:
+    default: {
+#ifdef __EMSCRIPTEN__
+        PixelFormat uploadFormat = _pixelFormat;
+        auto swizzled = webSwizzleBgrPixels(_pixelFormat, _width, _height, pixelsData, uploadFormat);
+        const void *uploadData = pixelsData;
+        if (!swizzled.empty()) {
+            uploadData = swizzled.data();
+        }
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            getInternalPixelFormatGL(uploadFormat),
+            _width, _height,
+            0,
+            getPixelFormatGL(uploadFormat),
+            getPixelTypeGL(uploadFormat),
+            uploadData);
+        break;
+    }
+#else
         glTexImage2D(
             GL_TEXTURE_2D,
             0,
@@ -272,6 +331,7 @@ void Texture::refresh2D() {
             getPixelTypeGL(_pixelFormat),
             pixelsData);
         break;
+#endif
     }
 }
 
@@ -325,7 +385,26 @@ void Texture::refreshCubeMap() {
                 0,
                 pixelsSize, pixelsData);
             break;
-        default:
+        default: {
+#ifdef __EMSCRIPTEN__
+            PixelFormat uploadFormat = _pixelFormat;
+            auto swizzled = webSwizzleBgrPixels(_pixelFormat, _width, _height, pixelsData, uploadFormat);
+            const void *uploadData = pixelsData;
+            if (!swizzled.empty()) {
+                uploadData = swizzled.data();
+            }
+            glTexImage2D(
+                GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
+                0,
+                getInternalPixelFormatGL(uploadFormat),
+                _width, _height,
+                0,
+                getPixelFormatGL(uploadFormat),
+                getPixelTypeGL(uploadFormat),
+                uploadData);
+            break;
+        }
+#else
             glTexImage2D(
                 GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
                 0,
@@ -336,6 +415,7 @@ void Texture::refreshCubeMap() {
                 getPixelTypeGL(_pixelFormat),
                 pixelsData);
             break;
+#endif
         }
     }
 }

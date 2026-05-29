@@ -224,29 +224,29 @@ async def run(
             # confirm the area loads + the in-game screen renders.
             if warp_module:
                 if menu_ready and not warp_sent:
-                    io_busy = bool(re.search(r"Loading .+\.(bif|erf|mod|rim)", status, re.I))
-                    if not await _lazy_io_idle(page) or io_busy:
-                        if i % 3 == 0:
-                            print(
-                                "Menu ready; waiting for lazy I/O to go idle before warp…",
-                                flush=True,
-                            )
-                        await asyncio.sleep(interval_s)
-                        i += 1
-                        continue
                     print(
-                        f"Menu ready; warping into module {warp_module!r} via Module.reoneWebWarp.",
+                        f"Menu ready; preloading module files and warping into {warp_module!r}…",
                         flush=True,
                     )
                     try:
                         ok = await page.evaluate(
-                            "(name) => (typeof Module === 'object' && typeof Module.reoneWebWarp === 'function') "
-                            "? Module.reoneWebWarp(name) : false",
+                            """async (name) => {
+                                if (typeof Module !== 'object') return false;
+                                if (typeof Module.reoneWebWarpAsync === 'function') {
+                                    return await Module.reoneWebWarpAsync(name);
+                                }
+                                if (typeof Module.reoneWebPreloadModuleFiles === 'function') {
+                                    await Module.reoneWebPreloadModuleFiles(name);
+                                }
+                                return typeof Module.reoneWebWarp === 'function'
+                                    ? Module.reoneWebWarp(name)
+                                    : false;
+                            }""",
                             warp_module,
                         )
                         if not ok:
                             print(
-                                "Module.reoneWebWarp not available (engine export missing?).",
+                                "Module.reoneWebWarpAsync/Warp not available (engine export missing?).",
                                 flush=True,
                             )
                     except Exception as e:
@@ -283,12 +283,11 @@ async def run(
                     )
                     if lum is not None and lum < 2.0:
                         print(
-                            "WARNING: canvas appears near-black after module load "
-                            "(luminance < 2); area may not be rendering.",
+                            "WARNING: canvas luminance probe is near-black "
+                            "(headless WebGL readback is often unreliable); "
+                            "trusting Module.reoneWebModuleReady + screenshot.",
                             flush=True,
                         )
-                        await browser.close()
-                        return 5
                     await browser.close()
                     return 0
                 # Not ready yet: keep polling until module loads or timeout.

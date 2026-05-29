@@ -1137,6 +1137,81 @@
         console.log("reone web: module ready (in-game).");
     };
 
+    /** Relative mirror paths needed to load a KotOR module (rim / _s / lips / dlg). */
+    function moduleMirrorRelPaths(moduleName) {
+        var low = String(moduleName || "").toLowerCase();
+        if (!low) {
+            return [];
+        }
+        return [
+            "modules/" + low + ".rim",
+            "modules/" + low + "_s.rim",
+            "modules/" + low + ".mod",
+            "modules/" + low + ".erf",
+            "modules/" + low + "_loc.mod",
+            "modules/" + low + "_loc.erf",
+            "modules/" + low + "_dlg.mod",
+            "modules/" + low + "_dlg.erf",
+            "lips/" + low + "_loc.mod",
+            "lips/" + low + "_loc.erf",
+        ];
+    }
+
+    /**
+     * Fetch module archives into MEMFS so C++ can use FileInputStream (avoids racing Asyncify
+     * range reads against boot-time BIF traffic during warp / New Game).
+     */
+    Module.reoneWebPreloadModuleFiles = async function (moduleName) {
+        var lookup = Module.reoneWebHttpMirrorFiles || {};
+        var rels = moduleMirrorRelPaths(moduleName);
+        var loaded = 0;
+        for (var i = 0; i < rels.length; ++i) {
+            var rel = rels[i];
+            var original = lookup[rel];
+            if (!original) {
+                continue;
+            }
+            setGateLoadingMessage("Preloading module file " + original + "…");
+            try {
+                var total = mirrorLengthCache[rel];
+                if (typeof total !== "number") {
+                    total = await mirrorHttpTotalBytes(rel, original);
+                }
+                if (typeof total !== "number" || total < 0) {
+                    console.warn("reone web: module preload stat failed for", original);
+                    continue;
+                }
+                if (total <= MIRROR_FULL_CACHE_MAX) {
+                    await mirrorHttpEnsureFullBytes(rel, original);
+                } else {
+                    console.warn(
+                        "reone web: module file too large to MEMFS-cache whole file:",
+                        original,
+                        total
+                    );
+                    continue;
+                }
+                if (Module.reoneWebGameFileMemfsComplete("/game/" + rel)) {
+                    loaded++;
+                }
+            } catch (e) {
+                console.warn("reone web: module preload failed for", original, e);
+            }
+        }
+        console.log(
+            "reone web: module preload finished for",
+            moduleName,
+            "(" + loaded + " files in MEMFS)"
+        );
+        return loaded;
+    };
+
+    /** Preload module archives, then queue a pending module load via reone_web_warp. */
+    Module.reoneWebWarpAsync = async function (name) {
+        await Module.reoneWebPreloadModuleFiles(name);
+        return Module.reoneWebWarp(name);
+    };
+
     // Load a KotOR module by name (e.g. "end_m01aa") from JS. This is what the smoke / a future
     // "New Game" shim calls after the menu is ready; it reuses the supported `warp` console command
     // via the EMSCRIPTEN_KEEPALIVE export reone_web_warp(const char*). Module resrefs are ASCII.
