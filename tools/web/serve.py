@@ -31,6 +31,8 @@ _GAME_MANIFEST_STUB_BYTES = json.dumps(
     separators=(",", ":"),
 ).encode("utf-8")
 
+_MODULE_MIRROR_JSON = _tools_web / "module_mirror.json"
+
 
 def _parse_bytes_range(range_header: str | None, file_size: int) -> tuple[int, int] | None:
     """Return inclusive (start, end) for a single Range spec, or None for full body."""
@@ -179,6 +181,9 @@ class WebBuildRequestHandler(http.server.SimpleHTTPRequestHandler):
         if path_only == "/game-manifest.json":
             self._serve_game_manifest()
             return
+        if path_only == "/module_mirror.json":
+            self._serve_module_mirror_json(head_only=False)
+            return
         if path_only.startswith("/game-files/"):
             rel = path_only[len("/game-files/") :]
             self._serve_lazy_game_file(rel)
@@ -193,6 +198,9 @@ class WebBuildRequestHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path_only == "/game-manifest.json":
             self._serve_game_manifest(head_only=True)
+            return
+        if path_only == "/module_mirror.json":
+            self._serve_module_mirror_json(head_only=True)
             return
         if path_only.startswith("/game-files/"):
             rel = path_only[len("/game-files/") :]
@@ -215,6 +223,12 @@ class WebBuildRequestHandler(http.server.SimpleHTTPRequestHandler):
         except ValueError:
             return None
         return full
+
+    def _serve_module_mirror_json(self, *, head_only: bool = False):
+        if not _MODULE_MIRROR_JSON.is_file():
+            self.send_error(404, "module_mirror.json missing under tools/web")
+            return
+        self._send_local_file(_MODULE_MIRROR_JSON, head_only=head_only)
 
     def _serve_game_manifest(self, *, head_only: bool = False):
         if not self._lazy_game_root:

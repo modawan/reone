@@ -1137,6 +1137,58 @@
         console.log("reone web: module ready (in-game).");
     };
 
+    /** Must match tools/web/module_mirror.json and Installation::moduleArchiveRelPaths. */
+    var DEFAULT_MODULE_ARCHIVE_TEMPLATES = [
+        "modules/{module}.rim",
+        "modules/{module}_s.rim",
+        "modules/{module}.mod",
+        "modules/{module}.erf",
+        "modules/{module}_loc.mod",
+        "modules/{module}_loc.erf",
+        "modules/{module}_dlg.mod",
+        "modules/{module}_dlg.erf",
+        "lips/{module}_loc.mod",
+        "lips/{module}_loc.erf",
+    ];
+
+    var _moduleArchiveTemplates = null;
+    var _moduleArchiveTemplatesPromise = null;
+
+    function expandModuleMirrorPaths(moduleName, templates) {
+        var low = String(moduleName || "").toLowerCase();
+        if (!low) {
+            return [];
+        }
+        return templates.map(function (t) {
+            return String(t).replace(/\{module\}/g, low);
+        });
+    }
+
+    async function loadModuleArchiveTemplates() {
+        if (_moduleArchiveTemplates) {
+            return _moduleArchiveTemplates;
+        }
+        if (!_moduleArchiveTemplatesPromise) {
+            _moduleArchiveTemplatesPromise = (async function () {
+                try {
+                    var resp = await fetch("/module_mirror.json", { credentials: "same-origin" });
+                    if (resp.ok) {
+                        var data = await resp.json();
+                        if (data && Array.isArray(data.moduleArchiveRelPaths) && data.moduleArchiveRelPaths.length) {
+                            _moduleArchiveTemplates = data.moduleArchiveRelPaths;
+                            return _moduleArchiveTemplates;
+                        }
+                    }
+                } catch (e) {
+                    /* same-origin fetch unavailable — use defaults */
+                }
+                _moduleArchiveTemplates = DEFAULT_MODULE_ARCHIVE_TEMPLATES.slice();
+                return _moduleArchiveTemplates;
+            })();
+        }
+        return _moduleArchiveTemplatesPromise;
+    }
+
     /** Primary module containers mirrored by ResourceDirector::loadModuleResources. */
     function moduleEssentialMirrorRelPaths(moduleName) {
         var low = String(moduleName || "").toLowerCase();
@@ -1147,23 +1199,9 @@
     }
 
     /** Relative mirror paths needed to load a KotOR module (rim / _s / lips / dlg). */
-    function moduleMirrorRelPaths(moduleName) {
-        var low = String(moduleName || "").toLowerCase();
-        if (!low) {
-            return [];
-        }
-        return [
-            "modules/" + low + ".rim",
-            "modules/" + low + "_s.rim",
-            "modules/" + low + ".mod",
-            "modules/" + low + ".erf",
-            "modules/" + low + "_loc.mod",
-            "modules/" + low + "_loc.erf",
-            "modules/" + low + "_dlg.mod",
-            "modules/" + low + "_dlg.erf",
-            "lips/" + low + "_loc.mod",
-            "lips/" + low + "_loc.erf",
-        ];
+    async function moduleMirrorRelPaths(moduleName) {
+        var templates = await loadModuleArchiveTemplates();
+        return expandModuleMirrorPaths(moduleName, templates);
     }
 
     /**
@@ -1172,7 +1210,7 @@
      */
     Module.reoneWebPreloadModuleFiles = async function (moduleName) {
         var lookup = Module.reoneWebHttpMirrorFiles || {};
-        var rels = moduleMirrorRelPaths(moduleName);
+        var rels = await moduleMirrorRelPaths(moduleName);
         var loaded = 0;
         for (var i = 0; i < rels.length; ++i) {
             var rel = rels[i];

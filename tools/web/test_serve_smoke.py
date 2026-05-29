@@ -21,6 +21,8 @@ def main():
 
     base = f"http://localhost:{port}"
     assert urllib.request.urlopen(base + "/game-manifest.json").read().startswith(b"{")
+    mirror = urllib.request.urlopen(base + "/module_mirror.json").read()
+    assert b"moduleArchiveRelPaths" in mirror
     req = urllib.request.Request(base + "/game-files/a.bin", headers={"Range": "bytes=2-5"})
     resp = urllib.request.urlopen(req)
     assert resp.status == 206
