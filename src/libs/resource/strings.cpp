@@ -17,6 +17,7 @@
 
 #include "reone/resource/strings.h"
 
+#include "reone/extract/finder.h"
 #include "reone/resource/talktable.h"
 #include "reone/system/exception/endofstream.h"
 #include "reone/system/exception/validation.h"
@@ -29,7 +30,7 @@ namespace resource {
 void Strings::init(extract::Installation &installation) {
     auto tlkPath = installation.resolveLooseRelativePath(
         "dialog.tlk",
-        extract::SearchScope {extract::SearchLocation::Root});
+        extract::talkTableSearchOrder());
     if (!tlkPath) {
         return;
     }

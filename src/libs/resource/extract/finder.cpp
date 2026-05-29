@@ -69,6 +69,23 @@ const SearchScope &soundSearchOrder() {
     return kOrder;
 }
 
+const SearchScope &talkTableSearchOrder() {
+    static const SearchScope kOrder = makeOrder({
+        SearchLocation::Root,
+    });
+    return kOrder;
+}
+
+const SearchScope &movieSearchOrder() {
+    static const SearchScope kOrder = makeOrder({
+        SearchLocation::CustomFolders,
+        SearchLocation::Override,
+        SearchLocation::Movies,
+        SearchLocation::Chitin,
+    });
+    return kOrder;
+}
+
 const char *searchLocationName(SearchLocation location) {
     switch (location) {
     case SearchLocation::Override:

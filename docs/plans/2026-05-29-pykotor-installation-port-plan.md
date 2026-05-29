@@ -11,20 +11,19 @@ type: feat
 
 Replace reone's container-stack resource resolution with a C++ port of PyKotor's `Installation` / `FileResource` extract layer using PyKotor literal `SearchLocation` orders. Format Readers/Writers unchanged.
 
-## Progress (2026-05-29 LFG pass 5)
+## Progress (2026-05-29 LFG pass 6)
 
 ### Landed
-- Review autofix: `ResourceDirector` clears scope before setting shaderpack/glsl; save load appends folders
-- `texture.cpp` native build fix (ifdef brace structure)
-- Retail smoke **PASS** again after review commit (`9556a369`)
-- OpenKotOR WASM CI **green** @ `9556a369`
+- Implemented `talkTableSearchOrder()` / `movieSearchOrder()` in `finder.cpp`
+- `Strings::init` uses `talkTableSearchOrder()` (root-only `dialog.tlk`)
+- `refreshCubeMap()` aligned with `refresh2D()` `#ifndef __EMSCRIPTEN__` brace pattern
+- WASM rebuild + retail smoke **PASS** (menu + `end_m01aa` warp)
 
 ### Partial / uncertain
-- Linux/Windows native CI queued on `9556a369`
+- Linux/Windows native CI still queued on self-hosted runners (backlog)
 - Native `ctest` not run locally (openal)
-- `talkTableSearchOrder` / `movieSearchOrder` declared but not implemented
+- Container stack still in tree for dataminer
 
 ### Next steps
-- Linux CI green confirmation
-- Implement missing finder helpers or remove dead declarations
+- Confirm Linux/Windows CI green after queue drains
 - Retire container stack from hot path
