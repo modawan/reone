@@ -15,6 +15,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "reone/extract/finder.h"
 #include "reone/extract/installation.h"
 
 #include "reone/extract/capsule.h"
@@ -322,13 +323,17 @@ void Installation::loadMovies() {
 }
 
 std::optional<std::filesystem::path> Installation::moviePath(std::string_view name) {
-    loadMovies();
-    auto key = boost::to_lower_copy(std::string(name));
-    auto it = _movies.find(key);
-    if (it == _movies.end()) {
-        return std::nullopt;
+    auto stem = boost::to_lower_copy(std::string(name));
+    auto rel = std::string("movies/") + stem + ".bik";
+    if (auto path = resolveLooseRelativePath(rel, movieSearchOrder())) {
+        return path;
     }
-    return it->second;
+    loadMovies();
+    auto it = _movies.find(stem);
+    if (it != _movies.end()) {
+        return it->second;
+    }
+    return std::nullopt;
 }
 
 void Installation::loadExecutable() {

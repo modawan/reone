@@ -454,7 +454,7 @@ def _kill_unix_listen_port(port: int) -> None:
             ["lsof", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=5,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return
@@ -473,8 +473,49 @@ def _kill_unix_listen_port(port: int) -> None:
 _SMOKE_EXTRA_LOOPBACK_PORTS = (4204, 4205, 4206, 4207, 4208, 11152)
 
 
+def _nuke_stale_browsers_for_smoke() -> None:
+    """Close agent-browser and other headless Chrome left from ce-test-browser runs.
+
+    Concurrent SwiftShader/ANGLE WebGL contexts on one host can make SDL_GL_CreateContext
+    fail in Playwright smoke (``Could not create webgl context``).
+    """
+    print("[smoke nuke] closing stale agent-browser / headless Chrome …", flush=True)
+    try:
+        subprocess.run(
+            ["agent-browser", "close"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+    if sys.platform == "win32":
+        subprocess.run(
+            [
+                "taskkill",
+                "/F",
+                "/IM",
+                "chrome.exe",
+                "/FI",
+                "WINDOWTITLE eq agent-browser*",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    else:
+        subprocess.run(
+            ["pkill", "-f", "agent-browser-chrome"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    time.sleep(0.5)
+
+
 def _nuke_stale_http_for_smoke(url: str) -> None:
     """Kill leftover ``serve.py`` and anything LISTENING on the loopback port implied by ``url``."""
+    _nuke_stale_browsers_for_smoke()
     print("[smoke nuke] killing stale tools/web/serve.py and localhost listeners …", flush=True)
     if sys.platform == "win32":
         _kill_windows_tools_web_serve_py()
