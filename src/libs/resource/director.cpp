@@ -15,7 +15,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include "reone/resource/director.h"
+
+#include <cstring>
+#include <string_view>
 
 #include "reone/graphics/di/services.h"
 #include "reone/graphics/options.h"
@@ -62,6 +69,22 @@ static constexpr char kExeFilenameTsl[] = "swkotor2.exe";
 static constexpr char kShaderPackFilename[] = "shaderpack.erf";
 
 static const std::vector<std::string> g_globalLipFiles {"global.mod", "localization.mod"};
+
+namespace {
+
+bool hasRimHeader(const ByteBuffer &data) {
+    return data.size() >= 8 && std::memcmp(data.data(), "RIM V1.0", 8) == 0;
+}
+
+bool hasErfHeader(const ByteBuffer &data) {
+    if (data.size() < 8) {
+        return false;
+    }
+    auto sig = std::string_view(data.data(), 8);
+    return sig == "ERF V1.0" || sig == "MOD V1.0";
+}
+
+} // namespace
 
 static const std::unordered_map<TextureQuality, std::string> kTexQualityToTexPack {
     {TextureQuality::High, kTexturePackFilenameHigh},
@@ -211,14 +234,31 @@ void ResourceDirector::loadModuleResources(const std::string &name) {
         throw ResourceNotFoundException("Modules directory not found");
     }
 
+#ifdef __EMSCRIPTEN__
+    EM_ASM({ console.log("reone web: loadModuleResources begin " + UTF8ToString($0)); }, name.c_str());
+#endif
+
     loadRIM(*modulesPath, name, ContainerKind::Local);
+#ifdef __EMSCRIPTEN__
+    EM_ASM({ console.log("reone web: loadModuleResources rim " + UTF8ToString($0)); }, name.c_str());
+#endif
     loadRIM(*modulesPath, name + "_s", ContainerKind::Local);
+#ifdef __EMSCRIPTEN__
+    EM_ASM({ console.log("reone web: loadModuleResources rim_s done"); });
+#endif
     loadERF(*modulesPath, name, ContainerKind::Local);
     loadERF(*modulesPath, name + "_loc", ContainerKind::Local);
 
     if (auto lipsPath = findFileIgnoreCase(_gamePath, kLipsDirectoryName)) {
+#ifdef __EMSCRIPTEN__
+        EM_ASM({ console.log("reone web: loadModuleResources lips_loc " + UTF8ToString($0)); }, (name + "_loc").c_str());
+#endif
         loadERF(*lipsPath, name + "_loc", ContainerKind::Local);
     }
+
+#ifdef __EMSCRIPTEN__
+    EM_ASM({ console.log("reone web: loadModuleResources done " + UTF8ToString($0)); }, name.c_str());
+#endif
 
     if (_gameId == GameID::TSL) {
         loadERF(*modulesPath, name + "_dlg", ContainerKind::Local);
@@ -253,12 +293,15 @@ void ResourceDirector::loadRIM(const std::filesystem::path &path, const std::str
     // Try to find a module with the same name in already loaded resources.
     // Same idea as in loadERF.
     std::optional<Resource> res = _resources.find(ResourceId(name, ResType::Res));
-    if (res) {
+    if (res && hasRimHeader(res->data)) {
         _resources.addMemRIM(res->data, kind);
         return;
     }
 
     if (auto rimPath = findFileIgnoreCase(path, name + ".rim")) {
+#ifdef __EMSCRIPTEN__
+        EM_ASM({ console.log("reone web: addRIM " + UTF8ToString($0)); }, rimPath->generic_string().c_str());
+#endif
         _resources.addRIM(*rimPath, kind);
     }
 }
@@ -272,16 +315,22 @@ void ResourceDirector::loadERF(const std::filesystem::path &path, const std::str
     // container, and fall back to filesystem search if the module is not in the
     // save archive.
     std::optional<Resource> res = _resources.find(ResourceId(name, ResType::Mod));
-    if (res) {
+    if (res && hasErfHeader(res->data)) {
         _resources.addMemERF(res->data, kind);
         return;
     }
 
     if (auto modPath = findFileIgnoreCase(path, name + ".mod")) {
+#ifdef __EMSCRIPTEN__
+        EM_ASM({ console.log("reone web: addERF mod " + UTF8ToString($0)); }, modPath->generic_string().c_str());
+#endif
         _resources.addERF(*modPath, kind);
     }
 
     if (auto erfPath = findFileIgnoreCase(path, name + ".erf")) {
+#ifdef __EMSCRIPTEN__
+        EM_ASM({ console.log("reone web: addERF erf " + UTF8ToString($0)); }, erfPath->generic_string().c_str());
+#endif
         _resources.addERF(*erfPath, kind);
     }
 }

@@ -11,6 +11,7 @@ import argparse
 import asyncio
 import base64
 import json
+import re
 from collections import deque
 import os
 import pathlib
@@ -59,6 +60,19 @@ async def _canvas_mean_luminance(page) -> float | None:
         )
     except Exception:
         return None
+
+
+async def _lazy_io_idle(page) -> bool:
+  """Wait until gamefs.js has no in-flight mirror fetches (boot BIF reads can race module load)."""
+  try:
+    return bool(
+      await page.evaluate(
+        "() => (typeof Module === 'object' && typeof Module.reoneWebLazyIoIdle === 'function') "
+        "? Module.reoneWebLazyIoIdle() : true"
+      )
+    )
+  except Exception:
+    return False
 
 
 async def _module_flag(page, name: str) -> bool:
@@ -210,6 +224,16 @@ async def run(
             # confirm the area loads + the in-game screen renders.
             if warp_module:
                 if menu_ready and not warp_sent:
+                    io_busy = bool(re.search(r"Loading .+\.(bif|erf|mod|rim)", status, re.I))
+                    if not await _lazy_io_idle(page) or io_busy:
+                        if i % 3 == 0:
+                            print(
+                                "Menu ready; waiting for lazy I/O to go idle before warp…",
+                                flush=True,
+                            )
+                        await asyncio.sleep(interval_s)
+                        i += 1
+                        continue
                     print(
                         f"Menu ready; warping into module {warp_module!r} via Module.reoneWebWarp.",
                         flush=True,
@@ -229,7 +253,9 @@ async def run(
                         print(f"Failed to invoke reoneWebWarp: {e}", flush=True)
                     warp_sent = True
 
-                if warp_sent and "failed loading module" in low:
+                if warp_sent and (
+                    "failed loading module" in low or "loadmodule failed" in low
+                ):
                     print("Engine reported module load failure; saving screenshot.", flush=True)
                     await page.screenshot(path=out_png, full_page=True)
                     await browser.close()

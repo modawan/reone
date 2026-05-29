@@ -658,19 +658,27 @@
         }
         var out = new Uint8Array(len);
         var got = 0;
+        var emptyRetries = 0;
         while (got < len) {
             var chunk = await fetchMirrorRange(original, offset + got, len - got);
             if (!chunk || !chunk.bytes || chunk.bytes.length === 0) {
-                break;
+                if (++emptyRetries >= 24) {
+                    break;
+                }
+                await new Promise(function (r) {
+                    setTimeout(r, 50);
+                });
+                continue;
             }
+            emptyRetries = 0;
             var n = Math.min(chunk.bytes.length, len - got);
             out.set(chunk.bytes.subarray(0, n), got);
             got += n;
         }
-        if (got === 0) {
+        if (got < len) {
             return null;
         }
-        return got === len ? out : out.subarray(0, got);
+        return out;
     }
 
     /** Fetch BIF variable resource tables for archives too large to MEMFS-cache whole (models.bif, sounds.bif). */
@@ -1099,6 +1107,23 @@
         }
         setTimeout(flush, 100);
     }
+
+    /** True when no mirror fetch is in flight (safe to start module load without contending with boot I/O). */
+    Module.reoneWebLazyIoIdle = function () {
+        if (mirrorFetchActive > 0) {
+            return false;
+        }
+        if (mirrorFetchWaiters.length > 0) {
+            return false;
+        }
+        if (Object.keys(mirrorFetchInflight).length > 0) {
+            return false;
+        }
+        if (Object.keys(mirrorFullInflight).length > 0) {
+            return false;
+        }
+        return true;
+    };
 
     Module.reoneWebOnEngineReady = function () {
         setGateLoadingMessage("Main menu ready.");
