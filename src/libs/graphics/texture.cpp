@@ -302,7 +302,17 @@ void Texture::refresh2D() {
             pixelsSize, pixelsData);
         break;
     default: {
-#ifdef __EMSCRIPTEN__
+#ifndef __EMSCRIPTEN__
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            getInternalPixelFormatGL(_pixelFormat),
+            _width, _height,
+            0,
+            getPixelFormatGL(_pixelFormat),
+            getPixelTypeGL(_pixelFormat),
+            pixelsData);
+#else
         PixelFormat uploadFormat = _pixelFormat;
         auto swizzled = webSwizzleBgrPixels(_pixelFormat, _width, _height, pixelsData, uploadFormat);
         const void *uploadData = pixelsData;
@@ -318,20 +328,9 @@ void Texture::refresh2D() {
             getPixelFormatGL(uploadFormat),
             getPixelTypeGL(uploadFormat),
             uploadData);
+#endif
         break;
     }
-#else
-        glTexImage2D(
-            GL_TEXTURE_2D,
-            0,
-            getInternalPixelFormatGL(_pixelFormat),
-            _width, _height,
-            0,
-            getPixelFormatGL(_pixelFormat),
-            getPixelTypeGL(_pixelFormat),
-            pixelsData);
-        break;
-#endif
     }
 }
 
