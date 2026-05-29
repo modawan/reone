@@ -483,7 +483,12 @@ Texture &SceneGraph::render(const glm::ivec2 &dim) {
                 }
                 globals.shadowLightPosition = glm::vec4(shadowLightPosition(), isShadowLightDirectional() ? 0.0 : 1.0);
                 globals.shadowCascadeFarPlanes = _shadowCascadeFarPlanes;
+#ifdef __EMSCRIPTEN__
+                // WebGL2 has no geometry shaders; shadow map passes are skipped (see below).
+                globals.shadowStrength = 0.0f;
+#else
                 globals.shadowStrength = shadowStrength();
+#endif
                 globals.shadowRadius = shadowRadius();
             }
             if (isFogEnabled()) {
@@ -505,6 +510,7 @@ Texture &SceneGraph::render(const glm::ivec2 &dim) {
             screenEffect.clipNear = camera->zNear();
             screenEffect.clipFar = camera->zFar();
         });
+#ifndef __EMSCRIPTEN__
         if (hasShadowLight()) {
             auto passName = isShadowLightDirectional()
                                 ? RenderPassName::DirLightShadowsPass
@@ -513,6 +519,7 @@ Texture &SceneGraph::render(const glm::ivec2 &dim) {
                 renderShadows(pass);
             });
         }
+#endif
         pipeline.inRenderPass(RenderPassName::OpaqueGeometry, [this](auto &pass) {
             renderOpaque(pass);
         });

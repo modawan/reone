@@ -151,7 +151,7 @@ int WebFileInputStream::read(char *buf, int len) {
         refillBuffer();
         size_t pos = static_cast<size_t>(_position);
         if (_bufLen == 0 || pos < _bufFileOffset || pos >= _bufFileOffset + _bufLen) {
-            break;
+            throw std::runtime_error("Short read from web game file: " + _path);
         }
         size_t offInBuf = pos - _bufFileOffset;
         size_t avail = _bufLen - offInBuf;

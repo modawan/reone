@@ -19,87 +19,48 @@
 
 #include "reone/system/types.h"
 
-#include "container.h"
 #include "id.h"
 #include "resource.h"
 
+#include "reone/extract/finder.h"
 namespace reone {
 
+namespace extract {
+class Installation;
+}
+
 namespace resource {
-
-enum class ContainerKind {
-    Global,
-    Local,
-    Save,
-};
-
-struct ResourceContainerPair {
-    std::unique_ptr<IResourceContainer> provider;
-    ContainerKind kind;
-};
-
-using ResourceContainerList = std::list<ResourceContainerPair>;
 
 class IResources {
 public:
     virtual ~IResources() = default;
 
     virtual void clear() = 0;
-    virtual void clearLocal() = 0;
-    virtual void clearSave() = 0;
-
-    virtual void addEXE(const std::filesystem::path &path) = 0;
-    virtual void addKEY(const std::filesystem::path &path) = 0;
-    virtual void addERF(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) = 0;
-    virtual void addMemERF(ByteBuffer buffer, ContainerKind kind) = 0;
-    virtual void addRIM(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) = 0;
-    virtual void addMemRIM(ByteBuffer buffer, ContainerKind kind = ContainerKind::Global) = 0;
-    virtual void addFolder(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) = 0;
 
     virtual Resource get(const ResourceId &id) = 0;
     virtual std::optional<Resource> find(const ResourceId &id) = 0;
+    virtual std::optional<Resource> find(const ResourceId &id, const extract::SearchScope &order) = 0;
+
+    virtual extract::Installation *installation() { return nullptr; }
+    virtual const extract::Installation *installation() const { return nullptr; }
 };
 
 class Resources : public IResources, boost::noncopyable {
 public:
-    void clear() override {
-        _containers.clear();
-    }
-
-    void clearLocal() override {
-        clearSome(ContainerKind::Local);
-    }
-
-    void clearSave() override {
-        clearSome(ContainerKind::Save);
-    }
-
-    void clearSome(ContainerKind kind) {
-        auto toErase = std::remove_if(_containers.begin(), _containers.end(), [kind](auto &pair) {
-            return pair.kind == kind;
-        });
-        _containers.erase(toErase, _containers.end());
-    }
-
-    void add(std::unique_ptr<IResourceContainer> provider, ContainerKind kind = ContainerKind::Global) {
-        _containers.push_front(ResourceContainerPair {std::move(provider), kind});
-    }
-
-    void addEXE(const std::filesystem::path &path) override;
-    void addKEY(const std::filesystem::path &path) override;
-    void addERF(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
-    void addMemERF(ByteBuffer buffer, ContainerKind kind) override;
-    void addRIM(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
-    void addMemRIM(ByteBuffer buffer, ContainerKind kind = ContainerKind::Global) override;
-    void addFolder(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
+    void clear() override {}
 
     Resource get(const ResourceId &id) override;
     std::optional<Resource> find(const ResourceId &id) override;
+    std::optional<Resource> find(const ResourceId &id, const extract::SearchScope &order) override;
 
-    const ResourceContainerList &containers() const { return _containers; }
+    void useInstallation(extract::Installation *installation);
+    void setSearchOrder(extract::SearchScope order);
+    extract::Installation *installation() override { return _installation; }
+    const extract::Installation *installation() const override { return _installation; }
 
 private:
-    ResourceContainerList _containers;
+    extract::Installation *_installation {nullptr};
+    extract::SearchScope _searchOrder = extract::canonicalSearchOrder();
 };
 
 } // namespace resource

@@ -28,8 +28,8 @@ namespace reone {
 
 namespace resource {
 
-class Strings;
-class TwoDAs;
+class IStrings;
+class ITwoDAs;
 
 } // namespace resource
 
@@ -42,8 +42,8 @@ public:
     CreatureClass(
         ClassType type,
         Classes &classes,
-        resource::Strings &strings,
-        resource::TwoDAs &twoDas) :
+        resource::IStrings &strings,
+        resource::ITwoDAs &twoDas) :
         _type(type),
         _classes(classes),
         _strings(strings),
@@ -71,6 +71,7 @@ public:
     const CreatureAttributes &defaultAttributes() const { return _defaultAttributes; }
     int skillPointBase() const { return _skillPointBase; }
     int getFeatGain(int level) const;
+    int getPowerGain(int level) const;
     int getFeatListValue(FeatType feat) const;
     bool isFeatSelectable(FeatType feat) const {
         int listValue = getFeatListValue(feat);
@@ -88,14 +89,15 @@ private:
     std::unordered_map<FeatType, int> _featListValues;
     std::unordered_map<int, SavingThrows> _savingThrowsByLevel;
     std::unordered_map<int, int> _featGainsByLevel;
+    std::unordered_map<int, int> _powerGainsByLevel;
     std::vector<int> _attackBonuses;
 
     // Services
 
     Classes &_classes;
 
-    resource::Strings &_strings;
-    resource::TwoDAs &_twoDas;
+    resource::IStrings &_strings;
+    resource::ITwoDAs &_twoDas;
 
     // END Services
 
@@ -104,6 +106,7 @@ private:
     void loadAttackBonuses(const std::string &attackBonusTable);
     void loadFeatListValues(const std::string &featsPrefix);
     void loadFeatGains(const std::string &featGainPrefix);
+    void loadPowerGains(const std::string &powerGainPrefix);
 };
 
 } // namespace game

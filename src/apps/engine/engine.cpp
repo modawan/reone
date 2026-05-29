@@ -26,6 +26,7 @@
 #include "reone/graphics/window.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/gameprobe.h"
+#include "reone/system/logutil.h"
 
 using namespace reone::audio;
 using namespace reone::game;
@@ -41,6 +42,15 @@ namespace {
 
 reone::Engine *g_emscriptenLoopEngine = nullptr;
 
+// JS bubbles a "load this module" request here (e.g. from the smoke or a New Game shim).
+// We do NOT call into the game from the JS callback: that would re-enter while a frame is
+// Asyncify-suspended mid file-read. Instead we record the module name and apply it at the top
+// of the next frame by calling Game::loadModule directly -- the same entry point a New Game /
+// chargen finish or a MainMenu "warp" click reaches (the engine-app Console only has clear/help;
+// the "warp" command lives on the Game's own console, so we bypass it and call loadModule).
+std::string g_pendingWebModule;
+bool g_hasPendingWebModule = false;
+
 extern "C" {
 
 EMSCRIPTEN_KEEPALIVE
@@ -53,6 +63,16 @@ void reone_em_run_frame(void) {
     if (!engine->runFrame()) {
         g_emscriptenLoopEngine = nullptr;
         emscripten_cancel_main_loop();
+    }
+}
+
+// Load a module by name from JS, e.g. Module._reone_web_warp(stringToNewUTF8("end_m01aa")).
+// Recorded here and consumed at the next frame boundary via Game::loadModule.
+EMSCRIPTEN_KEEPALIVE
+void reone_web_warp(const char *module) {
+    if (module && *module) {
+        g_pendingWebModule = module;
+        g_hasPendingWebModule = true;
     }
 }
 
@@ -226,12 +246,37 @@ bool Engine::runFrame() {
         return false;
     }
     bool focus = _window->isInFocus();
+#ifdef __EMSCRIPTEN__
+    // A browser canvas may report "not focused" (headless smoke, background tab) yet must keep
+    // advancing: the engine renders every requestAnimationFrame, and a JS-driven warp must be
+    // consumed regardless of focus. So on web we never early-return on focus loss.
+    (void)focus;
+    if (g_hasPendingWebModule) {
+        g_hasPendingWebModule = false;
+        std::string moduleName = std::move(g_pendingWebModule);
+        g_pendingWebModule.clear();
+        EM_ASM({
+            if (typeof console === "object") {
+                console.log("reone web: consuming pending module load");
+            }
+        });
+        try {
+            _game->loadModule(moduleName);
+        } catch (const std::exception &e) {
+            error("reone web: loadModule('" + moduleName + "') failed: " + std::string(e.what()));
+            EM_ASM({
+                if (typeof console === "object") {
+                    console.error("reone web: loadModule threw (see engine log)");
+                }
+            });
+        }
+    }
+#else
     if (!focus) {
-#ifndef __EMSCRIPTEN__
         std::this_thread::sleep_for(std::chrono::milliseconds {100});
-#endif
         return true;
     }
+#endif
     uint64_t ticks = clock.micros();
     auto frameTime = (ticks - _ticks) / 10e5f;
     _ticks = ticks;

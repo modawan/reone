@@ -38,7 +38,11 @@ struct Spell {
     std::string name;
     std::string description;
     std::shared_ptr<graphics::Texture> icon;
-    uint32_t pips {1}; // 1-3, position in a feat chain
+    uint32_t pips {1};
+    std::vector<SpellType> prerequisites;
+    std::optional<SpellType> masterSpell;
+    int userType {-1};
+    std::unordered_map<ClassType, int> classLevelRequirements;
     uint32_t category {0};
     std::string impactScript;
     std::string castAnim;
@@ -48,6 +52,13 @@ struct Spell {
     uint32_t itemTargeting {0};
     bool hostile {false};
     std::shared_ptr<graphics::Model> projModel;
+
+    std::optional<int> getClassLevelRequirement(ClassType clazz) const {
+        auto maybeRequirement = classLevelRequirements.find(clazz);
+        return maybeRequirement != classLevelRequirements.end()
+                   ? std::optional<int>(maybeRequirement->second)
+                   : std::nullopt;
+    }
 };
 
 } // namespace game

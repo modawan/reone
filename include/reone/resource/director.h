@@ -20,6 +20,8 @@
 #include "resources.h"
 #include "types.h"
 
+#include "reone/extract/installation.h"
+
 namespace reone {
 
 namespace graphics {
@@ -63,6 +65,7 @@ public:
                      const graphics::GraphicsOptions &graphicsOpt,
                      graphics::GraphicsServices &graphicsSvc,
                      script::ScriptServices &scriptSvc,
+                     extract::Installation &installation,
                      IDialogs &dialogs,
                      IGffs &gffs,
                      ILips &lips,
@@ -74,6 +77,7 @@ public:
         _graphicsOpt(graphicsOpt),
         _graphicsSvc(graphicsSvc),
         _scriptSvc(scriptSvc),
+        _installation(installation),
         _dialogs(dialogs),
         _gffs(gffs),
         _lips(lips),
@@ -95,6 +99,7 @@ private:
     const graphics::GraphicsOptions &_graphicsOpt;
     graphics::GraphicsServices &_graphicsSvc;
     script::ScriptServices &_scriptSvc;
+    extract::Installation &_installation;
     IDialogs &_dialogs;
     IGffs &_gffs;
     ILips &_lips;
@@ -102,15 +107,9 @@ private:
     IResources &_resources;
     IScripts &_scripts;
 
-    // Set when a savegame is loaded.
-    std::optional<std::filesystem::path> _savegamePath;
-
     void loadGlobalResources();
     void loadModuleResources(const std::string &name);
     void loadSaveGameResources(std::string_view name);
-
-    void loadRIM(const std::filesystem::path &path, const std::string &name, ContainerKind kind);
-    void loadERF(const std::filesystem::path &path, const std::string &name, ContainerKind kind);
 };
 
 } // namespace resource

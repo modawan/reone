@@ -58,6 +58,29 @@ void IconChain::setItemSelected(const std::string &tag, bool selected) {
     }
 }
 
+void IconChain::setItemState(const std::string &tag, State state) {
+    for (auto &item : _items) {
+        if (item.tag == tag) {
+            item.state = state;
+            return;
+        }
+    }
+}
+
+void IconChain::focusItem(const std::string &tag) {
+    auto maybeItem = std::find_if(
+        _items.begin(), _items.end(),
+        [&tag](const Item &item) { return item.tag == tag; });
+    if (maybeItem == _items.end()) {
+        return;
+    }
+
+    _focusedItemIndex = static_cast<int>(std::distance(_items.begin(), maybeItem));
+    if (_onItemFocus) {
+        _onItemFocus(maybeItem->tag);
+    }
+}
+
 const IconChain::Item *IconChain::focusedItem() const {
     if (_focusedItemIndex < 0 || _focusedItemIndex >= static_cast<int>(_items.size())) {
         return nullptr;

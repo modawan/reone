@@ -97,8 +97,11 @@ if(REONE_PLATFORM_WEB)
         "SHELL:-sASYNCIFY_IMPORTS=['reone_web_file_length','reone_web_file_read']"
         # KotOR resource init unwinds a deep virtual-dispatch stack (loadGlobalResources -> ErfReader -> readString
         # -> WebFileInputStream::refillBuffer -> async import). 128 KiB overflows that during rewind and corrupts the
-        # indirect call table -> "null function or function signature mismatch". 1 MiB clears the deepest init paths.
-        "SHELL:-sASYNCIFY_STACK_SIZE=1048576"
+        # indirect call table -> "null function or function signature mismatch". 1 MiB cleared the minimal-data init
+        # paths, but a *retail* install drives much deeper async suspends (menu model/TPC/walkmesh reads under
+        # GUI::load + scene build), which overflow 1 MiB and re-trap "null function" before the menu draws. 16 MiB
+        # clears those; the Asyncify stack is a single fixed buffer, negligible against MAXIMUM_MEMORY=4 GiB.
+        "SHELL:-sASYNCIFY_STACK_SIZE=16777216"
         # Do not use ASYNCIFY_ONLY here: EM_ASYNC_JS suspends deep under Engine::run; instrumenting
         # only main leaves unwound frames un-instrumented → RuntimeError: unreachable in Asyncify.
         -sALLOW_MEMORY_GROWTH=1
@@ -110,6 +113,9 @@ if(REONE_PLATFORM_WEB)
         -sMAX_WEBGL_VERSION=2
         -sFULL_ES3=1
         -sGL_ENABLE_GET_PROC_ADDRESS=1
+        # gamefs.js (pre-js) marshals a module name into a heap buffer and calls reone_web_warp;
+        # pin these so DCE/minification cannot drop them under -Oz / -sASSERTIONS=0.
+        "SHELL:-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_reone_web_warp']"
         -lidbfs.js
         "SHELL:--preload-file \"${CMAKE_SOURCE_DIR}/glsl@/glsl\"")
     # ``--pre-js`` is not modeled as a link input for Ninja; tie gamefs.js to main.o so edits relink wasm.

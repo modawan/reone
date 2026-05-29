@@ -114,6 +114,9 @@ void Mesh::deinit() {
 }
 
 void Mesh::draw(IStatistic &statistic) {
+    if (_faces.empty() || _vertexData.empty()) {
+        return;
+    }
     glBindVertexArray(_vaoId);
     glDrawElements(
         GL_TRIANGLES,
@@ -124,6 +127,9 @@ void Mesh::draw(IStatistic &statistic) {
 }
 
 void Mesh::drawInstanced(int count, IStatistic &statistic) {
+    if (_faces.empty() || _vertexData.empty() || count <= 0) {
+        return;
+    }
     glBindVertexArray(_vaoId);
     glDrawElementsInstanced(
         GL_TRIANGLES,

@@ -1,11 +1,17 @@
 ---
 title: "feat: WASM main menu with Steam KotOR install"
 type: feat
-status: active
+status: completed
 date: 2026-05-28
+superseded_by: docs/plans/2026-05-28-012-feat-wasm-newgame-module-render-plan.md
 ---
 
 # feat: WASM main menu with Steam KotOR install
+
+> **Status: COMPLETED.** The main menu renders in the browser WASM build from a retail Steam
+> install (committed to `cursor/web-wasm-gles-and-fs-access` + `master`). The active milestone
+> continues in `docs/plans/2026-05-28-012-feat-wasm-newgame-module-render-plan.md` (New Game ->
+> load first module -> render area).
 
 ## Summary
 

@@ -17,58 +17,13 @@
 
 #include "reone/resource/resources.h"
 
-#include "reone/resource/container/erf.h"
-#include "reone/resource/container/exe.h"
-#include "reone/resource/container/folder.h"
-#include "reone/resource/container/keybif.h"
-#include "reone/resource/container/rim.h"
+#include "reone/extract/installation.h"
+#include "reone/extract/finder.h"
 #include "reone/resource/exception/notfound.h"
 
 namespace reone {
 
 namespace resource {
-
-void Resources::addKEY(const std::filesystem::path &path) {
-    auto provider = std::make_unique<KeyBifResourceContainer>(path);
-    provider->init();
-    _containers.push_front(ResourceContainerPair {std::move(provider), ContainerKind::Global});
-}
-
-void Resources::addERF(const std::filesystem::path &path, ContainerKind kind) {
-    auto provider = std::make_unique<ErfResourceContainer>(path);
-    provider->init();
-    _containers.push_front(ResourceContainerPair {std::move(provider), kind});
-}
-
-void Resources::addMemERF(ByteBuffer buffer, ContainerKind kind) {
-    auto provider = std::make_unique<ErfResourceContainer>(std::move(buffer));
-    provider->init();
-    _containers.push_front(ResourceContainerPair {std::move(provider), kind});
-}
-
-void Resources::addRIM(const std::filesystem::path &path, ContainerKind kind) {
-    auto provider = std::make_unique<RimResourceContainer>(path);
-    provider->init();
-    _containers.push_front(ResourceContainerPair {std::move(provider), kind});
-}
-
-void Resources::addMemRIM(ByteBuffer buffer, ContainerKind kind) {
-    auto provider = std::make_unique<RimResourceContainer>(buffer);
-    provider->init();
-    _containers.push_front(ResourceContainerPair {std::move(provider), kind});
-}
-
-void Resources::addEXE(const std::filesystem::path &path) {
-    auto provider = std::make_unique<ExeResourceContainer>(path);
-    provider->init();
-    _containers.push_front(ResourceContainerPair {std::move(provider), ContainerKind::Global});
-}
-
-void Resources::addFolder(const std::filesystem::path &path, ContainerKind kind) {
-    auto provider = std::make_unique<FolderResourceContainer>(path);
-    provider->init();
-    _containers.push_front(ResourceContainerPair {std::move(provider), kind});
-}
 
 Resource Resources::get(const ResourceId &id) {
     auto data = find(id);
@@ -78,12 +33,24 @@ Resource Resources::get(const ResourceId &id) {
     return *data;
 }
 
+void Resources::useInstallation(extract::Installation *installation) {
+    _installation = installation;
+}
+
+void Resources::setSearchOrder(extract::SearchScope order) {
+    _searchOrder = std::move(order);
+}
+
 std::optional<Resource> Resources::find(const ResourceId &id) {
-    for (auto &[provider, kind] : _containers) {
-        auto data = provider->findResourceData(id);
-        if (data) {
-            return Resource {*data};
-        }
+    return find(id, _searchOrder);
+}
+
+std::optional<Resource> Resources::find(const ResourceId &id, const extract::SearchScope &order) {
+    if (!_installation) {
+        return std::nullopt;
+    }
+    if (auto loc = _installation->resource(id, order)) {
+        return Resource {loc->readData()};
     }
     return std::nullopt;
 }

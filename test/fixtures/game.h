@@ -96,6 +96,9 @@ public:
 class MockSpells : public ISpells, boost::noncopyable {
 public:
     MOCK_METHOD(std::shared_ptr<Spell>, get, (SpellType type), (const override));
+    MOCK_METHOD(bool, isLevelUpCandidate, (SpellType type, const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
+    MOCK_METHOD(std::vector<SpellType>, getLevelUpCandidates, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
+    MOCK_METHOD(std::vector<SpellDisplayEntry>, getLevelUpDisplayEntries, (const CreatureAttributes &attributes, const CreatureClass &clazz, const std::set<SpellType> &chosen), (const override));
 };
 
 class MockSurfaces : public ISurfaces, boost::noncopyable {

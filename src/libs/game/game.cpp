@@ -507,8 +507,15 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
         _conversation->cleanupForModuleTransition();
     }
 
+#ifdef __EMSCRIPTEN__
+#define REONE_WEB_TRACE(step) EM_ASM({ if (typeof console === "object") { console.log("reone web: loadModule " + UTF8ToString($0)); } }, step)
+#else
+#define REONE_WEB_TRACE(step) ((void)0)
+#endif
     withLoadingScreen("load_" + name, [this, &name, &entry, fromSave]() {
+        REONE_WEB_TRACE("withLoadingScreen entered");
         loadInGameMenus();
+        REONE_WEB_TRACE("loadInGameMenus done");
 
         try {
             if (_module) {
@@ -516,7 +523,9 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
                 _module->area()->unloadParty();
             }
 
+            REONE_WEB_TRACE("calling director.onModuleLoad");
             _services.resource.director.onModuleLoad(name);
+            REONE_WEB_TRACE("director.onModuleLoad done");
 
             if (_loadScreen) {
                 _loadScreen->setProgress(50);
@@ -533,12 +542,15 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
                 _module = newModule();
                 _objectById.insert(std::make_pair(_module->id(), _module));
 
+                REONE_WEB_TRACE("getting module IFO");
                 std::shared_ptr<Gff> ifo(_services.resource.gffs.get("module", ResType::Ifo));
                 if (!ifo) {
                     throw ResourceNotFoundException("Module IFO not found");
                 }
 
+                REONE_WEB_TRACE("module->load begin");
                 _module->load(name, *ifo, fromSave);
+                REONE_WEB_TRACE("module->load done");
                 _loadedModules.insert(std::make_pair(name, _module));
             }
 
@@ -548,7 +560,9 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
                 }
             }
 
+            REONE_WEB_TRACE("module->loadParty begin");
             _module->loadParty(entry, fromSave);
+            REONE_WEB_TRACE("module->loadParty done");
 
             info("Module '" + name + "' loaded successfully");
 
@@ -561,11 +575,24 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
             playMusic(musicName);
 
             //_ticks = _services.system.clock.ticks();
+            REONE_WEB_TRACE("openInGame begin");
             openInGame();
+            REONE_WEB_TRACE("openInGame done (module ready)");
+#ifdef __EMSCRIPTEN__
+            EM_ASM({
+                if (typeof Module === "object" && Module.reoneWebOnModuleReady) {
+                    Module.reoneWebOnModuleReady();
+                }
+            });
+#endif
         } catch (const std::exception &e) {
             error("Failed loading module '" + name + "': " + std::string(e.what()));
+#ifdef __EMSCRIPTEN__
+            EM_ASM({ if (typeof console === "object") { console.error("reone web: loadModule FAILED: " + UTF8ToString($0)); } }, e.what());
+#endif
         }
     });
+#undef REONE_WEB_TRACE
 }
 
 void Game::loadGame(std::string_view name) {

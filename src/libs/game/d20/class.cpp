@@ -32,6 +32,7 @@ namespace game {
 static const char kSkillsTwoDAResRef[] = "skills";
 static const char kFeatTwoDAResRef[] = "feat";
 static const char kFeatGainTwoDAResRef[] = "featgain";
+static const char kPowerGainTwoDAResRef[] = "classpowergain";
 
 static bool hasColumn(const TwoDA &twoDa, const std::string &column) {
     return std::find(twoDa.columns().begin(), twoDa.columns().end(), column) != twoDa.columns().end();
@@ -72,6 +73,9 @@ void CreatureClass::load(const TwoDA &twoDa, int row) {
 
     std::string featGainPrefix(boost::to_lower_copy(twoDa.getString(row, "featgain")));
     loadFeatGains(featGainPrefix);
+
+    std::string powerGainPrefix(boost::to_lower_copy(twoDa.getString(row, "spellgaintable")));
+    loadPowerGains(powerGainPrefix);
 }
 
 void CreatureClass::loadClassSkills(const std::string &skillsTable) {
@@ -140,6 +144,24 @@ void CreatureClass::loadFeatGains(const std::string &featGainPrefix) {
     }
 }
 
+void CreatureClass::loadPowerGains(const std::string &powerGainPrefix) {
+    if (powerGainPrefix.empty()) {
+        return;
+    }
+
+    std::shared_ptr<TwoDA> powerGain(_twoDas.get(kPowerGainTwoDAResRef));
+    if (!powerGain || !hasColumn(*powerGain, powerGainPrefix)) {
+        return;
+    }
+
+    for (int row = 0; row < powerGain->getRowCount(); ++row) {
+        auto level = getLevel(*powerGain, row);
+        if (level) {
+            _powerGainsByLevel.insert(std::make_pair(*level, powerGain->getInt(row, powerGainPrefix, 0)));
+        }
+    }
+}
+
 bool CreatureClass::isClassSkill(SkillType skill) const {
     return _classSkills.count(skill) > 0;
 }
@@ -162,6 +184,11 @@ int CreatureClass::getAttackBonus(int level) const {
 int CreatureClass::getFeatGain(int level) const {
     auto maybeFeatGain = _featGainsByLevel.find(level);
     return maybeFeatGain != _featGainsByLevel.end() ? maybeFeatGain->second : 0;
+}
+
+int CreatureClass::getPowerGain(int level) const {
+    auto maybePowerGain = _powerGainsByLevel.find(level);
+    return maybePowerGain != _powerGainsByLevel.end() ? maybePowerGain->second : 0;
 }
 
 int CreatureClass::getFeatListValue(FeatType feat) const {

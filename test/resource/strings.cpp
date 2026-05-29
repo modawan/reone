@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include "reone/extract/installation.h"
 #include "reone/resource/strings.h"
 #include "reone/system/binarywriter.h"
 #include "reone/system/logutil.h"
@@ -52,14 +53,33 @@ TEST(Strings, should_init_talktable_and_get_string_and_sound) {
     //
     tlk.close();
 
+    auto overridePath = tmpDirPath / "override";
+    std::filesystem::create_directory(overridePath);
+    auto overrideTlkPath = overridePath / "dialog.tlk";
+    auto overrideTlk = FileOutputStream(overrideTlkPath);
+    overrideTlk.write("TLK V3.0", 8);
+    overrideTlk.write("\x00\x00\x00\x00", 4);
+    overrideTlk.write("\x01\x00\x00\x00", 4);
+    overrideTlk.write("\x3c\x00\x00\x00", 4);
+    overrideTlk.write("\x03\x00\x00\x00", 4);
+    overrideTlk.write("wrong_sound\x00\x00\x00\x00\x00", 16);
+    overrideTlk.write("\x00\x00\x00\x00", 4);
+    overrideTlk.write("\x00\x00\x00\x00", 4);
+    overrideTlk.write("\x00\x00\x00\x00", 4);
+    overrideTlk.write("\x0d\x00\x00\x00", 4);
+    overrideTlk.write("\x00\x00\x00\x00", 4);
+    overrideTlk.write("Wrong source!", 14);
+    overrideTlk.close();
+
     auto strings = Strings();
+    extract::Installation installation(GameID::KotOR, tmpDirPath);
 
     auto expectedText = std::string("Hello, world!");
     auto expectedSound = std::string("some_sound");
 
     // when
 
-    strings.init(tmpDirPath);
+    strings.init(installation);
     auto text = strings.getText(0);
     auto sound = strings.getSound(0);
 

@@ -31,7 +31,73 @@ from discover_game_root import _is_kotor_root
 from web_bundle_paths import resolve_web_build_directory
 
 
-async def run(url: str, out_png: str, timeout_s: float, interval_s: float) -> int:
+async def _canvas_mean_luminance(page) -> float | None:
+    """Best-effort: copy the WebGL canvas to a 2D canvas and return mean luminance (0-255).
+
+    Returns None if it cannot be measured (headless can refuse drawImage on a lost/empty
+    drawing buffer). A None result is informational only; module-ready logs are authoritative.
+    """
+    try:
+        return await page.evaluate(
+            """() => {
+                const c = document.querySelector('canvas');
+                if (!c) return null;
+                const w = Math.min(160, c.width || 160), h = Math.min(90, c.height || 90);
+                if (!w || !h) return null;
+                const off = document.createElement('canvas');
+                off.width = w; off.height = h;
+                const ctx = off.getContext('2d');
+                if (!ctx) return null;
+                ctx.drawImage(c, 0, 0, w, h);
+                const d = ctx.getImageData(0, 0, w, h).data;
+                let sum = 0;
+                for (let i = 0; i < d.length; i += 4) {
+                    sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+                }
+                return sum / (d.length / 4);
+            }"""
+        )
+    except Exception:
+        return None
+
+
+async def _lazy_io_idle(page) -> bool:
+    """Wait until gamefs.js has no in-flight mirror fetches (boot BIF reads can race module load)."""
+    try:
+        return bool(
+            await page.evaluate(
+                "() => (typeof Module === 'object' && typeof Module.reoneWebLazyIoIdle === 'function') "
+                "? Module.reoneWebLazyIoIdle() : true"
+            )
+        )
+    except Exception:
+        return False
+
+
+async def _module_flag(page, name: str) -> bool:
+    """Read a boolean ``Module.<name>`` flag set by the engine's EM_ASM signals.
+
+    The engine routes info() to stdout, not always to the browser console, so log scraping
+    is unreliable. gamefs.js exposes authoritative readiness flags (reoneWebMenuReady after
+    openMainMenu, reoneWebModuleReady after loadModule + openInGame); probe those directly.
+    """
+    try:
+        return bool(
+            await page.evaluate(
+                "(n) => (typeof Module === 'object' && Module[n] === true)", name
+            )
+        )
+    except Exception:
+        return False
+
+
+async def run(
+    url: str,
+    out_png: str,
+    timeout_s: float,
+    interval_s: float,
+    warp_module: str | None = None,
+) -> int:
     try:
         from playwright.async_api import async_playwright
     except ImportError:
@@ -116,6 +182,7 @@ async def run(url: str, out_png: str, timeout_s: float, interval_s: float) -> in
         await page.goto(url, wait_until="domcontentloaded", timeout=goto_ms)
 
         i = 0
+        warp_sent = False
         while asyncio.get_event_loop().time() < deadline:
             try:
                 status = await page.locator("#status").inner_text(timeout=5000)
@@ -143,14 +210,93 @@ async def run(url: str, out_png: str, timeout_s: float, interval_s: float) -> in
                 await browser.close()
                 return 2
 
-            if any(
+            menu_ready = await _module_flag(page, "reoneWebMenuReady") or any(
                 x in low
                 for x in (
                     "main menu",
                     "mainmenu16x12",
                     "opening main menu",
                 )
-            ):
+            )
+
+            # Module (area) verification mode: after the menu is up, warp into a module and
+            # confirm the area loads + the in-game screen renders.
+            if warp_module:
+                if menu_ready and not warp_sent:
+                    print(
+                        f"Menu ready; preloading module files and warping into {warp_module!r}…",
+                        flush=True,
+                    )
+                    try:
+                        ok = await page.evaluate(
+                            """async (name) => {
+                                if (typeof Module !== 'object') return false;
+                                if (typeof Module.reoneWebWarpAsync === 'function') {
+                                    return await Module.reoneWebWarpAsync(name);
+                                }
+                                if (typeof Module.reoneWebPreloadModuleFiles === 'function') {
+                                    await Module.reoneWebPreloadModuleFiles(name);
+                                }
+                                return typeof Module.reoneWebWarp === 'function'
+                                    ? Module.reoneWebWarp(name)
+                                    : false;
+                            }""",
+                            warp_module,
+                        )
+                        if not ok:
+                            print(
+                                "Module.reoneWebWarpAsync/Warp failed or export missing.",
+                                flush=True,
+                            )
+                            await page.screenshot(path=out_png, full_page=True)
+                            await browser.close()
+                            return 2
+                    except Exception as e:
+                        print(f"Failed to invoke reoneWebWarp: {e}", flush=True)
+                        await page.screenshot(path=out_png, full_page=True)
+                        await browser.close()
+                        return 2
+                    warp_sent = True
+
+                if warp_sent and (
+                    "failed loading module" in low or "loadmodule failed" in low
+                ):
+                    print("Engine reported module load failure; saving screenshot.", flush=True)
+                    await page.screenshot(path=out_png, full_page=True)
+                    await browser.close()
+                    return 2
+
+                module_ready = warp_sent and (
+                    await _module_flag(page, "reoneWebModuleReady")
+                    or any(
+                        x in low
+                        for x in (
+                            f"module '{warp_module.lower()}' loaded successfully",
+                            "module ready (in-game)",
+                        )
+                    )
+                )
+                if module_ready:
+                    # Give the in-game scene a couple of frames to draw before sampling.
+                    await asyncio.sleep(2.0)
+                    lum = await _canvas_mean_luminance(page)
+                    await page.screenshot(path=out_png, full_page=True)
+                    print(
+                        f"Module {warp_module!r} loaded; in-game. canvas mean luminance="
+                        f"{lum if lum is not None else 'n/a'}",
+                        flush=True,
+                    )
+                    if lum is not None and lum < 2.0:
+                        print(
+                            "WARNING: canvas luminance probe is near-black "
+                            "(headless WebGL readback is often unreliable); "
+                            "trusting Module.reoneWebModuleReady + screenshot.",
+                            flush=True,
+                        )
+                    await browser.close()
+                    return 0
+                # Not ready yet: keep polling until module loads or timeout.
+            elif menu_ready:
                 print("Detected menu-related log; capturing screenshot.", flush=True)
                 await page.screenshot(path=out_png, full_page=True)
                 await browser.close()
@@ -307,7 +453,7 @@ def _kill_unix_listen_port(port: int) -> None:
             ["lsof", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=5,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return
@@ -326,8 +472,49 @@ def _kill_unix_listen_port(port: int) -> None:
 _SMOKE_EXTRA_LOOPBACK_PORTS = (4204, 4205, 4206, 4207, 4208, 11152)
 
 
+def _nuke_stale_browsers_for_smoke() -> None:
+    """Close agent-browser and other headless Chrome left from ce-test-browser runs.
+
+    Concurrent SwiftShader/ANGLE WebGL contexts on one host can make SDL_GL_CreateContext
+    fail in Playwright smoke (``Could not create webgl context``).
+    """
+    print("[smoke nuke] closing stale agent-browser / headless Chrome …", flush=True)
+    try:
+        subprocess.run(
+            ["agent-browser", "close"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+    if sys.platform == "win32":
+        subprocess.run(
+            [
+                "taskkill",
+                "/F",
+                "/IM",
+                "chrome.exe",
+                "/FI",
+                "WINDOWTITLE eq agent-browser*",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    else:
+        subprocess.run(
+            ["pkill", "-f", "agent-browser-chrome"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    time.sleep(0.5)
+
+
 def _nuke_stale_http_for_smoke(url: str) -> None:
     """Kill leftover ``serve.py`` and anything LISTENING on the loopback port implied by ``url``."""
+    _nuke_stale_browsers_for_smoke()
     print("[smoke nuke] killing stale tools/web/serve.py and localhost listeners …", flush=True)
     if sys.platform == "win32":
         _kill_windows_tools_web_serve_py()
@@ -393,6 +580,18 @@ def _preflight_local_wasm(web_bin: pathlib.Path) -> int:
             "then rebuild: cmake --build build-web --target engine",
             file=sys.stderr,
         )
+        return 4
+    try:
+        with wasm.open("rb") as f:
+            head = f.read(8)
+        if not head.startswith(b"\x00asm"):
+            print(
+                f"Smoke: {wasm} missing wasm magic (got {head[:4]!r}) — rebuild target engine",
+                file=sys.stderr,
+            )
+            return 4
+    except OSError as e:
+        print(f"Smoke: cannot read wasm header {wasm}: {e}", file=sys.stderr)
         return 4
     return 0
 
@@ -483,6 +682,14 @@ def main() -> int:
         help="engine.html URL; add ?reoneFs=picker when not using --game-root (skips HTTP mirror in gamefs.js)",
     )
     ap.add_argument("--out", default="tools/web/_smoke_menu.png")
+    ap.add_argument(
+        "--warp",
+        default=None,
+        help=(
+            "Module resref to load after the menu is ready (e.g. end_m01aa). Verifies the area "
+            "renders in-game. Also reads REONE_WEB_SMOKE_WARP_MODULE."
+        ),
+    )
     ap.add_argument("--timeout", type=float, default=1800.0, help="seconds (default 30 min)")
     ap.add_argument("--interval", type=float, default=10.0)
     ap.add_argument(
@@ -558,8 +765,12 @@ def main() -> int:
     if pre != 0:
         return pre
 
+    warp_module = args.warp or os.environ.get("REONE_WEB_SMOKE_WARP_MODULE") or None
+    if warp_module:
+        warp_module = warp_module.strip().lower() or None
+
     try:
-        return asyncio.run(run(url, args.out, args.timeout, args.interval))
+        return asyncio.run(run(url, args.out, args.timeout, args.interval, warp_module))
     finally:
         _terminate_server_proc(proc)
 

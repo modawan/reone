@@ -12,6 +12,7 @@ import sys
 MIN_WASM = 32768
 MIN_HTML = 200
 MIN_JS = 500
+_WASM_MAGIC = b"\x00asm"
 _REQUIRED = ("engine.html", "engine.js", "engine.wasm")
 _OPTIONAL = ("engine.data",)  # glsl preload (--preload-file glsl@/glsl); absent only if link failed early
 
@@ -29,6 +30,14 @@ def _check_file(p: pathlib.Path, n: str, required: bool) -> list[str]:
         return errs
     if n == "engine.wasm" and sz < MIN_WASM:
         errs.append(f"verify_wasm_bundle: {p} is only {sz} bytes (link failed or file locked?)")
+    if n == "engine.wasm" and sz >= 8:
+        try:
+            with p.open("rb") as f:
+                head = f.read(8)
+            if not head.startswith(_WASM_MAGIC):
+                errs.append(f"verify_wasm_bundle: {p} missing wasm magic (got {head[:4]!r})")
+        except OSError as e:
+            errs.append(f"verify_wasm_bundle: cannot read wasm header {p}: {e}")
     if n == "engine.html" and sz < MIN_HTML:
         errs.append(f"verify_wasm_bundle: {p} looks truncated ({sz} bytes)")
     if n == "engine.js" and sz < MIN_JS:

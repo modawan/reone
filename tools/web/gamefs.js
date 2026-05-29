@@ -658,19 +658,27 @@
         }
         var out = new Uint8Array(len);
         var got = 0;
+        var emptyRetries = 0;
         while (got < len) {
             var chunk = await fetchMirrorRange(original, offset + got, len - got);
             if (!chunk || !chunk.bytes || chunk.bytes.length === 0) {
-                break;
+                if (++emptyRetries >= 24) {
+                    break;
+                }
+                await new Promise(function (r) {
+                    setTimeout(r, 50);
+                });
+                continue;
             }
+            emptyRetries = 0;
             var n = Math.min(chunk.bytes.length, len - got);
             out.set(chunk.bytes.subarray(0, n), got);
             got += n;
         }
-        if (got === 0) {
+        if (got < len) {
             return null;
         }
-        return got === len ? out : out.subarray(0, got);
+        return out;
     }
 
     /** Fetch BIF variable resource tables for archives too large to MEMFS-cache whole (models.bif, sounds.bif). */
@@ -1100,9 +1108,207 @@
         setTimeout(flush, 100);
     }
 
+    /** True when no mirror fetch is in flight (safe to start module load without contending with boot I/O). */
+    Module.reoneWebLazyIoIdle = function () {
+        if (mirrorFetchActive > 0) {
+            return false;
+        }
+        if (mirrorFetchWaiters.length > 0) {
+            return false;
+        }
+        if (Object.keys(mirrorFetchInflight).length > 0) {
+            return false;
+        }
+        if (Object.keys(mirrorFullInflight).length > 0) {
+            return false;
+        }
+        return true;
+    };
+
     Module.reoneWebOnEngineReady = function () {
         setGateLoadingMessage("Main menu ready.");
         removeGateUi();
+        Module.reoneWebMenuReady = true;
+    };
+
+    // Fired from C++ (Game::loadModule) once the area is loaded and the in-game screen is up.
+    Module.reoneWebOnModuleReady = function () {
+        Module.reoneWebModuleReady = true;
+        console.log("reone web: module ready (in-game).");
+    };
+
+    /** Must match tools/web/module_mirror.json and Installation::moduleArchiveRelPaths. */
+    var DEFAULT_MODULE_ARCHIVE_TEMPLATES = [
+        "modules/{module}.rim",
+        "modules/{module}_s.rim",
+        "modules/{module}.mod",
+        "modules/{module}.erf",
+        "modules/{module}_loc.mod",
+        "modules/{module}_loc.erf",
+        "modules/{module}_dlg.mod",
+        "modules/{module}_dlg.erf",
+        "lips/{module}_loc.mod",
+        "lips/{module}_loc.erf",
+    ];
+
+    var _moduleArchiveTemplates = null;
+    var _moduleArchiveTemplatesPromise = null;
+
+    function expandModuleMirrorPaths(moduleName, templates) {
+        var low = String(moduleName || "").toLowerCase();
+        if (!low) {
+            return [];
+        }
+        return templates.map(function (t) {
+            return String(t).replace(/\{module\}/g, low);
+        });
+    }
+
+    async function loadModuleArchiveTemplates() {
+        if (_moduleArchiveTemplates) {
+            return _moduleArchiveTemplates;
+        }
+        if (!_moduleArchiveTemplatesPromise) {
+            _moduleArchiveTemplatesPromise = (async function () {
+                try {
+                    var resp = await fetch("/module_mirror.json", { credentials: "same-origin" });
+                    if (resp.ok) {
+                        var data = await resp.json();
+                        if (data && Array.isArray(data.moduleArchiveRelPaths) && data.moduleArchiveRelPaths.length) {
+                            _moduleArchiveTemplates = data.moduleArchiveRelPaths;
+                            return _moduleArchiveTemplates;
+                        }
+                    }
+                } catch (e) {
+                    /* same-origin fetch unavailable — use defaults */
+                }
+                _moduleArchiveTemplates = DEFAULT_MODULE_ARCHIVE_TEMPLATES.slice();
+                return _moduleArchiveTemplates;
+            })();
+        }
+        return _moduleArchiveTemplatesPromise;
+    }
+
+    /** Primary module containers mirrored by ResourceDirector::loadModuleResources. */
+    function moduleEssentialMirrorRelPaths(moduleName) {
+        var low = String(moduleName || "").toLowerCase();
+        if (!low) {
+            return [];
+        }
+        return ["modules/" + low + ".rim", "modules/" + low + ".mod"];
+    }
+
+    /** Relative mirror paths needed to load a KotOR module (rim / _s / lips / dlg). */
+    async function moduleMirrorRelPaths(moduleName) {
+        var templates = await loadModuleArchiveTemplates();
+        return expandModuleMirrorPaths(moduleName, templates);
+    }
+
+    /**
+     * Fetch module archives into MEMFS so C++ can use FileInputStream (avoids racing Asyncify
+     * range reads against boot-time BIF traffic during warp / New Game).
+     */
+    Module.reoneWebPreloadModuleFiles = async function (moduleName) {
+        var lookup = Module.reoneWebHttpMirrorFiles || {};
+        var rels = await moduleMirrorRelPaths(moduleName);
+        var loaded = 0;
+        for (var i = 0; i < rels.length; ++i) {
+            var rel = rels[i];
+            var original = lookup[rel];
+            if (!original) {
+                continue;
+            }
+            setGateLoadingMessage("Preloading module file " + original + "…");
+            try {
+                var total = mirrorLengthCache[rel];
+                if (typeof total !== "number") {
+                    total = await mirrorHttpTotalBytes(rel, original);
+                }
+                if (typeof total !== "number" || total < 0) {
+                    console.warn("reone web: module preload stat failed for", original);
+                    continue;
+                }
+                if (total <= MIRROR_FULL_CACHE_MAX) {
+                    await mirrorHttpEnsureFullBytes(rel, original);
+                } else {
+                    console.warn(
+                        "reone web: module file too large to MEMFS-cache whole file:",
+                        original,
+                        total
+                    );
+                    continue;
+                }
+                if (Module.reoneWebGameFileMemfsComplete("/game/" + rel)) {
+                    loaded++;
+                }
+            } catch (e) {
+                console.warn("reone web: module preload failed for", original, e);
+            }
+        }
+        console.log(
+            "reone web: module preload finished for",
+            moduleName,
+            "(" + loaded + " files in MEMFS)"
+        );
+        return loaded;
+    };
+
+    /** Preload module archives, then queue a pending module load via reone_web_warp. */
+    Module.reoneWebWarpAsync = async function (name) {
+        var low = String(name || "").toLowerCase();
+        if (!low) {
+            console.error("reone web: warp module name required");
+            return false;
+        }
+        await Module.reoneWebPreloadModuleFiles(name);
+        var lookup = Module.reoneWebHttpMirrorFiles || {};
+        var essential = moduleEssentialMirrorRelPaths(name);
+        var manifestHasPrimary = false;
+        var primaryReady = false;
+        for (var ei = 0; ei < essential.length; ++ei) {
+            var erel = essential[ei];
+            if (!lookup[erel]) {
+                continue;
+            }
+            manifestHasPrimary = true;
+            if (Module.reoneWebGameFileMemfsComplete("/game/" + erel)) {
+                primaryReady = true;
+                break;
+            }
+        }
+        if (manifestHasPrimary && !primaryReady) {
+            console.error(
+                "reone web: primary module archive not in MEMFS after preload; refusing warp for",
+                name
+            );
+            return false;
+        }
+        return Module.reoneWebWarp(name);
+    };
+
+    // Load a KotOR module by name (e.g. "end_m01aa") from JS. This is what the smoke / a future
+    // "New Game" shim calls after the menu is ready; it reuses the supported `warp` console command
+    // via the EMSCRIPTEN_KEEPALIVE export reone_web_warp(const char*). Module resrefs are ASCII.
+    Module.reoneWebWarp = function (name) {
+        var warp = Module._reone_web_warp;
+        if (typeof warp !== "function") {
+            console.error("reone web: _reone_web_warp export not available yet.");
+            return false;
+        }
+        var s = String(name || "");
+        var bytes = [];
+        for (var i = 0; i < s.length; ++i) {
+            bytes.push(s.charCodeAt(i) & 0x7f);
+        }
+        bytes.push(0);
+        var ptr = _malloc(bytes.length);
+        HEAPU8.set(bytes, ptr);
+        try {
+            warp(ptr);
+        } finally {
+            _free(ptr);
+        }
+        return true;
     };
 
     async function mountFromDirectoryHandle(rootHandle) {
