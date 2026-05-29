@@ -62,16 +62,16 @@ async def _canvas_mean_luminance(page) -> float | None:
 
 
 async def _lazy_io_idle(page) -> bool:
-  """Wait until gamefs.js has no in-flight mirror fetches (boot BIF reads can race module load)."""
-  try:
-    return bool(
-      await page.evaluate(
-        "() => (typeof Module === 'object' && typeof Module.reoneWebLazyIoIdle === 'function') "
-        "? Module.reoneWebLazyIoIdle() : true"
-      )
-    )
-  except Exception:
-    return False
+    """Wait until gamefs.js has no in-flight mirror fetches (boot BIF reads can race module load)."""
+    try:
+        return bool(
+            await page.evaluate(
+                "() => (typeof Module === 'object' && typeof Module.reoneWebLazyIoIdle === 'function') "
+                "? Module.reoneWebLazyIoIdle() : true"
+            )
+        )
+    except Exception:
+        return False
 
 
 async def _module_flag(page, name: str) -> bool:
