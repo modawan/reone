@@ -131,7 +131,7 @@ TEST(InstallationResolveLooseRelativePath, finds_root_dialog_tlk) {
     }
 
     Installation installation(GameID::K1, tmp);
-    auto path = installation.resolveLooseRelativePath("dialog.tlk", canonicalSearchOrder());
+    auto path = installation.resolveLooseRelativePath("dialog.tlk", talkTableSearchOrder());
 
     ASSERT_TRUE(path.has_value());
     EXPECT_EQ(std::filesystem::weakly_canonical(tmp / "dialog.tlk"),

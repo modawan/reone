@@ -11,19 +11,19 @@ type: feat
 
 Replace reone's container-stack resource resolution with a C++ port of PyKotor's `Installation` / `FileResource` extract layer using PyKotor literal `SearchLocation` orders. Format Readers/Writers unchanged.
 
-## Progress (2026-05-29 LFG pass 6)
+## Progress (2026-05-29 LFG pass 7)
 
 ### Landed
-- Implemented `talkTableSearchOrder()` / `movieSearchOrder()` in `finder.cpp`
-- `Strings::init` uses `talkTableSearchOrder()` (root-only `dialog.tlk`)
-- `refreshCubeMap()` aligned with `refresh2D()` `#ifndef __EMSCRIPTEN__` brace pattern
-- WASM rebuild + retail smoke **PASS** (menu + `end_m01aa` warp)
+- Test clarity: `InstallationResolveLooseRelativePath` uses `talkTableSearchOrder()`
+- Retail smoke **PASS** (re-run on `bcce4cf3` engine)
+- WASM CI green on `9bd8db96`; `bcce4cf3` WASM in progress
 
 ### Partial / uncertain
-- Linux/Windows native CI still queued on self-hosted runners (backlog)
-- Native `ctest` not run locally (openal)
-- Container stack still in tree for dataminer
+- Linux/Windows native CI **queued** since `fdc50373` (self-hosted runner backlog — not a code failure)
+- Local native configure blocked (MAD/openal dev packages missing on agent host)
+- Container stack retirement deferred
 
 ### Next steps
-- Confirm Linux/Windows CI green after queue drains
-- Retire container stack from hot path
+- Linux/Windows CI completion after queue drains
+- Wire `movieSearchOrder` into `moviePath` / `locations()` (P2)
+- Retire container stack from dataminer-only path
