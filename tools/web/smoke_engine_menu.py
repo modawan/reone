@@ -582,7 +582,8 @@ def _preflight_local_wasm(web_bin: pathlib.Path) -> int:
         )
         return 4
     try:
-        head = wasm.read_bytes()[:8]
+        with wasm.open("rb") as f:
+            head = f.read(8)
         if not head.startswith(b"\x00asm"):
             print(
                 f"Smoke: {wasm} missing wasm magic (got {head[:4]!r}) — rebuild target engine",
