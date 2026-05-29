@@ -1103,6 +1103,38 @@
     Module.reoneWebOnEngineReady = function () {
         setGateLoadingMessage("Main menu ready.");
         removeGateUi();
+        Module.reoneWebMenuReady = true;
+    };
+
+    // Fired from C++ (Game::loadModule) once the area is loaded and the in-game screen is up.
+    Module.reoneWebOnModuleReady = function () {
+        Module.reoneWebModuleReady = true;
+        console.log("reone web: module ready (in-game).");
+    };
+
+    // Load a KotOR module by name (e.g. "end_m01aa") from JS. This is what the smoke / a future
+    // "New Game" shim calls after the menu is ready; it reuses the supported `warp` console command
+    // via the EMSCRIPTEN_KEEPALIVE export reone_web_warp(const char*). Module resrefs are ASCII.
+    Module.reoneWebWarp = function (name) {
+        var warp = Module._reone_web_warp;
+        if (typeof warp !== "function") {
+            console.error("reone web: _reone_web_warp export not available yet.");
+            return false;
+        }
+        var s = String(name || "");
+        var bytes = [];
+        for (var i = 0; i < s.length; ++i) {
+            bytes.push(s.charCodeAt(i) & 0x7f);
+        }
+        bytes.push(0);
+        var ptr = _malloc(bytes.length);
+        HEAPU8.set(bytes, ptr);
+        try {
+            warp(ptr);
+        } finally {
+            _free(ptr);
+        }
+        return true;
     };
 
     async function mountFromDirectoryHandle(rootHandle) {

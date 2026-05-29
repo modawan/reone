@@ -195,6 +195,12 @@ private:
     std::optional<std::reference_wrapper<Framebuffer>> _drawFramebuffer;
     int _activeTexUnit {0};
 
+    // GL texture object currently bound on each sampler unit (unit -> nameGL). Used to break
+    // WebGL2/GLES "feedback loop" errors: if a framebuffer attachment is still bound as a sampler
+    // when that framebuffer becomes the draw target, the draw is INVALID_OPERATION. We unbind such
+    // stale attachments in bindDrawFramebuffer. Desktop GL is lenient, but the fix is harmless there.
+    std::map<int, uint32_t> _boundTextureNameByUnit;
+
     // States
 
     std::stack<glm::ivec4> _viewports;
@@ -205,6 +211,8 @@ private:
     std::stack<BlendMode> _blendModes;
 
     // END States
+
+    void unbindAttachmentsFromTextureUnits(Framebuffer &buffer);
 
     void setViewport(glm::ivec4 viewport);
     void setDepthTestMode(DepthTestMode mode);
