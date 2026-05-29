@@ -17,6 +17,7 @@
 
 #include "reone/resource/strings.h"
 
+#include "reone/extract/installation.h"
 #include "reone/extract/finder.h"
 #include "reone/resource/talktable.h"
 #include "reone/system/exception/endofstream.h"

@@ -17,6 +17,7 @@
 
 #include "reone/resource/resources.h"
 
+#include "reone/extract/installation.h"
 #include "reone/extract/finder.h"
 #include "reone/resource/exception/notfound.h"
 
