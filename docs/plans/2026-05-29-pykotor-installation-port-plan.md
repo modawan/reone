@@ -11,17 +11,18 @@ type: feat
 
 Replace reone's container-stack resource resolution with a C++ port of PyKotor's `Installation` / `FileResource` extract layer using PyKotor literal `SearchLocation` orders. Format Readers/Writers unchanged.
 
-## Progress (2026-05-29 LFG pass 14)
+## Progress (2026-05-29 LFG pass 15)
 
 ### Landed
-- **All CI green** on `179c9593` (`266537340*`) — PR merge-ready
-- Retail Playwright menu smoke **PASS** (~91s)
-- Module warp smoke **PASS** (`--warp end_m01aa`, ~98s to in-game; `EXIT:0`, `_smoke_warp_verify.png`)
-- PyKotor `Installation` port slice complete for engine/toolkit/tests; dataminer container stack deferred
+- **All CI green** on `ecd72b2b` (`266555963*`) — menu + module warp smokes, Installation port
+- Reopened [OpenKotOR/reone#4](https://github.com/OpenKotOR/reone/pull/4) (was closed without merge)
+- Retail Playwright menu smoke **PASS** (pass 15 re-validation, ~79s)
+- Module warp smoke **PASS** on `ecd72b2b` (`--warp end_m01aa`, pass 14)
 
 ### Partial / uncertain
-- Headless canvas luminance probe near-black (known WebGL readback limitation); warp success gated on `reoneWebModuleReady` + logs
+- Headless canvas luminance probe near-black (known WebGL readback limitation)
+- Dataminer container stack still uses legacy containers (deferred slice)
 
 ### Next steps
-- Merge [OpenKotOR/reone#4](https://github.com/OpenKotOR/reone/pull/4)
+- **Merge PR #4** into `master`
 - Dataminer → `Installation` migration (separate slice)
