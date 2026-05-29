@@ -89,7 +89,8 @@ static GLenum getAttachmentGL(Framebuffer::Attachment attachment, int index = 0)
 void Framebuffer::attachTexture(const Texture &texture, Attachment attachment, int index) const {
     auto attachmentGL = getAttachmentGL(attachment, index);
     if (texture.isCubeMap() || texture.is2DArray()) {
-        glFramebufferTexture(GL_FRAMEBUFFER, attachmentGL, texture.nameGL(), 0);
+        // FIXME: why do we attach cubemaps and 2d array here?
+        // glFramebufferTexture(GL_FRAMEBUFFER, attachmentGL, texture.nameGL(), 0);
     } else if (texture.is2D()) {
         glFramebufferTexture2D(GL_FRAMEBUFFER, attachmentGL, GL_TEXTURE_2D, texture.nameGL(), 0);
     } else {

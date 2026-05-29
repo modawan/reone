@@ -200,9 +200,10 @@ void PBRTextures::refreshPrefilteredEnvMap(const EnvMapDerivedRequest &request, 
     }
     _context.resetDrawFramebuffer();
 
-    glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, _prefilteredEnvMapArray->nameGL());
-    glGenerateMipmap(GL_TEXTURE_CUBE_MAP_ARRAY);
-    glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, 0);
+    // FIXME: cubemap array is not supported
+    // glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, _prefilteredEnvMapArray->nameGL());
+    // glGenerateMipmap(GL_TEXTURE_CUBE_MAP_ARRAY);
+    // glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, 0);
 }
 
 } // namespace graphics

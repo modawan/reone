@@ -115,7 +115,8 @@ if(BUILD_LAUNCHER)
     add_subdirectory(src/apps/launcher) # launcher application
 endif()
 
-if(BUILD_TOOLKIT)
+# FIXME: toolkit requires OpenGL because of WxWidgets.
+if(0)
     add_subdirectory(src/apps/toolkit) # toolkit application
 endif()
 

@@ -54,10 +54,17 @@ static uint32_t getPixelFormatGL(PixelFormat format) {
     case PixelFormat::DXT1:
     case PixelFormat::DXT5:
         return GL_RGBA;
+    // FIXME: rewrite textures to RGB
+    // case PixelFormat::BGR8:
+    //     return GL_BGR;
+    // case PixelFormat::BGRA8:
+    //     return GL_BGRA;
+
     case PixelFormat::BGR8:
-        return GL_BGR;
+        return GL_RGB8;
     case PixelFormat::BGRA8:
-        return GL_BGRA;
+        return GL_RGBA8;
+
     case PixelFormat::Depth24:
     case PixelFormat::Depth32F:
         return GL_DEPTH_COMPONENT;
@@ -158,9 +165,10 @@ void Texture::configure2D() {
 
     switch (_properties.wrap) {
     case Wrapping::ClampToBorder:
-        glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-        glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-        glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, &_properties.borderColor[0]);
+        // FIXME: clamp to border does not exist in GLES2
+        glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        // glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, &_properties.borderColor[0]);
         break;
     case Wrapping::ClampToEdge:
         glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -180,10 +188,11 @@ void Texture::configureCubeMap() {
 
     switch (_properties.wrap) {
     case Wrapping::ClampToBorder:
-        glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-        glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-        glTexParameteri(target, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
-        glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, &_properties.borderColor[0]);
+        // FIXME: clamp to border is not supported
+        glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(target, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+        // glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, &_properties.borderColor[0]);
         break;
     case Wrapping::ClampToEdge:
         glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -322,15 +331,18 @@ void Texture::refreshCubeMap() {
 void Texture::refreshCubeMapArray() {
     // TODO: fill with pixel data
     int numLayers = static_cast<int>(_layers.size());
-    glTexImage3D(
-        GL_TEXTURE_CUBE_MAP_ARRAY,
-        0,
-        getInternalPixelFormatGL(_pixelFormat),
-        _width, _height, numLayers,
-        0,
-        getPixelFormatGL(_pixelFormat),
-        getPixelTypeGL(_pixelFormat),
-        nullptr);
+
+    // FIXME: cube map arrays are not supported
+    // glTexImage3D(
+    //     GL_TEXTURE_CUBE_MAP_ARRAY,
+    //     0,
+    //     getInternalPixelFormatGL(_pixelFormat),
+    //     _width, _height, numLayers,
+    //     0,
+    //     getPixelFormatGL(_pixelFormat),
+    //     getPixelTypeGL(_pixelFormat),
+    //     nullptr)
+        ;
 }
 
 void Texture::clear(int w, int h, PixelFormat format, int numLayers, bool refresh) {
@@ -366,7 +378,9 @@ void Texture::setPixels(int w, int h, PixelFormat format, std::vector<Layer> lay
 
 uint32_t Texture::getTargetGL() const {
     if (isCubeMapArray()) {
-        return GL_TEXTURE_CUBE_MAP_ARRAY;
+        // FIXME: cube map arrays are not supported
+        assert(false);
+        // return GL_TEXTURE_CUBE_MAP_ARRAY;
     } else if (isCubeMap()) {
         return GL_TEXTURE_CUBE_MAP;
     } else if (is2DArray()) {
@@ -420,7 +434,8 @@ void Texture::flushGPUToCPU() {
     }
     layer.pixels->resize(bpp * _width * _height);
 
-    glGetTexImage(GL_TEXTURE_2D, 0, getPixelFormatGL(_pixelFormat), getPixelTypeGL(_pixelFormat), &(*layer.pixels)[0]);
+    // FIXME: glGetTexImage is not supported
+    // glGetTexImage(GL_TEXTURE_2D, 0, getPixelFormatGL(_pixelFormat), getPixelTypeGL(_pixelFormat), &(*layer.pixels)[0]);
 }
 
 } // namespace graphics

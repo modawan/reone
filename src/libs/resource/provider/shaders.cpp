@@ -98,8 +98,9 @@ void Shaders::init() {
     auto vertText = initShader(ShaderType::Vertex, kVertText);
     auto vertWalkmesh = initShader(ShaderType::Vertex, kVertWalkmesh);
 
-    auto geomDirLightShadows = initShader(ShaderType::Geometry, kGeometryDirLightShadows);
-    auto geomPointLightShadows = initShader(ShaderType::Geometry, kGeometryPointLightShadows);
+    // FIXME: geometry shaders are not supported
+    // auto geomDirLightShadows = initShader(ShaderType::Geometry, kGeometryDirLightShadows);
+    // auto geomPointLightShadows = initShader(ShaderType::Geometry, kGeometryPointLightShadows);
 
     auto fragColor = initShader(ShaderType::Fragment, kFragColor);
     auto fragRetroOpaqueModel = initShader(ShaderType::Fragment, kFragRetroOpaqueModel);
@@ -146,14 +147,18 @@ void Shaders::init() {
     _shaderRegistry.add(ShaderProgramId::pbrSSAO, initShaderProgram({vertPassthrough, fragPBRSSAO}));
     _shaderRegistry.add(ShaderProgramId::pbrSSR, initShaderProgram({vertPassthrough, fragPBRSSR}));
     _shaderRegistry.add(ShaderProgramId::pbrWalkmesh, initShaderProgram({vertWalkmesh, fragPBRWalkmesh}));
-    _shaderRegistry.add(ShaderProgramId::dirLightShadows, initShaderProgram({vertShadows, geomDirLightShadows, fragNull}));
+    // FIXME: geometry shaders are not supported
+    _shaderRegistry.add(ShaderProgramId::dirLightShadows, initShaderProgram({vertShadows// , geomDirLightShadows
+                , fragNull}));
     _shaderRegistry.add(ShaderProgramId::mvpColor, initShaderProgram({vertMVP, fragColor}));
     _shaderRegistry.add(ShaderProgramId::mvpTexture, initShaderProgram({vertMVP, fragTexture}));
     _shaderRegistry.add(ShaderProgramId::ndcTexture, initShaderProgram({vertPassthrough, fragTextureNoPerspective}));
     _shaderRegistry.add(ShaderProgramId::oitBlend, initShaderProgram({vertPassthrough, fragOITBlend}));
     _shaderRegistry.add(ShaderProgramId::oitModel, initShaderProgram({vertModel, fragOITModel}));
     _shaderRegistry.add(ShaderProgramId::oitParticles, initShaderProgram({vertParticles, fragOITParticles}));
-    _shaderRegistry.add(ShaderProgramId::pointLightShadows, initShaderProgram({vertShadows, geomPointLightShadows, fragPointLightShadows}));
+    // FIXME: geometry shaders are not supported
+    _shaderRegistry.add(ShaderProgramId::pointLightShadows, initShaderProgram({vertShadows// , geomPointLightShadows
+                , fragPointLightShadows}));
     _shaderRegistry.add(ShaderProgramId::postBoxBlur4, initShaderProgram({vertPassthrough, fragPostBoxBlur4}));
     _shaderRegistry.add(ShaderProgramId::postFXAA, initShaderProgram({vertPassthrough, fragPostFXAA}));
     _shaderRegistry.add(ShaderProgramId::postGaussianBlur13, initShaderProgram({vertPassthrough, fragPostGaussianBlur13}));

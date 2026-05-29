@@ -42,7 +42,7 @@ void Context::init() {
         return;
     }
     checkMainThread();
-    if (!gladLoadGL(SDL_GL_GetProcAddress)) {
+    if (!gladLoadGLES2(SDL_GL_GetProcAddress)) {
         // Attempt to retrieve basic version information manually for diagnosis
         // Use manual glGetString which might work even if GLAD failed to load everything
         const GLubyte *version = glGetString(GL_VERSION);
@@ -64,7 +64,8 @@ void Context::init() {
 
     int maxBuffers;
     glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxBuffers);
-    glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+    // FIXME: GL_TEXTURE_CUBE_MAP_SEAMLESS is not supported
+    glEnable(GL_TEXTURE_CUBE_MAP);
 
     glm::ivec4 viewport(0.0f);
     glGetIntegerv(GL_VIEWPORT, &viewport[0]);
@@ -144,7 +145,8 @@ void Context::bindDrawFramebuffer(Framebuffer &buffer, std::vector<int> colorInd
         }
         glDrawBuffers(attachments.size(), &attachments[0]);
     } else {
-        glDrawBuffer(GL_NONE);
+        // FIXME: glDrawBuffer is not supported
+        // glDrawBuffer(GL_NONE);
     }
 }
 
@@ -380,11 +382,12 @@ void Context::setDepthMask(bool enabled) {
 }
 
 void Context::setPolygonMode(PolygonMode mode) {
-    if (mode == PolygonMode::Line) {
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-    } else {
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    }
+    // FIXME: polygon mode is not supported
+    // if (mode == PolygonMode::Line) {
+    //     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    // } else {
+    //     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    // }
 }
 
 void Context::setFaceCullMode(FaceCullMode mode) {

@@ -27,8 +27,9 @@ static GLenum getShaderTypeGL(ShaderType type) {
     switch (type) {
     case ShaderType::Vertex:
         return GL_VERTEX_SHADER;
-    case ShaderType::Geometry:
-        return GL_GEOMETRY_SHADER;
+    // FIXME: geometry shaders are not supported
+    // case ShaderType::Geometry:
+    //     return GL_GEOMETRY_SHADER;
     case ShaderType::Fragment:
         return GL_FRAGMENT_SHADER;
     default:
