@@ -20,6 +20,7 @@
 #include "reone/extract/finder.h"
 #include "reone/extract/installation.h"
 #include "reone/resource/format/erfwriter.h"
+#include "reone/resource/format/rimwriter.h"
 #include "reone/system/stream/fileoutput.h"
 #include "reone/system/stream/memoryoutput.h"
 
@@ -42,6 +43,17 @@ void writeErf(const std::filesystem::path &path, const std::string &resRef, ResT
     out.close();
 }
 
+void writeRim(const std::filesystem::path &path, const std::string &resRef, ResType type, ByteBuffer data) {
+    ByteBuffer bytes;
+    MemoryOutputStream stream(bytes);
+    RimWriter writer;
+    writer.add(RimWriter::Resource {resRef, type, std::move(data)});
+    writer.save(stream);
+    FileOutputStream out(path);
+    out.write(bytes.data(), bytes.size());
+    out.close();
+}
+
 } // namespace
 
 TEST(InstallationSearchOrder, override_beats_modules_and_chitin) {
@@ -50,7 +62,7 @@ TEST(InstallationSearchOrder, override_beats_modules_and_chitin) {
     std::filesystem::create_directories(tmp / "override");
     std::filesystem::create_directories(tmp / "modules");
 
-    writeErf(tmp / "modules" / "testmod.rim", "probe", ResType::Txt, ByteBuffer {'m'});
+    writeRim(tmp / "modules" / "testmod.rim", "probe", ResType::Txt, ByteBuffer {'m'});
     {
         FileOutputStream out(tmp / "override" / "probe.txt");
         out.write("o", 1);
@@ -72,8 +84,8 @@ TEST(InstallationModuleRoot, filters_module_capsules_by_root) {
     std::filesystem::remove_all(tmp);
     std::filesystem::create_directories(tmp / "modules");
 
-    writeErf(tmp / "modules" / "danm13.rim", "probe", ResType::Txt, ByteBuffer {'a'});
-    writeErf(tmp / "modules" / "tar_m02.rim", "probe", ResType::Txt, ByteBuffer {'b'});
+    writeRim(tmp / "modules" / "danm13.rim", "probe", ResType::Txt, ByteBuffer {'a'});
+    writeRim(tmp / "modules" / "tar_m02.rim", "probe", ResType::Txt, ByteBuffer {'b'});
 
     Installation installation(GameID::KotOR, tmp);
     installation.setModuleRoot("danm13");
@@ -97,8 +109,8 @@ TEST(InstallationModuleRoot, skips_module_index_until_module_root_set) {
     std::filesystem::remove_all(tmp);
     std::filesystem::create_directories(tmp / "modules");
 
-    writeErf(tmp / "modules" / "danm13.rim", "probe", ResType::Txt, ByteBuffer {'a'});
-    writeErf(tmp / "modules" / "tar_m02.rim", "probe", ResType::Txt, ByteBuffer {'b'});
+    writeRim(tmp / "modules" / "danm13.rim", "probe", ResType::Txt, ByteBuffer {'a'});
+    writeRim(tmp / "modules" / "tar_m02.rim", "probe", ResType::Txt, ByteBuffer {'b'});
 
     Installation installation(GameID::KotOR, tmp);
     auto loc = installation.resource(ResourceId("probe", ResType::Txt), canonicalSearchOrder());
