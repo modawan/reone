@@ -11,25 +11,21 @@ type: feat
 
 Replace reone's container-stack resource resolution with a C++ port of PyKotor's `Installation` / `FileResource` extract layer using PyKotor literal `SearchLocation` orders. Format Readers/Writers unchanged.
 
-## Progress (2026-05-29 LFG pass 3)
+## Progress (2026-05-29 LFG pass 4)
 
 ### Landed
-- New `include/reone/extract/*` — `SearchLocation`, `finder`, `FileResource`, `LazyCapsule`, `Chitin`, `Installation`
-- `Resources::find` / `get` delegate to `Installation` (`ResourceModule` owns and wires)
-- `ResourceDirector` sets installation scope (`module_root`, custom folders/capsules) — no container mounts
-- Providers: `Textures` / `AudioClips` use `textureSearchOrder()` / `soundSearchOrder()`; `Strings` loads `dialog.tlk` root-only via `resolveLooseRelativePath`; `Movies` via `Installation::moviePath`
-- Root-only loose files: `resolveLooseRelativePath` never searches override/modules/chitin
-- Unit tests: `test/extract/installation.cpp`, updated `test/resource/*`
-- `tools/web/module_mirror.json` — single source for module archive paths; `gamefs.js` fetches via `/module_mirror.json` (fallback templates); `serve.py` serves it
-- Wasm `cmake --build build-web --target engine` succeeds (Release)
-- OpenKotOR CI WASM build in progress for `04b8cc60`
+- **Smoke fix:** defer module capsule indexing until `module_root` is set (boot no longer reads all `modules/*.rim` over HTTP mirror)
+- Search-order early exit in `Installation::locations` (first hit wins)
+- Chitin/capsule EOF wrapped with path context; wasm magic-byte checks in verify + smoke preflight
+- Retail smoke **PASS**: menu + `end_m01aa` warp (`REONE_WEB_SMOKE_GAME_ROOT` Steam install)
+- Test: `InstallationModuleRoot.skips_module_index_until_module_root_set`
 
 ### Partial / uncertain
-- Native unit tests not run locally (missing `openal` dev package on agent host)
-- Container stack (`container/*`) still in tree for dataminer/saveload; hot path removed from `Resources`
-- WASM menu/warp smoke not re-run (`REONE_WEB_SMOKE_GAME_ROOT` unset on agent)
+- Native `ctest` not run locally (openal)
+- Container stack still in tree for dataminer
+- `loadLips`/`loadRims` still eager-index all capsules (not on boot canonical path)
 
 ### Next steps
-- Run `tools/web/run_menu_smoke.sh` on retail install
-- Retire or test-only isolate remaining container code
-- Confirm OpenKotOR Linux/WASM CI green after extract port
+- OpenKotOR CI green on push
+- Retire container stack from hot path
+- Optional: lazy lips/rims indexing when module loads

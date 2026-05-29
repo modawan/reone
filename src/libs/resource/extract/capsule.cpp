@@ -19,6 +19,7 @@
 
 #include "reone/resource/format/erfreader.h"
 #include "reone/resource/format/rimreader.h"
+#include "reone/system/exception/endofstream.h"
 #include "reone/system/stream/gameinput.h"
 
 #include <boost/algorithm/string/case_conv.hpp>
@@ -86,7 +87,11 @@ void LazyCapsule::ensureLoaded() const {
     auto ext = extensionLower(_path);
     if (ext == "rim") {
         resource::RimReader reader(*stream);
-        reader.load();
+        try {
+            reader.load();
+        } catch (const EndOfStreamException &) {
+            throw std::runtime_error("EOF reading capsule: " + _path.string());
+        }
         for (auto &entry : reader.resources()) {
             _resources.emplace_back(
                 entry.resId.resRef.value(),
@@ -99,7 +104,11 @@ void LazyCapsule::ensureLoaded() const {
     }
 
     resource::ErfReader reader(*stream);
-    reader.load();
+    try {
+        reader.load();
+    } catch (const EndOfStreamException &) {
+        throw std::runtime_error("EOF reading capsule: " + _path.string());
+    }
     auto &keys = reader.keys();
     auto &resEntries = reader.resources();
     for (size_t i = 0; i < keys.size() && i < resEntries.size(); ++i) {

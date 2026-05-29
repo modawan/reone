@@ -92,7 +92,28 @@ TEST(InstallationModuleRoot, getModuleRoot_strips_suffixes) {
     EXPECT_EQ("end_m01aa", Installation::getModuleRoot("end_m01aa.mod"));
 }
 
-TEST(InstallationLoosePath, root_files_resolve_only_from_root) {
+TEST(InstallationModuleRoot, skips_module_index_until_module_root_set) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_module_lazy";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "modules");
+
+    writeErf(tmp / "modules" / "danm13.rim", "probe", ResType::Txt, ByteBuffer {'a'});
+    writeErf(tmp / "modules" / "tar_m02.rim", "probe", ResType::Txt, ByteBuffer {'b'});
+
+    Installation installation(GameID::K1, tmp);
+    auto loc = installation.resource(ResourceId("probe", ResType::Txt), canonicalSearchOrder());
+    EXPECT_FALSE(loc.has_value());
+
+    installation.setModuleRoot("danm13");
+    loc = installation.resource(ResourceId("probe", ResType::Txt), canonicalSearchOrder());
+    ASSERT_TRUE(loc.has_value());
+    auto data = loc->readData();
+    ASSERT_EQ(1u, data.size());
+    EXPECT_EQ('a', data[0]);
+
+    std::filesystem::remove_all(tmp);
+}
+
     auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_root_files";
     std::filesystem::remove_all(tmp);
     std::filesystem::create_directories(tmp / "override");

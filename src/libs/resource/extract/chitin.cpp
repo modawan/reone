@@ -19,6 +19,7 @@
 
 #include "reone/resource/format/bifreader.h"
 #include "reone/resource/format/keyreader.h"
+#include "reone/system/exception/endofstream.h"
 #include "reone/system/exception/filenotfound.h"
 #include "reone/system/fileutil.h"
 #include "reone/system/stream/gameinput.h"
@@ -74,7 +75,11 @@ Chitin::Chitin(std::filesystem::path keyPath) {
 
     auto keyStream = openGameInputStream(keyPath);
     resource::KeyReader keyReader(*keyStream);
-    keyReader.load();
+    try {
+        keyReader.load();
+    } catch (const EndOfStreamException &) {
+        throw std::runtime_error("EOF reading KEY: " + keyPath.string());
+    }
 
     auto gamePath = keyPath.parent_path();
     std::unordered_map<int, std::vector<const resource::KeyReader::KeyEntry *>> bifIdxToKey;
@@ -97,14 +102,22 @@ Chitin::Chitin(std::filesystem::path keyPath) {
         if (!webIndex.empty()) {
             MemoryInputStream indexStream(webIndex);
             resource::BifReader indexReader(indexStream);
-            indexReader.load();
+            try {
+                indexReader.load();
+            } catch (const EndOfStreamException &) {
+                throw std::runtime_error("EOF reading BIF index: " + bifPath.string());
+            }
             bifResources = indexReader.resources();
         } else
 #endif
         {
             auto bifStream = openGameInputStream(bifPath);
             resource::BifReader bifReader(*bifStream);
-            bifReader.load();
+            try {
+                bifReader.load();
+            } catch (const EndOfStreamException &) {
+                throw std::runtime_error("EOF reading BIF: " + bifPath.string());
+            }
             bifResources = bifReader.resources();
         }
 

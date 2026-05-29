@@ -142,11 +142,25 @@ void Installation::loadModules() {
     if (_modulesLoaded) {
         return;
     }
-    auto modulesPath = findFileIgnoreCase(_root, kModulesDirectoryName);
-    if (modulesPath) {
-        indexCapsuleDict(*modulesPath, isCapsuleFile, _modules);
-    }
     _modulesLoaded = true;
+    if (!_moduleRoot) {
+        return;
+    }
+    auto modulesPath = findFileIgnoreCase(_root, kModulesDirectoryName);
+    if (!modulesPath) {
+        return;
+    }
+    for (auto &entry : std::filesystem::directory_iterator(*modulesPath)) {
+        if (!entry.is_regular_file() || !isCapsuleFile(entry.path())) {
+            continue;
+        }
+        auto filename = boost::to_lower_copy(entry.path().filename().string());
+        if (getModuleRoot(filename) != *_moduleRoot) {
+            continue;
+        }
+        LazyCapsule capsule(entry.path());
+        _modules[filename] = capsule.resources();
+    }
     clearLocationCaches();
 }
 
@@ -355,6 +369,10 @@ void Installation::setModuleRoot(std::optional<std::string> root) {
         boost::to_lower(*root);
     }
     _moduleRoot = std::move(root);
+    _modulesLoaded = false;
+    _modules.clear();
+    _filteredModulesRoot.reset();
+    _filteredModulesCache.clear();
     clearLocationCaches();
 }
 
@@ -370,6 +388,10 @@ void Installation::setCustomCapsules(std::vector<std::filesystem::path> capsules
 
 void Installation::clearModuleScope() {
     _moduleRoot.reset();
+    _modulesLoaded = false;
+    _modules.clear();
+    _filteredModulesRoot.reset();
+    _filteredModulesCache.clear();
     clearLocationCaches();
 }
 
@@ -563,6 +585,9 @@ void Installation::checkCapsules(const std::vector<std::filesystem::path> &capsu
 }
 
 void Installation::checkModules(const resource::ResourceId &id, std::vector<LocationResult> &out) {
+    if (!_moduleRoot) {
+        return;
+    }
     checkDict(filteredModules(), id, out);
 }
 
@@ -654,6 +679,9 @@ std::vector<LocationResult> Installation::locations(const resource::ResourceId &
             checkList(_executable, id, results);
             break;
         default:
+            break;
+        }
+        if (!results.empty()) {
             break;
         }
     }
