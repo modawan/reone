@@ -21,8 +21,6 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/container.h
     ${RESOURCE_INCLUDE_DIR}/container/erf.h
     ${RESOURCE_INCLUDE_DIR}/container/exe.h
-    ${RESOURCE_INCLUDE_DIR}/container/folder.h
-    ${RESOURCE_INCLUDE_DIR}/container/keybif.h
     ${RESOURCE_INCLUDE_DIR}/container/memory.h
     ${RESOURCE_INCLUDE_DIR}/container/rim.h
     ${RESOURCE_INCLUDE_DIR}/di/module.h
@@ -107,8 +105,6 @@ set(RESOURCE_SOURCES
     ${RESOURCE_SOURCE_DIR}/2da.cpp
     ${RESOURCE_SOURCE_DIR}/container/erf.cpp
     ${RESOURCE_SOURCE_DIR}/container/exe.cpp
-    ${RESOURCE_SOURCE_DIR}/container/folder.cpp
-    ${RESOURCE_SOURCE_DIR}/container/keybif.cpp
     ${RESOURCE_SOURCE_DIR}/container/rim.cpp
     ${RESOURCE_SOURCE_DIR}/di/module.cpp
     ${RESOURCE_SOURCE_DIR}/director.cpp
