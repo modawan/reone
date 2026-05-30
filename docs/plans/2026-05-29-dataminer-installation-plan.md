@@ -1,6 +1,6 @@
 ---
 title: "feat: dataminer Installation migration"
-status: active
+status: completed
 date: 2026-05-29
 type: feat
 ---
