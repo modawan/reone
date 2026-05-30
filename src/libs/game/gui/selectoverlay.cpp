@@ -54,6 +54,22 @@ static constexpr int kActionBarMargin = 3;
 static constexpr int kActionBarPadding = 3;
 static constexpr int kActionWidth = 35;
 static constexpr int kActionHeight = 59;
+static constexpr int kActionArrowHeight = (kActionHeight - kActionWidth) / 2;
+
+static void cycleActionSlot(ActionSlot &slot, bool previous) {
+    if (slot.actions.empty())
+        return;
+
+    if (previous) {
+        if (slot.indexSelected == 0) {
+            slot.indexSelected = static_cast<uint32_t>(slot.actions.size() - 1);
+        } else {
+            --slot.indexSelected;
+        }
+    } else if (++slot.indexSelected == slot.actions.size()) {
+        slot.indexSelected = 0;
+    }
+}
 
 SelectionOverlay::SelectionOverlay(
     Game &game,
@@ -112,6 +128,25 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
     if (_selectedActionSlot == -1 || _selectedActionSlot >= _actionSlots.size())
         return false;
 
+    ActionSlot &slot = _actionSlots[_selectedActionSlot];
+
+    float frameX, frameY;
+    getActionScreenCoords(_selectedActionSlot, frameX, frameY);
+
+    if (event.x < frameX || event.y < frameY ||
+        event.x >= frameX + kActionWidth || event.y >= frameY + kActionHeight)
+        return false;
+
+    float actionY = event.y - frameY;
+    if (actionY < kActionArrowHeight) {
+        cycleActionSlot(slot, true);
+        return true;
+    }
+    if (actionY >= kActionArrowHeight + kActionWidth) {
+        cycleActionSlot(slot, false);
+        return true;
+    }
+
     std::shared_ptr<Creature> leader(_game.party().getLeader());
     if (!leader)
         return false;
@@ -121,7 +156,6 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
     if (!selectedObject)
         return false;
 
-    const ActionSlot &slot = _actionSlots[_selectedActionSlot];
     if (slot.indexSelected >= slot.actions.size())
         return false;
 
@@ -161,18 +195,10 @@ bool SelectionOverlay::handleMouseWheel(const input::MouseWheelEvent &event) {
         return false;
 
     ActionSlot &slot = _actionSlots[_selectedActionSlot];
-    size_t numSlotActions = slot.actions.size();
+    if (slot.actions.empty())
+        return false;
 
-    if (event.y > 0) {
-        if (slot.indexSelected-- == 0) {
-            slot.indexSelected = static_cast<uint32_t>(numSlotActions - 1);
-        }
-    } else {
-        if (++slot.indexSelected == numSlotActions) {
-            slot.indexSelected = 0;
-        }
-    }
-
+    cycleActionSlot(slot, event.y > 0);
     return true;
 }
 
