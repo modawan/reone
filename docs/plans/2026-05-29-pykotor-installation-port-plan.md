@@ -20,5 +20,5 @@ Replace reone's container-stack resource resolution with a C++ port of PyKotor's
 - Module warp smoke **PASS** (`--warp end_m01aa`, pass 14 artifact on master)
 
 ### Deferred (separate slices)
-- Dataminer → `Installation` migration (still uses legacy containers)
 - Headless canvas luminance probe (WebGL readback limitation; not a release gate)
+- Legacy container class definitions remain under `include/reone/resource/container/` (unused; removal is optional cleanup)

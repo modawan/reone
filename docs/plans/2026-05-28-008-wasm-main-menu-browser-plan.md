@@ -1,7 +1,7 @@
 ---
 title: "feat: Reach KotOR main menu in browser WASM build"
 type: feat
-status: active
+status: completed
 date: 2026-05-28
 ---
 

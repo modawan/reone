@@ -1,7 +1,7 @@
 ---
 title: "test: Verify WASM in browser via agent-browser + Playwright"
 type: test
-status: active
+status: completed
 date: 2026-05-28
 ---
 
