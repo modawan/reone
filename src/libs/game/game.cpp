@@ -2027,7 +2027,7 @@ void Game::consoleCastSpellAtObject(const ConsoleArgs &args) {
     std::optional<std::shared_ptr<Item>> item;
     if (spellItem) {
         for (const std::shared_ptr<Item> &inventoryItem : leader->items()) {
-            if (inventoryItem->blueprintResRef() == spellItem.value()) {
+            if (inventoryItem->tag() == spellItem.value()) {
                 item = inventoryItem;
                 break;
             }
