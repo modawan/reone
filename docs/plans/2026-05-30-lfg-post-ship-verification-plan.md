@@ -27,4 +27,10 @@ After PR #4 and PR #5 merged to `master`, verify runtime gates still pass, retir
 - PR #4 + PR #5 previously merged; no open PRs
 
 ### Next steps
-- Pick next feature slice via `/ce-plan` when ready
+- Pick next feature slice via `/ce-plan` (e.g. openkotor-site `/play` integration, dead container cleanup)
+
+## Pass 22 (2026-05-30)
+
+- Menu smoke **PASS** on `84ce961b`
+- `tools/web/progress.md` PR status synced with merged #4/#5
+- Runner **online**; `reone-wasm-runner.service` **active**

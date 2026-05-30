@@ -17,12 +17,12 @@ Original prompt: ReOne WASM playability and openkotor-site integration — `game
 - **Concurrency (2026-05-28):** Use `cancel-in-progress: true` per ref so only the latest push queues one `wasm-ci` job. Avoid `cancel-in-progress: false` (later runs stay `pending` behind a stuck `queued` run) and avoid removing concurrency entirely (parallel queued runs exhaust the org pool).
 - **serve.py (fixed):** CI integration smoke uses `--directory /tmp/web-empty --game-root …`; serve now allows **game-mirror-only** mode when `engine.html` is absent but `--game-root` is set.
 
-## PR status (2026-05-27)
+## PR status (2026-05-30)
 
-- WASM branch merged with `upstream/master` (2026-05-28); pushed to **`origin/master`** (no PR workflow).
-- [modawan/reone#111](https://github.com/modawan/reone/pull/111) remains open on modawan fork (draft); OpenKotOR ships via direct master push.
-- A prior local-only `git merge upstream/master` was **reverted**; branch tip is again `origin/cursor/web-wasm-gles-and-fs-access`.
-- CI for fork PRs runs on **OpenKotOR/reone** when the head branch is pushed; `modawan/reone` may show “no checks” for cross-repo PRs until workflows are approved on the fork.
+- **[OpenKotOR/reone#4](https://github.com/OpenKotOR/reone/pull/4)** merged — WASM menu, module warp, `extract::Installation` port (`68d7f3ad`).
+- **[OpenKotOR/reone#5](https://github.com/OpenKotOR/reone/pull/5)** merged — dataminer → `Installation` (`e8e4b678`).
+- **`master`** is the shipping branch; CI green (Linux, Windows, wasm-ci on self-hosted `reone-wasm-BodenPC`).
+- [modawan/reone#111](https://github.com/modawan/reone/pull/111) may remain open on the fork; OpenKotOR ships via `master`.
 
 ## Done (implementation)
 
