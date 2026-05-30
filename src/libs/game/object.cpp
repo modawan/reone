@@ -221,7 +221,7 @@ std::shared_ptr<Item> Object::addItem(const std::string &resRef, int stackSize, 
     std::shared_ptr<Item> result;
 
     auto maybeItem = std::find_if(_items.begin(), _items.end(), [&resRef](auto &item) {
-        return item->blueprintResRef() == resRef;
+        return item->tag() == resRef;
     });
     if (maybeItem != _items.end()) {
         result = *maybeItem;
@@ -245,11 +245,16 @@ std::shared_ptr<Item> Object::addItem(const std::string &resRef, int stackSize, 
 }
 
 void Object::addItem(const std::shared_ptr<Item> &item) {
-    auto maybeItem = std::find_if(_items.begin(), _items.end(), [&item](auto &entry) { return entry->blueprintResRef() == item->blueprintResRef(); });
+    auto maybeItem = std::find_if(_items.begin(), _items.end(), [&item](auto &entry) { return entry->tag() == item->tag(); });
     if (maybeItem != _items.end()) {
-        (*maybeItem)->setStackSize((*maybeItem)->stackSize() + 1);
+        // Re-adding an owned stack restores one consumed item; transferred stacks merge fully.
+        int stackSize = *maybeItem == item ? 1 : item->stackSize();
+        (*maybeItem)->setStackSize((*maybeItem)->stackSize() + stackSize);
     } else {
         _items.push_back(item);
+        if (Creature *creature = dyn_cast<Creature>(this)) {
+            creature->itemAttributes().addItem(item, _services.game);
+        }
     }
 }
 
@@ -334,8 +339,12 @@ void Object::faceAwayFrom(const Object &other) {
 void Object::moveDropableItemsTo(Object &other) {
     for (auto it = _items.begin(); it != _items.end();) {
         if ((*it)->isDropable()) {
-            other._items.push_back(*it);
+            std::shared_ptr<Item> item(*it);
             it = _items.erase(it);
+            if (Creature *creature = dyn_cast<Creature>(this)) {
+                creature->itemAttributes().removeItem(item);
+            }
+            other.addItem(item);
         } else {
             ++it;
         }
