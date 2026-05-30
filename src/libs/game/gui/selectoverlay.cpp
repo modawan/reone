@@ -88,6 +88,8 @@ void SelectionOverlay::init() {
     _friendlyScroll = _services.resource.textures.get("lbl_miscroll_f", TextureUsage::GUI);
     _hostileScroll = _services.resource.textures.get("lbl_miscroll_h", TextureUsage::GUI);
     _hilightedScroll = _services.resource.textures.get("lbl_miscroll_hi", TextureUsage::GUI);
+    _actionArrow = _services.resource.textures.get("lbl_miarr_1", TextureUsage::GUI);
+    _hilightedActionArrow = _services.resource.textures.get("lbl_miarr_2", TextureUsage::GUI);
     _reticleHeight = _friendlyReticle2->height();
 }
 
@@ -106,6 +108,7 @@ bool SelectionOverlay::handle(const input::Event &event) {
 
 bool SelectionOverlay::handleMouseMotion(const input::MouseMotionEvent &event) {
     _selectedActionSlot = -1;
+    _hilightedActionBand = ActionBand::None;
 
     if (!_selectedObject)
         return false;
@@ -115,6 +118,14 @@ bool SelectionOverlay::handleMouseMotion(const input::MouseMotionEvent &event) {
         getActionScreenCoords(i, x, y);
         if (event.x >= x && event.y >= y && event.x < x + kActionWidth && event.y < y + kActionHeight) {
             _selectedActionSlot = i;
+            float actionY = event.y - y;
+            if (actionY < kActionArrowHeight) {
+                _hilightedActionBand = ActionBand::Previous;
+            } else if (actionY >= kActionArrowHeight + kActionWidth) {
+                _hilightedActionBand = ActionBand::Next;
+            } else {
+                _hilightedActionBand = ActionBand::Icon;
+            }
             return true;
         }
     }
@@ -378,6 +389,7 @@ void SelectionOverlay::renderActionBar() {
 
     for (int i = 0; i < kNumActionSlots; ++i) {
         renderActionFrame(i);
+        renderActionArrows(i);
         renderActionIcon(i);
     }
 }
@@ -403,6 +415,43 @@ void SelectionOverlay::renderActionFrame(int index) {
     _services.graphics.uniforms.setLocals([this, transform](auto &locals) {
         locals.reset();
         locals.model = std::move(transform);
+    });
+    _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpTexture));
+    _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
+}
+
+void SelectionOverlay::renderActionArrows(int index) {
+    if (_actionSlots[index].actions.size() < 2)
+        return;
+
+    renderActionArrow(index, true);
+    renderActionArrow(index, false);
+}
+
+void SelectionOverlay::renderActionArrow(int index, bool previous) {
+    bool hilighted = index == _selectedActionSlot &&
+                     _hilightedActionBand == (previous ? ActionBand::Previous : ActionBand::Next);
+    auto texture = hilighted ? _hilightedActionArrow : _actionArrow;
+    _services.graphics.context.bindTexture(*texture);
+
+    float frameX, frameY;
+    getActionScreenCoords(index, frameX, frameY);
+
+    glm::mat4 transform(1.0f);
+    transform = glm::translate(
+        transform,
+        glm::vec3(frameX, previous ? frameY : frameY + kActionArrowHeight + kActionWidth, 0.0f));
+    transform = glm::scale(transform, glm::vec3(kActionWidth, kActionArrowHeight, 1.0f));
+
+    _services.graphics.uniforms.setLocals([transform, previous](auto &locals) {
+        locals.reset();
+        locals.model = transform;
+        if (!previous) {
+            locals.uv = glm::mat3x4(
+                glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
+                glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
+                glm::vec4(1.0f, 1.0f, 0.0f, 0.0f));
+        }
     });
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpTexture));
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
