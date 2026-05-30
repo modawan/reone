@@ -46,21 +46,55 @@ void ActionBar::addDescription(std::shared_ptr<gui::Label> desc,
 }
 
 void ActionBar::addSlot(std::shared_ptr<gui::Button> button,
+                        std::shared_ptr<gui::Button> action,
                         std::shared_ptr<gui::Button> up,
                         std::shared_ptr<gui::Button> down) {
     rotateActionBarArrow(down);
+    button->setSelectable(false);
 
     size_t slotIndex = _slots.size();
-    _slots.push_back({ActionSlot(), button, up, down});
+    _slots.push_back({
+        ActionSlot(),
+        button,
+        action,
+        up,
+        down,
+        up->border().fill,
+        up->hilight().fill,
+        down->border().fill,
+        down->hilight().fill});
+    up->setBorderFill(std::shared_ptr<graphics::Texture>());
+    up->setHilightFill(std::shared_ptr<graphics::Texture>());
+    down->setBorderFill(std::shared_ptr<graphics::Texture>());
+    down->setHilightFill(std::shared_ptr<graphics::Texture>());
 
-    button->setOnMouseWheel([slotIndex, this](int x, int y) {
+    auto cycleOnMouseWheel = [slotIndex, this](int x, int y) {
         ActionSlot &slot = _slots[slotIndex].slot;
         handleMouseWheel(slot, x, y);
-    });
-    button->setOnClick([slotIndex, this]() {
+    };
+    action->setOnMouseWheel(cycleOnMouseWheel);
+    up->setOnMouseWheel(cycleOnMouseWheel);
+    down->setOnMouseWheel(cycleOnMouseWheel);
+
+    action->setOnClick([slotIndex, this]() {
         ActionSlot &slot = _slots[slotIndex].slot;
         handleMouseButtonDown(slot);
     });
+    up->setOnClick([slotIndex, this]() {
+        ActionSlot &slot = _slots[slotIndex].slot;
+        handleMouseWheel(slot, 0, 1);
+    });
+    down->setOnClick([slotIndex, this]() {
+        ActionSlot &slot = _slots[slotIndex].slot;
+        handleMouseWheel(slot, 0, -1);
+    });
+
+    auto handleSelectionChanged = [slotIndex, this](bool selected) {
+        _slots[slotIndex].button->setSelected(selected);
+    };
+    action->setOnSelectionChanged(handleSelectionChanged);
+    up->setOnSelectionChanged(handleSelectionChanged);
+    down->setOnSelectionChanged(handleSelectionChanged);
 }
 
 void ActionBar::handleMouseWheel(ActionSlot &slot, int x, int y) {
@@ -69,12 +103,11 @@ void ActionBar::handleMouseWheel(ActionSlot &slot, int x, int y) {
     }
 
     if (y > 0) {
-        if (slot.indexSelected == 0) {
-            return;
-        }
-        --slot.indexSelected;
+        slot.indexSelected = slot.indexSelected == 0
+                                 ? slot.actions.size() - 1
+                                 : slot.indexSelected - 1;
     } else {
-        slot.indexSelected = std::min(slot.actions.size() - 1, slot.indexSelected + 1);
+        slot.indexSelected = (slot.indexSelected + 1) % slot.actions.size();
     }
 }
 
@@ -158,6 +191,11 @@ void ActionBar::update() {
         } else {
             slot.indexSelected = 0;
         }
+        bool showArrows = slot.actions.size() > 1;
+        guiSlot.up->setBorderFill(showArrows ? guiSlot.upBorderFill : nullptr);
+        guiSlot.up->setHilightFill(showArrows ? guiSlot.upHilightFill : nullptr);
+        guiSlot.down->setBorderFill(showArrows ? guiSlot.downBorderFill : nullptr);
+        guiSlot.down->setHilightFill(showArrows ? guiSlot.downHilightFill : nullptr);
     }
 
     bool showDesc = false;
