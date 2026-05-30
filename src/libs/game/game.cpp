@@ -579,6 +579,12 @@ void Game::loadGame(std::string_view name) {
 
     NFO nfo = resource::parseNFO(*saveInfo);
     loadModule(nfo.lastModule, /*entry=*/"", /*fromSave=*/true);
+
+    // Inventory is serialized into a separate file. Once the player is loaded,
+    // deserialize it into the player's inventory.
+    if (auto inventoryGff = _services.resource.gffs.get("inventory", ResType::Res)) {
+        deserializeInventory(*inventoryGff);
+    }
 }
 
 void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
@@ -604,6 +610,19 @@ void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
         auto &[pos, rot] = value;
         float facing = glm::half_pi<float>() - glm::atan(rot.x, rot.y);
         setGlobalLocation(name, std::make_shared<Location>(pos, facing));
+    }
+}
+
+void Game::deserializeInventory(resource::Gff &inventoryGff) {
+    std::shared_ptr<Creature> player = _party.player();
+    if (!player) {
+        return;
+    }
+
+    for (const auto &itemGff : inventoryGff.getList("ItemList")) {
+        std::shared_ptr<Item> item = newItem();
+        item->deserialize(*itemGff);
+        player->addItem(item);
     }
 }
 
