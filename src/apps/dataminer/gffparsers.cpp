@@ -17,9 +17,9 @@
 
 #include "gffparsers.h"
 
-#include "reone/resource/container/erf.h"
-#include "reone/resource/container/keybif.h"
-#include "reone/resource/container/rim.h"
+#include "installation_helpers.h"
+
+#include "reone/extract/installation.h"
 #include "reone/resource/format/gffreader.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/typeutil.h"
@@ -30,6 +30,8 @@
 
 #include "code.h"
 
+using namespace reone::dataminer;
+using namespace reone::extract;
 using namespace reone::resource;
 
 namespace reone {
@@ -296,54 +298,23 @@ void generateGffParsers(resource::ResType resType,
                         const std::filesystem::path &destDir) {
     std::map<std::string, std::shared_ptr<Gff>> trees;
 
-    auto keyPath = getFileIgnoreCase(k2dir, "chitin.key");
-    auto keyBif = KeyBifResourceContainer(keyPath);
-    keyBif.init();
-    for (auto &resId : keyBif.resourceIds()) {
-        if (resId.type != resType) {
-            continue;
+    Installation installation(GameID::TSL, k2dir);
+    installation.loadChitin();
+    installation.loadModules();
+
+    auto ingestGff = [&](const FileResource &resource) {
+        if (resource.id().type != resType) {
+            return;
         }
-        auto bytes = keyBif.findResourceData(resId);
-        auto stream = MemoryInputStream(*bytes);
+        auto bytes = resource.readData();
+        auto stream = MemoryInputStream(bytes);
         auto reader = GffReader(stream);
         reader.load();
-        trees[resId.resRef.value()] = reader.root();
-    }
+        trees[resource.id().resRef.value()] = reader.root();
+    };
 
-    auto modulesPath = getFileIgnoreCase(k2dir, "modules");
-    for (auto &entry : std::filesystem::directory_iterator(modulesPath)) {
-        if (!std::filesystem::is_regular_file(entry)) {
-            continue;
-        }
-        auto extension = boost::to_lower_copy(entry.path().extension().string());
-        if (extension == ".rim") {
-            auto rim = RimResourceContainer(entry.path());
-            rim.init();
-            for (auto &res : rim.resourceIds()) {
-                if (res.type != resType) {
-                    continue;
-                }
-                auto bytes = rim.findResourceData(res);
-                auto stream = MemoryInputStream(*bytes);
-                auto reader = GffReader(stream);
-                reader.load();
-                trees[res.resRef.value()] = reader.root();
-            }
-        } else if (extension == ".erf") {
-            auto erf = ErfResourceContainer(entry.path());
-            erf.init();
-            for (auto &res : erf.resourceIds()) {
-                if (res.type != resType) {
-                    continue;
-                }
-                auto bytes = erf.findResourceData(res);
-                auto stream = MemoryInputStream(*bytes);
-                auto reader = GffReader(stream);
-                reader.load();
-                trees[res.resRef.value()] = reader.root();
-            }
-        }
-    }
+    forEachResource(installation.chitinResources(), resType, ingestGff);
+    forEachResource(installation.moduleArchives(), resType, ingestGff);
 
     auto topStructName = boost::to_upper_copy(getExtByResType(resType));
     SchemaStruct schemaStruct;

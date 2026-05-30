@@ -17,6 +17,9 @@
 
 #include "models.h"
 
+#include "installation_helpers.h"
+
+#include "reone/extract/installation.h"
 #include "reone/graphics/animation.h"
 #include "reone/graphics/format/mdlmdxreader.h"
 #include "reone/graphics/model.h"
@@ -24,11 +27,12 @@
 #include "reone/graphics/statistic.h"
 #include "reone/resource/provider/models.h"
 #include "reone/resource/provider/textures.h"
-#include "reone/resource/container/keybif.h"
 #include "reone/resource/resources.h"
 #include "reone/system/stream/memoryinput.h"
 
 using namespace reone;
+using namespace reone::dataminer;
+using namespace reone::extract;
 using namespace reone::graphics;
 using namespace reone::resource;
 
@@ -274,29 +278,30 @@ static ModelStats analyzeModel(graphics::Model &model) {
     return stats;
 }
 
-static ModelStats analyzeModels(const std::filesystem::path &gameDir) {
+static ModelStats analyzeModels(const std::filesystem::path &gameDir, GameID game) {
     ModelStats stats;
-    KeyBifResourceContainer keyBif(gameDir / std::string("chitin.key"));
-    keyBif.init();
-    for (const auto &resId : keyBif.resourceIds()) {
-        if (resId.type != ResType::Mdl) {
+    Installation installation(game, gameDir);
+    installation.loadChitin();
+    for (const auto &resource : installation.chitinResources()) {
+        if (resource.id().type != ResType::Mdl) {
             continue;
         }
         try {
-            auto mdlData = keyBif.findResourceData(ResourceId(resId.resRef, ResType::Mdl));
-            auto mdxData = keyBif.findResourceData(ResourceId(resId.resRef, ResType::Mdx));
-            if (!mdlData || !mdxData) {
+            auto mdlData = resource.readData();
+            auto mdxLocation = installation.resource(ResourceId(resource.id().resRef, ResType::Mdx), chitinOnlyOrder());
+            if (!mdxLocation) {
                 continue;
             }
-            auto mdl = MemoryInputStream(*mdlData);
-            auto mdx = MemoryInputStream(*mdxData);
+            auto mdxData = mdxLocation->readData();
+            auto mdl = MemoryInputStream(mdlData);
+            auto mdx = MemoryInputStream(mdxData);
             Statistic statistic;
             auto reader = MdlMdxReader(mdl, mdx, statistic);
             reader.load();
             auto model = reader.model();
             stats.extend(analyzeModel(*model));
         } catch (const std::exception &e) {
-            std::cerr << "Model " << resId.resRef.value() << ": " << e.what() << std::endl;
+            std::cerr << "Model " << resource.id().resRef.value() << ": " << e.what() << std::endl;
         }
     }
     return stats;
@@ -360,9 +365,9 @@ void printModelNodeStats(const std::string &nodeType,
 void analyzeModels(const std::filesystem::path &k1Dir, const std::filesystem::path &k2Dir) {
     ModelStats stats;
     std::cout << "Analyzing KotOR models" << std::endl;
-    stats.extend(analyzeModels(k1Dir));
+    stats.extend(analyzeModels(k1Dir, GameID::KotOR));
     std::cout << "Analyzing TSL models" << std::endl;
-    stats.extend(analyzeModels(k2Dir));
+    stats.extend(analyzeModels(k2Dir, GameID::TSL));
     std::cout << std::endl;
     printModelNodeStats("dummy", stats.dummy, g_ctrlTypeToNameDummy);
     std::cout << std::endl;

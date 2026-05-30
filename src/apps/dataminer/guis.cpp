@@ -17,9 +17,10 @@
 
 #include "guis.h"
 
+#include "installation_helpers.h"
+
+#include "reone/extract/installation.h"
 #include "reone/gui/types.h"
-#include "reone/resource/container/folder.h"
-#include "reone/resource/container/keybif.h"
 #include "reone/resource/format/gffreader.h"
 #include "reone/system/fileutil.h"
 #include "reone/system/stream/fileoutput.h"
@@ -28,6 +29,8 @@
 
 #include "code.h"
 
+using namespace reone::dataminer;
+using namespace reone::extract;
 using namespace reone::gui;
 using namespace reone::resource;
 
@@ -214,62 +217,39 @@ void generateGuis(const std::filesystem::path &k1dir,
                   const std::filesystem::path &destDir) {
     std::set<std::string> guiResRefs;
 
-    auto k1KeyPath = getFileIgnoreCase(k1dir, "chitin.key");
-    auto k1KeyBifProvider = KeyBifResourceContainer(k1KeyPath);
-    k1KeyBifProvider.init();
-    for (auto &resId : k1KeyBifProvider.resourceIds()) {
-        if (resId.type == ResType::Gui) {
-            guiResRefs.insert(resId.resRef.value());
-        }
-    }
+    Installation k1Installation(GameID::KotOR, k1dir);
+    k1Installation.loadChitin();
+    forEachResource(k1Installation.chitinResources(), ResType::Gui, [&](const FileResource &resource) {
+        guiResRefs.insert(resource.id().resRef.value());
+    });
 
-    auto k2KeyPath = getFileIgnoreCase(k2dir, "chitin.key");
-    auto k2KeyBifProvider = KeyBifResourceContainer(k2KeyPath);
-    k2KeyBifProvider.init();
-    for (auto &resId : k2KeyBifProvider.resourceIds()) {
-        if (resId.type != ResType::Gui) {
-            continue;
-        }
-        if (!boost::ends_with(resId.resRef.value(), "_x") && !boost::ends_with(resId.resRef.value(), "_p")) {
+    Installation k2Installation(GameID::TSL, k2dir);
+    k2Installation.loadChitin();
+    k2Installation.loadOverride();
+    forEachResource(k2Installation.chitinResources(), ResType::Gui, [&](const FileResource &resource) {
+        if (!boost::ends_with(resource.id().resRef.value(), "_x") && !boost::ends_with(resource.id().resRef.value(), "_p")) {
             throw std::runtime_error("Invalid TSL GUI ResRef");
         }
-        auto strippedResRef = resId.resRef.value().substr(0, resId.resRef.value().length() - 2);
+        auto strippedResRef = resource.id().resRef.value().substr(0, resource.id().resRef.value().length() - 2);
         guiResRefs.insert(std::move(strippedResRef));
-    }
-
-    auto k2OverridePath = getFileIgnoreCase(k2dir, "override");
-    auto k2OverrideFolder = FolderResourceContainer(k2OverridePath);
-    k2OverrideFolder.init();
-    for (auto &resId : k2OverrideFolder.resourceIds()) {
-        if (resId.type != ResType::Gui) {
-            continue;
-        }
-        if (!boost::ends_with(resId.resRef.value(), "_x") && !boost::ends_with(resId.resRef.value(), "_p")) {
+    });
+    forEachResource(k2Installation.overrideResources(), ResType::Gui, [&](const FileResource &resource) {
+        if (!boost::ends_with(resource.id().resRef.value(), "_x") && !boost::ends_with(resource.id().resRef.value(), "_p")) {
             throw std::runtime_error("Invalid TSL GUI ResRef");
         }
-        auto strippedResRef = resId.resRef.value().substr(0, resId.resRef.value().length() - 2);
+        auto strippedResRef = resource.id().resRef.value().substr(0, resource.id().resRef.value().length() - 2);
         guiResRefs.insert(std::move(strippedResRef));
-    }
+    });
 
-    auto k1Providers = std::vector<IResourceContainer *> {&k1KeyBifProvider};
-    auto k2Providers = std::vector<IResourceContainer *> {&k2OverrideFolder, &k2KeyBifProvider};
     for (auto &resRef : guiResRefs) {
         std::unique_ptr<ParsedGUI> k1Gui;
-        for (auto &provider : k1Providers) {
-            auto bytes = provider->findResourceData(ResourceId(resRef, ResType::Gui));
-            if (bytes) {
-                k1Gui = std::make_unique<ParsedGUI>(parseGui(*bytes));
-                break;
-            }
+        if (auto bytes = readResource(k1Installation, ResourceId(resRef, ResType::Gui), chitinOnlyOrder())) {
+            k1Gui = std::make_unique<ParsedGUI>(parseGui(*bytes));
         }
 
         std::unique_ptr<ParsedGUI> k2Gui;
-        for (auto &provider : k2Providers) {
-            auto bytes = provider->findResourceData(ResourceId(resRef + "_p", ResType::Gui));
-            if (bytes) {
-                k2Gui = std::make_unique<ParsedGUI>(parseGui(*bytes));
-                break;
-            }
+        if (auto bytes = readResource(k2Installation, ResourceId(resRef + "_p", ResType::Gui), overrideThenChitinOrder())) {
+            k2Gui = std::make_unique<ParsedGUI>(parseGui(*bytes));
         }
 
         ParsedGUI mergedGui;

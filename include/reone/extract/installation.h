@@ -78,6 +78,19 @@ public:
 
     std::optional<std::filesystem::path> moviePath(std::string_view name);
 
+    /// Indexed chitin resources (requires loadChitin()).
+    const std::vector<FileResource> &chitinResources() const { return _chitin; }
+
+    /// Indexed module archives keyed by relative path (requires loadModules()).
+    const std::unordered_map<std::string, std::vector<FileResource>> &moduleArchives() const {
+        return _modules;
+    }
+
+    /// Indexed override tree (requires loadOverride()).
+    const std::unordered_map<std::string, std::vector<FileResource>> &overrideResources() const {
+        return _override;
+    }
+
     /// Resolve a loose file relative to the game root (e.g. dialog.tlk, movies/foo.bik).
     std::optional<std::filesystem::path> resolveLooseRelativePath(
         std::string_view relativePath,
