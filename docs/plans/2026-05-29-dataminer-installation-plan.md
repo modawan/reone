@@ -18,15 +18,13 @@ Replace legacy `KeyBifResourceContainer` / `FolderResourceContainer` / capsule c
 3. Fix pre-existing TSL nwscript bug (`k2KeyBif` used `k1KeyPath`)
 4. Native build: `dataminer` target compiles; CI Linux/Windows green
 
-## Progress (LFG pass 19)
+## Progress (LFG pass 19 — shipped)
 
 ### Landed
-- Self-hosted runner `reone-wasm-BodenPC` brought **online** (was offline ~45m, wasm-ci queued)
-- Linux + Windows CI **green** on `0272c2fa`
-- Menu smoke **PASS** (pass 18)
+- **[OpenKotOR/reone#5](https://github.com/OpenKotOR/reone/pull/5) merged** to `master` as `e8e4b678`
+- All dataminer generators use `extract::Installation`; container stack retired in dataminer
+- Self-hosted runner `reone-wasm-BodenPC` recovered (was offline); `reone-wasm-runner.service` installed for persistence
+- All CI **green** (Linux, Windows, wasm-ci, CodeQL)
 
-### Partial / uncertain
-- wasm-ci re-dispatch in progress after runner recovery
-
-### Next steps
-- wasm-ci green → merge [OpenKotOR/reone#5](https://github.com/OpenKotOR/reone/pull/5)
+### Deferred
+- None for this slice
