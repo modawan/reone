@@ -570,8 +570,19 @@ void Game::loadGame(std::string_view name) {
     if (!globalVars) {
         throw ResourceNotFoundException("globalvars.res not found");
     }
+    deserializeGlobalVariables(*globalVars);
 
-    GVT gvt = resource::parseGVT(*globalVars);
+    std::shared_ptr<Gff> saveInfo(_services.resource.gffs.get("savenfo", ResType::Res));
+    if (!saveInfo) {
+        throw ResourceNotFoundException("saveinfo.res not found");
+    }
+
+    NFO nfo = resource::parseNFO(*saveInfo);
+    loadModule(nfo.lastModule, /*entry=*/"", /*fromSave=*/true);
+}
+
+void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
+    GVT gvt = resource::parseGVT(gvtGff);
     _globalStrings.clear();
     _globalBooleans.clear();
     _globalNumbers.clear();
@@ -594,14 +605,6 @@ void Game::loadGame(std::string_view name) {
         float facing = glm::half_pi<float>() - glm::atan(rot.x, rot.y);
         setGlobalLocation(name, std::make_shared<Location>(pos, facing));
     }
-
-    std::shared_ptr<Gff> saveInfo(_services.resource.gffs.get("savenfo", ResType::Res));
-    if (!saveInfo) {
-        throw ResourceNotFoundException("saveinfo.res not found");
-    }
-
-    NFO nfo = resource::parseNFO(*saveInfo);
-    loadModule(nfo.lastModule, /*entry=*/"", /*fromSave=*/true);
 }
 
 bool Game::loadParty() {
