@@ -38,6 +38,12 @@ namespace game {
 void LevelUpMenu::onGUILoaded() {
     bindControls();
 
+    if (_game.isTSL()) {
+        for (auto &control : {_controls.LBL_1, _controls.LBL_2, _controls.LBL_3, _controls.LBL_4, _controls.LBL_5}) {
+            control->setTintBorderFill(true);
+        }
+    }
+
     doSetStep(0);
 
     _controls.BTN_BACK->setOnClick([this]() {
