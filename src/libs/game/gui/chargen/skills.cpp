@@ -64,6 +64,9 @@ void CharGenSkills::onGUILoaded() {
     }
 
     _controls.LB_DESC->setProtoMatchContent(true);
+    if (_game.isTSL()) {
+        _controls.LB_DESC->setTintBorderFill(true);
+    }
 
     _controls.COMPUTER_USE_POINTS_BTN->setDisabled(true);
     _controls.DEMOLITIONS_POINTS_BTN->setDisabled(true);

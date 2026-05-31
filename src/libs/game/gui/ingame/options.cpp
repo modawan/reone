@@ -19,6 +19,7 @@
 
 #include "reone/game/game.h"
 #include "reone/gui/control/button.h"
+#include "reone/gui/control/listbox.h"
 
 using namespace reone::audio;
 using namespace reone::graphics;
@@ -32,7 +33,11 @@ namespace game {
 void OptionsMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
+    tintK2InGameFooter();
 
+    if (_game.isTSL()) {
+        _controls.LB_DESC->setTintBorderFill(true);
+    }
     _controls.BTN_LOADGAME->setOnClick([this]() {
         _game.openSaveLoad(SaveLoadMode::LoadFromInGame);
     });

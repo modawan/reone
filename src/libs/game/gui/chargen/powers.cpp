@@ -201,6 +201,9 @@ void CharGenPowers::onGUILoaded() {
     _gui->addControlToBack(_controls.ICONCHAIN_POWERS);
 
     _controls.LB_DESC->setProtoMatchContent(true);
+    if (_game.isTSL()) {
+        _controls.LB_DESC->setTintBorderFill(true);
+    }
     _controls.LB_POWERS->setVisible(false);
     _controls.SELECT_BTN->setOnClick([this]() {
         activateFocusedPower();

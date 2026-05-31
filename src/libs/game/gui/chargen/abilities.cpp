@@ -61,6 +61,9 @@ void CharGenAbilities::onGUILoaded() {
     bindControls();
 
     _controls.LB_DESC->setProtoMatchContent(true);
+    if (_game.isTSL()) {
+        _controls.LB_DESC->setTintBorderFill(true);
+    }
 
     std::vector<Label *> labels {
         _controls.STR_LBL.get(),

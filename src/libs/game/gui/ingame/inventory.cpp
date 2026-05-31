@@ -64,11 +64,10 @@ static bool isInventoryListedEquipmentSlot(int slot) {
     }
 }
 
-static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox, const glm::vec3 &baseColor) {
+static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox) {
     if (!listBox) {
         return;
     }
-    listBox->setBorderColor(baseColor);
     listBox->setTintBorderFill(true);
 }
 
@@ -263,6 +262,7 @@ static void updateK2FilterButton(const std::shared_ptr<Button> &button, bool sel
 void InventoryMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
+    tintK2InGameFooter();
 
     if (_controls.LBL_CREDITS_VALUE) {
         _controls.LBL_CREDITS_VALUE->setVisible(false);
@@ -306,8 +306,8 @@ void InventoryMenu::configureItemsListBox() {
     }
 
     if (_game.isTSL()) {
-        tintK2PanelFill(_controls.LB_ITEMS, _baseColor);
-        tintK2PanelFill(_controls.LB_DESCRIPTION, _baseColor);
+        tintK2PanelFill(_controls.LB_ITEMS);
+        tintK2PanelFill(_controls.LB_DESCRIPTION);
     }
 
     _controls.LB_ITEMS->setSelectionMode(ListBox::SelectionMode::OnClick);

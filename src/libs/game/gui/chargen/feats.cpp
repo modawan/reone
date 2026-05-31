@@ -200,6 +200,10 @@ void CharGenFeats::onGUILoaded() {
     _gui->addControlToBack(_controls.ICONCHAIN_FEATS);
 
     _controls.LB_DESC->setProtoMatchContent(true);
+    if (_game.isTSL()) {
+        _controls.LB_DESC->setTintBorderFill(true);
+        _controls.LB_FEATS->setTintBorderFill(true);
+    }
     _controls.LB_FEATS->setSelectionMode(ListBox::SelectionMode::OnClick);
     _controls.LB_FEATS->setRenderItemIconsForButtonProto(true);
     _controls.LB_FEATS->setOnItemClick([this](const std::string &item) {

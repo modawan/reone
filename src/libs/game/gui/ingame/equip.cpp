@@ -79,17 +79,17 @@ static void enableBorderFillTint(const std::shared_ptr<Control> &control) {
     control->setTintBorderFill(true);
 }
 
-static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox, const glm::vec3 &baseColor) {
+static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox) {
     if (!listBox) {
         return;
     }
-    listBox->setBorderColor(baseColor);
     listBox->setTintBorderFill(true);
 }
 
 void Equipment::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
+    tintK2InGameFooter();
 
     if (_controls.LBL_BAR1)
         _lblBar.push_back(_controls.LBL_BAR1);
@@ -188,8 +188,8 @@ void Equipment::configureItemsListBox() {
     protoItem.setHilightColor(_hilightColor);
 
     if (_game.isTSL()) {
-        tintK2PanelFill(_controls.LB_ITEMS, _baseColor);
-        tintK2PanelFill(_controls.LB_DESC, _baseColor);
+        tintK2PanelFill(_controls.LB_ITEMS);
+        tintK2PanelFill(_controls.LB_DESC);
     }
 }
 
@@ -412,9 +412,6 @@ void Equipment::tintK2LoadoutOverlay() {
     enableBorderFillTint(_controls.LBL_DEF_BACK);
     enableBorderFillTint(_controls.LBL_BAR1);
     enableBorderFillTint(_controls.LBL_BAR2);
-    enableBorderFillTint(_controls.LBL_BAR3);
-    enableBorderFillTint(_controls.LBL_BAR4);
-    enableBorderFillTint(_controls.LBL_BAR5);
 }
 
 void Equipment::updateK2LoadoutOverlayVisibility(bool visible) {
