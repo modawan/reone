@@ -153,6 +153,28 @@ void GameGUI::tintK2InGameFooter() {
     }
 }
 
+void GameGUI::tintK2InGameHeader() {
+    if (!_game.isTSL()) {
+        return;
+    }
+
+    for (auto &tag : {"LBL_BAR1", "LBL_BAR2", "LBL_BAR6"}) {
+        auto control = _gui->findControl(tag);
+        if (control) {
+            control->setTintBorderFill(true);
+        }
+    }
+}
+
+void GameGUI::updateK2FilterButton(const std::shared_ptr<Control> &button, bool selected) {
+    if (!button) {
+        return;
+    }
+
+    button->setSelected(selected);
+    button->setTextColor(selected ? glm::vec3 {1.0f} : _baseColor);
+}
+
 std::string GameGUI::guiResRef(const std::string &base) const {
     return _game.isTSL() ? base + "_p" : base;
 }

@@ -34,6 +34,7 @@ void MessagesMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
     tintK2InGameFooter();
+    tintK2InGameHeader();
 
     _controls.BTN_EXIT->setOnClick([this]() {
         if (_game.isTSL()) {
@@ -91,10 +92,10 @@ void MessagesMenu::refreshFilterVisibility() {
     bool combat = _filter == Filter::Combat;
     bool effects = _filter == Filter::Effects;
 
-    _controls.BTN_DIALOG->setSelected(dialog);
-    _controls.BTN_FEEDBACK->setSelected(feedback);
-    _controls.BTN_COMBAT->setSelected(combat);
-    _controls.BTN_EFFECTS->setSelected(effects);
+    updateK2FilterButton(_controls.BTN_DIALOG, dialog);
+    updateK2FilterButton(_controls.BTN_FEEDBACK, feedback);
+    updateK2FilterButton(_controls.BTN_COMBAT, combat);
+    updateK2FilterButton(_controls.BTN_EFFECTS, effects);
 
     _controls.LB_DIALOG->setVisible(dialog);
     _controls.LB_MESSAGES->setVisible(feedback);
