@@ -390,6 +390,7 @@ void InGameMenu::openPartySelection() {
 
 void InGameMenu::openMessages() {
     _messages->refresh();
+    _messages->resetFilter();
     changeTab(InGameMenuTab::Messages);
 }
 
