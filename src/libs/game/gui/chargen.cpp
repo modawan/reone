@@ -62,6 +62,10 @@ void CharacterGeneration::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
 
+    if (_game.isTSL()) {
+        _controls.LBL_STATSBACK->setTintBorderFill(true);
+    }
+
     _controls.LBL_LEVEL_VAL->setVisible(false);
     _controls.LBL_NAME->setTextMessage("");
 

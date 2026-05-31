@@ -71,6 +71,7 @@ void AbilitiesMenu::onGUILoaded() {
         _controls.LB_ABILITY->setTintBorderFill(true);
         _controls.LB_DESC->setTintBorderFill(true);
         _controls.LB_DESC_FEATS->setTintBorderFill(true);
+        _controls.LBL_INFOBG->setTintBorderFill(true);
     }
     _controls.LB_ABILITY->setOnItemClick([this](const std::string &item) {
         auto skill = static_cast<SkillType>(stoi(item));
