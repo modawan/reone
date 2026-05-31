@@ -992,6 +992,7 @@ enum class InGameMenuTab {
     Inventory,
     Character,
     Abilities,
+    Party,
     Messages,
     Journal,
     Map,

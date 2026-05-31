@@ -171,7 +171,11 @@ void HUD::onGUILoaded() {
         _game.openInGameMenu(InGameMenuTab::Abilities);
     });
     _controls.BTN_MSG->setOnClick([this]() {
-        _game.openInGameMenu(InGameMenuTab::Messages);
+        if (_game.isTSL()) {
+            _game.openInGameMenu(InGameMenuTab::Party);
+        } else {
+            _game.openInGameMenu(InGameMenuTab::Messages);
+        }
     });
     _controls.BTN_JOU->setOnClick([this]() {
         _game.openInGameMenu(InGameMenuTab::Journal);

@@ -1283,6 +1283,9 @@ void Game::openInGameMenu(InGameMenuTab tab) {
     case InGameMenuTab::Abilities:
         _inGame->openAbilities();
         break;
+    case InGameMenuTab::Party:
+        _inGame->openPartySelection();
+        break;
     case InGameMenuTab::Messages:
         _inGame->openMessages();
         break;
