@@ -58,7 +58,23 @@ void MessagesMenu::onGUILoaded() {
         });
         _controls.LB_MESSAGES->setItemsInteractive(false);
         _controls.LB_MESSAGES->setProtoMatchContent(true);
+        return;
     }
+
+    _controls.BTN_DIALOG->setOnClick([this]() {
+        setFilter(Filter::Dialog);
+    });
+    _controls.BTN_FEEDBACK->setOnClick([this]() {
+        setFilter(Filter::Feedback);
+    });
+    _controls.BTN_COMBAT->setOnClick([this]() {
+        setFilter(Filter::Combat);
+    });
+    _controls.BTN_EFFECTS->setOnClick([this]() {
+        setFilter(Filter::Effects);
+    });
+
+    resetFilter();
 }
 
 void MessagesMenu::refresh() {
@@ -117,6 +133,39 @@ void MessagesMenu::toggleMessages() {
     } else {
         showFeedbackMessages();
     }
+}
+
+void MessagesMenu::resetFilter() {
+    if (!_game.isTSL()) {
+        return;
+    }
+
+    setFilter(Filter::Dialog);
+}
+
+void MessagesMenu::setFilter(Filter filter) {
+    _filter = filter;
+    refreshFilterVisibility();
+}
+
+void MessagesMenu::refreshFilterVisibility() {
+    bool dialog = _filter == Filter::Dialog;
+    bool feedback = _filter == Filter::Feedback;
+    bool combat = _filter == Filter::Combat;
+    bool effects = _filter == Filter::Effects;
+
+    _controls.BTN_DIALOG->setSelected(dialog);
+    _controls.BTN_FEEDBACK->setSelected(feedback);
+    _controls.BTN_COMBAT->setSelected(combat);
+    _controls.BTN_EFFECTS->setSelected(effects);
+
+    _controls.LB_DIALOG->setVisible(dialog);
+    _controls.LB_MESSAGES->setVisible(feedback);
+    _controls.LB_COMBAT->setVisible(combat);
+    _controls.LBL_EFFECTS_GOOD->setVisible(effects);
+    _controls.LBL_EFFECTS_BAD->setVisible(effects);
+    _controls.LB_EFFECTS_GOOD->setVisible(effects);
+    _controls.LB_EFFECTS_BAD->setVisible(effects);
 }
 
 } // namespace game
