@@ -44,6 +44,13 @@ public:
     void refresh();
 
 private:
+    enum class Filter {
+        Priority,
+        Planet,
+        Name,
+        Time,
+    };
+
     struct Controls {
         std::shared_ptr<gui::Button> BTN_EXIT;
         std::shared_ptr<gui::Button> BTN_FILTER_NAME;
@@ -65,8 +72,11 @@ private:
     };
 
     Controls _controls;
+    Filter _filter {Filter::Priority};
 
     void onGUILoaded() override;
+    void setFilter(Filter filter);
+    void updateFilterControls();
 
     void refreshEntryText(const std::string &plotId);
 

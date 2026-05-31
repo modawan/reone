@@ -45,7 +45,6 @@ namespace game {
 
 static constexpr char kEquippedItemSuffix[] = " (equipped)";
 static constexpr char kK1InventoryTitlePrefix[] = "Party Inventory - ";
-static constexpr glm::vec3 kK2InventoryFilterSelectedColor {1.0f, 1.0f, 1.0f};
 
 static bool isInventoryListedEquipmentSlot(int slot) {
     switch (slot) {
@@ -251,15 +250,6 @@ static std::string k1NextFilterAction(InventoryFilter filter) {
     }
 }
 
-static void updateK2FilterButton(const std::shared_ptr<Button> &button, bool selected, const glm::vec3 &baseColor) {
-    if (!button) {
-        return;
-    }
-
-    button->setSelected(selected);
-    button->setTextColor(selected ? kK2InventoryFilterSelectedColor : baseColor);
-}
-
 void InventoryMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
@@ -457,13 +447,13 @@ void InventoryMenu::setFilter(InventoryFilter filter) {
 
 void InventoryMenu::updateFilterControls() {
     if (_game.isTSL()) {
-        updateK2FilterButton(_controls.BTN_ALL, _filter == InventoryFilter::All, _baseColor);
-        updateK2FilterButton(_controls.BTN_DATAPADS, _filter == InventoryFilter::Datapad, _baseColor);
-        updateK2FilterButton(_controls.BTN_WEAPONS, _filter == InventoryFilter::Weapon, _baseColor);
-        updateK2FilterButton(_controls.BTN_ARMOR, _filter == InventoryFilter::Armor, _baseColor);
-        updateK2FilterButton(_controls.BTN_USEABLE, _filter == InventoryFilter::Useable, _baseColor);
-        updateK2FilterButton(_controls.BTN_QUESTS, _filter == InventoryFilter::Quest, _baseColor);
-        updateK2FilterButton(_controls.BTN_MISC, _filter == InventoryFilter::Misc, _baseColor);
+        updateK2FilterButton(_controls.BTN_ALL, _filter == InventoryFilter::All);
+        updateK2FilterButton(_controls.BTN_DATAPADS, _filter == InventoryFilter::Datapad);
+        updateK2FilterButton(_controls.BTN_WEAPONS, _filter == InventoryFilter::Weapon);
+        updateK2FilterButton(_controls.BTN_ARMOR, _filter == InventoryFilter::Armor);
+        updateK2FilterButton(_controls.BTN_USEABLE, _filter == InventoryFilter::Useable);
+        updateK2FilterButton(_controls.BTN_QUESTS, _filter == InventoryFilter::Quest);
+        updateK2FilterButton(_controls.BTN_MISC, _filter == InventoryFilter::Misc);
         return;
     }
 
