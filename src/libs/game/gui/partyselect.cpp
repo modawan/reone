@@ -67,6 +67,7 @@ void PartySelection::onGUILoaded() {
 
     bindControls();
     tintK2InGameFooter();
+    tintK2InGameHeader();
 
     for (int i = 0; i < kNpcCount; ++i) {
         ToggleButton &button = getNpcButton(i);

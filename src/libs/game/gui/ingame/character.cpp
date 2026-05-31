@@ -44,6 +44,7 @@ void CharacterMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
     tintK2InGameFooter();
+    tintK2InGameHeader();
 
     if (_controls.LBL_GOOD1)
         _lblGood.push_back(_controls.LBL_GOOD1);
@@ -80,6 +81,7 @@ void CharacterMenu::onGUILoaded() {
         _lblBar.push_back(_controls.LBL_BAR6);
 
     if (_game.isTSL()) {
+        _controls.LBL_STATSBORDER->setTintBorderFill(true);
         _controls.BTN_CHANGE1 = _inGameMenu.getBtnChange2();
         _controls.BTN_CHANGE2 = _inGameMenu.getBtnChange3();
     }

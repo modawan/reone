@@ -61,6 +61,7 @@ protected:
 
     void loadBackground(BackgroundType type);
     void tintK2InGameFooter();
+    void tintK2InGameHeader();
     void updateK2FilterButton(const std::shared_ptr<gui::Control> &button, bool selected);
 
     virtual void configureControls() {}

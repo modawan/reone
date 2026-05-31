@@ -39,6 +39,7 @@ void MapMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
     tintK2InGameFooter();
+    tintK2InGameHeader();
 
     _controls.BTN_RETURN->setDisabled(true);
     _controls.BTN_EXIT->setOnClick([this]() {

@@ -34,6 +34,7 @@ void OptionsMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
     tintK2InGameFooter();
+    tintK2InGameHeader();
 
     if (_game.isTSL()) {
         _controls.LB_DESC->setTintBorderFill(true);
