@@ -41,10 +41,18 @@ public:
     }
 
     void onGUILoaded() override;
+    void resetFilter();
 
     void refresh();
 
 private:
+    enum class Filter {
+        Dialog,
+        Feedback,
+        Combat,
+        Effects,
+    };
+
     struct Controls {
         std::shared_ptr<gui::Button> BTN_COMBAT;
         std::shared_ptr<gui::Button> BTN_DIALOG;
@@ -71,10 +79,13 @@ private:
 
     Controls _controls;
     bool _showingFeedback {false};
+    Filter _filter {Filter::Dialog};
 
     void showDialogMessages();
     void showFeedbackMessages();
     void toggleMessages();
+    void refreshFilterVisibility();
+    void setFilter(Filter filter);
 
     void bindControls() {
         _controls.BTN_COMBAT = findControl<gui::Button>("BTN_COMBAT");
