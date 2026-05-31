@@ -60,6 +60,7 @@ protected:
     virtual void onGUILoaded() {}
 
     void loadBackground(BackgroundType type);
+    void tintK2InGameFooter();
 
     virtual void configureControls() {}
     void onClick(const std::string &control) override;

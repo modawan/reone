@@ -79,6 +79,7 @@ void InGameMenu::onGUILoaded() {
         tintK2TopNavigationIcon(_controls.LBLH_JOU, _baseColor);
         tintK2TopNavigationIcon(_controls.LBLH_MAP, _baseColor);
         tintK2TopNavigationIcon(_controls.LBLH_OPT, _baseColor);
+        _controls.LBL_BACK1->setTintBorderFill(true);
         refreshK2Footer();
     }
 

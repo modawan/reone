@@ -38,6 +38,7 @@ static constexpr int kStrRefMapNote = 349;
 void MapMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
+    tintK2InGameFooter();
 
     _controls.BTN_RETURN->setDisabled(true);
     _controls.BTN_EXIT->setOnClick([this]() {

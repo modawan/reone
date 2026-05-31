@@ -140,6 +140,19 @@ void GameGUI::loadBackground(BackgroundType type) {
     }
 }
 
+void GameGUI::tintK2InGameFooter() {
+    if (!_game.isTSL()) {
+        return;
+    }
+
+    for (auto &tag : {"LBL_BAR3", "LBL_BAR4", "LBL_BAR5"}) {
+        auto control = _gui->findControl(tag);
+        if (control) {
+            control->setTintBorderFill(true);
+        }
+    }
+}
+
 std::string GameGUI::guiResRef(const std::string &base) const {
     return _game.isTSL() ? base + "_p" : base;
 }

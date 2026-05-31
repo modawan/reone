@@ -43,6 +43,7 @@ namespace game {
 void CharacterMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
+    tintK2InGameFooter();
 
     if (_controls.LBL_GOOD1)
         _lblGood.push_back(_controls.LBL_GOOD1);
