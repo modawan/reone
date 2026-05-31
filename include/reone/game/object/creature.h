@@ -298,6 +298,7 @@ private:
     int16_t _fortBonus {0};
     uint8_t _goodEvil {0};
     float _challengeRating {0};
+    uint32_t _xp {0};
 
     std::string _onNotice;
     std::string _onSpellAt;
@@ -336,7 +337,6 @@ private:
     bool _movementRestricted {false};
     CombatState _combatState;
     bool _immortal {false};
-    int _xp {0};
     std::shared_ptr<resource::SoundSet> _soundSet;
     BodyBag _bodyBag;
     Perception _perception;
