@@ -91,6 +91,9 @@ protected:
      * this; calling it there is a no-op.
      */
     void useBakedItemSlotArt(gui::ListBox &listBox);
+    void tintK2InGameFooter();
+    void tintK2InGameHeader();
+    void updateK2FilterButton(const std::shared_ptr<gui::Control> &button, bool selected);
 
     virtual void configureControls() {}
     void onClick(const std::string &control) override;

@@ -47,6 +47,8 @@ static constexpr int kStrRefTotalRank = 41904;
 void AbilitiesMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
+    tintK2InGameFooter();
+    tintK2InGameHeader();
 
     _controls.BTN_SKILLS->setDisabled(true);
     _controls.BTN_POWERS->setDisabled(true);
@@ -61,6 +63,15 @@ void AbilitiesMenu::onGUILoaded() {
     _controls.LBL_NAME->setTextMessage("");
 
     _controls.LB_DESC->setProtoMatchContent(true);
+    if (_game.isTSL()) {
+        _controls.BTN_SKILLS->setDisabled(false);
+        updateK2FilterButton(_controls.BTN_SKILLS, true);
+        updateK2FilterButton(_controls.BTN_POWERS, false);
+        updateK2FilterButton(_controls.BTN_FEATS, false);
+        _controls.LB_ABILITY->setTintBorderFill(true);
+        _controls.LB_DESC->setTintBorderFill(true);
+        _controls.LB_DESC_FEATS->setTintBorderFill(true);
+    }
     _controls.LB_ABILITY->setOnItemClick([this](const std::string &item) {
         auto skill = static_cast<SkillType>(stoi(item));
         auto maybeSkillInfo = _skills.find(skill);
