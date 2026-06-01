@@ -29,6 +29,7 @@
 #include "reone/resource/resources.h"
 #include "reone/resource/strings.h"
 #include "reone/script/types.h"
+#include "reone/system/logutil.h"
 
 
 using namespace reone::audio;
@@ -49,6 +50,10 @@ static int g_strRefRemove = 38456;
 
 static glm::vec3 g_kotorColorOn = {0.984314f, 1.0f, 0};
 static glm::vec3 g_kotorColorAdded = {0, 0.831373f, 0.090196f};
+
+static bool isSupportedNpc(int npc) {
+    return npc >= 0 && npc < kNpcCount;
+}
 
 static bool matchesPendingSelection(const bool (&added)[kNpcCount], const bool (&baselineAdded)[kNpcCount]) {
     for (int i = 0; i < kNpcCount; ++i) {
@@ -219,7 +224,7 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
 }
 
 void PartySelection::addNpc(int npc) {
-    if (_added[npc]) {
+    if (!isSupportedNpc(npc) || _added[npc]) {
         return;
     }
 
@@ -280,6 +285,10 @@ void PartySelection::removeNpc(int npc) {
 }
 
 void PartySelection::onNpcButtonClick(int npc) {
+    if (!isSupportedNpc(npc)) {
+        return;
+    }
+
     _selectedNpc = npc;
     refreshNpcButtons();
     refreshAcceptButton();
@@ -298,10 +307,17 @@ void PartySelection::refreshNpcButtons() {
 }
 
 void PartySelection::changeParty() {
+    Party &party = _game.party();
+    for (int i = 0; i < kNpcCount; ++i) {
+        if (_added[i] && !party.isMemberAvailable(i)) {
+            warn("Party selection: NPC is not available: " + std::to_string(i));
+            return;
+        }
+    }
+
     std::shared_ptr<Area> area(_game.module()->area());
     area->unloadParty();
 
-    Party &party = _game.party();
     party.clear();
     party.addMember(kNpcPlayer, party.player());
 
