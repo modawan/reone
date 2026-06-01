@@ -98,6 +98,7 @@ private:
     PartySelectionContext _context;
     int _selectedNpc {-1};
     bool _added[kNpcCount] {false};
+    bool _baselineAdded[kNpcCount] {false};
     int _availableCount {0};
 
     void onGUILoaded() override;

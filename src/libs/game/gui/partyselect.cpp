@@ -50,6 +50,15 @@ static int g_strRefRemove = 38456;
 static glm::vec3 g_kotorColorOn = {0.984314f, 1.0f, 0};
 static glm::vec3 g_kotorColorAdded = {0, 0.831373f, 0.090196f};
 
+static bool matchesPendingSelection(const bool (&added)[kNpcCount], const bool (&baselineAdded)[kNpcCount]) {
+    for (int i = 0; i < kNpcCount; ++i) {
+        if (added[i] != baselineAdded[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 PartySelection::PartySelection(Game &game, ServicesView &services) :
     GameGUI(game, services) {
 
@@ -78,7 +87,9 @@ void PartySelection::onGUILoaded() {
         onAcceptButtonClick();
     });
     _controls.BTN_DONE->setOnClick([this]() {
-        changeParty();
+        if (!matchesPendingSelection(_added, _baselineAdded)) {
+            changeParty();
+        }
         _game.openInGame();
         if (!_context.exitScript.empty()) {
             _game.scriptRunner().run(_context.exitScript);
@@ -134,10 +145,23 @@ void PartySelection::onGUILoaded() {
 void PartySelection::prepare(const PartySelectionContext &ctx) {
     _context = ctx;
     _availableCount = kMaxFollowerCount;
+    _selectedNpc = -1;
 
     for (int i = 0; i < kNpcCount; ++i) {
         _added[i] = false;
+        _baselineAdded[i] = false;
         getNpcButton(i).setUseBorderColorOverride(false);
+    }
+    refreshNpcButtons();
+
+    Party &party = _game.party();
+    for (auto &member : party.members()) {
+        if (member.npc != kNpcPlayer) {
+            addNpc(member.npc);
+        }
+    }
+    for (int i = 0; i < kNpcCount; ++i) {
+        _baselineAdded[i] = _added[i];
     }
     if (ctx.forceNpc1 >= 0) {
         addNpc(ctx.forceNpc1);
@@ -145,7 +169,6 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
     if (ctx.forceNpc2 >= 0) {
         addNpc(ctx.forceNpc2);
     }
-    Party &party = _game.party();
     std::vector<Label *> charLabels {
         _controls.LBL_CHAR0.get(),
         _controls.LBL_CHAR1.get(),
@@ -196,6 +219,10 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
 }
 
 void PartySelection::addNpc(int npc) {
+    if (_added[npc]) {
+        return;
+    }
+
     --_availableCount;
     _added[npc] = true;
     getNpcButton(npc).setUseBorderColorOverride(true);
