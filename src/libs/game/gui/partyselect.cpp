@@ -51,12 +51,12 @@ static int g_strRefRemove = 38456;
 static glm::vec3 g_kotorColorOn = {0.984314f, 1.0f, 0};
 static glm::vec3 g_kotorColorAdded = {0, 0.831373f, 0.090196f};
 
-static bool isSupportedNpc(int npc) {
-    return npc >= 0 && npc < kNpcCount;
-}
+static bool matchesPendingSelection(
+    const bool (&added)[kMaxNpcCount],
+    const bool (&baselineAdded)[kMaxNpcCount],
+    int npcCount) {
 
-static bool matchesPendingSelection(const bool (&added)[kNpcCount], const bool (&baselineAdded)[kNpcCount]) {
-    for (int i = 0; i < kNpcCount; ++i) {
+    for (int i = 0; i < npcCount; ++i) {
         if (added[i] != baselineAdded[i]) {
             return false;
         }
@@ -81,7 +81,7 @@ void PartySelection::onGUILoaded() {
 
     bindControls();
 
-    for (int i = 0; i < kNpcCount; ++i) {
+    for (int i = 0; i < npcCount(); ++i) {
         ToggleButton &button = getNpcButton(i);
         button.setOnColor(g_kotorColorOn);
         button.setBorderColorOverride(g_kotorColorAdded);
@@ -92,7 +92,7 @@ void PartySelection::onGUILoaded() {
         onAcceptButtonClick();
     });
     _controls.BTN_DONE->setOnClick([this]() {
-        if (!matchesPendingSelection(_added, _baselineAdded)) {
+        if (!matchesPendingSelection(_added, _baselineAdded, npcCount())) {
             changeParty();
         }
         _game.openInGame();
@@ -152,9 +152,11 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
     _availableCount = kMaxFollowerCount;
     _selectedNpc = -1;
 
-    for (int i = 0; i < kNpcCount; ++i) {
+    for (int i = 0; i < kMaxNpcCount; ++i) {
         _added[i] = false;
         _baselineAdded[i] = false;
+    }
+    for (int i = 0; i < npcCount(); ++i) {
         getNpcButton(i).setUseBorderColorOverride(false);
     }
     refreshNpcButtons();
@@ -165,7 +167,7 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
             addNpc(member.npc);
         }
     }
-    for (int i = 0; i < kNpcCount; ++i) {
+    for (int i = 0; i < npcCount(); ++i) {
         _baselineAdded[i] = _added[i];
     }
     if (ctx.forceNpc1 >= 0) {
@@ -204,7 +206,7 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
         naLabels.push_back(_controls.LBL_NA11.get());
     }
 
-    for (int i = 0; i < kNpcCount; ++i) {
+    for (int i = 0; i < npcCount(); ++i) {
         ToggleButton &BTN_NPC = getNpcButton(i);
         Label &LBL_CHAR = *charLabels[i];
         Label &LBL_NA = *naLabels[i];
@@ -245,12 +247,18 @@ ToggleButton &PartySelection::getNpcButton(int npc) {
         _controls.BTN_NPC6.get(),
         _controls.BTN_NPC7.get(),
         _controls.BTN_NPC8.get(),
-        _controls.BTN_NPC9.get()};
-    if (_game.isTSL()) {
-        npcButtons.push_back(_controls.BTN_NPC10.get());
-        npcButtons.push_back(_controls.BTN_NPC11.get());
-    }
+        _controls.BTN_NPC9.get(),
+        _controls.BTN_NPC10.get(),
+        _controls.BTN_NPC11.get()};
     return *npcButtons[npc];
+}
+
+bool PartySelection::isSupportedNpc(int npc) const {
+    return npc >= 0 && npc < npcCount();
+}
+
+int PartySelection::npcCount() const {
+    return _game.isTSL() ? kTSLNpcCount : kKotorNpcCount;
 }
 
 void PartySelection::onAcceptButtonClick() {
@@ -295,7 +303,7 @@ void PartySelection::onNpcButtonClick(int npc) {
 }
 
 void PartySelection::refreshNpcButtons() {
-    for (int i = 0; i < kNpcCount; ++i) {
+    for (int i = 0; i < npcCount(); ++i) {
         ToggleButton &button = getNpcButton(i);
 
         if ((i == _selectedNpc && !button.isOn()) ||
@@ -308,7 +316,7 @@ void PartySelection::refreshNpcButtons() {
 
 void PartySelection::changeParty() {
     Party &party = _game.party();
-    for (int i = 0; i < kNpcCount; ++i) {
+    for (int i = 0; i < npcCount(); ++i) {
         if (_added[i] && !party.isMemberAvailable(i)) {
             warn("Party selection: NPC is not available: " + std::to_string(i));
             return;
@@ -323,7 +331,7 @@ void PartySelection::changeParty() {
 
     std::shared_ptr<Creature> player(_game.party().player());
 
-    for (int i = 0; i < kNpcCount; ++i) {
+    for (int i = 0; i < npcCount(); ++i) {
         if (!_added[i])
             continue;
         party.addMember(i, party.getAvailableMember(i));
