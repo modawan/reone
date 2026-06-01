@@ -105,6 +105,7 @@ private:
 
     void onGUILoaded() override;
 
+    void bindEventHandlers();
     void bindControls() {
         _controls.BTN_ACCEPT = findControl<gui::Button>("BTN_ACCEPT");
         _controls.BTN_BACK = findControl<gui::Button>("BTN_BACK");

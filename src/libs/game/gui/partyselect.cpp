@@ -88,6 +88,10 @@ void PartySelection::onGUILoaded() {
         button.setUseBorderColorOverride(false);
     }
 
+    bindEventHandlers();
+}
+
+void PartySelection::bindEventHandlers() {
     _controls.BTN_ACCEPT->setOnClick([this]() {
         onAcceptButtonClick();
     });
@@ -148,6 +152,9 @@ void PartySelection::onGUILoaded() {
 }
 
 void PartySelection::prepare(const PartySelectionContext &ctx) {
+    _gui->setEventListener(*this);
+    bindEventHandlers();
+
     _context = ctx;
     _availableCount = kMaxFollowerCount;
     _selectedNpc = -1;
@@ -164,6 +171,13 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
     Party &party = _game.party();
     for (auto &member : party.members()) {
         if (member.npc != kNpcPlayer) {
+            const std::string &blueprintResRef = member.creature->blueprintResRef();
+            if (isSupportedNpc(member.npc) &&
+                !blueprintResRef.empty() &&
+                !party.isMemberAvailable(member.npc)) {
+
+                party.addAvailableMember(member.npc, blueprintResRef);
+            }
             addNpc(member.npc);
         }
     }
