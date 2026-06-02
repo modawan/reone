@@ -181,17 +181,8 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
         Label &LBL_CHAR = *charLabels[i];
         Label &LBL_NA = *naLabels[i];
 
-        if (party.isMemberAvailable(i)) {
-            std::string blueprintResRef(party.getAvailableMember(i));
-            std::shared_ptr<Gff> utc(_services.resource.gffs.get(blueprintResRef, ResType::Utc));
-            std::shared_ptr<Texture> portrait;
-            int portraitId = utc->getInt("PortraitId", 0);
-            if (portraitId > 0) {
-                portrait = _services.game.portraits.getTextureByIndex(portraitId);
-            } else {
-                int appearance = utc->getInt("Appearance_Type");
-                portrait = _services.game.portraits.getTextureByAppearance(appearance);
-            }
+        if (auto member = party.getAvailableMember(i)) {
+            auto portrait = member->portrait();
             BTN_NPC.setDisabled(false);
             LBL_CHAR.setBorderFill(std::move(portrait));
             LBL_NA.setVisible(false);
@@ -292,14 +283,7 @@ void PartySelection::changeParty() {
     for (int i = 0; i < kNpcCount; ++i) {
         if (!_added[i])
             continue;
-
-        std::string blueprintResRef(party.getAvailableMember(i));
-
-        std::shared_ptr<Creature> creature = _game.newCreature();
-        creature->loadFromBlueprint(blueprintResRef);
-        creature->setFaction(Faction::Friendly1);
-        creature->setImmortal(true);
-        party.addMember(i, creature);
+        party.addMember(i, party.getAvailableMember(i));
     }
 
     area->reloadParty();
