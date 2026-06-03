@@ -18,7 +18,6 @@
 #include "reone/game/gui/ingame/journal.h"
 
 #include "reone/game/game.h"
-#include "reone/gui/control/button.h"
 
 using namespace reone::audio;
 
@@ -34,6 +33,13 @@ void JournalMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
 
+    if (_game.isTSL()) {
+        _controls.LB_ITEMS->setTintBorderFill(true);
+        _controls.LBL_ITEM_DESCRIPTION->setTintBorderFill(true);
+        _controls.BTN_MESSAGES->setOnClick([this]() {
+            _game.openInGameMenu(InGameMenuTab::Messages);
+        });
+    }
     _controls.BTN_EXIT->setOnClick([this]() {
         _game.openInGame();
     });

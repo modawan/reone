@@ -104,7 +104,11 @@ void InGameMenu::onGUILoaded() {
         openAbilities();
     });
     _controls.BTN_MSG->setOnClick([this]() {
-        openMessages();
+        if (_game.isTSL()) {
+            openPartySelection();
+        } else {
+            openMessages();
+        }
     });
     _controls.BTN_JOU->setOnClick([this]() {
         openJournal();
@@ -120,6 +124,7 @@ void InGameMenu::onGUILoaded() {
     loadInventory();
     loadCharacter();
     loadAbilities();
+    loadPartySelection();
     loadMessages();
     loadJournal();
     loadMap();
@@ -144,6 +149,14 @@ void InGameMenu::loadCharacter() {
 void InGameMenu::loadAbilities() {
     _abilities = std::make_unique<AbilitiesMenu>(_game, _services);
     _abilities->init();
+}
+
+void InGameMenu::loadPartySelection() {
+    if (!_game.isTSL()) {
+        return;
+    }
+    _partySelect = std::make_unique<PartySelection>(_game, _services);
+    _partySelect->init();
 }
 
 void InGameMenu::loadMessages() {
@@ -187,6 +200,8 @@ GameGUI *InGameMenu::getActiveTabGUI() const {
         return _character.get();
     case InGameMenuTab::Abilities:
         return _abilities.get();
+    case InGameMenuTab::Party:
+        return _partySelect.get();
     case InGameMenuTab::Messages:
         return _messages.get();
     case InGameMenuTab::Journal:
@@ -336,8 +351,8 @@ void InGameMenu::updateTabButtons() {
     _controls.LBLH_INV->setSelected(_tab == InGameMenuTab::Inventory);
     _controls.LBLH_CHA->setSelected(_tab == InGameMenuTab::Character);
     _controls.LBLH_ABI->setSelected(_tab == InGameMenuTab::Abilities);
-    _controls.LBLH_MSG->setSelected(_tab == InGameMenuTab::Messages);
-    _controls.LBLH_JOU->setSelected(_tab == InGameMenuTab::Journal);
+    _controls.LBLH_MSG->setSelected(_tab == (_game.isTSL() ? InGameMenuTab::Party : InGameMenuTab::Messages));
+    _controls.LBLH_JOU->setSelected(_tab == InGameMenuTab::Journal || (_game.isTSL() && _tab == InGameMenuTab::Messages));
     _controls.LBLH_MAP->setSelected(_tab == InGameMenuTab::Map);
     _controls.LBLH_OPT->setSelected(_tab == InGameMenuTab::Options);
 }
@@ -356,6 +371,11 @@ void InGameMenu::openCharacter() {
 void InGameMenu::openAbilities() {
     _abilities->refreshControls();
     changeTab(InGameMenuTab::Abilities);
+}
+
+void InGameMenu::openPartySelection() {
+    _partySelect->prepare(PartySelectionContext());
+    changeTab(InGameMenuTab::Party);
 }
 
 void InGameMenu::openMessages() {
