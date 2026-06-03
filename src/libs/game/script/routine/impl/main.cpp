@@ -218,7 +218,7 @@ static Variable SwitchPlayerCharacter(const std::vector<Variable> &args, const R
     if (nNPC == kNpcPlayer) {
         creature = party.player();
     } else {
-        creature = party.createAvailableMember(nNPC);
+        creature = party.getAvailableMember(nNPC);
     }
     if (!creature) {
         warn("Party: NPC not found: " + std::to_string(nNPC));
