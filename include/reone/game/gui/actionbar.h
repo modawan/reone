@@ -26,6 +26,10 @@ class Button;
 class Label;
 } // namespace gui
 
+namespace graphics {
+class Texture;
+} // namespace graphics
+
 namespace game {
 
 struct ServicesView;
@@ -40,6 +44,7 @@ public:
                         std::shared_ptr<gui::Label> background);
 
     void addSlot(std::shared_ptr<gui::Button> button,
+                 std::shared_ptr<gui::Button> action,
                  std::shared_ptr<gui::Button> up,
                  std::shared_ptr<gui::Button> down);
 
@@ -60,8 +65,13 @@ private:
     struct Slot {
         ActionSlot slot;
         std::shared_ptr<gui::Button> button;
+        std::shared_ptr<gui::Button> action;
         std::shared_ptr<gui::Button> up;
         std::shared_ptr<gui::Button> down;
+        std::shared_ptr<graphics::Texture> upBorderFill;
+        std::shared_ptr<graphics::Texture> upHilightFill;
+        std::shared_ptr<graphics::Texture> downBorderFill;
+        std::shared_ptr<graphics::Texture> downHilightFill;
     };
     std::vector<Slot> _slots;
 };

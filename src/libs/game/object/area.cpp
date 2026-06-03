@@ -234,9 +234,10 @@ void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff
     loadPlaceables(gff);
     loadWaypoints(gff);
     loadTriggers(gff);
-    loadSounds(git);
-    loadCameras(git);
-    loadEncounters(git);
+    loadSounds(gff);
+    loadCameras(gff);
+    loadEncounters(gff);
+    loadStores(gff);
 }
 
 void Area::loadProperties(const resource::generated::GIT &git) {
@@ -288,33 +289,34 @@ void Area::loadTriggers(const resource::Gff &gff) {
     }
 }
 
-void Area::loadSounds(const resource::generated::GIT &git) {
-    for (auto &soundStruct : git.SoundList) {
+void Area::loadSounds(const resource::Gff &gff) {
+    for (auto &soundGff : gff.getList("SoundList")) {
         std::shared_ptr<Sound> sound = _game.newSound(_sceneName);
-        sound->loadFromGIT(soundStruct);
+        sound->deserialize(*soundGff);
         add(sound);
     }
 }
 
-void Area::loadCameras(const resource::generated::GIT &git) {
-    for (auto &cameraStruct : git.CameraList) {
+void Area::loadCameras(const resource::Gff &gff) {
+    for (auto &cameraGff : gff.getList("CameraList")) {
         std::shared_ptr<StaticCamera> camera = _game.newStaticCamera(_cameraAspect, _sceneName);
-        camera->loadFromGIT(cameraStruct);
+        camera->deserialize(*cameraGff);
         add(camera);
     }
 }
 
-void Area::loadEncounters(const resource::generated::GIT &git) {
-    for (auto &encounterStruct : git.Encounter_List) {
+void Area::loadEncounters(const resource::Gff &gff) {
+    for (auto &encounterGff : gff.getList("Encounter List")) {
         std::shared_ptr<Encounter> encounter = _game.newEncounter(_sceneName);
-        encounter->loadFromGIT(encounterStruct);
+        encounter->deserialize(*encounterGff);
         add(encounter);
     }
 }
 
-void Area::loadStores(const resource::generated::GIT &git) {
-    for (auto &storeStruct : git.StoreList) {
+void Area::loadStores(const resource::Gff &gff) {
+    for (auto &storeGff : gff.getList("StoreList")) {
         std::shared_ptr<Store> store = _game.newStore(_sceneName);
+        store->deserialize(*storeGff);
         add(store);
     }
 }

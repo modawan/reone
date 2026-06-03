@@ -62,7 +62,9 @@ const SearchScope &soundSearchOrder() {
         SearchLocation::CustomFolders,
         SearchLocation::Override,
         SearchLocation::CustomModules,
+        SearchLocation::Music,
         SearchLocation::Sound,
+        SearchLocation::Voice,
         SearchLocation::Chitin,
         SearchLocation::Executable,
     });

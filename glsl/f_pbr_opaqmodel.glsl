@@ -60,13 +60,14 @@ void main() {
                                           isFeatureEnabled(FEATURE_SHADOWS),
                                           isFeatureEnabled(FEATURE_FOG));
 
-    vec3 eyeNormal = transpose(mat3(uViewInv)) * normal;
-    eyeNormal = 0.5 * eyeNormal + 0.5;
+    vec3 encodedEyeNormal = 0.5 * (transpose(mat3(uViewInv)) * normal) + vec3(0.5);
 
     fragDiffuseColor = diffuseColor;
-    fragLightmapColor = isFeatureEnabled(FEATURE_LIGHTMAP)
-                            ? vec4(texture(sLightmap, fragUV2).rgb, features)
-                            : vec4(vec3(1.0), features);
+    if (isFeatureEnabled(FEATURE_LIGHTMAP)) {
+        fragLightmapColor = vec4(texture(sLightmap, fragUV2).rgb, features);
+    } else {
+        fragLightmapColor = vec4(vec3(1.0), features);
+    }
     fragSelfIllumColor = vec4(uSelfIllumColor.rgb, float(uEnvMapDerivedLayer) / 255.0);
-    fragEyeNormal = vec4(eyeNormal, 0.0);
+    fragEyeNormal = vec4(encodedEyeNormal, 0.0);
 }

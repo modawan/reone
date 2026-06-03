@@ -23,6 +23,7 @@
 #include "reone/gui/control/togglebutton.h"
 
 #include "../gui.h"
+#include "partyselect.h"
 
 #include "ingame/abilities.h"
 #include "ingame/character.h"
@@ -52,6 +53,7 @@ public:
     void openInventory();
     void openCharacter();
     void openAbilities();
+    void openPartySelection();
     void openMessages();
     void openJournal();
     void openMap();
@@ -121,6 +123,7 @@ private:
     std::unique_ptr<Equipment> _equip;
     std::unique_ptr<InventoryMenu> _inventory;
     std::unique_ptr<AbilitiesMenu> _abilities;
+    std::unique_ptr<PartySelection> _partySelect;
     std::unique_ptr<MessagesMenu> _messages;
     std::unique_ptr<JournalMenu> _journal;
     std::unique_ptr<MapMenu> _map;
@@ -189,6 +192,7 @@ private:
     void loadEquipment();
     void loadInventory();
     void loadAbilities();
+    void loadPartySelection();
     void loadMessages();
     void loadJournal();
     void loadMap();

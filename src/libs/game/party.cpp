@@ -53,13 +53,27 @@ bool Party::handleKeyDown(const input::KeyEvent &event) {
 }
 
 bool Party::addAvailableMember(int npc, const std::string &blueprint) {
-    auto maybeMember = _availableMembers.find(npc);
-    if (maybeMember != _availableMembers.end()) {
-        warn("Party: NPC already exists");
+    if (isMemberAvailable(npc)) {
+        warn(str(boost::format("Party: NPC %d already exists") % npc));
         return false;
     }
-    _availableMembers.insert(std::make_pair(npc, blueprint));
 
+    auto creature = _game.newCreature();
+    creature->loadFromBlueprint(blueprint);
+    creature->setFaction(Faction::Friendly1);
+    creature->setImmortal(true);
+
+    _availableMembers.insert({npc, std::move(creature)});
+    return true;
+}
+
+bool Party::addAvailableMember(int npc, std::shared_ptr<Creature> creature) {
+    if (isMemberAvailable(npc)) {
+        warn(str(boost::format("Party: NPC %d already exists") % npc));
+        return false;
+    }
+
+    _availableMembers.insert({npc, std::move(creature)});
     return true;
 }
 
@@ -108,22 +122,12 @@ void Party::onLeaderChanged() {
     _game.module()->area()->onPartyLeaderMoved(true);
 }
 
-const std::string &Party::getAvailableMember(int npc) const {
-    return _availableMembers.find(npc)->second;
-}
-
-std::shared_ptr<Creature> Party::createAvailableMember(int npc) {
-    auto maybeBlueprint = _availableMembers.find(npc);
-    if (maybeBlueprint == _availableMembers.end()) {
+std::shared_ptr<Creature> Party::getAvailableMember(int npc) const {
+    auto member = _availableMembers.find(npc);
+    if (member == _availableMembers.end()) {
         return nullptr;
     }
-
-    auto creature = _game.newCreature();
-    creature->loadFromBlueprint(maybeBlueprint->second);
-    creature->setFaction(Faction::Friendly1);
-    creature->setImmortal(true);
-
-    return creature;
+    return member->second;
 }
 
 std::shared_ptr<Creature> Party::getMember(int index) const {

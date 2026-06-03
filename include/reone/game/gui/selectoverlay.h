@@ -46,6 +46,13 @@ public:
     void render();
 
 private:
+    enum class ActionBand {
+        None,
+        Previous,
+        Icon,
+        Next
+    };
+
     Game &_game;
     ServicesView &_services;
 
@@ -57,6 +64,8 @@ private:
     std::shared_ptr<graphics::Texture> _friendlyScroll;
     std::shared_ptr<graphics::Texture> _hostileScroll;
     std::shared_ptr<graphics::Texture> _hilightedScroll;
+    std::shared_ptr<graphics::Texture> _actionArrow;
+    std::shared_ptr<graphics::Texture> _hilightedActionArrow;
     std::shared_ptr<Object> _hilightedObject;
     std::shared_ptr<Object> _selectedObject;
     std::vector<ActionSlot> _actionSlots;
@@ -64,6 +73,7 @@ private:
     glm::vec3 _selectedScreenCoords {0.0f};
     int _reticleHeight {0};
     int _selectedActionSlot {-1};
+    ActionBand _hilightedActionBand {ActionBand::None};
     bool _hilightedHostile {false};
     bool _selectedHostile {false};
     bool _hasActions {false};
@@ -78,6 +88,8 @@ private:
     void renderActionBar();
 
     void renderActionFrame(int index);
+    void renderActionArrows(int index);
+    void renderActionArrow(int index, bool previous);
     void renderActionIcon(int index);
 
     bool getActionScreenCoords(int index, float &x, float &y) const;

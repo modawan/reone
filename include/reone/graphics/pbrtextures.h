@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <array>
+
 #include "framebuffer.h"
 #include "renderbuffer.h"
 #include "texture.h"
@@ -32,6 +34,9 @@ struct EnvMapDerivedRequest {
         texture(texture) {
     }
 };
+
+static constexpr int kMaxEnvMapDerivedLayers = 16;
+static constexpr int kMaxEnvMapDerivedCubemapLayers = 4;
 
 } // namespace graphics
 
@@ -62,6 +67,7 @@ public:
     virtual void refresh() = 0;
     virtual void requestEnvMapDerived(EnvMapDerivedRequest request) = 0;
     virtual std::optional<int> findEnvMapDerivedLayer(const std::string &name) = 0;
+    virtual void bindEnvMapDerived(IContext &context) = 0;
 
     virtual Texture &brdf() = 0;
 };
@@ -92,6 +98,8 @@ public:
         return it->second;
     }
 
+    void bindEnvMapDerived(IContext &context);
+
     Texture &brdf() {
         return *_brdfLUT;
     }
@@ -111,6 +119,9 @@ private:
     IStatistic &_statistic;
     IUniforms &_uniforms;
 
+    bool _useCubeMapArray {false};
+    bool _envPathResolved {false};
+
     std::shared_ptr<Texture> _brdfLUT;
     std::shared_ptr<Renderbuffer> _brdfDepthBuffer;
     std::shared_ptr<Framebuffer> _brdfFramebuffer;
@@ -120,15 +131,24 @@ private:
     std::shared_ptr<Renderbuffer> _irradianceDepthBuffer;
     std::shared_ptr<Framebuffer> _irradianceFramebuffer;
     std::shared_ptr<Texture> _prefilteredEnvMapArray;
+    std::array<std::shared_ptr<Texture>, kMaxEnvMapDerivedCubemapLayers> _irradianceCubemaps;
+    std::array<std::shared_ptr<Texture>, kMaxEnvMapDerivedCubemapLayers> _prefilterCubemaps;
     std::vector<std::shared_ptr<Renderbuffer>> _prefilterDepthBuffers;
     std::shared_ptr<Framebuffer> _prefilterFramebuffer;
     std::map<std::string, int> _envMapToDerivedLayer;
 
     int _envMapDerivedLayer {0};
 
+    int maxEnvMapDerivedLayers() const {
+        return _useCubeMapArray ? kMaxEnvMapDerivedLayers : kMaxEnvMapDerivedCubemapLayers;
+    }
+
+    void resolveEnvPath();
+
     void initBRDFLUT();
     void initIrradianceMapArray();
     void initPrefilteredEnvMapArray();
+    void initEnvMapCubemapPool();
 
     void refreshEnvMapDerived(const EnvMapDerivedRequest &request);
     void refreshIrradianceMap(const EnvMapDerivedRequest &request, int layer);

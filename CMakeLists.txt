@@ -129,7 +129,7 @@ set(REONE_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
 set(GLAD_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/extern/glad/include)
 include_directories(${Boost_INCLUDE_DIRS} ${SDL3_INCLUDE_DIRS} ${MAD_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/extern/glm ${REONE_INCLUDE_DIR} ${GLAD_INCLUDE_DIR})
 
-add_compile_definitions(BOOST_BIND_GLOBAL_PLACEHOLDERS)
+add_compile_definitions(BOOST_BIND_GLOBAL_PLACEHOLDERS REONE_GRAPHICS_GLES)
 
 if(ENABLE_MP3)
     add_compile_definitions(R_ENABLE_MP3)
@@ -198,7 +198,8 @@ if(BUILD_LAUNCHER)
     add_subdirectory(src/apps/launcher) # launcher application
 endif()
 
-if(BUILD_TOOLKIT)
+# FIXME: toolkit requires OpenGL because of WxWidgets.
+if(0)
     add_subdirectory(src/apps/toolkit) # toolkit application
 endif()
 

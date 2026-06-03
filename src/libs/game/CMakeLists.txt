@@ -508,6 +508,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/object/module.cpp
     ${GAME_SOURCE_DIR}/object/placeable.cpp
     ${GAME_SOURCE_DIR}/object/sound.cpp
+    ${GAME_SOURCE_DIR}/object/store.cpp
     ${GAME_SOURCE_DIR}/object/trigger.cpp
     ${GAME_SOURCE_DIR}/object/waypoint.cpp
     ${GAME_SOURCE_DIR}/party.cpp

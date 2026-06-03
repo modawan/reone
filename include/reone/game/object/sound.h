@@ -18,8 +18,7 @@
 #pragma once
 
 #include "../object.h"
-#include "reone/resource/parser/gff/git.h"
-#include "reone/resource/parser/gff/uts.h"
+#include "reone/resource/strings.h"
 
 namespace reone {
 
@@ -50,8 +49,8 @@ public:
         return from->type() == ObjectType::Sound;
     }
 
-    void loadFromGIT(const resource::generated::GIT_SoundList &git);
     void loadFromBlueprint(const std::string &resRef);
+    void deserialize(const resource::Gff &gff);
 
     void update(float dt) override;
 
@@ -70,38 +69,39 @@ public:
     void setActive(bool active);
 
 private:
+    // Serializable
+    resource::LocString _locName;
     bool _active {false};
+    bool _positional {false};
+    bool _looping {false};
+    uint8_t _volume {0};
+    uint8_t _volumeVrtn {0};
+    uint8_t _times {0};
+    float _pitchVariation {0.0f};
+    uint32_t _hours {0};
+    uint32_t _generatedType {0};
+    uint32_t _interval {0};
+    uint32_t _intervalVrtn {0};
+    float _minDistance {0.0f};
+    float _maxDistance {0.0f};
+    bool _continuous {false};
+    uint8_t _random {0};
+    float _fixedVariance {0.0f};
+    bool _randomPosition {false};
+    float _randomRangeX {0.0f};
+    float _randomRangeY {0.0f};
+    uint8_t _priorityId {0};
+    float _elevation {0.0f};
+    // END Serializable
+
     int _priority {0};
     int _soundIdx {-1};
     float _timeout {0.0f};
-    float _maxDistance {0.0f};
-    float _minDistance {0.0f};
-    bool _continuous {false};
-    float _elevation {0.0f};
-    bool _looping {false};
-    bool _positional {false};
-    int _interval {0};
-    int _volume {0};
-    bool _randomPosition {false};
-    int _random {0};
-    float _randomRangeX {0.0f};
-    float _randomRangeY {0.0f};
-    int _intervalVrtn {0};
-    float _pitchVariation {0.0f};
-    int _volumeVrtn {0};
-
     std::vector<std::string> _sounds;
 
-    void loadTransformFromGIT(const resource::generated::GIT_SoundList &git);
-
+    void deserializeAll(const resource::Gff &gff);
+    void loadAppearance();
     void updateTransform() override;
-
-    // Blueprint
-
-    void loadUTS(const resource::generated::UTS &uts);
-    void loadPriorityFromUTS(const resource::generated::UTS &uts);
-
-    // END Blueprint
 };
 
 } // namespace game

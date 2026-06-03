@@ -77,17 +77,22 @@ void HUD::onGUILoaded() {
 
     for (int i = 0; i < 5; ++i) {
         auto action = findControl<gui::Button>(str(boost::format("BTN_ACTION%d") % i));
+        auto icon = findControl<gui::Button>(str(boost::format("LBL_ACTION%d") % i));
         auto up = findControl<gui::Button>(str(boost::format("BTN_ACTIONUP%d") % i));
         auto down = findControl<gui::Button>(str(boost::format("BTN_ACTIONDOWN%d") % i));
 
-        if (action && up && down) {
-            _actionBar.addSlot(action, up, down);
+        if (action && icon && up && down) {
+            _actionBar.addSlot(action, icon, up, down);
         }
     }
     if (_game.isTSL()) {
+        if (auto up = findControl<gui::Button>("BTN_ACTIONUP5")) {
+            up->setVisible(false);
+        }
         if (auto down = findControl<gui::Button>("BTN_ACTIONDOWN5")) {
             down->setBorderFillTransform(gui::Control::Border::FillTransform::Rotate180);
             down->setHilightFillTransform(gui::Control::Border::FillTransform::Rotate180);
+            down->setVisible(false);
         }
     }
 
@@ -166,7 +171,11 @@ void HUD::onGUILoaded() {
         _game.openInGameMenu(InGameMenuTab::Abilities);
     });
     _controls.BTN_MSG->setOnClick([this]() {
-        _game.openInGameMenu(InGameMenuTab::Messages);
+        if (_game.isTSL()) {
+            _game.openInGameMenu(InGameMenuTab::Party);
+        } else {
+            _game.openInGameMenu(InGameMenuTab::Messages);
+        }
     });
     _controls.BTN_JOU->setOnClick([this]() {
         _game.openInGameMenu(InGameMenuTab::Journal);

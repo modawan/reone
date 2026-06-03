@@ -4,9 +4,15 @@ const int GEOMETRY_FEATURE_FOG = 1 << 2;
 
 float packGeometryFeatures(bool envmap, bool shadows, bool fog) {
     int mask = 0;
-    mask |= int(envmap) * GEOMETRY_FEATURE_ENVMAP;
-    mask |= int(shadows) * GEOMETRY_FEATURE_SHADOWS;
-    mask |= int(fog) * GEOMETRY_FEATURE_FOG;
+    if (envmap) {
+        mask |= GEOMETRY_FEATURE_ENVMAP;
+    }
+    if (shadows) {
+        mask |= GEOMETRY_FEATURE_SHADOWS;
+    }
+    if (fog) {
+        mask |= GEOMETRY_FEATURE_FOG;
+    }
     return float(mask) / 255.0;
 }
 

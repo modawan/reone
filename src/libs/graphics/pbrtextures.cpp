@@ -17,6 +17,8 @@
 
 #include "reone/graphics/pbrtextures.h"
 
+#include <boost/format.hpp>
+
 #include "reone/graphics/context.h"
 #include "reone/graphics/meshregistry.h"
 #include "reone/graphics/shaderregistry.h"
@@ -28,7 +30,6 @@ static constexpr int kBRDFTextureSize = 512;
 static constexpr int kIrradianceTextureSize = 32;
 static constexpr int kPrefilteredTextureSize = 128;
 static constexpr int kNumPrefilteredMipMaps = 5;
-static constexpr int kMaxEnvMapDerivedLayers = 16;
 
 static const glm::mat4 kCubeMapProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
 static const glm::mat4 kCubeMapViews[] {
@@ -44,25 +45,59 @@ namespace reone {
 
 namespace graphics {
 
-void PBRTextures::requestEnvMapDerived(EnvMapDerivedRequest request) {
-    if (!_context.cubeMapArraySupported()) {
+static const int kIrradianceCubemapUnits[] {
+    TextureUnits::irradianceCubemap0,
+    TextureUnits::irradianceCubemap1,
+    TextureUnits::irradianceCubemap2,
+    TextureUnits::irradianceCubemap3,
+};
+
+static const int kPrefilterCubemapUnits[] {
+    TextureUnits::prefilteredCubemap0,
+    TextureUnits::prefilteredCubemap1,
+    TextureUnits::prefilteredCubemap2,
+    TextureUnits::prefilteredCubemap3,
+};
+
+void PBRTextures::resolveEnvPath() {
+    if (_envPathResolved) {
         return;
     }
+    _useCubeMapArray = _context.cubeMapArraySupported();
+    _envPathResolved = true;
+}
+
+void PBRTextures::requestEnvMapDerived(EnvMapDerivedRequest request) {
     _envMapDerivedRequests.insert(std::move(request));
 }
 
+void PBRTextures::bindEnvMapDerived(IContext &context) {
+    resolveEnvPath();
+    if (_useCubeMapArray) {
+        context.bindTexture(*_irradianceMapArray, TextureUnits::irradianceMapArray);
+        context.bindTexture(*_prefilteredEnvMapArray, TextureUnits::prefilteredEnvMapArray);
+        return;
+    }
+    for (int i = 0; i < kMaxEnvMapDerivedCubemapLayers; ++i) {
+        context.bindTexture(*_irradianceCubemaps[i], kIrradianceCubemapUnits[i]);
+        context.bindTexture(*_prefilterCubemaps[i], kPrefilterCubemapUnits[i]);
+    }
+}
+
 void PBRTextures::refresh() {
+    resolveEnvPath();
     if (!_brdfLUT) {
         initBRDFLUT();
     }
-    if (!_context.cubeMapArraySupported()) {
-        return;
-    }
-    if (!_irradianceMapArray) {
-        initIrradianceMapArray();
-    }
-    if (!_prefilteredEnvMapArray) {
-        initPrefilteredEnvMapArray();
+    if (_useCubeMapArray) {
+        if (!_irradianceMapArray) {
+            initIrradianceMapArray();
+        }
+        if (!_prefilteredEnvMapArray) {
+            initPrefilteredEnvMapArray();
+        }
+    } else if (!_irradianceCubemaps[0]) {
+        initEnvMapCubemapPool();
     }
     if (!_envMapDerivedRequests.empty()) {
         auto &request = *_envMapDerivedRequests.begin();
@@ -149,11 +184,49 @@ void PBRTextures::initPrefilteredEnvMapArray() {
     _prefilterFramebuffer->init();
 }
 
+void PBRTextures::initEnvMapCubemapPool() {
+    for (int i = 0; i < kMaxEnvMapDerivedCubemapLayers; ++i) {
+        _irradianceCubemaps[i] = std::make_shared<Texture>(
+            str(boost::format("pbr_irradiance_cubemap_%1%") % i),
+            TextureType::CubeMap,
+            getTextureProperties(TextureUsage::ColorBuffer));
+        _irradianceCubemaps[i]->clear(kIrradianceTextureSize, kIrradianceTextureSize, PixelFormat::RGB8);
+        _irradianceCubemaps[i]->init();
+
+        _prefilterCubemaps[i] = std::make_shared<Texture>(
+            str(boost::format("pbr_prefiltered_cubemap_%1%") % i),
+            TextureType::CubeMap,
+            getTextureProperties(TextureUsage::ColorBuffer));
+        _prefilterCubemaps[i]->clear(kPrefilteredTextureSize, kPrefilteredTextureSize, PixelFormat::RGB8);
+        _prefilterCubemaps[i]->init();
+    }
+
+    _irradianceDepthBuffer = std::make_unique<Renderbuffer>();
+    _irradianceDepthBuffer->configure(kIrradianceTextureSize, kIrradianceTextureSize, PixelFormat::Depth24);
+    _irradianceDepthBuffer->init();
+
+    _irradianceFramebuffer = std::make_unique<Framebuffer>();
+    _irradianceFramebuffer->attachDepth(_irradianceDepthBuffer);
+    _irradianceFramebuffer->init();
+
+    for (int mip = 0; mip < kNumPrefilteredMipMaps; ++mip) {
+        int w = static_cast<int>(kPrefilteredTextureSize * std::pow(0.5, mip));
+        int h = static_cast<int>(kPrefilteredTextureSize * std::pow(0.5, mip));
+        auto depthBuffer = std::make_unique<Renderbuffer>();
+        depthBuffer->configure(w, h, PixelFormat::Depth24);
+        depthBuffer->init();
+        _prefilterDepthBuffers.push_back(std::move(depthBuffer));
+    }
+
+    _prefilterFramebuffer = std::make_unique<Framebuffer>();
+    _prefilterFramebuffer->init();
+}
+
 void PBRTextures::refreshEnvMapDerived(const EnvMapDerivedRequest &request) {
     refreshIrradianceMap(request, _envMapDerivedLayer);
     refreshPrefilteredEnvMap(request, _envMapDerivedLayer);
     _envMapToDerivedLayer.insert({request.texture.name(), _envMapDerivedLayer});
-    if (++_envMapDerivedLayer == kMaxEnvMapDerivedLayers) {
+    if (++_envMapDerivedLayer == maxEnvMapDerivedLayers()) {
         _envMapDerivedLayer = 0;
     }
 }
@@ -168,7 +241,19 @@ void PBRTextures::refreshIrradianceMap(const EnvMapDerivedRequest &request, int 
     });
     _context.withViewport(glm::ivec4 {0, 0, kIrradianceTextureSize, kIrradianceTextureSize}, [this, &layer]() {
         for (int i = 0; i < kNumCubeFaces; ++i) {
-            _irradianceFramebuffer->attachTextureLayer(*_irradianceMapArray, kNumCubeFaces * layer + i, 0, Framebuffer::Attachment::Color);
+            if (_useCubeMapArray) {
+                _irradianceFramebuffer->attachTextureLayer(
+                    *_irradianceMapArray,
+                    kNumCubeFaces * layer + i,
+                    0,
+                    Framebuffer::Attachment::Color);
+            } else {
+                _irradianceFramebuffer->attachTextureLayer(
+                    *_irradianceCubemaps[layer],
+                    i,
+                    0,
+                    Framebuffer::Attachment::Color);
+            }
             _uniforms.setGlobals([&i](auto &globals) {
                 globals.reset();
                 globals.projection = kCubeMapProjection;
@@ -192,16 +277,27 @@ void PBRTextures::refreshPrefilteredEnvMap(const EnvMapDerivedRequest &request, 
     for (int mip = 0; mip < kNumPrefilteredMipMaps; ++mip) {
         int w = static_cast<int>(kPrefilteredTextureSize * std::pow(0.5, mip));
         int h = static_cast<int>(kPrefilteredTextureSize * std::pow(0.5, mip));
-        _context.withViewport(glm::ivec4 {0, 0, w, h}, [this, &request, &layer, &shader, &mip]() {
+        _context.withViewport(glm::ivec4 {0, 0, w, h}, [this, &layer, &shader, &mip]() {
             for (int i = 0; i < kNumCubeFaces; ++i) {
-                _irradianceFramebuffer->attachTextureLayer(*_prefilteredEnvMapArray, kNumCubeFaces * layer + i, mip, Framebuffer::Attachment::Color);
-                _irradianceFramebuffer->attachRenderbuffer(*_prefilterDepthBuffers[mip], Framebuffer::Attachment::Depth);
+                if (_useCubeMapArray) {
+                    _prefilterFramebuffer->attachTextureLayer(
+                        *_prefilteredEnvMapArray,
+                        kNumCubeFaces * layer + i,
+                        mip,
+                        Framebuffer::Attachment::Color);
+                } else {
+                    _prefilterFramebuffer->attachTextureLayer(
+                        *_prefilterCubemaps[layer],
+                        i,
+                        mip,
+                        Framebuffer::Attachment::Color);
+                }
+                _prefilterFramebuffer->attachRenderbuffer(*_prefilterDepthBuffers[mip], Framebuffer::Attachment::Depth);
                 _uniforms.setGlobals([&i](auto &globals) {
                     globals.reset();
                     globals.projection = kCubeMapProjection;
                     globals.view = kCubeMapViews[i];
                 });
-                float roughness = mip / static_cast<float>(kNumPrefilteredMipMaps - 1);
                 shader.setUniform("uRoughness", mip);
                 _context.clearColorDepth();
                 _meshRegistry.get(MeshName::cubemap).draw(_statistic);
@@ -210,11 +306,15 @@ void PBRTextures::refreshPrefilteredEnvMap(const EnvMapDerivedRequest &request, 
     }
     _context.resetDrawFramebuffer();
 
-#if !defined(__EMSCRIPTEN__)
-    glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, _prefilteredEnvMapArray->nameGL());
-    glGenerateMipmap(GL_TEXTURE_CUBE_MAP_ARRAY);
-    glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, 0);
-#endif
+    if (_useCubeMapArray) {
+        glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY_OES, _prefilteredEnvMapArray->nameGL());
+        glGenerateMipmap(GL_TEXTURE_CUBE_MAP_ARRAY_OES);
+        glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY_OES, 0);
+    } else {
+        glBindTexture(GL_TEXTURE_CUBE_MAP, _prefilterCubemaps[layer]->nameGL());
+        glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+    }
 }
 
 } // namespace graphics

@@ -301,11 +301,33 @@ Texture &PBRRenderPipeline::render() {
         // Shadows pass
         if (_passCallbacks.count(RenderPassName::DirLightShadowsPass) > 0) {
             beginDirLightShadowsPass();
-            _passCallbacks.at(RenderPassName::DirLightShadowsPass)(pass);
+            for (int layer = 0; layer < kNumShadowCascades; ++layer) {
+                _targets.fbDirLightShadows->attachTextureLayer(
+                    *_targets.dbDirectionalLightShadows,
+                    layer,
+                    0,
+                    Framebuffer::Attachment::Depth);
+                _uniforms.setGlobals([layer](auto &globals) {
+                    globals.shadowLayer = layer;
+                });
+                _context.clearDepth();
+                _passCallbacks.at(RenderPassName::DirLightShadowsPass)(pass);
+            }
             endDirLightShadowsPass();
         } else if (_passCallbacks.count(RenderPassName::PointLightShadows) > 0) {
             beginPointLightShadowsPass();
-            _passCallbacks.at(RenderPassName::PointLightShadows)(pass);
+            for (int layer = 0; layer < kNumCubeFaces; ++layer) {
+                _targets.fbPointLightShadows->attachTextureLayer(
+                    *_targets.dbPointLightShadows,
+                    layer,
+                    0,
+                    Framebuffer::Attachment::Depth);
+                _uniforms.setGlobals([layer](auto &globals) {
+                    globals.shadowLayer = layer;
+                });
+                _context.clearDepth();
+                _passCallbacks.at(RenderPassName::PointLightShadows)(pass);
+            }
             endPointLightShadowsPass();
         }
 
@@ -480,10 +502,7 @@ void PBRRenderPipeline::combineOpaqueGeometry() {
     _context.bindTexture(*_targets.dbDirectionalLightShadows, TextureUnits::shadowMapArray);
     _context.bindTexture(*_targets.dbPointLightShadows, TextureUnits::shadowMapCube);
     _context.bindTexture(_pbrTextures.brdf(), TextureUnits::brdfLUT);
-    if (_context.cubeMapArraySupported()) {
-        _context.bindTexture(_pbrTextures.irradianceMapArray(), TextureUnits::irradianceMapArray);
-        _context.bindTexture(_pbrTextures.prefilteredEnvMapArray(), TextureUnits::prefilteredEnvMapArray);
-    }
+    _pbrTextures.bindEnvMapDerived(_context);
     if (_options.ssao) {
         _context.bindTexture(*_targets.cbSSAO, TextureUnits::ssao);
     }

@@ -17,16 +17,11 @@
 
 #include "reone/game/object/sound.h"
 
-#include "reone/audio/mixer.h"
 #include "reone/game/di/services.h"
-#include "reone/game/game.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/2das.h"
-#include "reone/resource/provider/audioclips.h"
 #include "reone/resource/provider/gffs.h"
-#include "reone/resource/resources.h"
-#include "reone/resource/strings.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
 #include "reone/scene/node/sound.h"
@@ -39,69 +34,70 @@ namespace reone {
 
 namespace game {
 
-void Sound::loadFromGIT(const resource::generated::GIT_SoundList &git) {
-    std::string templateResRef(boost::to_lower_copy(git.TemplateResRef));
-    loadFromBlueprint(templateResRef);
-    loadTransformFromGIT(git);
-}
-
 void Sound::loadFromBlueprint(const std::string &resRef) {
     std::shared_ptr<Gff> uts(_services.resource.gffs.get(resRef, ResType::Uts));
     if (!uts) {
         return;
     }
-    auto utsParsed = resource::generated::parseUTS(*uts);
-    loadUTS(utsParsed);
+    deserialize(*uts);
 }
 
-void Sound::loadUTS(const resource::generated::UTS &uts) {
-    _tag = boost::to_lower_copy(uts.Tag);
-    _name = _services.resource.strings.getText(uts.LocName.first);
-    _blueprintResRef = boost::to_lower_copy(uts.TemplateResRef);
-    _active = uts.Active;
-    _continuous = uts.Continuous;
-    _looping = uts.Looping;
-    _positional = uts.Positional;
-    _randomPosition = uts.RandomPosition;
-    _random = uts.Random;
-    _elevation = uts.Elevation;
-    _maxDistance = uts.MaxDistance;
-    _minDistance = uts.MinDistance;
-    _randomRangeX = uts.RandomRangeX;
-    _randomRangeY = uts.RandomRangeY;
-    _interval = uts.Interval;
-    _intervalVrtn = uts.IntervalVrtn;
-    _pitchVariation = uts.PitchVariation;
-    _volume = uts.Volume;
-    _volumeVrtn = uts.VolumeVrtn;
+void Sound::deserialize(const resource::Gff &gff) {
+    std::string templateRes;
+    if (gff.readResRef(templateRes, "TemplateResRef")) {
+        if (auto uts = _services.resource.gffs.get(templateRes, ResType::Uts)) {
+            deserializeAll(*uts);
+        }
+    }
+    deserializeAll(gff);
+    loadAppearance();
+    updateTransform();
+}
 
-    loadPriorityFromUTS(uts);
-
-    for (auto &soundStruct : uts.Sounds) {
-        _sounds.push_back(boost::to_lower_copy(soundStruct.Sound));
+void Sound::deserializeAll(const resource::Gff &gff) {
+    if (gff.readString(_tag, "Tag")) {
+        boost::to_lower(_tag);
     }
 
-    // Unused fields:
-    //
-    // - Hours (always 0)
-    // - Times (always 3)
-    // - PaletteID (toolset only)
-    // - Comment (toolset only)
+    gff.readBool(_active, "Active");
+    gff.readBool(_positional, "Positional");
+    gff.readBool(_looping, "Looping");
+    gff.readByte(_volume, "Volume");
+    gff.readByte(_volumeVrtn, "VolumeVrtn");
+    gff.readByte(_times, "Times");
+    gff.readFloat(_pitchVariation, "PitchVariation");
+    gff.readDword(_hours, "Hours");
+    gff.readDword(_generatedType, "GeneratedType");
+    gff.readDword(_interval, "Interval");
+    gff.readDword(_intervalVrtn, "IntervalVrtn");
+    gff.readFloat(_minDistance, "MinDistance");
+    gff.readFloat(_maxDistance, "MaxDistance");
+    gff.readBool(_continuous, "Continuous");
+    gff.readByte(_random, "Random");
+    gff.readFloat(_fixedVariance, "FixedVariance");
+    gff.readBool(_randomPosition, "RandomPosition");
+    gff.readFloat(_randomRangeX, "RandomRangeX");
+    gff.readFloat(_randomRangeY, "RandomRangeY");
+    gff.readFloat(_elevation, "Elevation");
+
+    gff.readFloat(_position[0], "XPosition");
+    gff.readFloat(_position[1], "YPosition");
+    gff.readFloat(_position[2], "ZPosition");
+
+    for (auto &soundGff : gff.getList("Sounds")) {
+        std::string sound;
+        if (soundGff->readResRef(sound, "Sound")) {
+            _sounds.push_back(sound);
+        }
+    }
+
+    if (gff.readByte(_priorityId, "Priority")) {
+        std::shared_ptr<TwoDA> priorityGroups(_services.resource.twoDas.get("prioritygroups"));
+        _priority = priorityGroups->getInt(_priorityId, "priority");
+    }
 }
 
-void Sound::loadPriorityFromUTS(const resource::generated::UTS &uts) {
-    std::shared_ptr<TwoDA> priorityGroups(_services.resource.twoDas.get("prioritygroups"));
-    int priorityIdx = uts.Priority;
-    _priority = priorityGroups->getInt(priorityIdx, "priority");
-}
-
-void Sound::loadTransformFromGIT(const resource::generated::GIT_SoundList &git) {
-    _position[0] = git.XPosition;
-    _position[1] = git.YPosition;
-    _position[2] = git.ZPosition;
-
-    updateTransform();
-
+void Sound::loadAppearance() {
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     auto sceneNode = sceneGraph.newSound();
     sceneNode->setEnabled(_active);

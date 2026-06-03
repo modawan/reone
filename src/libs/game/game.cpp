@@ -1107,6 +1107,9 @@ void Game::updateMusic() {
         return;
     }
     auto clip = _services.resource.audioClips.get(_musicResRef);
+    if (!clip) {
+        return;
+    }
     _music = _services.audio.mixer.play(std::move(clip), AudioType::Music);
 }
 
@@ -1328,6 +1331,9 @@ void Game::openInGameMenu(InGameMenuTab tab) {
         break;
     case InGameMenuTab::Abilities:
         _inGame->openAbilities();
+        break;
+    case InGameMenuTab::Party:
+        _inGame->openPartySelection();
         break;
     case InGameMenuTab::Messages:
         _inGame->openMessages();
@@ -1968,7 +1974,7 @@ void Game::consoleStartConversation(const ConsoleArgs &args) {
     auto leader = getConsoleLeader();
     auto target = getConsoleTargetObject();
 
-    auto action = newAction<StartConversationAction>(target, target->conversation());
+    auto action = newAction<StartConversationAction>(target, "");
     leader->addAction(std::move(action));
 }
 
@@ -2073,7 +2079,7 @@ void Game::consoleCastSpellAtObject(const ConsoleArgs &args) {
     std::optional<std::shared_ptr<Item>> item;
     if (spellItem) {
         for (const std::shared_ptr<Item> &inventoryItem : leader->items()) {
-            if (inventoryItem->blueprintResRef() == spellItem.value()) {
+            if (inventoryItem->tag() == spellItem.value()) {
                 item = inventoryItem;
                 break;
             }

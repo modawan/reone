@@ -37,7 +37,9 @@ void SceneInitializer::invoke() {
 
     _sceneGraph.clear();
     _sceneGraph.addRoot(model);
-    _sceneGraph.setAmbientLightColor(_ambientLightColor);
+    if (_ambientLightColor) {
+        _sceneGraph.setAmbientLightColor(*_ambientLightColor);
+    }
 
     std::shared_ptr<CameraSceneNode> cameraNode(_sceneGraph.newCamera());
     if (!cameraNode) {

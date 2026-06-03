@@ -83,6 +83,7 @@ struct GlobalUniforms {
     float shadowRadius {0.0f};
     float fogNear {0.0f};
     float fogFar {0.0f};
+    int shadowLayer {0};
 
     void reset() {
         projection = glm::mat4(1.0f);
@@ -101,6 +102,7 @@ struct GlobalUniforms {
         shadowRadius = 0.0f;
         fogNear = 0.0f;
         fogFar = 0.0f;
+        shadowLayer = 0;
     }
 };
 

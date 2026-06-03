@@ -70,6 +70,15 @@ static const std::vector<float> g_shadowCascadeDivisors {
     0.045f,
     0.135f};
 
+static bool hasGuiModelRoot(const std::list<std::shared_ptr<ModelSceneNode>> &roots) {
+    for (auto &root : roots) {
+        if (root->usage() == ModelUsage::GUI) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void SceneGraph::clear() {
     _modelRoots.clear();
     _walkmeshRoots.clear();
@@ -192,6 +201,21 @@ void SceneGraph::cullRoots() {
 }
 
 void SceneGraph::updateLighting() {
+    if (hasGuiModelRoot(_modelRoots)) {
+        for (auto &light : _activeLights) {
+            light->setActive(false);
+        }
+        _activeLights.clear();
+        for (auto *light : _lights) {
+            if (_activeLights.size() >= kMaxLights) {
+                break;
+            }
+            light->setActive(true);
+            _activeLights.push_back(light);
+        }
+        return;
+    }
+
     // Find closest lights and create a lookup
     auto closestLights = computeClosestLights(kMaxLights, [](auto &light, float distance2) {
         float radius = light.radius() + kLightRadiusBias;
@@ -445,16 +469,34 @@ void SceneGraph::prepareTransparentLeafs() {
     }
 }
 
+static RendererType chooseRendererType(const graphics::GraphicsOptions &options, const CameraSceneNode *cameraNode) {
+    if (!options.pbr) {
+        return RendererType::Retro;
+    }
+    if (!cameraNode || !cameraNode->camera()) {
+        return RendererType::Retro;
+    }
+    // PBR deferred combine relies on perspective depth reconstruction; GUI orthographic
+    // scenes (main menu, chargen previews) use the retro forward path instead.
+    if (cameraNode->camera()->type() == CameraType::Orthographic) {
+        return RendererType::Retro;
+    }
+    return RendererType::PBR;
+}
+
 Texture &SceneGraph::render(const glm::ivec2 &dim) {
-    if (!_renderPipeline) {
-        auto rendererType = _graphicsOpt.pbr ? RendererType::PBR : RendererType::Retro;
+    auto cameraNode = this->camera();
+    const CameraSceneNode *cameraPtr = cameraNode ? &cameraNode->get() : nullptr;
+    auto rendererType = chooseRendererType(_graphicsOpt, cameraPtr);
+    if (!_renderPipeline || _renderPipelineType != rendererType || _renderPipelineSize != dim) {
         _renderPipeline = _renderPipelineFactory.create(rendererType, dim);
         _renderPipeline->init();
+        _renderPipelineType = rendererType;
+        _renderPipelineSize = dim;
     }
     auto &pipeline = *_renderPipeline;
     pipeline.reset();
 
-    auto cameraNode = this->camera();
     if (cameraNode) {
         auto camera = cameraNode->get().camera();
         _graphicsSvc.uniforms.setGlobals([this, &camera](auto &globals) {
@@ -464,6 +506,9 @@ Texture &SceneGraph::render(const glm::ivec2 &dim) {
             globals.viewInv = camera->viewInv();
             globals.cameraPosition = glm::vec4(camera->position(), 1.0f);
             globals.worldAmbientColor = glm::vec4(ambientLightColor(), 1.0f);
+            if (hasGuiModelRoot(_modelRoots)) {
+                globals.worldAmbientColor = glm::vec4(1.0f);
+            }
             globals.clipNear = camera->zNear();
             globals.clipFar = camera->zFar();
             globals.numLights = static_cast<int>(_activeLights.size());
@@ -490,6 +535,11 @@ Texture &SceneGraph::render(const glm::ivec2 &dim) {
                 globals.shadowStrength = shadowStrength();
 #endif
                 globals.shadowRadius = shadowRadius();
+            } else {
+                globals.shadowLightPosition = glm::vec4(0.0f);
+                globals.shadowCascadeFarPlanes = glm::vec4(0.0f);
+                globals.shadowStrength = 0.0f;
+                globals.shadowRadius = 0.0f;
             }
             if (isFogEnabled()) {
                 globals.fogNear = fogNear();
@@ -950,6 +1000,9 @@ std::shared_ptr<DummySceneNode> SceneGraph::newDummy(ModelNode &modelNode) {
 
 std::shared_ptr<ModelSceneNode> SceneGraph::newModel(Model &model, ModelUsage usage) {
     auto node = newSceneNode<ModelSceneNode, Model &, ModelUsage>(model, usage);
+    if (usage == ModelUsage::GUI) {
+        node->setCullingEnabled(false);
+    }
     node->init();
     return std::move(node);
 }

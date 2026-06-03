@@ -35,7 +35,11 @@ void MessagesMenu::onGUILoaded() {
     bindControls();
 
     _controls.BTN_EXIT->setOnClick([this]() {
-        _game.openInGame();
+        if (_game.isTSL()) {
+            _game.openInGameMenu(InGameMenuTab::Journal);
+        } else {
+            _game.openInGame();
+        }
     });
 
     if (!_game.isTSL()) {

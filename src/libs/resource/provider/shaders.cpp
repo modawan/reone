@@ -98,10 +98,9 @@ void Shaders::init() {
     auto vertText = initShader(ShaderType::Vertex, kVertText);
     auto vertWalkmesh = initShader(ShaderType::Vertex, kVertWalkmesh);
 
-#ifndef __EMSCRIPTEN__
-    auto geomDirLightShadows = initShader(ShaderType::Geometry, kGeometryDirLightShadows);
-    auto geomPointLightShadows = initShader(ShaderType::Geometry, kGeometryPointLightShadows);
-#endif
+    // FIXME: geometry shaders are not supported
+    // auto geomDirLightShadows = initShader(ShaderType::Geometry, kGeometryDirLightShadows);
+    // auto geomPointLightShadows = initShader(ShaderType::Geometry, kGeometryPointLightShadows);
 
     auto fragColor = initShader(ShaderType::Fragment, kFragColor);
     auto fragRetroOpaqueModel = initShader(ShaderType::Fragment, kFragRetroOpaqueModel);
@@ -148,18 +147,18 @@ void Shaders::init() {
     _shaderRegistry.add(ShaderProgramId::pbrSSAO, initShaderProgram({vertPassthrough, fragPBRSSAO}));
     _shaderRegistry.add(ShaderProgramId::pbrSSR, initShaderProgram({vertPassthrough, fragPBRSSR}));
     _shaderRegistry.add(ShaderProgramId::pbrWalkmesh, initShaderProgram({vertWalkmesh, fragPBRWalkmesh}));
-#ifndef __EMSCRIPTEN__
-    _shaderRegistry.add(ShaderProgramId::dirLightShadows, initShaderProgram({vertShadows, geomDirLightShadows, fragNull}));
-#endif
+    // FIXME: geometry shaders are not supported
+    _shaderRegistry.add(ShaderProgramId::dirLightShadows, initShaderProgram({vertShadows// , geomDirLightShadows
+                , fragNull}));
     _shaderRegistry.add(ShaderProgramId::mvpColor, initShaderProgram({vertMVP, fragColor}));
     _shaderRegistry.add(ShaderProgramId::mvpTexture, initShaderProgram({vertMVP, fragTexture}));
     _shaderRegistry.add(ShaderProgramId::ndcTexture, initShaderProgram({vertPassthrough, fragTextureNoPerspective}));
     _shaderRegistry.add(ShaderProgramId::oitBlend, initShaderProgram({vertPassthrough, fragOITBlend}));
     _shaderRegistry.add(ShaderProgramId::oitModel, initShaderProgram({vertModel, fragOITModel}));
     _shaderRegistry.add(ShaderProgramId::oitParticles, initShaderProgram({vertParticles, fragOITParticles}));
-#ifndef __EMSCRIPTEN__
-    _shaderRegistry.add(ShaderProgramId::pointLightShadows, initShaderProgram({vertShadows, geomPointLightShadows, fragPointLightShadows}));
-#endif
+    // FIXME: geometry shaders are not supported
+    _shaderRegistry.add(ShaderProgramId::pointLightShadows, initShaderProgram({vertShadows// , geomPointLightShadows
+                , fragPointLightShadows}));
     _shaderRegistry.add(ShaderProgramId::postBoxBlur4, initShaderProgram({vertPassthrough, fragPostBoxBlur4}));
     _shaderRegistry.add(ShaderProgramId::postFXAA, initShaderProgram({vertPassthrough, fragPostFXAA}));
     _shaderRegistry.add(ShaderProgramId::postGaussianBlur13, initShaderProgram({vertPassthrough, fragPostGaussianBlur13}));
@@ -216,41 +215,39 @@ std::shared_ptr<Shader> Shaders::initShader(ShaderType type, std::string resRef)
 
     // Prepend preprocessor directives
     auto defines = StringBuilder();
+    defines.append("#define REONE_GLES\n");
+    defines.append("#define noperspective\n");
+    if (_graphicsOpt.cubeMapArraySupported) {
+        defines.append("#define REONE_CUBE_MAP_ARRAY\n");
+    } else {
+        defines.append("#define REONE_ENVMAP_CUBEMAP_LAYERS 4\n");
+    }
     if (_graphicsOpt.ssr) {
         defines.append("#define R_SSR\n");
     }
     if (_graphicsOpt.ssao) {
         defines.append("#define R_SSAO\n");
     }
-    if (!defines.empty()) {
-        defines.append("\n");
-        sources.push_front(defines.string());
-    }
-#ifdef __EMSCRIPTEN__
-    {
-        StringBuilder webHeader;
-        webHeader.append("#version 300 es\n");
-        webHeader.append("precision highp float;\n");
-        webHeader.append("precision highp int;\n");
-        if (type == ShaderType::Fragment) {
-            // WebGL GLSL ES requires explicit sampler precisions (desktop GL does not).
-            webHeader.append("precision highp sampler2D;\n");
-            webHeader.append("precision highp sampler2DArray;\n");
-            webHeader.append("precision highp samplerCube;\n");
+    defines.append("\n");
+    sources.push_front(defines.string());
+
+    StringBuilder header;
+    header.append("#version 300 es\n");
+    header.append("precision highp float;\n");
+    header.append("precision highp int;\n");
+    if (type == ShaderType::Fragment) {
+        header.append("precision highp sampler2D;\n");
+        header.append("precision highp sampler2DArray;\n");
+        header.append("precision highp samplerCube;\n");
+        if (_graphicsOpt.cubeMapArraySupported) {
+            header.append("precision highp samplerCubeArray;\n");
         }
-        webHeader.append("#define REONE_WEB\n\n");
-        sources.push_front(webHeader.string());
     }
-#else
-    sources.push_front("#version 400 core\n\n");
-#endif
+    header.append("\n");
+    sources.push_front(header.string());
 
     auto shader = std::make_unique<Shader>(type, std::move(sources));
-    try {
-        shader->init();
-    } catch (const std::exception &ex) {
-        throw std::runtime_error(str(boost::format("Shader '%1%' failed: %2%") % resRef % ex.what()));
-    }
+    shader->init();
     return shader;
 }
 
@@ -278,8 +275,19 @@ std::shared_ptr<ShaderProgram> Shaders::initShaderProgram(std::vector<std::share
     program->setUniform("sBumpMapArray", TextureUnits::bumpMapArray);
     program->setUniform("sShadowMap", TextureUnits::shadowMapArray);
     program->setUniform("sBRDFLUT", TextureUnits::brdfLUT);
-    program->setUniform("sIrradianceMapArray", TextureUnits::irradianceMapArray);
-    program->setUniform("sPrefilteredEnvMapArray", TextureUnits::prefilteredEnvMapArray);
+    if (_graphicsOpt.cubeMapArraySupported) {
+        program->setUniform("sIrradianceMapArray", TextureUnits::irradianceMapArray);
+        program->setUniform("sPrefilteredEnvMapArray", TextureUnits::prefilteredEnvMapArray);
+    } else {
+        program->setUniform("sIrradianceCubemap0", TextureUnits::irradianceCubemap0);
+        program->setUniform("sIrradianceCubemap1", TextureUnits::irradianceCubemap1);
+        program->setUniform("sIrradianceCubemap2", TextureUnits::irradianceCubemap2);
+        program->setUniform("sIrradianceCubemap3", TextureUnits::irradianceCubemap3);
+        program->setUniform("sPrefilteredCubemap0", TextureUnits::prefilteredCubemap0);
+        program->setUniform("sPrefilteredCubemap1", TextureUnits::prefilteredCubemap1);
+        program->setUniform("sPrefilteredCubemap2", TextureUnits::prefilteredCubemap2);
+        program->setUniform("sPrefilteredCubemap3", TextureUnits::prefilteredCubemap3);
+    }
 
     // Uniform Blocks
     program->bindUniformBlock("Globals", UniformBlockBindingPoints::globals);

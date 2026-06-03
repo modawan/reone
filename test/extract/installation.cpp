@@ -126,6 +126,27 @@ TEST(InstallationModuleRoot, skips_module_index_until_module_root_set) {
     std::filesystem::remove_all(tmp);
 }
 
+TEST(InstallationSearchOrder, soundSearchOrder_finds_streammusic) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_streammusic";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "streammusic");
+
+    {
+        FileOutputStream out(tmp / "streammusic" / "mus_theme_cult.wav");
+        out.write("wav", 3);
+        out.close();
+    }
+
+    Installation installation(GameID::KotOR, tmp);
+    auto loc = installation.resource(ResourceId("mus_theme_cult", ResType::Wav), soundSearchOrder());
+    ASSERT_TRUE(loc.has_value());
+    auto data = loc->readData();
+    ASSERT_EQ(3u, data.size());
+    EXPECT_EQ('w', data[0]);
+
+    std::filesystem::remove_all(tmp);
+}
+
 TEST(InstallationResolveLooseRelativePath, finds_root_dialog_tlk) {
     auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_root_files";
     std::filesystem::remove_all(tmp);

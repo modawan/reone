@@ -29,4 +29,5 @@ layout(std140) uniform Globals {
     float uShadowRadius;
     float uFogNear;
     float uFogFar;
+    int uShadowLayer;
 };

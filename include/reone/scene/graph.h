@@ -284,6 +284,8 @@ private:
     resource::ResourceServices &_resourceSvc;
 
     std::unique_ptr<IRenderPipeline> _renderPipeline;
+    RendererType _renderPipelineType {RendererType::Retro};
+    glm::ivec2 _renderPipelineSize {0};
 
     bool _updateRoots {true};
 

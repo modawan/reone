@@ -255,22 +255,24 @@ void MeshSceneNode::render(IRenderPass &pass) {
                         ? MaterialType::TransparentModel
                         : MaterialType::OpaqueModel;
     material.textures.insert({TextureUnits::mainTex, *_nodeTextures.diffuse});
-    if (_nodeTextures.lightmap) {
+    if (_nodeTextures.lightmap && _model.usage() != ModelUsage::GUI) {
         material.textures.insert({TextureUnits::lightmap, *_nodeTextures.lightmap});
     }
-    if (_nodeTextures.envmap) {
-        if (_nodeTextures.envmap->isCubeMap()) {
-            material.textures.insert({TextureUnits::envMapCube, *_nodeTextures.envmap});
-        } else {
-            material.textures.insert({TextureUnits::envMap, *_nodeTextures.envmap});
+    if (_model.usage() != ModelUsage::GUI) {
+        if (_nodeTextures.envmap) {
+            if (_nodeTextures.envmap->isCubeMap()) {
+                material.textures.insert({TextureUnits::envMapCube, *_nodeTextures.envmap});
+            } else {
+                material.textures.insert({TextureUnits::envMap, *_nodeTextures.envmap});
+            }
         }
-    }
-    if (_nodeTextures.bumpmap) {
-        if (_nodeTextures.bumpmap->isGrayscale()) {
-            material.textures.insert({TextureUnits::bumpMapArray, *_nodeTextures.bumpmap});
-            material.bumpMapFrame = _bumpmapCycleFrame;
-        } else {
-            material.textures.insert({TextureUnits::normalMap, *_nodeTextures.bumpmap});
+        if (_nodeTextures.bumpmap) {
+            if (_nodeTextures.bumpmap->isGrayscale()) {
+                material.textures.insert({TextureUnits::bumpMapArray, *_nodeTextures.bumpmap});
+                material.bumpMapFrame = _bumpmapCycleFrame;
+            } else {
+                material.textures.insert({TextureUnits::normalMap, *_nodeTextures.bumpmap});
+            }
         }
     }
     material.uv = glm::mat3x4(
@@ -280,8 +282,21 @@ void MeshSceneNode::render(IRenderPass &pass) {
     material.color = glm::vec4(1.0f, 1.0f, 1.0f, _alpha);
     material.ambientColor = mesh->ambient;
     material.diffuseColor = mesh->diffuse;
+    if (glm::length(material.ambientColor) < 1e-4f) {
+        material.ambientColor = glm::vec3(1.0f);
+    }
+    if (glm::length(material.diffuseColor) < 1e-4f) {
+        material.diffuseColor = glm::vec3(1.0f);
+    }
     material.selfIllumColor = _selfIllumColor;
     material.staticObject = _static;
+    if (_model.usage() == ModelUsage::GUI) {
+        material.staticObject = false;
+        if (!isTransparent()) {
+            material.ambientColor = glm::vec3(1.0f);
+            material.diffuseColor = glm::vec3(1.0f);
+        }
+    }
     if (_sceneGraph.hasShadowLight() && isReceivingShadows(_model, *this)) {
         material.affectedByShadows = true;
     }

@@ -17,11 +17,8 @@
 
 #pragma once
 
-#include "reone/resource/gff.h"
-
 #include "../object.h"
-#include "reone/resource/parser/gff/git.h"
-#include "reone/resource/parser/gff/ute.h"
+#include "reone/resource/gff.h"
 
 namespace reone {
 
@@ -46,49 +43,50 @@ public:
         return from->type() == ObjectType::Encounter;
     }
 
-    void loadFromGIT(const resource::generated::GIT_Encounter_List &git);
+    void deserialize(const resource::Gff &gff);
 
 private:
     struct SpawnPoint {
         glm::vec3 position {0.0f};
-        glm::quat orientation {1.0f, 0.0f, 0.0f, 0.0f};
+        float orientation {0.0f};
     };
 
     struct EncounterCreature {
-        int _appearance {0};
+        uint32_t _appearance {0};
         float _cr {0.0f};
         std::string _resRef;
         bool _singleSpawn {false};
     };
 
+    // Serializable
+    resource::LocString _locName;
     bool _active {false};
-    int _difficultyIndex {0};
-    Faction _faction {Faction::Invalid};
-    int _maxCreatures {0};
-    bool _playerOnly {false};
-    int _recCreatures {0};
     bool _reset {false};
-    int _resetTime {0};
-    int _respawns {0};
-    std::vector<EncounterCreature> _creatures;
-    std::vector<glm::vec3> _geometry;
-    std::vector<SpawnPoint> _spawnPoints;
-
-    // Scripts
+    int32_t _resetTime {0};
+    int32_t _respawns {0};
+    int32_t _spawnOption {0};
+    int32_t _maxCreatures {0};
+    int32_t _recCreatures {0};
+    bool _playerOnly {false};
+    Faction _faction {Faction::Invalid};
+    int32_t _difficultyIndex {0};
+    int32_t _difficulty {0};
 
     std::string _onEntered;
     std::string _onExit;
     std::string _onExhausted;
+    std::string _onHeartbeat;
+    std::string _onUserDefined;
 
-    // END Scripts
+    std::vector<EncounterCreature> _creatures;
+    std::vector<glm::vec3> _geometry;
+    std::vector<SpawnPoint> _spawnPoints;
+    // END Serializable
 
-    void loadFromBlueprint(const std::string &blueprintResRef);
-    void loadPositionFromGIT(const resource::generated::GIT_Encounter_List &gffs);
-    void loadGeometryFromGIT(const resource::generated::GIT_Encounter_List &gffs);
-    void loadSpawnPointsFromGIT(const resource::generated::GIT_Encounter_List &gffs);
-
-    void loadUTE(const resource::generated::UTE &ute);
-    void loadCreaturesFromUTE(const resource::generated::UTE &ute);
+    void deserializeAll(const resource::Gff &gff);
+    void deserializeCreatures(const resource::Gff &gff);
+    void deserializeGeometry(const resource::Gff &gff);
+    void deserializeSpawnPoints(const resource::Gff &gff);
 };
 
 } // namespace game

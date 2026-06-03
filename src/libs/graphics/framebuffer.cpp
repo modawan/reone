@@ -89,17 +89,7 @@ static GLenum getAttachmentGL(Framebuffer::Attachment attachment, int index = 0)
 void Framebuffer::attachTexture(const Texture &texture, Attachment attachment, int index) const {
     auto attachmentGL = getAttachmentGL(attachment, index);
     if (texture.isCubeMap() || texture.is2DArray()) {
-#ifdef __EMSCRIPTEN__
-        // WebGL2/GLES has no glFramebufferTexture (whole-texture/layered attach used for geometry-shader
-        // layered rendering, which WebGL2 lacks). Attach a single face/layer so the FBO is still complete.
-        if (texture.isCubeMap()) {
-            glFramebufferTexture2D(GL_FRAMEBUFFER, attachmentGL, GL_TEXTURE_CUBE_MAP_POSITIVE_X, texture.nameGL(), 0);
-        } else {
-            glFramebufferTextureLayer(GL_FRAMEBUFFER, attachmentGL, texture.nameGL(), 0, 0);
-        }
-#else
-        glFramebufferTexture(GL_FRAMEBUFFER, attachmentGL, texture.nameGL(), 0);
-#endif
+        glFramebufferTextureLayer(GL_FRAMEBUFFER, attachmentGL, texture.nameGL(), 0, 0);
     } else if (texture.is2D()) {
         glFramebufferTexture2D(GL_FRAMEBUFFER, attachmentGL, GL_TEXTURE_2D, texture.nameGL(), 0);
     } else {

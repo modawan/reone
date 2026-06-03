@@ -78,12 +78,12 @@ public:
     // Available members
 
     bool addAvailableMember(int npc, const std::string &blueprint);
+    bool addAvailableMember(int npc, std::shared_ptr<Creature> creature);
     bool removeAvailableMember(int npc);
 
     bool isMemberAvailable(int npc) const;
 
-    std::shared_ptr<Creature> createAvailableMember(int npc);
-    const std::string &getAvailableMember(int npc) const;
+    std::shared_ptr<Creature> getAvailableMember(int npc) const;
 
     // END Available members
 
@@ -97,7 +97,7 @@ private:
     Game &_game;
 
     std::shared_ptr<Creature> _player;
-    std::map<int, std::string> _availableMembers;
+    std::map<int, std::shared_ptr<Creature>> _availableMembers;
     std::vector<Member> _members;
     bool _solo {false};
 

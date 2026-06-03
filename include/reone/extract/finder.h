@@ -29,7 +29,7 @@ const SearchScope &canonicalSearchOrder();
 /// PyKotor Installation.texture_resource_result() default order.
 const SearchScope &textureSearchOrder();
 
-/// PyKotor Installation.sounds() default order.
+/// Streamed audio lookup (music, SFX, voice). Extends PyKotor sounds() with Music/Voice.
 const SearchScope &soundSearchOrder();
 
 /// Loose installation-root files (e.g. dialog.tlk).

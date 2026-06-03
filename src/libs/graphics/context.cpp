@@ -23,10 +23,6 @@
 #include "reone/system/logutil.h"
 #include "reone/system/threadutil.h"
 
-#ifdef __EMSCRIPTEN__
-#include <emscripten/html5_webgl.h>
-#endif
-
 namespace reone {
 
 namespace graphics {
@@ -46,7 +42,7 @@ void Context::init() {
         return;
     }
     checkMainThread();
-    if (!gladLoadGL(SDL_GL_GetProcAddress)) {
+    if (!gladLoadGLES2(SDL_GL_GetProcAddress)) {
         // Attempt to retrieve basic version information manually for diagnosis
         // Use manual glGetString which might work even if GLAD failed to load everything
         const GLubyte *version = glGetString(GL_VERSION);
@@ -58,30 +54,30 @@ void Context::init() {
         std::string vendorStr = vendor ? (const char *)vendor : "Unknown";
 
         throw std::runtime_error(str(boost::format(
-                                         "gladLoadGLLoader failed to initialize OpenGL context.\n"
+                                         "gladLoadGLES2 failed to initialize OpenGL ES context.\n"
                                          "  GL_VERSION: %s\n"
                                          "  GL_RENDERER: %s\n"
                                          "  GL_VENDOR: %s\n"
-#ifdef __EMSCRIPTEN__
-                                         "  Ensure your browser supports WebGL 2.") %
-#else
-                                         "  Ensure your graphics driver supports OpenGL 4.0 Core Profile.") %
-#endif
+                                         "  Ensure your graphics driver supports OpenGL ES 3.0.") %
                                      versionStr % rendererStr % vendorStr));
     }
 
-#ifdef __EMSCRIPTEN__
-    EMSCRIPTEN_WEBGL_CONTEXT_HANDLE webglCtx = emscripten_webgl_get_current_context();
-    _cubeMapArraySupported = webglCtx && emscripten_webgl_enable_extension(webglCtx, "EXT_texture_cube_map_array");
+#ifdef GLAD_GL_OES_texture_cube_map_array
+    _cubeMapArraySupported = GLAD_GL_OES_texture_cube_map_array != 0;
 #else
-    _cubeMapArraySupported = true;
+    _cubeMapArraySupported = false;
 #endif
+    _options.cubeMapArraySupported = _cubeMapArraySupported;
+    info(str(boost::format("Cube map array supported: %s") % (_cubeMapArraySupported ? "yes" : "no")), LogChannel::Graphics);
+
+    int maxTexUnits = 0;
+    glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &maxTexUnits);
+    info(str(boost::format("Max combined texture image units: %d") % maxTexUnits), LogChannel::Graphics);
 
     int maxBuffers;
     glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxBuffers);
-#ifndef __EMSCRIPTEN__
-    glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
-#endif
+    // FIXME: GL_TEXTURE_CUBE_MAP_SEAMLESS is not supported
+    glEnable(GL_TEXTURE_CUBE_MAP);
 
     glm::ivec4 viewport(0.0f);
     glGetIntegerv(GL_VIEWPORT, &viewport[0]);
@@ -150,32 +146,17 @@ void Context::resetReadFramebuffer() {
 }
 
 void Context::bindDrawFramebuffer(Framebuffer &buffer, std::vector<int> colorIndices) {
-    // Break any sampler->attachment feedback loop before this FBO is drawn into: a texture that is
-    // both an attachment here and still bound on a sampler unit makes the draw INVALID_OPERATION on
-    // WebGL2/GLES (and floods the console). Passes always rebind the textures they actually sample.
-    unbindAttachmentsFromTextureUnits(buffer);
     if (!_drawFramebuffer || _drawFramebuffer->get().nameGL() != buffer.nameGL()) {
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, buffer.nameGL());
         _drawFramebuffer = buffer;
     }
     if (!colorIndices.empty()) {
-        // WebGL2/GLES require glDrawBuffers slot i to be GL_COLOR_ATTACHMENTi or GL_NONE (positional).
-        // Putting COLOR_ATTACHMENTn at slot 0 (for n>0) is INVALID_OPERATION there, so build a positional
-        // array sized to max index + 1, GL_NONE for unused slots. Desktop GL accepts this form too.
-        int maxIndex = 0;
+        auto attachments = std::vector<GLenum>(colorIndices.size());
         for (size_t i = 0; i < colorIndices.size(); ++i) {
-            if (colorIndices[i] > maxIndex) {
-                maxIndex = colorIndices[i];
-            }
+            attachments[i] = kColorAttachments[colorIndices[i]];
         }
-        auto attachments = std::vector<GLenum>(static_cast<size_t>(maxIndex) + 1, GL_NONE);
-        for (size_t i = 0; i < colorIndices.size(); ++i) {
-            attachments[colorIndices[i]] = kColorAttachments[colorIndices[i]];
-        }
-        glDrawBuffers(static_cast<GLsizei>(attachments.size()), &attachments[0]);
+        glDrawBuffers(attachments.size(), &attachments[0]);
     } else {
-        // glDrawBuffer (singular) is desktop-only; glDrawBuffers({GL_NONE}) is the WebGL2/GLES-safe
-        // equivalent for a color-less (depth-only) attachment and is also valid on desktop GL.
         GLenum none = GL_NONE;
         glDrawBuffers(1, &none);
     }
@@ -240,36 +221,6 @@ void Context::bindTexture(Texture &texture, int unit) {
         _activeTexUnit = unit;
     }
     texture.bind();
-    _boundTextureNameByUnit[unit] = texture.nameGL();
-}
-
-void Context::unbindAttachmentsFromTextureUnits(Framebuffer &buffer) {
-    if (_boundTextureNameByUnit.empty()) {
-        return;
-    }
-    auto unbindAttachment = [this](const std::shared_ptr<IAttachment> &attachment) {
-        if (!attachment || !attachment->isTexture()) {
-            return;
-        }
-        auto &texture = static_cast<Texture &>(*attachment);
-        uint32_t nameGL = texture.nameGL();
-        for (auto it = _boundTextureNameByUnit.begin(); it != _boundTextureNameByUnit.end();) {
-            if (it->second != nameGL) {
-                ++it;
-                continue;
-            }
-            if (_activeTexUnit != it->first) {
-                glActiveTexture(GL_TEXTURE0 + it->first);
-                _activeTexUnit = it->first;
-            }
-            texture.unbind();
-            it = _boundTextureNameByUnit.erase(it);
-        }
-    };
-    for (auto &color : buffer.colorAttachments()) {
-        unbindAttachment(color);
-    }
-    unbindAttachment(buffer.depthAttachment());
 }
 
 void Context::pushViewport(glm::ivec4 viewport) {
@@ -420,6 +371,7 @@ void Context::setDepthTestMode(DepthTestMode mode) {
     } else {
         glEnable(GL_DEPTH_TEST);
         switch (mode) {
+            break;
         case DepthTestMode::Equal:
             glDepthFunc(GL_EQUAL);
             break;
@@ -442,16 +394,12 @@ void Context::setDepthMask(bool enabled) {
 }
 
 void Context::setPolygonMode(PolygonMode mode) {
-#ifdef __EMSCRIPTEN__
-    // WebGL2/OpenGL ES does not expose glPolygonMode.
-    (void)mode;
-#else
-    if (mode == PolygonMode::Line) {
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-    } else {
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    }
-#endif
+    // FIXME: polygon mode is not supported
+    // if (mode == PolygonMode::Line) {
+    //     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    // } else {
+    //     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    // }
 }
 
 void Context::setFaceCullMode(FaceCullMode mode) {
