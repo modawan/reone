@@ -18,10 +18,12 @@ Delete `KeyBifResourceContainer` and `FolderResourceContainer` — no callers re
 3. Linux + Windows CI green; wasm-ci green
 4. Menu smoke PASS (no behavior change expected)
 
-## Progress (LFG pass 24)
+## Progress (LFG pass 25)
 
 ### Landed
-- (pending)
+- Removed `keybif.h`/`keybif.cpp`, `folder.h`/`folder.cpp`
+- Dropped four entries from `src/libs/resource/CMakeLists.txt`
+- Kept `Erf`, `Rim`, `Exe`, `Memory` containers (still referenced)
 
 ### Next steps
-- Open PR, CI watch, merge
+- Code review, PR, CI watch, merge
