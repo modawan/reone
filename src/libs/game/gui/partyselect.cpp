@@ -171,12 +171,10 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
     Party &party = _game.party();
     for (auto &member : party.members()) {
         if (member.npc != kNpcPlayer) {
-            const std::string &blueprintResRef = member.creature->blueprintResRef();
             if (isSupportedNpc(member.npc) &&
-                !blueprintResRef.empty() &&
                 !party.isMemberAvailable(member.npc)) {
 
-                party.addAvailableMember(member.npc, blueprintResRef);
+                party.addAvailableMember(member.npc, member.creature);
             }
             addNpc(member.npc);
         }
