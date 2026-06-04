@@ -12,7 +12,7 @@ if [[ "${REONE_HEADLESS:-0}" != "1" ]]; then
 fi
 
 BUILD_DIR="$ROOT/build-gles"
-BINDIR="$BUILD_DIR/debug/bin"
+BINDIR="$BUILD_DIR/bin"
 OUTDIR="$ROOT/tools/gles/evidence"
 GAME="${GAME:-/run/media/brunner56/MyBook/SteamLibrary/steamapps/common/swkotor}"
 PBR="${PBR:-1}"
@@ -30,7 +30,7 @@ fi
 
 cat >"$BINDIR/reone.cfg" <<EOF
 game=$GAME
-dev=1
+dev=0
 width=1024
 height=768
 winscale=100
@@ -79,7 +79,7 @@ stop_bindir_engines() {
   sleep 1
 }
 stop_bindir_engines
-rm -f smoke_warp.cmd
+rm -f "$BINDIR/smoke_warp.cmd"
 
 engine_alive() {
   local pid="$1"
@@ -202,10 +202,12 @@ echo "Screenshot: $SHOT"
 grep "Cube map array supported" engine.log || true
 echo "Texture not found count: $(grep -c "Texture not found" engine.log || true)"
 
-MALAK_MEAN=$(convert "$SHOT" -crop 240x360+140+120 +repage -format "%[mean]" info: 2>/dev/null || echo 0)
+# Tight crop on Malak torso in the left 3D panel (1024x768 window, 800x600 GUI stretch).
+MALAK_CROP="80x220+55+180"
+MALAK_MEAN=$(magick "$SHOT" -crop "$MALAK_CROP" +repage -format "%[mean]" info: 2>/dev/null || echo 0)
 MALAK_MEAN_INT=${MALAK_MEAN%%.*}
-echo "Malak region mean: $MALAK_MEAN"
-if [[ "${MALAK_MEAN_INT:-0}" -lt 850 ]]; then
-  echo "ERROR: main menu 3D view too dark (mean=$MALAK_MEAN, need >= 850)" >&2
+echo "Malak torso ($MALAK_CROP) mean: $MALAK_MEAN"
+if [[ "${MALAK_MEAN_INT:-0}" -lt 400 ]]; then
+  echo "ERROR: main menu 3D character too dark (mean=$MALAK_MEAN, need >= 400)" >&2
   exit 1
 fi

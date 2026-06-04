@@ -79,6 +79,11 @@ void main() {
         shadow = getShadow(viewPos, fragPosWorld.xyz, normal, sShadowMap, sShadowMapCube);
     }
     vec3 color = min(vec3(1.0), (ambient + (1.0 - shadow) * max(vec3(0.0), diffuse))) * mainTexSample.rgb;
+    // Self-lit emissive meshes can still read black if the diffuse map failed to upload; keep
+    // emissive color visible for sabers and similar FX.
+    if (dot(color, color) < 0.0001 && dot(uSelfIllumColor.rgb, uSelfIllumColor.rgb) > 0.0001) {
+        color = uSelfIllumColor.rgb;
+    }
     if (isFeatureEnabled(FEATURE_ENVMAP)) {
         vec3 R = reflect(-viewDir, normal);
         vec4 envmapSample = sampleEnvMap(sEnvMap, sEnvMapCube, R);

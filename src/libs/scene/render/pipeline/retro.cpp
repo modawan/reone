@@ -254,7 +254,7 @@ Texture &RetroRenderPipeline::render() {
                 0, 0,
                 FramebufferBlitFlags::depth);
             _context.bindDrawFramebuffer(*_targets.transparent, {0, 1});
-            _context.clearColor({0.0f, 0.0f, 0.0f, 1.0f});
+            _context.clearColor({0.0f, 0.0f, 0.0f, 0.0f});
             _context.withBlendMode(BlendMode::OIT_Transparent, [this, &pass]() {
                 _context.withDepthMask(false, [this, &pass]() {
                     _passCallbacks.at(RenderPassName::TransparentGeometry)(pass);

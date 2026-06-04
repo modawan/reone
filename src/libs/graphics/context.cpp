@@ -76,6 +76,11 @@ void Context::init() {
 
     int maxBuffers;
     glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxBuffers);
+    _maxDrawBuffers = std::max(1, maxBuffers);
+    info(str(boost::format("Max draw buffers: %d") % _maxDrawBuffers), LogChannel::Graphics);
+#ifdef GLAD_GL_EXT_texture_compression_s3tc
+    info(str(boost::format("S3TC texture compression supported: %s") % (GLAD_GL_EXT_texture_compression_s3tc ? "yes" : "no")), LogChannel::Graphics);
+#endif
     // FIXME: GL_TEXTURE_CUBE_MAP_SEAMLESS is not supported
     glEnable(GL_TEXTURE_CUBE_MAP);
 
@@ -150,16 +155,18 @@ void Context::bindDrawFramebuffer(Framebuffer &buffer, std::vector<int> colorInd
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, buffer.nameGL());
         _drawFramebuffer = buffer;
     }
-    if (!colorIndices.empty()) {
-        auto attachments = std::vector<GLenum>(colorIndices.size());
-        for (size_t i = 0; i < colorIndices.size(); ++i) {
-            attachments[i] = kColorAttachments[colorIndices[i]];
-        }
-        glDrawBuffers(attachments.size(), &attachments[0]);
-    } else {
+    if (colorIndices.empty()) {
         GLenum none = GL_NONE;
         glDrawBuffers(1, &none);
+        return;
     }
+    std::vector<GLenum> attachments(_maxDrawBuffers, GL_NONE);
+    for (int colorIdx : colorIndices) {
+        if (colorIdx >= 0 && colorIdx < _maxDrawBuffers) {
+            attachments[colorIdx] = kColorAttachments[colorIdx];
+        }
+    }
+    glDrawBuffers(_maxDrawBuffers, attachments.data());
 }
 
 void Context::bindReadFramebuffer(Framebuffer &buffer, std::optional<int> colorIdx) {
