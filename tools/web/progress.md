@@ -17,13 +17,15 @@ Original prompt: ReOne WASM playability and openkotor-site integration — `game
 - **`master` push (2026-06-03):** `build-wasm.yml` now triggers on **`master`** (not only `cursor/**`) so post-GLES merges keep wasm-ci green.
 - **serve.py (fixed):** CI integration smoke uses `--directory /tmp/web-empty --game-root …`; serve now allows **game-mirror-only** mode when `engine.html` is absent but `--game-root` is set.
 
-## PR status (2026-06-03)
+## PR status (2026-06-04)
 
 - **[OpenKotOR/reone#4](https://github.com/OpenKotOR/reone/pull/4)** merged — WASM menu, module warp, `extract::Installation` port (`68d7f3ad`).
 - **[OpenKotOR/reone#5](https://github.com/OpenKotOR/reone/pull/5)** merged — dataminer → `Installation` (`e8e4b678`).
 - **[OpenKotOR/reone#7](https://github.com/OpenKotOR/reone/pull/7)** merged — OpenGL ES 3.0 engine + GLES CI smokes (`20e32664`).
-- **`master`** is the shipping branch; Linux/Windows CI green; wasm-ci on `ubuntu-latest`.
-- **Post-GLES validation (2026-06-03, local):** `ci_build_wasm.sh` OK; `run_menu_smoke.sh` PASS; `run_menu_smoke.sh --warp end_m01aa` PASS (`tools/web/_smoke_warp_verify.png`).
+- **[OpenKotOR/reone#10](https://github.com/OpenKotOR/reone/pull/10)** merged — wasm-ci on `master` pushes.
+- **[OpenKotOR/reone#11](https://github.com/OpenKotOR/reone/pull/11)** merged — save-game peek via `ErfReader`; legacy containers removed.
+- **`master`** is the shipping branch; Linux/Windows/wasm-ci/gles-linux green on `ubuntu-latest`.
+- **Branch archive:** `cursor/web-wasm-gles-and-fs-access` superseded by `master` (2026-06-04); remote branch deleted. Downstream tracking: modawan/reone#111 → close in favor of `master`.
 - [modawan/reone#163](https://github.com/modawan/reone/pull/163) tracks OpenKotOR GLES on the fork (maintainer merge required).
 
 ## Done (implementation)

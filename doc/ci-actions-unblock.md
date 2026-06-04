@@ -20,7 +20,7 @@ Use this when **Build WASM** (or other workflows) stay `queued` for 15+ minutes 
 
    ```bash
    gh workflow run build-wasm.yml --repo OpenKotOR/reone \
-     --ref cursor/web-wasm-gles-and-fs-access
+     --ref master
    ```
 
 3. **Watch** until `success` or a real failure with logs:
@@ -57,10 +57,10 @@ tar xzf runner.tgz && rm runner.tgz
 for id in $(gh run list --repo OpenKotOR/reone --status queued --json databaseId -q '.[].databaseId'); do
   gh api -X POST "repos/OpenKotOR/reone/actions/runs/${id}/force-cancel"
 done
-gh workflow run build-wasm.yml --repo OpenKotOR/reone --ref cursor/web-wasm-gles-and-fs-access
+gh workflow run build-wasm.yml --repo OpenKotOR/reone --ref master
 ```
 
-Workflow uses `runs-on: [self-hosted, linux, x64, wasm-ci]` and native Fedora deps (no job container — Podman/docker.sock often blocks containers).
+Workflow uses `runs-on: ubuntu-latest` (2026-06-03+). Self-hosted runner notes below are legacy.
 
 ## Parity while blocked
 
