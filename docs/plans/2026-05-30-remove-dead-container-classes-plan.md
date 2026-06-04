@@ -1,6 +1,6 @@
 ---
 title: "chore: remove dead KeyBif/Folder resource containers"
-status: active
+status: completed
 date: 2026-05-30
 type: chore
 ---
@@ -33,9 +33,11 @@ Delete `KeyBifResourceContainer` and `FolderResourceContainer` — no callers re
 - Menu smoke **PASS** (~34s)
 - Archaeology: only `ErfResourceContainer` has a caller (`saveload.cpp`); Rim/Exe/Memory are orphaned
 
-### Phase B (deferred)
-- Fix `peekSavedGame` → `LazyCapsule` or `ErfReader` + `init()`
-- Remove Rim/Exe/Memory/Erf containers + `IResourceContainer` if fully redundant
+### Phase B (2026-06-04)
+
+- [x] Fix `peekSavedGame` → `ErfReader` + `openGameInputStream` (container never called `init()`)
+- [x] Remove Rim/Exe/Memory/Erf containers + `IResourceContainer`
 
 ### Next steps
-- CI green → merge PR #6
+
+- CI green → merge Phase B PR

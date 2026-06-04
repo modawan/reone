@@ -19,11 +19,12 @@
 
 #include "reone/game/game.h"
 #include "reone/graphics/format/tgareader.h"
-#include "reone/resource/container/erf.h"
 #include "reone/resource/format/erfreader.h"
 #include "reone/resource/format/gffreader.h"
 #include "reone/resource/strings.h"
 #include "reone/system/logutil.h"
+#include "reone/system/stream/gameinput.h"
+#include "reone/system/stream/input.h"
 #include "reone/system/stream/memoryinput.h"
 
 
@@ -164,16 +165,44 @@ void SaveLoad::refreshSavedGames() {
     }
 }
 
-static SavedGame peekSavedGame(const std::filesystem::path &path) {
-    auto erfResourceContainer = ErfResourceContainer(path);
+static std::optional<ByteBuffer> readErfResource(IInputStream &erf, const ErfReader &reader, const ResourceId &id) {
+    const auto &keys = reader.keys();
+    const auto &resources = reader.resources();
+    if (keys.size() != resources.size()) {
+        return std::nullopt;
+    }
+    for (size_t i = 0; i < keys.size(); ++i) {
+        if (keys[i].resId != id) {
+            continue;
+        }
+        const auto &entry = resources[i];
+        if (entry.size == 0) {
+            return ByteBuffer();
+        }
+        ByteBuffer buf;
+        buf.resize(entry.size);
+        erf.seek(entry.offset, reone::SeekOrigin::Begin);
+        erf.read(&buf[0], buf.size());
+        return buf;
+    }
+    return std::nullopt;
+}
 
-    auto nfoData = erfResourceContainer.findResourceData(ResourceId("savenfo", ResType::Res));
+static SavedGame peekSavedGame(const std::filesystem::path &path) {
+    auto erfStream = reone::openGameInputStream(path);
+    ErfReader erfReader(*erfStream);
+    erfReader.load();
+
+    auto nfoData = readErfResource(*erfStream, erfReader, ResourceId("savenfo", ResType::Res));
+    if (!nfoData) {
+        throw std::runtime_error("savenfo missing in " + path.string());
+    }
     auto nfoStream = MemoryInputStream(*nfoData);
     GffReader nfo(nfoStream);
     nfo.load();
 
     std::shared_ptr<Texture> screen;
-    auto screenData = erfResourceContainer.findResourceData(ResourceId("screen", ResType::Tga));
+    auto screenData = readErfResource(*erfStream, erfReader, ResourceId("screen", ResType::Tga));
     if (screenData) {
         auto tga = MemoryInputStream(*screenData);
         TgaReader tgaReader(tga, "screen", TextureUsage::GUI);

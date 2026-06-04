@@ -18,11 +18,6 @@ set(RESOURCE_SOURCE_DIR ${CMAKE_SOURCE_DIR}/src/libs/resource)
 
 set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/2da.h
-    ${RESOURCE_INCLUDE_DIR}/container.h
-    ${RESOURCE_INCLUDE_DIR}/container/erf.h
-    ${RESOURCE_INCLUDE_DIR}/container/exe.h
-    ${RESOURCE_INCLUDE_DIR}/container/memory.h
-    ${RESOURCE_INCLUDE_DIR}/container/rim.h
     ${RESOURCE_INCLUDE_DIR}/di/module.h
     ${RESOURCE_INCLUDE_DIR}/di/services.h
     ${RESOURCE_INCLUDE_DIR}/dialog.h
@@ -100,9 +95,6 @@ set(RESOURCE_HEADERS
 
 set(RESOURCE_SOURCES
     ${RESOURCE_SOURCE_DIR}/2da.cpp
-    ${RESOURCE_SOURCE_DIR}/container/erf.cpp
-    ${RESOURCE_SOURCE_DIR}/container/exe.cpp
-    ${RESOURCE_SOURCE_DIR}/container/rim.cpp
     ${RESOURCE_SOURCE_DIR}/di/module.cpp
     ${RESOURCE_SOURCE_DIR}/director.cpp
     ${RESOURCE_SOURCE_DIR}/extract/capsule.cpp
