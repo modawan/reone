@@ -5,7 +5,9 @@ name: Build WASM engine
 on:
   workflow_dispatch:
   push:
-    branches: ["cursor/**"]
+    branches:
+      - master
+      - "cursor/**"
     paths:
       - ".github/workflows/build-wasm.yml"
       - "CMakeLists.txt"

@@ -28,6 +28,16 @@ if str(_tools_web) not in sys.path:
     sys.path.insert(0, str(_tools_web))
 
 from discover_game_root import _is_kotor_root
+
+
+def _emit(*parts: object, **kwargs: object) -> None:
+    """Print status lines; ignore EAGAIN when stdout is a full pipe (e.g. piped to tail)."""
+    try:
+        print(*parts, **kwargs)
+    except BlockingIOError:
+        pass
+
+
 from web_bundle_paths import resolve_web_build_directory
 
 
@@ -103,12 +113,12 @@ async def run(
     except ImportError:
         venv_py = _tools_web / ".venv" / "bin" / "python"
         if venv_py.is_file():
-            print(
+            _emit(
                 f"Playwright missing for {sys.executable}; re-run with: {venv_py} {' '.join(sys.argv)}",
                 file=sys.stderr,
             )
         else:
-            print(
+            _emit(
                 "Install: cd tools/web && python3 -m venv .venv && .venv/bin/pip install playwright "
                 "&& .venv/bin/python -m playwright install chromium",
                 file=sys.stderr,
@@ -148,7 +158,7 @@ async def run(
             try:
                 t = msg.text
                 console_lines.append(t)
-                print(f"[console.{msg.type}] {t}")
+                _emit(f"[console.{msg.type}] {t}")
             except Exception:
                 pass
 
@@ -158,11 +168,11 @@ async def run(
             # exc is a playwright Error; .stack carries the symbolicated wasm frames
             # (needs --profiling-funcs in the wasm link to show C++ names).
             stack = getattr(exc, "stack", None)
-            print(f"[pageerror] {exc}", flush=True)
+            _emit(f"[pageerror] {exc}", flush=True)
             if stack and str(stack).strip() and str(stack).strip() != str(exc).strip():
-                print("--- pageerror stack ---", flush=True)
-                print(stack, flush=True)
-                print("--- end pageerror stack ---", flush=True)
+                _emit("--- pageerror stack ---", flush=True)
+                _emit(stack, flush=True)
+                _emit("--- end pageerror stack ---", flush=True)
 
         page.on("pageerror", _on_pageerror)
 
@@ -178,7 +188,7 @@ async def run(
 
         page.on("response", _on_response)
 
-        print(f"Navigating {url} ... (goto timeout {goto_ms} ms, headed={headed})", flush=True)
+        _emit(f"Navigating {url} ... (goto timeout {goto_ms} ms, headed={headed})", flush=True)
         await page.goto(url, wait_until="domcontentloaded", timeout=goto_ms)
 
         i = 0
@@ -193,19 +203,19 @@ async def run(
                 tail = outp[-400:] if outp else ""
             except Exception:
                 tail = ""
-            print(f"[{i * interval_s:.0f}s] status={status!r}", flush=True)
+            _emit(f"[{i * interval_s:.0f}s] status={status!r}", flush=True)
             if tail.strip():
-                print(f"  output tail: {tail!r}", flush=True)
+                _emit(f"  output tail: {tail!r}", flush=True)
             if "Exception" in status and (outp or "").strip():
-                print("--- #output (full) ---", flush=True)
-                print((outp or "").strip(), flush=True)
-                print("--- end #output ---", flush=True)
+                _emit("--- #output (full) ---", flush=True)
+                _emit((outp or "").strip(), flush=True)
+                _emit("--- end #output ---", flush=True)
 
             console_tail = "\n".join(console_lines)
             combined_log = ((outp or "") + "\n" + console_tail).lower()
             low = combined_log
             if "engine failure:" in low:
-                print("Engine reported failure; saving screenshot and exiting.", flush=True)
+                _emit("Engine reported failure; saving screenshot and exiting.", flush=True)
                 await page.screenshot(path=out_png, full_page=True)
                 await browser.close()
                 return 2
@@ -223,7 +233,7 @@ async def run(
             # confirm the area loads + the in-game screen renders.
             if warp_module:
                 if menu_ready and not warp_sent:
-                    print(
+                    _emit(
                         f"Menu ready; preloading module files and warping into {warp_module!r}…",
                         flush=True,
                     )
@@ -244,7 +254,7 @@ async def run(
                             warp_module,
                         )
                         if not ok:
-                            print(
+                            _emit(
                                 "Module.reoneWebWarpAsync/Warp failed or export missing.",
                                 flush=True,
                             )
@@ -252,7 +262,7 @@ async def run(
                             await browser.close()
                             return 2
                     except Exception as e:
-                        print(f"Failed to invoke reoneWebWarp: {e}", flush=True)
+                        _emit(f"Failed to invoke reoneWebWarp: {e}", flush=True)
                         await page.screenshot(path=out_png, full_page=True)
                         await browser.close()
                         return 2
@@ -261,7 +271,7 @@ async def run(
                 if warp_sent and (
                     "failed loading module" in low or "loadmodule failed" in low
                 ):
-                    print("Engine reported module load failure; saving screenshot.", flush=True)
+                    _emit("Engine reported module load failure; saving screenshot.", flush=True)
                     await page.screenshot(path=out_png, full_page=True)
                     await browser.close()
                     return 2
@@ -281,13 +291,13 @@ async def run(
                     await asyncio.sleep(2.0)
                     lum = await _canvas_mean_luminance(page)
                     await page.screenshot(path=out_png, full_page=True)
-                    print(
+                    _emit(
                         f"Module {warp_module!r} loaded; in-game. canvas mean luminance="
                         f"{lum if lum is not None else 'n/a'}",
                         flush=True,
                     )
                     if lum is not None and lum < 2.0:
-                        print(
+                        _emit(
                             "WARNING: canvas luminance probe is near-black "
                             "(headless WebGL readback is often unreliable); "
                             "trusting Module.reoneWebModuleReady + screenshot.",
@@ -297,13 +307,13 @@ async def run(
                     return 0
                 # Not ready yet: keep polling until module loads or timeout.
             elif menu_ready:
-                print("Detected menu-related log; capturing screenshot.", flush=True)
+                _emit("Detected menu-related log; capturing screenshot.", flush=True)
                 await page.screenshot(path=out_png, full_page=True)
                 await browser.close()
                 return 0
 
             if game_manifest_503["hit"] and i >= 1:
-                print(
+                _emit(
                     "GET /game-manifest.json returned 503 (old serve.py). "
                     "Retail files stay on disk; use current serve.py + --game-root or File System Access.",
                     flush=True,
@@ -317,7 +327,7 @@ async def run(
             await asyncio.sleep(interval_s)
             i += 1
 
-        print("Timeout - saving final screenshot.", flush=True)
+        _emit("Timeout - saving final screenshot.", flush=True)
         await page.screenshot(path=out_png, full_page=True)
         await browser.close()
         return 1
@@ -390,7 +400,7 @@ Get-CimInstance Win32_Process | Where-Object {
             timeout=120,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
-        print(f"[smoke nuke] PowerShell serve.py cleanup failed: {e}", flush=True)
+        _emit(f"[smoke nuke] PowerShell serve.py cleanup failed: {e}", flush=True)
 
 
 def _kill_unix_tools_web_serve_py() -> None:
@@ -408,7 +418,7 @@ def _kill_unix_tools_web_serve_py() -> None:
             continue
         try:
             pid = int(pid_s)
-            print(f"[smoke nuke] SIGTERM serve.py PID {pid}", flush=True)
+            _emit(f"[smoke nuke] SIGTERM serve.py PID {pid}", flush=True)
             os.kill(pid, signal.SIGTERM)
         except (ProcessLookupError, PermissionError):
             pass
@@ -423,7 +433,7 @@ def _kill_windows_listen_port(port: int) -> None:
             timeout=60,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
-        print(f"[smoke nuke] netstat failed: {e}", flush=True)
+        _emit(f"[smoke nuke] netstat failed: {e}", flush=True)
         return
     needle = f":{port}"
     for line in r.stdout.splitlines():
@@ -438,7 +448,7 @@ def _kill_windows_listen_port(port: int) -> None:
         pid_s = parts[-1]
         if not pid_s.isdigit():
             continue
-        print(f"[smoke nuke] taskkill LISTENING :{port} PID {pid_s}", flush=True)
+        _emit(f"[smoke nuke] taskkill LISTENING :{port} PID {pid_s}", flush=True)
         subprocess.run(
             ["taskkill", "/F", "/T", "/PID", pid_s],
             capture_output=True,
@@ -462,7 +472,7 @@ def _kill_unix_listen_port(port: int) -> None:
             continue
         try:
             pid = int(pid_s)
-            print(f"[smoke nuke] SIGTERM listener PID {pid} :{port}", flush=True)
+            _emit(f"[smoke nuke] SIGTERM listener PID {pid} :{port}", flush=True)
             os.kill(pid, signal.SIGTERM)
         except (ProcessLookupError, PermissionError):
             pass
@@ -478,7 +488,7 @@ def _nuke_stale_browsers_for_smoke() -> None:
     Concurrent SwiftShader/ANGLE WebGL contexts on one host can make SDL_GL_CreateContext
     fail in Playwright smoke (``Could not create webgl context``).
     """
-    print("[smoke nuke] closing stale agent-browser / headless Chrome …", flush=True)
+    _emit("[smoke nuke] closing stale agent-browser / headless Chrome …", flush=True)
     try:
         subprocess.run(
             ["agent-browser", "close"],
@@ -515,7 +525,7 @@ def _nuke_stale_browsers_for_smoke() -> None:
 def _nuke_stale_http_for_smoke(url: str) -> None:
     """Kill leftover ``serve.py`` and anything LISTENING on the loopback port implied by ``url``."""
     _nuke_stale_browsers_for_smoke()
-    print("[smoke nuke] killing stale tools/web/serve.py and localhost listeners …", flush=True)
+    _emit("[smoke nuke] killing stale tools/web/serve.py and localhost listeners …", flush=True)
     if sys.platform == "win32":
         _kill_windows_tools_web_serve_py()
     else:
@@ -571,10 +581,10 @@ def _preflight_local_wasm(web_bin: pathlib.Path) -> int:
     try:
         n = wasm.stat().st_size
     except OSError as e:
-        print(f"Smoke: cannot stat {wasm}: {e}", file=sys.stderr)
+        _emit(f"Smoke: cannot stat {wasm}: {e}", file=sys.stderr)
         return 4
     if n < 32768:
-        print(
+        _emit(
             f"Smoke: {wasm} is only {n} bytes — wasm link likely failed or file is locked.\n"
             "Close any browser tab, Playwright, or serve.py using this tree; delete engine.wasm; "
             "then rebuild: cmake --build build-web --target engine",
@@ -585,13 +595,13 @@ def _preflight_local_wasm(web_bin: pathlib.Path) -> int:
         with wasm.open("rb") as f:
             head = f.read(8)
         if not head.startswith(b"\x00asm"):
-            print(
+            _emit(
                 f"Smoke: {wasm} missing wasm magic (got {head[:4]!r}) — rebuild target engine",
                 file=sys.stderr,
             )
             return 4
     except OSError as e:
-        print(f"Smoke: cannot read wasm header {wasm}: {e}", file=sys.stderr)
+        _emit(f"Smoke: cannot read wasm header {wasm}: {e}", file=sys.stderr)
         return 4
     return 0
 
@@ -603,10 +613,10 @@ def _preflight_http(url: str) -> int:
     except urllib.error.HTTPError as e:
         if e.code in (301, 302, 303, 307, 308):
             return 0
-        print(f"Preflight GET {url!r} failed: HTTP {e.code}", file=sys.stderr)
+        _emit(f"Preflight GET {url!r} failed: HTTP {e.code}", file=sys.stderr)
         return 4
     except urllib.error.URLError as e:
-        print(
+        _emit(
             f"Preflight: cannot load {url!r}: {e.reason!r}\n"
             "On Windows, several processes bound to the same port with SO_REUSEADDR can yield "
             "empty HTTP responses (Playwright: net::ERR_EMPTY_RESPONSE). Stop other listeners, "
@@ -624,7 +634,7 @@ def _preflight_http(url: str) -> int:
             data = json.loads(raw.decode())
             files = data.get("files") if isinstance(data, dict) else None
             if isinstance(files, list) and len(files) == 0:
-                print(
+                _emit(
                     f"Preflight: {manifest} lists zero files (File System Access mode only). "
                     "For automated smoke / lazy HTTP mirror run:\n"
                     "  py -3 tools/web/gen_game_manifest.py \"C:/Path/To/KotOR\"\n"
@@ -636,7 +646,7 @@ def _preflight_http(url: str) -> int:
             pass
     except urllib.error.HTTPError as e:
         if e.code == 503:
-            print(
+            _emit(
                 f"Preflight: {manifest} returns 503 (legacy server). "
                 "Update serve.py or pass --game-root for a real manifest.",
                 file=sys.stderr,
@@ -731,14 +741,14 @@ def main() -> int:
 
     if args.spawn_serve:
         if not game_root or not game_root.is_dir():
-            print(
+            _emit(
                 "Smoke --spawn-serve requires --game-root or REONE_WEB_SMOKE_GAME_ROOT "
                 "pointing at a retail KotOR install (chitin.key on disk).",
                 file=sys.stderr,
             )
             return 2
         if not _is_kotor_root(game_root.resolve()):
-            print(
+            _emit(
                 f"Game root does not look like retail KotOR 1: {game_root}\n"
                 "Need chitin.key >= 64 KiB and dialog.tlk TLK V3.0 (swkotor.exe optional).\n"
                 "Set REONE_WEB_SMOKE_GAME_ROOT to your install, e.g. SteamLibrary/.../swkotor.",
@@ -752,10 +762,10 @@ def main() -> int:
         proc = _spawn_local_mirror(web_bin_resolved, game_root.resolve(), port)
         time.sleep(2.0)
         if proc.poll() is not None:
-            print("serve.py exited early (check --web-bin and port).", file=sys.stderr)
+            _emit("serve.py exited early (check --web-bin and port).", file=sys.stderr)
             return 2
         url = f"http://127.0.0.1:{port}/engine.html"
-        print(f"Serving wasm from {web_bin_resolved} with mirror {game_root} -> {url}", flush=True)
+        _emit(f"Serving wasm from {web_bin_resolved} with mirror {game_root} -> {url}", flush=True)
     else:
         wchk = _preflight_local_wasm(web_bin_resolved)
         if wchk != 0:
