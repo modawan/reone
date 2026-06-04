@@ -238,10 +238,12 @@ void DialogGUI::updateCamera() {
 }
 
 glm::vec3 DialogGUI::getTalkPosition(const Object &object) const {
-    auto model = std::static_pointer_cast<ModelSceneNode>(object.sceneNode());
-    if (!model)
+    auto node = object.sceneNode();
+    if (!node || node->type() != SceneNodeType::Model) {
         return object.position();
+    }
 
+    auto model = std::static_pointer_cast<ModelSceneNode>(node);
     std::shared_ptr<ModelNode> talkDummy(model->model().getNodeByNameRecursive("talkdummy"));
     if (!talkDummy)
         return model->getWorldCenterOfAABB();
