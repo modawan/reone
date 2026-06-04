@@ -207,6 +207,8 @@ void Texture::configureCubeMap() {
 }
 
 void Texture::refresh() {
+    decompressTextureForUpload(*this);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     if (isCubeMapArray()) {
         refreshCubeMapArray();
     } else if (isCubeMap()) {
@@ -220,7 +222,14 @@ void Texture::refresh() {
     }
     if (isMipmapFilter(_properties.minFilter)) {
         auto target = getTargetGL();
-        glGenerateMipmap(target);
+        if (isCompressed(_pixelFormat)) {
+            // glGenerateMipmap is invalid for compressed internal formats on GLES3. Only level 0
+            // is uploaded from TPC; mipmapped min-filter on an incomplete chain samples black on
+            // strict hardware (llvmpipe often masks this).
+            glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        } else {
+            glGenerateMipmap(target);
+        }
         if (_properties.anisotropy > 1.0f) {
             glTexParameterf(target, GL_TEXTURE_MAX_ANISOTROPY_EXT, _properties.anisotropy);
         }
@@ -239,20 +248,21 @@ static std::shared_ptr<ByteBuffer> bgrPixelsAsRgb(PixelFormat format, const Byte
     return rgb;
 }
 
+static const void *pixelsForUpload(PixelFormat format,
+                                   const ByteBuffer &pixels,
+                                   std::shared_ptr<ByteBuffer> &rgbScratch) {
+    rgbScratch = bgrPixelsAsRgb(format, pixels);
+    return rgbScratch ? rgbScratch->data() : pixels.data();
+}
+
 void Texture::refresh2D() {
     const void *pixelsData;
     size_t pixelsSize;
     std::shared_ptr<ByteBuffer> rgbScratch;
     if (!_layers.empty() && _layers.front().pixels) {
         auto &pixels = _layers.front().pixels;
-        rgbScratch = bgrPixelsAsRgb(_pixelFormat, *pixels);
-        if (rgbScratch) {
-            pixelsData = rgbScratch->data();
-            pixelsSize = rgbScratch->size();
-        } else {
-            pixelsData = pixels->data();
-            pixelsSize = pixels->size();
-        }
+        pixelsData = pixelsForUpload(_pixelFormat, *pixels, rgbScratch);
+        pixelsSize = rgbScratch ? rgbScratch->size() : pixels->size();
     } else {
         pixelsData = nullptr;
         pixelsSize = 0;
@@ -298,6 +308,8 @@ void Texture::refresh2DArray() {
         if (!layer.pixels || layer.pixels->empty()) {
             continue;
         }
+        std::shared_ptr<ByteBuffer> rgbScratch;
+        const void *layerData = pixelsForUpload(_pixelFormat, *layer.pixels, rgbScratch);
         glTexSubImage3D(
             GL_TEXTURE_2D_ARRAY,
             0,
@@ -305,7 +317,7 @@ void Texture::refresh2DArray() {
             _width, _height, 1,
             getPixelFormatGL(_pixelFormat),
             getPixelTypeGL(_pixelFormat),
-            layer.pixels->data());
+            layerData);
     }
 }
 
@@ -313,10 +325,11 @@ void Texture::refreshCubeMap() {
     const void *pixelsData;
     size_t pixelsSize;
     for (int i = 0; i < kNumCubeFaces; ++i) {
+        std::shared_ptr<ByteBuffer> rgbScratch;
         if (_layers.size() > i && _layers[i].pixels) {
             auto &pixels = _layers[i].pixels;
-            pixelsData = pixels->data();
-            pixelsSize = pixels->size();
+            pixelsData = pixelsForUpload(_pixelFormat, *pixels, rgbScratch);
+            pixelsSize = rgbScratch ? rgbScratch->size() : pixels->size();
         } else {
             pixelsData = nullptr;
             pixelsSize = 0;

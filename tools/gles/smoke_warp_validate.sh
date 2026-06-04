@@ -12,7 +12,7 @@ if [[ "${REONE_HEADLESS:-0}" != "1" ]]; then
 fi
 
 BUILD_DIR="$ROOT/build-gles"
-BINDIR="$BUILD_DIR/debug/bin"
+BINDIR="$BUILD_DIR/bin"
 OUTDIR="$ROOT/tools/gles/evidence"
 GAME="${GAME:-/run/media/brunner56/MyBook/SteamLibrary/steamapps/common/swkotor}"
 MODULE="${MODULE:-danm14aa}"

@@ -189,6 +189,7 @@ private:
 
     bool _inited {false};
     bool _cubeMapArraySupported {false};
+    int _maxDrawBuffers {1};
 
     std::optional<std::reference_wrapper<ShaderProgram>> _program;
     std::optional<std::reference_wrapper<Framebuffer>> _readFramebuffer;

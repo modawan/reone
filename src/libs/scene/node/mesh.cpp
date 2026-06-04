@@ -216,6 +216,10 @@ bool MeshSceneNode::isTransparent() const {
     if (!_nodeTextures.diffuse) {
         return false;
     }
+    // GUI previews (main menu Malak, chargen) must use the lit opaque forward path.
+    if (_model.usage() == ModelUsage::GUI) {
+        return _nodeTextures.diffuse->features().blending == Texture::Blending::Additive;
+    }
     auto blending = _nodeTextures.diffuse->features().blending;
     switch (blending) {
     case Texture::Blending::Additive:
@@ -234,7 +238,11 @@ bool MeshSceneNode::isTransparent() const {
     if ((1.0f - rgbToLuma(_selfIllumColor)) < 0.01f) {
         return false;
     }
-    return hasAlphaChannel(_nodeTextures.diffuse->pixelFormat());
+    // Do not send DXT5/RGBA8 to the OIT pass by pixel format alone. KotOR uses alpha in
+    // those formats for cutouts (PunchThrough, handled above) or env maps; default-blended
+    // surfaces belong in the opaque forward pass. Routing them through OIT made the composite
+    // shader read an empty opaque buffer whenever accum alpha was 1 (black models on GLES).
+    return false;
 }
 
 static bool isLightingEnabledByUsage(ModelUsage usage) {
