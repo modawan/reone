@@ -35,18 +35,21 @@ private:
     enum class State {
         None,
         Layout,
-        Rooms
+        Rooms,
+        Tracks
     };
 
     std::filesystem::path _path;
     State _state {State::None};
     int _roomCount {0};
+    int _trackCount {0};
 
     Layout _layout;
 
     void processLine(const std::string &line);
 
     void appendRoom(const std::vector<std::string> &tokens);
+    void appendTrack(const std::vector<std::string> &tokens);
 };
 
 } // namespace resource
