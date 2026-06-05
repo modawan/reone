@@ -41,6 +41,8 @@
 #include "reone/graphics/font.h"
 #include "reone/graphics/format/tgawriter.h"
 #include "reone/graphics/meshregistry.h"
+#include "reone/graphics/model.h"
+#include "reone/graphics/modelnode.h"
 #include "reone/graphics/renderbuffer.h"
 #include "reone/graphics/shaderregistry.h"
 #include "reone/graphics/uniforms.h"
@@ -1311,6 +1313,75 @@ void Game::openInGame() {
     changeScreen(Screen::InGame);
 }
 
+namespace {
+
+// Result of trying to anchor the race to the authored player track.
+struct SwoopTrackFrame {
+    glm::vec3 position {0.0f};
+    float facing {0.0f};
+    std::string mode {"fallback"}; // "track-model" or "fallback"
+    std::string reason;            // why fallback was used
+    std::string info;              // concise track inspection details
+};
+
+// Max 2D distance (world units) the track's start hook may be from the party
+// leader for the track frame to be trusted. reone does not yet parse the LYT
+// placement of minigame tracks, so a standalone-loaded track model that sits in
+// a different frame than the party would otherwise teleport the bike into the
+// void; this guard keeps the proven leader-anchored fallback in that case.
+constexpr float kTrackFrameMaxDistance = 64.0f;
+
+// Derive the bike start frame from the player track model's "modelhook" node
+// (vanilla parents the player to this node). Falls back to the leader frame
+// unless the hook resolves in the party's world frame.
+SwoopTrackFrame deriveSwoopTrackFrame(const std::shared_ptr<graphics::Model> &trackModel,
+                                      const std::string &trackResRef,
+                                      const glm::vec3 &leaderPos,
+                                      float leaderFacing) {
+    SwoopTrackFrame frame;
+    frame.position = leaderPos;
+    frame.facing = leaderFacing;
+
+    if (trackResRef.empty()) {
+        frame.reason = "no-track-ref";
+        return frame;
+    }
+    if (!trackModel) {
+        frame.reason = "track-model-missing";
+        return frame;
+    }
+
+    size_t animCount = trackModel->getAnimationNames().size();
+    auto hook = trackModel->getNodeByNameRecursive("modelhook");
+    if (!hook) {
+        frame.reason = "no-modelhook";
+        frame.info = str(boost::format("modelhook=no anims=%zu") % animCount);
+        return frame;
+    }
+
+    const glm::mat4 &abs = hook->absoluteTransform();
+    glm::vec3 hookPos(abs[3]);
+    glm::vec3 forward = glm::normalize(glm::vec3(glm::mat3(abs) * glm::vec3(0.0f, 1.0f, 0.0f)));
+    float dist = glm::distance(glm::vec2(hookPos), glm::vec2(leaderPos));
+    frame.info = str(boost::format("modelhook=yes anims=%zu hook=[%.1f,%.1f,%.1f] dist=%.1f")
+                     % animCount % hookPos.x % hookPos.y % hookPos.z % dist);
+
+    if (dist > kTrackFrameMaxDistance) {
+        // Track model is not in the party's world frame (LYT track placement not
+        // parsed yet); keep the safe leader anchor.
+        frame.reason = "track-not-in-world-frame";
+        return frame;
+    }
+
+    frame.position = hookPos;
+    // Engine facing convention: forward = (-sin f, cos f).
+    frame.facing = glm::atan(-forward.x, forward.y);
+    frame.mode = "track-model";
+    return frame;
+}
+
+} // namespace
+
 void Game::openSwoopRace() {
     if (_swoopRace.isActive()) {
         _console.printLine("swoop: already running");
@@ -1366,9 +1437,18 @@ void Game::openSwoopRace() {
         modelDiag.push_back(resRef + " loaded");
     }
 
+    // Anchor the race to the authored player track when it resolves in the
+    // party's world frame, otherwise fall back to the leader frame.
+    std::shared_ptr<graphics::Model> trackModel;
+    if (!mg.player.trackResRef.empty()) {
+        trackModel = _services.resource.models.get(mg.player.trackResRef);
+    }
+    SwoopTrackFrame trackFrame = deriveSwoopTrackFrame(
+        trackModel, mg.player.trackResRef, leader->position(), leader->getFacing());
+
     _savedCameraType = _cameraType;
     size_t loadedCount = bikeNodes.size();
-    _swoopRace.start(mg, camera, std::move(bikeNodes), leader->position(), leader->getFacing());
+    _swoopRace.start(mg, camera, std::move(bikeNodes), trackFrame.position, trackFrame.facing);
 
     _cameraType = CameraType::FirstPerson;
     setRelativeMouseMode(false);
@@ -1383,6 +1463,20 @@ void Game::openSwoopRace() {
                            % mg.lateralAccel
                            % mg.cameraViewAngle));
 
+    // Track frame: rail/track-model/fallback mode and how the start frame was
+    // chosen (see deriveSwoopTrackFrame).
+    if (trackFrame.mode == "track-model") {
+        _console.printLine(str(boost::format("swoop: track=%s mode=track-model %s startFacing=%.2f")
+                               % (mg.player.trackResRef.empty() ? std::string("<none>") : mg.player.trackResRef)
+                               % trackFrame.info
+                               % trackFrame.facing));
+    } else {
+        _console.printLine(str(boost::format("swoop: track=%s mode=fallback reason=%s%s")
+                               % (mg.player.trackResRef.empty() ? std::string("<none>") : mg.player.trackResRef)
+                               % trackFrame.reason
+                               % (trackFrame.info.empty() ? std::string() : (" " + trackFrame.info))));
+    }
+
     // Lateral bounds chosen for steering (see SwoopRace::computeLateralBounds).
     _console.printLine(str(boost::format("swoop: bounds lateral=[-%.1f,+%.1f] source=%s tunnelX=[%.1f,%.1f]")
                            % _swoopRace.lateralLeftBound()
@@ -1390,16 +1484,6 @@ void Game::openSwoopRace() {
                            % _swoopRace.lateralBoundSource()
                            % mg.player.tunnelXNeg
                            % mg.player.tunnelXPos));
-
-    // Track diagnostic: does the player track model resource resolve? (Full
-    // rail following is a later slice; this only reports availability.)
-    std::string trackStatus("empty");
-    if (!mg.player.trackResRef.empty()) {
-        trackStatus = _services.resource.models.get(mg.player.trackResRef) ? "loaded" : "missing";
-    }
-    _console.printLine(str(boost::format("swoop: track=%s model=%s")
-                           % (mg.player.trackResRef.empty() ? std::string("<none>") : mg.player.trackResRef)
-                           % trackStatus));
 
     // Print the per-model breakdown when nothing loaded or a load failed; it is
     // a one-shot dev diagnostic, so avoid spam on the common success path.
