@@ -271,7 +271,7 @@ bool SwoopRace::handleKeyDown(const input::KeyEvent &event) {
         // Jump is stubbed for the skeleton: accepted but has no gameplay effect.
         return true;
     case input::KeyCode::Escape:
-        _game.closeSwoopRace();
+        _game.exitSwoopRace();
         return true;
     default:
         return false;
