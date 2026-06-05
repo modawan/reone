@@ -34,13 +34,22 @@ static constexpr float kFallbackMovePerSec = 10.0f;
 // instantaneous jump at race start.
 static constexpr float kSpeedRampSeconds = 3.0f;
 
-// Dev steering limits applied until real track/tunnel bounds exist. The parsed
-// lateralAccel (e.g. 300) ramps the sideways velocity, but it is capped so the
-// bike stays responsive yet does not fly far off the track. Values are tuned
-// for testing feel, not vanilla accuracy.
-static constexpr float kMaxLateralSpeed = 12.0f;  // units per second
-static constexpr float kMaxLateralOffset = 8.0f;  // units from track center
-static constexpr float kLateralDecay = 24.0f;     // units per second^2 when not steering
+// Dev steering tuning. The parsed lateralAccel (e.g. 300) ramps the sideways
+// velocity quickly; the velocity cap keeps it controllable while still snappy
+// relative to the high forward speed. Values are tuned for testing feel, not
+// vanilla accuracy.
+static constexpr float kMaxLateralSpeed = 20.0f; // units per second
+static constexpr float kLateralDecay = 40.0f;    // units per second^2 when not steering
+
+// Lateral travel bounds (world units). The dev proxy moves the bike laterally
+// in world space, so it needs a positional limit. Vanilla tunnel values are
+// angular (deg) lean/rotation limits and do not directly bound lateral
+// position (the track walkmesh does), so the tunnel X magnitude is reused here
+// only as a per-module hint, safety-clamped to this range. A proper positional
+// bound awaits track-rail following.
+static constexpr float kMinLateralBound = 3.0f;
+static constexpr float kMaxLateralBound = 8.0f;
+static constexpr float kFallbackLateralBound = 8.0f;
 
 // Chase camera placement relative to the bike.
 static constexpr float kChaseDistance = 4.5f; // behind the bike
@@ -62,6 +71,8 @@ void SwoopRace::start(const MinigameSpec &spec,
     _camFov = spec.cameraViewAngle;
     _trackResRef = spec.player.trackResRef;
     _modelCount = spec.player.modelResRefs.size();
+
+    computeLateralBounds(spec.player);
 
     _camera = camera;
     _bikeNodes = std::move(bikeNodes);
@@ -91,6 +102,26 @@ void SwoopRace::stop() {
     _bikeNodes.clear();
 }
 
+void SwoopRace::computeLateralBounds(const MinigamePlayerSpec &player) {
+    // Lateral axis is X: KotOR.js applies the steering force to the track's X
+    // (forceVector.x = lateralForce), so tunnel X is the matching axis. The raw
+    // tunnel X values are angular in vanilla; we only use their magnitude as a
+    // per-module hint and safety-clamp it into a controllable positional range.
+    float rawPos = glm::abs(player.tunnelXPos);
+    float rawNeg = glm::abs(player.tunnelXNeg);
+    if (rawPos > 0.0f || rawNeg > 0.0f) {
+        _lateralRightBound = glm::clamp(rawPos > 0.0f ? rawPos : kFallbackLateralBound,
+                                        kMinLateralBound, kMaxLateralBound);
+        _lateralLeftBound = glm::clamp(rawNeg > 0.0f ? rawNeg : kFallbackLateralBound,
+                                       kMinLateralBound, kMaxLateralBound);
+        _lateralBoundSource = "tunnelX";
+    } else {
+        _lateralRightBound = kFallbackLateralBound;
+        _lateralLeftBound = kFallbackLateralBound;
+        _lateralBoundSource = "fallback";
+    }
+}
+
 void SwoopRace::update(float dt) {
     if (!_active || dt <= 0.0f) {
         return;
@@ -117,11 +148,11 @@ void SwoopRace::update(float dt) {
         }
     }
     _lateralOffset += _lateralVel * dt;
-    if (_lateralOffset > kMaxLateralOffset) {
-        _lateralOffset = kMaxLateralOffset;
+    if (_lateralOffset > _lateralRightBound) {
+        _lateralOffset = _lateralRightBound;
         _lateralVel = 0.0f;
-    } else if (_lateralOffset < -kMaxLateralOffset) {
-        _lateralOffset = -kMaxLateralOffset;
+    } else if (_lateralOffset < -_lateralLeftBound) {
+        _lateralOffset = -_lateralLeftBound;
         _lateralVel = 0.0f;
     }
 
