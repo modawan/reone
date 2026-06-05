@@ -19,6 +19,9 @@
 
 #include "reone/game/game.h"
 #include "reone/game/object/camera/firstperson.h"
+#include "reone/graphics/types.h"
+#include "reone/scene/node/camera.h"
+#include "reone/scene/node/model.h"
 
 namespace reone {
 
@@ -36,11 +39,19 @@ static constexpr float kMaxLateralSpeed = 4.0f;  // units per second
 static constexpr float kMaxLateralOffset = 4.0f; // units from track center
 static constexpr float kLateralDecay = 8.0f;     // units per second^2 when not steering
 
-// Camera height above the swoop anchor position.
-static constexpr float kCameraHeight = 1.7f;
+// Chase camera placement relative to the bike.
+static constexpr float kChaseDistance = 4.5f; // behind the bike
+static constexpr float kChaseHeight = 2.5f;   // above the bike
+static constexpr float kLookAtHeight = 1.0f;  // look-at point above the bike
+
+// Engine default field of view, restored to the reused first-person camera on
+// exit (mirrors Area's default camera FOV).
+static constexpr float kDefaultCameraFovDegrees = 75.0f;
 
 void SwoopRace::start(const MinigameSpec &spec,
                       FirstPersonCamera *camera,
+                      std::shared_ptr<scene::ModelSceneNode> bikeNode,
+                      std::string modelResRef,
                       const glm::vec3 &startPosition,
                       float startFacing) {
     _type = spec.type;
@@ -48,9 +59,11 @@ void SwoopRace::start(const MinigameSpec &spec,
     _lateralAccel = spec.lateralAccel;
     _camFov = spec.cameraViewAngle;
     _trackResRef = spec.player.trackResRef;
+    _modelResRef = std::move(modelResRef);
     _modelCount = spec.player.modelResRefs.size();
 
     _camera = camera;
+    _bikeNode = std::move(bikeNode);
     _position = startPosition;
     _facing = startFacing;
 
@@ -62,13 +75,19 @@ void SwoopRace::start(const MinigameSpec &spec,
 
     _active = true;
 
-    applyToCamera();
+    setCameraFieldOfView(_camFov > 0.0f ? _camFov : kDefaultCameraFovDegrees);
+    applyBikeTransform();
+    applyChaseCamera();
 }
 
 void SwoopRace::stop() {
+    // Restore the reused camera's field of view before releasing it.
+    setCameraFieldOfView(kDefaultCameraFovDegrees);
+
     _active = false;
     _steerDir = 0;
     _camera = nullptr;
+    _bikeNode.reset();
 }
 
 void SwoopRace::update(float dt) {
@@ -109,18 +128,64 @@ void SwoopRace::update(float dt) {
     glm::vec3 forward(-glm::sin(_facing), glm::cos(_facing), 0.0f);
     _position += forward * _speed * dt;
 
-    applyToCamera();
+    applyBikeTransform();
+    applyChaseCamera();
 }
 
-void SwoopRace::applyToCamera() {
-    if (!_camera) {
+void SwoopRace::applyBikeTransform() {
+    if (!_bikeNode) {
         return;
     }
     glm::vec3 right(glm::cos(_facing), glm::sin(_facing), 0.0f);
-    glm::vec3 cameraPos = _position + right * _lateralOffset;
-    cameraPos.z += kCameraHeight;
-    _camera->setPosition(cameraPos);
-    _camera->setFacing(_facing);
+    glm::vec3 bikePos = _position + right * _lateralOffset;
+
+    glm::mat4 transform(1.0f);
+    transform *= glm::translate(bikePos);
+    transform *= glm::mat4_cast(glm::quat(glm::vec3(0.0f, 0.0f, _facing)));
+    _bikeNode->setLocalTransform(transform);
+}
+
+void SwoopRace::applyChaseCamera() {
+    if (!_camera) {
+        return;
+    }
+    static const glm::vec3 up(0.0f, 0.0f, 1.0f);
+
+    glm::vec3 forward(-glm::sin(_facing), glm::cos(_facing), 0.0f);
+    glm::vec3 right(glm::cos(_facing), glm::sin(_facing), 0.0f);
+    glm::vec3 bikePos = _position + right * _lateralOffset;
+
+    glm::vec3 cameraPos = bikePos - forward * kChaseDistance;
+    cameraPos.z += kChaseHeight;
+
+    glm::vec3 target = bikePos;
+    target.z += kLookAtHeight;
+
+    glm::quat orientation(glm::quatLookAt(glm::normalize(target - cameraPos), up));
+
+    glm::mat4 transform(1.0f);
+    transform *= glm::translate(cameraPos);
+    transform *= glm::mat4_cast(orientation);
+    _camera->cameraSceneNode()->setLocalTransform(transform);
+}
+
+void SwoopRace::setCameraFieldOfView(float fovDegrees) {
+    if (!_camera) {
+        return;
+    }
+    _camera->cameraSceneNode()->setPerspectiveProjection(
+        glm::radians(fovDegrees),
+        cameraAspect(),
+        graphics::kDefaultClipPlaneNear,
+        graphics::kDefaultClipPlaneFar);
+}
+
+float SwoopRace::cameraAspect() const {
+    const auto &graphicsOpts = _game.options().graphics;
+    if (graphicsOpts.height <= 0) {
+        return 1.0f;
+    }
+    return graphicsOpts.width / static_cast<float>(graphicsOpts.height);
 }
 
 bool SwoopRace::handle(const input::Event &event) {

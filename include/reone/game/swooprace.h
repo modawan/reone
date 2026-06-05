@@ -23,6 +23,12 @@
 
 namespace reone {
 
+namespace scene {
+
+class ModelSceneNode;
+
+}
+
 namespace game {
 
 class Game;
@@ -34,9 +40,11 @@ class FirstPersonCamera;
  * the area's .are MiniGame struct (see MinigameSpec). Intentionally minimal:
  * no obstacles, enemies, boost, lap/finish logic, HUD, or scripts.
  *
- * The race reuses the area's first-person camera as a temporary chase/hood
- * camera. A dedicated model-hook camera and a spawned bike model are left for
- * a later slice.
+ * It displays a single visible bike model (the first player model resref) and
+ * uses a simple chase camera positioned behind and above the bike. A proper
+ * model-hook camera (vanilla binds the camera to a "camerahook" node inside
+ * the loaded camera model) and the full player model set are left for a later
+ * slice.
  */
 class SwoopRace {
 public:
@@ -46,11 +54,16 @@ public:
 
     /**
      * Initialize and activate the race from the given metadata, anchored at the
-     * supplied world position and facing. The camera may be null, in which case
-     * movement state still advances but nothing is driven visually.
+     * supplied world position and facing.
+     *
+     * @param camera the area first-person camera, reused as a chase camera; may be null
+     * @param bikeNode the visible bike model scene node (already added to the scene); may be null
+     * @param modelResRef the resref chosen for the bike model (diagnostics only)
      */
     void start(const MinigameSpec &spec,
                FirstPersonCamera *camera,
+               std::shared_ptr<scene::ModelSceneNode> bikeNode,
+               std::string modelResRef,
                const glm::vec3 &startPosition,
                float startFacing);
 
@@ -61,10 +74,14 @@ public:
 
     bool isActive() const { return _active; }
 
+    // The visible bike model scene node, so the owner can detach it on exit.
+    const std::shared_ptr<scene::ModelSceneNode> &bikeNode() const { return _bikeNode; }
+
     // Diagnostics
 
     MinigameType type() const { return _type; }
     const std::string &trackResRef() const { return _trackResRef; }
+    const std::string &modelResRef() const { return _modelResRef; }
     size_t modelCount() const { return _modelCount; }
     float movePerSec() const { return _movePerSec; }
     float lateralAccel() const { return _lateralAccel; }
@@ -86,6 +103,7 @@ private:
     float _lateralAccel {0.0f};
     float _camFov {0.0f};
     std::string _trackResRef;
+    std::string _modelResRef;
     size_t _modelCount {0};
 
     // Runtime state
@@ -99,11 +117,15 @@ private:
     int _steerDir {0}; // -1 left, +1 right, 0 none
 
     FirstPersonCamera *_camera {nullptr};
+    std::shared_ptr<scene::ModelSceneNode> _bikeNode;
 
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleKeyUp(const input::KeyEvent &event);
 
-    void applyToCamera();
+    float cameraAspect() const;
+    void applyChaseCamera();
+    void applyBikeTransform();
+    void setCameraFieldOfView(float fovDegrees);
 };
 
 } // namespace game
