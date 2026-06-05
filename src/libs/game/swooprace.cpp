@@ -34,10 +34,13 @@ static constexpr float kFallbackMovePerSec = 10.0f;
 // instantaneous jump at race start.
 static constexpr float kSpeedRampSeconds = 3.0f;
 
-// Conservative steering limits applied until real track/tunnel bounds exist.
-static constexpr float kMaxLateralSpeed = 4.0f;  // units per second
-static constexpr float kMaxLateralOffset = 4.0f; // units from track center
-static constexpr float kLateralDecay = 8.0f;     // units per second^2 when not steering
+// Dev steering limits applied until real track/tunnel bounds exist. The parsed
+// lateralAccel (e.g. 300) ramps the sideways velocity, but it is capped so the
+// bike stays responsive yet does not fly far off the track. Values are tuned
+// for testing feel, not vanilla accuracy.
+static constexpr float kMaxLateralSpeed = 12.0f;  // units per second
+static constexpr float kMaxLateralOffset = 8.0f;  // units from track center
+static constexpr float kLateralDecay = 24.0f;     // units per second^2 when not steering
 
 // Chase camera placement relative to the bike.
 static constexpr float kChaseDistance = 4.5f; // behind the bike
@@ -50,8 +53,7 @@ static constexpr float kDefaultCameraFovDegrees = 75.0f;
 
 void SwoopRace::start(const MinigameSpec &spec,
                       FirstPersonCamera *camera,
-                      std::shared_ptr<scene::ModelSceneNode> bikeNode,
-                      std::string modelResRef,
+                      std::vector<std::shared_ptr<scene::ModelSceneNode>> bikeNodes,
                       const glm::vec3 &startPosition,
                       float startFacing) {
     _type = spec.type;
@@ -59,11 +61,10 @@ void SwoopRace::start(const MinigameSpec &spec,
     _lateralAccel = spec.lateralAccel;
     _camFov = spec.cameraViewAngle;
     _trackResRef = spec.player.trackResRef;
-    _modelResRef = std::move(modelResRef);
     _modelCount = spec.player.modelResRefs.size();
 
     _camera = camera;
-    _bikeNode = std::move(bikeNode);
+    _bikeNodes = std::move(bikeNodes);
     _position = startPosition;
     _facing = startFacing;
 
@@ -87,7 +88,7 @@ void SwoopRace::stop() {
     _active = false;
     _steerDir = 0;
     _camera = nullptr;
-    _bikeNode.reset();
+    _bikeNodes.clear();
 }
 
 void SwoopRace::update(float dt) {
@@ -133,7 +134,7 @@ void SwoopRace::update(float dt) {
 }
 
 void SwoopRace::applyBikeTransform() {
-    if (!_bikeNode) {
+    if (_bikeNodes.empty()) {
         return;
     }
     glm::vec3 right(glm::cos(_facing), glm::sin(_facing), 0.0f);
@@ -142,7 +143,13 @@ void SwoopRace::applyBikeTransform() {
     glm::mat4 transform(1.0f);
     transform *= glm::translate(bikePos);
     transform *= glm::mat4_cast(glm::quat(glm::vec3(0.0f, 0.0f, _facing)));
-    _bikeNode->setLocalTransform(transform);
+
+    // All loaded models share the same bike transform for this dev slice.
+    for (auto &node : _bikeNodes) {
+        if (node) {
+            node->setLocalTransform(transform);
+        }
+    }
 }
 
 void SwoopRace::applyChaseCamera() {

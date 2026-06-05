@@ -1337,42 +1337,58 @@ void Game::openSwoopRace() {
         camera->stopMovement();
     }
 
-    // Choose the first non-empty player model resref as the visible bike body.
-    // Vanilla loads the entire Models list plus a separate camera-hook model;
-    // a single body is sufficient for this developer slice.
-    std::string modelResRef;
+    // Load the whole player model set, not just the first entry. Vanilla loads
+    // every Player.Models entry and hides the one that is the camera mount
+    // (player.cameraResRef). We skip that mount so areas whose visible bike is
+    // in a later entry (e.g. Tatooine) still show a body.
+    auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
+    std::vector<std::shared_ptr<ModelSceneNode>> bikeNodes;
+    std::vector<std::string> modelDiag;
+    bool anyMissing = false;
     for (const auto &resRef : mg.player.modelResRefs) {
-        if (!resRef.empty()) {
-            modelResRef = resRef;
-            break;
+        if (resRef.empty()) {
+            continue;
         }
-    }
-
-    std::shared_ptr<ModelSceneNode> bikeNode;
-    if (!modelResRef.empty()) {
-        auto model = _services.resource.models.get(modelResRef);
-        if (model) {
-            auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
-            bikeNode = sceneGraph.newModel(*model, ModelUsage::Placeable);
-            bikeNode->setDrawDistance(_options.graphics.drawDistance);
-            sceneGraph.addRoot(bikeNode);
+        if (!mg.player.cameraResRef.empty() && boost::iequals(resRef, mg.player.cameraResRef)) {
+            modelDiag.push_back(resRef + " camera-skip");
+            continue;
         }
+        auto model = _services.resource.models.get(resRef);
+        if (!model) {
+            modelDiag.push_back(resRef + " missing");
+            anyMissing = true;
+            continue;
+        }
+        auto node = sceneGraph.newModel(*model, ModelUsage::Placeable);
+        node->setDrawDistance(_options.graphics.drawDistance);
+        sceneGraph.addRoot(node);
+        bikeNodes.push_back(std::move(node));
+        modelDiag.push_back(resRef + " loaded");
     }
 
     _savedCameraType = _cameraType;
-    _swoopRace.start(mg, camera, bikeNode, modelResRef, leader->position(), leader->getFacing());
+    size_t loadedCount = bikeNodes.size();
+    _swoopRace.start(mg, camera, std::move(bikeNodes), leader->position(), leader->getFacing());
 
     _cameraType = CameraType::FirstPerson;
     setRelativeMouseMode(false);
     changeScreen(Screen::SwoopRace);
 
-    _console.printLine(str(boost::format("swoop: started type=%s track=%s model=%s camera=chase movePerSec=%.0f lataccel=%.0f camfov=%.0f")
+    _console.printLine(str(boost::format("swoop: started type=%s track=%s models=%zu loaded=%zu camera=chase movePerSec=%.0f lataccel=%.0f camfov=%.0f")
                            % minigameTypeName(mg.type)
                            % mg.player.trackResRef
-                           % (modelResRef.empty() ? std::string("<none>") : modelResRef)
+                           % mg.player.modelResRefs.size()
+                           % loadedCount
                            % mg.movementPerSec
                            % mg.lateralAccel
                            % mg.cameraViewAngle));
+    // Print the per-model breakdown when nothing loaded or a load failed; it is
+    // a one-shot dev diagnostic, so avoid spam on the common success path.
+    if (loadedCount == 0 || anyMissing) {
+        for (size_t i = 0; i < modelDiag.size(); ++i) {
+            _console.printLine(str(boost::format("  model[%zu]=%s") % i % modelDiag[i]));
+        }
+    }
 }
 
 void Game::closeSwoopRace() {
@@ -1380,8 +1396,11 @@ void Game::closeSwoopRace() {
         _console.printLine("swoop: not active");
         return;
     }
-    if (auto bikeNode = _swoopRace.bikeNode()) {
-        _services.scene.graphs.get(kSceneMain).removeRoot(*bikeNode);
+    auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
+    for (const auto &bikeNode : _swoopRace.bikeNodes()) {
+        if (bikeNode) {
+            sceneGraph.removeRoot(*bikeNode);
+        }
     }
     _swoopRace.stop();
     _cameraType = _savedCameraType;
