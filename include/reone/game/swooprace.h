@@ -100,6 +100,8 @@ public:
     const std::string &lateralBoundSource() const { return _lateralBoundSource; }
 
     float progress() const { return _progress; }
+    float lateralOffset() const { return _lateralOffset; }
+    glm::vec3 position() const { return bikePosition(); }
 
     // END Diagnostics
 
