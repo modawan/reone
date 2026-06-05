@@ -376,6 +376,17 @@ void Game::update(float frameTime) {
 
     if (_swoopRace.isActive()) {
         _swoopRace.update(dt);
+
+        // Non-blocking auto-finish: when a lifecycle race reaches the finish
+        // threshold, force success and return to the origin module. Plain dev
+        // races (no lifecycle) keep riding so the dev stays in control.
+        if (_swoopLifecycle.active && _swoopRace.finishReached()) {
+            _console.printLine(str(boost::format("swoop: auto-finish progress=%.1f finish=%.1f forcedSuccess=yes returning=%s")
+                                   % _swoopRace.progress()
+                                   % _swoopRace.finishProgress()
+                                   % _swoopLifecycle.originModule));
+            finishSwoopLifecycle(/*success=*/true);
+        }
     }
 
     bool updModule = !_movie && _module && (_screen == Screen::InGame || _screen == Screen::Conversation);
@@ -1391,6 +1402,12 @@ struct SwoopTrackFrame {
 // teleport the bike into the void, so the proven leader anchor is kept.
 constexpr float kTrackFrameMaxDistance = 64.0f;
 
+// PR1 non-blocking finish threshold (forward-progress units). The race finishes
+// a margin past the furthest mapped obstacle, or at a conservative fallback
+// distance when no obstacle placements exist.
+constexpr float kSwoopFinishMargin = 500.0f;
+constexpr float kSwoopFallbackFinishProgress = 4000.0f;
+
 // Derive the bike start frame from the player track model's "modelhook" node
 // (vanilla parents the player to this node). When an LYT track placement is
 // supplied, the hook is placed into module/world space and used unconditionally;
@@ -1538,9 +1555,25 @@ void Game::openSwoopRace() {
         trackModel, mg.player.trackResRef, haveLytTrackPos ? &lytTrackPos : nullptr,
         leader->position(), leader->getFacing());
 
+    // Choose a non-blocking finish threshold (PR1). Vanilla loop/finish is
+    // script-driven and not yet implemented, so use the furthest mapped LYT
+    // obstacle (the obstacle field spans the playable track) plus a margin, or
+    // a conservative fallback distance when no obstacle placements are present.
+    glm::vec3 frameForward(-glm::sin(trackFrame.facing), glm::cos(trackFrame.facing), 0.0f);
+    float maxObstacleProgress = 0.0f;
+    if (layout) {
+        for (const auto &obs : layout->obstacles) {
+            float p = glm::dot(obs.position - trackFrame.position, frameForward);
+            maxObstacleProgress = glm::max(maxObstacleProgress, p);
+        }
+    }
+    float finishProgress = maxObstacleProgress > 0.0f
+                               ? maxObstacleProgress + kSwoopFinishMargin
+                               : kSwoopFallbackFinishProgress;
+
     _savedCameraType = _cameraType;
     size_t loadedCount = bikeNodes.size();
-    _swoopRace.start(mg, camera, std::move(bikeNodes), trackFrame.position, trackFrame.facing);
+    _swoopRace.start(mg, camera, std::move(bikeNodes), trackFrame.position, trackFrame.facing, finishProgress);
 
     _cameraType = CameraType::FirstPerson;
     setRelativeMouseMode(false);
@@ -1572,9 +1605,10 @@ void Game::openSwoopRace() {
     }
 
     // Movement model: track-relative progress + lateral strafe (no turning).
-    _console.printLine(str(boost::format("swoop: movement=track-progress strafeOnly=yes progressAxis=trackForward lateralAxis=trackRight anim=deferred start=[%.1f,%.1f,%.1f] facing=%.2f")
+    _console.printLine(str(boost::format("swoop: movement=track-progress strafeOnly=yes progressAxis=trackForward lateralAxis=trackRight anim=deferred start=[%.1f,%.1f,%.1f] facing=%.2f finish=%.1f")
                            % trackFrame.position.x % trackFrame.position.y % trackFrame.position.z
-                           % trackFrame.facing));
+                           % trackFrame.facing
+                           % finishProgress));
 
     // Lateral bounds chosen for the strafe (see SwoopRace::computeLateralBounds).
     _console.printLine(str(boost::format("swoop: bounds lateral=[-%.1f,+%.1f] source=%s tunnelX=[%.1f,%.1f]")
@@ -2669,8 +2703,9 @@ void Game::consoleSwoopState(const ConsoleArgs &args) {
         return;
     }
     glm::vec3 pos = _swoopRace.position();
-    _console.printLine(str(boost::format("swoop: progress=%.1f lateral=%.2f speed=%.1f elapsed=%.1f pos=[%.1f,%.1f,%.1f] bounds=[-%.1f,+%.1f] mode=track-progress")
+    _console.printLine(str(boost::format("swoop: progress=%.1f finish=%.1f lateral=%.2f speed=%.1f elapsed=%.1f pos=[%.1f,%.1f,%.1f] bounds=[-%.1f,+%.1f] mode=track-progress")
                            % _swoopRace.progress()
+                           % _swoopRace.finishProgress()
                            % _swoopRace.lateralOffset()
                            % _swoopRace.speed()
                            % _swoopRace.elapsed()
