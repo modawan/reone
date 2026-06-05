@@ -556,6 +556,7 @@ private:
     void consoleOpenCloseDoor(const ConsoleArgs &tokens);
     void consoleListGames(const ConsoleArgs &tokens);
     void consoleLoadGame(const ConsoleArgs &tokens);
+    void consoleMiniGameInfo(const ConsoleArgs &tokens);
 
     // END Console commands
 };

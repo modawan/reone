@@ -20,6 +20,8 @@
 #include <cctype>
 #include <exception>
 
+#include "reone/game/minigame.h"
+
 #include "reone/audio/context.h"
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
@@ -271,6 +273,7 @@ void Game::initConsole() {
     registerConsoleCommand("closedoor", "close a selected door object", &Game::consoleOpenCloseDoor);
     registerConsoleCommand("listgames", "list savegames", &Game::consoleListGames);
     registerConsoleCommand("loadgame", "load a savegame", &Game::consoleLoadGame);
+    registerConsoleCommand("minigameinfo", "print minigame metadata for current area", &Game::consoleMiniGameInfo);
 }
 
 void Game::initLocalServices() {
@@ -2169,6 +2172,49 @@ void Game::consoleLoadGame(const ConsoleArgs &args) {
     auto name = _saveNames.begin();
     std::advance(name, id);
     loadGame(*name);
+}
+
+void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
+    auto area = getConsoleArea();
+    if (!area->hasMinigame()) {
+        _console.printLine("minigame: none");
+        return;
+    }
+    const auto &mg = area->miniGame();
+    _console.printLine(str(boost::format("minigame: type=%s camfov=%.1f lataccel=%.3f movePerSec=%.3f inertia=%d")
+                           % minigameTypeName(mg.type)
+                           % mg.cameraViewAngle
+                           % mg.lateralAccel
+                           % mg.movementPerSec
+                           % static_cast<int>(mg.useInertia)));
+    _console.printLine(str(boost::format("  player: cam=%s track=%s spd=[%.1f,%.1f] accel=%.3f hp=%u models=%zu")
+                           % mg.player.cameraResRef
+                           % mg.player.trackResRef
+                           % mg.player.minimumSpeed
+                           % mg.player.maximumSpeed
+                           % mg.player.accelSecs
+                           % mg.player.hitPoints
+                           % mg.player.modelResRefs.size()));
+    _console.printLine(str(boost::format("  tracks=%zu enemies=%zu obstacles=%zu")
+                           % mg.trackResRefs.size()
+                           % mg.enemies.size()
+                           % mg.obstacles.size()));
+    for (size_t i = 0; i < mg.trackResRefs.size(); ++i) {
+        _console.printLine(str(boost::format("    track[%zu] %s") % i % mg.trackResRefs[i]));
+    }
+    for (size_t i = 0; i < mg.enemies.size(); ++i) {
+        const auto &e = mg.enemies[i];
+        _console.printLine(str(boost::format("    enemy[%zu] track=%s hp=%u models=%zu")
+                               % i % e.trackResRef % e.hitPoints % e.modelResRefs.size()));
+    }
+    for (size_t i = 0; i < mg.obstacles.size(); ++i) {
+        _console.printLine(str(boost::format("    obstacle[%zu] name=%s") % i % mg.obstacles[i].name));
+    }
+    const auto &sc = mg.player.scripts;
+    if (!sc.onCreate.empty() || !sc.onDeath.empty() || !sc.onTrackLoop.empty()) {
+        _console.printLine(str(boost::format("  scripts: create=%s death=%s loop=%s damage=%s")
+                               % sc.onCreate % sc.onDeath % sc.onTrackLoop % sc.onDamage));
+    }
 }
 
 } // namespace game
