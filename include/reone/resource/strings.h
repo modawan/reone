@@ -61,12 +61,9 @@ class LocString {
 public:
     LocString() :
         _id(-1) {}
+
     LocString(int32_t id, std::string ref, IStrings &strings) :
-        _id(id), _ref(ref) {
-        if (_id >= 0) {
-            _loc = strings.getText(id);
-        }
-    }
+        _id(id), _ref(ref), _loc((_id >= 0) ? strings.getText(id) : ref) {}
 
     operator std::string_view() const {
         return str();

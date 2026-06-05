@@ -328,6 +328,9 @@ public:
 
     // END Global variables
 
+    void deserializeGlobalVariables(resource::Gff &gvtGff);
+    void deserializeInventory(resource::Gff &inventoryGff);
+
 private:
     resource::GameID _gameId;
     std::filesystem::path _path;
