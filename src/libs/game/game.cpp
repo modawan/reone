@@ -239,6 +239,7 @@ void Game::initConsole() {
     registerConsoleCommand("kill", "kill selected object", &Game::consoleKill);
     registerConsoleCommand("additem", "add item to selected object", &Game::consoleAddItem);
     registerConsoleCommand("givexp", "give experience to selected creature", &Game::consoleGiveXP);
+    registerConsoleCommand("givegold", "give credits to the party", &Game::consoleGiveGold);
     registerConsoleCommand("showaabb", "toggle rendering AABB", &Game::consoleShowAABB);
     registerConsoleCommand("showwalkmesh", "toggle rendering walkmesh", &Game::consoleShowWalkmesh);
     registerConsoleCommand("showtriggers", "toggle rendering triggers", &Game::consoleShowTriggers);
@@ -1646,6 +1647,12 @@ void Game::consoleGiveXP(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "amount");
     auto creature = getConsoleTargetCreature();
     creature->giveXP(args.get<int>(1).value());
+}
+
+void Game::consoleGiveGold(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "amount");
+    _party.giveGold(args.get<int>(1).value());
+    _console.printLine(str(boost::format("party gold: %d") % _party.gold()));
 }
 
 void Game::consoleWarp(const ConsoleArgs &args) {
