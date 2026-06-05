@@ -24,6 +24,8 @@ Original prompt: ReOne WASM playability and openkotor-site integration — `game
 - **[OpenKotOR/reone#7](https://github.com/OpenKotOR/reone/pull/7)** merged — OpenGL ES 3.0 engine + GLES CI smokes (`20e32664`).
 - **[OpenKotOR/reone#10](https://github.com/OpenKotOR/reone/pull/10)** merged — wasm-ci on `master` pushes.
 - **[OpenKotOR/reone#11](https://github.com/OpenKotOR/reone/pull/11)** merged — save-game peek via `ErfReader`; legacy containers removed.
+- **[OpenKotOR/reone#14](https://github.com/OpenKotOR/reone/pull/14)** merged — DialogGUI talk position guard (`fdd9bf84`).
+- **[OpenKotOR/reone#15](https://github.com/OpenKotOR/reone/pull/15)** merged — GLES black model/texture fix on real GPU (`d9aff290`); smokes use `build-gles/bin`, not stale `debug/bin`.
 - **`master`** is the shipping branch; Linux/Windows/wasm-ci/gles-linux green on `ubuntu-latest`.
 - **Branch archive:** `cursor/web-wasm-gles-and-fs-access` superseded by `master` (2026-06-04); remote branch deleted. Downstream tracking: modawan/reone#111 → close in favor of `master`.
 - [modawan/reone#163](https://github.com/modawan/reone/pull/163) tracks OpenKotOR GLES on the fork (maintainer merge required).

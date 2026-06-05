@@ -13,6 +13,9 @@ fi
 
 BUILD_DIR="$ROOT/build-gles"
 BINDIR="$BUILD_DIR/bin"
+# shellcheck source=tools/gles/assert_engine_bindir.sh
+source "$ROOT/tools/gles/assert_engine_bindir.sh"
+assert_gles_engine_bindir "$BUILD_DIR" "$BINDIR"
 OUTDIR="$ROOT/tools/gles/evidence"
 GAME="${GAME:-/run/media/brunner56/MyBook/SteamLibrary/steamapps/common/swkotor}"
 MODULE="${MODULE:-danm14aa}"
