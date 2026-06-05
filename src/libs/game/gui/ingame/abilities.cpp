@@ -64,6 +64,7 @@ void AbilitiesMenu::onGUILoaded() {
 
     _controls.LB_DESC->setProtoMatchContent(true);
     if (_game.isTSL()) {
+        fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
         _controls.BTN_SKILLS->setDisabled(false);
         updateK2FilterButton(_controls.BTN_SKILLS, true);
         updateK2FilterButton(_controls.BTN_POWERS, false);
@@ -72,6 +73,15 @@ void AbilitiesMenu::onGUILoaded() {
         _controls.LB_DESC->setTintBorderFill(true);
         _controls.LB_DESC_FEATS->setTintBorderFill(true);
         _controls.LBL_INFOBG->setTintBorderFill(true);
+        _controls.LBL_NAME->setTintBorderFill(true);
+        useK2ShellTitle(_controls.LBL_ABILITIES);
+        enableK2ButtonBodyFill(_controls.BTN_EXIT);
+        if (auto protoItem = _controls.LB_ABILITY->protoItemOrNull()) {
+            enableK2ButtonBodyFill(*protoItem);
+            protoItem->setBorderFill("uibit_fill_2wt");
+            protoItem->setHilightFill("uibit_fill_2wt");
+            protoItem->setTintBorderFill(true);
+        }
     }
     _controls.LB_ABILITY->setOnItemClick([this](const std::string &item) {
         auto skill = static_cast<SkillType>(stoi(item));

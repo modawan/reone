@@ -272,9 +272,13 @@ void InventoryMenu::onGUILoaded() {
     configureItemsListBox();
     configureFilterControls();
     if (_game.isTSL()) {
+        fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
         enableBorderFillTint(_controls.LBL_BAR1);
         enableBorderFillTint(_controls.LBL_BAR2);
         enableBorderFillTint(_controls.LBL_BAR6);
+        useK2ShellTitle(_controls.LBL_INV);
+        enableK2ButtonBodyFill(_controls.BTN_USEITEM);
+        enableK2ButtonBodyFill(_controls.BTN_EXIT);
     }
     if (_controls.LB_DESCRIPTION) {
         _controls.LB_DESCRIPTION->setProtoMatchContent(true);
@@ -308,8 +312,15 @@ void InventoryMenu::configureItemsListBox() {
     });
 
     if (auto protoItem = _controls.LB_ITEMS->protoItemOrNull()) {
-        protoItem->setBorderColor(_baseColor);
-        protoItem->setHilightColor(_hilightColor);
+        if (_game.isTSL()) {
+            enableK2ButtonBodyFill(*protoItem);
+            protoItem->setBorderFill("uibit_fill_2wt");
+            protoItem->setHilightFill("uibit_fill_2wt");
+            protoItem->setTintBorderFill(true);
+        } else {
+            protoItem->setBorderColor(_baseColor);
+            protoItem->setHilightColor(_hilightColor);
+        }
     }
 }
 

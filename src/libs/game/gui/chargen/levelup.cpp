@@ -42,6 +42,15 @@ void LevelUpMenu::onGUILoaded() {
         for (auto &control : {_controls.LBL_1, _controls.LBL_2, _controls.LBL_3, _controls.LBL_4, _controls.LBL_5}) {
             control->setTintBorderFill(true);
         }
+        for (auto &button : {
+                 _controls.BTN_BACK,
+                 _controls.BTN_STEPNAME1,
+                 _controls.BTN_STEPNAME2,
+                 _controls.BTN_STEPNAME3,
+                 _controls.BTN_STEPNAME4,
+                 _controls.BTN_STEPNAME5}) {
+            enableK2ButtonBodyFill(button);
+        }
     }
 
     doSetStep(0);

@@ -82,6 +82,9 @@ void CharacterMenu::onGUILoaded() {
 
     if (_game.isTSL()) {
         _controls.LBL_STATSBORDER->setTintBorderFill(true);
+        _controls.LBL_XP_BACK->setTintBorderFill(true);
+        useK2ShellTitle(_controls.LBL_TITLE);
+        enableK2ButtonBodyFill(_controls.BTN_EXIT);
         _controls.BTN_CHANGE1 = _inGameMenu.getBtnChange2();
         _controls.BTN_CHANGE2 = _inGameMenu.getBtnChange3();
     }

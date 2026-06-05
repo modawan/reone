@@ -49,6 +49,8 @@ void MessagesMenu::onGUILoaded() {
         return;
     }
 
+    useK2ShellTitle(_controls.LBL_MESSAGES);
+    enableK2ButtonBodyFill(_controls.BTN_EXIT);
     _controls.LB_DIALOG->setTintBorderFill(true);
     _controls.LB_MESSAGES->setTintBorderFill(true);
     _controls.LB_COMBAT->setTintBorderFill(true);
