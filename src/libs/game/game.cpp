@@ -275,6 +275,7 @@ void Game::initConsole() {
     registerConsoleCommand("minigameinfo", "print minigame metadata for current area", &Game::consoleMiniGameInfo);
     registerConsoleCommand("startswoop", "enter the developer swoop race mode for the current area", &Game::consoleStartSwoop);
     registerConsoleCommand("stopswoop", "exit the developer swoop race mode", &Game::consoleStopSwoop);
+    registerConsoleCommand("swoopstate", "print the current swoop race progress/lateral state", &Game::consoleSwoopState);
 }
 
 void Game::initLocalServices() {
@@ -1466,14 +1467,13 @@ void Game::openSwoopRace() {
     if (!mg.player.trackResRef.empty()) {
         trackModel = _services.resource.models.get(mg.player.trackResRef);
     }
+    auto layout = _services.resource.layouts.get(area->name());
     glm::vec3 lytTrackPos(0.0f);
     bool haveLytTrackPos = false;
-    if (!mg.player.trackResRef.empty()) {
-        if (auto layout = _services.resource.layouts.get(area->name())) {
-            if (auto placement = layout->findTrackByName(mg.player.trackResRef)) {
-                lytTrackPos = placement->get().position;
-                haveLytTrackPos = true;
-            }
+    if (layout && !mg.player.trackResRef.empty()) {
+        if (auto placement = layout->findTrackByName(mg.player.trackResRef)) {
+            lytTrackPos = placement->get().position;
+            haveLytTrackPos = true;
         }
     }
     SwoopTrackFrame trackFrame = deriveSwoopTrackFrame(
@@ -1525,6 +1525,34 @@ void Game::openSwoopRace() {
                            % _swoopRace.lateralBoundSource()
                            % mg.player.tunnelXNeg
                            % mg.player.tunnelXPos));
+
+    // Map authored LYT obstacle placements into the current track frame
+    // (progress = down-course distance, lateral = strafe offset). Diagnostic
+    // only: no damage/collision is applied in this slice. The "match" count is
+    // how many .are MiniGame obstacles have a same-name LYT placement.
+    if (layout) {
+        glm::vec3 fwd(-glm::sin(trackFrame.facing), glm::cos(trackFrame.facing), 0.0f);
+        glm::vec3 right(glm::cos(trackFrame.facing), glm::sin(trackFrame.facing), 0.0f);
+        size_t areMatched = 0;
+        for (const auto &obs : mg.obstacles) {
+            if (layout->findObstacleByName(obs.name)) {
+                ++areMatched;
+            }
+        }
+        _console.printLine(str(boost::format("swoop: lyt obstacles=%zu areObstacles=%zu matched=%zu")
+                               % layout->obstacles.size() % mg.obstacles.size() % areMatched));
+        constexpr size_t kMaxObstacleDiag = 6;
+        for (size_t i = 0; i < layout->obstacles.size() && i < kMaxObstacleDiag; ++i) {
+            const auto &obs = layout->obstacles[i];
+            glm::vec3 d = obs.position - trackFrame.position;
+            float progress = glm::dot(d, fwd);
+            float lateral = glm::dot(d, right);
+            _console.printLine(str(boost::format("  swoopobj[%zu] name=%s pos=[%.1f,%.1f,%.1f] progress=%.1f lateral=%.1f type=obstacle")
+                                   % i % obs.name
+                                   % obs.position.x % obs.position.y % obs.position.z
+                                   % progress % lateral));
+        }
+    }
 
     // Print the per-model breakdown when nothing loaded or a load failed; it is
     // a one-shot dev diagnostic, so avoid spam on the common success path.
@@ -2439,6 +2467,14 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
             _console.printLine(str(boost::format("  lyt tracks=%zu playerTrack=%s pos=<not found>")
                                    % layout->tracks.size() % mg.player.trackResRef));
         }
+        size_t obstaclesMatched = 0;
+        for (const auto &obs : mg.obstacles) {
+            if (layout->findObstacleByName(obs.name)) {
+                ++obstaclesMatched;
+            }
+        }
+        _console.printLine(str(boost::format("  lyt obstacles=%zu (matched %zu of %zu .are obstacles)")
+                               % layout->obstacles.size() % obstaclesMatched % mg.obstacles.size()));
     }
     const auto &sc = mg.player.scripts;
     if (!sc.onCreate.empty() || !sc.onDeath.empty() || !sc.onTrackLoop.empty()) {
@@ -2453,6 +2489,22 @@ void Game::consoleStartSwoop(const ConsoleArgs &args) {
 
 void Game::consoleStopSwoop(const ConsoleArgs &args) {
     closeSwoopRace();
+}
+
+void Game::consoleSwoopState(const ConsoleArgs &args) {
+    if (!_swoopRace.isActive()) {
+        _console.printLine("swoop: not active");
+        return;
+    }
+    glm::vec3 pos = _swoopRace.position();
+    _console.printLine(str(boost::format("swoop: progress=%.1f lateral=%.2f speed=%.1f elapsed=%.1f pos=[%.1f,%.1f,%.1f] bounds=[-%.1f,+%.1f] mode=track-progress")
+                           % _swoopRace.progress()
+                           % _swoopRace.lateralOffset()
+                           % _swoopRace.speed()
+                           % _swoopRace.elapsed()
+                           % pos.x % pos.y % pos.z
+                           % _swoopRace.lateralLeftBound()
+                           % _swoopRace.lateralRightBound()));
 }
 
 } // namespace game

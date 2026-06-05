@@ -566,6 +566,7 @@ private:
     void consoleMiniGameInfo(const ConsoleArgs &tokens);
     void consoleStartSwoop(const ConsoleArgs &tokens);
     void consoleStopSwoop(const ConsoleArgs &tokens);
+    void consoleSwoopState(const ConsoleArgs &tokens);
 
     // END Console commands
 };
