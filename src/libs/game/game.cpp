@@ -274,6 +274,8 @@ void Game::initConsole() {
     registerConsoleCommand("listgames", "list savegames", &Game::consoleListGames);
     registerConsoleCommand("loadgame", "load a savegame", &Game::consoleLoadGame);
     registerConsoleCommand("minigameinfo", "print minigame metadata for current area", &Game::consoleMiniGameInfo);
+    registerConsoleCommand("startswoop", "enter the developer swoop race mode for the current area", &Game::consoleStartSwoop);
+    registerConsoleCommand("stopswoop", "exit the developer swoop race mode", &Game::consoleStopSwoop);
 }
 
 void Game::initLocalServices() {
@@ -343,6 +345,11 @@ bool Game::handle(const input::Event &event) {
             }
             break;
         }
+        case Screen::SwoopRace:
+            if (_swoopRace.handle(event)) {
+                return true;
+            }
+            break;
         default:
             break;
         }
@@ -363,6 +370,10 @@ void Game::update(float frameTime) {
         loadNextModule();
     }
     updateCamera(dt);
+
+    if (_swoopRace.isActive()) {
+        _swoopRace.update(dt);
+    }
 
     bool updModule = !_movie && _module && (_screen == Screen::InGame || _screen == Screen::Conversation);
     if (updModule && !_paused) {
@@ -1336,6 +1347,60 @@ void Game::openInGame() {
     changeScreen(Screen::InGame);
 }
 
+void Game::openSwoopRace() {
+    if (_swoopRace.isActive()) {
+        _console.printLine("swoop: already running");
+        return;
+    }
+    if (!_module || !_module->area()) {
+        _console.printLine("swoop: no module loaded");
+        return;
+    }
+    auto area = _module->area();
+    if (!area->hasMinigame() || area->miniGame().type != MinigameType::SwoopRace) {
+        _console.printLine("swoop: current area has no swoop minigame");
+        return;
+    }
+    auto leader = _party.getLeader();
+    if (!leader) {
+        _console.printLine("swoop: no party leader to anchor the race");
+        return;
+    }
+
+    const auto &mg = area->miniGame();
+    auto camera = area->getCamera<FirstPersonCamera>(CameraType::FirstPerson);
+    if (camera) {
+        camera->stopMovement();
+    }
+
+    _savedCameraType = _cameraType;
+    _swoopRace.start(mg, camera, leader->position(), leader->getFacing());
+
+    _cameraType = CameraType::FirstPerson;
+    setRelativeMouseMode(false);
+    changeScreen(Screen::SwoopRace);
+
+    _console.printLine(str(boost::format("swoop: started type=%s track=%s models=%zu movePerSec=%.0f lataccel=%.0f camfov=%.0f")
+                           % minigameTypeName(mg.type)
+                           % mg.player.trackResRef
+                           % mg.player.modelResRefs.size()
+                           % mg.movementPerSec
+                           % mg.lateralAccel
+                           % mg.cameraViewAngle));
+}
+
+void Game::closeSwoopRace() {
+    if (!_swoopRace.isActive()) {
+        _console.printLine("swoop: not active");
+        return;
+    }
+    _swoopRace.stop();
+    _cameraType = _savedCameraType;
+    setRelativeMouseMode(_cameraType == CameraType::FirstPerson);
+    openInGame();
+    _console.printLine("swoop: stopped");
+}
+
 void Game::openInGameMenu(InGameMenuTab tab) {
     setCursorType(CursorType::Default);
     switch (tab) {
@@ -1508,6 +1573,8 @@ GameGUI *Game::getScreenGUI() const {
         return _partySelect.get();
     case Screen::SaveLoad:
         return _saveLoad.get();
+    case Screen::SwoopRace:
+        return nullptr; // race skeleton has no HUD yet
     default:
         return nullptr;
     }
@@ -2215,6 +2282,14 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
         _console.printLine(str(boost::format("  scripts: create=%s death=%s loop=%s damage=%s")
                                % sc.onCreate % sc.onDeath % sc.onTrackLoop % sc.onDamage));
     }
+}
+
+void Game::consoleStartSwoop(const ConsoleArgs &args) {
+    openSwoopRace();
+}
+
+void Game::consoleStopSwoop(const ConsoleArgs &args) {
+    closeSwoopRace();
 }
 
 } // namespace game

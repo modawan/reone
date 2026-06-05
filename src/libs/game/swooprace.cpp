@@ -1,0 +1,179 @@
+/*
+ * Copyright (c) 2020-2023 The reone project contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+#include "reone/game/swooprace.h"
+
+#include "reone/game/game.h"
+#include "reone/game/object/camera/firstperson.h"
+
+namespace reone {
+
+namespace game {
+
+// Fallback forward speed when metadata movement is unspecified.
+static constexpr float kFallbackMovePerSec = 10.0f;
+
+// The forward target speed is reached in this many seconds, to avoid an
+// instantaneous jump at race start.
+static constexpr float kSpeedRampSeconds = 3.0f;
+
+// Conservative steering limits applied until real track/tunnel bounds exist.
+static constexpr float kMaxLateralSpeed = 4.0f;  // units per second
+static constexpr float kMaxLateralOffset = 4.0f; // units from track center
+static constexpr float kLateralDecay = 8.0f;     // units per second^2 when not steering
+
+// Camera height above the swoop anchor position.
+static constexpr float kCameraHeight = 1.7f;
+
+void SwoopRace::start(const MinigameSpec &spec,
+                      FirstPersonCamera *camera,
+                      const glm::vec3 &startPosition,
+                      float startFacing) {
+    _type = spec.type;
+    _movePerSec = spec.movementPerSec;
+    _lateralAccel = spec.lateralAccel;
+    _camFov = spec.cameraViewAngle;
+    _trackResRef = spec.player.trackResRef;
+    _modelCount = spec.player.modelResRefs.size();
+
+    _camera = camera;
+    _position = startPosition;
+    _facing = startFacing;
+
+    _speed = 0.0f;
+    _lateralOffset = 0.0f;
+    _lateralVel = 0.0f;
+    _elapsed = 0.0f;
+    _steerDir = 0;
+
+    _active = true;
+
+    applyToCamera();
+}
+
+void SwoopRace::stop() {
+    _active = false;
+    _steerDir = 0;
+    _camera = nullptr;
+}
+
+void SwoopRace::update(float dt) {
+    if (!_active || dt <= 0.0f) {
+        return;
+    }
+    _elapsed += dt;
+
+    // Forward speed ramps toward the metadata movement rate.
+    float targetSpeed = _movePerSec > 0.0f ? _movePerSec : kFallbackMovePerSec;
+    if (_speed < targetSpeed) {
+        _speed = glm::min(targetSpeed, _speed + (targetSpeed / kSpeedRampSeconds) * dt);
+    }
+
+    // Lateral steering: parsed lateral acceleration drives a conservatively
+    // clamped sideways velocity and offset.
+    if (_steerDir != 0) {
+        _lateralVel += static_cast<float>(_steerDir) * _lateralAccel * dt;
+        _lateralVel = glm::clamp(_lateralVel, -kMaxLateralSpeed, kMaxLateralSpeed);
+    } else if (_lateralVel != 0.0f) {
+        float decay = kLateralDecay * dt;
+        if (glm::abs(_lateralVel) <= decay) {
+            _lateralVel = 0.0f;
+        } else {
+            _lateralVel -= glm::sign(_lateralVel) * decay;
+        }
+    }
+    _lateralOffset += _lateralVel * dt;
+    if (_lateralOffset > kMaxLateralOffset) {
+        _lateralOffset = kMaxLateralOffset;
+        _lateralVel = 0.0f;
+    } else if (_lateralOffset < -kMaxLateralOffset) {
+        _lateralOffset = -kMaxLateralOffset;
+        _lateralVel = 0.0f;
+    }
+
+    // Advance the forward anchor along the facing direction.
+    glm::vec3 forward(-glm::sin(_facing), glm::cos(_facing), 0.0f);
+    _position += forward * _speed * dt;
+
+    applyToCamera();
+}
+
+void SwoopRace::applyToCamera() {
+    if (!_camera) {
+        return;
+    }
+    glm::vec3 right(glm::cos(_facing), glm::sin(_facing), 0.0f);
+    glm::vec3 cameraPos = _position + right * _lateralOffset;
+    cameraPos.z += kCameraHeight;
+    _camera->setPosition(cameraPos);
+    _camera->setFacing(_facing);
+}
+
+bool SwoopRace::handle(const input::Event &event) {
+    switch (event.type) {
+    case input::EventType::KeyDown:
+        return handleKeyDown(event.key);
+    case input::EventType::KeyUp:
+        return handleKeyUp(event.key);
+    default:
+        return false;
+    }
+}
+
+bool SwoopRace::handleKeyDown(const input::KeyEvent &event) {
+    switch (event.code) {
+    case input::KeyCode::Left:
+    case input::KeyCode::A:
+        _steerDir = -1;
+        return true;
+    case input::KeyCode::Right:
+    case input::KeyCode::D:
+        _steerDir = 1;
+        return true;
+    case input::KeyCode::Space:
+        // Jump is stubbed for the skeleton: accepted but has no gameplay effect.
+        return true;
+    case input::KeyCode::Escape:
+        _game.closeSwoopRace();
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool SwoopRace::handleKeyUp(const input::KeyEvent &event) {
+    switch (event.code) {
+    case input::KeyCode::Left:
+    case input::KeyCode::A:
+        if (_steerDir == -1) {
+            _steerDir = 0;
+        }
+        return true;
+    case input::KeyCode::Right:
+    case input::KeyCode::D:
+        if (_steerDir == 1) {
+            _steerDir = 0;
+        }
+        return true;
+    default:
+        return false;
+    }
+}
+
+} // namespace game
+
+} // namespace reone
