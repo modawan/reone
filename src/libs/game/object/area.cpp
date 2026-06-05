@@ -228,6 +228,8 @@ void Area::loadMiniGame(const resource::generated::ARE &are) {
     spec.lateralAccel = are.MiniGame.LateralAccel;
     spec.movementPerSec = are.MiniGame.MovementPerSec;
     spec.useInertia = are.MiniGame.UseInertia != 0;
+    spec.bumpPlane = are.MiniGame.Bump_Plane;
+    spec.doBumping = are.MiniGame.DoBumping != 0;
 
     const auto &src = are.MiniGame.Player;
     spec.player.cameraResRef = src.Camera;
@@ -237,6 +239,12 @@ void Area::loadMiniGame(const resource::generated::ARE &are) {
     spec.player.accelSecs = src.Accel_Secs;
     spec.player.sphereRadius = src.Sphere_Radius;
     spec.player.hitPoints = src.Hit_Points;
+    spec.player.tunnelXPos = src.TunnelXPos;
+    spec.player.tunnelXNeg = src.TunnelXNeg;
+    spec.player.tunnelYPos = src.TunnelYPos;
+    spec.player.tunnelYNeg = src.TunnelYNeg;
+    spec.player.tunnelZPos = src.TunnelZPos;
+    spec.player.tunnelZNeg = src.TunnelZNeg;
     spec.player.scripts.onCreate = src.Scripts.OnCreate;
     spec.player.scripts.onDeath = src.Scripts.OnDeath;
     spec.player.scripts.onTrackLoop = src.Scripts.OnTrackLoop;
