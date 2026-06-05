@@ -157,6 +157,10 @@ public:
     void openSwoopRace();
     void closeSwoopRace();
 
+    // Exit the active race: returns to the lifecycle origin if a lifecycle race
+    // is in progress, otherwise just stops the dev race in place.
+    void exitSwoopRace();
+
     // END Swoop race
     void openInGameMenu(InGameMenuTab tab);
     void openLevelUp();
@@ -361,6 +365,20 @@ private:
     DeveloperOverlay _developerOverlay;
     std::shared_ptr<graphics::Font> _developerFont;
 
+    // Non-blocking swoop lifecycle session: origin module/state -> swoop module
+    // -> auto-start race -> forced-success finish -> return to origin. Passive
+    // bookkeeping only; it does not touch party membership, inventory, or story.
+    struct SwoopLifecycle {
+        bool active {false};        // a lifecycle race is in progress (return pending)
+        bool haveOrigin {false};    // origin position/facing captured
+        std::string originModule;   // module resref to return to
+        glm::vec3 originPosition {0.0f};
+        float originFacing {0.0f};
+        bool forcedSuccess {true};  // PR1: finish is always non-blocking success
+    };
+
+    SwoopLifecycle _swoopLifecycle;
+
     std::shared_ptr<movie::IMovie> _movie;
     std::queue<std::string> _moduleTransitionMovies;
     resource::CursorType _cursorType {resource::CursorType::None};
@@ -440,6 +458,10 @@ private:
     void loadNextModule();
     void playMusic(const std::string &resRef);
     void toggleInGameCameraType();
+
+    // Stop the active lifecycle race and return to the stored origin module
+    // (restoring the leader's position/facing). Safe no-op if no lifecycle race.
+    void finishSwoopLifecycle(bool success);
 
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleMouseMotion(const input::MouseMotionEvent &event);
@@ -567,6 +589,8 @@ private:
     void consoleStartSwoop(const ConsoleArgs &tokens);
     void consoleStopSwoop(const ConsoleArgs &tokens);
     void consoleSwoopState(const ConsoleArgs &tokens);
+    void consoleStartSwoopRace(const ConsoleArgs &tokens);
+    void consoleFinishSwoop(const ConsoleArgs &tokens);
 
     // END Console commands
 };
