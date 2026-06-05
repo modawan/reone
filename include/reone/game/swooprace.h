@@ -86,6 +86,10 @@ public:
     float elapsed() const { return _elapsed; }
     float speed() const { return _speed; }
 
+    float lateralLeftBound() const { return _lateralLeftBound; }
+    float lateralRightBound() const { return _lateralRightBound; }
+    const std::string &lateralBoundSource() const { return _lateralBoundSource; }
+
     // END Diagnostics
 
 private:
@@ -112,6 +116,13 @@ private:
     float _facing {0.0f};
     int _steerDir {0}; // -1 left, +1 right, 0 none
 
+    // Lateral travel limits (world units), derived from tunnel metadata or a
+    // safe fallback. Asymmetric: negative offset clamps to -_lateralLeftBound,
+    // positive offset clamps to +_lateralRightBound.
+    float _lateralLeftBound {0.0f};
+    float _lateralRightBound {0.0f};
+    std::string _lateralBoundSource;
+
     FirstPersonCamera *_camera {nullptr};
     std::vector<std::shared_ptr<scene::ModelSceneNode>> _bikeNodes;
 
@@ -122,6 +133,7 @@ private:
     void applyChaseCamera();
     void applyBikeTransform();
     void setCameraFieldOfView(float fovDegrees);
+    void computeLateralBounds(const MinigamePlayerSpec &player);
 };
 
 } // namespace game

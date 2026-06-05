@@ -78,6 +78,15 @@ struct MinigamePlayerSpec {
     float sphereRadius {0.0f};
     uint32_t hitPoints {0};
     MinigamePlayerScriptSpec scripts;
+
+    // Tunnel bounds, as stored in the .are (angular limits, in degrees, that
+    // vanilla applies to bike lean/rotation per axis - not lateral position).
+    float tunnelXPos {0.0f};
+    float tunnelXNeg {0.0f};
+    float tunnelYPos {0.0f};
+    float tunnelYNeg {0.0f};
+    float tunnelZPos {0.0f};
+    float tunnelZNeg {0.0f};
 };
 
 struct MinigameEnemySpec {
@@ -100,6 +109,8 @@ struct MinigameSpec {
     float lateralAccel {0.0f};
     float movementPerSec {0.0f};
     bool useInertia {false};
+    uint32_t bumpPlane {0};
+    bool doBumping {false};
     MinigamePlayerSpec player;
     std::vector<MinigameEnemySpec> enemies;
     std::vector<MinigameObstacleSpec> obstacles;

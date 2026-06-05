@@ -1425,6 +1425,25 @@ void Game::openSwoopRace() {
                            % mg.movementPerSec
                            % mg.lateralAccel
                            % mg.cameraViewAngle));
+
+    // Lateral bounds chosen for steering (see SwoopRace::computeLateralBounds).
+    _console.printLine(str(boost::format("swoop: bounds lateral=[-%.1f,+%.1f] source=%s tunnelX=[%.1f,%.1f]")
+                           % _swoopRace.lateralLeftBound()
+                           % _swoopRace.lateralRightBound()
+                           % _swoopRace.lateralBoundSource()
+                           % mg.player.tunnelXNeg
+                           % mg.player.tunnelXPos));
+
+    // Track diagnostic: does the player track model resource resolve? (Full
+    // rail following is a later slice; this only reports availability.)
+    std::string trackStatus("empty");
+    if (!mg.player.trackResRef.empty()) {
+        trackStatus = _services.resource.models.get(mg.player.trackResRef) ? "loaded" : "missing";
+    }
+    _console.printLine(str(boost::format("swoop: track=%s model=%s")
+                           % (mg.player.trackResRef.empty() ? std::string("<none>") : mg.player.trackResRef)
+                           % trackStatus));
+
     // Print the per-model breakdown when nothing loaded or a load failed; it is
     // a one-shot dev diagnostic, so avoid spam on the common success path.
     if (loadedCount == 0 || anyMissing) {
@@ -2299,12 +2318,14 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
         return;
     }
     const auto &mg = area->miniGame();
-    _console.printLine(str(boost::format("minigame: type=%s camfov=%.1f lataccel=%.3f movePerSec=%.3f inertia=%d")
+    _console.printLine(str(boost::format("minigame: type=%s camfov=%.1f lataccel=%.3f movePerSec=%.3f inertia=%d bumpPlane=%u doBumping=%d")
                            % minigameTypeName(mg.type)
                            % mg.cameraViewAngle
                            % mg.lateralAccel
                            % mg.movementPerSec
-                           % static_cast<int>(mg.useInertia)));
+                           % static_cast<int>(mg.useInertia)
+                           % mg.bumpPlane
+                           % static_cast<int>(mg.doBumping)));
     _console.printLine(str(boost::format("  player: cam=%s track=%s spd=[%.1f,%.1f] accel=%.3f hp=%u models=%zu")
                            % mg.player.cameraResRef
                            % mg.player.trackResRef
@@ -2313,6 +2334,10 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
                            % mg.player.accelSecs
                            % mg.player.hitPoints
                            % mg.player.modelResRefs.size()));
+    _console.printLine(str(boost::format("  tunnel (deg): X=[%.1f,%.1f] Y=[%.1f,%.1f] Z=[%.1f,%.1f]")
+                           % mg.player.tunnelXNeg % mg.player.tunnelXPos
+                           % mg.player.tunnelYNeg % mg.player.tunnelYPos
+                           % mg.player.tunnelZNeg % mg.player.tunnelZPos));
     _console.printLine(str(boost::format("  tracks=%zu enemies=%zu obstacles=%zu")
                            % mg.trackResRefs.size()
                            % mg.enemies.size()
