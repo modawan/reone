@@ -280,6 +280,8 @@ void Game::initConsole() {
     registerConsoleCommand("startswoop", "enter the developer swoop race mode for the current area", &Game::consoleStartSwoop);
     registerConsoleCommand("stopswoop", "exit the developer swoop race mode", &Game::consoleStopSwoop);
     registerConsoleCommand("swoopstate", "print the current swoop race progress/lateral state", &Game::consoleSwoopState);
+    registerConsoleCommand("startswooprace", "enter a swoop module from the current one and auto-start the race", &Game::consoleStartSwoopRace);
+    registerConsoleCommand("finishswoop", "finish the lifecycle swoop race (forced success) and return to origin", &Game::consoleFinishSwoop);
 }
 
 void Game::initLocalServices() {
@@ -524,6 +526,12 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
     if (_swoopRace.isActive()) {
         _swoopRace.stop();
         _cameraType = _savedCameraType;
+    }
+    // A direct module load (e.g. warp) while a lifecycle race is pending means
+    // the player navigated away; abandon the pending return. (Lifecycle-managed
+    // loads clear the session beforehand, so this only fires on external loads.)
+    if (_swoopLifecycle.active) {
+        _swoopLifecycle = SwoopLifecycle();
     }
 
     if (_screen == Screen::Conversation && _conversation) {
@@ -1624,6 +1632,48 @@ void Game::closeSwoopRace() {
     _console.printLine("swoop: stopped");
 }
 
+void Game::exitSwoopRace() {
+    // Escape / stopswoop entry point. If a lifecycle race is in progress, return
+    // to the origin module; otherwise just stop the dev race in place.
+    if (_swoopLifecycle.active) {
+        finishSwoopLifecycle(/*success=*/true);
+    } else {
+        closeSwoopRace();
+    }
+}
+
+void Game::finishSwoopLifecycle(bool success) {
+    if (!_swoopLifecycle.active) {
+        return;
+    }
+    // Capture and clear the session first so the upcoming module load does not
+    // re-enter this path.
+    SwoopLifecycle session = _swoopLifecycle;
+    _swoopLifecycle = SwoopLifecycle();
+
+    // Stop the race (removes bike models, restores camera/FOV/input, screen).
+    closeSwoopRace();
+
+    // Return to the originating module and restore the leader's location.
+    loadModule(session.originModule);
+    if (session.haveOrigin) {
+        if (auto mod = _module) {
+            if (auto area = mod->area()) {
+                if (auto leader = _party.getLeader()) {
+                    leader->setPosition(session.originPosition);
+                    leader->setFacing(session.originFacing);
+                    area->determineObjectRoom(*leader);
+                    area->onPartyLeaderMoved(/*roomChanged=*/true);
+                }
+            }
+        }
+    }
+
+    _console.printLine(str(boost::format("swoop: finished forcedSuccess=%s returning=%s")
+                           % (success ? "yes" : "no")
+                           % session.originModule));
+}
+
 void Game::openInGameMenu(InGameMenuTab tab) {
     setCursorType(CursorType::Default);
     switch (tab) {
@@ -2537,7 +2587,73 @@ void Game::consoleStartSwoop(const ConsoleArgs &args) {
 }
 
 void Game::consoleStopSwoop(const ConsoleArgs &args) {
-    closeSwoopRace();
+    // If a lifecycle race is active, return to origin safely; otherwise stop in place.
+    exitSwoopRace();
+}
+
+void Game::consoleStartSwoopRace(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "module");
+
+    if (_swoopLifecycle.active) {
+        _console.printLine("swoop: lifecycle already active");
+        return;
+    }
+    if (!_module) {
+        _console.printLine("swoop: no origin module loaded");
+        return;
+    }
+    std::string target(boost::to_lower_copy(std::string(args[1].value())));
+    if (_moduleNames.count(target) == 0) {
+        _console.printLine("swoop: unknown module '" + target + "'");
+        return;
+    }
+
+    // Capture origin module/state before transitioning.
+    SwoopLifecycle session;
+    session.originModule = _module->name();
+    session.forcedSuccess = true;
+    if (auto leader = _party.getLeader()) {
+        session.originPosition = leader->position();
+        session.originFacing = leader->getFacing();
+        session.haveOrigin = true;
+    }
+
+    // Transition to the target swoop module and auto-start the race.
+    loadModule(target);
+    openSwoopRace();
+
+    if (!_swoopRace.isActive()) {
+        // Target loaded but is not a swoop minigame (openSwoopRace printed why).
+        // Return to origin so the failed attempt does not strand the player.
+        _console.printLine("swoop: lifecycle aborted, returning to origin=" + session.originModule);
+        loadModule(session.originModule);
+        if (session.haveOrigin) {
+            if (auto mod = _module) {
+                if (auto area = mod->area()) {
+                    if (auto leader = _party.getLeader()) {
+                        leader->setPosition(session.originPosition);
+                        leader->setFacing(session.originFacing);
+                        area->determineObjectRoom(*leader);
+                        area->onPartyLeaderMoved(/*roomChanged=*/true);
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    _swoopLifecycle = session;
+    _swoopLifecycle.active = true;
+    _console.printLine(str(boost::format("swoop: lifecycle start origin=%s target=%s forcedSuccess=yes")
+                           % session.originModule % target));
+}
+
+void Game::consoleFinishSwoop(const ConsoleArgs &args) {
+    if (!_swoopLifecycle.active) {
+        _console.printLine("swoop: no lifecycle race active");
+        return;
+    }
+    finishSwoopLifecycle(/*success=*/true);
 }
 
 void Game::consoleSwoopState(const ConsoleArgs &args) {
