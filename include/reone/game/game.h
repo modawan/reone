@@ -62,6 +62,7 @@
 #include "options.h"
 #include "party.h"
 #include "script/runner.h"
+#include "swooprace.h"
 #include "talent.h"
 
 #include <queue>
@@ -95,7 +96,8 @@ public:
         Conversation,
         Container,
         PartySelection,
-        SaveLoad
+        SaveLoad,
+        SwoopRace
     };
 
     Game(
@@ -110,7 +112,8 @@ public:
         _services(services),
         _console(console),
         _party(*this),
-        _combat(*this, services) {
+        _combat(*this, services),
+        _swoopRace(*this) {
     }
 
     void init();
@@ -148,6 +151,13 @@ public:
 
     void openMainMenu();
     void openInGame();
+
+    // Swoop race (developer skeleton)
+
+    void openSwoopRace();
+    void closeSwoopRace();
+
+    // END Swoop race
     void openInGameMenu(InGameMenuTab tab);
     void openLevelUp();
     void notifyLevelUpPending(const Creature &creature);
@@ -357,6 +367,7 @@ private:
     std::shared_ptr<graphics::Cursor> _cursor;
     float _gameSpeed {1.0f};
     CameraType _cameraType {CameraType::ThirdPerson};
+    CameraType _savedCameraType {CameraType::ThirdPerson};
     bool _paused {false};
     std::set<std::string> _moduleNames;
     std::set<std::string> _saveNames;
@@ -370,6 +381,7 @@ private:
 
     Party _party;
     Combat _combat;
+    SwoopRace _swoopRace;
 
     std::unique_ptr<script::IRoutines> _routines;
     std::unique_ptr<ScriptRunner> _scriptRunner;
@@ -552,6 +564,8 @@ private:
     void consoleListGames(const ConsoleArgs &tokens);
     void consoleLoadGame(const ConsoleArgs &tokens);
     void consoleMiniGameInfo(const ConsoleArgs &tokens);
+    void consoleStartSwoop(const ConsoleArgs &tokens);
+    void consoleStopSwoop(const ConsoleArgs &tokens);
 
     // END Console commands
 };
