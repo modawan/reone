@@ -1556,7 +1556,12 @@ void Game::openSwoopRace() {
                                % trackFrame.facing));
     }
 
-    // Lateral bounds chosen for steering (see SwoopRace::computeLateralBounds).
+    // Movement model: track-relative progress + lateral strafe (no turning).
+    _console.printLine(str(boost::format("swoop: movement=track-progress strafeOnly=yes progressAxis=trackForward lateralAxis=trackRight anim=deferred start=[%.1f,%.1f,%.1f] facing=%.2f")
+                           % trackFrame.position.x % trackFrame.position.y % trackFrame.position.z
+                           % trackFrame.facing));
+
+    // Lateral bounds chosen for the strafe (see SwoopRace::computeLateralBounds).
     _console.printLine(str(boost::format("swoop: bounds lateral=[-%.1f,+%.1f] source=%s tunnelX=[%.1f,%.1f]")
                            % _swoopRace.lateralLeftBound()
                            % _swoopRace.lateralRightBound()
