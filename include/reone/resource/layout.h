@@ -27,12 +27,30 @@ struct Layout {
         glm::vec3 position {0.0f};
     };
 
+    // Minigame track placement (LYT "trackcount" section). Position only; the
+    // LYT track format carries no rotation.
+    struct Track {
+        std::string name;
+        glm::vec3 position {0.0f};
+    };
+
     std::vector<Room> rooms;
+    std::vector<Track> tracks;
 
     std::optional<std::reference_wrapper<const Room>> findByName(const std::string &name) const {
         for (auto &room : rooms) {
             if (room.name == name) {
                 return room;
+            }
+        }
+        return std::nullopt;
+    }
+
+    std::optional<std::reference_wrapper<const Track>> findTrackByName(const std::string &name) const {
+        std::string lower(boost::to_lower_copy(name));
+        for (auto &track : tracks) {
+            if (track.name == lower) {
+                return track;
             }
         }
         return std::nullopt;
