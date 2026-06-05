@@ -68,13 +68,15 @@ void SwoopRace::start(const MinigameSpec &spec,
                       FirstPersonCamera *camera,
                       std::vector<std::shared_ptr<scene::ModelSceneNode>> bikeNodes,
                       const glm::vec3 &startPosition,
-                      float startFacing) {
+                      float startFacing,
+                      float finishProgress) {
     _type = spec.type;
     _movePerSec = spec.movementPerSec;
     _lateralAccel = spec.lateralAccel;
     _camFov = spec.cameraViewAngle;
     _trackResRef = spec.player.trackResRef;
     _modelCount = spec.player.modelResRefs.size();
+    _finishProgress = finishProgress;
 
     computeLateralBounds(spec.player);
 

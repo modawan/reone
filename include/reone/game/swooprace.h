@@ -67,12 +67,14 @@ public:
      *
      * @param camera the area first-person camera, reused as a chase camera; may be null
      * @param bikeNodes the visible bike model scene nodes (already added to the scene); may be empty
+     * @param finishProgress forward-progress distance at which the race is considered finished
      */
     void start(const MinigameSpec &spec,
                FirstPersonCamera *camera,
                std::vector<std::shared_ptr<scene::ModelSceneNode>> bikeNodes,
                const glm::vec3 &startPosition,
-               float startFacing);
+               float startFacing,
+               float finishProgress);
 
     void stop();
 
@@ -103,6 +105,11 @@ public:
     float lateralOffset() const { return _lateralOffset; }
     glm::vec3 position() const { return bikePosition(); }
 
+    float finishProgress() const { return _finishProgress; }
+
+    // True once forward progress has reached the finish threshold.
+    bool finishReached() const { return _finishProgress > 0.0f && _progress >= _finishProgress; }
+
     // END Diagnostics
 
 private:
@@ -130,8 +137,9 @@ private:
     // Runtime state
 
     float _speed {0.0f};
-    float _progress {0.0f};      // forward distance along the track frame
-    float _lateralOffset {0.0f}; // strafe offset along _trackRight
+    float _progress {0.0f};       // forward distance along the track frame
+    float _finishProgress {0.0f}; // progress at which the race auto-finishes (0 = none)
+    float _lateralOffset {0.0f};  // strafe offset along _trackRight
     float _lateralVel {0.0f};
     float _elapsed {0.0f};
     int _steerDir {0}; // -1 left, +1 right, 0 none
