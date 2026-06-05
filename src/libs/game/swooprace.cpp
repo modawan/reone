@@ -56,6 +56,10 @@ static constexpr float kChaseDistance = 4.5f; // behind the bike
 static constexpr float kChaseHeight = 2.5f;   // above the bike
 static constexpr float kLookAtHeight = 1.0f;  // look-at point above the bike
 
+// Maximum cosmetic bank applied while strafing. Purely visual: it does not
+// affect movement, progress, or facing/heading.
+static constexpr float kMaxLeanRadians = 0.20f; // ~11.5 degrees
+
 // Engine default field of view, restored to the reused first-person camera on
 // exit (mirrors Area's default camera FOV).
 static constexpr float kDefaultCameraFovDegrees = 75.0f;
@@ -76,10 +80,16 @@ void SwoopRace::start(const MinigameSpec &spec,
 
     _camera = camera;
     _bikeNodes = std::move(bikeNodes);
-    _position = startPosition;
+
+    // Build the track-relative frame once. The bike faces down-course and never
+    // turns from input; engine facing convention is forward = (-sin f, cos f).
+    _trackStart = startPosition;
     _facing = startFacing;
+    _trackForward = glm::vec3(-glm::sin(_facing), glm::cos(_facing), 0.0f);
+    _trackRight = glm::vec3(glm::cos(_facing), glm::sin(_facing), 0.0f);
 
     _speed = 0.0f;
+    _progress = 0.0f;
     _lateralOffset = 0.0f;
     _lateralVel = 0.0f;
     _elapsed = 0.0f;
@@ -134,8 +144,9 @@ void SwoopRace::update(float dt) {
         _speed = glm::min(targetSpeed, _speed + (targetSpeed / kSpeedRampSeconds) * dt);
     }
 
-    // Lateral steering: parsed lateral acceleration drives a conservatively
-    // clamped sideways velocity and offset.
+    // Lateral strafe: parsed lateral acceleration drives a conservatively
+    // clamped sideways velocity and offset. This is strafe-only - it never
+    // changes the bike's heading.
     if (_steerDir != 0) {
         _lateralVel += static_cast<float>(_steerDir) * _lateralAccel * dt;
         _lateralVel = glm::clamp(_lateralVel, -kMaxLateralSpeed, kMaxLateralSpeed);
@@ -156,24 +167,35 @@ void SwoopRace::update(float dt) {
         _lateralVel = 0.0f;
     }
 
-    // Advance the forward anchor along the facing direction.
-    glm::vec3 forward(-glm::sin(_facing), glm::cos(_facing), 0.0f);
-    _position += forward * _speed * dt;
+    // Advance forward progress down the fixed track frame.
+    _progress += _speed * dt;
 
     applyBikeTransform();
     applyChaseCamera();
+}
+
+glm::vec3 SwoopRace::bikePosition() const {
+    glm::vec3 centerline = _trackStart + _trackForward * _progress;
+    return centerline + _trackRight * _lateralOffset;
 }
 
 void SwoopRace::applyBikeTransform() {
     if (_bikeNodes.empty()) {
         return;
     }
-    glm::vec3 right(glm::cos(_facing), glm::sin(_facing), 0.0f);
-    glm::vec3 bikePos = _position + right * _lateralOffset;
+    glm::vec3 bikePos = bikePosition();
+
+    // Down-course yaw (fixed), plus a small cosmetic bank into the strafe. The
+    // lean is visual only: it does not affect heading, progress, or strafe.
+    float lean = 0.0f;
+    if (kMaxLateralSpeed > 0.0f) {
+        lean = -glm::clamp(_lateralVel / kMaxLateralSpeed, -1.0f, 1.0f) * kMaxLeanRadians;
+    }
 
     glm::mat4 transform(1.0f);
     transform *= glm::translate(bikePos);
     transform *= glm::mat4_cast(glm::quat(glm::vec3(0.0f, 0.0f, _facing)));
+    transform *= glm::mat4_cast(glm::quat(glm::vec3(0.0f, lean, 0.0f)));
 
     // All loaded models share the same bike transform for this dev slice.
     for (auto &node : _bikeNodes) {
@@ -189,11 +211,9 @@ void SwoopRace::applyChaseCamera() {
     }
     static const glm::vec3 up(0.0f, 0.0f, 1.0f);
 
-    glm::vec3 forward(-glm::sin(_facing), glm::cos(_facing), 0.0f);
-    glm::vec3 right(glm::cos(_facing), glm::sin(_facing), 0.0f);
-    glm::vec3 bikePos = _position + right * _lateralOffset;
+    glm::vec3 bikePos = bikePosition();
 
-    glm::vec3 cameraPos = bikePos - forward * kChaseDistance;
+    glm::vec3 cameraPos = bikePos - _trackForward * kChaseDistance;
     cameraPos.z += kChaseHeight;
 
     glm::vec3 target = bikePos;
