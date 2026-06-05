@@ -1128,10 +1128,59 @@ void Game::updateMusic() {
 }
 
 void Game::loadNextModule() {
+    std::string target(_nextModule);
+
+    // Capture the origin (current module + leader location) before the deferred
+    // transition runs, so a swoop module entered from a script can return here.
+    std::string originModule;
+    glm::vec3 originPosition(0.0f);
+    float originFacing = 0.0f;
+    bool haveOrigin = false;
+    if (_module) {
+        originModule = _module->name();
+        if (auto leader = _party.getLeader()) {
+            originPosition = leader->position();
+            originFacing = leader->getFacing();
+            haveOrigin = true;
+        }
+    }
+    bool wasLifecycleActive = _swoopLifecycle.active;
+
     loadModule(_nextModule, _nextEntry);
 
     _nextModule.clear();
     _nextEntry.clear();
+
+    // Vanilla K1 swoop entry: a dialogue node fires a script that calls
+    // StartNewModule("<*mg>"); the engine auto-enters the minigame on load (no
+    // dedicated start routine). Route that generic transition through the
+    // forced-success lifecycle harness when the loaded area is a swoop minigame.
+    if (wasLifecycleActive || _swoopLifecycle.active) {
+        return;
+    }
+    if (originModule.empty() || boost::iequals(originModule, target)) {
+        return;
+    }
+    auto mod = _module;
+    if (!mod || !mod->area() || !mod->area()->hasMinigame()) {
+        return;
+    }
+    if (mod->area()->miniGame().type != MinigameType::SwoopRace) {
+        return;
+    }
+
+    openSwoopRace();
+    if (_swoopRace.isActive()) {
+        _swoopLifecycle = SwoopLifecycle();
+        _swoopLifecycle.active = true;
+        _swoopLifecycle.haveOrigin = haveOrigin;
+        _swoopLifecycle.originModule = originModule;
+        _swoopLifecycle.originPosition = originPosition;
+        _swoopLifecycle.originFacing = originFacing;
+        _swoopLifecycle.forcedSuccess = true;
+        _console.printLine(str(boost::format("swoop: script lifecycle start origin=%s target=%s forcedSuccess=yes hook=StartNewModule")
+                               % originModule % target));
+    }
 }
 
 void Game::stopMovement() {
