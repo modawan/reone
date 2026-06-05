@@ -17,6 +17,8 @@
 
 #include "reone/game/object/area.h"
 
+#include "reone/game/minigame.h"
+
 #include "reone/game/camerastyles.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
@@ -147,6 +149,7 @@ void Area::loadARE(const resource::generated::ARE &are) {
     loadStealthXP(are);
     loadGrass(are);
     loadFog(are);
+    loadMiniGame(are);
 }
 
 void Area::loadCameraStyle(const resource::generated::ARE &are) {
@@ -213,6 +216,69 @@ void Area::loadFog(const resource::generated::ARE &are) {
     _fogColor = Gff::colorFromUint32(are.SunFogColor);
 
     applySceneProperties();
+}
+
+void Area::loadMiniGame(const resource::generated::ARE &are) {
+    if (are.MiniGame.Type == 0) {
+        return;
+    }
+    MinigameSpec spec;
+    spec.type = minigameTypeFromUint(are.MiniGame.Type);
+    spec.cameraViewAngle = are.MiniGame.CameraViewAngle;
+    spec.lateralAccel = are.MiniGame.LateralAccel;
+    spec.movementPerSec = are.MiniGame.MovementPerSec;
+    spec.useInertia = are.MiniGame.UseInertia != 0;
+
+    const auto &src = are.MiniGame.Player;
+    spec.player.cameraResRef = src.Camera;
+    spec.player.trackResRef = src.Track;
+    spec.player.minimumSpeed = src.Minimum_Speed;
+    spec.player.maximumSpeed = src.Maximum_Speed;
+    spec.player.accelSecs = src.Accel_Secs;
+    spec.player.sphereRadius = src.Sphere_Radius;
+    spec.player.hitPoints = src.Hit_Points;
+    spec.player.scripts.onCreate = src.Scripts.OnCreate;
+    spec.player.scripts.onDeath = src.Scripts.OnDeath;
+    spec.player.scripts.onTrackLoop = src.Scripts.OnTrackLoop;
+    spec.player.scripts.onDamage = src.Scripts.OnDamage;
+    spec.player.scripts.onAccelerate = src.Scripts.OnAccelerate;
+    spec.player.scripts.onHeartbeat = src.Scripts.OnHeartbeat;
+    for (const auto &m : src.Models) {
+        if (!m.Model.empty()) {
+            spec.player.modelResRefs.push_back(m.Model);
+        }
+    }
+
+    std::set<std::string> seenTracks;
+    auto addTrack = [&](const std::string &ref) {
+        if (!ref.empty() && seenTracks.insert(ref).second) {
+            spec.trackResRefs.push_back(ref);
+        }
+    };
+    addTrack(src.Track);
+
+    for (const auto &e : are.MiniGame.Enemies) {
+        MinigameEnemySpec enemy;
+        enemy.trackResRef = e.Track;
+        enemy.hitPoints = e.Hit_Points;
+        enemy.onCreate = e.Scripts.OnCreate;
+        for (const auto &m : e.Models) {
+            if (!m.Model.empty()) {
+                enemy.modelResRefs.push_back(m.Model);
+            }
+        }
+        spec.enemies.push_back(std::move(enemy));
+        addTrack(e.Track);
+    }
+
+    for (const auto &o : are.MiniGame.Obstacles) {
+        MinigameObstacleSpec obs;
+        obs.name = o.Name;
+        obs.onCreate = o.Scripts.OnCreate;
+        spec.obstacles.push_back(std::move(obs));
+    }
+
+    _miniGameSpec = std::move(spec);
 }
 
 void Area::applySceneProperties() {
