@@ -25,6 +25,7 @@
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/party.h"
+#include "reone/resource/provider/textures.h"
 #include "reone/game/types.h"
 
 using namespace reone::audio;
@@ -84,6 +85,9 @@ void InGameMenu::onGUILoaded() {
         tintK2TopNavigationIcon(_controls.LBLH_JOU, _baseColor);
         tintK2TopNavigationIcon(_controls.LBLH_MAP, _baseColor);
         tintK2TopNavigationIcon(_controls.LBLH_OPT, _baseColor);
+        _controls.LBL_SECTITLE->setBorderFill(std::string());
+        updateK2SectionTitle();
+        _controls.LBL_BACK1->setTintBorderFill(true);
         refreshK2Footer();
     }
 
@@ -255,8 +259,29 @@ void InGameMenu::changeTab(InGameMenuTab tab) {
         gui->clearSelection();
     }
     _tab = tab;
+    updateK2SectionTitle();
     updateTabButtons();
     refreshK2Footer();
+}
+
+void InGameMenu::updateK2SectionTitle() {
+    if (!_game.isTSL() || !_controls.LBL_SECTITLE) {
+        return;
+    }
+
+    auto border = _controls.LBL_SECTITLE->border();
+    border.edge = _services.resource.textures.get("uibit_brdr_16bet", TextureUsage::GUI);
+    border.corner = _services.resource.textures.get("uibit_brdr_16bct", TextureUsage::GUI);
+    border.fill.reset();
+    _controls.LBL_SECTITLE->setBorder(std::move(border));
+
+    auto activeTab = getActiveTabGUI();
+    auto titleControl = activeTab ? activeTab->k2InGameTitleControl() : nullptr;
+    if (titleControl) {
+        _controls.LBL_SECTITLE->setText(titleControl->text());
+    } else {
+        _controls.LBL_SECTITLE->setTextMessage(std::string());
+    }
 }
 
 void InGameMenu::refreshK2Footer() {

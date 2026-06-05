@@ -28,9 +28,10 @@ namespace reone {
 
 namespace gui {
 
+class Control;
 class ListBox;
 
-}
+} // namespace gui
 
 namespace game {
 
@@ -51,6 +52,8 @@ public:
         _gui->clearSelection();
     }
 
+    std::shared_ptr<gui::Control> k2InGameTitleControl() const { return _k2InGameTitleControl; }
+
 protected:
     friend class HUDTestAccess;
 
@@ -60,6 +63,7 @@ protected:
 
     std::shared_ptr<gui::IGUI> _gui;
     std::shared_ptr<audio::AudioSource> _audioSource;
+    std::shared_ptr<gui::Control> _k2InGameTitleControl;
 
     glm::vec3 _baseColor {0.0f};
     glm::vec3 _disabledColor {0.0f};
@@ -93,6 +97,10 @@ protected:
     void useBakedItemSlotArt(gui::ListBox &listBox);
     void tintK2InGameFooter();
     void tintK2InGameHeader();
+    void enableK2ButtonBodyFill(gui::Control &control);
+    void enableK2ButtonBodyFill(const std::shared_ptr<gui::Control> &control);
+    void fillK2SectionStrip(const std::shared_ptr<gui::Control> &topBar, const std::shared_ptr<gui::Control> &bottomBar);
+    void useK2ShellTitle(const std::shared_ptr<gui::Control> &control);
     void updateK2FilterButton(const std::shared_ptr<gui::Control> &button, bool selected);
 
     virtual void configureControls() {}

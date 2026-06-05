@@ -36,8 +36,12 @@ void JournalMenu::onGUILoaded() {
     tintK2InGameHeader();
 
     if (_game.isTSL()) {
+        fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
         _controls.LB_ITEMS->setTintBorderFill(true);
         _controls.LBL_ITEM_DESCRIPTION->setTintBorderFill(true);
+        useK2ShellTitle(_controls.LBL_TITLE);
+        enableK2ButtonBodyFill(_controls.BTN_EXIT);
+        enableK2ButtonBodyFill(_controls.BTN_MESSAGES);
         _controls.BTN_MESSAGES->setOnClick([this]() {
             _game.openInGameMenu(InGameMenuTab::Messages);
         });
