@@ -189,7 +189,7 @@ void SwoopRace::applyBikeTransform() {
     // lean is visual only: it does not affect heading, progress, or strafe.
     float lean = 0.0f;
     if (kMaxLateralSpeed > 0.0f) {
-        lean = -glm::clamp(_lateralVel / kMaxLateralSpeed, -1.0f, 1.0f) * kMaxLeanRadians;
+        lean = glm::clamp(_lateralVel / kMaxLateralSpeed, -1.0f, 1.0f) * kMaxLeanRadians;
     }
 
     glm::mat4 transform(1.0f);
