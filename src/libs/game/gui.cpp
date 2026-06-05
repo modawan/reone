@@ -23,6 +23,7 @@
 #include "reone/game/game.h"
 #include "reone/game/gui/sounds.h"
 #include "reone/graphics/di/services.h"
+#include "reone/gui/control.h"
 #include "reone/gui/control/listbox.h"
 #include "reone/gui/guis.h"
 #include "reone/resource/di/services.h"
@@ -294,6 +295,75 @@ void GameGUI::tintK2InGameHeader() {
             control->setTintBorderFill(true);
         }
     }
+}
+
+void GameGUI::enableK2ButtonBodyFill(Control &control) {
+    if (!_game.isTSL()) {
+        return;
+    }
+
+    auto edge = _services.resource.textures.get("uibit_brdr_16wet", TextureUsage::GUI);
+    auto corner = _services.resource.textures.get("uibit_brdr_16wct", TextureUsage::GUI);
+
+    auto border = control.border();
+    border.edge = edge;
+    border.corner = corner;
+    control.setBorder(std::move(border));
+
+    auto hilight = control.hilight();
+    hilight.edge = std::move(edge);
+    hilight.corner = std::move(corner);
+    control.setHilight(std::move(hilight));
+}
+
+void GameGUI::enableK2ButtonBodyFill(const std::shared_ptr<Control> &control) {
+    if (!control) {
+        return;
+    }
+
+    enableK2ButtonBodyFill(*control);
+}
+
+void GameGUI::fillK2SectionStrip(const std::shared_ptr<Control> &topBar, const std::shared_ptr<Control> &bottomBar) {
+    static constexpr int kLineThickness = 2;
+
+    if (!_game.isTSL() || !topBar || !bottomBar) {
+        return;
+    }
+
+    topBar->setBorderFill("uibit_brdr_16we");
+    topBar->setTintBorderFill(true);
+
+    bottomBar->setBorderFill("uibit_brdr_16we");
+    bottomBar->setBorderFillTransform(Control::Border::FillTransform::Rotate180);
+    bottomBar->setTintBorderFill(true);
+
+    auto &upper = topBar->extent();
+    auto &lower = bottomBar->extent();
+    int lowerLineTop = lower.top + kLineThickness;
+    bottomBar->setExtentTop(lowerLineTop - lower.height);
+
+    int top = upper.top;
+    int height = lowerLineTop - top;
+    if (height <= 0) {
+        return;
+    }
+
+    auto fill = std::shared_ptr<Control>(_gui->newControl(ControlType::Label, topBar->tag() + "_SECTION_FILL"));
+    fill->setExtent({upper.left, top, upper.width, height});
+    fill->setBorderFill("uibit_fill_2wt");
+    fill->setBorderColor(topBar->border().color);
+    fill->setTintBorderFill(true);
+    _gui->addControlToFront(std::move(fill));
+}
+
+void GameGUI::useK2ShellTitle(const std::shared_ptr<Control> &control) {
+    if (!_game.isTSL() || !control) {
+        return;
+    }
+
+    _k2InGameTitleControl = control;
+    control->setVisible(false);
 }
 
 void GameGUI::updateK2FilterButton(const std::shared_ptr<Control> &button, bool selected) {

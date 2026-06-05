@@ -33,6 +33,23 @@ void OptionsMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
 
+    if (_game.isTSL()) {
+        fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
+        _controls.LB_DESC->setTintBorderFill(true);
+        useK2ShellTitle(_controls.LBL_TITLE);
+        for (auto &button : {
+                 _controls.BTN_SAVEGAME,
+                 _controls.BTN_LOADGAME,
+                 _controls.BTN_GAMEPLAY,
+                 _controls.BTN_FEEDBACK,
+                 _controls.BTN_AUTOPAUSE,
+                 _controls.BTN_GRAPHICS,
+                 _controls.BTN_SOUND,
+                 _controls.BTN_QUIT,
+                 _controls.BTN_EXIT}) {
+            enableK2ButtonBodyFill(button);
+        }
+    }
     _controls.BTN_LOADGAME->setOnClick([this]() {
         _game.openSaveLoad(SaveLoadMode::LoadFromInGame);
     });

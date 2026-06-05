@@ -63,6 +63,16 @@ void MessagesMenu::onGUILoaded() {
         return;
     }
 
+    useK2ShellTitle(_controls.LBL_MESSAGES);
+    enableK2ButtonBodyFill(_controls.BTN_EXIT);
+    _controls.LB_DIALOG->setTintBorderFill(true);
+    _controls.LB_MESSAGES->setTintBorderFill(true);
+    _controls.LB_COMBAT->setTintBorderFill(true);
+    _controls.LB_EFFECTS_GOOD->setTintBorderFill(true);
+    _controls.LB_EFFECTS_BAD->setTintBorderFill(true);
+    _controls.LBL_EFFECTS_GOOD->setTintBorderFill(true);
+    _controls.LBL_EFFECTS_BAD->setTintBorderFill(true);
+
     _controls.BTN_DIALOG->setOnClick([this]() {
         setFilter(Filter::Dialog);
     });
