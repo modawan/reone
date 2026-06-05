@@ -118,6 +118,13 @@ void Equipment::onGUILoaded() {
     if (_controls.BTN_CHANGE2) {
         _controls.BTN_CHANGE2->setSelectable(false);
     }
+    if (_game.isTSL()) {
+        useK2ShellTitle(_controls.LBL_TITLE);
+        fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
+        for (auto &button : {_controls.BTN_BACK, _controls.BTN_EQUIP, _controls.BTN_SWAPWEAPONS}) {
+            enableK2ButtonBodyFill(button);
+        }
+    }
     // _controls.btnCharLeft->setVisible(false);
     // _controls.btnCharRight->setVisible(false);
     _controls.LB_DESC->setVisible(false);
@@ -191,12 +198,17 @@ void Equipment::configureItemsListBox() {
     });
 
     auto &protoItem = _controls.LB_ITEMS->protoItem();
-    protoItem.setBorderColor(_baseColor);
-    protoItem.setHilightColor(_hilightColor);
 
     if (_game.isTSL()) {
+        enableK2ButtonBodyFill(protoItem);
+        protoItem.setBorderFill("uibit_fill_2wt");
+        protoItem.setHilightFill("uibit_fill_2wt");
+        protoItem.setTintBorderFill(true);
         tintK2PanelFill(_controls.LB_ITEMS, _baseColor);
         tintK2PanelFill(_controls.LB_DESC, _baseColor);
+    } else {
+        protoItem.setBorderColor(_baseColor);
+        protoItem.setHilightColor(_hilightColor);
     }
 }
 
@@ -422,11 +434,6 @@ void Equipment::tintK2LoadoutOverlay() {
     // Preserve the muted K2 panel colours authored in equip_p.gui.
     enableBorderFillTint(_controls.LBL_BACK1);
     enableBorderFillTint(_controls.LBL_DEF_BACK);
-    enableBorderFillTint(_controls.LBL_BAR1);
-    enableBorderFillTint(_controls.LBL_BAR2);
-    enableBorderFillTint(_controls.LBL_BAR3);
-    enableBorderFillTint(_controls.LBL_BAR4);
-    enableBorderFillTint(_controls.LBL_BAR5);
 }
 
 void Equipment::updateK2LoadoutOverlayVisibility(bool visible) {
