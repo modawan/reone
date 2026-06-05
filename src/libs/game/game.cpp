@@ -515,6 +515,13 @@ bool Game::handleMouseButtonUp(const input::MouseButtonEvent &event) {
 void Game::loadModule(const std::string &name, std::string entry, bool fromSave) {
     info("Loading module '" + name + "'");
 
+    // Tear down an active race before the current area (and its camera/scene)
+    // is unloaded, so no dangling references survive the transition.
+    if (_swoopRace.isActive()) {
+        _swoopRace.stop();
+        _cameraType = _savedCameraType;
+    }
+
     if (_screen == Screen::Conversation && _conversation) {
         _conversation->cleanupForModuleTransition();
     }
@@ -1373,17 +1380,39 @@ void Game::openSwoopRace() {
         camera->stopMovement();
     }
 
+    // Choose the first non-empty player model resref as the visible bike body.
+    // Vanilla loads the entire Models list plus a separate camera-hook model;
+    // a single body is sufficient for this developer slice.
+    std::string modelResRef;
+    for (const auto &resRef : mg.player.modelResRefs) {
+        if (!resRef.empty()) {
+            modelResRef = resRef;
+            break;
+        }
+    }
+
+    std::shared_ptr<ModelSceneNode> bikeNode;
+    if (!modelResRef.empty()) {
+        auto model = _services.resource.models.get(modelResRef);
+        if (model) {
+            auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
+            bikeNode = sceneGraph.newModel(*model, ModelUsage::Placeable);
+            bikeNode->setDrawDistance(_options.graphics.drawDistance);
+            sceneGraph.addRoot(bikeNode);
+        }
+    }
+
     _savedCameraType = _cameraType;
-    _swoopRace.start(mg, camera, leader->position(), leader->getFacing());
+    _swoopRace.start(mg, camera, bikeNode, modelResRef, leader->position(), leader->getFacing());
 
     _cameraType = CameraType::FirstPerson;
     setRelativeMouseMode(false);
     changeScreen(Screen::SwoopRace);
 
-    _console.printLine(str(boost::format("swoop: started type=%s track=%s models=%zu movePerSec=%.0f lataccel=%.0f camfov=%.0f")
+    _console.printLine(str(boost::format("swoop: started type=%s track=%s model=%s camera=chase movePerSec=%.0f lataccel=%.0f camfov=%.0f")
                            % minigameTypeName(mg.type)
                            % mg.player.trackResRef
-                           % mg.player.modelResRefs.size()
+                           % (modelResRef.empty() ? std::string("<none>") : modelResRef)
                            % mg.movementPerSec
                            % mg.lateralAccel
                            % mg.cameraViewAngle));
@@ -1393,6 +1422,9 @@ void Game::closeSwoopRace() {
     if (!_swoopRace.isActive()) {
         _console.printLine("swoop: not active");
         return;
+    }
+    if (auto bikeNode = _swoopRace.bikeNode()) {
+        _services.scene.graphs.get(kSceneMain).removeRoot(*bikeNode);
     }
     _swoopRace.stop();
     _cameraType = _savedCameraType;
