@@ -66,6 +66,7 @@
 #include "reone/resource/provider/dialogs.h"
 #include "reone/resource/provider/fonts.h"
 #include "reone/resource/provider/gffs.h"
+#include "reone/resource/provider/layouts.h"
 #include "reone/resource/provider/lips.h"
 #include "reone/resource/provider/models.h"
 #include "reone/resource/provider/movies.h"
@@ -1362,23 +1363,26 @@ namespace {
 struct SwoopTrackFrame {
     glm::vec3 position {0.0f};
     float facing {0.0f};
-    std::string mode {"fallback"}; // "track-model" or "fallback"
+    std::string mode {"fallback"}; // "lyt-track", "track-model", or "fallback"
     std::string reason;            // why fallback was used
     std::string info;              // concise track inspection details
 };
 
 // Max 2D distance (world units) the track's start hook may be from the party
-// leader for the track frame to be trusted. reone does not yet parse the LYT
-// placement of minigame tracks, so a standalone-loaded track model that sits in
-// a different frame than the party would otherwise teleport the bike into the
-// void; this guard keeps the proven leader-anchored fallback in that case.
+// leader to be trusted WITHOUT an LYT placement. With an LYT track placement the
+// hook is in module/world space, so this guard does not apply; without one a
+// standalone-loaded track model may sit in a different frame and would otherwise
+// teleport the bike into the void, so the proven leader anchor is kept.
 constexpr float kTrackFrameMaxDistance = 64.0f;
 
 // Derive the bike start frame from the player track model's "modelhook" node
-// (vanilla parents the player to this node). Falls back to the leader frame
-// unless the hook resolves in the party's world frame.
+// (vanilla parents the player to this node). When an LYT track placement is
+// supplied, the hook is placed into module/world space and used unconditionally;
+// otherwise it is trusted only if it already resolves near the party leader,
+// falling back to the leader frame.
 SwoopTrackFrame deriveSwoopTrackFrame(const std::shared_ptr<graphics::Model> &trackModel,
                                       const std::string &trackResRef,
+                                      const glm::vec3 *lytTrackPos,
                                       const glm::vec3 &leaderPos,
                                       float leaderFacing) {
     SwoopTrackFrame frame;
@@ -1398,27 +1402,46 @@ SwoopTrackFrame deriveSwoopTrackFrame(const std::shared_ptr<graphics::Model> &tr
     auto hook = trackModel->getNodeByNameRecursive("modelhook");
     if (!hook) {
         frame.reason = "no-modelhook";
-        frame.info = str(boost::format("modelhook=no anims=%zu") % animCount);
+        frame.info = str(boost::format("modelhook=no placement=%s anims=%zu")
+                         % (lytTrackPos ? "yes" : "no") % animCount);
         return frame;
     }
 
     const glm::mat4 &abs = hook->absoluteTransform();
-    glm::vec3 hookPos(abs[3]);
+    glm::vec3 hookLocal(abs[3]);
+    // Engine facing convention: forward = (-sin f, cos f). The LYT track
+    // placement carries no rotation, so the hook's model-space orientation is
+    // also its world orientation.
     glm::vec3 forward = glm::normalize(glm::vec3(glm::mat3(abs) * glm::vec3(0.0f, 1.0f, 0.0f)));
-    float dist = glm::distance(glm::vec2(hookPos), glm::vec2(leaderPos));
-    frame.info = str(boost::format("modelhook=yes anims=%zu hook=[%.1f,%.1f,%.1f] dist=%.1f")
-                     % animCount % hookPos.x % hookPos.y % hookPos.z % dist);
+    float facing = glm::atan(-forward.x, forward.y);
 
-    if (dist > kTrackFrameMaxDistance) {
-        // Track model is not in the party's world frame (LYT track placement not
-        // parsed yet); keep the safe leader anchor.
-        frame.reason = "track-not-in-world-frame";
+    if (lytTrackPos) {
+        // Combine the LYT placement (translation only) with the modelhook's
+        // model-local transform to get the hook in module/world space.
+        glm::vec3 start = *lytTrackPos + hookLocal;
+        frame.position = start;
+        frame.facing = facing;
+        frame.mode = "lyt-track";
+        frame.info = str(boost::format("modelhook=yes placement=yes anims=%zu lyt=[%.1f,%.1f,%.1f] hook=[%.1f,%.1f,%.1f] start=[%.1f,%.1f,%.1f]")
+                         % animCount
+                         % lytTrackPos->x % lytTrackPos->y % lytTrackPos->z
+                         % hookLocal.x % hookLocal.y % hookLocal.z
+                         % start.x % start.y % start.z);
         return frame;
     }
 
-    frame.position = hookPos;
-    // Engine facing convention: forward = (-sin f, cos f).
-    frame.facing = glm::atan(-forward.x, forward.y);
+    float dist = glm::distance(glm::vec2(hookLocal), glm::vec2(leaderPos));
+    frame.info = str(boost::format("modelhook=yes placement=no anims=%zu hook=[%.1f,%.1f,%.1f] dist=%.1f")
+                     % animCount % hookLocal.x % hookLocal.y % hookLocal.z % dist);
+
+    if (dist > kTrackFrameMaxDistance) {
+        // No LYT placement and the hook is not in the party's world frame.
+        frame.reason = "no-lyt-track-placement";
+        return frame;
+    }
+
+    frame.position = hookLocal;
+    frame.facing = facing;
     frame.mode = "track-model";
     return frame;
 }
@@ -1480,14 +1503,25 @@ void Game::openSwoopRace() {
         modelDiag.push_back(resRef + " loaded");
     }
 
-    // Anchor the race to the authored player track when it resolves in the
-    // party's world frame, otherwise fall back to the leader frame.
+    // Anchor the race to the authored player track. Prefer the LYT track
+    // placement (module/world space); otherwise fall back as before.
     std::shared_ptr<graphics::Model> trackModel;
     if (!mg.player.trackResRef.empty()) {
         trackModel = _services.resource.models.get(mg.player.trackResRef);
     }
+    glm::vec3 lytTrackPos(0.0f);
+    bool haveLytTrackPos = false;
+    if (!mg.player.trackResRef.empty()) {
+        if (auto layout = _services.resource.layouts.get(area->name())) {
+            if (auto placement = layout->findTrackByName(mg.player.trackResRef)) {
+                lytTrackPos = placement->get().position;
+                haveLytTrackPos = true;
+            }
+        }
+    }
     SwoopTrackFrame trackFrame = deriveSwoopTrackFrame(
-        trackModel, mg.player.trackResRef, leader->position(), leader->getFacing());
+        trackModel, mg.player.trackResRef, haveLytTrackPos ? &lytTrackPos : nullptr,
+        leader->position(), leader->getFacing());
 
     _savedCameraType = _cameraType;
     size_t loadedCount = bikeNodes.size();
@@ -1506,18 +1540,20 @@ void Game::openSwoopRace() {
                            % mg.lateralAccel
                            % mg.cameraViewAngle));
 
-    // Track frame: rail/track-model/fallback mode and how the start frame was
-    // chosen (see deriveSwoopTrackFrame).
-    if (trackFrame.mode == "track-model") {
-        _console.printLine(str(boost::format("swoop: track=%s mode=track-model %s startFacing=%.2f")
-                               % (mg.player.trackResRef.empty() ? std::string("<none>") : mg.player.trackResRef)
-                               % trackFrame.info
-                               % trackFrame.facing));
-    } else {
+    // Track frame: lyt-track/track-model/fallback mode and how the start frame
+    // was chosen (see deriveSwoopTrackFrame).
+    std::string trackLabel(mg.player.trackResRef.empty() ? std::string("<none>") : mg.player.trackResRef);
+    if (trackFrame.mode == "fallback") {
         _console.printLine(str(boost::format("swoop: track=%s mode=fallback reason=%s%s")
-                               % (mg.player.trackResRef.empty() ? std::string("<none>") : mg.player.trackResRef)
+                               % trackLabel
                                % trackFrame.reason
                                % (trackFrame.info.empty() ? std::string() : (" " + trackFrame.info))));
+    } else {
+        _console.printLine(str(boost::format("swoop: track=%s mode=%s %s startFacing=%.2f")
+                               % trackLabel
+                               % trackFrame.mode
+                               % trackFrame.info
+                               % trackFrame.facing));
     }
 
     // Lateral bounds chosen for steering (see SwoopRace::computeLateralBounds).
@@ -2436,6 +2472,17 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
     }
     for (size_t i = 0; i < mg.obstacles.size(); ++i) {
         _console.printLine(str(boost::format("    obstacle[%zu] name=%s") % i % mg.obstacles[i].name));
+    }
+    if (auto layout = _services.resource.layouts.get(area->name())) {
+        auto placement = layout->findTrackByName(mg.player.trackResRef);
+        if (placement) {
+            const auto &p = placement->get().position;
+            _console.printLine(str(boost::format("  lyt tracks=%zu playerTrack=%s pos=[%.1f,%.1f,%.1f]")
+                                   % layout->tracks.size() % mg.player.trackResRef % p.x % p.y % p.z));
+        } else {
+            _console.printLine(str(boost::format("  lyt tracks=%zu playerTrack=%s pos=<not found>")
+                                   % layout->tracks.size() % mg.player.trackResRef));
+        }
     }
     const auto &sc = mg.player.scripts;
     if (!sc.onCreate.empty() || !sc.onDeath.empty() || !sc.onTrackLoop.empty()) {
