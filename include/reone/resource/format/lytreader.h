@@ -36,13 +36,15 @@ private:
         None,
         Layout,
         Rooms,
-        Tracks
+        Tracks,
+        Obstacles
     };
 
     std::filesystem::path _path;
     State _state {State::None};
     int _roomCount {0};
     int _trackCount {0};
+    int _obstacleCount {0};
 
     Layout _layout;
 
@@ -50,6 +52,7 @@ private:
 
     void appendRoom(const std::vector<std::string> &tokens);
     void appendTrack(const std::vector<std::string> &tokens);
+    void appendObstacle(const std::vector<std::string> &tokens);
 };
 
 } // namespace resource
