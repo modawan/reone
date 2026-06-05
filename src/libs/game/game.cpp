@@ -1688,9 +1688,11 @@ void Game::finishSwoopLifecycle(bool success) {
         return;
     }
     // Capture and clear the session first so the upcoming module load does not
-    // re-enter this path.
+    // re-enter this path. The current module (before returning) is the race
+    // module, which selects the planet-specific result contract.
     SwoopLifecycle session = _swoopLifecycle;
     _swoopLifecycle = SwoopLifecycle();
+    std::string raceModule = _module ? _module->name() : "";
 
     // Stop the race (removes bike models, restores camera/FOV/input, screen).
     closeSwoopRace();
@@ -1710,9 +1712,40 @@ void Game::finishSwoopLifecycle(bool success) {
         }
     }
 
+    if (success) {
+        applySwoopForcedSuccessResult(raceModule);
+    }
+
     _console.printLine(str(boost::format("swoop: finished forcedSuccess=%s returning=%s")
                            % (success ? "yes" : "no")
                            % session.originModule));
+}
+
+void Game::applySwoopForcedSuccessResult(const std::string &raceModule) {
+    // K1 Taris swoop result contract, confirmed from local assets:
+    //   tar_m03mg.are -> player OnHeartbeat = "heartbeat" records the run time in
+    //     globals TAR_SWOOP_MIN / TAR_SWOOP_SEC / TAR_SWOOP_MSEC.
+    //   tar_m03af / k_ptar_postswoop.ncs compares that time against the
+    //     TAR_SWOOP_*_BEAT targets and sets the story-progression global
+    //     Tar_SwoopStatus (plus Tar_SwoopRaceCounter); the post-race dialogue
+    //     conditionals (k_ptar_swoop*) branch on Tar_SwoopStatus.
+    // Forced success records a best-possible finish time (0) and runs the
+    // vanilla result script, so the GAME's own logic decides and sets the win
+    // state - no guessed result values. Other planets are not yet wired.
+    if (!boost::iequals(raceModule, "tar_m03mg")) {
+        return;
+    }
+    setGlobalNumber("TAR_SWOOP_MIN", 0);
+    setGlobalNumber("TAR_SWOOP_SEC", 0);
+    setGlobalNumber("TAR_SWOOP_MSEC", 0);
+
+    uint32_t callerId = 0;
+    if (auto leader = _party.getLeader()) {
+        callerId = leader->id();
+    }
+    scriptRunner().run("k_ptar_postswoop", callerId);
+
+    _console.printLine("swoop: result forcedSuccess=yes planet=taris script=k_ptar_postswoop globals=TAR_SWOOP_MIN/SEC/MSEC=0,Tar_SwoopStatus(via script)");
 }
 
 void Game::openInGameMenu(InGameMenuTab tab) {

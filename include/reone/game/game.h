@@ -463,6 +463,11 @@ private:
     // (restoring the leader's position/facing). Safe no-op if no lifecycle race.
     void finishSwoopLifecycle(bool success);
 
+    // Apply the planet-specific forced-success race result for the given race
+    // module (K1 Taris confirmed; others no-op). Sets the player's finish-time
+    // globals and runs the vanilla post-race result script.
+    void applySwoopForcedSuccessResult(const std::string &raceModule);
+
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleMouseMotion(const input::MouseMotionEvent &event);
     bool handleMouseButtonDown(const input::MouseButtonEvent &event);
