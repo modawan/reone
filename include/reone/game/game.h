@@ -480,6 +480,7 @@ private:
     // module (K1 Taris confirmed; others no-op). Sets the player's finish-time
     // globals and runs the vanilla post-race result script.
     void applySwoopForcedSuccessResult(const std::string &raceModule);
+    void applyTarisForcedWinningTime();
 
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleMouseMotion(const input::MouseMotionEvent &event);

@@ -1807,6 +1807,36 @@ std::string Game::swoopReturnWaypoint(const std::string &raceModule) const {
     return "";
 }
 
+void Game::applyTarisForcedWinningTime() {
+    // Read the current heat's time-to-beat. k_ptar_racefirst sets these to
+    // MIN_BEAT=0 / SEC_BEAT=38 / MSEC_BEAT=43 for heat 1 (total=3843 in the
+    // vanilla comparison unit: MIN*10000 + SEC*100 + MSEC, confirmed by
+    // disassembly of k_ptar_postswoop.ncs subroutine at 0x0524).
+    //
+    // We must win by playerTotal < beatTotal AND playerTotal must be large
+    // enough that the win-handler's beat update (k_ptar_postswoop 0x0572,
+    // new_beat = player - 25cs) stays positive. At player=0:00.00 that
+    // subtraction underflows to MIN_BEAT=-1 (total=-4025), making every
+    // subsequent heat unwinnable.
+    int beatMin  = getGlobalNumber("TAR_SWOOP_MIN_BEAT");
+    int beatSec  = getGlobalNumber("TAR_SWOOP_SEC_BEAT");
+    int beatMsec = getGlobalNumber("TAR_SWOOP_MSEC_BEAT");
+    int beatTotal = beatMin * 10000 + beatSec * 100 + beatMsec;
+
+    // Win by 1 centisecond. The minimum valid player total is 26 so that the
+    // next heat's beat (playerTotal - 25) stays strictly positive.
+    int playerTotal = (beatTotal > 26) ? (beatTotal - 1) : 26;
+
+    setGlobalNumber("TAR_SWOOP_MIN",  playerTotal / 10000);
+    setGlobalNumber("TAR_SWOOP_SEC",  (playerTotal % 10000) / 100);
+    setGlobalNumber("TAR_SWOOP_MSEC", playerTotal % 100);
+
+    _console.printLine(str(boost::format(
+        "swoop: taris beat=%d:%d.%d player=%d:%d.%d") %
+        beatMin % beatSec % beatMsec %
+        (playerTotal / 10000) % ((playerTotal % 10000) / 100) % (playerTotal % 100)));
+}
+
 void Game::applySwoopForcedSuccessResult(const std::string &raceModule) {
     // K1 Taris swoop result contract, confirmed from local assets:
     //   tar_m03mg.are -> player OnHeartbeat = "heartbeat" is the race brain. At
@@ -1822,21 +1852,19 @@ void Game::applySwoopForcedSuccessResult(const std::string &raceModule) {
     //     and starts the announcer/Brejik scene (ActionStartConversation, using
     //     the entering PC).
     // So forced success must reproduce heartbeat's race-state outputs: set
-    // TAR_SWOOP_RUN = TRUE (the confirmed value) so postswoop passes its guard,
-    // and a best-possible finish time (0) so it computes a win. The win state
-    // (Tar_SwoopStatus) and the scene are then produced by the vanilla trigger
-    // ->postswoop chain in proper context (see Area::updateLeaderTriggerOccupancy
-    // and the return-waypoint placement). No result/winner globals are set here.
+    // TAR_SWOOP_RUN = TRUE so postswoop passes its guard, then choose a player
+    // time strictly less than TAR_SWOOP_*_BEAT so postswoop computes a win.
+    // Win state (Tar_SwoopStatus) and the scene are produced by the vanilla
+    // trigger->postswoop chain (see Area::updateLeaderTriggerOccupancy and the
+    // return-waypoint placement). No result/winner globals are set here.
     // Other planets are not yet wired.
     if (!boost::iequals(raceModule, "tar_m03mg")) {
         return;
     }
     setGlobalBoolean("TAR_SWOOP_RUN", true);
-    setGlobalNumber("TAR_SWOOP_MIN", 0);
-    setGlobalNumber("TAR_SWOOP_SEC", 0);
-    setGlobalNumber("TAR_SWOOP_MSEC", 0);
+    applyTarisForcedWinningTime();
 
-    _console.printLine("swoop: result forcedSuccess=yes planet=taris TAR_SWOOP_RUN=1 time=TAR_SWOOP_MIN/SEC/MSEC=0 handoff=trigger:tar03_postrace->k_ptar_postswoop mechanism=leader-trigger-occupancy");
+    _console.printLine("swoop: result forcedSuccess=yes planet=taris handoff=trigger:tar03_postrace->k_ptar_postswoop");
 }
 
 void Game::openInGameMenu(InGameMenuTab tab) {
