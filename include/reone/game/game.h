@@ -467,6 +467,11 @@ private:
     // (restoring the leader's position/facing). Safe no-op if no lifecycle race.
     void finishSwoopLifecycle(bool success);
 
+    // Show/hide the active party creatures. Used to suppress the normal party
+    // while a minigame is running: vanilla does not add the party to the scene
+    // in a minigame module (the minigame actor represents the player).
+    void setPartyVisible(bool visible);
+
     // The vanilla race-end return waypoint tag for the given race module (the
     // StartNewModule startpoint the race-end script uses), or "" if unknown.
     std::string swoopReturnWaypoint(const std::string &raceModule) const;
