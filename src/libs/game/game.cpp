@@ -1579,6 +1579,12 @@ void Game::openSwoopRace() {
     setRelativeMouseMode(false);
     changeScreen(Screen::SwoopRace);
 
+    // Hide the normal party while the minigame runs. Vanilla does not add the
+    // party to the scene in a minigame module (the swoop bike actor represents
+    // the player); otherwise the frozen-but-rendered party leader appears on the
+    // track. Restored on exit (or naturally re-spawned on the return module).
+    setPartyVisible(false);
+
     _console.printLine(str(boost::format("swoop: started type=%s track=%s models=%zu loaded=%zu camera=chase movePerSec=%.0f lataccel=%.0f camfov=%.0f")
                            % minigameTypeName(mg.type)
                            % mg.player.trackResRef
@@ -1667,10 +1673,19 @@ void Game::closeSwoopRace() {
         }
     }
     _swoopRace.stop();
+    setPartyVisible(true);
     _cameraType = _savedCameraType;
     setRelativeMouseMode(_cameraType == CameraType::FirstPerson);
     openInGame();
     _console.printLine("swoop: stopped");
+}
+
+void Game::setPartyVisible(bool visible) {
+    for (auto &member : _party.members()) {
+        if (member.creature) {
+            member.creature->setVisible(visible);
+        }
+    }
 }
 
 void Game::exitSwoopRace() {
