@@ -760,6 +760,7 @@ void Area::update(float dt) {
     for (auto &object : _objects) {
         object->update(dt);
     }
+    updateLeaderTriggerOccupancy();
     updatePerception(dt);
     updateMessageBus();
     updateHeartbeat(dt);
@@ -982,7 +983,7 @@ void Area::updateVisibility() {
     }
 }
 
-void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer) {
+void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, bool fireTransitions) {
     glm::vec2 position2d(triggerrer->position());
 
     for (auto &object : _objectsByType[ObjectType::Trigger]) {
@@ -992,15 +993,32 @@ void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer) 
         if (trigger->isTenant(triggerrer) || !inside) {
             continue;
         }
+        bool transition = !trigger->linkedToModule().empty();
+        if (transition && !fireTransitions) {
+            // Leave module-transition triggers to movement-based firing so a
+            // creature placed inside one is not immediately warped out.
+            continue;
+        }
         debug(str(boost::format("Trigger '%s' triggerred by '%s'") % trigger->tag() % triggerrer->tag()));
         trigger->addTenant(triggerrer);
         trigger->markDebugEntered();
 
-        if (!trigger->linkedToModule().empty()) {
+        if (transition) {
             _game.scheduleModuleTransition(trigger->linkedToModule(), trigger->linkedTo());
             return;
         }
     }
+}
+
+void Area::updateLeaderTriggerOccupancy() {
+    auto leader = _game.party().getLeader();
+    if (!leader) {
+        return;
+    }
+    // Fire occupancy-based OnEnter for script triggers (transitions excluded),
+    // so authored module-entry/cutscene triggers run even when the leader is
+    // placed inside them rather than walking across the boundary.
+    checkTriggersIntersection(leader, /*fireTransitions=*/false);
 }
 
 void Area::updateHeartbeat(float dt) {

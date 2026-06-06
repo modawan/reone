@@ -1725,13 +1725,16 @@ void Game::applySwoopForcedSuccessResult(const std::string &raceModule) {
     // K1 Taris swoop result contract, confirmed from local assets:
     //   tar_m03mg.are -> player OnHeartbeat = "heartbeat" records the run time in
     //     globals TAR_SWOOP_MIN / TAR_SWOOP_SEC / TAR_SWOOP_MSEC.
-    //   tar_m03af / k_ptar_postswoop.ncs compares that time against the
-    //     TAR_SWOOP_*_BEAT targets and sets the story-progression global
-    //     Tar_SwoopStatus (plus Tar_SwoopRaceCounter); the post-race dialogue
-    //     conditionals (k_ptar_swoop*) branch on Tar_SwoopStatus.
-    // Forced success records a best-possible finish time (0) and runs the
-    // vanilla result script, so the GAME's own logic decides and sets the win
-    // state - no guessed result values. Other planets are not yet wired.
+    //   The post-race scene is the "tar03_postrace" trigger, whose ScriptOnEnter
+    //     is k_ptar_postswoop: it compares that time against the TAR_SWOOP_*_BEAT
+    //     targets, sets the story global Tar_SwoopStatus, and starts the
+    //     announcer/Brejik scene using GetEnteringObject() (the PC).
+    // Forced success records only a best-possible finish time (0); the post-race
+    // scene itself is fired by the vanilla trigger when the returned leader
+    // occupies it (see Area::updateLeaderTriggerOccupancy), so k_ptar_postswoop
+    // runs in its proper trigger-enter context (valid entering PC) rather than
+    // being executed out of context. No result/winner values are set here.
+    // Other planets are not yet wired.
     if (!boost::iequals(raceModule, "tar_m03mg")) {
         return;
     }
@@ -1739,13 +1742,7 @@ void Game::applySwoopForcedSuccessResult(const std::string &raceModule) {
     setGlobalNumber("TAR_SWOOP_SEC", 0);
     setGlobalNumber("TAR_SWOOP_MSEC", 0);
 
-    uint32_t callerId = 0;
-    if (auto leader = _party.getLeader()) {
-        callerId = leader->id();
-    }
-    scriptRunner().run("k_ptar_postswoop", callerId);
-
-    _console.printLine("swoop: result forcedSuccess=yes planet=taris script=k_ptar_postswoop globals=TAR_SWOOP_MIN/SEC/MSEC=0,Tar_SwoopStatus(via script)");
+    _console.printLine("swoop: result forcedSuccess=yes planet=taris time=TAR_SWOOP_MIN/SEC/MSEC=0 handoff=trigger:tar03_postrace->k_ptar_postswoop mechanism=leader-trigger-occupancy");
 }
 
 void Game::openInGameMenu(InGameMenuTab tab) {
