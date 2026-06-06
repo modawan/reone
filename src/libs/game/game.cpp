@@ -1794,26 +1794,34 @@ std::string Game::swoopReturnWaypoint(const std::string &raceModule) const {
 
 void Game::applySwoopForcedSuccessResult(const std::string &raceModule) {
     // K1 Taris swoop result contract, confirmed from local assets:
-    //   tar_m03mg.are -> player OnHeartbeat = "heartbeat" records the run time in
-    //     globals TAR_SWOOP_MIN / TAR_SWOOP_SEC / TAR_SWOOP_MSEC.
+    //   tar_m03mg.are -> player OnHeartbeat = "heartbeat" is the race brain. At
+    //     race start it sets the boolean global TAR_SWOOP_RUN = TRUE
+    //     (SetGlobalBoolean) and records the run time in TAR_SWOOP_MIN / _SEC /
+    //     _MSEC; reone substitutes the race and never runs heartbeat.
     //   The post-race scene is the "tar03_postrace" trigger, whose ScriptOnEnter
-    //     is k_ptar_postswoop: it compares that time against the TAR_SWOOP_*_BEAT
-    //     targets, sets the story global Tar_SwoopStatus, and starts the
-    //     announcer/Brejik scene using GetEnteringObject() (the PC).
-    // Forced success records only a best-possible finish time (0); the post-race
-    // scene itself is fired by the vanilla trigger when the returned leader
-    // occupies it (see Area::updateLeaderTriggerOccupancy), so k_ptar_postswoop
-    // runs in its proper trigger-enter context (valid entering PC) rather than
-    // being executed out of context. No result/winner values are set here.
+    //     is k_ptar_postswoop. Disassembly of k_ptar_postswoop.ncs shows it
+    //     begins with: if (!GetGlobalBoolean("TAR_SWOOP_RUN")) return; then
+    //     SetGlobalBoolean("TAR_SWOOP_RUN", FALSE); compares the run time vs the
+    //     TAR_SWOOP_*_BEAT targets; SetGlobalNumber("Tar_SwoopStatus", 2) when
+    //     the player time is lower (won) else 1; increments Tar_SwoopRaceCounter;
+    //     and starts the announcer/Brejik scene (ActionStartConversation, using
+    //     the entering PC).
+    // So forced success must reproduce heartbeat's race-state outputs: set
+    // TAR_SWOOP_RUN = TRUE (the confirmed value) so postswoop passes its guard,
+    // and a best-possible finish time (0) so it computes a win. The win state
+    // (Tar_SwoopStatus) and the scene are then produced by the vanilla trigger
+    // ->postswoop chain in proper context (see Area::updateLeaderTriggerOccupancy
+    // and the return-waypoint placement). No result/winner globals are set here.
     // Other planets are not yet wired.
     if (!boost::iequals(raceModule, "tar_m03mg")) {
         return;
     }
+    setGlobalBoolean("TAR_SWOOP_RUN", true);
     setGlobalNumber("TAR_SWOOP_MIN", 0);
     setGlobalNumber("TAR_SWOOP_SEC", 0);
     setGlobalNumber("TAR_SWOOP_MSEC", 0);
 
-    _console.printLine("swoop: result forcedSuccess=yes planet=taris time=TAR_SWOOP_MIN/SEC/MSEC=0 handoff=trigger:tar03_postrace->k_ptar_postswoop mechanism=leader-trigger-occupancy");
+    _console.printLine("swoop: result forcedSuccess=yes planet=taris TAR_SWOOP_RUN=1 time=TAR_SWOOP_MIN/SEC/MSEC=0 handoff=trigger:tar03_postrace->k_ptar_postswoop mechanism=leader-trigger-occupancy");
 }
 
 void Game::openInGameMenu(InGameMenuTab tab) {
