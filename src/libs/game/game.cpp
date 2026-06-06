@@ -1813,28 +1813,52 @@ void Game::applyTarisForcedWinningTime() {
     // vanilla comparison unit: MIN*10000 + SEC*100 + MSEC, confirmed by
     // disassembly of k_ptar_postswoop.ncs subroutine at 0x0524).
     //
-    // We must win by playerTotal < beatTotal AND playerTotal must be large
-    // enough that the win-handler's beat update (k_ptar_postswoop 0x0572,
-    // new_beat = player - 25cs) stays positive. At player=0:00.00 that
-    // subtraction underflows to MIN_BEAT=-1 (total=-4025), making every
+    // We must win (playerTotal < beatTotal) AND keep playerTotal > 25 so that
+    // the win-handler's beat update (k_ptar_postswoop 0x0572,
+    // new_beat = playerTime - 25cs) stays strictly positive. Setting
+    // player=0:00.00 underflows to MIN_BEAT=-1 (total=-4025), making every
     // subsequent heat unwinnable.
     int beatMin  = getGlobalNumber("TAR_SWOOP_MIN_BEAT");
     int beatSec  = getGlobalNumber("TAR_SWOOP_SEC_BEAT");
     int beatMsec = getGlobalNumber("TAR_SWOOP_MSEC_BEAT");
     int beatTotal = beatMin * 10000 + beatSec * 100 + beatMsec;
 
-    // Win by 1 centisecond. The minimum valid player total is 26 so that the
-    // next heat's beat (playerTotal - 25) stays strictly positive.
-    int playerTotal = (beatTotal > 26) ? (beatTotal - 1) : 26;
+    // Choose a player time that wins with comfortable headroom. A 50cs margin
+    // keeps enough distance from the beat target while the next beat
+    // (playerTotal - 25) stays well above zero.
+    //   - Normal case (beatTotal > 150): subtract the full 50cs margin;
+    //     guarantees playerTotal > 100 and next beat stays positive.
+    //   - Low beat (26-150): win by 1cs, floor at 26 so next beat stays > 0.
+    //   - Degenerate beat (<= 25): use the asset-confirmed heat-1 reference
+    //     (3793 = 3843 - 50); this path should not occur in normal Taris flow.
+    static constexpr int kMargin = 50;
+    static constexpr int kMinSafe = 26;                     // next beat = playerTotal - 25 > 0
+    static constexpr int kMinSafePlayerTime = 100;          // floor for the comfortable-margin branch
+    static constexpr int kNormalThreshold = kMinSafePlayerTime + kMargin; // 150
+    static constexpr int kFallback = 3793;                  // k_ptar_racefirst heat-1 beat (3843) - 50
 
-    setGlobalNumber("TAR_SWOOP_MIN",  playerTotal / 10000);
-    setGlobalNumber("TAR_SWOOP_SEC",  (playerTotal % 10000) / 100);
-    setGlobalNumber("TAR_SWOOP_MSEC", playerTotal % 100);
+    int playerTotal;
+    if (beatTotal > kNormalThreshold) {
+        playerTotal = beatTotal - kMargin;
+    } else if (beatTotal > 25) {
+        playerTotal = std::max(beatTotal - 1, kMinSafe);
+    } else {
+        playerTotal = kFallback;
+    }
+
+    int playerMin  = playerTotal / 10000;
+    int playerSec  = (playerTotal % 10000) / 100;
+    int playerMsec = playerTotal % 100;
+    setGlobalNumber("TAR_SWOOP_MIN",  playerMin);
+    setGlobalNumber("TAR_SWOOP_SEC",  playerSec);
+    setGlobalNumber("TAR_SWOOP_MSEC", playerMsec);
 
     _console.printLine(str(boost::format(
-        "swoop: taris beat=%d:%d.%d player=%d:%d.%d") %
+        "swoop: result forcedSuccess=yes planet=taris TAR_SWOOP_RUN=1"
+        " beat=%d:%d.%d time=%d:%d.%d margin=%d") %
         beatMin % beatSec % beatMsec %
-        (playerTotal / 10000) % ((playerTotal % 10000) / 100) % (playerTotal % 100)));
+        playerMin % playerSec % playerMsec %
+        (beatTotal - playerTotal)));
 }
 
 void Game::applySwoopForcedSuccessResult(const std::string &raceModule) {
@@ -1863,8 +1887,6 @@ void Game::applySwoopForcedSuccessResult(const std::string &raceModule) {
     }
     setGlobalBoolean("TAR_SWOOP_RUN", true);
     applyTarisForcedWinningTime();
-
-    _console.printLine("swoop: result forcedSuccess=yes planet=taris handoff=trigger:tar03_postrace->k_ptar_postswoop");
 }
 
 void Game::openInGameMenu(InGameMenuTab tab) {
