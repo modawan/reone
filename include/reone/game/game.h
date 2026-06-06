@@ -463,6 +463,10 @@ private:
     // (restoring the leader's position/facing). Safe no-op if no lifecycle race.
     void finishSwoopLifecycle(bool success);
 
+    // The vanilla race-end return waypoint tag for the given race module (the
+    // StartNewModule startpoint the race-end script uses), or "" if unknown.
+    std::string swoopReturnWaypoint(const std::string &raceModule) const;
+
     // Apply the planet-specific forced-success race result for the given race
     // module (K1 Taris confirmed; others no-op). Sets the player's finish-time
     // globals and runs the vanilla post-race result script.
