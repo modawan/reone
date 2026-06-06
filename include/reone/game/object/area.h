@@ -328,7 +328,13 @@ private:
      */
     resource::Visibility fixVisibility(const resource::Visibility &visiblity);
 
-    void checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer);
+    void checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, bool fireTransitions = true);
+
+    // Fire OnEnter for non-transition triggers the party leader currently
+    // occupies (so triggers fire when the leader is placed/spawned inside them,
+    // not only when moving across the boundary). Module-transition triggers are
+    // left to movement-based firing to avoid spawn bounce.
+    void updateLeaderTriggerOccupancy();
 
     // Loading ARE
 
