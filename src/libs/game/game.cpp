@@ -614,8 +614,45 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
     });
 }
 
+void Game::resetGame() {
+    if (_swoopRace.isActive()) {
+        _swoopRace.stop();
+    }
+    _screen = Screen::None;
+    _services.audio.mixer.stopAll();
+    _music.reset();
+    _movie.reset();
+    _musicResRef.clear();
+    while (!_moduleTransitionMovies.empty()) {
+        _moduleTransitionMovies.pop();
+    }
+    setCursorType(CursorType::Default);
+    _cameraType = CameraType::ThirdPerson;
+    _savedCameraType = CameraType::ThirdPerson;
+    _paused = false;
+    _quitRequested = false;
+    _relativeMouseMode = false;
+    if (_conversation) {
+        _conversation->cleanupForModuleTransition();
+        _conversation = nullptr;
+    }
+    _globalStrings.clear();
+    _globalBooleans.clear();
+    _globalNumbers.clear();
+    _globalLocations.clear();
+    _customTokens.clear();
+
+    _party.reset();
+    _combat.reset();
+    _module.reset();
+    _loadedModules.clear();
+}
+
 void Game::loadGame(std::string_view name) {
     info(str(boost::format("Loading savegame '%s'") % name));
+
+    // Reset game state before loading a new game.
+    resetGame();
 
     // Add savegame files to resource resolution.
     _services.resource.director.onGameLoad(name);
