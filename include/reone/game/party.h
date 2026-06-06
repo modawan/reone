@@ -40,6 +40,10 @@ public:
 
     bool handle(const input::Event &event);
 
+    // Clear the player, party members, available NPCs and set all other fields
+    // to their default values.
+    void reset();
+
     void clear();
     void switchLeader();
 

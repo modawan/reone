@@ -215,6 +215,9 @@ public:
     // ResourceDirector::saveNames().
     void loadGame(std::string_view name);
 
+    // Clear state of the current game before loading a new game.
+    void resetGame();
+
     // END Module loading
 
     // Objects
