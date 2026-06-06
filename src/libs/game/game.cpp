@@ -1739,14 +1739,32 @@ void Game::finishSwoopLifecycle(bool success) {
     // Stop the race (removes bike models, restores camera/FOV/input, screen).
     closeSwoopRace();
 
-    // Return to the originating module and restore the leader's location.
+    // Return to the originating module. Prefer the vanilla race-return waypoint
+    // (e.g. Taris heartbeat returns to tar_m03af at tar03_wpmechanic) so the
+    // leader lands on the authored return spot and naturally occupies the
+    // post-race trigger; fall back to the saved pre-race position otherwise.
     loadModule(session.originModule);
-    if (session.haveOrigin) {
-        if (auto mod = _module) {
-            if (auto area = mod->area()) {
-                if (auto leader = _party.getLeader()) {
-                    leader->setPosition(session.originPosition);
-                    leader->setFacing(session.originFacing);
+    if (auto mod = _module) {
+        if (auto area = mod->area()) {
+            if (auto leader = _party.getLeader()) {
+                glm::vec3 pos = session.originPosition;
+                float facing = session.originFacing;
+                bool havePlacement = session.haveOrigin;
+
+                std::string returnWaypoint = swoopReturnWaypoint(raceModule);
+                if (!returnWaypoint.empty()) {
+                    if (auto wp = area->getObjectByTag(returnWaypoint)) {
+                        pos = wp->position();
+                        facing = wp->getFacing();
+                        havePlacement = true;
+                        _console.printLine(str(boost::format("swoop: return waypoint=%s pos=[%.1f,%.1f,%.1f]")
+                                               % returnWaypoint % pos.x % pos.y % pos.z));
+                    }
+                }
+
+                if (havePlacement) {
+                    leader->setPosition(pos);
+                    leader->setFacing(facing);
                     area->determineObjectRoom(*leader);
                     area->onPartyLeaderMoved(/*roomChanged=*/true);
                 }
@@ -1761,6 +1779,17 @@ void Game::finishSwoopLifecycle(bool success) {
     _console.printLine(str(boost::format("swoop: finished forcedSuccess=%s returning=%s")
                            % (success ? "yes" : "no")
                            % session.originModule));
+}
+
+std::string Game::swoopReturnWaypoint(const std::string &raceModule) const {
+    // Vanilla race-end transition target (StartNewModule waypoint), confirmed
+    // from assets. K1 Taris: heartbeat.ncs returns to tar_m03af at the
+    // tar03_wpmechanic waypoint, which sits inside the tar03_postrace trigger.
+    // Other planets are not yet wired (empty = use the saved pre-race position).
+    if (boost::iequals(raceModule, "tar_m03mg")) {
+        return "tar03_wpmechanic";
+    }
+    return "";
 }
 
 void Game::applySwoopForcedSuccessResult(const std::string &raceModule) {

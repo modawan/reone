@@ -1007,7 +1007,10 @@ void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, 
             // creature placed inside one is not immediately warped out.
             continue;
         }
-        debug(str(boost::format("Trigger '%s' triggerred by '%s'") % trigger->tag() % triggerrer->tag()));
+        debug(str(boost::format("trigger: onenter tag=%s script=%s entering=%s") %
+                  trigger->tag() %
+                  (trigger->getOnEnter().empty() ? std::string("<none>") : trigger->getOnEnter()) %
+                  triggerrer->tag()));
         trigger->addTenant(triggerrer);
         trigger->markDebugEntered();
 
