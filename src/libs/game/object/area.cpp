@@ -721,6 +721,18 @@ void Area::loadParty(const glm::vec3 &position, float facing, bool fromSave) {
 
     for (int i = 0; i < party.getSize(); ++i) {
         auto member = party.getMember(i);
+
+        // Reset the action queue on module (re)entry. The party uses persistent
+        // creature objects, and actions are area-local: a queued action (e.g. a
+        // pre-race "run to waypoint") must not survive the module transition and
+        // resume in the new area. Mirrors vanilla, which clears the player's
+        // actions between modules. force=true so a mid-flight action is dropped.
+        if (!member->actions().empty()) {
+            debug(str(boost::format("loadParty: clearing %zu pending action(s) on party member '%s'") %
+                      member->actions().size() % member->tag()));
+            member->clearAllActions(true);
+        }
+
         if (!fromSave) {
             member->setPosition(position);
             member->setFacing(facing);
