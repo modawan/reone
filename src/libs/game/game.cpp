@@ -1623,6 +1623,20 @@ void Game::openSwoopRace() {
     setRelativeMouseMode(false);
     changeScreen(Screen::SwoopRace);
 
+    // The minigame is taking ownership of the party now, so discard any actions
+    // the party queued before the race. In particular the swoop entry dialogue
+    // queues a pre-race walk-off (e.g. a MoveToObject to a "flee" waypoint) on
+    // the player; left in place it survives the module transitions and, on
+    // return, sits in front of the post-race actions the result scripts queue,
+    // blocking them. This is scoped to swoop/minigame entry: ordinary module
+    // loads never reach openSwoopRace, so other scripted transitions (e.g. the
+    // Endar Spire Trask/Bandon cutscene) keep their queued party actions.
+    for (auto &member : _party.members()) {
+        if (member.creature) {
+            member.creature->clearAllActions(/*force=*/true);
+        }
+    }
+
     // Hide the normal party while the minigame runs. Vanilla does not add the
     // party to the scene in a minigame module (the swoop bike actor represents
     // the player); otherwise the frozen-but-rendered party leader appears on the
