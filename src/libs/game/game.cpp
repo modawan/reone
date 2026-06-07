@@ -543,6 +543,10 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
                 }
             }
 
+            if (!fromSave) {
+                _module->runOnLoadScript();
+            }
+
             _module->loadParty(entry, fromSave);
 
             info("Module '" + name + "' loaded successfully");

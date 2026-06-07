@@ -43,6 +43,8 @@ struct ModuleInfo {
     std::string entryArea;
     glm::vec3 entryPosition {0.0f};
     float entryFacing {0.0f};
+    std::string onModLoad;
+    std::string onModStart;
 };
 
 class Door;
@@ -69,6 +71,8 @@ public:
     void load(std::string name, const resource::Gff &ifo, bool fromSave = false);
     void activate();
     void loadParty(const std::string &entry = "", bool fromSave = false);
+    void runOnLoadScript();
+    void runOnStartScript();
 
     bool handle(const input::Event &event);
     void update(float dt);
