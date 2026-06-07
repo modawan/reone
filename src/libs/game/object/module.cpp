@@ -297,7 +297,7 @@ void Module::onCreatureClick(const std::shared_ptr<Creature> &creature) {
 }
 
 void Module::onDoorClick(const std::shared_ptr<Door> &door) {
-    if (!door->linkedToModule().empty()) {
+    if (!door->linkedToModule().empty() && door->getOnOpen().empty()) {
         _game.scheduleModuleTransition(door->linkedToModule(), door->linkedTo());
         return;
     }
