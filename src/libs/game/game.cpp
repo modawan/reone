@@ -273,12 +273,14 @@ void Game::initConsole() {
     registerConsoleCommand("closedoor", "close a selected door object", &Game::consoleOpenCloseDoor);
     registerConsoleCommand("listgames", "list savegames", &Game::consoleListGames);
     registerConsoleCommand("loadgame", "load a savegame", &Game::consoleLoadGame);
-    registerConsoleCommand("minigameinfo", "print minigame metadata for current area", &Game::consoleMiniGameInfo);
-    registerConsoleCommand("startswoop", "enter the developer swoop race mode for the current area", &Game::consoleStartSwoop);
-    registerConsoleCommand("stopswoop", "exit the developer swoop race mode", &Game::consoleStopSwoop);
-    registerConsoleCommand("swoopstate", "print the current swoop race progress/lateral state", &Game::consoleSwoopState);
-    registerConsoleCommand("startswooprace", "enter a swoop module from the current one and auto-start the race", &Game::consoleStartSwoopRace);
-    registerConsoleCommand("finishswoop", "finish the lifecycle swoop race (forced success) and return to origin", &Game::consoleFinishSwoop);
+    if (_options.game.developer) {
+        registerConsoleCommand("minigameinfo", "print minigame metadata for current area", &Game::consoleMiniGameInfo);
+        registerConsoleCommand("startswoop", "enter the developer swoop race mode for the current area", &Game::consoleStartSwoop);
+        registerConsoleCommand("stopswoop", "exit the developer swoop race mode", &Game::consoleStopSwoop);
+        registerConsoleCommand("swoopstate", "print the current swoop race progress/lateral state", &Game::consoleSwoopState);
+        registerConsoleCommand("startswooprace", "enter a swoop module from the current one and auto-start the race", &Game::consoleStartSwoopRace);
+        registerConsoleCommand("finishswoop", "finish the lifecycle swoop race (forced success) and return to origin", &Game::consoleFinishSwoop);
+    }
 }
 
 void Game::initLocalServices() {
@@ -381,10 +383,10 @@ void Game::update(float frameTime) {
         // threshold, force success and return to the origin module. Plain dev
         // races (no lifecycle) keep riding so the dev stays in control.
         if (_swoopLifecycle.active && _swoopRace.finishReached()) {
-            _console.printLine(str(boost::format("swoop: auto-finish progress=%.1f finish=%.1f forcedSuccess=yes returning=%s")
-                                   % _swoopRace.progress()
-                                   % _swoopRace.finishProgress()
-                                   % _swoopLifecycle.originModule));
+            debug(str(boost::format("swoop: auto-finish progress=%.1f finish=%.1f forcedSuccess=yes returning=%s")
+                      % _swoopRace.progress()
+                      % _swoopRace.finishProgress()
+                      % _swoopLifecycle.originModule));
             finishSwoopLifecycle(/*success=*/true);
         }
     }
@@ -1190,8 +1192,8 @@ void Game::loadNextModule() {
         _swoopLifecycle.originPosition = originPosition;
         _swoopLifecycle.originFacing = originFacing;
         _swoopLifecycle.forcedSuccess = true;
-        _console.printLine(str(boost::format("swoop: script lifecycle start origin=%s target=%s forcedSuccess=yes hook=StartNewModule")
-                               % originModule % target));
+        debug(str(boost::format("swoop: script lifecycle start origin=%s target=%s forcedSuccess=yes hook=StartNewModule")
+                  % originModule % target));
     }
 }
 
@@ -1585,44 +1587,44 @@ void Game::openSwoopRace() {
     // track. Restored on exit (or naturally re-spawned on the return module).
     setPartyVisible(false);
 
-    _console.printLine(str(boost::format("swoop: started type=%s track=%s models=%zu loaded=%zu camera=chase movePerSec=%.0f lataccel=%.0f camfov=%.0f")
-                           % minigameTypeName(mg.type)
-                           % mg.player.trackResRef
-                           % mg.player.modelResRefs.size()
-                           % loadedCount
-                           % mg.movementPerSec
-                           % mg.lateralAccel
-                           % mg.cameraViewAngle));
+    debug(str(boost::format("swoop: started type=%s track=%s models=%zu loaded=%zu camera=chase movePerSec=%.0f lataccel=%.0f camfov=%.0f")
+              % minigameTypeName(mg.type)
+              % mg.player.trackResRef
+              % mg.player.modelResRefs.size()
+              % loadedCount
+              % mg.movementPerSec
+              % mg.lateralAccel
+              % mg.cameraViewAngle));
 
     // Track frame: lyt-track/track-model/fallback mode and how the start frame
     // was chosen (see deriveSwoopTrackFrame).
     std::string trackLabel(mg.player.trackResRef.empty() ? std::string("<none>") : mg.player.trackResRef);
     if (trackFrame.mode == "fallback") {
-        _console.printLine(str(boost::format("swoop: track=%s mode=fallback reason=%s%s")
-                               % trackLabel
-                               % trackFrame.reason
-                               % (trackFrame.info.empty() ? std::string() : (" " + trackFrame.info))));
+        debug(str(boost::format("swoop: track=%s mode=fallback reason=%s%s")
+                  % trackLabel
+                  % trackFrame.reason
+                  % (trackFrame.info.empty() ? std::string() : (" " + trackFrame.info))));
     } else {
-        _console.printLine(str(boost::format("swoop: track=%s mode=%s %s startFacing=%.2f")
-                               % trackLabel
-                               % trackFrame.mode
-                               % trackFrame.info
-                               % trackFrame.facing));
+        debug(str(boost::format("swoop: track=%s mode=%s %s startFacing=%.2f")
+                  % trackLabel
+                  % trackFrame.mode
+                  % trackFrame.info
+                  % trackFrame.facing));
     }
 
     // Movement model: track-relative progress + lateral strafe (no turning).
-    _console.printLine(str(boost::format("swoop: movement=track-progress strafeOnly=yes progressAxis=trackForward lateralAxis=trackRight anim=deferred start=[%.1f,%.1f,%.1f] facing=%.2f finish=%.1f")
-                           % trackFrame.position.x % trackFrame.position.y % trackFrame.position.z
-                           % trackFrame.facing
-                           % finishProgress));
+    debug(str(boost::format("swoop: movement=track-progress strafeOnly=yes progressAxis=trackForward lateralAxis=trackRight anim=deferred start=[%.1f,%.1f,%.1f] facing=%.2f finish=%.1f")
+              % trackFrame.position.x % trackFrame.position.y % trackFrame.position.z
+              % trackFrame.facing
+              % finishProgress));
 
     // Lateral bounds chosen for the strafe (see SwoopRace::computeLateralBounds).
-    _console.printLine(str(boost::format("swoop: bounds lateral=[-%.1f,+%.1f] source=%s tunnelX=[%.1f,%.1f]")
-                           % _swoopRace.lateralLeftBound()
-                           % _swoopRace.lateralRightBound()
-                           % _swoopRace.lateralBoundSource()
-                           % mg.player.tunnelXNeg
-                           % mg.player.tunnelXPos));
+    debug(str(boost::format("swoop: bounds lateral=[-%.1f,+%.1f] source=%s tunnelX=[%.1f,%.1f]")
+              % _swoopRace.lateralLeftBound()
+              % _swoopRace.lateralRightBound()
+              % _swoopRace.lateralBoundSource()
+              % mg.player.tunnelXNeg
+              % mg.player.tunnelXPos));
 
     // Map authored LYT obstacle placements into the current track frame
     // (progress = down-course distance, lateral = strafe offset). Diagnostic
@@ -1637,18 +1639,18 @@ void Game::openSwoopRace() {
                 ++areMatched;
             }
         }
-        _console.printLine(str(boost::format("swoop: lyt obstacles=%zu areObstacles=%zu matched=%zu")
-                               % layout->obstacles.size() % mg.obstacles.size() % areMatched));
+        debug(str(boost::format("swoop: lyt obstacles=%zu areObstacles=%zu matched=%zu")
+                  % layout->obstacles.size() % mg.obstacles.size() % areMatched));
         constexpr size_t kMaxObstacleDiag = 6;
         for (size_t i = 0; i < layout->obstacles.size() && i < kMaxObstacleDiag; ++i) {
             const auto &obs = layout->obstacles[i];
             glm::vec3 d = obs.position - trackFrame.position;
             float progress = glm::dot(d, fwd);
             float lateral = glm::dot(d, right);
-            _console.printLine(str(boost::format("  swoopobj[%zu] name=%s pos=[%.1f,%.1f,%.1f] progress=%.1f lateral=%.1f type=obstacle")
-                                   % i % obs.name
-                                   % obs.position.x % obs.position.y % obs.position.z
-                                   % progress % lateral));
+            debug(str(boost::format("  swoopobj[%zu] name=%s pos=[%.1f,%.1f,%.1f] progress=%.1f lateral=%.1f type=obstacle")
+                      % i % obs.name
+                      % obs.position.x % obs.position.y % obs.position.z
+                      % progress % lateral));
         }
     }
 
@@ -1656,14 +1658,14 @@ void Game::openSwoopRace() {
     // a one-shot dev diagnostic, so avoid spam on the common success path.
     if (loadedCount == 0 || anyMissing) {
         for (size_t i = 0; i < modelDiag.size(); ++i) {
-            _console.printLine(str(boost::format("  model[%zu]=%s") % i % modelDiag[i]));
+            debug(str(boost::format("  model[%zu]=%s") % i % modelDiag[i]));
         }
     }
 }
 
 void Game::closeSwoopRace() {
     if (!_swoopRace.isActive()) {
-        _console.printLine("swoop: not active");
+        debug("swoop: closeSwoopRace called but race not active");
         return;
     }
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
@@ -1677,7 +1679,7 @@ void Game::closeSwoopRace() {
     _cameraType = _savedCameraType;
     setRelativeMouseMode(_cameraType == CameraType::FirstPerson);
     openInGame();
-    _console.printLine("swoop: stopped");
+    debug("swoop: stopped (race ended, party restored, camera reset)");
 }
 
 void Game::setPartyVisible(bool visible) {
@@ -1730,8 +1732,8 @@ void Game::finishSwoopLifecycle(bool success) {
                         pos = wp->position();
                         facing = wp->getFacing();
                         havePlacement = true;
-                        _console.printLine(str(boost::format("swoop: return waypoint=%s pos=[%.1f,%.1f,%.1f]")
-                                               % returnWaypoint % pos.x % pos.y % pos.z));
+                        debug(str(boost::format("swoop: return waypoint=%s pos=[%.1f,%.1f,%.1f]")
+                              % returnWaypoint % pos.x % pos.y % pos.z));
                     }
                 }
 
@@ -1749,9 +1751,9 @@ void Game::finishSwoopLifecycle(bool success) {
         applySwoopForcedSuccessResult(raceModule);
     }
 
-    _console.printLine(str(boost::format("swoop: finished forcedSuccess=%s returning=%s")
-                           % (success ? "yes" : "no")
-                           % session.originModule));
+    debug(str(boost::format("swoop: finished forcedSuccess=%s returning=%s")
+              % (success ? "yes" : "no")
+              % session.originModule));
 }
 
 std::string Game::swoopReturnWaypoint(const std::string &raceModule) const {
