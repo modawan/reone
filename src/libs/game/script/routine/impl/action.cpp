@@ -377,13 +377,8 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
     auto bDontClearAllActions = getIntOrElse(args, 14, 0);
 
     // Transform
-    std::string dialogResRef;
+    std::string dialogResRef(sDialogResRef);
     auto caller = getCaller(ctx);
-    if (!sDialogResRef.empty()) {
-        dialogResRef = sDialogResRef;
-    } else {
-        dialogResRef = caller->conversation();
-    }
     auto privateConversation = static_cast<bool>(bPrivateConversation);
     auto conversationType = static_cast<resource::ConversationType>(nConversationType);
     auto ignoreStartRange = static_cast<bool>(bIgnoreStartRange);
