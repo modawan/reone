@@ -58,6 +58,12 @@ public:
 
     void addTenant(const std::shared_ptr<Object> &object);
 
+    // Drop an object from the tenant set without firing OnExit. Used when an
+    // object is destroyed while standing inside the trigger: a destroyed object
+    // never moves, so Trigger::update would otherwise keep it as a tenant
+    // forever (leaking it and leaving the trigger stuck in the Inside state).
+    void removeTenant(const Object *object);
+
     bool isIn(const glm::vec2 &point) const;
     bool isTenant(const std::shared_ptr<Object> &object) const;
 

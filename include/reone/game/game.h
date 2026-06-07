@@ -62,6 +62,7 @@
 #include "options.h"
 #include "party.h"
 #include "script/runner.h"
+#include "swooprace.h"
 #include "talent.h"
 
 #include <queue>
@@ -95,7 +96,8 @@ public:
         Conversation,
         Container,
         PartySelection,
-        SaveLoad
+        SaveLoad,
+        SwoopRace
     };
 
     Game(
@@ -110,7 +112,8 @@ public:
         _services(services),
         _console(console),
         _party(*this),
-        _combat(*this, services) {
+        _combat(*this, services),
+        _swoopRace(*this) {
     }
 
     void init();
@@ -148,6 +151,17 @@ public:
 
     void openMainMenu();
     void openInGame();
+
+    // Swoop race (developer skeleton)
+
+    void openSwoopRace();
+    void closeSwoopRace();
+
+    // Exit the active race: returns to the lifecycle origin if a lifecycle race
+    // is in progress, otherwise just stops the dev race in place.
+    void exitSwoopRace();
+
+    // END Swoop race
     void openInGameMenu(InGameMenuTab tab);
     void openLevelUp();
     void notifyLevelUpPending(const Creature &creature);
@@ -351,12 +365,27 @@ private:
     DeveloperOverlay _developerOverlay;
     std::shared_ptr<graphics::Font> _developerFont;
 
+    // Non-blocking swoop lifecycle session: origin module/state -> swoop module
+    // -> auto-start race -> forced-success finish -> return to origin. Passive
+    // bookkeeping only; it does not touch party membership, inventory, or story.
+    struct SwoopLifecycle {
+        bool active {false};        // a lifecycle race is in progress (return pending)
+        bool haveOrigin {false};    // origin position/facing captured
+        std::string originModule;   // module resref to return to
+        glm::vec3 originPosition {0.0f};
+        float originFacing {0.0f};
+        bool forcedSuccess {true};  // PR1: finish is always non-blocking success
+    };
+
+    SwoopLifecycle _swoopLifecycle;
+
     std::shared_ptr<movie::IMovie> _movie;
     std::queue<std::string> _moduleTransitionMovies;
     resource::CursorType _cursorType {resource::CursorType::None};
     std::shared_ptr<graphics::Cursor> _cursor;
     float _gameSpeed {1.0f};
     CameraType _cameraType {CameraType::ThirdPerson};
+    CameraType _savedCameraType {CameraType::ThirdPerson};
     bool _paused {false};
     std::set<std::string> _moduleNames;
     std::set<std::string> _saveNames;
@@ -370,6 +399,7 @@ private:
 
     Party _party;
     Combat _combat;
+    SwoopRace _swoopRace;
 
     std::unique_ptr<script::IRoutines> _routines;
     std::unique_ptr<ScriptRunner> _scriptRunner;
@@ -428,6 +458,25 @@ private:
     void loadNextModule();
     void playMusic(const std::string &resRef);
     void toggleInGameCameraType();
+
+    // Stop the active lifecycle race and return to the stored origin module
+    // (restoring the leader's position/facing). Safe no-op if no lifecycle race.
+    void finishSwoopLifecycle(bool success);
+
+    // Show/hide the active party creatures. Used to suppress the normal party
+    // while a minigame is running: vanilla does not add the party to the scene
+    // in a minigame module (the minigame actor represents the player).
+    void setPartyVisible(bool visible);
+
+    // The vanilla race-end return waypoint tag for the given race module (the
+    // StartNewModule startpoint the race-end script uses), or "" if unknown.
+    std::string swoopReturnWaypoint(const std::string &raceModule) const;
+
+    // Apply the planet-specific forced-success race result for the given race
+    // module (K1 Taris confirmed; others no-op). Sets the player's finish-time
+    // globals and runs the vanilla post-race result script.
+    void applySwoopForcedSuccessResult(const std::string &raceModule);
+    void applyTarisForcedWinningTime();
 
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleMouseMotion(const input::MouseMotionEvent &event);
@@ -524,6 +573,7 @@ private:
     void consoleKill(const ConsoleArgs &tokens);
     void consoleAddItem(const ConsoleArgs &tokens);
     void consoleGiveXP(const ConsoleArgs &tokens);
+    void consoleGiveGold(const ConsoleArgs &tokens);
     void consoleWarp(const ConsoleArgs &tokens);
     void consoleRunScript(const ConsoleArgs &tokens);
     void consoleShowAABB(const ConsoleArgs &tokens);
@@ -551,6 +601,12 @@ private:
     void consoleOpenCloseDoor(const ConsoleArgs &tokens);
     void consoleListGames(const ConsoleArgs &tokens);
     void consoleLoadGame(const ConsoleArgs &tokens);
+    void consoleMiniGameInfo(const ConsoleArgs &tokens);
+    void consoleStartSwoop(const ConsoleArgs &tokens);
+    void consoleStopSwoop(const ConsoleArgs &tokens);
+    void consoleSwoopState(const ConsoleArgs &tokens);
+    void consoleStartSwoopRace(const ConsoleArgs &tokens);
+    void consoleFinishSwoop(const ConsoleArgs &tokens);
 
     // END Console commands
 };

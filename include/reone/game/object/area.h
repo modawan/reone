@@ -18,6 +18,7 @@
 #pragma once
 
 #include "reone/game/messagebus.h"
+#include "reone/game/minigame.h"
 #include "reone/graphics/texture.h"
 #include "reone/graphics/types.h"
 #include "reone/input/event.h"
@@ -96,6 +97,9 @@ public:
     void determineObjectRoom(Object &object);
 
     bool isUnescapable() const { return _unescapable; }
+
+    bool hasMinigame() const { return _miniGameSpec.has_value(); }
+    const MinigameSpec &miniGame() const { return *_miniGameSpec; }
 
     Object *getObjectAt(int x, int y) const;
     glm::vec3 getSelectableScreenCoords(const std::shared_ptr<Object> &object, const glm::mat4 &projection, const glm::mat4 &view) const;
@@ -241,6 +245,7 @@ private:
     Timer _heartbeatTimer;
     bool _unescapable {false};
     Grass _grass;
+    std::optional<MinigameSpec> _miniGameSpec;
     glm::vec3 _ambientColor {0.0f};
     Timer _perceptionTimer;
     std::shared_ptr<Object> _hilightedObject;
@@ -323,7 +328,13 @@ private:
      */
     resource::Visibility fixVisibility(const resource::Visibility &visiblity);
 
-    void checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer);
+    void checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, bool fireTransitions = true);
+
+    // Fire OnEnter for non-transition triggers the party leader currently
+    // occupies (so triggers fire when the leader is placed/spawned inside them,
+    // not only when moving across the boundary). Module-transition triggers are
+    // left to movement-based firing to avoid spawn bounce.
+    void updateLeaderTriggerOccupancy();
 
     // Loading ARE
 
@@ -336,6 +347,7 @@ private:
     void loadStealthXP(const resource::generated::ARE &are);
     void loadGrass(const resource::generated::ARE &are);
     void loadFog(const resource::generated::ARE &are);
+    void loadMiniGame(const resource::generated::ARE &are);
 
     // END Loading ARE
 

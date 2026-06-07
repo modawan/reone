@@ -189,6 +189,16 @@ void Trigger::addTenant(const std::shared_ptr<Object> &object) {
           script::Variable::ofObject(object->id())}});
 }
 
+void Trigger::removeTenant(const Object *object) {
+    for (auto it = _tenants.begin(); it != _tenants.end(); ++it) {
+        if (it->get() == object) {
+            _tenants.erase(it);
+            syncDebugVisual();
+            return;
+        }
+    }
+}
+
 bool Trigger::isIn(const glm::vec2 &point) const {
     return static_cast<TriggerSceneNode *>(_sceneNode.get())->isIn(point);
 }

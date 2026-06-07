@@ -3032,7 +3032,11 @@ static Variable GiveGoldToCreature(const std::vector<Variable> &args, const Rout
     auto creature = checkCreature(oCreature);
 
     // Execute
-    creature->giveGold(nGP);
+    if (creature && ctx.game.party().isMember(*creature)) {
+        ctx.game.party().giveGold(nGP);
+    } else {
+        creature->giveGold(nGP);
+    }
     return Variable::ofNull();
 }
 
@@ -3833,6 +3837,11 @@ static Variable GetGold(const std::vector<Variable> &args, const RoutineContext 
     auto creature = checkCreature(oTarget);
 
     // Execute
+    // Credits are a single party-shared pool in KOTOR; party members (incl. the
+    // PC speaker / leader) report the party total.
+    if (creature && ctx.game.party().isMember(*creature)) {
+        return Variable::ofInt(ctx.game.party().gold());
+    }
     return Variable::ofInt(creature->gold());
 }
 
@@ -4062,11 +4071,21 @@ static Variable TakeGoldFromCreature(const std::vector<Variable> &args, const Ro
 
     // Execute
     if (creatureToTakeFrom) {
-        creatureToTakeFrom->takeGold(nAmount);
+        if (ctx.game.party().isMember(*creatureToTakeFrom)) {
+            ctx.game.party().takeGold(nAmount);
+        } else {
+            creatureToTakeFrom->takeGold(nAmount);
+        }
     }
     if (!destroy) {
         auto caller = checkCreature(getCaller(ctx));
-        caller->giveGold(nAmount);
+        if (caller) {
+            if (ctx.game.party().isMember(*caller)) {
+                ctx.game.party().giveGold(nAmount);
+            } else {
+                caller->giveGold(nAmount);
+            }
+        }
     }
     return Variable::ofNull();
 }

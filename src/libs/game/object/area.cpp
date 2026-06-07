@@ -17,6 +17,8 @@
 
 #include "reone/game/object/area.h"
 
+#include "reone/game/minigame.h"
+
 #include "reone/game/camerastyles.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
@@ -147,6 +149,7 @@ void Area::loadARE(const resource::generated::ARE &are) {
     loadStealthXP(are);
     loadGrass(are);
     loadFog(are);
+    loadMiniGame(are);
 }
 
 void Area::loadCameraStyle(const resource::generated::ARE &are) {
@@ -213,6 +216,77 @@ void Area::loadFog(const resource::generated::ARE &are) {
     _fogColor = Gff::colorFromUint32(are.SunFogColor);
 
     applySceneProperties();
+}
+
+void Area::loadMiniGame(const resource::generated::ARE &are) {
+    if (are.MiniGame.Type == 0) {
+        return;
+    }
+    MinigameSpec spec;
+    spec.type = minigameTypeFromUint(are.MiniGame.Type);
+    spec.cameraViewAngle = are.MiniGame.CameraViewAngle;
+    spec.lateralAccel = are.MiniGame.LateralAccel;
+    spec.movementPerSec = are.MiniGame.MovementPerSec;
+    spec.useInertia = are.MiniGame.UseInertia != 0;
+    spec.bumpPlane = are.MiniGame.Bump_Plane;
+    spec.doBumping = are.MiniGame.DoBumping != 0;
+
+    const auto &src = are.MiniGame.Player;
+    spec.player.cameraResRef = src.Camera;
+    spec.player.trackResRef = src.Track;
+    spec.player.minimumSpeed = src.Minimum_Speed;
+    spec.player.maximumSpeed = src.Maximum_Speed;
+    spec.player.accelSecs = src.Accel_Secs;
+    spec.player.sphereRadius = src.Sphere_Radius;
+    spec.player.hitPoints = src.Hit_Points;
+    spec.player.tunnelXPos = src.TunnelXPos;
+    spec.player.tunnelXNeg = src.TunnelXNeg;
+    spec.player.tunnelYPos = src.TunnelYPos;
+    spec.player.tunnelYNeg = src.TunnelYNeg;
+    spec.player.tunnelZPos = src.TunnelZPos;
+    spec.player.tunnelZNeg = src.TunnelZNeg;
+    spec.player.scripts.onCreate = src.Scripts.OnCreate;
+    spec.player.scripts.onDeath = src.Scripts.OnDeath;
+    spec.player.scripts.onTrackLoop = src.Scripts.OnTrackLoop;
+    spec.player.scripts.onDamage = src.Scripts.OnDamage;
+    spec.player.scripts.onAccelerate = src.Scripts.OnAccelerate;
+    spec.player.scripts.onHeartbeat = src.Scripts.OnHeartbeat;
+    for (const auto &m : src.Models) {
+        if (!m.Model.empty()) {
+            spec.player.modelResRefs.push_back(m.Model);
+        }
+    }
+
+    std::set<std::string> seenTracks;
+    auto addTrack = [&](const std::string &ref) {
+        if (!ref.empty() && seenTracks.insert(ref).second) {
+            spec.trackResRefs.push_back(ref);
+        }
+    };
+    addTrack(src.Track);
+
+    for (const auto &e : are.MiniGame.Enemies) {
+        MinigameEnemySpec enemy;
+        enemy.trackResRef = e.Track;
+        enemy.hitPoints = e.Hit_Points;
+        enemy.onCreate = e.Scripts.OnCreate;
+        for (const auto &m : e.Models) {
+            if (!m.Model.empty()) {
+                enemy.modelResRefs.push_back(m.Model);
+            }
+        }
+        spec.enemies.push_back(std::move(enemy));
+        addTrack(e.Track);
+    }
+
+    for (const auto &o : are.MiniGame.Obstacles) {
+        MinigameObstacleSpec obs;
+        obs.name = o.Name;
+        obs.onCreate = o.Scripts.OnCreate;
+        spec.obstacles.push_back(std::move(obs));
+    }
+
+    _miniGameSpec = std::move(spec);
 }
 
 void Area::applySceneProperties() {
@@ -542,6 +616,14 @@ void Area::doDestroyObject(uint32_t objectId) {
         room->removeTenant(object.get());
     }
 
+    // Drop the object from any trigger it was standing inside. A destroyed
+    // object never moves, so Trigger::update would otherwise keep it as a tenant
+    // indefinitely (leaking it and leaving the trigger stuck in the Inside
+    // state). Destruction is not an "exit", so no OnExit is fired.
+    for (auto &triggerObject : _objectsByType[ObjectType::Trigger]) {
+        static_cast<Trigger &>(*triggerObject).removeTenant(object.get());
+    }
+
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     auto sceneNode = object->sceneNode();
     if (sceneNode) {
@@ -639,6 +721,18 @@ void Area::loadParty(const glm::vec3 &position, float facing, bool fromSave) {
 
     for (int i = 0; i < party.getSize(); ++i) {
         auto member = party.getMember(i);
+
+        // Reset the action queue on module (re)entry. The party uses persistent
+        // creature objects, and actions are area-local: a queued action (e.g. a
+        // pre-race "run to waypoint") must not survive the module transition and
+        // resume in the new area. Mirrors vanilla, which clears the player's
+        // actions between modules. force=true so a mid-flight action is dropped.
+        if (!member->actions().empty()) {
+            debug(str(boost::format("loadParty: clearing %zu pending action(s) on party member '%s'") %
+                      member->actions().size() % member->tag()));
+            member->clearAllActions(true);
+        }
+
         if (!fromSave) {
             member->setPosition(position);
             member->setFacing(facing);
@@ -686,6 +780,7 @@ void Area::update(float dt) {
     for (auto &object : _objects) {
         object->update(dt);
     }
+    updateLeaderTriggerOccupancy();
     updatePerception(dt);
     updateMessageBus();
     updateHeartbeat(dt);
@@ -908,7 +1003,7 @@ void Area::updateVisibility() {
     }
 }
 
-void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer) {
+void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, bool fireTransitions) {
     glm::vec2 position2d(triggerrer->position());
 
     for (auto &object : _objectsByType[ObjectType::Trigger]) {
@@ -918,15 +1013,35 @@ void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer) 
         if (trigger->isTenant(triggerrer) || !inside) {
             continue;
         }
-        debug(str(boost::format("Trigger '%s' triggerred by '%s'") % trigger->tag() % triggerrer->tag()));
+        bool transition = !trigger->linkedToModule().empty();
+        if (transition && !fireTransitions) {
+            // Leave module-transition triggers to movement-based firing so a
+            // creature placed inside one is not immediately warped out.
+            continue;
+        }
+        debug(str(boost::format("trigger: onenter tag=%s script=%s entering=%s") %
+                  trigger->tag() %
+                  (trigger->getOnEnter().empty() ? std::string("<none>") : trigger->getOnEnter()) %
+                  triggerrer->tag()));
         trigger->addTenant(triggerrer);
         trigger->markDebugEntered();
 
-        if (!trigger->linkedToModule().empty()) {
+        if (transition) {
             _game.scheduleModuleTransition(trigger->linkedToModule(), trigger->linkedTo());
             return;
         }
     }
+}
+
+void Area::updateLeaderTriggerOccupancy() {
+    auto leader = _game.party().getLeader();
+    if (!leader) {
+        return;
+    }
+    // Fire occupancy-based OnEnter for script triggers (transitions excluded),
+    // so authored module-entry/cutscene triggers run even when the leader is
+    // placed inside them rather than walking across the boundary.
+    checkTriggersIntersection(leader, /*fireTransitions=*/false);
 }
 
 void Area::updateHeartbeat(float dt) {

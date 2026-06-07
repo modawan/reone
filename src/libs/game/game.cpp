@@ -17,6 +17,8 @@
 
 #include "reone/game/game.h"
 
+#include "reone/game/minigame.h"
+
 #include "reone/audio/context.h"
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
@@ -39,6 +41,8 @@
 #include "reone/graphics/font.h"
 #include "reone/graphics/format/tgawriter.h"
 #include "reone/graphics/meshregistry.h"
+#include "reone/graphics/model.h"
+#include "reone/graphics/modelnode.h"
 #include "reone/graphics/renderbuffer.h"
 #include "reone/graphics/shaderregistry.h"
 #include "reone/graphics/uniforms.h"
@@ -59,6 +63,7 @@
 #include "reone/resource/provider/dialogs.h"
 #include "reone/resource/provider/fonts.h"
 #include "reone/resource/provider/gffs.h"
+#include "reone/resource/provider/layouts.h"
 #include "reone/resource/provider/lips.h"
 #include "reone/resource/provider/models.h"
 #include "reone/resource/provider/movies.h"
@@ -239,6 +244,7 @@ void Game::initConsole() {
     registerConsoleCommand("kill", "kill selected object", &Game::consoleKill);
     registerConsoleCommand("additem", "add item to selected object", &Game::consoleAddItem);
     registerConsoleCommand("givexp", "give experience to selected creature", &Game::consoleGiveXP);
+    registerConsoleCommand("givegold", "give credits to the party", &Game::consoleGiveGold);
     registerConsoleCommand("showaabb", "toggle rendering AABB", &Game::consoleShowAABB);
     registerConsoleCommand("showwalkmesh", "toggle rendering walkmesh", &Game::consoleShowWalkmesh);
     registerConsoleCommand("showtriggers", "toggle rendering triggers", &Game::consoleShowTriggers);
@@ -267,6 +273,14 @@ void Game::initConsole() {
     registerConsoleCommand("closedoor", "close a selected door object", &Game::consoleOpenCloseDoor);
     registerConsoleCommand("listgames", "list savegames", &Game::consoleListGames);
     registerConsoleCommand("loadgame", "load a savegame", &Game::consoleLoadGame);
+    if (_options.game.developer) {
+        registerConsoleCommand("minigameinfo", "print minigame metadata for current area", &Game::consoleMiniGameInfo);
+        registerConsoleCommand("startswoop", "enter the developer swoop race mode for the current area", &Game::consoleStartSwoop);
+        registerConsoleCommand("stopswoop", "exit the developer swoop race mode", &Game::consoleStopSwoop);
+        registerConsoleCommand("swoopstate", "print the current swoop race progress/lateral state", &Game::consoleSwoopState);
+        registerConsoleCommand("startswooprace", "enter a swoop module from the current one and auto-start the race", &Game::consoleStartSwoopRace);
+        registerConsoleCommand("finishswoop", "finish the lifecycle swoop race (forced success) and return to origin", &Game::consoleFinishSwoop);
+    }
 }
 
 void Game::initLocalServices() {
@@ -336,6 +350,11 @@ bool Game::handle(const input::Event &event) {
             }
             break;
         }
+        case Screen::SwoopRace:
+            if (_swoopRace.handle(event)) {
+                return true;
+            }
+            break;
         default:
             break;
         }
@@ -356,6 +375,21 @@ void Game::update(float frameTime) {
         loadNextModule();
     }
     updateCamera(dt);
+
+    if (_swoopRace.isActive()) {
+        _swoopRace.update(dt);
+
+        // Non-blocking auto-finish: when a lifecycle race reaches the finish
+        // threshold, force success and return to the origin module. Plain dev
+        // races (no lifecycle) keep riding so the dev stays in control.
+        if (_swoopLifecycle.active && _swoopRace.finishReached()) {
+            debug(str(boost::format("swoop: auto-finish progress=%.1f finish=%.1f forcedSuccess=yes returning=%s")
+                      % _swoopRace.progress()
+                      % _swoopRace.finishProgress()
+                      % _swoopLifecycle.originModule));
+            finishSwoopLifecycle(/*success=*/true);
+        }
+    }
 
     bool updModule = !_movie && _module && (_screen == Screen::InGame || _screen == Screen::Conversation);
     if (updModule && !_paused) {
@@ -496,6 +530,19 @@ bool Game::handleMouseButtonUp(const input::MouseButtonEvent &event) {
 
 void Game::loadModule(const std::string &name, std::string entry, bool fromSave) {
     info("Loading module '" + name + "'");
+
+    // Tear down an active race before the current area (and its camera/scene)
+    // is unloaded, so no dangling references survive the transition.
+    if (_swoopRace.isActive()) {
+        _swoopRace.stop();
+        _cameraType = _savedCameraType;
+    }
+    // A direct module load (e.g. warp) while a lifecycle race is pending means
+    // the player navigated away; abandon the pending return. (Lifecycle-managed
+    // loads clear the session beforehand, so this only fires on external loads.)
+    if (_swoopLifecycle.active) {
+        _swoopLifecycle = SwoopLifecycle();
+    }
 
     if (_screen == Screen::Conversation && _conversation) {
         _conversation->cleanupForModuleTransition();
@@ -1095,10 +1142,59 @@ void Game::updateMusic() {
 }
 
 void Game::loadNextModule() {
+    std::string target(_nextModule);
+
+    // Capture the origin (current module + leader location) before the deferred
+    // transition runs, so a swoop module entered from a script can return here.
+    std::string originModule;
+    glm::vec3 originPosition(0.0f);
+    float originFacing = 0.0f;
+    bool haveOrigin = false;
+    if (_module) {
+        originModule = _module->name();
+        if (auto leader = _party.getLeader()) {
+            originPosition = leader->position();
+            originFacing = leader->getFacing();
+            haveOrigin = true;
+        }
+    }
+    bool wasLifecycleActive = _swoopLifecycle.active;
+
     loadModule(_nextModule, _nextEntry);
 
     _nextModule.clear();
     _nextEntry.clear();
+
+    // Vanilla K1 swoop entry: a dialogue node fires a script that calls
+    // StartNewModule("<*mg>"); the engine auto-enters the minigame on load (no
+    // dedicated start routine). Route that generic transition through the
+    // forced-success lifecycle harness when the loaded area is a swoop minigame.
+    if (wasLifecycleActive || _swoopLifecycle.active) {
+        return;
+    }
+    if (originModule.empty() || boost::iequals(originModule, target)) {
+        return;
+    }
+    auto mod = _module;
+    if (!mod || !mod->area() || !mod->area()->hasMinigame()) {
+        return;
+    }
+    if (mod->area()->miniGame().type != MinigameType::SwoopRace) {
+        return;
+    }
+
+    openSwoopRace();
+    if (_swoopRace.isActive()) {
+        _swoopLifecycle = SwoopLifecycle();
+        _swoopLifecycle.active = true;
+        _swoopLifecycle.haveOrigin = haveOrigin;
+        _swoopLifecycle.originModule = originModule;
+        _swoopLifecycle.originPosition = originPosition;
+        _swoopLifecycle.originFacing = originFacing;
+        _swoopLifecycle.forcedSuccess = true;
+        debug(str(boost::format("swoop: script lifecycle start origin=%s target=%s forcedSuccess=yes hook=StartNewModule")
+                  % originModule % target));
+    }
 }
 
 void Game::stopMovement() {
@@ -1290,6 +1386,469 @@ void Game::openInGame() {
     changeScreen(Screen::InGame);
 }
 
+namespace {
+
+// Result of trying to anchor the race to the authored player track.
+struct SwoopTrackFrame {
+    glm::vec3 position {0.0f};
+    float facing {0.0f};
+    std::string mode {"fallback"}; // "lyt-track", "track-model", or "fallback"
+    std::string reason;            // why fallback was used
+    std::string info;              // concise track inspection details
+};
+
+// Max 2D distance (world units) the track's start hook may be from the party
+// leader to be trusted WITHOUT an LYT placement. With an LYT track placement the
+// hook is in module/world space, so this guard does not apply; without one a
+// standalone-loaded track model may sit in a different frame and would otherwise
+// teleport the bike into the void, so the proven leader anchor is kept.
+constexpr float kTrackFrameMaxDistance = 64.0f;
+
+// PR1 non-blocking finish threshold (forward-progress units). The race finishes
+// a margin past the furthest mapped obstacle, or at a conservative fallback
+// distance when no obstacle placements exist.
+constexpr float kSwoopFinishMargin = 500.0f;
+constexpr float kSwoopFallbackFinishProgress = 4000.0f;
+
+// Derive the bike start frame from the player track model's "modelhook" node
+// (vanilla parents the player to this node). When an LYT track placement is
+// supplied, the hook is placed into module/world space and used unconditionally;
+// otherwise it is trusted only if it already resolves near the party leader,
+// falling back to the leader frame.
+SwoopTrackFrame deriveSwoopTrackFrame(const std::shared_ptr<graphics::Model> &trackModel,
+                                      const std::string &trackResRef,
+                                      const glm::vec3 *lytTrackPos,
+                                      const glm::vec3 &leaderPos,
+                                      float leaderFacing) {
+    SwoopTrackFrame frame;
+    frame.position = leaderPos;
+    frame.facing = leaderFacing;
+
+    if (trackResRef.empty()) {
+        frame.reason = "no-track-ref";
+        return frame;
+    }
+    if (!trackModel) {
+        frame.reason = "track-model-missing";
+        return frame;
+    }
+
+    size_t animCount = trackModel->getAnimationNames().size();
+    auto hook = trackModel->getNodeByNameRecursive("modelhook");
+    if (!hook) {
+        frame.reason = "no-modelhook";
+        frame.info = str(boost::format("modelhook=no placement=%s anims=%zu")
+                         % (lytTrackPos ? "yes" : "no") % animCount);
+        return frame;
+    }
+
+    const glm::mat4 &abs = hook->absoluteTransform();
+    glm::vec3 hookLocal(abs[3]);
+    // Engine facing convention: forward = (-sin f, cos f). The LYT track
+    // placement carries no rotation, so the hook's model-space orientation is
+    // also its world orientation.
+    glm::vec3 forward = glm::normalize(glm::vec3(glm::mat3(abs) * glm::vec3(0.0f, 1.0f, 0.0f)));
+    float facing = glm::atan(-forward.x, forward.y);
+
+    if (lytTrackPos) {
+        // Combine the LYT placement (translation only) with the modelhook's
+        // model-local transform to get the hook in module/world space.
+        glm::vec3 start = *lytTrackPos + hookLocal;
+        frame.position = start;
+        frame.facing = facing;
+        frame.mode = "lyt-track";
+        frame.info = str(boost::format("modelhook=yes placement=yes anims=%zu lyt=[%.1f,%.1f,%.1f] hook=[%.1f,%.1f,%.1f] start=[%.1f,%.1f,%.1f]")
+                         % animCount
+                         % lytTrackPos->x % lytTrackPos->y % lytTrackPos->z
+                         % hookLocal.x % hookLocal.y % hookLocal.z
+                         % start.x % start.y % start.z);
+        return frame;
+    }
+
+    float dist = glm::distance(glm::vec2(hookLocal), glm::vec2(leaderPos));
+    frame.info = str(boost::format("modelhook=yes placement=no anims=%zu hook=[%.1f,%.1f,%.1f] dist=%.1f")
+                     % animCount % hookLocal.x % hookLocal.y % hookLocal.z % dist);
+
+    if (dist > kTrackFrameMaxDistance) {
+        // No LYT placement and the hook is not in the party's world frame.
+        frame.reason = "no-lyt-track-placement";
+        return frame;
+    }
+
+    frame.position = hookLocal;
+    frame.facing = facing;
+    frame.mode = "track-model";
+    return frame;
+}
+
+} // namespace
+
+void Game::openSwoopRace() {
+    if (_swoopRace.isActive()) {
+        _console.printLine("swoop: already running");
+        return;
+    }
+    if (!_module || !_module->area()) {
+        _console.printLine("swoop: no module loaded");
+        return;
+    }
+    auto area = _module->area();
+    if (!area->hasMinigame() || area->miniGame().type != MinigameType::SwoopRace) {
+        _console.printLine("swoop: current area has no swoop minigame");
+        return;
+    }
+    auto leader = _party.getLeader();
+    if (!leader) {
+        _console.printLine("swoop: no party leader to anchor the race");
+        return;
+    }
+
+    const auto &mg = area->miniGame();
+    auto camera = area->getCamera<FirstPersonCamera>(CameraType::FirstPerson);
+    if (camera) {
+        camera->stopMovement();
+    }
+
+    // Load the whole player model set, not just the first entry. Vanilla loads
+    // every Player.Models entry and hides the one that is the camera mount
+    // (player.cameraResRef). We skip that mount so areas whose visible bike is
+    // in a later entry (e.g. Tatooine) still show a body.
+    auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
+    std::vector<std::shared_ptr<ModelSceneNode>> bikeNodes;
+    std::vector<std::string> modelDiag;
+    bool anyMissing = false;
+    for (const auto &resRef : mg.player.modelResRefs) {
+        if (resRef.empty()) {
+            continue;
+        }
+        if (!mg.player.cameraResRef.empty() && boost::iequals(resRef, mg.player.cameraResRef)) {
+            modelDiag.push_back(resRef + " camera-skip");
+            continue;
+        }
+        auto model = _services.resource.models.get(resRef);
+        if (!model) {
+            modelDiag.push_back(resRef + " missing");
+            anyMissing = true;
+            continue;
+        }
+        auto node = sceneGraph.newModel(*model, ModelUsage::Placeable);
+        node->setDrawDistance(_options.graphics.drawDistance);
+        sceneGraph.addRoot(node);
+        bikeNodes.push_back(std::move(node));
+        modelDiag.push_back(resRef + " loaded");
+    }
+
+    // Anchor the race to the authored player track. Prefer the LYT track
+    // placement (module/world space); otherwise fall back as before.
+    std::shared_ptr<graphics::Model> trackModel;
+    if (!mg.player.trackResRef.empty()) {
+        trackModel = _services.resource.models.get(mg.player.trackResRef);
+    }
+    auto layout = _services.resource.layouts.get(area->name());
+    glm::vec3 lytTrackPos(0.0f);
+    bool haveLytTrackPos = false;
+    if (layout && !mg.player.trackResRef.empty()) {
+        if (auto placement = layout->findTrackByName(mg.player.trackResRef)) {
+            lytTrackPos = placement->get().position;
+            haveLytTrackPos = true;
+        }
+    }
+    SwoopTrackFrame trackFrame = deriveSwoopTrackFrame(
+        trackModel, mg.player.trackResRef, haveLytTrackPos ? &lytTrackPos : nullptr,
+        leader->position(), leader->getFacing());
+
+    // Choose a non-blocking finish threshold (PR1). Vanilla loop/finish is
+    // script-driven and not yet implemented, so use the furthest mapped LYT
+    // obstacle (the obstacle field spans the playable track) plus a margin, or
+    // a conservative fallback distance when no obstacle placements are present.
+    glm::vec3 frameForward(-glm::sin(trackFrame.facing), glm::cos(trackFrame.facing), 0.0f);
+    float maxObstacleProgress = 0.0f;
+    if (layout) {
+        for (const auto &obs : layout->obstacles) {
+            float p = glm::dot(obs.position - trackFrame.position, frameForward);
+            maxObstacleProgress = glm::max(maxObstacleProgress, p);
+        }
+    }
+    float finishProgress = maxObstacleProgress > 0.0f
+                               ? maxObstacleProgress + kSwoopFinishMargin
+                               : kSwoopFallbackFinishProgress;
+
+    _savedCameraType = _cameraType;
+    size_t loadedCount = bikeNodes.size();
+    _swoopRace.start(mg, camera, std::move(bikeNodes), trackFrame.position, trackFrame.facing, finishProgress);
+
+    _cameraType = CameraType::FirstPerson;
+    setRelativeMouseMode(false);
+    changeScreen(Screen::SwoopRace);
+
+    // Hide the normal party while the minigame runs. Vanilla does not add the
+    // party to the scene in a minigame module (the swoop bike actor represents
+    // the player); otherwise the frozen-but-rendered party leader appears on the
+    // track. Restored on exit (or naturally re-spawned on the return module).
+    setPartyVisible(false);
+
+    debug(str(boost::format("swoop: started type=%s track=%s models=%zu loaded=%zu camera=chase movePerSec=%.0f lataccel=%.0f camfov=%.0f")
+              % minigameTypeName(mg.type)
+              % mg.player.trackResRef
+              % mg.player.modelResRefs.size()
+              % loadedCount
+              % mg.movementPerSec
+              % mg.lateralAccel
+              % mg.cameraViewAngle));
+
+    // Track frame: lyt-track/track-model/fallback mode and how the start frame
+    // was chosen (see deriveSwoopTrackFrame).
+    std::string trackLabel(mg.player.trackResRef.empty() ? std::string("<none>") : mg.player.trackResRef);
+    if (trackFrame.mode == "fallback") {
+        debug(str(boost::format("swoop: track=%s mode=fallback reason=%s%s")
+                  % trackLabel
+                  % trackFrame.reason
+                  % (trackFrame.info.empty() ? std::string() : (" " + trackFrame.info))));
+    } else {
+        debug(str(boost::format("swoop: track=%s mode=%s %s startFacing=%.2f")
+                  % trackLabel
+                  % trackFrame.mode
+                  % trackFrame.info
+                  % trackFrame.facing));
+    }
+
+    // Movement model: track-relative progress + lateral strafe (no turning).
+    debug(str(boost::format("swoop: movement=track-progress strafeOnly=yes progressAxis=trackForward lateralAxis=trackRight anim=deferred start=[%.1f,%.1f,%.1f] facing=%.2f finish=%.1f")
+              % trackFrame.position.x % trackFrame.position.y % trackFrame.position.z
+              % trackFrame.facing
+              % finishProgress));
+
+    // Lateral bounds chosen for the strafe (see SwoopRace::computeLateralBounds).
+    debug(str(boost::format("swoop: bounds lateral=[-%.1f,+%.1f] source=%s tunnelX=[%.1f,%.1f]")
+              % _swoopRace.lateralLeftBound()
+              % _swoopRace.lateralRightBound()
+              % _swoopRace.lateralBoundSource()
+              % mg.player.tunnelXNeg
+              % mg.player.tunnelXPos));
+
+    // Map authored LYT obstacle placements into the current track frame
+    // (progress = down-course distance, lateral = strafe offset). Diagnostic
+    // only: no damage/collision is applied in this slice. The "match" count is
+    // how many .are MiniGame obstacles have a same-name LYT placement.
+    if (layout) {
+        glm::vec3 fwd(-glm::sin(trackFrame.facing), glm::cos(trackFrame.facing), 0.0f);
+        glm::vec3 right(glm::cos(trackFrame.facing), glm::sin(trackFrame.facing), 0.0f);
+        size_t areMatched = 0;
+        for (const auto &obs : mg.obstacles) {
+            if (layout->findObstacleByName(obs.name)) {
+                ++areMatched;
+            }
+        }
+        debug(str(boost::format("swoop: lyt obstacles=%zu areObstacles=%zu matched=%zu")
+                  % layout->obstacles.size() % mg.obstacles.size() % areMatched));
+        constexpr size_t kMaxObstacleDiag = 6;
+        for (size_t i = 0; i < layout->obstacles.size() && i < kMaxObstacleDiag; ++i) {
+            const auto &obs = layout->obstacles[i];
+            glm::vec3 d = obs.position - trackFrame.position;
+            float progress = glm::dot(d, fwd);
+            float lateral = glm::dot(d, right);
+            debug(str(boost::format("  swoopobj[%zu] name=%s pos=[%.1f,%.1f,%.1f] progress=%.1f lateral=%.1f type=obstacle")
+                      % i % obs.name
+                      % obs.position.x % obs.position.y % obs.position.z
+                      % progress % lateral));
+        }
+    }
+
+    // Print the per-model breakdown when nothing loaded or a load failed; it is
+    // a one-shot dev diagnostic, so avoid spam on the common success path.
+    if (loadedCount == 0 || anyMissing) {
+        for (size_t i = 0; i < modelDiag.size(); ++i) {
+            debug(str(boost::format("  model[%zu]=%s") % i % modelDiag[i]));
+        }
+    }
+}
+
+void Game::closeSwoopRace() {
+    if (!_swoopRace.isActive()) {
+        debug("swoop: closeSwoopRace called but race not active");
+        return;
+    }
+    auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
+    for (const auto &bikeNode : _swoopRace.bikeNodes()) {
+        if (bikeNode) {
+            sceneGraph.removeRoot(*bikeNode);
+        }
+    }
+    _swoopRace.stop();
+    setPartyVisible(true);
+    _cameraType = _savedCameraType;
+    setRelativeMouseMode(_cameraType == CameraType::FirstPerson);
+    openInGame();
+    debug("swoop: stopped (race ended, party restored, camera reset)");
+}
+
+void Game::setPartyVisible(bool visible) {
+    for (auto &member : _party.members()) {
+        if (member.creature) {
+            member.creature->setVisible(visible);
+        }
+    }
+}
+
+void Game::exitSwoopRace() {
+    // Escape / stopswoop entry point. If a lifecycle race is in progress, return
+    // to the origin module; otherwise just stop the dev race in place.
+    if (_swoopLifecycle.active) {
+        finishSwoopLifecycle(/*success=*/true);
+    } else {
+        closeSwoopRace();
+    }
+}
+
+void Game::finishSwoopLifecycle(bool success) {
+    if (!_swoopLifecycle.active) {
+        return;
+    }
+    // Capture and clear the session first so the upcoming module load does not
+    // re-enter this path. The current module (before returning) is the race
+    // module, which selects the planet-specific result contract.
+    SwoopLifecycle session = _swoopLifecycle;
+    _swoopLifecycle = SwoopLifecycle();
+    std::string raceModule = _module ? _module->name() : "";
+
+    // Stop the race (removes bike models, restores camera/FOV/input, screen).
+    closeSwoopRace();
+
+    // Return to the originating module. Prefer the vanilla race-return waypoint
+    // (e.g. Taris heartbeat returns to tar_m03af at tar03_wpmechanic) so the
+    // leader lands on the authored return spot and naturally occupies the
+    // post-race trigger; fall back to the saved pre-race position otherwise.
+    loadModule(session.originModule);
+    if (auto mod = _module) {
+        if (auto area = mod->area()) {
+            if (auto leader = _party.getLeader()) {
+                glm::vec3 pos = session.originPosition;
+                float facing = session.originFacing;
+                bool havePlacement = session.haveOrigin;
+
+                std::string returnWaypoint = swoopReturnWaypoint(raceModule);
+                if (!returnWaypoint.empty()) {
+                    if (auto wp = area->getObjectByTag(returnWaypoint)) {
+                        pos = wp->position();
+                        facing = wp->getFacing();
+                        havePlacement = true;
+                        debug(str(boost::format("swoop: return waypoint=%s pos=[%.1f,%.1f,%.1f]")
+                              % returnWaypoint % pos.x % pos.y % pos.z));
+                    }
+                }
+
+                if (havePlacement) {
+                    leader->setPosition(pos);
+                    leader->setFacing(facing);
+                    area->determineObjectRoom(*leader);
+                    area->onPartyLeaderMoved(/*roomChanged=*/true);
+                }
+            }
+        }
+    }
+
+    if (success) {
+        applySwoopForcedSuccessResult(raceModule);
+    }
+
+    debug(str(boost::format("swoop: finished forcedSuccess=%s returning=%s")
+              % (success ? "yes" : "no")
+              % session.originModule));
+}
+
+std::string Game::swoopReturnWaypoint(const std::string &raceModule) const {
+    // Vanilla race-end transition target (StartNewModule waypoint), confirmed
+    // from assets. K1 Taris: heartbeat.ncs returns to tar_m03af at the
+    // tar03_wpmechanic waypoint, which sits inside the tar03_postrace trigger.
+    // Other planets are not yet wired (empty = use the saved pre-race position).
+    if (boost::iequals(raceModule, "tar_m03mg")) {
+        return "tar03_wpmechanic";
+    }
+    return "";
+}
+
+void Game::applyTarisForcedWinningTime() {
+    // Read the current heat's time-to-beat. k_ptar_racefirst sets these to
+    // MIN_BEAT=0 / SEC_BEAT=38 / MSEC_BEAT=43 for heat 1 (total=3843 in the
+    // vanilla comparison unit: MIN*10000 + SEC*100 + MSEC, confirmed by
+    // disassembly of k_ptar_postswoop.ncs subroutine at 0x0524).
+    //
+    // We must win (playerTotal < beatTotal) AND keep playerTotal > 25 so that
+    // the win-handler's beat update (k_ptar_postswoop 0x0572,
+    // new_beat = playerTime - 25cs) stays strictly positive. Setting
+    // player=0:00.00 underflows to MIN_BEAT=-1 (total=-4025), making every
+    // subsequent heat unwinnable.
+    int beatMin  = getGlobalNumber("TAR_SWOOP_MIN_BEAT");
+    int beatSec  = getGlobalNumber("TAR_SWOOP_SEC_BEAT");
+    int beatMsec = getGlobalNumber("TAR_SWOOP_MSEC_BEAT");
+    int beatTotal = beatMin * 10000 + beatSec * 100 + beatMsec;
+
+    // Choose a player time that wins with comfortable headroom. A 50cs margin
+    // keeps enough distance from the beat target while the next beat
+    // (playerTotal - 25) stays well above zero.
+    //   - Normal case (beatTotal > 150): subtract the full 50cs margin;
+    //     guarantees playerTotal > 100 and next beat stays positive.
+    //   - Low beat (26-150): win by 1cs, floor at 26 so next beat stays > 0.
+    //   - Degenerate beat (<= 25): use the asset-confirmed heat-1 reference
+    //     (3793 = 3843 - 50); this path should not occur in normal Taris flow.
+    static constexpr int kMargin = 50;
+    static constexpr int kMinSafe = 26;                     // next beat = playerTotal - 25 > 0
+    static constexpr int kMinSafePlayerTime = 100;          // floor for the comfortable-margin branch
+    static constexpr int kNormalThreshold = kMinSafePlayerTime + kMargin; // 150
+    static constexpr int kFallback = 3793;                  // k_ptar_racefirst heat-1 beat (3843) - 50
+
+    int playerTotal;
+    if (beatTotal > kNormalThreshold) {
+        playerTotal = beatTotal - kMargin;
+    } else if (beatTotal > 25) {
+        playerTotal = std::max(beatTotal - 1, kMinSafe);
+    } else {
+        playerTotal = kFallback;
+    }
+
+    int playerMin  = playerTotal / 10000;
+    int playerSec  = (playerTotal % 10000) / 100;
+    int playerMsec = playerTotal % 100;
+    setGlobalNumber("TAR_SWOOP_MIN",  playerMin);
+    setGlobalNumber("TAR_SWOOP_SEC",  playerSec);
+    setGlobalNumber("TAR_SWOOP_MSEC", playerMsec);
+
+    _console.printLine(str(boost::format(
+        "swoop: result forcedSuccess=yes planet=taris TAR_SWOOP_RUN=1"
+        " beat=%d:%d.%d time=%d:%d.%d margin=%d") %
+        beatMin % beatSec % beatMsec %
+        playerMin % playerSec % playerMsec %
+        (beatTotal - playerTotal)));
+}
+
+void Game::applySwoopForcedSuccessResult(const std::string &raceModule) {
+    // K1 Taris swoop result contract, confirmed from local assets:
+    //   tar_m03mg.are -> player OnHeartbeat = "heartbeat" is the race brain. At
+    //     race start it sets the boolean global TAR_SWOOP_RUN = TRUE
+    //     (SetGlobalBoolean) and records the run time in TAR_SWOOP_MIN / _SEC /
+    //     _MSEC; reone substitutes the race and never runs heartbeat.
+    //   The post-race scene is the "tar03_postrace" trigger, whose ScriptOnEnter
+    //     is k_ptar_postswoop. Disassembly of k_ptar_postswoop.ncs shows it
+    //     begins with: if (!GetGlobalBoolean("TAR_SWOOP_RUN")) return; then
+    //     SetGlobalBoolean("TAR_SWOOP_RUN", FALSE); compares the run time vs the
+    //     TAR_SWOOP_*_BEAT targets; SetGlobalNumber("Tar_SwoopStatus", 2) when
+    //     the player time is lower (won) else 1; increments Tar_SwoopRaceCounter;
+    //     and starts the announcer/Brejik scene (ActionStartConversation, using
+    //     the entering PC).
+    // So forced success must reproduce heartbeat's race-state outputs: set
+    // TAR_SWOOP_RUN = TRUE so postswoop passes its guard, then choose a player
+    // time strictly less than TAR_SWOOP_*_BEAT so postswoop computes a win.
+    // Win state (Tar_SwoopStatus) and the scene are produced by the vanilla
+    // trigger->postswoop chain (see Area::updateLeaderTriggerOccupancy and the
+    // return-waypoint placement). No result/winner globals are set here.
+    // Other planets are not yet wired.
+    if (!boost::iequals(raceModule, "tar_m03mg")) {
+        return;
+    }
+    setGlobalBoolean("TAR_SWOOP_RUN", true);
+    applyTarisForcedWinningTime();
+}
+
 void Game::openInGameMenu(InGameMenuTab tab) {
     setCursorType(CursorType::Default);
     switch (tab) {
@@ -1462,6 +2021,8 @@ GameGUI *Game::getScreenGUI() const {
         return _partySelect.get();
     case Screen::SaveLoad:
         return _saveLoad.get();
+    case Screen::SwoopRace:
+        return nullptr; // race skeleton has no HUD yet
     default:
         return nullptr;
     }
@@ -1646,6 +2207,12 @@ void Game::consoleGiveXP(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "amount");
     auto creature = getConsoleTargetCreature();
     creature->giveXP(args.get<int>(1).value());
+}
+
+void Game::consoleGiveGold(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "amount");
+    _party.giveGold(args.get<int>(1).value());
+    _console.printLine(str(boost::format("party gold: %d") % _party.gold()));
 }
 
 void Game::consoleWarp(const ConsoleArgs &args) {
@@ -2120,6 +2687,165 @@ void Game::consoleLoadGame(const ConsoleArgs &args) {
     auto name = _saveNames.begin();
     std::advance(name, id);
     loadGame(*name);
+}
+
+void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
+    auto area = getConsoleArea();
+    if (!area->hasMinigame()) {
+        _console.printLine("minigame: none");
+        return;
+    }
+    const auto &mg = area->miniGame();
+    _console.printLine(str(boost::format("minigame: type=%s camfov=%.1f lataccel=%.3f movePerSec=%.3f inertia=%d bumpPlane=%u doBumping=%d")
+                           % minigameTypeName(mg.type)
+                           % mg.cameraViewAngle
+                           % mg.lateralAccel
+                           % mg.movementPerSec
+                           % static_cast<int>(mg.useInertia)
+                           % mg.bumpPlane
+                           % static_cast<int>(mg.doBumping)));
+    _console.printLine(str(boost::format("  player: cam=%s track=%s spd=[%.1f,%.1f] accel=%.3f hp=%u models=%zu")
+                           % mg.player.cameraResRef
+                           % mg.player.trackResRef
+                           % mg.player.minimumSpeed
+                           % mg.player.maximumSpeed
+                           % mg.player.accelSecs
+                           % mg.player.hitPoints
+                           % mg.player.modelResRefs.size()));
+    _console.printLine(str(boost::format("  tunnel (deg): X=[%.1f,%.1f] Y=[%.1f,%.1f] Z=[%.1f,%.1f]")
+                           % mg.player.tunnelXNeg % mg.player.tunnelXPos
+                           % mg.player.tunnelYNeg % mg.player.tunnelYPos
+                           % mg.player.tunnelZNeg % mg.player.tunnelZPos));
+    _console.printLine(str(boost::format("  tracks=%zu enemies=%zu obstacles=%zu")
+                           % mg.trackResRefs.size()
+                           % mg.enemies.size()
+                           % mg.obstacles.size()));
+    for (size_t i = 0; i < mg.trackResRefs.size(); ++i) {
+        _console.printLine(str(boost::format("    track[%zu] %s") % i % mg.trackResRefs[i]));
+    }
+    for (size_t i = 0; i < mg.enemies.size(); ++i) {
+        const auto &e = mg.enemies[i];
+        _console.printLine(str(boost::format("    enemy[%zu] track=%s hp=%u models=%zu")
+                               % i % e.trackResRef % e.hitPoints % e.modelResRefs.size()));
+    }
+    for (size_t i = 0; i < mg.obstacles.size(); ++i) {
+        _console.printLine(str(boost::format("    obstacle[%zu] name=%s") % i % mg.obstacles[i].name));
+    }
+    if (auto layout = _services.resource.layouts.get(area->name())) {
+        auto placement = layout->findTrackByName(mg.player.trackResRef);
+        if (placement) {
+            const auto &p = placement->get().position;
+            _console.printLine(str(boost::format("  lyt tracks=%zu playerTrack=%s pos=[%.1f,%.1f,%.1f]")
+                                   % layout->tracks.size() % mg.player.trackResRef % p.x % p.y % p.z));
+        } else {
+            _console.printLine(str(boost::format("  lyt tracks=%zu playerTrack=%s pos=<not found>")
+                                   % layout->tracks.size() % mg.player.trackResRef));
+        }
+        size_t obstaclesMatched = 0;
+        for (const auto &obs : mg.obstacles) {
+            if (layout->findObstacleByName(obs.name)) {
+                ++obstaclesMatched;
+            }
+        }
+        _console.printLine(str(boost::format("  lyt obstacles=%zu (matched %zu of %zu .are obstacles)")
+                               % layout->obstacles.size() % obstaclesMatched % mg.obstacles.size()));
+    }
+    const auto &sc = mg.player.scripts;
+    if (!sc.onCreate.empty() || !sc.onDeath.empty() || !sc.onTrackLoop.empty()) {
+        _console.printLine(str(boost::format("  scripts: create=%s death=%s loop=%s damage=%s")
+                               % sc.onCreate % sc.onDeath % sc.onTrackLoop % sc.onDamage));
+    }
+}
+
+void Game::consoleStartSwoop(const ConsoleArgs &args) {
+    openSwoopRace();
+}
+
+void Game::consoleStopSwoop(const ConsoleArgs &args) {
+    // If a lifecycle race is active, return to origin safely; otherwise stop in place.
+    exitSwoopRace();
+}
+
+void Game::consoleStartSwoopRace(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "module");
+
+    if (_swoopLifecycle.active) {
+        _console.printLine("swoop: lifecycle already active");
+        return;
+    }
+    if (!_module) {
+        _console.printLine("swoop: no origin module loaded");
+        return;
+    }
+    std::string target(boost::to_lower_copy(std::string(args[1].value())));
+    if (_moduleNames.count(target) == 0) {
+        _console.printLine("swoop: unknown module '" + target + "'");
+        return;
+    }
+
+    // Capture origin module/state before transitioning.
+    SwoopLifecycle session;
+    session.originModule = _module->name();
+    session.forcedSuccess = true;
+    if (auto leader = _party.getLeader()) {
+        session.originPosition = leader->position();
+        session.originFacing = leader->getFacing();
+        session.haveOrigin = true;
+    }
+
+    // Transition to the target swoop module and auto-start the race.
+    loadModule(target);
+    openSwoopRace();
+
+    if (!_swoopRace.isActive()) {
+        // Target loaded but is not a swoop minigame (openSwoopRace printed why).
+        // Return to origin so the failed attempt does not strand the player.
+        _console.printLine("swoop: lifecycle aborted, returning to origin=" + session.originModule);
+        loadModule(session.originModule);
+        if (session.haveOrigin) {
+            if (auto mod = _module) {
+                if (auto area = mod->area()) {
+                    if (auto leader = _party.getLeader()) {
+                        leader->setPosition(session.originPosition);
+                        leader->setFacing(session.originFacing);
+                        area->determineObjectRoom(*leader);
+                        area->onPartyLeaderMoved(/*roomChanged=*/true);
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    _swoopLifecycle = session;
+    _swoopLifecycle.active = true;
+    _console.printLine(str(boost::format("swoop: lifecycle start origin=%s target=%s forcedSuccess=yes")
+                           % session.originModule % target));
+}
+
+void Game::consoleFinishSwoop(const ConsoleArgs &args) {
+    if (!_swoopLifecycle.active) {
+        _console.printLine("swoop: no lifecycle race active");
+        return;
+    }
+    finishSwoopLifecycle(/*success=*/true);
+}
+
+void Game::consoleSwoopState(const ConsoleArgs &args) {
+    if (!_swoopRace.isActive()) {
+        _console.printLine("swoop: not active");
+        return;
+    }
+    glm::vec3 pos = _swoopRace.position();
+    _console.printLine(str(boost::format("swoop: progress=%.1f finish=%.1f lateral=%.2f speed=%.1f elapsed=%.1f pos=[%.1f,%.1f,%.1f] bounds=[-%.1f,+%.1f] mode=track-progress")
+                           % _swoopRace.progress()
+                           % _swoopRace.finishProgress()
+                           % _swoopRace.lateralOffset()
+                           % _swoopRace.speed()
+                           % _swoopRace.elapsed()
+                           % pos.x % pos.y % pos.z
+                           % _swoopRace.lateralLeftBound()
+                           % _swoopRace.lateralRightBound()));
 }
 
 } // namespace game
