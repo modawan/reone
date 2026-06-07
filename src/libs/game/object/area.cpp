@@ -616,6 +616,14 @@ void Area::doDestroyObject(uint32_t objectId) {
         room->removeTenant(object.get());
     }
 
+    // Drop the object from any trigger it was standing inside. A destroyed
+    // object never moves, so Trigger::update would otherwise keep it as a tenant
+    // indefinitely (leaking it and leaving the trigger stuck in the Inside
+    // state). Destruction is not an "exit", so no OnExit is fired.
+    for (auto &triggerObject : _objectsByType[ObjectType::Trigger]) {
+        static_cast<Trigger &>(*triggerObject).removeTenant(object.get());
+    }
+
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     auto sceneNode = object->sceneNode();
     if (sceneNode) {
