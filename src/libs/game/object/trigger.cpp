@@ -190,11 +190,12 @@ void Trigger::addTenant(const std::shared_ptr<Object> &object) {
 }
 
 void Trigger::removeTenant(const Object *object) {
-    for (auto it = _tenants.begin(); it != _tenants.end(); ++it) {
+    for (auto it = _tenants.begin(); it != _tenants.end();) {
         if (it->get() == object) {
-            _tenants.erase(it);
+            it = _tenants.erase(it);
             syncDebugVisual();
-            return;
+        } else {
+            ++it;
         }
     }
 }
