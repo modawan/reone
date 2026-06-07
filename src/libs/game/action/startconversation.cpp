@@ -57,16 +57,17 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
     //
     //  - Explicit DialogResRef: the named dialog is caller-owned (PR #150).
     //
-    //  - Blank DialogResRef: prefer the participant whose Conversation field
-    //    describes the scene:
-    //      * a player-clicked target with a Conversation owns the dialog when
-    //        the target is not a party member.
-    //      * a scripted NPC/caller conversing with a PC or party member owns
-    //        the dialog when the caller has a Conversation.
-    //      * a non-party target/anchor with a Conversation owns the dialog.
-    //      * otherwise fall back to target ownership when the caller has no
-    //        Conversation and the target does, preserving player-clicked party
-    //        member conversations such as Carth.
+    //  - Blank DialogResRef: a party member is always the listener, never the
+    //    dialog owner, so the OTHER participant owns the conversation:
+    //      * the target owns it when the target is not a party member and has
+    //        its own Conversation. This covers the player clicking an NPC or a
+    //        placeable, and a script pointing the caller at an invisible dialog
+    //        anchor whose Conversation is the scene's dialogue (an NPC told to
+    //        converse with such a placeable).
+    //      * otherwise the caller owns it when the caller has a Conversation.
+    //        This is the common NPC-starts-dialogue-with-the-PC shape, where the
+    //        target is the party member.
+    //      * otherwise fall back to the target's Conversation if it has one.
     //
     // Keyed only on party membership and Conversation presence, so it is generic
     // (it does not depend on whether the PC/leader happens to have a
