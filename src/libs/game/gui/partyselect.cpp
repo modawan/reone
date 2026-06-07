@@ -171,11 +171,6 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
     Party &party = _game.party();
     for (auto &member : party.members()) {
         if (member.npc != kNpcPlayer) {
-            if (isSupportedNpc(member.npc) &&
-                !party.isMemberAvailable(member.npc)) {
-
-                party.addAvailableMember(member.npc, member.creature);
-            }
             addNpc(member.npc);
         }
     }
