@@ -3045,11 +3045,17 @@ static Variable SetIsDestroyable(const std::vector<Variable> &args, const Routin
     auto bDestroyable = getInt(args, 0);
     auto bRaiseable = getIntOrElse(args, 1, 1);
     auto bSelectableWhenDead = getIntOrElse(args, 2, 0);
+    auto object = getCaller(ctx);
 
     // Transform
+    bool destroyable = static_cast<bool>(bDestroyable);
+    (void)bRaiseable;           // Raiseable dead state is not represented yet.
+    (void)bSelectableWhenDead;  // Dead selectability is driven by object state/items.
 
     // Execute
-    throw RoutineNotImplementedException("SetIsDestroyable");
+    object->setPlotFlag(!destroyable);
+    object->setMinOneHP(!destroyable);
+    return Variable::ofNull();
 }
 
 static Variable SetLocked(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3518,9 +3524,11 @@ static Variable GetHasSpell(const std::vector<Variable> &args, const RoutineCont
     auto oCreature = getObjectOrCaller(args, 1, ctx);
 
     // Transform
+    auto creature = checkCreature(oCreature);
+    auto spell = static_cast<SpellType>(nSpell);
 
     // Execute
-    throw RoutineNotImplementedException("GetHasSpell");
+    return Variable::ofInt(static_cast<int>(creature->attributes().hasSpell(spell)));
 }
 
 static Variable OpenStore(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3741,9 +3749,12 @@ static Variable GetIsEncounterCreature(const std::vector<Variable> &args, const 
     auto oCreature = getObjectOrCaller(args, 0, ctx);
 
     // Transform
+    checkCreature(oCreature);
 
     // Execute
-    throw RoutineNotImplementedException("GetIsEncounterCreature");
+    // Encounter spawning does not mark spawned creatures yet. Avoid tag/template
+    // heuristics and conservatively report false until that state exists.
+    return Variable::ofInt(0);
 }
 
 static Variable GetLastPlayerDying(const std::vector<Variable> &args, const RoutineContext &ctx) {
