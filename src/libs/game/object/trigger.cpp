@@ -105,12 +105,17 @@ void Trigger::deserializeAll(const resource::Gff &gff) {
     gff.readFloat(_position[0], "XPosition");
     gff.readFloat(_position[1], "YPosition");
     gff.readFloat(_position[2], "ZPosition");
-    {
-        float cosine, sine;
-        if (gff.readFloat(cosine, "XOrientation") && gff.readFloat(sine, "YOrientation")) {
-            _orientation = glm::quat(glm::vec3(0.0f, 0.0f, -glm::atan(cosine, sine)));
-        }
-    }
+
+    // Ignore XOrientation and YOrientation.
+    //
+    // The vanilla engine applies orientation only when instantiating
+    // from a template, and it does not apply orientation when loading
+    // from a savegame. It also uses script Facing only to the Trigger
+    // object and not to the corresponding mesh.
+    //
+    // It appears that no script in the game relies on this behavior,
+    // therefore we do not support it.
+
     gff.readWord(_loadScreenId, "LoadScreenID");
     gff.readLocString(_transitionDestin, "TransitionDestin", _services.resource.strings);
     gff.readBool(_setByPlayerParty, "SetByPlayerParty");
