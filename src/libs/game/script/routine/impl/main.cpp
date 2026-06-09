@@ -3046,17 +3046,11 @@ static Variable SetIsDestroyable(const std::vector<Variable> &args, const Routin
     auto bDestroyable = getInt(args, 0);
     auto bRaiseable = getIntOrElse(args, 1, 1);
     auto bSelectableWhenDead = getIntOrElse(args, 2, 0);
-    auto object = getCaller(ctx);
 
     // Transform
-    bool destroyable = static_cast<bool>(bDestroyable);
-    (void)bRaiseable;           // Raiseable dead state is not represented yet.
-    (void)bSelectableWhenDead;  // Dead selectability is driven by object state/items.
 
     // Execute
-    object->setPlotFlag(!destroyable);
-    object->setMinOneHP(!destroyable);
-    return Variable::ofNull();
+    throw RoutineNotImplementedException("SetIsDestroyable");
 }
 
 static Variable SetLocked(const std::vector<Variable> &args, const RoutineContext &ctx) {
