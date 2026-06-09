@@ -203,7 +203,8 @@ void Conversation::loadEntry(int index, bool start) {
     debug("Load entry " + std::to_string(index), LogChannel::Conversation);
     _currentEntry = &_dialog->getEntry(index);
 
-    setMessage(_currentEntry->text);
+    std::string entryText(_game.substituteCustomTokens(_currentEntry->text));
+    setMessage(entryText);
     loadReplies();
     loadVoiceOver();
     scheduleEndOfEntry();
@@ -216,7 +217,7 @@ void Conversation::loadEntry(int index, bool start) {
         oneLiner = reply.text.empty() && reply.entries.empty();
     }
     if (oneLiner) {
-        _game.setBarkBubbleText(_currentEntry->text, _entryDuration);
+        _game.setBarkBubbleText(std::move(entryText), _entryDuration);
         debug("Dialog: finish (one-liner)");
         finish();
         return;
@@ -305,15 +306,15 @@ void Conversation::loadReplies() {
     refreshReplies();
 }
 
-static std::string getReplyText(const Dialog::EntryReply &reply, int index) {
-    return str(boost::format("%d. %s") % (index + 1) % (reply.text.empty() ? "[empty]" : reply.text));
+static std::string getReplyText(const Dialog::EntryReply &reply, int index, const Game &game) {
+    return str(boost::format("%d. %s") % (index + 1) % (reply.text.empty() ? "[empty]" : game.substituteCustomTokens(reply.text)));
 }
 
 void Conversation::refreshReplies() {
     std::vector<std::string> lines;
     if (!_autoPickFirstReply) {
         for (size_t i = 0; i < _replies.size(); ++i) {
-            lines.push_back(getReplyText(*_replies[i], static_cast<int>(i)));
+            lines.push_back(getReplyText(*_replies[i], static_cast<int>(i), _game));
         }
     }
     setReplyLines(std::move(lines));

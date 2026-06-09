@@ -2685,7 +2685,8 @@ static Variable SetCustomToken(const std::vector<Variable> &args, const RoutineC
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SetCustomToken");
+    ctx.game.setCustomToken(nCustomTokenNumber, std::move(sTokenValue));
+    return Variable::ofNull();
 }
 
 static Variable GetHasFeat(const std::vector<Variable> &args, const RoutineContext &ctx) {
