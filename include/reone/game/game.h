@@ -333,10 +333,16 @@ public:
     std::shared_ptr<Location> getGlobalLocation(const std::string &name) const;
     std::string getGlobalString(const std::string &name) const;
 
-    const std::map<std::string, std::string> &globalStrings() const { return _globalStrings; }
-    const std::map<std::string, bool> &globalBooleans() const { return _globalBooleans; }
-    const std::map<std::string, int> &globalNumbers() const { return _globalNumbers; }
-    const std::map<std::string, std::shared_ptr<Location>> &globalLocations() const { return _globalLocations; }
+    struct GVCompare {
+        bool operator()(const std::string &lhs, const std::string &rhs) const {
+            return boost::algorithm::ilexicographical_compare(lhs, rhs);
+        }
+    };
+
+    const std::map<std::string, std::string, GVCompare> &globalStrings() const { return _globalStrings; }
+    const std::map<std::string, bool, GVCompare> &globalBooleans() const { return _globalBooleans; }
+    const std::map<std::string, int, GVCompare> &globalNumbers() const { return _globalNumbers; }
+    const std::map<std::string, std::shared_ptr<Location>, GVCompare> &globalLocations() const { return _globalLocations; }
 
     void setCustomToken(int token, std::string value);
     std::string substituteCustomTokens(std::string str) const;
@@ -453,10 +459,10 @@ private:
 
     // Global variables
 
-    std::map<std::string, std::string> _globalStrings;
-    std::map<std::string, bool> _globalBooleans;
-    std::map<std::string, int> _globalNumbers;
-    std::map<std::string, std::shared_ptr<Location>> _globalLocations;
+    std::map<std::string, std::string, GVCompare> _globalStrings;
+    std::map<std::string, bool, GVCompare> _globalBooleans;
+    std::map<std::string, int, GVCompare> _globalNumbers;
+    std::map<std::string, std::shared_ptr<Location>, GVCompare> _globalLocations;
     std::map<int, std::string> _customTokens;
 
     // END Global variables
