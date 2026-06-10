@@ -27,7 +27,9 @@ namespace reone {
 
 namespace game {
 
-constexpr int kNpcCount = 9;
+constexpr int kKotorNpcCount = 9;
+constexpr int kTSLNpcCount = 12;
+constexpr int kMaxNpcCount = kTSLNpcCount;
 
 class PartySelection : public GameGUI {
 public:
@@ -97,11 +99,13 @@ private:
 
     PartySelectionContext _context;
     int _selectedNpc {-1};
-    bool _added[kNpcCount] {false};
+    bool _added[kMaxNpcCount] {false};
+    bool _baselineAdded[kMaxNpcCount] {false};
     int _availableCount {0};
 
     void onGUILoaded() override;
 
+    void bindEventHandlers();
     void bindControls() {
         _controls.BTN_ACCEPT = findControl<gui::Button>("BTN_ACCEPT");
         _controls.BTN_BACK = findControl<gui::Button>("BTN_BACK");
@@ -167,6 +171,8 @@ private:
     void removeNpc(int npc);
 
     gui::ToggleButton &getNpcButton(int npc);
+    bool isSupportedNpc(int npc) const;
+    int npcCount() const;
 
     void onAcceptButtonClick();
     void onNpcButtonClick(int npc);

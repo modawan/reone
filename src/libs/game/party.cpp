@@ -99,6 +99,17 @@ void Party::clear() {
     _members.clear();
 }
 
+void Party::giveGold(int amount) {
+    _gold += amount;
+}
+
+void Party::takeGold(int amount) {
+    _gold -= amount;
+    if (_gold < 0) {
+        _gold = 0;
+    }
+}
+
 void Party::switchLeader() {
     if (_members.size() <= 1) {
         return;

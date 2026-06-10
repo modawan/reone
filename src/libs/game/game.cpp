@@ -17,6 +17,9 @@
 
 #include "reone/game/game.h"
 
+#include <cctype>
+#include <exception>
+
 #include "reone/audio/context.h"
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
@@ -245,6 +248,7 @@ void Game::initConsole() {
     registerConsoleCommand("kill", "kill selected object", &Game::consoleKill);
     registerConsoleCommand("additem", "add item to selected object", &Game::consoleAddItem);
     registerConsoleCommand("givexp", "give experience to selected creature", &Game::consoleGiveXP);
+    registerConsoleCommand("givegold", "give credits to the party", &Game::consoleGiveGold);
     registerConsoleCommand("showaabb", "toggle rendering AABB", &Game::consoleShowAABB);
     registerConsoleCommand("showwalkmesh", "toggle rendering walkmesh", &Game::consoleShowWalkmesh);
     registerConsoleCommand("showtriggers", "toggle rendering triggers", &Game::consoleShowTriggers);
@@ -561,6 +565,9 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
             }
 
             REONE_WEB_TRACE("module->loadParty begin");
+            if (!fromSave) {
+                _module->runOnLoadScript();
+            }
             _module->loadParty(entry, fromSave);
             REONE_WEB_TRACE("module->loadParty done");
 
@@ -626,6 +633,7 @@ void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
     _globalBooleans.clear();
     _globalNumbers.clear();
     _globalLocations.clear();
+    _customTokens.clear();
 
     for (auto &[name, value] : gvt.strings) {
         setGlobalString(name, value);
@@ -1276,6 +1284,40 @@ std::shared_ptr<Location> Game::getGlobalLocation(const std::string &name) const
     return it != _globalLocations.end() ? it->second : nullptr;
 }
 
+void Game::setCustomToken(int token, std::string value) {
+    _customTokens[token] = std::move(value);
+}
+
+std::string Game::substituteCustomTokens(std::string str) const {
+    size_t start = 0;
+    while ((start = str.find("<CUSTOM", start)) != std::string::npos) {
+        size_t digitsStart = start + 7;
+        size_t digitsEnd = digitsStart;
+        while (digitsEnd < str.size() && std::isdigit(static_cast<unsigned char>(str[digitsEnd]))) {
+            ++digitsEnd;
+        }
+        if (digitsEnd == digitsStart || digitsEnd >= str.size() || str[digitsEnd] != '>') {
+            start = digitsStart;
+            continue;
+        }
+        int token = 0;
+        try {
+            token = std::stoi(str.substr(digitsStart, digitsEnd - digitsStart));
+        } catch (const std::exception &) {
+            start = digitsEnd + 1;
+            continue;
+        }
+        auto it = _customTokens.find(token);
+        if (it == _customTokens.end()) {
+            start = digitsEnd + 1;
+            continue;
+        }
+        str.replace(start, digitsEnd - start + 1, it->second);
+        start += it->second.size();
+    }
+    return str;
+}
+
 void Game::setGlobalBoolean(const std::string &name, bool value) {
     _globalBooleans[name] = value;
 }
@@ -1695,6 +1737,12 @@ void Game::consoleGiveXP(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "amount");
     auto creature = getConsoleTargetCreature();
     creature->giveXP(args.get<int>(1).value());
+}
+
+void Game::consoleGiveGold(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "amount");
+    _party.giveGold(args.get<int>(1).value());
+    _console.printLine(str(boost::format("party gold: %d") % _party.gold()));
 }
 
 void Game::consoleWarp(const ConsoleArgs &args) {

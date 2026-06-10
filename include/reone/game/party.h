@@ -93,6 +93,18 @@ public:
 
     // END Default party
 
+    // Credits
+    //
+    // KOTOR stores credits as a single party-shared pool, not per creature.
+    // Gold script routines (GetGold/GiveGoldToCreature/TakeGoldFromCreature)
+    // that target a party member operate on this pool.
+
+    int gold() const { return _gold; }
+    void giveGold(int amount);
+    void takeGold(int amount);
+
+    // END Credits
+
 private:
     Game &_game;
 
@@ -100,6 +112,7 @@ private:
     std::map<int, std::shared_ptr<Creature>> _availableMembers;
     std::vector<Member> _members;
     bool _solo {false};
+    int _gold {0};
 
     bool handleKeyDown(const input::KeyEvent &event);
 

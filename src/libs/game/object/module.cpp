@@ -25,12 +25,15 @@
 #include "reone/game/game.h"
 #include "reone/game/party.h"
 #include "reone/game/reputes.h"
+#include "reone/game/script/runner.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/gffs.h"
 #include "reone/resource/resources.h"
 #include "reone/system/exception/validation.h"
 #include "reone/system/logutil.h"
+
+#include <boost/algorithm/string/case_conv.hpp>
 
 using namespace reone::graphics;
 using namespace reone::resource;
@@ -103,6 +106,9 @@ void Module::loadInfo(const resource::generated::IFO &ifo) {
     float dirX = ifo.Mod_Entry_Dir_X;
     float dirY = ifo.Mod_Entry_Dir_Y;
     _info.entryFacing = -glm::atan(dirX, dirY);
+
+    _info.onModLoad = boost::to_lower_copy(ifo.Mod_OnModLoad);
+    _info.onModStart = boost::to_lower_copy(ifo.Mod_OnModStart);
 }
 
 void Module::loadArea(const resource::generated::IFO &ifo, bool fromSave) {
@@ -139,6 +145,20 @@ void Module::loadParty(const std::string &entry, bool fromSave) {
     if (!fromSave) {
         _area->runOnEnterScript();
     }
+}
+
+void Module::runOnLoadScript() {
+    if (_info.onModLoad.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(_info.onModLoad, id());
+}
+
+void Module::runOnStartScript() {
+    if (_info.onModStart.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(_info.onModStart, id());
 }
 
 void Module::getEntryPoint(const std::string &waypoint, glm::vec3 &position, float &facing) const {
@@ -277,7 +297,7 @@ void Module::onCreatureClick(const std::shared_ptr<Creature> &creature) {
 }
 
 void Module::onDoorClick(const std::shared_ptr<Door> &door) {
-    if (!door->linkedToModule().empty()) {
+    if (!door->linkedToModule().empty() && door->getOnOpen().empty()) {
         _game.scheduleModuleTransition(door->linkedToModule(), door->linkedTo());
         return;
     }
