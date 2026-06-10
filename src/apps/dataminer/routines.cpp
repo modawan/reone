@@ -17,7 +17,9 @@
 
 #include "routines.h"
 
-#include "reone/resource/container/keybif.h"
+#include "installation_helpers.h"
+
+#include "reone/extract/installation.h"
 #include "reone/system/exception/notimplemented.h"
 #include "reone/system/fileutil.h"
 #include "reone/system/stream/fileoutput.h"
@@ -27,6 +29,8 @@
 
 #include "code.h"
 
+using namespace reone::dataminer;
+using namespace reone::extract;
 using namespace reone::resource;
 
 namespace reone {
@@ -358,9 +362,9 @@ void generateRoutines(const std::filesystem::path &k1Dir,
     if (!k1KeyPath) {
         throw std::runtime_error("KotOR chitin.key file not found");
     }
-    auto k1KeyBif = KeyBifResourceContainer(*k1KeyPath);
-    k1KeyBif.init();
-    auto k1NssBytes = k1KeyBif.findResourceData(ResourceId("nwscript", ResType::Nss));
+    Installation k1Installation(GameID::KotOR, k1Dir);
+    k1Installation.loadChitin();
+    auto k1NssBytes = readResource(k1Installation, ResourceId("nwscript", ResType::Nss), chitinOnlyOrder());
     if (!k1NssBytes) {
         throw std::runtime_error("KotOR nwscript.nss resource not found");
     }
@@ -387,9 +391,9 @@ void generateRoutines(const std::filesystem::path &k1Dir,
     if (!k2KeyPath) {
         throw std::runtime_error("TSL chitin.key file not found");
     }
-    auto k2KeyBif = KeyBifResourceContainer(*k1KeyPath);
-    k2KeyBif.init();
-    auto k2NssBytes = k2KeyBif.findResourceData(ResourceId("nwscript", ResType::Nss));
+    Installation k2Installation(GameID::TSL, k2Dir);
+    k2Installation.loadChitin();
+    auto k2NssBytes = readResource(k2Installation, ResourceId("nwscript", ResType::Nss), chitinOnlyOrder());
     if (!k2NssBytes) {
         throw std::runtime_error("TSL nwscript.nss resource not found");
     }

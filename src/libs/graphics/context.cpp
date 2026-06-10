@@ -42,7 +42,7 @@ void Context::init() {
         return;
     }
     checkMainThread();
-    if (!gladLoadGL(SDL_GL_GetProcAddress)) {
+    if (!gladLoadGLES2(SDL_GL_GetProcAddress)) {
         // Attempt to retrieve basic version information manually for diagnosis
         // Use manual glGetString which might work even if GLAD failed to load everything
         const GLubyte *version = glGetString(GL_VERSION);
@@ -54,17 +54,35 @@ void Context::init() {
         std::string vendorStr = vendor ? (const char *)vendor : "Unknown";
 
         throw std::runtime_error(str(boost::format(
-                                         "gladLoadGLLoader failed to initialize OpenGL context.\n"
+                                         "gladLoadGLES2 failed to initialize OpenGL ES context.\n"
                                          "  GL_VERSION: %s\n"
                                          "  GL_RENDERER: %s\n"
                                          "  GL_VENDOR: %s\n"
-                                         "  Ensure your graphics driver supports OpenGL 4.0 Core Profile.") %
+                                         "  Ensure your graphics driver supports OpenGL ES 3.0.") %
                                      versionStr % rendererStr % vendorStr));
     }
 
+#ifdef GLAD_GL_OES_texture_cube_map_array
+    _cubeMapArraySupported = GLAD_GL_OES_texture_cube_map_array != 0;
+#else
+    _cubeMapArraySupported = false;
+#endif
+    _options.cubeMapArraySupported = _cubeMapArraySupported;
+    info(str(boost::format("Cube map array supported: %s") % (_cubeMapArraySupported ? "yes" : "no")), LogChannel::Graphics);
+
+    int maxTexUnits = 0;
+    glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &maxTexUnits);
+    info(str(boost::format("Max combined texture image units: %d") % maxTexUnits), LogChannel::Graphics);
+
     int maxBuffers;
     glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxBuffers);
-    glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+    _maxDrawBuffers = std::max(1, maxBuffers);
+    info(str(boost::format("Max draw buffers: %d") % _maxDrawBuffers), LogChannel::Graphics);
+#ifdef GLAD_GL_EXT_texture_compression_s3tc
+    info(str(boost::format("S3TC texture compression supported: %s") % (GLAD_GL_EXT_texture_compression_s3tc ? "yes" : "no")), LogChannel::Graphics);
+#endif
+    // FIXME: GL_TEXTURE_CUBE_MAP_SEAMLESS is not supported
+    glEnable(GL_TEXTURE_CUBE_MAP);
 
     glm::ivec4 viewport(0.0f);
     glGetIntegerv(GL_VIEWPORT, &viewport[0]);
@@ -133,19 +151,26 @@ void Context::resetReadFramebuffer() {
 }
 
 void Context::bindDrawFramebuffer(Framebuffer &buffer, std::vector<int> colorIndices) {
+    // Break any sampler->attachment feedback loop before this FBO is drawn into: a texture that is
+    // both an attachment here and still bound on a sampler unit makes the draw INVALID_OPERATION on
+    // WebGL2/GLES (and floods the console). Passes always rebind the textures they actually sample.
+    unbindAttachmentsFromTextureUnits(buffer);
     if (!_drawFramebuffer || _drawFramebuffer->get().nameGL() != buffer.nameGL()) {
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, buffer.nameGL());
         _drawFramebuffer = buffer;
     }
-    if (!colorIndices.empty()) {
-        auto attachments = std::vector<GLenum>(colorIndices.size());
-        for (size_t i = 0; i < colorIndices.size(); ++i) {
-            attachments[i] = kColorAttachments[colorIndices[i]];
-        }
-        glDrawBuffers(attachments.size(), &attachments[0]);
-    } else {
-        glDrawBuffer(GL_NONE);
+    if (colorIndices.empty()) {
+        GLenum none = GL_NONE;
+        glDrawBuffers(1, &none);
+        return;
     }
+    std::vector<GLenum> attachments(_maxDrawBuffers, GL_NONE);
+    for (int colorIdx : colorIndices) {
+        if (colorIdx >= 0 && colorIdx < _maxDrawBuffers) {
+            attachments[colorIdx] = kColorAttachments[colorIdx];
+        }
+    }
+    glDrawBuffers(_maxDrawBuffers, attachments.data());
 }
 
 void Context::bindReadFramebuffer(Framebuffer &buffer, std::optional<int> colorIdx) {
@@ -207,6 +232,36 @@ void Context::bindTexture(Texture &texture, int unit) {
         _activeTexUnit = unit;
     }
     texture.bind();
+    _boundTextureNameByUnit[unit] = texture.nameGL();
+}
+
+void Context::unbindAttachmentsFromTextureUnits(Framebuffer &buffer) {
+    if (_boundTextureNameByUnit.empty()) {
+        return;
+    }
+    auto unbindAttachment = [this](const std::shared_ptr<IAttachment> &attachment) {
+        if (!attachment || !attachment->isTexture()) {
+            return;
+        }
+        auto &texture = static_cast<Texture &>(*attachment);
+        uint32_t nameGL = texture.nameGL();
+        for (auto it = _boundTextureNameByUnit.begin(); it != _boundTextureNameByUnit.end();) {
+            if (it->second != nameGL) {
+                ++it;
+                continue;
+            }
+            if (_activeTexUnit != it->first) {
+                glActiveTexture(GL_TEXTURE0 + it->first);
+                _activeTexUnit = it->first;
+            }
+            texture.unbind();
+            it = _boundTextureNameByUnit.erase(it);
+        }
+    };
+    for (auto &color : buffer.colorAttachments()) {
+        unbindAttachment(color);
+    }
+    unbindAttachment(buffer.depthAttachment());
 }
 
 void Context::pushViewport(glm::ivec4 viewport) {
@@ -380,11 +435,12 @@ void Context::setDepthMask(bool enabled) {
 }
 
 void Context::setPolygonMode(PolygonMode mode) {
-    if (mode == PolygonMode::Line) {
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-    } else {
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    }
+    // FIXME: polygon mode is not supported
+    // if (mode == PolygonMode::Line) {
+    //     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    // } else {
+    //     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    // }
 }
 
 void Context::setFaceCullMode(FaceCullMode mode) {

@@ -20,7 +20,9 @@
 #include "reone/audio/clip.h"
 #include "reone/audio/format/mp3reader.h"
 #include "reone/audio/format/wavreader.h"
+#include "reone/extract/finder.h"
 #include "reone/resource/resources.h"
+#include "reone/system/logutil.h"
 #include "reone/system/stream/memoryinput.h"
 
 using namespace reone::audio;
@@ -31,22 +33,30 @@ namespace resource {
 
 std::shared_ptr<AudioClip> AudioClips::doGet(std::string resRef) {
     std::shared_ptr<AudioClip> clip;
-    auto m3pRes = _resources.find(ResourceId(resRef, ResType::Mp3));
-    if (m3pRes) {
-        auto stream = MemoryInputStream(m3pRes->data);
-        auto reader = Mp3Reader();
-        reader.load(stream);
-        clip = reader.stream();
-    }
-    if (!clip) {
-        auto wavRes = _resources.find(ResourceId(resRef, ResType::Wav));
-        if (wavRes) {
-            auto stream = MemoryInputStream(wavRes->data);
-            auto mp3ReaderFactory = Mp3ReaderFactory();
-            auto reader = WavReader(stream, mp3ReaderFactory);
-            reader.load();
+    // A single malformed/unreadable audio resource must never crash the engine to a black screen
+    // (e.g. UI click/hover sounds on the main menu). Decode failures degrade to a silent clip.
+    try {
+        auto order = extract::soundSearchOrder();
+        auto m3pRes = _resources.find(ResourceId(resRef, ResType::Mp3), order);
+        if (m3pRes) {
+            auto stream = MemoryInputStream(m3pRes->data);
+            auto reader = Mp3Reader();
+            reader.load(stream);
             clip = reader.stream();
         }
+        if (!clip) {
+            auto wavRes = _resources.find(ResourceId(resRef, ResType::Wav), order);
+            if (wavRes) {
+                auto stream = MemoryInputStream(wavRes->data);
+                auto mp3ReaderFactory = Mp3ReaderFactory();
+                auto reader = WavReader(stream, mp3ReaderFactory);
+                reader.load();
+                clip = reader.stream();
+            }
+        }
+    } catch (const std::exception &e) {
+        warn("Failed to load audio clip '" + resRef + "': " + e.what());
+        return nullptr;
     }
     return clip;
 }

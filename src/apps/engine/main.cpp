@@ -21,15 +21,49 @@
 #undef min
 #endif
 
+#include <filesystem>
+#include <iostream>
+#include <memory>
+#include <typeinfo>
+
+#include <boost/format.hpp>
+
 #include "reone/system/logger.h"
 #include "reone/system/logutil.h"
 #include "reone/system/threadutil.h"
 
 #include "engine.h"
+
+#ifndef __EMSCRIPTEN__
 #include "optionsparser.h"
+#endif
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+
+static std::unique_ptr<reone::Options> g_webOptions;
+static std::unique_ptr<reone::Engine> g_webEngine;
+
+static bool hasMountedGameData(const std::filesystem::path &gamePath) {
+    const auto keyPath = gamePath / "chitin.key";
+#ifdef __EMSCRIPTEN__
+    // HTTP mirror / FS Access create 0-byte MEMFS markers; bytes load via WebFileInputStream.
+    if (EM_ASM_INT({ return Module.reoneWebLazyGameFsActive ? 1 : 0; }) != 0) {
+        return std::filesystem::exists(keyPath);
+    }
+#endif
+    if (!std::filesystem::is_regular_file(keyPath)) {
+        return false;
+    }
+    std::error_code ec;
+    auto sz = std::filesystem::file_size(keyPath, ec);
+    return !ec && sz >= 64 * 1024;
+}
+#endif
 
 using namespace reone;
 using namespace reone::graphics;
+using reone::graphics::TextureQuality;
 
 static constexpr char kLogFilename[] = "engine.log";
 static constexpr char kEngineStartupMessage[] = "reone smoke signal: engine startup";
@@ -41,6 +75,22 @@ int main(int argc, char **argv) {
     markMainThread();
 
     std::unique_ptr<Options> options;
+#ifdef __EMSCRIPTEN__
+    options = std::make_unique<Options>();
+    options->game.path = std::filesystem::path("/game");
+    options->graphics.shadowResolution = 1;
+    options->graphics.ssr = false;
+    options->graphics.ssao = false;
+    options->graphics.textureQuality = TextureQuality::Low;
+
+    if (!hasMountedGameData(options->game.path)) {
+        std::cerr
+            << "reone web: no mounted game data at /game (need chitin.key from your KotOR install). "
+            << "Pick your install folder in Chrome/Edge (File System Access), or use CMake embedded preload."
+            << std::endl;
+        return 0;
+    }
+#else
     OptionsParser optionsParser {argc, argv};
     try {
         options = optionsParser.parse();
@@ -48,6 +98,7 @@ int main(int argc, char **argv) {
         std::cerr << "Error parsing options: " << ex.what() << std::endl;
         return 1;
     }
+#endif
     try {
         Logger::instance.init(options->logging.severity, options->logging.channels, kLogFilename);
         info(kEngineStartupMessage);
@@ -56,18 +107,42 @@ int main(int argc, char **argv) {
         std::cerr << "Error initializing logging: " << ex.what() << std::endl;
         return 2;
     }
-    Engine engine {*options};
     try {
+#ifdef __EMSCRIPTEN__
+        g_webOptions = std::move(options);
+        g_webEngine = std::make_unique<Engine>(*g_webOptions);
+        g_webEngine->init();
+        int exitCode = g_webEngine->run();
+#else
+        Engine engine {*options};
         engine.init();
         int exitCode = engine.run();
+#endif
         return exitCode;
     } catch (const std::exception &ex) {
-        auto message = str(boost::format("Engine failure: %1%") % ex.what());
+        const char *detail = ex.what();
+        std::string detailStr = (detail && *detail) ? detail : typeid(ex).name();
+        auto message = str(boost::format("Engine failure: %1%") % detailStr);
+#ifdef __EMSCRIPTEN__
+        std::cerr << message << std::endl;
+        EM_ASM(
+            {
+                console.error(UTF8ToString($0));
+            },
+            message.c_str());
+#endif
         try {
             error(message);
         } catch (...) {
             std::cerr << message << std::endl;
         }
+        return 3;
+    } catch (...) {
+        const char *message = "Engine failure: unknown exception";
+#ifdef __EMSCRIPTEN__
+        std::cerr << message << std::endl;
+        EM_ASM({ console.error("Engine failure: unknown exception"); });
+#endif
         return 3;
     }
 }

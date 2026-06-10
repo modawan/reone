@@ -19,7 +19,11 @@
 
 namespace reone {
 
+#ifdef __EMSCRIPTEN__
+static constexpr int kNumThreadPoolThreads = 0;
+#else
 static constexpr int kNumThreadPoolThreads = 2;
+#endif
 
 void SystemModule::init() {
     _threadPool = std::make_unique<ThreadPool>(kNumThreadPoolThreads);

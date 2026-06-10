@@ -17,24 +17,34 @@
 
 #include "reone/resource/strings.h"
 
-#include "reone/resource/exception/notfound.h"
+#include "reone/extract/installation.h"
+#include "reone/extract/finder.h"
 #include "reone/resource/talktable.h"
-#include "reone/system/fileutil.h"
-#include "reone/system/stream/fileinput.h"
+#include "reone/system/exception/endofstream.h"
+#include "reone/system/exception/validation.h"
+#include "reone/system/stream/gameinput.h"
 
 namespace reone {
 
 namespace resource {
 
-void Strings::init(const std::filesystem::path &gameDir) {
-    auto tlkPath = findFileIgnoreCase(gameDir, "dialog.tlk");
+void Strings::init(extract::Installation &installation) {
+    auto tlkPath = installation.resolveLooseRelativePath(
+        "dialog.tlk",
+        extract::talkTableSearchOrder());
     if (!tlkPath) {
         return;
     }
-    auto tlk = FileInputStream(*tlkPath);
-    auto tlkReader = TlkReader(tlk);
-    tlkReader.load();
-    _table = tlkReader.table();
+    try {
+        auto tlk = openGameInputStream(*tlkPath);
+        auto tlkReader = TlkReader(*tlk);
+        tlkReader.load();
+        _table = tlkReader.table();
+    } catch (const ValidationException &) {
+        // Unsupported talk table revision (e.g. GemRB demo TLK V1); strings stay empty.
+    } catch (const EndOfStreamException &) {
+        // Truncated or non-retail talk table.
+    }
 }
 
 std::string Strings::getText(int strRef) {

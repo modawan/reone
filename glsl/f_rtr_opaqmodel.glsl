@@ -64,20 +64,26 @@ void main() {
         if (lightDist > uLights[i].radius * uLights[i].radius) {
             continue;
         }
-        vec3 lightDir = lightPos / max(1e-4, lightDist);
+        vec3 lightDir = lightPos / max(0.0001, lightDist);
         float diff = max(0.0, dot(normal, lightDir));
         float attenuation = lightAttenuationQuadratic(uLights[i], lightDist);
         vec3 lightColor = uLights[i].color.rgb;
-        if (uLights[i].ambientOnly) {
+        if (uLights[i].ambientOnly > 0.0) {
             ambient += uLights[i].multiplier * attenuation * uAmbientColor.rgb * lightColor;
         } else {
             diffuse += uLights[i].multiplier * diff * attenuation * uDiffuseColor.rgb * lightColor;
         }
     }
-    float shadow = isFeatureEnabled(FEATURE_SHADOWS)
-                       ? getShadow(viewPos, fragPosWorld.xyz, normal, sShadowMap, sShadowMapCube)
-                       : 0.0;
+    float shadow = 0.0;
+    if (isFeatureEnabled(FEATURE_SHADOWS)) {
+        shadow = getShadow(viewPos, fragPosWorld.xyz, normal, sShadowMap, sShadowMapCube);
+    }
     vec3 color = min(vec3(1.0), (ambient + (1.0 - shadow) * max(vec3(0.0), diffuse))) * mainTexSample.rgb;
+    // Self-lit emissive meshes can still read black if the diffuse map failed to upload; keep
+    // emissive color visible for sabers and similar FX.
+    if (dot(color, color) < 0.0001 && dot(uSelfIllumColor.rgb, uSelfIllumColor.rgb) > 0.0001) {
+        color = uSelfIllumColor.rgb;
+    }
     if (isFeatureEnabled(FEATURE_ENVMAP)) {
         vec3 R = reflect(-viewDir, normal);
         vec4 envmapSample = sampleEnvMap(sEnvMap, sEnvMapCube, R);
@@ -87,7 +93,7 @@ void main() {
         float fog = getFog(fragPosWorld.xyz);
         color = mix(color, uFogColor.rgb, fog);
     }
-    vec3 hilights = step(1e-4, uSelfIllumColor.rgb) * step(0.95, color) * color;
+    vec3 hilights = step(0.0001, uSelfIllumColor.rgb) * step(0.95, color) * color;
     fragColor = vec4(color, 1.0);
     fragHilights = vec4(hilights, 1.0);
 }

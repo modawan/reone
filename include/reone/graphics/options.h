@@ -35,6 +35,7 @@ struct GraphicsOptions {
     bool ssr {true};
     bool fxaa {true};
     bool sharpen {true};
+    bool cubeMapArraySupported {false};
     TextureQuality textureQuality {TextureQuality::High};
     int shadowResolution {2048};
     int anisotropicFiltering {2};

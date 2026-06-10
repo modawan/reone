@@ -138,6 +138,7 @@ void MainMenu::setup3DView() {
         .modelSupplier(bind(&MainMenu::getKotorModel, this, std::placeholders::_1))
         .modelScale(kKotorModelSize)
         .cameraFromModelNode("camerahook")
+        .ambientLightColor(glm::vec3(0.5f))
         .invoke();
 
     _controls.LBL_3DVIEW->setSceneName(kSceneMainMenu);

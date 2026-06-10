@@ -22,21 +22,24 @@ layout(location = 3) out vec4 fragSelfIllumColor;
 
 void main() {
     vec2 uv = vec2(0.5) * fragUV1;
-    uv.y += 0.5 * (int(uGrassClusters[fragInstanceID].positionVariant[3]) / 2);
-    uv.x += 0.5 * (int(uGrassClusters[fragInstanceID].positionVariant[3]) % 2);
+    int variant = int(uGrassClusters[fragInstanceID].positionVariant[3]);
+    uv.y += 0.5 * float(variant / 2);
+    uv.x += 0.5 * float(variant % 2);
 
     vec4 mainTexSample = texture(sMainTex, uv);
     hashedAlphaTest(mainTexSample.a, fragPos.xyz);
 
     vec3 eyeNormal = transpose(mat3(uViewInv)) * normalize(fragNormalWorld);
-    eyeNormal = 0.5 * eyeNormal + 0.5;
+    eyeNormal = 0.5 * eyeNormal + vec3(0.5);
 
     float features = packGeometryFeatures(false, false, false);
 
     fragDiffuseColor = mainTexSample;
-    fragLightmapColor = isFeatureEnabled(FEATURE_LIGHTMAP)
-                            ? vec4(texture(sLightmap, uGrassClusters[fragInstanceID].lightmapUV).rgb, features)
-                            : vec4(vec3(1.0), features);
+    if (isFeatureEnabled(FEATURE_LIGHTMAP)) {
+        fragLightmapColor = vec4(texture(sLightmap, uGrassClusters[fragInstanceID].lightmapUV).rgb, features);
+    } else {
+        fragLightmapColor = vec4(vec3(1.0), features);
+    }
 
     fragSelfIllumColor = vec4(0.0);
     fragEyeNormal = vec4(eyeNormal, 0.0);

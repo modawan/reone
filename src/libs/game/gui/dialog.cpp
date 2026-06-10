@@ -239,7 +239,7 @@ void DialogGUI::updateCamera() {
 
 glm::vec3 DialogGUI::getTalkPosition(const Object &object) const {
     auto node = object.sceneNode();
-    if (node->type() != SceneNodeType::Model) {
+    if (!node || node->type() != SceneNodeType::Model) {
         return object.position();
     }
 

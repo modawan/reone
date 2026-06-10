@@ -1,0 +1,154 @@
+# Build reone `engine` for WebAssembly (Emscripten + SDL3 port).
+# Artifacts are engine code + glsl preload only — no retail game files (KotOR.js parity).
+name: Build WASM engine
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - "cursor/**"
+    paths:
+      - ".github/workflows/build-wasm.yml"
+      - "CMakeLists.txt"
+      - "src/**"
+      - "include/**"
+      - "glsl/**"
+      - "tools/web/**"
+      - "doc/webassembly.md"
+  pull_request:
+    paths:
+      - ".github/workflows/build-wasm.yml"
+      - "CMakeLists.txt"
+      - "src/**"
+      - "include/**"
+      - "glsl/**"
+      - "tools/web/**"
+      - "doc/webassembly.md"
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  # Self-hosted wasm builds run ~30–90m; do not cancel mid-compile on PR sync churn.
+  group: wasm-ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  wasm-ci:
+    # GitHub-hosted: self-hosted wasm-ci runner had stale git credentials (checkout auth fail).
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install build deps
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build ccache libboost-dev curl git python3 cmake g++ \
+            iproute2
+
+      - name: Module smoke (serve.py handler + Range)
+        working-directory: tools/web
+        run: python3 test_serve_smoke.py
+
+      - name: Integration smoke (gen_game_manifest + live serve.py)
+        run: |
+          set -euo pipefail
+          mirror_port=28765
+          while ss -ltn 2>/dev/null | grep -q ":${mirror_port} "; do mirror_port=$((mirror_port + 1)); done
+          mkdir -p /tmp/web-empty /tmp/gr
+          printf 'xy' > /tmp/gr/swkotor.exe
+          python3 tools/web/gen_game_manifest.py /tmp/gr --strict
+          python3 tools/web/serve.py --directory /tmp/web-empty --game-root /tmp/gr --port "$mirror_port" &
+          pid=$!
+          sleep 1
+          curl -fsS "http://127.0.0.1:${mirror_port}/game-manifest.json" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'swkotor.exe' in d['files'], d"
+          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Range: bytes=0-0" "http://127.0.0.1:${mirror_port}/game-files/swkotor.exe")
+          test "$code" = "206"
+          kill "$pid"
+
+      - name: Setup Emscripten 5.0.7
+        shell: bash
+        run: |
+          set -euo pipefail
+          EMSDK_ROOT=/tmp/emsdk
+          if [ ! -x "$EMSDK_ROOT/upstream/emscripten/emcc" ]; then
+            git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$EMSDK_ROOT"
+            cd "$EMSDK_ROOT"
+            ./emsdk install 5.0.7
+            ./emsdk activate 5.0.7
+          else
+            cd "$EMSDK_ROOT"
+            ./emsdk activate 5.0.7
+          fi
+          source ./emsdk_env.sh
+          emcc --version
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-emscripten-${{ hashFiles('CMakeLists.txt', 'src/apps/engine/CMakeLists.txt') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-emscripten-
+
+      - name: Isolate Boost headers for emcc
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /opt/reone/boost-include
+          sudo cp -a /usr/include/boost /opt/reone/boost-include/
+
+      - name: Build SDL3 cache (Emscripten ports)
+        shell: bash
+        run: |
+          set -euo pipefail
+          source /tmp/emsdk/emsdk_env.sh
+          embuilder build sdl3
+
+      - name: Configure (Release, KotOR.js-parity asset profile)
+        shell: bash
+        run: |
+          set -euo pipefail
+          source /tmp/emsdk/emsdk_env.sh
+          emcmake cmake -G Ninja -S . -B build-web \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBoost_INCLUDE_DIR=/opt/reone/boost-include \
+            -DBoost_NO_BOOST_CMAKE=ON
+
+      - name: Build engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          source /tmp/emsdk/emsdk_env.sh
+          cmake --build build-web --target engine -j "$(nproc)"
+
+      - name: Verify wasm bundle (html, js, wasm, glsl data)
+        run: python3 tools/web/verify_wasm_bundle.py build-web/bin
+
+      - name: Smoke engine.html is served
+        run: |
+          set -euo pipefail
+          engine_port=28766
+          while ss -ltn 2>/dev/null | grep -q ":${engine_port} "; do engine_port=$((engine_port + 1)); done
+          python3 tools/web/serve.py --directory build-web/bin --port "$engine_port" &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          sleep 1
+          curl -fsS "http://127.0.0.1:${engine_port}/engine.html" | grep -qi '<html'
+
+      - name: Upload WASM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: reone-engine-wasm
+          if-no-files-found: error
+          path: |
+            build-web/bin/engine.html
+            build-web/bin/engine.js
+            build-web/bin/engine.wasm
+            build-web/bin/engine.data

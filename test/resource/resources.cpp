@@ -17,96 +17,56 @@
 
 #include <gtest/gtest.h>
 
+#include "reone/extract/finder.h"
+#include "reone/extract/installation.h"
+#include "reone/resource/format/erfwriter.h"
 #include "reone/resource/resources.h"
-#include "reone/system/logutil.h"
 #include "reone/system/stream/fileoutput.h"
+#include "reone/system/stream/memoryoutput.h"
 
 #include "../checkutil.h"
 
 using namespace reone;
+using namespace reone::extract;
 using namespace reone::resource;
 
-TEST(Resources, should_index_providers_and_get_resources_without_caching) {
-    // given
+namespace {
 
-    auto tmpDirPath = std::filesystem::temp_directory_path();
-    tmpDirPath.append("reone_test_resources");
-    std::filesystem::create_directory(tmpDirPath);
+void writeErf(const std::filesystem::path &path, const std::string &resRef, ResType type, ByteBuffer data) {
+    ByteBuffer bytes;
+    MemoryOutputStream stream(bytes);
+    ErfWriter writer;
+    writer.add(ErfWriter::Resource {resRef, type, std::move(data)});
+    writer.save(ErfWriter::FileType::ERF, stream);
+    FileOutputStream out(path);
+    out.write(bytes.data(), bytes.size());
+    out.close();
+}
 
-    auto keyPath = tmpDirPath;
-    keyPath.append("sample.key");
-    auto key = FileOutputStream(keyPath);
-    key.write("KEY V1  ", 8);
-    key.write("\x00\x00\x00\x00", 4);
-    key.write("\x00\x00\x00\x00", 4);
-    key.write("\x00\x00\x00\x00", 4);
-    key.write("\x00\x00\x00\x00", 4);
-    key.write("\x00\x00\x00\x00", 4);
-    key.write("\x00\x00\x00\x00", 4);
-    auto keyPadding = ByteBuffer(32, '\0');
-    key.write(&keyPadding[0], keyPadding.size());
-    key.close();
+} // namespace
 
-    auto erfPath = tmpDirPath;
-    erfPath.append("sample.erf");
-    auto erf = FileOutputStream(erfPath);
-    erf.write("ERF V1.0", 8);
-    erf.write("\x00\x00\x00\x00", 4);
-    erf.write("\x00\x00\x00\x00", 4);
-    erf.write("\x00\x00\x00\x00", 4);
-    erf.write("\x00\x00\x00\x00", 4);
-    erf.write("\x00\x00\x00\x00", 4);
-    erf.write("\x00\x00\x00\x00", 4);
-    erf.write("\x00\x00\x00\x00", 4);
-    erf.write("\x00\x00\x00\x00", 4);
-    erf.write("\x00\x00\x00\x00", 4);
-    auto erfPadding = ByteBuffer(116, '\0');
-    erf.write(&erfPadding[0], erfPadding.size());
-    erf.close();
+TEST(Resources, resolves_override_via_installation) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_resources";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "override");
 
-    auto rimPath = tmpDirPath;
-    rimPath.append("sample.rim");
-    auto rim = FileOutputStream(rimPath);
-    rim.write("RIM V1.0", 8);
-    rim.write("\x00\x00\x00\x00", 4);
-    rim.write("\x00\x00\x00\x00", 4);
-    rim.write("\x00\x00\x00\x00", 4);
-    rim.close();
+    {
+        FileOutputStream out(tmp / "override" / "sample.txt");
+        out.write("Hello, world!", 13);
+        out.close();
+    }
 
-    auto overridePath = tmpDirPath;
-    overridePath.append("override");
-    std::filesystem::create_directory(overridePath);
-
-    auto resPath = overridePath;
-    resPath.append("sample.txt");
-    auto res = FileOutputStream(resPath);
-    res.write("Hello, world!", 13);
-    res.close();
-
-    auto resources = Resources();
+    Installation installation(GameID::KotOR, tmp);
+    Resources resources;
+    resources.useInstallation(&installation);
 
     auto expectedResData = ByteBuffer {'H', 'e', 'l', 'l', 'o', ',', ' ', 'w', 'o', 'r', 'l', 'd', '!'};
+    auto actualRes = resources.find(ResourceId("sample", ResType::Txt));
+    ASSERT_TRUE(static_cast<bool>(actualRes));
+    EXPECT_EQ(expectedResData, actualRes->data) << notEqualMessage(expectedResData, actualRes->data);
 
-    // when
+    Resources bare;
+    EXPECT_FALSE(bare.find(ResourceId("sample", ResType::Txt)).has_value());
 
-    resources.addKEY(keyPath);
-    resources.addERF(erfPath);
-    resources.addFolder(overridePath);
-    resources.addRIM(rimPath);
-
-    auto numProviders = resources.containers().size();
-    auto actualRes1 = resources.find(ResourceId("sample", ResType::Txt));
-    resources.clear();
-    auto actualRes2 = resources.find(ResourceId("sample", ResType::Txt));
-
-    // then
-
-    EXPECT_EQ(4ll, numProviders);
-    EXPECT_TRUE(static_cast<bool>(actualRes1));
-    EXPECT_EQ(expectedResData, actualRes1->data) << notEqualMessage(expectedResData, actualRes1->data);
-    EXPECT_TRUE(!static_cast<bool>(actualRes2));
-
-    // cleanup
-
-    std::filesystem::remove_all(tmpDirPath);
+    std::filesystem::remove_all(tmp);
 }

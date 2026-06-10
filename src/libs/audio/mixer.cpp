@@ -57,6 +57,16 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
                                               float gain,
                                               bool loop,
                                               std::optional<glm::vec3> position) {
+#if defined(__EMSCRIPTEN__)
+    // OpenAL-on-WebAudio schedules browser callbacks; some Chromium/ANGLE stacks trip Emscripten
+    // dynCall with "null function". Silence audio on wasm until the OpenAL port path is stable.
+    (void)type;
+    (void)gain;
+    (void)loop;
+    (void)position;
+    (void)clip;
+    return nullptr;
+#else
     auto source = std::make_shared<AudioSource>(
         std::move(clip),
         gainByType(type, gain),
@@ -66,6 +76,7 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
     source->play();
     _sources.push_back(ActiveSource {source, type});
     return source;
+#endif
 }
 
 float AudioMixer::gainByType(AudioType type, float gain) const {

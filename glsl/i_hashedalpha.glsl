@@ -14,8 +14,17 @@ void hashedAlphaTest(float a, vec3 p) {
         x * x / (2.0 * t * (1.0 - t)),
         (x - 0.5 * t) / (1.0 - t),
         1.0 - (1.0 - x) * (1.0 - x) / (2.0 * t * (1.0 - t)));
-    float threshold = (x < 1.0 - t) ? ((x < t) ? cases.x : cases.y) : cases.z;
-    threshold = clamp(threshold, 1.0e-6, 1.0);
+    float threshold;
+    if (x < 1.0 - t) {
+        if (x < t) {
+            threshold = cases.x;
+        } else {
+            threshold = cases.y;
+        }
+    } else {
+        threshold = cases.z;
+    }
+    threshold = clamp(threshold, 0.000001, 1.0);
     if (a < threshold) {
         discard;
     }

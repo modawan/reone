@@ -20,6 +20,7 @@ set(DATAMINER_HEADERS
     ${DATAMINER_SOURCE_DIR}/code.h
     ${DATAMINER_SOURCE_DIR}/gffparsers.h
     ${DATAMINER_SOURCE_DIR}/guis.h
+    ${DATAMINER_SOURCE_DIR}/installation_helpers.h
     ${DATAMINER_SOURCE_DIR}/models.h
     ${DATAMINER_SOURCE_DIR}/routines.h)
 

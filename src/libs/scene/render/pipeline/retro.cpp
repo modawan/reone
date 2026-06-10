@@ -179,14 +179,33 @@ Texture &RetroRenderPipeline::render() {
     bool pointLightShadows = _passCallbacks.count(RenderPassName::PointLightShadows) > 0;
     if (dirLightShadows || pointLightShadows) {
         _context.bindDrawFramebuffer(*_targets.shadows, {});
-        _context.withViewport(glm::ivec4 {0, 0, _options.shadowResolution, _options.shadowResolution}, [this, &pass, &dirLightShadows]() {
-            _context.clearDepth();
+        _context.withViewport(glm::ivec4 {0, 0, _options.shadowResolution, _options.shadowResolution}, [this, &pass, &dirLightShadows, &pointLightShadows]() {
             if (dirLightShadows) {
-                _targets.shadows->attachTexture(*_targets.dirLightShadowsDepth, Framebuffer::Attachment::Depth);
-                _passCallbacks.at(RenderPassName::DirLightShadowsPass)(pass);
+                for (int layer = 0; layer < kNumShadowCascades; ++layer) {
+                    _targets.shadows->attachTextureLayer(
+                        *_targets.dirLightShadowsDepth,
+                        layer,
+                        0,
+                        Framebuffer::Attachment::Depth);
+                    _uniforms.setGlobals([layer](auto &globals) {
+                        globals.shadowLayer = layer;
+                    });
+                    _context.clearDepth();
+                    _passCallbacks.at(RenderPassName::DirLightShadowsPass)(pass);
+                }
             } else {
-                _targets.shadows->attachTexture(*_targets.pointLightShadowsDepth, Framebuffer::Attachment::Depth);
-                _passCallbacks.at(RenderPassName::PointLightShadows)(pass);
+                for (int layer = 0; layer < kNumCubeFaces; ++layer) {
+                    _targets.shadows->attachTextureLayer(
+                        *_targets.pointLightShadowsDepth,
+                        layer,
+                        0,
+                        Framebuffer::Attachment::Depth);
+                    _uniforms.setGlobals([layer](auto &globals) {
+                        globals.shadowLayer = layer;
+                    });
+                    _context.clearDepth();
+                    _passCallbacks.at(RenderPassName::PointLightShadows)(pass);
+                }
             }
         });
     }
@@ -235,7 +254,7 @@ Texture &RetroRenderPipeline::render() {
                 0, 0,
                 FramebufferBlitFlags::depth);
             _context.bindDrawFramebuffer(*_targets.transparent, {0, 1});
-            _context.clearColor({0.0f, 0.0f, 0.0f, 1.0f});
+            _context.clearColor({0.0f, 0.0f, 0.0f, 0.0f});
             _context.withBlendMode(BlendMode::OIT_Transparent, [this, &pass]() {
                 _context.withDepthMask(false, [this, &pass]() {
                     _passCallbacks.at(RenderPassName::TransparentGeometry)(pass);

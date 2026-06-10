@@ -61,6 +61,22 @@ static void decompressLayer(int width, int height, Texture::Layer &layer, PixelF
     dstFormat = alpha ? PixelFormat::RGBA8 : PixelFormat::RGB8;
 }
 
+void decompressTextureForUpload(Texture &texture) {
+#ifdef GLAD_GL_EXT_texture_compression_s3tc
+    if (GLAD_GL_EXT_texture_compression_s3tc) {
+        return;
+    }
+#endif
+    if (!isCompressed(texture.pixelFormat())) {
+        return;
+    }
+    PixelFormat newFormat = texture.pixelFormat();
+    for (auto &layer : texture.layers()) {
+        decompressLayer(texture.width(), texture.height(), layer, texture.pixelFormat(), newFormat);
+    }
+    texture.setPixelFormat(newFormat);
+}
+
 static int getBytesPerPixel(PixelFormat format) {
     switch (format) {
     case PixelFormat::R8:

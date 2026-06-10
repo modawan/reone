@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "reone/graphics/options.h"
 
 namespace reone {
@@ -67,7 +69,7 @@ private:
     glm::vec2 _modelOffset {0.0f};
     glm::mat4 _cameraTransform {1.0f};
     std::string _cameraNodeName;
-    glm::vec3 _ambientLightColor {0.0f};
+    std::optional<glm::vec3> _ambientLightColor;
 };
 
 } // namespace gui

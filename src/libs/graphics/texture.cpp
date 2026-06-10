@@ -17,6 +17,8 @@
 
 #include "reone/graphics/texture.h"
 
+#include <vector>
+
 #include "reone/graphics/pixelutil.h"
 #include "reone/graphics/textureutil.h"
 #include "reone/system/exception/notimplemented.h"
@@ -25,6 +27,44 @@
 namespace reone {
 
 namespace graphics {
+
+namespace {
+
+#ifdef __EMSCRIPTEN__
+/** WebGL2 has no GL_BGR/GL_BGRA; swizzle channel order for upload. */
+std::vector<uint8_t> webSwizzleBgrPixels(PixelFormat format, int width, int height, const void *pixelsData, PixelFormat &uploadFormat) {
+    uploadFormat = format;
+    if (!pixelsData || width <= 0 || height <= 0) {
+        return {};
+    }
+    const auto *src = static_cast<const uint8_t *>(pixelsData);
+    const size_t numPixels = static_cast<size_t>(width) * static_cast<size_t>(height);
+    if (format == PixelFormat::BGR8) {
+        std::vector<uint8_t> out(3 * numPixels);
+        for (size_t i = 0; i < numPixels; ++i) {
+            out[3 * i + 0] = src[3 * i + 2];
+            out[3 * i + 1] = src[3 * i + 1];
+            out[3 * i + 2] = src[3 * i + 0];
+        }
+        uploadFormat = PixelFormat::RGB8;
+        return out;
+    }
+    if (format == PixelFormat::BGRA8) {
+        std::vector<uint8_t> out(4 * numPixels);
+        for (size_t i = 0; i < numPixels; ++i) {
+            out[4 * i + 0] = src[4 * i + 2];
+            out[4 * i + 1] = src[4 * i + 1];
+            out[4 * i + 2] = src[4 * i + 0];
+            out[4 * i + 3] = src[4 * i + 3];
+        }
+        uploadFormat = PixelFormat::RGBA8;
+        return out;
+    }
+    return {};
+}
+#endif
+
+} // namespace
 
 static bool isMipmapFilter(Texture::Filtering filter) {
     switch (filter) {
@@ -54,10 +94,17 @@ static uint32_t getPixelFormatGL(PixelFormat format) {
     case PixelFormat::DXT1:
     case PixelFormat::DXT5:
         return GL_RGBA;
+    // FIXME: rewrite textures to RGB
+    // case PixelFormat::BGR8:
+    //     return GL_BGR;
+    // case PixelFormat::BGRA8:
+    //     return GL_BGRA;
+
     case PixelFormat::BGR8:
-        return GL_BGR;
+        return GL_RGB;
     case PixelFormat::BGRA8:
-        return GL_BGRA;
+        return GL_RGBA;
+
     case PixelFormat::Depth24:
     case PixelFormat::Depth32F:
         return GL_DEPTH_COMPONENT;
@@ -158,9 +205,10 @@ void Texture::configure2D() {
 
     switch (_properties.wrap) {
     case Wrapping::ClampToBorder:
-        glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-        glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-        glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, &_properties.borderColor[0]);
+        // FIXME: clamp to border does not exist in GLES2
+        glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        // glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, &_properties.borderColor[0]);
         break;
     case Wrapping::ClampToEdge:
         glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -180,10 +228,11 @@ void Texture::configureCubeMap() {
 
     switch (_properties.wrap) {
     case Wrapping::ClampToBorder:
-        glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-        glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-        glTexParameteri(target, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
-        glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, &_properties.borderColor[0]);
+        // FIXME: clamp to border is not supported
+        glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(target, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+        // glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, &_properties.borderColor[0]);
         break;
     case Wrapping::ClampToEdge:
         glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -198,6 +247,8 @@ void Texture::configureCubeMap() {
 }
 
 void Texture::refresh() {
+    decompressTextureForUpload(*this);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     if (isCubeMapArray()) {
         refreshCubeMapArray();
     } else if (isCubeMap()) {
@@ -211,20 +262,47 @@ void Texture::refresh() {
     }
     if (isMipmapFilter(_properties.minFilter)) {
         auto target = getTargetGL();
-        glGenerateMipmap(target);
+        if (isCompressed(_pixelFormat)) {
+            // glGenerateMipmap is invalid for compressed internal formats on GLES3. Only level 0
+            // is uploaded from TPC; mipmapped min-filter on an incomplete chain samples black on
+            // strict hardware (llvmpipe often masks this).
+            glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        } else {
+            glGenerateMipmap(target);
+        }
         if (_properties.anisotropy > 1.0f) {
             glTexParameterf(target, GL_TEXTURE_MAX_ANISOTROPY_EXT, _properties.anisotropy);
         }
     }
 }
 
+static std::shared_ptr<ByteBuffer> bgrPixelsAsRgb(PixelFormat format, const ByteBuffer &pixels) {
+    if (format != PixelFormat::BGR8 && format != PixelFormat::BGRA8) {
+        return nullptr;
+    }
+    auto rgb = std::make_shared<ByteBuffer>(pixels);
+    const size_t stride = format == PixelFormat::BGRA8 ? 4 : 3;
+    for (size_t i = 0; i + stride - 1 < rgb->size(); i += stride) {
+        std::swap((*rgb)[i], (*rgb)[i + 2]);
+    }
+    return rgb;
+}
+
+static const void *pixelsForUpload(PixelFormat format,
+                                   const ByteBuffer &pixels,
+                                   std::shared_ptr<ByteBuffer> &rgbScratch) {
+    rgbScratch = bgrPixelsAsRgb(format, pixels);
+    return rgbScratch ? rgbScratch->data() : pixels.data();
+}
+
 void Texture::refresh2D() {
     const void *pixelsData;
     size_t pixelsSize;
+    std::shared_ptr<ByteBuffer> rgbScratch;
     if (!_layers.empty() && _layers.front().pixels) {
         auto &pixels = _layers.front().pixels;
-        pixelsData = pixels->data();
-        pixelsSize = pixels->size();
+        pixelsData = pixelsForUpload(_pixelFormat, *pixels, rgbScratch);
+        pixelsSize = rgbScratch ? rgbScratch->size() : pixels->size();
     } else {
         pixelsData = nullptr;
         pixelsSize = 0;
@@ -240,7 +318,8 @@ void Texture::refresh2D() {
             0,
             pixelsSize, pixelsData);
         break;
-    default:
+    default: {
+#ifndef __EMSCRIPTEN__
         glTexImage2D(
             GL_TEXTURE_2D,
             0,
@@ -250,7 +329,25 @@ void Texture::refresh2D() {
             getPixelFormatGL(_pixelFormat),
             getPixelTypeGL(_pixelFormat),
             pixelsData);
+#else
+        PixelFormat uploadFormat = _pixelFormat;
+        auto swizzled = webSwizzleBgrPixels(_pixelFormat, _width, _height, pixelsData, uploadFormat);
+        const void *uploadData = pixelsData;
+        if (!swizzled.empty()) {
+            uploadData = swizzled.data();
+        }
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            getInternalPixelFormatGL(uploadFormat),
+            _width, _height,
+            0,
+            getPixelFormatGL(uploadFormat),
+            getPixelTypeGL(uploadFormat),
+            uploadData);
+#endif
         break;
+    }
     }
 }
 
@@ -270,6 +367,8 @@ void Texture::refresh2DArray() {
         if (!layer.pixels || layer.pixels->empty()) {
             continue;
         }
+        std::shared_ptr<ByteBuffer> rgbScratch;
+        const void *layerData = pixelsForUpload(_pixelFormat, *layer.pixels, rgbScratch);
         glTexSubImage3D(
             GL_TEXTURE_2D_ARRAY,
             0,
@@ -277,7 +376,7 @@ void Texture::refresh2DArray() {
             _width, _height, 1,
             getPixelFormatGL(_pixelFormat),
             getPixelTypeGL(_pixelFormat),
-            layer.pixels->data());
+            layerData);
     }
 }
 
@@ -285,10 +384,11 @@ void Texture::refreshCubeMap() {
     const void *pixelsData;
     size_t pixelsSize;
     for (int i = 0; i < kNumCubeFaces; ++i) {
+        std::shared_ptr<ByteBuffer> rgbScratch;
         if (_layers.size() > i && _layers[i].pixels) {
             auto &pixels = _layers[i].pixels;
-            pixelsData = pixels->data();
-            pixelsSize = pixels->size();
+            pixelsData = pixelsForUpload(_pixelFormat, *pixels, rgbScratch);
+            pixelsSize = rgbScratch ? rgbScratch->size() : pixels->size();
         } else {
             pixelsData = nullptr;
             pixelsSize = 0;
@@ -304,7 +404,8 @@ void Texture::refreshCubeMap() {
                 0,
                 pixelsSize, pixelsData);
             break;
-        default:
+        default: {
+#ifndef __EMSCRIPTEN__
             glTexImage2D(
                 GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
                 0,
@@ -314,7 +415,25 @@ void Texture::refreshCubeMap() {
                 getPixelFormatGL(_pixelFormat),
                 getPixelTypeGL(_pixelFormat),
                 pixelsData);
+#else
+            PixelFormat uploadFormat = _pixelFormat;
+            auto swizzled = webSwizzleBgrPixels(_pixelFormat, _width, _height, pixelsData, uploadFormat);
+            const void *uploadData = pixelsData;
+            if (!swizzled.empty()) {
+                uploadData = swizzled.data();
+            }
+            glTexImage2D(
+                GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
+                0,
+                getInternalPixelFormatGL(uploadFormat),
+                _width, _height,
+                0,
+                getPixelFormatGL(uploadFormat),
+                getPixelTypeGL(uploadFormat),
+                uploadData);
+#endif
             break;
+        }
         }
     }
 }
@@ -322,8 +441,9 @@ void Texture::refreshCubeMap() {
 void Texture::refreshCubeMapArray() {
     // TODO: fill with pixel data
     int numLayers = static_cast<int>(_layers.size());
+
     glTexImage3D(
-        GL_TEXTURE_CUBE_MAP_ARRAY,
+        GL_TEXTURE_CUBE_MAP_ARRAY_OES,
         0,
         getInternalPixelFormatGL(_pixelFormat),
         _width, _height, numLayers,
@@ -366,7 +486,7 @@ void Texture::setPixels(int w, int h, PixelFormat format, std::vector<Layer> lay
 
 uint32_t Texture::getTargetGL() const {
     if (isCubeMapArray()) {
-        return GL_TEXTURE_CUBE_MAP_ARRAY;
+        return GL_TEXTURE_CUBE_MAP_ARRAY_OES;
     } else if (isCubeMap()) {
         return GL_TEXTURE_CUBE_MAP;
     } else if (is2DArray()) {
@@ -420,7 +540,8 @@ void Texture::flushGPUToCPU() {
     }
     layer.pixels->resize(bpp * _width * _height);
 
-    glGetTexImage(GL_TEXTURE_2D, 0, getPixelFormatGL(_pixelFormat), getPixelTypeGL(_pixelFormat), &(*layer.pixels)[0]);
+    // FIXME: glGetTexImage is not supported
+    // glGetTexImage(GL_TEXTURE_2D, 0, getPixelFormatGL(_pixelFormat), getPixelTypeGL(_pixelFormat), &(*layer.pixels)[0]);
 }
 
 } // namespace graphics

@@ -19,9 +19,14 @@
 
 #include "SDL3/SDL.h"
 
+#ifdef __EMSCRIPTEN__
+#include "emscripten.h"
+#endif
+
 #include "reone/graphics/window.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/gameprobe.h"
+#include "reone/system/logutil.h"
 
 using namespace reone::audio;
 using namespace reone::game;
@@ -31,6 +36,50 @@ using namespace reone::movie;
 using namespace reone::resource;
 using namespace reone::scene;
 using namespace reone::script;
+
+#ifdef __EMSCRIPTEN__
+namespace {
+
+reone::Engine *g_emscriptenLoopEngine = nullptr;
+
+// JS bubbles a "load this module" request here (e.g. from the smoke or a New Game shim).
+// We do NOT call into the game from the JS callback: that would re-enter while a frame is
+// Asyncify-suspended mid file-read. Instead we record the module name and apply it at the top
+// of the next frame by calling Game::loadModule directly -- the same entry point a New Game /
+// chargen finish or a MainMenu "warp" click reaches (the engine-app Console only has clear/help;
+// the "warp" command lives on the Game's own console, so we bypass it and call loadModule).
+std::string g_pendingWebModule;
+bool g_hasPendingWebModule = false;
+
+extern "C" {
+
+EMSCRIPTEN_KEEPALIVE
+void reone_em_run_frame(void) {
+    reone::Engine *engine = g_emscriptenLoopEngine;
+    if (!engine) {
+        emscripten_cancel_main_loop();
+        return;
+    }
+    if (!engine->runFrame()) {
+        g_emscriptenLoopEngine = nullptr;
+        emscripten_cancel_main_loop();
+    }
+}
+
+// Load a module by name from JS, e.g. Module._reone_web_warp(stringToNewUTF8("end_m01aa")).
+// Recorded here and consumed at the next frame boundary via Game::loadModule.
+EMSCRIPTEN_KEEPALIVE
+void reone_web_warp(const char *module) {
+    if (module && *module) {
+        g_pendingWebModule = module;
+        g_hasPendingWebModule = true;
+    }
+}
+
+} // extern "C"
+
+} // namespace
+#endif
 
 namespace reone {
 
@@ -174,67 +223,108 @@ int Engine::run() {
     auto &clock = _services->system.clock;
     _ticks = clock.millis();
 
-    bool quit = false;
-    while (!quit) {
-        processEvents(quit);
-        if (quit) {
-            break;
-        }
-        bool focus = _window->isInFocus();
-        if (!focus) {
-            std::this_thread::sleep_for(std::chrono::milliseconds {100});
-            continue;
-        }
-        uint64_t ticks = clock.micros();
-        auto frameTime = (ticks - _ticks) / 10e5f;
-        _ticks = ticks;
-        _profiler->measure(kMainThreadName, kProfilerInputTimeIndex, [this, &quit]() {
-            while (!_events.empty()) {
-                auto event = _events.front();
-                _events.pop();
-                if (_profiler->handle(event)) {
-                    continue;
-                }
-                if (_console->handle(event)) {
-                    continue;
-                }
-                if (_game->handle(event)) {
-                    if (_game->isQuitRequested()) {
-                        quit = true;
-                        break;
-                    }
-                    continue;
-                }
-            }
-        });
-        if (quit) {
-            break;
-        }
-        _profiler->measure(kMainThreadName, kProfilerUpdateTimeIndex, [this, &frameTime]() {
-            _game->update(frameTime);
-            bool showcur = _game->cursorType() == CursorType::None;
-            bool relmouse = _game->relativeMouseMode();
-            showCursor(showcur);
-            setRelativeMouseMode(relmouse);
-            _profiler->update(frameTime);
-        });
-        _profiler->measure(kMainThreadName, kProfilerRenderGraphicsTimeIndex, [this]() {
-            _services->graphics.statistic.resetDrawCalls();
-            if (_options.graphics.pbr) {
-                _services->graphics.pbrTextures.refresh();
-            }
-            _services->graphics.context.clearColorDepth();
-            _game->render();
-            _profiler->render();
-            _console->render();
-            _window->swap();
-        });
-        _profiler->measure(kMainThreadName, kProfilerRenderAudioTimeIndex, [this]() {
-            _services->audio.mixer.render();
-        });
+#ifdef __EMSCRIPTEN__
+    // simulateInfiniteLoop must be true: otherwise main() returns and static g_webEngine in main.cpp is destroyed
+    // while the browser still invokes the loop (dynCall → "null function").
+    // Use emscripten_set_main_loop (no userdata pointer): some Chromium/WebGL stacks break indirect invoke_vi on _arg.
+    g_emscriptenLoopEngine = this;
+    emscripten_set_main_loop(reone_em_run_frame, 0, true);
+#else
+    while (runFrame()) {
     }
+#endif
 
     return 0;
+}
+
+bool Engine::runFrame() {
+    auto &clock = _services->system.clock;
+
+    bool quit = false;
+    processEvents(quit);
+    if (quit) {
+        return false;
+    }
+    bool focus = _window->isInFocus();
+#ifdef __EMSCRIPTEN__
+    // A browser canvas may report "not focused" (headless smoke, background tab) yet must keep
+    // advancing: the engine renders every requestAnimationFrame, and a JS-driven warp must be
+    // consumed regardless of focus. So on web we never early-return on focus loss.
+    (void)focus;
+    if (g_hasPendingWebModule) {
+        g_hasPendingWebModule = false;
+        std::string moduleName = std::move(g_pendingWebModule);
+        g_pendingWebModule.clear();
+        EM_ASM({
+            if (typeof console === "object") {
+                console.log("reone web: consuming pending module load");
+            }
+        });
+        try {
+            _game->loadModule(moduleName);
+        } catch (const std::exception &e) {
+            error("reone web: loadModule('" + moduleName + "') failed: " + std::string(e.what()));
+            EM_ASM({
+                if (typeof console === "object") {
+                    console.error("reone web: loadModule threw (see engine log)");
+                }
+            });
+        }
+    }
+#else
+    if (!focus) {
+        std::this_thread::sleep_for(std::chrono::milliseconds {100});
+        return true;
+    }
+#endif
+    uint64_t ticks = clock.micros();
+    auto frameTime = (ticks - _ticks) / 10e5f;
+    _ticks = ticks;
+    _profiler->measure(kMainThreadName, kProfilerInputTimeIndex, [this, &quit]() {
+        while (!_events.empty()) {
+            auto event = _events.front();
+            _events.pop();
+            if (_profiler->handle(event)) {
+                continue;
+            }
+            if (_console->handle(event)) {
+                continue;
+            }
+            if (_game->handle(event)) {
+                if (_game->isQuitRequested()) {
+                    quit = true;
+                    break;
+                }
+                continue;
+            }
+        }
+    });
+    if (quit) {
+        return false;
+    }
+    _profiler->measure(kMainThreadName, kProfilerUpdateTimeIndex, [this, &frameTime]() {
+        _game->update(frameTime);
+        bool showcur = _game->cursorType() == CursorType::None;
+        bool relmouse = _game->relativeMouseMode();
+        showCursor(showcur);
+        setRelativeMouseMode(relmouse);
+        _profiler->update(frameTime);
+    });
+    _profiler->measure(kMainThreadName, kProfilerRenderGraphicsTimeIndex, [this]() {
+        _services->graphics.statistic.resetDrawCalls();
+        if (_options.graphics.pbr) {
+            _services->graphics.pbrTextures.refresh();
+        }
+        _services->graphics.context.clearColorDepth();
+        _game->render();
+        _profiler->render();
+        _console->render();
+        _window->swap();
+    });
+    _profiler->measure(kMainThreadName, kProfilerRenderAudioTimeIndex, [this]() {
+        _services->audio.mixer.render();
+    });
+    return true;
 }
 
 void Engine::processEvents(bool &quit) {
@@ -328,14 +418,13 @@ std::optional<input::Event> Engine::eventFromSDLEvent(const SDL_Event &sdlEvent)
             sdlEvent.button.clicks,
             scaleWinCoord(sdlEvent.button.x, _options.graphics.winScale),
             scaleWinCoord(sdlEvent.button.y, _options.graphics.winScale)});
-    case SDL_EVENT_MOUSE_WHEEL: {
+    case SDL_EVENT_MOUSE_WHEEL:
         return input::Event::newMouseWheel(input::MouseWheelEvent {
             sdlEvent.wheel.x,
             sdlEvent.wheel.y,
             static_cast<input::MouseWheelDirection>(sdlEvent.wheel.direction)});
     default:
         return std::nullopt;
-    }
     }
 }
 

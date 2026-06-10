@@ -15,6 +15,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "reone/extract/installation.h"
 #include "reone/resource/di/module.h"
 
 #include "reone/audio/di/module.h"
@@ -26,7 +27,9 @@ namespace reone {
 namespace resource {
 
 void ResourceModule::init() {
+    _installation = std::make_unique<extract::Installation>(_gameId, _gamePath);
     _resources = std::make_unique<Resources>();
+    _resources->useInstallation(_installation.get());
     _strings = std::make_unique<Strings>();
     _twoDas = std::make_unique<TwoDAs>(*_resources);
     _gffs = std::make_unique<Gffs>(*_resources);
@@ -51,7 +54,7 @@ void ResourceModule::init() {
         _graphics.statistic(),
         *_resources);
     _audioClips = std::make_unique<AudioClips>(*_resources);
-    _movies = std::make_unique<Movies>(_gamePath, _graphics.services(), _audio.mixer());
+    _movies = std::make_unique<Movies>(*_installation, _graphics.services(), _audio.mixer());
     _scripts = std::make_unique<Scripts>(*_resources);
     _dialogs = std::make_unique<Dialogs>(*_gffs, *_strings);
     _layouts = std::make_unique<Layouts>(*_resources);
@@ -65,6 +68,7 @@ void ResourceModule::init() {
         _graphicsOpt,
         _graphics.services(),
         _script.services(),
+        *_installation,
         *_dialogs,
         *_gffs,
         *_lips,
@@ -73,7 +77,7 @@ void ResourceModule::init() {
         *_scripts);
 
     _director->init();
-    _strings->init(_gamePath);
+    _strings->init(*_installation);
     _shaders->init();
     _textures->init();
 
@@ -125,6 +129,7 @@ void ResourceModule::deinit() {
     _twoDas.reset();
     _strings.reset();
     _resources.reset();
+    _installation.reset();
 }
 
 } // namespace resource

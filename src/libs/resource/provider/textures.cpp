@@ -25,6 +25,7 @@
 #include "reone/graphics/texture.h"
 #include "reone/graphics/textureutil.h"
 #include "reone/graphics/types.h"
+#include "reone/extract/finder.h"
 #include "reone/resource/resources.h"
 #include "reone/system/logutil.h"
 #include "reone/system/stream/memoryinput.h"
@@ -61,7 +62,9 @@ std::shared_ptr<Texture> Textures::doGet(const std::string &resRef, TextureUsage
     std::shared_ptr<Texture> texture;
     std::optional<Texture::Features> features;
 
-    auto txiRes = _resources.find(ResourceId(resRef, ResType::Txi));
+    auto order = extract::textureSearchOrder();
+
+    auto txiRes = _resources.find(ResourceId(resRef, ResType::Txi), order);
     if (txiRes) {
         auto txi = MemoryInputStream(txiRes->data);
         auto txiReader = TxiReader();
@@ -69,7 +72,7 @@ std::shared_ptr<Texture> Textures::doGet(const std::string &resRef, TextureUsage
         features = txiReader.features();
     }
 
-    auto tgaRes = _resources.find(ResourceId(resRef, ResType::Tga));
+    auto tgaRes = _resources.find(ResourceId(resRef, ResType::Tga), order);
     if (tgaRes) {
         auto tga = MemoryInputStream(tgaRes->data);
         auto tgaReader = TgaReader(tga, resRef, usage);
@@ -81,7 +84,7 @@ std::shared_ptr<Texture> Textures::doGet(const std::string &resRef, TextureUsage
     }
 
     if (!texture) {
-        auto tpcRes = _resources.find(ResourceId(resRef, ResType::Tpc));
+        auto tpcRes = _resources.find(ResourceId(resRef, ResType::Tpc), order);
         if (tpcRes) {
             auto tpc = MemoryInputStream(tpcRes->data);
             auto tpcReader = TpcReader(tpc, resRef, usage);

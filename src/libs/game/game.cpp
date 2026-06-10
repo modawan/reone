@@ -83,6 +83,10 @@
 #include "reone/system/smallset.h"
 #include "reone/system/threadutil.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 using namespace reone::audio;
 using namespace reone::graphics;
 using namespace reone::gui;
@@ -223,7 +227,9 @@ void Game::init() {
     _moduleNames = _services.resource.director.moduleNames();
     _saveNames = _services.resource.director.saveNames();
 
+#ifndef __EMSCRIPTEN__
     playVideo("legal");
+#endif
     openMainMenu();
 }
 
@@ -505,8 +511,15 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
         _conversation->cleanupForModuleTransition();
     }
 
+#ifdef __EMSCRIPTEN__
+#define REONE_WEB_TRACE(step) EM_ASM({ if (typeof console === "object") { console.log("reone web: loadModule " + UTF8ToString($0)); } }, step)
+#else
+#define REONE_WEB_TRACE(step) ((void)0)
+#endif
     withLoadingScreen("load_" + name, [this, &name, &entry, fromSave]() {
+        REONE_WEB_TRACE("withLoadingScreen entered");
         loadInGameMenus();
+        REONE_WEB_TRACE("loadInGameMenus done");
 
         try {
             if (_module) {
@@ -514,7 +527,9 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
                 _module->area()->unloadParty();
             }
 
+            REONE_WEB_TRACE("calling director.onModuleLoad");
             _services.resource.director.onModuleLoad(name);
+            REONE_WEB_TRACE("director.onModuleLoad done");
 
             if (_loadScreen) {
                 _loadScreen->setProgress(50);
@@ -531,12 +546,15 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
                 _module = newModule();
                 _objectById.insert(std::make_pair(_module->id(), _module));
 
+                REONE_WEB_TRACE("getting module IFO");
                 std::shared_ptr<Gff> ifo(_services.resource.gffs.get("module", ResType::Ifo));
                 if (!ifo) {
                     throw ResourceNotFoundException("Module IFO not found");
                 }
 
+                REONE_WEB_TRACE("module->load begin");
                 _module->load(name, *ifo, fromSave);
+                REONE_WEB_TRACE("module->load done");
                 _loadedModules.insert(std::make_pair(name, _module));
             }
 
@@ -546,11 +564,12 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
                 }
             }
 
+            REONE_WEB_TRACE("module->loadParty begin");
             if (!fromSave) {
                 _module->runOnLoadScript();
             }
-
             _module->loadParty(entry, fromSave);
+            REONE_WEB_TRACE("module->loadParty done");
 
             info("Module '" + name + "' loaded successfully");
 
@@ -563,11 +582,24 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
             playMusic(musicName);
 
             //_ticks = _services.system.clock.ticks();
+            REONE_WEB_TRACE("openInGame begin");
             openInGame();
+            REONE_WEB_TRACE("openInGame done (module ready)");
+#ifdef __EMSCRIPTEN__
+            EM_ASM({
+                if (typeof Module === "object" && Module.reoneWebOnModuleReady) {
+                    Module.reoneWebOnModuleReady();
+                }
+            });
+#endif
         } catch (const std::exception &e) {
             error("Failed loading module '" + name + "': " + std::string(e.what()));
+#ifdef __EMSCRIPTEN__
+            EM_ASM({ if (typeof console === "object") { console.error("reone web: loadModule FAILED: " + UTF8ToString($0)); } }, e.what());
+#endif
         }
     });
+#undef REONE_WEB_TRACE
 }
 
 void Game::loadGame(std::string_view name) {
@@ -1096,10 +1128,18 @@ void Game::updateMusic() {
     if (_musicResRef.empty()) {
         return;
     }
+#ifndef R_ENABLE_MP3
+#ifdef __EMSCRIPTEN__
+    return;
+#endif
+#endif
     if (_music && _music->isPlaying()) {
         return;
     }
     auto clip = _services.resource.audioClips.get(_musicResRef);
+    if (!clip) {
+        return;
+    }
     _music = _services.audio.mixer.play(std::move(clip), AudioType::Music);
 }
 
@@ -1322,6 +1362,14 @@ void Game::openMainMenu() {
     if (!_mainMenu) {
         return;
     }
+    info("Opening main menu");
+#ifdef __EMSCRIPTEN__
+    EM_ASM({
+        if (typeof Module === "object" && Module.reoneWebOnEngineReady) {
+            Module.reoneWebOnEngineReady();
+        }
+    });
+#endif
     if (!_saveLoad) {
         _saveLoad = tryLoadGUI<SaveLoad>();
     }
