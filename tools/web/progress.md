@@ -27,8 +27,9 @@ Original prompt: ReOne WASM playability and openkotor-site integration — `game
 - **[OpenKotOR/reone#14](https://github.com/OpenKotOR/reone/pull/14)** merged — DialogGUI talk position guard (`fdd9bf84`).
 - **[OpenKotOR/reone#15](https://github.com/OpenKotOR/reone/pull/15)** merged — GLES black model/texture fix on real GPU (`d9aff290`); smokes use `build-gles/bin`, not stale `debug/bin`.
 - **[OpenKotOR/reone#18](https://github.com/OpenKotOR/reone/pull/18)** merged — modawan fork integration (`23a518fe`).
-- **`master`** @ `23a518fe`; Linux/Windows/wasm-ci/gles-linux green.
-- **Downstream:** [modawan/reone#167](https://github.com/modawan/reone/pull/167) supersedes closed #163 — `OpenKotOR:glad-gles` @ `a27107b9`, **MERGEABLE**; maintainer squash-merge required.
+- **[OpenKotOR/reone#21](https://github.com/OpenKotOR/reone/pull/21)** merged — modawan #167 handoff SHA refresh (`387d356a`).
+- **`master`** @ `387d356a`; Linux/Windows/wasm-ci/gles-linux green.
+- **Downstream:** [modawan/reone#167](https://github.com/modawan/reone/pull/167) supersedes closed #163 — `OpenKotOR:glad-gles` @ `e33f322a`, **MERGEABLE**; maintainer squash-merge required.
 - [modawan/reone#163](https://github.com/modawan/reone/pull/163) — closed without merge (2026-06-05); use #167.
 - [modawan/reone#166](https://github.com/modawan/reone/pull/166) — closed; integrate via #167.
 

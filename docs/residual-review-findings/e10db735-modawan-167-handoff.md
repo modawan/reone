@@ -1,8 +1,8 @@
 # Residual handoff — modawan/reone#167
 
-**Recorded:** 2026-06-05  
-**OpenKotOR `glad-gles`:** `cc6b5103`  
-**OpenKotOR `master`:** `d550550b`
+**Recorded:** 2026-06-05 (updated 2026-06-10)  
+**OpenKotOR `glad-gles`:** `e33f322a`  
+**OpenKotOR `master`:** `387d356a`
 
 ## Blocker
 
@@ -13,17 +13,17 @@ Agent account `th3w1zard1` has **READ** on `modawan/reone` and cannot execute `M
 | Field | Value |
 |-------|--------|
 | PR | https://github.com/modawan/reone/pull/167 |
-| Head | `OpenKotOR:glad-gles` @ `cc6b5103` |
-| Base | modawan `master` @ `df419eea` |
-| GitHub | **MERGEABLE** (conflicts pre-resolved; DialogGUI #14 guard kept) |
-| CI | OpenKotOR `gles-linux` green @ `cc6b5103` |
+| Head | `OpenKotOR:glad-gles` @ `e33f322a` |
+| Base | modawan `master` @ `48b2ea3e` |
+| GitHub | **MERGEABLE** (conflicts pre-resolved; `runOnLoadScript` + web traces in `game.cpp`) |
+| CI | OpenKotOR `gles-linux` green @ `e33f322a` |
 
 ## Maintainer merge steps
 
 1. Open https://github.com/modawan/reone/pull/167
 2. Confirm **Mergeable** (green) and review diff (~63 commits vs fork `master`)
 3. **Squash merge** into modawan `master`
-4. Verify modawan `master` advances past `df419eea`
+4. Verify modawan `master` advances past `48b2ea3e`
 
 ## Supersedes
 

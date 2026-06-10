@@ -2,18 +2,19 @@
 
 **Date:** 2026-06-05  
 **Status:** completed  
-**OpenKotOR `master`:** `d550550b` (#20 handoff docs)  
-**OpenKotOR `glad-gles`:** `cc6b5103`
+**OpenKotOR `master`:** `387d356a` (#21 handoff SHA refresh)  
+**OpenKotOR `glad-gles`:** `e33f322a`
 
-## Landed (2026-06-05)
+## Landed (2026-06-05 / 2026-06-10)
 
-- [x] `docs/residual-review-findings/e10db735-modawan-167-handoff.md` on OpenKotOR `master` (#20)
+- [x] `docs/residual-review-findings/e10db735-modawan-167-handoff.md` on OpenKotOR `master` (#20, #21)
 - [x] Maintainer checklist posted on modawan #167
-- [x] `glad-gles` conflict pre-merge @ `cc6b5103`; `gles-linux` green
+- [x] `glad-gles` conflict pre-merge @ `e33f322a`; `gles-linux` green
+- [x] Re-merge modawan `master` into `glad-gles` after `48b2ea3e` (`game.cpp` trace + `runOnLoadScript`)
 
 ## Problem
 
-OpenKotOR GLES stack is shipped (#7–#20). modawan fork `master` remains @ `df419eea`. [modawan/reone#167](https://github.com/modawan/reone/pull/167) requires maintainer squash-merge; agent lacks `MergePullRequest`.
+OpenKotOR GLES stack is shipped (#7–#21). modawan fork `master` remains @ `48b2ea3e`. [modawan/reone#167](https://github.com/modawan/reone/pull/167) requires maintainer squash-merge; agent lacks `MergePullRequest`.
 
 ## Scope
 
@@ -25,8 +26,8 @@ OpenKotOR GLES stack is shipped (#7–#20). modawan fork `master` remains @ `df4
 
 ## Verification
 
-- modawan #167 `mergeable` = MERGEABLE @ `cc6b5103`
-- OpenKotOR `gles-linux` green on `cc6b5103`
+- modawan #167 `mergeable` = MERGEABLE @ `e33f322a`
+- OpenKotOR `gles-linux` green on `e33f322a`
 
 ## Human
 
