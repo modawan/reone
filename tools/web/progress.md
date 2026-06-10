@@ -17,6 +17,12 @@ Original prompt: ReOne WASM playability and openkotor-site integration — `game
 - **`master` push (2026-06-03):** `build-wasm.yml` now triggers on **`master`** (not only `cursor/**`) so post-GLES merges keep wasm-ci green.
 - **serve.py (fixed):** CI integration smoke uses `--directory /tmp/web-empty --game-root …`; serve now allows **game-mirror-only** mode when `engine.html` is absent but `--game-root` is set.
 
+## PR status (2026-06-10 — LFG pass 16)
+
+- **[OpenKotOR/reone#24](https://github.com/OpenKotOR/reone/pull/24)** OPEN — re-sync `cursor/web-wasm-gles-and-fs-access` with `master` after #4 squash drift (`cce4ae50`).
+- Cancelled stuck `wasm-ci` run `27273886615` (queued 4h+); dispatched [27290837408](https://github.com/OpenKotOR/reone/actions/runs/27290837408) @ `cce4ae50`.
+- Local: `Installation*` gtests **6/6 pass** on `build-gles-test`.
+
 ## PR status (2026-06-04)
 
 - **[OpenKotOR/reone#4](https://github.com/OpenKotOR/reone/pull/4)** merged — WASM menu, module warp, `extract::Installation` port (`68d7f3ad`).
