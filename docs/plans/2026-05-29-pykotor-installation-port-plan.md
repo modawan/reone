@@ -11,6 +11,20 @@ type: feat
 
 Replace reone's container-stack resource resolution with a C++ port of PyKotor's `Installation` / `FileResource` extract layer using PyKotor literal `SearchLocation` orders. Format Readers/Writers unchanged.
 
+## Progress (2026-06-10 LFG pass 19 — shipped)
+
+### Landed
+- **`master` CI green** @ `dc1a1eb5` (Linux/Windows, gles-linux, wasm-ci)
+- **`glad-gles` → `951f5c16`**: handoff doc sync; modawan #167 **MERGEABLE**
+- Maintainer checklist on modawan #167; WASM feature branch removed from origin
+
+### Partial / uncertain
+- modawan/reone#167 maintainer squash-merge (human gate)
+
+### Next steps
+- Human: squash-merge modawan/reone#167
+- Update `progress.md` after #167 lands on modawan `master`
+
 ## Progress (2026-06-10 LFG pass 18)
 
 ### Landed
