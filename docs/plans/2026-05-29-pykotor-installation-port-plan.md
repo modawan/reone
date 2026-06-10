@@ -11,6 +11,20 @@ type: feat
 
 Replace reone's container-stack resource resolution with a C++ port of PyKotor's `Installation` / `FileResource` extract layer using PyKotor literal `SearchLocation` orders. Format Readers/Writers unchanged.
 
+## Progress (2026-06-10 LFG pass 17 — shipped)
+
+### Landed
+- **[OpenKotOR/reone#24](https://github.com/OpenKotOR/reone/pull/24) merged** to `master` as `ce17082a`
+- All CI green: Linux/Windows build, gles-linux, wasm-ci, CodeQL @ `f28e8fd9`
+
+### Partial / uncertain
+- Retail menu smoke not re-run locally (no `REONE_WEB_SMOKE_GAME_ROOT` on agent host)
+- modawan/reone#167 maintainer squash-merge (human gate)
+
+### Next steps
+- Confirm post-merge `master` wasm-ci green
+- Human: squash-merge modawan/reone#167
+
 ## Progress (2026-06-10 LFG pass 16)
 
 ### Landed
