@@ -36,17 +36,13 @@ void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float 
         creature.face(*_door);
     }
 
-    if (!_door->isLocked()) {
-        _door->open();
-    }
-
     bool isObjectSelf = _door->id() == actor.id();
-    if (!isObjectSelf) {
-        if (_door->isLocked()) {
-            _door->onFailToOpen(actor);
-        } else {
-            _door->onOpen(actor.id());
-        }
+
+    if (!_door->isLocked() || isObjectSelf) {
+        _door->open();
+        _door->onOpen(actor.id());
+    } else {
+        _door->onFailToOpen(actor);
     }
 
     complete();
