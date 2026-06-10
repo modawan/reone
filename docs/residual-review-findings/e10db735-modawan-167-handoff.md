@@ -2,7 +2,7 @@
 
 **Recorded:** 2026-06-05 (updated 2026-06-10)  
 **OpenKotOR `glad-gles`:** `e33f322a`  
-**OpenKotOR `master`:** `387d356a`
+**OpenKotOR `master`:** `4c669589`
 
 ## Blocker
 

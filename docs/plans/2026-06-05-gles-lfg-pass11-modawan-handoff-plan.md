@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-05  
 **Status:** completed  
-**OpenKotOR `master`:** `387d356a` (#21 handoff SHA refresh)  
+**OpenKotOR `master`:** `4c669589` (#22 handoff SHA refresh)  
 **OpenKotOR `glad-gles`:** `e33f322a`
 
 ## Landed (2026-06-05 / 2026-06-10)
