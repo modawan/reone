@@ -11,14 +11,33 @@ type: feat
 
 Replace reone's container-stack resource resolution with a C++ port of PyKotor's `Installation` / `FileResource` extract layer using PyKotor literal `SearchLocation` orders. Format Readers/Writers unchanged.
 
-## Progress (2026-05-29 LFG pass 16 — shipped)
+## Progress (2026-06-10 LFG pass 17 — shipped)
 
 ### Landed
-- **[OpenKotOR/reone#4](https://github.com/OpenKotOR/reone/pull/4) merged** to `master` as `68d7f3ad` (squash)
-- Engine/toolkit/tests use `extract::Installation` with PyKotor `SearchLocation` orders
-- Retail menu smoke **PASS** (pass 16 re-validation, ~73s)
-- Module warp smoke **PASS** (`--warp end_m01aa`, pass 14 artifact on master)
+- **[OpenKotOR/reone#24](https://github.com/OpenKotOR/reone/pull/24) merged** to `master` as `ce17082a`
+- All CI green: Linux/Windows build, gles-linux, wasm-ci, CodeQL @ `f28e8fd9`
 
-### Deferred (separate slices)
-- Headless canvas luminance probe (WebGL readback limitation; not a release gate)
-- Legacy container class definitions remain under `include/reone/resource/container/` (unused; removal is optional cleanup)
+### Partial / uncertain
+- Retail menu smoke not re-run locally (no `REONE_WEB_SMOKE_GAME_ROOT` on agent host)
+- modawan/reone#167 maintainer squash-merge (human gate)
+
+### Next steps
+- Confirm post-merge `master` wasm-ci green
+- Human: squash-merge modawan/reone#167
+
+## Progress (2026-06-10 LFG pass 16)
+
+### Landed
+- Merged `origin/master` into `cursor/web-wasm-gles-and-fs-access` (GLES #15, dataminer Installation, handoff docs)
+- **[OpenKotOR/reone#4](https://github.com/OpenKotOR/reone/pull/4) merged** to `master` as `68d7f3ad` (squash)
+- Engine/toolkit/tests/dataminer use `extract::Installation` with PyKotor `SearchLocation` orders
+- Branch retains post-merge WASM work (module warp, pass 11–15 smokes)
+
+### Partial / uncertain
+- Headless canvas luminance probe near-black (WebGL readback limitation; not a release gate)
+- Stuck `wasm-ci` run `27273886615` queued 4h+ — force-cancel + redispatch after push
+
+### Next steps
+- Open fresh PR from synced branch → `master`
+- Re-run menu + module warp smokes after merge commit
+- modawan/reone#167 maintainer squash-merge (human gate)

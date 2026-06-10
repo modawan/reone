@@ -151,6 +151,10 @@ void Context::resetReadFramebuffer() {
 }
 
 void Context::bindDrawFramebuffer(Framebuffer &buffer, std::vector<int> colorIndices) {
+    // Break any sampler->attachment feedback loop before this FBO is drawn into: a texture that is
+    // both an attachment here and still bound on a sampler unit makes the draw INVALID_OPERATION on
+    // WebGL2/GLES (and floods the console). Passes always rebind the textures they actually sample.
+    unbindAttachmentsFromTextureUnits(buffer);
     if (!_drawFramebuffer || _drawFramebuffer->get().nameGL() != buffer.nameGL()) {
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, buffer.nameGL());
         _drawFramebuffer = buffer;
@@ -228,6 +232,36 @@ void Context::bindTexture(Texture &texture, int unit) {
         _activeTexUnit = unit;
     }
     texture.bind();
+    _boundTextureNameByUnit[unit] = texture.nameGL();
+}
+
+void Context::unbindAttachmentsFromTextureUnits(Framebuffer &buffer) {
+    if (_boundTextureNameByUnit.empty()) {
+        return;
+    }
+    auto unbindAttachment = [this](const std::shared_ptr<IAttachment> &attachment) {
+        if (!attachment || !attachment->isTexture()) {
+            return;
+        }
+        auto &texture = static_cast<Texture &>(*attachment);
+        uint32_t nameGL = texture.nameGL();
+        for (auto it = _boundTextureNameByUnit.begin(); it != _boundTextureNameByUnit.end();) {
+            if (it->second != nameGL) {
+                ++it;
+                continue;
+            }
+            if (_activeTexUnit != it->first) {
+                glActiveTexture(GL_TEXTURE0 + it->first);
+                _activeTexUnit = it->first;
+            }
+            texture.unbind();
+            it = _boundTextureNameByUnit.erase(it);
+        }
+    };
+    for (auto &color : buffer.colorAttachments()) {
+        unbindAttachment(color);
+    }
+    unbindAttachment(buffer.depthAttachment());
 }
 
 void Context::pushViewport(glm::ivec4 viewport) {

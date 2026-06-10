@@ -17,6 +17,17 @@ Original prompt: ReOne WASM playability and openkotor-site integration — `game
 - **`master` push (2026-06-03):** `build-wasm.yml` now triggers on **`master`** (not only `cursor/**`) so post-GLES merges keep wasm-ci green.
 - **serve.py (fixed):** CI integration smoke uses `--directory /tmp/web-empty --game-root …`; serve now allows **game-mirror-only** mode when `engine.html` is absent but `--game-root` is set.
 
+## PR status (2026-06-10 — LFG pass 17)
+
+- **[OpenKotOR/reone#24](https://github.com/OpenKotOR/reone/pull/24) merged** to `master` as `ce17082a` — branch re-sync after #4 squash drift.
+- **All PR checks green** @ `f28e8fd9`: Linux/Windows `build`, `gles-linux`, `wasm-ci`, CodeQL.
+- Post-merge `master` CI dispatched ([27291699749](https://github.com/OpenKotOR/reone/actions/runs/27291699749)+).
+- **Downstream:** [modawan/reone#167](https://github.com/modawan/reone/pull/167) still **OPEN/MERGEABLE** — maintainer squash-merge required (agent lacks permission).
+
+## PR status (2026-06-10 — LFG pass 16)
+
+- **[OpenKotOR/reone#24](https://github.com/OpenKotOR/reone/pull/24)** merged — see pass 17 (`ce17082a`).
+
 ## PR status (2026-06-04)
 
 - **[OpenKotOR/reone#4](https://github.com/OpenKotOR/reone/pull/4)** merged — WASM menu, module warp, `extract::Installation` port (`68d7f3ad`).
@@ -27,8 +38,9 @@ Original prompt: ReOne WASM playability and openkotor-site integration — `game
 - **[OpenKotOR/reone#14](https://github.com/OpenKotOR/reone/pull/14)** merged — DialogGUI talk position guard (`fdd9bf84`).
 - **[OpenKotOR/reone#15](https://github.com/OpenKotOR/reone/pull/15)** merged — GLES black model/texture fix on real GPU (`d9aff290`); smokes use `build-gles/bin`, not stale `debug/bin`.
 - **[OpenKotOR/reone#18](https://github.com/OpenKotOR/reone/pull/18)** merged — modawan fork integration (`23a518fe`).
-- **`master`** @ `23a518fe`; Linux/Windows/wasm-ci/gles-linux green.
-- **Downstream:** [modawan/reone#167](https://github.com/modawan/reone/pull/167) supersedes closed #163 — `OpenKotOR:glad-gles` @ `a27107b9`, **MERGEABLE**; maintainer squash-merge required.
+- **[OpenKotOR/reone#22](https://github.com/OpenKotOR/reone/pull/22)** merged — modawan #167 handoff @ `e33f322a` (`4c669589`).
+- **`master`** @ `4c669589`; Linux/Windows/wasm-ci/gles-linux green.
+- **Downstream:** [modawan/reone#167](https://github.com/modawan/reone/pull/167) supersedes closed #163 — `OpenKotOR:glad-gles` @ `e33f322a`, **MERGEABLE**; maintainer squash-merge required.
 - [modawan/reone#163](https://github.com/modawan/reone/pull/163) — closed without merge (2026-06-05); use #167.
 - [modawan/reone#166](https://github.com/modawan/reone/pull/166) — closed; integrate via #167.
 
