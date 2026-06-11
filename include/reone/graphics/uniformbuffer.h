@@ -50,6 +50,8 @@ private:
     bool _inited {false};
     const void *_data {nullptr};
     ptrdiff_t _size {0};
+    /** GL allocation rounded up to a std140 16-byte multiple; >= _size. See init()/refresh(). */
+    ptrdiff_t _allocatedSize {0};
 
     // OpenGL
 

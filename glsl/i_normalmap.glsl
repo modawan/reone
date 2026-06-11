@@ -5,7 +5,7 @@ vec3 normalFromNormalMap(sampler2D tex, vec2 uv, mat3 TBN) {
 }
 
 vec3 normalFromBumpMap(sampler2DArray tex, vec2 uv, mat3 TBN) {
-    float height = texture(tex, vec3(uv, uBumpMapFrame)).r;
+    float height = texture(tex, vec3(uv, float(uBumpMapFrame))).r;
     float dX = uBumpMapScale * dFdx(height);
     float dY = uBumpMapScale * dFdy(height);
     vec3 N = normalize(vec3(-dX, -dY, 1.0));

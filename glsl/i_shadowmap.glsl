@@ -21,7 +21,7 @@ float getDirectionalLightShadow(vec3 viewPos, vec3 worldPos, sampler2DArray tex)
 
     vec4 lightSpacePos = uShadowLightSpace[cascade] * vec4(worldPos, 1.0);
     vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
-    projCoords = 0.5 * projCoords + 0.5;
+    projCoords = 0.5 * projCoords + vec3(0.5);
 
     float currentDepth = projCoords.z;
     if (currentDepth > 1.0)
@@ -32,7 +32,9 @@ float getDirectionalLightShadow(vec3 viewPos, vec3 worldPos, sampler2DArray tex)
     for (int x = -1; x <= 1; ++x) {
         for (int y = -1; y <= 1; ++y) {
             float pcfDepth = texture(tex, vec3(projCoords.xy + vec2(x, y) * texelSize, cascade)).r;
-            shadow += currentDepth > pcfDepth ? 1.0 : 0.0;
+            if (currentDepth > pcfDepth) {
+                shadow += 1.0;
+            }
         }
     }
     shadow /= 9.0;
@@ -43,23 +45,26 @@ float getDirectionalLightShadow(vec3 viewPos, vec3 worldPos, sampler2DArray tex)
 float getPointLightShadow(vec3 worldPos, samplerCube tex) {
     vec3 fragToLight = worldPos - uShadowLightPosition.xyz;
     float currentDepth = length(fragToLight);
-
     float shadow = 0.0;
     for (int i = 0; i < NUM_PCF_SAMPLES; ++i) {
         float closestDepth = 2500.0 * texture(tex, fragToLight + PCF_SAMPLE_RADIUS * PCF_SAMPLE_OFFSETS[i]).r;
-        shadow += currentDepth > closestDepth ? 1.0 : 0.0;
+        if (currentDepth > closestDepth) {
+            shadow += 1.0;
+        }
     }
-    shadow /= NUM_PCF_SAMPLES;
+    shadow /= float(NUM_PCF_SAMPLES);
     shadow *= 1.0 - smoothstep(uShadowRadius, 2.0 * uShadowRadius, currentDepth);
-
     return shadow;
 }
 
 float getShadow(vec3 viewPos, vec3 worldPos, vec3 normal,
                 sampler2DArray tex, samplerCube cubeTex) {
-    float shadow = (uShadowLightPosition.w == 0.0)
-                       ? getDirectionalLightShadow(viewPos, worldPos, tex)
-                       : getPointLightShadow(worldPos, cubeTex);
+    float shadow;
+    if (uShadowLightPosition.w == 0.0) {
+        shadow = getDirectionalLightShadow(viewPos, worldPos, tex);
+    } else {
+        shadow = getPointLightShadow(worldPos, cubeTex);
+    }
     shadow *= uShadowStrength;
     return shadow;
 }

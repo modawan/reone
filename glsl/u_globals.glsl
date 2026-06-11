@@ -6,7 +6,7 @@ struct Light {
     vec4 color;
     float multiplier;
     float radius;
-    bool ambientOnly;
+    float ambientOnly;
     int dynamicType;
 };
 
@@ -29,4 +29,5 @@ layout(std140) uniform Globals {
     float uShadowRadius;
     float uFogNear;
     float uFogFar;
+    int uShadowLayer;
 };
