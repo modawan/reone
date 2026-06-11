@@ -25,6 +25,8 @@ namespace graphics {
 
 void convertGridTextureToArray(Texture &texture, int numX, int numY);
 
+void decompressTextureForUpload(Texture &texture);
+
 Texture::Properties getTextureProperties(TextureUsage usage);
 
 inline bool isCompressed(PixelFormat format) {

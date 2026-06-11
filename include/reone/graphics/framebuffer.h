@@ -63,6 +63,14 @@ public:
 
     void checkCompleteness();
 
+    const std::vector<std::shared_ptr<IAttachment>> &colorAttachments() const {
+        return _colors;
+    }
+
+    const std::shared_ptr<IAttachment> &depthAttachment() const {
+        return _depth;
+    }
+
     // OpenGL
 
     uint32_t nameGL() const {

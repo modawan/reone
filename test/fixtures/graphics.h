@@ -91,6 +91,7 @@ class MockPBRTextures : public IPBRTextures, boost::noncopyable {
 public:
     MOCK_METHOD(void, refresh, (), (override));
     MOCK_METHOD(void, requestEnvMapDerived, (EnvMapDerivedRequest), (override));
+    MOCK_METHOD(void, bindEnvMapDerived, (IContext &), (override));
     MOCK_METHOD(Texture &, brdf, (), (override));
     MOCK_METHOD(std::optional<int>, findEnvMapDerivedLayer, (const std::string &), (override));
 };
