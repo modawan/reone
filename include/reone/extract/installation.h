@@ -20,10 +20,12 @@
 #include "finder.h"
 #include "fileresource.h"
 #include "lookupcontext.h"
+#include "capsule.h"
 
 #include "reone/resource/types.h"
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -63,6 +65,8 @@ public:
 
     void setModuleRoot(std::optional<std::string> root);
     void setCustomFolders(std::vector<std::filesystem::path> folders);
+    void setGlobalCustomFolders(std::vector<std::filesystem::path> folders);
+    void setGlobalCustomCapsules(std::vector<std::filesystem::path> capsules);
     void setCustomCapsules(std::vector<std::filesystem::path> capsules);
     void clearModuleScope();
     void clearSaveScope();
@@ -116,7 +120,9 @@ private:
     std::vector<FileResource> _patchErf;
     std::unordered_map<std::string, std::vector<FileResource>> _modules;
     std::unordered_map<std::string, std::vector<FileResource>> _override;
+    std::unordered_map<resource::ResourceId, FileResource> _overrideIndex;
     std::unordered_map<std::string, std::vector<FileResource>> _texturePacks;
+    std::unordered_map<std::string, std::unordered_map<resource::ResourceId, FileResource>> _texturePackIndex;
     std::vector<FileResource> _streamMusic;
     std::vector<FileResource> _streamSounds;
     std::vector<FileResource> _streamVoice;
@@ -127,8 +133,12 @@ private:
     std::vector<FileResource> _executable;
 
     std::optional<std::string> _moduleRoot;
+    std::vector<std::filesystem::path> _globalCustomFolders;
+    std::vector<std::filesystem::path> _globalCustomCapsules;
     std::vector<std::filesystem::path> _customFolders;
     std::vector<std::filesystem::path> _customCapsules;
+
+    mutable std::unordered_map<std::string, std::shared_ptr<LazyCapsule>> _capsuleCache;
 
     mutable std::unordered_map<uintptr_t, std::unordered_map<resource::ResourceId, FileResource>> _listCache;
     mutable std::optional<std::string> _filteredModulesRoot;
@@ -158,6 +168,14 @@ private:
                        std::vector<LocationResult> &out);
 
     void checkModules(const resource::ResourceId &id, std::vector<LocationResult> &out);
+
+    void checkTexturePack(const char *packName,
+                          const resource::ResourceId &id,
+                          std::vector<LocationResult> &out);
+
+    void checkOverride(const resource::ResourceId &id, std::vector<LocationResult> &out);
+
+    const LazyCapsule &cachedCapsule(const std::filesystem::path &path) const;
 
     const std::unordered_map<std::string, std::vector<FileResource>> &filteredModules();
 };

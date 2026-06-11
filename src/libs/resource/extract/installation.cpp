@@ -171,6 +171,7 @@ void Installation::loadOverride() {
     }
     auto overridePath = findFileIgnoreCase(_root, kOverrideDirectoryName);
     if (!overridePath) {
+        _overrideIndex.clear();
         _overrideLoaded = true;
         return;
     }
@@ -202,6 +203,12 @@ void Installation::loadOverride() {
     if (!loose.empty()) {
         _override["."] = std::move(loose);
     }
+    _overrideIndex.clear();
+    for (auto &[_, list] : _override) {
+        for (auto &res : list) {
+            _overrideIndex.emplace(res.id(), res);
+        }
+    }
     _overrideLoaded = true;
     clearLocationCaches();
 }
@@ -221,7 +228,13 @@ void Installation::loadTexturePacks() {
             continue;
         }
         LazyCapsule capsule(*packPath);
-        _texturePacks[name] = capsule.resources();
+        auto resources = capsule.resources();
+        _texturePacks[name] = resources;
+        auto &index = _texturePackIndex[name];
+        index.clear();
+        for (auto &res : resources) {
+            index.emplace(res.id(), res);
+        }
     }
     _texturePacksLoaded = true;
     clearLocationCaches();
@@ -386,6 +399,18 @@ void Installation::setCustomFolders(std::vector<std::filesystem::path> folders) 
     clearLocationCaches();
 }
 
+void Installation::setGlobalCustomFolders(std::vector<std::filesystem::path> folders) {
+    _globalCustomFolders = std::move(folders);
+    _customFolders = _globalCustomFolders;
+    clearLocationCaches();
+}
+
+void Installation::setGlobalCustomCapsules(std::vector<std::filesystem::path> capsules) {
+    _globalCustomCapsules = std::move(capsules);
+    _customCapsules = _globalCustomCapsules;
+    clearLocationCaches();
+}
+
 void Installation::setCustomCapsules(std::vector<std::filesystem::path> capsules) {
     _customCapsules = std::move(capsules);
     clearLocationCaches();
@@ -401,7 +426,8 @@ void Installation::clearModuleScope() {
 }
 
 void Installation::clearSaveScope() {
-    _customCapsules.clear();
+    _customFolders = _globalCustomFolders;
+    _customCapsules = _globalCustomCapsules;
     clearLocationCaches();
 }
 
@@ -581,11 +607,28 @@ void Installation::checkCapsules(const std::vector<std::filesystem::path> &capsu
                                const resource::ResourceId &id,
                                std::vector<LocationResult> &out) {
     for (auto &path : capsules) {
-        LazyCapsule capsule(path);
-        if (auto res = capsule.find(id)) {
+        if (auto res = cachedCapsule(path).find(id)) {
             appendLocation(*res, out);
             return;
         }
+    }
+}
+
+const LazyCapsule &Installation::cachedCapsule(const std::filesystem::path &path) const {
+    auto key = path.lexically_normal().string();
+    auto it = _capsuleCache.find(key);
+    if (it != _capsuleCache.end()) {
+        return *it->second;
+    }
+    auto inserted = _capsuleCache.emplace(key, std::make_shared<LazyCapsule>(path));
+    return *inserted.first->second;
+}
+
+void Installation::checkOverride(const resource::ResourceId &id, std::vector<LocationResult> &out) {
+    loadOverride();
+    auto it = _overrideIndex.find(id);
+    if (it != _overrideIndex.end()) {
+        appendLocation(it->second, out);
     }
 }
 
@@ -594,6 +637,20 @@ void Installation::checkModules(const resource::ResourceId &id, std::vector<Loca
         return;
     }
     checkDict(filteredModules(), id, out);
+}
+
+void Installation::checkTexturePack(const char *packName,
+                                    const resource::ResourceId &id,
+                                    std::vector<LocationResult> &out) {
+    loadTexturePacks();
+    auto packIt = _texturePackIndex.find(packName);
+    if (packIt == _texturePackIndex.end()) {
+        return;
+    }
+    auto resIt = packIt->second.find(id);
+    if (resIt != packIt->second.end()) {
+        appendLocation(resIt->second, out);
+    }
 }
 
 std::vector<LocationResult> Installation::locations(const resource::ResourceId &id,
@@ -612,8 +669,7 @@ std::vector<LocationResult> Installation::locations(const resource::ResourceId &
             checkFolders(customFolders, id, results);
             break;
         case SearchLocation::Override:
-            loadOverride();
-            checkDict(_override, id, results);
+            checkOverride(id, results);
             break;
         case SearchLocation::Root:
             loadRoot();
@@ -636,28 +692,16 @@ std::vector<LocationResult> Installation::locations(const resource::ResourceId &
             break;
         }
         case SearchLocation::TexturesTpa:
-            loadTexturePacks();
-            if (auto it = _texturePacks.find(kTexturePackTpa); it != _texturePacks.end()) {
-                checkList(it->second, id, results);
-            }
+            checkTexturePack(kTexturePackTpa, id, results);
             break;
         case SearchLocation::TexturesTpb:
-            loadTexturePacks();
-            if (auto it = _texturePacks.find(kTexturePackTpb); it != _texturePacks.end()) {
-                checkList(it->second, id, results);
-            }
+            checkTexturePack(kTexturePackTpb, id, results);
             break;
         case SearchLocation::TexturesTpc:
-            loadTexturePacks();
-            if (auto it = _texturePacks.find(kTexturePackTpc); it != _texturePacks.end()) {
-                checkList(it->second, id, results);
-            }
+            checkTexturePack(kTexturePackTpc, id, results);
             break;
         case SearchLocation::TexturesGui:
-            loadTexturePacks();
-            if (auto it = _texturePacks.find(kTexturePackGui); it != _texturePacks.end()) {
-                checkList(it->second, id, results);
-            }
+            checkTexturePack(kTexturePackGui, id, results);
             break;
         case SearchLocation::Music:
             loadStreams();

@@ -17,6 +17,8 @@
 
 #include "reone/extract/finder.h"
 
+#include "reone/graphics/types.h"
+
 namespace reone {
 
 namespace extract {
@@ -33,6 +35,7 @@ const SearchScope &canonicalSearchOrder() {
     static const SearchScope kOrder = makeOrder({
         SearchLocation::CustomFolders,
         SearchLocation::Override,
+        SearchLocation::Lips,
         SearchLocation::Root,
         SearchLocation::CustomModules,
         SearchLocation::Modules,
@@ -42,19 +45,27 @@ const SearchScope &canonicalSearchOrder() {
     return kOrder;
 }
 
-const SearchScope &textureSearchOrder() {
-    static const SearchScope kOrder = makeOrder({
+SearchScope textureSearchOrder(graphics::TextureQuality quality) {
+    SearchScope order = makeOrder({
         SearchLocation::CustomFolders,
         SearchLocation::Override,
         SearchLocation::CustomModules,
-        SearchLocation::TexturesTpa,
-        SearchLocation::TexturesTpb,
-        SearchLocation::TexturesTpc,
         SearchLocation::TexturesGui,
-        SearchLocation::Chitin,
-        SearchLocation::Executable,
     });
-    return kOrder;
+    switch (quality) {
+    case graphics::TextureQuality::Low:
+        order.push_back(SearchLocation::TexturesTpc);
+        break;
+    case graphics::TextureQuality::Medium:
+        order.push_back(SearchLocation::TexturesTpb);
+        break;
+    default:
+        order.push_back(SearchLocation::TexturesTpa);
+        break;
+    }
+    order.push_back(SearchLocation::Chitin);
+    order.push_back(SearchLocation::Executable);
+    return order;
 }
 
 const SearchScope &soundSearchOrder() {

@@ -19,31 +19,16 @@
 
 #include "reone/extract/finder.h"
 #include "reone/extract/installation.h"
-#include "reone/resource/format/erfwriter.h"
 #include "reone/resource/resources.h"
 #include "reone/system/stream/fileoutput.h"
-#include "reone/system/stream/memoryoutput.h"
 
 #include "../checkutil.h"
+#include "../fixtures/archive.h"
 
 using namespace reone;
 using namespace reone::extract;
 using namespace reone::resource;
-
-namespace {
-
-void writeErf(const std::filesystem::path &path, const std::string &resRef, ResType type, ByteBuffer data) {
-    ByteBuffer bytes;
-    MemoryOutputStream stream(bytes);
-    ErfWriter writer;
-    writer.add(ErfWriter::Resource {resRef, type, std::move(data)});
-    writer.save(ErfWriter::FileType::ERF, stream);
-    FileOutputStream out(path);
-    out.write(bytes.data(), bytes.size());
-    out.close();
-}
-
-} // namespace
+using namespace reone::test;
 
 TEST(Resources, resolves_override_via_installation) {
     auto tmp = std::filesystem::temp_directory_path() / "reone_test_resources";

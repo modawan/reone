@@ -19,42 +19,17 @@
 
 #include "reone/extract/finder.h"
 #include "reone/extract/installation.h"
-#include "reone/resource/format/erfwriter.h"
-#include "reone/resource/format/rimwriter.h"
 #include "reone/system/stream/fileoutput.h"
-#include "reone/system/stream/memoryoutput.h"
+
+#include "reone/graphics/types.h"
 
 #include "../checkutil.h"
+#include "../fixtures/archive.h"
 
 using namespace reone;
 using namespace reone::extract;
 using namespace reone::resource;
-
-namespace {
-
-void writeErf(const std::filesystem::path &path, const std::string &resRef, ResType type, ByteBuffer data) {
-    ByteBuffer bytes;
-    MemoryOutputStream stream(bytes);
-    ErfWriter writer;
-    writer.add(ErfWriter::Resource {resRef, type, std::move(data)});
-    writer.save(ErfWriter::FileType::ERF, stream);
-    FileOutputStream out(path);
-    out.write(bytes.data(), bytes.size());
-    out.close();
-}
-
-void writeRim(const std::filesystem::path &path, const std::string &resRef, ResType type, ByteBuffer data) {
-    ByteBuffer bytes;
-    MemoryOutputStream stream(bytes);
-    RimWriter writer;
-    writer.add(RimWriter::Resource {resRef, type, std::move(data)});
-    writer.save(stream);
-    FileOutputStream out(path);
-    out.write(bytes.data(), bytes.size());
-    out.close();
-}
-
-} // namespace
+using namespace reone::test;
 
 TEST(InstallationSearchOrder, override_beats_modules_and_chitin) {
     auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_order";
@@ -169,6 +144,179 @@ TEST(InstallationResolveLooseRelativePath, finds_root_dialog_tlk) {
     ASSERT_TRUE(path.has_value());
     EXPECT_EQ(std::filesystem::weakly_canonical(tmp / "dialog.tlk"),
               std::filesystem::weakly_canonical(*path));
+
+    std::filesystem::remove_all(tmp);
+}
+
+TEST(InstallationSaveScope, clearSaveScope_resets_folders_to_global_baseline) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_save_scope";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "global");
+    std::filesystem::create_directories(tmp / "save_a");
+
+    writeErf(tmp / "global.erf", "shader", ResType::Txi, ByteBuffer {'g'});
+    writeErf(tmp / "savegame.sav", "save_res", ResType::Gff, ByteBuffer {'s'});
+
+    Installation installation(GameID::KotOR, tmp);
+    installation.setGlobalCustomFolders({tmp / "global"});
+    installation.setGlobalCustomCapsules({tmp / "global.erf"});
+    installation.setCustomFolders({tmp / "global", tmp / "save_a"});
+    installation.setCustomCapsules({tmp / "global.erf", tmp / "savegame.sav"});
+
+    installation.clearSaveScope();
+
+    ASSERT_EQ(1u, installation.customFolders().size());
+    EXPECT_EQ(tmp / "global", installation.customFolders().front());
+    ASSERT_EQ(1u, installation.customCapsules().size());
+    EXPECT_EQ(tmp / "global.erf", installation.customCapsules().front());
+
+    std::filesystem::remove_all(tmp);
+}
+
+TEST(InstallationSaveScope, save_load_merges_save_capsule_with_global_baseline) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_save_capsules";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "saves" / "slot_a");
+
+    writeErf(tmp / "shaderpack.erf", "shader", ResType::Txi, ByteBuffer {'g'});
+    writeErf(tmp / "saves" / "slot_a" / "savegame.sav", "save_res", ResType::Gff, ByteBuffer {'s'});
+
+    Installation installation(GameID::KotOR, tmp);
+    installation.setGlobalCustomCapsules({tmp / "shaderpack.erf"});
+
+    installation.clearSaveScope();
+    auto folders = installation.customFolders();
+    folders.push_back(tmp / "saves" / "slot_a");
+    installation.setCustomFolders(std::move(folders));
+    auto capsules = installation.customCapsules();
+    capsules.push_back(tmp / "saves" / "slot_a" / "savegame.sav");
+    installation.setCustomCapsules(std::move(capsules));
+
+    ASSERT_EQ(2u, installation.customCapsules().size());
+    EXPECT_EQ(tmp / "shaderpack.erf", installation.customCapsules().front());
+    EXPECT_EQ(tmp / "saves" / "slot_a" / "savegame.sav", installation.customCapsules().back());
+
+    auto shader = installation.resource(ResourceId("shader", ResType::Txi), canonicalSearchOrder());
+    ASSERT_TRUE(shader.has_value());
+    EXPECT_EQ('g', shader->readData()[0]);
+
+    auto saveRes = installation.resource(ResourceId("save_res", ResType::Gff), canonicalSearchOrder());
+    ASSERT_TRUE(saveRes.has_value());
+    EXPECT_EQ('s', saveRes->readData()[0]);
+
+    std::filesystem::remove_all(tmp);
+}
+
+TEST(InstallationSaveScope, module_transition_preserves_save_scope_after_game_load) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_save_module";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "modules");
+    std::filesystem::create_directories(tmp / "saves" / "slot_a");
+
+    writeRim(tmp / "modules" / "end_m01aa.rim", "mod_res", ResType::Txt, ByteBuffer {'m'});
+    writeErf(tmp / "shaderpack.erf", "shader", ResType::Txi, ByteBuffer {'g'});
+    writeErf(tmp / "saves" / "slot_a" / "savegame.sav", "save_res", ResType::Gff, ByteBuffer {'s'});
+
+    Installation installation(GameID::KotOR, tmp);
+    installation.setGlobalCustomCapsules({tmp / "shaderpack.erf"});
+
+    installation.clearSaveScope();
+    auto folders = installation.customFolders();
+    folders.push_back(tmp / "saves" / "slot_a");
+    installation.setCustomFolders(std::move(folders));
+    auto capsules = installation.customCapsules();
+    capsules.push_back(tmp / "saves" / "slot_a" / "savegame.sav");
+    installation.setCustomCapsules(std::move(capsules));
+
+    installation.setModuleRoot("end_m01aa");
+
+    ASSERT_EQ(1u, installation.customFolders().size());
+    EXPECT_EQ(tmp / "saves" / "slot_a", installation.customFolders().front());
+    ASSERT_EQ(2u, installation.customCapsules().size());
+
+    auto saveRes = installation.resource(ResourceId("save_res", ResType::Gff), canonicalSearchOrder());
+    ASSERT_TRUE(saveRes.has_value());
+    EXPECT_EQ('s', saveRes->readData()[0]);
+
+    auto modRes = installation.resource(ResourceId("mod_res", ResType::Txt), canonicalSearchOrder());
+    ASSERT_TRUE(modRes.has_value());
+    EXPECT_EQ('m', modRes->readData()[0]);
+
+    std::filesystem::remove_all(tmp);
+}
+
+TEST(InstallationSaveScope, save_switch_replaces_prior_save_folder) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_save_switch";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "saves" / "slot_a");
+    std::filesystem::create_directories(tmp / "saves" / "slot_b");
+
+    writeErf(tmp / "saves" / "slot_a" / "savegame.sav", "save_res", ResType::Gff, ByteBuffer {'a'});
+    writeErf(tmp / "saves" / "slot_b" / "savegame.sav", "save_res", ResType::Gff, ByteBuffer {'b'});
+
+    Installation installation(GameID::KotOR, tmp);
+
+    installation.clearSaveScope();
+    auto foldersA = installation.customFolders();
+    foldersA.push_back(tmp / "saves" / "slot_a");
+    installation.setCustomFolders(std::move(foldersA));
+    auto capsulesA = installation.customCapsules();
+    capsulesA.push_back(tmp / "saves" / "slot_a" / "savegame.sav");
+    installation.setCustomCapsules(std::move(capsulesA));
+
+    installation.clearSaveScope();
+    auto foldersB = installation.customFolders();
+    foldersB.push_back(tmp / "saves" / "slot_b");
+    installation.setCustomFolders(std::move(foldersB));
+    auto capsulesB = installation.customCapsules();
+    capsulesB.push_back(tmp / "saves" / "slot_b" / "savegame.sav");
+    installation.setCustomCapsules(std::move(capsulesB));
+
+    ASSERT_EQ(1u, installation.customFolders().size());
+    EXPECT_EQ(tmp / "saves" / "slot_b", installation.customFolders().front());
+    ASSERT_EQ(1u, installation.customCapsules().size());
+
+    auto loc = installation.resource(ResourceId("save_res", ResType::Gff), canonicalSearchOrder());
+    ASSERT_TRUE(loc.has_value());
+    EXPECT_EQ('b', loc->readData()[0]);
+
+    std::filesystem::remove_all(tmp);
+}
+
+TEST(InstallationTextureQuality, medium_prefers_tpb_over_tpa) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_tex_quality";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "texturepacks");
+
+    writeErf(tmp / "texturepacks" / "swpc_tex_tpa.erf", "probe", ResType::Tga, ByteBuffer {'a'});
+    writeErf(tmp / "texturepacks" / "swpc_tex_tpb.erf", "probe", ResType::Tga, ByteBuffer {'b'});
+    writeErf(tmp / "texturepacks" / "swpc_tex_gui.erf", "gui_probe", ResType::Tga, ByteBuffer {'g'});
+
+    Installation installation(GameID::KotOR, tmp);
+    auto loc = installation.resource(
+        ResourceId("probe", ResType::Tga),
+        textureSearchOrder(graphics::TextureQuality::Medium));
+    ASSERT_TRUE(loc.has_value());
+    auto data = loc->readData();
+    ASSERT_EQ(1u, data.size());
+    EXPECT_EQ('b', data[0]);
+
+    std::filesystem::remove_all(tmp);
+}
+
+TEST(InstallationSearchOrder, lips_directory_reachable_via_canonical_order) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_lips";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "lips");
+
+    writeErf(tmp / "lips" / "global.mod", "lip_anim", ResType::Lip, ByteBuffer {'l'});
+
+    Installation installation(GameID::KotOR, tmp);
+    auto loc = installation.resource(ResourceId("lip_anim", ResType::Lip), canonicalSearchOrder());
+    ASSERT_TRUE(loc.has_value());
+    auto data = loc->readData();
+    ASSERT_EQ(1u, data.size());
+    EXPECT_EQ('l', data[0]);
 
     std::filesystem::remove_all(tmp);
 }

@@ -51,7 +51,6 @@ void ResourceDirector::onModuleLoad(const std::string &name) {
     _lips.clear();
     _gffs.clear();
 
-    loadGlobalResources();
     loadModuleResources(name);
 }
 
@@ -113,8 +112,8 @@ void ResourceDirector::loadGlobalResources() {
 
     _installation.clearModuleScope();
     _installation.clearSaveScope();
-    _installation.setCustomFolders(std::move(customFolders));
-    _installation.setCustomCapsules(std::move(customCapsules));
+    _installation.setGlobalCustomFolders(std::move(customFolders));
+    _installation.setGlobalCustomCapsules(std::move(customCapsules));
 }
 
 void ResourceDirector::loadModuleResources(const std::string &name) {
@@ -147,7 +146,10 @@ void ResourceDirector::loadSaveGameResources(std::string_view name) {
     auto customFolders = _installation.customFolders();
     customFolders.push_back(*savePath);
     _installation.setCustomFolders(std::move(customFolders));
-    _installation.setCustomCapsules({*savegamePath});
+
+    auto customCapsules = _installation.customCapsules();
+    customCapsules.push_back(*savegamePath);
+    _installation.setCustomCapsules(std::move(customCapsules));
 }
 
 } // namespace resource

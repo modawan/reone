@@ -19,6 +19,8 @@
 
 #include "searchlocation.h"
 
+#include "reone/graphics/types.h"
+
 namespace reone {
 
 namespace extract {
@@ -26,8 +28,8 @@ namespace extract {
 /// PyKotor tools/finder.canonical_search_order()
 const SearchScope &canonicalSearchOrder();
 
-/// PyKotor Installation.texture_resource_result() default order.
-const SearchScope &textureSearchOrder();
+/// Texture lookup honoring launcher graphics quality (GUI pack + one quality tier).
+SearchScope textureSearchOrder(graphics::TextureQuality quality);
 
 /// Streamed audio lookup (music, SFX, voice). Extends PyKotor sounds() with Music/Voice.
 const SearchScope &soundSearchOrder();

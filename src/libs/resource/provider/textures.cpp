@@ -62,7 +62,7 @@ std::shared_ptr<Texture> Textures::doGet(const std::string &resRef, TextureUsage
     std::shared_ptr<Texture> texture;
     std::optional<Texture::Features> features;
 
-    auto order = extract::textureSearchOrder();
+    auto order = extract::textureSearchOrder(_options.textureQuality);
 
     auto txiRes = _resources.find(ResourceId(resRef, ResType::Txi), order);
     if (txiRes) {
