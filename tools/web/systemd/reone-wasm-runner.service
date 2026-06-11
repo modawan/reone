@@ -1,0 +1,15 @@
+[Unit]
+Description=GitHub Actions self-hosted runner for OpenKotOR reone WASM CI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/tmp/reone-actions-runner
+ExecStart=/tmp/reone-actions-runner/run.sh
+Restart=always
+RestartSec=10
+Environment=RUNNER_ALLOW_RUNASROOT=1
+
+[Install]
+WantedBy=default.target

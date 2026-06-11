@@ -17,9 +17,6 @@
 
 #include "reone/game/game.h"
 
-#include <cctype>
-#include <exception>
-
 #include "reone/audio/context.h"
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
@@ -82,6 +79,10 @@
 #include "reone/system/logutil.h"
 #include "reone/system/smallset.h"
 #include "reone/system/threadutil.h"
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 using namespace reone::audio;
 using namespace reone::graphics;
@@ -223,7 +224,9 @@ void Game::init() {
     _moduleNames = _services.resource.director.moduleNames();
     _saveNames = _services.resource.director.saveNames();
 
+#ifndef __EMSCRIPTEN__
     playVideo("legal");
+#endif
     openMainMenu();
 }
 
@@ -242,7 +245,6 @@ void Game::initConsole() {
     registerConsoleCommand("kill", "kill selected object", &Game::consoleKill);
     registerConsoleCommand("additem", "add item to selected object", &Game::consoleAddItem);
     registerConsoleCommand("givexp", "give experience to selected creature", &Game::consoleGiveXP);
-    registerConsoleCommand("givegold", "give credits to the party", &Game::consoleGiveGold);
     registerConsoleCommand("showaabb", "toggle rendering AABB", &Game::consoleShowAABB);
     registerConsoleCommand("showwalkmesh", "toggle rendering walkmesh", &Game::consoleShowWalkmesh);
     registerConsoleCommand("showtriggers", "toggle rendering triggers", &Game::consoleShowTriggers);
@@ -505,8 +507,15 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
         _conversation->cleanupForModuleTransition();
     }
 
+#ifdef __EMSCRIPTEN__
+#define REONE_WEB_TRACE(step) EM_ASM({ if (typeof console === "object") { console.log("reone web: loadModule " + UTF8ToString($0)); } }, step)
+#else
+#define REONE_WEB_TRACE(step) ((void)0)
+#endif
     withLoadingScreen("load_" + name, [this, &name, &entry, fromSave]() {
+        REONE_WEB_TRACE("withLoadingScreen entered");
         loadInGameMenus();
+        REONE_WEB_TRACE("loadInGameMenus done");
 
         try {
             if (_module) {
@@ -514,7 +523,9 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
                 _module->area()->unloadParty();
             }
 
+            REONE_WEB_TRACE("calling director.onModuleLoad");
             _services.resource.director.onModuleLoad(name);
+            REONE_WEB_TRACE("director.onModuleLoad done");
 
             if (_loadScreen) {
                 _loadScreen->setProgress(50);
@@ -531,12 +542,15 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
                 _module = newModule();
                 _objectById.insert(std::make_pair(_module->id(), _module));
 
+                REONE_WEB_TRACE("getting module IFO");
                 std::shared_ptr<Gff> ifo(_services.resource.gffs.get("module", ResType::Ifo));
                 if (!ifo) {
                     throw ResourceNotFoundException("Module IFO not found");
                 }
 
+                REONE_WEB_TRACE("module->load begin");
                 _module->load(name, *ifo, fromSave);
+                REONE_WEB_TRACE("module->load done");
                 _loadedModules.insert(std::make_pair(name, _module));
             }
 
@@ -546,11 +560,9 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
                 }
             }
 
-            if (!fromSave) {
-                _module->runOnLoadScript();
-            }
-
+            REONE_WEB_TRACE("module->loadParty begin");
             _module->loadParty(entry, fromSave);
+            REONE_WEB_TRACE("module->loadParty done");
 
             info("Module '" + name + "' loaded successfully");
 
@@ -563,11 +575,24 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
             playMusic(musicName);
 
             //_ticks = _services.system.clock.ticks();
+            REONE_WEB_TRACE("openInGame begin");
             openInGame();
+            REONE_WEB_TRACE("openInGame done (module ready)");
+#ifdef __EMSCRIPTEN__
+            EM_ASM({
+                if (typeof Module === "object" && Module.reoneWebOnModuleReady) {
+                    Module.reoneWebOnModuleReady();
+                }
+            });
+#endif
         } catch (const std::exception &e) {
             error("Failed loading module '" + name + "': " + std::string(e.what()));
+#ifdef __EMSCRIPTEN__
+            EM_ASM({ if (typeof console === "object") { console.error("reone web: loadModule FAILED: " + UTF8ToString($0)); } }, e.what());
+#endif
         }
     });
+#undef REONE_WEB_TRACE
 }
 
 void Game::loadGame(std::string_view name) {
@@ -601,7 +626,6 @@ void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
     _globalBooleans.clear();
     _globalNumbers.clear();
     _globalLocations.clear();
-    _customTokens.clear();
 
     for (auto &[name, value] : gvt.strings) {
         setGlobalString(name, value);
@@ -1096,10 +1120,18 @@ void Game::updateMusic() {
     if (_musicResRef.empty()) {
         return;
     }
+#ifndef R_ENABLE_MP3
+#ifdef __EMSCRIPTEN__
+    return;
+#endif
+#endif
     if (_music && _music->isPlaying()) {
         return;
     }
     auto clip = _services.resource.audioClips.get(_musicResRef);
+    if (!clip) {
+        return;
+    }
     _music = _services.audio.mixer.play(std::move(clip), AudioType::Music);
 }
 
@@ -1244,40 +1276,6 @@ std::shared_ptr<Location> Game::getGlobalLocation(const std::string &name) const
     return it != _globalLocations.end() ? it->second : nullptr;
 }
 
-void Game::setCustomToken(int token, std::string value) {
-    _customTokens[token] = std::move(value);
-}
-
-std::string Game::substituteCustomTokens(std::string str) const {
-    size_t start = 0;
-    while ((start = str.find("<CUSTOM", start)) != std::string::npos) {
-        size_t digitsStart = start + 7;
-        size_t digitsEnd = digitsStart;
-        while (digitsEnd < str.size() && std::isdigit(static_cast<unsigned char>(str[digitsEnd]))) {
-            ++digitsEnd;
-        }
-        if (digitsEnd == digitsStart || digitsEnd >= str.size() || str[digitsEnd] != '>') {
-            start = digitsStart;
-            continue;
-        }
-        int token = 0;
-        try {
-            token = std::stoi(str.substr(digitsStart, digitsEnd - digitsStart));
-        } catch (const std::exception &) {
-            start = digitsEnd + 1;
-            continue;
-        }
-        auto it = _customTokens.find(token);
-        if (it == _customTokens.end()) {
-            start = digitsEnd + 1;
-            continue;
-        }
-        str.replace(start, digitsEnd - start + 1, it->second);
-        start += it->second.size();
-    }
-    return str;
-}
-
 void Game::setGlobalBoolean(const std::string &name, bool value) {
     _globalBooleans[name] = value;
 }
@@ -1322,6 +1320,14 @@ void Game::openMainMenu() {
     if (!_mainMenu) {
         return;
     }
+    info("Opening main menu");
+#ifdef __EMSCRIPTEN__
+    EM_ASM({
+        if (typeof Module === "object" && Module.reoneWebOnEngineReady) {
+            Module.reoneWebOnEngineReady();
+        }
+    });
+#endif
     if (!_saveLoad) {
         _saveLoad = tryLoadGUI<SaveLoad>();
     }
@@ -1689,12 +1695,6 @@ void Game::consoleGiveXP(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "amount");
     auto creature = getConsoleTargetCreature();
     creature->giveXP(args.get<int>(1).value());
-}
-
-void Game::consoleGiveGold(const ConsoleArgs &args) {
-    consoleCheckUsage(args, 1, 1, "amount");
-    _party.giveGold(args.get<int>(1).value());
-    _console.printLine(str(boost::format("party gold: %d") % _party.gold()));
 }
 
 void Game::consoleWarp(const ConsoleArgs &args) {

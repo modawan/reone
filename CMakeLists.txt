@@ -19,6 +19,16 @@ project(reone)
 set(CMAKE_CXX_STANDARD 17)
 set(CLANG_FORMAT_PATH ${CMAKE_SOURCE_DIR}/.clang-format)
 
+# Rebuild speed-up for large web targets: prefer sccache, then ccache.
+if(NOT DEFINED CMAKE_C_COMPILER_LAUNCHER AND NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
+    find_program(REONE_COMPILER_CACHE NAMES sccache ccache)
+    if(REONE_COMPILER_CACHE)
+        set(CMAKE_C_COMPILER_LAUNCHER "${REONE_COMPILER_CACHE}" CACHE STRING "C compiler launcher" FORCE)
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${REONE_COMPILER_CACHE}" CACHE STRING "CXX compiler launcher" FORCE)
+        message(STATUS "reone: using compiler cache launcher: ${REONE_COMPILER_CACHE}")
+    endif()
+endif()
+
 # Options
 
 option(BUILD_TESTS "build tests" ON)
@@ -29,18 +39,69 @@ option(BUILD_GFF2JSON "build gff2json application" ON)
 option(BUILD_UNERF "build unerf application" ON)
 
 option(ENABLE_MOVIE "enable movie playback" ON)
+option(ENABLE_MP3 "enable MP3 decoding" ON)
 option(ENABLE_ASAN "enable address sanitizer" OFF)
+
+option(REONE_PLATFORM_WEB "build browser/WebAssembly target" OFF)
+option(REONE_WEB_PTHREADS "experimental WebAssembly pthreads (not KotOR.js default); needs COOP/COEP at runtime" OFF)
+set(REONE_WEB_ASSET_PROFILE "none" CACHE STRING "Web asset preload: none (browser uses File System Access like KotOR.js), full, or custom")
+set(REONE_WEB_GAME_DIR "" CACHE PATH "Embeds game tree into engine.data via file_packager (requires REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE=ON; omit for KotOR.js-parity FS Access)")
+set(REONE_WEB_PRELOAD_ITEMS "" CACHE STRING "Semicolon-separated paths under REONE_WEB_GAME_DIR to preload into /game (profile custom only)")
+option(REONE_WEB_ALLOW_EMBEDDED_GAME_BUNDLE "Allow embedding REONE_WEB_GAME_DIR via Emscripten file_packager (NOT KotOR.js parity; multi-GB engine.data)" OFF)
+option(REONE_WEB_LZ4_PRELOAD "LZ4-compress embedded game preload (-sLZ4: smaller engine.data, chunked decode, lower peak RAM)" ON)
+option(REONE_WEB_DEBUG_RUNTIME "Emscripten ASSERTIONS (larger wasm; KotOR.js-style shipping keeps this OFF)" OFF)
+option(REONE_WEB_SAFE_HEAP "Emscripten SAFE_HEAP=2 (slow; catches bad pointers / table corruption)" OFF)
+
+set_property(CACHE REONE_WEB_ASSET_PROFILE PROPERTY STRINGS none full custom)
+
+if(EMSCRIPTEN)
+    set(REONE_PLATFORM_WEB ON CACHE BOOL "build browser/WebAssembly target" FORCE)
+endif()
+
+if(REONE_PLATFORM_WEB)
+    set(BUILD_LAUNCHER OFF CACHE BOOL "build launcher application" FORCE)
+    set(BUILD_TOOLKIT OFF CACHE BOOL "build toolkit application" FORCE)
+    set(BUILD_DATAMINER OFF CACHE BOOL "build dataminer application" FORCE)
+    set(BUILD_TESTS OFF CACHE BOOL "build tests" FORCE)
+    set(ENABLE_MOVIE OFF CACHE BOOL "enable movie playback" FORCE)
+    set(ENABLE_MP3 OFF CACHE BOOL "enable MP3 decoding" FORCE)
+    set(CMAKE_EXECUTABLE_SUFFIX ".html" CACHE INTERNAL "")
+endif()
 
 # END Options
 
 # Dependencies
 
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
-find_package(Boost REQUIRED COMPONENTS program_options exception json)
-find_package(OpenGL REQUIRED)
-find_package(MAD REQUIRED)
 
-if(MSVC)
+# CMake 3.30+ removed FindBoost; keep classic discovery for Emscripten header-only web builds.
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 OLD)
+endif()
+
+if(REONE_PLATFORM_WEB)
+    find_package(Boost REQUIRED)
+else()
+    find_package(Boost REQUIRED COMPONENTS program_options exception json)
+endif()
+
+if(NOT REONE_PLATFORM_WEB)
+    find_package(OpenGL REQUIRED)
+endif()
+
+if(ENABLE_MP3)
+    find_package(MAD REQUIRED)
+endif()
+
+if(REONE_PLATFORM_WEB)
+    add_compile_options("SHELL:-sUSE_SDL=3")
+    add_link_options("SHELL:-sUSE_SDL=3")
+    add_compile_options(-fexceptions)
+    add_link_options("SHELL:-sDISABLE_EXCEPTION_CATCHING=0")
+    if(NOT TARGET SDL3::SDL3)
+        add_library(SDL3::SDL3 INTERFACE IMPORTED)
+    endif()
+elseif(MSVC)
     find_package(OpenAL CONFIG REQUIRED)
     find_package(SDL3 CONFIG REQUIRED)
 else()
@@ -68,7 +129,21 @@ set(REONE_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
 set(GLAD_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/extern/glad/include)
 include_directories(${Boost_INCLUDE_DIRS} ${SDL3_INCLUDE_DIRS} ${MAD_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/extern/glm ${REONE_INCLUDE_DIR} ${GLAD_INCLUDE_DIR})
 
-add_compile_definitions(BOOST_BIND_GLOBAL_PLACEHOLDERS)
+add_compile_definitions(BOOST_BIND_GLOBAL_PLACEHOLDERS REONE_GRAPHICS_GLES)
+
+if(ENABLE_MP3)
+    add_compile_definitions(R_ENABLE_MP3)
+endif()
+
+if(REONE_PLATFORM_WEB)
+    add_compile_definitions(R_PLATFORM_WEB)
+    add_compile_definitions(BOOST_NO_CXX98_FUNCTION_BASE)
+endif()
+
+if(REONE_PLATFORM_WEB AND REONE_WEB_PTHREADS)
+    add_compile_options(-pthread)
+    add_link_options(-pthread -sPTHREAD_POOL_SIZE=2)
+endif()
 
 if(MSVC)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
@@ -102,20 +177,29 @@ add_subdirectory(src/libs/scene) # scene static library
 add_subdirectory(src/libs/movie) # movie static library
 add_subdirectory(src/libs/script) # script static library
 add_subdirectory(src/libs/game) # game static library
-add_subdirectory(src/libs/tools) # tools static library
+
+set(InstallLibraryTargets system resource graphics audio scene movie script gui game)
+
+if(NOT REONE_PLATFORM_WEB)
+    add_subdirectory(src/libs/tools) # tools static library
+    list(APPEND InstallLibraryTargets tools)
+endif()
 
 # END Libraries
 
 # Applications
 
-add_subdirectory(src/apps/shaderpack) # shaderpack application
+if(NOT REONE_PLATFORM_WEB)
+    add_subdirectory(src/apps/shaderpack) # shaderpack application
+endif()
 add_subdirectory(src/apps/engine) # engine application
 
 if(BUILD_LAUNCHER)
     add_subdirectory(src/apps/launcher) # launcher application
 endif()
 
-if(BUILD_TOOLKIT)
+# FIXME: toolkit requires OpenGL because of WxWidgets.
+if(0)
     add_subdirectory(src/apps/toolkit) # toolkit application
 endif()
 
@@ -145,6 +229,6 @@ if(UNIX AND NOT APPLE)
 endif()
 
 install(TARGETS ${InstallTargets} DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(TARGETS system resource graphics audio scene movie script gui game tools DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(TARGETS ${InstallLibraryTargets} DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 # END Installation
