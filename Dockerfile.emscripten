@@ -1,0 +1,42 @@
+# Emscripten WASM builder for reone (lazy /game + Asyncify + SDL3 port).
+#
+# Build image:
+#   docker build -f Dockerfile.emscripten -t reone-emscripten .
+#
+# Configure + compile (mount your checkout at /src):
+#   docker run --rm -v "${PWD}:/src" -w /src/build-web-docker reone-emscripten bash -lc '
+#     source /emsdk/emsdk_env.sh &&
+#     emcmake cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release \
+#       -DBoost_INCLUDE_DIR=/opt/reone/boost-include -DBoost_NO_BOOST_CMAKE=ON &&
+#     ninja engine
+#   '
+#
+# PowerShell:
+#   docker run --rm -v "${PWD}:/src" -w /src/build-web-docker reone-emscripten bash -lc "source /emsdk/emsdk_env.sh && emcmake cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DBoost_INCLUDE_DIR=/opt/reone/boost-include -DBoost_NO_BOOST_CMAKE=ON && ninja engine"
+#
+# Why /opt/reone/boost-include: CMake must not use -I/usr/include with emcc (breaks with host glibc
+# headers). Copy only the boost/ tree and point Boost_INCLUDE_DIR at its parent.
+
+FROM emscripten/emsdk:latest
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    EMSDK_QUIET=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ninja-build \
+        libboost-dev \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /opt/reone/boost-include \
+    && cp -a /usr/include/boost /opt/reone/boost-include/
+
+ENV REONE_BOOST_INCLUDE_DIR=/opt/reone/boost-include
+
+RUN bash -lc 'source /emsdk/emsdk_env.sh && embuilder build sdl3'
+
+WORKDIR /src
+
+# Interactive shell with emcc on PATH (mount repo to /src).
+CMD ["bash", "-lc", "source /emsdk/emsdk_env.sh && exec bash"]
