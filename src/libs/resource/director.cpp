@@ -55,6 +55,12 @@ void ResourceDirector::onModuleLoad(const std::string &name) {
 }
 
 void ResourceDirector::onGameLoad(std::string_view name) {
+    _dialogs.clear();
+    _paths.clear();
+    _scripts.clear();
+    _lips.clear();
+    _gffs.clear();
+
     _installation.clearSaveScope();
     loadSaveGameResources(name);
 }
