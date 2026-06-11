@@ -17,21 +17,29 @@
 
 #pragma once
 
-#include "../types.h"
+#include "searchlocation.h"
 
 namespace reone {
 
-class IInputStream : boost::noncopyable {
-public:
-    virtual ~IInputStream() = default;
+namespace extract {
 
-    virtual void seek(int64_t offset, SeekOrigin origin = SeekOrigin::Begin) = 0;
+/// PyKotor tools/finder.canonical_search_order()
+const SearchScope &canonicalSearchOrder();
 
-    virtual int readByte() = 0;
-    virtual int read(char *buf, int len) = 0;
+/// PyKotor Installation.texture_resource_result() default order.
+const SearchScope &textureSearchOrder();
 
-    virtual size_t position() = 0;
-    virtual size_t length() = 0;
-};
+/// Streamed audio lookup (music, SFX, voice). Extends PyKotor sounds() with Music/Voice.
+const SearchScope &soundSearchOrder();
+
+/// Loose installation-root files (e.g. dialog.tlk).
+const SearchScope &talkTableSearchOrder();
+
+/// movies/*.bik lookup order.
+const SearchScope &movieSearchOrder();
+
+const char *searchLocationName(SearchLocation location);
+
+} // namespace extract
 
 } // namespace reone

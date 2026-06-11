@@ -17,43 +17,26 @@
 
 #pragma once
 
-#include "reone/system/stream/fileinput.h"
+#include "fileresource.h"
 
-#include "../container.h"
-#include "utils.h"
+#include <filesystem>
+#include <vector>
 
 namespace reone {
 
-namespace resource {
+namespace extract {
 
-class RimResourceContainer : public IResourceContainer, boost::noncopyable {
+/// KEY/BIF virtual resource index (PyKotor Chitin).
+class Chitin {
 public:
-    RimResourceContainer(Storage storage) :
-        _storage(std::move(storage)) {}
+    explicit Chitin(std::filesystem::path keyPath);
 
-    void init();
-
-    // IResourceContainer
-
-    std::optional<ByteBuffer> findResourceData(const ResourceId &id) override;
-
-    const std::unordered_set<ResourceId> &resourceIds() const override { return _resourceIds; }
-
-    // END IResourceContainer
+    const std::vector<FileResource> &resources() const { return _resources; }
 
 private:
-    struct Resource {
-        ResourceId id;
-        uint32_t offset {0};
-        uint32_t fileSize {0};
-    };
-
-    Storage _storage;
-
-    std::unordered_set<ResourceId> _resourceIds;
-    std::unordered_map<ResourceId, Resource> _idToResource;
+    std::vector<FileResource> _resources;
 };
 
-} // namespace resource
+} // namespace extract
 
 } // namespace reone

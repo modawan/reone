@@ -17,41 +17,18 @@
 
 #pragma once
 
-#include "../container.h"
-#include "utils.h"
+#include <filesystem>
+#include <vector>
 
 namespace reone {
 
-namespace resource {
+namespace extract {
 
-class ErfResourceContainer : public IResourceContainer, boost::noncopyable {
-public:
-    ErfResourceContainer(Storage storage) :
-        _storage(std::move(storage)) {}
-
-    void init();
-
-    // IResourceContainer
-
-    std::optional<ByteBuffer> findResourceData(const ResourceId &id) override;
-
-    const std::unordered_set<ResourceId> &resourceIds() const override { return _resourceIds; }
-
-    // END IResourceContainer
-
-private:
-    struct Resource {
-        ResourceId id;
-        uint32_t offset {0};
-        uint32_t fileSize {0};
-    };
-
-    Storage _storage;
-
-    std::unordered_set<ResourceId> _resourceIds;
-    std::unordered_map<ResourceId, Resource> _idToResource;
+struct ResourceLookupContext {
+    std::vector<std::filesystem::path> customFolders;
+    std::vector<std::filesystem::path> customCapsules;
 };
 
-} // namespace resource
+} // namespace extract
 
 } // namespace reone

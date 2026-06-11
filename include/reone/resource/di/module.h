@@ -39,6 +39,8 @@
 #include "../resources.h"
 #include "../strings.h"
 
+#include "reone/extract/installation.h"
+
 #include "services.h"
 
 namespace reone {
@@ -144,6 +146,7 @@ private:
     std::unique_ptr<Visibilities> _visibilities;
     std::unique_ptr<Ltrs> _ltrs;
     std::unique_ptr<Shaders> _shaders;
+    std::unique_ptr<extract::Installation> _installation;
     std::unique_ptr<ResourceDirector> _director;
 
     std::unique_ptr<ResourceServices> _services;

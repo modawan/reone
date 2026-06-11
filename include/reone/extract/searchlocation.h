@@ -17,21 +17,35 @@
 
 #pragma once
 
-#include "../types.h"
+#include <vector>
 
 namespace reone {
 
-class IInputStream : boost::noncopyable {
-public:
-    virtual ~IInputStream() = default;
+namespace extract {
 
-    virtual void seek(int64_t offset, SeekOrigin origin = SeekOrigin::Begin) = 0;
-
-    virtual int readByte() = 0;
-    virtual int read(char *buf, int len) = 0;
-
-    virtual size_t position() = 0;
-    virtual size_t length() = 0;
+/// Mirrors PyKotor SearchLocation (installation.py) plus reone-only Executable.
+enum class SearchLocation {
+    Override = 0,
+    Modules = 1,
+    Chitin = 2,
+    TexturesTpa = 3,
+    TexturesTpb = 4,
+    TexturesTpc = 5,
+    TexturesGui = 6,
+    Music = 7,
+    Sound = 8,
+    Voice = 9,
+    Lips = 10,
+    Rims = 11,
+    CustomModules = 12,
+    CustomFolders = 13,
+    Executable = 14,
+    Root = 15,
+    Movies = 16,
 };
+
+using SearchScope = std::vector<SearchLocation>;
+
+} // namespace extract
 
 } // namespace reone
