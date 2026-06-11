@@ -428,6 +428,7 @@ void Installation::clearModuleScope() {
 void Installation::clearSaveScope() {
     _customFolders = _globalCustomFolders;
     _customCapsules = _globalCustomCapsules;
+    _capsuleCache.clear();
     clearLocationCaches();
 }
 
