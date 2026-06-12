@@ -371,6 +371,7 @@ void InventoryMenu::configureFilterControls() {
 }
 
 void InventoryMenu::refreshPortraits() {
+    refreshCredits();
     refreshStats();
 
     if (!!_game.isTSL())
@@ -388,6 +389,14 @@ void InventoryMenu::refreshPortraits() {
 
     _controls.BTN_CHANGE2->setBorderFill(partyMember2 ? partyMember2->portrait() : nullptr);
     _controls.BTN_CHANGE2->setHilightFill(partyMember2 ? partyMember2->portrait() : nullptr);
+}
+
+void InventoryMenu::refreshCredits() {
+    if (!_controls.LBL_CREDITS_VALUE) {
+        return;
+    }
+    _controls.LBL_CREDITS_VALUE->setTextMessage(std::to_string(_game.party().gold()));
+    _controls.LBL_CREDITS_VALUE->setVisible(true);
 }
 
 void InventoryMenu::refreshStats() {
