@@ -1786,30 +1786,21 @@ void Game::finishSwoopLifecycle(bool success) {
     // (e.g. Taris heartbeat returns to tar_m03af at tar03_wpmechanic) so the
     // leader lands on the authored return spot and naturally occupies the
     // post-race trigger; fall back to the saved pre-race position otherwise.
-    loadModule(session.originModule);
-    if (auto mod = _module) {
-        if (auto area = mod->area()) {
-            if (auto leader = _party.getLeader()) {
-                glm::vec3 pos = session.originPosition;
-                float facing = session.originFacing;
-                bool havePlacement = session.haveOrigin;
-
-                std::string returnWaypoint = swoopReturnWaypoint(raceModule);
-                if (!returnWaypoint.empty()) {
-                    if (auto wp = area->getObjectByTag(returnWaypoint)) {
-                        pos = wp->position();
-                        facing = wp->getFacing();
-                        havePlacement = true;
-                        debug(str(boost::format("swoop: return waypoint=%s pos=[%.1f,%.1f,%.1f]")
-                              % returnWaypoint % pos.x % pos.y % pos.z));
+    const auto returnWaypoint = swoopReturnWaypoint(raceModule);
+    if (!returnWaypoint.empty()) {
+        debug(str(boost::format("swoop: return waypoint=%s") % returnWaypoint));
+        loadModule(session.originModule, returnWaypoint);
+    } else {
+        loadModule(session.originModule);
+        if (session.haveOrigin) {
+            if (auto mod = _module) {
+                if (auto area = mod->area()) {
+                    if (auto leader = _party.getLeader()) {
+                        leader->setPosition(session.originPosition);
+                        leader->setFacing(session.originFacing);
+                        area->determineObjectRoom(*leader);
+                        area->onPartyLeaderMoved(/*roomChanged=*/true);
                     }
-                }
-
-                if (havePlacement) {
-                    leader->setPosition(pos);
-                    leader->setFacing(facing);
-                    area->determineObjectRoom(*leader);
-                    area->onPartyLeaderMoved(/*roomChanged=*/true);
                 }
             }
         }
