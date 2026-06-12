@@ -337,6 +337,7 @@ void Object::faceAwayFrom(const Object &other) {
 }
 
 void Object::moveDropableItemsTo(Object &other) {
+    bool otherInParty = _game.party().isMember(other);
     for (auto it = _items.begin(); it != _items.end();) {
         if ((*it)->isDropable()) {
             std::shared_ptr<Item> item(*it);
@@ -344,7 +345,13 @@ void Object::moveDropableItemsTo(Object &other) {
             if (Creature *creature = dyn_cast<Creature>(this)) {
                 creature->itemAttributes().removeItem(item);
             }
-            other.addItem(item);
+            // Credits looted by the party feed the shared gold pool instead of
+            // the inventory; the stack size is the credit amount.
+            if (otherInParty && item->isCredits()) {
+                _game.party().giveGold(item->stackSize());
+            } else {
+                other.addItem(item);
+            }
         } else {
             ++it;
         }

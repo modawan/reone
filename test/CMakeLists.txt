@@ -40,6 +40,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/d20/class.cpp
     ${TESTS_SOURCE_DIR}/game/d20/spells.cpp
     ${TESTS_SOURCE_DIR}/game/messagebus.cpp
+    ${TESTS_SOURCE_DIR}/game/object.cpp
     ${TESTS_SOURCE_DIR}/game/pathfinder.cpp
     ${TESTS_SOURCE_DIR}/graphics/aabb.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/bwmreader.cpp

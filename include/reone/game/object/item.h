@@ -36,6 +36,9 @@ namespace game {
 
 class Item : public Object {
 public:
+    // itemclass of the Credits base item in baseitems.2da, lower-cased
+    static constexpr char kCreditsItemClass[] = "i_credits";
+
     struct AmmunitionType {
         std::shared_ptr<graphics::Model> model;
         std::shared_ptr<graphics::Model> muzzleFlash;
@@ -82,6 +85,7 @@ public:
 
     bool isEquippable() const;
     bool isEquippable(int slot) const;
+    bool isCredits() const { return _itemClass == kCreditsItemClass; }
     bool isDropable() const { return _dropable; }
     bool isIdentified() const { return _identified; }
     bool isEquipped() const { return _equipped; }
