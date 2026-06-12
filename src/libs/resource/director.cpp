@@ -44,23 +44,21 @@ void ResourceDirector::init() {
     loadGlobalResources();
 }
 
-void ResourceDirector::onModuleLoad(const std::string &name) {
+void ResourceDirector::clearProviderCaches() {
     _dialogs.clear();
     _paths.clear();
     _scripts.clear();
     _lips.clear();
     _gffs.clear();
+}
 
+void ResourceDirector::onModuleLoad(const std::string &name) {
+    clearProviderCaches();
     loadModuleResources(name);
 }
 
 void ResourceDirector::onGameLoad(std::string_view name) {
-    _dialogs.clear();
-    _paths.clear();
-    _scripts.clear();
-    _lips.clear();
-    _gffs.clear();
-
+    clearProviderCaches();
     _installation.clearSaveScope();
     loadSaveGameResources(name);
 }
@@ -149,13 +147,7 @@ void ResourceDirector::loadSaveGameResources(std::string_view name) {
         throw ResourceNotFoundException("savegame.sav not found");
     }
 
-    auto customFolders = _installation.customFolders();
-    customFolders.push_back(*savePath);
-    _installation.setCustomFolders(std::move(customFolders));
-
-    auto customCapsules = _installation.customCapsules();
-    customCapsules.push_back(*savegamePath);
-    _installation.setCustomCapsules(std::move(customCapsules));
+    _installation.appendSaveScope(*savePath, *savegamePath);
 }
 
 } // namespace resource

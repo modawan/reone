@@ -73,8 +73,6 @@ Installation::Installation(resource::GameID game, std::filesystem::path root) :
 
 void Installation::clearLocationCaches() {
     _listCache.clear();
-    _filteredModulesRoot.reset();
-    _filteredModulesCache.clear();
 }
 
 void Installation::loadChitin() {
@@ -90,17 +88,49 @@ void Installation::loadChitin() {
     clearLocationCaches();
 }
 
-void Installation::loadPatchErf() {
-    if (_patchErfLoaded) {
+void Installation::loadModules() {
+    if (_modulesLoaded) {
         return;
     }
-    auto patchPath = findFileIgnoreCase(_root, kPatchFilename);
-    if (patchPath) {
-        LazyCapsule capsule(*patchPath);
-        _patchErf = capsule.resources();
+    _modulesLoaded = true;
+    _moduleCapsulePaths.clear();
+    _modules.clear();
+    _moduleResourcesIndexed = false;
+    if (!_moduleRoot) {
+        return;
     }
-    _patchErfLoaded = true;
+    auto modulesPath = findFileIgnoreCase(_root, kModulesDirectoryName);
+    if (!modulesPath) {
+        return;
+    }
+    for (auto &entry : std::filesystem::directory_iterator(*modulesPath)) {
+        if (!entry.is_regular_file() || !isCapsuleFile(entry.path())) {
+            continue;
+        }
+        auto filename = boost::to_lower_copy(entry.path().filename().string());
+        if (getModuleRoot(filename) != *_moduleRoot) {
+            continue;
+        }
+        _moduleCapsulePaths.emplace(filename, entry.path());
+    }
     clearLocationCaches();
+}
+
+void Installation::ensureModuleResourcesIndexed() {
+    if (_moduleResourcesIndexed) {
+        return;
+    }
+    _moduleResourcesIndexed = true;
+    _modules.clear();
+    for (auto &[filename, path] : _moduleCapsulePaths) {
+        _modules[filename] = cachedCapsule(path).resources();
+    }
+}
+
+const std::unordered_map<std::string, std::vector<FileResource>> &Installation::moduleArchives() {
+    loadModules();
+    ensureModuleResourcesIndexed();
+    return _modules;
 }
 
 void Installation::indexLooseFiles(const std::filesystem::path &dir, std::vector<FileResource> &out) {
@@ -137,32 +167,6 @@ void Installation::indexCapsuleDict(const std::filesystem::path &dir,
         LazyCapsule capsule(entry.path());
         out[filename] = capsule.resources();
     }
-}
-
-void Installation::loadModules() {
-    if (_modulesLoaded) {
-        return;
-    }
-    _modulesLoaded = true;
-    if (!_moduleRoot) {
-        return;
-    }
-    auto modulesPath = findFileIgnoreCase(_root, kModulesDirectoryName);
-    if (!modulesPath) {
-        return;
-    }
-    for (auto &entry : std::filesystem::directory_iterator(*modulesPath)) {
-        if (!entry.is_regular_file() || !isCapsuleFile(entry.path())) {
-            continue;
-        }
-        auto filename = boost::to_lower_copy(entry.path().filename().string());
-        if (getModuleRoot(filename) != *_moduleRoot) {
-            continue;
-        }
-        LazyCapsule capsule(entry.path());
-        _modules[filename] = capsule.resources();
-    }
-    clearLocationCaches();
 }
 
 void Installation::loadOverride() {
@@ -388,9 +392,9 @@ void Installation::setModuleRoot(std::optional<std::string> root) {
     }
     _moduleRoot = std::move(root);
     _modulesLoaded = false;
+    _moduleResourcesIndexed = false;
+    _moduleCapsulePaths.clear();
     _modules.clear();
-    _filteredModulesRoot.reset();
-    _filteredModulesCache.clear();
     clearLocationCaches();
 }
 
@@ -416,12 +420,21 @@ void Installation::setCustomCapsules(std::vector<std::filesystem::path> capsules
     clearLocationCaches();
 }
 
+void Installation::appendSaveScope(std::filesystem::path saveDir, std::filesystem::path savegameSav) {
+    auto folders = _customFolders;
+    folders.push_back(std::move(saveDir));
+    auto capsules = _customCapsules;
+    capsules.push_back(std::move(savegameSav));
+    setCustomFolders(std::move(folders));
+    setCustomCapsules(std::move(capsules));
+}
+
 void Installation::clearModuleScope() {
     _moduleRoot.reset();
     _modulesLoaded = false;
+    _moduleResourcesIndexed = false;
+    _moduleCapsulePaths.clear();
     _modules.clear();
-    _filteredModulesRoot.reset();
-    _filteredModulesCache.clear();
     clearLocationCaches();
 }
 
@@ -533,24 +546,6 @@ std::optional<std::filesystem::path> Installation::resolveLooseRelativePath(std:
     return std::nullopt;
 }
 
-const std::unordered_map<std::string, std::vector<FileResource>> &Installation::filteredModules() {
-    loadModules();
-    if (!_moduleRoot) {
-        return _modules;
-    }
-    if (_filteredModulesRoot && *_filteredModulesRoot == *_moduleRoot && !_filteredModulesCache.empty()) {
-        return _filteredModulesCache;
-    }
-    _filteredModulesRoot = _moduleRoot;
-    _filteredModulesCache.clear();
-    for (auto &[filename, resources] : _modules) {
-        if (getModuleRoot(filename) == *_moduleRoot) {
-            _filteredModulesCache[filename] = resources;
-        }
-    }
-    return _filteredModulesCache;
-}
-
 void Installation::checkList(const std::vector<FileResource> &list,
                              const resource::ResourceId &id,
                              std::vector<LocationResult> &out) {
@@ -637,7 +632,13 @@ void Installation::checkModules(const resource::ResourceId &id, std::vector<Loca
     if (!_moduleRoot) {
         return;
     }
-    checkDict(filteredModules(), id, out);
+    loadModules();
+    for (auto &[_, path] : _moduleCapsulePaths) {
+        if (auto res = cachedCapsule(path).find(id)) {
+            appendLocation(*res, out);
+            return;
+        }
+    }
 }
 
 void Installation::checkTexturePack(const char *packName,
@@ -659,15 +660,26 @@ std::vector<LocationResult> Installation::locations(const resource::ResourceId &
                                                     const ResourceLookupContext &ctx) {
     std::vector<LocationResult> results;
 
-    std::vector<std::filesystem::path> customFolders = _customFolders;
-    customFolders.insert(customFolders.end(), ctx.customFolders.begin(), ctx.customFolders.end());
-    std::vector<std::filesystem::path> customCapsules = _customCapsules;
-    customCapsules.insert(customCapsules.end(), ctx.customCapsules.begin(), ctx.customCapsules.end());
+    std::vector<std::filesystem::path> mergedFolders;
+    const std::vector<std::filesystem::path> *folderView = &_customFolders;
+    if (!ctx.customFolders.empty()) {
+        mergedFolders = _customFolders;
+        mergedFolders.insert(mergedFolders.end(), ctx.customFolders.begin(), ctx.customFolders.end());
+        folderView = &mergedFolders;
+    }
+
+    std::vector<std::filesystem::path> mergedCapsules;
+    const std::vector<std::filesystem::path> *capsuleView = &_customCapsules;
+    if (!ctx.customCapsules.empty()) {
+        mergedCapsules = _customCapsules;
+        mergedCapsules.insert(mergedCapsules.end(), ctx.customCapsules.begin(), ctx.customCapsules.end());
+        capsuleView = &mergedCapsules;
+    }
 
     for (auto location : order) {
         switch (location) {
         case SearchLocation::CustomFolders:
-            checkFolders(customFolders, id, results);
+            checkFolders(*folderView, id, results);
             break;
         case SearchLocation::Override:
             checkOverride(id, results);
@@ -677,18 +689,20 @@ std::vector<LocationResult> Installation::locations(const resource::ResourceId &
             checkList(_rootLoose, id, results);
             break;
         case SearchLocation::CustomModules:
-            checkCapsules(customCapsules, id, results);
+            checkCapsules(*capsuleView, id, results);
             break;
         case SearchLocation::Modules:
             checkModules(id, results);
             break;
         case SearchLocation::Chitin: {
             loadChitin();
-            auto beforeChitin = results.size();
             checkList(_chitin, id, results);
-            if (results.size() == beforeChitin) {
-                loadPatchErf();
-                checkList(_patchErf, id, results);
+            if (results.empty()) {
+                if (auto patchPath = findFileIgnoreCase(_root, kPatchFilename)) {
+                    if (auto res = cachedCapsule(*patchPath).find(id)) {
+                        appendLocation(*res, results);
+                    }
+                }
             }
             break;
         }

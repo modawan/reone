@@ -21,6 +21,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace reone {
@@ -40,6 +41,7 @@ public:
 private:
     std::filesystem::path _path;
     mutable std::vector<FileResource> _resources;
+    mutable std::unordered_map<resource::ResourceId, size_t> _index;
     mutable bool _loaded {false};
 
     void ensureLoaded() const;

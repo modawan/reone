@@ -66,12 +66,11 @@ const std::vector<FileResource> &LazyCapsule::resources() const {
 
 std::optional<FileResource> LazyCapsule::find(const resource::ResourceId &id) const {
     ensureLoaded();
-    for (auto &res : _resources) {
-        if (res.id() == id) {
-            return res;
-        }
+    auto it = _index.find(id);
+    if (it == _index.end()) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    return _resources[it->second];
 }
 
 void LazyCapsule::ensureLoaded() const {
@@ -79,6 +78,8 @@ void LazyCapsule::ensureLoaded() const {
         return;
     }
     _loaded = true;
+    _resources.clear();
+    _index.clear();
     if (!std::filesystem::exists(_path)) {
         return;
     }
@@ -100,26 +101,29 @@ void LazyCapsule::ensureLoaded() const {
                 entry.offset,
                 _path);
         }
-        return;
+    } else {
+        resource::ErfReader reader(*stream);
+        try {
+            reader.load();
+        } catch (const EndOfStreamException &) {
+            throw std::runtime_error("EOF reading capsule: " + _path.string());
+        }
+        auto &keys = reader.keys();
+        auto &resEntries = reader.resources();
+        for (size_t i = 0; i < keys.size() && i < resEntries.size(); ++i) {
+            auto &key = keys[i];
+            auto &entry = resEntries[i];
+            _resources.emplace_back(
+                key.resId.resRef.value(),
+                key.resId.type,
+                entry.size,
+                entry.offset,
+                _path);
+        }
     }
 
-    resource::ErfReader reader(*stream);
-    try {
-        reader.load();
-    } catch (const EndOfStreamException &) {
-        throw std::runtime_error("EOF reading capsule: " + _path.string());
-    }
-    auto &keys = reader.keys();
-    auto &resEntries = reader.resources();
-    for (size_t i = 0; i < keys.size() && i < resEntries.size(); ++i) {
-        auto &key = keys[i];
-        auto &entry = resEntries[i];
-        _resources.emplace_back(
-            key.resId.resRef.value(),
-            key.resId.type,
-            entry.size,
-            entry.offset,
-            _path);
+    for (size_t i = 0; i < _resources.size(); ++i) {
+        _index.emplace(_resources[i].id(), i);
     }
 }
 

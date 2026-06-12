@@ -63,17 +63,12 @@ void ResourceModule::init() {
     _visibilities = std::make_unique<Visibilities>(*_resources);
     _ltrs = std::make_unique<Ltrs>(*_resources);
     _director = std::make_unique<ResourceDirector>(
-        _gameId,
         _gamePath,
-        _graphicsOpt,
-        _graphics.services(),
-        _script.services(),
         *_installation,
         *_dialogs,
         *_gffs,
         *_lips,
         *_paths,
-        *_resources,
         *_scripts);
 
     _director->init();

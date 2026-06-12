@@ -24,26 +24,12 @@
 
 namespace reone {
 
-namespace graphics {
-
-struct GraphicsOptions;
-struct GraphicsServices;
-
-} // namespace graphics
-
-namespace script {
-
-struct ScriptServices;
-
-}
-
 namespace resource {
 
 class IDialogs;
 class IGffs;
 class ILips;
 class IPaths;
-class IResources;
 class IScripts;
 
 class IResourceDirector {
@@ -60,29 +46,19 @@ public:
 
 class ResourceDirector : public IResourceDirector, boost::noncopyable {
 public:
-    ResourceDirector(GameID gameId,
-                     const std::filesystem::path &gamePath,
-                     const graphics::GraphicsOptions &graphicsOpt,
-                     graphics::GraphicsServices &graphicsSvc,
-                     script::ScriptServices &scriptSvc,
+    ResourceDirector(const std::filesystem::path &gamePath,
                      extract::Installation &installation,
                      IDialogs &dialogs,
                      IGffs &gffs,
                      ILips &lips,
                      IPaths &paths,
-                     IResources &resources,
                      IScripts &scripts) :
-        _gameId(gameId),
         _gamePath(gamePath),
-        _graphicsOpt(graphicsOpt),
-        _graphicsSvc(graphicsSvc),
-        _scriptSvc(scriptSvc),
         _installation(installation),
         _dialogs(dialogs),
         _gffs(gffs),
         _lips(lips),
         _paths(paths),
-        _resources(resources),
         _scripts(scripts) {
     }
 
@@ -94,19 +70,15 @@ public:
     std::set<std::string> saveNames() override;
 
 private:
-    GameID _gameId;
     const std::filesystem::path &_gamePath;
-    const graphics::GraphicsOptions &_graphicsOpt;
-    graphics::GraphicsServices &_graphicsSvc;
-    script::ScriptServices &_scriptSvc;
     extract::Installation &_installation;
     IDialogs &_dialogs;
     IGffs &_gffs;
     ILips &_lips;
     IPaths &_paths;
-    IResources &_resources;
     IScripts &_scripts;
 
+    void clearProviderCaches();
     void loadGlobalResources();
     void loadModuleResources(const std::string &name);
     void loadSaveGameResources(std::string_view name);

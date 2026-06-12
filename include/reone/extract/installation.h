@@ -44,7 +44,6 @@ public:
     const std::filesystem::path &root() const { return _root; }
 
     void loadChitin();
-    void loadPatchErf();
     void loadModules();
     void loadOverride();
     void loadTexturePacks();
@@ -68,6 +67,7 @@ public:
     void setGlobalCustomFolders(std::vector<std::filesystem::path> folders);
     void setGlobalCustomCapsules(std::vector<std::filesystem::path> capsules);
     void setCustomCapsules(std::vector<std::filesystem::path> capsules);
+    void appendSaveScope(std::filesystem::path saveDir, std::filesystem::path savegameSav);
     void clearModuleScope();
     void clearSaveScope();
 
@@ -85,10 +85,8 @@ public:
     /// Indexed chitin resources (requires loadChitin()).
     const std::vector<FileResource> &chitinResources() const { return _chitin; }
 
-    /// Indexed module archives keyed by relative path (requires loadModules()).
-    const std::unordered_map<std::string, std::vector<FileResource>> &moduleArchives() const {
-        return _modules;
-    }
+    /// Indexed module archives keyed by filename (populated on demand from loadModules() paths).
+    const std::unordered_map<std::string, std::vector<FileResource>> &moduleArchives();
 
     /// Indexed override tree (requires loadOverride()).
     const std::unordered_map<std::string, std::vector<FileResource>> &overrideResources() const {
@@ -105,8 +103,8 @@ private:
     std::filesystem::path _root;
 
     bool _chitinLoaded {false};
-    bool _patchErfLoaded {false};
     bool _modulesLoaded {false};
+    bool _moduleResourcesIndexed {false};
     bool _overrideLoaded {false};
     bool _texturePacksLoaded {false};
     bool _streamsLoaded {false};
@@ -117,7 +115,7 @@ private:
     bool _executableLoaded {false};
 
     std::vector<FileResource> _chitin;
-    std::vector<FileResource> _patchErf;
+    std::unordered_map<std::string, std::filesystem::path> _moduleCapsulePaths;
     std::unordered_map<std::string, std::vector<FileResource>> _modules;
     std::unordered_map<std::string, std::vector<FileResource>> _override;
     std::unordered_map<resource::ResourceId, FileResource> _overrideIndex;
@@ -141,10 +139,9 @@ private:
     mutable std::unordered_map<std::string, std::shared_ptr<LazyCapsule>> _capsuleCache;
 
     mutable std::unordered_map<uintptr_t, std::unordered_map<resource::ResourceId, FileResource>> _listCache;
-    mutable std::optional<std::string> _filteredModulesRoot;
-    mutable std::unordered_map<std::string, std::vector<FileResource>> _filteredModulesCache;
 
     void clearLocationCaches();
+    void ensureModuleResourcesIndexed();
 
     void indexLooseFiles(const std::filesystem::path &dir, std::vector<FileResource> &out);
     void indexCapsuleDict(const std::filesystem::path &dir,
@@ -176,8 +173,6 @@ private:
     void checkOverride(const resource::ResourceId &id, std::vector<LocationResult> &out);
 
     const LazyCapsule &cachedCapsule(const std::filesystem::path &path) const;
-
-    const std::unordered_map<std::string, std::vector<FileResource>> &filteredModules();
 };
 
 } // namespace extract
