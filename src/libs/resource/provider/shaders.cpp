@@ -42,6 +42,7 @@ static const std::string kVertParticles = "v_particles";
 static const std::string kVertPassthrough = "v_passthrough";
 static const std::string kVertShadows = "v_shadows";
 static const std::string kVertText = "v_text";
+static const std::string kVertTextBillboard = "v_textBillboard";
 static const std::string kVertWalkmesh = "v_walkmesh";
 
 static const std::string kGeometryDirLightShadows = "g_dirlightshadow";
@@ -96,6 +97,7 @@ void Shaders::init() {
     auto vertPassthrough = initShader(ShaderType::Vertex, kVertPassthrough);
     auto vertShadows = initShader(ShaderType::Vertex, kVertShadows);
     auto vertText = initShader(ShaderType::Vertex, kVertText);
+    auto vertTextBillboard = initShader(ShaderType::Vertex, kVertTextBillboard);
     auto vertWalkmesh = initShader(ShaderType::Vertex, kVertWalkmesh);
 
     auto geomDirLightShadows = initShader(ShaderType::Geometry, kGeometryDirLightShadows);
@@ -134,6 +136,7 @@ void Shaders::init() {
     auto fragProfiler = initShader(ShaderType::Fragment, kFragProfiler);
 
     // Shader Programs
+    _shaderRegistry.add(ShaderProgramId::aabbColor, initShaderProgram({vertAABB, fragColor}));
     _shaderRegistry.add(ShaderProgramId::billboard, initShaderProgram({vertBillboard, fragTexture}));
     _shaderRegistry.add(ShaderProgramId::retroOpaqueModel, initShaderProgram({vertModel, fragRetroOpaqueModel}));
     _shaderRegistry.add(ShaderProgramId::retroGrass, initShaderProgram({vertGrass, fragRetroGrass}));
@@ -162,6 +165,7 @@ void Shaders::init() {
     _shaderRegistry.add(ShaderProgramId::postMedianFilter5, initShaderProgram({vertPassthrough, fragPostMedianFilter5}));
     _shaderRegistry.add(ShaderProgramId::postSharpen, initShaderProgram({vertPassthrough, fragPostSharpen}));
     _shaderRegistry.add(ShaderProgramId::text, initShaderProgram({vertText, fragText}));
+    _shaderRegistry.add(ShaderProgramId::textBillboard, initShaderProgram({vertTextBillboard, fragText}));
     _shaderRegistry.add(ShaderProgramId::pbrIrradiance, initShaderProgram({vertMVP, fragIrradiance}));
     _shaderRegistry.add(ShaderProgramId::brdfLUT, initShaderProgram({vertMVP, fragPBRBRDF}));
     _shaderRegistry.add(ShaderProgramId::pbrPrefilter, initShaderProgram({vertMVP, fragPBRPrefilter}));

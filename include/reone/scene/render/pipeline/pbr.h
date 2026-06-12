@@ -109,12 +109,14 @@ private:
     void beginOpaqueGeometryPass();
     void beginTransparentGeometryPass();
     void beginPostProcessingPass();
+    void beginDebugPass();
 
     void endDirLightShadowsPass();
     void endPointLightShadowsPass();
     void endOpaqueGeometryPass();
     void endTransparentGeometryPass();
     void endPostProcessingPass();
+    void endDebugPass();
 
     // END Render Passes
 };

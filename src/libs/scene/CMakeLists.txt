@@ -22,6 +22,7 @@ set(SCENE_HEADERS
     ${SCENE_INCLUDE_DIR}/collision.h
     ${SCENE_INCLUDE_DIR}/di/module.h
     ${SCENE_INCLUDE_DIR}/di/services.h
+    ${SCENE_INCLUDE_DIR}/drawdebug.h
     ${SCENE_INCLUDE_DIR}/fogproperties.h
     ${SCENE_INCLUDE_DIR}/graph.h
     ${SCENE_INCLUDE_DIR}/graphs.h
@@ -51,6 +52,7 @@ set(SCENE_HEADERS
 
 set(SCENE_SOURCES
     ${SCENE_SOURCE_DIR}/di/module.cpp
+    ${SCENE_SOURCE_DIR}/drawdebug.cpp
     ${SCENE_SOURCE_DIR}/graph.cpp
     ${SCENE_SOURCE_DIR}/graphs.cpp
     ${SCENE_SOURCE_DIR}/node.cpp

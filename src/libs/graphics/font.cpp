@@ -71,23 +71,8 @@ void Font::render(std::string_view text, const glm::vec3 &position, const glm::v
     glm::vec3 textOffset(getTextOffset(text, gravity), 0.0f);
     for (int i = 0; i < numBlocks; ++i) {
         int numChars = glm::min(kMaxTextChars, static_cast<int>(text.size()) - i * kMaxTextChars);
-        _uniforms.setText([this, &text, &position, &textOffset, &i, &numChars](auto &uniforms) {
-            for (int j = 0; j < numChars; ++j) {
-                const Glyph &glyph = _glyphs[static_cast<unsigned char>(text[i * kMaxTextChars + j])];
-
-                glm::vec4 posScale;
-                posScale[0] = position.x + textOffset.x;
-                posScale[1] = position.y + textOffset.y;
-                posScale[2] = glyph.size.x;
-                posScale[3] = glyph.size.y;
-
-                uniforms.chars[j].posScale = std::move(posScale);
-                uniforms.chars[j].uv = glm::vec4(glyph.ul.x, glyph.lr.y, glyph.lr.x - glyph.ul.x, glyph.ul.y - glyph.lr.y);
-
-                textOffset.x += glyph.size.x;
-            }
-        });
-        _meshRegistry.get(MeshName::quad).drawInstanced(numChars, _statistic);
+        std::string_view line = text.substr(i * kMaxTextChars, numChars);
+        renderLine(line, position, textOffset);
     }
 }
 
@@ -121,6 +106,30 @@ float Font::measure(std::string_view text) const {
         w += _glyphs[reinterpret_cast<const unsigned char &>(glyph)].size.x;
     }
     return w;
+}
+
+void Font::renderLine(std::string_view line, const glm::vec3 &position, glm::vec3 &textOffset) {
+    if (line.empty()) {
+        return;
+    }
+
+    _uniforms.setText([this, &line, &position, &textOffset](auto &uniforms) {
+        for (int j = 0; j < line.size(); ++j) {
+            const Glyph &glyph = _glyphs[static_cast<unsigned char>(line[j])];
+
+            glm::vec4 posScale;
+            posScale[0] = position.x + textOffset.x;
+            posScale[1] = position.y + textOffset.y;
+            posScale[2] = glyph.size.x;
+            posScale[3] = glyph.size.y;
+
+            uniforms.chars[j].posScale = std::move(posScale);
+            uniforms.chars[j].uv = glm::vec4(glyph.ul.x, glyph.lr.y, glyph.lr.x - glyph.ul.x, glyph.ul.y - glyph.lr.y);
+
+            textOffset.x += glyph.size.x;
+        }
+    });
+    _meshRegistry.get(MeshName::quad).drawInstanced(line.size(), _statistic);
 }
 
 } // namespace graphics

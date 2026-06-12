@@ -279,6 +279,13 @@ Texture &RetroRenderPipeline::render() {
             _passCallbacks.at(RenderPassName::PostProcessing)(pass);
         }
 
+        // Draw debug elements (lines, points, etc.)
+        _context.bindDrawFramebuffer(*_targets.output, {0});
+        _context.clearDepth();
+        if (_passCallbacks.count(RenderPassName::Debug) > 0) {
+            _passCallbacks.at(RenderPassName::Debug)(pass);
+        }
+
         _context.resetDrawFramebuffer();
     });
 

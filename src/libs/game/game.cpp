@@ -71,6 +71,7 @@
 #include "reone/resource/provider/walkmeshes.h"
 #include "reone/resource/resources.h"
 #include "reone/scene/di/services.h"
+#include "reone/scene/drawdebug.h"
 #include "reone/scene/graphs.h"
 #include "reone/scene/render/pipeline.h"
 #include "reone/script/di/services.h"
@@ -372,6 +373,9 @@ void Game::update(float frameTime) {
         gui->update(dt);
     }
     updateSceneGraph(dt);
+    if (!_paused) {
+        updateDrawDebug(dt);
+    }
 }
 
 void Game::render() {
