@@ -66,12 +66,14 @@ public:
      * supplied world position and facing.
      *
      * @param camera the area first-person camera, reused as a chase camera; may be null
-     * @param bikeNodes the visible bike model scene nodes (already added to the scene); may be empty
+     * @param bikeRoot the visible bike model root scene node (already added to the scene)
+     * @param bikeChildNodes visible bike model child scene nodes attached to the root
      * @param finishProgress forward-progress distance at which the race is considered finished
      */
     void start(const MinigameSpec &spec,
                FirstPersonCamera *camera,
-               std::vector<std::shared_ptr<scene::ModelSceneNode>> bikeNodes,
+               std::shared_ptr<scene::ModelSceneNode> bikeRoot,
+               std::vector<std::shared_ptr<scene::ModelSceneNode>> bikeChildNodes,
                const glm::vec3 &startPosition,
                float startFacing,
                float finishProgress);
@@ -83,8 +85,8 @@ public:
 
     bool isActive() const { return _active; }
 
-    // The visible bike model scene nodes, so the owner can detach them on exit.
-    const std::vector<std::shared_ptr<scene::ModelSceneNode>> &bikeNodes() const { return _bikeNodes; }
+    // The visible bike model root scene node, so the owner can detach it on exit.
+    std::shared_ptr<scene::ModelSceneNode> bikeRoot() const { return _bikeRoot; }
 
     // Diagnostics
 
@@ -152,7 +154,8 @@ private:
     std::string _lateralBoundSource;
 
     FirstPersonCamera *_camera {nullptr};
-    std::vector<std::shared_ptr<scene::ModelSceneNode>> _bikeNodes;
+    std::shared_ptr<scene::ModelSceneNode> _bikeRoot;
+    std::vector<std::shared_ptr<scene::ModelSceneNode>> _bikeChildNodes;
 
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleKeyUp(const input::KeyEvent &event);
