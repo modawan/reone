@@ -254,6 +254,10 @@ public:
         return *_models;
     }
 
+    MockTextures &textures() {
+        return *_textures;
+    }
+
     MockWalkmeshes &walkmeshes() {
         return *_walkmeshes;
     }

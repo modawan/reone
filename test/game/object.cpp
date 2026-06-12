@@ -83,6 +83,10 @@ TEST(Object, should_convert_credits_to_party_gold_when_looted_by_party_member) {
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
         .Times(AnyNumber())
         .WillRepeatedly(Return(makeBaseItemsTable()));
+    // Item deserialization incidentally looks up inventory icons; no texture
+    // is needed.
+    EXPECT_CALL(engine.resourceModule().textures(), get(AnyOf("ii_credits_000", "ii_datapad_000"), _))
+        .Times(AnyNumber());
 
     auto player = game.newCreature();
     game.party().addMember(kNpcPlayer, player);
@@ -109,6 +113,10 @@ TEST(Object, should_move_credits_as_items_when_destination_is_not_in_party) {
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
         .Times(AnyNumber())
         .WillRepeatedly(Return(makeBaseItemsTable()));
+    // Item deserialization incidentally looks up inventory icons; no texture
+    // is needed.
+    EXPECT_CALL(engine.resourceModule().textures(), get("ii_credits_000", _))
+        .Times(AnyNumber());
 
     auto thug = game.newCreature();
 
