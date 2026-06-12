@@ -30,11 +30,11 @@ class MockGUI : public IGUI, boost::noncopyable {
 public:
     MOCK_METHOD(void, load, (const resource::Gff &), (override));
 
-    MOCK_METHOD(bool, handle, (const SDL_Event &), (override));
+    MOCK_METHOD(bool, handle, (const input::Event &), (override));
     MOCK_METHOD(void, update, (float), (override));
     MOCK_METHOD(void, render, (), (override));
 
-    MOCK_METHOD(void, resetFocus, (), (override));
+    MOCK_METHOD(void, clearSelection, (), (override));
 
     MOCK_METHOD(Control &, rootControl, (), (override));
 
@@ -49,7 +49,8 @@ public:
     MOCK_METHOD(void, setBackground, (std::shared_ptr<graphics::Texture>), (override));
 
     MOCK_METHOD(std::unique_ptr<Control>, newControl, (ControlType, std::string), (override));
-    MOCK_METHOD(void, addControl, (std::shared_ptr<Control>), (override));
+    MOCK_METHOD(void, addControlToFront, (std::shared_ptr<Control>), (override));
+    MOCK_METHOD(void, addControlToBack, (std::shared_ptr<Control>), (override));
 
     MOCK_METHOD(std::shared_ptr<Control>, findControl, (const std::string &), (const override));
 };

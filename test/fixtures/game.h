@@ -22,6 +22,7 @@
 #include "reone/game/di/services.h"
 #include "reone/system/exception/notimplemented.h"
 
+#include "reone/game/animations.h"
 #include "reone/game/camerastyles.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/feats.h"
@@ -31,9 +32,11 @@
 #include "reone/game/gui/sounds.h"
 #include "reone/game/options.h"
 #include "reone/game/portraits.h"
+#include "reone/game/projectiles.h"
 #include "reone/game/reputes.h"
 #include "reone/game/surfaces.h"
 #include "reone/game/types.h"
+#include "reone/game/visualeffects.h"
 
 namespace reone {
 
@@ -84,6 +87,7 @@ public:
 class MockReputes : public IReputes, boost::noncopyable {
 public:
     MOCK_METHOD(bool, getIsEnemy, (const Creature &left, const Creature &right), (const override));
+    MOCK_METHOD(bool, getIsEnemy, (Faction left, Faction right), (const override));
     MOCK_METHOD(bool, getIsFriend, (const Creature &left, const Creature &right), (const override));
     MOCK_METHOD(bool, getIsNeutral, (const Creature &left, const Creature &right), (const override));
 };
@@ -112,6 +116,24 @@ public:
     MOCK_METHOD(std::set<uint32_t>, getLineOfSightSurfaces, (), (const override));
 };
 
+class MockProjectiles : public IProjectiles, boost::noncopyable {
+public:
+    MOCK_METHOD(void, clear, (), (override));
+    MOCK_METHOD(ProjectileSpec *, get, (ProjectileAttackType attack, CreatureWieldType wield, int appearance), (override));
+};
+
+class MockAnimations : public IAnimations, boost::noncopyable {
+public:
+    MOCK_METHOD(void, clear, (), (override));
+    MOCK_METHOD(std::string, getNameById, (uint32_t id), (const override));
+    MOCK_METHOD(std::string, getAttackResult, (std::string attackAnim, CreatureWieldType targetWield, AttackResultType result), (const override));
+};
+
+class MockVisualEffects : public IVisualEffects, boost::noncopyable {
+public:
+    MOCK_METHOD(std::optional<const VisualEffectDesc *>, get, (uint32_t id), (const override));
+};
+
 class TestGameModule : boost::noncopyable {
 public:
     void init() {
@@ -125,6 +147,9 @@ public:
         _skills = std::make_unique<MockSkills>();
         _spells = std::make_unique<MockSpells>();
         _surfaces = std::make_unique<MockSurfaces>();
+        _projectiles = std::make_unique<MockProjectiles>();
+        _animations = std::make_unique<MockAnimations>();
+        _visualEffects = std::make_unique<MockVisualEffects>();
 
         _services = std::make_unique<GameServices>(
             *_cameraStyles,
@@ -136,7 +161,10 @@ public:
             *_reputes,
             *_skills,
             *_spells,
-            *_surfaces);
+            *_surfaces,
+            *_projectiles,
+            *_animations,
+            *_visualEffects);
     }
 
     GameServices &services() {
@@ -154,6 +182,9 @@ private:
     std::unique_ptr<MockSkills> _skills;
     std::unique_ptr<MockSpells> _spells;
     std::unique_ptr<MockSurfaces> _surfaces;
+    std::unique_ptr<MockProjectiles> _projectiles;
+    std::unique_ptr<MockAnimations> _animations;
+    std::unique_ptr<MockVisualEffects> _visualEffects;
 
     std::unique_ptr<GameServices> _services;
 };
