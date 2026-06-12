@@ -66,7 +66,8 @@ static constexpr float kDefaultCameraFovDegrees = 75.0f;
 
 void SwoopRace::start(const MinigameSpec &spec,
                       FirstPersonCamera *camera,
-                      std::vector<std::shared_ptr<scene::ModelSceneNode>> bikeNodes,
+                      std::shared_ptr<scene::ModelSceneNode> bikeRoot,
+                      std::vector<std::shared_ptr<scene::ModelSceneNode>> bikeChildNodes,
                       const glm::vec3 &startPosition,
                       float startFacing,
                       float finishProgress) {
@@ -81,7 +82,8 @@ void SwoopRace::start(const MinigameSpec &spec,
     computeLateralBounds(spec.player);
 
     _camera = camera;
-    _bikeNodes = std::move(bikeNodes);
+    _bikeRoot = std::move(bikeRoot);
+    _bikeChildNodes = std::move(bikeChildNodes);
 
     // Build the track-relative frame once. The bike faces down-course and never
     // turns from input; engine facing convention is forward = (-sin f, cos f).
@@ -111,7 +113,11 @@ void SwoopRace::stop() {
     _active = false;
     _steerDir = 0;
     _camera = nullptr;
-    _bikeNodes.clear();
+    if (_bikeRoot) {
+        _bikeRoot->removeAllChildren();
+    }
+    _bikeChildNodes.clear();
+    _bikeRoot.reset();
 }
 
 void SwoopRace::computeLateralBounds(const MinigamePlayerSpec &player) {
@@ -182,7 +188,7 @@ glm::vec3 SwoopRace::bikePosition() const {
 }
 
 void SwoopRace::applyBikeTransform() {
-    if (_bikeNodes.empty()) {
+    if (!_bikeRoot) {
         return;
     }
     glm::vec3 bikePos = bikePosition();
@@ -199,12 +205,7 @@ void SwoopRace::applyBikeTransform() {
     transform *= glm::mat4_cast(glm::quat(glm::vec3(0.0f, 0.0f, _facing)));
     transform *= glm::mat4_cast(glm::quat(glm::vec3(0.0f, lean, 0.0f)));
 
-    // All loaded models share the same bike transform for this dev slice.
-    for (auto &node : _bikeNodes) {
-        if (node) {
-            node->setLocalTransform(transform);
-        }
-    }
+    _bikeRoot->setLocalTransform(transform);
 }
 
 void SwoopRace::applyChaseCamera() {

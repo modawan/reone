@@ -1556,7 +1556,8 @@ void Game::openSwoopRace() {
     // (player.cameraResRef). We skip that mount so areas whose visible bike is
     // in a later entry (e.g. Tatooine) still show a body.
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
-    std::vector<std::shared_ptr<ModelSceneNode>> bikeNodes;
+    std::shared_ptr<ModelSceneNode> bikeRoot;
+    std::vector<std::shared_ptr<ModelSceneNode>> bikeChildNodes;
     std::vector<std::string> modelDiag;
     bool anyMissing = false;
     for (const auto &resRef : mg.player.modelResRefs) {
@@ -1575,10 +1576,23 @@ void Game::openSwoopRace() {
         }
         auto node = sceneGraph.newModel(*model, ModelUsage::Placeable);
         node->setDrawDistance(_options.graphics.drawDistance);
-        sceneGraph.addRoot(node);
-        bikeNodes.push_back(std::move(node));
+        if (!bikeRoot) {
+            bikeRoot = std::move(node);
+        } else {
+            bikeRoot->addChild(*node);
+            bikeChildNodes.push_back(std::move(node));
+        }
         modelDiag.push_back(resRef + " loaded");
     }
+    size_t loadedCount = bikeRoot ? 1 + bikeChildNodes.size() : 0;
+    if (!bikeRoot) {
+        _console.printLine("swoop: no visible bike models loaded");
+        for (size_t i = 0; i < modelDiag.size(); ++i) {
+            debug(str(boost::format("  model[%zu]=%s") % i % modelDiag[i]));
+        }
+        return;
+    }
+    sceneGraph.addRoot(bikeRoot);
 
     // Anchor the race to the authored player track. Prefer the LYT track
     // placement (module/world space); otherwise fall back as before.
@@ -1616,8 +1630,7 @@ void Game::openSwoopRace() {
                                : kSwoopFallbackFinishProgress;
 
     _savedCameraType = _cameraType;
-    size_t loadedCount = bikeNodes.size();
-    _swoopRace.start(mg, camera, std::move(bikeNodes), trackFrame.position, trackFrame.facing, finishProgress);
+    _swoopRace.start(mg, camera, std::move(bikeRoot), std::move(bikeChildNodes), trackFrame.position, trackFrame.facing, finishProgress);
 
     _cameraType = CameraType::FirstPerson;
     setRelativeMouseMode(false);
@@ -1725,10 +1738,9 @@ void Game::closeSwoopRace() {
         return;
     }
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
-    for (const auto &bikeNode : _swoopRace.bikeNodes()) {
-        if (bikeNode) {
-            sceneGraph.removeRoot(*bikeNode);
-        }
+    auto bikeRoot = _swoopRace.bikeRoot();
+    if (bikeRoot) {
+        sceneGraph.removeRoot(*bikeRoot);
     }
     _swoopRace.stop();
     setPartyVisible(true);
