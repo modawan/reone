@@ -27,6 +27,7 @@
 #include "reone/graphics/uniforms.h"
 #include "reone/graphics/walkmesh.h"
 #include "reone/scene/collision.h"
+#include "reone/scene/drawdebug.h"
 #include "reone/scene/node/camera.h"
 #include "reone/scene/node/emitter.h"
 #include "reone/scene/node/grass.h"
@@ -523,6 +524,9 @@ Texture &SceneGraph::render(const glm::ivec2 &dim) {
             if (!_flareLights.empty()) {
                 renderLensFlares(pass);
             }
+        });
+        pipeline.inRenderPass(RenderPassName::Debug, [this, &camera](auto &pass) {
+            renderDrawDebug(pass, _graphicsSvc, _resourceSvc, name());
         });
     }
 

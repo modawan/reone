@@ -395,6 +395,13 @@ Texture &PBRRenderPipeline::render() {
                 screenRect, screenRect);
         }
 
+        // Draw debug elements (lines, points, etc.)
+        beginDebugPass();
+        if (_passCallbacks.count(RenderPassName::Debug) > 0) {
+            _passCallbacks.at(RenderPassName::Debug)(pass);
+        }
+        endDebugPass();
+
         _context.resetDrawFramebuffer();
     });
 
@@ -520,6 +527,14 @@ void PBRRenderPipeline::beginPostProcessingPass() {
 }
 
 void PBRRenderPipeline::endPostProcessingPass() {
+}
+
+void PBRRenderPipeline::beginDebugPass() {
+    _context.bindDrawFramebuffer(*_targets.fbOutput, {0});
+    _context.clearDepth();
+}
+
+void PBRRenderPipeline::endDebugPass() {
 }
 
 } // namespace scene
