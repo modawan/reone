@@ -95,6 +95,8 @@ public:
 
     void update(float dt);
 
+    void reset() { _rounds.clear(); }
+
 public:
     using RoundQueue = std::deque<std::unique_ptr<CombatRound>>;
 

@@ -76,7 +76,7 @@ void Module::load(std::string name, const Gff &ifo, bool fromSave) {
 
     auto ifoParsed = resource::generated::parseIFO(ifo);
     loadInfo(ifoParsed);
-    loadArea(ifoParsed);
+    loadArea(ifoParsed, fromSave);
 
     _area->initCameras(_info.entryPosition, _info.entryFacing);
 

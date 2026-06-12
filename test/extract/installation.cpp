@@ -77,6 +77,27 @@ TEST(InstallationModuleRoot, getModuleRoot_strips_suffixes) {
     EXPECT_EQ("danm13", Installation::getModuleRoot("danm13_s.rim"));
     EXPECT_EQ("danm13", Installation::getModuleRoot("danm13_dlg.erf"));
     EXPECT_EQ("end_m01aa", Installation::getModuleRoot("end_m01aa.mod"));
+    EXPECT_EQ("end_m01aa", Installation::getModuleRoot("end_m01aa_loc.mod"));
+}
+
+TEST(InstallationModuleRoot, loads_lips_loc_capsule_for_module) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_lips_loc";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "modules");
+    std::filesystem::create_directories(tmp / "lips");
+
+    writeRim(tmp / "modules" / "end_m01aa.rim", "area_git", ResType::Txt, ByteBuffer {'m'});
+    writeErf(tmp / "lips" / "end_m01aa_loc.mod", "lipsync", ResType::Lip, ByteBuffer {'l'});
+
+    Installation installation(GameID::KotOR, tmp);
+    installation.setModuleRoot("end_m01aa");
+    auto loc = installation.resource(ResourceId("lipsync", ResType::Lip), canonicalSearchOrder());
+    ASSERT_TRUE(loc.has_value());
+    auto data = loc->readData();
+    ASSERT_EQ(1u, data.size());
+    EXPECT_EQ('l', data[0]);
+
+    std::filesystem::remove_all(tmp);
 }
 
 TEST(InstallationModuleRoot, skips_module_index_until_module_root_set) {

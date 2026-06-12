@@ -99,19 +99,11 @@ void Installation::loadModules() {
     if (!_moduleRoot) {
         return;
     }
-    auto modulesPath = findFileIgnoreCase(_root, kModulesDirectoryName);
-    if (!modulesPath) {
-        return;
-    }
-    for (auto &entry : std::filesystem::directory_iterator(*modulesPath)) {
-        if (!entry.is_regular_file() || !isCapsuleFile(entry.path())) {
-            continue;
+    for (auto &rel : moduleArchiveRelPaths(*_moduleRoot)) {
+        if (auto path = findFileIgnoreCase(_root, rel)) {
+            auto filename = boost::to_lower_copy(path->filename().string());
+            _moduleCapsulePaths.emplace(filename, *path);
         }
-        auto filename = boost::to_lower_copy(entry.path().filename().string());
-        if (getModuleRoot(filename) != *_moduleRoot) {
-            continue;
-        }
-        _moduleCapsulePaths.emplace(filename, entry.path());
     }
     clearLocationCaches();
 }
@@ -271,7 +263,7 @@ void Installation::loadLips() {
     }
     auto lipsPath = findFileIgnoreCase(_root, kLipsDirectoryName);
     if (lipsPath) {
-        indexCapsuleDict(*lipsPath, isModFile, _lips);
+        indexCapsuleDict(*lipsPath, isCapsuleFile, _lips);
     }
     _lipsLoaded = true;
     clearLocationCaches();
@@ -452,6 +444,9 @@ std::string Installation::getModuleRoot(std::string_view capsuleFilename) {
         stem.resize(stem.size() - 2);
     }
     if (boost::ends_with(stem, "_dlg")) {
+        stem.resize(stem.size() - 4);
+    }
+    if (boost::ends_with(stem, "_loc")) {
         stem.resize(stem.size() - 4);
     }
     return stem;

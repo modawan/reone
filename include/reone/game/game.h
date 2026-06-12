@@ -138,6 +138,7 @@ public:
     CameraType cameraType() const { return _cameraType; }
     const std::set<std::string> &moduleNames() const { return _moduleNames; }
     const std::set<std::string> &saveNames() const { return _saveNames; }
+    const std::filesystem::path &path() const { return _path; }
 
     void initLocalServices();
     void setSceneSurfaces();
@@ -333,6 +334,9 @@ public:
 
     void deserializeGlobalVariables(resource::Gff &gvtGff);
     void deserializeInventory(resource::Gff &inventoryGff);
+    void deserializeParty(resource::Gff &ifoGff);
+    void deserializePartyTable(resource::Gff &ptGff);
+    void deserializePartyMembers(resource::Gff &ptGff);
 
 private:
     resource::GameID _gameId;
