@@ -16,7 +16,7 @@ void main() {
         vec3 right = vec3(uView[0][0], uView[1][0], uView[2][0]);
         vec3 up = vec3(uView[0][1], uView[1][1], uView[2][1]);
         vec4 P = vec4(
-            vec3(uModel[3]) + right * aPosition.x + up * aPosition.y,
+            vec3(uModel[3]) + right * uModel[0][0] * aPosition.x + up * uModel[1][1] * aPosition.y,
             1.0);
 
         gl_Position = uProjection * uView * P;

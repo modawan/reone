@@ -39,6 +39,7 @@ struct ShaderProgramId {
     static constexpr char pbrWalkmesh[] = "pbr_walkmesh";
     static constexpr char dirLightShadows[] = "dir_light_shadows";
     static constexpr char mvpColor[] = "mvp_color";
+    static constexpr char aabbColor[] = "aabb_color";
     static constexpr char mvpTexture[] = "mvp_texture";
     static constexpr char ndcTexture[] = "ndc_texture";
     static constexpr char oitBlend[] = "oit_blend";
@@ -53,6 +54,7 @@ struct ShaderProgramId {
     static constexpr char postMedianFilter5[] = "post_median_filter5";
     static constexpr char postSharpen[] = "post_sharpen";
     static constexpr char text[] = "text";
+    static constexpr char textBillboard[] = "textBillboard";
     static constexpr char pbrIrradiance[] = "pbr_irradiance";
     static constexpr char brdfLUT[] = "pbr_brdf";
     static constexpr char pbrPrefilter[] = "pbr_prefilter";
