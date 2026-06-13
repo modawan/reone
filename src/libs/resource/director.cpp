@@ -28,6 +28,7 @@
 #include "reone/resource/provider/paths.h"
 #include "reone/resource/provider/scripts.h"
 #include "reone/resource/resources.h"
+#include "reone/system/exception/validation.h"
 #include "reone/system/fileutil.h"
 
 using namespace reone::resource;
@@ -58,6 +59,9 @@ void ResourceDirector::onModuleLoad(const std::string &name) {
 }
 
 void ResourceDirector::onGameLoad(std::string_view name) {
+    if (!isValidResRef(name)) {
+        throw ValidationException(str(boost::format("Invalid save slot name: %s") % name));
+    }
     clearProviderCaches();
     _installation.clearSaveScope();
     loadSaveGameResources(name);
@@ -124,6 +128,9 @@ void ResourceDirector::loadModuleResources(const std::string &name) {
 #ifdef __EMSCRIPTEN__
     EM_ASM({ console.log("reone web: loadModuleResources begin " + UTF8ToString($0)); }, name.c_str());
 #endif
+    if (!isValidResRef(name)) {
+        throw ValidationException(str(boost::format("Invalid module name: %s") % name));
+    }
     auto moduleRoot = boost::to_lower_copy(name);
     _installation.setModuleRoot(moduleRoot);
 #ifdef __EMSCRIPTEN__

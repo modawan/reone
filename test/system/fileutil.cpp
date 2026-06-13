@@ -45,3 +45,24 @@ TEST(FileUtilities, should_find_file_ignoring_case) {
     // cleanup
     std::filesystem::remove_all(tmpDirPath);
 }
+
+TEST(FileUtilities, should_reject_unsafe_relative_path_components) {
+    auto tmpDirPath = std::filesystem::temp_directory_path() / "reone_test_file_util_unsafe";
+    std::filesystem::remove_all(tmpDirPath);
+    std::filesystem::create_directories(tmpDirPath);
+
+    EXPECT_FALSE(findFileIgnoreCase(tmpDirPath, ".."));
+    EXPECT_FALSE(findFileIgnoreCase(tmpDirPath, "foo/../bar"));
+    EXPECT_FALSE(findFileIgnoreCase(tmpDirPath, "."));
+
+    std::filesystem::remove_all(tmpDirPath);
+}
+
+TEST(FileUtilities, should_validate_resref_names) {
+    EXPECT_TRUE(isValidResRef("end_m01aa"));
+    EXPECT_TRUE(isValidResRef("000001"));
+    EXPECT_FALSE(isValidResRef(""));
+    EXPECT_FALSE(isValidResRef("../evil"));
+    EXPECT_FALSE(isValidResRef("bad/name"));
+    EXPECT_FALSE(isValidResRef("toolongresrefname1"));
+}

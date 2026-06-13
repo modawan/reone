@@ -17,13 +17,47 @@
 
 #include "reone/system/fileutil.h"
 
+#include <cctype>
+
 #include "reone/system/exception/filenotfound.h"
 
 namespace reone {
 
+namespace {
+
+bool isSafeRelativePathComponent(std::string_view component) {
+    return !component.empty() && component != "." && component != "..";
+}
+
+bool splitRelativePath(std::string_view relPath, std::vector<std::string> &tokens) {
+    boost::split(tokens, relPath, boost::is_any_of("/\\"), boost::token_compress_on);
+    for (const auto &token : tokens) {
+        if (!isSafeRelativePathComponent(token)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+bool isValidResRef(std::string_view name, size_t maxLen) {
+    if (name.empty() || name.size() > maxLen) {
+        return false;
+    }
+    for (char c : name) {
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_') {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::filesystem::path getFileIgnoreCase(const std::filesystem::path &dir, std::string_view relPath) {
     std::vector<std::string> tokens;
-    boost::split(tokens, relPath, boost::is_any_of("/"), boost::token_compress_on);
+    if (!splitRelativePath(relPath, tokens)) {
+        throw FileNotFoundException((dir / relPath).string());
+    }
 
     for (auto &entry : std::filesystem::directory_iterator(dir)) {
         auto filename = boost::to_lower_copy(entry.path().filename().string());
@@ -41,7 +75,9 @@ std::filesystem::path getFileIgnoreCase(const std::filesystem::path &dir, std::s
 
 std::optional<std::filesystem::path> findFileIgnoreCase(const std::filesystem::path &dir, std::string_view relPath) {
     std::vector<std::string> tokens;
-    boost::split(tokens, relPath, boost::is_any_of("/"), boost::token_compress_on);
+    if (!splitRelativePath(relPath, tokens)) {
+        return std::nullopt;
+    }
 
     for (auto &entry : std::filesystem::directory_iterator(dir)) {
         auto filename = boost::to_lower_copy(entry.path().filename().string());

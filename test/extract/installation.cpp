@@ -206,12 +206,7 @@ TEST(InstallationSaveScope, save_load_merges_save_capsule_with_global_baseline) 
     installation.setGlobalCustomCapsules({tmp / "shaderpack.erf"});
 
     installation.clearSaveScope();
-    auto folders = installation.customFolders();
-    folders.push_back(tmp / "saves" / "slot_a");
-    installation.setCustomFolders(std::move(folders));
-    auto capsules = installation.customCapsules();
-    capsules.push_back(tmp / "saves" / "slot_a" / "savegame.sav");
-    installation.setCustomCapsules(std::move(capsules));
+    installation.appendSaveScope(tmp / "saves" / "slot_a", tmp / "saves" / "slot_a" / "savegame.sav");
 
     ASSERT_EQ(2u, installation.customCapsules().size());
     EXPECT_EQ(tmp / "shaderpack.erf", installation.customCapsules().front());
@@ -242,12 +237,7 @@ TEST(InstallationSaveScope, module_transition_preserves_save_scope_after_game_lo
     installation.setGlobalCustomCapsules({tmp / "shaderpack.erf"});
 
     installation.clearSaveScope();
-    auto folders = installation.customFolders();
-    folders.push_back(tmp / "saves" / "slot_a");
-    installation.setCustomFolders(std::move(folders));
-    auto capsules = installation.customCapsules();
-    capsules.push_back(tmp / "saves" / "slot_a" / "savegame.sav");
-    installation.setCustomCapsules(std::move(capsules));
+    installation.appendSaveScope(tmp / "saves" / "slot_a", tmp / "saves" / "slot_a" / "savegame.sav");
 
     installation.setModuleRoot("end_m01aa");
 
@@ -278,20 +268,10 @@ TEST(InstallationSaveScope, save_switch_replaces_prior_save_folder) {
     Installation installation(GameID::KotOR, tmp);
 
     installation.clearSaveScope();
-    auto foldersA = installation.customFolders();
-    foldersA.push_back(tmp / "saves" / "slot_a");
-    installation.setCustomFolders(std::move(foldersA));
-    auto capsulesA = installation.customCapsules();
-    capsulesA.push_back(tmp / "saves" / "slot_a" / "savegame.sav");
-    installation.setCustomCapsules(std::move(capsulesA));
+    installation.appendSaveScope(tmp / "saves" / "slot_a", tmp / "saves" / "slot_a" / "savegame.sav");
 
     installation.clearSaveScope();
-    auto foldersB = installation.customFolders();
-    foldersB.push_back(tmp / "saves" / "slot_b");
-    installation.setCustomFolders(std::move(foldersB));
-    auto capsulesB = installation.customCapsules();
-    capsulesB.push_back(tmp / "saves" / "slot_b" / "savegame.sav");
-    installation.setCustomCapsules(std::move(capsulesB));
+    installation.appendSaveScope(tmp / "saves" / "slot_b", tmp / "saves" / "slot_b" / "savegame.sav");
 
     ASSERT_EQ(1u, installation.customFolders().size());
     EXPECT_EQ(tmp / "saves" / "slot_b", installation.customFolders().front());

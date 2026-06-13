@@ -573,6 +573,9 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
 }
 
 void Game::loadGame(std::string_view name) {
+    if (!isValidResRef(name)) {
+        throw ValidationException(str(boost::format("Invalid save slot name: %s") % name));
+    }
     info(str(boost::format("Loading savegame '%s'") % name));
 
     _screen = Screen::None;
@@ -612,6 +615,10 @@ void Game::loadGame(std::string_view name) {
         throw ResourceNotFoundException("savenfo.res not found");
     }
     NFO nfo = resource::parseNFO(*saveInfo);
+
+    if (!isValidResRef(nfo.lastModule)) {
+        throw ValidationException(str(boost::format("Invalid last module in save: %s") % nfo.lastModule));
+    }
 
     // Module archives resolve from the save capsule while save scope is active.
     _services.resource.director.onModuleLoad(nfo.lastModule);
