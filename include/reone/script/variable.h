@@ -105,6 +105,7 @@ enum class ArgKind {
     LastDamager,
     SpellId,
     SpellLocation,
+    ObjectsInArea,
     ObjectsInShape,
     ScriptParam1,
     ScriptParam2,
