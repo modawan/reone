@@ -109,7 +109,11 @@ void Creature::loadFromBlueprint(const std::string &resRef) {
     if (!utc) {
         return;
     }
-    deserialize(*utc);
+    // A blueprint is a single source, so deserialize it once. Routing through
+    // deserialize() would re-read the self-referential TemplateResRef and
+    // deserialize the same data twice, doubling accumulated class levels.
+    deserializeAll(*utc);
+    updateTransform();
     loadAppearance();
 }
 
