@@ -57,7 +57,10 @@ public:
     bool isLocked() const { return _locked; }
     bool isStatic() const { return _static; }
     bool isKeyRequired() const { return _keyRequired; }
+    bool isAutoRemoveKey() const { return _autoRemoveKey; }
     bool isNotBlastable() const { return _notBlastable; }
+
+    const std::string &keyName() const { return _keyName; }
 
     void onOpen(uint32_t triggererId);
     void onFailToOpen(const Object &triggerer);

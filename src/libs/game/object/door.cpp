@@ -90,7 +90,9 @@ void Door::deserializeAll(const resource::Gff &gff) {
     gff.readShort(_currentHitPoints, "CurrentHP");
     gff.readBool(_plot, "Plot");
     gff.readBool(_minOneHP, "Min1HP");
-    gff.readString(_keyName, "KeyName");
+    if (gff.readString(_keyName, "KeyName")) {
+        boost::to_lower(_keyName);
+    }
     gff.readBool(_keyRequired, "KeyRequired");
     gff.readByte(_openLockDC, "OpenLockDC");
     gff.readByte(_closeLockDC, "CloseLockDC");
