@@ -17,24 +17,18 @@
 
 #pragma once
 
-#include "reone/system/types.h"
-
-#include "id.h"
+#include <filesystem>
+#include <vector>
 
 namespace reone {
 
-namespace resource {
+namespace extract {
 
-class IResourceContainer {
-public:
-    virtual ~IResourceContainer() {
-    }
-
-    virtual std::optional<ByteBuffer> findResourceData(const ResourceId &id) = 0;
-
-    virtual const std::unordered_set<ResourceId> &resourceIds() const = 0;
+struct ResourceLookupContext {
+    std::vector<std::filesystem::path> customFolders;
+    std::vector<std::filesystem::path> customCapsules;
 };
 
-} // namespace resource
+} // namespace extract
 
 } // namespace reone

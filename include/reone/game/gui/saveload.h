@@ -43,6 +43,7 @@ public:
 private:
     struct SavedGameDescriptor {
         int number {0};
+        std::string name;
         SavedGame save;
         std::filesystem::path path;
     };
@@ -97,11 +98,13 @@ private:
     }
 
     void refreshSavedGames();
-    void indexSavedGame(std::filesystem::path path);
+    void indexSaveSlot(std::filesystem::path slotPath);
 
-    void saveGame(int number) {}
-    void loadGame(int number) {}
+    void saveGame(int number);
+    void loadGame(int number);
     void deleteGame(int number);
+
+    static int parseSlotNumber(const std::string &name);
 
     int getSelectedSaveNumber() const;
     int getNewSaveNumber() const;

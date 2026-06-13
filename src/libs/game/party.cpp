@@ -99,6 +99,14 @@ void Party::clear() {
     _members.clear();
 }
 
+void Party::reset() {
+    _player.reset();
+    _availableMembers.clear();
+    _members.clear();
+    _solo = false;
+    _gold = 0;
+}
+
 void Party::giveGold(int amount) {
     _gold += amount;
 }

@@ -17,7 +17,9 @@
 
 #include "2daparsers.h"
 
-#include "reone/resource/container/keybif.h"
+#include "installation_helpers.h"
+
+#include "reone/extract/installation.h"
 #include "reone/resource/format/2dareader.h"
 #include "reone/system/checkutil.h"
 #include "reone/system/fileutil.h"
@@ -27,6 +29,8 @@
 
 #include "code.h"
 
+using namespace reone::dataminer;
+using namespace reone::extract;
 using namespace reone::resource;
 
 namespace reone {
@@ -223,48 +227,38 @@ void generate2DAParsers(const std::filesystem::path &k1dir,
 
     auto k1KeyPath = findFileIgnoreCase(k1dir, "chitin.key");
     if (k1KeyPath) {
-        KeyBifResourceContainer k1KeyBif {*k1KeyPath};
-        k1KeyBif.init();
-        for (const auto &resId : k1KeyBif.resourceIds()) {
-            if (resId.type != ResType::TwoDA) {
-                continue;
-            }
-            auto data = k1KeyBif.findResourceData(resId);
-            if (!data) {
-                continue;
-            }
-            MemoryInputStream stream {*data};
+        Installation k1Installation(GameID::KotOR, k1dir);
+        k1Installation.loadChitin();
+        forEachResource(k1Installation.chitinResources(), ResType::TwoDA, [&](const FileResource &fileResource) {
+            auto data = fileResource.readData();
+            MemoryInputStream stream {data};
             TwoDAReader reader {stream};
             try {
                 reader.load();
             } catch (const std::exception &ex) {
-                std::cerr << "Error loading 2DA: " << resId.resRef.value() << ": " << ex.what() << std::endl;
+                std::cerr << "Error loading 2DA: " << fileResource.id().resRef.value() << ": " << ex.what() << std::endl;
+                return;
             }
-            twoDAs.push_back({resId.resRef, reader.twoDA()});
-        }
+            twoDAs.push_back({fileResource.id().resRef, reader.twoDA()});
+        });
     }
 
     auto k2KeyPath = findFileIgnoreCase(k2dir, "chitin.key");
     if (k2KeyPath) {
-        KeyBifResourceContainer k2KeyBif {*k2KeyPath};
-        k2KeyBif.init();
-        for (const auto &resId : k2KeyBif.resourceIds()) {
-            if (resId.type != ResType::TwoDA) {
-                continue;
-            }
-            auto data = k2KeyBif.findResourceData(resId);
-            if (!data) {
-                continue;
-            }
-            MemoryInputStream stream {*data};
+        Installation k2Installation(GameID::TSL, k2dir);
+        k2Installation.loadChitin();
+        forEachResource(k2Installation.chitinResources(), ResType::TwoDA, [&](const FileResource &fileResource) {
+            auto data = fileResource.readData();
+            MemoryInputStream stream {data};
             TwoDAReader reader {stream};
             try {
                 reader.load();
             } catch (const std::exception &ex) {
-                std::cerr << "Error loading 2DA: " << resId.resRef.value() << ": " << ex.what() << std::endl;
+                std::cerr << "Error loading 2DA: " << fileResource.id().resRef.value() << ": " << ex.what() << std::endl;
+                return;
             }
-            twoDAs.push_back({resId.resRef, reader.twoDA()});
-        }
+            twoDAs.push_back({fileResource.id().resRef, reader.twoDA()});
+        });
     }
 
     std::map<ResRef, std::map<std::string, TwoDAColumn>> resRefToColumns;

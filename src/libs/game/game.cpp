@@ -541,8 +541,10 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
             }
 
             if (_party.isEmpty()) {
-                if (!loadParty()) {
-                    loadDefaultParty();
+                if (!fromSave) {
+                    if (!loadParty()) {
+                        loadDefaultParty();
+                    }
                 }
             }
 
@@ -571,27 +573,174 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
 }
 
 void Game::loadGame(std::string_view name) {
+    if (!isValidResRef(name)) {
+        throw ValidationException(str(boost::format("Invalid save slot name: %s") % name));
+    }
     info(str(boost::format("Loading savegame '%s'") % name));
 
+    _screen = Screen::None;
+    _services.audio.mixer.stopAll();
+    _music.reset();
+    _movie.reset();
+    _musicResRef.clear();
+    while (!_moduleTransitionMovies.empty()) {
+        _moduleTransitionMovies.pop();
+    }
+    setCursorType(CursorType::Default);
+    _cameraType = CameraType::ThirdPerson;
+    _paused = false;
+    _quitRequested = false;
+    _relativeMouseMode = false;
+    if (_conversation) {
+        _conversation->cleanupForModuleTransition();
+        _conversation = nullptr;
+    }
+
+    _party.reset();
+    _combat.reset();
+    _module.reset();
+    _loadedModules.clear();
+    _objectById.clear();
+    _nextObjectId = 2;
+    _globalStrings.clear();
+    _globalBooleans.clear();
+    _globalNumbers.clear();
+    _globalLocations.clear();
+    _customTokens.clear();
+
     _services.resource.director.onGameLoad(name);
+
+    std::shared_ptr<Gff> saveInfo(_services.resource.gffs.get("savenfo", ResType::Res));
+    if (!saveInfo) {
+        throw ResourceNotFoundException("savenfo.res not found");
+    }
+    NFO nfo = resource::parseNFO(*saveInfo);
+
+    if (!isValidResRef(nfo.lastModule)) {
+        throw ValidationException(str(boost::format("Invalid last module in save: %s") % nfo.lastModule));
+    }
+
+    // Module archives resolve from the save capsule while save scope is active.
+    _services.resource.director.onModuleLoad(nfo.lastModule);
+
     std::shared_ptr<Gff> globalVars(_services.resource.gffs.get("globalvars", ResType::Res));
     if (!globalVars) {
         throw ResourceNotFoundException("globalvars.res not found");
     }
     deserializeGlobalVariables(*globalVars);
 
-    std::shared_ptr<Gff> saveInfo(_services.resource.gffs.get("savenfo", ResType::Res));
-    if (!saveInfo) {
-        throw ResourceNotFoundException("saveinfo.res not found");
+    std::shared_ptr<Gff> ifo(_services.resource.gffs.get("module", ResType::Ifo));
+    if (!ifo) {
+        throw ResourceNotFoundException("Module IFO not found");
     }
+    deserializeParty(*ifo);
 
-    NFO nfo = resource::parseNFO(*saveInfo);
-    loadModule(nfo.lastModule, /*entry=*/"", /*fromSave=*/true);
-
-    // Inventory is serialized into a separate file. Once the player is loaded,
-    // deserialize it into the player's inventory.
     if (auto inventoryGff = _services.resource.gffs.get("inventory", ResType::Res)) {
         deserializeInventory(*inventoryGff);
+    }
+
+    loadModule(nfo.lastModule, /*entry=*/"", /*fromSave=*/true);
+}
+
+void Game::deserializeParty(resource::Gff &ifoGff) {
+    const auto &players = ifoGff.getList("Mod_PlayerList");
+    if (players.empty()) {
+        return;
+    }
+
+    std::shared_ptr<Creature> player = newCreature();
+    _objectById.insert(std::make_pair(player->id(), player));
+    player->deserialize(*players.front());
+    player->setTag(kObjectTagPlayer);
+    _party.setPlayer(player);
+
+    std::shared_ptr<Gff> ptGff(_services.resource.gffs.get("partytable", ResType::Res));
+    if (!ptGff) {
+        _party.addMember(kNpcPlayer, player);
+        return;
+    }
+
+    uint32_t gold = 0;
+    if (ptGff->readDword(gold, "PT_GOLD")) {
+        _party.setGold(static_cast<int>(gold));
+    }
+
+    uint32_t xp = 0;
+    if (ptGff->readDword(xp, "PT_XP_POOL")) {
+        player->setXP(static_cast<int>(xp));
+    }
+
+    if (ptGff->getBool("PT_SOLOMODE")) {
+        _party.setSoloMode(true);
+    }
+
+    deserializePartyTable(*ptGff);
+    deserializePartyMembers(*ptGff);
+}
+
+void Game::deserializePartyTable(resource::Gff &ptGff) {
+    int nextNpc = 0;
+    for (const auto &npcState : ptGff.getList("PT_AVAIL_NPCS")) {
+        int npc = nextNpc++;
+        if (!npcState->getBool("PT_NPC_AVAIL")) {
+            continue;
+        }
+
+        auto utc = str(boost::format("availnpc%d") % npc);
+        std::shared_ptr<Gff> utcGff(_services.resource.gffs.get(utc, ResType::Utc));
+        if (!utcGff) {
+            warn("Game: missing UTC for available NPC: " + utc);
+            continue;
+        }
+
+        std::shared_ptr<Creature> creature = newCreature();
+        _objectById.insert(std::make_pair(creature->id(), creature));
+        creature->deserialize(*utcGff);
+
+        _party.addAvailableMember(npc, creature);
+    }
+}
+
+void Game::deserializePartyMembers(resource::Gff &ptGff) {
+    auto members = ptGff.getList("PT_MEMBERS");
+    auto leader = std::find_if(members.begin(), members.end(), [](auto &member) {
+        return member->getBool("PT_IS_LEADER");
+    });
+
+    auto addMember = [this](resource::Gff &memberGff) {
+        int32_t npc = -1;
+        if (!memberGff.readInt(npc, "PT_MEMBER_ID")) {
+            warn("Game: missing PT_MEMBER_ID");
+            return;
+        }
+
+        std::shared_ptr<Creature> member;
+        if (npc == kNpcPlayer) {
+            member = _party.player();
+        } else {
+            member = _party.getAvailableMember(npc);
+        }
+        if (!member) {
+            warn("Game: NPC is not available: " + std::to_string(npc));
+            return;
+        }
+
+        if (_party.isMember(npc)) {
+            return;
+        }
+
+        _party.addMember(npc, member);
+    };
+
+    for (auto it = leader; it != members.end(); ++it) {
+        addMember(**it);
+    }
+    for (auto it = members.begin(); it != leader; ++it) {
+        addMember(**it);
+    }
+
+    if (_party.isEmpty()) {
+        _party.addMember(kNpcPlayer, _party.player());
     }
 }
 

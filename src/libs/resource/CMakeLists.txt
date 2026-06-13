@@ -18,13 +18,6 @@ set(RESOURCE_SOURCE_DIR ${CMAKE_SOURCE_DIR}/src/libs/resource)
 
 set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/2da.h
-    ${RESOURCE_INCLUDE_DIR}/container.h
-    ${RESOURCE_INCLUDE_DIR}/container/erf.h
-    ${RESOURCE_INCLUDE_DIR}/container/exe.h
-    ${RESOURCE_INCLUDE_DIR}/container/folder.h
-    ${RESOURCE_INCLUDE_DIR}/container/keybif.h
-    ${RESOURCE_INCLUDE_DIR}/container/memory.h
-    ${RESOURCE_INCLUDE_DIR}/container/rim.h
     ${RESOURCE_INCLUDE_DIR}/di/module.h
     ${RESOURCE_INCLUDE_DIR}/di/services.h
     ${RESOURCE_INCLUDE_DIR}/dialog.h
@@ -91,17 +84,24 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/strings.h
     ${RESOURCE_INCLUDE_DIR}/talktable.h
     ${RESOURCE_INCLUDE_DIR}/types.h
-    ${RESOURCE_INCLUDE_DIR}/typeutil.h)
+    ${RESOURCE_INCLUDE_DIR}/typeutil.h
+    ${REONE_INCLUDE_DIR}/reone/extract/capsule.h
+    ${REONE_INCLUDE_DIR}/reone/extract/chitin.h
+    ${REONE_INCLUDE_DIR}/reone/extract/fileresource.h
+    ${REONE_INCLUDE_DIR}/reone/extract/finder.h
+    ${REONE_INCLUDE_DIR}/reone/extract/installation.h
+    ${REONE_INCLUDE_DIR}/reone/extract/lookupcontext.h
+    ${REONE_INCLUDE_DIR}/reone/extract/searchlocation.h)
 
 set(RESOURCE_SOURCES
     ${RESOURCE_SOURCE_DIR}/2da.cpp
-    ${RESOURCE_SOURCE_DIR}/container/erf.cpp
-    ${RESOURCE_SOURCE_DIR}/container/exe.cpp
-    ${RESOURCE_SOURCE_DIR}/container/folder.cpp
-    ${RESOURCE_SOURCE_DIR}/container/keybif.cpp
-    ${RESOURCE_SOURCE_DIR}/container/rim.cpp
     ${RESOURCE_SOURCE_DIR}/di/module.cpp
     ${RESOURCE_SOURCE_DIR}/director.cpp
+    ${RESOURCE_SOURCE_DIR}/extract/capsule.cpp
+    ${RESOURCE_SOURCE_DIR}/extract/chitin.cpp
+    ${RESOURCE_SOURCE_DIR}/extract/fileresource.cpp
+    ${RESOURCE_SOURCE_DIR}/extract/finder.cpp
+    ${RESOURCE_SOURCE_DIR}/extract/installation.cpp
     ${RESOURCE_SOURCE_DIR}/format/2dareader.cpp
     ${RESOURCE_SOURCE_DIR}/format/2dawriter.cpp
     ${RESOURCE_SOURCE_DIR}/format/bifreader.cpp

@@ -17,43 +17,40 @@
 
 #pragma once
 
-#include "reone/system/stream/fileinput.h"
+#include "fileresource.h"
 
-#include "../container.h"
+#include <filesystem>
+#include <optional>
+#include <unordered_map>
+#include <vector>
 
 namespace reone {
 
-namespace resource {
+namespace extract {
 
-class ExeResourceContainer : public IResourceContainer, boost::noncopyable {
+/// Lazy ERF/MOD/RIM/SAV index (PyKotor LazyCapsule).
+class LazyCapsule {
 public:
-    ExeResourceContainer(std::filesystem::path path) :
-        _path(std::move(path)) {
-    }
+    explicit LazyCapsule(std::filesystem::path path);
 
-    void init();
+    const std::filesystem::path &path() const { return _path; }
+    const std::vector<FileResource> &resources() const;
 
-    // IResourceContainer
-
-    std::optional<ByteBuffer> findResourceData(const ResourceId &id) override;
-
-    const std::unordered_set<ResourceId> &resourceIds() const override { return _resourceIds; }
-
-    // END IResourceContainer
+    std::optional<FileResource> find(const resource::ResourceId &id) const;
 
 private:
-    struct Resource {
-        uint32_t offset {0};
-        uint32_t size {0};
-    };
-
     std::filesystem::path _path;
-    std::unique_ptr<FileInputStream> _exe;
+    mutable std::vector<FileResource> _resources;
+    mutable std::unordered_map<resource::ResourceId, size_t> _index;
+    mutable bool _loaded {false};
 
-    std::unordered_set<ResourceId> _resourceIds;
-    std::unordered_map<ResourceId, Resource> _idToResource;
+    void ensureLoaded() const;
 };
 
-} // namespace resource
+bool isCapsuleFile(const std::filesystem::path &path);
+bool isModFile(const std::filesystem::path &path);
+bool isErfFile(const std::filesystem::path &path);
+
+} // namespace extract
 
 } // namespace reone

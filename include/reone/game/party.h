@@ -41,7 +41,10 @@ public:
     bool handle(const input::Event &event);
 
     void clear();
+    void reset();
     void switchLeader();
+
+    void setGold(int gold) { _gold = gold; }
 
     bool isEmpty() const;
     bool isSoloMode() const { return _solo; }

@@ -22,7 +22,7 @@ namespace reone {
 class EndOfStreamException : public std::runtime_error {
 public:
     EndOfStreamException() :
-        std::runtime_error("") {
+        std::runtime_error("unexpected end of stream") {
     }
 
     EndOfStreamException(const std::string &message) :

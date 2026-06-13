@@ -17,41 +17,35 @@
 
 #pragma once
 
-#include "../container.h"
-#include "utils.h"
+#include <vector>
 
 namespace reone {
 
-namespace resource {
+namespace extract {
 
-class ErfResourceContainer : public IResourceContainer, boost::noncopyable {
-public:
-    ErfResourceContainer(Storage storage) :
-        _storage(std::move(storage)) {}
-
-    void init();
-
-    // IResourceContainer
-
-    std::optional<ByteBuffer> findResourceData(const ResourceId &id) override;
-
-    const std::unordered_set<ResourceId> &resourceIds() const override { return _resourceIds; }
-
-    // END IResourceContainer
-
-private:
-    struct Resource {
-        ResourceId id;
-        uint32_t offset {0};
-        uint32_t fileSize {0};
-    };
-
-    Storage _storage;
-
-    std::unordered_set<ResourceId> _resourceIds;
-    std::unordered_map<ResourceId, Resource> _idToResource;
+/// Mirrors PyKotor SearchLocation (installation.py) plus reone-only Executable.
+enum class SearchLocation {
+    Override = 0,
+    Modules = 1,
+    Chitin = 2,
+    TexturesTpa = 3,
+    TexturesTpb = 4,
+    TexturesTpc = 5,
+    TexturesGui = 6,
+    Music = 7,
+    Sound = 8,
+    Voice = 9,
+    Lips = 10,
+    Rims = 11,
+    CustomModules = 12,
+    CustomFolders = 13,
+    Executable = 14,
+    Root = 15,
+    Movies = 16,
 };
 
-} // namespace resource
+using SearchScope = std::vector<SearchLocation>;
+
+} // namespace extract
 
 } // namespace reone

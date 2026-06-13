@@ -17,9 +17,10 @@
 
 #include <gtest/gtest.h>
 
-#include "reone/resource/container/memory.h"
+#include "reone/extract/installation.h"
 #include "reone/resource/provider/gffs.h"
 #include "reone/resource/resources.h"
+#include "reone/system/stream/fileoutput.h"
 #include "reone/system/stream/memoryoutput.h"
 
 using namespace reone;
@@ -28,7 +29,11 @@ using namespace reone::resource;
 TEST(Gffs, should_get_gff_with_caching) {
     // given
 
-    auto resBytes = ByteBuffer();
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_gffs";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "override");
+
+    ByteBuffer resBytes;
     auto res = MemoryOutputStream(resBytes);
     res.write("GFF V3.2", 8);
     res.write("\x00\x00\x00\x00", 4);
@@ -44,10 +49,15 @@ TEST(Gffs, should_get_gff_with_caching) {
     res.write("\x00\x00\x00\x00", 4);
     res.write("\x00\x00\x00\x00", 4);
 
-    auto resources = Resources();
-    auto provider = std::make_unique<MemoryResourceContainer>();
-    provider->add(ResourceId("sample", ResType::Gff), std::move(resBytes));
-    resources.add(std::move(provider));
+    {
+        FileOutputStream out(tmp / "override" / "sample.gff");
+        out.write(resBytes.data(), resBytes.size());
+        out.close();
+    }
+
+    extract::Installation installation(GameID::KotOR, tmp);
+    Resources resources;
+    resources.useInstallation(&installation);
 
     auto gffs = Gffs(resources);
 
@@ -64,4 +74,6 @@ TEST(Gffs, should_get_gff_with_caching) {
     EXPECT_TRUE(static_cast<bool>(gff1));
     EXPECT_TRUE(static_cast<bool>(gff2));
     EXPECT_EQ(gff1.get(), gff2.get());
+
+    std::filesystem::remove_all(tmp);
 }

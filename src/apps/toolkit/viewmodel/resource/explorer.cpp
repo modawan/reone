@@ -433,11 +433,6 @@ void ResourceExplorerViewModel::loadEngine() {
     _resourceModule->init();
     _sceneModule->init();
 
-    auto keyPath = findFileIgnoreCase(_resourcesPath, "chitin.key");
-    if (!keyPath) {
-        _resourceModule->resources().addFolder(_resourcesPath);
-    }
-
     _modelResViewModel->initScene();
 
     _engineLoaded = true;
