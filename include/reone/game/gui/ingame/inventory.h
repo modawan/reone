@@ -103,6 +103,7 @@ private:
     void onGUILoaded() override;
     void configureItemsListBox();
     void configureFilterControls();
+    void refreshCredits();
     void refreshStats();
     void advanceK1Filter();
     void setFilter(InventoryFilter filter);
