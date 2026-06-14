@@ -117,7 +117,7 @@ void Creature::loadFromBlueprint(const std::string &resRef) {
     loadAppearance();
 }
 
-void Creature::loadAppearance() {
+void Creature::loadAppearanceProperties() {
     std::shared_ptr<TwoDA> appearances(_services.resource.twoDas.get("appearance"));
     if (!appearances) {
         throw ResourceNotFoundException("appearance 2DA not found");
@@ -134,6 +134,10 @@ void Creature::loadAppearance() {
     } else {
         _portrait = _services.game.portraits.getTextureByAppearance(_appearance);
     }
+}
+
+void Creature::loadAppearance() {
+    loadAppearanceProperties();
 
     auto modelSceneNode = buildModel();
     if (modelSceneNode) {
@@ -382,6 +386,26 @@ bool Creature::equip(const std::string &resRef) {
     return equipped;
 }
 
+void Creature::updateDisguise() {
+    int disguiseAppearance = -1;
+    for (auto &[slot, item] : _equipment) {
+        if (item->hasDisguise()) {
+            disguiseAppearance = item->disguiseAppearance();
+            break;
+        }
+    }
+    if (disguiseAppearance >= 0) {
+        if (!_disguised) {
+            _appearanceBeforeDisguise = _appearance;
+            _disguised = true;
+        }
+        _appearance = static_cast<uint32_t>(disguiseAppearance);
+    } else if (_disguised) {
+        _appearance = _appearanceBeforeDisguise;
+        _disguised = false;
+    }
+}
+
 bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
     if (!item->isEquippable(getEquipabilitySlot(slot))) {
         return false;
@@ -389,6 +413,15 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
 
     _equipment[slot] = item;
     item->setEquipped(true);
+
+    uint32_t prevAppearance = _appearance;
+    updateDisguise();
+    if (_appearance != prevAppearance) {
+        // Refresh appearance-derived state so the in-place model swap below picks
+        // up the disguise (or restored) model; rebuilding the scene node here would
+        // orphan it from the area scene graph.
+        loadAppearanceProperties();
+    }
 
     if (_sceneNode) {
         updateModel();
@@ -412,6 +445,11 @@ void Creature::unequip(const std::shared_ptr<Item> &item) {
         }
         item->setEquipped(false);
         _equipment.erase(equipped.first);
+        uint32_t prevAppearance = _appearance;
+        updateDisguise();
+        if (_appearance != prevAppearance) {
+            loadAppearanceProperties();
+        }
         if (_sceneNode) {
             updateModel();
         }

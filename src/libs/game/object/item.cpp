@@ -113,6 +113,9 @@ void Item::deserializeProperties(const resource::Gff &gff) {
             case ItemProperty::ActivateItem:
                 _activateSpell = static_cast<SpellType>(entry.subtype);
                 break;
+            case ItemProperty::Disguise:
+                _disguiseAppearance = entry.subtype;
+                break;
             default:
                 break;
             }
