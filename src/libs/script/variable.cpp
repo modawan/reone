@@ -191,6 +191,8 @@ const char *argKindToString(ArgKind kind) {
         return "SpellId";
     case ArgKind::SpellLocation:
         return "SpellLocation";
+    case ArgKind::ObjectsInArea:
+        return "ObjectsInArea";
     case ArgKind::ObjectsInShape:
         return "ObjectsInShape";
     case ArgKind::ScriptParam1:
@@ -375,6 +377,7 @@ void Argument::verify() {
         return;
     }
 
+    case ArgKind::ObjectsInArea:
     case ArgKind::ObjectsInShape: {
         if (var.type != VariableType::Custom) {
             throw std::invalid_argument(toString() + ": expected a custom object");

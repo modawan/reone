@@ -891,26 +891,111 @@ static Variable IntToString(const std::vector<Variable> &args, const RoutineCont
     return Variable::ofString(std::to_string(nInteger));
 }
 
+struct ObjectsInArea : public EngineType {
+    std::vector<uint32_t> objects;
+    uint32_t area {script::kObjectInvalid};
+    int objectFilter {0};
+};
+
+static std::shared_ptr<Area> getAreaOrCurrent(const std::vector<Variable> &args, int index, const RoutineContext &ctx) {
+    auto module = ctx.game.module();
+    auto currentArea = module ? module->area() : nullptr;
+    if (index < 0 || index >= args.size()) {
+        return currentArea;
+    }
+    if (args[index].type != VariableType::Object) {
+        throw RoutineArgumentException("Expected object argument");
+    }
+    if (args[index].objectId == script::kObjectInvalid) {
+        return currentArea;
+    }
+
+    return dyn_cast<Area>(getObject(args, index, ctx));
+}
+
+static bool matchesObjectFilter(const Object &object, int objectFilter) {
+    return static_cast<int>(object.type()) & objectFilter;
+}
+
 static Variable GetFirstObjectInArea(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oArea = getObjectOrNull(args, 0, ctx);
+    auto oArea = getAreaOrCurrent(args, 0, ctx);
     auto nObjectFilter = getIntOrElse(args, 1, 1);
 
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("GetFirstObjectInArea");
+    if (!oArea) {
+        return Variable::ofObject(script::kObjectInvalid);
+    }
+
+    SmallVector<uint32_t, 16> foundObjects;
+    for (auto it = oArea->objects().rbegin(), end = oArea->objects().rend(); it != end; ++it) {
+        const std::shared_ptr<Object> &object = *it;
+        if (!matchesObjectFilter(*object, nObjectFilter)) {
+            continue;
+        }
+        foundObjects.push_back(object->id());
+    }
+
+    if (foundObjects.empty()) {
+        return Variable::ofObject(script::kObjectInvalid);
+    }
+
+    uint32_t firstObject = foundObjects.back();
+    foundObjects.resize(foundObjects.size() - 1);
+    if (foundObjects.empty()) {
+        return Variable::ofObject(firstObject);
+    }
+
+    auto objectsArg = std::make_shared<ObjectsInArea>();
+    objectsArg->objects.reserve(foundObjects.size());
+    for (uint32_t object : foundObjects) {
+        objectsArg->objects.push_back(object);
+    }
+    objectsArg->area = oArea->id();
+    objectsArg->objectFilter = nObjectFilter;
+
+    ctx.execution.args.push_back(
+        Argument(ArgKind::ObjectsInArea, Variable::ofCustom(objectsArg)));
+
+    return Variable::ofObject(firstObject);
 }
 
 static Variable GetNextObjectInArea(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oArea = getObjectOrNull(args, 0, ctx);
+    auto oArea = getAreaOrCurrent(args, 0, ctx);
     auto nObjectFilter = getIntOrElse(args, 1, 1);
 
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("GetNextObjectInArea");
+    if (!oArea) {
+        return Variable::ofObject(script::kObjectInvalid);
+    }
+
+    auto &scriptArgs = ctx.execution.args;
+    for (auto it = scriptArgs.rbegin(), end = scriptArgs.rend(); it != end; ++it) {
+        if (it->kind != ArgKind::ObjectsInArea) {
+            continue;
+        }
+        assert(it->var.type == VariableType::Custom);
+
+        auto objects = std::static_pointer_cast<ObjectsInArea>(it->var.engineType);
+        if (objects->area != oArea->id() || objects->objectFilter != nObjectFilter) {
+            continue;
+        }
+
+        if (objects->objects.empty()) {
+            return Variable::ofObject(script::kObjectInvalid);
+        }
+
+        uint32_t nextObject = objects->objects.back();
+        objects->objects.pop_back();
+        return Variable::ofObject(nextObject);
+    }
+
+    return Variable::ofObject(script::kObjectInvalid);
 }
 
 static Variable d2(const std::vector<Variable> &args, const RoutineContext &ctx) {
