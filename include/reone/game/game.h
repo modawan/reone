@@ -346,6 +346,9 @@ public:
     // END Global variables
 
     void deserializeGlobalVariables(resource::Gff &gvtGff);
+    void deserializeParty(resource::Gff &ifoGff);
+    void deserializePartyTable(resource::Gff &ptGff);
+    void deserializePartyMembers(resource::Gff &ptGff);
     void deserializeInventory(resource::Gff &inventoryGff);
 
 private:

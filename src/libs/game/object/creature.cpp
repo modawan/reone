@@ -1403,6 +1403,7 @@ void Creature::deserializeAll(const resource::Gff &gff) {
     gff.readShort(_fortBonus, "fortbonus");
     gff.readByte(_goodEvil, "GoodEvil");
     gff.readFloat(_challengeRating, "ChallengeRating");
+    gff.readDword(_xp, "Experience");
 
     gff.readResRef(_onNotice, "ScriptOnNotice");
     gff.readResRef(_onSpellAt, "ScriptSpellAt");

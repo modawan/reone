@@ -587,9 +587,7 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
             }
 
             if (_party.isEmpty()) {
-                if (!loadParty()) {
-                    loadDefaultParty();
-                }
+                loadDefaultParty();
             }
 
             if (!fromSave) {
@@ -619,26 +617,41 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
 void Game::loadGame(std::string_view name) {
     info(str(boost::format("Loading savegame '%s'") % name));
 
+    // Add savegame files to resource resolution.
     _services.resource.director.onGameLoad(name);
+
+    std::shared_ptr<Gff> saveInfo(_services.resource.gffs.get("savenfo", ResType::Res));
+    if (!saveInfo) {
+        throw ResourceNotFoundException("saveinfo.res not found");
+    }
+    NFO nfo = resource::parseNFO(*saveInfo);
+
+    // Add module files to resource resolution. Since all savegame files are
+    // already in scope, this is going to resolve to the last module from the
+    // save game.
+    _services.resource.director.onModuleLoad(nfo.lastModule);
+
+    // Deserialize global variables
     std::shared_ptr<Gff> globalVars(_services.resource.gffs.get("globalvars", ResType::Res));
     if (!globalVars) {
         throw ResourceNotFoundException("globalvars.res not found");
     }
     deserializeGlobalVariables(*globalVars);
 
-    std::shared_ptr<Gff> saveInfo(_services.resource.gffs.get("savenfo", ResType::Res));
-    if (!saveInfo) {
-        throw ResourceNotFoundException("saveinfo.res not found");
+    // Deserialize party.
+    std::shared_ptr<Gff> ifo(_services.resource.gffs.get("module", ResType::Ifo));
+    if (!ifo) {
+        throw ResourceNotFoundException("Module IFO not found");
     }
+    deserializeParty(*ifo);
 
-    NFO nfo = resource::parseNFO(*saveInfo);
-    loadModule(nfo.lastModule, /*entry=*/"", /*fromSave=*/true);
-
-    // Inventory is serialized into a separate file. Once the player is loaded,
-    // deserialize it into the player's inventory.
+    // Once the player is loaded, deserialize player's inventory.
     if (auto inventoryGff = _services.resource.gffs.get("inventory", ResType::Res)) {
         deserializeInventory(*inventoryGff);
     }
+
+    // Warp to the last module.
+    loadModule(nfo.lastModule, /*entry=*/"", /*fromSave=*/true);
 }
 
 void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
@@ -668,6 +681,97 @@ void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
     }
 }
 
+void Game::deserializeParty(resource::Gff &ifoGff) {
+    const auto &players = ifoGff.getList("Mod_PlayerList");
+    if (players.empty()) {
+        return;
+    }
+
+    std::shared_ptr<Creature> player = newCreature();
+    _objectById.insert(std::make_pair(player->id(), player));
+    player->deserialize(*players.front());
+    player->setTag(kObjectTagPlayer);
+    _party.addMember(kNpcPlayer, player);
+    _party.setPlayer(player);
+
+    std::shared_ptr<Gff> ptGff(_services.resource.gffs.get("partytable", ResType::Res));
+    if (!ptGff) {
+        return;
+    }
+
+    uint32_t gold = 0;
+    if (ptGff->readDword(gold, "PT_GOLD")) {
+        _party.takeGold(_party.gold());
+        _party.giveGold(gold);
+    }
+
+    uint32_t xp = 0;
+    if (ptGff->readDword(xp, "PT_XP_POOL")) {
+        player->setXP(xp);
+    }
+
+    deserializePartyTable(*ptGff);
+    deserializePartyMembers(*ptGff);
+}
+
+void Game::deserializePartyTable(resource::Gff &ptGff) {
+    int nextNpc = 0;
+    for (const auto &npcState : ptGff.getList("PT_AVAIL_NPCS")) {
+        int npc = nextNpc++;
+        if (!npcState->getBool("PT_NPC_AVAIL")) {
+            continue;
+        }
+        // TODO: handle selectability of NPCs.
+        bool select = npcState->getBool("PT_NPC_SELECT");
+
+        std::string utc = str(boost::format("availnpc%d") % npc);
+
+        std::shared_ptr<Gff> utcGff(_services.resource.gffs.get(utc, ResType::Utc));
+        if (!utcGff) {
+            return;
+        }
+
+        std::shared_ptr<Creature> creature = newCreature();
+        _objectById.insert(std::make_pair(creature->id(), creature));
+        creature->deserialize(*utcGff);
+
+        _party.addAvailableMember(npc, creature);
+    }
+}
+
+void Game::deserializePartyMembers(resource::Gff &ptGff) {
+    auto members = ptGff.getList("PT_MEMBERS");
+    auto leader = std::find_if(members.begin(), members.end(), [](auto &member) {
+        return member->getBool("PT_IS_LEADER");
+    });
+
+    auto addMember = [&](resource::Gff &memberGff) {
+        int32_t npc = -1;
+        if (!memberGff.readInt(npc, "PT_MEMBER_ID")) {
+            warn("Game: missing PT_MEMBER_ID");
+            return;
+        }
+
+        auto member = _party.getAvailableMember(npc);
+        if (!member) {
+            warn("Game: NPC is not available: " + std::to_string(npc));
+        }
+
+        _party.addMember(npc, member);
+    };
+
+    // Party leader is the first party member. Populate the party starting from
+    // the leader.
+    for (auto it = leader, end = members.end(); it != end; ++it) {
+        addMember(**it);
+    }
+
+    // Then add other members.
+    for (auto it = members.begin(), end = leader; it != end; ++it) {
+        addMember(**it);
+    }
+}
+
 void Game::deserializeInventory(resource::Gff &inventoryGff) {
     std::shared_ptr<Creature> player = _party.player();
     if (!player) {
@@ -686,18 +790,6 @@ bool Game::loadParty() {
     if (!ifo) {
         throw ResourceNotFoundException("module.ifo not found");
     }
-
-    const auto &players = ifo->getList("Mod_PlayerList");
-    if (players.empty()) {
-        return false;
-    }
-
-    std::shared_ptr<Creature> player = newCreature();
-    _objectById.insert(std::make_pair(player->id(), player));
-    player->deserialize(*players.front());
-    player->setTag(kObjectTagPlayer);
-    _party.addMember(kNpcPlayer, player);
-    _party.setPlayer(player);
 
     return true;
 }
