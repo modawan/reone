@@ -23,7 +23,13 @@ namespace game {
 
 class Door;
 class Object;
+class Party;
 class Placeable;
+
+// If the door is locked and requires a named key, look for that key in the
+// actor's inventory and then the party player's, unlock the door if found, and
+// consume one key when AutoRemoveKey is set. Leaves the door locked otherwise.
+void tryUnlockDoorWithKey(Door &door, Object &actor, Party &party);
 
 // Move an actor to a door, unlock and open it. Returns true when this action is
 // complete.
