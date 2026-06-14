@@ -250,7 +250,12 @@ void Creature::updateModelAnimation() {
         model->playAnimation(*talkAnim, _lipAnimation.get(), AnimationProperties::fromFlags(AnimationFlags::loopOverlay | AnimationFlags::propagate));
     } else {
         if (anim) {
-            model->playAnimation(*anim, nullptr, AnimationProperties::fromFlags(AnimationFlags::loopBlend | AnimationFlags::propagate));
+            // The corpse pose is a short clip; looping/blending it makes the
+            // model jerk and never settle, so play it once and hold the final
+            // frame. Living poses keep looping and blending.
+            int animFlags = _dead ? AnimationFlags::propagate
+                                  : (AnimationFlags::loopBlend | AnimationFlags::propagate);
+            model->playAnimation(*anim, nullptr, AnimationProperties::fromFlags(animFlags));
         }
 
         if (talkAnim) {
