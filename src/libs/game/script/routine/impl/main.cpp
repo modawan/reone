@@ -5423,10 +5423,22 @@ static Variable SpawnAvailableNPC(const std::vector<Variable> &args, const Routi
     auto nNPC = getInt(args, 0);
     auto lPosition = getLocationArgument(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SpawnAvailableNPC");
+    auto member = ctx.game.party().getAvailableMember(nNPC);
+    if (!member) {
+        return Variable::ofObject(kObjectInvalid);
+    }
+    auto module = ctx.game.module();
+    auto area = module ? module->area() : nullptr;
+    if (!area) {
+        return Variable::ofObject(kObjectInvalid);
+    }
+    member->setPosition(lPosition->position());
+    member->setFacing(lPosition->facing());
+    area->landObject(*member);
+    area->add(member);
+    member->runSpawnScript();
+    return Variable::ofObject(member->id());
 }
 
 static Variable IsNPCPartyMember(const std::vector<Variable> &args, const RoutineContext &ctx) {
