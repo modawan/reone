@@ -114,6 +114,9 @@ public:
     std::optional<SpellType> activateSpell() const { return _activateSpell; }
     const std::vector<PropertyEntry> &properties() const { return _properties; }
 
+    bool hasDisguise() const { return _disguiseAppearance >= 0; }
+    int disguiseAppearance() const { return _disguiseAppearance; }
+
     void setDropable(bool dropable);
     void setStackSize(int size);
     void setIdentified(bool value);
@@ -156,6 +159,7 @@ private:
     int _criticalHitMultiplier {0};
 
     std::optional<SpellType> _activateSpell;
+    int _disguiseAppearance {-1};
     std::vector<PropertyEntry> _properties;
 
     std::shared_ptr<audio::AudioSource> _audioSource;
