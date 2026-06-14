@@ -325,6 +325,11 @@ void Module::onPlaceableClick(const std::shared_ptr<Placeable> &placeable) {
 }
 
 void Module::update(float dt) {
+    // Process the module object's own action queue so delayed/assigned commands
+    // scheduled by module scripts (e.g. Mod_OnModLoad) execute. Without this the
+    // module is never ticked and its DelayCommand continuations never run.
+    Object::update(dt);
+
     if (_game.cameraType() == CameraType::ThirdPerson) {
         _player->update(dt);
     }
