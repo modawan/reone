@@ -910,11 +910,7 @@ static std::shared_ptr<Area> getAreaOrCurrent(const std::vector<Variable> &args,
         return currentArea;
     }
 
-    auto object = getObject(args, index, ctx);
-    if (object->type() != ObjectType::Area) {
-        return nullptr;
-    }
-    return std::static_pointer_cast<Area>(object);
+    return dyn_cast<Area>(getObject(args, index, ctx));
 }
 
 static bool matchesObjectFilter(const Object &object, int objectFilter) {
