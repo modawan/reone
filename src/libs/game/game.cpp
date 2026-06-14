@@ -2388,7 +2388,8 @@ void Game::consoleAddItem(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 2, "item_tpl [size]");
     auto object = getConsoleTargetObject();
     int stackSize = args.get<int>(2).value_or(1);
-    object->addItem(std::string(args[1].value()), stackSize);
+    auto receiver = _party.sharedInventoryReceiver(object);
+    receiver->addItem(std::string(args[1].value()), stackSize);
 }
 
 void Game::consoleGiveXP(const ConsoleArgs &args) {
