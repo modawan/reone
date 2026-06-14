@@ -76,7 +76,7 @@ public:
     void update3D();
     void render3D(int w, int h);
 
-    void playAnimation(std::string anim, graphics::LipAnimation *lipAnim = nullptr);
+    void playAnimation(std::string anim, std::shared_ptr<graphics::LipAnimation> lipAnim = nullptr);
     void pauseAnimation();
     void resumeAnimation();
     void setAnimationTime(float time);

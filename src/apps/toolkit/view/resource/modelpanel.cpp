@@ -200,7 +200,7 @@ void ModelResourcePanel::OnLipLoadCommand(wxCommandEvent &event) {
     auto reader = LipReader(lip, "");
     reader.load();
     m_lipAnim = reader.animation();
-    m_viewModel.playAnimation("talk", m_lipAnim.get());
+    m_viewModel.playAnimation("talk", m_lipAnim);
 }
 
 } // namespace reone
