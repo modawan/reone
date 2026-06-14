@@ -33,6 +33,8 @@
 #include "reone/system/exception/validation.h"
 #include "reone/system/logutil.h"
 
+#include "../action/commonactions.h"
+
 #include <boost/algorithm/string/case_conv.hpp>
 
 using namespace reone::graphics;
@@ -298,6 +300,14 @@ void Module::onCreatureClick(const std::shared_ptr<Creature> &creature) {
 
 void Module::onDoorClick(const std::shared_ptr<Door> &door) {
     if (!door->linkedToModule().empty() && door->getOnOpen().empty()) {
+        std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
+        if (door->isLocked()) {
+            tryUnlockDoorWithKey(*door, *partyLeader, _game.party());
+        }
+        if (door->isLocked()) {
+            door->onFailToOpen(*partyLeader);
+            return;
+        }
         _game.scheduleModuleTransition(door->linkedToModule(), door->linkedTo());
         return;
     }
