@@ -152,6 +152,12 @@ void Item::deserializeBase(const resource::Gff &gff) {
         iconResRef = str(boost::format("i%s_%03d") % _itemClass % (int)_modelVariation);
     }
     _icon = _services.resource.textures.get(iconResRef, TextureUsage::GUI);
+    if (!_icon && isEquippable(InventorySlots::body)) {
+        // Some body items (e.g. disguises) key the inventory icon on ModelVariation
+        // rather than TextureVar; fall back to it when the primary icon is missing.
+        iconResRef = str(boost::format("i%s_%03d") % _itemClass % (int)_modelVariation);
+        _icon = _services.resource.textures.get(iconResRef, TextureUsage::GUI);
+    }
 }
 
 void Item::loadAmmunitionType() {
