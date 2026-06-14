@@ -3723,7 +3723,11 @@ static Variable GiveXPToCreature(const std::vector<Variable> &args, const Routin
     auto creature = checkCreature(oCreature);
 
     // Execute
-    creature->giveXP(nXpAmount);
+    if (ctx.game.party().isMember(*creature)) {
+        ctx.game.party().giveXP(nXpAmount);
+    } else {
+        creature->giveXP(nXpAmount);
+    }
     return Variable::ofNull();
 }
 
@@ -3736,7 +3740,11 @@ static Variable SetXP(const std::vector<Variable> &args, const RoutineContext &c
     auto creature = checkCreature(oCreature);
 
     // Execute
-    creature->setXP(nXpAmount);
+    if (ctx.game.party().isMember(*creature)) {
+        ctx.game.party().setXP(nXpAmount);
+    } else {
+        creature->setXP(nXpAmount);
+    }
     return Variable::ofNull();
 }
 
