@@ -399,7 +399,8 @@ static Variable CreateItemOnObject(const std::vector<Variable> &args, const Rout
     if (itemTemplate.empty()) {
         return Variable::ofObject(kObjectInvalid);
     }
-    auto item = oTarget->addItem(itemTemplate, nStackSize, true);
+    auto receiver = ctx.game.party().sharedInventoryReceiver(oTarget);
+    auto item = receiver->addItem(itemTemplate, nStackSize, true);
     return Variable::ofObject(getObjectIdOrInvalid(item));
 }
 
