@@ -87,6 +87,11 @@ bool Party::removeAvailableMember(int npc) {
 }
 
 bool Party::addMember(int npc, std::shared_ptr<Creature> creature) {
+    // A creature joining the party derives its XP from the shared party pool.
+    if (creature) {
+        creature->setXP(_xp);
+    }
+
     Member member;
     member.npc = npc;
     member.creature = creature;
@@ -115,6 +120,26 @@ void Party::takeGold(int amount) {
     _gold -= amount;
     if (_gold < 0) {
         _gold = 0;
+    }
+}
+
+void Party::giveXP(int amount) {
+    _xp += amount;
+    syncMembersXP();
+}
+
+void Party::setXP(int xp) {
+    _xp = xp;
+    syncMembersXP();
+}
+
+void Party::syncMembersXP() {
+    // Set each member's creature XP to the pool value rather than adding, so the
+    // award is not double-counted and members converge on the shared total.
+    for (auto &member : _members) {
+        if (member.creature) {
+            member.creature->setXP(_xp);
+        }
     }
 }
 

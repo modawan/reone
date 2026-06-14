@@ -109,6 +109,18 @@ public:
 
     // END Credits
 
+    // Experience
+    //
+    // KOTOR stores experience as a single party-shared pool. XP awarded to a
+    // party member feeds this pool; current members derive their creature XP
+    // from it, and members added later are synced to it.
+
+    int xp() const { return _xp; }
+    void giveXP(int amount);
+    void setXP(int xp);
+
+    // END Experience
+
 private:
     Game &_game;
 
@@ -117,8 +129,12 @@ private:
     std::vector<Member> _members;
     bool _solo {false};
     int _gold {0};
+    int _xp {0};
 
     bool handleKeyDown(const input::KeyEvent &event);
+
+    // Apply the party XP pool value to every current member's creature XP.
+    void syncMembersXP();
 
     void onLeaderChanged();
 };

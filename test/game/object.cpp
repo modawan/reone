@@ -130,3 +130,72 @@ TEST(Object, should_move_credits_as_items_when_destination_is_not_in_party) {
     EXPECT_EQ(thug->items().front()->tag(), "g_i_credits001");
     EXPECT_TRUE(footlocker->items().empty());
 }
+
+TEST(Party, should_award_xp_to_pool_and_sync_current_members) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto player = game.newCreature();
+    auto companion = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().addMember(0, companion);
+
+    game.party().giveXP(100);
+
+    EXPECT_EQ(game.party().xp(), 100);
+    EXPECT_EQ(player->xp(), 100);
+    EXPECT_EQ(companion->xp(), 100);
+}
+TEST(Party, should_set_xp_pool_and_sync_current_members) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto player = game.newCreature();
+    auto companion = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().addMember(0, companion);
+
+    game.party().setXP(250);
+
+    EXPECT_EQ(game.party().xp(), 250);
+    EXPECT_EQ(player->xp(), 250);
+    EXPECT_EQ(companion->xp(), 250);
+}
+TEST(Party, should_sync_member_added_after_xp_gain) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+
+    game.party().giveXP(100);
+
+    auto latecomer = game.newCreature();
+    game.party().addMember(0, latecomer);
+
+    EXPECT_EQ(latecomer->xp(), 100);
+    EXPECT_EQ(game.party().xp(), 100);
+}
+TEST(Party, should_keep_non_party_creature_xp_local) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+
+    auto thug = game.newCreature();
+    thug->giveXP(50);
+    game.party().giveXP(100);
+
+    EXPECT_EQ(thug->xp(), 50);
+    EXPECT_EQ(player->xp(), 100);
+    EXPECT_EQ(game.party().xp(), 100);
+}
