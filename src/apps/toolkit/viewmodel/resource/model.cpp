@@ -120,11 +120,11 @@ void ModelResourceViewModel::render3D(int w, int h) {
     });
 }
 
-void ModelResourceViewModel::playAnimation(std::string anim, graphics::LipAnimation *lipAnim) {
+void ModelResourceViewModel::playAnimation(std::string anim, std::shared_ptr<graphics::LipAnimation> lipAnim) {
     if (!_modelNode) {
         return;
     }
-    _modelNode->playAnimation(anim, lipAnim, AnimationProperties::fromFlags(AnimationFlags::loop));
+    _modelNode->playAnimation(anim, std::move(lipAnim), AnimationProperties::fromFlags(AnimationFlags::loop));
     _animationPlaying = true;
 }
 

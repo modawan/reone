@@ -67,7 +67,7 @@ public:
 
     struct AnimationChannel {
         graphics::Animation *anim;
-        graphics::LipAnimation *lipAnim;
+        std::shared_ptr<graphics::LipAnimation> lipAnim;
         AnimationProperties properties;
         float time {0.0f};
         std::unordered_map<uint16_t, AnimationState> stateByNodeNumber;
@@ -75,9 +75,9 @@ public:
         bool transition {false}; /**< when computing states, use animation transition time as channel time */
         bool finished {false};   /**< finished channels will be erased from the queue */
 
-        AnimationChannel(graphics::Animation &anim, graphics::LipAnimation *lipAnim, AnimationProperties properties) :
+        AnimationChannel(graphics::Animation &anim, std::shared_ptr<graphics::LipAnimation> lipAnim, AnimationProperties properties) :
             anim(&anim),
-            lipAnim(lipAnim),
+            lipAnim(std::move(lipAnim)),
             properties(std::move(properties)) {
         }
     };
@@ -126,8 +126,8 @@ public:
 
     // Animation
 
-    void playAnimation(const std::string &name, graphics::LipAnimation *lipAnim = nullptr, AnimationProperties properties = AnimationProperties());
-    void playAnimation(graphics::Animation &anim, graphics::LipAnimation *lipAnim = nullptr, AnimationProperties properties = AnimationProperties());
+    void playAnimation(const std::string &name, std::shared_ptr<graphics::LipAnimation> lipAnim = nullptr, AnimationProperties properties = AnimationProperties());
+    void playAnimation(graphics::Animation &anim, std::shared_ptr<graphics::LipAnimation> lipAnim = nullptr, AnimationProperties properties = AnimationProperties());
 
     void pauseAnimation();
     void resumeAnimation();
