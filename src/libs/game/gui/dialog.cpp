@@ -152,6 +152,8 @@ void DialogGUI::loadStuntParticipants() {
         std::shared_ptr<Creature> creature;
         if (stunt.participant == kObjectTagOwner) {
             creature = std::dynamic_pointer_cast<Creature>(_owner);
+        } else if (boost::iequals(stunt.participant, kObjectTagPlayer)) {
+            creature = _game.party().player();
         } else {
             creature = std::dynamic_pointer_cast<Creature>(_game.module()->area()->getObjectByTag(stunt.participant));
         }
@@ -276,6 +278,7 @@ void DialogGUI::updateParticipantAnimations() {
             std::shared_ptr<Animation> animation(participant.model->getAnimation(animName));
             if (animation) {
                 AnimationProperties properties;
+                properties.flags = AnimationFlags::propagate;
                 properties.scale = 1.0f;
                 participant.creature->playAnimation(animation, std::move(properties));
             }
