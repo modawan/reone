@@ -17,6 +17,8 @@
 
 #include "reone/game/action/opendoor.h"
 
+#include "commonactions.h"
+
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/door.h"
@@ -36,24 +38,7 @@ void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float 
         creature.face(*_door);
     }
 
-    if (_door->isLocked() && _door->isKeyRequired() && !_door->keyName().empty()) {
-        Object *keyOwner = &actor;
-        auto key = actor.getItemByTag(_door->keyName());
-        if (!key) {
-            auto player = _game.party().player();
-            if (player && player->id() != actor.id()) {
-                key = player->getItemByTag(_door->keyName());
-                keyOwner = player.get();
-            }
-        }
-        if (key) {
-            _door->setLocked(false);
-            if (_door->isAutoRemoveKey()) {
-                bool last;
-                keyOwner->removeItem(key, last);
-            }
-        }
-    }
+    tryUnlockDoorWithKey(*_door, actor, _game.party());
 
     if (!_door->isLocked()) {
         _door->open();

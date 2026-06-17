@@ -15,15 +15,42 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "commonactions.h"
+
 #include "reone/game/action.h"
 #include "reone/game/object.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
+#include "reone/game/object/item.h"
 #include "reone/game/object/placeable.h"
+#include "reone/game/party.h"
 
 namespace reone {
 
 namespace game {
+
+void tryUnlockDoorWithKey(Door &door, Object &actor, Party &party) {
+    if (!door.isLocked() || !door.isKeyRequired() || door.keyName().empty()) {
+        return;
+    }
+    Object *keyOwner = &actor;
+    auto key = actor.getItemByTag(door.keyName());
+    if (!key) {
+        auto player = party.player();
+        if (player && player->id() != actor.id()) {
+            key = player->getItemByTag(door.keyName());
+            keyOwner = player.get();
+        }
+    }
+    if (!key) {
+        return;
+    }
+    door.setLocked(false);
+    if (door.isAutoRemoveKey()) {
+        bool last;
+        keyOwner->removeItem(key, last);
+    }
+}
 
 bool unlockDoor(Door &door, Object &actor, float distance, float dt) {
     if (actor.type() == ObjectType::Creature) {
