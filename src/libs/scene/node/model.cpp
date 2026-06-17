@@ -192,14 +192,14 @@ void ModelSceneNode::setEnvironmentMap(Texture *texture) {
     }
 }
 
-void ModelSceneNode::playAnimation(const std::string &name, graphics::LipAnimation *lipAnim, AnimationProperties properties) {
+void ModelSceneNode::playAnimation(const std::string &name, std::shared_ptr<LipAnimation> lipAnim, AnimationProperties properties) {
     auto anim = _model->getAnimation(name);
     if (anim) {
-        playAnimation(*anim, lipAnim, std::move(properties));
+        playAnimation(*anim, std::move(lipAnim), std::move(properties));
     }
 }
 
-void ModelSceneNode::playAnimation(Animation &anim, LipAnimation *lipAnim, AnimationProperties properties) {
+void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation> lipAnim, AnimationProperties properties) {
     if (properties.scale == 0.0f) {
         properties.scale = _model->animationScale();
     }

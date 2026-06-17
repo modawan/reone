@@ -19,6 +19,7 @@
 
 #include "reone/game/types.h"
 #include "reone/graphics/animation.h"
+#include "reone/graphics/lipanimation.h"
 #include "reone/graphics/mesh.h"
 #include "reone/graphics/options.h"
 #include "reone/scene/graphs.h"
@@ -417,4 +418,62 @@ TEST(ModelSceneNode, pick_model_at) {
     ModelSceneNode *picked1 =
         scene->pickModelAt(graphicsOpt.width / 2, graphicsOpt.height / 2, nullptr);
     EXPECT_EQ(dummy1.get(), picked1);
+}
+
+TEST(ModelSceneNode, should_keep_lip_animation_alive_for_channel_lifetime) {
+    // given
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+
+    auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    auto rootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+
+    auto animRootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, nullptr);
+    animRootNode->vectorTracks()[ControllerTypes::position].add(0.0f, glm::vec3(0.0f));
+    animRootNode->vectorTracks()[ControllerTypes::position].add(1.0f, glm::vec3(1.0f, 2.0f, 3.0f));
+
+    auto animations = std::vector<std::shared_ptr<Animation>> {
+        std::make_shared<Animation>("talk", 1.0f, 0.5f, "root_node", animRootNode, std::vector<Animation::Event>())};
+
+    auto model = Model("some_model", 0, rootNode, animations, "", 1.0f);
+    auto modelSceneNode = std::make_shared<ModelSceneNode>(
+        model,
+        ModelUsage::Creature,
+        *scene,
+        graphicsModule.services(),
+        audioModule.services(),
+        resourceModule.services());
+
+    auto lipAnim = std::make_shared<LipAnimation>(
+        "talk", 1.0f, std::vector<LipAnimation::Keyframe> {{0.0f, 0}, {1.0f, 1}});
+
+    // when
+    modelSceneNode->init();
+    modelSceneNode->playAnimation("talk", lipAnim, AnimationProperties::fromFlags(AnimationFlags::loop));
+
+    // then: the channel co-owns the lip animation
+    ASSERT_EQ(1ll, modelSceneNode->animationChannels().size());
+    EXPECT_EQ(2l, lipAnim.use_count());
+
+    // when: the external owner releases while the looping channel is still active
+    modelSceneNode->update(0.5f);
+    lipAnim.reset();
+    modelSceneNode->update(0.5f);
+
+    // then: the lip animation is still alive, kept by the channel, and usable
+    auto &channels = modelSceneNode->animationChannels();
+    ASSERT_EQ(1ll, channels.size());
+    ASSERT_TRUE(static_cast<bool>(channels[0].lipAnim));
+    EXPECT_EQ(1l, channels[0].lipAnim.use_count());
+    EXPECT_NEAR(1.0f, channels[0].lipAnim->length(), 1e-5);
 }
