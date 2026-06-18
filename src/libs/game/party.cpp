@@ -219,6 +219,15 @@ bool Party::isMember(const Object &object) const {
     return false;
 }
 
+std::shared_ptr<Object> Party::sharedInventoryReceiver(const std::shared_ptr<Object> &receiver) const {
+    // A party member's non-equipped items belong to the shared party inventory
+    // (the player creature). Non-party receivers keep their own inventory.
+    if (receiver && _player && isMember(*receiver)) {
+        return _player;
+    }
+    return receiver;
+}
+
 std::shared_ptr<Creature> Party::getLeader() const {
     return !_members.empty() ? _members[0].creature : nullptr;
 }

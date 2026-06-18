@@ -199,3 +199,74 @@ TEST(Party, should_keep_non_party_creature_xp_local) {
     EXPECT_EQ(player->xp(), 100);
     EXPECT_EQ(game.party().xp(), 100);
 }
+
+TEST(Party, should_route_item_acquired_by_companion_to_shared_player_inventory) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeBaseItemsTable()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+
+    auto player = game.newCreature();
+    auto companion = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().addMember(0, companion);
+
+    auto receiver = game.party().sharedInventoryReceiver(companion);
+    ASSERT_EQ(receiver.get(), player.get());
+    receiver->addItem(makeItem(game, "g_i_datapad001", 1, 1));
+
+    ASSERT_EQ(player->items().size(), 1);
+    EXPECT_EQ(player->items().front()->tag(), "g_i_datapad001");
+    EXPECT_TRUE(companion->items().empty());
+}
+
+TEST(Party, should_keep_item_acquired_by_player_in_shared_inventory) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+
+    EXPECT_EQ(game.party().sharedInventoryReceiver(player).get(), player.get());
+}
+
+TEST(Party, should_keep_item_acquired_by_non_party_creature_local) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeBaseItemsTable()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+
+    auto thug = game.newCreature();
+    auto receiver = game.party().sharedInventoryReceiver(thug);
+    ASSERT_EQ(receiver.get(), thug.get());
+    receiver->addItem(makeItem(game, "g_i_datapad001", 1, 1));
+
+    ASSERT_EQ(thug->items().size(), 1);
+    EXPECT_TRUE(player->items().empty());
+}
+
+TEST(Party, should_not_share_inventory_of_non_party_placeable) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+
+    auto footlocker = game.newPlaceable();
+    EXPECT_EQ(game.party().sharedInventoryReceiver(footlocker).get(), footlocker.get());
+}
