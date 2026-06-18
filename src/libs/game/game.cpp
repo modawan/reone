@@ -744,7 +744,8 @@ void Game::deserializeParty(resource::Gff &ifoGff) {
 
     uint32_t xp = 0;
     if (ptGff->readDword(xp, "PT_XP_POOL")) {
-        player->setXP(xp);
+        // Populate the shared party XP pool. Members added below are synced to it.
+        _party.setXP(xp);
     }
 
     deserializePartyTable(*ptGff);
@@ -2394,7 +2395,12 @@ void Game::consoleAddItem(const ConsoleArgs &args) {
 void Game::consoleGiveXP(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "amount");
     auto creature = getConsoleTargetCreature();
-    creature->giveXP(args.get<int>(1).value());
+    int amount = args.get<int>(1).value();
+    if (_party.isMember(*creature)) {
+        _party.giveXP(amount);
+    } else {
+        creature->giveXP(amount);
+    }
 }
 
 void Game::consoleGiveGold(const ConsoleArgs &args) {
