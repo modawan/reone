@@ -168,6 +168,17 @@ struct TextureUnits {
     static constexpr int irradianceMapArray = 16;
     static constexpr int prefilteredEnvMapArray = 17;
 
+    // Per-probe cubemap pool (GLES fallback without cube map array)
+
+    static constexpr int irradianceCubemap0 = 16;
+    static constexpr int irradianceCubemap1 = 17;
+    static constexpr int irradianceCubemap2 = 20;
+    static constexpr int irradianceCubemap3 = 21;
+    static constexpr int prefilteredCubemap0 = 22;
+    static constexpr int prefilteredCubemap1 = 23;
+    static constexpr int prefilteredCubemap2 = 24;
+    static constexpr int prefilteredCubemap3 = 25;
+
     // Cubemaps
 
     static constexpr int envMapCube = 18;

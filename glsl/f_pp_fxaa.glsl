@@ -15,7 +15,11 @@ const float EDGE_THRESHOLD_MIN = 0.0833;
 
 uniform sampler2D sMainTex;
 
+#ifndef REONE_WEB
 noperspective in vec2 fragUV1;
+#else
+in vec2 fragUV1;
+#endif
 
 out vec4 fragColor;
 

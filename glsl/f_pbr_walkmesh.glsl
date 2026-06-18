@@ -12,7 +12,7 @@ layout(location = 3) out vec4 fragSelfIllumColor;
 
 void main() {
     vec3 eyeNormal = transpose(mat3(uViewInv)) * normalize(fragNormalWorld);
-    eyeNormal = 0.5 * eyeNormal + 0.5;
+    eyeNormal = 0.5 * eyeNormal + vec3(0.5);
 
     fragDiffuseColor = vec4(uWalkmeshMaterials[fragMaterial].rgb, 1.0);
     fragLightmapColor = vec4(vec3(1.0), 0.0);
