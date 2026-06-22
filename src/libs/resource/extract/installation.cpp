@@ -562,9 +562,6 @@ void Installation::checkDict(const std::unordered_map<std::string, std::vector<F
                              std::vector<LocationResult> &out) {
     for (auto &[_, list] : dict) {
         checkList(list, id, out);
-        if (!out.empty()) {
-            return;
-        }
     }
 }
 
@@ -588,7 +585,6 @@ void Installation::checkFolders(const std::vector<std::filesystem::path> &folder
                     0,
                     entry.path());
                 appendLocation(res, out);
-                return;
             }
         }
     }
@@ -600,7 +596,6 @@ void Installation::checkCapsules(const std::vector<std::filesystem::path> &capsu
     for (auto &path : capsules) {
         if (auto res = cachedCapsule(path).find(id)) {
             appendLocation(*res, out);
-            return;
         }
     }
 }
@@ -631,7 +626,6 @@ void Installation::checkModules(const resource::ResourceId &id, std::vector<Loca
     for (auto &[_, path] : _moduleCapsulePaths) {
         if (auto res = cachedCapsule(path).find(id)) {
             appendLocation(*res, out);
-            return;
         }
     }
 }
@@ -738,9 +732,6 @@ std::vector<LocationResult> Installation::locations(const resource::ResourceId &
             checkList(_executable, id, results);
             break;
         default:
-            break;
-        }
-        if (!results.empty()) {
             break;
         }
     }

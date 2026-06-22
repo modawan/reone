@@ -41,12 +41,12 @@ void checkTemporary(ArrayRef<int> a) {
 
 TEST(ArrayRef, std_array) {
     std::array<int, 2> arr {1, 2};
-    check(arr, &*arr.begin(), &*arr.end());
+    check(arr, arr.data(), arr.data() + arr.size());
 }
 
 TEST(ArrayRef, std_vector) {
     std::vector<int> vec {1, 2};
-    check(vec, &vec[0], &vec[vec.size()]);
+    check(vec, vec.data(), vec.data() + vec.size());
 }
 
 TEST(ArrayRef, smallvector) {

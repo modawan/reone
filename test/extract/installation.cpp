@@ -31,6 +31,73 @@ using namespace reone::extract;
 using namespace reone::resource;
 using namespace reone::test;
 
+TEST(FileResourceMetadata, fromPath_exposes_pykotor_style_metadata) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_fileresource_metadata";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp);
+    auto path = tmp / "Sample.TXT";
+
+    {
+        FileOutputStream out(path);
+        out.write("meta", 4);
+        out.close();
+    }
+
+    auto res = FileResource::fromPath(path);
+    ASSERT_TRUE(res.has_value());
+    EXPECT_EQ(ResourceId("sample", ResType::Txt), res->identifier());
+    EXPECT_EQ("sample", res->resName());
+    EXPECT_EQ("sample", res->resname());
+    EXPECT_EQ(ResRef("sample"), res->resRef());
+    EXPECT_EQ(ResRef("sample"), res->resref());
+    EXPECT_EQ(ResType::Txt, res->type());
+    EXPECT_EQ(ResType::Txt, res->restype());
+    EXPECT_EQ("sample.txt", res->filename());
+    EXPECT_EQ(path, res->filepath());
+    EXPECT_EQ(path, res->source());
+    EXPECT_EQ(path, res->pathIdentifier());
+    EXPECT_EQ(path, res->pathIdent());
+    EXPECT_EQ(0u, res->offset());
+    EXPECT_EQ(4u, res->size());
+    EXPECT_FALSE(res->insideCapsule());
+    EXPECT_FALSE(res->insideBif());
+    EXPECT_TRUE(res->exists());
+    EXPECT_EQ((ByteBuffer {'m', 'e', 't', 'a'}), res->readData());
+    EXPECT_EQ(&*res, &res->asFileResource());
+
+    std::filesystem::remove_all(tmp);
+}
+
+TEST(LocationResultMetadata, guards_and_exposes_file_resource_metadata) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_location_metadata";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp);
+    auto path = tmp / "probe.txt";
+
+    {
+        FileOutputStream out(path);
+        out.write("p", 1);
+        out.close();
+    }
+
+    auto res = FileResource::fromPath(path);
+    ASSERT_TRUE(res.has_value());
+
+    LocationResult loc(path, 0, 1);
+    EXPECT_FALSE(loc.hasFileResource());
+    EXPECT_THROW(loc.asFileResource(), std::runtime_error);
+    EXPECT_THROW(loc.identifier(), std::runtime_error);
+
+    loc.setFileResource(*res);
+    EXPECT_TRUE(loc.hasFileResource());
+    EXPECT_EQ(ResourceId("probe", ResType::Txt), loc.identifier());
+    EXPECT_EQ(ResourceId("probe", ResType::Txt), loc.id());
+    EXPECT_EQ(path, loc.asFileResource().filepath());
+    EXPECT_THROW(loc.setFileResource(*res), std::runtime_error);
+
+    std::filesystem::remove_all(tmp);
+}
+
 TEST(InstallationSearchOrder, override_beats_modules_and_chitin) {
     auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_order";
     std::filesystem::remove_all(tmp);
@@ -50,6 +117,57 @@ TEST(InstallationSearchOrder, override_beats_modules_and_chitin) {
     auto data = loc->readData();
     ASSERT_EQ(1u, data.size());
     EXPECT_EQ('o', data[0]);
+
+    std::filesystem::remove_all(tmp);
+}
+
+TEST(InstallationSearchOrder, empty_search_order_returns_no_locations) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_empty_order";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "override");
+
+    {
+        FileOutputStream out(tmp / "override" / "probe.txt");
+        out.write("o", 1);
+        out.close();
+    }
+
+    Installation installation(GameID::KotOR, tmp);
+    SearchScope empty;
+    EXPECT_TRUE(installation.locations(ResourceId("probe", ResType::Txt), empty).empty());
+    EXPECT_FALSE(installation.resource(ResourceId("probe", ResType::Txt), empty).has_value());
+
+    std::filesystem::remove_all(tmp);
+}
+
+TEST(InstallationLocations, collects_matches_across_search_order_in_priority_order) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_all_locations";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "override");
+    std::filesystem::create_directories(tmp / "modules");
+
+    {
+        FileOutputStream out(tmp / "override" / "probe.txt");
+        out.write("o", 1);
+        out.close();
+    }
+    writeRim(tmp / "modules" / "danm13.rim", "probe", ResType::Txt, ByteBuffer {'m'});
+
+    Installation installation(GameID::KotOR, tmp);
+    installation.setModuleRoot("danm13");
+
+    auto locs = installation.locations(ResourceId("probe", ResType::Txt), canonicalSearchOrder());
+    ASSERT_EQ(2u, locs.size());
+    EXPECT_EQ('o', locs[0].readData()[0]);
+    EXPECT_EQ('m', locs[1].readData()[0]);
+    EXPECT_FALSE(locs[0].asFileResource().insideCapsule());
+    EXPECT_TRUE(locs[1].asFileResource().insideCapsule());
+    EXPECT_EQ(tmp / "modules" / "danm13.rim" / "probe.txt",
+              locs[1].asFileResource().pathIdentifier());
+
+    auto selected = installation.resource(ResourceId("probe", ResType::Txt), canonicalSearchOrder());
+    ASSERT_TRUE(selected.has_value());
+    EXPECT_EQ('o', selected->readData()[0]);
 
     std::filesystem::remove_all(tmp);
 }
@@ -165,6 +283,43 @@ TEST(InstallationResolveLooseRelativePath, finds_root_dialog_tlk) {
     ASSERT_TRUE(path.has_value());
     EXPECT_EQ(std::filesystem::weakly_canonical(tmp / "dialog.tlk"),
               std::filesystem::weakly_canonical(*path));
+
+    std::filesystem::remove_all(tmp);
+}
+
+TEST(InstallationLookupContext, searches_extra_folders_and_capsules_without_mutating_installation_scope) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_lookup_context";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "ctx_folder");
+
+    {
+        FileOutputStream out(tmp / "ctx_folder" / "folder_probe.txt");
+        out.write("f", 1);
+        out.close();
+    }
+    writeErf(tmp / "ctx.erf", "capsule_probe", ResType::Txt, ByteBuffer {'c'});
+
+    Installation installation(GameID::KotOR, tmp);
+    ResourceLookupContext ctx;
+    ctx.customFolders = {tmp / "ctx_folder"};
+    ctx.customCapsules = {tmp / "ctx.erf"};
+
+    auto folderLocs = installation.locations(
+        ResourceId("folder_probe", ResType::Txt),
+        SearchScope {SearchLocation::CustomFolders},
+        ctx);
+    ASSERT_EQ(1u, folderLocs.size());
+    EXPECT_EQ('f', folderLocs[0].readData()[0]);
+
+    auto capsuleLocs = installation.locations(
+        ResourceId("capsule_probe", ResType::Txt),
+        SearchScope {SearchLocation::CustomModules},
+        ctx);
+    ASSERT_EQ(1u, capsuleLocs.size());
+    EXPECT_EQ('c', capsuleLocs[0].readData()[0]);
+
+    EXPECT_TRUE(installation.customFolders().empty());
+    EXPECT_TRUE(installation.customCapsules().empty());
 
     std::filesystem::remove_all(tmp);
 }

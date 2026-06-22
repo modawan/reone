@@ -38,14 +38,29 @@ public:
                  uint32_t offset,
                  std::filesystem::path filepath);
 
+    static std::optional<FileResource> fromPath(const std::filesystem::path &path);
+
     const resource::ResourceId &id() const { return _id; }
+    const resource::ResourceId &identifier() const { return _id; }
+    const std::string &resName() const { return _id.resRef.value(); }
+    const std::string &resname() const { return resName(); }
+    const resource::ResRef &resRef() const { return _id.resRef; }
+    const resource::ResRef &resref() const { return resRef(); }
+    resource::ResType type() const { return _id.type; }
+    resource::ResType restype() const { return type(); }
+    std::string filename() const { return _id.string(); }
     const std::filesystem::path &filepath() const { return _filepath; }
+    const std::filesystem::path &source() const { return _filepath; }
+    std::filesystem::path pathIdentifier() const;
+    std::filesystem::path pathIdent() const { return pathIdentifier(); }
     uint32_t offset() const { return _offset; }
     uint32_t size() const { return _size; }
     bool insideCapsule() const { return _insideCapsule; }
     bool insideBif() const { return _insideBif; }
+    bool exists() const;
 
     ByteBuffer readData() const;
+    const FileResource &asFileResource() const { return *this; }
 
 private:
     resource::ResourceId _id;
@@ -65,8 +80,12 @@ public:
     uint32_t offset() const { return _offset; }
     uint32_t size() const { return _size; }
 
-    void setFileResource(FileResource resource) { _fileResource = std::move(resource); }
+    void setFileResource(FileResource resource);
+    bool hasFileResource() const { return _fileResource.has_value(); }
     const std::optional<FileResource> &fileResource() const { return _fileResource; }
+    const FileResource &asFileResource() const;
+    const resource::ResourceId &identifier() const;
+    const resource::ResourceId &id() const { return identifier(); }
 
     ByteBuffer readData() const;
 

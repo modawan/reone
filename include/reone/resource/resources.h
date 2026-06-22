@@ -40,6 +40,9 @@ public:
     virtual Resource get(const ResourceId &id) = 0;
     virtual std::optional<Resource> find(const ResourceId &id) = 0;
     virtual std::optional<Resource> find(const ResourceId &id, const extract::SearchScope &order) = 0;
+    virtual ResourceResult getResult(const ResourceId &id);
+    virtual std::optional<ResourceResult> findResult(const ResourceId &id);
+    virtual std::optional<ResourceResult> findResult(const ResourceId &id, const extract::SearchScope &order);
 
     virtual extract::Installation *installation() { return nullptr; }
     virtual const extract::Installation *installation() const { return nullptr; }
@@ -52,6 +55,9 @@ public:
     Resource get(const ResourceId &id) override;
     std::optional<Resource> find(const ResourceId &id) override;
     std::optional<Resource> find(const ResourceId &id, const extract::SearchScope &order) override;
+    ResourceResult getResult(const ResourceId &id) override;
+    std::optional<ResourceResult> findResult(const ResourceId &id) override;
+    std::optional<ResourceResult> findResult(const ResourceId &id, const extract::SearchScope &order) override;
 
     void useInstallation(extract::Installation *installation);
     void setSearchOrder(extract::SearchScope order);

@@ -61,6 +61,19 @@ std::optional<resource::ResourceId> resourceIdFromPath(const std::filesystem::pa
     return resource::ResourceId(std::move(resRef), type);
 }
 
+std::optional<FileResource> FileResource::fromPath(const std::filesystem::path &path) {
+    auto id = resourceIdFromPath(path);
+    if (!id || !std::filesystem::is_regular_file(path)) {
+        return std::nullopt;
+    }
+    return FileResource(
+        id->resRef.value(),
+        id->type,
+        static_cast<uint32_t>(std::filesystem::file_size(path)),
+        0,
+        path);
+}
+
 FileResource::FileResource(std::string resRef,
                            resource::ResType type,
                            uint32_t size,
@@ -73,6 +86,29 @@ FileResource::FileResource(std::string resRef,
     auto ext = extensionLower(_filepath);
     _insideCapsule = isCapsuleExt(ext);
     _insideBif = ext == "bif";
+}
+
+std::filesystem::path FileResource::pathIdentifier() const {
+    if (_insideCapsule || _insideBif) {
+        return _filepath / filename();
+    }
+    return _filepath;
+}
+
+bool FileResource::exists() const {
+    if (!std::filesystem::is_regular_file(_filepath)) {
+        return false;
+    }
+    if (!_insideCapsule && !_insideBif) {
+        return true;
+    }
+    auto fileSize = std::filesystem::file_size(_filepath);
+    auto begin = static_cast<uintmax_t>(_offset);
+    auto length = static_cast<uintmax_t>(_size);
+    if (begin > fileSize) {
+        return false;
+    }
+    return length <= fileSize - begin;
 }
 
 ByteBuffer FileResource::readData() const {
@@ -90,6 +126,24 @@ LocationResult::LocationResult(std::filesystem::path filepath, uint32_t offset, 
     _filepath(std::move(filepath)),
     _offset(offset),
     _size(size) {
+}
+
+void LocationResult::setFileResource(FileResource resource) {
+    if (_fileResource) {
+        throw std::runtime_error("LocationResult file resource can only be assigned once");
+    }
+    _fileResource = std::move(resource);
+}
+
+const FileResource &LocationResult::asFileResource() const {
+    if (!_fileResource) {
+        throw std::runtime_error("LocationResult does not have file resource metadata");
+    }
+    return *_fileResource;
+}
+
+const resource::ResourceId &LocationResult::identifier() const {
+    return asFileResource().identifier();
 }
 
 ByteBuffer LocationResult::readData() const {

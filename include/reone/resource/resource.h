@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include "id.h"
+
+#include "reone/extract/fileresource.h"
 #include "reone/system/types.h"
 
 namespace reone {
@@ -25,6 +28,24 @@ namespace resource {
 
 struct Resource {
     ByteBuffer data;
+};
+
+struct ResourceResult {
+    ResourceId id;
+    ByteBuffer data;
+    extract::LocationResult location;
+
+    const std::string &resName() const { return id.resRef.value(); }
+    const std::string &resname() const { return resName(); }
+    const ResRef &resRef() const { return id.resRef; }
+    const ResRef &resref() const { return resRef(); }
+    ResType type() const { return id.type; }
+    ResType restype() const { return type(); }
+    const std::filesystem::path &filepath() const { return location.filepath(); }
+    uint32_t offset() const { return location.offset(); }
+    uint32_t size() const { return location.size(); }
+    const extract::FileResource &asFileResource() const { return location.asFileResource(); }
+    Resource resource() const { return Resource {data}; }
 };
 
 } // namespace resource

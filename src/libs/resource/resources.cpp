@@ -25,6 +25,22 @@ namespace reone {
 
 namespace resource {
 
+ResourceResult IResources::getResult(const ResourceId &id) {
+    auto data = findResult(id);
+    if (!data) {
+        throw ResourceNotFoundException(id.string());
+    }
+    return *data;
+}
+
+std::optional<ResourceResult> IResources::findResult(const ResourceId &id) {
+    return findResult(id, extract::canonicalSearchOrder());
+}
+
+std::optional<ResourceResult> IResources::findResult(const ResourceId &, const extract::SearchScope &) {
+    return std::nullopt;
+}
+
 Resource Resources::get(const ResourceId &id) {
     auto data = find(id);
     if (!data) {
@@ -46,11 +62,31 @@ std::optional<Resource> Resources::find(const ResourceId &id) {
 }
 
 std::optional<Resource> Resources::find(const ResourceId &id, const extract::SearchScope &order) {
+    auto result = findResult(id, order);
+    if (!result) {
+        return std::nullopt;
+    }
+    return result->resource();
+}
+
+ResourceResult Resources::getResult(const ResourceId &id) {
+    auto data = findResult(id);
+    if (!data) {
+        throw ResourceNotFoundException(id.string());
+    }
+    return *data;
+}
+
+std::optional<ResourceResult> Resources::findResult(const ResourceId &id) {
+    return findResult(id, _searchOrder);
+}
+
+std::optional<ResourceResult> Resources::findResult(const ResourceId &id, const extract::SearchScope &order) {
     if (!_installation) {
         return std::nullopt;
     }
     if (auto loc = _installation->resource(id, order)) {
-        return Resource {loc->readData()};
+        return ResourceResult {id, loc->readData(), *loc};
     }
     return std::nullopt;
 }
