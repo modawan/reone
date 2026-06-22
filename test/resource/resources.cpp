@@ -75,6 +75,7 @@ TEST(Resources, findResult_preserves_resource_data_and_location_metadata) {
     auto result = resources.findResult(ResourceId("sample", ResType::Txt));
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(ResourceId("sample", ResType::Txt), result->id);
+    EXPECT_EQ(ResourceId("sample", ResType::Txt), result->identifier());
     EXPECT_EQ("sample", result->resName());
     EXPECT_EQ("sample", result->resname());
     EXPECT_EQ(ResRef("sample"), result->resRef());
@@ -83,6 +84,7 @@ TEST(Resources, findResult_preserves_resource_data_and_location_metadata) {
     EXPECT_EQ(ResType::Txt, result->restype());
     EXPECT_EQ((ByteBuffer {'r', 'e', 's', 'u', 'l', 't'}), result->data);
     EXPECT_EQ((ByteBuffer {'r', 'e', 's', 'u', 'l', 't'}), result->resource().data);
+    EXPECT_EQ("result", result->decode());
     EXPECT_EQ(path, result->filepath());
     EXPECT_EQ(0u, result->offset());
     EXPECT_EQ(6u, result->size());

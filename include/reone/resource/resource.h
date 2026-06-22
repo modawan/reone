@@ -35,6 +35,7 @@ struct ResourceResult {
     ByteBuffer data;
     extract::LocationResult location;
 
+    const ResourceId &identifier() const { return id; }
     const std::string &resName() const { return id.resRef.value(); }
     const std::string &resname() const { return resName(); }
     const ResRef &resRef() const { return id.resRef; }
@@ -46,6 +47,7 @@ struct ResourceResult {
     uint32_t size() const { return location.size(); }
     const extract::FileResource &asFileResource() const { return location.asFileResource(); }
     Resource resource() const { return Resource {data}; }
+    std::string decode() const { return std::string(data.begin(), data.end()); }
 };
 
 } // namespace resource

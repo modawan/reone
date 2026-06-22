@@ -57,6 +57,10 @@ public:
     std::vector<LocationResult> locations(const resource::ResourceId &id,
                                           const SearchScope &order,
                                           const ResourceLookupContext &ctx = {});
+    std::unordered_map<resource::ResourceId, std::vector<LocationResult>> locations(
+        const std::vector<resource::ResourceId> &ids,
+        const SearchScope &order = canonicalSearchOrder(),
+        const ResourceLookupContext &ctx = {});
 
     std::optional<LocationResult> resource(const resource::ResourceId &id,
                                            const SearchScope &order = canonicalSearchOrder(),
@@ -83,15 +87,28 @@ public:
     std::optional<std::filesystem::path> moviePath(std::string_view name);
 
     /// Indexed chitin resources (requires loadChitin()).
-    const std::vector<FileResource> &chitinResources() const { return _chitin; }
+    const std::vector<FileResource> &chitinResources();
+
+    /// Chitin plus patch.erf resources, mirroring PyKotor core_resources().
+    std::vector<FileResource> coreResources();
 
     /// Indexed module archives keyed by filename (populated on demand from loadModules() paths).
     const std::unordered_map<std::string, std::vector<FileResource>> &moduleArchives();
+    std::vector<std::string> modulesList() const;
+    std::vector<std::string> moduleRoots() const;
+    std::vector<FileResource> moduleResources(std::string_view filename) const;
+    std::vector<FileResource> moduleResourcesForRoot(std::string_view moduleRoot) const;
+
+    std::vector<std::string> lipsList();
+    std::vector<FileResource> lipResources(std::string_view filename);
+
+    std::vector<std::string> texturePacksList();
+    std::vector<FileResource> texturePackResources(std::string_view filename);
 
     /// Indexed override tree (requires loadOverride()).
-    const std::unordered_map<std::string, std::vector<FileResource>> &overrideResources() const {
-        return _override;
-    }
+    const std::unordered_map<std::string, std::vector<FileResource>> &overrideResources();
+    std::vector<std::string> overrideList();
+    std::vector<FileResource> overrideResourceList(std::optional<std::string> directory = std::nullopt);
 
     /// Resolve a loose file relative to the game root (e.g. dialog.tlk, movies/foo.bik).
     std::optional<std::filesystem::path> resolveLooseRelativePath(

@@ -27,6 +27,9 @@
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 
+#include <algorithm>
+#include <set>
+
 namespace reone {
 
 namespace extract {
@@ -62,6 +65,42 @@ void appendLocation(const FileResource &file, std::vector<LocationResult> &out) 
     LocationResult loc(file.filepath(), file.offset(), file.size());
     loc.setFileResource(file);
     out.push_back(std::move(loc));
+}
+
+std::string extensionLower(const std::filesystem::path &path) {
+    auto ext = path.extension().string();
+    if (!ext.empty() && ext[0] == '.') {
+        ext.erase(0, 1);
+    }
+    boost::to_lower(ext);
+    return ext;
+}
+
+bool isModuleArchiveFile(const std::filesystem::path &path) {
+    auto ext = extensionLower(path);
+    return ext == "rim" || ext == "mod" || ext == "erf";
+}
+
+std::vector<std::string> sortedKeys(const std::unordered_map<std::string, std::vector<FileResource>> &dict) {
+    std::vector<std::string> result;
+    result.reserve(dict.size());
+    for (auto &[key, _] : dict) {
+        result.push_back(key);
+    }
+    std::sort(result.begin(), result.end());
+    return result;
+}
+
+std::optional<std::string> findKeyIgnoreCase(
+    const std::unordered_map<std::string, std::vector<FileResource>> &dict,
+    std::string_view key) {
+    auto requested = boost::to_lower_copy(std::string(key));
+    for (auto &[candidate, _] : dict) {
+        if (boost::to_lower_copy(candidate) == requested) {
+            return candidate;
+        }
+    }
+    return std::nullopt;
 }
 
 } // namespace
@@ -123,6 +162,129 @@ const std::unordered_map<std::string, std::vector<FileResource>> &Installation::
     loadModules();
     ensureModuleResourcesIndexed();
     return _modules;
+}
+
+const std::vector<FileResource> &Installation::chitinResources() {
+    loadChitin();
+    return _chitin;
+}
+
+std::vector<FileResource> Installation::coreResources() {
+    std::vector<FileResource> result = chitinResources();
+    if (auto patchPath = findFileIgnoreCase(_root, kPatchFilename)) {
+        auto &patch = cachedCapsule(*patchPath).resources();
+        result.insert(result.end(), patch.begin(), patch.end());
+    }
+    return result;
+}
+
+std::vector<std::string> Installation::modulesList() const {
+    auto modulesPath = findFileIgnoreCase(_root, kModulesDirectoryName);
+    if (!modulesPath || !std::filesystem::exists(*modulesPath)) {
+        return {};
+    }
+    std::vector<std::string> result;
+    for (auto &entry : std::filesystem::directory_iterator(*modulesPath)) {
+        if (entry.is_regular_file() && isModuleArchiveFile(entry.path())) {
+            result.push_back(boost::to_lower_copy(entry.path().filename().string()));
+        }
+    }
+    std::sort(result.begin(), result.end());
+    return result;
+}
+
+std::vector<std::string> Installation::moduleRoots() const {
+    std::set<std::string> roots;
+    for (auto &filename : modulesList()) {
+        auto root = getModuleRoot(filename);
+        if (!root.empty()) {
+            roots.insert(std::move(root));
+        }
+    }
+    return std::vector<std::string>(roots.begin(), roots.end());
+}
+
+std::vector<FileResource> Installation::moduleResources(std::string_view filename) const {
+    if (filename.empty()) {
+        return {};
+    }
+    auto modulesPath = findFileIgnoreCase(_root, kModulesDirectoryName);
+    if (!modulesPath) {
+        return {};
+    }
+    auto path = findFileIgnoreCase(*modulesPath, std::string(filename));
+    if (!path || !isModuleArchiveFile(*path)) {
+        return {};
+    }
+    auto &resources = cachedCapsule(*path).resources();
+    return std::vector<FileResource>(resources.begin(), resources.end());
+}
+
+std::vector<FileResource> Installation::moduleResourcesForRoot(std::string_view moduleRoot) const {
+    std::vector<FileResource> result;
+    auto root = boost::to_lower_copy(std::string(moduleRoot));
+    for (auto &filename : modulesList()) {
+        if (getModuleRoot(filename) != root) {
+            continue;
+        }
+        auto resources = moduleResources(filename);
+        result.insert(result.end(), resources.begin(), resources.end());
+    }
+    return result;
+}
+
+std::vector<std::string> Installation::lipsList() {
+    loadLips();
+    return sortedKeys(_lips);
+}
+
+std::vector<FileResource> Installation::lipResources(std::string_view filename) {
+    loadLips();
+    auto key = findKeyIgnoreCase(_lips, filename);
+    if (!key) {
+        return {};
+    }
+    return _lips[*key];
+}
+
+std::vector<std::string> Installation::texturePacksList() {
+    loadTexturePacks();
+    return sortedKeys(_texturePacks);
+}
+
+std::vector<FileResource> Installation::texturePackResources(std::string_view filename) {
+    loadTexturePacks();
+    auto key = findKeyIgnoreCase(_texturePacks, filename);
+    if (!key) {
+        return {};
+    }
+    return _texturePacks[*key];
+}
+
+const std::unordered_map<std::string, std::vector<FileResource>> &Installation::overrideResources() {
+    loadOverride();
+    return _override;
+}
+
+std::vector<std::string> Installation::overrideList() {
+    loadOverride();
+    return sortedKeys(_override);
+}
+
+std::vector<FileResource> Installation::overrideResourceList(std::optional<std::string> directory) {
+    loadOverride();
+    if (directory) {
+        auto key = findKeyIgnoreCase(_override, *directory);
+        if (!key) {
+            return {};
+        }
+        return _override[*key];
+    }
+    std::vector<FileResource> result;
+    for (auto &[_, resources] : _override) {
+        result.insert(result.end(), resources.begin(), resources.end());
+    }
+    return result;
 }
 
 void Installation::indexLooseFiles(const std::filesystem::path &dir, std::vector<FileResource> &out) {
@@ -747,6 +909,17 @@ std::optional<LocationResult> Installation::resource(const resource::ResourceId 
         return std::nullopt;
     }
     return locs.front();
+}
+
+std::unordered_map<resource::ResourceId, std::vector<LocationResult>> Installation::locations(
+    const std::vector<resource::ResourceId> &ids,
+    const SearchScope &order,
+    const ResourceLookupContext &ctx) {
+    std::unordered_map<resource::ResourceId, std::vector<LocationResult>> result;
+    for (auto &id : ids) {
+        result.emplace(id, locations(id, order, ctx));
+    }
+    return result;
 }
 
 } // namespace extract

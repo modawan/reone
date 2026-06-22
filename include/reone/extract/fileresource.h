@@ -60,6 +60,7 @@ public:
     bool exists() const;
 
     ByteBuffer readData() const;
+    ByteBuffer data() const { return readData(); }
     const FileResource &asFileResource() const { return *this; }
 
 private:
@@ -88,6 +89,7 @@ public:
     const resource::ResourceId &id() const { return identifier(); }
 
     ByteBuffer readData() const;
+    ByteBuffer data() const { return readData(); }
 
 private:
     std::filesystem::path _filepath;

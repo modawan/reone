@@ -23,6 +23,8 @@
 
 #include "reone/graphics/types.h"
 
+#include <algorithm>
+
 #include "../checkutil.h"
 #include "../fixtures/archive.h"
 
@@ -320,6 +322,105 @@ TEST(InstallationLookupContext, searches_extra_folders_and_capsules_without_muta
 
     EXPECT_TRUE(installation.customFolders().empty());
     EXPECT_TRUE(installation.customCapsules().empty());
+
+    std::filesystem::remove_all(tmp);
+}
+
+TEST(InstallationEnumeration, exposes_pykotor_style_resource_lists) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_enumeration";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "modules");
+    std::filesystem::create_directories(tmp / "lips");
+    std::filesystem::create_directories(tmp / "texturepacks");
+    std::filesystem::create_directories(tmp / "override" / "sub");
+
+    writeRim(tmp / "modules" / "danm13.rim", "area", ResType::Are, ByteBuffer {'a'});
+    writeRim(tmp / "modules" / "danm13_s.rim", "static", ResType::Txt, ByteBuffer {'s'});
+    writeErf(tmp / "modules" / "tar_m02.mod", "tar", ResType::Txt, ByteBuffer {'t'});
+    writeErf(tmp / "lips" / "danm13_loc.mod", "speech", ResType::Lip, ByteBuffer {'l'});
+    writeErf(tmp / "texturepacks" / "swpc_tex_gui.erf", "gui_probe", ResType::Tga, ByteBuffer {'g'});
+    writeErf(tmp / "patch.erf", "patch_probe", ResType::Txt, ByteBuffer {'p'});
+
+    {
+        FileOutputStream out(tmp / "override" / "root_probe.txt");
+        out.write("r", 1);
+        out.close();
+    }
+    {
+        FileOutputStream out(tmp / "override" / "sub" / "sub_probe.txt");
+        out.write("s", 1);
+        out.close();
+    }
+
+    Installation installation(GameID::KotOR, tmp);
+
+    EXPECT_EQ((std::vector<std::string> {"danm13.rim", "danm13_s.rim", "tar_m02.mod"}),
+              installation.modulesList());
+    EXPECT_EQ((std::vector<std::string> {"danm13", "tar_m02"}), installation.moduleRoots());
+
+    auto danResources = installation.moduleResourcesForRoot("DANM13");
+    std::vector<ResourceId> danIds;
+    std::transform(danResources.begin(), danResources.end(), std::back_inserter(danIds),
+                   [](const FileResource &res) { return res.id(); });
+    EXPECT_NE(std::find(danIds.begin(), danIds.end(), ResourceId("area", ResType::Are)), danIds.end());
+    EXPECT_NE(std::find(danIds.begin(), danIds.end(), ResourceId("static", ResType::Txt)), danIds.end());
+    EXPECT_EQ(1u, installation.moduleResources("tar_m02.mod").size());
+    EXPECT_TRUE(installation.moduleResources("").empty());
+    EXPECT_TRUE(installation.moduleResources("missing.mod").empty());
+
+    EXPECT_EQ((std::vector<std::string> {"danm13_loc.mod"}), installation.lipsList());
+    ASSERT_EQ(1u, installation.lipResources("DANM13_LOC.MOD").size());
+    EXPECT_EQ(ResourceId("speech", ResType::Lip), installation.lipResources("danm13_loc.mod").front().id());
+
+    EXPECT_EQ((std::vector<std::string> {"swpc_tex_gui.erf"}), installation.texturePacksList());
+    ASSERT_EQ(1u, installation.texturePackResources("SWPC_TEX_GUI.ERF").size());
+    EXPECT_EQ(ResourceId("gui_probe", ResType::Tga), installation.texturePackResources("swpc_tex_gui.erf").front().id());
+
+    EXPECT_EQ((std::vector<std::string> {".", "sub"}), installation.overrideList());
+    EXPECT_EQ(2u, installation.overrideResourceList().size());
+    ASSERT_EQ(1u, installation.overrideResourceList("sub").size());
+    EXPECT_EQ(ResourceId("sub_probe", ResType::Txt), installation.overrideResourceList("SUB").front().id());
+    EXPECT_TRUE(installation.overrideResourceList("missing").empty());
+
+    auto core = installation.coreResources();
+    ASSERT_EQ(1u, core.size());
+    EXPECT_EQ(ResourceId("patch_probe", ResType::Txt), core.front().id());
+    EXPECT_EQ('p', core.front().readData()[0]);
+
+    std::filesystem::remove_all(tmp);
+}
+
+TEST(InstallationLocations, batch_lookup_returns_locations_for_each_resource_id) {
+    auto tmp = std::filesystem::temp_directory_path() / "reone_test_installation_batch_locations";
+    std::filesystem::remove_all(tmp);
+    std::filesystem::create_directories(tmp / "override");
+
+    {
+        FileOutputStream out(tmp / "override" / "one.txt");
+        out.write("1", 1);
+        out.close();
+    }
+    {
+        FileOutputStream out(tmp / "override" / "two.txt");
+        out.write("2", 1);
+        out.close();
+    }
+
+    Installation installation(GameID::KotOR, tmp);
+    auto batch = installation.locations(
+        std::vector<ResourceId> {
+            ResourceId("one", ResType::Txt),
+            ResourceId("two", ResType::Txt),
+            ResourceId("missing", ResType::Txt),
+        },
+        canonicalSearchOrder());
+
+    ASSERT_EQ(3u, batch.size());
+    ASSERT_EQ(1u, batch.at(ResourceId("one", ResType::Txt)).size());
+    ASSERT_EQ(1u, batch.at(ResourceId("two", ResType::Txt)).size());
+    EXPECT_TRUE(batch.at(ResourceId("missing", ResType::Txt)).empty());
+    EXPECT_EQ('1', batch.at(ResourceId("one", ResType::Txt)).front().readData()[0]);
+    EXPECT_EQ('2', batch.at(ResourceId("two", ResType::Txt)).front().readData()[0]);
 
     std::filesystem::remove_all(tmp);
 }
