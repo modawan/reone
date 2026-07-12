@@ -30,7 +30,7 @@ class Model;
 
 namespace resource {
 
-class Resources;
+class IResources;
 class Textures;
 
 class IModels {
@@ -44,7 +44,7 @@ public:
 class Models : public IModels, boost::noncopyable {
 public:
     Models(Textures &textures,
-           Resources &resources,
+           IResources &resources,
            graphics::IStatistic &statistic) :
         _textures(textures),
         _resources(resources),
@@ -57,7 +57,7 @@ public:
 
 private:
     Textures &_textures;
-    Resources &_resources;
+    IResources &_resources;
     graphics::IStatistic &_statistic;
 
     std::unordered_map<std::string, std::shared_ptr<graphics::Model>> _cache;
