@@ -173,6 +173,37 @@ TEST_F(JournalTest, should_track_state_for_plot_missing_from_global_journal) {
     EXPECT_EQ("", _journal->getQuestName("unlisted_plot"));
 }
 
+TEST_F(JournalTest, should_notify_listener_only_when_state_changes) {
+    int notified = 0;
+    _journal->setOnQuestChanged([&notified]() { ++notified; });
+
+    _journal->addEntry("test_plot", 10);
+    EXPECT_EQ(1, notified) << "new quest should notify";
+
+    _journal->addEntry("test_plot", 10);
+    EXPECT_EQ(1, notified) << "same state should not notify";
+
+    _journal->addEntry("test_plot", 5);
+    EXPECT_EQ(1, notified) << "lower state without override should not notify";
+
+    _journal->addEntry("test_plot", 20);
+    EXPECT_EQ(2, notified) << "higher state should notify";
+
+    _journal->addEntry("test_plot", 10, true);
+    EXPECT_EQ(3, notified) << "lower state with override should notify";
+}
+
+TEST_F(JournalTest, should_not_notify_listener_on_restore_or_remove) {
+    int notified = 0;
+    _journal->setOnQuestChanged([&notified]() { ++notified; });
+
+    _journal->restoreEntry("test_plot", 10, 0, 0);
+    EXPECT_EQ(0, notified);
+
+    _journal->removeEntry("test_plot");
+    EXPECT_EQ(0, notified);
+}
+
 TEST_F(JournalTest, should_clear_state_on_reset) {
     _journal->addEntry("test_plot", 10);
 

@@ -47,6 +47,8 @@ namespace game {
 
 static std::string g_attackIcon("i_attack");
 
+static constexpr float kJournalNotificationDuration = 10.0f;
+
 static void tintK2HUDMenuButton(const std::shared_ptr<Button> &button, const glm::vec3 &baseColor) {
     if (!button) {
         return;
@@ -221,6 +223,14 @@ void HUD::onGUILoaded() {
     _barkBubble->init();
 }
 
+void HUD::showJournalNotification() {
+    if (!_controls.LBL_JOURNAL) {
+        return;
+    }
+    _controls.LBL_JOURNAL->setVisible(true);
+    _journalNotificationTimer.reset(kJournalNotificationDuration);
+}
+
 bool HUD::handle(const input::Event &event) {
     if (_select.handle(event)) {
         return true;
@@ -283,6 +293,13 @@ void HUD::update(float dt) {
         refreshActionQueueItems();
     } else {
         toggleCombat(false);
+    }
+
+    if (_controls.LBL_JOURNAL->isVisible()) {
+        _journalNotificationTimer.update(dt);
+        if (_journalNotificationTimer.elapsed()) {
+            _controls.LBL_JOURNAL->setVisible(false);
+        }
     }
 
     _select.update();

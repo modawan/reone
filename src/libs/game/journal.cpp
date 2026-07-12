@@ -95,6 +95,7 @@ bool Journal::addEntry(const std::string &plotId, int state, bool allowOverrideH
     Quest *quest = findQuest(plotId);
     if (!quest) {
         _quests.push_back({plotId, state, 0, 0});
+        notifyQuestChanged();
         return true;
     }
     if (quest->state == state) {
@@ -104,7 +105,14 @@ bool Journal::addEntry(const std::string &plotId, int state, bool allowOverrideH
         return false;
     }
     quest->state = state;
+    notifyQuestChanged();
     return true;
+}
+
+void Journal::notifyQuestChanged() {
+    if (_onQuestChanged) {
+        _onQuestChanged();
+    }
 }
 
 bool Journal::removeEntry(const std::string &plotId) {

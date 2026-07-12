@@ -226,6 +226,12 @@ void Game::init() {
     setSceneSurfaces();
     setCursorType(CursorType::Default);
 
+    _journal.setOnQuestChanged([this]() {
+        if (_hud) {
+            _hud->showJournalNotification();
+        }
+    });
+
     _moduleNames = _services.resource.director.moduleNames();
     _saveNames = _services.resource.director.saveNames();
 
