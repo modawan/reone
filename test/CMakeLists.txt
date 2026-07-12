@@ -42,6 +42,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/extract/chitin.cpp
     ${TESTS_SOURCE_DIR}/extract/fileresource.cpp
     ${TESTS_SOURCE_DIR}/extract/finder.cpp
+    ${TESTS_SOURCE_DIR}/extract/installation.cpp
     ${TESTS_SOURCE_DIR}/fixtures/engine.cpp
     ${TESTS_SOURCE_DIR}/game/action.cpp
     ${TESTS_SOURCE_DIR}/game/d20/class.cpp
