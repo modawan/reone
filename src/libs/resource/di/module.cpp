@@ -17,6 +17,8 @@
 
 #include "reone/resource/di/module.h"
 
+#include "reone/resource/extractresources.h"
+
 #include "reone/audio/di/module.h"
 #include "reone/graphics/di/module.h"
 #include "reone/script/di/module.h"
@@ -26,7 +28,11 @@ namespace reone {
 namespace resource {
 
 void ResourceModule::init() {
-    _resources = std::make_unique<Resources>();
+    if (_resourcesBackend == ResourcesBackend::Extract) {
+        _resources = std::make_unique<ExtractResources>();
+    } else {
+        _resources = std::make_unique<Resources>();
+    }
     _strings = std::make_unique<Strings>();
     _twoDas = std::make_unique<TwoDAs>(*_resources);
     _gffs = std::make_unique<Gffs>(*_resources);

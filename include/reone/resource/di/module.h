@@ -65,6 +65,13 @@ class ScriptModule;
 
 namespace resource {
 
+/// Backend that serves resource lookups. Extract reads game data through the
+/// extract layer primitives, with lookup semantics identical to Legacy.
+enum class ResourcesBackend {
+    Legacy,
+    Extract,
+};
+
 class ResourceModule : boost::noncopyable {
 public:
     ResourceModule(GameID gameId,
@@ -73,14 +80,16 @@ public:
                    audio::AudioOptions &audioOpt,
                    graphics::GraphicsModule &graphics,
                    audio::AudioModule &audio,
-                   script::ScriptModule &script) :
+                   script::ScriptModule &script,
+                   ResourcesBackend resourcesBackend = ResourcesBackend::Legacy) :
         _gameId(gameId),
         _gamePath(std::move(gamePath)),
         _graphicsOpt(graphicsOpt),
         _audioOpt(audioOpt),
         _graphics(graphics),
         _audio(audio),
-        _script(script) {
+        _script(script),
+        _resourcesBackend(resourcesBackend) {
     }
 
     ~ResourceModule() { deinit(); }
@@ -123,9 +132,10 @@ private:
     graphics::GraphicsModule &_graphics;
     audio::AudioModule &_audio;
     script::ScriptModule &_script;
+    ResourcesBackend _resourcesBackend {ResourcesBackend::Legacy};
 
     std::unique_ptr<Gffs> _gffs;
-    std::unique_ptr<Resources> _resources;
+    std::unique_ptr<IResources> _resources;
     std::unique_ptr<Strings> _strings;
     std::unique_ptr<TwoDAs> _twoDas;
     std::unique_ptr<Scripts> _scripts;
