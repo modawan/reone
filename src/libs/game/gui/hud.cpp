@@ -237,7 +237,9 @@ void HUD::showJournalNotification() {
     _journalNotificationTimer.reset(kJournalNotificationDuration);
 
     if (_confirmPopup) {
-        _confirmPopup->show(_services.resource.strings.getText(kStrRefJournalEntryAdded));
+        // Reuse the HUD journal icon texture inside the popup.
+        std::shared_ptr<Texture> icon(_controls.LBL_JOURNAL->border().fill);
+        _confirmPopup->show(_services.resource.strings.getText(kStrRefJournalEntryAdded), std::move(icon));
     }
 }
 

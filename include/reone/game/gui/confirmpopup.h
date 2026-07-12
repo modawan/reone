@@ -24,11 +24,18 @@
 
 namespace reone {
 
+namespace graphics {
+
+class Texture;
+
+}
+
 namespace game {
 
 /**
  * Centered in-game message popup based on the game's confirmation dialog,
- * dismissed with the OK button.
+ * dismissed with the OK button. An optional icon is shown left of the
+ * message text.
  */
 class ConfirmPopup : public GameGUI {
 public:
@@ -37,7 +44,7 @@ public:
         _resRef = guiResRef("confirm");
     }
 
-    void show(const std::string &message);
+    void show(const std::string &message, std::shared_ptr<graphics::Texture> icon = nullptr);
     void hide();
 
     bool isVisible() const { return _visible; }
@@ -51,6 +58,9 @@ private:
 
     Controls _controls;
     bool _visible {false};
+
+    std::shared_ptr<gui::Control> _icon;
+    gui::Control::Extent _messageExtent;
 
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;
