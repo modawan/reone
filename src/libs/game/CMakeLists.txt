@@ -202,6 +202,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/chargen/quickorcustom.h
     ${GAME_INCLUDE_DIR}/gui/chargen/skills.h
     ${GAME_INCLUDE_DIR}/gui/computer.h
+    ${GAME_INCLUDE_DIR}/gui/confirmpopup.h
     ${GAME_INCLUDE_DIR}/gui/container.h
     ${GAME_INCLUDE_DIR}/gui/conversation.h
     ${GAME_INCLUDE_DIR}/gui/dialog.h
@@ -475,6 +476,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/chargen/skills.cpp
     ${GAME_SOURCE_DIR}/gui/chargen.cpp
     ${GAME_SOURCE_DIR}/gui/computer.cpp
+    ${GAME_SOURCE_DIR}/gui/confirmpopup.cpp
     ${GAME_SOURCE_DIR}/gui/container.cpp
     ${GAME_SOURCE_DIR}/gui/conversation.cpp
     ${GAME_SOURCE_DIR}/gui/dialog.cpp

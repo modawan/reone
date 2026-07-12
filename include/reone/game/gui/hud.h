@@ -28,6 +28,7 @@
 
 #include "actionbar.h"
 #include "barkbubble.h"
+#include "confirmpopup.h"
 #include "selectoverlay.h"
 
 namespace reone {
@@ -152,6 +153,7 @@ private:
     SelectionOverlay _select;
     ActionBar _actionBar;
     std::unique_ptr<BarkBubble> _barkBubble;
+    std::unique_ptr<ConfirmPopup> _confirmPopup;
     Timer _journalNotificationTimer;
 
     void preload(gui::IGUI &gui) override;
