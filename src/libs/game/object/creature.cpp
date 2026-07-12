@@ -1417,6 +1417,20 @@ void Creature::deserializeAll(const resource::Gff &gff) {
     // index into appearance.2da
     gff.readEnum(_appearance, "Appearance_Type");
 
+    // Savegames keep the visible disguise appearance in Appearance_Type and
+    // the normal appearance separately. Restore this before equipped items
+    // are loaded, so equipping a saved disguise does not overwrite it.
+    _disguised = false;
+    _appearanceBeforeDisguise = 0;
+    bool disguised;
+    uint16_t appearanceBeforeDisguise;
+    if (gff.readBool(disguised, "PM_IsDisguised") &&
+        disguised &&
+        gff.readWord(appearanceBeforeDisguise, "PM_Appearance")) {
+        _disguised = true;
+        _appearanceBeforeDisguise = appearanceBeforeDisguise;
+    }
+
     // in dex into gender.2da
     gff.readEnum(_gender, "Gender");
 
