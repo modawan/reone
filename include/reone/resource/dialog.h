@@ -69,6 +69,8 @@ struct Dialog {
         std::string script2;
         std::string sound;
         std::string listener;
+        std::string quest;
+        uint32_t questEntry {0};
         ActionParams actionParams;
         ActionParams actionParams2;
         int delay {0};

@@ -383,6 +383,7 @@ void InGameMenu::openMessages() {
 }
 
 void InGameMenu::openJournal() {
+    _journal->refresh();
     changeTab(InGameMenuTab::Journal);
 }
 

@@ -287,6 +287,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/saveload.h
     ${GAME_INCLUDE_DIR}/gui/selectoverlay.h
     ${GAME_INCLUDE_DIR}/gui/sounds.h
+    ${GAME_INCLUDE_DIR}/journal.h
     ${GAME_INCLUDE_DIR}/location.h
     ${GAME_INCLUDE_DIR}/messagebus.h
     ${GAME_INCLUDE_DIR}/minigame.h
@@ -495,6 +496,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/saveload.cpp
     ${GAME_SOURCE_DIR}/gui/selectoverlay.cpp
     ${GAME_SOURCE_DIR}/gui/sounds.cpp
+    ${GAME_SOURCE_DIR}/journal.cpp
     ${GAME_SOURCE_DIR}/messagebus.cpp
     ${GAME_SOURCE_DIR}/object.cpp
     ${GAME_SOURCE_DIR}/object/area.cpp

@@ -40,6 +40,9 @@ public:
         _resRef = guiResRef("journal");
     }
 
+    /** Reload the quest list from the journal. */
+    void refresh();
+
 private:
     struct Controls {
         std::shared_ptr<gui::Button> BTN_EXIT;
@@ -64,6 +67,8 @@ private:
     Controls _controls;
 
     void onGUILoaded() override;
+
+    void refreshEntryText(const std::string &plotId);
 
     void bindControls() {
         _controls.BTN_EXIT = findControl<gui::Button>("BTN_EXIT");

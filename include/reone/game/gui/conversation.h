@@ -108,6 +108,7 @@ private:
     bool evaluateCondition(const std::string &scriptResRef, const resource::Dialog::EntryReplyLink::ConditionParams &params);
     void runScript(const std::string &scriptResRef, const resource::Dialog::EntryReply::ActionParams &params);
     void runScripts(const resource::Dialog::EntryReply &node);
+    void applyQuestEntry(const resource::Dialog::EntryReply &node);
 
     virtual void setMessage(std::string message) = 0;
 

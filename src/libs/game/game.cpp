@@ -648,6 +648,7 @@ void Game::resetGame() {
 
     _party.reset();
     _combat.reset();
+    _journal.reset();
     _module.reset();
     _loadedModules.clear();
 }
@@ -754,6 +755,7 @@ void Game::deserializeParty(resource::Gff &ifoGff) {
 
     deserializePartyTable(*ptGff);
     deserializePartyMembers(*ptGff);
+    deserializeJournal(*ptGff);
 }
 
 void Game::deserializePartyTable(resource::Gff &ptGff) {
@@ -811,6 +813,20 @@ void Game::deserializePartyMembers(resource::Gff &ptGff) {
     // Then add other members.
     for (auto it = members.begin(), end = leader; it != end; ++it) {
         addMember(**it);
+    }
+}
+
+void Game::deserializeJournal(const resource::Gff &ptGff) {
+    for (const auto &jnlEntry : ptGff.getList("JNL_Entries")) {
+        std::string plotId(jnlEntry->getString("JNL_PlotID"));
+        if (plotId.empty()) {
+            warn("Game: missing JNL_PlotID");
+            continue;
+        }
+        int state = jnlEntry->getInt("JNL_State");
+        uint32_t date = jnlEntry->getUint("JNL_Date");
+        uint32_t time = jnlEntry->getUint("JNL_Time");
+        _journal.restoreEntry(std::move(plotId), state, date, time);
     }
 }
 

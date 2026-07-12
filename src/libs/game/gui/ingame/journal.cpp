@@ -49,6 +49,39 @@ void JournalMenu::onGUILoaded() {
         _controls.BTN_QUESTITEMS->setDisabled(true);
         _controls.BTN_SORT->setDisabled(true);
     }
+
+    _controls.LB_ITEMS->setSelectionMode(ListBox::SelectionMode::OnClick);
+    _controls.LB_ITEMS->setOnItemClick([this](const std::string &plotId) {
+        refreshEntryText(plotId);
+    });
+}
+
+void JournalMenu::refresh() {
+    _controls.LB_ITEMS->clearItems();
+    _controls.LB_ITEMS->clearSelection();
+    _controls.LBL_ITEM_DESCRIPTION->clearItems();
+
+    Journal &journal = _game.journal();
+    for (const auto &quest : journal.quests()) {
+        std::string name(journal.getQuestName(quest.plotId));
+        if (name.empty()) {
+            name = quest.plotId;
+        }
+        ListBox::Item item;
+        item.tag = quest.plotId;
+        item.text = std::move(name);
+        _controls.LB_ITEMS->addItem(std::move(item));
+    }
+}
+
+void JournalMenu::refreshEntryText(const std::string &plotId) {
+    _controls.LBL_ITEM_DESCRIPTION->clearItems();
+
+    Journal &journal = _game.journal();
+    std::string text(journal.getEntryText(plotId, journal.getEntryState(plotId)));
+    if (!text.empty()) {
+        _controls.LBL_ITEM_DESCRIPTION->addTextLinesAsItems(text);
+    }
 }
 
 } // namespace game

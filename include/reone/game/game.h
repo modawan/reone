@@ -43,6 +43,7 @@
 #include "gui/map.h"
 #include "gui/partyselect.h"
 #include "gui/saveload.h"
+#include "journal.h"
 #include "location.h"
 #include "object/area.h"
 #include "object/camera/animated.h"
@@ -113,7 +114,8 @@ public:
         _console(console),
         _party(*this),
         _combat(*this, services),
-        _swoopRace(*this) {
+        _swoopRace(*this),
+        _journal(services.resource.gffs, services.resource.strings) {
     }
 
     void init();
@@ -133,6 +135,7 @@ public:
     const OptionsView &options() const { return _options; }
     Party &party() { return _party; }
     Combat &combat() { return _combat; }
+    Journal &journal() { return _journal; }
     ScriptRunner &scriptRunner() { return *_scriptRunner; }
     Map &map() { return *_map; }
     script::IRoutines &routines() { return *_routines; }
@@ -358,6 +361,7 @@ public:
     void deserializeParty(resource::Gff &ifoGff);
     void deserializePartyTable(resource::Gff &ptGff);
     void deserializePartyMembers(resource::Gff &ptGff);
+    void deserializeJournal(const resource::Gff &ptGff);
     void deserializeInventory(resource::Gff &inventoryGff);
 
 private:
@@ -415,6 +419,7 @@ private:
     Party _party;
     Combat _combat;
     SwoopRace _swoopRace;
+    Journal _journal;
 
     std::unique_ptr<script::IRoutines> _routines;
     std::unique_ptr<ScriptRunner> _scriptRunner;

@@ -29,6 +29,8 @@
 #include "reone/game/script/routine/objectutil.h"
 #include "reone/game/script/routines.h"
 #include "reone/game/talent.h"
+#include "reone/resource/2da.h"
+#include "reone/resource/provider/2das.h"
 #include "reone/resource/strings.h"
 #include "reone/scene/collision.h"
 #include "reone/script/executioncontext.h"
@@ -3530,29 +3532,28 @@ static Variable AddJournalQuestEntry(const std::vector<Variable> &args, const Ro
     auto bAllowOverrideHigher = getIntOrElse(args, 2, 0);
 
     // Transform
+    auto allowOverrideHigher = static_cast<bool>(bAllowOverrideHigher);
 
     // Execute
-    throw RoutineNotImplementedException("AddJournalQuestEntry");
+    ctx.game.journal().addEntry(szPlotID, nState, allowOverrideHigher);
+    return Variable::ofNull();
 }
 
 static Variable RemoveJournalQuestEntry(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto szPlotID = getString(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("RemoveJournalQuestEntry");
+    ctx.game.journal().removeEntry(szPlotID);
+    return Variable::ofNull();
 }
 
 static Variable GetJournalEntry(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto szPlotID = getString(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("GetJournalEntry");
+    return Variable::ofInt(ctx.game.journal().getEntryState(szPlotID));
 }
 
 static Variable PlayRumblePattern(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3651,10 +3652,17 @@ static Variable GetJournalQuestExperience(const std::vector<Variable> &args, con
     // Load
     auto szPlotID = getString(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("GetJournalQuestExperience");
+    std::shared_ptr<resource::TwoDA> plotTable(ctx.services.resource.twoDas.get("plot"));
+    if (!plotTable) {
+        return Variable::ofInt(0);
+    }
+    for (int row = 0; row < plotTable->getRowCount(); ++row) {
+        if (boost::iequals(plotTable->getString(row, "label"), szPlotID)) {
+            return Variable::ofInt(plotTable->getInt(row, "xp"));
+        }
+    }
+    return Variable::ofInt(0);
 }
 
 static Variable JumpToObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
