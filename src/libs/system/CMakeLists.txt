@@ -39,6 +39,7 @@ set(SYSTEM_HEADERS
     ${SYSTEM_INCLUDE_DIR}/smallset.h
     ${SYSTEM_INCLUDE_DIR}/smallvector.h
     ${SYSTEM_INCLUDE_DIR}/stream/fileinput.h
+    ${SYSTEM_INCLUDE_DIR}/stream/gameinput.h
     ${SYSTEM_INCLUDE_DIR}/stream/fileoutput.h
     ${SYSTEM_INCLUDE_DIR}/stream/input.h
     ${SYSTEM_INCLUDE_DIR}/stream/memoryinput.h
