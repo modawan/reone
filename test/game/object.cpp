@@ -56,10 +56,31 @@ std::shared_ptr<TwoDA> makeBaseItemsTable() {
     TwoDA::Builder builder;
     builder.columns({"maxattackrange", "crithitmult", "critthreat", "damageflags", "dietoroll",
                      "equipableslots", "itemclass", "numdice", "weapontype", "weaponwield",
-                     "ammunitiontype"});
-    builder.row({"", "", "", "", "", "", "I_Credits", "", "", "", ""});
-    builder.row({"", "", "", "", "", "", "I_Datapad", "", "", "", ""});
+                     "ammunitiontype", "bodyvar"});
+    builder.row({"", "", "", "", "", "", "I_Credits", "", "", "", "", ""});
+    builder.row({"", "", "", "", "", "", "I_Datapad", "", "", "", "", ""});
+    builder.row({"", "", "", "", "", "2", "I_Disguise", "", "", "", "-1", ""});
     return std::shared_ptr<TwoDA>(builder.build());
+}
+
+std::shared_ptr<TwoDA> makeAppearanceTable() {
+    TwoDA::Builder builder;
+    builder.columns({"modeltype", "walkdist", "rundist", "footsteptype", "envmap", "race", "racetex"});
+    builder.row({"S", "1", "1", "-1", "", "", ""});
+    builder.row({"S", "1", "1", "-1", "", "", ""});
+    builder.row({"S", "1", "1", "-1", "", "", ""});
+    return std::shared_ptr<TwoDA>(builder.build());
+}
+
+std::shared_ptr<Gff> makeDisguiseItemGff(int appearance) {
+    auto property = Gff::Builder()
+                        .field(Gff::Field::newWord("PropertyName", static_cast<int>(ItemProperty::Disguise)))
+                        .field(Gff::Field::newWord("Subtype", appearance))
+                        .build();
+    return Gff::Builder()
+        .field(Gff::Field::newInt("BaseItem", 2))
+        .field(Gff::Field::newList("PropertiesList", {std::move(property)}))
+        .build();
 }
 
 std::shared_ptr<Item> makeItem(Game &game, std::string tag, int baseItem, int stackSize) {
@@ -269,4 +290,37 @@ TEST(Party, should_not_share_inventory_of_non_party_placeable) {
 
     auto footlocker = game.newPlaceable();
     EXPECT_EQ(game.party().sharedInventoryReceiver(footlocker).get(), footlocker.get());
+}
+
+TEST(Object, should_restore_saved_appearance_after_unequipping_loaded_disguise) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .WillRepeatedly(Return(makeBaseItemsTable()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _))
+        .Times(AnyNumber());
+    EXPECT_CALL(engine.resourceModule().models(), get(_))
+        .Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(engine.services().game.portraits), getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto creatureGff = Gff::Builder()
+                           .field(Gff::Field::newWord("Appearance_Type", 2))
+                           .field(Gff::Field::newByte("PM_IsDisguised", 1))
+                           .field(Gff::Field::newWord("PM_Appearance", 1))
+                           .field(Gff::Field::newList("Equip_ItemList", {makeDisguiseItemGff(2)}))
+                           .build();
+    auto creature = game.newCreature();
+    creature->deserialize(*creatureGff);
+
+    ASSERT_EQ(creature->appearance(), 2);
+    auto disguise = creature->getEquippedItem(InventorySlots::body);
+    ASSERT_TRUE(disguise);
+
+    creature->unequip(disguise);
+
+    EXPECT_EQ(creature->appearance(), 1);
 }

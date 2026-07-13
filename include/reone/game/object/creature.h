@@ -279,6 +279,8 @@ private:
     RacialType _race {RacialType::Unknown};
     Subrace _subrace {Subrace::None};
     uint32_t _appearance {0};
+    uint32_t _appearanceBeforeDisguise {0};
+    bool _disguised {false};
     Gender _gender {Gender::Male};
     uint16_t _portraitId {0};
     bool _isPC {false};
@@ -366,6 +368,15 @@ private:
     void loadTransformFromGIT(const resource::generated::GIT_Creature_List &git);
 
     void updateModel();
+
+    // Refresh appearance-derived state (model type, speeds, footstep, envmap,
+    // portrait) for the current _appearance, without building a scene node.
+    void loadAppearanceProperties();
+
+    // Recompute the disguise appearance override from equipped items: switch to a
+    // disguise item's appearance when one is equipped, and restore the original
+    // appearance when none remains. Updates _appearance only; callers rebuild the model.
+    void updateDisguise();
     void updateCombat(float dt);
 
     void runDeathScript(uint32_t damagerId);
