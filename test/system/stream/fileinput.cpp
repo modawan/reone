@@ -23,6 +23,40 @@
 
 using namespace reone;
 
+namespace {
+
+class DestructionTrackingInputStream final : public IInputStream {
+public:
+    explicit DestructionTrackingInputStream(bool &destroyed) :
+        _destroyed(destroyed) {
+    }
+
+    ~DestructionTrackingInputStream() override {
+        _destroyed = true;
+    }
+
+    void seek(int64_t, SeekOrigin) override {}
+    int readByte() override { return -1; }
+    int read(char *, int) override { return 0; }
+    size_t position() override { return 0; }
+    size_t length() override { return 0; }
+
+private:
+    bool &_destroyed;
+};
+
+} // namespace
+
+TEST(IInputStream, should_support_polymorphic_destruction) {
+    bool destroyed = false;
+
+    {
+        std::unique_ptr<IInputStream> stream = std::make_unique<DestructionTrackingInputStream>(destroyed);
+    }
+
+    EXPECT_TRUE(destroyed);
+}
+
 TEST(FileInputStream, should_read_from_file) {
     // given
 
