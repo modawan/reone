@@ -39,6 +39,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/audio/format/wavreader.cpp
     ${TESTS_SOURCE_DIR}/game/d20/class.cpp
     ${TESTS_SOURCE_DIR}/game/d20/spells.cpp
+    ${TESTS_SOURCE_DIR}/game/journal.cpp
     ${TESTS_SOURCE_DIR}/game/messagebus.cpp
     ${TESTS_SOURCE_DIR}/game/object.cpp
     ${TESTS_SOURCE_DIR}/game/pathfinder.cpp
@@ -63,7 +64,9 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/resource/format/rimwriter.cpp
     ${TESTS_SOURCE_DIR}/resource/format/tlkreader.cpp
     ${TESTS_SOURCE_DIR}/resource/format/tlkwriter.cpp
+    ${TESTS_SOURCE_DIR}/resource/parser/jrl.cpp
     ${TESTS_SOURCE_DIR}/resource/provider/2das.cpp
+    ${TESTS_SOURCE_DIR}/resource/provider/dialogs.cpp
     ${TESTS_SOURCE_DIR}/resource/provider/gffs.cpp
     ${TESTS_SOURCE_DIR}/resource/resources.cpp
     ${TESTS_SOURCE_DIR}/resource/resref.cpp

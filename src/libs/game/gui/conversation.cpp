@@ -173,6 +173,13 @@ void Conversation::runScripts(const Dialog::EntryReply &node) {
     runScript(node.script2, node.actionParams2);
 }
 
+void Conversation::applyQuestEntry(const Dialog::EntryReply &node) {
+    if (node.quest.empty()) {
+        return;
+    }
+    _game.journal().addEntry(node.quest, static_cast<int>(node.questEntry));
+}
+
 void Conversation::finish() {
     onFinish();
 
@@ -202,6 +209,8 @@ void Conversation::cleanupForModuleTransition() {
 void Conversation::loadEntry(int index, bool start) {
     debug("Load entry " + std::to_string(index), LogChannel::Conversation);
     _currentEntry = &_dialog->getEntry(index);
+
+    applyQuestEntry(*_currentEntry);
 
     std::string entryText(_game.substituteCustomTokens(_currentEntry->text));
     setMessage(entryText);
@@ -323,6 +332,8 @@ void Conversation::refreshReplies() {
 void Conversation::pickReply(int index) {
     debug("Pick reply " + std::to_string(index), LogChannel::Conversation);
     const Dialog::EntryReply &reply = *_replies[index];
+
+    applyQuestEntry(reply);
 
     // Run reply scripts
     runScripts(reply);

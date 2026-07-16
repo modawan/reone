@@ -22,11 +22,13 @@
 #include "reone/gui/control/progressbar.h"
 #include "reone/gui/control/togglebutton.h"
 #include "reone/resource/types.h"
+#include "reone/system/timer.h"
 
 #include "../gui.h"
 
 #include "actionbar.h"
 #include "barkbubble.h"
+#include "confirmpopup.h"
 #include "selectoverlay.h"
 
 namespace reone {
@@ -47,6 +49,9 @@ public:
     void render() override;
 
     BarkBubble &barkBubble() const { return *_barkBubble; }
+
+    /** Show the journal icon for a few seconds. */
+    void showJournalNotification();
 
 private:
     struct Controls {
@@ -148,6 +153,8 @@ private:
     SelectionOverlay _select;
     ActionBar _actionBar;
     std::unique_ptr<BarkBubble> _barkBubble;
+    std::unique_ptr<ConfirmPopup> _confirmPopup;
+    Timer _journalNotificationTimer;
 
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;

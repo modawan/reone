@@ -47,6 +47,11 @@ namespace game {
 
 static std::string g_attackIcon("i_attack");
 
+static constexpr float kJournalNotificationDuration = 10.0f;
+
+// "Journal Entry Added", same in K1 and TSL
+static constexpr int kStrRefJournalEntryAdded = 42436;
+
 static void tintK2HUDMenuButton(const std::shared_ptr<Button> &button, const glm::vec3 &baseColor) {
     if (!button) {
         return;
@@ -219,9 +224,29 @@ void HUD::onGUILoaded() {
 
     _barkBubble = std::make_unique<BarkBubble>(_game, _services);
     _barkBubble->init();
+
+    _confirmPopup = std::make_unique<ConfirmPopup>(_game, _services);
+    _confirmPopup->init();
+}
+
+void HUD::showJournalNotification() {
+    if (!_controls.LBL_JOURNAL) {
+        return;
+    }
+    _controls.LBL_JOURNAL->setVisible(true);
+    _journalNotificationTimer.reset(kJournalNotificationDuration);
+
+    if (_confirmPopup) {
+        // Reuse the HUD journal icon texture inside the popup.
+        std::shared_ptr<Texture> icon(_controls.LBL_JOURNAL->border().fill);
+        _confirmPopup->show(_services.resource.strings.getText(kStrRefJournalEntryAdded), std::move(icon));
+    }
 }
 
 bool HUD::handle(const input::Event &event) {
+    if (_confirmPopup->isVisible() && _confirmPopup->handle(event)) {
+        return true;
+    }
     if (_select.handle(event)) {
         return true;
     }
@@ -285,9 +310,19 @@ void HUD::update(float dt) {
         toggleCombat(false);
     }
 
+    if (_controls.LBL_JOURNAL->isVisible()) {
+        _journalNotificationTimer.update(dt);
+        if (_journalNotificationTimer.elapsed()) {
+            _controls.LBL_JOURNAL->setVisible(false);
+        }
+    }
+
     _select.update();
     _actionBar.update();
     _barkBubble->update(dt);
+    if (_confirmPopup->isVisible()) {
+        _confirmPopup->update(dt);
+    }
 
     // Hide minimap when there is no image to display
     _controls.LBL_MAPBORDER->setVisible(_game.map().isLoaded());
@@ -306,6 +341,10 @@ void HUD::render() {
     _barkBubble->render();
     _select.render();
     _actionBar.render();
+
+    if (_confirmPopup->isVisible()) {
+        _confirmPopup->render();
+    }
 }
 
 void HUD::renderMinimap() {
