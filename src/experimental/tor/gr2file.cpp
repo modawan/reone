@@ -496,15 +496,15 @@ void Gr2File::loadModel() {
 }
 
 static string getSkeletonByModel(const string &modelResRef) {
-    if (boost::starts_with(modelResRef, "rancor_rancor_")) return "rancor_skeleton";
+    if (boost::starts_with(modelResRef, "acklay_acklay_")) return "acklay_skeleton";
 
     return "";
 }
 
 static vector<string> getAnimationsBySkeleton(const string &skeletonResRef) {
     vector<string> result;
-    if (skeletonResRef == "rancor_skeleton") {
-        result.push_back("dl_roar");
+    if (skeletonResRef == "acklay_skeleton") {
+        result.push_back("dl_threaten_attack");
     }
     return move(result);
 }
