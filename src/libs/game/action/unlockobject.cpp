@@ -17,13 +17,29 @@
 
 #include "reone/game/action/unlockobject.h"
 
+#include "reone/game/object/door.h"
+#include "reone/game/object/placeable.h"
+
 namespace reone {
 
 namespace game {
 
 void UnlockObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    // TODO: implement
+    if (!_target || _target->isDead()) {
+        complete();
+        return;
+    }
 
+    switch (_target->type()) {
+    case ObjectType::Door:
+        static_cast<Door &>(*_target).setLocked(false);
+        break;
+    case ObjectType::Placeable:
+        static_cast<Placeable &>(*_target).setLocked(false);
+        break;
+    default:
+        break;
+    }
     complete();
 }
 
