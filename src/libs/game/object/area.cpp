@@ -537,6 +537,17 @@ void Area::add(const std::shared_ptr<Object> &object) {
 
     determineObjectRoom(*object);
     attachObjectToSceneGraph(object);
+
+    if (auto door = dyn_cast<Door>(object)) {
+        if ((door->linkedToFlags() == 1 || door->linkedToFlags() == 2) &&
+            !door->linkedToModule().empty() &&
+            !door->linkedTo().empty() &&
+            !door->linkedTransitionGeometry().empty()) {
+            auto trigger = _game.newTrigger(_sceneName);
+            trigger->configureLinkedDoorTransition(door);
+            add(trigger);
+        }
+    }
 }
 
 void Area::attachRoomToSceneGraph(Room &room) {
@@ -611,6 +622,20 @@ void Area::doDestroyObject(uint32_t objectId) {
     if (!object) {
         return;
     }
+
+    if (auto door = dyn_cast<Door>(object)) {
+        std::vector<uint32_t> linkedTriggerIds;
+        for (auto &triggerObject : _objectsByType[ObjectType::Trigger]) {
+            auto trigger = std::static_pointer_cast<Trigger>(triggerObject);
+            if (trigger->detachLinkedDoorTransition(*door)) {
+                linkedTriggerIds.push_back(trigger->id());
+            }
+        }
+        for (auto triggerId : linkedTriggerIds) {
+            doDestroyObject(triggerId);
+        }
+    }
+
     auto room = object->room();
     if (room) {
         room->removeTenant(object.get());
@@ -996,6 +1021,10 @@ void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, 
 
     for (auto &object : _objectsByType[ObjectType::Trigger]) {
         auto trigger = std::static_pointer_cast<Trigger>(object);
+        if (!trigger->isActive()) {
+            trigger->removeTenant(triggerrer.get());
+            continue;
+        }
         bool inside = trigger->isIn(position2d);
         trigger->markDebugTested(inside);
         if (trigger->isTenant(triggerrer) || !inside) {
@@ -1011,6 +1040,10 @@ void Area::checkTriggersIntersection(const std::shared_ptr<Object> &triggerrer, 
                   trigger->tag() %
                   (trigger->getOnEnter().empty() ? std::string("<none>") : trigger->getOnEnter()) %
                   triggerrer->tag()));
+
+        if (transition && !trigger->acceptsTransitionActivator(triggerrer)) {
+            continue;
+        }
         trigger->addTenant(triggerrer);
         trigger->markDebugEntered();
 

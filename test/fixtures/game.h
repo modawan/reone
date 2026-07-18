@@ -42,6 +42,8 @@ namespace reone {
 
 namespace game {
 
+class Game;
+
 class MockCameraStyles : public ICameraStyles, boost::noncopyable {
 public:
     MOCK_METHOD(std::shared_ptr<CameraStyle>, get, (int index), (const override));
@@ -136,6 +138,8 @@ public:
 
 class TestGameModule : boost::noncopyable {
 public:
+    static std::pair<std::string, std::string> scheduledTransition(const Game &game);
+
     void init() {
         _cameraStyles = std::make_unique<MockCameraStyles>();
         _classes = std::make_unique<MockClasses>();

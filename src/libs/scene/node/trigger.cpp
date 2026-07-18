@@ -32,7 +32,7 @@ namespace reone {
 
 namespace scene {
 
-void TriggerSceneNode::init() {
+void TriggerSceneNode::initGeometry() {
     size_t numVertices = _geometry.size();
 
     std::vector<glm::vec3> normals(numVertices + 1, glm::vec3(0.0f));
@@ -94,11 +94,14 @@ void TriggerSceneNode::init() {
         std::move(vertices),
         std::move(vertexLayout),
         std::move(faces));
-    _mesh->init();
 
     for (auto &point : _geometry) {
         _aabb.expand(point);
     }
+}
+
+void TriggerSceneNode::init() {
+    _mesh->init();
 }
 
 void TriggerSceneNode::render(IRenderPass &pass) {

@@ -140,6 +140,12 @@ void Door::loadAppearance() {
     std::shared_ptr<TwoDA> doors(_services.resource.twoDas.get("genericdoors"));
     std::string modelName(boost::to_lower_copy(doors->getString(_genericType, "modelname")));
 
+    _linkedTransitionGeometry.clear();
+    auto walkmeshClosed = _services.resource.walkmeshes.get(modelName + "0", ResType::Dwk);
+    if (walkmeshClosed) {
+        loadLinkedTransitionGeometry(*walkmeshClosed);
+    }
+
     auto model = _services.resource.models.get(modelName);
     if (!model) {
         return;
@@ -151,7 +157,6 @@ void Door::loadAppearance() {
     // modelSceneNode->setDrawDistance(_game.options().graphics.drawDistance);
     _sceneNode = std::move(modelSceneNode);
 
-    auto walkmeshClosed = _services.resource.walkmeshes.get(modelName + "0", ResType::Dwk);
     if (walkmeshClosed) {
         _walkmeshClosed = sceneGraph.newWalkmesh(*walkmeshClosed);
         _walkmeshClosed->setUser(*this);
@@ -170,6 +175,25 @@ void Door::loadAppearance() {
         _walkmeshOpen2->setUser(*this);
         _walkmeshOpen2->setEnabled(false);
     }
+}
+
+void Door::loadLinkedTransitionGeometry(const Walkmesh &walkmesh) {
+    AABB bounds;
+    for (const auto &face : walkmesh.faces()) {
+        for (const auto &vertex : face.vertices) {
+            bounds.expand(vertex);
+        }
+    }
+    if (bounds.isDegenerate() || bounds.min().x == bounds.max().x || bounds.min().y == bounds.max().y) {
+        return;
+    }
+
+    float z = bounds.min().z;
+    _linkedTransitionGeometry = {
+        glm::vec3(bounds.min().x, bounds.min().y, z),
+        glm::vec3(bounds.min().x, bounds.max().y, z),
+        glm::vec3(bounds.max().x, bounds.max().y, z),
+        glm::vec3(bounds.max().x, bounds.min().y, z)};
 }
 
 bool Door::isSelectable() const {

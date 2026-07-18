@@ -46,6 +46,7 @@ public:
             audioSvc,
             resourceSvc),
         _geometry(std::move(geometry)) {
+        initGeometry();
     }
 
     void init();
@@ -62,6 +63,8 @@ private:
     glm::vec4 _debugColor {0.48f, 0.74f, 1.0f, 1.0f};
 
     std::unique_ptr<graphics::Mesh> _mesh;
+
+    void initGeometry();
 };
 
 } // namespace scene

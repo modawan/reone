@@ -365,6 +365,8 @@ public:
     void deserializeInventory(resource::Gff &inventoryGff);
 
 private:
+    friend class TestGameModule;
+
     resource::GameID _gameId;
     std::filesystem::path _path;
     OptionsView &_options;
