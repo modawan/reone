@@ -18,8 +18,11 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <limits>
+
 #include "../fixtures/engine.h"
 
+#include "reone/game/action/unlockobject.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
@@ -150,6 +153,85 @@ TEST(Object, should_move_credits_as_items_when_destination_is_not_in_party) {
     ASSERT_EQ(thug->items().size(), 1);
     EXPECT_EQ(thug->items().front()->tag(), "g_i_credits001");
     EXPECT_TRUE(footlocker->items().empty());
+}
+
+TEST(UnlockObjectAction, should_unlock_plot_nonlockable_door_without_opening_it) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto door = game.newDoor();
+    door->setLocked(true);
+    door->setPlotFlag(true);
+    auto action = game.newAction<UnlockObjectAction>(door);
+
+    action->execute(action, *door, 0.0f);
+
+    EXPECT_FALSE(door->isLocked());
+    EXPECT_FALSE(door->isOpen());
+    EXPECT_TRUE(action->isCompleted());
+}
+
+TEST(UnlockObjectAction, should_unlock_plot_nonlockable_placeable_without_opening_it) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto placeable = game.newPlaceable();
+    placeable->setLocked(true);
+    placeable->setPlotFlag(true);
+    auto action = game.newAction<UnlockObjectAction>(placeable);
+
+    action->execute(action, *placeable, 0.0f);
+
+    EXPECT_FALSE(placeable->isLocked());
+    EXPECT_FALSE(placeable->isOpen());
+    EXPECT_TRUE(action->isCompleted());
+}
+
+TEST(UnlockObjectAction, should_be_idempotent_for_unlocked_supported_targets) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto door = game.newDoor();
+    auto placeable = game.newPlaceable();
+    auto doorAction = game.newAction<UnlockObjectAction>(door);
+    auto placeableAction = game.newAction<UnlockObjectAction>(placeable);
+
+    doorAction->execute(doorAction, *door, 0.0f);
+    placeableAction->execute(placeableAction, *placeable, 0.0f);
+
+    EXPECT_FALSE(door->isLocked());
+    EXPECT_FALSE(door->isOpen());
+    EXPECT_TRUE(doorAction->isCompleted());
+    EXPECT_FALSE(placeable->isLocked());
+    EXPECT_FALSE(placeable->isOpen());
+    EXPECT_TRUE(placeableAction->isCompleted());
+}
+
+TEST(UnlockObjectAction, should_complete_safely_for_missing_destroyed_or_unsupported_target) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto actor = game.newCreature();
+    auto destroyed = game.newPlaceable();
+    destroyed->damage(std::numeric_limits<int>::max(), actor->id());
+    destroyed->setLocked(true);
+
+    auto missingAction = game.newAction<UnlockObjectAction>(std::shared_ptr<Object>());
+    auto destroyedAction = game.newAction<UnlockObjectAction>(destroyed);
+    auto unsupportedAction = game.newAction<UnlockObjectAction>(actor);
+
+    EXPECT_NO_THROW(missingAction->execute(missingAction, *actor, 0.0f));
+    EXPECT_NO_THROW(destroyedAction->execute(destroyedAction, *actor, 0.0f));
+    EXPECT_NO_THROW(unsupportedAction->execute(unsupportedAction, *actor, 0.0f));
+
+    EXPECT_TRUE(missingAction->isCompleted());
+    EXPECT_TRUE(destroyedAction->isCompleted());
+    EXPECT_TRUE(destroyed->isLocked());
+    EXPECT_TRUE(unsupportedAction->isCompleted());
 }
 
 TEST(Party, should_award_xp_to_pool_and_sync_current_members) {
