@@ -19,6 +19,7 @@
 
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/object/door.h"
 #include "reone/game/script/runner.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/gffs.h"
@@ -70,6 +71,22 @@ void Trigger::deserialize(const resource::Gff &gff) {
         }
     }
     deserializeAll(gff);
+    loadAppearance();
+    updateTransform();
+}
+
+void Trigger::configureLinkedDoorTransition(const std::shared_ptr<Door> &door) {
+    _linkedDoor = door;
+    _linkedDoorTransition = true;
+    _linkedToModule = door->linkedToModule();
+    _linkedTo = door->linkedTo();
+    _linkedToFlags = door->linkedToFlags();
+    _transitionDestin = door->transitionDestination();
+    _name = _transitionDestin.str();
+    _geometry = door->linkedTransitionGeometry();
+
+    setPosition(door->position());
+    setFacing(door->getFacing());
     loadAppearance();
     updateTransform();
 }
@@ -144,6 +161,9 @@ void Trigger::deserializeAll(const resource::Gff &gff) {
 void Trigger::loadAppearance() {
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     _sceneNode = sceneGraph.newTrigger(_geometry);
+    if (!_sceneNode) {
+        return;
+    }
     _sceneNode->setLocalTransform(glm::translate(_position));
     syncDebugVisual();
 }
@@ -154,6 +174,12 @@ void Trigger::update(float dt) {
     _debugTestAge = glm::max(0.0f, _debugTestAge - dt);
     _debugInsideAge = glm::max(0.0f, _debugInsideAge - dt);
     _debugEnterAge = glm::max(0.0f, _debugEnterAge - dt);
+
+    if (!isActive()) {
+        _tenants.clear();
+        syncDebugVisual();
+        return;
+    }
 
     std::set<std::shared_ptr<Object>> tenantsToRemove;
     for (auto &tenant : _tenants) {
@@ -206,12 +232,45 @@ void Trigger::removeTenant(const Object *object) {
 }
 
 bool Trigger::isIn(const glm::vec2 &point) const {
-    return static_cast<TriggerSceneNode *>(_sceneNode.get())->isIn(point);
+    auto sceneNode = std::static_pointer_cast<TriggerSceneNode>(_sceneNode);
+    return sceneNode && sceneNode->isIn(point);
 }
 
 bool Trigger::isTenant(const std::shared_ptr<Object> &object) const {
     auto maybeTenant = find(_tenants.begin(), _tenants.end(), object);
     return maybeTenant != _tenants.end();
+}
+
+bool Trigger::isActive() const {
+    if (!_linkedDoorTransition) {
+        return true;
+    }
+    auto door = _linkedDoor.lock();
+    return door && door->isOpen();
+}
+
+bool Trigger::acceptsTransitionActivator(const std::shared_ptr<Object> &activator) const {
+    if (_linkedToModule.empty() || !isActive()) {
+        return false;
+    }
+    if (_linkedDoorTransition && (!activator || activator != _game.party().getLeader())) {
+        return false;
+    }
+    return true;
+}
+
+bool Trigger::detachLinkedDoorTransition(const Door &door) {
+    auto linkedDoor = _linkedDoor.lock();
+    if (!_linkedDoorTransition || linkedDoor.get() != &door) {
+        return false;
+    }
+
+    _linkedDoor.reset();
+    _linkedToModule.clear();
+    _linkedTo.clear();
+    _tenants.clear();
+    syncDebugVisual();
+    return true;
 }
 
 Trigger::DebugState Trigger::debugState() const {

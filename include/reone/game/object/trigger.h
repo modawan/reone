@@ -25,6 +25,8 @@ namespace reone {
 
 namespace game {
 
+class Door;
+
 class Trigger : public Object {
 public:
     enum class DebugState {
@@ -53,6 +55,7 @@ public:
 
     void loadFromBlueprint(const std::string &resRef);
     void deserialize(const resource::Gff &gff);
+    void configureLinkedDoorTransition(const std::shared_ptr<Door> &door);
 
     void update(float dt) override;
 
@@ -66,6 +69,10 @@ public:
 
     bool isIn(const glm::vec2 &point) const;
     bool isTenant(const std::shared_ptr<Object> &object) const;
+    bool isActive() const;
+    bool isLinkedDoorTransition() const { return _linkedDoorTransition; }
+    bool acceptsTransitionActivator(const std::shared_ptr<Object> &activator) const;
+    bool detachLinkedDoorTransition(const Door &door);
 
     const std::vector<glm::vec3> &geometry() const { return _geometry; }
     DebugState debugState() const;
@@ -79,6 +86,8 @@ public:
 
     const std::string &linkedToModule() const { return _linkedToModule; }
     const std::string &linkedTo() const { return _linkedTo; }
+    uint8_t linkedToFlags() const { return _linkedToFlags; }
+    const std::string &transitionDestin() const { return _transitionDestin.str(); }
 
 private:
     // Serializable
@@ -107,6 +116,8 @@ private:
     // END Serializable
 
     std::set<std::shared_ptr<Object>> _tenants;
+    std::weak_ptr<Door> _linkedDoor;
+    bool _linkedDoorTransition {false};
     float _debugTestAge {0.0f};
     float _debugInsideAge {0.0f};
     float _debugEnterAge {0.0f};

@@ -72,7 +72,10 @@ public:
     Faction faction() const { return _faction; }
     const std::string &linkedToModule() const { return _linkedToModule; }
     const std::string &linkedTo() const { return _linkedTo; }
+    uint8_t linkedToFlags() const { return _linkedToFlags; }
     const std::string &transitionDestin() const { return _transitionDestin.str(); }
+    const resource::LocString &transitionDestination() const { return _transitionDestin; }
+    const std::vector<glm::vec3> &linkedTransitionGeometry() const { return _linkedTransitionGeometry; }
 
     void setLocked(bool locked);
 
@@ -141,6 +144,7 @@ private:
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmeshOpen1;
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmeshOpen2;
     std::shared_ptr<scene::WalkmeshSceneNode> _walkmeshClosed;
+    std::vector<glm::vec3> _linkedTransitionGeometry;
 
     // END Walkmeshes
 
@@ -153,6 +157,7 @@ private:
 
     void deserializeAll(const resource::Gff &gff);
     void loadAppearance();
+    void loadLinkedTransitionGeometry(const graphics::Walkmesh &walkmesh);
     void updateTransform() override;
 };
 
