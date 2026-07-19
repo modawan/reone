@@ -117,6 +117,7 @@ public:
         _combat(*this, services),
         _swoopRace(*this),
         _journal(services.resource.gffs, services.resource.strings) {
+        initJournalNotifications();
     }
 
     void init();
@@ -184,6 +185,14 @@ public:
     /** Submit one of vanilla's fixed status-summary categories. */
     void submitStatusSummary(StatusSummaryCategory category, int amount = 0, std::vector<std::string> items = {});
     StatusSummaryAccumulator &statusSummary() { return _statusSummary; }
+
+    int getPlotXP(const std::string &plotName);
+
+    /** Award the whole-number percentage used by the GivePlotXP script routine. */
+    void awardPlotXP(const std::string &plotName, int percentage);
+
+    /** Award an authored DLG/JRL fraction, where 0.2 means twenty percent. */
+    void awardPlotXPByIndex(int plotIndex, float fraction);
 
     Screen currentScreen() const {
         return _screen;
@@ -354,6 +363,7 @@ public:
 
     void setCustomToken(int token, std::string value);
     std::string substituteCustomTokens(std::string str) const;
+    std::string substituteCustomToken(std::string str, int token, std::string value) const;
 
     void setGlobalBoolean(const std::string &name, bool value);
     void setGlobalLocation(const std::string &name, const std::shared_ptr<Location> &location);
@@ -570,6 +580,8 @@ private:
     // Console commands
 
     void initConsole();
+    void initJournalNotifications();
+    int getPlotXPByIndex(int plotIndex);
 
     using ConsoleCommandHandler = void (Game::*)(const ConsoleArgs &);
     void registerConsoleCommand(std::string name, std::string description, ConsoleCommandHandler handler);

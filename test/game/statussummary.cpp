@@ -142,3 +142,112 @@ TEST(StatusSummaryPresentation, acknowledgement_does_not_change_indicator_timer)
     indicator.update(4.0f);
     EXPECT_FALSE(indicator.visible());
 }
+
+TEST(CombinedStatusSummary, xp_only_snapshot_contains_one_plot_xp_category) {
+    StatusSummaryAccumulator accumulator;
+    accumulator.submit(StatusSummaryCategory::PlotXP, 350);
+
+    ASSERT_TRUE(accumulator.beginPresentation());
+
+    ASSERT_EQ(accumulator.displayed()->activeCategories().size(), 1u);
+    EXPECT_EQ(
+        accumulator.displayed()->activeCategories().front(),
+        StatusSummaryCategory::PlotXP);
+    EXPECT_EQ(accumulator.displayed()->entry(StatusSummaryCategory::PlotXP).amount, 350);
+}
+
+TEST(CombinedStatusSummary, journal_then_xp_uses_fixed_category_order) {
+    StatusSummaryAccumulator accumulator;
+    accumulator.submit(StatusSummaryCategory::Journal);
+    accumulator.submit(StatusSummaryCategory::PlotXP, 350);
+
+    EXPECT_EQ(
+        accumulator.pending().activeCategories(),
+        (std::vector<StatusSummaryCategory> {
+            StatusSummaryCategory::Journal,
+            StatusSummaryCategory::PlotXP}));
+}
+
+TEST(CombinedStatusSummary, xp_then_journal_uses_fixed_category_order) {
+    StatusSummaryAccumulator accumulator;
+    accumulator.submit(StatusSummaryCategory::PlotXP, 350);
+    accumulator.submit(StatusSummaryCategory::Journal);
+
+    EXPECT_EQ(
+        accumulator.pending().activeCategories(),
+        (std::vector<StatusSummaryCategory> {
+            StatusSummaryCategory::Journal,
+            StatusSummaryCategory::PlotXP}));
+}
+
+TEST(CombinedStatusSummary, xp_arriving_while_visible_remains_pending) {
+    StatusSummaryAccumulator accumulator;
+    accumulator.submit(StatusSummaryCategory::Journal);
+    ASSERT_TRUE(accumulator.beginPresentation());
+
+    accumulator.submit(StatusSummaryCategory::PlotXP, 350);
+
+    EXPECT_FALSE(accumulator.displayed()->entry(StatusSummaryCategory::PlotXP).active);
+    EXPECT_EQ(accumulator.pending().entry(StatusSummaryCategory::PlotXP).amount, 350);
+    accumulator.acknowledge();
+    ASSERT_TRUE(accumulator.beginPresentation());
+    EXPECT_EQ(accumulator.displayed()->entry(StatusSummaryCategory::PlotXP).amount, 350);
+}
+
+TEST(PlotXPIndicator, plot_xp_and_journal_timers_are_independent) {
+    StatusSummaryIndicator journal;
+    StatusSummaryIndicator plotXP;
+    journal.activate();
+    journal.update(3.0f);
+    plotXP.activate();
+
+    journal.update(1.0f);
+    plotXP.update(1.0f);
+
+    EXPECT_FALSE(journal.visible());
+    EXPECT_TRUE(plotXP.visible());
+    plotXP.update(3.0f);
+    EXPECT_FALSE(plotXP.visible());
+}
+
+TEST(PlotXPIndicator, repeated_plot_xp_award_resets_one_timer) {
+    StatusSummaryIndicator plotXP;
+    plotXP.activate();
+    plotXP.update(3.0f);
+
+    plotXP.activate();
+    plotXP.update(3.0f);
+
+    EXPECT_TRUE(plotXP.visible());
+    plotXP.update(1.0f);
+    EXPECT_FALSE(plotXP.visible());
+}
+
+TEST(PlotXPIndicator, acknowledgement_does_not_clear_plot_xp_or_journal) {
+    StatusSummaryAccumulator accumulator;
+    StatusSummaryIndicator journal;
+    StatusSummaryIndicator plotXP;
+    accumulator.submit(StatusSummaryCategory::Journal);
+    accumulator.submit(StatusSummaryCategory::PlotXP, 350);
+    ASSERT_TRUE(accumulator.beginPresentation());
+    journal.activate();
+    plotXP.activate();
+
+    accumulator.acknowledge();
+
+    EXPECT_TRUE(journal.visible());
+    EXPECT_TRUE(plotXP.visible());
+}
+
+TEST(PlotXPIndicator, reset_clears_both_indicators) {
+    StatusSummaryIndicator journal;
+    StatusSummaryIndicator plotXP;
+    journal.activate();
+    plotXP.activate();
+
+    journal.reset();
+    plotXP.reset();
+
+    EXPECT_FALSE(journal.visible());
+    EXPECT_FALSE(plotXP.visible());
+}

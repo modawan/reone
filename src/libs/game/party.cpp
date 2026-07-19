@@ -123,9 +123,27 @@ void Party::takeGold(int amount) {
     }
 }
 
-void Party::giveXP(int amount) {
+void Party::awardXP(int amount, XPSource source) {
     _xp += amount;
     syncMembersXP();
+    // Preserve zero/negative pool semantics, but only positive awards are XP
+    // received. Submit the call amount once, not the pool total or per member.
+    if (amount <= 0) {
+        return;
+    }
+
+    switch (source) {
+    case XPSource::Plot:
+    case XPSource::Console:
+        _game.submitStatusSummary(StatusSummaryCategory::PlotXP, amount);
+        break;
+    case XPSource::Combat:
+        // Combat rewards are intentionally silent in the Status Summary.
+        break;
+    case XPSource::Stealth:
+        // Stealth accounting and presentation are implemented in a later slice.
+        break;
+    }
 }
 
 void Party::setXP(int xp) {

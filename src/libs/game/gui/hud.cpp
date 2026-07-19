@@ -233,19 +233,32 @@ void HUD::onGUILoaded() {
 }
 
 void HUD::activateStatusSummaryIndicator(StatusSummaryCategory category) {
-    // This slice only connects Journal. The other authored controls remain
-    // hidden until their category submission semantics are implemented.
-    if (category != StatusSummaryCategory::Journal || !_controls.LBL_JOURNAL) {
-        return;
+    switch (category) {
+    case StatusSummaryCategory::Journal:
+        if (_controls.LBL_JOURNAL) {
+            _journalIndicator.activate();
+            _controls.LBL_JOURNAL->setVisible(true);
+        }
+        break;
+    case StatusSummaryCategory::PlotXP:
+        if (_controls.LBL_PLOTXP) {
+            _plotXPIndicator.activate();
+            _controls.LBL_PLOTXP->setVisible(true);
+        }
+        break;
+    default:
+        break;
     }
-    _journalIndicator.activate();
-    _controls.LBL_JOURNAL->setVisible(true);
 }
 
 void HUD::resetStatusSummaryPresentation() {
     _journalIndicator.reset();
+    _plotXPIndicator.reset();
     if (_controls.LBL_JOURNAL) {
         _controls.LBL_JOURNAL->setVisible(false);
+    }
+    if (_controls.LBL_PLOTXP) {
+        _controls.LBL_PLOTXP->setVisible(false);
     }
     if (_statusSummary) {
         _statusSummary->reset();
@@ -328,7 +341,9 @@ void HUD::update(float dt) {
     }
 
     _journalIndicator.update(dt);
+    _plotXPIndicator.update(dt);
     _controls.LBL_JOURNAL->setVisible(_journalIndicator.visible());
+    _controls.LBL_PLOTXP->setVisible(_plotXPIndicator.visible());
 
     _select.update();
     _actionBar.update();

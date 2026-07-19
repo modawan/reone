@@ -158,6 +158,7 @@ private:
     std::unique_ptr<StatusSummary> _statusSummary;
     std::unique_ptr<AreaTransition> _areaTransition;
     StatusSummaryIndicator _journalIndicator;
+    StatusSummaryIndicator _plotXPIndicator;
 
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;

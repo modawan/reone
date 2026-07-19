@@ -183,7 +183,10 @@ void StatusSummary::layoutDisplayedBatch() {
             auto extent = row.descriptionExtent;
             extent.top = target.descriptionExtent.top;
             row.description->setExtent(std::move(extent));
-            row.description->setTextMessage(row.authoredText);
+            row.description->setTextMessage(descriptionText(
+                active[slot],
+                displayed->entry(active[slot]),
+                row.authoredText));
             row.description->setVisible(true);
         }
     }
@@ -198,6 +201,17 @@ void StatusSummary::layoutDisplayedBatch() {
     _ok->setExtent(std::move(okExtent));
     _ok->setVisible(true);
     _gui->rootControl().setExtent(std::move(rootExtent));
+}
+
+std::string StatusSummary::descriptionText(
+    StatusSummaryCategory category,
+    const StatusSummaryEntry &entry,
+    const std::string &authoredText) const {
+
+    if (category == StatusSummaryCategory::PlotXP) {
+        return _game.substituteCustomToken(authoredText, 0, std::to_string(entry.amount));
+    }
+    return authoredText;
 }
 
 } // namespace game

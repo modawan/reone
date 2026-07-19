@@ -58,6 +58,10 @@ private:
     void acknowledge();
     void clearPresentation();
     void layoutDisplayedBatch();
+    std::string descriptionText(
+        StatusSummaryCategory category,
+        const StatusSummaryEntry &entry,
+        const std::string &authoredText) const;
 };
 
 } // namespace game

@@ -227,15 +227,18 @@ void Game::init() {
     setSceneSurfaces();
     setCursorType(CursorType::Default);
 
-    _journal.setOnQuestChanged([this]() {
-        submitStatusSummary(StatusSummaryCategory::Journal);
-    });
-
     _moduleNames = _services.resource.director.moduleNames();
     _saveNames = _services.resource.director.saveNames();
 
     playVideo("legal");
     openMainMenu();
+}
+
+void Game::initJournalNotifications() {
+    _journal.setOnQuestChanged([this](const Journal::EntryChange &change) {
+        submitStatusSummary(StatusSummaryCategory::Journal);
+        awardPlotXPByIndex(change.plotIndex, change.xpPercentage);
+    });
 }
 
 void Game::registerConsoleCommand(std::string name, std::string description, ConsoleCommandHandler handler) {
@@ -1510,7 +1513,10 @@ void Game::setCustomToken(int token, std::string value) {
     _customTokens[token] = std::move(value);
 }
 
-std::string Game::substituteCustomTokens(std::string str) const {
+static std::string substituteCustomTokensFromMap(
+    std::string str,
+    const std::map<int, std::string> &customTokens) {
+
     size_t start = 0;
     while ((start = str.find("<CUSTOM", start)) != std::string::npos) {
         size_t digitsStart = start + 7;
@@ -1529,8 +1535,8 @@ std::string Game::substituteCustomTokens(std::string str) const {
             start = digitsEnd + 1;
             continue;
         }
-        auto it = _customTokens.find(token);
-        if (it == _customTokens.end()) {
+        auto it = customTokens.find(token);
+        if (it == customTokens.end()) {
             start = digitsEnd + 1;
             continue;
         }
@@ -1538,6 +1544,16 @@ std::string Game::substituteCustomTokens(std::string str) const {
         start += it->second.size();
     }
     return str;
+}
+
+std::string Game::substituteCustomTokens(std::string str) const {
+    return substituteCustomTokensFromMap(std::move(str), _customTokens);
+}
+
+std::string Game::substituteCustomToken(std::string str, int token, std::string value) const {
+    auto customTokens = _customTokens;
+    customTokens[token] = std::move(value);
+    return substituteCustomTokensFromMap(std::move(str), customTokens);
 }
 
 void Game::setGlobalBoolean(const std::string &name, bool value) {
@@ -2271,6 +2287,51 @@ void Game::submitStatusSummary(
     }
 }
 
+int Game::getPlotXP(const std::string &plotName) {
+    std::shared_ptr<TwoDA> plotTable(_services.resource.twoDas.get("plot"));
+    if (!plotTable) {
+        return 0;
+    }
+    for (int row = 0; row < plotTable->getRowCount(); ++row) {
+        if (boost::iequals(plotTable->getString(row, "label"), plotName)) {
+            return plotTable->getInt(row, "xp");
+        }
+    }
+    return 0;
+}
+
+int Game::getPlotXPByIndex(int plotIndex) {
+    std::shared_ptr<TwoDA> plotTable(_services.resource.twoDas.get("plot"));
+    if (!plotTable || plotIndex < 0 || plotIndex >= plotTable->getRowCount()) {
+        return 0;
+    }
+    return plotTable->getInt(plotIndex, "xp");
+}
+
+void Game::awardPlotXP(const std::string &plotName, int percentage) {
+    if (plotName.empty() || percentage == 0) {
+        return;
+    }
+    int baseXP = getPlotXP(plotName);
+    if (baseXP == 0) {
+        return;
+    }
+    int amount = static_cast<int>((static_cast<int64_t>(baseXP) * percentage) / 100);
+    _party.awardXP(amount, XPSource::Plot);
+}
+
+void Game::awardPlotXPByIndex(int plotIndex, float fraction) {
+    if (plotIndex < 0 || fraction == 0.0f) {
+        return;
+    }
+    int baseXP = getPlotXPByIndex(plotIndex);
+    if (baseXP == 0) {
+        return;
+    }
+    int amount = static_cast<int>(baseXP * fraction);
+    _party.awardXP(amount, XPSource::Plot);
+}
+
 void Game::onModuleSelected(const std::string &module) {
     _mainMenu->onModuleSelected(module);
 }
@@ -2448,7 +2509,7 @@ void Game::consoleGiveXP(const ConsoleArgs &args) {
     auto creature = getConsoleTargetCreature();
     int amount = args.get<int>(1).value();
     if (_party.isMember(*creature)) {
-        _party.giveXP(amount);
+        _party.awardXP(amount, XPSource::Console);
     } else {
         creature->giveXP(amount);
     }
