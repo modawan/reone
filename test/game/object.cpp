@@ -25,6 +25,8 @@
 #include "reone/game/action/closedoor.h"
 #include "reone/game/action/unlockobject.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/areatransition.h"
+#include "reone/game/gui/hud.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
@@ -53,6 +55,12 @@ class StubConsole : public IConsole, boost::noncopyable {
 public:
     void registerCommand(std::string name, std::string description, CommandHandler handler) override {}
     void printLine(const std::string &text) override {}
+};
+
+class TestAreaTransition : public AreaTransition {
+public:
+    using AreaTransition::AreaTransition;
+    using AreaTransition::preload;
 };
 
 // TestEngine initializes the Logger singleton, which only tolerates a single
@@ -202,7 +210,8 @@ std::shared_ptr<Creature> makeMovingCreature(Game &game, TestEngine &engine) {
 std::shared_ptr<Gff> makeTransitionTriggerGff(
     std::string linkedToModule,
     std::string linkedTo,
-    std::string onEnter = "") {
+    std::string onEnter = "",
+    std::optional<std::string> transitionDestin = std::nullopt) {
 
     std::vector<std::shared_ptr<Gff>> geometry;
     for (const auto &point : std::vector<glm::vec2> {
@@ -226,6 +235,9 @@ std::shared_ptr<Gff> makeTransitionTriggerGff(
         .field(Gff::Field::newList("Geometry", std::move(geometry)));
     if (!onEnter.empty()) {
         builder.field(Gff::Field::newResRef("ScriptOnEnter", std::move(onEnter)));
+    }
+    if (transitionDestin) {
+        builder.field(Gff::Field::newCExoLocString("TransitionDestin", -1, std::move(*transitionDestin)));
     }
     return builder.build();
 }
@@ -402,6 +414,132 @@ TEST(UnlockObjectAction, should_complete_safely_for_missing_destroyed_or_unsuppo
     EXPECT_TRUE(destroyedAction->isCompleted());
     EXPECT_TRUE(destroyed->isLocked());
     EXPECT_TRUE(unsupportedAction->isCompleted());
+}
+
+TEST(TransitionPresentationLifecycle, should_construct_and_destroy_hud_before_gameplay_module_exists) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    ASSERT_EQ(game.module(), nullptr);
+    EXPECT_NO_THROW({
+        auto hud = std::make_unique<HUD>(game, engine.services());
+    });
+}
+
+TEST(TransitionPresentationLifecycle, should_hide_empty_destination_before_gui_controls_are_loaded) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    AreaTransition transition(game, engine.services());
+
+    EXPECT_NO_THROW(transition.show("Destination Area"));
+    ASSERT_TRUE(transition.isVisible());
+
+    EXPECT_NO_THROW(transition.show(""));
+    EXPECT_FALSE(transition.isVisible());
+}
+
+TEST(TransitionPresentationLayout, should_top_anchor_and_horizontally_center_authored_gui) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    TestAreaTransition presentation(game, engine.services());
+    NiceMock<gui::MockGUI> gui;
+
+    EXPECT_CALL(gui, setResolution(640, 480));
+    EXPECT_CALL(gui, setScaling(gui::GUI::ScalingMode::CenterHorizontal));
+
+    presentation.preload(gui);
+}
+
+TEST(TransitionPresentationPortals, should_expose_authored_transitions_without_touching_state) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    testSceneGraph(engine);
+    auto area = game.newArea();
+    auto leader = makeMovingCreature(game, engine);
+    game.party().addMember(kNpcPlayer, leader);
+    game.party().setPlayer(leader);
+
+    auto trigger = game.newTrigger();
+    trigger->deserialize(*makeTransitionTriggerGff(
+        "authored_module",
+        "authored_waypoint",
+        "",
+        "Authored Destination"));
+    trigger->setPosition(glm::vec3(4.0f, 0.0f, 0.0f));
+    area->add(trigger);
+    area->add(leader);
+
+    auto portals = area->transitionPresentationPortals();
+
+    ASSERT_EQ(portals.size(), 1u);
+    EXPECT_EQ(portals[0].objectId, trigger->id());
+    EXPECT_EQ(portals[0].destination, "Authored Destination");
+    ASSERT_EQ(portals[0].points.size(), 4u);
+    EXPECT_NEAR(portals[0].points[0].x, 3.0f, 1e-4f);
+    EXPECT_NEAR(portals[0].points[0].y, -1.0f, 1e-4f);
+
+    // The presentation query is read-only.
+    EXPECT_FALSE(trigger->isTenant(leader));
+    EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()));
+
+    area->destroyObject(*trigger);
+    area->update(0.0f);
+    EXPECT_TRUE(area->transitionPresentationPortals().empty());
+}
+
+TEST(TransitionPresentationPortals, should_follow_linked_door_state_without_teleporting) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    auto door = makeTransitionDoor(game, engine);
+    auto leader = makeMovingCreature(game, engine);
+    game.party().addMember(kNpcPlayer, leader);
+    game.party().setPlayer(leader);
+    area->add(door);
+    area->add(leader);
+
+    EXPECT_TRUE(area->transitionPresentationPortals().empty()) << "closed door must not present";
+
+    door->open();
+    auto portals = area->transitionPresentationPortals();
+
+    ASSERT_EQ(portals.size(), 1u);
+    EXPECT_EQ(portals[0].destination, "Destination Area");
+    EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()))
+        << "opening the door alone must not schedule travel";
+
+    door->close();
+    EXPECT_TRUE(area->transitionPresentationPortals().empty());
+}
+
+TEST(TransitionPresentationPortals, should_ignore_non_transitions_and_expose_empty_destinations) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    testSceneGraph(engine);
+    auto area = game.newArea();
+
+    auto nonTransition = game.newTrigger();
+    nonTransition->deserialize(*makeTransitionTriggerGff("", "", "", "Not a transition"));
+    auto emptyDestination = game.newTrigger();
+    emptyDestination->deserialize(*makeTransitionTriggerGff("empty_module", "empty_waypoint", "", ""));
+    auto missingDestination = game.newTrigger();
+    missingDestination->deserialize(*makeTransitionTriggerGff("missing_module", "missing_waypoint"));
+    area->add(nonTransition);
+    area->add(emptyDestination);
+    area->add(missingDestination);
+
+    auto portals = area->transitionPresentationPortals();
+
+    ASSERT_EQ(portals.size(), 2u);
+    EXPECT_TRUE(portals[0].destination.empty());
+    EXPECT_TRUE(portals[1].destination.empty());
+    EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()));
 }
 
 TEST(LinkedDoorTransition, should_derive_threshold_from_closed_dwk_and_follow_door_state) {

@@ -32,6 +32,7 @@
 #include "reone/game/d20/spells.h"
 #include "reone/game/debug.h"
 #include "reone/game/di/services.h"
+#include "reone/game/gui/hud.h"
 #include "reone/game/gui/sounds.h"
 #include "reone/game/location.h"
 #include "reone/game/party.h"

@@ -25,8 +25,10 @@
 #include "reone/system/timer.h"
 
 #include "../gui.h"
+#include "../transitioncandidate.h"
 
 #include "actionbar.h"
+#include "areatransition.h"
 #include "barkbubble.h"
 #include "confirmpopup.h"
 #include "selectoverlay.h"
@@ -40,7 +42,8 @@ public:
     HUD(Game &game, ServicesView &services) :
         GameGUI(game, services),
         _select(game, services),
-        _actionBar(game, services) {
+        _actionBar(game, services),
+        _areaTransition(nullptr) {
         _resRef = guiResRef("mipc28x6");
     }
 
@@ -154,6 +157,7 @@ private:
     ActionBar _actionBar;
     std::unique_ptr<BarkBubble> _barkBubble;
     std::unique_ptr<ConfirmPopup> _confirmPopup;
+    std::unique_ptr<AreaTransition> _areaTransition;
     Timer _journalNotificationTimer;
 
     void preload(gui::IGUI &gui) override;
@@ -255,6 +259,8 @@ private:
 
     void toggleCombat(bool enabled);
     void refreshActionQueueItems() const;
+    void updateTransitionPresentation();
+    std::optional<TransitionPortal> currentTransitionCandidate() const;
 
     void renderHealth(int memberIndex);
     void renderMinimap();
