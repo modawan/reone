@@ -60,6 +60,14 @@ public:
         return _entryEndCount;
     }
 
+    bool isPaused() const {
+        return _paused;
+    }
+
+    void pickReplyForTest(int index) {
+        pickReply(index);
+    }
+
     void pauseOnFirstEntryLoad() {
         _pauseOnFirstEntryLoad = true;
     }
@@ -272,7 +280,7 @@ TEST_F(ConversationTest, automatic_skip_does_not_bypass_a_paused_entry) {
     autoSkip.enabled = true;
     autoSkip.entries.push(true);
     _conversation->setAutoSkip(&autoSkip);
-    _conversation->pause();
+    _conversation->pauseOnFirstEntryLoad();
 
     _conversation->start(makeDialog(), nullptr);
 
@@ -317,6 +325,51 @@ TEST_F(ConversationTest, entry_pause_then_external_resume_advances_next_entry_on
 
     EXPECT_EQ("second", _conversation->currentText());
     EXPECT_EQ(2, _conversation->entryLoadCount());
+    EXPECT_EQ(1, _conversation->entryEndCount());
+}
+
+TEST_F(ConversationTest, replacing_a_paused_conversation_starts_the_new_session_unpaused) {
+    startSilent();
+    _conversation->pause();
+
+    _conversation->start(makeDialog(), nullptr);
+    EXPECT_FALSE(_conversation->isPaused());
+
+    _conversation->update(1.0f);
+    EXPECT_EQ("second", _conversation->currentText());
+    EXPECT_EQ(3, _conversation->entryLoadCount());
+    EXPECT_EQ(1, _conversation->entryEndCount());
+}
+
+TEST_F(ConversationTest, finishing_a_paused_conversation_does_not_leak_pause_to_the_next_session) {
+    startSilent();
+    _conversation->update(1.0f);
+    _conversation->pause();
+
+    _conversation->pickReplyForTest(0);
+    EXPECT_FALSE(_conversation->isPaused());
+
+    startSilent();
+    _conversation->update(1.0f);
+    _conversation->update(0.0f);
+
+    EXPECT_EQ("second", _conversation->currentText());
+    EXPECT_EQ(4, _conversation->entryLoadCount());
+    EXPECT_EQ(2, _conversation->entryEndCount());
+}
+
+TEST_F(ConversationTest, module_transition_cleanup_clears_pause_before_the_next_session) {
+    startSilent();
+    _conversation->pause();
+
+    _conversation->cleanupForModuleTransition();
+    EXPECT_FALSE(_conversation->isPaused());
+
+    startSilent();
+    _conversation->update(1.0f);
+
+    EXPECT_EQ("second", _conversation->currentText());
+    EXPECT_EQ(3, _conversation->entryLoadCount());
     EXPECT_EQ(1, _conversation->entryEndCount());
 }
 

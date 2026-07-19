@@ -78,6 +78,7 @@ static std::vector<script::Argument> makeScriptArgs(uint32_t callerId, const Par
 void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::shared_ptr<Object> &owner) {
     debug("Start " + dialog->resRef, LogChannel::Conversation);
 
+    _paused = false;
     _dialog = dialog;
     _owner = owner;
 
@@ -181,6 +182,7 @@ void Conversation::applyQuestEntry(const Dialog::EntryReply &node) {
 }
 
 void Conversation::finish() {
+    _paused = false;
     onFinish();
 
     _game.openInGame();
@@ -195,6 +197,7 @@ void Conversation::onFinish() {
 }
 
 void Conversation::cleanupForModuleTransition() {
+    _paused = false;
     if (!_dialog) {
         return;
     }
