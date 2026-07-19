@@ -237,7 +237,7 @@ void Conversation::loadEntry(int index, bool start) {
 
     if (_autoSkip) {
         if (std::optional<bool> skip = _autoSkip->trySkipEntry()) {
-            if (skip.value()) {
+            if (skip.value() && !_paused) {
                 endCurrentEntry();
             }
         }
@@ -429,7 +429,7 @@ void Conversation::update(float dt) {
     GameGUI::update(dt);
     if (!_entryEnded) {
         _endEntryTimer.update(dt);
-        if (_endEntryTimer.elapsed() || (_currentVoice && !_currentVoice->isPlaying())) {
+        if (!_paused && (_endEntryTimer.elapsed() || (_currentVoice && !_currentVoice->isPlaying()))) {
             endCurrentEntry();
         }
     }
