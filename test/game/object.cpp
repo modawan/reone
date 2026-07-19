@@ -27,6 +27,7 @@
 #include "reone/game/game.h"
 #include "reone/game/gui/areatransition.h"
 #include "reone/game/gui/hud.h"
+#include "reone/game/gui/statussummary.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
@@ -44,6 +45,19 @@ using namespace reone;
 using namespace reone::game;
 using namespace reone::resource;
 using namespace testing;
+
+namespace reone::game {
+
+class TestStatusSummary : public StatusSummary {
+public:
+    using StatusSummary::StatusSummary;
+
+    const std::string &resRef() const { return _resRef; }
+    void injectGUI(std::shared_ptr<gui::IGUI> gui) { _gui = std::move(gui); }
+    void setVisible(bool visible) { _visible = visible; }
+};
+
+} // namespace reone::game
 
 std::pair<std::string, std::string> reone::game::TestGameModule::scheduledTransition(const Game &game) {
     return {game._nextModule, game._nextEntry};
@@ -438,6 +452,83 @@ TEST(TransitionPresentationLifecycle, should_hide_empty_destination_before_gui_c
 
     EXPECT_NO_THROW(transition.show(""));
     EXPECT_FALSE(transition.isVisible());
+}
+
+TEST(StatusSummaryPresentation, should_tolerate_controls_not_yet_loaded_and_defer_snapshot) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    StatusSummaryAccumulator accumulator;
+    accumulator.submit(StatusSummaryCategory::Journal);
+    TestStatusSummary summary(game, engine.services(), accumulator);
+
+    EXPECT_FALSE(summary.presentPending());
+    EXPECT_FALSE(summary.isVisible());
+    EXPECT_TRUE(accumulator.pending().entry(StatusSummaryCategory::Journal).active);
+    EXPECT_FALSE(accumulator.displayed());
+}
+
+TEST(StatusSummaryPresentation, should_select_authored_resource_for_each_game) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    StatusSummaryAccumulator k1Accumulator;
+    StatusSummaryAccumulator k2Accumulator;
+    Game k1(GameID::KotOR, "", engine.options(), engine.services(), console);
+    Game k2(GameID::TSL, "", engine.options(), engine.services(), console);
+
+    TestStatusSummary k1Summary(k1, engine.services(), k1Accumulator);
+    TestStatusSummary k2Summary(k2, engine.services(), k2Accumulator);
+
+    EXPECT_EQ(k1Summary.resRef(), "statussummary");
+    EXPECT_EQ(k2Summary.resRef(), "statussummary_p");
+}
+
+TEST(JournalStatusSummary, should_submit_journal_through_game_accumulator) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    game.submitStatusSummary(StatusSummaryCategory::Journal);
+    game.submitStatusSummary(StatusSummaryCategory::Journal);
+
+    auto active = game.statusSummary().pending().activeCategories();
+    ASSERT_EQ(active.size(), 1u);
+    EXPECT_EQ(active.front(), StatusSummaryCategory::Journal);
+}
+
+TEST(StatusSummaryInput, visible_summary_consumes_mouse_down_and_mouse_up) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    StatusSummaryAccumulator accumulator;
+    TestStatusSummary summary(game, engine.services(), accumulator);
+    auto gui = std::make_shared<NiceMock<gui::MockGUI>>();
+    summary.injectGUI(gui);
+    summary.setVisible(true);
+
+    auto down = input::Event::newMouseButtonDown(
+        {input::MouseButton::Left, true, 1, 10, 10});
+    auto up = input::Event::newMouseButtonUp(
+        {input::MouseButton::Left, false, 1, 10, 10});
+    EXPECT_CALL(*gui, handle(_)).Times(2).WillRepeatedly(Return(false));
+
+    EXPECT_TRUE(summary.handle(down));
+    EXPECT_TRUE(summary.handle(up));
+}
+
+TEST(StatusSummaryInput, hidden_summary_does_not_consume_world_input) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    StatusSummaryAccumulator accumulator;
+    TestStatusSummary summary(game, engine.services(), accumulator);
+    auto gui = std::make_shared<NiceMock<gui::MockGUI>>();
+    summary.injectGUI(gui);
+    summary.setVisible(false);
+
+    EXPECT_CALL(*gui, handle(_)).Times(0);
+    EXPECT_FALSE(summary.handle(input::Event::newMouseButtonDown(
+        {input::MouseButton::Left, true, 1, 10, 10})));
 }
 
 TEST(TransitionPresentationLayout, should_top_anchor_and_horizontally_center_authored_gui) {

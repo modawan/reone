@@ -228,9 +228,7 @@ void Game::init() {
     setCursorType(CursorType::Default);
 
     _journal.setOnQuestChanged([this]() {
-        if (_hud) {
-            _hud->showJournalNotification();
-        }
+        submitStatusSummary(StatusSummaryCategory::Journal);
     });
 
     _moduleNames = _services.resource.director.moduleNames();
@@ -571,6 +569,14 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
                 _module->area()->unloadParty();
             }
 
+            // Do not carry a displayed or pending batch, indicator, or GUI
+            // controls across module teardown. OnLoad events below start a new
+            // batch for the destination module.
+            _statusSummary.reset();
+            if (_hud) {
+                _hud->resetStatusSummaryPresentation();
+            }
+
             _services.resource.director.onModuleLoad(name);
 
             if (_loadScreen) {
@@ -656,6 +662,10 @@ void Game::resetGame() {
     _party.reset();
     _combat.reset();
     _journal.reset();
+    _statusSummary.reset();
+    if (_hud) {
+        _hud->resetStatusSummaryPresentation();
+    }
     _module.reset();
     _loadedModules.clear();
 }
@@ -2246,6 +2256,19 @@ GameGUI *Game::getScreenGUI() const {
 
 void Game::setBarkBubbleText(std::string text, float duration) {
     _hud->barkBubble().setBarkText(text, duration);
+}
+
+void Game::submitStatusSummary(
+    StatusSummaryCategory category,
+    int amount,
+    std::vector<std::string> items) {
+
+    // Suppression and the Status Summary preference belong at this single
+    // submission boundary when those vanilla behaviours are implemented.
+    _statusSummary.submit(category, amount, std::move(items));
+    if (_hud) {
+        _hud->activateStatusSummaryIndicator(category);
+    }
 }
 
 void Game::onModuleSelected(const std::string &module) {

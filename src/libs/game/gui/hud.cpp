@@ -17,12 +17,14 @@
 
 #include "reone/game/gui/hud.h"
 
+#include "reone/audio/mixer.h"
 #include "reone/graphics/context.h"
 #include "reone/graphics/mesh.h"
 #include "reone/graphics/meshregistry.h"
 #include "reone/graphics/shaderregistry.h"
 #include "reone/graphics/uniforms.h"
 #include "reone/gui/control/label.h"
+#include "reone/resource/provider/audioclips.h"
 #include "reone/system/logutil.h"
 
 #include "reone/game/action/castspellatobject.h"
@@ -49,11 +51,6 @@ namespace reone {
 namespace game {
 
 static std::string g_attackIcon("i_attack");
-
-static constexpr float kJournalNotificationDuration = 10.0f;
-
-// "Journal Entry Added", same in K1 and TSL
-static constexpr int kStrRefJournalEntryAdded = 42436;
 
 static void tintK2HUDMenuButton(const std::shared_ptr<Button> &button, const glm::vec3 &baseColor) {
     if (!button) {
@@ -228,30 +225,36 @@ void HUD::onGUILoaded() {
     _barkBubble = std::make_unique<BarkBubble>(_game, _services);
     _barkBubble->init();
 
-    _confirmPopup = std::make_unique<ConfirmPopup>(_game, _services);
-    _confirmPopup->init();
+    _statusSummary = std::make_unique<StatusSummary>(_game, _services, _game.statusSummary());
+    _statusSummary->init();
 
     _areaTransition = std::make_unique<AreaTransition>(_game, _services);
     _areaTransition->init();
 }
 
-void HUD::showJournalNotification() {
-    if (!_controls.LBL_JOURNAL) {
+void HUD::activateStatusSummaryIndicator(StatusSummaryCategory category) {
+    // This slice only connects Journal. The other authored controls remain
+    // hidden until their category submission semantics are implemented.
+    if (category != StatusSummaryCategory::Journal || !_controls.LBL_JOURNAL) {
         return;
     }
+    _journalIndicator.activate();
     _controls.LBL_JOURNAL->setVisible(true);
-    _journalNotificationTimer.reset(kJournalNotificationDuration);
+}
 
-    if (_confirmPopup) {
-        // Reuse the HUD journal icon texture inside the popup.
-        std::shared_ptr<Texture> icon(_controls.LBL_JOURNAL->border().fill);
-        _confirmPopup->show(_services.resource.strings.getText(kStrRefJournalEntryAdded), std::move(icon));
+void HUD::resetStatusSummaryPresentation() {
+    _journalIndicator.reset();
+    if (_controls.LBL_JOURNAL) {
+        _controls.LBL_JOURNAL->setVisible(false);
+    }
+    if (_statusSummary) {
+        _statusSummary->reset();
     }
 }
 
 bool HUD::handle(const input::Event &event) {
-    if (_confirmPopup->isVisible() && _confirmPopup->handle(event)) {
-        return true;
+    if (_statusSummary && _statusSummary->isVisible()) {
+        return _statusSummary->handle(event);
     }
     if (_select.handle(event)) {
         return true;
@@ -261,6 +264,14 @@ bool HUD::handle(const input::Event &event) {
 
 void HUD::update(float dt) {
     _gui->update(dt);
+
+    // Module/script work is updated before the HUD. Snapshotting here gives
+    // all status events in that batch one deterministic coalescing boundary,
+    // without a user-visible timer or synchronous popup from the mutation.
+    if (_statusSummary && _statusSummary->presentPending()) {
+        auto clip = _services.resource.audioClips.get("gui_quest");
+        _audioSource = _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+    }
 
     Party &party = _game.party();
     std::vector<Label *> charLabels {
@@ -316,19 +327,15 @@ void HUD::update(float dt) {
         toggleCombat(false);
     }
 
-    if (_controls.LBL_JOURNAL->isVisible()) {
-        _journalNotificationTimer.update(dt);
-        if (_journalNotificationTimer.elapsed()) {
-            _controls.LBL_JOURNAL->setVisible(false);
-        }
-    }
+    _journalIndicator.update(dt);
+    _controls.LBL_JOURNAL->setVisible(_journalIndicator.visible());
 
     _select.update();
     _actionBar.update();
     updateTransitionPresentation();
     _barkBubble->update(dt);
-    if (_confirmPopup->isVisible()) {
-        _confirmPopup->update(dt);
+    if (_statusSummary && _statusSummary->isVisible()) {
+        _statusSummary->update(dt);
     }
 
     // Hide minimap when there is no image to display
@@ -390,8 +397,8 @@ void HUD::render() {
     _select.render();
     _actionBar.render();
 
-    if (_confirmPopup->isVisible()) {
-        _confirmPopup->render();
+    if (_statusSummary && _statusSummary->isVisible()) {
+        _statusSummary->render();
     }
 }
 

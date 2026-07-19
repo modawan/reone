@@ -64,6 +64,7 @@
 #include "party.h"
 #include "script/runner.h"
 #include "swooprace.h"
+#include "statussummary.h"
 #include "talent.h"
 
 #include <queue>
@@ -179,6 +180,10 @@ public:
     void resumeConversation();
 
     void setBarkBubbleText(std::string text, float durartion);
+
+    /** Submit one of vanilla's fixed status-summary categories. */
+    void submitStatusSummary(StatusSummaryCategory category, int amount = 0, std::vector<std::string> items = {});
+    StatusSummaryAccumulator &statusSummary() { return _statusSummary; }
 
     Screen currentScreen() const {
         return _screen;
@@ -422,6 +427,7 @@ private:
     Combat _combat;
     SwoopRace _swoopRace;
     Journal _journal;
+    StatusSummaryAccumulator _statusSummary;
 
     std::unique_ptr<script::IRoutines> _routines;
     std::unique_ptr<ScriptRunner> _scriptRunner;

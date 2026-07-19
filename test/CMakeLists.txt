@@ -43,6 +43,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/messagebus.cpp
     ${TESTS_SOURCE_DIR}/game/object.cpp
     ${TESTS_SOURCE_DIR}/game/pathfinder.cpp
+    ${TESTS_SOURCE_DIR}/game/statussummary.cpp
     ${TESTS_SOURCE_DIR}/game/transitioncandidate.cpp
     ${TESTS_SOURCE_DIR}/graphics/aabb.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/bwmreader.cpp
