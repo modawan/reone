@@ -33,6 +33,9 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/area.h"
+#include "reone/game/object/camera.h"
+#include "reone/game/object/module.h"
 #include "reone/game/party.h"
 
 using namespace reone::audio;
@@ -227,6 +230,9 @@ void HUD::onGUILoaded() {
 
     _confirmPopup = std::make_unique<ConfirmPopup>(_game, _services);
     _confirmPopup->init();
+
+    _areaTransition = std::make_unique<AreaTransition>(_game, _services);
+    _areaTransition->init();
 }
 
 void HUD::showJournalNotification() {
@@ -319,6 +325,7 @@ void HUD::update(float dt) {
 
     _select.update();
     _actionBar.update();
+    updateTransitionPresentation();
     _barkBubble->update(dt);
     if (_confirmPopup->isVisible()) {
         _confirmPopup->update(dt);
@@ -326,6 +333,44 @@ void HUD::update(float dt) {
 
     // Hide minimap when there is no image to display
     _controls.LBL_MAPBORDER->setVisible(_game.map().isLoaded());
+}
+
+void HUD::updateTransitionPresentation() {
+    if (!_areaTransition) {
+        return;
+    }
+    auto candidate = currentTransitionCandidate();
+    if (candidate) {
+        _areaTransition->show(candidate->destination);
+    } else {
+        _areaTransition->hide();
+    }
+}
+
+std::optional<TransitionPortal> HUD::currentTransitionCandidate() const {
+    auto module = _game.module();
+    if (!module || !module->area()) {
+        return std::nullopt;
+    }
+    auto leader = _game.party().getLeader();
+    if (!leader) {
+        return std::nullopt;
+    }
+    auto camera = _game.getActiveCamera();
+    if (!camera) {
+        return std::nullopt;
+    }
+    auto cameraSceneNode = camera->cameraSceneNode();
+    if (!cameraSceneNode || !cameraSceneNode->camera()) {
+        return std::nullopt;
+    }
+    auto &graphicsCamera = *cameraSceneNode->camera();
+
+    TransitionView view;
+    view.leaderPosition = leader->position();
+    view.cameraViewProjection = graphicsCamera.projection() * graphicsCamera.view();
+
+    return pickTransitionPortal(module->area()->transitionPresentationPortals(), view);
 }
 
 void HUD::render() {
@@ -339,6 +384,9 @@ void HUD::render() {
     }
 
     _barkBubble->render();
+    if (_areaTransition && _areaTransition->isVisible()) {
+        _areaTransition->render();
+    }
     _select.render();
     _actionBar.render();
 

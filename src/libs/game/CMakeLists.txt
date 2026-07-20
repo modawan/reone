@@ -188,6 +188,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui.h
     ${GAME_INCLUDE_DIR}/gui/actionbar.h
     ${GAME_INCLUDE_DIR}/gui/actionslot.h
+    ${GAME_INCLUDE_DIR}/gui/areatransition.h
     ${GAME_INCLUDE_DIR}/gui/barkbubble.h
     ${GAME_INCLUDE_DIR}/gui/chargen.h
     ${GAME_INCLUDE_DIR}/gui/chargen/abilities.h
@@ -329,6 +330,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/surfaces.h
     ${GAME_INCLUDE_DIR}/swooprace.h
     ${GAME_INCLUDE_DIR}/talent.h
+    ${GAME_INCLUDE_DIR}/transitioncandidate.h
     ${GAME_INCLUDE_DIR}/types.h
     ${GAME_INCLUDE_DIR}/visualeffects.h)
 
@@ -462,6 +464,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/itemdescription.cpp
     ${GAME_SOURCE_DIR}/gui/actionbar.cpp
     ${GAME_SOURCE_DIR}/gui/actionslot.cpp
+    ${GAME_SOURCE_DIR}/gui/areatransition.cpp
     ${GAME_SOURCE_DIR}/gui/barkbubble.cpp
     ${GAME_SOURCE_DIR}/gui/chargen/abilities.cpp
     ${GAME_SOURCE_DIR}/gui/chargen/classselect.cpp
@@ -533,6 +536,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/script/runner.cpp
     ${GAME_SOURCE_DIR}/surfaces.cpp
     ${GAME_SOURCE_DIR}/swooprace.cpp
+    ${GAME_SOURCE_DIR}/transitioncandidate.cpp
     ${GAME_SOURCE_DIR}/visualeffects.cpp)
 
 add_library(game STATIC ${GAME_HEADERS} ${GAME_SOURCES} ${CLANG_FORMAT_PATH})

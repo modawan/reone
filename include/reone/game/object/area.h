@@ -19,6 +19,7 @@
 
 #include "reone/game/messagebus.h"
 #include "reone/game/minigame.h"
+#include "reone/game/transitioncandidate.h"
 #include "reone/graphics/texture.h"
 #include "reone/graphics/types.h"
 #include "reone/input/event.h"
@@ -47,6 +48,7 @@ class Creature;
 class Location;
 class Object;
 class Room;
+class Trigger;
 
 using RoomMap = std::unordered_map<std::string, std::shared_ptr<Room>>;
 using ObjectList = std::vector<std::shared_ptr<Object>>;
@@ -102,6 +104,10 @@ public:
     const MinigameSpec &miniGame() const { return *_miniGameSpec; }
 
     Object *getObjectAt(int x, int y) const;
+
+    // Presentation-active module transitions, for the destination banner.
+    // Read-only: no tenants, scripts or transitions are touched.
+    std::vector<TransitionPortal> transitionPresentationPortals() const;
     glm::vec3 getSelectableScreenCoords(const std::shared_ptr<Object> &object, const glm::mat4 &projection, const glm::mat4 &view) const;
 
     const CameraStyle &camStyleDefault() const { return _camStyleDefault; }

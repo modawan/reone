@@ -50,6 +50,7 @@ class IGUI {
 public:
     enum class ScalingMode {
         Center,
+        CenterHorizontal,
         PositionRelativeToCenter,
         Stretch
     };

@@ -68,6 +68,9 @@ void GUI::load(const Gff &gui) {
         _rootOffset.x = _screenCenter.x - _resolutionX / 2;
         _rootOffset.y = _screenCenter.y - _resolutionY / 2;
         break;
+    case ScalingMode::CenterHorizontal:
+        _rootOffset.x = _screenCenter.x - _resolutionX / 2;
+        break;
     case ScalingMode::Stretch:
         stretchControl(*_rootControl);
         break;
