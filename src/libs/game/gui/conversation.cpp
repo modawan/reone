@@ -76,6 +76,9 @@ static std::vector<script::Argument> makeScriptArgs(uint32_t callerId, const Par
 }
 
 void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::shared_ptr<Object> &owner) {
+    if (_dialog) {
+        onFinish();
+    }
     debug("Start " + dialog->resRef, LogChannel::Conversation);
 
     _dialog = dialog;

@@ -159,7 +159,8 @@ public:
 
     void playAnimation(CombatAnimation anim, CreatureWieldType wield, int variant = 1);
     void playAnimation(const std::string &name, scene::AnimationProperties properties = scene::AnimationProperties());
-    void playAnimation(const std::shared_ptr<graphics::Animation> &anim, scene::AnimationProperties properties = scene::AnimationProperties());
+    bool playAnimation(const std::shared_ptr<graphics::Animation> &anim, scene::AnimationProperties properties = scene::AnimationProperties());
+    void resumeStateDrivenAnimation();
 
     void updateModelAnimation();
 
@@ -399,7 +400,7 @@ private:
 
     // Animation
 
-    void doPlayAnimation(bool fireForget, const std::function<void()> &callback);
+    bool doPlayAnimation(bool fireForget, const std::function<void()> &callback);
 
     std::string getAnimationName(AnimationType anim) const override;
     std::string getAnimationName(CombatAnimation anim, CreatureWieldType wield, int variant) const;

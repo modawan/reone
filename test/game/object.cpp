@@ -26,6 +26,7 @@
 #include "reone/game/action/unlockobject.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/areatransition.h"
+#include "reone/game/gui/conversation.h"
 #include "reone/game/gui/hud.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
@@ -61,6 +62,22 @@ class TestAreaTransition : public AreaTransition {
 public:
     using AreaTransition::AreaTransition;
     using AreaTransition::preload;
+};
+
+class TestConversation : public Conversation {
+public:
+    using Conversation::Conversation;
+
+    int startCount {0};
+    int finishCount {0};
+    int entryCount {0};
+
+private:
+    void loadEntry(int, bool) override { ++entryCount; }
+    void setReplyLines(std::vector<std::string>) override {}
+    void setMessage(std::string) override {}
+    void onStart() override { ++startCount; }
+    void onFinish() override { ++finishCount; }
 };
 
 // TestEngine initializes the Logger singleton, which only tolerates a single
@@ -281,6 +298,24 @@ std::shared_ptr<Item> makeItem(Game &game, std::string tag, int baseItem, int st
 }
 
 } // namespace
+
+TEST(Conversation, should_finish_active_presentation_before_starting_replacement) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    TestConversation conversation(game, engine.services());
+    auto first = std::make_shared<Dialog>();
+    auto second = std::make_shared<Dialog>();
+    first->startEntries.push_back(Dialog::EntryReplyLink {});
+    second->startEntries.push_back(Dialog::EntryReplyLink {});
+
+    conversation.start(first, nullptr);
+    conversation.start(second, nullptr);
+
+    EXPECT_EQ(conversation.startCount, 2);
+    EXPECT_EQ(conversation.entryCount, 2);
+    EXPECT_EQ(conversation.finishCount, 1);
+}
 
 TEST(Object, should_convert_credits_to_party_gold_when_looted_by_party_member) {
     TestEngine &engine = testEngine();

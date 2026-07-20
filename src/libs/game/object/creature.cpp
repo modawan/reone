@@ -342,26 +342,34 @@ void Creature::playAnimation(const std::string &name, AnimationProperties proper
     });
 }
 
-void Creature::doPlayAnimation(bool fireForget, const std::function<void()> &callback) {
-    if (!_sceneNode || _movementType != MovementType::None)
-        return;
+bool Creature::doPlayAnimation(bool fireForget, const std::function<void()> &callback) {
+    if (!_sceneNode || _movementType != MovementType::None) {
+        return false;
+    }
 
     callback();
 
     if (fireForget) {
         _animFireForget = true;
     }
+    return true;
 }
 
-void Creature::playAnimation(const std::shared_ptr<Animation> &anim, AnimationProperties properties) {
+bool Creature::playAnimation(const std::shared_ptr<Animation> &anim, AnimationProperties properties) {
     bool fireForget = !(properties.flags & AnimationFlags::loop);
 
-    doPlayAnimation(fireForget, [&]() {
+    return doPlayAnimation(fireForget, [&]() {
         auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
         if (model) {
             model->playAnimation(*anim, nullptr, properties);
         }
     });
+}
+
+void Creature::resumeStateDrivenAnimation() {
+    _animFireForget = false;
+    _animDirty = true;
+    updateModelAnimation();
 }
 
 void Creature::playAnimation(CombatAnimation anim, CreatureWieldType wield, int variant) {
