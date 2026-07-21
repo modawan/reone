@@ -131,4 +131,8 @@ private:
     std::unique_ptr<game::ServicesView> _services;
 };
 
+// TestEngine initializes the Logger singleton, which only tolerates a single
+// init per process.
+TestEngine &testEngine();
+
 } // namespace reone
