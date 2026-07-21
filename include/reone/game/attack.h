@@ -197,6 +197,8 @@ public:
      */
     void reset();
 
+    bool empty() const { return _projectiles.empty(); }
+
 private:
     TimeEvents _events;
     SmallVector<Projectile, 16> _projectiles;
