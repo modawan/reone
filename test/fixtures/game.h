@@ -38,6 +38,8 @@
 #include "reone/game/types.h"
 #include "reone/game/visualeffects.h"
 
+#include "reone/game/console.h"
+
 namespace reone {
 
 namespace game {
@@ -175,6 +177,8 @@ public:
         return *_services;
     }
 
+    MockSpells &spells() { return *_spells; }
+
 private:
     std::unique_ptr<MockCameraStyles> _cameraStyles;
     std::unique_ptr<MockClasses> _classes;
@@ -191,6 +195,12 @@ private:
     std::unique_ptr<MockVisualEffects> _visualEffects;
 
     std::unique_ptr<GameServices> _services;
+};
+
+class StubConsole : public IConsole, boost::noncopyable {
+public:
+    void registerCommand(std::string name, std::string description, CommandHandler handler) override {}
+    void printLine(const std::string &text) override {}
 };
 
 } // namespace game

@@ -88,29 +88,11 @@ std::pair<std::string, std::string> reone::game::TestGameModule::scheduledTransi
 
 namespace {
 
-class StubConsole : public IConsole, boost::noncopyable {
-public:
-    void registerCommand(std::string name, std::string description, CommandHandler handler) override {}
-    void printLine(const std::string &text) override {}
-};
-
 class TestAreaTransition : public AreaTransition {
 public:
     using AreaTransition::AreaTransition;
     using AreaTransition::preload;
 };
-
-// TestEngine initializes the Logger singleton, which only tolerates a single
-// init per process.
-TestEngine &testEngine() {
-    static TestEngine engine;
-    static bool initialized = false;
-    if (!initialized) {
-        engine.init();
-        initialized = true;
-    }
-    return engine;
-}
 
 std::pair<std::string, std::string> scheduledTransition(TestEngine &engine, const Game &game) {
     return engine.gameModule().scheduledTransition(game);

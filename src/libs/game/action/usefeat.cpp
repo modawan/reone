@@ -210,16 +210,18 @@ void UseFeatAction::execute(std::shared_ptr<Action> self, Object &actor, float d
     }
 
     // Projectiles
-    switch (state) {
-    case AttackSchedule::Damage:
-    case AttackSchedule::WaitDamage:
-    case AttackSchedule::WaitFinish: {
-        auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
-        _projectiles.update(dt, attacker, *_target, sceneGraph);
-        break;
-    }
-    default:
-        break;
+    if (!_projectiles.empty()) {
+        switch (state) {
+        case AttackSchedule::Damage:
+        case AttackSchedule::WaitDamage:
+        case AttackSchedule::WaitFinish: {
+            auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
+            _projectiles.update(dt, attacker, *_target, sceneGraph);
+            break;
+        }
+        default:
+            break;
+        }
     }
 }
 
