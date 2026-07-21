@@ -116,7 +116,20 @@ static int getWeaponAttackBonus(const Creature &attacker, const Item &weapon) {
     return modifier + effects - penalty;
 }
 
+static bool hasAssuredHitEffect(const Creature &attacker) {
+    for (auto &effect : attacker.effects()) {
+        if (effect.effect->type() == EffectType::AssuredHit) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static AttackResultType computeAttack(const Creature &attacker, const Object &target, int rollBonus, int threatBonus) {
+    if (hasAssuredHitEffect(attacker)) {
+        return AttackResultType::AutomaticHit;
+    }
+
     // Determine defense of a target
     int defense;
     if (const auto *creature = dyn_cast<Creature>(&target)) {
