@@ -30,17 +30,23 @@ public:
         Action(game, services, ActionType::UseTalentOnObject),
         _chosenTalent(std::move(chosenTalent)),
         _target(std::move(target)) {
+
+        dispatchToAction();
     }
 
     static bool classof(Action *from) {
         return from->type() == ActionType::UseTalentOnObject;
     }
 
+    void dispatchToAction();
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+
+    const std::shared_ptr<Action> &subAction() const { return _action; }
 
 private:
     std::shared_ptr<Talent> _chosenTalent;
     std::shared_ptr<Object> _target;
+    std::shared_ptr<Action> _action;
 };
 
 } // namespace game

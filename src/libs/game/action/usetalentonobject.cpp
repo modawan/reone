@@ -16,15 +16,48 @@
  */
 
 #include "reone/game/action/usetalentonobject.h"
+#include "reone/game/action/castspellatobject.h"
+#include "reone/game/action/usefeat.h"
+#include "reone/game/game.h"
 
 namespace reone {
 
 namespace game {
 
-void UseTalentOnObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    // TODO: implement
+void UseTalentOnObjectAction::dispatchToAction() {
+    assert(!_action && "dispatchToAction is called twice");
+    switch (_chosenTalent->type()) {
+    case TalentType::Feat: {
+        _action = _game.newAction<UseFeatAction>(
+            static_cast<FeatType>(_chosenTalent->value()),
+            _target);
+        break;
+    }
+    case TalentType::Spell: {
+        auto spell = _services.game.spells.get(static_cast<SpellType>(_chosenTalent->value()));
+        if (!spell) {
+            return;
+        }
+        _action = _game.newAction<CastSpellAtObjectAction>(
+            std::move(spell), _target, /*item=*/std::nullopt, /*cheat=*/false);
+        break;
+    }
+    default:
+        break;
+    }
+}
 
-    complete();
+void UseTalentOnObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    if (!_action) {
+        complete();
+        return;
+    }
+
+    _action->execute(_action, actor, dt);
+
+    if (_action->isCompleted()) {
+        complete();
+    }
 }
 
 } // namespace game
