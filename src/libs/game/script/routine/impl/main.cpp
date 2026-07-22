@@ -4294,7 +4294,14 @@ static Variable GetNumStackedItems(const std::vector<Variable> &args, const Rout
 
 static Variable SurrenderToEnemies(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SurrenderToEnemies");
+
+    // The caller is supposed to be neutral to all other creatures. Invalid
+    // faction is effectively neutral to all other factions, regardless of
+    // the table in reputes.2da.
+    if (auto caller = dyn_cast<Creature>(getCaller(ctx))) {
+        caller->setFaction(Faction::Invalid);
+    }
+    return Variable::ofNull();
 }
 
 static Variable SetCurrentStealthXP(const std::vector<Variable> &args, const RoutineContext &ctx) {
