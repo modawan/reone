@@ -22,14 +22,15 @@
 #include "reone/gui/control/progressbar.h"
 #include "reone/gui/control/togglebutton.h"
 #include "reone/resource/types.h"
-#include "reone/system/timer.h"
 
 #include "../gui.h"
+#include "../transitioncandidate.h"
 
 #include "actionbar.h"
+#include "areatransition.h"
 #include "barkbubble.h"
-#include "confirmpopup.h"
 #include "selectoverlay.h"
+#include "statussummary.h"
 
 namespace reone {
 
@@ -40,7 +41,8 @@ public:
     HUD(Game &game, ServicesView &services) :
         GameGUI(game, services),
         _select(game, services),
-        _actionBar(game, services) {
+        _actionBar(game, services),
+        _areaTransition(nullptr) {
         _resRef = guiResRef("mipc28x6");
     }
 
@@ -50,8 +52,8 @@ public:
 
     BarkBubble &barkBubble() const { return *_barkBubble; }
 
-    /** Show the journal icon for a few seconds. */
-    void showJournalNotification();
+    void activateStatusSummaryIndicator(StatusSummaryCategory category);
+    void resetStatusSummaryPresentation();
 
 private:
     struct Controls {
@@ -153,8 +155,10 @@ private:
     SelectionOverlay _select;
     ActionBar _actionBar;
     std::unique_ptr<BarkBubble> _barkBubble;
-    std::unique_ptr<ConfirmPopup> _confirmPopup;
-    Timer _journalNotificationTimer;
+    std::unique_ptr<StatusSummary> _statusSummary;
+    std::unique_ptr<AreaTransition> _areaTransition;
+    StatusSummaryIndicator _journalIndicator;
+    StatusSummaryIndicator _plotXPIndicator;
 
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;
@@ -255,6 +259,8 @@ private:
 
     void toggleCombat(bool enabled);
     void refreshActionQueueItems() const;
+    void updateTransitionPresentation();
+    std::optional<TransitionPortal> currentTransitionCandidate() const;
 
     void renderHealth(int memberIndex);
     void renderMinimap();

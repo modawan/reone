@@ -17,12 +17,14 @@
 
 #include "reone/game/gui/hud.h"
 
+#include "reone/audio/mixer.h"
 #include "reone/graphics/context.h"
 #include "reone/graphics/mesh.h"
 #include "reone/graphics/meshregistry.h"
 #include "reone/graphics/shaderregistry.h"
 #include "reone/graphics/uniforms.h"
 #include "reone/gui/control/label.h"
+#include "reone/resource/provider/audioclips.h"
 #include "reone/system/logutil.h"
 
 #include "reone/game/action/castspellatobject.h"
@@ -33,6 +35,9 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/area.h"
+#include "reone/game/object/camera.h"
+#include "reone/game/object/module.h"
 #include "reone/game/party.h"
 
 using namespace reone::audio;
@@ -46,11 +51,6 @@ namespace reone {
 namespace game {
 
 static std::string g_attackIcon("i_attack");
-
-static constexpr float kJournalNotificationDuration = 10.0f;
-
-// "Journal Entry Added", same in K1 and TSL
-static constexpr int kStrRefJournalEntryAdded = 42436;
 
 static void tintK2HUDMenuButton(const std::shared_ptr<Button> &button, const glm::vec3 &baseColor) {
     if (!button) {
@@ -225,27 +225,49 @@ void HUD::onGUILoaded() {
     _barkBubble = std::make_unique<BarkBubble>(_game, _services);
     _barkBubble->init();
 
-    _confirmPopup = std::make_unique<ConfirmPopup>(_game, _services);
-    _confirmPopup->init();
+    _statusSummary = std::make_unique<StatusSummary>(_game, _services, _game.statusSummary());
+    _statusSummary->init();
+
+    _areaTransition = std::make_unique<AreaTransition>(_game, _services);
+    _areaTransition->init();
 }
 
-void HUD::showJournalNotification() {
-    if (!_controls.LBL_JOURNAL) {
-        return;
+void HUD::activateStatusSummaryIndicator(StatusSummaryCategory category) {
+    switch (category) {
+    case StatusSummaryCategory::Journal:
+        if (_controls.LBL_JOURNAL) {
+            _journalIndicator.activate();
+            _controls.LBL_JOURNAL->setVisible(true);
+        }
+        break;
+    case StatusSummaryCategory::PlotXP:
+        if (_controls.LBL_PLOTXP) {
+            _plotXPIndicator.activate();
+            _controls.LBL_PLOTXP->setVisible(true);
+        }
+        break;
+    default:
+        break;
     }
-    _controls.LBL_JOURNAL->setVisible(true);
-    _journalNotificationTimer.reset(kJournalNotificationDuration);
+}
 
-    if (_confirmPopup) {
-        // Reuse the HUD journal icon texture inside the popup.
-        std::shared_ptr<Texture> icon(_controls.LBL_JOURNAL->border().fill);
-        _confirmPopup->show(_services.resource.strings.getText(kStrRefJournalEntryAdded), std::move(icon));
+void HUD::resetStatusSummaryPresentation() {
+    _journalIndicator.reset();
+    _plotXPIndicator.reset();
+    if (_controls.LBL_JOURNAL) {
+        _controls.LBL_JOURNAL->setVisible(false);
+    }
+    if (_controls.LBL_PLOTXP) {
+        _controls.LBL_PLOTXP->setVisible(false);
+    }
+    if (_statusSummary) {
+        _statusSummary->reset();
     }
 }
 
 bool HUD::handle(const input::Event &event) {
-    if (_confirmPopup->isVisible() && _confirmPopup->handle(event)) {
-        return true;
+    if (_statusSummary && _statusSummary->isVisible()) {
+        return _statusSummary->handle(event);
     }
     if (_select.handle(event)) {
         return true;
@@ -255,6 +277,14 @@ bool HUD::handle(const input::Event &event) {
 
 void HUD::update(float dt) {
     _gui->update(dt);
+
+    // Module/script work is updated before the HUD. Snapshotting here gives
+    // all status events in that batch one deterministic coalescing boundary,
+    // without a user-visible timer or synchronous popup from the mutation.
+    if (_statusSummary && _statusSummary->presentPending()) {
+        auto clip = _services.resource.audioClips.get("gui_quest");
+        _audioSource = _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+    }
 
     Party &party = _game.party();
     std::vector<Label *> charLabels {
@@ -310,22 +340,59 @@ void HUD::update(float dt) {
         toggleCombat(false);
     }
 
-    if (_controls.LBL_JOURNAL->isVisible()) {
-        _journalNotificationTimer.update(dt);
-        if (_journalNotificationTimer.elapsed()) {
-            _controls.LBL_JOURNAL->setVisible(false);
-        }
-    }
+    _journalIndicator.update(dt);
+    _plotXPIndicator.update(dt);
+    _controls.LBL_JOURNAL->setVisible(_journalIndicator.visible());
+    _controls.LBL_PLOTXP->setVisible(_plotXPIndicator.visible());
 
     _select.update();
     _actionBar.update();
+    updateTransitionPresentation();
     _barkBubble->update(dt);
-    if (_confirmPopup->isVisible()) {
-        _confirmPopup->update(dt);
+    if (_statusSummary && _statusSummary->isVisible()) {
+        _statusSummary->update(dt);
     }
 
     // Hide minimap when there is no image to display
     _controls.LBL_MAPBORDER->setVisible(_game.map().isLoaded());
+}
+
+void HUD::updateTransitionPresentation() {
+    if (!_areaTransition) {
+        return;
+    }
+    auto candidate = currentTransitionCandidate();
+    if (candidate) {
+        _areaTransition->show(candidate->destination);
+    } else {
+        _areaTransition->hide();
+    }
+}
+
+std::optional<TransitionPortal> HUD::currentTransitionCandidate() const {
+    auto module = _game.module();
+    if (!module || !module->area()) {
+        return std::nullopt;
+    }
+    auto leader = _game.party().getLeader();
+    if (!leader) {
+        return std::nullopt;
+    }
+    auto camera = _game.getActiveCamera();
+    if (!camera) {
+        return std::nullopt;
+    }
+    auto cameraSceneNode = camera->cameraSceneNode();
+    if (!cameraSceneNode || !cameraSceneNode->camera()) {
+        return std::nullopt;
+    }
+    auto &graphicsCamera = *cameraSceneNode->camera();
+
+    TransitionView view;
+    view.leaderPosition = leader->position();
+    view.cameraViewProjection = graphicsCamera.projection() * graphicsCamera.view();
+
+    return pickTransitionPortal(module->area()->transitionPresentationPortals(), view);
 }
 
 void HUD::render() {
@@ -339,11 +406,14 @@ void HUD::render() {
     }
 
     _barkBubble->render();
+    if (_areaTransition && _areaTransition->isVisible()) {
+        _areaTransition->render();
+    }
     _select.render();
     _actionBar.render();
 
-    if (_confirmPopup->isVisible()) {
-        _confirmPopup->render();
+    if (_statusSummary && _statusSummary->isVisible()) {
+        _statusSummary->render();
     }
 }
 

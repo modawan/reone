@@ -3653,16 +3653,7 @@ static Variable GetJournalQuestExperience(const std::vector<Variable> &args, con
     auto szPlotID = getString(args, 0);
 
     // Execute
-    std::shared_ptr<resource::TwoDA> plotTable(ctx.services.resource.twoDas.get("plot"));
-    if (!plotTable) {
-        return Variable::ofInt(0);
-    }
-    for (int row = 0; row < plotTable->getRowCount(); ++row) {
-        if (boost::iequals(plotTable->getString(row, "label"), szPlotID)) {
-            return Variable::ofInt(plotTable->getInt(row, "xp"));
-        }
-    }
-    return Variable::ofInt(0);
+    return Variable::ofInt(ctx.game.getPlotXP(szPlotID));
 }
 
 static Variable JumpToObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3733,7 +3724,7 @@ static Variable GiveXPToCreature(const std::vector<Variable> &args, const Routin
 
     // Execute
     if (ctx.game.party().isMember(*creature)) {
-        ctx.game.party().giveXP(nXpAmount);
+        ctx.game.party().awardXP(nXpAmount, XPSource::Plot);
     } else {
         creature->giveXP(nXpAmount);
     }
@@ -5668,10 +5659,9 @@ static Variable GivePlotXP(const std::vector<Variable> &args, const RoutineConte
     auto sPlotName = getString(args, 0);
     auto nPercentage = getInt(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("GivePlotXP");
+    ctx.game.awardPlotXP(sPlotName, nPercentage);
+    return Variable::ofNull();
 }
 
 static Variable GetMinOneHP(const std::vector<Variable> &args, const RoutineContext &ctx) {
