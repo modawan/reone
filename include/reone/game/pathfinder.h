@@ -53,6 +53,7 @@ private:
     std::unordered_map<uint16_t, std::vector<uint16_t>> _adjacentVertices;
 
     uint16_t getNearestVertex(const glm::vec3 &point) const;
+    uint16_t getNearestVertexBetweenPoints(const glm::vec3 &point, const glm::vec3 &ref) const;
 };
 
 } // namespace game
