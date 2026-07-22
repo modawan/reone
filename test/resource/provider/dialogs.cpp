@@ -29,7 +29,7 @@
 using namespace reone;
 using namespace reone::resource;
 
-TEST(Dialogs, should_preserve_quest_fields_from_dlg) {
+TEST(Dialogs, should_preserve_quest_and_plot_xp_fields_from_dlg) {
     // given
 
     auto entry = std::make_shared<Gff>(
@@ -37,14 +37,18 @@ TEST(Dialogs, should_preserve_quest_fields_from_dlg) {
         std::vector<Gff::Field> {
             Gff::Field::newCExoLocString("Text", -1, "greetings"),
             Gff::Field::newCExoString("Quest", "test_plot"),
-            Gff::Field::newDword("QuestEntry", 10)});
+            Gff::Field::newDword("QuestEntry", 10),
+            Gff::Field::newInt("PlotIndex", 4),
+            Gff::Field::newFloat("PlotXPPercentage", 0.25f)});
 
     auto reply = std::make_shared<Gff>(
         0,
         std::vector<Gff::Field> {
             Gff::Field::newCExoLocString("Text", -1, "farewell"),
             Gff::Field::newCExoString("Quest", "other_plot"),
-            Gff::Field::newDword("QuestEntry", 20)});
+            Gff::Field::newDword("QuestEntry", 20),
+            Gff::Field::newInt("PlotIndex", 8),
+            Gff::Field::newFloat("PlotXPPercentage", 0.5f)});
 
     auto root = Gff(
         0xffffffff,
@@ -76,8 +80,12 @@ TEST(Dialogs, should_preserve_quest_fields_from_dlg) {
     ASSERT_EQ(1ll, dialog->entries.size());
     EXPECT_EQ("test_plot", dialog->entries[0].quest);
     EXPECT_EQ(10u, dialog->entries[0].questEntry);
+    EXPECT_EQ(4, dialog->entries[0].plotIndex);
+    EXPECT_FLOAT_EQ(0.25f, dialog->entries[0].plotXPPercentage);
 
     ASSERT_EQ(1ll, dialog->replies.size());
     EXPECT_EQ("other_plot", dialog->replies[0].quest);
     EXPECT_EQ(20u, dialog->replies[0].questEntry);
+    EXPECT_EQ(8, dialog->replies[0].plotIndex);
+    EXPECT_FLOAT_EQ(0.5f, dialog->replies[0].plotXPPercentage);
 }

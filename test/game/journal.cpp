@@ -55,6 +55,7 @@ protected:
             std::vector<Gff::Field> {
                 Gff::Field::newCExoString("Tag", "test_plot"),
                 Gff::Field::newCExoLocString("Name", 42, ""),
+                Gff::Field::newInt("PlotIndex", 4),
                 Gff::Field::newList("EntryList", {entry1, entry2})});
 
         _jrlGff = std::make_shared<Gff>(
@@ -175,7 +176,7 @@ TEST_F(JournalTest, should_track_state_for_plot_missing_from_global_journal) {
 
 TEST_F(JournalTest, should_notify_listener_only_when_state_changes) {
     int notified = 0;
-    _journal->setOnQuestChanged([&notified]() { ++notified; });
+    _journal->setOnQuestChanged([&notified](const Journal::EntryChange &) { ++notified; });
 
     _journal->addEntry("test_plot", 10);
     EXPECT_EQ(1, notified) << "new quest should notify";
@@ -193,9 +194,27 @@ TEST_F(JournalTest, should_notify_listener_only_when_state_changes) {
     EXPECT_EQ(3, notified) << "lower state with override should notify";
 }
 
+TEST_F(JournalTest, should_report_authored_plot_xp_only_for_accepted_entry_changes) {
+    std::vector<Journal::EntryChange> changes;
+    _journal->setOnQuestChanged([&changes](const Journal::EntryChange &change) {
+        changes.push_back(change);
+    });
+
+    EXPECT_TRUE(_journal->addEntry("test_plot", 10));
+    EXPECT_FALSE(_journal->addEntry("test_plot", 10));
+    EXPECT_FALSE(_journal->addEntry("test_plot", 5));
+    EXPECT_TRUE(_journal->addEntry("test_plot", 20));
+
+    ASSERT_EQ(2u, changes.size());
+    EXPECT_EQ(4, changes[0].plotIndex);
+    EXPECT_FLOAT_EQ(0.5f, changes[0].xpPercentage);
+    EXPECT_EQ(4, changes[1].plotIndex);
+    EXPECT_FLOAT_EQ(1.0f, changes[1].xpPercentage);
+}
+
 TEST_F(JournalTest, should_not_notify_listener_on_restore_or_remove) {
     int notified = 0;
-    _journal->setOnQuestChanged([&notified]() { ++notified; });
+    _journal->setOnQuestChanged([&notified](const Journal::EntryChange &) { ++notified; });
 
     _journal->restoreEntry("test_plot", 10, 0, 0);
     EXPECT_EQ(0, notified);

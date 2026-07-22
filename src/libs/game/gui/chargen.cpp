@@ -365,7 +365,7 @@ void CharacterGeneration::finish() {
         player->setOnDialogue("k_hen_dialogue01");
 
         Party &party = _game.party();
-        party.clear();
+        party.reset();
         party.addMember(kNpcPlayer, player);
         party.setPlayer(player);
 

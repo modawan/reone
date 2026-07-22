@@ -86,16 +86,18 @@ bool Journal::addEntry(const std::string &plotId, int state, bool allowOverrideH
     if (plotId.empty()) {
         return false;
     }
-    if (!findCategory(plotId)) {
+    const JRL::Category *category = findCategory(plotId);
+    const JRL::Entry *entry = category ? findEntry(plotId, state) : nullptr;
+    if (!category) {
         warn("Journal: plot ID not found in global journal: " + plotId);
-    } else if (!findEntry(plotId, state)) {
+    } else if (!entry) {
         warn(str(boost::format("Journal: entry %d not found in category '%s'") % state % plotId));
     }
 
     Quest *quest = findQuest(plotId);
     if (!quest) {
         _quests.push_back({plotId, state, 0, 0});
-        notifyQuestChanged();
+        notifyQuestChanged(category, entry);
         return true;
     }
     if (quest->state == state) {
@@ -105,13 +107,20 @@ bool Journal::addEntry(const std::string &plotId, int state, bool allowOverrideH
         return false;
     }
     quest->state = state;
-    notifyQuestChanged();
+    notifyQuestChanged(category, entry);
     return true;
 }
 
-void Journal::notifyQuestChanged() {
+void Journal::notifyQuestChanged(const JRL::Category *category, const JRL::Entry *entry) {
     if (_onQuestChanged) {
-        _onQuestChanged();
+        EntryChange change;
+        if (category) {
+            change.plotIndex = category->plotIndex;
+        }
+        if (entry) {
+            change.xpPercentage = entry->xpPercentage;
+        }
+        _onQuestChanged(change);
     }
 }
 

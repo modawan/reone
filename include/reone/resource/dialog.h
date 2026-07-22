@@ -71,6 +71,8 @@ struct Dialog {
         std::string listener;
         std::string quest;
         uint32_t questEntry {0};
+        int plotIndex {-1};
+        float plotXPPercentage {0.0f};
         ActionParams actionParams;
         ActionParams actionParams2;
         int delay {0};
