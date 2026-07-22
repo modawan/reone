@@ -178,7 +178,7 @@ void Object::updateDelayedActions(float dt) {
     for (auto &delayed : _delayed) {
         delayed.timer->update(dt);
         if (delayed.timer->elapsed()) {
-            _actions.push_back(std::move(delayed.action));
+            addActionOnTop(std::move(delayed.action));
         }
     }
     auto delayedToRemove = std::remove_if(
