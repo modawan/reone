@@ -35,6 +35,7 @@
 #include "reone/game/object/item.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/object/trigger.h"
+#include "reone/game/reputes.h"
 #include "reone/game/script/routines.h"
 #include "reone/graphics/walkmesh.h"
 #include "reone/resource/2da.h"
@@ -132,6 +133,18 @@ std::shared_ptr<TwoDA> makeAppearanceTable() {
     builder.row({"S", "1", "1", "-1", "", "", ""});
     builder.row({"S", "1", "1", "-1", "", "", ""});
     builder.row({"S", "1", "1", "-1", "", "", ""});
+    return std::shared_ptr<TwoDA>(builder.build());
+}
+
+std::shared_ptr<TwoDA> makeReputeTable() {
+    TwoDA::Builder builder;
+    builder.columns({"label", "hostile_1", "friendly_1", "hostile_2", "friendly_2", "neutral"});
+    builder.row({"Player", "0", "100", "0", "100", "50"});
+    builder.row({"Hostile_1", "100", "0", "0", "0", "50"});
+    builder.row({"Friendly_1", "0", "100", "0", "0", "50"});
+    builder.row({"Hostile_2", "0", "0", "100", "0", "50"});
+    builder.row({"Friendly_2", "0", "0", "0", "100", "50"});
+    builder.row({"Neutral", "50", "50", "50", "50", "100"});
     return std::shared_ptr<TwoDA>(builder.build());
 }
 
@@ -1485,4 +1498,33 @@ TEST(Object, should_restore_saved_appearance_after_unequipping_loaded_disguise) 
     creature->unequip(disguise);
 
     EXPECT_EQ(creature->appearance(), 1);
+}
+
+TEST(Reputes, should_use_authored_creature_faction_dispositions) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    NiceMock<MockTwoDAs> twoDas;
+    ON_CALL(twoDas, get("repute")).WillByDefault(Return(makeReputeTable()));
+
+    Reputes reputes(twoDas);
+    reputes.init();
+
+    auto friendly1 = game.newCreature();
+    friendly1->setFaction(Faction::Friendly1);
+    auto friendly2 = game.newCreature();
+    friendly2->setFaction(Faction::Friendly2);
+    auto hostile1 = game.newCreature();
+    hostile1->setFaction(Faction::Hostile1);
+    auto neutral = game.newCreature();
+    neutral->setFaction(Faction::Neutral);
+
+    EXPECT_TRUE(reputes.getIsEnemy(*friendly1, *friendly2));
+    EXPECT_TRUE(reputes.getIsEnemy(*friendly2, *friendly1));
+    EXPECT_TRUE(reputes.getIsEnemy(*friendly1, *hostile1));
+    EXPECT_TRUE(reputes.getIsEnemy(*hostile1, *friendly1));
+    EXPECT_FALSE(reputes.getIsEnemy(*friendly1, *neutral));
+    EXPECT_FALSE(reputes.getIsEnemy(*neutral, *friendly1));
+    EXPECT_TRUE(reputes.getIsNeutral(*friendly1, *neutral));
+    EXPECT_TRUE(reputes.getIsNeutral(*neutral, *friendly1));
 }
