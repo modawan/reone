@@ -106,6 +106,7 @@ void Party::reset() {
     _members.clear();
     _solo = false;
     _gold = 0;
+    _xp = 0;
 }
 
 void Party::clear() {

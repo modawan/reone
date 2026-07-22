@@ -1032,6 +1032,46 @@ TEST(Party, should_set_xp_pool_and_sync_current_members) {
     EXPECT_EQ(player->xp(), 250);
     EXPECT_EQ(companion->xp(), 250);
 }
+TEST(Party, should_reset_xp_pool_to_fresh_game_baseline) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto previousPlayer = game.newCreature();
+    game.party().addMember(kNpcPlayer, previousPlayer);
+    game.party().setPlayer(previousPlayer);
+    game.party().setXP(5000);
+
+    game.party().reset();
+
+    EXPECT_EQ(game.party().xp(), 0);
+    EXPECT_TRUE(game.party().isEmpty());
+
+    auto newPlayer = game.newCreature();
+    game.party().addMember(kNpcPlayer, newPlayer);
+    game.party().setPlayer(newPlayer);
+
+    EXPECT_EQ(newPlayer->xp(), 0);
+}
+TEST(Party, should_restore_saved_pool_after_reset_and_sync_late_member) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    game.party().setXP(5000);
+    game.party().reset();
+
+    // deserializeParty adds the player before applying PT_XP_POOL through setXP.
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().setXP(750);
+
+    auto lateCompanion = game.newCreature();
+    game.party().addMember(0, lateCompanion);
+
+    EXPECT_EQ(game.party().xp(), 750);
+    EXPECT_EQ(player->xp(), 750);
+    EXPECT_EQ(lateCompanion->xp(), 750);
+}
 TEST(Party, should_sync_member_added_after_xp_gain) {
     TestEngine &engine = testEngine();
     StubConsole console;
