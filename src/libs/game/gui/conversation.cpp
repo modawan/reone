@@ -82,6 +82,10 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
     _dialog = dialog;
     _owner = owner;
 
+    if (_owner) {
+        _owner->setIsInConversation(true);
+    }
+
     loadConversationBackground();
     loadCameraModel();
     onStart();
@@ -190,6 +194,10 @@ void Conversation::finish() {
     // Run EndConversation script
     if (!_dialog->endScript.empty()) {
         _game.scriptRunner().run(_dialog->endScript, _owner->id());
+    }
+
+    if (_owner) {
+        _owner->setIsInConversation(false);
     }
 }
 
