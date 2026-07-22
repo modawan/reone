@@ -174,11 +174,11 @@ void Conversation::runScripts(const Dialog::EntryReply &node) {
     runScript(node.script2, node.actionParams2);
 }
 
-void Conversation::applyQuestEntry(const Dialog::EntryReply &node) {
-    if (node.quest.empty()) {
-        return;
+void Conversation::applyStatusSummaryEntries(const Dialog::EntryReply &node) {
+    if (!node.quest.empty()) {
+        _game.journal().addEntry(node.quest, static_cast<int>(node.questEntry));
     }
-    _game.journal().addEntry(node.quest, static_cast<int>(node.questEntry));
+    _game.awardPlotXPByIndex(node.plotIndex, node.plotXPPercentage);
 }
 
 void Conversation::finish() {
@@ -213,7 +213,7 @@ void Conversation::loadEntry(int index, bool start) {
     debug("Load entry " + std::to_string(index), LogChannel::Conversation);
     _currentEntry = &_dialog->getEntry(index);
 
-    applyQuestEntry(*_currentEntry);
+    applyStatusSummaryEntries(*_currentEntry);
 
     std::string entryText(_game.substituteCustomTokens(_currentEntry->text));
     setMessage(entryText);
@@ -336,7 +336,7 @@ void Conversation::pickReply(int index) {
     debug("Pick reply " + std::to_string(index), LogChannel::Conversation);
     const Dialog::EntryReply &reply = *_replies[index];
 
-    applyQuestEntry(reply);
+    applyStatusSummaryEntries(reply);
 
     // Run reply scripts
     runScripts(reply);

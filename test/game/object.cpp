@@ -25,23 +25,62 @@
 #include "reone/game/action/closedoor.h"
 #include "reone/game/action/unlockobject.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/areatransition.h"
+#include "reone/game/gui/conversation.h"
+#include "reone/game/gui/hud.h"
+#include "reone/game/gui/statussummary.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/item.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/object/trigger.h"
+#include "reone/game/reputes.h"
+#include "reone/game/script/routines.h"
 #include "reone/graphics/walkmesh.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/gff.h"
 #include "reone/scene/collision.h"
 #include "reone/scene/node/trigger.h"
+#include "reone/script/executioncontext.h"
 #include "reone/script/program.h"
 
 using namespace reone;
 using namespace reone::game;
 using namespace reone::resource;
 using namespace testing;
+
+namespace reone::game {
+
+class TestStatusSummary : public StatusSummary {
+public:
+    using StatusSummary::StatusSummary;
+
+    const std::string &resRef() const { return _resRef; }
+    void injectGUI(std::shared_ptr<gui::IGUI> gui) { _gui = std::move(gui); }
+    void setVisible(bool visible) { _visible = visible; }
+    std::string formatDescription(
+        StatusSummaryCategory category,
+        const StatusSummaryEntry &entry,
+        const std::string &authoredText) const {
+        return descriptionText(category, entry, authoredText);
+    }
+};
+
+class TestConversation : public Conversation {
+public:
+    using Conversation::Conversation;
+
+    void applyStatusSummaryEntriesForTest(const resource::Dialog::EntryReply &node) {
+        applyStatusSummaryEntries(node);
+    }
+
+private:
+    void setReplyLines(std::vector<std::string>) override {}
+    void setMessage(std::string) override {}
+};
+
+} // namespace reone::game
 
 std::pair<std::string, std::string> reone::game::TestGameModule::scheduledTransition(const Game &game) {
     return {game._nextModule, game._nextEntry};
@@ -53,6 +92,12 @@ class StubConsole : public IConsole, boost::noncopyable {
 public:
     void registerCommand(std::string name, std::string description, CommandHandler handler) override {}
     void printLine(const std::string &text) override {}
+};
+
+class TestAreaTransition : public AreaTransition {
+public:
+    using AreaTransition::AreaTransition;
+    using AreaTransition::preload;
 };
 
 // TestEngine initializes the Logger singleton, which only tolerates a single
@@ -91,12 +136,51 @@ std::shared_ptr<TwoDA> makeAppearanceTable() {
     return std::shared_ptr<TwoDA>(builder.build());
 }
 
+std::shared_ptr<TwoDA> makeReputeTable() {
+    TwoDA::Builder builder;
+    builder.columns({"label", "hostile_1", "friendly_1", "hostile_2", "friendly_2", "neutral"});
+    builder.row({"Player", "0", "100", "0", "100", "50"});
+    builder.row({"Hostile_1", "100", "0", "0", "0", "50"});
+    builder.row({"Friendly_1", "0", "100", "0", "0", "50"});
+    builder.row({"Hostile_2", "0", "0", "100", "0", "50"});
+    builder.row({"Friendly_2", "0", "0", "0", "100", "50"});
+    builder.row({"Neutral", "50", "50", "50", "50", "100"});
+    return std::shared_ptr<TwoDA>(builder.build());
+}
+
 std::shared_ptr<TwoDA> makeGenericDoorsTable() {
     TwoDA::Builder builder;
     builder.columns({"modelname"});
     builder.row({""});
     builder.row({"testdoor"});
     return std::shared_ptr<TwoDA>(builder.build());
+}
+
+std::shared_ptr<TwoDA> makePlotTable() {
+    TwoDA::Builder builder;
+    builder.columns({"label", "xp"});
+    builder.row({"journal_plot", "1000"});
+    builder.row({"dialog_plot", "1000"});
+    builder.row({"explicit_plot", "500"});
+    return std::shared_ptr<TwoDA>(builder.build());
+}
+
+std::shared_ptr<Gff> makeJournalWithPlotXP() {
+    auto entry = std::make_shared<Gff>(
+        0,
+        std::vector<Gff::Field> {
+            Gff::Field::newDword("ID", 70),
+            Gff::Field::newFloat("XP_Percentage", 0.2f)});
+    auto category = std::make_shared<Gff>(
+        0,
+        std::vector<Gff::Field> {
+            Gff::Field::newCExoString("Tag", "journal_plot"),
+            Gff::Field::newInt("PlotIndex", 0),
+            Gff::Field::newList("EntryList", {entry})});
+    return std::make_shared<Gff>(
+        0xffffffff,
+        std::vector<Gff::Field> {
+            Gff::Field::newList("Categories", {category})});
 }
 
 scene::MockSceneGraph &testSceneGraph(TestEngine &engine) {
@@ -202,7 +286,8 @@ std::shared_ptr<Creature> makeMovingCreature(Game &game, TestEngine &engine) {
 std::shared_ptr<Gff> makeTransitionTriggerGff(
     std::string linkedToModule,
     std::string linkedTo,
-    std::string onEnter = "") {
+    std::string onEnter = "",
+    std::optional<std::string> transitionDestin = std::nullopt) {
 
     std::vector<std::shared_ptr<Gff>> geometry;
     for (const auto &point : std::vector<glm::vec2> {
@@ -226,6 +311,9 @@ std::shared_ptr<Gff> makeTransitionTriggerGff(
         .field(Gff::Field::newList("Geometry", std::move(geometry)));
     if (!onEnter.empty()) {
         builder.field(Gff::Field::newResRef("ScriptOnEnter", std::move(onEnter)));
+    }
+    if (transitionDestin) {
+        builder.field(Gff::Field::newCExoLocString("TransitionDestin", -1, std::move(*transitionDestin)));
     }
     return builder.build();
 }
@@ -402,6 +490,209 @@ TEST(UnlockObjectAction, should_complete_safely_for_missing_destroyed_or_unsuppo
     EXPECT_TRUE(destroyedAction->isCompleted());
     EXPECT_TRUE(destroyed->isLocked());
     EXPECT_TRUE(unsupportedAction->isCompleted());
+}
+
+TEST(TransitionPresentationLifecycle, should_construct_and_destroy_hud_before_gameplay_module_exists) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    ASSERT_EQ(game.module(), nullptr);
+    EXPECT_NO_THROW({
+        auto hud = std::make_unique<HUD>(game, engine.services());
+    });
+}
+
+TEST(TransitionPresentationLifecycle, should_hide_empty_destination_before_gui_controls_are_loaded) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    AreaTransition transition(game, engine.services());
+
+    EXPECT_NO_THROW(transition.show("Destination Area"));
+    ASSERT_TRUE(transition.isVisible());
+
+    EXPECT_NO_THROW(transition.show(""));
+    EXPECT_FALSE(transition.isVisible());
+}
+
+TEST(StatusSummaryPresentation, should_tolerate_controls_not_yet_loaded_and_defer_snapshot) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    StatusSummaryAccumulator accumulator;
+    accumulator.submit(StatusSummaryCategory::Journal);
+    TestStatusSummary summary(game, engine.services(), accumulator);
+
+    EXPECT_FALSE(summary.presentPending());
+    EXPECT_FALSE(summary.isVisible());
+    EXPECT_TRUE(accumulator.pending().entry(StatusSummaryCategory::Journal).active);
+    EXPECT_FALSE(accumulator.displayed());
+}
+
+TEST(StatusSummaryPresentation, should_select_authored_resource_for_each_game) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    StatusSummaryAccumulator k1Accumulator;
+    StatusSummaryAccumulator k2Accumulator;
+    Game k1(GameID::KotOR, "", engine.options(), engine.services(), console);
+    Game k2(GameID::TSL, "", engine.options(), engine.services(), console);
+
+    TestStatusSummary k1Summary(k1, engine.services(), k1Accumulator);
+    TestStatusSummary k2Summary(k2, engine.services(), k2Accumulator);
+
+    EXPECT_EQ(k1Summary.resRef(), "statussummary");
+    EXPECT_EQ(k2Summary.resRef(), "statussummary_p");
+}
+
+TEST(JournalStatusSummary, should_submit_journal_through_game_accumulator) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    game.submitStatusSummary(StatusSummaryCategory::Journal);
+    game.submitStatusSummary(StatusSummaryCategory::Journal);
+
+    auto active = game.statusSummary().pending().activeCategories();
+    ASSERT_EQ(active.size(), 1u);
+    EXPECT_EQ(active.front(), StatusSummaryCategory::Journal);
+}
+
+TEST(StatusSummaryInput, visible_summary_consumes_mouse_down_and_mouse_up) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    StatusSummaryAccumulator accumulator;
+    TestStatusSummary summary(game, engine.services(), accumulator);
+    auto gui = std::make_shared<NiceMock<gui::MockGUI>>();
+    summary.injectGUI(gui);
+    summary.setVisible(true);
+
+    auto down = input::Event::newMouseButtonDown(
+        {input::MouseButton::Left, true, 1, 10, 10});
+    auto up = input::Event::newMouseButtonUp(
+        {input::MouseButton::Left, false, 1, 10, 10});
+    EXPECT_CALL(*gui, handle(_)).Times(2).WillRepeatedly(Return(false));
+
+    EXPECT_TRUE(summary.handle(down));
+    EXPECT_TRUE(summary.handle(up));
+}
+
+TEST(StatusSummaryInput, hidden_summary_does_not_consume_world_input) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    StatusSummaryAccumulator accumulator;
+    TestStatusSummary summary(game, engine.services(), accumulator);
+    auto gui = std::make_shared<NiceMock<gui::MockGUI>>();
+    summary.injectGUI(gui);
+    summary.setVisible(false);
+
+    EXPECT_CALL(*gui, handle(_)).Times(0);
+    EXPECT_FALSE(summary.handle(input::Event::newMouseButtonDown(
+        {input::MouseButton::Left, true, 1, 10, 10})));
+}
+
+TEST(TransitionPresentationLayout, should_top_anchor_and_horizontally_center_authored_gui) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    TestAreaTransition presentation(game, engine.services());
+    NiceMock<gui::MockGUI> gui;
+
+    EXPECT_CALL(gui, setResolution(640, 480));
+    EXPECT_CALL(gui, setScaling(gui::GUI::ScalingMode::CenterHorizontal));
+
+    presentation.preload(gui);
+}
+
+TEST(TransitionPresentationPortals, should_expose_authored_transitions_without_touching_state) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    testSceneGraph(engine);
+    auto area = game.newArea();
+    auto leader = makeMovingCreature(game, engine);
+    game.party().addMember(kNpcPlayer, leader);
+    game.party().setPlayer(leader);
+
+    auto trigger = game.newTrigger();
+    trigger->deserialize(*makeTransitionTriggerGff(
+        "authored_module",
+        "authored_waypoint",
+        "",
+        "Authored Destination"));
+    trigger->setPosition(glm::vec3(4.0f, 0.0f, 0.0f));
+    area->add(trigger);
+    area->add(leader);
+
+    auto portals = area->transitionPresentationPortals();
+
+    ASSERT_EQ(portals.size(), 1u);
+    EXPECT_EQ(portals[0].objectId, trigger->id());
+    EXPECT_EQ(portals[0].destination, "Authored Destination");
+    ASSERT_EQ(portals[0].points.size(), 4u);
+    EXPECT_NEAR(portals[0].points[0].x, 3.0f, 1e-4f);
+    EXPECT_NEAR(portals[0].points[0].y, -1.0f, 1e-4f);
+
+    // The presentation query is read-only.
+    EXPECT_FALSE(trigger->isTenant(leader));
+    EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()));
+
+    area->destroyObject(*trigger);
+    area->update(0.0f);
+    EXPECT_TRUE(area->transitionPresentationPortals().empty());
+}
+
+TEST(TransitionPresentationPortals, should_follow_linked_door_state_without_teleporting) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    auto door = makeTransitionDoor(game, engine);
+    auto leader = makeMovingCreature(game, engine);
+    game.party().addMember(kNpcPlayer, leader);
+    game.party().setPlayer(leader);
+    area->add(door);
+    area->add(leader);
+
+    EXPECT_TRUE(area->transitionPresentationPortals().empty()) << "closed door must not present";
+
+    door->open();
+    auto portals = area->transitionPresentationPortals();
+
+    ASSERT_EQ(portals.size(), 1u);
+    EXPECT_EQ(portals[0].destination, "Destination Area");
+    EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()))
+        << "opening the door alone must not schedule travel";
+
+    door->close();
+    EXPECT_TRUE(area->transitionPresentationPortals().empty());
+}
+
+TEST(TransitionPresentationPortals, should_ignore_non_transitions_and_expose_empty_destinations) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    testSceneGraph(engine);
+    auto area = game.newArea();
+
+    auto nonTransition = game.newTrigger();
+    nonTransition->deserialize(*makeTransitionTriggerGff("", "", "", "Not a transition"));
+    auto emptyDestination = game.newTrigger();
+    emptyDestination->deserialize(*makeTransitionTriggerGff("empty_module", "empty_waypoint", "", ""));
+    auto missingDestination = game.newTrigger();
+    missingDestination->deserialize(*makeTransitionTriggerGff("missing_module", "missing_waypoint"));
+    area->add(nonTransition);
+    area->add(emptyDestination);
+    area->add(missingDestination);
+
+    auto portals = area->transitionPresentationPortals();
+
+    ASSERT_EQ(portals.size(), 2u);
+    EXPECT_TRUE(portals[0].destination.empty());
+    EXPECT_TRUE(portals[1].destination.empty());
+    EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()));
 }
 
 TEST(LinkedDoorTransition, should_derive_threshold_from_closed_dwk_and_follow_door_state) {
@@ -728,11 +1019,14 @@ TEST(Party, should_award_xp_to_pool_and_sync_current_members) {
     game.party().setPlayer(player);
     game.party().addMember(0, companion);
 
-    game.party().giveXP(100);
+    game.party().awardXP(100, XPSource::Plot);
 
     EXPECT_EQ(game.party().xp(), 100);
     EXPECT_EQ(player->xp(), 100);
     EXPECT_EQ(companion->xp(), 100);
+    EXPECT_EQ(
+        game.statusSummary().pending().entry(StatusSummaryCategory::PlotXP).amount,
+        100);
 }
 TEST(Party, should_set_xp_pool_and_sync_current_members) {
     TestEngine &engine = testEngine();
@@ -751,6 +1045,46 @@ TEST(Party, should_set_xp_pool_and_sync_current_members) {
     EXPECT_EQ(player->xp(), 250);
     EXPECT_EQ(companion->xp(), 250);
 }
+TEST(Party, should_reset_xp_pool_to_fresh_game_baseline) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto previousPlayer = game.newCreature();
+    game.party().addMember(kNpcPlayer, previousPlayer);
+    game.party().setPlayer(previousPlayer);
+    game.party().setXP(5000);
+
+    game.party().reset();
+
+    EXPECT_EQ(game.party().xp(), 0);
+    EXPECT_TRUE(game.party().isEmpty());
+
+    auto newPlayer = game.newCreature();
+    game.party().addMember(kNpcPlayer, newPlayer);
+    game.party().setPlayer(newPlayer);
+
+    EXPECT_EQ(newPlayer->xp(), 0);
+}
+TEST(Party, should_restore_saved_pool_after_reset_and_sync_late_member) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    game.party().setXP(5000);
+    game.party().reset();
+
+    // deserializeParty adds the player before applying PT_XP_POOL through setXP.
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().setXP(750);
+
+    auto lateCompanion = game.newCreature();
+    game.party().addMember(0, lateCompanion);
+
+    EXPECT_EQ(game.party().xp(), 750);
+    EXPECT_EQ(player->xp(), 750);
+    EXPECT_EQ(lateCompanion->xp(), 750);
+}
 TEST(Party, should_sync_member_added_after_xp_gain) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -760,13 +1094,14 @@ TEST(Party, should_sync_member_added_after_xp_gain) {
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
 
-    game.party().giveXP(100);
+    game.party().awardXP(100, XPSource::Combat);
 
     auto latecomer = game.newCreature();
     game.party().addMember(0, latecomer);
 
     EXPECT_EQ(latecomer->xp(), 100);
     EXPECT_EQ(game.party().xp(), 100);
+    EXPECT_TRUE(game.statusSummary().pending().empty());
 }
 TEST(Party, should_keep_non_party_creature_xp_local) {
     TestEngine &engine = testEngine();
@@ -779,11 +1114,286 @@ TEST(Party, should_keep_non_party_creature_xp_local) {
 
     auto thug = game.newCreature();
     thug->giveXP(50);
-    game.party().giveXP(100);
+    game.party().awardXP(100, XPSource::Combat);
 
     EXPECT_EQ(thug->xp(), 50);
     EXPECT_EQ(player->xp(), 100);
     EXPECT_EQ(game.party().xp(), 100);
+    EXPECT_TRUE(game.statusSummary().pending().empty());
+}
+
+TEST(XPStatusSummary, should_accumulate_each_positive_party_award_once) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto player = game.newCreature();
+    auto companion = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().addMember(0, companion);
+
+    game.party().awardXP(100, XPSource::Plot);
+    game.party().awardXP(250, XPSource::Plot);
+
+    EXPECT_EQ(game.party().xp(), 350);
+    EXPECT_EQ(player->xp(), 350);
+    EXPECT_EQ(companion->xp(), 350);
+    const auto &plotXP = game.statusSummary().pending().entry(StatusSummaryCategory::PlotXP);
+    EXPECT_TRUE(plotXP.active);
+    EXPECT_EQ(plotXP.amount, 350);
+    EXPECT_EQ(game.statusSummary().pending().activeCategories().size(), 1u);
+}
+
+TEST(XPStatusSummary, should_preserve_zero_award_synchronization_without_notifying) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().setXP(100);
+
+    game.party().awardXP(0, XPSource::Plot);
+
+    EXPECT_EQ(game.party().xp(), 100);
+    EXPECT_EQ(player->xp(), 100);
+    EXPECT_TRUE(game.statusSummary().pending().empty());
+}
+
+TEST(XPStatusSummary, should_preserve_negative_accounting_without_received_notification) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto player = game.newCreature();
+    auto companion = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().addMember(0, companion);
+    game.party().setXP(100);
+
+    game.party().awardXP(-25, XPSource::Plot);
+
+    EXPECT_EQ(game.party().xp(), 75);
+    EXPECT_EQ(player->xp(), 75);
+    EXPECT_EQ(companion->xp(), 75);
+    EXPECT_TRUE(game.statusSummary().pending().empty());
+}
+
+TEST(XPStatusSummary, should_not_notify_when_party_pool_is_set_directly) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+
+    game.party().setXP(350);
+
+    EXPECT_EQ(game.party().xp(), 350);
+    EXPECT_EQ(player->xp(), 350);
+    EXPECT_TRUE(game.statusSummary().pending().empty());
+}
+
+TEST(XPStatusSummary, combat_source_updates_pool_without_plot_notification) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+
+    game.party().awardXP(200, XPSource::Combat);
+
+    EXPECT_EQ(200, game.party().xp());
+    EXPECT_EQ(200, player->xp());
+    EXPECT_TRUE(game.statusSummary().pending().empty());
+}
+
+TEST(XPStatusSummary, console_source_intentionally_uses_plot_presentation) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+
+    game.party().awardXP(100, XPSource::Console);
+
+    EXPECT_EQ(100, game.party().xp());
+    const auto &plotXP = game.statusSummary().pending().entry(StatusSummaryCategory::PlotXP);
+    EXPECT_TRUE(plotXP.active);
+    EXPECT_EQ(100, plotXP.amount);
+}
+
+TEST(ScriptedPlotXP, give_plot_xp_is_registered_for_k1_and_k2) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    Routines k1Routines(GameID::KotOR, &game, &engine.services());
+    Routines k2Routines(GameID::TSL, &game, &engine.services());
+
+    k1Routines.init();
+    k2Routines.init();
+
+    EXPECT_EQ(714, k1Routines.getIndexByName("GivePlotXP"));
+    EXPECT_EQ(714, k2Routines.getIndexByName("GivePlotXP"));
+    EXPECT_EQ("GivePlotXP", k1Routines.get(714).name());
+    EXPECT_EQ("GivePlotXP", k2Routines.get(714).name());
+}
+
+TEST(ScriptedPlotXP, give_plot_xp_resolves_label_case_insensitively_and_awards_percentage) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("plot"))
+        .WillOnce(Return(makePlotTable()));
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    Routines routines(GameID::KotOR, &game, &engine.services());
+    routines.init();
+    script::ExecutionContext execution;
+
+    routines.get(714).invoke(
+        {script::Variable::ofString("EXPLICIT_PLOT"), script::Variable::ofInt(20)},
+        execution);
+
+    EXPECT_EQ(100, game.party().xp());
+    EXPECT_EQ(100, player->xp());
+    const auto &plotXP = game.statusSummary().pending().entry(StatusSummaryCategory::PlotXP);
+    EXPECT_TRUE(plotXP.active);
+    EXPECT_EQ(100, plotXP.amount);
+}
+
+TEST(ScriptedPlotXP, give_xp_to_active_party_creature_is_a_plot_award) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    Routines routines(GameID::KotOR, &game, &engine.services());
+    routines.init();
+    script::ExecutionContext execution;
+
+    routines.get(393).invoke(
+        {script::Variable::ofObject(player->id()), script::Variable::ofInt(75)},
+        execution);
+
+    EXPECT_EQ(75, game.party().xp());
+    EXPECT_EQ(
+        75,
+        game.statusSummary().pending().entry(StatusSummaryCategory::PlotXP).amount);
+}
+
+TEST(ScriptedPlotXP, missing_plot_and_zero_percentage_do_not_notify) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("plot"))
+        .WillOnce(Return(makePlotTable()));
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+
+    game.awardPlotXP("missing_plot", 100);
+    game.awardPlotXP("explicit_plot", 0);
+    game.awardPlotXPByIndex(-1, 0.5f);
+
+    EXPECT_EQ(0, game.party().xp());
+    EXPECT_EQ(0, player->xp());
+    EXPECT_TRUE(game.statusSummary().pending().empty());
+}
+
+TEST(ScriptedPlotXP, journal_dialogue_and_explicit_contributions_accumulate_in_one_pending_row) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    EXPECT_CALL(engine.resourceModule().gffs(), get("global", ResType::Jrl))
+        .WillOnce(Return(makeJournalWithPlotXP()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("plot"))
+        .Times(3)
+        .WillRepeatedly(Return(makePlotTable()));
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    TestConversation conversation(game, engine.services());
+    Dialog::EntryReply node;
+    node.quest = "journal_plot";
+    node.questEntry = 70;
+    node.plotIndex = 1;
+    node.plotXPPercentage = 0.15f;
+
+    conversation.applyStatusSummaryEntriesForTest(node);
+    game.awardPlotXP("explicit_plot", 20);
+
+    EXPECT_EQ(450, game.party().xp());
+    EXPECT_EQ(450, player->xp());
+    const auto active = game.statusSummary().pending().activeCategories();
+    EXPECT_EQ(
+        active,
+        (std::vector<StatusSummaryCategory> {
+            StatusSummaryCategory::Journal,
+            StatusSummaryCategory::PlotXP}));
+    EXPECT_EQ(
+        450,
+        game.statusSummary().pending().entry(StatusSummaryCategory::PlotXP).amount);
+}
+
+TEST(ScriptedPlotXP, rejected_duplicate_journal_entry_does_not_award_again) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    EXPECT_CALL(engine.resourceModule().gffs(), get("global", ResType::Jrl))
+        .WillOnce(Return(makeJournalWithPlotXP()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("plot"))
+        .WillOnce(Return(makePlotTable()));
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+
+    EXPECT_TRUE(game.journal().addEntry("journal_plot", 70));
+    EXPECT_FALSE(game.journal().addEntry("journal_plot", 70));
+
+    EXPECT_EQ(200, game.party().xp());
+    EXPECT_EQ(
+        200,
+        game.statusSummary().pending().entry(StatusSummaryCategory::PlotXP).amount);
+}
+
+TEST(XPStatusSummary, should_format_authored_plot_xp_text_without_mutating_global_token) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    StatusSummaryAccumulator accumulator;
+    TestStatusSummary summary(game, engine.services(), accumulator);
+    StatusSummaryEntry entry;
+    entry.active = true;
+    entry.amount = 350;
+    game.setCustomToken(0, "existing");
+
+    EXPECT_EQ(
+        summary.formatDescription(
+            StatusSummaryCategory::PlotXP,
+            entry,
+            "Experience: <CUSTOM0>"),
+        "Experience: 350");
+    EXPECT_EQ(game.substituteCustomTokens("<CUSTOM0>"), "existing");
+}
+
+TEST(XPStatusSummary, should_leave_authored_journal_text_unchanged) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    StatusSummaryAccumulator accumulator;
+    TestStatusSummary summary(game, engine.services(), accumulator);
+
+    EXPECT_EQ(
+        summary.formatDescription(
+            StatusSummaryCategory::Journal,
+            StatusSummaryEntry(),
+            "Authored Journal Text"),
+        "Authored Journal Text");
 }
 
 TEST(Party, should_route_item_acquired_by_companion_to_shared_player_inventory) {
@@ -888,4 +1498,33 @@ TEST(Object, should_restore_saved_appearance_after_unequipping_loaded_disguise) 
     creature->unequip(disguise);
 
     EXPECT_EQ(creature->appearance(), 1);
+}
+
+TEST(Reputes, should_use_authored_creature_faction_dispositions) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    NiceMock<MockTwoDAs> twoDas;
+    ON_CALL(twoDas, get("repute")).WillByDefault(Return(makeReputeTable()));
+
+    Reputes reputes(twoDas);
+    reputes.init();
+
+    auto friendly1 = game.newCreature();
+    friendly1->setFaction(Faction::Friendly1);
+    auto friendly2 = game.newCreature();
+    friendly2->setFaction(Faction::Friendly2);
+    auto hostile1 = game.newCreature();
+    hostile1->setFaction(Faction::Hostile1);
+    auto neutral = game.newCreature();
+    neutral->setFaction(Faction::Neutral);
+
+    EXPECT_TRUE(reputes.getIsEnemy(*friendly1, *friendly2));
+    EXPECT_TRUE(reputes.getIsEnemy(*friendly2, *friendly1));
+    EXPECT_TRUE(reputes.getIsEnemy(*friendly1, *hostile1));
+    EXPECT_TRUE(reputes.getIsEnemy(*hostile1, *friendly1));
+    EXPECT_FALSE(reputes.getIsEnemy(*friendly1, *neutral));
+    EXPECT_FALSE(reputes.getIsEnemy(*neutral, *friendly1));
+    EXPECT_TRUE(reputes.getIsNeutral(*friendly1, *neutral));
+    EXPECT_TRUE(reputes.getIsNeutral(*neutral, *friendly1));
 }

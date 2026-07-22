@@ -1457,6 +1457,33 @@ Object *Area::getObjectAt(int x, int y) const {
     return dynamic_cast<Object *>(model->user());
 }
 
+std::vector<TransitionPortal> Area::transitionPresentationPortals() const {
+    std::vector<TransitionPortal> portals;
+    auto maybeTriggers = _objectsByType.find(ObjectType::Trigger);
+    if (maybeTriggers == _objectsByType.end()) {
+        return portals;
+    }
+    for (auto &object : maybeTriggers->second) {
+        auto trigger = std::static_pointer_cast<Trigger>(object);
+        if (trigger->linkedToModule().empty() || !trigger->isActive()) {
+            continue;
+        }
+        const auto &geometry = trigger->geometry();
+        if (geometry.size() < 3) {
+            continue;
+        }
+        TransitionPortal portal;
+        portal.objectId = trigger->id();
+        portal.destination = trigger->transitionDestin();
+        portal.points.reserve(geometry.size());
+        for (const auto &vertex : geometry) {
+            portal.points.push_back(glm::vec3(trigger->transform() * glm::vec4(vertex, 1.0f)));
+        }
+        portals.push_back(std::move(portal));
+    }
+    return portals;
+}
+
 scene::ISceneGraph &Area::graph() {
     return _services.scene.graphs.get(_sceneName);
 }

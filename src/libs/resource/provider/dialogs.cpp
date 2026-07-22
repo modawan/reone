@@ -88,6 +88,8 @@ Dialog::EntryReply Dialogs::getEntryReply(const resource::generated::DLG_EntryRe
     entry.listener = dlg.Listener;
     entry.quest = dlg.Quest;
     entry.questEntry = dlg.QuestEntry;
+    entry.plotIndex = dlg.PlotIndex;
+    entry.plotXPPercentage = dlg.PlotXPPercentage;
     entry.actionParams.ints = {dlg.ActionParam1, dlg.ActionParam2, dlg.ActionParam3, dlg.ActionParam4, dlg.ActionParam5};
     entry.actionParams.str = dlg.ActionParamStrA;
     entry.actionParams2.ints = {dlg.ActionParam1b, dlg.ActionParam2b, dlg.ActionParam3b, dlg.ActionParam4b, dlg.ActionParam5b};
