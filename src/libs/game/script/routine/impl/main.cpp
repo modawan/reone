@@ -466,7 +466,7 @@ static Variable GetIsObjectValid(const std::vector<Variable> &args, const Routin
     bool valid;
     try {
         auto oObject = getObject(args, 0, ctx);
-        valid = static_cast<bool>(oObject);
+        valid = oObject && !oObject->isDead();
     } catch (const RoutineArgumentException &ignored) {
         valid = false;
     }
