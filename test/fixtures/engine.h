@@ -34,7 +34,11 @@ namespace reone {
 class TestEngine : boost::noncopyable {
 public:
     void init() {
-        Logger::instance.init(LogSeverity::Error, {}, std::nullopt);
+        static bool loggerInitialized = false;
+        if (!loggerInitialized) {
+            Logger::instance.init(LogSeverity::Error, {}, std::nullopt);
+            loggerInitialized = true;
+        }
 
         _gameModule = std::make_unique<game::TestGameModule>();
         _movieModule = std::make_unique<movie::TestMovieModule>();
