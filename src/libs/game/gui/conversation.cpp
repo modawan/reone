@@ -366,7 +366,7 @@ bool Conversation::handle(const input::Event &event) {
 
 bool Conversation::handleMouseButtonDown(const input::MouseButtonEvent &event) {
     if (event.button == input::MouseButton::Left && !_entryEnded && isSkippableEntry()) {
-        endCurrentEntry();
+        _endEntryTimer.reset(0);
         return true;
     }
     return false;
