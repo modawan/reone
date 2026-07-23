@@ -27,6 +27,7 @@
 #include "reone/game/game.h"
 #include "reone/game/gui/areatransition.h"
 #include "reone/game/gui/conversation.h"
+#include "reone/game/gui/dialog.h"
 #include "reone/game/gui/hud.h"
 #include "reone/game/gui/statussummary.h"
 #include "reone/game/object/area.h"
@@ -82,6 +83,44 @@ public:
 private:
     void setReplyLines(std::vector<std::string>) override {}
     void setMessage(std::string) override {}
+};
+
+class MixedStuntTestAccess {
+public:
+    static void loadParticipants(DialogGUI &gui, const std::shared_ptr<resource::Dialog> &dialog) {
+        gui._dialog = dialog;
+        gui.loadStuntParticipants();
+    }
+
+    static size_t participantCount(const DialogGUI &gui) {
+        return gui._participantByTag.size();
+    }
+
+    static std::shared_ptr<Creature> participantCreature(DialogGUI &gui, const std::string &tag) {
+        return gui._participantByTag.at(tag).creature;
+    }
+
+    static std::shared_ptr<graphics::Model> participantModel(DialogGUI &gui, const std::string &tag) {
+        return gui._participantByTag.at(tag).model;
+    }
+
+    static bool applyAnimation(DialogGUI &gui, const std::string &tag, int ordinal) {
+        auto animation = gui.getStuntParticipantAnimation(tag, ordinal);
+        return animation && gui.enterMixedStunt(gui._participantByTag.at(tag), animation);
+    }
+
+    static bool isActive(DialogGUI &gui, const std::string &tag) {
+        return gui._participantByTag.at(tag).mixedStuntActive;
+    }
+
+    static void restoreForEntry(DialogGUI &gui, const resource::Dialog::EntryReply &entry) {
+        gui._currentEntry = &entry;
+        gui.restoreInactiveStuntParticipants();
+    }
+
+    static void finish(DialogGUI &gui) {
+        gui.onFinish();
+    }
 };
 
 } // namespace reone::game
@@ -417,6 +456,25 @@ std::shared_ptr<graphics::Animation> makeAnimation(std::string name) {
         std::vector<graphics::Animation::Event>());
 }
 
+std::shared_ptr<graphics::Model> makeModel(
+    std::string name,
+    std::vector<std::shared_ptr<graphics::Animation>> animations) {
+    auto root = std::make_shared<graphics::ModelNode>(
+        0,
+        "root_node",
+        glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+        true,
+        nullptr);
+    return std::make_shared<graphics::Model>(
+        std::move(name),
+        0,
+        std::move(root),
+        std::move(animations),
+        "",
+        1.0f);
+}
+
 std::shared_ptr<Dialog> makeRoutingDialog() {
     auto dialog = std::make_shared<Dialog>();
     dialog->startEntries.push_back(Dialog::EntryReplyLink {0});
@@ -558,6 +616,126 @@ TEST(Creature, should_hold_dialog_owned_external_animation_until_assignment_chan
 
     creature.resumeStateDrivenAnimation();
     EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
+}
+
+TEST(DialogGUI, should_prepare_the_real_player_from_a_stunt_model_without_creating_a_duplicate) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    auto originalSceneNode = player->sceneNode();
+    auto stuntModel = makeModel("player_stunt", {});
+    EXPECT_CALL(engine.resourceModule().models(), get("player_stunt"))
+        .WillOnce(Return(stuntModel));
+
+    auto dialog = std::make_shared<Dialog>();
+    dialog->animatedCutscene = false;
+    dialog->cameraModel.clear();
+    dialog->stunts.push_back({"PLAYER", "player_stunt"});
+    DialogGUI gui(game, engine.services());
+
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+
+    ASSERT_EQ(MixedStuntTestAccess::participantCount(gui), 1);
+    EXPECT_EQ(MixedStuntTestAccess::participantCreature(gui, "PLAYER"), player);
+    EXPECT_EQ(MixedStuntTestAccess::participantModel(gui, "PLAYER"), stuntModel);
+    EXPECT_EQ(player->sceneNode(), originalSceneNode);
+    EXPECT_FALSE(player->isStuntMode());
+}
+
+TEST(DialogGUI, should_preserve_change_drop_and_release_mixed_player_stunt_assignments) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto idle = makeAnimation("cpause1");
+    auto first = makeAnimation("cut001w");
+    auto second = makeAnimation("cut002w");
+    auto stuntModel = makeModel("player_stunt", {idle, first, second});
+    graphics::GraphicsOptions graphicsOptions;
+    scene::SceneGraph graph(
+        "test",
+        engine.sceneModule().renderPipelineFactory(),
+        graphicsOptions,
+        engine.services().graphics,
+        engine.services().audio,
+        engine.services().resource);
+    auto modelNode = graph.newModel(*stuntModel, scene::ModelUsage::Creature);
+    auto player = std::make_shared<TestCreature>(1, "player", game, engine.services());
+    player->setSceneNode(modelNode);
+    player->setPosition(glm::vec3(1.0f, 2.0f, 3.0f));
+    player->setFacing(0.75f);
+    modelNode->setCullingEnabled(false);
+    player->resumeStateDrivenAnimation();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    EXPECT_CALL(engine.resourceModule().models(), get("player_stunt"))
+        .WillOnce(Return(stuntModel));
+
+    auto dialog = std::make_shared<Dialog>();
+    dialog->stunts.push_back({"PLAYER", "player_stunt"});
+    DialogGUI gui(game, engine.services());
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+
+    ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
+    modelNode->update(0.4f);
+    ASSERT_EQ(modelNode->animationChannels().size(), 1);
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
+
+    ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
+
+    ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1201));
+    EXPECT_EQ(modelNode->activeAnimationName(), "cut002w");
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
+
+    Dialog::EntryReply droppedEntry;
+    MixedStuntTestAccess::restoreForEntry(gui, droppedEntry);
+    EXPECT_FALSE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
+    EXPECT_EQ(player->position(), glm::vec3(1.0f, 2.0f, 3.0f));
+    EXPECT_FLOAT_EQ(player->getFacing(), 0.75f);
+    EXPECT_FALSE(modelNode->isCullingEnabled());
+    EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
+
+    ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
+    MixedStuntTestAccess::finish(gui);
+    EXPECT_EQ(MixedStuntTestAccess::participantCount(gui), 0);
+    EXPECT_FALSE(player->isStuntMode());
+    EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
+}
+
+TEST(DialogGUI, should_leave_no_partial_mixed_stunt_state_when_inputs_are_missing) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto dialog = std::make_shared<Dialog>();
+    dialog->stunts.push_back({"PLAYER", "missing_stunt"});
+    DialogGUI gui(game, engine.services());
+
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+    EXPECT_EQ(MixedStuntTestAccess::participantCount(gui), 0);
+
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    EXPECT_CALL(engine.resourceModule().models(), get("missing_stunt"))
+        .WillOnce(Return(nullptr));
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+    EXPECT_EQ(MixedStuntTestAccess::participantCount(gui), 0);
+
+    auto sourceModel = makeModel("player_stunt", {makeAnimation("cut001w")});
+    dialog->stunts.front().stuntModel = "player_stunt";
+    EXPECT_CALL(engine.resourceModule().models(), get("player_stunt"))
+        .WillOnce(Return(sourceModel));
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+    ASSERT_EQ(MixedStuntTestAccess::participantCount(gui), 1);
+
+    EXPECT_FALSE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1201));
+    EXPECT_FALSE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
+    EXPECT_FALSE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
+    EXPECT_FALSE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
+    EXPECT_FALSE(player->isStuntMode());
 }
 
 TEST(Object, should_convert_credits_to_party_gold_when_looted_by_party_member) {

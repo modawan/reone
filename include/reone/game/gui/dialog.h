@@ -30,6 +30,8 @@ namespace reone {
 namespace game {
 
 class DialogGUI : public Conversation {
+    friend class MixedStuntTestAccess;
+
 public:
     DialogGUI(Game &game, ServicesView &services) :
         Conversation(game, services) {
