@@ -140,6 +140,11 @@ void Engine::init() {
             throw std::runtime_error("Failed to open commands file: " + _options.commandsFile);
         }
         for (std::string line; std::getline(file, line);) {
+            // getline keeps the carriage return of a CRLF file, which would end
+            // up inside the last argument of every command.
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
             if (!line.empty()) {
                 _console->execute(line);
             }
