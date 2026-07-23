@@ -230,6 +230,9 @@ void Conversation::loadEntry(int index, bool start) {
     scheduleEndOfEntry();
     onLoadEntry();
 
+    // Run entry scripts
+    runScripts(*_currentEntry);
+
     // Conversation is a one-liner if there is exactly one empty reply that has no entries
     bool oneLiner = false;
     if (start && _replies.size() == 1ll) {
@@ -242,9 +245,6 @@ void Conversation::loadEntry(int index, bool start) {
         finish();
         return;
     }
-
-    // Run entry scripts
-    runScripts(*_currentEntry);
 
     if (_autoSkip) {
         if (std::optional<bool> skip = _autoSkip->trySkipEntry()) {
