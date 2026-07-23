@@ -239,6 +239,8 @@ int VirtualMachine::run() {
         try {
             handler->second(ins);
         } catch (const std::exception &ex) {
+            error(str(boost::format("Script '%s' halted at %04x: %s") % _program->name() % insOff % ex.what()),
+                  LogChannel::Script);
             halt = true;
         }
 
