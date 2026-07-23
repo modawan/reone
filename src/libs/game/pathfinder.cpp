@@ -61,8 +61,8 @@ const std::vector<glm::vec3> Pathfinder::findPath(const glm::vec3 &from, const g
     }
 
     // Find vertices nearest to start and end points
-    uint16_t fromIdx = getNearestVertex(from);
-    uint16_t toIdx = getNearestVertex(to);
+    uint16_t fromIdx = getNearestVertexBetweenPoints(from, to);
+    uint16_t toIdx = getNearestVertexBetweenPoints(to, from);
 
     // When start and end point have a common nearest vertex, return a path of start and end point
     if (fromIdx == toIdx) {
@@ -144,6 +144,36 @@ uint16_t Pathfinder::getNearestVertex(const glm::vec3 &point) const {
             index = i;
             minDist = dist;
         }
+    }
+
+    return index;
+}
+
+// Return the nearest vertex that is somewhere between the two points. If there
+// is no suitable vertex, returns getNearestVertex(point).
+uint16_t Pathfinder::getNearestVertexBetweenPoints(const glm::vec3 &point, const glm::vec3 &ref) const {
+    uint16_t index = 0xffff;
+    float minDistToPoint = 0.0f;
+
+    float maxDist = glm::distance2(point, ref);
+
+    for (int i = 0; i < _vertices.size(); ++i) {
+        float distToPoint = glm::distance2(point, _vertices[i]);
+        float distToRef = glm::distance2(ref, _vertices[i]);
+
+        bool init = index == 0xffff;
+        bool foundNearest = distToPoint < minDistToPoint;
+        bool isBetweenPoints = distToRef <= maxDist;
+
+        if (init || (foundNearest && isBetweenPoints)) {
+            index = i;
+            minDistToPoint = distToPoint;
+        }
+    }
+
+    if (index == 0xffff) {
+        // Fallback to a simple comparison if there is no vertex between points.
+        return getNearestVertex(point);
     }
 
     return index;

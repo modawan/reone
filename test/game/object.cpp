@@ -131,12 +131,6 @@ std::pair<std::string, std::string> reone::game::TestGameModule::scheduledTransi
 
 namespace {
 
-class StubConsole : public IConsole, boost::noncopyable {
-public:
-    void registerCommand(std::string name, std::string description, CommandHandler handler) override {}
-    void printLine(const std::string &text) override {}
-};
-
 class TestAreaTransition : public AreaTransition {
 public:
     using AreaTransition::AreaTransition;
@@ -180,19 +174,6 @@ public:
         _sceneNode = std::move(node);
     }
 };
-
-// TestEngine initializes the Logger singleton, which only tolerates a single
-// init per process.
-TestEngine &testEngine() {
-    static TestEngine engine;
-    static bool initialized = false;
-    if (!initialized) {
-        engine.init();
-        initialized = true;
-    }
-    return engine;
-}
-
 std::pair<std::string, std::string> scheduledTransition(TestEngine &engine, const Game &game) {
     return engine.gameModule().scheduledTransition(game);
 }
@@ -505,15 +486,23 @@ TEST(Conversation, should_finish_active_presentation_before_starting_replacement
     PresentationLifecycleConversation conversation(game, engine.services());
     auto first = std::make_shared<Dialog>();
     auto second = std::make_shared<Dialog>();
+    auto firstOwner = game.newCreature();
+    auto secondOwner = game.newCreature();
     first->startEntries.push_back(Dialog::EntryReplyLink {});
     second->startEntries.push_back(Dialog::EntryReplyLink {});
 
-    conversation.start(first, nullptr);
-    conversation.start(second, nullptr);
+    conversation.start(first, firstOwner);
+    EXPECT_TRUE(firstOwner->isInConversation());
+    conversation.start(second, secondOwner);
 
     EXPECT_EQ(conversation.startCount, 2);
     EXPECT_EQ(conversation.entryCount, 2);
     EXPECT_EQ(conversation.finishCount, 1);
+    EXPECT_FALSE(firstOwner->isInConversation());
+    EXPECT_TRUE(secondOwner->isInConversation());
+
+    conversation.cleanupForModuleTransition();
+    EXPECT_FALSE(secondOwner->isInConversation());
 }
 
 TEST(Conversation, should_advance_script_only_auto_routing_entry_without_presenting_it) {

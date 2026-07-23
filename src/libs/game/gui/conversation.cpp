@@ -78,12 +78,19 @@ static std::vector<script::Argument> makeScriptArgs(uint32_t callerId, const Par
 void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::shared_ptr<Object> &owner) {
     if (_dialog) {
         onFinish();
+        if (_owner) {
+            _owner->setIsInConversation(false);
+        }
     }
     debug("Start " + dialog->resRef, LogChannel::Conversation);
 
     _paused = false;
     _dialog = dialog;
     _owner = owner;
+
+    if (_owner) {
+        _owner->setIsInConversation(true);
+    }
 
     loadConversationBackground();
     loadCameraModel();
@@ -194,6 +201,10 @@ void Conversation::finish() {
     if (!_dialog->endScript.empty()) {
         _game.scriptRunner().run(_dialog->endScript, _owner->id());
     }
+
+    if (_owner) {
+        _owner->setIsInConversation(false);
+    }
 }
 
 void Conversation::onFinish() {
@@ -210,6 +221,9 @@ void Conversation::cleanupForModuleTransition() {
     }
     _lipAnimation.reset();
     onFinish();
+    if (_owner) {
+        _owner->setIsInConversation(false);
+    }
 }
 
 void Conversation::loadEntry(int index, bool start) {
@@ -379,7 +393,7 @@ bool Conversation::handle(const input::Event &event) {
 
 bool Conversation::handleMouseButtonDown(const input::MouseButtonEvent &event) {
     if (event.button == input::MouseButton::Left && !_entryEnded && isSkippableEntry()) {
-        endCurrentEntry();
+        _endEntryTimer.reset(0);
         return true;
     }
     return false;
