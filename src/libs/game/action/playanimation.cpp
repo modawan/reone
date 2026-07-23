@@ -20,6 +20,7 @@
 #include "reone/game/animationutil.h"
 #include "reone/game/object.h"
 #include "reone/scene/animproperties.h"
+#include "reone/graphics/animation.h"
 
 using namespace reone::scene;
 
@@ -28,26 +29,44 @@ namespace reone {
 namespace game {
 
 void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    std::string animName = actor.getAnimationName(_animation);
     if (_playing) {
-        if (actor.getActiveAnimationName() != animName) {
+        _timer.update(dt);
+        if (_timer.elapsed()) {
             complete();
         }
         return;
     }
 
+    if (isAnimationLooping(_animation)) {
+        // Looping animations never finish. Complete the action immediately to
+        // avoid stalling the action queue.
+        if (_durationSeconds < 0.0f) {
+            complete();
+        } else {
+            _timer.reset(_durationSeconds);
+        }
+    } else {
+        // Set the timer to match duration of the animation.
+        auto node = actor.sceneNode();
+        if (node->type() != SceneNodeType::Model) {
+            complete();
+            return;
+        }
+
+        const graphics::Model &model = std::static_pointer_cast<ModelSceneNode>(node)->model();
+        std::shared_ptr<graphics::Animation> anim = model.getAnimation(actor.getAnimationName(_animation));
+        if (!anim) {
+            complete();
+            return;
+        }
+
+        _timer.reset(anim->length());
+    }
+
     AnimationProperties properties;
     properties.speed = _speed;
     properties.duration = _durationSeconds;
-
-    bool looping = isAnimationLooping(_animation) && properties.duration == -1.0f;
     actor.playAnimation(_animation, std::move(properties));
-    if (looping) {
-        // Looping animations never finish. Complete the action
-        // immediately to avoid stalling the action queue.
-        complete();
-    }
-
     _playing = true;
 }
 
