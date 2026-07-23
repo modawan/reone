@@ -195,7 +195,12 @@ void Conversation::finish() {
     _paused = false;
     onFinish();
 
-    _game.openInGame();
+    // A reply script can hand the screen to something else before the
+    // conversation ends -- PlayPazaak opens the pazaak board from a dialogue
+    // action -- so only return to the world if the conversation still owns it.
+    if (_game.currentScreen() == Game::Screen::Conversation) {
+        _game.openInGame();
+    }
 
     // Run EndConversation script
     if (!_dialog->endScript.empty()) {

@@ -358,6 +358,18 @@ TEST_F(ConversationTest, finishing_a_paused_conversation_does_not_leak_pause_to_
     EXPECT_EQ(2, _conversation->entryEndCount());
 }
 
+TEST_F(ConversationTest, finishing_leaves_a_screen_opened_by_a_reply_script_alone) {
+    // A reply script can hand the screen to something else before the
+    // conversation ends -- PlayPazaak opens the pazaak board from a dialogue
+    // action -- so finishing must not pull the screen back to the world.
+    startSilent();
+    _conversation->update(1.0f);
+
+    _conversation->pickReplyForTest(0);
+
+    EXPECT_EQ(Game::Screen::None, _game->currentScreen());
+}
+
 TEST_F(ConversationTest, module_transition_cleanup_clears_pause_before_the_next_session) {
     startSilent();
     _conversation->pause();
