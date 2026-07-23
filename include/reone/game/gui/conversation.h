@@ -98,6 +98,7 @@ private:
     void loadReplies();
 
     bool isSkippableEntry() const;
+    bool isNonPresentationalEntry() const;
 
     void refreshReplies();
 
