@@ -27,6 +27,7 @@ option(BUILD_TOOLKIT "build toolkit application" ON)
 option(BUILD_DATAMINER "build dataminer application" ON)
 option(BUILD_GFF2JSON "build gff2json application" ON)
 option(BUILD_UNERF "build unerf application" ON)
+option(BUILD_NCSRUN "build ncsrun application" ON)
 
 option(ENABLE_MOVIE "enable movie playback" ON)
 option(ENABLE_ASAN "enable address sanitizer" OFF)
@@ -133,6 +134,10 @@ endif()
 
 if(BUILD_UNERF)
     add_subdirectory(src/apps/unerf) # unpack ERF files
+endif()
+
+if(BUILD_NCSRUN)
+    add_subdirectory(src/apps/ncsrun) # execute NCS program
 endif()
 
 if(BUILD_TESTS)
