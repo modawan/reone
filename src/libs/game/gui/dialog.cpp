@@ -182,15 +182,12 @@ void DialogGUI::loadStuntParticipants() {
 }
 
 bool DialogGUI::hasStuntPresentation() const {
-    return _dialog->isAnimatedCutscene() || (!_dialog->cameraModel.empty() && !_dialog->stunts.empty());
+    return _dialog->isAnimatedCutscene() || !_dialog->stunts.empty();
 }
 
 std::shared_ptr<Animation> DialogGUI::getStuntParticipantAnimation(
     const std::string &participant,
     int ordinal) const {
-    if (_dialog->cameraModel.empty()) {
-        return nullptr;
-    }
     auto maybeParticipant = _participantByTag.find(participant);
     return maybeParticipant != _participantByTag.end()
                ? maybeParticipant->second.model->getAnimation(getStuntAnimationName(ordinal))
@@ -200,8 +197,8 @@ std::shared_ptr<Animation> DialogGUI::getStuntParticipantAnimation(
 void DialogGUI::onLoadEntry() {
     restoreInactiveStuntParticipants();
     loadCurrentSpeaker();
-    updateCamera();
     updateParticipantAnimations();
+    updateCamera();
     repositionMessage();
 
     _controls.LB_REPLIES->setVisible(false);
@@ -237,7 +234,7 @@ bool DialogGUI::enterMixedStunt(Participant &participant, const std::shared_ptr<
     AnimationProperties properties;
     properties.flags = AnimationFlags::propagate;
     properties.scale = 1.0f;
-    if (!participant.creature->playAnimation(animation, std::move(properties))) {
+    if (!participant.creature->playExternalAnimation(animation, std::move(properties))) {
         return false;
     }
 
@@ -359,7 +356,7 @@ void DialogGUI::updateParticipantAnimations() {
                 AnimationProperties properties;
                 properties.flags = AnimationFlags::propagate;
                 properties.scale = 1.0f;
-                participant.creature->playAnimation(animation, std::move(properties));
+                participant.creature->playExternalAnimation(animation, std::move(properties));
             }
         } else if (auto animation = getStuntParticipantAnimation(anim.participant, anim.animation)) {
             Participant &participant = _participantByTag.at(anim.participant);
@@ -439,6 +436,7 @@ void DialogGUI::releaseStuntParticipants() {
         return;
     }
     for (auto &participant : _participantByTag) {
+        participant.second.creature->resumeStateDrivenAnimation();
         participant.second.creature->stopStuntMode();
         participant.second.creature->setIsInConversation(false);
     }

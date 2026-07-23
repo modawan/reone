@@ -219,8 +219,6 @@ void Conversation::loadEntry(int index, bool start) {
     setMessage(entryText);
     loadReplies();
     loadVoiceOver();
-    scheduleEndOfEntry();
-    onLoadEntry();
 
     // Conversation is a one-liner if there is exactly one empty reply that has no entries
     bool oneLiner = false;
@@ -228,6 +226,15 @@ void Conversation::loadEntry(int index, bool start) {
         const Dialog::EntryReply &reply = *_replies[0];
         oneLiner = reply.text.empty() && reply.entries.empty();
     }
+    if (!oneLiner && isNonPresentationalEntry()) {
+        runScripts(*_currentEntry);
+        pickReply(0);
+        return;
+    }
+
+    scheduleEndOfEntry();
+    onLoadEntry();
+
     if (oneLiner) {
         _game.setBarkBubbleText(std::move(entryText), _entryDuration);
         debug("Dialog: finish (one-liner)");
@@ -377,6 +384,18 @@ bool Conversation::handleMouseButtonDown(const input::MouseButtonEvent &event) {
 
 bool Conversation::isSkippableEntry() const {
     return g_allEntriesSkippable || (_dialog->isSkippable() && !_paused);
+}
+
+bool Conversation::isNonPresentationalEntry() const {
+    return _autoPickFirstReply &&
+           _currentEntry->text.empty() &&
+           _currentEntry->sound.empty() &&
+           _currentEntry->voResRef.empty() &&
+           _currentEntry->cameraAnimation == 0 &&
+           _currentEntry->cameraId == 0 &&
+           _currentEntry->cameraAngle == 0 &&
+           _currentEntry->animations.empty() &&
+           _currentEntry->delay == -1;
 }
 
 void Conversation::endCurrentEntry() {

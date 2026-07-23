@@ -34,10 +34,14 @@
 #include "reone/game/object/item.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/object/trigger.h"
+#include "reone/graphics/animation.h"
+#include "reone/graphics/model.h"
+#include "reone/graphics/modelnode.h"
 #include "reone/graphics/walkmesh.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/gff.h"
 #include "reone/scene/collision.h"
+#include "reone/scene/node/model.h"
 #include "reone/scene/node/trigger.h"
 #include "reone/script/program.h"
 
@@ -78,6 +82,28 @@ private:
     void setMessage(std::string) override {}
     void onStart() override { ++startCount; }
     void onFinish() override { ++finishCount; }
+};
+
+class RoutingConversation : public Conversation {
+public:
+    using Conversation::Conversation;
+
+    int presentedEntryCount {0};
+    std::vector<std::string> messages;
+
+private:
+    void setReplyLines(std::vector<std::string>) override {}
+    void setMessage(std::string message) override { messages.push_back(std::move(message)); }
+    void onLoadEntry() override { ++presentedEntryCount; }
+};
+
+class TestCreature : public Creature {
+public:
+    using Creature::Creature;
+
+    void setSceneNode(std::shared_ptr<scene::SceneNode> node) {
+        _sceneNode = std::move(node);
+    }
 };
 
 // TestEngine initializes the Logger singleton, which only tolerates a single
@@ -297,6 +323,46 @@ std::shared_ptr<Item> makeItem(Game &game, std::string tag, int baseItem, int st
     return item;
 }
 
+std::shared_ptr<graphics::Animation> makeAnimation(std::string name) {
+    auto root = std::make_shared<graphics::ModelNode>(
+        0,
+        "root_node",
+        glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+        false,
+        nullptr);
+    root->vectorTracks()[graphics::ControllerTypes::position].add(0.0f, glm::vec3(0.0f));
+    root->vectorTracks()[graphics::ControllerTypes::position].add(1.0f, glm::vec3(1.0f));
+    return std::make_shared<graphics::Animation>(
+        std::move(name),
+        1.0f,
+        0.0f,
+        "root_node",
+        std::move(root),
+        std::vector<graphics::Animation::Event>());
+}
+
+std::shared_ptr<Dialog> makeRoutingDialog() {
+    auto dialog = std::make_shared<Dialog>();
+    dialog->startEntries.push_back(Dialog::EntryReplyLink {0});
+
+    Dialog::EntryReply routing;
+    routing.delay = -1;
+    routing.cameraId = 0;
+    routing.replies.push_back(Dialog::EntryReplyLink {0});
+    dialog->entries.push_back(std::move(routing));
+
+    Dialog::EntryReply visible;
+    visible.text = "visible";
+    visible.delay = 30;
+    dialog->entries.push_back(std::move(visible));
+
+    Dialog::EntryReply continuation;
+    continuation.entries.push_back(Dialog::EntryReplyLink {1});
+    dialog->replies.push_back(std::move(continuation));
+    return dialog;
+}
+
 } // namespace
 
 TEST(Conversation, should_finish_active_presentation_before_starting_replacement) {
@@ -315,6 +381,108 @@ TEST(Conversation, should_finish_active_presentation_before_starting_replacement
     EXPECT_EQ(conversation.startCount, 2);
     EXPECT_EQ(conversation.entryCount, 2);
     EXPECT_EQ(conversation.finishCount, 1);
+}
+
+TEST(Conversation, should_advance_script_only_auto_routing_entry_without_presenting_it) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    RoutingConversation conversation(game, engine.services());
+
+    conversation.start(makeRoutingDialog(), nullptr);
+
+    ASSERT_EQ(conversation.messages.size(), 2);
+    EXPECT_EQ(conversation.messages[0], "");
+    EXPECT_EQ(conversation.messages[1], "visible");
+    EXPECT_EQ(conversation.presentedEntryCount, 1);
+}
+
+TEST(Conversation, should_present_auto_routing_entry_with_authored_presentation_data) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    std::vector<std::function<void(Dialog::EntryReply &)>> addPresentation {
+        [](auto &entry) { entry.text = "text"; },
+        [](auto &entry) { entry.sound = "sound"; },
+        [](auto &entry) { entry.voResRef = "voice"; },
+        [](auto &entry) { entry.cameraAnimation = 1200; },
+        [](auto &entry) { entry.cameraId = 1; },
+        [](auto &entry) { entry.cameraAngle = 1; },
+        [](auto &entry) { entry.animations.push_back({"participant", 1200}); },
+        [](auto &entry) { entry.delay = 0; },
+    };
+
+    for (auto &mutate : addPresentation) {
+        auto dialog = makeRoutingDialog();
+        mutate(dialog->entries[0]);
+        RoutingConversation conversation(game, engine.services());
+
+        conversation.start(dialog, nullptr);
+
+        EXPECT_EQ(conversation.presentedEntryCount, 1);
+        ASSERT_EQ(conversation.messages.size(), 1);
+    }
+}
+
+TEST(Creature, should_hold_dialog_owned_external_animation_until_assignment_changes) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto modelRoot = std::make_shared<graphics::ModelNode>(
+        0,
+        "root_node",
+        glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+        true,
+        nullptr);
+    auto idle = makeAnimation("cpause1");
+    auto first = makeAnimation("first");
+    auto second = makeAnimation("second");
+    std::vector<std::shared_ptr<graphics::Animation>> animations {idle, first, second};
+    graphics::Model model("creature", 0, modelRoot, std::move(animations), "", 1.0f);
+    graphics::GraphicsOptions graphicsOptions;
+    scene::SceneGraph graph(
+        "test",
+        engine.sceneModule().renderPipelineFactory(),
+        graphicsOptions,
+        engine.services().graphics,
+        engine.services().audio,
+        engine.services().resource);
+    auto modelNode = graph.newModel(model, scene::ModelUsage::Creature);
+    TestCreature creature(1, "test", game, engine.services());
+    creature.setSceneNode(modelNode);
+    creature.resumeStateDrivenAnimation();
+
+    scene::AnimationProperties properties;
+    properties.flags = scene::AnimationFlags::propagate;
+    properties.scale = 1.0f;
+
+    ASSERT_TRUE(creature.playExternalAnimation(first, properties));
+    modelNode->update(0.4f);
+    ASSERT_EQ(modelNode->animationChannels().size(), 1);
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
+
+    ASSERT_TRUE(creature.playExternalAnimation(first, properties));
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
+
+    modelNode->update(0.7f);
+    creature.update(0.0f);
+    EXPECT_EQ(modelNode->activeAnimationName(), "first");
+    EXPECT_TRUE(modelNode->isAnimationFinished());
+
+    ASSERT_TRUE(creature.playExternalAnimation(second, properties));
+    EXPECT_EQ(modelNode->activeAnimationName(), "second");
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
+
+    creature.update(0.0f);
+    modelNode->update(0.0f);
+    EXPECT_EQ(modelNode->activeAnimationName(), "second");
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
+
+    creature.resumeStateDrivenAnimation();
+    EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
 }
 
 TEST(Object, should_convert_credits_to_party_gold_when_looted_by_party_member) {
