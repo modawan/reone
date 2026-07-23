@@ -20,6 +20,7 @@
 #include "../types.h"
 
 #include "../action.h"
+#include "reone/system/timer.h"
 
 namespace reone {
 
@@ -49,6 +50,7 @@ private:
     float _speed;
     float _durationSeconds;
 
+    Timer _timer;
     bool _playing {false};
 };
 
