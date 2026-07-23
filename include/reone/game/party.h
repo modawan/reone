@@ -27,6 +27,13 @@ class Creature;
 class Game;
 class Object;
 
+enum class XPSource {
+    Plot,
+    Combat,
+    Stealth,
+    Console
+};
+
 class Party {
 public:
     struct Member {
@@ -116,7 +123,9 @@ public:
     // from it, and members added later are synced to it.
 
     int xp() const { return _xp; }
-    void giveXP(int amount);
+
+    /** Add to the shared pool and apply feedback appropriate to the award source. */
+    void awardXP(int amount, XPSource source);
     void setXP(int xp);
 
     // END Experience

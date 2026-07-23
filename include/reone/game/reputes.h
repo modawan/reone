@@ -23,7 +23,7 @@ namespace reone {
 
 namespace resource {
 
-class TwoDAs;
+class ITwoDAs;
 
 }
 
@@ -43,7 +43,7 @@ public:
 
 class Reputes : public IReputes, boost::noncopyable {
 public:
-    Reputes(resource::TwoDAs &twoDas) :
+    Reputes(resource::ITwoDAs &twoDas) :
         _twoDas(twoDas) {
     }
 
@@ -55,7 +55,9 @@ public:
     bool getIsNeutral(const Creature &left, const Creature &right) const override;
 
 private:
-    resource::TwoDAs &_twoDas;
+    resource::ITwoDAs &_twoDas;
+    std::vector<std::string> _factionLabels;
+    std::vector<std::vector<int>> _factionValues;
 
     int getRepute(Faction left, Faction right) const;
 };

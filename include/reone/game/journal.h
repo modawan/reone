@@ -37,6 +37,11 @@ namespace game {
  */
 class Journal {
 public:
+    struct EntryChange {
+        int plotIndex {-1};
+        float xpPercentage {0.0f};
+    };
+
     struct Quest {
         std::string plotId;
         int state {0};
@@ -83,7 +88,7 @@ public:
      * Set a listener invoked whenever addEntry changes quest state. Not
      * invoked by removeEntry or restoreEntry.
      */
-    void setOnQuestChanged(std::function<void()> fn) { _onQuestChanged = std::move(fn); }
+    void setOnQuestChanged(std::function<void(const EntryChange &)> fn) { _onQuestChanged = std::move(fn); }
 
     const resource::JRL::Category *findCategory(const std::string &plotId);
     const resource::JRL::Entry *findEntry(const std::string &plotId, int state);
@@ -95,10 +100,10 @@ private:
     bool _loaded {false};
     resource::JRL _jrl;
     std::vector<Quest> _quests;
-    std::function<void()> _onQuestChanged;
+    std::function<void(const EntryChange &)> _onQuestChanged;
 
     void ensureLoaded();
-    void notifyQuestChanged();
+    void notifyQuestChanged(const resource::JRL::Category *category, const resource::JRL::Entry *entry);
     Quest *findQuest(const std::string &plotId);
     std::string resolveLocText(const resource::JRL::LocText &text);
 };

@@ -30,45 +30,38 @@ namespace game {
 
 static constexpr int kDefaultRepute = 50;
 
-static std::vector<std::string> g_factionLabels;
-static std::vector<std::vector<int>> g_factionValues;
-
 void Reputes::init() {
     std::shared_ptr<TwoDA> repute(_twoDas.get("repute"));
     if (!repute) {
         return;
     }
 
+    _factionLabels.clear();
+    _factionValues.clear();
+
     for (int row = 0; row < repute->getRowCount(); ++row) {
-        g_factionLabels.push_back(boost::to_lower_copy(repute->getString(row, "label")));
+        _factionLabels.push_back(boost::to_lower_copy(repute->getString(row, "label")));
     }
 
     for (int row = 0; row < repute->getRowCount(); ++row) {
         std::vector<int> values;
-        for (size_t i = 0; i < g_factionLabels.size(); ++i) {
+        for (size_t i = 0; i < _factionLabels.size(); ++i) {
             int value;
 
-            const std::string &label = g_factionLabels[i];
+            const std::string &label = _factionLabels[i];
             if (label == "player" || label == "glb_xor") {
                 value = kDefaultRepute;
             } else {
-                value = repute->getInt(row, g_factionLabels[i], kDefaultRepute);
+                value = repute->getInt(row, _factionLabels[i], kDefaultRepute);
             }
 
             values.push_back(value);
         }
-        g_factionValues.push_back(std::move(values));
+        _factionValues.push_back(std::move(values));
     }
 }
 
 bool Reputes::getIsEnemy(const Creature &left, const Creature &right) const {
-    // HACK: friendlies must not attack each other, unless both are immortal
-    if ((left.faction() == Faction::Friendly1 && right.faction() == Faction::Friendly2) ||
-        (left.faction() == Faction::Friendly2 && right.faction() == Faction::Friendly1)) {
-
-        return left.isMinOneHP() && right.isMinOneHP();
-    }
-
     return getIsEnemy(left.faction(), right.faction());
 }
 
@@ -88,11 +81,11 @@ int Reputes::getRepute(Faction left, Faction right) const {
     int leftFaction = static_cast<int>(left);
     int rightFaction = static_cast<int>(right);
 
-    if (leftFaction < 0 || leftFaction >= g_factionValues.size() ||
-        rightFaction < 0 || rightFaction >= g_factionValues[leftFaction].size())
+    if (leftFaction < 0 || leftFaction >= _factionValues.size() ||
+        rightFaction < 0 || rightFaction >= _factionValues[leftFaction].size())
         return kDefaultRepute;
 
-    return g_factionValues[leftFaction][rightFaction];
+    return _factionValues[leftFaction][rightFaction];
 }
 
 } // namespace game
