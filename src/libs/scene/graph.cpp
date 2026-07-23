@@ -319,6 +319,13 @@ void SceneGraph::refresh() {
 }
 
 void SceneGraph::refreshFromNode(SceneNode &node) {
+    // A disabled node (and its subtree) is skipped from the render lists, so
+    // callers can suppress a specific mesh or emitter. The renderer otherwise
+    // ignores isEnabled on child nodes.
+    if (!node.isEnabled()) {
+        return;
+    }
+
     bool propagate = true;
 
     switch (node.type()) {
