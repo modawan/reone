@@ -91,6 +91,7 @@ private:
     float _spread {0.0f};
     float _velocity {0.0f};
     float _randomVelocity {0.0f};
+    float _blurLength {0.0f};
     float _mass {0.0f};
     float _grav {0.0f};
     float _lightningDelay {0.0f};
