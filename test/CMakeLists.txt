@@ -23,6 +23,7 @@ set(TESTS_SOURCE_DIR ${CMAKE_SOURCE_DIR}/test)
 
 set(TESTS_HEADERS
     ${TESTS_SOURCE_DIR}/checkutil.h
+    ${TESTS_SOURCE_DIR}/fixtures/archive.h
     ${TESTS_SOURCE_DIR}/fixtures/audio.h
     ${TESTS_SOURCE_DIR}/fixtures/data.h
     ${TESTS_SOURCE_DIR}/fixtures/engine.h
@@ -37,6 +38,11 @@ set(TESTS_HEADERS
 
 set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/audio/format/wavreader.cpp
+    ${TESTS_SOURCE_DIR}/extract/capsule.cpp
+    ${TESTS_SOURCE_DIR}/extract/chitin.cpp
+    ${TESTS_SOURCE_DIR}/extract/fileresource.cpp
+    ${TESTS_SOURCE_DIR}/extract/finder.cpp
+    ${TESTS_SOURCE_DIR}/extract/installation.cpp
     ${TESTS_SOURCE_DIR}/game/d20/class.cpp
     ${TESTS_SOURCE_DIR}/game/d20/spells.cpp
     ${TESTS_SOURCE_DIR}/game/conversation.cpp
