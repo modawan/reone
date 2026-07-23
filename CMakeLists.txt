@@ -70,6 +70,10 @@ include_directories(${Boost_INCLUDE_DIRS} ${SDL3_INCLUDE_DIRS} ${MAD_INCLUDE_DIR
 
 add_compile_definitions(BOOST_BIND_GLOBAL_PLACEHOLDERS)
 
+# GLM GTX extensions (euler_angles et al.) are gated behind this define in
+# recent GLM releases; required when a system/vcpkg GLM shadows extern/glm.
+add_compile_definitions(GLM_ENABLE_EXPERIMENTAL)
+
 if(MSVC)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 endif()
