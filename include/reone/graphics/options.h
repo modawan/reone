@@ -30,9 +30,9 @@ struct GraphicsOptions {
     bool fullscreen {false};
     bool vsync {true};
     bool grass {true};
-    bool pbr {true};
-    bool ssao {true};
-    bool ssr {true};
+    bool pbr {false};
+    bool ssao {false};
+    bool ssr {false};
     bool fxaa {true};
     bool sharpen {true};
     TextureQuality textureQuality {TextureQuality::High};

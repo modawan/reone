@@ -47,9 +47,9 @@ private:
         bool fullscreen {false};
         bool vsync {false};
         bool grass {true};
-        bool pbr {true};
-        bool ssao {true};
-        bool ssr {true};
+        bool pbr {false};
+        bool ssao {false};
+        bool ssr {false};
         bool fxaa {true};
         bool sharpen {true};
         int texQuality {0};
