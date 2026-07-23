@@ -160,7 +160,7 @@ public:
     void playAnimation(CombatAnimation anim, CreatureWieldType wield, int variant = 1);
     void playAnimation(const std::string &name, scene::AnimationProperties properties = scene::AnimationProperties());
     bool playAnimation(const std::shared_ptr<graphics::Animation> &anim, scene::AnimationProperties properties = scene::AnimationProperties());
-    // Holds an animation owned by an external presentation until resumeStateDrivenAnimation is called.
+    // Protects an externally sourced animation from state-driven replacement until the clip completes.
     bool playExternalAnimation(const std::shared_ptr<graphics::Animation> &anim, scene::AnimationProperties properties = scene::AnimationProperties());
     void resumeStateDrivenAnimation();
 

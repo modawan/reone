@@ -558,7 +558,7 @@ TEST(Conversation, should_present_auto_routing_entry_with_authored_presentation_
     }
 }
 
-TEST(Creature, should_hold_dialog_owned_external_animation_until_assignment_changes) {
+TEST(Creature, should_release_completed_external_animation_without_truncating_or_restarting_it) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -600,10 +600,15 @@ TEST(Creature, should_hold_dialog_owned_external_animation_until_assignment_chan
     ASSERT_TRUE(creature.playExternalAnimation(first, properties));
     EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
 
-    modelNode->update(0.7f);
+    modelNode->update(0.5f);
     creature.update(0.0f);
     EXPECT_EQ(modelNode->activeAnimationName(), "first");
+    EXPECT_FALSE(modelNode->isAnimationFinished());
+
+    modelNode->update(0.2f);
     EXPECT_TRUE(modelNode->isAnimationFinished());
+    creature.update(0.0f);
+    EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
 
     ASSERT_TRUE(creature.playExternalAnimation(second, properties));
     EXPECT_EQ(modelNode->activeAnimationName(), "second");
@@ -685,6 +690,11 @@ TEST(DialogGUI, should_preserve_change_drop_and_release_mixed_player_stunt_assig
 
     ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
     EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
+
+    modelNode->update(0.7f);
+    player->update(0.0f);
+    EXPECT_TRUE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
+    EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
 
     ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1201));
     EXPECT_EQ(modelNode->activeAnimationName(), "cut002w");
