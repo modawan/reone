@@ -238,9 +238,20 @@ glm::vec3 getVectorOrElse(const std::vector<Variable> &args, int index, glm::vec
 std::shared_ptr<Object> getObjectOrNull(const std::vector<Variable> &args, int index, const RoutineContext &ctx) {
     if (index < 0 || index >= args.size()) {
         return nullptr;
-    } else {
-        return getObject(args, index, ctx);
     }
+    throwIfUnexpectedType(VariableType::Object, args[index].type);
+
+    uint32_t objectId = args[index].objectId;
+    if (objectId == kObjectSelf) {
+        const Variable *caller = ctx.execution.findArg(ArgKind::Caller);
+        objectId = caller ? caller->objectId : kObjectInvalid;
+    }
+
+    // An optional object parameter is declared as OBJECT_INVALID in nwscript,
+    // so scripts routinely pass an id that references nothing. That is what
+    // this overload exists to express -- yield null instead of failing the
+    // routine and halting the script around it.
+    return objectId == kObjectSelf ? nullptr : ctx.game.getObjectById(objectId);
 }
 
 std::shared_ptr<Object> getObjectOrCaller(const std::vector<Variable> &args, int index, const RoutineContext &ctx) {
