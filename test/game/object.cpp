@@ -547,7 +547,7 @@ TEST(Conversation, should_present_auto_routing_entry_with_authored_presentation_
     }
 }
 
-TEST(Creature, should_release_completed_external_animation_without_truncating_or_restarting_it) {
+TEST(Creature, should_hold_completed_external_animation_until_assignment_is_released) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -589,19 +589,33 @@ TEST(Creature, should_release_completed_external_animation_without_truncating_or
     ASSERT_TRUE(creature.playExternalAnimation(first, properties));
     EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
 
+    modelNode->update(0.7f);
+    creature.update(0.0f);
+    EXPECT_EQ(modelNode->activeAnimationName(), "first");
+    EXPECT_TRUE(modelNode->isAnimationFinished());
+    ASSERT_EQ(modelNode->animationChannels().size(), 1);
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+
+    auto rootSceneNode = modelNode->getNodeByName("root_node");
+    ASSERT_TRUE(rootSceneNode);
+    EXPECT_NEAR(rootSceneNode->localTransform()[3].x, 1.0f, 1e-5);
+
     modelNode->update(0.5f);
     creature.update(0.0f);
     EXPECT_EQ(modelNode->activeAnimationName(), "first");
-    EXPECT_FALSE(modelNode->isAnimationFinished());
-
-    modelNode->update(0.2f);
     EXPECT_TRUE(modelNode->isAnimationFinished());
-    creature.update(0.0f);
-    EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+    EXPECT_NEAR(rootSceneNode->localTransform()[3].x, 1.0f, 1e-5);
+
+    ASSERT_TRUE(creature.playExternalAnimation(first, properties));
+    EXPECT_EQ(modelNode->activeAnimationName(), "first");
+    EXPECT_TRUE(modelNode->isAnimationFinished());
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
 
     ASSERT_TRUE(creature.playExternalAnimation(second, properties));
     EXPECT_EQ(modelNode->activeAnimationName(), "second");
     EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
+    EXPECT_FALSE(modelNode->isAnimationFinished());
 
     creature.update(0.0f);
     modelNode->update(0.0f);
@@ -639,7 +653,7 @@ TEST(DialogGUI, should_prepare_the_real_player_from_a_stunt_model_without_creati
     EXPECT_FALSE(player->isStuntMode());
 }
 
-TEST(DialogGUI, should_preserve_change_drop_and_release_mixed_player_stunt_assignments) {
+TEST(DialogGUI, should_hold_mixed_stunt_assignment_and_restore_on_drop_or_teardown) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -673,6 +687,15 @@ TEST(DialogGUI, should_preserve_change_drop_and_release_mixed_player_stunt_assig
     MixedStuntTestAccess::loadParticipants(gui, dialog);
 
     ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
+    EXPECT_TRUE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
+    EXPECT_TRUE(player->isStuntMode());
+    EXPECT_TRUE(modelNode->isEnabled());
+    EXPECT_FALSE(modelNode->isCulled());
+    EXPECT_FALSE(modelNode->isCullingEnabled());
+    EXPECT_NEAR(modelNode->localTransform()[3].x, 0.0f, 1e-5);
+    EXPECT_NEAR(modelNode->localTransform()[3].y, 0.0f, 1e-5);
+    EXPECT_NEAR(modelNode->localTransform()[3].z, 0.0f, 1e-5);
+
     modelNode->update(0.4f);
     ASSERT_EQ(modelNode->animationChannels().size(), 1);
     EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
@@ -683,11 +706,39 @@ TEST(DialogGUI, should_preserve_change_drop_and_release_mixed_player_stunt_assig
     modelNode->update(0.7f);
     player->update(0.0f);
     EXPECT_TRUE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
-    EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
+    EXPECT_TRUE(player->isStuntMode());
+    EXPECT_TRUE(modelNode->isEnabled());
+    EXPECT_FALSE(modelNode->isCulled());
+    EXPECT_FALSE(modelNode->isCullingEnabled());
+    EXPECT_EQ(modelNode->activeAnimationName(), "cut001w");
+    EXPECT_TRUE(modelNode->isAnimationFinished());
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+
+    auto rootSceneNode = modelNode->getNodeByName("root_node");
+    ASSERT_TRUE(rootSceneNode);
+    EXPECT_NEAR(rootSceneNode->localTransform()[3].x, 1.0f, 1e-5);
+
+    modelNode->update(0.5f);
+    player->update(0.0f);
+    EXPECT_EQ(modelNode->activeAnimationName(), "cut001w");
+    EXPECT_TRUE(modelNode->isAnimationFinished());
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+    EXPECT_NEAR(rootSceneNode->localTransform()[3].x, 1.0f, 1e-5);
+
+    ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
+    EXPECT_EQ(modelNode->activeAnimationName(), "cut001w");
+    EXPECT_TRUE(modelNode->isAnimationFinished());
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
 
     ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1201));
     EXPECT_EQ(modelNode->activeAnimationName(), "cut002w");
     EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
+    EXPECT_FALSE(modelNode->isAnimationFinished());
+
+    modelNode->update(0.25f);
+    ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1201));
+    EXPECT_EQ(modelNode->activeAnimationName(), "cut002w");
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.25f);
 
     Dialog::EntryReply droppedEntry;
     MixedStuntTestAccess::restoreForEntry(gui, droppedEntry);
@@ -696,12 +747,21 @@ TEST(DialogGUI, should_preserve_change_drop_and_release_mixed_player_stunt_assig
     EXPECT_FLOAT_EQ(player->getFacing(), 0.75f);
     EXPECT_FALSE(modelNode->isCullingEnabled());
     EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
+    EXPECT_NEAR(modelNode->localTransform()[3].x, 1.0f, 1e-5);
+    EXPECT_NEAR(modelNode->localTransform()[3].y, 2.0f, 1e-5);
+    EXPECT_NEAR(modelNode->localTransform()[3].z, 3.0f, 1e-5);
 
     ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
     MixedStuntTestAccess::finish(gui);
     EXPECT_EQ(MixedStuntTestAccess::participantCount(gui), 0);
     EXPECT_FALSE(player->isStuntMode());
+    EXPECT_EQ(player->position(), glm::vec3(1.0f, 2.0f, 3.0f));
+    EXPECT_FLOAT_EQ(player->getFacing(), 0.75f);
+    EXPECT_FALSE(modelNode->isCullingEnabled());
     EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
+    EXPECT_NEAR(modelNode->localTransform()[3].x, 1.0f, 1e-5);
+    EXPECT_NEAR(modelNode->localTransform()[3].y, 2.0f, 1e-5);
+    EXPECT_NEAR(modelNode->localTransform()[3].z, 3.0f, 1e-5);
 }
 
 TEST(DialogGUI, should_leave_no_partial_mixed_stunt_state_when_inputs_are_missing) {
