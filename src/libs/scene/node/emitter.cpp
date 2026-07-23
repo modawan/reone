@@ -29,6 +29,7 @@
 #include "reone/scene/graph.h"
 #include "reone/scene/node/camera.h"
 #include "reone/scene/node/particle.h"
+#include "reone/scene/particleutil.h"
 #include "reone/scene/render/pass.h"
 #include "reone/system/randomutil.h"
 
@@ -37,9 +38,6 @@ using namespace reone::graphics;
 namespace reone {
 
 namespace scene {
-
-static constexpr float kMotionBlurStrength = 0.25f;
-static constexpr float kProjectileSpeed = 16.0f;
 
 void EmitterSceneNode::init() {
     _modelNode.floatValueAtTime(ControllerTypes::birthrate, 0.0f, _birthrate);
@@ -59,6 +57,7 @@ void EmitterSceneNode::init() {
     _modelNode.floatValueAtTime(ControllerTypes::spread, 0.0f, _spread);
     _modelNode.floatValueAtTime(ControllerTypes::velocity, 0.0f, _velocity);
     _modelNode.floatValueAtTime(ControllerTypes::randVel, 0.0f, _randomVelocity);
+    _modelNode.floatValueAtTime(ControllerTypes::blurLength, 0.0f, _blurLength);
     _modelNode.floatValueAtTime(ControllerTypes::mass, 0.0f, _mass);
     _modelNode.floatValueAtTime(ControllerTypes::grav, 0.0f, _grav);
     _modelNode.floatValueAtTime(ControllerTypes::lightingDelay, 0.0f, _lightningDelay);
@@ -270,7 +269,8 @@ void EmitterSceneNode::renderLeafs(IRenderPass &pass, const std::vector<SceneNod
     auto emitterUp = glm::vec3(_absTransform[1]);
     auto emitterForward = glm::vec3(_absTransform[2]);
 
-    auto view = _sceneGraph.camera()->get().camera()->view();
+    auto &cameraNode = _sceneGraph.camera()->get();
+    auto view = cameraNode.camera()->view();
     auto cameraRight = glm::vec3(view[0][0], view[1][0], view[2][0]);
     auto cameraUp = glm::vec3(view[0][1], view[1][1], view[2][1]);
     auto cameraForward = glm::vec3(view[0][2], view[1][2], view[2][2]);
@@ -284,13 +284,23 @@ void EmitterSceneNode::renderLeafs(IRenderPass &pass, const std::vector<SceneNod
         particles[i].color = glm::vec4(particle->color(), particle->alpha());
         switch (emitter->renderMode) {
         case ModelNode::Emitter::RenderMode::BillboardToLocalZ:
-        case ModelNode::Emitter::RenderMode::MotionBlur:
-            if (emitter->renderMode == ModelNode::Emitter::RenderMode::MotionBlur) {
-                particles[i].size = glm::vec2(particle->size().x, (1.0f + kMotionBlurStrength * kProjectileSpeed) * particle->size().y);
-            }
             particles[i].right = glm::vec4(emitterUp, 0.0f);
             particles[i].up = glm::vec4(emitterRight, 0.0f);
             break;
+        case ModelNode::Emitter::RenderMode::MotionBlur: {
+            auto basis = particleutil::buildMotionBlurBasis(
+                _absTransform,
+                particle->velocity(),
+                cameraNode.origin() - particle->origin(),
+                cameraRight,
+                cameraUp,
+                particles[i].size.y,
+                _blurLength);
+            particles[i].size.y *= basis.lengthScale;
+            particles[i].right = glm::vec4(basis.right, 0.0f);
+            particles[i].up = glm::vec4(basis.up, 0.0f);
+            break;
+        }
         case ModelNode::Emitter::RenderMode::BillboardToWorldZ:
             particles[i].right = glm::vec4(0.0f, 1.0f, 0.0, 0.0f);
             particles[i].up = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
