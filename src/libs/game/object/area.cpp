@@ -77,6 +77,16 @@ static constexpr float kLineOfSightHeight = 1.7f;        // TODO: make it appear
 static constexpr float kMaxCollisionDistance = 8.0f;
 static constexpr float kMaxCollisionDistance2 = kMaxCollisionDistance * kMaxCollisionDistance;
 
+static constexpr glm::vec3 kPartyFormationOffsets[] {
+    glm::vec3(1.5f, -0.7f, 0.0f),
+    glm::vec3(-1.5f, 0.8f, 0.0f),
+};
+static constexpr float kPartyPositionSearchRadius = 10.0f;
+static constexpr float kPartyPositionSearchStep = 1.0f;
+static constexpr int kPartyPositionSearchDirections = 16;
+static constexpr float kPartyMemberSpacing = 1.5f;
+static constexpr float kPartyMemberSpacing2 = kPartyMemberSpacing * kPartyMemberSpacing;
+
 static glm::vec3 g_defaultAmbientColor {0.2f};
 static CameraStyle g_defaultCameraStyle {"", 3.2f, 83.0f, 0.45f, 55.0f};
 
@@ -741,30 +751,96 @@ void Area::landObject(Object &object) {
     }
 }
 
+glm::vec3 Area::findPartyPosition(const Creature &member, const glm::vec3 &position) const {
+    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    const auto &creatures = _objectsByType.at(ObjectType::Creature);
+
+    auto tryPosition = [&](const glm::vec3 &candidate, glm::vec3 &result) {
+        Collision collision;
+        if (!sceneGraph.testElevation(candidate, collision)) {
+            return false;
+        }
+        for (const auto &object : creatures) {
+            if (object.get() == &member) {
+                continue;
+            }
+            if (glm::distance2(glm::vec2(collision.intersection), glm::vec2(object->position())) < kPartyMemberSpacing2) {
+                return false;
+            }
+        }
+        result = collision.intersection;
+        return true;
+    };
+
+    glm::vec3 result;
+    if (tryPosition(position, result)) {
+        return result;
+    }
+
+    for (float radius = kPartyPositionSearchStep; radius <= kPartyPositionSearchRadius; radius += kPartyPositionSearchStep) {
+        for (int i = 0; i < kPartyPositionSearchDirections; ++i) {
+            float angle = i * glm::two_pi<float>() / kPartyPositionSearchDirections;
+            glm::vec3 candidate(position.x + radius * glm::sin(angle), position.y + radius * glm::cos(angle), position.z);
+            if (tryPosition(candidate, result)) {
+                return result;
+            }
+        }
+    }
+
+    return position;
+}
+
+void Area::loadPartyMember(const std::shared_ptr<Creature> &member, int index, bool fromSave) {
+    bool loaded = std::find(_objects.begin(), _objects.end(), member) != _objects.end();
+
+    if (!fromSave && index > 0) {
+        auto leader = _game.party().getLeader();
+        glm::quat rotation(glm::angleAxis(leader->getFacing(), glm::vec3(0.0f, 0.0f, 1.0f)));
+        glm::vec3 position(leader->position() + rotation * kPartyFormationOffsets[index - 1]);
+
+        member->setPosition(findPartyPosition(*member, position));
+        member->setFacing(leader->getFacing());
+    }
+
+    landObject(*member);
+
+    if (loaded) {
+        determineObjectRoom(*member);
+        return;
+    }
+
+    add(member);
+    member->runSpawnScript();
+}
+
+void Area::unloadPartyMember(const std::shared_ptr<Creature> &member) {
+    doDestroyObject(member->id());
+}
+
 void Area::loadParty(const glm::vec3 &position, float facing, bool fromSave) {
     Party &party = _game.party();
+    auto leader = party.getLeader();
 
-    for (int i = 0; i < party.getSize(); ++i) {
-        auto member = party.getMember(i);
-        if (!fromSave) {
-            member->setPosition(position);
-            member->setFacing(facing);
-        }
-        landObject(*member);
-        add(member);
-        member->runSpawnScript();
+    if (!fromSave) {
+        leader->setPosition(position);
+        leader->setFacing(facing);
+    }
+    loadPartyMember(leader, 0, fromSave);
+
+    for (int i = 1; i < party.getSize(); ++i) {
+        loadPartyMember(party.getMember(i), i, fromSave);
     }
 }
 
 void Area::unloadParty() {
     for (auto &member : _game.party().members()) {
-        doDestroyObject(member.creature->id());
+        unloadPartyMember(member.creature);
     }
 }
 
 void Area::reloadParty() {
-    std::shared_ptr<Creature> player(_game.party().player());
-    loadParty(player->position(), player->getFacing());
+    auto leader = _game.party().getLeader();
+    loadParty(leader->position(), leader->getFacing());
 }
 
 bool Area::handle(const input::Event &event) {

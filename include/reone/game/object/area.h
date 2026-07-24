@@ -171,6 +171,7 @@ public:
 
     // Party
 
+    void unloadPartyMember(const std::shared_ptr<Creature> &member);
     void loadParty(const glm::vec3 &position, float facing, bool fromSave = false);
     void unloadParty();
     void reloadParty();
@@ -321,6 +322,9 @@ private:
     void doDestroyObjects();
     void updateVisibility();
     void updateHeartbeat(float dt);
+
+    void loadPartyMember(const std::shared_ptr<Creature> &member, int index, bool fromSave);
+    glm::vec3 findPartyPosition(const Creature &member, const glm::vec3 &position) const;
 
     void doUpdatePerception();
     void updateObjectSelection();

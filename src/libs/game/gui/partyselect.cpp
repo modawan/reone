@@ -331,12 +331,14 @@ void PartySelection::changeParty() {
     }
 
     std::shared_ptr<Area> area(_game.module()->area());
-    area->unloadParty();
+    for (const auto &member : party.members()) {
+        if (member.npc != kNpcPlayer && !_added[member.npc]) {
+            area->unloadPartyMember(member.creature);
+        }
+    }
 
     party.clear();
     party.addMember(kNpcPlayer, party.player());
-
-    std::shared_ptr<Creature> player(_game.party().player());
 
     for (int i = 0; i < npcCount(); ++i) {
         if (!_added[i])
