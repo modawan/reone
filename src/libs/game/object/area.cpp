@@ -790,8 +790,9 @@ void Area::update(float dt) {
     }
     Object::update(dt);
 
-    for (auto &object : _objects) {
-        object->update(dt);
+    // Update can create new objects, so iterate with indices.
+    for (size_t i = 0; i < _objects.size(); ++i) {
+        _objects[i]->update(dt);
     }
     updateLeaderTriggerOccupancy();
     updatePerception(dt);
