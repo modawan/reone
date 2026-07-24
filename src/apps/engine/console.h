@@ -65,6 +65,7 @@ public:
     void printLine(const std::string &text) override;
 
     void execute(std::string_view command);
+    void executeNextBatch();
 
 private:
     struct Command {
@@ -87,6 +88,15 @@ private:
     size_t _scrollOffset {0};
     std::vector<std::string> _history;
     size_t _historyIndex {0};
+
+    enum class State {
+        Execute,
+        Batch,
+    };
+    State _state {State::Execute};
+
+    using Batch = std::vector<std::string>;
+    std::deque<Batch> _batches;
 
     // Commands
 

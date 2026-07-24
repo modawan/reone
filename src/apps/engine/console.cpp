@@ -91,9 +91,17 @@ void Console::printLine(const std::string &text) {
 }
 
 bool Console::handle(const input::Event &event) {
-    if (event.type == input::EventType::KeyUp && (event.key.code == input::KeyCode::Backquote)) {
-        _open = !_open;
-        return true;
+    if (event.type == input::EventType::KeyUp) {
+        if (event.key.code == input::KeyCode::Backquote &&
+            event.key.mod & input::KeyModifiers::alt) {
+            executeNextBatch();
+            return true;
+        }
+
+        if (event.key.code == input::KeyCode::Backquote) {
+            _open = !_open;
+            return true;
+        }
     }
 
     if (!_open) {
@@ -217,6 +225,27 @@ void Console::execute(std::string_view command) {
         return;
     }
 
+    if (tokens[0] == "batch") {
+        if (tokens.size() != 2 && tokens[1] != "{") {
+            printLine("batch must be followed by {");
+            return;
+        }
+        _state = State::Batch;
+        _batches.emplace_back();
+        return;
+    }
+
+    if (tokens[0] == "}") {
+        _state = State::Execute;
+        return;
+    }
+
+    if (_state == State::Batch) {
+        assert(!_batches.empty() && "batch is not initialized");
+        _batches.back().push_back(std::string(command));
+        return;
+    }
+
     auto commandByName = _nameToCommand.find(tokens[0]);
     if (commandByName == _nameToCommand.end()) {
         printLine("Unrecognized command: " + tokens[0]);
@@ -228,6 +257,18 @@ void Console::execute(std::string_view command) {
     } catch (const std::exception &ex) {
         printLine("Command failed: " + std::string(ex.what()));
     }
+}
+
+void Console::executeNextBatch() {
+    if (_batches.empty()) {
+        return;
+    }
+
+    Batch &batch = _batches.front();
+    for (auto &command : batch) {
+        execute(command);
+    }
+    _batches.pop_front();
 }
 
 void Console::render() {
