@@ -148,9 +148,8 @@ void Player::update(float dt) {
     if (movement) {
         partyLeader->clearAllActions();
         glm::vec2 dir(glm::normalize(glm::vec2(-glm::sin(facing), glm::cos(facing))));
-        if (_area.moveCreature(partyLeader, dir, !_walk, dt)) {
-            partyLeader->setMovementType(_walk ? Creature::MovementType::Walk : Creature::MovementType::Run);
-        }
+        _area.moveCreature(partyLeader, dir, !_walk, dt);
+        partyLeader->setMovementType(_walk ? Creature::MovementType::Walk : Creature::MovementType::Run);
     } else if (partyLeader->actions().empty()) {
         partyLeader->setMovementType(Creature::MovementType::None);
     }
