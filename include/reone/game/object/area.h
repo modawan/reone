@@ -91,7 +91,7 @@ public:
     void startDialog(const std::shared_ptr<Object> &object, const std::string &resRef);
     void update3rdPersonCameraFacing();
     void update3rdPersonCameraTarget();
-    void landObject(Object &object);
+    bool landObject(Object &object);
     void add(const std::shared_ptr<Object> &object);
 
     bool moveCreature(const std::shared_ptr<Creature> &creature, const glm::vec2 &dir, bool run, float dt);
