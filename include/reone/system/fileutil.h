@@ -22,4 +22,16 @@ namespace reone {
 std::filesystem::path getFileIgnoreCase(const std::filesystem::path &dir, std::string_view relPath);
 std::optional<std::filesystem::path> findFileIgnoreCase(const std::filesystem::path &dir, std::string_view relPath);
 
+/** KotOR ResRef rules: 1-16 alphanumeric or underscore characters. */
+bool isValidResRef(std::string_view name, size_t maxLen = 16);
+
+/**
+ * Whether name is safe to use as a single path component under a trusted
+ * parent directory. Permits characters found in the wild, e.g. in savegame
+ * directory names ("000043 - Game42"), while rejecting anything that could
+ * escape the parent: ".", "..", separators, drive qualifiers and absolute
+ * paths. Not a ResRef check - use isValidResRef for ResRefs.
+ */
+bool isSafePathComponent(std::string_view name);
+
 } // namespace reone
