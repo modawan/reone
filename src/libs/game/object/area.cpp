@@ -730,7 +730,7 @@ std::shared_ptr<Object> Area::getObjectByTag(const std::string &tag, int nth) co
     return objects->second[nth];
 }
 
-void Area::landObject(Object &object) {
+bool Area::landObject(Object &object) {
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     glm::vec3 position(object.position());
     Collision collision;
@@ -738,7 +738,7 @@ void Area::landObject(Object &object) {
     // Test elevation at object position
     if (sceneGraph.testElevation(position, collision)) {
         object.setPosition(collision.intersection);
-        return;
+        return true;
     }
 
     // Test elevations in a circle around object position
@@ -748,9 +748,11 @@ void Area::landObject(Object &object) {
 
         if (sceneGraph.testElevation(position, collision)) {
             object.setPosition(collision.intersection);
-            return;
+            return true;
         }
     }
+
+    return false;
 }
 
 glm::vec3 Area::findPartyPosition(const Creature &member, const glm::vec3 &position) const {
@@ -808,7 +810,17 @@ void Area::loadPartyMember(const std::shared_ptr<Creature> &member, int index, b
         member->setFacing(leader->getFacing());
     }
 
-    landObject(*member);
+    bool landed = landObject(*member);
+    if (!fromSave && index == 0 && !landed) {
+        glm::vec3 position(member->position());
+        glm::vec3 fallbackPosition(position);
+        fallbackPosition.z = scene::kElevationTestZ;
+
+        member->setPosition(fallbackPosition);
+        if (!landObject(*member)) {
+            member->setPosition(position);
+        }
+    }
 
     if (loaded) {
         determineObjectRoom(*member);
