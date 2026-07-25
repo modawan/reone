@@ -143,8 +143,9 @@ void DialogGUI::onStart() {
 }
 
 void DialogGUI::loadStuntParticipants() {
-    if (!_dialog->isAnimatedCutscene())
+    if (!hasStuntPresentation()) {
         return;
+    }
 
     _participantByTag.clear();
 
@@ -164,28 +165,103 @@ void DialogGUI::loadStuntParticipants() {
         Participant participant;
         participant.creature = creature;
 
+        std::shared_ptr<Model> model(_services.resource.models.get(stunt.stuntModel));
+        if (!model) {
+            warn("Dialog: stunt model not found: " + stunt.stuntModel);
+            continue;
+        }
+        participant.model = model;
+
         if (_dialog->isAnimatedCutscene()) {
-            std::shared_ptr<Model> model(_services.resource.models.get(stunt.stuntModel));
-            if (!model) {
-                warn("Dialog: stunt model not found: " + stunt.stuntModel);
-                continue;
-            }
-            participant.model = model;
             creature->startStuntMode();
+            participant.creature->setIsInConversation(true);
         }
 
-        participant.creature->setIsInConversation(true);
         _participantByTag.insert(std::make_pair(stunt.participant, std::move(participant)));
     }
 }
 
+bool DialogGUI::hasStuntPresentation() const {
+    return _dialog->isAnimatedCutscene() || !_dialog->stunts.empty();
+}
+
+std::shared_ptr<Animation> DialogGUI::getStuntParticipantAnimation(
+    const std::string &participant,
+    int ordinal) const {
+    auto maybeParticipant = _participantByTag.find(participant);
+    return maybeParticipant != _participantByTag.end()
+               ? maybeParticipant->second.model->getAnimation(getStuntAnimationName(ordinal))
+               : nullptr;
+}
+
 void DialogGUI::onLoadEntry() {
+    restoreInactiveStuntParticipants();
     loadCurrentSpeaker();
-    updateCamera();
     updateParticipantAnimations();
+    updateCamera();
     repositionMessage();
 
     _controls.LB_REPLIES->setVisible(false);
+}
+
+void DialogGUI::restoreInactiveStuntParticipants() {
+    if (_dialog->isAnimatedCutscene()) {
+        return;
+    }
+    for (auto &entry : _participantByTag) {
+        if (!entry.second.mixedStuntActive) {
+            continue;
+        }
+        bool drivenThisEntry = false;
+        for (auto &anim : _currentEntry->animations) {
+            if (anim.participant == entry.first && getStuntParticipantAnimation(anim.participant, anim.animation)) {
+                drivenThisEntry = true;
+                break;
+            }
+        }
+        if (!drivenThisEntry) {
+            leaveMixedStunt(entry.second);
+        }
+    }
+}
+
+bool DialogGUI::enterMixedStunt(Participant &participant, const std::shared_ptr<Animation> &animation) {
+    if (!participant.mixedStuntActive && participant.creature->isStuntMode()) {
+        warn("Dialog: participant is already in stunt mode: " + participant.creature->tag());
+        return false;
+    }
+
+    AnimationProperties properties;
+    properties.flags = AnimationFlags::propagate;
+    properties.scale = 1.0f;
+    if (!participant.creature->playExternalAnimation(animation, std::move(properties))) {
+        return false;
+    }
+
+    if (!participant.mixedStuntActive) {
+        participant.restorePosition = participant.creature->position();
+        participant.restoreFacing = participant.creature->getFacing();
+        if (auto node = participant.creature->sceneNode()) {
+            participant.restoreCulling = node->isCullingEnabled();
+        }
+        participant.creature->startStuntMode();
+        participant.mixedStuntActive = true;
+    }
+    return true;
+}
+
+void DialogGUI::leaveMixedStunt(Participant &participant) {
+    if (!participant.mixedStuntActive) {
+        return;
+    }
+    participant.creature->resumeStateDrivenAnimation();
+    participant.creature->setPosition(participant.restorePosition);
+    participant.creature->setFacing(participant.restoreFacing);
+    participant.creature->stopStuntMode();
+    if (auto node = participant.creature->sceneNode()) {
+        node->setCullingEnabled(participant.restoreCulling);
+    }
+    participant.mixedStuntActive = false;
 }
 
 void DialogGUI::loadCurrentSpeaker() {
@@ -280,8 +356,11 @@ void DialogGUI::updateParticipantAnimations() {
                 AnimationProperties properties;
                 properties.flags = AnimationFlags::propagate;
                 properties.scale = 1.0f;
-                participant.creature->playAnimation(animation, std::move(properties));
+                participant.creature->playExternalAnimation(animation, std::move(properties));
             }
+        } else if (auto animation = getStuntParticipantAnimation(anim.participant, anim.animation)) {
+            Participant &participant = _participantByTag.at(anim.participant);
+            enterMixedStunt(participant, animation);
         } else {
             std::shared_ptr<Creature> participant;
             if (anim.participant == "owner") {
@@ -337,7 +416,7 @@ void DialogGUI::repositionMessage() {
 }
 
 void DialogGUI::onFinish() {
-    if (_dialog->isAnimatedCutscene()) {
+    if (hasStuntPresentation()) {
         releaseStuntParticipants();
     }
 
@@ -349,10 +428,19 @@ void DialogGUI::onFinish() {
 }
 
 void DialogGUI::releaseStuntParticipants() {
+    if (!_dialog->isAnimatedCutscene()) {
+        for (auto &participant : _participantByTag) {
+            leaveMixedStunt(participant.second);
+        }
+        _participantByTag.clear();
+        return;
+    }
     for (auto &participant : _participantByTag) {
+        participant.second.creature->resumeStateDrivenAnimation();
         participant.second.creature->stopStuntMode();
         participant.second.creature->setIsInConversation(false);
     }
+    _participantByTag.clear();
 }
 
 void DialogGUI::onEntryEnded() {

@@ -27,6 +27,7 @@
 #include "reone/game/game.h"
 #include "reone/game/gui/areatransition.h"
 #include "reone/game/gui/conversation.h"
+#include "reone/game/gui/dialog.h"
 #include "reone/game/gui/hud.h"
 #include "reone/game/gui/statussummary.h"
 #include "reone/game/object/area.h"
@@ -37,10 +38,14 @@
 #include "reone/game/object/trigger.h"
 #include "reone/game/reputes.h"
 #include "reone/game/script/routines.h"
+#include "reone/graphics/animation.h"
+#include "reone/graphics/model.h"
+#include "reone/graphics/modelnode.h"
 #include "reone/graphics/walkmesh.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/gff.h"
 #include "reone/scene/collision.h"
+#include "reone/scene/node/model.h"
 #include "reone/scene/node/trigger.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/program.h"
@@ -80,6 +85,44 @@ private:
     void setMessage(std::string) override {}
 };
 
+class MixedStuntTestAccess {
+public:
+    static void loadParticipants(DialogGUI &gui, const std::shared_ptr<resource::Dialog> &dialog) {
+        gui._dialog = dialog;
+        gui.loadStuntParticipants();
+    }
+
+    static size_t participantCount(const DialogGUI &gui) {
+        return gui._participantByTag.size();
+    }
+
+    static std::shared_ptr<Creature> participantCreature(DialogGUI &gui, const std::string &tag) {
+        return gui._participantByTag.at(tag).creature;
+    }
+
+    static std::shared_ptr<graphics::Model> participantModel(DialogGUI &gui, const std::string &tag) {
+        return gui._participantByTag.at(tag).model;
+    }
+
+    static bool applyAnimation(DialogGUI &gui, const std::string &tag, int ordinal) {
+        auto animation = gui.getStuntParticipantAnimation(tag, ordinal);
+        return animation && gui.enterMixedStunt(gui._participantByTag.at(tag), animation);
+    }
+
+    static bool isActive(DialogGUI &gui, const std::string &tag) {
+        return gui._participantByTag.at(tag).mixedStuntActive;
+    }
+
+    static void restoreForEntry(DialogGUI &gui, const resource::Dialog::EntryReply &entry) {
+        gui._currentEntry = &entry;
+        gui.restoreInactiveStuntParticipants();
+    }
+
+    static void finish(DialogGUI &gui) {
+        gui.onFinish();
+    }
+};
+
 } // namespace reone::game
 
 std::pair<std::string, std::string> reone::game::TestGameModule::scheduledTransition(const Game &game) {
@@ -94,6 +137,43 @@ public:
     using AreaTransition::preload;
 };
 
+class PresentationLifecycleConversation : public Conversation {
+public:
+    using Conversation::Conversation;
+
+    int startCount {0};
+    int finishCount {0};
+    int entryCount {0};
+
+private:
+    void loadEntry(int, bool) override { ++entryCount; }
+    void setReplyLines(std::vector<std::string>) override {}
+    void setMessage(std::string) override {}
+    void onStart() override { ++startCount; }
+    void onFinish() override { ++finishCount; }
+};
+
+class RoutingConversation : public Conversation {
+public:
+    using Conversation::Conversation;
+
+    int presentedEntryCount {0};
+    std::vector<std::string> messages;
+
+private:
+    void setReplyLines(std::vector<std::string>) override {}
+    void setMessage(std::string message) override { messages.push_back(std::move(message)); }
+    void onLoadEntry() override { ++presentedEntryCount; }
+};
+
+class TestCreature : public Creature {
+public:
+    using Creature::Creature;
+
+    void setSceneNode(std::shared_ptr<scene::SceneNode> node) {
+        _sceneNode = std::move(node);
+    }
+};
 std::pair<std::string, std::string> scheduledTransition(TestEngine &engine, const Game &game) {
     return engine.gameModule().scheduledTransition(game);
 }
@@ -338,7 +418,384 @@ std::shared_ptr<Item> makeItem(Game &game, std::string tag, int baseItem, int st
     return item;
 }
 
+std::shared_ptr<graphics::Animation> makeAnimation(std::string name) {
+    auto root = std::make_shared<graphics::ModelNode>(
+        0,
+        "root_node",
+        glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+        false,
+        nullptr);
+    root->vectorTracks()[graphics::ControllerTypes::position].add(0.0f, glm::vec3(0.0f));
+    root->vectorTracks()[graphics::ControllerTypes::position].add(1.0f, glm::vec3(1.0f));
+    return std::make_shared<graphics::Animation>(
+        std::move(name),
+        1.0f,
+        0.0f,
+        "root_node",
+        std::move(root),
+        std::vector<graphics::Animation::Event>());
+}
+
+std::shared_ptr<graphics::Model> makeModel(
+    std::string name,
+    std::vector<std::shared_ptr<graphics::Animation>> animations) {
+    auto root = std::make_shared<graphics::ModelNode>(
+        0,
+        "root_node",
+        glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+        true,
+        nullptr);
+    return std::make_shared<graphics::Model>(
+        std::move(name),
+        0,
+        std::move(root),
+        std::move(animations),
+        "",
+        1.0f);
+}
+
+std::shared_ptr<Dialog> makeRoutingDialog() {
+    auto dialog = std::make_shared<Dialog>();
+    dialog->startEntries.push_back(Dialog::EntryReplyLink {0});
+
+    Dialog::EntryReply routing;
+    routing.delay = -1;
+    routing.cameraId = 0;
+    routing.replies.push_back(Dialog::EntryReplyLink {0});
+    dialog->entries.push_back(std::move(routing));
+
+    Dialog::EntryReply visible;
+    visible.text = "visible";
+    visible.delay = 30;
+    dialog->entries.push_back(std::move(visible));
+
+    Dialog::EntryReply continuation;
+    continuation.entries.push_back(Dialog::EntryReplyLink {1});
+    dialog->replies.push_back(std::move(continuation));
+    return dialog;
+}
+
 } // namespace
+
+TEST(Conversation, should_finish_active_presentation_before_starting_replacement) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    PresentationLifecycleConversation conversation(game, engine.services());
+    auto first = std::make_shared<Dialog>();
+    auto second = std::make_shared<Dialog>();
+    auto firstOwner = game.newCreature();
+    auto secondOwner = game.newCreature();
+    first->startEntries.push_back(Dialog::EntryReplyLink {});
+    second->startEntries.push_back(Dialog::EntryReplyLink {});
+
+    conversation.start(first, firstOwner);
+    EXPECT_TRUE(firstOwner->isInConversation());
+    conversation.start(second, secondOwner);
+
+    EXPECT_EQ(conversation.startCount, 2);
+    EXPECT_EQ(conversation.entryCount, 2);
+    EXPECT_EQ(conversation.finishCount, 1);
+    EXPECT_FALSE(firstOwner->isInConversation());
+    EXPECT_TRUE(secondOwner->isInConversation());
+
+    conversation.cleanupForModuleTransition();
+    EXPECT_FALSE(secondOwner->isInConversation());
+}
+
+TEST(Conversation, should_advance_script_only_auto_routing_entry_without_presenting_it) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    RoutingConversation conversation(game, engine.services());
+
+    conversation.start(makeRoutingDialog(), nullptr);
+
+    ASSERT_EQ(conversation.messages.size(), 2);
+    EXPECT_EQ(conversation.messages[0], "");
+    EXPECT_EQ(conversation.messages[1], "visible");
+    EXPECT_EQ(conversation.presentedEntryCount, 1);
+}
+
+TEST(Conversation, should_present_auto_routing_entry_with_authored_presentation_data) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    std::vector<std::function<void(Dialog::EntryReply &)>> addPresentation {
+        [](auto &entry) { entry.text = "text"; },
+        [](auto &entry) { entry.sound = "sound"; },
+        [](auto &entry) { entry.voResRef = "voice"; },
+        [](auto &entry) { entry.cameraAnimation = 1200; },
+        [](auto &entry) { entry.cameraId = 1; },
+        [](auto &entry) { entry.cameraAngle = 1; },
+        [](auto &entry) { entry.animations.push_back({"participant", 1200}); },
+        [](auto &entry) { entry.delay = 0; },
+    };
+
+    for (auto &mutate : addPresentation) {
+        auto dialog = makeRoutingDialog();
+        mutate(dialog->entries[0]);
+        RoutingConversation conversation(game, engine.services());
+
+        conversation.start(dialog, nullptr);
+
+        EXPECT_EQ(conversation.presentedEntryCount, 1);
+        ASSERT_EQ(conversation.messages.size(), 1);
+    }
+}
+
+TEST(Creature, should_hold_completed_external_animation_until_assignment_is_released) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto modelRoot = std::make_shared<graphics::ModelNode>(
+        0,
+        "root_node",
+        glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+        true,
+        nullptr);
+    auto idle = makeAnimation("cpause1");
+    auto first = makeAnimation("first");
+    auto second = makeAnimation("second");
+    std::vector<std::shared_ptr<graphics::Animation>> animations {idle, first, second};
+    graphics::Model model("creature", 0, modelRoot, std::move(animations), "", 1.0f);
+    graphics::GraphicsOptions graphicsOptions;
+    scene::SceneGraph graph(
+        "test",
+        engine.sceneModule().renderPipelineFactory(),
+        graphicsOptions,
+        engine.services().graphics,
+        engine.services().audio,
+        engine.services().resource);
+    auto modelNode = graph.newModel(model, scene::ModelUsage::Creature);
+    TestCreature creature(1, "test", game, engine.services());
+    creature.setSceneNode(modelNode);
+    creature.resumeStateDrivenAnimation();
+
+    scene::AnimationProperties properties;
+    properties.flags = scene::AnimationFlags::propagate;
+    properties.scale = 1.0f;
+
+    ASSERT_TRUE(creature.playExternalAnimation(first, properties));
+    modelNode->update(0.4f);
+    ASSERT_EQ(modelNode->animationChannels().size(), 1);
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
+
+    ASSERT_TRUE(creature.playExternalAnimation(first, properties));
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
+
+    modelNode->update(0.7f);
+    creature.update(0.0f);
+    EXPECT_EQ(modelNode->activeAnimationName(), "first");
+    EXPECT_TRUE(modelNode->isAnimationFinished());
+    ASSERT_EQ(modelNode->animationChannels().size(), 1);
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+
+    auto rootSceneNode = modelNode->getNodeByName("root_node");
+    ASSERT_TRUE(rootSceneNode);
+    EXPECT_NEAR(rootSceneNode->localTransform()[3].x, 1.0f, 1e-5);
+
+    modelNode->update(0.5f);
+    creature.update(0.0f);
+    EXPECT_EQ(modelNode->activeAnimationName(), "first");
+    EXPECT_TRUE(modelNode->isAnimationFinished());
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+    EXPECT_NEAR(rootSceneNode->localTransform()[3].x, 1.0f, 1e-5);
+
+    ASSERT_TRUE(creature.playExternalAnimation(first, properties));
+    EXPECT_EQ(modelNode->activeAnimationName(), "first");
+    EXPECT_TRUE(modelNode->isAnimationFinished());
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+
+    ASSERT_TRUE(creature.playExternalAnimation(second, properties));
+    EXPECT_EQ(modelNode->activeAnimationName(), "second");
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
+    EXPECT_FALSE(modelNode->isAnimationFinished());
+
+    creature.update(0.0f);
+    modelNode->update(0.0f);
+    EXPECT_EQ(modelNode->activeAnimationName(), "second");
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
+
+    creature.resumeStateDrivenAnimation();
+    EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
+}
+
+TEST(DialogGUI, should_prepare_the_real_player_from_a_stunt_model_without_creating_a_duplicate) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    auto originalSceneNode = player->sceneNode();
+    auto stuntModel = makeModel("player_stunt", {});
+    EXPECT_CALL(engine.resourceModule().models(), get("player_stunt"))
+        .WillOnce(Return(stuntModel));
+
+    auto dialog = std::make_shared<Dialog>();
+    dialog->animatedCutscene = false;
+    dialog->cameraModel.clear();
+    dialog->stunts.push_back({"PLAYER", "player_stunt"});
+    DialogGUI gui(game, engine.services());
+
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+
+    ASSERT_EQ(MixedStuntTestAccess::participantCount(gui), 1);
+    EXPECT_EQ(MixedStuntTestAccess::participantCreature(gui, "PLAYER"), player);
+    EXPECT_EQ(MixedStuntTestAccess::participantModel(gui, "PLAYER"), stuntModel);
+    EXPECT_EQ(player->sceneNode(), originalSceneNode);
+    EXPECT_FALSE(player->isStuntMode());
+}
+
+TEST(DialogGUI, should_hold_mixed_stunt_assignment_and_restore_on_drop_or_teardown) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto idle = makeAnimation("cpause1");
+    auto first = makeAnimation("cut001w");
+    auto second = makeAnimation("cut002w");
+    auto stuntModel = makeModel("player_stunt", {idle, first, second});
+    graphics::GraphicsOptions graphicsOptions;
+    scene::SceneGraph graph(
+        "test",
+        engine.sceneModule().renderPipelineFactory(),
+        graphicsOptions,
+        engine.services().graphics,
+        engine.services().audio,
+        engine.services().resource);
+    auto modelNode = graph.newModel(*stuntModel, scene::ModelUsage::Creature);
+    auto player = std::make_shared<TestCreature>(1, "player", game, engine.services());
+    player->setSceneNode(modelNode);
+    player->setPosition(glm::vec3(1.0f, 2.0f, 3.0f));
+    player->setFacing(0.75f);
+    modelNode->setCullingEnabled(false);
+    player->resumeStateDrivenAnimation();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    EXPECT_CALL(engine.resourceModule().models(), get("player_stunt"))
+        .WillOnce(Return(stuntModel));
+
+    auto dialog = std::make_shared<Dialog>();
+    dialog->stunts.push_back({"PLAYER", "player_stunt"});
+    DialogGUI gui(game, engine.services());
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+
+    ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
+    EXPECT_TRUE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
+    EXPECT_TRUE(player->isStuntMode());
+    EXPECT_TRUE(modelNode->isEnabled());
+    EXPECT_FALSE(modelNode->isCulled());
+    EXPECT_FALSE(modelNode->isCullingEnabled());
+    EXPECT_NEAR(modelNode->localTransform()[3].x, 0.0f, 1e-5);
+    EXPECT_NEAR(modelNode->localTransform()[3].y, 0.0f, 1e-5);
+    EXPECT_NEAR(modelNode->localTransform()[3].z, 0.0f, 1e-5);
+
+    modelNode->update(0.4f);
+    ASSERT_EQ(modelNode->animationChannels().size(), 1);
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
+
+    ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
+
+    modelNode->update(0.7f);
+    player->update(0.0f);
+    EXPECT_TRUE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
+    EXPECT_TRUE(player->isStuntMode());
+    EXPECT_TRUE(modelNode->isEnabled());
+    EXPECT_FALSE(modelNode->isCulled());
+    EXPECT_FALSE(modelNode->isCullingEnabled());
+    EXPECT_EQ(modelNode->activeAnimationName(), "cut001w");
+    EXPECT_TRUE(modelNode->isAnimationFinished());
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+
+    auto rootSceneNode = modelNode->getNodeByName("root_node");
+    ASSERT_TRUE(rootSceneNode);
+    EXPECT_NEAR(rootSceneNode->localTransform()[3].x, 1.0f, 1e-5);
+
+    modelNode->update(0.5f);
+    player->update(0.0f);
+    EXPECT_EQ(modelNode->activeAnimationName(), "cut001w");
+    EXPECT_TRUE(modelNode->isAnimationFinished());
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+    EXPECT_NEAR(rootSceneNode->localTransform()[3].x, 1.0f, 1e-5);
+
+    ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
+    EXPECT_EQ(modelNode->activeAnimationName(), "cut001w");
+    EXPECT_TRUE(modelNode->isAnimationFinished());
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+
+    ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1201));
+    EXPECT_EQ(modelNode->activeAnimationName(), "cut002w");
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
+    EXPECT_FALSE(modelNode->isAnimationFinished());
+
+    modelNode->update(0.25f);
+    ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1201));
+    EXPECT_EQ(modelNode->activeAnimationName(), "cut002w");
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.25f);
+
+    Dialog::EntryReply droppedEntry;
+    MixedStuntTestAccess::restoreForEntry(gui, droppedEntry);
+    EXPECT_FALSE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
+    EXPECT_EQ(player->position(), glm::vec3(1.0f, 2.0f, 3.0f));
+    EXPECT_FLOAT_EQ(player->getFacing(), 0.75f);
+    EXPECT_FALSE(modelNode->isCullingEnabled());
+    EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
+    EXPECT_NEAR(modelNode->localTransform()[3].x, 1.0f, 1e-5);
+    EXPECT_NEAR(modelNode->localTransform()[3].y, 2.0f, 1e-5);
+    EXPECT_NEAR(modelNode->localTransform()[3].z, 3.0f, 1e-5);
+
+    ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
+    MixedStuntTestAccess::finish(gui);
+    EXPECT_EQ(MixedStuntTestAccess::participantCount(gui), 0);
+    EXPECT_FALSE(player->isStuntMode());
+    EXPECT_EQ(player->position(), glm::vec3(1.0f, 2.0f, 3.0f));
+    EXPECT_FLOAT_EQ(player->getFacing(), 0.75f);
+    EXPECT_FALSE(modelNode->isCullingEnabled());
+    EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
+    EXPECT_NEAR(modelNode->localTransform()[3].x, 1.0f, 1e-5);
+    EXPECT_NEAR(modelNode->localTransform()[3].y, 2.0f, 1e-5);
+    EXPECT_NEAR(modelNode->localTransform()[3].z, 3.0f, 1e-5);
+}
+
+TEST(DialogGUI, should_leave_no_partial_mixed_stunt_state_when_inputs_are_missing) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto dialog = std::make_shared<Dialog>();
+    dialog->stunts.push_back({"PLAYER", "missing_stunt"});
+    DialogGUI gui(game, engine.services());
+
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+    EXPECT_EQ(MixedStuntTestAccess::participantCount(gui), 0);
+
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    EXPECT_CALL(engine.resourceModule().models(), get("missing_stunt"))
+        .WillOnce(Return(nullptr));
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+    EXPECT_EQ(MixedStuntTestAccess::participantCount(gui), 0);
+
+    auto sourceModel = makeModel("player_stunt", {makeAnimation("cut001w")});
+    dialog->stunts.front().stuntModel = "player_stunt";
+    EXPECT_CALL(engine.resourceModule().models(), get("player_stunt"))
+        .WillOnce(Return(sourceModel));
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+    ASSERT_EQ(MixedStuntTestAccess::participantCount(gui), 1);
+
+    EXPECT_FALSE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1201));
+    EXPECT_FALSE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
+    EXPECT_FALSE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
+    EXPECT_FALSE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
+    EXPECT_FALSE(player->isStuntMode());
+}
 
 TEST(Object, should_convert_credits_to_party_gold_when_looted_by_party_member) {
     TestEngine &engine = testEngine();
