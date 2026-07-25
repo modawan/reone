@@ -25,9 +25,9 @@ using namespace reone::resource;
 int main(int argc, char **argv) {
     try {
         boost::program_options::options_description description;
-        description.add_options()                                                            //
-            ("srcdir", boost::program_options::value<std::filesystem::path>()->required())   //
-            ("destdir", boost::program_options::value<std::filesystem::path>()->required()); //
+		description.add_options() //
+			("srcdir", boost::program_options::value<std::string>()->required()) //
+			("destdir", boost::program_options::value<std::string>()->required()); //
 
         boost::program_options::positional_options_description positionalDesc;
         positionalDesc.add("srcdir", 1);
@@ -42,12 +42,12 @@ int main(int argc, char **argv) {
         boost::program_options::store(options, vars);
         boost::program_options::notify(vars);
 
-        auto &srcdir = vars["srcdir"].as<std::filesystem::path>();
+        auto srcdir = std::filesystem::path(vars["srcdir"].as<std::string>());
         if (!std::filesystem::exists(srcdir) || !std::filesystem::is_directory(srcdir)) {
             throw std::runtime_error("Source directory does not exist: " + srcdir.string());
         }
 
-        auto &destdir = vars["destdir"].as<std::filesystem::path>();
+        auto destdir = std::filesystem::path(vars["destdir"].as<std::string>());
         if (!std::filesystem::exists(destdir) || !std::filesystem::is_directory(destdir)) {
             throw std::runtime_error("Destination directory does not exist: " + destdir.string());
         }
