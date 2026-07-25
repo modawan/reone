@@ -27,7 +27,7 @@ class AudioClip;
 
 namespace resource {
 
-class Resources;
+class IResources;
 
 class IAudioClips {
 public:
@@ -40,7 +40,7 @@ public:
 
 class AudioClips : public IAudioClips {
 public:
-    AudioClips(Resources &resources) :
+    AudioClips(IResources &resources) :
         _resources(resources) {
     }
 
@@ -58,7 +58,7 @@ public:
     }
 
 private:
-    Resources &_resources;
+    IResources &_resources;
 
     std::unordered_map<std::string, std::shared_ptr<audio::AudioClip>> _objects;
 

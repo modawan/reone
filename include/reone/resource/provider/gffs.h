@@ -27,7 +27,7 @@ namespace reone {
 
 namespace resource {
 
-class Resources;
+class IResources;
 
 class IGffs {
 public:
@@ -40,7 +40,7 @@ public:
 
 class Gffs : public IGffs, boost::noncopyable {
 public:
-    Gffs(Resources &resources) :
+    Gffs(IResources &resources) :
         _resources(resources) {
     }
 
@@ -51,7 +51,7 @@ public:
     std::shared_ptr<Gff> get(const std::string &resRef, ResType type) override;
 
 private:
-    Resources &_resources;
+    IResources &_resources;
 
     Cache<ResourceId, Gff> _cache;
 };

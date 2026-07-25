@@ -30,7 +30,7 @@ class Texture;
 
 namespace resource {
 
-class Resources;
+class IResources;
 
 class ITextures {
 public:
@@ -44,7 +44,7 @@ public:
 
 class Textures : public ITextures, boost::noncopyable {
 public:
-    Textures(graphics::GraphicsOptions &options, Resources &resources) :
+    Textures(graphics::GraphicsOptions &options, IResources &resources) :
         _options(options),
         _resources(resources) {
     }
@@ -59,7 +59,7 @@ private:
     int _activeUnit {0};
 
     graphics::GraphicsOptions &_options;
-    Resources &_resources;
+    IResources &_resources;
 
     std::unordered_map<std::string, std::shared_ptr<graphics::Texture>> _cache;
 

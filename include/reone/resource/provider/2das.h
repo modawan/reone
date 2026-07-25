@@ -25,7 +25,7 @@ namespace reone {
 
 namespace resource {
 
-class Resources;
+class IResources;
 
 class ITwoDAs {
 public:
@@ -38,7 +38,7 @@ public:
 
 class TwoDAs : public ITwoDAs, boost::noncopyable {
 public:
-    TwoDAs(Resources &resources) :
+    TwoDAs(IResources &resources) :
         _resources(resources) {
     }
 
@@ -49,7 +49,7 @@ public:
     std::shared_ptr<TwoDA> get(const std::string &key) override;
 
 private:
-    Resources &_resources;
+    IResources &_resources;
 
     Cache<std::string, TwoDA> _cache;
 };

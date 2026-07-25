@@ -36,7 +36,7 @@ public:
 
 class Scripts : public IScripts {
 public:
-    Scripts(Resources &resources) :
+    Scripts(IResources &resources) :
         _resources(resources) {
     }
 
@@ -54,7 +54,7 @@ public:
     }
 
 private:
-    Resources &_resources;
+    IResources &_resources;
 
     std::unordered_map<std::string, std::shared_ptr<script::ScriptProgram>> _objects;
 
