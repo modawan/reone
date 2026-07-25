@@ -21,9 +21,21 @@
 
 namespace reone {
 
+static bool splitRelativePath(std::string_view relPath, std::vector<std::string> &tokens) {
+    boost::split(tokens, relPath, boost::is_any_of("/\\"), boost::token_compress_off);
+    for (const auto &token : tokens) {
+        if (token.empty() || token == "." || token == "..") {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::filesystem::path getFileIgnoreCase(const std::filesystem::path &dir, std::string_view relPath) {
     std::vector<std::string> tokens;
-    boost::split(tokens, relPath, boost::is_any_of("/"), boost::token_compress_on);
+    if (!splitRelativePath(relPath, tokens)) {
+        throw FileNotFoundException((dir / relPath).string());
+    }
 
     for (auto &entry : std::filesystem::directory_iterator(dir)) {
         auto filename = boost::to_lower_copy(entry.path().filename().string());
@@ -41,7 +53,9 @@ std::filesystem::path getFileIgnoreCase(const std::filesystem::path &dir, std::s
 
 std::optional<std::filesystem::path> findFileIgnoreCase(const std::filesystem::path &dir, std::string_view relPath) {
     std::vector<std::string> tokens;
-    boost::split(tokens, relPath, boost::is_any_of("/"), boost::token_compress_on);
+    if (!splitRelativePath(relPath, tokens)) {
+        return std::nullopt;
+    }
 
     for (auto &entry : std::filesystem::directory_iterator(dir)) {
         auto filename = boost::to_lower_copy(entry.path().filename().string());
@@ -55,6 +69,44 @@ std::optional<std::filesystem::path> findFileIgnoreCase(const std::filesystem::p
     }
 
     return std::nullopt;
+}
+
+bool isValidResRef(std::string_view name, size_t maxLen) {
+    if (name.empty() || name.size() > maxLen) {
+        return false;
+    }
+    for (char c : name) {
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_') {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool isSafePathComponent(std::string_view name) {
+    if (name.empty() || name == "." || name == "..") {
+        return false;
+    }
+    for (char c : name) {
+        if (static_cast<unsigned char>(c) < 0x20) {
+            return false;
+        }
+        switch (c) {
+        case '/':
+        case '\\':
+        case ':':
+        case '<':
+        case '>':
+        case '"':
+        case '|':
+        case '?':
+        case '*':
+            return false;
+        default:
+            break;
+        }
+    }
+    return true;
 }
 
 } // namespace reone
