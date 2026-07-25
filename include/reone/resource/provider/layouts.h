@@ -23,7 +23,7 @@ namespace reone {
 
 namespace resource {
 
-class Resources;
+class IResources;
 
 class ILayouts {
 public:
@@ -36,7 +36,7 @@ public:
 
 class Layouts : public ILayouts {
 public:
-    Layouts(Resources &resources) :
+    Layouts(IResources &resources) :
         _resources(resources) {
     }
 
@@ -54,7 +54,7 @@ public:
     }
 
 private:
-    Resources &_resources;
+    IResources &_resources;
 
     std::unordered_map<std::string, std::shared_ptr<Layout>> _objects;
 

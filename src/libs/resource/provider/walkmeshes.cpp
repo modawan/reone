@@ -27,7 +27,7 @@ namespace reone {
 
 namespace resource {
 
-Walkmeshes::Walkmeshes(Resources &resources) :
+Walkmeshes::Walkmeshes(IResources &resources) :
     _resources(resources) {
 }
 

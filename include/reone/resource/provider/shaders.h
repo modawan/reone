@@ -34,7 +34,7 @@ class ShaderRegistry;
 
 namespace resource {
 
-class Resources;
+class IResources;
 
 class IShaders {
 public:
@@ -45,7 +45,7 @@ class Shaders : public IShaders, boost::noncopyable {
 public:
     Shaders(graphics::GraphicsOptions &graphicsOpt,
             graphics::ShaderRegistry &shaderRegistry,
-            Resources &resources) :
+            IResources &resources) :
         _graphicsOpt(graphicsOpt),
         _shaderRegistry(shaderRegistry),
         _resources(resources) {
@@ -61,7 +61,7 @@ public:
 private:
     graphics::GraphicsOptions &_graphicsOpt;
     graphics::ShaderRegistry &_shaderRegistry;
-    Resources &_resources;
+    IResources &_resources;
 
     bool _inited {false};
 

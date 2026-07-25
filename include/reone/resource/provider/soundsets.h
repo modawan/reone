@@ -23,7 +23,7 @@ namespace reone {
 
 namespace resource {
 
-class Resources;
+class IResources;
 class Strings;
 class AudioClips;
 
@@ -40,7 +40,7 @@ class SoundSets : public ISoundSets {
 public:
     SoundSets(
         AudioClips &audioClips,
-        Resources &resources,
+        IResources &resources,
         Strings &strings) :
         _audioClips(audioClips),
         _resources(resources),
@@ -62,7 +62,7 @@ public:
 
 private:
     AudioClips &_audioClips;
-    Resources &_resources;
+    IResources &_resources;
     Strings &_strings;
 
     std::unordered_map<std::string, std::shared_ptr<SoundSet>> _objects;

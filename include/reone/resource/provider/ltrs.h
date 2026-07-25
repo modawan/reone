@@ -38,7 +38,7 @@ public:
 
 class Ltrs : public ILtrs, boost::noncopyable {
 public:
-    Ltrs(Resources &resources) :
+    Ltrs(IResources &resources) :
         _resources(resources) {
     }
 
@@ -47,7 +47,7 @@ public:
     }
 
 private:
-    Resources &_resources;
+    IResources &_resources;
 
     Cache<ResRef, Ltr> _cache;
 
