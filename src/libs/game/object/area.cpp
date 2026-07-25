@@ -812,13 +812,13 @@ void Area::loadPartyMember(const std::shared_ptr<Creature> &member, int index, b
 
     bool landed = landObject(*member);
     if (!fromSave && index == 0 && !landed) {
-        auto &sceneGraph = _services.scene.graphs.get(_sceneName);
         glm::vec3 position(member->position());
-        position.z = scene::kElevationTestZ;
+        glm::vec3 fallbackPosition(position);
+        fallbackPosition.z = scene::kElevationTestZ;
 
-        Collision collision;
-        if (sceneGraph.testElevation(position, collision)) {
-            member->setPosition(collision.intersection);
+        member->setPosition(fallbackPosition);
+        if (!landObject(*member)) {
+            member->setPosition(position);
         }
     }
 
