@@ -24,7 +24,7 @@ namespace reone {
 
 namespace resource {
 
-class Resources;
+class IResources;
 
 class ILips {
 public:
@@ -37,7 +37,7 @@ public:
 
 class Lips : public ILips {
 public:
-    Lips(Resources &resources) :
+    Lips(IResources &resources) :
         _resources(resources) {
     }
 
@@ -55,7 +55,7 @@ public:
     }
 
 private:
-    Resources &_resources;
+    IResources &_resources;
 
     std::unordered_map<std::string, std::shared_ptr<graphics::LipAnimation>> _objects;
 

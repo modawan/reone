@@ -36,7 +36,7 @@ class Uniforms;
 
 namespace resource {
 
-class Resources;
+class IResources;
 class Textures;
 
 class ICursors {
@@ -55,7 +55,7 @@ public:
         resource::Textures &textures,
         graphics::Uniforms &uniforms,
         graphics::IStatistic &statistic,
-        Resources &resources) :
+        IResources &resources) :
         _context(context),
         _meshRegistry(meshRegistry),
         _shaderRegistry(shaderRegistry),
@@ -82,7 +82,7 @@ private:
     resource::Textures &_textures;
     graphics::Uniforms &_uniforms;
     graphics::IStatistic &_statistic;
-    Resources &_resources;
+    IResources &_resources;
 
     // END Services
 

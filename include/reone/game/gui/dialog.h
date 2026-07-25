@@ -30,6 +30,8 @@ namespace reone {
 namespace game {
 
 class DialogGUI : public Conversation {
+    friend class MixedStuntTestAccess;
+
 public:
     DialogGUI(Game &game, ServicesView &services) :
         Conversation(game, services) {
@@ -42,6 +44,10 @@ private:
     struct Participant {
         std::shared_ptr<graphics::Model> model;
         std::shared_ptr<Creature> creature;
+        bool mixedStuntActive {false};
+        glm::vec3 restorePosition {0.0f};
+        float restoreFacing {0.0f};
+        bool restoreCulling {true};
     };
 
     struct Controls {
@@ -69,11 +75,18 @@ private:
 
     void updateCamera();
     void updateParticipantAnimations();
+    void restoreInactiveStuntParticipants();
+    bool enterMixedStunt(Participant &participant, const std::shared_ptr<graphics::Animation> &animation);
+    void leaveMixedStunt(Participant &participant);
 
     glm::vec3 getTalkPosition(const Object &object) const;
     DialogCamera::Variant getRandomCameraVariant() const;
     std::string getStuntAnimationName(int ordinal) const;
     AnimationType getStuntAnimationType(int ordinal) const;
+    bool hasStuntPresentation() const;
+    std::shared_ptr<graphics::Animation> getStuntParticipantAnimation(
+        const std::string &participant,
+        int ordinal) const;
 
     void setMessage(std::string message) override;
     void setReplyLines(std::vector<std::string> lines) override;

@@ -23,7 +23,7 @@ namespace reone {
 
 namespace resource {
 
-class Resources;
+class IResources;
 
 class IVisibilities {
 public:
@@ -36,7 +36,7 @@ public:
 
 class Visibilities : public IVisibilities, boost::noncopyable {
 public:
-    Visibilities(Resources &resources) :
+    Visibilities(IResources &resources) :
         _resources(resources) {
     }
 
@@ -54,7 +54,7 @@ public:
     }
 
 private:
-    Resources &_resources;
+    IResources &_resources;
 
     std::unordered_map<std::string, std::shared_ptr<Visibility>> _objects;
 

@@ -28,7 +28,7 @@ class Walkmesh;
 
 namespace resource {
 
-class Resources;
+class IResources;
 
 class IWalkmeshes {
 public:
@@ -41,14 +41,14 @@ public:
 
 class Walkmeshes : public IWalkmeshes, boost::noncopyable {
 public:
-    Walkmeshes(resource::Resources &resources);
+    Walkmeshes(resource::IResources &resources);
 
     void clear() override;
 
     std::shared_ptr<graphics::Walkmesh> get(const std::string &resRef, ResType type) override;
 
 private:
-    resource::Resources &_resources;
+    resource::IResources &_resources;
 
     std::unordered_map<std::string, std::shared_ptr<graphics::Walkmesh>> _cache;
 

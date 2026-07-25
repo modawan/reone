@@ -89,7 +89,7 @@ public:
     void deinit();
 
     Gffs &gffs() { return *_gffs; }
-    Resources &resources() { return *_resources; }
+    IResources &resources() { return *_resources; }
     Strings &strings() { return *_strings; }
     TwoDAs &twoDas() { return *_twoDas; }
     Scripts &scripts() { return *_scripts; }

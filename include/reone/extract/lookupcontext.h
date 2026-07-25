@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,43 +17,17 @@
 
 #pragma once
 
-#include "reone/system/cache.h"
-
-#include "../2da.h"
-
 namespace reone {
 
-namespace resource {
+namespace extract {
 
-class IResources;
-
-class ITwoDAs {
-public:
-    virtual ~ITwoDAs() = default;
-
-    virtual void clear() = 0;
-
-    virtual std::shared_ptr<TwoDA> get(const std::string &key) = 0;
+/// Per-lookup extra search locations, merged with (but not mutating) the
+/// installation-wide custom folders and capsules.
+struct ResourceLookupContext {
+    std::vector<std::filesystem::path> customFolders;
+    std::vector<std::filesystem::path> customCapsules;
 };
 
-class TwoDAs : public ITwoDAs, boost::noncopyable {
-public:
-    TwoDAs(IResources &resources) :
-        _resources(resources) {
-    }
-
-    void clear() override {
-        _cache.clear();
-    }
-
-    std::shared_ptr<TwoDA> get(const std::string &key) override;
-
-private:
-    IResources &_resources;
-
-    Cache<std::string, TwoDA> _cache;
-};
-
-} // namespace resource
+} // namespace extract
 
 } // namespace reone
