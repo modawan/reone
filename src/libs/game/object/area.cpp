@@ -94,7 +94,13 @@ static constexpr float kPartyMemberSpacing2 = kPartyMemberSpacing * kPartyMember
 static glm::vec3 g_defaultAmbientColor {0.2f};
 static CameraStyle g_defaultCameraStyle {"", 3.2f, 83.0f, 0.45f, 55.0f};
 
-static bool segmentIntersectsCircle(const glm::vec2 &origin, const glm::vec2 &destination, const glm::vec2 &center, float radius) {
+static bool sweepCircle(
+    const glm::vec2 &origin,
+    const glm::vec2 &destination,
+    const glm::vec2 &center,
+    float radius,
+    float &outTime,
+    glm::vec2 &outNormal) {
     glm::vec2 movement(destination - origin);
     float movementLength2 = glm::dot(movement, movement);
     if (movementLength2 == 0.0f) {
@@ -105,10 +111,13 @@ static bool segmentIntersectsCircle(const glm::vec2 &origin, const glm::vec2 &de
     float radius2 = radius * radius;
     float originDistance2 = glm::dot(offset, offset);
     if (originDistance2 <= radius2) {
-        if (originDistance2 == 0.0f) {
+        if (originDistance2 == 0.0f || glm::dot(movement, offset) >= 0.0f) {
             return false;
         }
-        return glm::dot(movement, offset) <= 0.0f;
+
+        outTime = 0.0f;
+        outNormal = glm::normalize(offset);
+        return true;
     }
 
     float projection = glm::dot(offset, movement);
@@ -118,7 +127,14 @@ static bool segmentIntersectsCircle(const glm::vec2 &origin, const glm::vec2 &de
     }
 
     float time = (-projection - std::sqrt(discriminant)) / movementLength2;
-    return time >= 0.0f && time <= 1.0f;
+    if (time < 0.0f || time > 1.0f) {
+        return false;
+    }
+
+    glm::vec2 contact(origin + movement * time);
+    outTime = time;
+    outNormal = glm::normalize(contact - center);
+    return true;
 }
 
 Area::Area(
@@ -960,8 +976,32 @@ bool Area::moveCreature(const std::shared_ptr<Creature> &creature, const glm::ve
         }
     }
 
-    if (hasCreatureCollision(*creature, origin, dest)) {
-        return false;
+    CreatureCollision creatureCollision;
+    if (findCreatureCollision(*creature, origin, dest, creatureCollision)) {
+        glm::vec2 movement(glm::vec2(dest) - glm::vec2(origin));
+        glm::vec2 contact(glm::vec2(origin) + movement * creatureCollision.time);
+        glm::vec2 remaining(movement * (1.0f - creatureCollision.time));
+
+        float inward = glm::dot(remaining, creatureCollision.normal);
+        if (inward < 0.0f) {
+            remaining -= creatureCollision.normal * inward;
+        }
+
+        glm::vec3 slideOrigin(contact.x, contact.y, origin.z);
+        dest = slideOrigin;
+
+        if (glm::dot(remaining, remaining) > 0.0f) {
+            glm::vec3 slideDest(slideOrigin.x + remaining.x, slideOrigin.y + remaining.y, slideOrigin.z);
+            CreatureCollision slideCollision;
+            if (!sceneGraph.testWalk(slideOrigin, slideDest, creature.get(), collision) &&
+                !findCreatureCollision(*creature, slideOrigin, slideDest, slideCollision, creatureCollision.creature)) {
+                dest = slideDest;
+            }
+        }
+
+        if (glm::distance2(glm::vec2(origin), glm::vec2(dest)) == 0.0f) {
+            return false;
+        }
     }
 
     // Test elevation at destination
@@ -986,19 +1026,34 @@ bool Area::moveCreature(const std::shared_ptr<Creature> &creature, const glm::ve
     return true;
 }
 
-bool Area::hasCreatureCollision(const Creature &creature, const glm::vec3 &origin, const glm::vec3 &destination) const {
+bool Area::findCreatureCollision(
+    const Creature &creature,
+    const glm::vec3 &origin,
+    const glm::vec3 &destination,
+    CreatureCollision &outCollision,
+    const Creature *ignoredCreature) const {
+    bool found = false;
+    outCollision.time = 1.0f;
+
     for (const auto &object : _objectsByType.at(ObjectType::Creature)) {
         const auto &other = static_cast<const Creature &>(*object);
-        if (&other == &creature || other.isDead()) {
+        if (&other == &creature || &other == ignoredCreature || other.isDead()) {
             continue;
         }
 
         float radius = creature.creaturePersonalSpace() + other.creaturePersonalSpace() + kCreatureCollisionEpsilon;
-        if (segmentIntersectsCircle(glm::vec2(origin), glm::vec2(destination), glm::vec2(other.position()), radius)) {
-            return true;
+        float time;
+        glm::vec2 normal;
+        if (sweepCircle(glm::vec2(origin), glm::vec2(destination), glm::vec2(other.position()), radius, time, normal) &&
+            (!found || time < outCollision.time)) {
+            found = true;
+            outCollision.creature = &other;
+            outCollision.time = time;
+            outCollision.normal = normal;
         }
     }
-    return false;
+
+    return found;
 }
 
 bool Area::moveCreatureTowards(const std::shared_ptr<Creature> &creature, const glm::vec2 &dest, bool run, float dt) {
