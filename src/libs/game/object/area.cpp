@@ -17,6 +17,8 @@
 
 #include "reone/game/object/area.h"
 
+#include <array>
+
 #include "reone/game/minigame.h"
 
 #include "reone/game/camerastyles.h"
@@ -77,10 +79,10 @@ static constexpr float kLineOfSightHeight = 1.7f;        // TODO: make it appear
 static constexpr float kMaxCollisionDistance = 8.0f;
 static constexpr float kMaxCollisionDistance2 = kMaxCollisionDistance * kMaxCollisionDistance;
 
-static constexpr glm::vec3 kPartyFormationOffsets[] {
+static constexpr std::array<glm::vec3, 2> kPartyFormationOffsets {{
     glm::vec3(1.5f, -0.7f, 0.0f),
     glm::vec3(-1.5f, 0.8f, 0.0f),
-};
+}};
 static constexpr float kPartyPositionSearchRadius = 10.0f;
 static constexpr float kPartyPositionSearchStep = 1.0f;
 static constexpr int kPartyPositionSearchDirections = 16;
@@ -795,8 +797,12 @@ void Area::loadPartyMember(const std::shared_ptr<Creature> &member, int index, b
 
     if (!fromSave && index > 0) {
         auto leader = _game.party().getLeader();
-        glm::quat rotation(glm::angleAxis(leader->getFacing(), glm::vec3(0.0f, 0.0f, 1.0f)));
-        glm::vec3 position(leader->position() + rotation * kPartyFormationOffsets[index - 1]);
+        glm::vec3 position(leader->position());
+
+        if (index <= static_cast<int>(kPartyFormationOffsets.size())) {
+            glm::quat rotation(glm::angleAxis(leader->getFacing(), glm::vec3(0.0f, 0.0f, 1.0f)));
+            position += rotation * kPartyFormationOffsets[index - 1];
+        }
 
         member->setPosition(findPartyPosition(*member, position));
         member->setFacing(leader->getFacing());
