@@ -326,6 +326,19 @@ private:
     void loadPartyMember(const std::shared_ptr<Creature> &member, int index, bool fromSave);
     glm::vec3 findPartyPosition(const Creature &member, const glm::vec3 &position) const;
 
+    struct CreatureCollision {
+        const Creature *creature {nullptr};
+        float time {0.0f};
+        glm::vec2 normal {0.0f};
+    };
+
+    bool findCreatureCollision(
+        const Creature &creature,
+        const glm::vec3 &origin,
+        const glm::vec3 &destination,
+        CreatureCollision &outCollision,
+        const Creature *ignoredCreature = nullptr) const;
+
     void doUpdatePerception();
     void updateObjectSelection();
 

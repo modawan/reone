@@ -126,6 +126,8 @@ void Creature::loadAppearanceProperties() {
     _modelType = parseModelType(appearances->getString(_appearance, "modeltype"));
     _walkSpeed = appearances->getFloat(_appearance, "walkdist", 1.0f);
     _runSpeed = appearances->getFloat(_appearance, "rundist", 1.0f);
+    float personalSpace = appearances->getFloat(_appearance, "perspace", 0.6f);
+    _creaturePersonalSpace = appearances->getFloat(_appearance, "creperspace", personalSpace);
     _footstepType = appearances->getInt(_appearance, "footsteptype", -1);
     _envmap = boost::to_lower_copy(appearances->getString(_appearance, "envmap"));
 

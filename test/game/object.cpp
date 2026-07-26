@@ -1297,9 +1297,9 @@ TEST(LinkedDoorTransition, should_reject_npcs_and_companions) {
     auto leader = makeMovingCreature(game, engine);
     auto companion = makeMovingCreature(game, engine);
     auto npc = makeMovingCreature(game, engine);
-    leader->setPosition(glm::vec3(0.0f, -1.0f, 0.0f));
-    companion->setPosition(glm::vec3(0.0f, -1.0f, 0.0f));
-    npc->setPosition(glm::vec3(0.0f, -1.0f, 0.0f));
+    leader->setPosition(glm::vec3(0.5f, -1.0f, 0.0f));
+    companion->setPosition(glm::vec3(-0.9f, -1.0f, 0.0f));
+    npc->setPosition(glm::vec3(1.9f, -1.0f, 0.0f));
     game.party().addMember(kNpcPlayer, leader);
     game.party().setPlayer(leader);
     game.party().addMember(0, companion);

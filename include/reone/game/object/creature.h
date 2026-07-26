@@ -132,6 +132,7 @@ public:
     std::shared_ptr<graphics::Texture> portrait() const { return _portrait; }
     float walkSpeed() const { return _walkSpeed; }
     float runSpeed() const { return _runSpeed; }
+    float creaturePersonalSpace() const { return _creaturePersonalSpace; }
     CreatureAttributes &attributes() { return _attributes; }
     const CreatureAttributes &attributes() const { return _attributes; }
     ItemAttributes &itemAttributes() { return _itemAttributes; }
@@ -334,6 +335,7 @@ private:
     std::shared_ptr<Path> _path;
     float _walkSpeed {0.0f};
     float _runSpeed {0.0f};
+    float _creaturePersonalSpace {0.6f};
     MovementType _movementType {MovementType::None};
     bool _talking {false};
 

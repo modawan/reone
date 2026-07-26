@@ -18,6 +18,7 @@
 #include "reone/game/object/area.h"
 
 #include <array>
+#include <cmath>
 
 #include "reone/game/minigame.h"
 
@@ -78,6 +79,7 @@ static constexpr float kLineOfSightHeight = 1.7f;        // TODO: make it appear
 
 static constexpr float kMaxCollisionDistance = 8.0f;
 static constexpr float kMaxCollisionDistance2 = kMaxCollisionDistance * kMaxCollisionDistance;
+static constexpr float kCreatureCollisionEpsilon = 0.01f;
 
 static constexpr std::array<glm::vec3, 2> kPartyFormationOffsets {{
     glm::vec3(1.5f, -0.7f, 0.0f),
@@ -91,6 +93,49 @@ static constexpr float kPartyMemberSpacing2 = kPartyMemberSpacing * kPartyMember
 
 static glm::vec3 g_defaultAmbientColor {0.2f};
 static CameraStyle g_defaultCameraStyle {"", 3.2f, 83.0f, 0.45f, 55.0f};
+
+static bool sweepCircle(
+    const glm::vec2 &origin,
+    const glm::vec2 &destination,
+    const glm::vec2 &center,
+    float radius,
+    float &outTime,
+    glm::vec2 &outNormal) {
+    glm::vec2 movement(destination - origin);
+    float movementLength2 = glm::dot(movement, movement);
+    if (movementLength2 == 0.0f) {
+        return false;
+    }
+
+    glm::vec2 offset(origin - center);
+    float radius2 = radius * radius;
+    float originDistance2 = glm::dot(offset, offset);
+    if (originDistance2 <= radius2) {
+        if (originDistance2 == 0.0f || glm::dot(movement, offset) >= 0.0f) {
+            return false;
+        }
+
+        outTime = 0.0f;
+        outNormal = glm::normalize(offset);
+        return true;
+    }
+
+    float projection = glm::dot(offset, movement);
+    float discriminant = projection * projection - movementLength2 * (originDistance2 - radius2);
+    if (discriminant < 0.0f) {
+        return false;
+    }
+
+    float time = (-projection - std::sqrt(discriminant)) / movementLength2;
+    if (time < 0.0f || time > 1.0f) {
+        return false;
+    }
+
+    glm::vec2 contact(origin + movement * time);
+    outTime = time;
+    outNormal = glm::normalize(contact - center);
+    return true;
+}
 
 Area::Area(
     uint32_t id,
@@ -931,6 +976,34 @@ bool Area::moveCreature(const std::shared_ptr<Creature> &creature, const glm::ve
         }
     }
 
+    CreatureCollision creatureCollision;
+    if (findCreatureCollision(*creature, origin, dest, creatureCollision)) {
+        glm::vec2 movement(glm::vec2(dest) - glm::vec2(origin));
+        glm::vec2 contact(glm::vec2(origin) + movement * creatureCollision.time);
+        glm::vec2 remaining(movement * (1.0f - creatureCollision.time));
+
+        float inward = glm::dot(remaining, creatureCollision.normal);
+        if (inward < 0.0f) {
+            remaining -= creatureCollision.normal * inward;
+        }
+
+        glm::vec3 slideOrigin(contact.x, contact.y, origin.z);
+        dest = slideOrigin;
+
+        if (glm::dot(remaining, remaining) > 0.0f) {
+            glm::vec3 slideDest(slideOrigin.x + remaining.x, slideOrigin.y + remaining.y, slideOrigin.z);
+            CreatureCollision slideCollision;
+            if (!sceneGraph.testWalk(slideOrigin, slideDest, creature.get(), collision) &&
+                !findCreatureCollision(*creature, slideOrigin, slideDest, slideCollision, creatureCollision.creature)) {
+                dest = slideDest;
+            }
+        }
+
+        if (glm::distance2(glm::vec2(origin), glm::vec2(dest)) == 0.0f) {
+            return false;
+        }
+    }
+
     // Test elevation at destination
 
     if (!sceneGraph.testElevation(dest, collision)) {
@@ -951,6 +1024,36 @@ bool Area::moveCreature(const std::shared_ptr<Creature> &creature, const glm::ve
     checkTriggersIntersection(creature);
 
     return true;
+}
+
+bool Area::findCreatureCollision(
+    const Creature &creature,
+    const glm::vec3 &origin,
+    const glm::vec3 &destination,
+    CreatureCollision &outCollision,
+    const Creature *ignoredCreature) const {
+    bool found = false;
+    outCollision.time = 1.0f;
+
+    for (const auto &object : _objectsByType.at(ObjectType::Creature)) {
+        const auto &other = static_cast<const Creature &>(*object);
+        if (&other == &creature || &other == ignoredCreature || other.isDead()) {
+            continue;
+        }
+
+        float radius = creature.creaturePersonalSpace() + other.creaturePersonalSpace() + kCreatureCollisionEpsilon;
+        float time;
+        glm::vec2 normal;
+        if (sweepCircle(glm::vec2(origin), glm::vec2(destination), glm::vec2(other.position()), radius, time, normal) &&
+            (!found || time < outCollision.time)) {
+            found = true;
+            outCollision.creature = &other;
+            outCollision.time = time;
+            outCollision.normal = normal;
+        }
+    }
+
+    return found;
 }
 
 bool Area::moveCreatureTowards(const std::shared_ptr<Creature> &creature, const glm::vec2 &dest, bool run, float dt) {
