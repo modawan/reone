@@ -115,10 +115,17 @@ void PBRTextures::initIrradianceMapArray() {
 }
 
 void PBRTextures::initPrefilteredEnvMapArray() {
+    // Each mip level holds the environment convolved for one roughness, and the
+    // resolve picks between them with textureLod, so the array needs a mipmap
+    // filter. Texture::init allocates the levels and refreshPrefilteredEnvMap
+    // renders each one.
+    auto properties = getTextureProperties(TextureUsage::ColorBuffer);
+    properties.minFilter = Texture::Filtering::LinearMipmapLinear;
+
     _prefilteredEnvMapArray = std::make_shared<Texture>(
         "pbr_prefiltered_env_map_array",
         TextureType::CubeMapArray,
-        getTextureProperties(TextureUsage::ColorBuffer));
+        properties);
     _prefilteredEnvMapArray->clear(
         kPrefilteredTextureSize,
         kPrefilteredTextureSize,
@@ -192,17 +199,13 @@ void PBRTextures::refreshPrefilteredEnvMap(const EnvMapDerivedRequest &request, 
                     globals.view = kCubeMapViews[i];
                 });
                 float roughness = mip / static_cast<float>(kNumPrefilteredMipMaps - 1);
-                shader.setUniform("uRoughness", mip);
+                shader.setUniform("uRoughness", roughness);
                 _context.clearColorDepth();
                 _meshRegistry.get(MeshName::cubemap).draw(_statistic);
             }
         });
     }
     _context.resetDrawFramebuffer();
-
-    glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, _prefilteredEnvMapArray->nameGL());
-    glGenerateMipmap(GL_TEXTURE_CUBE_MAP_ARRAY);
-    glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, 0);
 }
 
 } // namespace graphics
