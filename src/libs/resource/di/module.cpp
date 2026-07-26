@@ -63,7 +63,7 @@ void ResourceModule::init() {
         *_resources);
     _audioClips = std::make_unique<AudioClips>(*_resources);
     _movies = std::make_unique<Movies>(_gamePath, _graphics.services(), _audio.mixer());
-    _scripts = std::make_unique<Scripts>(*_resources);
+    _scripts = std::make_unique<Scripts>(*_resources, *_replacements);
     _dialogs = std::make_unique<Dialogs>(*_gffs, *_strings);
     _layouts = std::make_unique<Layouts>(*_resources);
     _paths = std::make_unique<Paths>(*_gffs);

@@ -82,6 +82,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/resource/provider/2das.cpp
     ${TESTS_SOURCE_DIR}/resource/provider/dialogs.cpp
     ${TESTS_SOURCE_DIR}/resource/provider/gffs.cpp
+    ${TESTS_SOURCE_DIR}/resource/provider/scripts.cpp
     ${TESTS_SOURCE_DIR}/resource/resources.cpp
     ${TESTS_SOURCE_DIR}/resource/resref.cpp
     ${TESTS_SOURCE_DIR}/resource/strings.cpp
