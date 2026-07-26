@@ -185,7 +185,6 @@ void Area::load(std::string name, const Gff &are, const Gff &git, bool fromSave)
     loadLYT();
     loadGIT(gitParsed, git, fromSave);
     loadVIS();
-    loadPTH();
 }
 
 void Area::activate() {
@@ -428,6 +427,7 @@ void Area::loadLYT() {
         throw ResourceNotFoundException("Area LYT not found: " + _name);
     }
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    auto walkableSurfaces = _services.game.surfaces.getWalkableSurfaces();
     for (auto &lytRoom : layout->rooms) {
         auto model = _services.resource.models.get(lytRoom.name);
         if (!model) {
@@ -470,6 +470,7 @@ void Area::loadLYT() {
         if (walkmesh) {
             walkmeshSceneNode = sceneGraph.newWalkmesh(*walkmesh);
             sceneGraph.addRoot(walkmeshSceneNode);
+            uniwalkLoadRoom(_pathfinder.uni, *walkmesh, walkableSurfaces);
         }
 
         // Grass
@@ -493,6 +494,10 @@ void Area::loadLYT() {
         }
         _rooms.insert(std::make_pair(room->name(), std::move(room)));
     }
+
+    uniwalkFinalize(_pathfinder.uni);
+    // Allow up to 64 concurrent paths.
+    _pathfinder.paths.resize(64);
 }
 
 void Area::loadVIS() {
@@ -510,28 +515,6 @@ Visibility Area::fixVisibility(const Visibility &visibility) {
         result.insert(std::make_pair(pair.second, pair.first));
     }
     return result;
-}
-
-void Area::loadPTH() {
-    std::shared_ptr<Path> path(_services.resource.paths.get(_name));
-    if (!path) {
-        return;
-    }
-    std::unordered_map<int, float> pointZ;
-
-    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
-
-    for (size_t i = 0; i < path->points.size(); ++i) {
-        const Path::Point &point = path->points[i];
-        Collision collision;
-        if (!sceneGraph.testElevation(glm::vec3(point.x, point.y, scene::kElevationTestZ), collision)) {
-            warn(str(boost::format("Point %d elevation not found") % i));
-            continue;
-        }
-        pointZ.insert(std::make_pair(static_cast<int>(i), collision.intersection.z));
-    }
-
-    _pathfinder.load(path->points, pointZ);
 }
 
 void Area::initCameras(const glm::vec3 &entryPosition, float entryFacing) {
@@ -927,7 +910,8 @@ void Area::update(float dt) {
     updateHeartbeat(dt);
 }
 
-bool Area::moveCreature(const std::shared_ptr<Creature> &creature, const glm::vec2 &dir, bool run, float dt) {
+bool Area::moveCreature(const std::shared_ptr<Creature> &creature, const glm::vec2 &dir, bool run, float dt,
+                        float maxDistance) {
     static glm::vec3 up {0.0f, 0.0f, 1.0f};
     static glm::vec3 zOffset {0.0f, 0.0f, 0.1f};
 
@@ -946,6 +930,10 @@ bool Area::moveCreature(const std::shared_ptr<Creature> &creature, const glm::ve
 
     float speed = run ? creature->runSpeed() : creature->walkSpeed();
     float speedDt = speed * dt;
+
+    if (speedDt > maxDistance) {
+        speedDt = maxDistance;
+    }
 
     glm::vec3 dest(origin);
     dest.x += dir.x * speedDt;
@@ -1057,12 +1045,6 @@ bool Area::findCreatureCollision(
     }
 
     return found;
-}
-
-bool Area::moveCreatureTowards(const std::shared_ptr<Creature> &creature, const glm::vec2 &dest, bool run, float dt) {
-    glm::vec2 delta(dest - glm::vec2(creature->position()));
-    glm::vec2 dir(glm::normalize(delta));
-    return moveCreature(creature, dir, run, dt);
 }
 
 bool Area::isObjectSeen(const Creature &subject, const Object &object) const {

@@ -1031,6 +1031,7 @@ private:
     void consoleTurretState(const ConsoleArgs &tokens);
     void consoleStartTurretGame(const ConsoleArgs &tokens);
     void consoleShowImGui(const ConsoleArgs &tokens);
+    void consoleShowPath(const ConsoleArgs &tokens);
 
     // END Console commands
 };

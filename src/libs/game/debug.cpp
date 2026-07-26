@@ -24,6 +24,7 @@ namespace game {
 static bool g_showAABB = false;
 static bool g_showWalkmesh = false;
 static bool g_showTriggers = false;
+static bool g_showPath = false;
 
 bool isShowAABBEnabled() {
     return g_showAABB;
@@ -37,6 +38,10 @@ bool isShowTriggersEnabled() {
     return g_showTriggers;
 }
 
+bool isShowPathEnabled() {
+    return g_showPath;
+}
+
 void setShowAABB(bool show) {
     g_showAABB = show;
 }
@@ -47,6 +52,10 @@ void setShowWalkmesh(bool show) {
 
 void setShowTriggers(bool show) {
     g_showTriggers = show;
+}
+
+void setShowPath(bool show) {
+    g_showPath = show;
 }
 
 } // namespace game

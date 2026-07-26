@@ -696,8 +696,8 @@ std::shared_ptr<Creature> makeMovingCreature(
 // it exercises the same path AI, scripts and actions take, unlike direct player
 // locomotion which calls Area::moveCreature.
 void navigationStep(Creature &creature, const glm::vec3 &dest, float dt = 1.0f) {
-    creature.setPath(dest, std::vector<glm::vec3> {dest}, 0);
-    creature.advanceOnPath(false, dt);
+    glm::vec3 dir = glm::normalize(dest - creature.position());
+    creature.advanceOnPath(dest, dir, /*run=*/false, /*distance=*/0.1f, dt);
 }
 
 std::shared_ptr<Gff> makeTransitionTriggerGff(
