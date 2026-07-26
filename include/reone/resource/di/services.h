@@ -33,6 +33,7 @@ class IModels;
 class IMovies;
 class IPaths;
 class IResourceDirector;
+class IResourceReplacements;
 class IResources;
 class IScripts;
 class IShaders;
@@ -46,6 +47,7 @@ class IWalkmeshes;
 struct ResourceServices {
     IGffs &gffs;
     IResources &resources;
+    IResourceReplacements &replacements;
     IStrings &strings;
     ITwoDAs &twoDas;
     IScripts &scripts;
@@ -69,6 +71,7 @@ struct ResourceServices {
     ResourceServices(
         IGffs &gffs,
         IResources &resources,
+        IResourceReplacements &replacements,
         IStrings &strings,
         ITwoDAs &twoDas,
         IScripts &scripts,
@@ -90,6 +93,7 @@ struct ResourceServices {
         IResourceDirector &director) :
         gffs(gffs),
         resources(resources),
+        replacements(replacements),
         strings(strings),
         twoDas(twoDas),
         scripts(scripts),

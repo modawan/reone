@@ -36,6 +36,7 @@
 #include "../provider/textures.h"
 #include "../provider/visibilities.h"
 #include "../provider/walkmeshes.h"
+#include "../replacements.h"
 #include "../resources.h"
 #include "../strings.h"
 
@@ -99,6 +100,7 @@ public:
 
     Gffs &gffs() { return *_gffs; }
     IResources &resources() { return *_resources; }
+    IResourceReplacements &replacements() { return *_replacements; }
     Strings &strings() { return *_strings; }
     TwoDAs &twoDas() { return *_twoDas; }
     Scripts &scripts() { return *_scripts; }
@@ -135,6 +137,7 @@ private:
     ResourcesBackend _resourcesBackend {ResourcesBackend::Legacy};
 
     std::unique_ptr<Gffs> _gffs;
+    std::unique_ptr<IResourceReplacements> _replacements;
     std::unique_ptr<IResources> _resources;
     std::unique_ptr<Strings> _strings;
     std::unique_ptr<TwoDAs> _twoDas;

@@ -18,6 +18,8 @@
 #include "reone/resource/di/module.h"
 
 #include "reone/resource/extractresources.h"
+#include "reone/resource/replacementresources.h"
+#include "reone/resource/replacements.h"
 
 #include "reone/audio/di/module.h"
 #include "reone/graphics/di/module.h"
@@ -28,11 +30,14 @@ namespace reone {
 namespace resource {
 
 void ResourceModule::init() {
+    std::unique_ptr<IResources> backend;
     if (_resourcesBackend == ResourcesBackend::Extract) {
-        _resources = std::make_unique<ExtractResources>();
+        backend = std::make_unique<ExtractResources>();
     } else {
-        _resources = std::make_unique<Resources>();
+        backend = std::make_unique<Resources>();
     }
+    _replacements = std::make_unique<ResourceReplacements>();
+    _resources = std::make_unique<ReplacementResources>(std::move(backend), *_replacements);
     _strings = std::make_unique<Strings>();
     _twoDas = std::make_unique<TwoDAs>(*_resources);
     _gffs = std::make_unique<Gffs>(*_resources);
@@ -86,6 +91,7 @@ void ResourceModule::init() {
     _services = std::make_unique<ResourceServices>(
         *_gffs,
         *_resources,
+        *_replacements,
         *_strings,
         *_twoDas,
         *_scripts,
@@ -131,6 +137,7 @@ void ResourceModule::deinit() {
     _twoDas.reset();
     _strings.reset();
     _resources.reset();
+    _replacements.reset();
 }
 
 } // namespace resource
