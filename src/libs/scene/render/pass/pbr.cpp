@@ -230,6 +230,8 @@ void PBRRenderPass::drawBillboard(Texture &texture,
 void PBRRenderPass::drawParticles(Texture &texture,
                                   FaceCullMode faceCulling,
                                   bool premultipliedAlpha,
+                                  bool motionBlur,
+                                  const ParticleRenderPolicy &policy,
                                   const glm::ivec2 &gridSize,
                                   const std::vector<ParticleInstance> &particles) {
     _context.useProgram(_shaderRegistry.get(ShaderProgramId::oitParticles));
@@ -240,16 +242,8 @@ void PBRRenderPass::drawParticles(Texture &texture,
             locals.featureMask |= UniformsFeatureFlags::premulalpha;
         }
     });
-    _uniforms.setParticles([&gridSize, &premultipliedAlpha, &particles](auto &p) {
-        p.gridSize = gridSize;
-        for (size_t i = 0; i < particles.size(); ++i) {
-            const auto &particle = particles[i];
-            p.particles[i].positionFrame = glm::vec4(particle.position, static_cast<float>(particle.frame));
-            p.particles[i].size = particle.size;
-            p.particles[i].color = particle.color;
-            p.particles[i].right = glm::vec4(particle.right, 0.0f);
-            p.particles[i].up = glm::vec4(particle.up, 0.0f);
-        }
+    _uniforms.setParticles([&gridSize, &motionBlur, &policy, &particles](auto &p) {
+        populateParticleUniforms(p, policy, motionBlur, gridSize, particles);
     });
     auto prevFaceCulling = _context.faceCullMode();
     if (faceCulling != prevFaceCulling) {

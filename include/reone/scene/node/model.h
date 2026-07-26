@@ -55,6 +55,7 @@ public:
         static constexpr int alpha = 2;
         static constexpr int selfIllumColor = 4;
         static constexpr int color = 8;
+        static constexpr int emitter = 16;
     };
 
     struct AnimationState {
@@ -63,6 +64,7 @@ public:
         float alpha {0.0f};
         glm::vec3 selfIllumColor {0.0f};
         glm::vec3 color {0.0f};
+        EmitterSceneNode::AnimationState emitter;
     };
 
     struct AnimationChannel {
@@ -123,6 +125,7 @@ public:
     void setMainTexture(graphics::Texture *texture);
     void setEnvironmentMap(graphics::Texture *texture);
     void setPickable(bool pickable) { _pickable = pickable; }
+    void setParticleRenderProfile(const ParticleRenderProfile &profile);
 
     // Animation
 
@@ -176,6 +179,7 @@ private:
     // Flags
 
     bool _pickable {false};
+    ParticleRenderProfile _particleRenderProfile;
 
     // END Flags
 

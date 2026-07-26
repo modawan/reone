@@ -65,6 +65,7 @@ void ModelSceneNode::buildNodeTree(ModelNode &node, SceneNode &parent) {
         sceneNode = _sceneGraph.newLight(*this, node);
     } else if (node.isEmitter()) {
         sceneNode = _sceneGraph.newEmitter(node);
+        static_cast<EmitterSceneNode *>(sceneNode.get())->setRenderProfile(_particleRenderProfile);
     } else {
         sceneNode = _sceneGraph.newDummy(node);
     }
@@ -102,8 +103,8 @@ void ModelSceneNode::update(float dt) {
     if (!_enabled) {
         return;
     }
-    SceneNode::update(dt);
     updateAnimations(dt);
+    SceneNode::update(dt);
 }
 
 void ModelSceneNode::renderLeafs(IRenderPass &pass, const std::vector<SceneNode *> &leafs) {
@@ -153,6 +154,9 @@ void ModelSceneNode::attach(const std::string &parentName, SceneNode &node) {
     parent->addChild(node);
 
     _attachments.insert(std::make_pair(parentName, &node));
+    if (node.type() == SceneNodeType::Model) {
+        static_cast<ModelSceneNode *>(&node)->setParticleRenderProfile(_particleRenderProfile);
+    }
 
     computeAABB();
 }
@@ -188,6 +192,20 @@ void ModelSceneNode::setEnvironmentMap(Texture *texture) {
     for (auto &child : _children) {
         if (child->type() == SceneNodeType::Dummy || child->type() == SceneNodeType::Mesh) {
             static_cast<ModelNodeSceneNode *>(child)->setEnvironmentMap(texture);
+        }
+    }
+}
+
+void ModelSceneNode::setParticleRenderProfile(const ParticleRenderProfile &profile) {
+    _particleRenderProfile = profile;
+    for (auto &[_, node] : _nodeByNumber) {
+        if (node->type() == SceneNodeType::Emitter) {
+            static_cast<EmitterSceneNode *>(node)->setRenderProfile(profile);
+        }
+    }
+    for (auto &[_, attachment] : _attachments) {
+        if (attachment->type() == SceneNodeType::Model) {
+            static_cast<ModelSceneNode *>(attachment)->setParticleRenderProfile(profile);
         }
     }
 }
@@ -409,14 +427,20 @@ void ModelSceneNode::computeAnimationStates(AnimationChannel &channel, float tim
             state.transform *= glm::translate(position);
             state.transform *= glm::mat4_cast(orientation);
         }
-        if (animNode->floatValueAtTime(ControllerTypes::alpha, time, state.alpha)) {
+        if (modelNode.isMesh() && animNode->floatValueAtTime(ControllerTypes::alpha, time, state.alpha)) {
             state.flags |= AnimationStateFlags::alpha;
         }
-        if (animNode->vectorValueAtTime(ControllerTypes::selfIllumColor, time, state.selfIllumColor)) {
+        if (modelNode.isMesh() && animNode->vectorValueAtTime(ControllerTypes::selfIllumColor, time, state.selfIllumColor)) {
             state.flags |= AnimationStateFlags::selfIllumColor;
         }
-        if (animNode->vectorValueAtTime(ControllerTypes::color, time, state.color)) {
+        if (modelNode.isLight() && animNode->vectorValueAtTime(ControllerTypes::color, time, state.color)) {
             state.flags |= AnimationStateFlags::color;
+        }
+        if (modelNode.isEmitter()) {
+            state.emitter = EmitterSceneNode::animationStateAt(*animNode, time);
+            if (!state.emitter.empty()) {
+                state.flags |= AnimationStateFlags::emitter;
+            }
         }
         channel.stateByNodeNumber[modelNode.number()] = std::move(state);
     }
@@ -481,6 +505,10 @@ void ModelSceneNode::applyAnimationStates(const ModelNode &modelNode) {
                 combined.flags |= AnimationStateFlags::color;
                 combined.color = state1.color;
             }
+            if (state1.flags & AnimationStateFlags::emitter) {
+                combined.flags |= AnimationStateFlags::emitter;
+                combined.emitter = state1.emitter;
+            }
             break;
         }
         case AnimationBlendMode::Overlay:
@@ -506,6 +534,10 @@ void ModelSceneNode::applyAnimationStates(const ModelNode &modelNode) {
                     combined.flags |= AnimationStateFlags::color;
                     combined.color = state.color;
                 }
+                if ((state.flags & AnimationStateFlags::emitter) && !(combined.flags & AnimationStateFlags::emitter)) {
+                    combined.flags |= AnimationStateFlags::emitter;
+                    combined.emitter = state.emitter;
+                }
             }
             break;
         default:
@@ -523,6 +555,9 @@ void ModelSceneNode::applyAnimationStates(const ModelNode &modelNode) {
         }
         if (combined.flags & AnimationStateFlags::color) {
             static_cast<LightSceneNode *>(sceneNode)->setColor(combined.color);
+        }
+        if (combined.flags & AnimationStateFlags::emitter) {
+            static_cast<EmitterSceneNode *>(sceneNode)->applyAnimationState(combined.emitter);
         }
     }
 

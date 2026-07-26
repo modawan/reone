@@ -17,7 +17,11 @@
 
 #pragma once
 
+#include <array>
+
 #include "glm/glm.hpp"
+
+#include "reone/scene/render/pass.h"
 
 namespace reone {
 
@@ -25,10 +29,23 @@ namespace scene {
 
 namespace particleutil {
 
+constexpr float kMaxContinuousParticleDelta = 0.25f;
+constexpr int kMaxEmitterParticles = 256;
+
 struct MotionBlurBasis {
     glm::vec3 right {0.0f};
     glm::vec3 up {0.0f};
     float lengthScale {1.0f};
+};
+
+struct AtlasFrameBounds {
+    glm::vec2 minUV {0.5f};
+    glm::vec2 maxUV {0.5f};
+};
+
+struct DecodedParticleSample {
+    glm::vec3 color {0.0f};
+    float alpha {0.0f};
 };
 
 MotionBlurBasis buildMotionBlurBasis(
@@ -39,6 +56,34 @@ MotionBlurBasis buildMotionBlurBasis(
     const glm::vec3 &cameraUp,
     float particleLength,
     float blurLength);
+
+int advanceSpawnAccumulator(float birthrate, float dt, float &accumulator);
+
+AtlasFrameBounds atlasFrameBounds(
+    const glm::ivec2 &textureSize,
+    const glm::ivec2 &gridSize,
+    int frame);
+
+glm::vec2 clampAtlasUV(const AtlasFrameBounds &bounds, const glm::vec2 &uv);
+
+std::array<float, 4> cubicReconstructionWeights(float fraction);
+
+DecodedParticleSample decodeParticleSample(
+    const glm::vec4 &sample,
+    ParticleAlphaMode alphaMode,
+    bool lightenBlend,
+    float alphaExponent);
+
+float analyticTrailEnvelope(
+    const glm::vec2 &localUV,
+    bool motionBlur,
+    float intensity);
+
+float clampMotionTrailLength(
+    float authoredLength,
+    float basisScale,
+    float profileScale,
+    float maximumLength);
 
 } // namespace particleutil
 

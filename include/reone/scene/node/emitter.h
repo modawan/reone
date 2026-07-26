@@ -19,6 +19,7 @@
 
 #include "reone/system/timer.h"
 
+#include "../render/pass.h"
 #include "modelnode.h"
 
 namespace reone {
@@ -28,8 +29,59 @@ namespace scene {
 class ModelSceneNode;
 class ParticleSceneNode;
 
+/**
+ * Optional presentation tuning applied to a complete particle model.
+ *
+ * The default values preserve authored Odyssey emitter behavior. Game-facing
+ * effects can opt into a profile without teaching the renderer asset names.
+ */
+struct ParticleRenderProfile {
+    float largeParticleScale {1.0f};
+    float worldZScale {1.0f};
+    float opacity {1.0f};
+    float worldZOpacity {1.0f};
+    float motionLengthScale {1.0f};
+    float motionMaxWidth {std::numeric_limits<float>::max()};
+    float motionOpacity {1.0f};
+    glm::vec3 colorTint {1.0f};
+    float colorIntensity {1.0f};
+    ParticleRenderPolicy policy;
+    float motionMaxLength {std::numeric_limits<float>::max()};
+};
+
 class EmitterSceneNode : public ModelNodeSceneNode {
 public:
+    struct AnimationState {
+        std::optional<float> birthrate;
+        std::optional<float> lifeExpectancy;
+        std::optional<float> xSize;
+        std::optional<float> ySize;
+        std::optional<int> frameStart;
+        std::optional<int> frameEnd;
+        std::optional<float> fps;
+        std::optional<float> spread;
+        std::optional<float> velocity;
+        std::optional<float> randomVelocity;
+        std::optional<float> blurLength;
+        std::optional<float> mass;
+        std::optional<float> grav;
+        std::optional<float> lightningDelay;
+        std::optional<float> lightningRadius;
+        std::optional<float> lightningScale;
+        std::optional<int> lightningSubDiv;
+        std::optional<float> particleSizeStart;
+        std::optional<float> particleSizeMid;
+        std::optional<float> particleSizeEnd;
+        std::optional<glm::vec3> colorStart;
+        std::optional<glm::vec3> colorMid;
+        std::optional<glm::vec3> colorEnd;
+        std::optional<float> alphaStart;
+        std::optional<float> alphaMid;
+        std::optional<float> alphaEnd;
+
+        bool empty() const;
+    };
+
     EmitterSceneNode(
         graphics::ModelNode &modelNode,
         ISceneGraph &sceneGraph,
@@ -52,6 +104,11 @@ public:
     void renderLeafs(IRenderPass &pass, const std::vector<SceneNode *> &leafs) override;
 
     void detonate();
+
+    static AnimationState animationStateAt(const graphics::ModelNode &animationNode, float time);
+    void applyAnimationState(const AnimationState &state);
+    void setRenderProfile(const ParticleRenderProfile &profile) { _renderProfile = profile; }
+    const ParticleRenderProfile &renderProfile() const { return _renderProfile; }
 
     float getParticleSize(float time) const { return _particleSize.get(time); };
     glm::vec3 getColor(float time) const { return _color.get(time); };
@@ -98,17 +155,22 @@ private:
     float _lightningRadius {0.0f};
     float _lightningScale {0.0f};
     int _lightningSubDiv {0};
+    ParticleRenderProfile _renderProfile;
 
-    float _birthInterval {0.0f};
+    float _birthAccumulator {0.0f};
     Timer _birthTimer;
     bool _spawned {false};
+    int _particleCount {0};
 
-    std::deque<ParticleSceneNode *> _particlePool; /**< pre-allocated pool of particles */
+    std::deque<ParticleSceneNode *> _particlePool;
 
     void spawnParticles(float dt);
     void removeExpiredParticles(float dt);
     void doSpawnParticle();
     void spawnLightningParticles();
+    ParticleSceneNode *takeParticle();
+    bool isSpawningSuppressed() const;
+    void discardSpawnTime(float dt);
 };
 
 } // namespace scene

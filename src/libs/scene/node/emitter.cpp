@@ -39,6 +39,173 @@ namespace reone {
 
 namespace scene {
 
+bool EmitterSceneNode::AnimationState::empty() const {
+    return !birthrate &&
+           !lifeExpectancy &&
+           !xSize &&
+           !ySize &&
+           !frameStart &&
+           !frameEnd &&
+           !fps &&
+           !spread &&
+           !velocity &&
+           !randomVelocity &&
+           !blurLength &&
+           !mass &&
+           !grav &&
+           !lightningDelay &&
+           !lightningRadius &&
+           !lightningScale &&
+           !lightningSubDiv &&
+           !particleSizeStart &&
+           !particleSizeMid &&
+           !particleSizeEnd &&
+           !colorStart &&
+           !colorMid &&
+           !colorEnd &&
+           !alphaStart &&
+           !alphaMid &&
+           !alphaEnd;
+}
+
+EmitterSceneNode::AnimationState EmitterSceneNode::animationStateAt(
+    const ModelNode &animationNode,
+    float time) {
+
+    AnimationState state;
+    auto readFloat = [&animationNode, time](ControllerType type) -> std::optional<float> {
+        float value;
+        if (animationNode.floatValueAtTime(type, time, value)) {
+            return value;
+        }
+        return std::nullopt;
+    };
+    auto readInt = [&readFloat](ControllerType type) -> std::optional<int> {
+        auto value = readFloat(type);
+        return value ? std::make_optional(static_cast<int>(*value)) : std::nullopt;
+    };
+    auto readVector = [&animationNode, time](ControllerType type) -> std::optional<glm::vec3> {
+        glm::vec3 value;
+        if (animationNode.vectorValueAtTime(type, time, value)) {
+            return value;
+        }
+        return std::nullopt;
+    };
+
+    state.birthrate = readFloat(ControllerTypes::birthrate);
+    state.lifeExpectancy = readFloat(ControllerTypes::lifeExp);
+    state.xSize = readFloat(ControllerTypes::xSize);
+    state.ySize = readFloat(ControllerTypes::ySize);
+    state.frameStart = readInt(ControllerTypes::frameStart);
+    state.frameEnd = readInt(ControllerTypes::frameEnd);
+    state.fps = readFloat(ControllerTypes::fps);
+    state.spread = readFloat(ControllerTypes::spread);
+    state.velocity = readFloat(ControllerTypes::velocity);
+    state.randomVelocity = readFloat(ControllerTypes::randVel);
+    state.blurLength = readFloat(ControllerTypes::blurLength);
+    state.mass = readFloat(ControllerTypes::mass);
+    state.grav = readFloat(ControllerTypes::grav);
+    state.lightningDelay = readFloat(ControllerTypes::lightingDelay);
+    state.lightningRadius = readFloat(ControllerTypes::lightingRadius);
+    state.lightningScale = readFloat(ControllerTypes::lightingScale);
+    state.lightningSubDiv = readInt(ControllerTypes::lightingSubDiv);
+    state.particleSizeStart = readFloat(ControllerTypes::sizeStart);
+    state.particleSizeMid = readFloat(ControllerTypes::sizeMid);
+    state.particleSizeEnd = readFloat(ControllerTypes::sizeEnd);
+    state.colorStart = readVector(ControllerTypes::colorStart);
+    state.colorMid = readVector(ControllerTypes::colorMid);
+    state.colorEnd = readVector(ControllerTypes::colorEnd);
+    state.alphaStart = readFloat(ControllerTypes::alphaStart);
+    state.alphaMid = readFloat(ControllerTypes::alphaMid);
+    state.alphaEnd = readFloat(ControllerTypes::alphaEnd);
+
+    return state;
+}
+
+void EmitterSceneNode::applyAnimationState(const AnimationState &state) {
+    if (state.birthrate) {
+        _birthrate = glm::max(*state.birthrate, 0.0f);
+        if (_birthrate == 0.0f) {
+            _birthAccumulator = 0.0f;
+        }
+    }
+    if (state.lifeExpectancy) {
+        _lifeExpectancy = *state.lifeExpectancy;
+    }
+    if (state.xSize) {
+        _size.x = *state.xSize;
+    }
+    if (state.ySize) {
+        _size.y = *state.ySize;
+    }
+    if (state.frameStart) {
+        _frameStart = *state.frameStart;
+    }
+    if (state.frameEnd) {
+        _frameEnd = *state.frameEnd;
+    }
+    if (state.fps) {
+        _fps = *state.fps;
+    }
+    if (state.spread) {
+        _spread = *state.spread;
+    }
+    if (state.velocity) {
+        _velocity = *state.velocity;
+    }
+    if (state.randomVelocity) {
+        _randomVelocity = *state.randomVelocity;
+    }
+    if (state.blurLength) {
+        _blurLength = *state.blurLength;
+    }
+    if (state.mass) {
+        _mass = *state.mass;
+    }
+    if (state.grav) {
+        _grav = *state.grav;
+    }
+    if (state.lightningDelay) {
+        _lightningDelay = *state.lightningDelay;
+    }
+    if (state.lightningRadius) {
+        _lightningRadius = *state.lightningRadius;
+    }
+    if (state.lightningScale) {
+        _lightningScale = *state.lightningScale;
+    }
+    if (state.lightningSubDiv) {
+        _lightningSubDiv = *state.lightningSubDiv;
+    }
+    if (state.particleSizeStart) {
+        _particleSize.start = *state.particleSizeStart;
+    }
+    if (state.particleSizeMid) {
+        _particleSize.mid = *state.particleSizeMid;
+    }
+    if (state.particleSizeEnd) {
+        _particleSize.end = *state.particleSizeEnd;
+    }
+    if (state.colorStart) {
+        _color.start = *state.colorStart;
+    }
+    if (state.colorMid) {
+        _color.mid = *state.colorMid;
+    }
+    if (state.colorEnd) {
+        _color.end = *state.colorEnd;
+    }
+    if (state.alphaStart) {
+        _alpha.start = *state.alphaStart;
+    }
+    if (state.alphaMid) {
+        _alpha.mid = *state.alphaMid;
+    }
+    if (state.alphaEnd) {
+        _alpha.end = *state.alphaEnd;
+    }
+}
+
 void EmitterSceneNode::init() {
     _modelNode.floatValueAtTime(ControllerTypes::birthrate, 0.0f, _birthrate);
     _modelNode.floatValueAtTime(ControllerTypes::lifeExp, 0.0f, _lifeExpectancy);
@@ -79,29 +246,43 @@ void EmitterSceneNode::init() {
     _modelNode.floatValueAtTime(ControllerTypes::alphaMid, 0.0f, _alpha.mid);
     _modelNode.floatValueAtTime(ControllerTypes::alphaEnd, 0.0f, _alpha.end);
 
-    if (_birthrate != 0.0f) {
-        _birthInterval = 1.0f / _birthrate;
-    }
-
-    // Pre-allocate particles
-    int numParticles;
-    if (_modelNode.emitter()->updateMode == ModelNode::Emitter::UpdateMode::Single) {
-        numParticles = 1;
-    } else {
-        numParticles = kMaxParticles;
-    }
-    for (int i = 0; i < numParticles; ++i) {
-        _particlePool.push_back(_sceneGraph.newParticle(*this).get());
-    }
 }
 
 void EmitterSceneNode::update(float dt) {
     removeExpiredParticles(dt);
-    spawnParticles(dt);
+    if (isSpawningSuppressed()) {
+        discardSpawnTime(dt);
+    } else {
+        spawnParticles(dt);
+    }
 
     for (auto &child : _children) {
+        if (child->type() != SceneNodeType::Particle) {
+            continue;
+        }
         auto particle = static_cast<ParticleSceneNode *>(child);
         particle->update(dt);
+    }
+}
+
+bool EmitterSceneNode::isSpawningSuppressed() const {
+    for (auto ancestor = parent(); ancestor; ancestor = ancestor->parent()) {
+        if (ancestor->type() == SceneNodeType::Model && ancestor->isCulled()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void EmitterSceneNode::discardSpawnTime(float dt) {
+    _birthAccumulator = 0.0f;
+
+    if (_modelNode.emitter()->updateMode != ModelNode::Emitter::UpdateMode::Lightning) {
+        return;
+    }
+    _birthTimer.update(dt);
+    if (_birthTimer.elapsed()) {
+        _birthTimer.reset(_lightningDelay);
     }
 }
 
@@ -129,12 +310,10 @@ void EmitterSceneNode::spawnParticles(float dt) {
     std::shared_ptr<ModelNode::Emitter> emitter(_modelNode.emitter());
     switch (emitter->updateMode) {
     case ModelNode::Emitter::UpdateMode::Fountain:
-        if (_birthrate != 0.0f) {
-            _birthTimer.update(dt);
-            if (_birthTimer.elapsed()) {
-                doSpawnParticle();
-                _birthTimer.reset(_birthInterval);
-            }
+        for (int spawnCount = particleutil::advanceSpawnAccumulator(_birthrate, dt, _birthAccumulator);
+             spawnCount > 0;
+             --spawnCount) {
+            doSpawnParticle();
         }
         break;
     case ModelNode::Emitter::UpdateMode::Single:
@@ -155,12 +334,30 @@ void EmitterSceneNode::spawnParticles(float dt) {
     }
 }
 
+ParticleSceneNode *EmitterSceneNode::takeParticle() {
+    if (!_particlePool.empty()) {
+        auto particle = _particlePool.front();
+        _particlePool.pop_front();
+        return particle;
+    }
+
+    int maxParticles = _modelNode.emitter()->updateMode == ModelNode::Emitter::UpdateMode::Single
+                           ? 1
+                           : particleutil::kMaxEmitterParticles;
+    if (_particleCount >= maxParticles) {
+        return nullptr;
+    }
+
+    auto particle = _sceneGraph.newParticle(*this).get();
+    ++_particleCount;
+    return particle;
+}
+
 void EmitterSceneNode::doSpawnParticle() {
-    // Take particle from the pool, if available
-    if (_particlePool.empty()) {
+    auto particle = takeParticle();
+    if (!particle) {
         return;
     }
-    auto particle = static_cast<ParticleSceneNode *>(_particlePool.front());
     particle->setLifetime(0.0f);
 
     float halfW = 0.005f * _size.x;
@@ -180,8 +377,6 @@ void EmitterSceneNode::doSpawnParticle() {
         particle->setAnimLength((_frameEnd - _frameStart + 1) / _fps);
     }
 
-    // Remove particle from pool and append it to emitter
-    _particlePool.pop_front();
     addChild(*particle);
 }
 
@@ -227,12 +422,10 @@ void EmitterSceneNode::spawnLightningParticles() {
     }
 
     for (auto &segment : segments) {
-        // Take particle from the pool, if available
-        if (_particlePool.empty()) {
+        auto particle = takeParticle();
+        if (!particle) {
             return;
         }
-        auto particle = _particlePool.front();
-        _particlePool.pop_front();
         particle->setLifetime(0.0f);
 
         glm::vec3 endToStart(segment.second - segment.first);
@@ -246,6 +439,9 @@ void EmitterSceneNode::spawnLightningParticles() {
 }
 
 void EmitterSceneNode::detonate() {
+    if (isSpawningSuppressed()) {
+        return;
+    }
     doSpawnParticle();
 }
 
@@ -274,7 +470,10 @@ void EmitterSceneNode::renderLeafs(IRenderPass &pass, const std::vector<SceneNod
         particles[i].frame = particle->frame();
         particles[i].position = particle->origin();
         particles[i].size = glm::vec2(particle->size());
-        particles[i].color = glm::vec4(particle->color(), particle->alpha());
+        particles[i].color = glm::vec4(
+            particle->color() * _renderProfile.colorTint * _renderProfile.colorIntensity,
+            particle->alpha());
+        particles[i].color.a *= _renderProfile.opacity;
         switch (emitter->renderMode) {
         case ModelNode::Emitter::RenderMode::BillboardToLocalZ:
             particles[i].right = glm::vec4(emitterUp, 0.0f);
@@ -289,12 +488,20 @@ void EmitterSceneNode::renderLeafs(IRenderPass &pass, const std::vector<SceneNod
                 cameraUp,
                 particles[i].size.y,
                 _blurLength);
-            particles[i].size.y *= basis.lengthScale;
+            particles[i].size.x = glm::min(particles[i].size.x, _renderProfile.motionMaxWidth);
+            particles[i].size.y = particleutil::clampMotionTrailLength(
+                particles[i].size.y,
+                basis.lengthScale,
+                _renderProfile.motionLengthScale,
+                _renderProfile.motionMaxLength);
+            particles[i].color.a *= _renderProfile.motionOpacity;
             particles[i].right = glm::vec4(basis.right, 0.0f);
             particles[i].up = glm::vec4(basis.up, 0.0f);
             break;
         }
         case ModelNode::Emitter::RenderMode::BillboardToWorldZ:
+            particles[i].size *= _renderProfile.worldZScale;
+            particles[i].color.a *= _renderProfile.worldZOpacity;
             particles[i].right = glm::vec4(0.0f, 1.0f, 0.0, 0.0f);
             particles[i].up = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
             break;
@@ -316,11 +523,25 @@ void EmitterSceneNode::renderLeafs(IRenderPass &pass, const std::vector<SceneNod
             particles[i].up = glm::vec4(cameraUp, 0.0f);
             break;
         }
+        if (emitter->renderMode != ModelNode::Emitter::RenderMode::MotionBlur &&
+            emitter->renderMode != ModelNode::Emitter::RenderMode::BillboardToWorldZ) {
+            float largestDimension = glm::max(particles[i].size.x, particles[i].size.y);
+            float largeParticleFactor = glm::smoothstep(1.0f, 4.0f, largestDimension);
+            particles[i].size *= glm::mix(1.0f, _renderProfile.largeParticleScale, largeParticleFactor);
+        }
     }
     bool twosided = _modelNode.emitter()->twosided || _modelNode.emitter()->renderMode == ModelNode::Emitter::RenderMode::MotionBlur;
     auto faceCulling = twosided ? FaceCullMode::None : FaceCullMode::Back;
     bool premultipliedAlpha = emitter->blendMode == ModelNode::Emitter::BlendMode::Lighten;
-    pass.drawParticles(*texture, faceCulling, premultipliedAlpha, emitter->gridSize, particles);
+    bool motionBlur = emitter->renderMode == ModelNode::Emitter::RenderMode::MotionBlur;
+    pass.drawParticles(
+        *texture,
+        faceCulling,
+        premultipliedAlpha,
+        motionBlur,
+        _renderProfile.policy,
+        emitter->gridSize,
+        particles);
 }
 
 } // namespace scene

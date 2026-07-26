@@ -29,10 +29,15 @@ namespace reone {
 
 namespace game {
 
-VisualEffect::VisualEffect(int visualEffectId, bool missEffect, ServicesView &services) :
+VisualEffect::VisualEffect(
+    int visualEffectId,
+    bool missEffect,
+    resource::GameID gameId,
+    ServicesView &services) :
     Effect(EffectType::Visual),
     _visualEffectId(visualEffectId),
     _missEffect(missEffect),
+    _gameId(gameId),
     _desc(services.game.visualEffects.get(visualEffectId).value_or(nullptr)),
     _services(services) {
 }
@@ -84,6 +89,7 @@ void VisualEffect::applyTo(Object &object) {
         _node = graph->newModel(*_desc->impRootMNode, scene::ModelUsage::Projectile);
         graph->addRoot(_node);
         _node->setLocalTransform(glm::translate(_location.value()));
+        _node->setParticleRenderProfile(particleRenderProfileForVisualEffect(_gameId, *_desc));
         _node->playAnimation("impact");
     }
 

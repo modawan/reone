@@ -10,5 +10,13 @@ struct Particle {
 
 layout(std140) uniform Particles {
     ivec2 uGridSize;
+    int uParticleReconstructionMode;
+    int uParticleAlphaMode;
+    int uParticleTrailMode;
+    int uMotionBlur;
+    float uParticleReconstructionStrength;
+    float uParticleAlphaExponent;
+    float uParticleTrailCoreIntensity;
+    int uParticleDiagnosticMode;
     Particle uParticles[MAX_PARTICLES];
 };

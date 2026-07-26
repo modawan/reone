@@ -412,7 +412,8 @@ static Variable EffectVisualEffect(const std::vector<Variable> &args, const Rout
     bool missEffect = static_cast<bool>(nMissEffect);
 
     // Execute
-    auto effect = ctx.game.newEffect<VisualEffect>(nVisualEffectId, missEffect, ctx.services);
+    auto gameId = ctx.game.isTSL() ? resource::GameID::TSL : resource::GameID::KotOR;
+    auto effect = ctx.game.newEffect<VisualEffect>(nVisualEffectId, missEffect, gameId, ctx.services);
     return Variable::ofEffect(std::move(effect));
 }
 
