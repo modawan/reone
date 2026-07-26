@@ -7,6 +7,19 @@
 
 uniform sampler2D sMainTex;
 
+const int PARTICLE_RECONSTRUCTION_LEGACY = 0;
+const int PARTICLE_RECONSTRUCTION_CUBIC = 1;
+const int PARTICLE_ALPHA_LEGACY = 0;
+const int PARTICLE_ALPHA_STORED = 1;
+const int PARTICLE_ALPHA_LUMINANCE = 2;
+const int PARTICLE_ALPHA_AND_LUMINANCE = 3;
+const int PARTICLE_TRAIL_LEGACY = 0;
+const int PARTICLE_TRAIL_ANALYTIC_CORE = 1;
+const int PARTICLE_DIAGNOSTIC_COMPOSITE = 0;
+const int PARTICLE_DIAGNOSTIC_TEXTURE = 1;
+const int PARTICLE_DIAGNOSTIC_ALPHA = 2;
+const int PARTICLE_DIAGNOSTIC_VERTEX = 3;
+
 in vec2 fragUV1;
 flat in int fragInstanceID;
 
@@ -117,12 +130,12 @@ void decodeParticleSample(
     if (!isFeatureEnabled(FEATURE_PREMULALPHA)) {
         sampleAlpha = storedAlpha;
         return;
-    } else if (uParticleAlphaMode == 1) {
+    } else if (uParticleAlphaMode == PARTICLE_ALPHA_STORED) {
         sampleAlpha = storedAlpha;
-    } else if (uParticleAlphaMode == 2) {
+    } else if (uParticleAlphaMode == PARTICLE_ALPHA_LUMINANCE) {
         sampleAlpha = luminance;
         sampleColor *= 1.0 / max(0.0001, luminance);
-    } else if (uParticleAlphaMode == 3) {
+    } else if (uParticleAlphaMode == PARTICLE_ALPHA_AND_LUMINANCE) {
         sampleAlpha = min(storedAlpha, luminance);
         if (luminance <= storedAlpha) {
             sampleColor *= 1.0 / max(0.0001, luminance);
@@ -137,14 +150,20 @@ void decodeParticleSample(
         max(uParticleAlphaExponent, 0.0001));
 }
 
-float analyticTrailEnvelope(vec2 localUV) {
-    if (uParticleTrailMode != 1 ||
-        uMotionBlur == 0 ||
+float analyticParticleCoreEnvelope(vec2 localUV) {
+    if (uParticleTrailMode != PARTICLE_TRAIL_ANALYTIC_CORE ||
         uParticleTrailCoreIntensity <= 0.0) {
         return 0.0;
     }
 
     vec2 centered = 2.0 * localUV - 1.0;
+    if (uMotionBlur == 0) {
+        float radialCore =
+            1.0 - smoothstep(0.0, 0.65, length(centered));
+        return clamp(uParticleTrailCoreIntensity, 0.0, 1.0) *
+               radialCore * radialCore;
+    }
+
     vec2 inside = max(vec2(1.0) - abs(centered), vec2(0.0));
     float crossSection = inside.x * inside.x;
     crossSection *= crossSection;
@@ -154,10 +173,11 @@ float analyticTrailEnvelope(vec2 localUV) {
 
 void main() {
     bool enhancedPolicy =
-        uParticleReconstructionMode != 0 ||
-        uParticleAlphaMode != 0 ||
-        (uParticleTrailMode != 0 && uMotionBlur != 0) ||
-        uParticleDiagnosticMode != 0 ||
+        uParticleReconstructionMode != PARTICLE_RECONSTRUCTION_LEGACY ||
+        uParticleAlphaMode != PARTICLE_ALPHA_LEGACY ||
+        uParticleTrailMode != PARTICLE_TRAIL_LEGACY ||
+        uParticleDiagnosticMode != PARTICLE_DIAGNOSTIC_COMPOSITE ||
+        uParticleCoverageContrast > 0.0001 ||
         abs(uParticleAlphaExponent - 1.0) > 0.0001;
     if (!enhancedPolicy) {
         float oneOverGridX = 1.0 / uGridSize.x;
@@ -198,7 +218,7 @@ void main() {
     ivec2 textureDimensions;
     enhancedAtlasUV(enhancedUV, frameMinUV, frameMaxUV, textureDimensions);
 
-    vec4 mainTexSample = uParticleReconstructionMode == 1
+    vec4 mainTexSample = uParticleReconstructionMode == PARTICLE_RECONSTRUCTION_CUBIC
                              ? sampleCubicAtlas(
                                    enhancedUV,
                                    frameMinUV,
@@ -209,18 +229,35 @@ void main() {
     float mainTexAlpha;
     decodeParticleSample(mainTexSample, mainTexColor, mainTexAlpha);
 
-    float trailCore = analyticTrailEnvelope(fragUV1);
-    mainTexAlpha += trailCore * mainTexAlpha * (1.0 - mainTexAlpha);
+    if (uParticleCoverageContrast > 0.0) {
+        float contrast = clamp(uParticleCoverageContrast, 0.0, 1.0);
+        float detail = max(
+            mainTexAlpha,
+            smoothstep(0.02, 0.28, mainTexAlpha));
+        mainTexAlpha = mix(mainTexAlpha, detail, contrast);
+        float luminance = max(rgbToLuma(mainTexColor), 0.0001);
+        vec3 normalizedColor = clamp(mainTexColor / luminance, vec3(0.0), vec3(4.0));
+        mainTexColor = mix(
+            mainTexColor,
+            normalizedColor,
+            0.4 * contrast * detail);
+    }
+
+    float trailCore = analyticParticleCoreEnvelope(fragUV1);
+    if (trailCore > 0.0) {
+        mainTexAlpha = max(mainTexAlpha, trailCore);
+        mainTexColor = mix(mainTexColor, vec3(1.0), trailCore);
+    }
 
     vec3 objectColor;
     float objectAlpha;
-    if (uParticleDiagnosticMode == 1) {
+    if (uParticleDiagnosticMode == PARTICLE_DIAGNOSTIC_TEXTURE) {
         objectColor = mainTexColor;
         objectAlpha = mainTexAlpha;
-    } else if (uParticleDiagnosticMode == 2) {
+    } else if (uParticleDiagnosticMode == PARTICLE_DIAGNOSTIC_ALPHA) {
         objectColor = vec3(mainTexAlpha);
         objectAlpha = 1.0;
-    } else if (uParticleDiagnosticMode == 3) {
+    } else if (uParticleDiagnosticMode == PARTICLE_DIAGNOSTIC_VERTEX) {
         objectColor = uParticles[fragInstanceID].color.rgb;
         objectAlpha = uParticles[fragInstanceID].color.a;
     } else {

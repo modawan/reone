@@ -90,6 +90,7 @@ struct ParticleRenderPolicy {
     float reconstructionStrength {0.0f};
     float alphaExponent {1.0f};
     float trailCoreIntensity {0.0f};
+    float coverageContrast {0.0f};
 };
 
 struct ParticleInstance {
@@ -116,6 +117,7 @@ inline void populateParticleUniforms(
     uniforms.reconstructionStrength = policy.reconstructionStrength;
     uniforms.alphaExponent = policy.alphaExponent;
     uniforms.trailCoreIntensity = policy.trailCoreIntensity;
+    uniforms.coverageContrast = policy.coverageContrast;
     uniforms.diagnosticMode = static_cast<int>(policy.diagnostic);
     for (size_t i = 0; i < particles.size(); ++i) {
         const auto &particle = particles[i];

@@ -72,6 +72,9 @@ public:
         std::shared_ptr<graphics::LipAnimation> lipAnim;
         AnimationProperties properties;
         float time {0.0f};
+        float particleTime {0.0f};
+        float updateDuration {0.0f};
+        std::vector<EmitterSceneNode::AnimationTimeSpan> updateTimeSpans;
         std::unordered_map<uint16_t, AnimationState> stateByNodeNumber;
         bool freeze {false};     /**< channel time is not to be updated */
         bool transition {false}; /**< when computing states, use animation transition time as channel time */
@@ -173,6 +176,7 @@ private:
 
     std::deque<AnimationChannel> _animChannels;
     AnimationBlendMode _animBlendMode {AnimationBlendMode::Single};
+    std::vector<std::string> _pendingAnimationEvents;
 
     // END Animation
 
@@ -189,6 +193,7 @@ private:
 
     void updateAnimations(float dt);
     void updateAnimationChannel(AnimationChannel &channel, float dt);
+    void dispatchAnimationEvents();
     void computeAnimationStates(AnimationChannel &channel, float time, const graphics::ModelNode &modelNode);
     void applyAnimationStates(const graphics::ModelNode &modelNode);
 

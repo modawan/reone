@@ -35,12 +35,159 @@
 
 using namespace reone::graphics;
 
+namespace {
+
+float integratePositiveLinearSegment(float leftValue, float rightValue, float duration) {
+    if (duration <= 0.0f || (leftValue <= 0.0f && rightValue <= 0.0f)) {
+        return 0.0f;
+    }
+    if (leftValue >= 0.0f && rightValue >= 0.0f) {
+        return 0.5f * (leftValue + rightValue) * duration;
+    }
+
+    float zeroFactor = -leftValue / (rightValue - leftValue);
+    if (leftValue > 0.0f) {
+        return 0.5f * leftValue * duration * zeroFactor;
+    }
+    return 0.5f * rightValue * duration * (1.0f - zeroFactor);
+}
+
+void appendBirthrateReset(
+    std::vector<reone::scene::EmitterSceneNode::BirthrateStep> &steps) {
+
+    if (steps.empty() || !steps.back().resetAccumulator) {
+        steps.push_back({0.0f, true});
+    }
+}
+
+void appendBirthCount(
+    std::vector<reone::scene::EmitterSceneNode::BirthrateStep> &steps,
+    float birthCount) {
+
+    if (!std::isfinite(birthCount) || birthCount <= 0.0f) {
+        return;
+    }
+    if (!steps.empty() && !steps.back().resetAccumulator) {
+        steps.back().birthCount += birthCount;
+    } else {
+        steps.push_back({birthCount, false});
+    }
+}
+
+void appendBirthrateTrackSpan(
+    const reone::graphics::KeyframeTrack<float> &track,
+    float startTime,
+    float endTime,
+    float playbackSpeed,
+    std::vector<reone::scene::EmitterSceneNode::BirthrateStep> &steps) {
+
+    if (endTime <= startTime || playbackSpeed <= 0.0f) {
+        appendBirthrateReset(steps);
+        return;
+    }
+
+    float leftTime = startTime;
+    float leftValue = 0.0f;
+    if (!track.valueAtTime(leftTime, leftValue)) {
+        appendBirthrateReset(steps);
+        return;
+    }
+
+    auto appendSegment = [&](float rightTime, float rightValue) {
+        if (leftValue <= 0.0f) {
+            appendBirthrateReset(steps);
+        }
+        appendBirthCount(
+            steps,
+            integratePositiveLinearSegment(
+                leftValue,
+                rightValue,
+                rightTime - leftTime) /
+                playbackSpeed);
+        if (rightValue <= 0.0f) {
+            appendBirthrateReset(steps);
+        }
+        leftTime = rightTime;
+        leftValue = rightValue;
+    };
+
+    for (const auto &keyframe : track.keyframes()) {
+        if (keyframe.time <= startTime || keyframe.time >= endTime) {
+            continue;
+        }
+
+        float rightValue = 0.0f;
+        track.valueAtTime(keyframe.time, rightValue);
+        appendSegment(keyframe.time, rightValue);
+    }
+
+    float rightValue = 0.0f;
+    track.valueAtTime(endTime, rightValue);
+    appendSegment(endTime, rightValue);
+}
+
+int advanceAnimatedSpawnAccumulator(
+    const std::vector<reone::scene::EmitterSceneNode::BirthrateStep> &steps,
+    float dt,
+    float &accumulator) {
+
+    static constexpr float kWholeParticleEpsilon = 1e-5f;
+
+    if (!std::isfinite(dt) ||
+        !std::isfinite(accumulator) ||
+        dt <= 0.0f ||
+        dt > reone::scene::particleutil::kMaxContinuousParticleDelta) {
+        accumulator = 0.0f;
+        return 0;
+    }
+
+    int spawnCount = 0;
+    for (const auto &step : steps) {
+        if (step.resetAccumulator) {
+            accumulator = 0.0f;
+            continue;
+        }
+        if (!std::isfinite(step.birthCount) || step.birthCount <= 0.0f) {
+            continue;
+        }
+
+        accumulator += step.birthCount;
+        if (!std::isfinite(accumulator)) {
+            accumulator = 0.0f;
+            continue;
+        }
+
+        float wholeParticles =
+            glm::floor(accumulator + kWholeParticleEpsilon);
+        accumulator -= wholeParticles;
+        if (accumulator < 0.0f &&
+            accumulator > -kWholeParticleEpsilon) {
+            accumulator = 0.0f;
+        }
+        int remainingCapacity =
+            reone::scene::particleutil::kMaxSpawnParticlesPerUpdate -
+            spawnCount;
+        if (remainingCapacity <= 0) {
+            continue;
+        }
+        if (wholeParticles >= static_cast<float>(remainingCapacity)) {
+            spawnCount += remainingCapacity;
+        } else {
+            spawnCount += static_cast<int>(wholeParticles);
+        }
+    }
+    return spawnCount;
+}
+
+} // namespace
+
 namespace reone {
 
 namespace scene {
 
 bool EmitterSceneNode::AnimationState::empty() const {
     return !birthrate &&
+           !birthrateStepsForUpdate &&
            !lifeExpectancy &&
            !xSize &&
            !ySize &&
@@ -122,12 +269,46 @@ EmitterSceneNode::AnimationState EmitterSceneNode::animationStateAt(
     return state;
 }
 
+std::optional<std::vector<EmitterSceneNode::BirthrateStep>>
+EmitterSceneNode::animationBirthrateStepsForUpdate(
+    const ModelNode &animationNode,
+    const std::vector<AnimationTimeSpan> &timeSpans,
+    float playbackSpeed,
+    float dt) {
+
+    const auto &floatTracks = animationNode.floatTracks();
+    auto track = floatTracks.find(ControllerTypes::birthrate);
+    if (track == floatTracks.end()) {
+        return std::nullopt;
+    }
+
+    std::vector<BirthrateStep> steps;
+    if (dt <= 0.0f || playbackSpeed <= 0.0f || timeSpans.empty()) {
+        appendBirthrateReset(steps);
+        return steps;
+    }
+
+    for (const auto &timeSpan : timeSpans) {
+        for (size_t repetition = 0;
+             repetition < timeSpan.repetitions;
+             ++repetition) {
+            appendBirthrateTrackSpan(
+                track->second,
+                timeSpan.startTime,
+                timeSpan.endTime,
+                playbackSpeed,
+                steps);
+        }
+    }
+    return steps;
+}
+
 void EmitterSceneNode::applyAnimationState(const AnimationState &state) {
     if (state.birthrate) {
         _birthrate = glm::max(*state.birthrate, 0.0f);
-        if (_birthrate == 0.0f) {
-            _birthAccumulator = 0.0f;
-        }
+    }
+    if (state.birthrateStepsForUpdate) {
+        _birthrateStepsForUpdate = *state.birthrateStepsForUpdate;
     }
     if (state.lifeExpectancy) {
         _lifeExpectancy = *state.lifeExpectancy;
@@ -255,6 +436,7 @@ void EmitterSceneNode::update(float dt) {
     } else {
         spawnParticles(dt);
     }
+    _birthrateStepsForUpdate.reset();
 
     for (auto &child : _children) {
         if (child->type() != SceneNodeType::Particle) {
@@ -309,13 +491,25 @@ void EmitterSceneNode::removeExpiredParticles(float dt) {
 void EmitterSceneNode::spawnParticles(float dt) {
     std::shared_ptr<ModelNode::Emitter> emitter(_modelNode.emitter());
     switch (emitter->updateMode) {
-    case ModelNode::Emitter::UpdateMode::Fountain:
-        for (int spawnCount = particleutil::advanceSpawnAccumulator(_birthrate, dt, _birthAccumulator);
+    case ModelNode::Emitter::UpdateMode::Fountain: {
+        int spawnCount = _birthrateStepsForUpdate
+                             ? advanceAnimatedSpawnAccumulator(
+                                   *_birthrateStepsForUpdate,
+                                   dt,
+                                   _birthAccumulator)
+                             : particleutil::advanceSpawnAccumulator(
+                                   _birthrate,
+                                   dt,
+                                   _birthAccumulator);
+        for (;
              spawnCount > 0;
              --spawnCount) {
-            doSpawnParticle();
+            if (!doSpawnParticle()) {
+                break;
+            }
         }
         break;
+    }
     case ModelNode::Emitter::UpdateMode::Single:
         if (!_spawned || (_children.empty() && emitter->loop)) {
             doSpawnParticle();
@@ -343,7 +537,7 @@ ParticleSceneNode *EmitterSceneNode::takeParticle() {
 
     int maxParticles = _modelNode.emitter()->updateMode == ModelNode::Emitter::UpdateMode::Single
                            ? 1
-                           : particleutil::kMaxEmitterParticles;
+                           : graphics::kMaxParticles;
     if (_particleCount >= maxParticles) {
         return nullptr;
     }
@@ -353,10 +547,10 @@ ParticleSceneNode *EmitterSceneNode::takeParticle() {
     return particle;
 }
 
-void EmitterSceneNode::doSpawnParticle() {
+bool EmitterSceneNode::doSpawnParticle() {
     auto particle = takeParticle();
     if (!particle) {
-        return;
+        return false;
     }
     particle->setLifetime(0.0f);
 
@@ -378,6 +572,7 @@ void EmitterSceneNode::doSpawnParticle() {
     }
 
     addChild(*particle);
+    return true;
 }
 
 void EmitterSceneNode::spawnLightningParticles() {

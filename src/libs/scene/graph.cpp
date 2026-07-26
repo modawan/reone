@@ -148,6 +148,11 @@ void SceneGraph::removeRoot(SoundSceneNode &node) {
 }
 
 void SceneGraph::update(float dt) {
+    if (_activeCamera) {
+        // Keep spawn suppression current before emitters advance. Culling is
+        // repeated after animation so rendering uses the final transforms.
+        cullRoots();
+    }
     if (_updateRoots) {
         for (auto &root : _modelRoots) {
             root->update(dt);

@@ -89,7 +89,14 @@ void VisualEffect::applyTo(Object &object) {
         _node = graph->newModel(*_desc->impRootMNode, scene::ModelUsage::Projectile);
         graph->addRoot(_node);
         _node->setLocalTransform(glm::translate(_location.value()));
-        _node->setParticleRenderProfile(particleRenderProfileForVisualEffect(_gameId, *_desc));
+        scene::ParticleRenderProfile profile;
+        if (particleRenderProfileForVisualEffect(
+                _gameId,
+                _visualEffectId,
+                *_desc,
+                profile)) {
+            _node->setParticleRenderProfile(profile);
+        }
         _node->playAnimation("impact");
     }
 

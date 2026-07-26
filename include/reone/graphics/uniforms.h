@@ -163,6 +163,7 @@ struct ParticleUniforms {
     float reconstructionStrength {0.0f};
     float alphaExponent {1.0f};
     float trailCoreIntensity {0.0f};
+    float coverageContrast {0.0f};
     int diagnosticMode {0};
     ParticleUniformsParticle particles[kMaxParticles];
 };

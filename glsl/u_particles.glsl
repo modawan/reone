@@ -17,6 +17,7 @@ layout(std140) uniform Particles {
     float uParticleReconstructionStrength;
     float uParticleAlphaExponent;
     float uParticleTrailCoreIntensity;
+    float uParticleCoverageContrast;
     int uParticleDiagnosticMode;
     Particle uParticles[MAX_PARTICLES];
 };

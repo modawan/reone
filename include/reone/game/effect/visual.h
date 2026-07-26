@@ -33,9 +33,11 @@ namespace game {
 class ServicesView;
 struct VisualEffectDesc;
 
-scene::ParticleRenderProfile particleRenderProfileForVisualEffect(
+bool particleRenderProfileForVisualEffect(
     resource::GameID gameId,
-    const VisualEffectDesc &desc);
+    uint32_t visualEffectId,
+    const VisualEffectDesc &desc,
+    scene::ParticleRenderProfile &profile);
 
 class VisualEffect : public Effect {
 public:

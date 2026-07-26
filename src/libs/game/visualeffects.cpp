@@ -34,15 +34,15 @@ namespace game {
 static std::unordered_map<std::string, uint32_t> workaroundLabels() {
     std::unordered_map<std::string, uint32_t> labels;
 
-    labels["VFX_FNF_GRENADE_FRAGMENTATION"] = 3003;
-    labels["VFX_FNF_GRENADE_STUN"] = 3004;
-    labels["VFX_FNF_GRENADE_THERMAL_DETONATOR"] = 3005;
-    labels["VFX_FNF_GRENADE_POISON"] = 3006;
-    labels["VFX_FNF_GRENADE_SONIC"] = 3007;
-    labels["VFX_FNF_GRENADE_ADHESIVE"] = 3008;
-    labels["VFX_FNF_GRENADE_CRYOBAN"] = 3009;
-    labels["VFX_FNF_GRENADE_PLASMA"] = 3010;
-    labels["VFX_FNF_GRENADE_ION"] = 3011;
+    labels["VFX_FNF_GRENADE_FRAGMENTATION"] = VisualEffectIds::grenadeFragmentation;
+    labels["VFX_FNF_GRENADE_STUN"] = VisualEffectIds::grenadeStun;
+    labels["VFX_FNF_GRENADE_THERMAL_DETONATOR"] = VisualEffectIds::thermalDetonator;
+    labels["VFX_FNF_GRENADE_POISON"] = VisualEffectIds::grenadePoison;
+    labels["VFX_FNF_GRENADE_SONIC"] = VisualEffectIds::grenadeSonic;
+    labels["VFX_FNF_GRENADE_ADHESIVE"] = VisualEffectIds::grenadeAdhesive;
+    labels["VFX_FNF_GRENADE_CRYOBAN"] = VisualEffectIds::grenadeCryoban;
+    labels["VFX_FNF_GRENADE_PLASMA"] = VisualEffectIds::grenadePlasma;
+    labels["VFX_FNF_GRENADE_ION"] = VisualEffectIds::grenadeIon;
 
     return labels;
 }

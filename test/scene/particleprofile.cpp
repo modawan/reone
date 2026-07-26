@@ -15,6 +15,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <cstddef>
+
 #include <gtest/gtest.h>
 
 #include "reone/graphics/model.h"
@@ -113,6 +115,7 @@ void expectPolicyEqual(const ParticleRenderPolicy &expected, const ParticleUnifo
     EXPECT_FLOAT_EQ(expected.reconstructionStrength, actual.reconstructionStrength);
     EXPECT_FLOAT_EQ(expected.alphaExponent, actual.alphaExponent);
     EXPECT_FLOAT_EQ(expected.trailCoreIntensity, actual.trailCoreIntensity);
+    EXPECT_FLOAT_EQ(expected.coverageContrast, actual.coverageContrast);
 }
 
 } // namespace
@@ -127,6 +130,7 @@ TEST(ParticleProfile, should_default_to_legacy_single_sample_and_lighten_policy)
     uniforms.reconstructionStrength = 42.0f;
     uniforms.alphaExponent = 42.0f;
     uniforms.trailCoreIntensity = 42.0f;
+    uniforms.coverageContrast = 42.0f;
 
     populateParticleUniforms(
         uniforms,
@@ -145,6 +149,13 @@ TEST(ParticleProfile, should_default_to_legacy_single_sample_and_lighten_policy)
     EXPECT_EQ(0, uniforms.motionBlur);
 }
 
+TEST(ParticleProfile, should_keep_the_particle_uniform_header_std140_compatible) {
+    EXPECT_EQ(32u, offsetof(ParticleUniforms, trailCoreIntensity));
+    EXPECT_EQ(36u, offsetof(ParticleUniforms, coverageContrast));
+    EXPECT_EQ(40u, offsetof(ParticleUniforms, diagnosticMode));
+    EXPECT_EQ(0u, offsetof(ParticleUniforms, particles) % 16u);
+}
+
 TEST(ParticleProfile, should_pack_the_same_non_default_policy_for_retro_and_pbr) {
     ParticleRenderPolicy policy;
     policy.reconstruction = ParticleReconstruction::Cubic;
@@ -154,6 +165,7 @@ TEST(ParticleProfile, should_pack_the_same_non_default_policy_for_retro_and_pbr)
     policy.reconstructionStrength = 0.75f;
     policy.alphaExponent = 1.25f;
     policy.trailCoreIntensity = 0.08f;
+    policy.coverageContrast = 0.75f;
     ParticleUniforms retroUniforms;
     ParticleUniforms pbrUniforms;
 
@@ -185,6 +197,7 @@ TEST(ParticleProfile, should_reset_policy_values_for_the_next_emitter_draw) {
     enhanced.reconstructionStrength = 0.75f;
     enhanced.alphaExponent = 1.25f;
     enhanced.trailCoreIntensity = 0.08f;
+    enhanced.coverageContrast = 0.75f;
     ParticleUniforms uniforms;
     populateParticleUniforms(uniforms, enhanced, true, glm::ivec2(8, 2), {});
 

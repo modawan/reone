@@ -30,7 +30,7 @@ namespace scene {
 namespace particleutil {
 
 constexpr float kMaxContinuousParticleDelta = 0.25f;
-constexpr int kMaxEmitterParticles = 256;
+constexpr int kMaxSpawnParticlesPerUpdate = 256;
 
 struct MotionBlurBasis {
     glm::vec3 right {0.0f};
@@ -74,7 +74,9 @@ DecodedParticleSample decodeParticleSample(
     bool lightenBlend,
     float alphaExponent);
 
-float analyticTrailEnvelope(
+float enhanceParticleCoverage(float alpha, float contrast);
+
+float analyticParticleCoreEnvelope(
     const glm::vec2 &localUV,
     bool motionBlur,
     float intensity);

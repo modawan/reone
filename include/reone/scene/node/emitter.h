@@ -51,8 +51,20 @@ struct ParticleRenderProfile {
 
 class EmitterSceneNode : public ModelNodeSceneNode {
 public:
+    struct AnimationTimeSpan {
+        float startTime {0.0f};
+        float endTime {0.0f};
+        size_t repetitions {1};
+    };
+
+    struct BirthrateStep {
+        float birthCount {0.0f};
+        bool resetAccumulator {false};
+    };
+
     struct AnimationState {
         std::optional<float> birthrate;
+        std::optional<std::vector<BirthrateStep>> birthrateStepsForUpdate;
         std::optional<float> lifeExpectancy;
         std::optional<float> xSize;
         std::optional<float> ySize;
@@ -106,6 +118,11 @@ public:
     void detonate();
 
     static AnimationState animationStateAt(const graphics::ModelNode &animationNode, float time);
+    static std::optional<std::vector<BirthrateStep>> animationBirthrateStepsForUpdate(
+        const graphics::ModelNode &animationNode,
+        const std::vector<AnimationTimeSpan> &timeSpans,
+        float playbackSpeed,
+        float dt);
     void applyAnimationState(const AnimationState &state);
     void setRenderProfile(const ParticleRenderProfile &profile) { _renderProfile = profile; }
     const ParticleRenderProfile &renderProfile() const { return _renderProfile; }
@@ -114,6 +131,7 @@ public:
     glm::vec3 getColor(float time) const { return _color.get(time); };
     float getAlpha(float time) const { return _alpha.get(time); };
 
+    float birthrate() const { return _birthrate; }
     float lifeExpectancy() const { return _lifeExpectancy; }
     int frameStart() const { return _frameStart; }
     int frameEnd() const { return _frameEnd; }
@@ -158,6 +176,7 @@ private:
     ParticleRenderProfile _renderProfile;
 
     float _birthAccumulator {0.0f};
+    std::optional<std::vector<BirthrateStep>> _birthrateStepsForUpdate;
     Timer _birthTimer;
     bool _spawned {false};
     int _particleCount {0};
@@ -166,7 +185,7 @@ private:
 
     void spawnParticles(float dt);
     void removeExpiredParticles(float dt);
-    void doSpawnParticle();
+    bool doSpawnParticle();
     void spawnLightningParticles();
     ParticleSceneNode *takeParticle();
     bool isSpawningSuppressed() const;

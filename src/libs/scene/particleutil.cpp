@@ -82,8 +82,8 @@ int advanceSpawnAccumulator(float birthrate, float dt, float &accumulator) {
 
     float wholeParticles = glm::floor(accumulator);
     accumulator -= wholeParticles;
-    if (wholeParticles >= static_cast<float>(kMaxEmitterParticles)) {
-        return kMaxEmitterParticles;
+    if (wholeParticles >= static_cast<float>(kMaxSpawnParticlesPerUpdate)) {
+        return kMaxSpawnParticlesPerUpdate;
     }
     return static_cast<int>(wholeParticles);
 }
@@ -171,13 +171,25 @@ DecodedParticleSample decodeParticleSample(
     return result;
 }
 
-float analyticTrailEnvelope(
+float enhanceParticleCoverage(float alpha, float contrast) {
+    float safeAlpha = std::isfinite(alpha)
+                          ? glm::clamp(alpha, 0.0f, 1.0f)
+                          : 0.0f;
+    float safeContrast = std::isfinite(contrast)
+                             ? glm::clamp(contrast, 0.0f, 1.0f)
+                             : 0.0f;
+    float detail = glm::max(
+        safeAlpha,
+        glm::smoothstep(0.02f, 0.28f, safeAlpha));
+    return glm::mix(safeAlpha, detail, safeContrast);
+}
+
+float analyticParticleCoreEnvelope(
     const glm::vec2 &localUV,
     bool motionBlur,
     float intensity) {
 
-    if (!motionBlur ||
-        !std::isfinite(localUV.x) ||
+    if (!std::isfinite(localUV.x) ||
         !std::isfinite(localUV.y) ||
         !std::isfinite(intensity) ||
         intensity <= 0.0f) {
@@ -185,11 +197,18 @@ float analyticTrailEnvelope(
     }
 
     glm::vec2 centered = 2.0f * localUV - 1.0f;
+    float safeIntensity = glm::clamp(intensity, 0.0f, 1.0f);
+    if (!motionBlur) {
+        float radialCore =
+            1.0f - glm::smoothstep(0.0f, 0.65f, glm::length(centered));
+        return safeIntensity * radialCore * radialCore;
+    }
+
     glm::vec2 inside = glm::max(glm::vec2(1.0f) - glm::abs(centered), glm::vec2(0.0f));
     float crossSection = inside.x * inside.x;
     crossSection *= crossSection;
     float endTaper = inside.y * inside.y;
-    return glm::clamp(intensity, 0.0f, 1.0f) * crossSection * endTaper;
+    return safeIntensity * crossSection * endTaper;
 }
 
 float clampMotionTrailLength(

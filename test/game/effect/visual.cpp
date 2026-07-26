@@ -32,20 +32,21 @@ using namespace reone::scene;
 namespace {
 
 struct GrenadeVisual {
+    uint32_t id;
     const char *label;
     const char *impactModel;
 };
 
 constexpr GrenadeVisual kKotorGrenadeVisuals[] {
-    {"VFX_FNF_GRENADE_FRAGMENTATION", "v_grnfrag_fnf"},
-    {"VFX_FNF_GRENADE_STUN", "v_grnstun_fnf"},
-    {"VFX_FNF_GRENADE_THERMAL_DETONATOR", "v_grndeto_fnf"},
-    {"VFX_FNF_GRENADE_POISON", "v_grnpois_fnf"},
-    {"VFX_FNF_GRENADE_SONIC", "v_grnsonc_fnf"},
-    {"VFX_FNF_GRENADE_ADHESIVE", "v_grnadhs_fnf"},
-    {"VFX_FNF_GRENADE_CRYOBAN", "v_grncryo_fnf"},
-    {"VFX_FNF_GRENADE_PLASMA", "v_grnplas_fnf"},
-    {"VFX_FNF_GRENADE_ION", "v_grnion_fnf"},
+    {VisualEffectIds::grenadeFragmentation, "VFX_FNF_GRENADE_FRAGMENTATION", "v_grnfrag_fnf"},
+    {VisualEffectIds::grenadeStun, "VFX_FNF_GRENADE_STUN", "v_grnstun_fnf"},
+    {VisualEffectIds::thermalDetonator, "VFX_FNF_GRENADE_THERMAL_DETONATOR", "v_grndeto_fnf"},
+    {VisualEffectIds::grenadePoison, "VFX_FNF_GRENADE_POISON", "v_grnpois_fnf"},
+    {VisualEffectIds::grenadeSonic, "VFX_FNF_GRENADE_SONIC", "v_grnsonc_fnf"},
+    {VisualEffectIds::grenadeAdhesive, "VFX_FNF_GRENADE_ADHESIVE", "v_grnadhs_fnf"},
+    {VisualEffectIds::grenadeCryoban, "VFX_FNF_GRENADE_CRYOBAN", "v_grncryo_fnf"},
+    {VisualEffectIds::grenadePlasma, "VFX_FNF_GRENADE_PLASMA", "v_grnplas_fnf"},
+    {VisualEffectIds::grenadeIon, "VFX_FNF_GRENADE_ION", "v_grnion_fnf"},
 };
 
 VisualEffectDesc visualEffectDesc(const char *label, const char *impactModel) {
@@ -61,24 +62,32 @@ VisualEffectDesc visualEffectDesc(const char *label, const char *impactModel) {
     return desc;
 }
 
-void expectNeutral(const ParticleRenderProfile &profile) {
-    EXPECT_FLOAT_EQ(1.0f, profile.largeParticleScale);
-    EXPECT_FLOAT_EQ(1.0f, profile.worldZScale);
-    EXPECT_FLOAT_EQ(1.0f, profile.opacity);
-    EXPECT_FLOAT_EQ(1.0f, profile.worldZOpacity);
-    EXPECT_FLOAT_EQ(1.0f, profile.motionLengthScale);
-    EXPECT_EQ(std::numeric_limits<float>::max(), profile.motionMaxWidth);
-    EXPECT_FLOAT_EQ(1.0f, profile.motionOpacity);
-    EXPECT_EQ(glm::vec3(1.0f), profile.colorTint);
-    EXPECT_FLOAT_EQ(1.0f, profile.colorIntensity);
-    EXPECT_EQ(ParticleReconstruction::Legacy, profile.policy.reconstruction);
-    EXPECT_EQ(ParticleAlphaMode::Legacy, profile.policy.alpha);
-    EXPECT_EQ(ParticleTrailMode::Legacy, profile.policy.trail);
-    EXPECT_EQ(ParticleDiagnosticMode::Composite, profile.policy.diagnostic);
-    EXPECT_FLOAT_EQ(0.0f, profile.policy.reconstructionStrength);
-    EXPECT_FLOAT_EQ(1.0f, profile.policy.alphaExponent);
-    EXPECT_FLOAT_EQ(0.0f, profile.policy.trailCoreIntensity);
-    EXPECT_EQ(std::numeric_limits<float>::max(), profile.motionMaxLength);
+ParticleRenderProfile selectedProfile(
+    GameID gameId,
+    const GrenadeVisual &visual) {
+
+    ParticleRenderProfile profile;
+    EXPECT_TRUE(particleRenderProfileForVisualEffect(
+        gameId,
+        visual.id,
+        visualEffectDesc(visual.label, visual.impactModel),
+        profile));
+    return profile;
+}
+
+void expectUnselected(
+    GameID gameId,
+    uint32_t visualEffectId,
+    VisualEffectDesc desc) {
+
+    ParticleRenderProfile profile;
+    profile.opacity = 0.123f;
+    EXPECT_FALSE(particleRenderProfileForVisualEffect(
+        gameId,
+        visualEffectId,
+        desc,
+        profile));
+    EXPECT_FLOAT_EQ(0.123f, profile.opacity);
 }
 
 } // namespace
@@ -86,9 +95,7 @@ void expectNeutral(const ParticleRenderProfile &profile) {
 TEST(VisualEffectParticleProfile, should_select_all_nine_kotor_grenade_profiles) {
     for (const auto &entry : kKotorGrenadeVisuals) {
         SCOPED_TRACE(entry.label);
-        auto profile = particleRenderProfileForVisualEffect(
-            GameID::KotOR,
-            visualEffectDesc(entry.label, entry.impactModel));
+        auto profile = selectedProfile(GameID::KotOR, entry);
 
         EXPECT_EQ(ParticleReconstruction::Cubic, profile.policy.reconstruction);
         EXPECT_EQ(ParticleAlphaMode::AlphaAndLuminance, profile.policy.alpha);
@@ -96,33 +103,44 @@ TEST(VisualEffectParticleProfile, should_select_all_nine_kotor_grenade_profiles)
         EXPECT_EQ(ParticleDiagnosticMode::Composite, profile.policy.diagnostic);
         EXPECT_GT(profile.policy.reconstructionStrength, 0.0f);
         EXPECT_LE(profile.policy.reconstructionStrength, 1.0f);
-        EXPECT_GE(profile.policy.alphaExponent, 1.0f);
-        EXPECT_LE(profile.policy.alphaExponent, 1.25f);
+        EXPECT_GE(profile.policy.alphaExponent, 1.15f);
+        EXPECT_LE(profile.policy.alphaExponent, 1.9f);
         EXPECT_GT(profile.policy.trailCoreIntensity, 0.0f);
-        EXPECT_LE(profile.policy.trailCoreIntensity, 0.1f);
+        EXPECT_LE(profile.policy.trailCoreIntensity, 0.4f);
+        EXPECT_GE(profile.policy.coverageContrast, 0.5f);
+        EXPECT_LE(profile.policy.coverageContrast, 0.9f);
         EXPECT_GT(profile.motionMaxWidth, 0.0f);
         EXPECT_LE(profile.motionMaxWidth, 0.22f);
         EXPECT_GT(profile.motionMaxLength, 0.0f);
         EXPECT_LE(profile.motionMaxLength, 1.5f);
 
-        EXPECT_FLOAT_EQ(1.0f, profile.opacity);
-        EXPECT_EQ(glm::vec3(1.0f), profile.colorTint);
-        EXPECT_FLOAT_EQ(1.0f, profile.colorIntensity);
+        EXPECT_GE(profile.opacity, 0.4f);
+        EXPECT_LE(profile.opacity, 0.85f);
+        EXPECT_GE(profile.worldZOpacity, profile.opacity);
+        EXPECT_LE(profile.worldZOpacity, 0.9f);
+        EXPECT_GE(profile.motionOpacity, 0.2f);
+        EXPECT_LE(profile.motionOpacity, 0.6f);
+        EXPECT_GT(profile.colorTint.r, 0.0f);
+        EXPECT_GT(profile.colorTint.g, 0.0f);
+        EXPECT_GT(profile.colorTint.b, 0.0f);
+        EXPECT_LE(profile.colorTint.r, 1.0f);
+        EXPECT_LE(profile.colorTint.g, 1.0f);
+        EXPECT_LE(profile.colorTint.b, 1.0f);
+        EXPECT_GE(profile.colorIntensity, 1.0f);
+        EXPECT_LE(profile.colorIntensity, 1.05f);
     }
 }
 
 TEST(VisualEffectParticleProfile, should_keep_ion_plasma_and_thermal_trails_compact) {
     constexpr GrenadeVisual criticalVisuals[] {
-        {"VFX_FNF_GRENADE_THERMAL_DETONATOR", "v_grndeto_fnf"},
-        {"VFX_FNF_GRENADE_PLASMA", "v_grnplas_fnf"},
-        {"VFX_FNF_GRENADE_ION", "v_grnion_fnf"},
+        {VisualEffectIds::thermalDetonator, "VFX_FNF_GRENADE_THERMAL_DETONATOR", "v_grndeto_fnf"},
+        {VisualEffectIds::grenadePlasma, "VFX_FNF_GRENADE_PLASMA", "v_grnplas_fnf"},
+        {VisualEffectIds::grenadeIon, "VFX_FNF_GRENADE_ION", "v_grnion_fnf"},
     };
 
     for (const auto &entry : criticalVisuals) {
         SCOPED_TRACE(entry.label);
-        auto profile = particleRenderProfileForVisualEffect(
-            GameID::KotOR,
-            visualEffectDesc(entry.label, entry.impactModel));
+        auto profile = selectedProfile(GameID::KotOR, entry);
 
         EXPECT_LE(profile.motionLengthScale, 0.5f);
         EXPECT_LE(profile.motionMaxWidth, 0.12f);
@@ -130,23 +148,44 @@ TEST(VisualEffectParticleProfile, should_keep_ion_plasma_and_thermal_trails_comp
     }
 }
 
-TEST(VisualEffectParticleProfile, should_return_neutral_for_unknown_labels) {
-    expectNeutral(particleRenderProfileForVisualEffect(
-        GameID::KotOR,
-        visualEffectDesc("VFX_FNF_NOT_A_GRENADE", "v_grnfrag_fnf")));
+TEST(VisualEffectParticleProfile, should_give_critical_grenades_distinct_energy_tints) {
+    auto thermal = selectedProfile(GameID::KotOR, kKotorGrenadeVisuals[2]);
+    auto plasma = selectedProfile(GameID::KotOR, kKotorGrenadeVisuals[7]);
+    auto ion = selectedProfile(GameID::KotOR, kKotorGrenadeVisuals[8]);
+
+    EXPECT_GT(thermal.colorTint.r, thermal.colorTint.b);
+    EXPECT_GT(plasma.colorTint.r, plasma.colorTint.g);
+    EXPECT_GT(ion.colorTint.b, ion.colorTint.r);
+    EXPECT_GT(ion.policy.trailCoreIntensity, thermal.policy.trailCoreIntensity);
 }
 
-TEST(VisualEffectParticleProfile, should_return_neutral_for_tsl_grenade_labels) {
+TEST(VisualEffectParticleProfile, should_not_select_unknown_labels) {
+    expectUnselected(
+        GameID::KotOR,
+        VisualEffectIds::grenadeFragmentation,
+        visualEffectDesc("VFX_FNF_NOT_A_GRENADE", "v_grnfrag_fnf"));
+}
+
+TEST(VisualEffectParticleProfile, should_not_select_unknown_ids) {
+    expectUnselected(
+        GameID::KotOR,
+        42,
+        visualEffectDesc("VFX_FNF_GRENADE_FRAGMENTATION", "v_grnfrag_fnf"));
+}
+
+TEST(VisualEffectParticleProfile, should_not_select_tsl_grenade_labels) {
     for (const auto &entry : kKotorGrenadeVisuals) {
         SCOPED_TRACE(entry.label);
-        expectNeutral(particleRenderProfileForVisualEffect(
+        expectUnselected(
             GameID::TSL,
-            visualEffectDesc(entry.label, entry.impactModel)));
+            entry.id,
+            visualEffectDesc(entry.label, entry.impactModel));
     }
 }
 
-TEST(VisualEffectParticleProfile, should_return_neutral_for_mismatched_kotor_models) {
-    expectNeutral(particleRenderProfileForVisualEffect(
+TEST(VisualEffectParticleProfile, should_not_select_mismatched_kotor_models) {
+    expectUnselected(
         GameID::KotOR,
-        visualEffectDesc("VFX_FNF_GRENADE_ION", "v_grnplas_fnf")));
+        VisualEffectIds::grenadeIon,
+        visualEffectDesc("VFX_FNF_GRENADE_ION", "v_grnplas_fnf"));
 }

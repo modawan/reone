@@ -24,6 +24,7 @@
 #include "reone/scene/graph.h"
 #include "reone/scene/node/emitter.h"
 #include "reone/scene/node/model.h"
+#include "reone/scene/node/particle.h"
 #include "reone/scene/particleutil.h"
 
 #include "../fixtures/audio.h"
@@ -44,7 +45,9 @@ public:
     AnimatedEmitterHarness(
         float initialBirthrate,
         float lifeExpectancy,
-        std::vector<std::pair<float, float>> animatedBirthrate = {}) {
+        std::vector<std::pair<float, float>> animatedBirthrate = {},
+        std::vector<Animation::Event> animationEvents = {},
+        float animationSpeed = 1.0f) {
 
         _graphicsModule.init();
         _audioModule.init();
@@ -87,7 +90,7 @@ public:
         rootNode->addChild(emitterNode);
 
         std::vector<std::shared_ptr<Animation>> animations;
-        if (!animatedBirthrate.empty()) {
+        if (!animatedBirthrate.empty() || !animationEvents.empty()) {
             auto animationRoot = std::make_shared<ModelNode>(
                 0,
                 "root",
@@ -111,7 +114,7 @@ public:
                 0.0f,
                 "root",
                 animationRoot,
-                std::vector<Animation::Event>()));
+                std::move(animationEvents)));
         }
 
         _model = std::make_unique<Model>(
@@ -129,11 +132,14 @@ public:
             _audioModule.services(),
             _resourceModule.services());
         _modelSceneNode->init();
-        if (!animatedBirthrate.empty()) {
+        if (!animations.empty()) {
+            auto properties =
+                AnimationProperties::fromFlags(AnimationFlags::loop);
+            properties.speed = animationSpeed;
             _modelSceneNode->playAnimation(
                 "pulse",
                 nullptr,
-                AnimationProperties::fromFlags(AnimationFlags::loop));
+                properties);
         }
     }
 
@@ -282,7 +288,9 @@ TEST(ParticleUtil, should_drop_spawn_catch_up_after_a_discontinuous_frame) {
 TEST(ParticleUtil, should_cap_spawn_work_without_carrying_integer_debt) {
     float accumulator = 0.0f;
 
-    EXPECT_EQ(256, particleutil::advanceSpawnAccumulator(1'000'000.0f, 1.0f / 60.0f, accumulator));
+    EXPECT_EQ(
+        particleutil::kMaxSpawnParticlesPerUpdate,
+        particleutil::advanceSpawnAccumulator(1'000'000.0f, 1.0f / 60.0f, accumulator));
     EXPECT_GE(accumulator, 0.0f);
     EXPECT_LT(accumulator, 1.0f);
 }
@@ -388,23 +396,35 @@ TEST(ParticleUtil, should_preserve_authored_alpha_for_non_lighten_particles) {
     EXPECT_NEAR(authored.a, decoded.alpha, 1e-6f);
 }
 
-TEST(ParticleUtil, should_bound_the_analytic_motion_trail_core) {
-    EXPECT_EQ(
-        0.0f,
-        particleutil::analyticTrailEnvelope(glm::vec2(0.5f), false, 1.0f));
-    EXPECT_EQ(
-        0.0f,
-        particleutil::analyticTrailEnvelope(glm::vec2(0.0f, 0.5f), true, 1.0f));
+TEST(ParticleUtil, should_add_resolution_independent_contrast_without_changing_endpoints) {
+    EXPECT_FLOAT_EQ(0.0f, particleutil::enhanceParticleCoverage(0.0f, 1.0f));
+    EXPECT_FLOAT_EQ(1.0f, particleutil::enhanceParticleCoverage(1.0f, 1.0f));
+    EXPECT_FLOAT_EQ(0.1f, particleutil::enhanceParticleCoverage(0.1f, 0.0f));
+    EXPECT_GT(particleutil::enhanceParticleCoverage(0.1f, 0.8f), 0.1f);
+    EXPECT_FLOAT_EQ(0.01f, particleutil::enhanceParticleCoverage(0.01f, 0.8f));
+}
+
+TEST(ParticleUtil, should_bound_the_analytic_particle_core) {
     EXPECT_NEAR(
         0.8f,
-        particleutil::analyticTrailEnvelope(glm::vec2(0.5f), true, 0.8f),
+        particleutil::analyticParticleCoreEnvelope(glm::vec2(0.5f), false, 0.8f),
+        1e-6f);
+    EXPECT_EQ(
+        0.0f,
+        particleutil::analyticParticleCoreEnvelope(glm::vec2(0.0f, 0.5f), false, 1.0f));
+    EXPECT_EQ(
+        0.0f,
+        particleutil::analyticParticleCoreEnvelope(glm::vec2(0.0f, 0.5f), true, 1.0f));
+    EXPECT_NEAR(
+        0.8f,
+        particleutil::analyticParticleCoreEnvelope(glm::vec2(0.5f), true, 0.8f),
         1e-6f);
     EXPECT_LE(
-        particleutil::analyticTrailEnvelope(glm::vec2(0.5f), true, 10.0f),
+        particleutil::analyticParticleCoreEnvelope(glm::vec2(0.5f), true, 10.0f),
         1.0f);
     EXPECT_NEAR(
         1e-7f,
-        particleutil::analyticTrailEnvelope(glm::vec2(0.5f), true, 1e-7f),
+        particleutil::analyticParticleCoreEnvelope(glm::vec2(0.5f), true, 1e-7f),
         1e-10f);
 }
 
@@ -453,11 +473,155 @@ TEST(ParticleUtil, should_apply_emitter_controllers_before_spawning_in_the_same_
     AnimatedEmitterHarness harness(
         0.0f,
         1.0f,
-        {{0.0f, 0.0f}, {0.1f, 10.0f}});
+        {{0.0f, 0.0f}, {0.1f, 20.0f}});
 
     harness.model().update(0.1f);
 
     EXPECT_EQ(1u, harness.emitter().children().size());
+}
+
+TEST(ParticleUtil, should_integrate_animated_birthrate_across_frame_partitions) {
+    AnimatedEmitterHarness singleUpdate(
+        0.0f,
+        1.0f,
+        {{0.0f, 0.0f}, {0.1f, 20.0f}});
+    AnimatedEmitterHarness partitionedUpdate(
+        0.0f,
+        1.0f,
+        {{0.0f, 0.0f}, {0.1f, 20.0f}});
+
+    singleUpdate.model().update(0.1f);
+    partitionedUpdate.model().update(0.05f);
+    partitionedUpdate.model().update(0.05f);
+
+    EXPECT_EQ(1u, singleUpdate.emitter().children().size());
+    EXPECT_EQ(
+        singleUpdate.emitter().children().size(),
+        partitionedUpdate.emitter().children().size());
+}
+
+TEST(ParticleUtil, should_keep_fractional_births_until_an_animated_emitter_stops) {
+    AnimatedEmitterHarness harness(
+        0.0f,
+        1.0f,
+        {{0.0f, 10.0f}, {0.1f, 10.0f}, {0.2f, 0.0f}});
+
+    harness.model().update(0.075f);
+    harness.model().update(0.125f);
+
+    EXPECT_EQ(1u, harness.emitter().children().size());
+}
+
+TEST(ParticleUtil, should_reset_fractional_births_across_zero_rate_gaps) {
+    AnimatedEmitterHarness coarseUpdates(
+        0.0f,
+        10.0f,
+        {{0.0f, 10.0f}, {0.1f, 0.0f}, {0.2f, 0.0f}, {0.3f, 10.0f}});
+    AnimatedEmitterHarness fineUpdates(
+        0.0f,
+        10.0f,
+        {{0.0f, 10.0f}, {0.1f, 0.0f}, {0.2f, 0.0f}, {0.3f, 10.0f}});
+
+    coarseUpdates.model().update(0.2f);
+    coarseUpdates.model().update(0.1f);
+    fineUpdates.model().update(0.1f);
+    fineUpdates.model().update(0.1f);
+    fineUpdates.model().update(0.1f);
+
+    EXPECT_TRUE(coarseUpdates.emitter().children().empty());
+    EXPECT_EQ(
+        coarseUpdates.emitter().children().size(),
+        fineUpdates.emitter().children().size());
+}
+
+TEST(ParticleUtil, should_preserve_loop_overshoot_across_frame_partitions) {
+    AnimatedEmitterHarness coarseUpdates(
+        0.0f,
+        10.0f,
+        {{0.0f, 10.0f}, {1.0f, 10.0f}});
+    AnimatedEmitterHarness fineUpdates(
+        0.0f,
+        10.0f,
+        {{0.0f, 10.0f}, {1.0f, 10.0f}});
+
+    for (int i = 0; i < 5; ++i) {
+        coarseUpdates.model().update(0.24f);
+    }
+    for (int i = 0; i < 6; ++i) {
+        fineUpdates.model().update(0.2f);
+    }
+
+    EXPECT_EQ(12u, coarseUpdates.emitter().children().size());
+    EXPECT_EQ(
+        coarseUpdates.emitter().children().size(),
+        fineUpdates.emitter().children().size());
+}
+
+TEST(ParticleUtil, should_keep_looped_emitter_controllers_on_the_particle_clock) {
+    AnimatedEmitterHarness coarseUpdates(
+        0.0f,
+        10.0f,
+        {{0.0f, 0.0f}, {1.0f, 20.0f}});
+    AnimatedEmitterHarness fineUpdates(
+        0.0f,
+        10.0f,
+        {{0.0f, 0.0f}, {1.0f, 20.0f}});
+
+    for (int i = 0; i < 5; ++i) {
+        coarseUpdates.model().update(0.24f);
+    }
+    for (int i = 0; i < 6; ++i) {
+        fineUpdates.model().update(0.2f);
+    }
+
+    EXPECT_NEAR(4.0f, coarseUpdates.emitter().birthrate(), 1e-4f);
+    EXPECT_NEAR(
+        coarseUpdates.emitter().birthrate(),
+        fineUpdates.emitter().birthrate(),
+        1e-4f);
+    EXPECT_EQ(
+        coarseUpdates.emitter().children().size(),
+        fineUpdates.emitter().children().size());
+}
+
+TEST(ParticleUtil, should_integrate_animated_birthrate_at_non_unit_speed) {
+    AnimatedEmitterHarness singleUpdate(
+        0.0f,
+        10.0f,
+        {{0.0f, 10.0f}, {1.0f, 10.0f}},
+        {},
+        2.0f);
+    AnimatedEmitterHarness partitionedUpdate(
+        0.0f,
+        10.0f,
+        {{0.0f, 10.0f}, {1.0f, 10.0f}},
+        {},
+        2.0f);
+
+    singleUpdate.model().update(0.2f);
+    for (int i = 0; i < 2; ++i) {
+        partitionedUpdate.model().update(0.1f);
+    }
+
+    EXPECT_EQ(2u, singleUpdate.emitter().children().size());
+    EXPECT_EQ(
+        singleUpdate.emitter().children().size(),
+        partitionedUpdate.emitter().children().size());
+}
+
+TEST(ParticleUtil, should_not_age_detonation_particles_before_their_first_render) {
+    AnimatedEmitterHarness harness(
+        0.0f,
+        1.0f,
+        {},
+        {{0.05f, "detonate"}});
+
+    harness.model().update(0.1f);
+
+    ASSERT_EQ(1u, harness.emitter().children().size());
+    auto particle = static_cast<const ParticleSceneNode *>(
+        *harness.emitter().children().begin());
+    EXPECT_FLOAT_EQ(0.0f, particle->lifetime());
 }
 
 TEST(ParticleUtil, should_advance_culled_animation_without_hidden_particles_or_spawn_debt) {
@@ -481,18 +645,35 @@ TEST(ParticleUtil, should_advance_culled_animation_without_hidden_particles_or_s
     EXPECT_EQ(1u, harness.emitter().children().size());
 }
 
+TEST(ParticleUtil, should_refresh_a_frozen_emitter_after_culled_animation_time) {
+    AnimatedEmitterHarness harness(
+        0.0f,
+        10.0f,
+        {{0.0f, 0.0f}, {1.0f, 20.0f}});
+
+    harness.model().update(0.1f);
+    harness.model().setCulled(true);
+    harness.model().update(0.4f);
+    harness.model().pauseAnimation();
+    harness.model().setCulled(false);
+    harness.model().update(0.1f);
+
+    EXPECT_NEAR(10.0f, harness.emitter().birthrate(), 1e-5f);
+    EXPECT_TRUE(harness.emitter().children().empty());
+}
+
 TEST(ParticleUtil, should_cap_particles_per_emitter_and_reuse_the_pool) {
     AnimatedEmitterHarness harness(2560.0f, 0.1f);
 
     harness.model().update(0.1f);
-    ASSERT_EQ(256u, harness.emitter().children().size());
+    ASSERT_EQ(static_cast<size_t>(kMaxParticles), harness.emitter().children().size());
     std::unordered_set<const SceneNode *> firstGeneration(
         harness.emitter().children().begin(),
         harness.emitter().children().end());
 
     harness.model().update(0.1f);
 
-    ASSERT_EQ(256u, harness.emitter().children().size());
+    ASSERT_EQ(static_cast<size_t>(kMaxParticles), harness.emitter().children().size());
     for (auto *particle : harness.emitter().children()) {
         EXPECT_EQ(1u, firstGeneration.count(particle));
     }
