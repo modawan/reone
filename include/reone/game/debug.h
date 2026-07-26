@@ -24,10 +24,12 @@ namespace game {
 bool isShowAABBEnabled();
 bool isShowWalkmeshEnabled();
 bool isShowTriggersEnabled();
+bool isShowPathEnabled();
 
 void setShowAABB(bool show);
 void setShowWalkmesh(bool show);
 void setShowTriggers(bool show);
+void setShowPath(bool show);
 
 } // namespace game
 
