@@ -33,6 +33,7 @@
 #include "../d20/attributes.h"
 #include "../d20/itemattributes.h"
 #include "../object.h"
+#include "../pathfinder.h"
 
 #include "item.h"
 
@@ -61,15 +62,6 @@ public:
         None,
         Walk,
         Run
-    };
-
-    struct Path {
-        glm::vec3 destination {0.0f};
-        std::vector<glm::vec3> points;
-        uint32_t timeFound {0};
-        int pointIdx {0};
-
-        void selectNextPoint();
     };
 
     struct BodyBag {
@@ -202,16 +194,10 @@ public:
     // END Equipment
 
     // Pathfinding
-
     bool navigateTo(const glm::vec3 &dest, bool run, float distance, float dt);
-    void advanceOnPath(bool run, float dt);
-    void updatePath(const glm::vec3 &dest);
-
     void clearPath();
-    void setPath(const glm::vec3 &dest, std::vector<glm::vec3> &&points, uint32_t timeFound);
-
-    std::shared_ptr<Path> &path() { return _path; }
-
+    void advanceOnPath(const glm::vec3 &dest, const glm::vec3 &dir, bool run, float distance, float dt);
+    glm::vec3 computeSteeringForce(const Uniwalk &uni, const glm::vec3 &next, float dt);
     // END Pathfinding
 
     // Blocking doors
@@ -421,7 +407,16 @@ private:
     ModelType _modelType {ModelType::Creature};
     std::shared_ptr<graphics::Texture> _portrait;
 
-    std::shared_ptr<Path> _path;
+    // Current path that the creature is following, its velocity and position at
+    // the previous frame.
+    std::optional<Path> _path;
+    glm::vec3 _pathVelocity;
+    glm::vec3 _previousPosition;
+    // When there is no progress on the path, apply _stuckForce to steer the
+    // creature in a random direction until the timer runs out.
+    Timer _stuckTimer;
+    glm::vec3 _stuckForce;
+
     float _walkSpeed {0.0f};
     float _runSpeed {0.0f};
     float _creaturePersonalSpace {0.6f};

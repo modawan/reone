@@ -464,6 +464,8 @@ void Game::initConsole() {
     registerConsoleCommand("listgames", "list savegames", &Game::consoleListGames);
     registerConsoleCommand("loadgame", "load a savegame", &Game::consoleLoadGame);
     registerConsoleCommand("startpazaak", "start a development Pazaak match", &Game::consoleStartPazaak);
+    registerConsoleCommand("showpath", "show debug overlay for pathfinding", &Game::consoleShowPath);
+
     if (_options.game.developer) {
         registerConsoleCommand("minigameinfo", "print minigame metadata for current area", &Game::consoleMiniGameInfo);
         registerConsoleCommand("startswoop", "enter the developer swoop race mode for the current area", &Game::consoleStartSwoop);
@@ -4335,6 +4337,12 @@ void Game::consoleShowImGui(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "1|0");
     bool show = args.get<int>(1).value();
     _showImGui = show;
+}
+
+void Game::consoleShowPath(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "1|0");
+    bool show = args.get<int>(1).value();
+    setShowPath(show);
 }
 
 } // namespace game

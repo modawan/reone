@@ -94,8 +94,8 @@ public:
     bool landObject(Object &object);
     void add(const std::shared_ptr<Object> &object);
 
-    bool moveCreature(const std::shared_ptr<Creature> &creature, const glm::vec2 &dir, bool run, float dt);
-    bool moveCreatureTowards(const std::shared_ptr<Creature> &creature, const glm::vec2 &dest, bool run, float dt);
+    bool moveCreature(const std::shared_ptr<Creature> &creature, const glm::vec2 &dir, bool run, float dt,
+                      float maxDistance = FLT_MAX);
     void determineObjectRoom(Object &object);
 
     bool isUnescapable() const { return _unescapable; }
@@ -113,11 +113,12 @@ public:
     const CameraStyle &camStyleDefault() const { return _camStyleDefault; }
     const std::string &music() const { return _music; }
     const ObjectList &objects() const { return _objects; }
-    const Pathfinder &pathfinder() const { return _pathfinder; }
     const std::string &localizedName() const { return _localizedName; }
     const RoomMap &rooms() const { return _rooms; }
     const Grass &grass() const { return _grass; }
     const glm::vec3 &ambientColor() const { return _ambientColor; }
+
+    Pathfinder &pathfinder() { return _pathfinder; }
 
     void setUnescapable(bool value);
 
@@ -313,7 +314,6 @@ private:
 
     void loadLYT();
     void loadVIS();
-    void loadPTH();
     void applySceneProperties();
     void attachRoomToSceneGraph(Room &room);
     void attachObjectToSceneGraph(const std::shared_ptr<Object> &object);
