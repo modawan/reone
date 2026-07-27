@@ -32,13 +32,31 @@ namespace pazaak {
 CardDefinition::CardDefinition(CardBehavior behavior, int magnitude)
     : _behavior(behavior),
       _magnitude(magnitude) {
-    if (behavior != CardBehavior::FixedPositive &&
-        behavior != CardBehavior::FixedNegative &&
-        behavior != CardBehavior::SignSelectable) {
-        throw std::invalid_argument("Unsupported KotOR I Pazaak card behavior");
-    }
-    if (magnitude < 1 || magnitude > 6) {
-        throw std::invalid_argument("KotOR I Pazaak card magnitude must be between 1 and 6");
+    switch (behavior) {
+    case CardBehavior::FixedPositive:
+    case CardBehavior::FixedNegative:
+    case CardBehavior::SignSelectable:
+        if (magnitude < 1 || magnitude > 6) {
+            throw std::invalid_argument("Pazaak numbered card magnitude must be between 1 and 6");
+        }
+        break;
+    case CardBehavior::Tiebreaker:
+        // The Tiebreaker contributes a selectable +/-1 in addition to winning ties.
+        if (magnitude != 1) {
+            throw std::invalid_argument("Pazaak Tiebreaker card magnitude must be 1");
+        }
+        break;
+    case CardBehavior::Double:
+    case CardBehavior::FlipTwoFour:
+    case CardBehavior::FlipThreeSix:
+    case CardBehavior::ValueChange:
+        // These cards carry no fixed magnitude of their own.
+        if (magnitude != 0) {
+            throw std::invalid_argument("Pazaak special card must not declare a magnitude");
+        }
+        break;
+    default:
+        throw std::invalid_argument("Unsupported Pazaak card behavior");
     }
 }
 
@@ -52,6 +70,26 @@ CardDefinition CardDefinition::fixedNegative(int magnitude) {
 
 CardDefinition CardDefinition::signSelectable(int magnitude) {
     return CardDefinition(CardBehavior::SignSelectable, magnitude);
+}
+
+CardDefinition CardDefinition::doubleCard() {
+    return CardDefinition(CardBehavior::Double, 0);
+}
+
+CardDefinition CardDefinition::flipTwoFour() {
+    return CardDefinition(CardBehavior::FlipTwoFour, 0);
+}
+
+CardDefinition CardDefinition::flipThreeSix() {
+    return CardDefinition(CardBehavior::FlipThreeSix, 0);
+}
+
+CardDefinition CardDefinition::tiebreaker() {
+    return CardDefinition(CardBehavior::Tiebreaker, 1);
+}
+
+CardDefinition CardDefinition::valueChange() {
+    return CardDefinition(CardBehavior::ValueChange, 0);
 }
 
 bool CardDefinition::operator==(const CardDefinition &other) const {
@@ -148,7 +186,8 @@ bool ParticipantSetState::operator==(const ParticipantSetState &other) const {
     return _board == other._board &&
            _stood == other._stood &&
            _busted == other._busted &&
-           _nineCardPriority == other._nineCardPriority;
+           _nineCardPriority == other._nineCardPriority &&
+           _hasTiebreaker == other._hasTiebreaker;
 }
 
 SetState::SetState(Participant firstParticipant)
@@ -274,16 +313,43 @@ ActionError MatchState::validatePlayHandCard(const PlayHandCardCommand &command)
     switch (handCard.definition.behavior()) {
     case CardBehavior::FixedPositive:
     case CardBehavior::FixedNegative:
+    case CardBehavior::Double:
+    case CardBehavior::FlipTwoFour:
+    case CardBehavior::FlipThreeSix:
         if (command.sign) {
             return ActionError::SignNotAllowed;
         }
+        if (command.value) {
+            return ActionError::ValueNotAllowed;
+        }
+        if (handCard.definition.behavior() == CardBehavior::Double &&
+            setParticipantState._board.empty()) {
+            // Double has nothing to double with no preceding board card.
+            return ActionError::NoPrecedingCard;
+        }
         break;
     case CardBehavior::SignSelectable:
+    case CardBehavior::Tiebreaker:
+        if (command.value) {
+            return ActionError::ValueNotAllowed;
+        }
         if (!command.sign) {
             return ActionError::SignRequired;
         }
         if (*command.sign != CardSign::Positive && *command.sign != CardSign::Negative) {
             return ActionError::InvalidSign;
+        }
+        break;
+    case CardBehavior::ValueChange:
+        if (command.sign) {
+            return ActionError::SignNotAllowed;
+        }
+        if (!command.value) {
+            return ActionError::ValueRequired;
+        }
+        if (*command.value != 1 && *command.value != 2 &&
+            *command.value != -1 && *command.value != -2) {
+            return ActionError::InvalidValue;
         }
         break;
     default:
@@ -337,7 +403,10 @@ LegalActions MatchState::legalActions(Participant participant) const {
     for (size_t index = 0; index < hand.size(); ++index) {
         const CardDefinition &definition = hand[index].definition;
         bool playable = false;
-        if (definition.behavior() == CardBehavior::SignSelectable) {
+        if (definition.isValueSelectable()) {
+            // Any of the four legal values would validate the same way.
+            playable = validate(PlayHandCardCommand {participant, index, std::nullopt, 1}) == ActionError::None;
+        } else if (definition.isSignSelectable()) {
             playable = validate(PlayHandCardCommand {participant, index, CardSign::Positive}) == ActionError::None ||
                        validate(PlayHandCardCommand {participant, index, CardSign::Negative}) == ActionError::None;
         } else {
@@ -368,16 +437,9 @@ void MatchState::applyValidated(const Command &command) {
         if constexpr (std::is_same_v<CommandType, DrawCommand>) {
             setParticipant(typedCommand.actor)._board.push_back(PlayedCard::mainDeck(_mainDeck.draw()));
             _set._turnStage = TurnStage::AwaitingAction;
+            resolveAutomaticStand(typedCommand.actor);
         } else if constexpr (std::is_same_v<CommandType, PlayHandCardCommand>) {
-            HandCard &handCard = matchParticipant(typedCommand.actor)._hand[typedCommand.handIndex];
-            int value = handCard.definition.magnitude();
-            if (handCard.definition.behavior() == CardBehavior::FixedNegative ||
-                (handCard.definition.behavior() == CardBehavior::SignSelectable && *typedCommand.sign == CardSign::Negative)) {
-                value = -value;
-            }
-            setParticipant(typedCommand.actor)._board.push_back(PlayedCard::hand(typedCommand.handIndex, value));
-            handCard.used = true;
-            _set._handCardPlayedThisTurn = true;
+            playHandCard(typedCommand);
         } else if constexpr (std::is_same_v<CommandType, EndTurnCommand>) {
             resolveTurn(typedCommand.actor, false);
         } else {
@@ -385,6 +447,77 @@ void MatchState::applyValidated(const Command &command) {
         }
     },
                command);
+}
+
+void MatchState::playHandCard(const PlayHandCardCommand &command) {
+    HandCard &handCard = matchParticipant(command.actor)._hand[command.handIndex];
+    ParticipantSetState &actorState = setParticipant(command.actor);
+    const CardDefinition &definition = handCard.definition;
+
+    int playedValue = 0;
+    switch (definition.behavior()) {
+    case CardBehavior::FixedPositive:
+        playedValue = definition.magnitude();
+        break;
+    case CardBehavior::FixedNegative:
+        playedValue = -definition.magnitude();
+        break;
+    case CardBehavior::SignSelectable:
+        playedValue = *command.sign == CardSign::Negative
+                          ? -definition.magnitude()
+                          : definition.magnitude();
+        break;
+    case CardBehavior::Tiebreaker:
+        // Contributes a selectable +/-1 and marks the set for tie resolution.
+        playedValue = *command.sign == CardSign::Negative ? -1 : 1;
+        actorState._hasTiebreaker = true;
+        break;
+    case CardBehavior::ValueChange:
+        // The signed value was validated to be one of +1, +2, -1, -2.
+        playedValue = *command.value;
+        break;
+    case CardBehavior::Double:
+        // Doubles the immediately preceding board card by contributing its
+        // value again as a distinct card. The board is non-empty (validated).
+        playedValue = actorState._board.back().value();
+        break;
+    case CardBehavior::FlipTwoFour:
+        // Flip only the owner's positive 2s and 4s to negative.
+        for (PlayedCard &card : actorState._board) {
+            if (card._value == 2) {
+                card._value = -2;
+            } else if (card._value == 4) {
+                card._value = -4;
+            }
+        }
+        playedValue = 0;
+        break;
+    case CardBehavior::FlipThreeSix:
+        for (PlayedCard &card : actorState._board) {
+            if (card._value == 3) {
+                card._value = -3;
+            } else if (card._value == 6) {
+                card._value = -6;
+            }
+        }
+        playedValue = 0;
+        break;
+    }
+
+    actorState._board.push_back(PlayedCard::hand(command.handIndex, playedValue));
+    handCard.used = true;
+    _set._handCardPlayedThisTurn = true;
+    resolveAutomaticStand(command.actor);
+}
+
+void MatchState::resolveAutomaticStand(Participant actor) {
+    if (_set._result == SetResult::InProgress &&
+        setParticipant(actor).total() == kTargetTotal) {
+        // resolveTurn owns bust and nine-card precedence. In particular, a
+        // legal ninth card at 20 becomes nine-card priority, not an ordinary
+        // stand.
+        resolveTurn(actor, true);
+    }
 }
 
 void MatchState::resolveTurn(Participant actor, bool stand) {
@@ -422,7 +555,17 @@ void MatchState::resolveTurn(Participant actor, bool stand) {
     }
     if (actorState._stood && otherState._stood) {
         if (actorState.total() == otherState.total()) {
-            completeSet(SetResult::Tie);
+            // Tiebreaker precedence applies only to an otherwise-legal tie
+            // (bust and nine-card priority are resolved earlier). A single
+            // committed Tiebreaker wins; if neither or both hold one it stays
+            // a tie.
+            if (actorState._hasTiebreaker && !otherState._hasTiebreaker) {
+                completeSet(actor == Participant::One ? SetResult::ParticipantOneWon : SetResult::ParticipantTwoWon);
+            } else if (otherState._hasTiebreaker && !actorState._hasTiebreaker) {
+                completeSet(other == Participant::One ? SetResult::ParticipantOneWon : SetResult::ParticipantTwoWon);
+            } else {
+                completeSet(SetResult::Tie);
+            }
         } else {
             Participant winner = actorState.total() > otherState.total() ? actor : other;
             completeSet(winner == Participant::One ? SetResult::ParticipantOneWon : SetResult::ParticipantTwoWon);

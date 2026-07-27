@@ -46,6 +46,12 @@ enum class CardBehavior {
     FixedPositive,
     FixedNegative,
     SignSelectable,
+    // KotOR II special side-deck cards.
+    Double,        // doubles the value of the immediately preceding board card
+    FlipTwoFour,   // flips the owner's positive 2s and 4s in play to negative
+    FlipThreeSix,  // flips the owner's positive 3s and 6s in play to negative
+    Tiebreaker,    // a selectable +/-1 that also wins an otherwise-tied set
+    ValueChange,   // selectable among +1, +2, -1, -2
 };
 
 enum class CardSign {
@@ -60,9 +66,31 @@ public:
     static CardDefinition fixedPositive(int magnitude);
     static CardDefinition fixedNegative(int magnitude);
     static CardDefinition signSelectable(int magnitude);
+    // KotOR II special cards.
+    static CardDefinition doubleCard();
+    static CardDefinition flipTwoFour();
+    static CardDefinition flipThreeSix();
+    static CardDefinition tiebreaker();
+    static CardDefinition valueChange();
 
     CardBehavior behavior() const { return _behavior; }
     int magnitude() const { return _magnitude; }
+
+    /// True for cards whose committed sign is chosen at play time.
+    bool isSignSelectable() const {
+        return _behavior == CardBehavior::SignSelectable ||
+               _behavior == CardBehavior::Tiebreaker;
+    }
+    /// True for cards whose committed value (magnitude and sign) is chosen at play time.
+    bool isValueSelectable() const { return _behavior == CardBehavior::ValueChange; }
+    /// True for KotOR II special cards that are not present in KotOR I.
+    bool isSpecial() const {
+        return _behavior == CardBehavior::Double ||
+               _behavior == CardBehavior::FlipTwoFour ||
+               _behavior == CardBehavior::FlipThreeSix ||
+               _behavior == CardBehavior::Tiebreaker ||
+               _behavior == CardBehavior::ValueChange;
+    }
 
     bool operator==(const CardDefinition &other) const;
 
@@ -148,6 +176,7 @@ public:
     bool stood() const { return _stood; }
     bool busted() const { return _busted; }
     bool hasNineCardPriority() const { return _nineCardPriority; }
+    bool hasTiebreaker() const { return _hasTiebreaker; }
     bool finished() const { return _stood || _busted || _nineCardPriority; }
     int total() const;
 
@@ -160,6 +189,7 @@ private:
     bool _stood {false};
     bool _busted {false};
     bool _nineCardPriority {false};
+    bool _hasTiebreaker {false};
 };
 
 enum class TurnStage {
@@ -213,6 +243,8 @@ struct PlayHandCardCommand {
     Participant actor;
     size_t handIndex;
     std::optional<CardSign> sign;
+    // Signed selection for ValueChange cards: +1, +2, -1 or -2.
+    std::optional<int> value;
 };
 
 struct EndTurnCommand {
@@ -242,6 +274,10 @@ enum class ActionError {
     SignRequired,
     SignNotAllowed,
     InvalidSign,
+    ValueRequired,
+    ValueNotAllowed,
+    InvalidValue,
+    NoPrecedingCard,
     SetInProgress,
     SetUnresolved,
 };
@@ -289,6 +325,8 @@ private:
     ActionError validateEndTurn(const EndTurnCommand &command) const;
     ActionError validateStand(const StandCommand &command) const;
     void applyValidated(const Command &command);
+    void playHandCard(const PlayHandCardCommand &command);
+    void resolveAutomaticStand(Participant actor);
     void resolveTurn(Participant actor, bool stand);
     void completeSet(SetResult result);
 

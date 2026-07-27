@@ -131,7 +131,9 @@ static MatchState reachParticipantOneNineCardPriority(std::initializer_list<int>
         if (turn == 0) {
             EXPECT_EQ(ActionError::None, match.apply(PlayHandCardCommand {Participant::One, 0, std::nullopt}));
         }
-        EXPECT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::One}));
+        if (!match.set().participant(Participant::One).finished()) {
+            EXPECT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::One}));
+        }
         if (turn < 7) {
             EXPECT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));
             EXPECT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::Two}));
@@ -332,6 +334,84 @@ TEST(PazaakTurn, UnresolvedOverTwentyBustsWhenStanding) {
     EXPECT_EQ(SetResult::ParticipantTwoWon, match.set().result());
 }
 
+TEST(PazaakAutoStand, PlayerMainDeckDrawAtTwentyFinishesExactlyOnce) {
+    MatchState match = makeMatch(makeMainDeck({10, 1, 10}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::One}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::Two}));
+
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));
+    EXPECT_EQ(20, match.set().participant(Participant::One).total());
+    EXPECT_TRUE(match.set().participant(Participant::One).stood());
+    EXPECT_EQ(Participant::Two, match.set().activeParticipant());
+    EXPECT_EQ(TurnStage::AwaitingDraw, match.set().turnStage());
+    expectRejectedUnchanged(
+        match,
+        EndTurnCommand {Participant::One},
+        ActionError::ParticipantStanding);
+    expectRejectedUnchanged(
+        match,
+        StandCommand {Participant::One},
+        ActionError::ParticipantStanding);
+}
+
+TEST(PazaakAutoStand, PlayerHandCardAtTwentyCommitsBeforeStanding) {
+    MatchState match = makeMatch(
+        makeMainDeck({10, 1, 6}),
+        makeParticipant(makeSideDeck(), {3, 0, 6, 8}),
+        makeParticipant());
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::One}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::Two}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));
+
+    ASSERT_EQ(
+        ActionError::None,
+        match.apply(PlayHandCardCommand {Participant::One, 0, std::nullopt}));
+    const ParticipantSetState &player = match.set().participant(Participant::One);
+    ASSERT_EQ(3, player.board().size());
+    EXPECT_EQ(20, player.total());
+    EXPECT_EQ(PlayedCardSource::Hand, player.board().back().source());
+    EXPECT_TRUE(player.stood());
+    EXPECT_TRUE(match.participant(Participant::One).hand()[0].used);
+}
+
+TEST(PazaakAutoStand, OpponentMainDeckDrawAtTwentyAppliesSymmetrically) {
+    MatchState match = makeMatch(makeMainDeck({1, 10, 10}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));
+    ASSERT_EQ(ActionError::None, match.apply(StandCommand {Participant::One}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::Two}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));
+
+    EXPECT_EQ(20, match.set().participant(Participant::Two).total());
+    EXPECT_TRUE(match.set().participant(Participant::Two).stood());
+    EXPECT_EQ(SetResult::ParticipantTwoWon, match.set().result());
+}
+
+TEST(PazaakAutoStand, OpponentHandCardAtTwentyAppliesSymmetrically) {
+    MatchState match = makeMatch(
+        makeMainDeck({1, 10, 6}),
+        makeParticipant(),
+        makeParticipant(makeSideDeck(), {3, 0, 6, 8}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));
+    ASSERT_EQ(ActionError::None, match.apply(StandCommand {Participant::One}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::Two}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));
+    ASSERT_EQ(
+        ActionError::None,
+        match.apply(PlayHandCardCommand {Participant::Two, 0, std::nullopt}));
+
+    const ParticipantSetState &opponent = match.set().participant(Participant::Two);
+    EXPECT_EQ(20, opponent.total());
+    EXPECT_TRUE(opponent.stood());
+    EXPECT_TRUE(match.participant(Participant::Two).hand()[0].used);
+    EXPECT_EQ(SetResult::ParticipantTwoWon, match.set().result());
+}
+
 TEST(PazaakResults, TieDoesNotIncrementWinsAndHigherTotalWins) {
     MatchState tie = makeMatch(makeMainDeck({10, 10}));
     finishSet(tie, 10, 10);
@@ -459,6 +539,28 @@ TEST(PazaakNineCard, PriorityFinishesParticipantAndLetsOpponentContinue) {
     EXPECT_EQ(8, match.set().participant(Participant::Two).board().size());
 }
 
+TEST(PazaakNineCard, NinthCardAtExactlyTwentyKeepsNineCardPriorityPrecedence) {
+    MatchState match = reachParticipantOneNineCardPriority({
+        2, 1,
+        2, 1,
+        3, 1,
+        3, 1,
+        4, 2,
+        4, 2,
+        4, 3,
+        4,
+    });
+
+    const ParticipantSetState &player =
+        match.set().participant(Participant::One);
+    EXPECT_EQ(20, player.total());
+    EXPECT_TRUE(player.hasNineCardPriority());
+    EXPECT_TRUE(player.finished());
+    EXPECT_FALSE(player.stood());
+    EXPECT_EQ(Participant::Two, match.set().activeParticipant());
+    EXPECT_EQ(TurnStage::AwaitingDraw, match.set().turnStage());
+}
+
 TEST(PazaakNineCard, PriorityDefeatsOpponentStandingOnHigherLegalTotal) {
     MatchState match = reachParticipantOneNineCardPriority({
         1, 1,
@@ -475,7 +577,7 @@ TEST(PazaakNineCard, PriorityDefeatsOpponentStandingOnHigherLegalTotal) {
 
     ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));
     ASSERT_EQ(20, match.set().participant(Participant::Two).total());
-    ASSERT_EQ(ActionError::None, match.apply(StandCommand {Participant::Two}));
+    EXPECT_TRUE(match.set().participant(Participant::Two).stood());
 
     EXPECT_EQ(SetResult::ParticipantOneWon, match.set().result());
     EXPECT_EQ(1, match.participant(Participant::One).setWins());
@@ -523,7 +625,7 @@ TEST(PazaakNineCard, PriorityWinsWhenOpponentHadAlreadyFinished) {
 }
 
 TEST(PazaakNineCard, NineCardsOverTwentyBustWithoutPriority) {
-    MatchState match = makeMatch(makeMainDeck({1, 10, 1, 1, 1, 4, 4, 4, 4, 5}));
+    MatchState match = makeMatch(makeMainDeck({1, 10, 1, 1, 1, 3, 3, 3, 3, 5}));
     ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));
     ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::One}));
     ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));
@@ -537,7 +639,7 @@ TEST(PazaakNineCard, NineCardsOverTwentyBustWithoutPriority) {
         }
     }
 
-    ASSERT_EQ(25, match.set().participant(Participant::One).total());
+    ASSERT_EQ(21, match.set().participant(Participant::One).total());
     ASSERT_EQ(ActionError::None, match.apply(StandCommand {Participant::One}));
     EXPECT_TRUE(match.set().participant(Participant::One).busted());
     EXPECT_FALSE(match.set().participant(Participant::One).hasNineCardPriority());
@@ -592,4 +694,190 @@ TEST(PazaakNineCard, BothNineIsExplicitlyUnresolvedAndCannotResolveTwice) {
     EXPECT_EQ(unresolved, match);
     EXPECT_EQ(0, match.participant(Participant::One).setWins());
     EXPECT_EQ(0, match.participant(Participant::Two).setWins());
+}
+
+// ---------------------------------------------------------------------------
+// KotOR II special side-deck cards.
+// ---------------------------------------------------------------------------
+
+// A ten-card side deck whose first card is the supplied special card, so a
+// {0,1,2,3} hand selection always surfaces it as hand slot 0.
+static SideDeck specialLeadDeck(CardDefinition lead) {
+    return {
+        lead,
+        CardDefinition::fixedPositive(1),
+        CardDefinition::fixedPositive(2),
+        CardDefinition::fixedPositive(3),
+        CardDefinition::fixedPositive(4),
+        CardDefinition::fixedPositive(5),
+        CardDefinition::fixedPositive(6),
+        CardDefinition::fixedNegative(1),
+        CardDefinition::fixedNegative(2),
+        CardDefinition::fixedNegative(3),
+    };
+}
+
+TEST(PazaakSpecialCards, DefinitionsValidateMagnitudeByBehavior) {
+    EXPECT_EQ(CardBehavior::Double, CardDefinition::doubleCard().behavior());
+    EXPECT_TRUE(CardDefinition::doubleCard().isSpecial());
+    EXPECT_TRUE(CardDefinition::tiebreaker().isSignSelectable());
+    EXPECT_TRUE(CardDefinition::valueChange().isValueSelectable());
+    EXPECT_EQ(1, CardDefinition::tiebreaker().magnitude());
+    // A special card must not declare a magnitude, and the Tiebreaker must be 1.
+    EXPECT_THROW(CardDefinition(CardBehavior::Double, 3), std::invalid_argument);
+    EXPECT_THROW(CardDefinition(CardBehavior::Tiebreaker, 2), std::invalid_argument);
+    EXPECT_THROW(CardDefinition(CardBehavior::ValueChange, 1), std::invalid_argument);
+}
+
+TEST(PazaakSpecialCards, DoubleAddsTheValueOfThePrecedingBoardCard) {
+    MatchState match = makeMatch(
+        makeMainDeck({5}),
+        makeParticipant(specialLeadDeck(CardDefinition::doubleCard()), {0, 1, 2, 3}),
+        makeParticipant());
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));
+    ASSERT_EQ(5, match.set().participant(Participant::One).total());
+    ASSERT_EQ(ActionError::None, match.apply(PlayHandCardCommand {Participant::One, 0, std::nullopt}));
+    // The Double is placed as a distinct board card that repeats the preceding
+    // value, so the total updates once from 5 to 10.
+    EXPECT_EQ(10, match.set().participant(Participant::One).total());
+    ASSERT_EQ(2u, match.set().participant(Participant::One).board().size());
+    EXPECT_EQ(5, match.set().participant(Participant::One).board()[1].value());
+}
+
+TEST(PazaakSpecialCards, DoubleCanPushAParticipantIntoABust) {
+    MatchState match = makeMatch(
+        makeMainDeck({6, 5, 8}),
+        makeParticipant(specialLeadDeck(CardDefinition::doubleCard()), {0, 1, 2, 3}),
+        makeParticipant());
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));   // 6
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::One}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));   // 5
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::Two}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));   // 6+8=14
+    ASSERT_EQ(14, match.set().participant(Participant::One).total());
+    ASSERT_EQ(ActionError::None, match.apply(PlayHandCardCommand {Participant::One, 0, std::nullopt}));
+    EXPECT_EQ(22, match.set().participant(Participant::One).total());           // doubles the 8
+    ASSERT_EQ(ActionError::None, match.apply(StandCommand {Participant::One}));
+    EXPECT_EQ(SetResult::ParticipantTwoWon, match.set().result());
+}
+
+TEST(PazaakSpecialCards, DoubleRejectedBeforeTheMandatoryDraw) {
+    MatchState match = makeMatch(
+        makeMainDeck({5}),
+        makeParticipant(specialLeadDeck(CardDefinition::doubleCard()), {0, 1, 2, 3}),
+        makeParticipant());
+    // No card has been drawn yet, so there is nothing to double.
+    expectRejectedUnchanged(match, PlayHandCardCommand {Participant::One, 0, std::nullopt}, ActionError::MustDrawFirst);
+}
+
+TEST(PazaakSpecialCards, FlipTwoFourNegatesOwnPositiveTwosAndFours) {
+    MatchState match = makeMatch(
+        makeMainDeck({2, 1, 4}),
+        makeParticipant(specialLeadDeck(CardDefinition::flipTwoFour()), {0, 1, 2, 3}),
+        makeParticipant());
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));   // 2
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::One}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));   // 1
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::Two}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));   // 2+4=6
+    ASSERT_EQ(6, match.set().participant(Participant::One).total());
+    ASSERT_EQ(ActionError::None, match.apply(PlayHandCardCommand {Participant::One, 0, std::nullopt}));
+    const auto &board = match.set().participant(Participant::One).board();
+    EXPECT_EQ(-2, board[0].value());
+    EXPECT_EQ(-4, board[1].value());
+    EXPECT_EQ(0, board[2].value());   // the flip card contributes nothing itself
+    EXPECT_EQ(-6, match.set().participant(Participant::One).total());
+}
+
+TEST(PazaakSpecialCards, FlipThreeSixNegatesOwnPositiveThreesAndSixes) {
+    MatchState match = makeMatch(
+        makeMainDeck({3, 1, 6}),
+        makeParticipant(specialLeadDeck(CardDefinition::flipThreeSix()), {0, 1, 2, 3}),
+        makeParticipant());
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));   // 3
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::One}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));   // 1
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::Two}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));   // 3+6=9
+    ASSERT_EQ(ActionError::None, match.apply(PlayHandCardCommand {Participant::One, 0, std::nullopt}));
+    const auto &board = match.set().participant(Participant::One).board();
+    EXPECT_EQ(-3, board[0].value());
+    EXPECT_EQ(-6, board[1].value());
+    EXPECT_EQ(-9, match.set().participant(Participant::One).total());
+}
+
+TEST(PazaakSpecialCards, ValueChangeSelectsAmongTheFourSignedValues) {
+    MatchState match = makeMatch(
+        makeMainDeck({5}),
+        makeParticipant(specialLeadDeck(CardDefinition::valueChange()), {0, 1, 2, 3}),
+        makeParticipant());
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));
+    // A value is required, a sign is not permitted, and only +/-1 and +/-2 are legal.
+    EXPECT_EQ(ActionError::ValueRequired, match.validate(PlayHandCardCommand {Participant::One, 0, std::nullopt, std::nullopt}));
+    EXPECT_EQ(ActionError::SignNotAllowed, match.validate(PlayHandCardCommand {Participant::One, 0, CardSign::Positive, 1}));
+    EXPECT_EQ(ActionError::InvalidValue, match.validate(PlayHandCardCommand {Participant::One, 0, std::nullopt, 3}));
+    ASSERT_EQ(ActionError::None, match.apply(PlayHandCardCommand {Participant::One, 0, std::nullopt, -2}));
+    EXPECT_EQ(3, match.set().participant(Participant::One).total());
+    EXPECT_EQ(-2, match.set().participant(Participant::One).board()[1].value());
+}
+
+TEST(PazaakSpecialCards, ValueChangeAtExactlyTwentyAutomaticallyStands) {
+    MatchState match = makeMatch(
+        makeMainDeck({10, 5, 8}),
+        makeParticipant(specialLeadDeck(CardDefinition::valueChange()), {0, 1, 2, 3}),
+        makeParticipant());
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));   // 10
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::One}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));   // 5
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::Two}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));   // 18
+    ASSERT_EQ(ActionError::None, match.apply(PlayHandCardCommand {Participant::One, 0, std::nullopt, 2}));  // 20
+    EXPECT_EQ(20, match.set().participant(Participant::One).total());
+    EXPECT_TRUE(match.set().participant(Participant::One).stood());
+}
+
+TEST(PazaakSpecialCards, TiebreakerWinsAnOtherwiseTiedSet) {
+    MatchState match = makeMatch(
+        makeMainDeck({9, 10}),
+        makeParticipant(specialLeadDeck(CardDefinition::tiebreaker()), {0, 1, 2, 3}),
+        makeParticipant());
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));   // 9
+    ASSERT_EQ(ActionError::None, match.apply(PlayHandCardCommand {Participant::One, 0, CardSign::Positive}));  // +1 -> 10
+    EXPECT_TRUE(match.set().participant(Participant::One).hasTiebreaker());
+    ASSERT_EQ(ActionError::None, match.apply(StandCommand {Participant::One}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));   // 10
+    ASSERT_EQ(ActionError::None, match.apply(StandCommand {Participant::Two}));
+    // Totals are tied at 10, but the Tiebreaker holder takes the set.
+    EXPECT_EQ(SetResult::ParticipantOneWon, match.set().result());
+}
+
+TEST(PazaakSpecialCards, TiebreakerDoesNotOverrideABust) {
+    MatchState match = makeMatch(
+        makeMainDeck({10, 5, 10}),
+        makeParticipant(specialLeadDeck(CardDefinition::tiebreaker()), {0, 1, 2, 3}),
+        makeParticipant());
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));   // 10
+    ASSERT_EQ(ActionError::None, match.apply(PlayHandCardCommand {Participant::One, 0, CardSign::Positive}));  // 11
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::One}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));   // 5
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::Two}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));   // 21, busting
+    ASSERT_EQ(21, match.set().participant(Participant::One).total());
+    ASSERT_EQ(ActionError::None, match.apply(StandCommand {Participant::One}));
+    // The bust is resolved before any tie logic, so the Tiebreaker holder loses.
+    EXPECT_EQ(SetResult::ParticipantTwoWon, match.set().result());
+}
+
+TEST(PazaakSpecialCards, UsedSpecialCardCannotBePlayedAgain) {
+    MatchState match = makeMatch(
+        makeMainDeck({3, 5, 3}),
+        makeParticipant(specialLeadDeck(CardDefinition::valueChange()), {0, 1, 2, 3}),
+        makeParticipant());
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));   // 3
+    ASSERT_EQ(ActionError::None, match.apply(PlayHandCardCommand {Participant::One, 0, std::nullopt, 1}));
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::One}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::Two}));
+    ASSERT_EQ(ActionError::None, match.apply(EndTurnCommand {Participant::Two}));
+    ASSERT_EQ(ActionError::None, match.apply(DrawCommand {Participant::One}));
+    expectRejectedUnchanged(match, PlayHandCardCommand {Participant::One, 0, std::nullopt, 1}, ActionError::HandCardUsed);
 }
