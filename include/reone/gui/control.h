@@ -130,12 +130,15 @@ public:
     bool isSelectable() const { return _selectable; }
     bool isSelected() const { return _selected; }
     bool isDisabled() const { return _disabled; }
+    bool isHilightOverBorder() const { return _hilightOverBorder; }
 
     int id() const { return _id; }
     int padding() const { return _padding; }
     Border &border() const { return *_border; }
     const Extent &extent() const { return _extent; }
     const Border &hilight() const { return *_hilight; }
+    const std::string &borderFillResRef() const { return _borderFillResRef; }
+    const std::string &hilightFillResRef() const { return _hilightFillResRef; }
     const std::string &tag() const { return _tag; }
     const Text &text() const { return _text; }
     const std::vector<std::string> &textLines() const { return _textLines; }
@@ -161,6 +164,7 @@ public:
     void setHilightFill(std::string resRef);
     void setHilightFill(std::shared_ptr<graphics::Texture> texture);
     void setHilightFillTransform(Border::FillTransform transform);
+    void setHilightOverBorder(bool enabled) { _hilightOverBorder = enabled; }
     void setPadding(int padding);
     void setSceneName(std::string name);
     void setText(Text text);
@@ -213,6 +217,8 @@ protected:
 
     int _id {-1};
     std::string _tag;
+    std::string _borderFillResRef;
+    std::string _hilightFillResRef;
     Extent _extent;
     std::shared_ptr<Border> _border;
     std::shared_ptr<Border> _hilight;
@@ -223,6 +229,7 @@ protected:
     bool _visible {true};
     bool _disabled {false};
     bool _selected {false};
+    bool _hilightOverBorder {false};
     bool _selectable {false};
     bool _tintBorderFill {false};
     glm::vec3 _borderColorOverride {1.0f};
