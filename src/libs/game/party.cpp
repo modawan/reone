@@ -31,6 +31,29 @@ static constexpr char kBlueprintResRefBastila[] = "p_bastilla";
 static constexpr char kBlueprintResRefAtton[] = "p_atton";
 static constexpr char kBlueprintResRefKreia[] = "p_kreia";
 
+void Party::setPazaakData(
+    PazaakCardCounts counts,
+    PazaakSideDeck sideDeck,
+    size_t cardCount) {
+
+    _pazaakCardCounts = std::move(counts);
+    _pazaakSideDeck = std::move(sideDeck);
+    _pazaakCardCount = std::min(cardCount, kMaxPazaakCardCount);
+    _pazaakDataValid = true;
+}
+
+void Party::setPazaakSideDeck(PazaakSideDeck sideDeck) {
+    _pazaakSideDeck = std::move(sideDeck);
+}
+
+void Party::setDefaultPazaakData(size_t cardCount) {
+    PazaakCardCounts counts {};
+    counts[0] = counts[1] = counts[2] = counts[3] = counts[4] = 2;
+    PazaakSideDeck sideDeck;
+    sideDeck.fill(-1);
+    setPazaakData(std::move(counts), std::move(sideDeck), cardCount);
+}
+
 bool Party::handle(const input::Event &event) {
     if (event.type == input::EventType::KeyDown) {
         return handleKeyDown(event.key);
@@ -107,6 +130,9 @@ void Party::reset() {
     _solo = false;
     _gold = 0;
     _xp = 0;
+    _pazaakDataValid = false;
+    _pazaakCardCounts.fill(0);
+    _pazaakSideDeck.fill(-1);
 }
 
 void Party::clear() {

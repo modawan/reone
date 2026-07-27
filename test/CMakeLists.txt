@@ -52,6 +52,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/messagebus.cpp
     ${TESTS_SOURCE_DIR}/game/object.cpp
     ${TESTS_SOURCE_DIR}/game/pazaak.cpp
+    ${TESTS_SOURCE_DIR}/game/pazaaksession.cpp
     ${TESTS_SOURCE_DIR}/game/pathfinder.cpp
     ${TESTS_SOURCE_DIR}/game/statussummary.cpp
     ${TESTS_SOURCE_DIR}/game/transitioncandidate.cpp

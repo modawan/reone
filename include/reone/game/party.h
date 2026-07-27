@@ -19,6 +19,8 @@
 
 #include "reone/input/event.h"
 
+#include <array>
+
 namespace reone {
 
 namespace game {
@@ -36,6 +38,14 @@ enum class XPSource {
 
 class Party {
 public:
+    // PARTYTABLE.res stores one ownership count per card type plus one spare
+    // entry: KotOR I ships eighteen card types, KotOR II twenty-three.
+    static constexpr size_t kK1PazaakCardCount = 19;
+    static constexpr size_t kK2PazaakCardCount = 24;
+    static constexpr size_t kMaxPazaakCardCount = kK2PazaakCardCount;
+    static constexpr size_t kK1PazaakSideDeckSize = 10;
+    using PazaakCardCounts = std::array<int, kMaxPazaakCardCount>;
+    using PazaakSideDeck = std::array<int, kK1PazaakSideDeckSize>;
     struct Member {
         int npc {0};
         std::shared_ptr<Creature> creature;
@@ -116,6 +126,21 @@ public:
 
     // END Credits
 
+    // Pazaak state stored in PARTYTABLE.res. The final ownership slot is retained
+    // verbatim even though side decks only use the card-type IDs before it.
+    bool hasValidPazaakData() const { return _pazaakDataValid; }
+    const PazaakCardCounts &pazaakCardCounts() const { return _pazaakCardCounts; }
+    /// Number of ownership entries the loaded table actually carries.
+    size_t pazaakCardCount() const { return _pazaakCardCount; }
+    const PazaakSideDeck &pazaakSideDeck() const { return _pazaakSideDeck; }
+    void setPazaakData(
+        PazaakCardCounts counts,
+        PazaakSideDeck sideDeck,
+        size_t cardCount = kK1PazaakCardCount);
+    void setPazaakSideDeck(PazaakSideDeck sideDeck);
+    /// Authored starting collection: two copies each of +1 through +5.
+    void setDefaultPazaakData(size_t cardCount = kK1PazaakCardCount);
+
     // Experience
     //
     // KOTOR stores experience as a single party-shared pool. XP awarded to a
@@ -152,6 +177,10 @@ private:
     bool _solo {false};
     int _gold {0};
     int _xp {0};
+    bool _pazaakDataValid {false};
+    size_t _pazaakCardCount {kK1PazaakCardCount};
+    PazaakCardCounts _pazaakCardCounts {};
+    PazaakSideDeck _pazaakSideDeck {};
 
     bool handleKeyDown(const input::KeyEvent &event);
 
