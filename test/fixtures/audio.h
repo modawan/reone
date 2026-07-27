@@ -64,6 +64,10 @@ public:
         return *_services;
     }
 
+    MockAudioMixer &mixer() {
+        return *_mixer;
+    }
+
 private:
     std::unique_ptr<MockContext> _context;
     std::unique_ptr<MockAudioMixer> _mixer;

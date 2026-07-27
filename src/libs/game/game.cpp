@@ -19,6 +19,7 @@
 
 #include <cctype>
 #include <exception>
+#include <numeric>
 
 #include "reone/game/minigame.h"
 
@@ -87,6 +88,7 @@
 #include "reone/system/exception/validation.h"
 #include "reone/system/fileutil.h"
 #include "reone/system/logutil.h"
+#include "reone/system/randomutil.h"
 #include "reone/system/smallset.h"
 #include "reone/system/threadutil.h"
 
@@ -131,9 +133,182 @@ static const char *screenName(Game::Screen screen) {
         return "PartySelection";
     case Game::Screen::SaveLoad:
         return "SaveLoad";
+    case Game::Screen::SwoopRace:
+        return "SwoopRace";
+    case Game::Screen::PazaakWager:
+        return "PazaakWager";
+    case Game::Screen::PazaakSetup:
+        return "PazaakSetup";
+    case Game::Screen::PazaakBoard:
+        return "PazaakBoard";
     default:
         return "Unknown";
     }
+}
+
+static pazaak::HandSelection randomPazaakHandSelection(const pazaak::SideDeck &) {
+    std::array<size_t, pazaak::kSideDeckSize> indices;
+    std::iota(indices.begin(), indices.end(), 0);
+    for (size_t i = indices.size() - 1; i > 0; --i) {
+        size_t swapIndex = static_cast<size_t>(randomInt(0, static_cast<int>(i)));
+        std::swap(indices[i], indices[swapIndex]);
+    }
+    return {indices[0], indices[1], indices[2], indices[3]};
+}
+
+// Developer-only KotOR II showcase hand selection. The showcase side deck is
+// built in a fixed order, so rotating the four-card window across sets exposes
+// every supported card family during a single match while still obeying the
+// ordinary ten-card side deck and four-card hand rules.
+static PazaakSession::HandSelector showcasePazaakHandSelector() {
+    auto set = std::make_shared<size_t>(0);
+    return [set](const pazaak::SideDeck &) {
+        static const std::array<pazaak::HandSelection, 3> windows {
+            pazaak::HandSelection {0, 1, 2, 3},
+            pazaak::HandSelection {4, 5, 6, 7},
+            pazaak::HandSelection {8, 9, 0, 1},
+        };
+        pazaak::HandSelection selection = windows[*set % windows.size()];
+        ++*set;
+        return selection;
+    };
+}
+
+static pazaak::MainDeck randomPazaakMainDeck() {
+    std::vector<int> cards(pazaak::MainDeck::standardOrdered().cards());
+    for (size_t i = cards.size() - 1; i > 0; --i) {
+        size_t swapIndex = static_cast<size_t>(randomInt(0, static_cast<int>(i)));
+        std::swap(cards[i], cards[swapIndex]);
+    }
+    return pazaak::MainDeck(std::move(cards));
+}
+
+static std::optional<pazaak::CardDefinition> k1PazaakCardDefinition(int cardId) {
+    if (cardId < 0 || cardId >= 18) {
+        return std::nullopt;
+    }
+    int magnitude = cardId % 6 + 1;
+    if (cardId < 6) {
+        return pazaak::CardDefinition::fixedPositive(magnitude);
+    }
+    if (cardId < 12) {
+        return pazaak::CardDefinition::fixedNegative(magnitude);
+    }
+    return pazaak::CardDefinition::signSelectable(magnitude);
+}
+
+// KotOR II owns five extra card types after the numbered ones. Their order
+// follows the authored side-deck screen: Tiebreaker, Double, Flip 2&4, Flip 3&6
+// and Value Change.
+static std::optional<pazaak::CardDefinition> k2PazaakCardDefinition(int cardId) {
+    if (cardId < 0 || cardId >= 23) {
+        return std::nullopt;
+    }
+    if (cardId < 18) {
+        return k1PazaakCardDefinition(cardId);
+    }
+    switch (cardId) {
+    case 18:
+        return pazaak::CardDefinition::tiebreaker();
+    case 19:
+        return pazaak::CardDefinition::doubleCard();
+    case 20:
+        return pazaak::CardDefinition::flipTwoFour();
+    case 21:
+        return pazaak::CardDefinition::flipThreeSix();
+    default:
+        return pazaak::CardDefinition::valueChange();
+    }
+}
+
+static std::optional<pazaak::CardDefinition> parseK1PazaakDeckCard(
+    const std::string &token) {
+
+    if (token.size() != 2 ||
+        (token[0] != '+' && token[0] != '-' && token[0] != '*') ||
+        token[1] < '1' || token[1] > '6') {
+        return std::nullopt;
+    }
+    int magnitude = token[1] - '0';
+    switch (token[0]) {
+    case '+':
+        return pazaak::CardDefinition::fixedPositive(magnitude);
+    case '-':
+        return pazaak::CardDefinition::fixedNegative(magnitude);
+    case '*':
+        return pazaak::CardDefinition::signSelectable(magnitude);
+    default:
+        return std::nullopt;
+    }
+}
+
+static std::optional<pazaak::SideDeck> loadK1PazaakOpponentDeck(
+    const resource::TwoDA &decks,
+    int row) {
+
+    if (row < 0 || row >= decks.getRowCount()) {
+        return std::nullopt;
+    }
+    std::vector<pazaak::CardDefinition> cards;
+    cards.reserve(pazaak::kSideDeckSize);
+    for (size_t i = 0; i < pazaak::kSideDeckSize; ++i) {
+        auto card = parseK1PazaakDeckCard(
+            decks.getString(row, "card" + std::to_string(i)));
+        if (!card) {
+            return std::nullopt;
+        }
+        cards.push_back(*card);
+    }
+    return pazaak::SideDeck {
+        cards[0], cards[1], cards[2], cards[3], cards[4],
+        cards[5], cards[6], cards[7], cards[8], cards[9],
+    };
+}
+
+static std::optional<pazaak::CardDefinition> parseK2PazaakDeckCard(
+    const std::string &token) {
+
+    // KotOR II special-card tokens, verified from shipped card descriptions.
+    if (token == "$$") {
+        return pazaak::CardDefinition::doubleCard();
+    }
+    if (token == "F1") {
+        return pazaak::CardDefinition::flipTwoFour();
+    }
+    if (token == "F2") {
+        return pazaak::CardDefinition::flipThreeSix();
+    }
+    if (token == "TT") {
+        return pazaak::CardDefinition::tiebreaker();
+    }
+    if (token == "VV") {
+        return pazaak::CardDefinition::valueChange();
+    }
+    // Otherwise the KotOR I grammar (+N / -N / *N) applies unchanged.
+    return parseK1PazaakDeckCard(token);
+}
+
+static std::optional<pazaak::SideDeck> loadK2PazaakOpponentDeck(
+    const resource::TwoDA &decks,
+    int row) {
+
+    if (row < 0 || row >= decks.getRowCount()) {
+        return std::nullopt;
+    }
+    std::vector<pazaak::CardDefinition> cards;
+    cards.reserve(pazaak::kSideDeckSize);
+    for (size_t i = 0; i < pazaak::kSideDeckSize; ++i) {
+        auto card = parseK2PazaakDeckCard(
+            decks.getString(row, "card" + std::to_string(i)));
+        if (!card) {
+            return std::nullopt;
+        }
+        cards.push_back(*card);
+    }
+    return pazaak::SideDeck {
+        cards[0], cards[1], cards[2], cards[3], cards[4],
+        cards[5], cards[6], cards[7], cards[8], cards[9],
+    };
 }
 
 static const char *cameraTypeName(CameraType type) {
@@ -285,6 +460,7 @@ void Game::initConsole() {
     registerConsoleCommand("closedoor", "close a selected door object", &Game::consoleOpenCloseDoor);
     registerConsoleCommand("listgames", "list savegames", &Game::consoleListGames);
     registerConsoleCommand("loadgame", "load a savegame", &Game::consoleLoadGame);
+    registerConsoleCommand("startpazaak", "start a development Pazaak match", &Game::consoleStartPazaak);
     if (_options.game.developer) {
         registerConsoleCommand("minigameinfo", "print minigame metadata for current area", &Game::consoleMiniGameInfo);
         registerConsoleCommand("startswoop", "enter the developer swoop race mode for the current area", &Game::consoleStartSwoop);
@@ -382,6 +558,28 @@ void Game::update(float frameTime) {
         return;
     }
     updateMusic();
+
+    if (_screen == Screen::PazaakBoard && _pazaakSession) {
+        static constexpr float kPazaakOpponentEventDelay = 0.45f;
+        if (_pazaakSession->advanceResultPresentation(dt)) {
+            if (_pazaakBoard) {
+                _pazaakBoard->refresh();
+            }
+            completePazaakIfReady();
+        } else if (_pazaakSession && !_pazaakSession->presentationPending()) {
+            _pazaakOpponentEventElapsed += dt;
+            if (_pazaakOpponentEventElapsed >= kPazaakOpponentEventDelay) {
+                _pazaakOpponentEventElapsed = 0.0f;
+                PazaakOpponentEvent event = _pazaakSession->advanceOpponentEvent();
+                if (event != PazaakOpponentEvent::None) {
+                    if (_pazaakBoard) {
+                        _pazaakBoard->refresh();
+                    }
+                    completePazaakIfReady();
+                }
+            }
+        }
+    }
 
     if (!_nextModule.empty()) {
         loadNextModule();
@@ -546,6 +744,10 @@ bool Game::handleMouseButtonUp(const input::MouseButtonEvent &event) {
 void Game::loadModule(const std::string &name, std::string entry, bool fromSave) {
     info("Loading module '" + name + "'");
 
+    // A module transition is a technical Pazaak abort. It must not manufacture
+    // a result or invoke the pending continuation.
+    abortPazaak();
+
     // Tear down an active race before the current area (and its camera/scene)
     // is unloaded, so no dangling references survive the transition.
     if (_swoopRace.isActive()) {
@@ -635,6 +837,7 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
 }
 
 void Game::resetGame() {
+    abortPazaak();
     if (_swoopRace.isActive()) {
         _swoopRace.stop();
     }
@@ -779,6 +982,49 @@ void Game::deserializeParty(resource::Gff &ifoGff) {
 }
 
 void Game::deserializePartyTable(resource::Gff &ptGff) {
+    const auto &pazaakCards = ptGff.getList("PT_PAZAAKCARDS");
+    const auto &pazaakSide = ptGff.getList("PT_PAZSIDELIST");
+    // Each title stores its own number of ownership entries, so the saved table
+    // is accepted at either authored length and the card-type ID range follows
+    // from it.
+    size_t expectedCards = isTSL() ? Party::kK2PazaakCardCount : Party::kK1PazaakCardCount;
+    size_t cardTypes = expectedCards - 1;
+    if (pazaakCards.size() == expectedCards &&
+        pazaakSide.size() == Party::kK1PazaakSideDeckSize) {
+        Party::PazaakCardCounts counts {};
+        Party::PazaakSideDeck sideDeck;
+        bool valid = true;
+        for (size_t i = 0; i < expectedCards; ++i) {
+            counts[i] = pazaakCards[i]->getInt("PT_PAZAAKCOUNT", -1);
+            valid = valid && counts[i] >= 0 && counts[i] <= 255;
+        }
+        bool allEmpty = true;
+        bool allSelected = true;
+        Party::PazaakCardCounts selectedCounts {};
+        for (size_t i = 0; i < sideDeck.size(); ++i) {
+            sideDeck[i] = pazaakSide[i]->getInt("PT_PAZSIDECARD", -2);
+            allEmpty = allEmpty && sideDeck[i] == -1;
+            bool owned = sideDeck[i] >= 0 && static_cast<size_t>(sideDeck[i]) < cardTypes;
+            allSelected = allSelected && owned;
+            if (owned) {
+                ++selectedCounts[sideDeck[i]];
+            }
+        }
+        valid = valid && (allEmpty || allSelected);
+        if (allSelected) {
+            for (size_t i = 0; i < cardTypes; ++i) {
+                valid = valid && selectedCounts[i] <= counts[i];
+            }
+        }
+        if (valid) {
+            _party.setPazaakData(std::move(counts), std::move(sideDeck), expectedCards);
+        } else {
+            warn("Game: invalid Pazaak state in PARTYTABLE.res");
+        }
+    } else if (!pazaakCards.empty() || !pazaakSide.empty()) {
+        warn("Game: invalid Pazaak list sizes in PARTYTABLE.res");
+    }
+
     int nextNpc = 0;
     for (const auto &npcState : ptGff.getList("PT_AVAIL_NPCS")) {
         int npc = nextNpc++;
@@ -873,6 +1119,9 @@ bool Game::loadParty() {
 }
 
 void Game::loadDefaultParty() {
+    // A new game starts with the authored basic collection for the running title.
+    _party.setDefaultPazaakData(
+        isTSL() ? Party::kK2PazaakCardCount : Party::kK1PazaakCardCount);
     std::string member1, member2, member3;
     _party.defaultMembers(member1, member2, member3);
 
@@ -2151,6 +2400,426 @@ void Game::openSaveLoad(SaveLoadMode mode) {
     changeScreen(Screen::SaveLoad);
 }
 
+void Game::serializePazaakPartyTable(resource::Gff &ptGff) const {
+    auto replaceField = [&ptGff](resource::Gff::Field replacement) {
+        auto &fields = ptGff.fields();
+        auto found = std::find_if(fields.begin(), fields.end(), [&replacement](const auto &field) {
+            return field.label == replacement.label;
+        });
+        if (found == fields.end()) {
+            fields.push_back(std::move(replacement));
+        } else {
+            *found = std::move(replacement);
+        }
+    };
+
+    replaceField(resource::Gff::Field::newDword(
+        "PT_GOLD",
+        static_cast<uint32_t>(std::max(0, _party.gold()))));
+    if (!_party.hasValidPazaakData()) {
+        return;
+    }
+
+    // Only the entries the running title actually stores are written back.
+    std::vector<std::shared_ptr<resource::Gff>> cardEntries;
+    const auto &savedCounts = _party.pazaakCardCounts();
+    for (size_t i = 0; i < _party.pazaakCardCount(); ++i) {
+        int count = savedCounts[i];
+        cardEntries.push_back(
+            resource::Gff::Builder()
+                .field(resource::Gff::Field::newByte(
+                    "PT_PAZAAKCOUNT",
+                    static_cast<uint32_t>(count)))
+                .build());
+    }
+    replaceField(resource::Gff::Field::newList(
+        "PT_PAZAAKCARDS",
+        std::move(cardEntries)));
+
+    std::vector<std::shared_ptr<resource::Gff>> sideEntries;
+    for (int cardId : _party.pazaakSideDeck()) {
+        sideEntries.push_back(
+            resource::Gff::Builder()
+                .field(resource::Gff::Field::newInt(
+                    "PT_PAZSIDECARD",
+                    cardId))
+                .build());
+    }
+    replaceField(resource::Gff::Field::newList(
+        "PT_PAZSIDELIST",
+        std::move(sideEntries)));
+}
+
+bool Game::playPazaak(
+    int opponentDeck,
+    std::string continuationScript,
+    int maximumWager,
+    bool tutorialRequested,
+    const std::shared_ptr<Object> &opponent) {
+
+    if (!opponent) {
+        return false;
+    }
+
+    PazaakSessionParams params;
+    params.opponentDeck = opponentDeck;
+    params.continuationScript = std::move(continuationScript);
+    params.maximumWager = maximumWager;
+    params.tutorialRequested = tutorialRequested;
+    params.opponentId = opponent->id();
+    params.opponentName = opponent->name().empty() ? opponent->tag() : opponent->name();
+
+    // A native match always plays with the cards the player actually owns, read
+    // from PARTYTABLE.res. Only the developer command uses temporary cards.
+    if (!_party.hasValidPazaakData()) {
+        error("Unable to start Pazaak: PARTYTABLE.res has no valid Pazaak data");
+        return false;
+    }
+    int cardTypes = static_cast<int>(
+        (isTSL() ? Party::kK2PazaakCardCount : Party::kK1PazaakCardCount) - 1);
+    std::array<std::optional<size_t>, Party::kMaxPazaakCardCount> collectionIndex;
+    const auto &counts = _party.pazaakCardCounts();
+    size_t ownedCards = 0;
+    for (int cardId = 0; cardId < cardTypes; ++cardId) {
+        if (counts[cardId] == 0) {
+            continue;
+        }
+        auto definition = isTSL() ? k2PazaakCardDefinition(cardId)
+                                  : k1PazaakCardDefinition(cardId);
+        if (!definition) {
+            error("Unable to start Pazaak: invalid player collection card ID");
+            return false;
+        }
+        collectionIndex[cardId] = params.collection.size();
+        params.collection.push_back(
+            {*definition, static_cast<size_t>(counts[cardId]), cardId});
+        ownedCards += static_cast<size_t>(counts[cardId]);
+    }
+    if (ownedCards < pazaak::kSideDeckSize) {
+        error("Unable to start Pazaak: player owns fewer than ten side-deck cards");
+        return false;
+    }
+
+    const auto &savedSideDeck = _party.pazaakSideDeck();
+    if (std::all_of(savedSideDeck.begin(), savedSideDeck.end(), [](int id) {
+            return id >= 0;
+        })) {
+        for (int cardId : savedSideDeck) {
+            if (cardId >= cardTypes || !collectionIndex[cardId]) {
+                error("Unable to start Pazaak: saved side deck is not owned");
+                return false;
+            }
+            params.initialChosenCards.push_back(*collectionIndex[cardId]);
+        }
+    }
+
+    if (_pazaakOpponentDeckOverride) {
+        params.opponentSideDeck = _pazaakOpponentDeckOverride;
+    } else {
+        try {
+            auto decks = _services.resource.twoDas.get("pazaakdecks");
+            if (!decks) {
+                error("Unable to start Pazaak: pazaakdecks.2da is missing");
+                return false;
+            }
+            params.opponentSideDeck = isTSL()
+                                          ? loadK2PazaakOpponentDeck(*decks, opponentDeck)
+                                          : loadK1PazaakOpponentDeck(*decks, opponentDeck);
+        } catch (const std::exception &e) {
+            error("Unable to read pazaakdecks.2da: " + std::string(e.what()));
+            return false;
+        }
+        if (!params.opponentSideDeck) {
+            error("Unable to start Pazaak: invalid opponent deck row in pazaakdecks.2da");
+            return false;
+        }
+    }
+    return startPazaakFlow(std::move(params), opponent, false);
+}
+
+bool Game::startDevelopmentPazaak(std::string opponentName) {
+    PazaakSessionParams params;
+    params.opponentDeck = 0;
+    params.maximumWager = 0;
+    params.opponentName = opponentName.empty() ? "Pazaak Opponent" : std::move(opponentName);
+    // The developer route never touches save-owned cards or credits: it uses a
+    // temporary, title-appropriate collection and opponent deck only.
+    if (isTSL()) {
+        params.collection = PazaakSession::k2DefaultCollection();
+        params.opponentSideDeck = PazaakSession::temporaryK2OpponentSideDeck();
+        // Deterministic showcase deck covering every KotOR II family. The first
+        // four entries become the opening hand: a Value Change card, a
+        // sign-selectable card, a fixed card and a non-switchable special.
+        params.initialChosenCards = PazaakSession::k2ShowcaseChosenCards();
+        _pazaakShowcaseHands = true;
+    } else {
+        params.collection = PazaakSession::temporaryK1TestCollection();
+        params.opponentSideDeck = PazaakSession::temporaryK1OpponentSideDeck();
+    }
+    return startPazaakFlow(std::move(params), nullptr, true);
+}
+
+bool Game::startPazaakFlow(
+    PazaakSessionParams params,
+    const std::shared_ptr<Object> &continuationCaller,
+    bool developmentLaunch) {
+
+    if (_pazaakSession) {
+        return false;
+    }
+
+    _pazaakOriginScreen = _screen;
+    _pazaakContinuationCaller = continuationCaller;
+    _pazaakDevelopmentLaunch = developmentLaunch;
+    _pazaakSelectionPersisted = false;
+    _pazaakSettlementApplied = false;
+    _pazaakOpponentEventElapsed = 0.0f;
+    params.availableCredits = _party.gold();
+    params.paceAutomaticDraws = _pazaakPaceAutomaticDraws;
+    if (auto player = _party.player()) {
+        params.playerName = player->name();
+    }
+
+    auto playerSelector = _pazaakPlayerHandSelector
+                              ? _pazaakPlayerHandSelector
+                              : (_pazaakShowcaseHands
+                                     ? showcasePazaakHandSelector()
+                                     : PazaakSession::HandSelector(randomPazaakHandSelection));
+    auto opponentSelector = _pazaakOpponentHandSelector
+                                ? _pazaakOpponentHandSelector
+                                : PazaakSession::HandSelector(randomPazaakHandSelection);
+    auto mainDeckFactory = _pazaakMainDeckFactory
+                               ? _pazaakMainDeckFactory
+                               : PazaakSession::MainDeckFactory(randomPazaakMainDeck);
+    pazaak::Participant firstParticipant =
+        randomInt(0, 1) == 0 ? pazaak::Participant::One : pazaak::Participant::Two;
+    auto firstParticipantSelector = _pazaakFirstParticipantSelector
+                                        ? _pazaakFirstParticipantSelector
+                                        : PazaakSession::FirstParticipantSelector(
+                                              [firstParticipant](size_t setIndex) {
+                                                  bool useInitial = setIndex % 2 == 0;
+                                                  if (useInitial) {
+                                                      return firstParticipant;
+                                                  }
+                                                  return firstParticipant == pazaak::Participant::One
+                                                             ? pazaak::Participant::Two
+                                                             : pazaak::Participant::One;
+                                              });
+
+    try {
+        _pazaakSession = std::make_unique<PazaakSession>(
+            std::move(params),
+            std::move(playerSelector),
+            std::move(opponentSelector),
+            std::move(mainDeckFactory),
+            std::move(firstParticipantSelector));
+    } catch (const std::exception &e) {
+        error("Unable to create Pazaak session: " + std::string(e.what()));
+        releasePazaakFlow(true);
+        return false;
+    }
+
+    if (!loadPazaakGUIs()) {
+        releasePazaakFlow(true);
+        return false;
+    }
+
+    if (_module && _module->area()) {
+        stopMovement();
+    }
+    setRelativeMouseMode(false);
+    setCursorType(CursorType::Default);
+    if (_pazaakSession->screen() == PazaakFlowScreen::Wager) {
+        if (_pazaakWager) {
+            _pazaakWager->refresh();
+        }
+        changeScreen(Screen::PazaakWager);
+    } else {
+        showPazaakSetup();
+    }
+    return true;
+}
+
+bool Game::loadPazaakGUIs() {
+    if (_pazaakGuiLoadOverride) {
+        _pazaakGUIsReady = _pazaakGuiLoadOverride();
+        return _pazaakGUIsReady;
+    }
+
+    _pazaakWager = tryLoadGUI<PazaakWagerGUI>();
+    _pazaakSetup = tryLoadGUI<PazaakSetupGUI>();
+    _pazaakBoard = tryLoadGUI<PazaakBoardGUI>();
+    _pazaakGUIsReady = _pazaakWager && _pazaakSetup && _pazaakBoard;
+    if (!_pazaakGUIsReady) {
+        _pazaakWager.reset();
+        _pazaakSetup.reset();
+        _pazaakBoard.reset();
+    }
+    return _pazaakGUIsReady;
+}
+
+void Game::showPazaakSetup() {
+    if (!_pazaakSession ||
+        !_pazaakGUIsReady ||
+        _pazaakSession->screen() != PazaakFlowScreen::Setup) {
+        return;
+    }
+    if (_pazaakSetup) {
+        _pazaakSetup->refresh();
+    }
+    changeScreen(Screen::PazaakSetup);
+}
+
+void Game::showPazaakBoard() {
+    if (!_pazaakSession ||
+        !_pazaakGUIsReady ||
+        _pazaakSession->screen() != PazaakFlowScreen::Board ||
+        !_pazaakSession->match()) {
+        return;
+    }
+    if (!_pazaakDevelopmentLaunch && !_pazaakSelectionPersisted) {
+        Party::PazaakSideDeck selected;
+        const auto &collection = _pazaakSession->collection();
+        const auto &chosen = _pazaakSession->chosenCards();
+        if (chosen.size() != selected.size()) {
+            error("Unable to persist Pazaak side deck: selection is incomplete");
+            return;
+        }
+        for (size_t i = 0; i < chosen.size(); ++i) {
+            if (chosen[i] >= collection.size() ||
+                collection[chosen[i]].persistentId < 0) {
+                error("Unable to persist Pazaak side deck: invalid collection mapping");
+                return;
+            }
+            selected[i] = collection[chosen[i]].persistentId;
+        }
+        _party.setPazaakSideDeck(std::move(selected));
+        _pazaakSelectionPersisted = true;
+    }
+    if (_pazaakBoard) {
+        _pazaakBoard->refresh();
+    }
+    changeScreen(Screen::PazaakBoard);
+    completePazaakIfReady();
+}
+
+void Game::cancelPazaak() {
+    if (!_pazaakSession || _pazaakSession->screen() == PazaakFlowScreen::Board) {
+        return;
+    }
+    bool developmentLaunch = _pazaakDevelopmentLaunch;
+    releasePazaakFlow(true);
+    if (developmentLaunch) {
+        _console.printLine("pazaak: development match cancelled");
+    }
+}
+
+void Game::abortPazaak() {
+    if (!_pazaakSession) {
+        return;
+    }
+    releasePazaakFlow(true);
+}
+
+void Game::completePazaakIfReady() {
+    if (!_pazaakSession ||
+        !_pazaakSession->completedResult() ||
+        _pazaakSession->presentationPending()) {
+        return;
+    }
+    finishPazaak(*_pazaakSession->completedResult());
+}
+
+void Game::finishPazaak(PazaakCompletedResult result) {
+    if (!_pazaakSession) {
+        return;
+    }
+
+    std::string continuation(_pazaakSession->continuationScript());
+    uint32_t opponentId = _pazaakSession->opponentId();
+    std::shared_ptr<Object> continuationCaller(_pazaakContinuationCaller.lock());
+    bool developmentLaunch = _pazaakDevelopmentLaunch;
+    int wager = _pazaakSession->wager();
+    bool callerValid = continuationCaller &&
+                       continuationCaller->id() == opponentId &&
+                       getObjectById(opponentId) == continuationCaller;
+    _lastPazaakResult = result;
+
+    if (!developmentLaunch && !_pazaakSettlementApplied) {
+        if (result == PazaakCompletedResult::PlayerWon) {
+            _party.giveGold(wager);
+        } else {
+            _party.takeGold(wager);
+        }
+        _pazaakSettlementApplied = true;
+    }
+
+    // Release ownership before external script execution so re-entrant or
+    // repeated completion cannot invoke the continuation twice.
+    releasePazaakFlow(true);
+
+    if (developmentLaunch) {
+        switch (result) {
+        case PazaakCompletedResult::PlayerWon:
+            _console.printLine("pazaak: development match completed - player won");
+            break;
+        case PazaakCompletedResult::OpponentWon:
+            _console.printLine("pazaak: development match completed - opponent won");
+            break;
+        case PazaakCompletedResult::PlayerForfeited:
+            _console.printLine("pazaak: development match completed - player forfeited");
+            break;
+        }
+    }
+
+    if (continuation.empty()) {
+        return;
+    }
+    if (!callerValid) {
+        error("Pazaak continuation skipped because its caller is no longer valid");
+        return;
+    }
+    if (_pazaakContinuationOverride) {
+        _pazaakContinuationOverride(continuation, opponentId);
+    } else if (_scriptRunner) {
+        _scriptRunner->run(continuation, opponentId);
+    }
+}
+
+Game::Screen Game::safePazaakOriginScreen() const {
+    switch (_pazaakOriginScreen) {
+    case Screen::PazaakWager:
+    case Screen::PazaakSetup:
+    case Screen::PazaakBoard:
+        return _module ? Screen::InGame : Screen::None;
+    case Screen::Conversation:
+        // The dialogue may finish after its action script opens Pazaak.
+        // Returning to the world cannot strand an ended conversation GUI.
+        return _module ? Screen::InGame : Screen::None;
+    default:
+        return _pazaakOriginScreen;
+    }
+}
+
+void Game::releasePazaakFlow(bool restoreOrigin) {
+    Screen restore = safePazaakOriginScreen();
+    _pazaakSession.reset();
+    _pazaakWager.reset();
+    _pazaakSetup.reset();
+    _pazaakBoard.reset();
+    _pazaakGUIsReady = false;
+    _pazaakContinuationCaller.reset();
+    _pazaakDevelopmentLaunch = false;
+    _pazaakSelectionPersisted = false;
+    _pazaakSettlementApplied = false;
+    _pazaakShowcaseHands = false;
+    _pazaakOpponentEventElapsed = 0.0f;
+    if (restoreOrigin) {
+        changeScreen(restore);
+    }
+    _pazaakOriginScreen = Screen::None;
+}
+
 void Game::openLevelUp() {
     if (!_charGen) {
         _charGen = tryLoadGUI<CharacterGeneration>();
@@ -2265,6 +2934,12 @@ GameGUI *Game::getScreenGUI() const {
         return _saveLoad.get();
     case Screen::SwoopRace:
         return nullptr; // race skeleton has no HUD yet
+    case Screen::PazaakWager:
+        return _pazaakWager.get();
+    case Screen::PazaakSetup:
+        return _pazaakSetup.get();
+    case Screen::PazaakBoard:
+        return _pazaakBoard.get();
     default:
         return nullptr;
     }
@@ -2993,6 +3668,44 @@ void Game::consoleLoadGame(const ConsoleArgs &args) {
     auto name = _saveNames.begin();
     std::advance(name, id);
     loadGame(*name);
+}
+
+void Game::consoleStartPazaak(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    if (!_options.game.developer) {
+        _console.printLine("pazaak: developer mode required");
+        return;
+    }
+    if (_pazaakSession) {
+        _console.printLine("pazaak: already active");
+        return;
+    }
+    if (!_module || _screen != Screen::InGame) {
+        _console.printLine("pazaak: no active in-game module");
+        return;
+    }
+
+    std::shared_ptr<Object> selected(_pazaakDevelopmentSelectedObjectOverride.lock());
+    if (!selected) {
+        if (auto area = _module->area()) {
+            selected = area->selectedObject();
+        }
+    }
+
+    std::string opponentName("Pazaak Opponent");
+    if (selected && selected->type() == ObjectType::Creature) {
+        if (!selected->name().empty()) {
+            opponentName = selected->name();
+        } else if (!selected->tag().empty()) {
+            opponentName = selected->tag();
+        }
+    }
+
+    if (!startDevelopmentPazaak(opponentName)) {
+        _console.printLine("pazaak: development launch failed");
+        return;
+    }
+    _console.printLine("pazaak: development match started against " + opponentName);
 }
 
 void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
