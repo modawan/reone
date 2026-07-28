@@ -21,6 +21,7 @@
 #include "reone/game/action/usefeat.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/reputes.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
 #include "reone/system/logutil.h"
@@ -196,13 +197,49 @@ void Combat::finishRound(CombatRound &round) {
         }
     }
 
+    std::shared_ptr<Creature> leader = _game.party().getLeader();
     for (uint32_t id : objects) {
         std::shared_ptr<Object> object = _game.getObjectById(id);
         if (object && isa<Creature>(object)) {
             auto &participant = cast<Creature>(*object);
-            participant.runEndRoundScript();
+            if (!leader || participant.id() != leader->id()) {
+                participant.runEndRoundScript();
+            }
             participant.deactivateCombat(kDeactivateDelay);
         }
+    }
+
+    if (!leader || leader->isDead()) {
+        return;
+    }
+
+    for (CombatRound::RoundAction &action : round.actions) {
+        if (action.attacker != leader->id() || leader->getCurrentAction() != action.action) {
+            continue;
+        }
+
+        bool hasPendingAction = false;
+        for (const std::shared_ptr<Action> &queued : leader->actions()) {
+            if (queued != action.action && !queued->isCompleted()) {
+                hasPendingAction = true;
+                break;
+            }
+        }
+        if (hasPendingAction) {
+            continue;
+        }
+
+        std::shared_ptr<Object> target = _game.getObjectById(action.target);
+        if (!target || target->isDead()) {
+            continue;
+        }
+        if (auto creature = dyn_cast<Creature>(target)) {
+            if (!_services.game.reputes.getIsEnemy(*leader, *creature)) {
+                continue;
+            }
+        }
+
+        leader->addAction(_game.newAction<AttackObjectAction>(std::move(target)));
     }
 }
 
