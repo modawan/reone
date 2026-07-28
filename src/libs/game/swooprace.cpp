@@ -76,7 +76,7 @@ void SwoopRace::start(const MinigameSpec &spec,
     _lateralAccel = spec.lateralAccel;
     _camFov = spec.cameraViewAngle;
     _trackResRef = spec.player.trackResRef;
-    _modelCount = spec.player.modelResRefs.size();
+    _modelCount = spec.player.models.size();
     _finishProgress = finishProgress;
 
     computeLateralBounds(spec.player);

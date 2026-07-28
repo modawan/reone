@@ -2002,7 +2002,8 @@ void Game::openSwoopRace() {
     std::vector<std::shared_ptr<ModelSceneNode>> bikeChildNodes;
     std::vector<std::string> modelDiag;
     bool anyMissing = false;
-    for (const auto &resRef : mg.player.modelResRefs) {
+    for (const auto &modelSpec : mg.player.models) {
+        const auto &resRef = modelSpec.resRef;
         if (resRef.empty()) {
             continue;
         }
@@ -2101,7 +2102,7 @@ void Game::openSwoopRace() {
     debug(str(boost::format("swoop: started type=%s track=%s models=%zu loaded=%zu camera=chase movePerSec=%.0f lataccel=%.0f camfov=%.0f")
               % minigameTypeName(mg.type)
               % mg.player.trackResRef
-              % mg.player.modelResRefs.size()
+              % mg.player.models.size()
               % loadedCount
               % mg.movementPerSec
               % mg.lateralAccel
@@ -3744,7 +3745,7 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
                            % mg.player.maximumSpeed
                            % mg.player.accelSecs
                            % mg.player.hitPoints
-                           % mg.player.modelResRefs.size()));
+                           % mg.player.models.size()));
     _console.printLine(str(boost::format("  tunnel (deg): X=[%.1f,%.1f] Y=[%.1f,%.1f] Z=[%.1f,%.1f]")
                            % mg.player.tunnelXNeg % mg.player.tunnelXPos
                            % mg.player.tunnelYNeg % mg.player.tunnelYPos
@@ -3759,7 +3760,7 @@ void Game::consoleMiniGameInfo(const ConsoleArgs &args) {
     for (size_t i = 0; i < mg.enemies.size(); ++i) {
         const auto &e = mg.enemies[i];
         _console.printLine(str(boost::format("    enemy[%zu] track=%s hp=%u models=%zu")
-                               % i % e.trackResRef % e.hitPoints % e.modelResRefs.size()));
+                               % i % e.trackResRef % e.hitPoints % e.models.size()));
     }
     for (size_t i = 0; i < mg.obstacles.size(); ++i) {
         _console.printLine(str(boost::format("    obstacle[%zu] name=%s") % i % mg.obstacles[i].name));
