@@ -83,7 +83,7 @@ void Object::deserialize(const resource::Gff &gff) {
 void Object::update(float dt) {
     updateActions(dt);
     updateEffects(dt);
-    if (!_dead) {
+    if (!_dead && canExecuteActions()) {
         executeActions(dt);
     }
     if (_sceneNode && _sceneNode->type() == SceneNodeType::Model) {
@@ -122,6 +122,7 @@ void Object::clearAllActions(bool force) {
                     break;
                 }
                 action->cancel(action, *this);
+                action->markCancelled();
                 _actions.pop_front();
             }
             if (!_actions.empty() && _actions.front() == executingAction) {
@@ -136,6 +137,7 @@ void Object::clearAllActions(bool force) {
             break;
         }
         _actions.back()->cancel(action, *this);
+        action->markCancelled();
         _actions.pop_back();
     }
 }
@@ -205,11 +207,12 @@ void Object::executeActions(float dt) {
     _executingAction.reset();
 }
 
-bool Object::hasUserActionsPending() const {
+bool Object::hasUserActionsPending(const Action *excluded) const {
     // TODO: must only work during combat
-    for (auto &action : _actions) {
-        if (action->isUserAction())
+    for (const auto &action : _actions) {
+        if (action.get() != excluded && action->isUserAction()) {
             return true;
+        }
     }
     return false;
 }
@@ -361,19 +364,19 @@ void Object::moveDropableItemsTo(Object &other) {
 
 void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration) {
     if (durationType == DurationType::Instant) {
-        applyInstantEffect(*effect);
+        if (effect->onApply(*this)) {
+            effect->onRemove(*this);
+        }
     } else {
         AppliedEffect appliedEffect;
         appliedEffect.effect = effect;
         appliedEffect.durationType = durationType;
         appliedEffect.duration = duration;
         _effects.push_back(std::move(appliedEffect));
-        applyInstantEffect(*_effects.back().effect);
+        if (!_effects.back().effect->onApply(*this)) {
+            _effects.pop_back();
+        }
     }
-}
-
-void Object::applyInstantEffect(Effect &effect) {
-    effect.applyTo(*this);
 }
 
 void Object::updateEffects(float dt) {
@@ -384,7 +387,9 @@ void Object::updateEffects(float dt) {
             effect.duration = glm::max(0.0f, effect.duration - dt);
         }
         if (temporary && effect.duration == 0.0f) {
+            std::shared_ptr<Effect> removed = effect.effect;
             it = _effects.erase(it);
+            removed->onRemove(*this);
         } else {
             ++it;
         }
@@ -466,7 +471,47 @@ std::shared_ptr<Item> Object::getItemByTag(const std::string &tag) {
 }
 
 void Object::clearAllEffects() {
+    std::vector<std::shared_ptr<Effect>> removed;
+    removed.reserve(_effects.size());
+    for (AppliedEffect &effect : _effects) {
+        removed.push_back(std::move(effect.effect));
+    }
     _effects.clear();
+
+    for (const std::shared_ptr<Effect> &effect : removed) {
+        effect->onRemove(*this);
+    }
+    onEffectsCleared();
+}
+
+void Object::removeEffect(const std::shared_ptr<Effect> &effect) {
+    for (auto it = _effects.begin(); it != _effects.end(); ++it) {
+        if (it->effect == effect) {
+            std::shared_ptr<Effect> removed = it->effect;
+            _effects.erase(it);
+            removed->onRemove(*this);
+            return;
+        }
+    }
+}
+
+bool Object::hasEffect(EffectType type) const {
+    return std::any_of(
+        _effects.begin(),
+        _effects.end(),
+        [type](const AppliedEffect &applied) {
+            return applied.effect->type() == type;
+        });
+}
+
+int Object::applyDamageToHitPoints(int amount, int currentHitPoints) {
+    bool minimumOne = isMinOneHP();
+    int minimumHitPoints = minimumOne ? 1 : 0;
+    int adjustedAmount = minimumOne
+                             ? std::min(amount, std::max(0, currentHitPoints - minimumHitPoints))
+                             : amount;
+    _currentHitPoints = std::max(minimumHitPoints, currentHitPoints - amount);
+    return adjustedAmount;
 }
 
 void Object::damage(int amount, uint32_t damager) {

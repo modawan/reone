@@ -33,6 +33,9 @@ public:
 
     void applyTo(Object &object) override;
 
+    int penalty() const { return _penalty; }
+    AttackBonus modifierType() const { return _modifierType; }
+
 private:
     int _penalty;
     AttackBonus _modifierType;

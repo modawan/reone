@@ -64,6 +64,11 @@ public:
      */
     int getAttackBonus(int level) const;
 
+    /**
+     * @return defense bonus at the specified creature level
+     */
+    int getDefenseBonus(int level) const;
+
     ClassType type() const { return _type; }
     const std::string &name() const { return _name; }
     const std::string &description() const { return _description; }
@@ -91,6 +96,7 @@ private:
     std::unordered_map<int, int> _featGainsByLevel;
     std::unordered_map<int, int> _powerGainsByLevel;
     std::vector<int> _attackBonuses;
+    std::vector<int> _defenseBonuses;
 
     // Services
 
@@ -104,6 +110,7 @@ private:
     void loadClassSkills(const std::string &skillsTable);
     void loadSavingThrows(const std::string &savingThrowTable);
     void loadAttackBonuses(const std::string &attackBonusTable);
+    void loadDefenseBonuses(const std::string &defenseBonusColumn);
     void loadFeatListValues(const std::string &featsPrefix);
     void loadFeatGains(const std::string &featGainPrefix);
     void loadPowerGains(const std::string &powerGainPrefix);

@@ -27,7 +27,9 @@ static constexpr int kDefaultAbilityScore = 8;
 static constexpr int kDefaultSkillRank = 0;
 
 int CreatureAttributes::getDefense() const {
-    return 10 + getAbilityModifier(Ability::Dexterity);
+    return 10 +
+           getAggregateDefenseBonus() +
+           getAbilityModifier(Ability::Dexterity);
 }
 
 int CreatureAttributes::getAbilityScore(Ability ability) const {
@@ -37,7 +39,7 @@ int CreatureAttributes::getAbilityScore(Ability ability) const {
 
 int CreatureAttributes::getAbilityModifier(Ability ability) const {
     int score = getAbilityScore(ability);
-    return (score - 10) / 2;
+    return score >= 10 ? (score - 10) / 2 : (score - 11) / 2;
 }
 
 int CreatureAttributes::strength() const {
@@ -122,11 +124,19 @@ int CreatureAttributes::getAggregateAttackBonus() const {
     return result;
 }
 
+int CreatureAttributes::getAggregateDefenseBonus() const {
+    int result = 0;
+    for (auto &pair : _classLevels) {
+        result += pair.first->getDefenseBonus(pair.second);
+    }
+    return result;
+}
+
 SavingThrows CreatureAttributes::getAggregateSavingThrows() const {
     SavingThrows result;
-    result.fortitude = 1;
-    result.reflex = 1;
-    result.will = 1;
+    result.fortitude = 0;
+    result.reflex = 0;
+    result.will = 0;
     for (auto &pair : _classLevels) {
         auto classThrows = pair.first->getSavingThrows(pair.second);
         result.fortitude += classThrows.fortitude;

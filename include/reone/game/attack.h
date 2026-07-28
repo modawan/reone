@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "reone/game/effect/damage.h"
 #include "reone/game/types.h"
 #include "reone/system/smallvector.h"
 #include "reone/system/timeevents.h"
@@ -55,15 +56,6 @@ AttackResultType computeWeaponAttack(
     int rollBonus = 0, int threatBonus = 0);
 
 /**
- * Descriptor for a delayed DamageEffect.
- */
-struct Damage {
-    int amount;
-    DamageType type;
-    DamagePower power;
-};
-
-/**
  * Predicate for melee weapon.
  *
  * Stun Baton and Hand-to-Hand is NOT a melee weapon. These require special
@@ -83,33 +75,71 @@ bool isRangedWieldType(CreatureWieldType type);
 bool isAttackSuccessful(AttackResultType result);
 
 /**
+ * Predicate for feats that resolve as a physical weapon or unarmed attack.
+ */
+bool isPhysicalAttackFeat(FeatType feat);
+
+struct AttackBonusBreakdown {
+    int baseAttackBonus {0};
+    int strengthModifier {0};
+    int dexterityModifier {0};
+    int dualWieldPenalty {0};
+    int smallOffhandBonus {0};
+    int featBonus {0};
+    FeatType duelingFeat {FeatType::Invalid};
+    int duelingBonus {0};
+    int closeProximityRangedBonus {0};
+    int meleeOnRangedBonus {0};
+    int weaponFocusBonus {0};
+    int effectBonus {0};
+
+    int total() const {
+        return baseAttackBonus +
+               strengthModifier +
+               dexterityModifier +
+               dualWieldPenalty +
+               smallOffhandBonus +
+               featBonus +
+               duelingBonus +
+               closeProximityRangedBonus +
+               meleeOnRangedBonus +
+               weaponFocusBonus +
+               effectBonus;
+    }
+};
+
+/**
  * Make and collect multiple attacks, but delay damage effects until later.
  */
 class AttackBuffer {
 public:
-    /**
-     * Calculate attack roll and damage effects for a weapon attack. Damage is
-     * added to AttackBuffer, and can be applied later with applyEffects().
-     */
-    void addWeaponAttack(const Creature &attacker, const Object &target, const Item &weapon,
-                         int attackRollBonus = 0,
-                         int attackThreatBonus = 0,
-                         int damageBonus = 0);
+    enum class Source {
+        Main,
+        Offhand,
+    };
 
     /**
-     * Calculate attack roll and damage effects for an unarmed attack. Damage is
-     * added to AttackBuffer, and can be applied later with applyEffects().
+     * Construct an ordered physical attack round from the attacker's equipped
+     * weapons, active effects, and optional combat feat.
      */
-    void addUnarmedAttack(const Creature &attacker, const Object &target,
-                          int attackRollBonus = 0,
-                          int attackThreatBonus = 0,
-                          int damageBonus = 0);
+    void addPhysicalAttacks(const Creature &attacker, const Object &target,
+                            FeatType feat = FeatType::Invalid);
 
     /**
-     * Apply all previously collected damage effects from \p attacker to \p
-     * target.
+     * Apply the once-per-action effects of a melee combat feat.
      */
-    void applyEffects(Creature &attacker, Object &target, Game &game);
+    void resolveMeleeSpecialAttack(
+        FeatType feat,
+        Creature &attacker,
+        Object &target,
+        Game &game);
+
+    void resolve(Creature &attacker, Object &target);
+    void signal(
+        Game &game,
+        ServicesView &services,
+        Creature &attacker,
+        Object &target);
 
     /**
      * Get the best result for a series of attacks collected in AttackBuffer.
@@ -118,14 +148,51 @@ public:
 
 private:
     struct Attack {
-        explicit Attack(AttackResultType result) :
-            result(result) {}
+        Attack(
+            Source source,
+            bool ranged,
+            AttackResultType result,
+            int roll,
+            AttackBonusBreakdown attackBonusBreakdown,
+            int defense,
+            bool assuredHit) :
+            source(source),
+            ranged(ranged),
+            result(result),
+            roll(roll),
+            attackBonusBreakdown(std::move(attackBonusBreakdown)),
+            defense(defense),
+            assuredHit(assuredHit) {}
 
+        Source source;
+        bool ranged;
         AttackResultType result;
-        SmallVector<Damage, 4> damage;
+        int roll;
+        AttackBonusBreakdown attackBonusBreakdown;
+        int defense;
+        bool assuredHit;
+        bool stunTarget {false};
+        DamagePacket damage;
     };
 
+    void addPhysicalAttack(
+        const Creature &attacker,
+        const Object &target,
+        const Item *weapon,
+        Source source,
+        int attackRollBonus,
+        int attackThreatBonus,
+        int damageBonus);
+    void resolveDamage(Object &target);
+    void applyEffects(Creature &attacker, Object &target, Game &game);
+    void addCombatFeedback(
+        Game &game,
+        ServicesView &services,
+        const Creature &attacker,
+        const Object &target) const;
+
     SmallVector<Attack, 8> _attacks;
+    FeatType _feat {FeatType::Invalid};
 };
 
 /**

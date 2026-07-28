@@ -27,6 +27,14 @@ void Effect::applyTo(Object &object) {
     debug("Unsupported effect type: " + std::to_string(static_cast<int>(_type)));
 }
 
+bool Effect::onApply(Object &object) {
+    applyTo(object);
+    return true;
+}
+
+void Effect::onRemove(Object &object) {
+}
+
 } // namespace game
 
 } // namespace reone

@@ -21,6 +21,7 @@
 #include "reone/scene/graph.h"
 #include "reone/scene/node.h"
 #include "reone/scene/user.h"
+#include "reone/script/types.h"
 #include "reone/system/cast.h"
 #include "reone/system/timer.h"
 
@@ -98,6 +99,7 @@ public:
 
     void setTag(std::string tag) { _tag = std::move(tag); }
     void setConversation(std::string conversation) { _conversation = std::move(conversation); }
+    void setName(std::string name) { _name = std::move(name); }
     void setPlotFlag(bool plot) { _plot = plot; }
     void setCommandable(bool commandable) { _commandable = commandable; }
     void setIsInConversation(bool isInConversation) { _isInConversation = isInConversation; }
@@ -134,6 +136,7 @@ public:
     // Effects
 
     void clearAllEffects();
+    void removeEffect(const std::shared_ptr<Effect> &effect);
     void applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration = 0.0f);
 
     struct AppliedEffect {
@@ -143,6 +146,7 @@ public:
     };
 
     const std::deque<AppliedEffect> &effects() const { return _effects; }
+    bool hasEffect(EffectType type) const;
     std::shared_ptr<Effect> getFirstEffect();
     std::shared_ptr<Effect> getNextEffect();
 
@@ -189,13 +193,21 @@ public:
     void addActionOnTop(std::shared_ptr<Action> action);
     void delayAction(std::shared_ptr<Action> action, float seconds);
 
-    bool hasUserActionsPending() const;
+    bool hasUserActionsPending(const Action *excluded = nullptr) const;
 
     std::shared_ptr<Action> getCurrentAction() const;
 
     const std::deque<std::shared_ptr<Action>> &actions() const { return _actions; }
 
     // END Actions
+
+    // Combat
+
+    uint32_t getLastHostileActor() const { return _lastHostileActor; }
+
+    void setLastHostileActor(uint32_t actor) { _lastHostileActor = actor; }
+
+    // END Combat
 
     // Local variables
 
@@ -271,6 +283,8 @@ protected:
 
     // END Actions
 
+    uint32_t _lastHostileActor {script::kObjectInvalid};
+
     // Local variables
 
     std::map<int, bool> _localBooleans;
@@ -292,6 +306,7 @@ protected:
     }
 
     virtual void updateTransform();
+    virtual bool canExecuteActions() const { return true; }
 
     // Actions
 
@@ -306,7 +321,9 @@ protected:
     // Effects
 
     void updateEffects(float dt);
-    void applyInstantEffect(Effect &effect);
+    virtual void onEffectsCleared() {}
+
+    int applyDamageToHitPoints(int amount, int currentHitPoints);
 
     // END Effects
 };

@@ -34,6 +34,8 @@ public:
     }
 
     virtual void applyTo(Object &object);
+    virtual bool onApply(Object &object);
+    virtual void onRemove(Object &object);
 
     EffectType type() const { return _type; }
 

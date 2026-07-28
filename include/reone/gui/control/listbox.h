@@ -19,6 +19,8 @@
 
 #include "../control.h"
 
+#include <optional>
+
 namespace reone {
 
 namespace gui {
@@ -38,6 +40,7 @@ public:
         std::string iconText;
         std::shared_ptr<graphics::Texture> iconTexture;
         std::shared_ptr<graphics::Texture> iconFrame;
+        std::optional<glm::vec3> textColor;
         bool invalid {false};
 
         std::vector<std::string> _textLines;
@@ -81,6 +84,7 @@ public:
     void setItemsInteractive(bool interactive);
     void setProtoMatchContent(bool match);
     void setRenderItemIconsForButtonProto(bool render);
+    void scrollToBottom();
 
     int getItemCount() const;
     const Item &getItemAt(int index) const;
@@ -105,7 +109,6 @@ private:
     int _slotCount {0};
     int _itemOffset {0};
     int _selectedItemIndex {-1};
-    int _itemMargin {0};
     bool _itemsInteractive {true};
     bool _protoMatchContent {false}; /**< proto item height must match its content */
     bool _renderItemIconsForButtonProto {false};
@@ -118,7 +121,11 @@ private:
     // END Event listeners
 
     void updateItemSlots();
+    void updateItemsLayout();
 
+    int getInnerHeight() const;
+    int getItemWidth() const;
+    int getItemHeight(const Item &item) const;
     int getItemTextWidth() const;
     int getItemIndex(int y) const;
     bool shouldRenderItemIconsForButtonProto() const;
