@@ -18,6 +18,7 @@
 #include "reone/game/attack.h"
 
 #include "reone/game/di/services.h"
+#include "reone/game/effect/modifyattacks.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
@@ -94,18 +95,15 @@ static const char *attackResultDesc(AttackResultType type) {
     return "invalid";
 }
 
-static int getWeaponAttackBonus(const Creature &attacker, const Item &weapon) {
-    auto rightWeapon(attacker.getEquippedItem(InventorySlots::rightWeapon));
-    auto leftWeapon(attacker.getEquippedItem(InventorySlots::leftWeapon));
-
+static int getWeaponAttackBonus(const Creature &attacker, const Item &weapon,
+                                AttackBuffer::Source source) {
     Ability ability = weapon.isRanged() ? Ability::Dexterity : Ability::Strength;
     int modifier = attacker.attributes().getAbilityModifier(ability);
 
     int penalty = 0;
-    if (rightWeapon && leftWeapon) {
+    if (attacker.isTwoWeaponFighting()) {
         // TODO: support Dueling and Two-Weapon Fighting feats
-        bool offHand = (&weapon != rightWeapon.get());
-        penalty = offHand ? 10 : 6;
+        penalty = source == AttackBuffer::Source::Offhand ? 10 : 6;
     }
 
     int effects = attacker.attributes().getAggregateAttackBonus();
@@ -219,17 +217,74 @@ static void computeUnarmedDamage(
           LogChannel::Combat);
 }
 
+static int getBonusEffectAttacks(const Creature &attacker) {
+    int attacks = 0;
+
+    for (const Object::AppliedEffect &applied : attacker.effects()) {
+        if (applied.effect->type() != EffectType::ModifyAttacks) {
+            continue;
+        }
+
+        const auto &effect = static_cast<const ModifyAttacksEffect &>(*applied.effect);
+        attacks = std::clamp(attacks + effect.attacks(), 0, 2);
+    }
+
+    return attacks;
+}
+
+static bool grantsExtraMainHandAttack(FeatType feat) {
+    switch (feat) {
+    case FeatType::Flurry:
+    case FeatType::ImprovedFlurry:
+    case FeatType::WhirlwindAttack:
+    case FeatType::RapidShot:
+    case FeatType::ImprovedRapidShot:
+    case FeatType::MultiShot:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void AttackBuffer::addPhysicalAttacks(const Creature &attacker, const Object &target,
+                                      FeatType feat) {
+    int mainHandAttacks = 1 + getBonusEffectAttacks(attacker);
+    if (grantsExtraMainHandAttack(feat)) {
+        ++mainHandAttacks;
+    }
+
+    auto main = attacker.getEquippedItem(InventorySlots::rightWeapon);
+    if (!main) {
+        for (int i = 0; i < mainHandAttacks; ++i) {
+            addUnarmedAttack(attacker, target);
+        }
+        return;
+    }
+
+    for (int i = 0; i < mainHandAttacks; ++i) {
+        addWeaponAttack(attacker, target, *main, AttackBuffer::Source::Main);
+    }
+
+    auto offhand = attacker.getEquippedItem(InventorySlots::leftWeapon);
+    if (main->weaponWield() == WeaponWield::DoubleBladedSword) {
+        offhand = main;
+    }
+    if (offhand) {
+        addWeaponAttack(attacker, target, *offhand, AttackBuffer::Source::Offhand);
+    }
+}
+
 void AttackBuffer::addWeaponAttack(
     const Creature &attacker, const Object &target, const Item &weapon,
-    int attackRollBonus, int attackThreatBonus, int damageBonus) {
+    Source source, int attackRollBonus, int attackThreatBonus, int damageBonus) {
 
-    attackRollBonus += getWeaponAttackBonus(attacker, weapon);
+    attackRollBonus += getWeaponAttackBonus(attacker, weapon, source);
     attackThreatBonus += weapon.criticalThreat();
 
     AttackResultType result = computeAttack(
         attacker, target, attackRollBonus, attackThreatBonus);
 
-    _attacks.emplace_back(result);
+    _attacks.emplace_back(source, result);
 
     if (!isAttackSuccessful(result)) {
         return;
@@ -244,7 +299,7 @@ void AttackBuffer::addUnarmedAttack(const Creature &attacker, const Object &targ
     AttackResultType result = computeAttack(
         attacker, target, attackRollBonus, attackThreatBonus);
 
-    _attacks.emplace_back(result);
+    _attacks.emplace_back(AttackBuffer::Source::Main, result);
 
     if (!isAttackSuccessful(result)) {
         return;
@@ -289,6 +344,12 @@ AttackResultType AttackBuffer::result() const {
     }
 
     return sortedByScore[bestIndex];
+}
+
+AttackResultType AttackBuffer::lastResult() const {
+    return _attacks.empty()
+               ? AttackResultType::Invalid
+               : _attacks.back().result;
 }
 
 std::shared_ptr<Item> determineProjectileWeapon(Creature &attacker, Projectile::Source source) {

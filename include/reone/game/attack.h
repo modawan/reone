@@ -87,11 +87,24 @@ bool isAttackSuccessful(AttackResultType result);
  */
 class AttackBuffer {
 public:
+    enum class Source {
+        Main,
+        Offhand,
+    };
+
+    /**
+     * Construct an ordered physical attack round from the attacker's equipped
+     * weapons, active effects, and optional combat feat.
+     */
+    void addPhysicalAttacks(const Creature &attacker, const Object &target,
+                            FeatType feat = FeatType::Invalid);
+
     /**
      * Calculate attack roll and damage effects for a weapon attack. Damage is
      * added to AttackBuffer, and can be applied later with applyEffects().
      */
     void addWeaponAttack(const Creature &attacker, const Object &target, const Item &weapon,
+                         Source source = Source::Main,
                          int attackRollBonus = 0,
                          int attackThreatBonus = 0,
                          int damageBonus = 0);
@@ -116,11 +129,17 @@ public:
      */
     AttackResultType result() const;
 
+    /**
+     * Get the result of the final attack in the round.
+     */
+    AttackResultType lastResult() const;
+
 private:
     struct Attack {
-        explicit Attack(AttackResultType result) :
-            result(result) {}
+        Attack(Source source, AttackResultType result) :
+            source(source), result(result) {}
 
+        Source source;
         AttackResultType result;
         SmallVector<Damage, 4> damage;
     };

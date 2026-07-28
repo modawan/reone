@@ -749,7 +749,12 @@ void Creature::deactivateCombat(float delay) {
 }
 
 bool Creature::isTwoWeaponFighting() const {
-    return static_cast<bool>(getEquippedItem(InventorySlots::leftWeapon));
+    if (getEquippedItem(InventorySlots::leftWeapon)) {
+        return true;
+    }
+
+    auto main = getEquippedItem(InventorySlots::rightWeapon);
+    return main && main->weaponWield() == WeaponWield::DoubleBladedSword;
 }
 
 std::shared_ptr<Object> Creature::getAttemptedAttackTarget() const {
@@ -781,7 +786,7 @@ int Creature::getAttackBonus(bool offHand) const {
     }
 
     int penalty;
-    if (rightWeapon && leftWeapon) {
+    if (isTwoWeaponFighting()) {
         // TODO: support Dueling and Two-Weapon Fighting feats
         penalty = offHand ? 10 : 6;
     } else {

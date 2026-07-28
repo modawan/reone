@@ -68,16 +68,7 @@ static std::string getStunBatonAttackAnim(int variant) {
 
 static void attack(const CombatRound &round, Creature &attacker, Object &target,
                    const IAnimations &anims, AttackBuffer &attacks) {
-
-    if (auto main = attacker.getEquippedItem(InventorySlots::rightWeapon)) {
-        attacks.addWeaponAttack(attacker, target, *main);
-
-        if (auto offhand = attacker.getEquippedItem(InventorySlots::leftWeapon)) {
-            attacks.addWeaponAttack(attacker, target, *offhand);
-        }
-    } else {
-        attacks.addUnarmedAttack(attacker, target);
-    }
+    attacks.addPhysicalAttacks(attacker, target);
 
     scene::AnimationProperties animProp =
         scene::AnimationProperties::fromFlags(scene::AnimationFlags::blend);
@@ -171,7 +162,7 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         attacker.setMovementRestricted(true);
 
         attack(round, attacker, *_target, _services.game.animations, _attacks);
-        attacker.setLastAttackResult(_attacks.result());
+        attacker.setLastAttackResult(_attacks.lastResult());
 
         if (auto target = dyn_cast<Creature>(_target)) {
             target->runAttackedScript(attacker.id());

@@ -32,6 +32,8 @@ public:
 
     void applyTo(Object &object) override;
 
+    int attacks() const { return _attacks; }
+
 private:
     int _attacks;
 };
