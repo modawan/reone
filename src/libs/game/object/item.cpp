@@ -144,6 +144,7 @@ void Item::deserializeBase(const resource::Gff &gff) {
     _numDice = baseItems->getInt(_baseItem, "numdice");
     _weaponType = static_cast<WeaponType>(baseItems->getInt(_baseItem, "weapontype"));
     _weaponWield = static_cast<WeaponWield>(baseItems->getInt(_baseItem, "weaponwield"));
+    _weaponFocusFeat = static_cast<FeatType>(baseItems->getInt(_baseItem, "weaponfocusfeat"));
 
     std::string iconResRef;
     if (isEquippable(InventorySlots::body)) {

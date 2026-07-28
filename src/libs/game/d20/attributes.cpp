@@ -37,7 +37,7 @@ int CreatureAttributes::getAbilityScore(Ability ability) const {
 
 int CreatureAttributes::getAbilityModifier(Ability ability) const {
     int score = getAbilityScore(ability);
-    return (score - 10) / 2;
+    return score >= 10 ? (score - 10) / 2 : (score - 11) / 2;
 }
 
 int CreatureAttributes::strength() const {

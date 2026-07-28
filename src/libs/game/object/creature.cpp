@@ -24,6 +24,8 @@
 #include "reone/game/animationutil.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/di/services.h"
+#include "reone/game/effect/attackdecrease.h"
+#include "reone/game/effect/attackincrease.h"
 #include "reone/game/footstepsounds.h"
 #include "reone/game/game.h"
 #include "reone/game/portraits.h"
@@ -64,6 +66,7 @@ namespace reone {
 namespace game {
 
 static constexpr int kStrRefRemains = 38151;
+static constexpr int kAttackPenaltyCostTable = 20;
 static constexpr float kKeepPathDuration = 1000.0f;
 
 static std::string g_talkDummyNode("talkdummy");
@@ -82,6 +85,76 @@ static int getEquipabilitySlot(int slot) {
     default:
         return slot;
     }
+}
+
+static bool attackModifierApplies(
+    AttackBonus modifierType,
+    const Item *weapon,
+    bool offHand) {
+
+    switch (modifierType) {
+    case AttackBonus::Misc:
+        return true;
+    case AttackBonus::Onhand:
+        return weapon && !offHand;
+    case AttackBonus::Offhand:
+        return weapon && offHand;
+    default:
+        return false;
+    }
+}
+
+static bool equippedItemAppliesToAttack(
+    int slot,
+    const Item &item,
+    const Item *weapon,
+    bool offHand) {
+
+    switch (slot) {
+    case InventorySlots::rightWeapon:
+        return weapon == &item &&
+               (!offHand || item.weaponWield() == WeaponWield::DoubleBladedSword);
+    case InventorySlots::leftWeapon:
+        return weapon == &item && offHand;
+    case InventorySlots::hands:
+        return !weapon && !offHand;
+    case InventorySlots::cWeaponL:
+    case InventorySlots::cWeaponR:
+    case InventorySlots::cWeaponB:
+    case InventorySlots::rightWeapon2:
+    case InventorySlots::leftWeapon2:
+        return false;
+    default:
+        return true;
+    }
+}
+
+static bool isHandSpecificAttackModifierSlot(int slot) {
+    switch (slot) {
+    case InventorySlots::rightWeapon:
+    case InventorySlots::leftWeapon:
+    case InventorySlots::hands:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static void addAttackModifier(int modifier, int &bonus, int &penalty) {
+    if (modifier > 0) {
+        bonus += modifier;
+    } else if (modifier < 0) {
+        penalty -= modifier;
+    }
+}
+
+static std::shared_ptr<TwoDA> getAttackPenaltyCostTable(ServicesView &services) {
+    auto costTables = services.resource.twoDas.get("iprp_costtable");
+    if (!costTables) {
+        return nullptr;
+    }
+    auto tableName = costTables->getStringOpt(kAttackPenaltyCostTable, "name");
+    return tableName ? services.resource.twoDas.get(*tableName) : nullptr;
 }
 
 Creature::Creature(
@@ -773,27 +846,152 @@ std::shared_ptr<Object> Creature::getAttemptedAttackTarget() const {
     return target;
 }
 
-int Creature::getAttackBonus(bool offHand) const {
-    auto rightWeapon(getEquippedItem(InventorySlots::rightWeapon));
-    auto leftWeapon(getEquippedItem(InventorySlots::leftWeapon));
-    auto &weapon = offHand ? leftWeapon : rightWeapon;
+int Creature::getAttackBonus(const Item *weapon, bool offHand) const {
+    int strengthModifier = _attributes.getAbilityModifier(Ability::Strength);
+    int dexterityModifier = _attributes.getAbilityModifier(Ability::Dexterity);
 
-    int modifier;
+    int abilityModifier = strengthModifier;
     if (weapon && weapon->isRanged()) {
-        modifier = _attributes.getAbilityModifier(Ability::Dexterity);
-    } else {
-        modifier = _attributes.getAbilityModifier(Ability::Strength);
+        abilityModifier = dexterityModifier;
+    } else if (weapon && dexterityModifier > strengthModifier) {
+        bool finesse = !_game.isTSL() && weapon->isLightsaber();
+        if (_game.isTSL()) {
+            finesse = weapon->isLightsaber() &&
+                       _attributes.hasFeat(FeatType::FinesseLightsabers);
+            switch (weapon->weaponWield()) {
+            case WeaponWield::StunBaton:
+            case WeaponWield::SingleSword:
+            case WeaponWield::DoubleBladedSword:
+                finesse = finesse ||
+                           _attributes.hasFeat(FeatType::FinesseMeleeWeapons);
+                break;
+            default:
+                break;
+            }
+        }
+        if (finesse) {
+            abilityModifier = dexterityModifier;
+        }
     }
 
-    int penalty;
+    int attackModifier = 0;
+    int featBonus = 0;
+    {
+        int modifierBonus = 0;
+        int modifierPenalty = 0;
+
+        for (const auto &applied : effects()) {
+            switch (applied.effect->type()) {
+            case EffectType::AttackIncrease: {
+                const auto &effect = static_cast<const AttackIncreaseEffect &>(*applied.effect);
+                if (effect.bonus() > 0 &&
+                    attackModifierApplies(effect.modifierType(), weapon, offHand)) {
+                    modifierBonus += effect.bonus();
+                }
+                break;
+            }
+            case EffectType::AttackDecrease: {
+                const auto &effect = static_cast<const AttackDecreaseEffect &>(*applied.effect);
+                if (effect.penalty() > 0 &&
+                    attackModifierApplies(effect.modifierType(), weapon, offHand)) {
+                    modifierPenalty += effect.penalty();
+                }
+                break;
+            }
+            default:
+                break;
+            }
+        }
+
+        auto bonusCosts = _services.resource.twoDas.get("iprp_bonuscost");
+        auto penaltyCosts = getAttackPenaltyCostTable(_services);
+        for (const auto &[slot, item] : _equipment) {
+            if (!item || !equippedItemAppliesToAttack(slot, *item, weapon, offHand)) {
+                continue;
+            }
+
+            int itemBonus = 0;
+            int itemPenalty = 0;
+            for (const auto &property : item->properties()) {
+                if (property.upgradeType != 0) {
+                    continue;
+                }
+
+                int modifier = 0;
+                switch (static_cast<ItemProperty>(property.propertyName)) {
+                case ItemProperty::EnhancementBonus:
+                case ItemProperty::AttackBonus: {
+                    if (!bonusCosts) {
+                        continue;
+                    }
+                    auto value = bonusCosts->getIntOpt(property.costValue, "value");
+                    if (!value || *value <= 0) {
+                        continue;
+                    }
+                    modifier = *value;
+                    break;
+                }
+                case ItemProperty::AttackPenalty:
+                case ItemProperty::DecreasedAttackModifier: {
+                    if (!penaltyCosts) {
+                        continue;
+                    }
+                    auto value = penaltyCosts->getIntOpt(property.costValue, "value");
+                    if (!value || *value >= 0) {
+                        continue;
+                    }
+                    modifier = *value;
+                    break;
+                }
+                default:
+                    continue;
+                }
+
+                if (isHandSpecificAttackModifierSlot(slot)) {
+                    addAttackModifier(modifier, modifierBonus, modifierPenalty);
+                } else if (modifier > 0) {
+                    itemBonus = std::max(itemBonus, modifier);
+                } else {
+                    itemPenalty = std::max(itemPenalty, -modifier);
+                }
+            }
+            modifierBonus += itemBonus;
+            modifierPenalty += itemPenalty;
+        }
+
+        attackModifier = std::min(modifierBonus, 20) -
+                         std::min(modifierPenalty, 20);
+
+        if (weapon &&
+            weapon->weaponFocusFeat() != FeatType::Invalid &&
+            _attributes.hasFeat(weapon->weaponFocusFeat())) {
+            featBonus = 1;
+        }
+    }
+
+    int penalty = 0;
     if (isTwoWeaponFighting()) {
         // TODO: support Dueling and Two-Weapon Fighting feats
         penalty = offHand ? 10 : 6;
-    } else {
-        penalty = 0;
     }
 
-    return _attributes.getAggregateAttackBonus() + modifier - penalty;
+    return _attributes.getAggregateAttackBonus() +
+           abilityModifier +
+           attackModifier +
+           featBonus -
+           penalty;
+}
+
+int Creature::getAttackBonus(bool offHand) const {
+    auto weapon = getEquippedItem(
+        offHand ? InventorySlots::leftWeapon : InventorySlots::rightWeapon);
+    if (!weapon && offHand) {
+        auto main = getEquippedItem(InventorySlots::rightWeapon);
+        if (main && main->weaponWield() == WeaponWield::DoubleBladedSword) {
+            weapon = main;
+        }
+    }
+    return getAttackBonus(weapon.get(), offHand);
 }
 
 int Creature::getDefense() const {

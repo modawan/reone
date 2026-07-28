@@ -95,25 +95,6 @@ static const char *attackResultDesc(AttackResultType type) {
     return "invalid";
 }
 
-static int getWeaponAttackBonus(const Creature &attacker, const Item &weapon,
-                                AttackBuffer::Source source) {
-    Ability ability = weapon.isRanged() ? Ability::Dexterity : Ability::Strength;
-    int modifier = attacker.attributes().getAbilityModifier(ability);
-
-    int penalty = 0;
-    if (attacker.isTwoWeaponFighting()) {
-        // TODO: support Dueling and Two-Weapon Fighting feats
-        penalty = source == AttackBuffer::Source::Offhand ? 10 : 6;
-    }
-
-    int effects = attacker.attributes().getAggregateAttackBonus();
-
-    debug(str(boost::format("getWeaponAttackBonus: modifier(%d) + effects(%d) - penalty(%d)") % modifier % effects % penalty),
-          LogChannel::Combat);
-
-    return modifier + effects - penalty;
-}
-
 static bool hasAssuredHitEffect(const Creature &attacker) {
     for (auto &effect : attacker.effects()) {
         if (effect.effect->type() == EffectType::AssuredHit) {
@@ -278,7 +259,8 @@ void AttackBuffer::addWeaponAttack(
     const Creature &attacker, const Object &target, const Item &weapon,
     Source source, int attackRollBonus, int attackThreatBonus, int damageBonus) {
 
-    attackRollBonus += getWeaponAttackBonus(attacker, weapon, source);
+    attackRollBonus += attacker.getAttackBonus(
+        &weapon, source == AttackBuffer::Source::Offhand);
     attackThreatBonus += weapon.criticalThreat();
 
     AttackResultType result = computeAttack(
@@ -296,6 +278,8 @@ void AttackBuffer::addWeaponAttack(
 
 void AttackBuffer::addUnarmedAttack(const Creature &attacker, const Object &target,
                                     int attackRollBonus, int attackThreatBonus, int damageBonus) {
+    attackRollBonus += attacker.getAttackBonus(nullptr, false);
+
     AttackResultType result = computeAttack(
         attacker, target, attackRollBonus, attackThreatBonus);
 

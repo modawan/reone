@@ -89,6 +89,7 @@ public:
     bool isDropable() const { return _dropable; }
     bool isIdentified() const { return _identified; }
     bool isEquipped() const { return _equipped; }
+    bool isLightsaber() const { return _baseItem >= 8 && _baseItem <= 10; }
     bool isRanged() const { return _weaponType == WeaponType::Ranged; }
 
     const std::string &baseBodyVariation() const { return _baseBodyVariation; }
@@ -111,6 +112,7 @@ public:
     int baseItemType() const { return _baseItem; }
     int criticalThreat() const { return _criticalThreat; }
     int criticalHitMultiplier() const { return _criticalHitMultiplier; }
+    FeatType weaponFocusFeat() const { return _weaponFocusFeat; }
     std::optional<SpellType> activateSpell() const { return _activateSpell; }
     const std::vector<PropertyEntry> &properties() const { return _properties; }
 
@@ -157,6 +159,7 @@ private:
 
     int _criticalThreat {0};
     int _criticalHitMultiplier {0};
+    FeatType _weaponFocusFeat {FeatType::Invalid};
 
     std::optional<SpellType> _activateSpell;
     int _disguiseAppearance {-1};

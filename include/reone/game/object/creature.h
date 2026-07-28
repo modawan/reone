@@ -226,6 +226,7 @@ public:
     uint32_t getLastHostileTarget() const { return _lastHostileTarget; }
     ActionType getLastAttackAction() const { return _lastAttackAction; }
     AttackResultType getLastAttackResult() const { return _lastAttackResult; }
+    int getAttackBonus(const Item *weapon, bool offHand) const;
     int getAttackBonus(bool offHand = false) const;
     int getDefense() const;
     void getMainHandDamage(int &min, int &max) const;
