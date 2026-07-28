@@ -60,6 +60,18 @@ static Object *getTarget(Action &action) {
     return nullptr;
 }
 
+static void recordCombatAction(Object &actor, Object &target, Action &action) {
+    if (!isHostileAction(action)) {
+        return;
+    }
+
+    target.setLastHostileActor(actor.id());
+    if (auto *creature = dyn_cast<Creature>(&actor)) {
+        creature->setLastHostileTarget(target.id());
+        creature->setLastAttackAction(action.type());
+    }
+}
+
 static bool isRoundPastFirstAttack(float time) {
     return time >= 0.5f * kRoundDuration;
 }
@@ -120,6 +132,7 @@ const CombatRound &Combat::addAction(const std::shared_ptr<Action> &action, Obje
     Object *target = getTarget(*action);
     if (target) {
         if (CombatRound *round = tryAppendAction(action, actor.id(), target->id())) {
+            recordCombatAction(actor, *target, *action);
             debug(str(boost::format("Append attack: %s -> %s") % actor.tag() % target->tag()), LogChannel::Combat);
             return *round;
         }
@@ -131,6 +144,7 @@ const CombatRound &Combat::addAction(const std::shared_ptr<Action> &action, Obje
     CombatRound &newRound = *_rounds.back();
 
     if (target) {
+        recordCombatAction(actor, *target, *action);
         debug(str(boost::format("Start round: %s -> %s") % actor.tag() % target->tag()), LogChannel::Combat);
     } else {
         debug(str(boost::format("Start round: %s") % actor.tag()), LogChannel::Combat);
@@ -151,7 +165,44 @@ void Combat::update(float dt) {
         updateRound(*round, dt);
     }
 
-    // TODO: clear history
+    retireCompletedRounds();
+}
+
+static bool isActionFinished(const CombatRound::RoundAction &action, const Game &game) {
+    if (action.action->isCompleted()) {
+        return true;
+    }
+
+    std::shared_ptr<Object> actor = game.getObjectById(action.attacker);
+    if (!actor) {
+        return true;
+    }
+
+    const auto &actions = actor->actions();
+    return std::find(actions.begin(), actions.end(), action.action) == actions.end();
+}
+
+void Combat::retireCompletedRounds() {
+    for (auto it = _rounds.begin(); it != _rounds.end();) {
+        CombatRound &round = **it;
+        if (round.state != CombatRound::Finished) {
+            ++it;
+            continue;
+        }
+
+        bool actionsFinished = std::all_of(
+            round.actions.begin(),
+            round.actions.end(),
+            [this](const CombatRound::RoundAction &action) {
+                return isActionFinished(action, _game);
+            });
+
+        if (actionsFinished) {
+            it = _rounds.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 static void setMovement(CombatRound &round, bool enabled) {

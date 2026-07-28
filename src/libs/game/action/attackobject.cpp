@@ -171,6 +171,7 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         attacker.setMovementRestricted(true);
 
         attack(round, attacker, *_target, _services.game.animations, _attacks);
+        attacker.setLastAttackResult(_attacks.result());
 
         if (auto target = dyn_cast<Creature>(_target)) {
             target->runAttackedScript(attacker.id());

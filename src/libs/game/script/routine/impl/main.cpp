@@ -5007,17 +5007,7 @@ static Variable GetLastHostileActor(const std::vector<Variable> &args, const Rou
     auto oVictim = getObjectOrCaller(args, 0, ctx);
 
     // Execute
-    const Combat::RoundQueue &rounds = ctx.game.combat().rounds();
-    for (auto it = rounds.rbegin(), end = rounds.rend(); it != end; ++it) {
-        for (const CombatRound::RoundAction &action : (*it)->actions) {
-            bool hostile = isHostileAction(*action.action);
-            if (action.target == oVictim->id() && hostile) {
-                return Variable::ofObject(action.attacker);
-            }
-        }
-    }
-
-    return Variable::ofObject(kObjectInvalid);
+    return Variable::ofObject(oVictim->getLastHostileActor());
 }
 
 static Variable ExportAllCharacters(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5730,18 +5720,7 @@ static Variable GetLastHostileTarget(const std::vector<Variable> &args, const Ro
     auto attacker = checkCreature(oAttacker);
 
     // Execute
-    // TODO: rbegin/end pair for iteration on rounds
-    const Combat::RoundQueue &rounds = ctx.game.combat().rounds();
-    for (auto it = rounds.rbegin(), end = rounds.rend(); it != end; ++it) {
-        for (const CombatRound::RoundAction &action : (*it)->actions) {
-            bool hostile = isHostileAction(*action.action);
-            if (action.attacker == attacker->id() && hostile) {
-                return Variable::ofObject(action.target);
-            }
-        }
-    }
-
-    return Variable::ofObject(kObjectInvalid);
+    return Variable::ofObject(attacker->getLastHostileTarget());
 }
 
 static Variable GetLastAttackAction(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5752,17 +5731,7 @@ static Variable GetLastAttackAction(const std::vector<Variable> &args, const Rou
     auto attacker = checkCreature(oAttacker);
 
     // Execute
-    const Combat::RoundQueue &rounds = ctx.game.combat().rounds();
-    for (auto it = rounds.rbegin(), end = rounds.rend(); it != end; ++it) {
-        for (const CombatRound::RoundAction &action : (*it)->actions) {
-            bool hostile = isHostileAction(*action.action);
-            if (action.attacker == attacker->id() && hostile) {
-                return Variable::ofInt(static_cast<int>(action.action->type()));
-            }
-        }
-    }
-
-    return Variable::ofInt(static_cast<int>(ActionType::QueueEmpty));
+    return Variable::ofInt(static_cast<int>(attacker->getLastAttackAction()));
 }
 
 static Variable GetLastForcePowerUsed(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5791,26 +5760,7 @@ static Variable GetLastAttackResult(const std::vector<Variable> &args, const Rou
     auto attacker = checkCreature(oAttacker);
 
     // Execute
-    const Combat::RoundQueue &rounds = ctx.game.combat().rounds();
-    for (auto it = rounds.rbegin(), end = rounds.rend(); it != end; ++it) {
-        for (const CombatRound::RoundAction &action : (*it)->actions) {
-
-            AttackResultType result = AttackResultType::Invalid;
-            switch (action.action->type()) {
-            case ActionType::AttackObject:
-                cast<AttackObjectAction>(*action.action).result();
-                break;
-            default:
-                break;
-            }
-
-            if (result != AttackResultType::Invalid) {
-                return Variable::ofInt(static_cast<int>(result));
-            }
-        }
-    }
-
-    return Variable::ofInt(static_cast<int>(AttackResultType::Invalid));
+    return Variable::ofInt(static_cast<int>(attacker->getLastAttackResult()));
 }
 
 static Variable GetWasForcePowerSuccessful(const std::vector<Variable> &args, const RoutineContext &ctx) {

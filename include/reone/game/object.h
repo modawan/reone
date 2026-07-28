@@ -21,6 +21,7 @@
 #include "reone/scene/graph.h"
 #include "reone/scene/node.h"
 #include "reone/scene/user.h"
+#include "reone/script/types.h"
 #include "reone/system/cast.h"
 #include "reone/system/timer.h"
 
@@ -196,6 +197,14 @@ public:
 
     // END Actions
 
+    // Combat
+
+    uint32_t getLastHostileActor() const { return _lastHostileActor; }
+
+    void setLastHostileActor(uint32_t actor) { _lastHostileActor = actor; }
+
+    // END Combat
+
     // Local variables
 
     bool getLocalBoolean(int index) const;
@@ -269,6 +278,8 @@ protected:
     std::weak_ptr<Action> _executingAction;
 
     // END Actions
+
+    uint32_t _lastHostileActor {script::kObjectInvalid};
 
     // Local variables
 

@@ -223,6 +223,9 @@ public:
 
     std::shared_ptr<Object> getAttemptedAttackTarget() const;
     std::shared_ptr<Object> getAttackTarget() const { return _combatState.attackTarget; }
+    uint32_t getLastHostileTarget() const { return _lastHostileTarget; }
+    ActionType getLastAttackAction() const { return _lastAttackAction; }
+    AttackResultType getLastAttackResult() const { return _lastAttackResult; }
     int getAttackBonus(bool offHand = false) const;
     int getDefense() const;
     void getMainHandDamage(int &min, int &max) const;
@@ -231,6 +234,9 @@ public:
     void setAttackTarget(std::shared_ptr<Object> target) {
         _combatState.attackTarget = std::move(target);
     }
+    void setLastHostileTarget(uint32_t target) { _lastHostileTarget = target; }
+    void setLastAttackAction(ActionType action) { _lastAttackAction = action; }
+    void setLastAttackResult(AttackResultType result) { _lastAttackResult = result; }
 
     // END Combat
 
@@ -343,6 +349,9 @@ private:
 
     bool _movementRestricted {false};
     CombatState _combatState;
+    uint32_t _lastHostileTarget {script::kObjectInvalid};
+    ActionType _lastAttackAction {ActionType::QueueEmpty};
+    AttackResultType _lastAttackResult {AttackResultType::Invalid};
     bool _immortal {false};
     std::shared_ptr<resource::SoundSet> _soundSet;
     BodyBag _bodyBag;
