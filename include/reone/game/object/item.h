@@ -113,6 +113,9 @@ public:
     int criticalThreat() const { return _criticalThreat; }
     int criticalHitMultiplier() const { return _criticalHitMultiplier; }
     FeatType weaponFocusFeat() const { return _weaponFocusFeat; }
+    int baseDefense() const { return _baseDefense; }
+    int maxDexterityBonus() const { return _maxDexterityBonus; }
+    ACBonus acBonusType() const { return _acBonusType; }
     std::optional<SpellType> activateSpell() const { return _activateSpell; }
     const std::vector<PropertyEntry> &properties() const { return _properties; }
 
@@ -160,6 +163,9 @@ private:
     int _criticalThreat {0};
     int _criticalHitMultiplier {0};
     FeatType _weaponFocusFeat {FeatType::Invalid};
+    int _baseDefense {0};
+    int _maxDexterityBonus {-1};
+    ACBonus _acBonusType {ACBonus::Invalid};
 
     std::optional<SpellType> _activateSpell;
     int _disguiseAppearance {-1};

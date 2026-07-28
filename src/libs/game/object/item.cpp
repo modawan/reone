@@ -135,13 +135,16 @@ void Item::deserializeBase(const resource::Gff &gff) {
         return;
     }
     _attackRange = baseItems->getInt(_baseItem, "maxattackrange");
+    _baseDefense = baseItems->getInt(_baseItem, "baseac");
     _criticalHitMultiplier = baseItems->getInt(_baseItem, "crithitmult");
     _criticalThreat = baseItems->getInt(_baseItem, "critthreat");
     _damageFlags = baseItems->getInt(_baseItem, "damageflags");
     _dieToRoll = baseItems->getInt(_baseItem, "dietoroll");
+    _maxDexterityBonus = baseItems->getInt(_baseItem, "dexbonus", -1);
     _equipableSlots = baseItems->getHexInt(_baseItem, "equipableslots", 0);
     _itemClass = boost::to_lower_copy(baseItems->getString(_baseItem, "itemclass"));
     _numDice = baseItems->getInt(_baseItem, "numdice");
+    _acBonusType = static_cast<ACBonus>(baseItems->getInt(_baseItem, "ac_enchant", -1));
     _weaponType = static_cast<WeaponType>(baseItems->getInt(_baseItem, "weapontype"));
     _weaponWield = static_cast<WeaponWield>(baseItems->getInt(_baseItem, "weaponwield"));
     _weaponFocusFeat = static_cast<FeatType>(baseItems->getInt(_baseItem, "weaponfocusfeat"));

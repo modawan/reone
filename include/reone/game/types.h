@@ -1215,6 +1215,7 @@ enum class DamagePower {
 };
 
 enum class ACBonus {
+    Invalid = -1,
     Dodge = 0,
     Natural = 1,
     ArmourEnchantment = 2,

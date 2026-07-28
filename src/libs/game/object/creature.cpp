@@ -17,6 +17,8 @@
 
 #include "reone/game/object/creature.h"
 
+#include <array>
+
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
 #include "reone/game/action.h"
@@ -24,6 +26,8 @@
 #include "reone/game/animationutil.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/di/services.h"
+#include "reone/game/effect/acdecrease.h"
+#include "reone/game/effect/acincrease.h"
 #include "reone/game/effect/attackdecrease.h"
 #include "reone/game/effect/attackincrease.h"
 #include "reone/game/footstepsounds.h"
@@ -66,7 +70,10 @@ namespace reone {
 namespace game {
 
 static constexpr int kStrRefRemains = 38151;
-static constexpr int kAttackPenaltyCostTable = 20;
+static constexpr int kAllDamageTypes = 8199;
+static constexpr int kDecreaseModifierCostTable = 20;
+static constexpr int kMaximumDodgeBonus = 10;
+static constexpr size_t kACBonusTypeCount = static_cast<size_t>(ACBonus::Deflection) + 1;
 static constexpr float kKeepPathDuration = 1000.0f;
 
 static std::string g_talkDummyNode("talkdummy");
@@ -148,13 +155,52 @@ static void addAttackModifier(int modifier, int &bonus, int &penalty) {
     }
 }
 
-static std::shared_ptr<TwoDA> getAttackPenaltyCostTable(ServicesView &services) {
+static std::shared_ptr<TwoDA> getDecreaseModifierCostTable(ServicesView &services) {
     auto costTables = services.resource.twoDas.get("iprp_costtable");
     if (!costTables) {
         return nullptr;
     }
-    auto tableName = costTables->getStringOpt(kAttackPenaltyCostTable, "name");
+    auto tableName = costTables->getStringOpt(kDecreaseModifierCostTable, "name");
     return tableName ? services.resource.twoDas.get(*tableName) : nullptr;
+}
+
+static bool equippedItemAppliesToDefense(int slot) {
+    return slot != InventorySlots::rightWeapon2 &&
+           slot != InventorySlots::leftWeapon2;
+}
+
+static void addDefenseModifier(
+    int value,
+    ACBonus modifierType,
+    std::array<int, kACBonusTypeCount> &modifiers) {
+
+    int index = static_cast<int>(modifierType);
+    if (value <= 0 || index < 0 || index >= static_cast<int>(modifiers.size())) {
+        return;
+    }
+
+    if (modifierType == ACBonus::Dodge) {
+        modifiers[index] += value;
+    } else {
+        modifiers[index] = std::max(modifiers[index], value);
+    }
+}
+
+static int getDefenseModifier(
+    const std::array<int, kACBonusTypeCount> &bonuses,
+    const std::array<int, kACBonusTypeCount> &penalties) {
+
+    int result = std::min(
+        bonuses[static_cast<int>(ACBonus::Dodge)] -
+            penalties[static_cast<int>(ACBonus::Dodge)],
+        kMaximumDodgeBonus);
+
+    for (int i = static_cast<int>(ACBonus::Natural);
+         i <= static_cast<int>(ACBonus::Deflection);
+         ++i) {
+        result += bonuses[i] - penalties[i];
+    }
+    return result;
 }
 
 Creature::Creature(
@@ -904,7 +950,7 @@ int Creature::getAttackBonus(const Item *weapon, bool offHand) const {
         }
 
         auto bonusCosts = _services.resource.twoDas.get("iprp_bonuscost");
-        auto penaltyCosts = getAttackPenaltyCostTable(_services);
+        auto penaltyCosts = getDecreaseModifierCostTable(_services);
         for (const auto &[slot, item] : _equipment) {
             if (!item || !equippedItemAppliesToAttack(slot, *item, weapon, offHand)) {
                 continue;
@@ -995,7 +1041,101 @@ int Creature::getAttackBonus(bool offHand) const {
 }
 
 int Creature::getDefense() const {
-    return _attributes.getDefense();
+    int dexterityModifier = _attributes.getAbilityModifier(Ability::Dexterity);
+    auto armor = getEquippedItem(InventorySlots::body);
+    int armorDefense = armor ? armor->baseDefense() : 0;
+
+    if (isDebilitated()) {
+        dexterityModifier = std::min(dexterityModifier, 0);
+    } else if (armorDefense > 0 && armor->maxDexterityBonus() >= 0) {
+        dexterityModifier = std::min(
+            dexterityModifier,
+            armor->maxDexterityBonus());
+    }
+
+    std::array<int, kACBonusTypeCount> modifierBonuses {};
+    std::array<int, kACBonusTypeCount> modifierPenalties {};
+
+    for (const auto &applied : effects()) {
+        switch (applied.effect->type()) {
+        case EffectType::ACIncrease: {
+            const auto &effect = static_cast<const ACIncreaseEffect &>(*applied.effect);
+            if (effect.damageType() == kAllDamageTypes) {
+                addDefenseModifier(
+                    effect.bonus(),
+                    effect.modifierType(),
+                    modifierBonuses);
+            }
+            break;
+        }
+        case EffectType::ACDecrease: {
+            const auto &effect = static_cast<const ACDecreaseEffect &>(*applied.effect);
+            if (effect.damageType() == kAllDamageTypes) {
+                addDefenseModifier(
+                    effect.penalty(),
+                    effect.modifierType(),
+                    modifierPenalties);
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    auto bonusCosts = _services.resource.twoDas.get("iprp_bonuscost");
+    auto penaltyCosts = getDecreaseModifierCostTable(_services);
+    for (const auto &[slot, item] : _equipment) {
+        if (!item || !equippedItemAppliesToDefense(slot)) {
+            continue;
+        }
+
+        for (const auto &property : item->properties()) {
+            if (property.upgradeType != 0) {
+                continue;
+            }
+
+            switch (static_cast<ItemProperty>(property.propertyName)) {
+            case ItemProperty::AcBonus: {
+                if (!bonusCosts) {
+                    continue;
+                }
+                auto value = bonusCosts->getIntOpt(property.costValue, "value");
+                if (value) {
+                    addDefenseModifier(
+                        *value,
+                        item->acBonusType(),
+                        modifierBonuses);
+                }
+                break;
+            }
+            case ItemProperty::DecreasedAc: {
+                if (!penaltyCosts) {
+                    continue;
+                }
+                auto value = penaltyCosts->getIntOpt(property.costValue, "value");
+                if (value) {
+                    addDefenseModifier(
+                        -*value,
+                        static_cast<ACBonus>(property.subtype),
+                        modifierPenalties);
+                }
+                break;
+            }
+            default:
+                break;
+            }
+        }
+    }
+
+    int defense = 10 +
+                  _attributes.getAggregateDefenseBonus() +
+                  armorDefense +
+                  _naturalAC +
+                  dexterityModifier +
+                  getDefenseModifier(modifierBonuses, modifierPenalties);
+
+    return defense - (isDebilitated() ? 4 : 0);
 }
 
 void Creature::getMainHandDamage(int &min, int &max) const {

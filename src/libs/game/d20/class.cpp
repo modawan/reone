@@ -30,6 +30,7 @@ namespace reone {
 namespace game {
 
 static const char kSkillsTwoDAResRef[] = "skills";
+static const char kDefenseBonusTwoDAResRef[] = "acbonus";
 static const char kFeatTwoDAResRef[] = "feat";
 static const char kFeatGainTwoDAResRef[] = "featgain";
 static const char kPowerGainTwoDAResRef[] = "classpowergain";
@@ -68,6 +69,9 @@ void CreatureClass::load(const TwoDA &twoDa, int row) {
     std::string attackBonusTable(boost::to_lower_copy(twoDa.getString(row, "attackbonustable")));
     loadAttackBonuses(attackBonusTable);
 
+    std::string defenseBonusColumn(boost::to_lower_copy(twoDa.getString(row, "armorclasscolumn")));
+    loadDefenseBonuses(defenseBonusColumn);
+
     std::string featsPrefix(boost::to_lower_copy(twoDa.getString(row, "featstable")));
     loadFeatListValues(featsPrefix);
 
@@ -105,6 +109,13 @@ void CreatureClass::loadAttackBonuses(const std::string &attackBonusTable) {
     std::shared_ptr<TwoDA> twoDa(_twoDas.get(attackBonusTable));
     for (int row = 0; row < twoDa->getRowCount(); ++row) {
         _attackBonuses.push_back(twoDa->getInt(row, "bab"));
+    }
+}
+
+void CreatureClass::loadDefenseBonuses(const std::string &defenseBonusColumn) {
+    std::shared_ptr<TwoDA> twoDa(_twoDas.get(kDefenseBonusTwoDAResRef));
+    for (int row = 0; row < twoDa->getRowCount(); ++row) {
+        _defenseBonuses.push_back(twoDa->getInt(row, defenseBonusColumn));
     }
 }
 
@@ -179,6 +190,13 @@ int CreatureClass::getAttackBonus(int level) const {
         throw std::out_of_range(str(boost::format("Level out of range: %d/%d") % level % static_cast<int>(_attackBonuses.size())));
     }
     return _attackBonuses[level - 1];
+}
+
+int CreatureClass::getDefenseBonus(int level) const {
+    if (level < 0 || level >= static_cast<int>(_defenseBonuses.size())) {
+        throw std::out_of_range(str(boost::format("Level out of range: %d/%d") % level % static_cast<int>(_defenseBonuses.size())));
+    }
+    return _defenseBonuses[level];
 }
 
 int CreatureClass::getFeatGain(int level) const {

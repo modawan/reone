@@ -131,7 +131,7 @@ void CharacterMenu::refreshControls() {
     }
 
     _controls.LBL_VITALITY_STAT->setTextMessage(str(boost::format("%d/%d") % partyLeader->currentHitPoints() % partyLeader->hitPoints()));
-    _controls.LBL_DEFENSE_STAT->setTextMessage(std::to_string(attributes.getDefense()));
+    _controls.LBL_DEFENSE_STAT->setTextMessage(std::to_string(partyLeader->getDefense()));
     _controls.LBL_FORCE_STAT->setTextMessage("");
 
     _controls.LBL_STR->setTextMessage(std::to_string(attributes.strength()));
