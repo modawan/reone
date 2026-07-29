@@ -43,6 +43,10 @@ public:
     virtual void clear() = 0;
 
     virtual std::shared_ptr<graphics::Font> get(const std::string &key) = 0;
+
+    virtual std::shared_ptr<graphics::Font> getExact(const std::string &key) {
+        return get(key);
+    }
 };
 
 class Fonts : public IFonts {
@@ -64,6 +68,7 @@ public:
 
     void clear() override {
         _objects.clear();
+        _exactObjects.clear();
     }
 
     std::shared_ptr<graphics::Font> get(const std::string &key) override {
@@ -75,8 +80,18 @@ public:
         return _objects.insert(make_pair(key, std::move(object))).first->second;
     }
 
+    std::shared_ptr<graphics::Font> getExact(const std::string &key) override {
+        auto maybeObject = _exactObjects.find(key);
+        if (maybeObject != _exactObjects.end()) {
+            return maybeObject->second;
+        }
+        auto object = doGetExact(key);
+        return _exactObjects.insert(make_pair(key, std::move(object))).first->second;
+    }
+
 private:
     std::unordered_map<std::string, std::shared_ptr<graphics::Font>> _objects;
+    std::unordered_map<std::string, std::shared_ptr<graphics::Font>> _exactObjects;
 
     // Services
 
@@ -90,6 +105,7 @@ private:
     // END Services
 
     std::shared_ptr<graphics::Font> doGet(std::string resRef);
+    std::shared_ptr<graphics::Font> doGetExact(std::string resRef);
 };
 
 } // namespace resource

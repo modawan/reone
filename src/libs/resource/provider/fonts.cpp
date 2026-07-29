@@ -46,6 +46,17 @@ std::shared_ptr<Font> Fonts::doGet(std::string resRef) {
     return font;
 }
 
+std::shared_ptr<Font> Fonts::doGetExact(std::string resRef) {
+    std::shared_ptr<Texture> texture(_textures.get(resRef, TextureUsage::Font));
+    if (!texture)
+        return nullptr;
+
+    auto font = std::make_shared<Font>(_context, _meshRegistry, _shaderRegistry, _statistic, _uniforms);
+    font->load(texture);
+
+    return font;
+}
+
 } // namespace resource
 
 } // namespace reone

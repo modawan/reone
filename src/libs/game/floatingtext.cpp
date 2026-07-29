@@ -132,7 +132,7 @@ void FloatingText::render() {
         return;
     }
     if (!_font) {
-        _font = _services.resource.fonts.get("fnt_d16x16");
+        _font = _services.resource.fonts.getExact("fnt_d16x16");
     }
     if (!_font) {
         return;
