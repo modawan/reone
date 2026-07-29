@@ -1010,8 +1010,8 @@ void Game::renderGUI() {
     case Screen::InGame:
         if (_cameraType == CameraType::ThirdPerson) {
             renderHUD();
-            _floatingText.render();
         }
+        _floatingText.render();
         break;
 
     default: {

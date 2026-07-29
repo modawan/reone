@@ -27,6 +27,7 @@
 #include "reone/graphics/camera.h"
 #include "reone/graphics/context.h"
 #include "reone/graphics/font.h"
+#include "reone/graphics/uniforms.h"
 #include "reone/resource/provider/fonts.h"
 #include "reone/resource/strings.h"
 #include "reone/scene/node/camera.h"
@@ -46,10 +47,11 @@ static const glm::vec3 kDamageColor(0.74f, 0.11f, 0.0f);
 static const glm::vec3 kHealColor(0.28f, 0.92f, 0.11f);
 static const glm::vec3 kMissColor(1.0f);
 
-static bool areaContainsObject(const Area &area, uint32_t objectId) {
-    return std::any_of(area.objects().begin(), area.objects().end(), [objectId](const auto &object) {
+static std::shared_ptr<Object> findAreaObject(const Area &area, uint32_t objectId) {
+    auto it = std::find_if(area.objects().begin(), area.objects().end(), [objectId](const auto &object) {
         return object && object->id() == objectId;
     });
+    return it != area.objects().end() ? *it : nullptr;
 }
 
 void FloatingText::addDamage(
@@ -113,7 +115,7 @@ void FloatingText::add(const Object &object, std::string text, Style style, floa
 bool FloatingText::isInActiveArea(const Object &object) const {
     auto module = _game.module();
     auto area = module ? module->area() : nullptr;
-    return area && areaContainsObject(*area, object.id());
+    return area && findAreaObject(*area, object.id());
 }
 
 void FloatingText::update(float dt) {
@@ -133,6 +135,9 @@ void FloatingText::render() {
     }
     if (!_font) {
         _font = _services.resource.fonts.getExact("fnt_d16x16");
+        if (!_font || _font->height() <= 0.0f) {
+            _font = _services.resource.fonts.getExact("dialogfont16x16");
+        }
     }
     if (!_font) {
         return;
@@ -156,22 +161,42 @@ void FloatingText::render() {
     const float width = static_cast<float>(_game.options().graphics.width);
     const float height = static_cast<float>(_game.options().graphics.height);
 
-    _services.graphics.context.withBlendMode(BlendMode::Normal, [this, &area, &projection, &view, width, height]() {
+    _services.graphics.uniforms.setGlobals([width, height](auto &globals) {
+        globals.reset();
+        globals.projection = glm::ortho(
+            0.0f,
+            width,
+            height,
+            0.0f,
+            0.0f,
+            100.0f);
+        globals.projectionInv = glm::inverse(globals.projection);
+    });
+
+    auto renderEntries = [this, &area, &projection, &view, &graphicsCamera, width, height]() {
         for (const Entry &entry : _entries) {
-            auto object = _game.getObjectById(entry.objectId);
-            if (!object ||
-                !areaContainsObject(*area, entry.objectId) ||
-                !object->visible()) {
+            auto object = findAreaObject(*area, entry.objectId);
+            if (!object) {
                 continue;
             }
 
             auto sceneNode = object->sceneNode();
-            if (!sceneNode || !sceneNode->isEnabled() || sceneNode->isCulled()) {
+            if (!sceneNode || !sceneNode->isEnabled()) {
                 continue;
             }
 
-            glm::vec3 screen = area->getSelectableScreenCoords(object, projection, view);
-            if (screen.z < 0.0f || screen.z >= 1.0f) {
+            glm::vec3 selectablePosition = object->getSelectablePosition();
+            if (glm::dot(
+                    graphicsCamera->forward(),
+                    selectablePosition - graphicsCamera->position()) <= 0.0f) {
+                continue;
+            }
+
+            glm::vec3 screen = area->getSelectableScreenCoords(
+                object,
+                projection,
+                view);
+            if (screen.z >= 1.0f) {
                 continue;
             }
 
@@ -201,11 +226,18 @@ void FloatingText::render() {
                 glm::vec4(color, alpha),
                 TextGravity::CenterTop);
         }
+    };
+
+    _services.graphics.context.withDepthTestMode(DepthTestMode::None, [this, &renderEntries]() {
+        _services.graphics.context.withDepthMask(false, [this, &renderEntries]() {
+            _services.graphics.context.withBlendMode(BlendMode::Normal, renderEntries);
+        });
     });
 }
 
 void FloatingText::reset() {
     _entries.clear();
+    _font.reset();
 }
 
 } // namespace game
