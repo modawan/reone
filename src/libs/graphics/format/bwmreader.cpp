@@ -44,7 +44,7 @@ void BwmReader::load() {
 
     _offVertices = _bwm.readUint32();
     _numFaces = _bwm.readUint32();
-    _offIndices = _bwm.readUint32();
+    _offFaces = _bwm.readUint32();
     _offMaterials = _bwm.readUint32();
     _offNormals = _bwm.readUint32();
     _offPlanarDistances = _bwm.readUint32();
@@ -67,24 +67,13 @@ void BwmReader::load() {
     _walkmesh->_area = _type == WalkmeshType::WOK;
 
     loadVertices();
-    loadIndices();
+    loadFaces();
     loadMaterials();
     loadNormals();
 
-    for (uint32_t i = 0; i < _numFaces; ++i) {
-        uint32_t material = _materials[i];
-        uint32_t *indices = &_indices[3 * i + 0];
-
-        Walkmesh::Face face;
-        face.index = i;
-        face.material = material;
-        face.vertices.push_back(glm::make_vec3(&_vertices[3 * indices[0]]));
-        face.vertices.push_back(glm::make_vec3(&_vertices[3 * indices[1]]));
-        face.vertices.push_back(glm::make_vec3(&_vertices[3 * indices[2]]));
-        face.normal = glm::make_vec3(&_normals[3 * i]);
-
-        _walkmesh->_faces.push_back(std::move(face));
-    }
+#ifndef _NDEBUG
+    _walkmesh->verify();
+#endif
 
     if (_type == WalkmeshType::WOK) {
         loadAABB();
@@ -93,43 +82,47 @@ void BwmReader::load() {
 
 void BwmReader::loadVertices() {
     _bwm.seek(_offVertices);
-    _vertices.reserve(3 * _numVertices);
-
+    auto &array = _walkmesh->vertices;
+    array.reserve(_numVertices);
     for (uint32_t i = 0; i < _numVertices; ++i) {
-        _vertices.push_back(_bwm.readFloat());
-        _vertices.push_back(_bwm.readFloat());
-        _vertices.push_back(_bwm.readFloat());
+        float x = _bwm.readFloat();
+        float y = _bwm.readFloat();
+        float z = _bwm.readFloat();
+        array.emplace_back(x, y, z);
     }
 }
 
-void BwmReader::loadIndices() {
-    _bwm.seek(_offIndices);
-    _indices.reserve(3 * _numFaces);
-
+void BwmReader::loadFaces() {
+    _bwm.seek(_offFaces);
+    auto &array = _walkmesh->faces;
+    array.reserve(_numFaces);
     for (uint32_t i = 0; i < _numFaces; ++i) {
-        _indices.push_back(_bwm.readUint32());
-        _indices.push_back(_bwm.readUint32());
-        _indices.push_back(_bwm.readUint32());
+        uint32_t v0 = _bwm.readUint32();
+        uint32_t v1 = _bwm.readUint32();
+        uint32_t v2 = _bwm.readUint32();
+        Walkmesh::FaceVertices face = {{v0, v1, v2}};
+        array.emplace_back(face);
     }
 }
 
 void BwmReader::loadMaterials() {
     _bwm.seek(_offMaterials);
-    _materials.reserve(_numFaces);
-
+    auto &array = _walkmesh->materials;
+    array.reserve(_numFaces);
     for (uint32_t i = 0; i < _numFaces; ++i) {
-        _materials.push_back(_bwm.readUint32());
+        array.emplace_back(_bwm.readUint32());
     }
 }
 
 void BwmReader::loadNormals() {
     _bwm.seek(_offNormals);
-    _normals.reserve(3 * _numFaces);
-
+    auto &array = _walkmesh->normals;
+    array.reserve(_numFaces);
     for (uint32_t i = 0; i < _numFaces; ++i) {
-        _normals.push_back(_bwm.readFloat());
-        _normals.push_back(_bwm.readFloat());
-        _normals.push_back(_bwm.readFloat());
+        float x = _bwm.readFloat();
+        float y = _bwm.readFloat();
+        float z = _bwm.readFloat();
+        array.emplace_back(x, y, z);
     }
 }
 
