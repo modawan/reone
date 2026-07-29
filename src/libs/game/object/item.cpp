@@ -147,6 +147,7 @@ void Item::deserializeBase(const resource::Gff &gff) {
     _acBonusType = static_cast<ACBonus>(baseItems->getInt(_baseItem, "ac_enchant", -1));
     _weaponType = static_cast<WeaponType>(baseItems->getInt(_baseItem, "weapontype"));
     _weaponWield = static_cast<WeaponWield>(baseItems->getInt(_baseItem, "weaponwield"));
+    _weaponSize = static_cast<CreatureSize>(baseItems->getInt(_baseItem, "weaponsize"));
     _weaponFocusFeat = static_cast<FeatType>(baseItems->getInt(_baseItem, "weaponfocusfeat"));
 
     std::string iconResRef;

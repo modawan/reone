@@ -343,6 +343,7 @@ private:
     float _walkSpeed {0.0f};
     float _runSpeed {0.0f};
     float _creaturePersonalSpace {0.6f};
+    CreatureSize _size {CreatureSize::Medium};
     MovementType _movementType {MovementType::None};
     bool _talking {false};
 
@@ -384,7 +385,7 @@ private:
 
     void updateModel();
 
-    // Refresh appearance-derived state (model type, speeds, footstep, envmap,
+    // Refresh appearance-derived state (model type, size, speeds, footstep, envmap,
     // portrait) for the current _appearance, without building a scene node.
     void loadAppearanceProperties();
 
@@ -435,6 +436,9 @@ private:
 
     bool getWeaponInfo(WeaponType &type, WeaponWield &wield) const;
     int getWeaponWieldNumber(WeaponWield wield) const;
+    int getRelativeWeaponSize(const Item &weapon) const;
+    int getTwoWeaponAttackPenalty(const Item *weapon, bool offHand) const;
+    int getDuelingBonus() const;
     void getWeaponDamage(int slot, int &min, int &max) const;
 
     // END Animation

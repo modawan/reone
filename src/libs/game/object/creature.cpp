@@ -247,6 +247,10 @@ void Creature::loadAppearanceProperties() {
     _runSpeed = appearances->getFloat(_appearance, "rundist", 1.0f);
     float personalSpace = appearances->getFloat(_appearance, "perspace", 0.6f);
     _creaturePersonalSpace = appearances->getFloat(_appearance, "creperspace", personalSpace);
+    _size = static_cast<CreatureSize>(appearances->getInt(
+        _appearance,
+        "sizecategory",
+        static_cast<int>(CreatureSize::Medium)));
     _footstepType = appearances->getInt(_appearance, "footsteptype", -1);
     _envmap = boost::to_lower_copy(appearances->getString(_appearance, "envmap"));
 
@@ -1015,17 +1019,12 @@ int Creature::getAttackBonus(const Item *weapon, bool offHand) const {
         }
     }
 
-    int penalty = 0;
-    if (isTwoWeaponFighting()) {
-        // TODO: support Dueling and Two-Weapon Fighting feats
-        penalty = offHand ? 10 : 6;
-    }
-
     return _attributes.getAggregateAttackBonus() +
            abilityModifier +
            attackModifier +
-           featBonus -
-           penalty;
+           featBonus +
+           (offHand ? 0 : getDuelingBonus()) -
+           getTwoWeaponAttackPenalty(weapon, offHand);
 }
 
 int Creature::getAttackBonus(bool offHand) const {
@@ -1133,7 +1132,8 @@ int Creature::getDefense() const {
                   armorDefense +
                   _naturalAC +
                   dexterityModifier +
-                  getDefenseModifier(modifierBonuses, modifierPenalties);
+                  getDefenseModifier(modifierBonuses, modifierPenalties) +
+                  getDuelingBonus();
 
     return defense - (isDebilitated() ? 4 : 0);
 }
@@ -1468,6 +1468,87 @@ int Creature::getWeaponWieldNumber(WeaponWield wield) const {
     default:
         return 8;
     }
+}
+
+int Creature::getRelativeWeaponSize(const Item &weapon) const {
+    if (_size == CreatureSize::Invalid ||
+        weapon.weaponSize() == CreatureSize::Invalid) {
+        return -10;
+    }
+
+    int relativeSize = static_cast<int>(weapon.weaponSize()) -
+                       static_cast<int>(_size);
+    return relativeSize >= -2 && relativeSize <= 1 ? relativeSize : -10;
+}
+
+int Creature::getTwoWeaponAttackPenalty(const Item *weapon, bool offHand) const {
+    auto mainHand = getEquippedItem(InventorySlots::rightWeapon);
+    if (!mainHand || mainHand->weaponType() == WeaponType::None) {
+        return 0;
+    }
+
+    auto offHandWeapon = getEquippedItem(InventorySlots::leftWeapon);
+    bool doubleBladed = mainHand->weaponWield() == WeaponWield::DoubleBladedSword;
+    if (doubleBladed) {
+        offHandWeapon = mainHand;
+    }
+    if (!offHandWeapon || offHandWeapon->weaponType() == WeaponType::None) {
+        return 0;
+    }
+
+    if (offHand) {
+        if (weapon != offHandWeapon.get()) {
+            return 0;
+        }
+        if (_attributes.hasFeat(FeatType::AdvancedDoubleWeaponFighting)) {
+            return 2;
+        }
+        if (_attributes.hasFeat(FeatType::DoubleWeaponFighting)) {
+            return 4;
+        }
+        if (_attributes.hasFeat(FeatType::Ambidexterity)) {
+            return 6;
+        }
+        return 10;
+    }
+
+    if (weapon != mainHand.get()) {
+        return 0;
+    }
+
+    bool balanced = doubleBladed;
+    if (!balanced) {
+        int relativeSize = getRelativeWeaponSize(
+            mainHand->isRanged() ? *mainHand : *offHandWeapon);
+        balanced = mainHand->isRanged() ? relativeSize <= -1 : relativeSize == -1;
+    }
+
+    int penalty = balanced ? 4 : 6;
+    if (_attributes.hasFeat(FeatType::AdvancedDoubleWeaponFighting)) {
+        penalty -= 4;
+    } else if (_attributes.hasFeat(FeatType::DoubleWeaponFighting)) {
+        penalty -= 2;
+    }
+    return penalty;
+}
+
+int Creature::getDuelingBonus() const {
+    auto mainHand = getEquippedItem(InventorySlots::rightWeapon);
+    if (!mainHand || getEquippedItem(InventorySlots::leftWeapon)) {
+        return 0;
+    }
+    if (mainHand->weaponWield() != WeaponWield::SingleSword &&
+        mainHand->weaponWield() != WeaponWield::BlasterPistol) {
+        return 0;
+    }
+
+    if (_attributes.hasFeat(FeatType::MasterDueling)) {
+        return 3;
+    }
+    if (_attributes.hasFeat(FeatType::ImprovedDueling)) {
+        return 2;
+    }
+    return _attributes.hasFeat(FeatType::Dueling) ? 1 : 0;
 }
 
 std::string Creature::getWalkAnimation() const {

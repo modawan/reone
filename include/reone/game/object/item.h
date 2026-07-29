@@ -107,6 +107,7 @@ public:
     std::shared_ptr<graphics::Texture> icon() const { return _icon; }
     WeaponType weaponType() const { return _weaponType; }
     WeaponWield weaponWield() const { return _weaponWield; }
+    CreatureSize weaponSize() const { return _weaponSize; }
     const std::string &description() const { return _description.str(); }
     const std::string &descIdentified() const { return _descIdentified.str(); }
     int baseItemType() const { return _baseItem; }
@@ -156,6 +157,7 @@ private:
     int _damageFlags {0};
     WeaponType _weaponType {WeaponType::None};
     WeaponWield _weaponWield {WeaponWield::None};
+    CreatureSize _weaponSize {CreatureSize::Invalid};
 
     bool _equipped {false};
     std::shared_ptr<AmmunitionType> _ammunitionType;

@@ -558,6 +558,9 @@ enum class FeatType {
     ImprovedRapidShot = 92,
     ProficiencyAll = 93,
     BattleMeditation = 94,
+    Dueling = 113,
+    ImprovedDueling = 114,
+    MasterDueling = 115,
 
     // TSL
 
