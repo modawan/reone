@@ -254,9 +254,9 @@ void Door::applyRestingPose() {
 
 void Door::loadLinkedTransitionGeometry(const Walkmesh &walkmesh) {
     AABB bounds;
-    for (const auto &face : walkmesh.faces()) {
-        for (const auto &vertex : face.vertices) {
-            bounds.expand(vertex);
+    for (const auto &face : walkmesh.faces) {
+        for (const auto &vertex : face.indices) {
+            bounds.expand(walkmesh.vertices[vertex]);
         }
     }
     if (bounds.isDegenerate() || bounds.min().x == bounds.max().x || bounds.min().y == bounds.max().y) {
