@@ -76,7 +76,6 @@ static constexpr int kDecreaseModifierCostTable = 20;
 static constexpr int kMaximumDodgeBonus = 10;
 static constexpr int kSituationalAttackBonus = 10;
 static constexpr float kCloseRangeAttackDistance2 = 25.0f;
-static constexpr uint16_t kMaximumDamageTypePropertySubtype = 12;
 static constexpr size_t kACBonusTypeCount = static_cast<size_t>(ACBonus::Deflection) + 1;
 static constexpr float kKeepPathDuration = 1000.0f;
 
@@ -134,11 +133,17 @@ static bool defenseAlignmentGroupMatches(uint16_t alignment, const Creature &att
     return group == Alignment::All || group == attacker.alignment();
 }
 
-static int itemPropertyDamageFlags(uint16_t subtype) {
-    if (subtype > kMaximumDamageTypePropertySubtype) {
+static int combatDamagePropertyFlags(uint16_t subtype) {
+    switch (subtype) {
+    case 0:
+        return static_cast<int>(DamageType::Bludgeoning);
+    case 1:
+        return static_cast<int>(DamageType::Piercing);
+    case 2:
+        return static_cast<int>(DamageType::Slashing);
+    default:
         return 0;
     }
-    return 1 << subtype;
 }
 
 static bool damageTypeMatches(int modifierType, int damageType) {
@@ -186,7 +191,7 @@ static bool defensePropertyApplies(
     case ItemProperty::AcBonusVsAlignmentGroup:
         return attacker && defenseAlignmentGroupMatches(subtype, *attacker);
     case ItemProperty::AcBonusVsDamageType:
-        return damageTypeMatches(itemPropertyDamageFlags(subtype), damageType);
+        return damageTypeMatches(combatDamagePropertyFlags(subtype), damageType);
     case ItemProperty::AcBonusVsRacialGroup:
         return attacker && racialTypeMatches(subtype, *attacker);
     default:
