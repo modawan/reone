@@ -18,6 +18,7 @@
 #include "reone/game/attack.h"
 
 #include "reone/game/di/services.h"
+#include "reone/game/effect/immunity.h"
 #include "reone/game/effect/modifyattacks.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
@@ -36,6 +37,8 @@ namespace game {
 
 static constexpr char kModelEventDetonate[] = "detonate";
 static constexpr float kProjectileSpeed = 16.0f;
+static constexpr int kUnarmedCriticalThreat = 1;
+static constexpr int kCriticalHitImmunityPropertySubtype = 8;
 
 bool isMeleeWieldType(CreatureWieldType type) {
     switch (type) {
@@ -71,86 +74,121 @@ bool isAttackSuccessful(AttackResultType result) {
     }
 }
 
-static const char *attackResultDesc(AttackResultType type) {
-    switch (type) {
-    case AttackResultType::Miss:
-        return "missed";
-    case AttackResultType::AttackResisted:
-        return "resisted";
-    case AttackResultType::AttackFailed:
-        return "failed";
-    case AttackResultType::Parried:
-        return "parried";
-    case AttackResultType::Deflected:
-        return "deflected";
-    case AttackResultType::HitSuccessful:
-        return "hit";
-    case AttackResultType::AutomaticHit:
-        return "automatic hit";
-    case AttackResultType::CriticalHit:
-        return "critical hit";
-    case AttackResultType::Invalid:
-        break;
-    }
-    return "invalid";
-}
-
 static bool hasAssuredHitEffect(const Creature &attacker) {
-    for (auto &effect : attacker.effects()) {
-        if (effect.effect->type() == EffectType::AssuredHit) {
+    for (const Object::AppliedEffect &applied : attacker.effects()) {
+        if (applied.effect->type() == EffectType::AssuredHit) {
             return true;
         }
     }
     return false;
 }
 
-static AttackResultType computeAttack(const Creature &attacker, const Object &target, int rollBonus, int threatBonus) {
-    if (hasAssuredHitEffect(attacker)) {
-        return AttackResultType::AutomaticHit;
+static bool hasActiveItemProperty(
+    const Item &item,
+    ItemProperty type,
+    int subtype = -1) {
+
+    for (const Item::PropertyEntry &property : item.properties()) {
+        if (property.upgradeType != 0 ||
+            property.propertyName != static_cast<uint16_t>(type) ||
+            (subtype >= 0 && property.subtype != subtype)) {
+            continue;
+        }
+        return true;
     }
+    return false;
+}
+
+static bool hasCriticalHitImmunity(const Creature &target) {
+    for (const Object::AppliedEffect &applied : target.effects()) {
+        if (applied.effect->type() != EffectType::Immunity) {
+            continue;
+        }
+
+        const auto &effect = static_cast<const ImmunityEffect &>(*applied.effect);
+        if (effect.immunityType() == ImmunityType::CriticalHit) {
+            return true;
+        }
+    }
+
+    for (const auto &[slot, item] : target.equipment()) {
+        if (!item ||
+            slot == InventorySlots::rightWeapon2 ||
+            slot == InventorySlots::leftWeapon2) {
+            continue;
+        }
+        if (hasActiveItemProperty(
+                *item,
+                ItemProperty::Immunity,
+                kCriticalHitImmunityPropertySubtype)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static int getCriticalThreat(const Item *weapon, int threatBonus) {
+    int threat = weapon ? weapon->criticalThreat() : kUnarmedCriticalThreat;
+    if (weapon && hasActiveItemProperty(*weapon, ItemProperty::Keen)) {
+        threat *= 2;
+    }
+    return threat + threatBonus;
+}
+
+static AttackResultType computeAttack(
+    const Creature &attacker,
+    const Object &target,
+    int attackBonus,
+    int criticalThreat,
+    int damageType) {
 
     // Determine defense of a target
-    int defense;
-    if (const auto *creature = dyn_cast<Creature>(&target)) {
-        defense = creature->getDefense();
-    } else {
-        defense = 10;
-    }
+    const auto *targetCreature = dyn_cast<Creature>(&target);
+    const int defense = targetCreature
+                            ? targetCreature->getDefense(&attacker, damageType)
+                            : 0;
 
     // Attack roll
-    int roll = randomInt(1, 20);
+    const int roll = randomInt(1, 20);
+
+    if (hasAssuredHitEffect(attacker)) {
+        debug(str(boost::format("computeAttack: assured hit: roll(%d)") % roll),
+              LogChannel::Combat);
+        return AttackResultType::HitSuccessful;
+    }
 
     if (roll == 1) {
         debug(str(boost::format("computeAttack: miss: roll(1)")), LogChannel::Combat);
         return AttackResultType::Miss;
     }
 
-    AttackResultType result;
-    if (roll == 20) {
-        result = AttackResultType::AutomaticHit;
-    } else if ((roll + rollBonus) >= defense) {
-        result = AttackResultType::HitSuccessful;
-    } else {
-        debug(str(boost::format("computeAttack: miss: roll(%d), bonus(%d), defense(%d)") % roll % rollBonus % defense), LogChannel::Combat);
+    if (roll != 20 && (roll + attackBonus) < defense) {
+        debug(str(boost::format("computeAttack: miss: roll(%d), bonus(%d), defense(%d)") %
+                  roll % attackBonus % defense),
+              LogChannel::Combat);
         return AttackResultType::Miss;
     }
 
     // Critical threat
-    if (roll > (20 - threatBonus)) {
-        // Critical hit roll
-        int criticalRoll = randomInt(1, 20);
-        if ((criticalRoll + rollBonus) >= defense) {
-            debug(str(boost::format("computeAttack: critical hit: roll(%d), critical roll(%d),"
-                                    " bonus(%d), defense(%d), critical threat(20 - %d)") %
-                      roll % criticalRoll % rollBonus % defense % threatBonus),
+    if (roll >= (21 - criticalThreat)) {
+        // Critical confirmation
+        const int confirmationRoll = randomInt(1, 20);
+        if ((confirmationRoll + attackBonus) >= defense &&
+            (!targetCreature || !hasCriticalHitImmunity(*targetCreature))) {
+            debug(str(boost::format("computeAttack: critical hit: roll(%d), confirmation(%d),"
+                                    " bonus(%d), defense(%d), critical threat(%d)") %
+                      roll % confirmationRoll % attackBonus % defense % criticalThreat),
                   LogChannel::Combat);
             return AttackResultType::CriticalHit;
         }
     }
 
-    debug(str(boost::format("computeAttack: %s: roll(%d), bonus(%d), defense(%d), critical threat(20 - %d)") % attackResultDesc(result) % roll % rollBonus % defense % threatBonus));
+    debug(str(boost::format("computeAttack: hit: roll(%d), bonus(%d), defense(%d),"
+                            " critical threat(%d)") %
+              roll % attackBonus % defense % criticalThreat),
+          LogChannel::Combat);
 
-    return result;
+    return AttackResultType::HitSuccessful;
 }
 
 /**
@@ -259,12 +297,19 @@ void AttackBuffer::addWeaponAttack(
     const Creature &attacker, const Object &target, const Item &weapon,
     Source source, int attackRollBonus, int attackThreatBonus, int damageBonus) {
 
+    const auto *targetCreature = dyn_cast<Creature>(&target);
     attackRollBonus += attacker.getAttackBonus(
-        &weapon, source == AttackBuffer::Source::Offhand);
-    attackThreatBonus += weapon.criticalThreat();
+        targetCreature,
+        &weapon,
+        source == AttackBuffer::Source::Offhand);
+    int criticalThreat = getCriticalThreat(&weapon, attackThreatBonus);
 
     AttackResultType result = computeAttack(
-        attacker, target, attackRollBonus, attackThreatBonus);
+        attacker,
+        target,
+        attackRollBonus,
+        criticalThreat,
+        weapon.damageFlags());
 
     _attacks.emplace_back(source, result);
 
@@ -278,10 +323,20 @@ void AttackBuffer::addWeaponAttack(
 
 void AttackBuffer::addUnarmedAttack(const Creature &attacker, const Object &target,
                                     int attackRollBonus, int attackThreatBonus, int damageBonus) {
-    attackRollBonus += attacker.getAttackBonus(nullptr, false);
+    const auto *targetCreature = dyn_cast<Creature>(&target);
+    attackRollBonus += attacker.getAttackBonus(
+        targetCreature,
+        nullptr,
+        false);
+    auto gloves = attacker.getEquippedItem(InventorySlots::hands);
+    int criticalThreat = getCriticalThreat(gloves.get(), attackThreatBonus);
 
     AttackResultType result = computeAttack(
-        attacker, target, attackRollBonus, attackThreatBonus);
+        attacker,
+        target,
+        attackRollBonus,
+        criticalThreat,
+        static_cast<int>(DamageType::Bludgeoning));
 
     _attacks.emplace_back(AttackBuffer::Source::Main, result);
 

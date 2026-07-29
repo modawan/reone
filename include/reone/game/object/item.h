@@ -97,7 +97,11 @@ public:
     const std::string &localizedName() const { return _localizedName.str(); }
     float attackRange() const { return static_cast<float>(_attackRange); }
     int bodyVariation() const { return _bodyVariation; }
-    int damageFlags() const { return _damageFlags; }
+    int damageFlags() const {
+        return _damageFlags != 0
+                   ? _damageFlags
+                   : static_cast<int>(DamageType::Universal);
+    }
     int dieToRoll() const { return _dieToRoll; }
     int modelVariation() const { return _modelVariation; }
     int numDice() const { return _numDice; }

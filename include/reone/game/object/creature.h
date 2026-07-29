@@ -139,6 +139,7 @@ public:
     const ItemAttributes &itemAttributes() const { return _itemAttributes; }
     Faction faction() const { return _faction; }
     int xp() const { return _xp; }
+    Alignment alignment() const;
     RacialType racialType() const { return _race; }
     Subrace subrace() const { return _subrace; }
     NPCAIStyle aiStyle() const { return _aiStyle; }
@@ -226,8 +227,10 @@ public:
     uint32_t getLastHostileTarget() const { return _lastHostileTarget; }
     ActionType getLastAttackAction() const { return _lastAttackAction; }
     AttackResultType getLastAttackResult() const { return _lastAttackResult; }
+    int getAttackBonus(const Creature *target, const Item *weapon, bool offHand) const;
     int getAttackBonus(const Item *weapon, bool offHand) const;
     int getAttackBonus(bool offHand = false) const;
+    int getDefense(const Creature *attacker, int damageType) const;
     int getDefense() const;
     void getMainHandDamage(int &min, int &max) const;
     void getOffhandDamage(int &min, int &max) const;

@@ -71,8 +71,12 @@ namespace game {
 
 static constexpr int kStrRefRemains = 38151;
 static constexpr int kAllDamageTypes = 8199;
+static constexpr int kPhysicalDamageTypes = 16391;
 static constexpr int kDecreaseModifierCostTable = 20;
 static constexpr int kMaximumDodgeBonus = 10;
+static constexpr int kSituationalAttackBonus = 10;
+static constexpr float kCloseRangeAttackDistance2 = 25.0f;
+static constexpr uint16_t kMaximumDamageTypePropertySubtype = 12;
 static constexpr size_t kACBonusTypeCount = static_cast<size_t>(ACBonus::Deflection) + 1;
 static constexpr float kKeepPathDuration = 1000.0f;
 
@@ -109,6 +113,102 @@ static bool attackModifierApplies(
     default:
         return false;
     }
+}
+
+static bool racialTypeMatches(uint16_t racialType, const Creature &target) {
+    auto type = static_cast<RacialType>(racialType);
+    return type == RacialType::All || type == target.racialType();
+}
+
+static bool attackAlignmentGroupMatches(uint16_t alignment, const Creature &target) {
+    auto group = static_cast<Alignment>(alignment);
+    // The native attack-property handler stores Neutral in the unused
+    // law/chaos qualifier, so it applies to every target.
+    return group == Alignment::All ||
+           group == Alignment::Neutral ||
+           group == target.alignment();
+}
+
+static bool defenseAlignmentGroupMatches(uint16_t alignment, const Creature &attacker) {
+    auto group = static_cast<Alignment>(alignment);
+    return group == Alignment::All || group == attacker.alignment();
+}
+
+static int itemPropertyDamageFlags(uint16_t subtype) {
+    if (subtype > kMaximumDamageTypePropertySubtype) {
+        return 0;
+    }
+    return 1 << subtype;
+}
+
+static bool damageTypeMatches(int modifierType, int damageType) {
+    if (modifierType == kAllDamageTypes) {
+        return true;
+    }
+    if (modifierType <= 0 || damageType == 0) {
+        return false;
+    }
+    if (modifierType == kPhysicalDamageTypes) {
+        return (damageType & static_cast<int>(DamageType::Physical)) != 0;
+    }
+    return (modifierType & damageType) != 0;
+}
+
+static bool attackPropertyApplies(
+    ItemProperty property,
+    uint16_t subtype,
+    const Creature *target) {
+
+    switch (property) {
+    case ItemProperty::EnhancementBonus:
+    case ItemProperty::AttackBonus:
+        return true;
+    case ItemProperty::EnhancementBonusVsAlignmentGroup:
+    case ItemProperty::AttackBonusVsAlignmentGroup:
+        return target && attackAlignmentGroupMatches(subtype, *target);
+    case ItemProperty::EnhancementBonusVsRacialGroup:
+    case ItemProperty::AttackBonusVsRacialGroup:
+        return target && racialTypeMatches(subtype, *target);
+    default:
+        return false;
+    }
+}
+
+static bool defensePropertyApplies(
+    ItemProperty property,
+    uint16_t subtype,
+    const Creature *attacker,
+    int damageType) {
+
+    switch (property) {
+    case ItemProperty::AcBonus:
+        return true;
+    case ItemProperty::AcBonusVsAlignmentGroup:
+        return attacker && defenseAlignmentGroupMatches(subtype, *attacker);
+    case ItemProperty::AcBonusVsDamageType:
+        return damageTypeMatches(itemPropertyDamageFlags(subtype), damageType);
+    case ItemProperty::AcBonusVsRacialGroup:
+        return attacker && racialTypeMatches(subtype, *attacker);
+    default:
+        return false;
+    }
+}
+
+static int getSituationalAttackBonus(
+    const Creature &attacker,
+    const Creature &target,
+    const Item *weapon) {
+
+    if (weapon && weapon->isRanged()) {
+        return attacker.getSquareDistanceTo(target) <= kCloseRangeAttackDistance2
+                   ? kSituationalAttackBonus
+                   : 0;
+    }
+
+    auto targetWeapon = target.getEquippedItem(InventorySlots::rightWeapon);
+    return targetWeapon && targetWeapon->isRanged()
+               ? kSituationalAttackBonus
+               : 0;
 }
 
 static bool equippedItemAppliesToAttack(
@@ -896,7 +996,20 @@ std::shared_ptr<Object> Creature::getAttemptedAttackTarget() const {
     return target;
 }
 
-int Creature::getAttackBonus(const Item *weapon, bool offHand) const {
+Alignment Creature::alignment() const {
+    if (_goodEvil <= 40) {
+        return Alignment::DarkSide;
+    }
+    if (_goodEvil >= 60) {
+        return Alignment::LightSide;
+    }
+    return Alignment::Neutral;
+}
+
+int Creature::getAttackBonus(
+    const Creature *target,
+    const Item *weapon,
+    bool offHand) const {
     int strengthModifier = _attributes.getAbilityModifier(Ability::Strength);
     int dexterityModifier = _attributes.getAbilityModifier(Ability::Dexterity);
 
@@ -968,9 +1081,20 @@ int Creature::getAttackBonus(const Item *weapon, bool offHand) const {
                 }
 
                 int modifier = 0;
-                switch (static_cast<ItemProperty>(property.propertyName)) {
+                auto propertyType = static_cast<ItemProperty>(property.propertyName);
+                switch (propertyType) {
                 case ItemProperty::EnhancementBonus:
-                case ItemProperty::AttackBonus: {
+                case ItemProperty::EnhancementBonusVsAlignmentGroup:
+                case ItemProperty::EnhancementBonusVsRacialGroup:
+                case ItemProperty::AttackBonus:
+                case ItemProperty::AttackBonusVsAlignmentGroup:
+                case ItemProperty::AttackBonusVsRacialGroup: {
+                    if (!attackPropertyApplies(
+                            propertyType,
+                            property.subtype,
+                            target)) {
+                        continue;
+                    }
                     if (!bonusCosts) {
                         continue;
                     }
@@ -1019,12 +1143,21 @@ int Creature::getAttackBonus(const Item *weapon, bool offHand) const {
         }
     }
 
+    int situationalBonus = target
+                               ? getSituationalAttackBonus(*this, *target, weapon)
+                               : 0;
+
     return _attributes.getAggregateAttackBonus() +
            abilityModifier +
            attackModifier +
            featBonus +
+           situationalBonus +
            (offHand ? 0 : getDuelingBonus()) -
            getTwoWeaponAttackPenalty(weapon, offHand);
+}
+
+int Creature::getAttackBonus(const Item *weapon, bool offHand) const {
+    return getAttackBonus(nullptr, weapon, offHand);
 }
 
 int Creature::getAttackBonus(bool offHand) const {
@@ -1039,7 +1172,7 @@ int Creature::getAttackBonus(bool offHand) const {
     return getAttackBonus(weapon.get(), offHand);
 }
 
-int Creature::getDefense() const {
+int Creature::getDefense(const Creature *attacker, int damageType) const {
     int dexterityModifier = _attributes.getAbilityModifier(Ability::Dexterity);
     auto armor = getEquippedItem(InventorySlots::body);
     int armorDefense = armor ? armor->baseDefense() : 0;
@@ -1059,7 +1192,7 @@ int Creature::getDefense() const {
         switch (applied.effect->type()) {
         case EffectType::ACIncrease: {
             const auto &effect = static_cast<const ACIncreaseEffect &>(*applied.effect);
-            if (effect.damageType() == kAllDamageTypes) {
+            if (damageTypeMatches(effect.damageType(), damageType)) {
                 addDefenseModifier(
                     effect.bonus(),
                     effect.modifierType(),
@@ -1069,7 +1202,7 @@ int Creature::getDefense() const {
         }
         case EffectType::ACDecrease: {
             const auto &effect = static_cast<const ACDecreaseEffect &>(*applied.effect);
-            if (effect.damageType() == kAllDamageTypes) {
+            if (damageTypeMatches(effect.damageType(), damageType)) {
                 addDefenseModifier(
                     effect.penalty(),
                     effect.modifierType(),
@@ -1094,8 +1227,19 @@ int Creature::getDefense() const {
                 continue;
             }
 
-            switch (static_cast<ItemProperty>(property.propertyName)) {
-            case ItemProperty::AcBonus: {
+            auto propertyType = static_cast<ItemProperty>(property.propertyName);
+            switch (propertyType) {
+            case ItemProperty::AcBonus:
+            case ItemProperty::AcBonusVsAlignmentGroup:
+            case ItemProperty::AcBonusVsDamageType:
+            case ItemProperty::AcBonusVsRacialGroup: {
+                if (!defensePropertyApplies(
+                        propertyType,
+                        property.subtype,
+                        attacker,
+                        damageType)) {
+                    continue;
+                }
                 if (!bonusCosts) {
                     continue;
                 }
@@ -1136,6 +1280,10 @@ int Creature::getDefense() const {
                   getDuelingBonus();
 
     return defense - (isDebilitated() ? 4 : 0);
+}
+
+int Creature::getDefense() const {
+    return getDefense(nullptr, 0);
 }
 
 void Creature::getMainHandDamage(int &min, int &max) const {

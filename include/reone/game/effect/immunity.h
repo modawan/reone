@@ -32,6 +32,8 @@ public:
 
     void applyTo(Object &object) override;
 
+    ImmunityType immunityType() const { return _immunityType; }
+
 private:
     ImmunityType _immunityType;
 };
