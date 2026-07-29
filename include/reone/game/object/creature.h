@@ -121,7 +121,7 @@ public:
     void stopTalking();
 
     bool isSelectable() const override;
-    bool isMovementRestricted() const { return _movementRestricted; }
+    bool isMovementRestricted() const { return _movementRestricted || !canExecuteActions(); }
     bool isLevelUpPending() const;
 
     glm::vec3 getSelectablePosition() const override;
@@ -222,7 +222,7 @@ public:
     void deactivateCombat(float delay);
 
     bool isInCombat() const { return _combatState.active; }
-    bool isDebilitated() const { return _combatState.debilitated; }
+    bool isDebilitated() const;
     bool isTwoWeaponFighting() const;
 
     std::shared_ptr<Object> getAttemptedAttackTarget() const;
@@ -235,6 +235,10 @@ public:
     int getAttackBonus(bool offHand = false) const;
     int getDefense(const Creature *attacker, int damageFlags) const;
     int getDefense() const;
+    int getFortitudeSave(SavingThrowType savingThrowType = SavingThrowType::All) const;
+    bool rollFortitudeSave(
+        int difficultyClass,
+        SavingThrowType savingThrowType = SavingThrowType::All) const;
     int getPhysicalDamageBonus(const Item *weapon, bool offHand) const;
     int getMassiveCriticalDamage(const Item *weapon, bool criticalHit) const;
     int getItemDamageImmunity(DamageType type) const;
@@ -302,6 +306,9 @@ public:
     void setIsListening(bool value) { _isListening = value; }
 
     // END Listeners
+
+protected:
+    bool canExecuteActions() const override;
 
 private:
     // Serializable

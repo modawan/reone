@@ -92,6 +92,15 @@ public:
                             FeatType feat = FeatType::Invalid);
 
     /**
+     * Apply the once-per-action effects of a melee combat feat.
+     */
+    void resolveMeleeSpecialAttack(
+        FeatType feat,
+        Creature &attacker,
+        Object &target,
+        Game &game);
+
+    /**
      * Calculate an attack roll and base damage packet for a weapon attack.
      * The packet is retained until applyEffects().
      */
@@ -111,8 +120,7 @@ public:
                           int damageBonus = 0);
 
     /**
-     * Apply one damage effect for each non-empty physical-attack packet from
-     * \p attacker to \p target.
+     * Apply the delayed damage and secondary effects of each physical attack.
      */
     void applyEffects(Creature &attacker, Object &target, Game &game);
 
@@ -162,6 +170,7 @@ private:
         int confirmationRoll;
         bool assuredHit;
         bool criticalHitImmune;
+        bool stunTarget {false};
         DamagePacket damage;
     };
 

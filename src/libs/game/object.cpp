@@ -83,7 +83,7 @@ void Object::deserialize(const resource::Gff &gff) {
 void Object::update(float dt) {
     updateActions(dt);
     updateEffects(dt);
-    if (!_dead) {
+    if (!_dead && canExecuteActions()) {
         executeActions(dt);
     }
     if (_sceneNode && _sceneNode->type() == SceneNodeType::Model) {

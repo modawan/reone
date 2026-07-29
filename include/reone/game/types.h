@@ -559,6 +559,8 @@ enum class FeatType {
     ProficiencyAll = 93,
     BattleMeditation = 94,
     WookieEndurance = 95,
+    ForceImmunityStun = 99,
+    ForceImmunityParalysis = 100,
     Dueling = 113,
     ImprovedDueling = 114,
     MasterDueling = 115,

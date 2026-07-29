@@ -180,6 +180,7 @@ void UseFeatAction::execute(std::shared_ptr<Action> self, Object &actor, float d
         attacker.setMovementRestricted(true);
 
         attack(_feat, round, attacker, *_target, _services.game.animations, _attacks);
+        _attacks.resolveMeleeSpecialAttack(_feat, attacker, *_target, _game);
         attacker.setLastAttackResult(_attacks.lastResult());
         _attacks.addCombatFeedback(_game, attacker, *_target);
 

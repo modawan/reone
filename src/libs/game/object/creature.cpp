@@ -34,6 +34,8 @@
 #include "reone/game/effect/damagedecrease.h"
 #include "reone/game/effect/damageincrease.h"
 #include "reone/game/effect/immunity.h"
+#include "reone/game/effect/savingthrowdecrease.h"
+#include "reone/game/effect/savingthrowincrease.h"
 #include "reone/game/footstepsounds.h"
 #include "reone/game/game.h"
 #include "reone/game/portraits.h"
@@ -78,6 +80,9 @@ static constexpr int kAllDamageTypes = 8199;
 static constexpr int kPhysicalDamageTypes = 16391;
 static constexpr int kDecreaseModifierCostTable = 20;
 static constexpr int kMaximumDodgeBonus = 10;
+static constexpr int kMaximumSavingThrowModifier = 20;
+static constexpr int kAllSavingThrows = 0;
+static constexpr int kFortitudeSavingThrow = 1;
 static constexpr int kSituationalAttackBonus = 10;
 static constexpr float kCloseRangeAttackDistance2 = 25.0f;
 static constexpr size_t kACBonusTypeCount = static_cast<size_t>(ACBonus::Deflection) + 1;
@@ -314,6 +319,45 @@ static int getItemPropertyValue(
 
 static std::shared_ptr<TwoDA> getDecreaseModifierCostTable(ServicesView &services) {
     return getItemPropertyCostTable(services, kDecreaseModifierCostTable);
+}
+
+static bool savingThrowModifierApplies(
+    int save,
+    SavingThrowType modifierType,
+    int requestedSave,
+    SavingThrowType requestedType) {
+
+    return (save == kAllSavingThrows || save == requestedSave) &&
+           (modifierType == SavingThrowType::All ||
+            modifierType == requestedType);
+}
+
+static bool savingThrowPropertyApplies(
+    ItemProperty property,
+    uint16_t subtype,
+    int requestedSave,
+    SavingThrowType requestedType) {
+
+    switch (property) {
+    case ItemProperty::ImprovedSavingThrow:
+    case ItemProperty::DecreasedSavingThrows:
+        return subtype == static_cast<uint16_t>(SavingThrowType::All) ||
+               subtype == static_cast<uint16_t>(requestedType);
+    case ItemProperty::ImprovedSavingThrowSpecific:
+    case ItemProperty::DecreasedSavingThrowsSpecific:
+        return subtype == kAllSavingThrows || subtype == requestedSave;
+    default:
+        return false;
+    }
+}
+
+static bool hasStunnedEffect(const Creature &creature) {
+    return std::any_of(
+        creature.effects().begin(),
+        creature.effects().end(),
+        [](const Object::AppliedEffect &applied) {
+            return applied.effect->type() == EffectType::Stunned;
+        });
 }
 
 struct DamageModifier {
@@ -561,6 +605,14 @@ void Creature::loadTransformFromGIT(const resource::generated::GIT_Creature_List
     _orientation = glm::quat(glm::vec3(0.0f, 0.0f, -glm::atan(cosine, sine)));
 
     updateTransform();
+}
+
+bool Creature::isDebilitated() const {
+    return _combatState.debilitated || hasStunnedEffect(*this);
+}
+
+bool Creature::canExecuteActions() const {
+    return !hasStunnedEffect(*this);
 }
 
 bool Creature::isSelectable() const {
@@ -1438,6 +1490,101 @@ int Creature::getDefense(const Creature *attacker, int damageFlags) const {
 
 int Creature::getDefense() const {
     return getDefense(nullptr, 0);
+}
+
+int Creature::getFortitudeSave(SavingThrowType savingThrowType) const {
+    int modifier = 0;
+    for (const auto &applied : effects()) {
+        switch (applied.effect->type()) {
+        case EffectType::SavingThrowIncrease: {
+            const auto &effect =
+                static_cast<const SavingThrowIncreaseEffect &>(*applied.effect);
+            if (savingThrowModifierApplies(
+                    effect.save(),
+                    effect.savingThrowType(),
+                    kFortitudeSavingThrow,
+                    savingThrowType)) {
+                modifier += effect.value();
+            }
+            break;
+        }
+        case EffectType::SavingThrowDecrease: {
+            const auto &effect =
+                static_cast<const SavingThrowDecreaseEffect &>(*applied.effect);
+            if (savingThrowModifierApplies(
+                    effect.save(),
+                    effect.savingThrowType(),
+                    kFortitudeSavingThrow,
+                    savingThrowType)) {
+                modifier -= effect.value();
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    for (const auto &[slot, item] : _equipment) {
+        if (!item || !equippedItemAppliesToDefense(slot)) {
+            continue;
+        }
+
+        int itemBonus = 0;
+        int itemPenalty = 0;
+        for (const auto &property : item->properties()) {
+            if (property.upgradeType != 0) {
+                continue;
+            }
+
+            auto propertyType = static_cast<ItemProperty>(property.propertyName);
+            if (!savingThrowPropertyApplies(
+                    propertyType,
+                    property.subtype,
+                    kFortitudeSavingThrow,
+                    savingThrowType)) {
+                continue;
+            }
+
+            int value = getItemPropertyValue(_services, property, "value");
+            switch (propertyType) {
+            case ItemProperty::ImprovedSavingThrow:
+            case ItemProperty::ImprovedSavingThrowSpecific:
+                itemBonus = std::max(itemBonus, value);
+                break;
+            case ItemProperty::DecreasedSavingThrows:
+            case ItemProperty::DecreasedSavingThrowsSpecific:
+                itemPenalty = std::max(itemPenalty, -value);
+                break;
+            default:
+                break;
+            }
+        }
+        modifier += itemBonus - itemPenalty;
+    }
+    modifier = std::min(modifier, kMaximumSavingThrowModifier);
+
+    int conditioningBonus = 0;
+    if (_attributes.hasFeat(FeatType::LightningReflexes)) {
+        conditioningBonus = 3;
+    } else if (_attributes.hasFeat(FeatType::IronWill)) {
+        conditioningBonus = 2;
+    } else if (_attributes.hasFeat(FeatType::GreatFortitude)) {
+        conditioningBonus = 1;
+    }
+
+    return _attributes.getAggregateSavingThrows().fortitude +
+           _attributes.getAbilityModifier(Ability::Constitution) +
+           _fortBonus +
+           conditioningBonus +
+           modifier;
+}
+
+bool Creature::rollFortitudeSave(
+    int difficultyClass,
+    SavingThrowType savingThrowType) const {
+
+    return randomInt(1, 20) + getFortitudeSave(savingThrowType) >= difficultyClass;
 }
 
 int Creature::getPhysicalDamageBonus(

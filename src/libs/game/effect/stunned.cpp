@@ -17,12 +17,16 @@
 
 #include "reone/game/effect/stunned.h"
 
+#include "reone/game/object/creature.h"
+
 namespace reone {
 
 namespace game {
 
 void StunnedEffect::applyTo(Object &object) {
-    // TODO: implement
+    if (auto *creature = dyn_cast<Creature>(&object)) {
+        creature->setMovementType(Creature::MovementType::None);
+    }
 }
 
 } // namespace game

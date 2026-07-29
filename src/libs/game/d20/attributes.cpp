@@ -134,9 +134,9 @@ int CreatureAttributes::getAggregateDefenseBonus() const {
 
 SavingThrows CreatureAttributes::getAggregateSavingThrows() const {
     SavingThrows result;
-    result.fortitude = 1;
-    result.reflex = 1;
-    result.will = 1;
+    result.fortitude = 0;
+    result.reflex = 0;
+    result.will = 0;
     for (auto &pair : _classLevels) {
         auto classThrows = pair.first->getSavingThrows(pair.second);
         result.fortitude += classThrows.fortitude;

@@ -18,8 +18,10 @@
 #include "reone/game/attack.h"
 
 #include "reone/game/di/services.h"
+#include "reone/game/effect/acdecrease.h"
 #include "reone/game/effect/immunity.h"
 #include "reone/game/effect/modifyattacks.h"
+#include "reone/game/effect/stunned.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
@@ -40,6 +42,9 @@ static constexpr char kModelEventDetonate[] = "detonate";
 static constexpr float kProjectileSpeed = 16.0f;
 static constexpr int kUnarmedCriticalThreat = 1;
 static constexpr int kCriticalHitImmunityPropertySubtype = 8;
+static constexpr int kAllDamageTypes = 8199;
+static constexpr float kSpecialAttackDefensePenaltyDuration = 3.0f;
+static constexpr float kCriticalStrikeStunDuration = 6.0f;
 
 bool isMeleeWieldType(CreatureWieldType type) {
     switch (type) {
@@ -100,16 +105,32 @@ static bool hasActiveItemProperty(
     return false;
 }
 
-static bool hasCriticalHitImmunity(const Creature &target) {
+static bool hasEffectImmunity(
+    const Creature &target,
+    ImmunityType immunityType) {
+
     for (const Object::AppliedEffect &applied : target.effects()) {
         if (applied.effect->type() != EffectType::Immunity) {
             continue;
         }
 
         const auto &effect = static_cast<const ImmunityEffect &>(*applied.effect);
-        if (effect.immunityType() == ImmunityType::CriticalHit) {
+        if (effect.immunityType() == immunityType) {
             return true;
         }
+    }
+    return false;
+}
+
+static bool hasStunImmunity(const Creature &target) {
+    return hasEffectImmunity(target, ImmunityType::Stun) ||
+           target.attributes().hasFeat(FeatType::ForceImmunityStun) ||
+           target.attributes().hasFeat(FeatType::ForceImmunityParalysis);
+}
+
+static bool hasCriticalHitImmunity(const Creature &target) {
+    if (hasEffectImmunity(target, ImmunityType::CriticalHit)) {
+        return true;
     }
 
     for (const auto &[slot, item] : target.equipment()) {
@@ -128,8 +149,12 @@ static bool hasCriticalHitImmunity(const Creature &target) {
     return false;
 }
 
+static int getBaseCriticalThreat(const Item *weapon) {
+    return weapon ? weapon->criticalThreat() : kUnarmedCriticalThreat;
+}
+
 static int getCriticalThreat(const Item *weapon, int threatBonus) {
-    int threat = weapon ? weapon->criticalThreat() : kUnarmedCriticalThreat;
+    int threat = getBaseCriticalThreat(weapon);
     if (weapon && hasActiveItemProperty(*weapon, ItemProperty::Keen)) {
         threat *= 2;
     }
@@ -339,6 +364,12 @@ static int getSpecialAttackRollBonus(FeatType feat) {
     case FeatType::ImprovedPowerAttack:
     case FeatType::MasterPowerAttack:
         return -3;
+    case FeatType::Flurry:
+        return -4;
+    case FeatType::ImprovedFlurry:
+        return -2;
+    case FeatType::WhirlwindAttack:
+        return -1;
     default:
         return 0;
     }
@@ -357,6 +388,55 @@ static int getSpecialAttackDamageBonus(FeatType feat) {
     }
 }
 
+static int getSpecialAttackThreatBonus(
+    FeatType feat,
+    const Item *weapon) {
+
+    int multiplier = 0;
+    switch (feat) {
+    case FeatType::CriticalStrike:
+        multiplier = 1;
+        break;
+    case FeatType::ImprovedCriticalStrike:
+        multiplier = 2;
+        break;
+    case FeatType::MasterCriticalStrike:
+        multiplier = 3;
+        break;
+    default:
+        break;
+    }
+    return multiplier * getBaseCriticalThreat(weapon);
+}
+
+static int getMeleeSpecialAttackDefensePenalty(FeatType feat) {
+    switch (feat) {
+    case FeatType::CriticalStrike:
+    case FeatType::ImprovedCriticalStrike:
+    case FeatType::MasterCriticalStrike:
+        return 5;
+    case FeatType::Flurry:
+        return 4;
+    case FeatType::ImprovedFlurry:
+        return 2;
+    case FeatType::WhirlwindAttack:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static bool isCriticalStrikeFeat(FeatType feat) {
+    switch (feat) {
+    case FeatType::CriticalStrike:
+    case FeatType::ImprovedCriticalStrike:
+    case FeatType::MasterCriticalStrike:
+        return true;
+    default:
+        return false;
+    }
+}
+
 void AttackBuffer::addPhysicalAttacks(const Creature &attacker, const Object &target,
                                       FeatType feat) {
     int mainHandAttacks = 1 + getBonusEffectAttacks(attacker);
@@ -369,17 +449,21 @@ void AttackBuffer::addPhysicalAttacks(const Creature &attacker, const Object &ta
 
     auto main = attacker.getEquippedItem(InventorySlots::rightWeapon);
     if (!main) {
+        auto gloves = attacker.getEquippedItem(InventorySlots::hands);
+        int attackThreatBonus = getSpecialAttackThreatBonus(feat, gloves.get());
         for (int i = 0; i < mainHandAttacks; ++i) {
             addUnarmedAttack(
-                attacker, target, attackRollBonus, 0, damageBonus);
+                attacker, target,
+                attackRollBonus, attackThreatBonus, damageBonus);
         }
         return;
     }
 
+    int mainThreatBonus = getSpecialAttackThreatBonus(feat, main.get());
     for (int i = 0; i < mainHandAttacks; ++i) {
         addWeaponAttack(
             attacker, target, *main, AttackBuffer::Source::Main,
-            attackRollBonus, 0, damageBonus);
+            attackRollBonus, mainThreatBonus, damageBonus);
     }
 
     auto offhand = attacker.getEquippedItem(InventorySlots::leftWeapon);
@@ -387,9 +471,50 @@ void AttackBuffer::addPhysicalAttacks(const Creature &attacker, const Object &ta
         offhand = main;
     }
     if (offhand) {
+        int offhandThreatBonus = getSpecialAttackThreatBonus(feat, offhand.get());
         addWeaponAttack(
             attacker, target, *offhand, AttackBuffer::Source::Offhand,
-            attackRollBonus, 0, damageBonus);
+            attackRollBonus, offhandThreatBonus, damageBonus);
+    }
+}
+
+void AttackBuffer::resolveMeleeSpecialAttack(
+    FeatType feat,
+    Creature &attacker,
+    Object &target,
+    Game &game) {
+
+    if (_attacks.empty() || _attacks.front().ranged) {
+        return;
+    }
+
+    int defensePenalty = getMeleeSpecialAttackDefensePenalty(feat);
+    if (defensePenalty != 0) {
+        auto effect = game.newEffect<ACDecreaseEffect>(
+            defensePenalty,
+            ACBonus::Dodge,
+            kAllDamageTypes);
+        attacker.applyEffect(
+            std::move(effect),
+            DurationType::Temporary,
+            kSpecialAttackDefensePenaltyDuration);
+    }
+
+    if (!isCriticalStrikeFeat(feat) ||
+        !isAttackSuccessful(_attacks.front().result)) {
+        return;
+    }
+
+    auto *targetCreature = dyn_cast<Creature>(&target);
+    if (!targetCreature || hasStunImmunity(*targetCreature)) {
+        return;
+    }
+
+    int difficultyClass =
+        attacker.attributes().getAggregateLevel() +
+        attacker.attributes().getAbilityModifier(Ability::Strength);
+    if (!targetCreature->rollFortitudeSave(difficultyClass)) {
+        _attacks.front().stunTarget = true;
     }
 }
 
@@ -471,13 +596,18 @@ void AttackBuffer::applyEffects(Creature &attacker, Object &target, Game &game) 
         if (!attack.ranged && !isAttackSuccessful(attack.result)) {
             game.floatingText().addMiss(attacker, target);
         }
-        if (attack.damage.empty()) {
-            continue;
+        if (!attack.damage.empty()) {
+            auto effect = game.newEffect<DamageEffect>(
+                std::move(attack.damage), attacker.id());
+            target.applyEffect(std::move(effect), DurationType::Instant);
         }
-
-        auto effect = game.newEffect<DamageEffect>(
-            std::move(attack.damage), attacker.id());
-        target.applyEffect(std::move(effect), DurationType::Instant);
+        if (attack.stunTarget) {
+            auto effect = game.newEffect<StunnedEffect>();
+            target.applyEffect(
+                std::move(effect),
+                DurationType::Temporary,
+                kCriticalStrikeStunDuration);
+        }
     }
 }
 

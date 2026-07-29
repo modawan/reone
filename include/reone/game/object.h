@@ -303,6 +303,7 @@ protected:
     }
 
     virtual void updateTransform();
+    virtual bool canExecuteActions() const { return true; }
 
     // Actions
 
