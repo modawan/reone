@@ -559,13 +559,15 @@ scene::MockSceneGraph &testSceneGraph(TestEngine &engine) {
 
 std::shared_ptr<graphics::Walkmesh> makeDoorWalkmesh() {
     auto walkmesh = std::make_shared<graphics::Walkmesh>();
-    walkmesh->add(graphics::Walkmesh::Face {
-        0,
-        0,
-        {glm::vec3(-2.0f, -0.5f, 0.0f),
-         glm::vec3(2.0f, -0.5f, 3.0f),
-         glm::vec3(2.0f, 0.5f, 0.0f)},
-        glm::vec3(0.0f, 0.0f, 1.0f)});
+    walkmesh->vertices = {
+        glm::vec3(-2.0f, -0.5f, 0.0f),
+        glm::vec3(2.0f, -0.5f, 3.0f),
+        glm::vec3(2.0f, 0.5f, 0.0f)};
+    walkmesh->normals = {
+        glm::vec3(0.0f, 0.0f, 1.0f),
+    };
+    walkmesh->faces = {{0, 1, 2}};
+    walkmesh->materials = {0};
     return walkmesh;
 }
 

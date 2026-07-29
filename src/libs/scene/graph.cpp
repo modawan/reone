@@ -801,19 +801,20 @@ bool SceneGraph::testElevation(const glm::vec3 &position, Collision &outCollisio
             }
         }
         auto objSpaceOrigin = glm::vec3(root->absoluteTransformInverse() * glm::vec4(origin, 1.0f));
-        float distance = 0.0f;
-        auto face = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, down, 2.0f * kElevationTestZ, /*ignoreBackface=*/true, distance);
-        if (!face || distance >= minDistance) {
+        auto raycast = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, down, 2.0f * kElevationTestZ, /*ignoreBackface=*/true);
+        if (raycast.fail || raycast.distance >= minDistance) {
             continue;
         }
-        walkable = _walkableSurfaces.count(face->material) > 0;
+        uint32_t material = root->walkmesh().materials[raycast.face];
+        glm::vec3 normal = root->walkmesh().normals[raycast.face];
+        walkable = _walkableSurfaces.count(material) > 0;
         if (walkable) {
             outCollision.user = root->user();
-            outCollision.intersection = origin + distance * down;
-            outCollision.normal = root->absoluteTransform() * glm::vec4 {face->normal, 0.0f};
-            outCollision.material = face->material;
+            outCollision.intersection = origin + raycast.distance * down;
+            outCollision.normal = root->absoluteTransform() * glm::vec4 {normal, 0.0f};
+            outCollision.material = material;
         }
-        minDistance = distance;
+        minDistance = raycast.distance;
     }
 
     return walkable;
@@ -845,16 +846,17 @@ bool SceneGraph::testLineOfSight(const glm::vec3 &origin, const glm::vec3 &dest,
             originLocal = root->absoluteTransformInverse() * glm::vec4 {origin, 1.0f};
             dirLocal = root->absoluteTransformInverse() * glm::vec4 {dir, 0.0f};
         }
-        float distance = 0.0f;
-        auto face = root->walkmesh().raycast(_lineOfSightSurfaces, originLocal, dirLocal, maxDistance, /*ignoreBackface=*/false, distance);
-        if (!face || distance > minDistance) {
+        auto raycast = root->walkmesh().raycast(_lineOfSightSurfaces, originLocal, dirLocal, maxDistance, /*ignoreBackface=*/false);
+        if (raycast.fail || raycast.distance > minDistance) {
             continue;
         }
+        uint32_t material = root->walkmesh().materials[raycast.face];
+        glm::vec3 normal = root->walkmesh().normals[raycast.face];
         outCollision.user = root->user();
-        outCollision.intersection = origin + distance * dir;
-        outCollision.normal = root->absoluteTransform() * glm::vec4(face->normal, 0.0f);
-        outCollision.material = face->material;
-        minDistance = distance;
+        outCollision.intersection = origin + raycast.distance * dir;
+        outCollision.normal = root->absoluteTransform() * glm::vec4(normal, 0.0f);
+        outCollision.material = material;
+        minDistance = raycast.distance;
     }
 
     return minDistance != std::numeric_limits<float>::max();
@@ -878,16 +880,17 @@ bool SceneGraph::testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const 
         }
         glm::vec3 objSpaceOrigin(root->absoluteTransformInverse() * glm::vec4(origin, 1.0f));
         glm::vec3 objSpaceDir(root->absoluteTransformInverse() * glm::vec4(dir, 0.0f));
-        float distance = 0.0f;
-        auto face = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, objSpaceDir, kMaxCollisionDistanceWalk, /*ignoreBackface=*/false, distance);
-        if (!face || distance > maxDistance || distance > minDistance) {
+        auto raycast = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, objSpaceDir, kMaxCollisionDistanceWalk, /*ignoreBackface=*/false);
+        if (raycast.fail || raycast.distance > maxDistance || raycast.distance > minDistance) {
             continue;
         }
+        uint32_t material = root->walkmesh().materials[raycast.face];
+        glm::vec3 normal = root->walkmesh().normals[raycast.face];
         outCollision.user = root->user();
-        outCollision.intersection = origin + distance * dir;
-        outCollision.normal = root->absoluteTransform() * glm::vec4(face->normal, 0.0f);
-        outCollision.material = face->material;
-        minDistance = distance;
+        outCollision.intersection = origin + raycast.distance * dir;
+        outCollision.normal = root->absoluteTransform() * glm::vec4(normal, 0.0f);
+        outCollision.material = material;
+        minDistance = raycast.distance;
     }
 
     return minDistance != std::numeric_limits<float>::max();
