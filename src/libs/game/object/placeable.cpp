@@ -186,7 +186,12 @@ void Placeable::damage(int amount, uint32_t damager) {
     if (amount == std::numeric_limits<int>::max()) {
         _currentHitPoints = isMinOneHP() ? 1 : 0;
     } else {
-        _currentHitPoints = std::max(isMinOneHP() ? 1 : 0, currentHitPoints - amount);
+        int minimumHitPoints = isMinOneHP() ? 1 : 0;
+        int adjustedAmount = isMinOneHP()
+                                 ? std::min(amount, std::max(0, currentHitPoints - minimumHitPoints))
+                                 : amount;
+        _currentHitPoints = std::max(minimumHitPoints, currentHitPoints - amount);
+        _game.floatingText().addDamage(*this, amount, adjustedAmount, damager);
     }
 
     damager = damager ? damager : script::kObjectInvalid;

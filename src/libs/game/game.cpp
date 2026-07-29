@@ -405,6 +405,7 @@ void Game::update(float frameTime) {
 
     bool updModule = !_movie && _module && (_screen == Screen::InGame || _screen == Screen::Conversation);
     if (updModule && !_paused) {
+        _floatingText.update(dt);
         _module->update(dt);
         _combat.update(dt);
     }
@@ -575,6 +576,7 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
             // Do not carry a displayed or pending batch, indicator, or GUI
             // controls across module teardown. OnLoad events below start a new
             // batch for the destination module.
+            _floatingText.reset();
             _statusSummary.reset();
             if (_hud) {
                 _hud->resetStatusSummaryPresentation();
@@ -666,6 +668,7 @@ void Game::resetGame() {
     _combat.reset();
     _journal.reset();
     _messageLog.reset();
+    _floatingText.reset();
     _statusSummary.reset();
     if (_hud) {
         _hud->resetStatusSummaryPresentation();
@@ -1007,6 +1010,7 @@ void Game::renderGUI() {
     case Screen::InGame:
         if (_cameraType == CameraType::ThirdPerson) {
             renderHUD();
+            _floatingText.render();
         }
         break;
 

@@ -54,6 +54,12 @@ public:
         const glm::vec3 &color = glm::vec3(1.0f, 1.0f, 1.0f),
         TextGravity align = TextGravity::CenterCenter);
 
+    void render(
+        std::string_view text,
+        const glm::vec3 &position,
+        const glm::vec4 &color,
+        TextGravity align = TextGravity::CenterCenter);
+
     float measure(std::string_view text) const;
 
     void renderLine(std::string_view line,

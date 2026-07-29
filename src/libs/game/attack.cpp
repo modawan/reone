@@ -340,6 +340,7 @@ void AttackBuffer::addWeaponAttack(
 
     _attacks.emplace_back(
         source,
+        weapon.isRanged(),
         resolution.result,
         resolution.roll,
         resolution.attackBonus,
@@ -375,6 +376,7 @@ void AttackBuffer::addUnarmedAttack(const Creature &attacker, const Object &targ
 
     _attacks.emplace_back(
         AttackBuffer::Source::Main,
+        false,
         resolution.result,
         resolution.roll,
         resolution.attackBonus,
@@ -393,6 +395,9 @@ void AttackBuffer::addUnarmedAttack(const Creature &attacker, const Object &targ
 
 void AttackBuffer::applyEffects(Creature &attacker, Object &target, Game &game) {
     for (Attack &attack : _attacks) {
+        if (!attack.ranged && !isAttackSuccessful(attack.result)) {
+            game.floatingText().addMiss(attacker, target);
+        }
         for (Damage &damage : attack.damage) {
             auto effect = game.newEffect<DamageEffect>(
                 damage.amount, damage.type, damage.power, attacker.id());

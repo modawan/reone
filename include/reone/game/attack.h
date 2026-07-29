@@ -143,6 +143,7 @@ private:
     struct Attack {
         Attack(
             Source source,
+            bool ranged,
             AttackResultType result,
             int roll,
             int attackBonus,
@@ -151,6 +152,7 @@ private:
             bool assuredHit,
             bool criticalHitImmune) :
             source(source),
+            ranged(ranged),
             result(result),
             roll(roll),
             attackBonus(attackBonus),
@@ -160,6 +162,7 @@ private:
             criticalHitImmune(criticalHitImmune) {}
 
         Source source;
+        bool ranged;
         AttackResultType result;
         int roll;
         int attackBonus;

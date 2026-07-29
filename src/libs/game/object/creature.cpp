@@ -507,14 +507,25 @@ void Creature::damage(int amount, uint32_t damager) {
 
     if (amount < 0) {
         // Heal instead of damage.
+        int previousHitPoints = _currentHitPoints;
         _currentHitPoints = std::min(maxHitPoints(), _currentHitPoints - amount);
+        _game.floatingText().addHeal(*this, _currentHitPoints - previousHitPoints);
         return;
     }
 
-    if (amount == std::numeric_limits<int>::max()) {
+    bool deathEffect = amount == std::numeric_limits<int>::max();
+    int previousHitPoints = _currentHitPoints;
+    if (deathEffect) {
         _currentHitPoints = 0; // special case for Death effect
     } else {
-        _currentHitPoints = std::max(isMinOneHP() ? 1 : 0, _currentHitPoints - amount);
+        int minimumHitPoints = isMinOneHP() ? 1 : 0;
+        int adjustedAmount = isMinOneHP()
+                                 ? std::min(amount, std::max(0, previousHitPoints - minimumHitPoints))
+                                 : amount;
+        _currentHitPoints = std::max(minimumHitPoints, _currentHitPoints - amount);
+        if (amount > 0) {
+            _game.floatingText().addDamage(*this, amount, adjustedAmount, damager);
+        }
     }
 
     damager = damager ? damager : script::kObjectInvalid;
