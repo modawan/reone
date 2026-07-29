@@ -118,6 +118,7 @@ public:
     int criticalThreat() const { return _criticalThreat; }
     int criticalHitMultiplier() const { return _criticalHitMultiplier; }
     FeatType weaponFocusFeat() const { return _weaponFocusFeat; }
+    FeatType weaponSpecializationFeat() const { return _weaponSpecializationFeat; }
     int baseDefense() const { return _baseDefense; }
     int maxDexterityBonus() const { return _maxDexterityBonus; }
     ACBonus acBonusType() const { return _acBonusType; }
@@ -169,6 +170,7 @@ private:
     int _criticalThreat {0};
     int _criticalHitMultiplier {0};
     FeatType _weaponFocusFeat {FeatType::Invalid};
+    FeatType _weaponSpecializationFeat {FeatType::Invalid};
     int _baseDefense {0};
     int _maxDexterityBonus {-1};
     ACBonus _acBonusType {ACBonus::Invalid};

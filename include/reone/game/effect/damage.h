@@ -17,13 +17,53 @@
 
 #pragma once
 
+#include "reone/system/smallvector.h"
+
 #include "../effect.h"
 
 namespace reone {
 
 namespace game {
 
-class Creature;
+struct DamageComponent {
+    int amount;
+    DamageType type;
+};
+
+/**
+ * Typed damage caused by one hit.
+ *
+ * A packet may contain multiple damage types, but it is applied to the target
+ * as one damage event.
+ */
+class DamagePacket {
+public:
+    explicit DamagePacket(DamagePower power = DamagePower::Normal) :
+        _power(power) {
+    }
+
+    void add(int amount, DamageType type);
+    void addBaseDamage(int amount, DamageType type);
+    void setPower(DamagePower power);
+    void mitigate(Object &object);
+
+    int total() const;
+    int baseDamage() const { return _baseDamage; }
+    DamagePower power() const { return _power; }
+    bool empty() const { return _components.empty(); }
+
+    const ISmallVector<DamageComponent> &components() const { return _components; }
+
+private:
+    void addResolved(int amount, DamageType type);
+
+    DamagePower _power;
+    int _baseDamage {0};
+    DamageType _baseDamageType {DamageType::Universal};
+    SmallVector<DamageComponent, 4> _components;
+    SmallVector<DamageComponent, 12> _contributions;
+    bool _mitigated {false};
+};
 
 class DamageEffect : public Effect {
 public:
@@ -32,22 +72,25 @@ public:
                  DamagePower power,
                  uint32_t damager) :
         Effect(EffectType::Damage),
-        _amount(amount),
-        _type(type),
-        _power(power),
+        _damage(power),
+        _damager(damager) {
+        _damage.addBaseDamage(amount, type);
+    }
+
+    DamageEffect(DamagePacket damage, uint32_t damager) :
+        Effect(EffectType::Damage),
+        _damage(std::move(damage)),
         _damager(damager) {
     }
 
     void applyTo(Object &object) override;
 
-    int amount() const { return _amount; }
-    DamageType type() const { return _type; }
+    int amount() const { return _damage.total(); }
+    const DamagePacket &packet() const { return _damage; }
     uint32_t damager() const { return _damager; }
 
 private:
-    int _amount;
-    DamageType _type;
-    DamagePower _power;
+    DamagePacket _damage;
     uint32_t _damager;
 };
 

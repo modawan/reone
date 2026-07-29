@@ -30,6 +30,10 @@
 #include "reone/game/effect/acincrease.h"
 #include "reone/game/effect/attackdecrease.h"
 #include "reone/game/effect/attackincrease.h"
+#include "reone/game/effect/damage.h"
+#include "reone/game/effect/damagedecrease.h"
+#include "reone/game/effect/damageincrease.h"
+#include "reone/game/effect/immunity.h"
 #include "reone/game/footstepsounds.h"
 #include "reone/game/game.h"
 #include "reone/game/portraits.h"
@@ -133,16 +137,38 @@ static bool defenseAlignmentGroupMatches(uint16_t alignment, const Creature &att
     return group == Alignment::All || group == attacker.alignment();
 }
 
-static int combatDamagePropertyFlags(uint16_t subtype) {
+static DamageType getDamageType(int damageFlags) {
+    if (damageFlags <= 0) {
+        return DamageType::Universal;
+    }
+
+    int type = 1;
+    while (damageFlags > 1) {
+        damageFlags >>= 1;
+        type <<= 1;
+    }
+    return static_cast<DamageType>(type);
+}
+
+static std::optional<DamageType> getItemPropertyDamageType(uint16_t subtype) {
+    if (subtype > 12) {
+        return std::nullopt;
+    }
+    return static_cast<DamageType>(1 << subtype);
+}
+
+static bool acDamageTypePropertyApplies(uint16_t subtype, int damageFlags) {
+    // KOTOR 1 stores the raw IPRP_COMBATDAM row in the effect qualifier, then
+    // compares it directly with runtime damage flags. Preserve that mismatch.
     switch (subtype) {
-    case 0:
-        return static_cast<int>(DamageType::Bludgeoning);
     case 1:
-        return static_cast<int>(DamageType::Piercing);
+        return damageFlags == 0;
     case 2:
-        return static_cast<int>(DamageType::Slashing);
+        return damageFlags == static_cast<int>(DamageType::Bludgeoning);
+    case 4:
+        return damageFlags == static_cast<int>(DamageType::Piercing);
     default:
-        return 0;
+        return false;
     }
 }
 
@@ -183,7 +209,7 @@ static bool defensePropertyApplies(
     ItemProperty property,
     uint16_t subtype,
     const Creature *attacker,
-    int damageType) {
+    int damageFlags) {
 
     switch (property) {
     case ItemProperty::AcBonus:
@@ -191,7 +217,7 @@ static bool defensePropertyApplies(
     case ItemProperty::AcBonusVsAlignmentGroup:
         return attacker && defenseAlignmentGroupMatches(subtype, *attacker);
     case ItemProperty::AcBonusVsDamageType:
-        return damageTypeMatches(combatDamagePropertyFlags(subtype), damageType);
+        return acDamageTypePropertyApplies(subtype, damageFlags);
     case ItemProperty::AcBonusVsRacialGroup:
         return attacker && racialTypeMatches(subtype, *attacker);
     default:
@@ -260,13 +286,125 @@ static void addAttackModifier(int modifier, int &bonus, int &penalty) {
     }
 }
 
-static std::shared_ptr<TwoDA> getDecreaseModifierCostTable(ServicesView &services) {
+static std::shared_ptr<TwoDA> getItemPropertyCostTable(
+    ServicesView &services,
+    int index) {
+
     auto costTables = services.resource.twoDas.get("iprp_costtable");
     if (!costTables) {
         return nullptr;
     }
-    auto tableName = costTables->getStringOpt(kDecreaseModifierCostTable, "name");
-    return tableName ? services.resource.twoDas.get(*tableName) : nullptr;
+    auto tableName = costTables->getStringOpt(index, "name");
+    if (!tableName || tableName->empty()) {
+        return nullptr;
+    }
+    return services.resource.twoDas.get(boost::to_lower_copy(*tableName));
+}
+
+static int getItemPropertyValue(
+    ServicesView &services,
+    const Item::PropertyEntry &property,
+    const std::string &column) {
+
+    auto table = getItemPropertyCostTable(services, property.costTable);
+    return table
+               ? table->getInt(property.costValue, column, 0)
+               : 0;
+}
+
+static std::shared_ptr<TwoDA> getDecreaseModifierCostTable(ServicesView &services) {
+    return getItemPropertyCostTable(services, kDecreaseModifierCostTable);
+}
+
+struct DamageModifier {
+    int rank {0};
+    int numDice {0};
+    int die {0};
+    int flat {0};
+    DamageType type {DamageType::Universal};
+};
+
+static std::optional<DamageModifier> getDamageModifier(
+    ServicesView &services,
+    const Item::PropertyEntry &property,
+    DamageType type) {
+
+    auto table = getItemPropertyCostTable(services, property.costTable);
+    if (!table) {
+        return std::nullopt;
+    }
+
+    DamageModifier result;
+    result.numDice = table->getInt(property.costValue, "numdice");
+    result.die = table->getInt(property.costValue, "die");
+    result.flat = table->getInt(
+        property.costValue,
+        "value",
+        result.numDice > 0 ? 0 : property.costValue);
+    result.rank = table->getInt(
+        property.costValue,
+        "rank",
+        std::abs(result.flat));
+    result.type = type;
+
+    if (result.numDice <= 0 && result.flat == 0) {
+        return std::nullopt;
+    }
+    return result;
+}
+
+static int rollDamageModifier(
+    const DamageModifier &modifier,
+    int multiplier) {
+
+    if (modifier.numDice <= 0 || modifier.die <= 0) {
+        return multiplier * modifier.flat;
+    }
+
+    int result = 0;
+    for (int multiple = 0; multiple < multiplier; ++multiple) {
+        for (int die = 0; die < modifier.numDice; ++die) {
+            result += randomInt(1, modifier.die);
+        }
+    }
+    return result;
+}
+
+static void selectDamageModifier(
+    std::map<int, DamageModifier> &modifiers,
+    DamageModifier modifier) {
+
+    int type = static_cast<int>(modifier.type);
+    auto it = modifiers.find(type);
+    if (it == modifiers.end() || modifier.rank > it->second.rank) {
+        modifiers[type] = std::move(modifier);
+    }
+}
+
+static bool damagePropertyApplies(
+    ItemProperty property,
+    uint16_t subtype,
+    const Creature *target) {
+
+    switch (property) {
+    case ItemProperty::EnhancementBonus:
+    case ItemProperty::DamageBonus:
+    case ItemProperty::DecreasedDamage:
+        return true;
+    case ItemProperty::EnhancementBonusVsAlignmentGroup:
+    case ItemProperty::DamageBonusVsAlignmentGroup:
+        return target && attackAlignmentGroupMatches(subtype, *target);
+    case ItemProperty::EnhancementBonusVsRacialGroup:
+    case ItemProperty::DamageBonusVsRacialGroup:
+        return target && racialTypeMatches(subtype, *target);
+    default:
+        return false;
+    }
+}
+
+static DamagePower getEnhancementDamagePower(int enhancement) {
+    enhancement = std::clamp(enhancement, 0, 5);
+    return static_cast<DamagePower>(enhancement);
 }
 
 static bool equippedItemAppliesToDefense(int slot) {
@@ -1188,7 +1326,7 @@ int Creature::getAttackBonus(bool offHand) const {
     return getAttackBonus(weapon.get(), offHand);
 }
 
-int Creature::getDefense(const Creature *attacker, int damageType) const {
+int Creature::getDefense(const Creature *attacker, int damageFlags) const {
     int dexterityModifier = _attributes.getAbilityModifier(Ability::Dexterity);
     auto armor = getEquippedItem(InventorySlots::body);
     int armorDefense = armor ? armor->baseDefense() : 0;
@@ -1208,7 +1346,7 @@ int Creature::getDefense(const Creature *attacker, int damageType) const {
         switch (applied.effect->type()) {
         case EffectType::ACIncrease: {
             const auto &effect = static_cast<const ACIncreaseEffect &>(*applied.effect);
-            if (damageTypeMatches(effect.damageType(), damageType)) {
+            if (damageTypeMatches(effect.damageType(), damageFlags)) {
                 addDefenseModifier(
                     effect.bonus(),
                     effect.modifierType(),
@@ -1218,7 +1356,7 @@ int Creature::getDefense(const Creature *attacker, int damageType) const {
         }
         case EffectType::ACDecrease: {
             const auto &effect = static_cast<const ACDecreaseEffect &>(*applied.effect);
-            if (damageTypeMatches(effect.damageType(), damageType)) {
+            if (damageTypeMatches(effect.damageType(), damageFlags)) {
                 addDefenseModifier(
                     effect.penalty(),
                     effect.modifierType(),
@@ -1253,7 +1391,7 @@ int Creature::getDefense(const Creature *attacker, int damageType) const {
                         propertyType,
                         property.subtype,
                         attacker,
-                        damageType)) {
+                        damageFlags)) {
                     continue;
                 }
                 if (!bonusCosts) {
@@ -1300,6 +1438,359 @@ int Creature::getDefense(const Creature *attacker, int damageType) const {
 
 int Creature::getDefense() const {
     return getDefense(nullptr, 0);
+}
+
+int Creature::getPhysicalDamageBonus(
+    const Item *weapon,
+    bool offHand) const {
+
+    int strengthModifier = _attributes.getAbilityModifier(Ability::Strength);
+    int abilityModifier = strengthModifier;
+
+    if (weapon && weapon->isRanged()) {
+        if (strengthModifier > 0) {
+            int mighty = 0;
+            for (const auto &property : weapon->properties()) {
+                if (property.upgradeType != 0 ||
+                    property.propertyName != static_cast<uint16_t>(ItemProperty::Mighty)) {
+                    continue;
+                }
+                mighty = property.costValue;
+                break;
+            }
+            abilityModifier = std::min(strengthModifier, mighty);
+        }
+    } else if (strengthModifier > 0) {
+        if (offHand) {
+            abilityModifier = strengthModifier / 2;
+        } else if (weapon &&
+                   weapon->weaponWield() != WeaponWield::DoubleBladedSword &&
+                   static_cast<int>(weapon->weaponSize()) ==
+                       static_cast<int>(_size) + 1) {
+            abilityModifier = 3 * strengthModifier / 2;
+        }
+    }
+
+    int specialization = 0;
+    if (weapon &&
+        weapon->weaponSpecializationFeat() != FeatType::Invalid &&
+        _attributes.hasFeat(weapon->weaponSpecializationFeat())) {
+        specialization = 2;
+    }
+
+    return abilityModifier + specialization;
+}
+
+int Creature::getMassiveCriticalDamage(
+    const Item *weapon,
+    bool criticalHit) const {
+
+    if (!criticalHit) {
+        return 0;
+    }
+
+    auto handItem = weapon
+                        ? std::shared_ptr<Item>()
+                        : getEquippedItem(InventorySlots::hands);
+    const Item *sourceItem = weapon ? weapon : handItem.get();
+    if (!sourceItem) {
+        return 0;
+    }
+
+    for (const auto &property : sourceItem->properties()) {
+        if (property.upgradeType != 0 ||
+            property.propertyName != static_cast<uint16_t>(ItemProperty::MassiveCriticals)) {
+            continue;
+        }
+
+        auto modifier = getDamageModifier(
+            _services,
+            property,
+            weapon
+                ? getDamageType(sourceItem->damageFlags())
+                : DamageType::Bludgeoning);
+        return modifier
+                   ? rollDamageModifier(*modifier, 1)
+                   : 0;
+    }
+
+    return 0;
+}
+
+int Creature::getItemDamageImmunity(DamageType type) const {
+    int result = 0;
+    int damageFlags = static_cast<int>(type);
+    bool immuneToDecrease = plotFlag();
+
+    for (const auto &applied : effects()) {
+        if (applied.effect->type() != EffectType::Immunity) {
+            continue;
+        }
+
+        const auto &effect = static_cast<const ImmunityEffect &>(*applied.effect);
+        if (effect.immunityType() == ImmunityType::DamageImmunityDecrease) {
+            immuneToDecrease = true;
+            break;
+        }
+    }
+
+    for (const auto &[slot, item] : _equipment) {
+        if (!item || !equippedItemAppliesToDefense(slot)) {
+            continue;
+        }
+
+        for (const auto &property : item->properties()) {
+            if (property.upgradeType != 0) {
+                continue;
+            }
+
+            auto propertyType = static_cast<ItemProperty>(property.propertyName);
+            if (propertyType != ItemProperty::ImmunityDamageType &&
+                propertyType != ItemProperty::DamageVulnerability) {
+                continue;
+            }
+            if (propertyType == ItemProperty::DamageVulnerability &&
+                immuneToDecrease) {
+                continue;
+            }
+
+            auto propertyDamageType = getItemPropertyDamageType(property.subtype);
+            if (!propertyDamageType ||
+                !damageTypeMatches(
+                    static_cast<int>(*propertyDamageType),
+                    damageFlags)) {
+                continue;
+            }
+
+            int value = getItemPropertyValue(_services, property, "value");
+            result = std::clamp(
+                result + (propertyType == ItemProperty::ImmunityDamageType
+                              ? value
+                              : -value),
+                -100,
+                100);
+        }
+    }
+    return result;
+}
+
+int Creature::getItemDamageResistance(DamageType type) const {
+    int result = 0;
+    int damageFlags = static_cast<int>(type);
+
+    for (const auto &[slot, item] : _equipment) {
+        if (!item || !equippedItemAppliesToDefense(slot)) {
+            continue;
+        }
+
+        for (const auto &property : item->properties()) {
+            if (property.upgradeType != 0 ||
+                property.propertyName != static_cast<uint16_t>(ItemProperty::DamageResistance)) {
+                continue;
+            }
+
+            auto propertyDamageType = getItemPropertyDamageType(property.subtype);
+            if (!propertyDamageType ||
+                !damageTypeMatches(
+                    static_cast<int>(*propertyDamageType),
+                    damageFlags)) {
+                continue;
+            }
+
+            result = std::max(
+                result,
+                getItemPropertyValue(_services, property, "amount"));
+        }
+    }
+    return result;
+}
+
+void Creature::getItemDamageReduction(
+    int &amount,
+    DamagePower &power) const {
+
+    amount = 0;
+    power = DamagePower::Normal;
+
+    for (const auto &[slot, item] : _equipment) {
+        if (!item || !equippedItemAppliesToDefense(slot)) {
+            continue;
+        }
+
+        for (const auto &property : item->properties()) {
+            if (property.upgradeType != 0 ||
+                property.propertyName != static_cast<uint16_t>(ItemProperty::DamageReduction) ||
+                property.subtype > 4) {
+                continue;
+            }
+
+            int value = getItemPropertyValue(_services, property, "amount");
+            if (value > amount) {
+                amount = value;
+                power = static_cast<DamagePower>(property.subtype + 1);
+            }
+        }
+    }
+}
+
+int Creature::getDamageResistanceFeatBonus() const {
+    int result = 0;
+    if (_attributes.hasFeat(FeatType::ImprovedToughness)) {
+        result += 2;
+    }
+    if (_attributes.hasFeat(FeatType::WookieEndurance)) {
+        result += 2;
+    }
+    return result;
+}
+
+void Creature::addPhysicalDamageModifiers(
+    DamagePacket &damage,
+    const Creature *target,
+    const Item *weapon,
+    bool offHand,
+    int criticalMultiplier) const {
+
+    std::vector<DamageModifier> itemBonuses;
+    std::vector<DamageModifier> itemPenalties;
+
+    auto handItem = weapon
+                        ? std::shared_ptr<Item>()
+                        : getEquippedItem(InventorySlots::hands);
+    const Item *sourceItem = weapon ? weapon : handItem.get();
+
+    for (const auto &[slot, item] : _equipment) {
+        if (!item || !equippedItemAppliesToAttack(slot, *item, weapon, offHand)) {
+            continue;
+        }
+
+        std::map<int, DamageModifier> bonuses;
+        std::map<int, DamageModifier> penalties;
+
+        for (const auto &property : item->properties()) {
+            if (property.upgradeType != 0) {
+                continue;
+            }
+
+            auto propertyType = static_cast<ItemProperty>(property.propertyName);
+            if (!damagePropertyApplies(
+                    propertyType,
+                    property.subtype,
+                    target)) {
+                continue;
+            }
+
+            switch (propertyType) {
+            case ItemProperty::EnhancementBonus:
+            case ItemProperty::EnhancementBonusVsAlignmentGroup:
+            case ItemProperty::EnhancementBonusVsRacialGroup: {
+                auto modifier = getDamageModifier(
+                    _services,
+                    property,
+                    !weapon && item.get() == sourceItem
+                        ? DamageType::Bludgeoning
+                        : getDamageType(item->damageFlags()));
+                if (!modifier || modifier->flat <= 0) {
+                    break;
+                }
+                selectDamageModifier(bonuses, *modifier);
+                damage.setPower(getEnhancementDamagePower(modifier->flat));
+                break;
+            }
+            case ItemProperty::DamageBonus: {
+                auto type = getItemPropertyDamageType(property.subtype);
+                if (!type) {
+                    break;
+                }
+                auto modifier = getDamageModifier(_services, property, *type);
+                if (modifier) {
+                    selectDamageModifier(bonuses, *modifier);
+                }
+                break;
+            }
+            case ItemProperty::DamageBonusVsAlignmentGroup:
+            case ItemProperty::DamageBonusVsRacialGroup: {
+                auto type = getItemPropertyDamageType(property.paramValue);
+                if (!type) {
+                    break;
+                }
+                auto modifier = getDamageModifier(_services, property, *type);
+                if (modifier) {
+                    selectDamageModifier(bonuses, *modifier);
+                }
+                break;
+            }
+            case ItemProperty::DecreasedDamage: {
+                auto modifier = getDamageModifier(
+                    _services,
+                    property,
+                    !weapon && item.get() == sourceItem
+                        ? DamageType::Bludgeoning
+                        : getDamageType(item->damageFlags()));
+                if (!modifier) {
+                    break;
+                }
+                modifier->flat = -std::abs(modifier->flat);
+                modifier->rank = std::max(modifier->rank, -modifier->flat);
+                selectDamageModifier(penalties, *modifier);
+                break;
+            }
+            default:
+                break;
+            }
+        }
+
+        for (const auto &entry : bonuses) {
+            itemBonuses.push_back(entry.second);
+        }
+        for (const auto &entry : penalties) {
+            itemPenalties.push_back(entry.second);
+        }
+    }
+
+    std::map<int, int> effectBonuses;
+    std::map<int, int> effectPenalties;
+    for (const auto &applied : effects()) {
+        switch (applied.effect->type()) {
+        case EffectType::DamageIncrease: {
+            const auto &effect = static_cast<const DamageIncreaseEffect &>(*applied.effect);
+            if (effect.bonus() > 0) {
+                effectBonuses[static_cast<int>(getDamageType(
+                    static_cast<int>(effect.damageType())))] +=
+                    criticalMultiplier * effect.bonus();
+            }
+            break;
+        }
+        case EffectType::DamageDecrease: {
+            const auto &effect = static_cast<const DamageDecreaseEffect &>(*applied.effect);
+            if (effect.penalty() > 0) {
+                effectPenalties[static_cast<int>(getDamageType(
+                    static_cast<int>(effect.damageType())))] +=
+                    criticalMultiplier * effect.penalty();
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    for (const auto &[type, amount] : effectBonuses) {
+        damage.add(amount, static_cast<DamageType>(type));
+    }
+    for (const DamageModifier &modifier : itemBonuses) {
+        damage.add(
+            rollDamageModifier(modifier, criticalMultiplier),
+            modifier.type);
+    }
+    for (const auto &[type, amount] : effectPenalties) {
+        damage.add(-amount, static_cast<DamageType>(type));
+    }
+    for (const DamageModifier &modifier : itemPenalties) {
+        damage.add(
+            rollDamageModifier(modifier, criticalMultiplier),
+            modifier.type);
+    }
 }
 
 void Creature::getMainHandDamage(int &min, int &max) const {

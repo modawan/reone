@@ -46,6 +46,8 @@ namespace game {
 
 constexpr float kDefaultAttackRange = 2.0f;
 
+class DamagePacket;
+
 class Creature : public Object, public scene::IAnimationEventListener {
 public:
     enum class ModelType {
@@ -133,6 +135,7 @@ public:
     float walkSpeed() const { return _walkSpeed; }
     float runSpeed() const { return _runSpeed; }
     float creaturePersonalSpace() const { return _creaturePersonalSpace; }
+    CreatureSize size() const { return _size; }
     CreatureAttributes &attributes() { return _attributes; }
     const CreatureAttributes &attributes() const { return _attributes; }
     ItemAttributes &itemAttributes() { return _itemAttributes; }
@@ -230,8 +233,20 @@ public:
     int getAttackBonus(const Creature *target, const Item *weapon, bool offHand) const;
     int getAttackBonus(const Item *weapon, bool offHand) const;
     int getAttackBonus(bool offHand = false) const;
-    int getDefense(const Creature *attacker, int damageType) const;
+    int getDefense(const Creature *attacker, int damageFlags) const;
     int getDefense() const;
+    int getPhysicalDamageBonus(const Item *weapon, bool offHand) const;
+    int getMassiveCriticalDamage(const Item *weapon, bool criticalHit) const;
+    int getItemDamageImmunity(DamageType type) const;
+    int getItemDamageResistance(DamageType type) const;
+    void getItemDamageReduction(int &amount, DamagePower &power) const;
+    int getDamageResistanceFeatBonus() const;
+    void addPhysicalDamageModifiers(
+        DamagePacket &damage,
+        const Creature *target,
+        const Item *weapon,
+        bool offHand,
+        int criticalMultiplier) const;
     void getMainHandDamage(int &min, int &max) const;
     void getOffhandDamage(int &min, int &max) const;
 

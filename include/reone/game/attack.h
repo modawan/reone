@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "reone/game/effect/damage.h"
 #include "reone/game/types.h"
 #include "reone/system/smallvector.h"
 #include "reone/system/timeevents.h"
@@ -55,15 +56,6 @@ AttackResultType computeWeaponAttack(
     int rollBonus = 0, int threatBonus = 0);
 
 /**
- * Descriptor for a delayed DamageEffect.
- */
-struct Damage {
-    int amount;
-    DamageType type;
-    DamagePower power;
-};
-
-/**
  * Predicate for melee weapon.
  *
  * Stun Baton and Hand-to-Hand is NOT a melee weapon. These require special
@@ -100,8 +92,8 @@ public:
                             FeatType feat = FeatType::Invalid);
 
     /**
-     * Calculate attack roll and damage effects for a weapon attack. Damage is
-     * added to AttackBuffer, and can be applied later with applyEffects().
+     * Calculate an attack roll and base damage packet for a weapon attack.
+     * The packet is retained until applyEffects().
      */
     void addWeaponAttack(const Creature &attacker, const Object &target, const Item &weapon,
                          Source source = Source::Main,
@@ -110,8 +102,8 @@ public:
                          int damageBonus = 0);
 
     /**
-     * Calculate attack roll and damage effects for an unarmed attack. Damage is
-     * added to AttackBuffer, and can be applied later with applyEffects().
+     * Calculate an attack roll and base damage packet for an unarmed attack.
+     * The packet is retained until applyEffects().
      */
     void addUnarmedAttack(const Creature &attacker, const Object &target,
                           int attackRollBonus = 0,
@@ -119,8 +111,8 @@ public:
                           int damageBonus = 0);
 
     /**
-     * Apply all previously collected damage effects from \p attacker to \p
-     * target.
+     * Apply one damage effect for each non-empty physical-attack packet from
+     * \p attacker to \p target.
      */
     void applyEffects(Creature &attacker, Object &target, Game &game);
 
@@ -170,7 +162,7 @@ private:
         int confirmationRoll;
         bool assuredHit;
         bool criticalHitImmune;
-        SmallVector<Damage, 4> damage;
+        DamagePacket damage;
     };
 
     SmallVector<Attack, 8> _attacks;

@@ -134,6 +134,7 @@ public:
     // Effects
 
     void clearAllEffects();
+    void removeEffect(const std::shared_ptr<Effect> &effect);
     void applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration = 0.0f);
 
     struct AppliedEffect {

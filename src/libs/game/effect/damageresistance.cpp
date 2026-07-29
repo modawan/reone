@@ -21,8 +21,7 @@ namespace reone {
 
 namespace game {
 
-void DamageResistanceEffect::applyTo(Object &object) {
-    // TODO: implement
+void DamageResistanceEffect::applyTo(Object &) {
 }
 
 } // namespace game

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include "../effect.h"
 
 namespace reone {
@@ -29,16 +31,40 @@ public:
         Effect(EffectType::DamageReduction),
         _amount(amount),
         _damagePower(damagePower),
-        _limit(limit) {
+        _limit(limit),
+        _limited(limit > 0) {
     }
 
-    void applyTo(Object &object) override {
+    void applyTo(Object &) override {
     }
+
+    int amount() const { return _amount; }
+    DamagePower damagePower() const { return _damagePower; }
+
+    int absorb(int damage) {
+        if (damage <= 0 || _amount <= 0) {
+            return 0;
+        }
+
+        if (!_limited) {
+            return std::min(damage, _amount);
+        }
+
+        int remaining = _limit;
+        _limit = std::max(0, _limit - damage);
+        if (_limit == 0) {
+            return std::min(damage, remaining);
+        }
+        return std::min(damage, _amount);
+    }
+
+    bool exhausted() const { return _limited && _limit == 0; }
 
 private:
     int _amount;
     DamagePower _damagePower;
     int _limit;
+    bool _limited;
 };
 
 } // namespace game

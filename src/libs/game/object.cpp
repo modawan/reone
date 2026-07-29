@@ -469,6 +469,15 @@ void Object::clearAllEffects() {
     _effects.clear();
 }
 
+void Object::removeEffect(const std::shared_ptr<Effect> &effect) {
+    for (auto it = _effects.begin(); it != _effects.end(); ++it) {
+        if (it->effect == effect) {
+            _effects.erase(it);
+            return;
+        }
+    }
+}
+
 void Object::damage(int amount, uint32_t damager) {
 }
 

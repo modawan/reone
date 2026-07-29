@@ -152,7 +152,7 @@ static AttackResolution computeAttack(
     const Object &target,
     int attackBonus,
     int criticalThreat,
-    int damageType) {
+    int damageFlags) {
 
     AttackResolution resolution;
     resolution.attackBonus = attackBonus;
@@ -161,7 +161,7 @@ static AttackResolution computeAttack(
     // Determine defense of a target
     const auto *targetCreature = dyn_cast<Creature>(&target);
     resolution.defense = targetCreature
-                             ? targetCreature->getDefense(&attacker, damageType)
+                             ? targetCreature->getDefense(&attacker, damageFlags)
                              : 0;
 
     // Attack roll
@@ -218,48 +218,89 @@ static AttackResolution computeAttack(
     return resolution;
 }
 
-/**
- * Calculate damage for an attack with a weapon.
- *
- * It adds a descriptor to \p damage based on \p weapon damage amount and
- * type. When \result is a critical hit, the amount is multiplied by the \p
- * weapon critical multiplier.
- */
-static void computeWeaponDamage(
-    const Creature &attacker, const Object &target, const Item &weapon,
-    AttackResultType result, int damageBonus, ISmallVector<Damage> &damage) {
-
-    int criticalHitMultiplier = weapon.criticalHitMultiplier();
-    int multiplier = result == AttackResultType::CriticalHit
-                         ? criticalHitMultiplier
-                         : 1;
-
-    int amount = damageBonus;
-    for (int i = 0; i < weapon.numDice(); ++i) {
-        amount += randomInt(1, weapon.dieToRoll());
+static DamageType getBaseDamageType(int damageFlags) {
+    if (damageFlags <= 0) {
+        return DamageType::Universal;
     }
 
-    DamageType type = static_cast<DamageType>(weapon.damageFlags());
+    int type = 1;
+    while (damageFlags > 1) {
+        damageFlags >>= 1;
+        type <<= 1;
+    }
+    return static_cast<DamageType>(type);
+}
 
-    // FIXME: weapon damage may have multiple damage effects (1d8 energy + 1d4
-    // sonic, for example).
-    damage.push_back({multiplier * amount, type, DamagePower::Normal});
+static int rollDamageDice(int numDice, int die) {
+    int result = 0;
+    for (int i = 0; i < numDice; ++i) {
+        result += randomInt(1, die);
+    }
+    return result;
+}
 
-    debug(str(boost::format("computeWeaponDamage: %s -> %s (%d)") % attacker.tag() % target.tag() % amount),
+static void computeWeaponDamage(
+    const Creature &attacker, const Object &target, const Item &weapon,
+    AttackBuffer::Source source, AttackResultType result,
+    int damageBonus, DamagePacket &damage) {
+
+    int multiplier = result == AttackResultType::CriticalHit
+                         ? std::max(weapon.criticalHitMultiplier(), 1)
+                         : 1;
+    bool offHand = source == AttackBuffer::Source::Offhand;
+
+    int amount = multiplier * (
+        damageBonus + attacker.getPhysicalDamageBonus(&weapon, offHand));
+    if (!hasActiveItemProperty(weapon, ItemProperty::NoDamage)) {
+        for (int multiple = 0; multiple < multiplier; ++multiple) {
+            amount += rollDamageDice(weapon.numDice(), weapon.dieToRoll());
+        }
+    }
+
+    amount += attacker.getMassiveCriticalDamage(
+        &weapon, result == AttackResultType::CriticalHit);
+
+    DamageType type = getBaseDamageType(weapon.damageFlags());
+    damage.addBaseDamage(std::max(amount, 1), type);
+    attacker.addPhysicalDamageModifiers(
+        damage,
+        dyn_cast<Creature>(&target),
+        &weapon,
+        offHand,
+        multiplier);
+
+    debug(str(boost::format("computeWeaponDamage: %s -> %s (%d)") % attacker.tag() % target.tag() % damage.total()),
           LogChannel::Combat);
+}
+
+static int getUnarmedDamageDie(const Creature &attacker) {
+    return attacker.size() <= CreatureSize::Small ? 2 : 1;
 }
 
 static void computeUnarmedDamage(
     const Creature &attacker, const Object &target,
-    AttackResultType result, int damageBonus, ISmallVector<Damage> &damage) {
+    AttackResultType result, int damageBonus, DamagePacket &damage) {
 
     int multiplier = (result == AttackResultType::CriticalHit) ? 2 : 1;
 
-    int amount = damageBonus + 1; // FIXME: fixed damage in K1?
+    int amount = multiplier * (
+        damageBonus + attacker.getPhysicalDamageBonus(nullptr, false));
+    for (int multiple = 0; multiple < multiplier; ++multiple) {
+        amount += randomInt(1, getUnarmedDamageDie(attacker));
+    }
 
-    damage.push_back({multiplier * amount, DamageType::Bludgeoning, DamagePower::Normal});
+    amount += attacker.getMassiveCriticalDamage(
+        nullptr, result == AttackResultType::CriticalHit);
 
-    debug(str(boost::format("computeUnarmedDamage: %s -> %s (%d)") % attacker.tag() % target.tag() % amount),
+    damage.addBaseDamage(std::max(amount, 1), DamageType::Bludgeoning);
+    attacker.addPhysicalDamageModifiers(
+        damage,
+        dyn_cast<Creature>(&target),
+        nullptr,
+        false,
+        multiplier);
+
+    debug(str(boost::format("computeUnarmedDamage: %s -> %s (%d)") % attacker.tag() % target.tag() % damage.total()),
           LogChannel::Combat);
 }
 
@@ -292,6 +333,30 @@ static bool grantsExtraMainHandAttack(FeatType feat) {
     }
 }
 
+static int getSpecialAttackRollBonus(FeatType feat) {
+    switch (feat) {
+    case FeatType::PowerAttack:
+    case FeatType::ImprovedPowerAttack:
+    case FeatType::MasterPowerAttack:
+        return -3;
+    default:
+        return 0;
+    }
+}
+
+static int getSpecialAttackDamageBonus(FeatType feat) {
+    switch (feat) {
+    case FeatType::PowerAttack:
+        return 5;
+    case FeatType::ImprovedPowerAttack:
+        return 8;
+    case FeatType::MasterPowerAttack:
+        return 10;
+    default:
+        return 0;
+    }
+}
+
 void AttackBuffer::addPhysicalAttacks(const Creature &attacker, const Object &target,
                                       FeatType feat) {
     int mainHandAttacks = 1 + getBonusEffectAttacks(attacker);
@@ -299,16 +364,22 @@ void AttackBuffer::addPhysicalAttacks(const Creature &attacker, const Object &ta
         ++mainHandAttacks;
     }
 
+    int attackRollBonus = getSpecialAttackRollBonus(feat);
+    int damageBonus = getSpecialAttackDamageBonus(feat);
+
     auto main = attacker.getEquippedItem(InventorySlots::rightWeapon);
     if (!main) {
         for (int i = 0; i < mainHandAttacks; ++i) {
-            addUnarmedAttack(attacker, target);
+            addUnarmedAttack(
+                attacker, target, attackRollBonus, 0, damageBonus);
         }
         return;
     }
 
     for (int i = 0; i < mainHandAttacks; ++i) {
-        addWeaponAttack(attacker, target, *main, AttackBuffer::Source::Main);
+        addWeaponAttack(
+            attacker, target, *main, AttackBuffer::Source::Main,
+            attackRollBonus, 0, damageBonus);
     }
 
     auto offhand = attacker.getEquippedItem(InventorySlots::leftWeapon);
@@ -316,7 +387,9 @@ void AttackBuffer::addPhysicalAttacks(const Creature &attacker, const Object &ta
         offhand = main;
     }
     if (offhand) {
-        addWeaponAttack(attacker, target, *offhand, AttackBuffer::Source::Offhand);
+        addWeaponAttack(
+            attacker, target, *offhand, AttackBuffer::Source::Offhand,
+            attackRollBonus, 0, damageBonus);
     }
 }
 
@@ -353,7 +426,7 @@ void AttackBuffer::addWeaponAttack(
         return;
     }
 
-    computeWeaponDamage(attacker, target, weapon, resolution.result,
+    computeWeaponDamage(attacker, target, weapon, source, resolution.result,
                         damageBonus, _attacks.back().damage);
 }
 
@@ -398,12 +471,13 @@ void AttackBuffer::applyEffects(Creature &attacker, Object &target, Game &game) 
         if (!attack.ranged && !isAttackSuccessful(attack.result)) {
             game.floatingText().addMiss(attacker, target);
         }
-        for (Damage &damage : attack.damage) {
-            auto effect = game.newEffect<DamageEffect>(
-                damage.amount, damage.type, damage.power, attacker.id());
-
-            target.applyEffect(std::move(effect), DurationType::Instant);
+        if (attack.damage.empty()) {
+            continue;
         }
+
+        auto effect = game.newEffect<DamageEffect>(
+            std::move(attack.damage), attacker.id());
+        target.applyEffect(std::move(effect), DurationType::Instant);
     }
 }
 
