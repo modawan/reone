@@ -18,7 +18,9 @@
 #include "reone/game/gui/ingame/messages.h"
 
 #include "reone/game/game.h"
+#include "reone/game/messagelog.h"
 #include "reone/gui/control/button.h"
+#include "reone/resource/strings.h"
 
 using namespace reone::audio;
 
@@ -29,6 +31,12 @@ using namespace reone::resource;
 namespace reone {
 
 namespace game {
+
+static constexpr int kStrRefDialogMessages = 42142;
+static constexpr int kStrRefFeedbackMessages = 42143;
+static constexpr int kStrRefShow = 1563;
+static constexpr int kStrRefDialogModeButton = 371;
+static constexpr int kStrRefFeedbackModeButton = 42167;
 
 void MessagesMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
@@ -41,9 +49,87 @@ void MessagesMenu::onGUILoaded() {
             _game.openInGame();
         }
     });
+    if (_game.isTSL()) {
+        _controls.BTN_FEEDBACK->setOnClick([this]() {
+            showFeedbackMessages();
+        });
+    } else {
+        _controls.BTN_SHOW->setOnClick([this]() {
+            toggleMessages();
+        });
+    }
 
+    _controls.LB_MESSAGES->setItemsInteractive(false);
+    _controls.LB_MESSAGES->setProtoMatchContent(true);
+}
+
+void MessagesMenu::refresh() {
+    _controls.LB_MESSAGES->clearItems();
+
+    for (const MessageLog::Entry &entry : _game.messageLog().entries()) {
+        gui::ListBox::Item item;
+        item.text = entry.text;
+        _controls.LB_MESSAGES->addItem(std::move(item));
+    }
+    _controls.LB_MESSAGES->scrollToBottom();
+
+    if (_showingFeedback) {
+        showFeedbackMessages();
+    } else {
+        showDialogMessages();
+    }
+}
+
+void MessagesMenu::showDialogMessages() {
+    if (_game.isTSL()) {
+        return;
+    }
+
+    _controls.LB_MESSAGES->setVisible(false);
+    _controls.LB_DIALOG->setVisible(true);
+    _controls.LBL_MESSAGES->setTextMessage(
+        _services.resource.strings.getText(kStrRefDialogMessages));
+    _controls.BTN_SHOW->setTextMessage(
+        _services.resource.strings.getText(kStrRefShow) + " - " +
+        _services.resource.strings.getText(kStrRefDialogModeButton));
+    _showingFeedback = false;
+}
+
+void MessagesMenu::showFeedbackMessages() {
     if (!_game.isTSL()) {
-        _controls.BTN_SHOW->setDisabled(true);
+        _controls.LB_DIALOG->setVisible(false);
+        _controls.LB_MESSAGES->setVisible(true);
+        _controls.LBL_MESSAGES->setTextMessage(
+            _services.resource.strings.getText(kStrRefFeedbackMessages));
+        _controls.BTN_SHOW->setTextMessage(
+            _services.resource.strings.getText(kStrRefShow) + " - " +
+            _services.resource.strings.getText(kStrRefFeedbackModeButton));
+        _showingFeedback = true;
+        return;
+    }
+
+    _controls.LB_COMBAT->setVisible(false);
+    _controls.LB_DIALOG->setVisible(false);
+    _controls.LB_EFFECTS_BAD->setVisible(false);
+    _controls.LB_EFFECTS_GOOD->setVisible(false);
+    _controls.LB_MESSAGES->setVisible(true);
+
+    _controls.LBL_EFFECTS_BAD->setVisible(false);
+    _controls.LBL_EFFECTS_GOOD->setVisible(false);
+    _controls.LBL_MESSAGES->setVisible(true);
+
+    _controls.BTN_COMBAT->setSelected(false);
+    _controls.BTN_DIALOG->setSelected(false);
+    _controls.BTN_EFFECTS->setSelected(false);
+    _controls.BTN_FEEDBACK->setSelected(true);
+    _showingFeedback = true;
+}
+
+void MessagesMenu::toggleMessages() {
+    if (_showingFeedback) {
+        showDialogMessages();
+    } else {
+        showFeedbackMessages();
     }
 }
 

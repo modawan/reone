@@ -30,6 +30,7 @@
 #include "reone/system/randomutil.h"
 
 #include <algorithm>
+#include <sstream>
 
 namespace reone {
 
@@ -135,60 +136,86 @@ static int getCriticalThreat(const Item *weapon, int threatBonus) {
     return threat + threatBonus;
 }
 
-static AttackResultType computeAttack(
+struct AttackResolution {
+    AttackResultType result {AttackResultType::Invalid};
+    int roll {0};
+    int attackBonus {0};
+    int defense {0};
+    int criticalThreat {0};
+    int confirmationRoll {0};
+    bool assuredHit {false};
+    bool criticalHitImmune {false};
+};
+
+static AttackResolution computeAttack(
     const Creature &attacker,
     const Object &target,
     int attackBonus,
     int criticalThreat,
     int damageType) {
 
+    AttackResolution resolution;
+    resolution.attackBonus = attackBonus;
+    resolution.criticalThreat = criticalThreat;
+
     // Determine defense of a target
     const auto *targetCreature = dyn_cast<Creature>(&target);
-    const int defense = targetCreature
-                            ? targetCreature->getDefense(&attacker, damageType)
-                            : 0;
+    resolution.defense = targetCreature
+                             ? targetCreature->getDefense(&attacker, damageType)
+                             : 0;
 
     // Attack roll
-    const int roll = randomInt(1, 20);
+    resolution.roll = randomInt(1, 20);
 
     if (hasAssuredHitEffect(attacker)) {
-        debug(str(boost::format("computeAttack: assured hit: roll(%d)") % roll),
+        resolution.result = AttackResultType::HitSuccessful;
+        resolution.assuredHit = true;
+        debug(str(boost::format("computeAttack: assured hit: roll(%d)") % resolution.roll),
               LogChannel::Combat);
-        return AttackResultType::HitSuccessful;
+        return resolution;
     }
 
-    if (roll == 1) {
+    if (resolution.roll == 1) {
+        resolution.result = AttackResultType::Miss;
         debug(str(boost::format("computeAttack: miss: roll(1)")), LogChannel::Combat);
-        return AttackResultType::Miss;
+        return resolution;
     }
 
-    if (roll != 20 && (roll + attackBonus) < defense) {
+    if (resolution.roll != 20 &&
+        (resolution.roll + resolution.attackBonus) < resolution.defense) {
+        resolution.result = AttackResultType::Miss;
         debug(str(boost::format("computeAttack: miss: roll(%d), bonus(%d), defense(%d)") %
-                  roll % attackBonus % defense),
+                  resolution.roll % resolution.attackBonus % resolution.defense),
               LogChannel::Combat);
-        return AttackResultType::Miss;
+        return resolution;
     }
 
     // Critical threat
-    if (roll >= (21 - criticalThreat)) {
+    if (resolution.roll >= (21 - resolution.criticalThreat)) {
         // Critical confirmation
-        const int confirmationRoll = randomInt(1, 20);
-        if ((confirmationRoll + attackBonus) >= defense &&
-            (!targetCreature || !hasCriticalHitImmunity(*targetCreature))) {
-            debug(str(boost::format("computeAttack: critical hit: roll(%d), confirmation(%d),"
-                                    " bonus(%d), defense(%d), critical threat(%d)") %
-                      roll % confirmationRoll % attackBonus % defense % criticalThreat),
-                  LogChannel::Combat);
-            return AttackResultType::CriticalHit;
+        resolution.confirmationRoll = randomInt(1, 20);
+        if ((resolution.confirmationRoll + resolution.attackBonus) >= resolution.defense) {
+            resolution.criticalHitImmune =
+                targetCreature && hasCriticalHitImmunity(*targetCreature);
+            if (!resolution.criticalHitImmune) {
+                resolution.result = AttackResultType::CriticalHit;
+                debug(str(boost::format("computeAttack: critical hit: roll(%d), confirmation(%d),"
+                                        " bonus(%d), defense(%d), critical threat(%d)") %
+                          resolution.roll % resolution.confirmationRoll % resolution.attackBonus %
+                          resolution.defense % resolution.criticalThreat),
+                      LogChannel::Combat);
+                return resolution;
+            }
         }
     }
 
+    resolution.result = AttackResultType::HitSuccessful;
     debug(str(boost::format("computeAttack: hit: roll(%d), bonus(%d), defense(%d),"
                             " critical threat(%d)") %
-              roll % attackBonus % defense % criticalThreat),
+              resolution.roll % resolution.attackBonus % resolution.defense % resolution.criticalThreat),
           LogChannel::Combat);
 
-    return AttackResultType::HitSuccessful;
+    return resolution;
 }
 
 /**
@@ -304,20 +331,28 @@ void AttackBuffer::addWeaponAttack(
         source == AttackBuffer::Source::Offhand);
     int criticalThreat = getCriticalThreat(&weapon, attackThreatBonus);
 
-    AttackResultType result = computeAttack(
+    AttackResolution resolution = computeAttack(
         attacker,
         target,
         attackRollBonus,
         criticalThreat,
         weapon.damageFlags());
 
-    _attacks.emplace_back(source, result);
+    _attacks.emplace_back(
+        source,
+        resolution.result,
+        resolution.roll,
+        resolution.attackBonus,
+        resolution.defense,
+        resolution.confirmationRoll,
+        resolution.assuredHit,
+        resolution.criticalHitImmune);
 
-    if (!isAttackSuccessful(result)) {
+    if (!isAttackSuccessful(resolution.result)) {
         return;
     }
 
-    computeWeaponDamage(attacker, target, weapon, result,
+    computeWeaponDamage(attacker, target, weapon, resolution.result,
                         damageBonus, _attacks.back().damage);
 }
 
@@ -331,20 +366,29 @@ void AttackBuffer::addUnarmedAttack(const Creature &attacker, const Object &targ
     auto gloves = attacker.getEquippedItem(InventorySlots::hands);
     int criticalThreat = getCriticalThreat(gloves.get(), attackThreatBonus);
 
-    AttackResultType result = computeAttack(
+    AttackResolution resolution = computeAttack(
         attacker,
         target,
         attackRollBonus,
         criticalThreat,
         static_cast<int>(DamageType::Bludgeoning));
 
-    _attacks.emplace_back(AttackBuffer::Source::Main, result);
+    _attacks.emplace_back(
+        AttackBuffer::Source::Main,
+        resolution.result,
+        resolution.roll,
+        resolution.attackBonus,
+        resolution.defense,
+        resolution.confirmationRoll,
+        resolution.assuredHit,
+        resolution.criticalHitImmune);
 
-    if (!isAttackSuccessful(result)) {
+    if (!isAttackSuccessful(resolution.result)) {
         return;
     }
 
-    computeUnarmedDamage(attacker, target, result, damageBonus, _attacks.back().damage);
+    computeUnarmedDamage(
+        attacker, target, resolution.result, damageBonus, _attacks.back().damage);
 }
 
 void AttackBuffer::applyEffects(Creature &attacker, Object &target, Game &game) {
@@ -355,6 +399,117 @@ void AttackBuffer::applyEffects(Creature &attacker, Object &target, Game &game) 
 
             target.applyEffect(std::move(effect), DurationType::Instant);
         }
+    }
+}
+
+static constexpr float kCombatFeedbackRange2 = 900.0f;
+
+static bool canReceiveCombatFeedback(
+    const Creature &player,
+    const Creature &subject) {
+
+    return player.faction() == subject.faction() &&
+           player.getSquareDistanceTo(subject) <= kCombatFeedbackRange2;
+}
+
+static std::string getFeedbackObjectName(const Object &object) {
+    if (!object.name().empty()) {
+        return object.name();
+    }
+    if (!object.tag().empty()) {
+        return object.tag();
+    }
+    return str(boost::format("Object %u") % object.id());
+}
+
+static void appendRollExpression(std::ostringstream &stream, int roll, int bonus) {
+    stream << roll;
+    if (bonus < 0) {
+        stream << " - " << -bonus;
+    } else {
+        stream << " + " << bonus;
+    }
+    stream << " = " << roll + bonus;
+}
+
+static const char *getAttackResultText(AttackResultType result) {
+    switch (result) {
+    case AttackResultType::HitSuccessful:
+        return "hit";
+    case AttackResultType::CriticalHit:
+        return "critical hit";
+    case AttackResultType::AutomaticHit:
+        return "automatic hit";
+    case AttackResultType::Miss:
+        return "miss";
+    case AttackResultType::AttackResisted:
+        return "resisted";
+    case AttackResultType::AttackFailed:
+        return "failed";
+    case AttackResultType::Parried:
+        return "parried";
+    case AttackResultType::Deflected:
+        return "deflected";
+    default:
+        return "invalid";
+    }
+}
+
+void AttackBuffer::addCombatFeedback(
+    Game &game,
+    const Creature &attacker,
+    const Object &target) const {
+
+    auto player = game.party().player();
+    if (!player) {
+        return;
+    }
+
+    bool visible = canReceiveCombatFeedback(*player, attacker);
+    if (const auto *targetCreature = dyn_cast<Creature>(&target)) {
+        visible = visible || canReceiveCombatFeedback(*player, *targetCreature);
+    }
+    if (!visible) {
+        return;
+    }
+
+    const std::string attackerName = getFeedbackObjectName(attacker);
+    const std::string targetName = getFeedbackObjectName(target);
+
+    for (const Attack &attack : _attacks) {
+        std::ostringstream stream;
+        stream << attackerName << " attacks " << targetName;
+        if (attack.source == Source::Offhand) {
+            stream << " (offhand)";
+        }
+        stream << ": roll ";
+        appendRollExpression(stream, attack.roll, attack.attackBonus);
+        if (attack.roll == 1) {
+            stream << " (natural 1)";
+        } else if (attack.roll == 20) {
+            stream << " (natural 20)";
+        }
+        stream << " vs. defense " << attack.defense;
+
+        if (attack.assuredHit) {
+            stream << ": assured hit.";
+        } else if (attack.confirmationRoll != 0) {
+            stream << "; critical confirmation ";
+            appendRollExpression(stream, attack.confirmationRoll, attack.attackBonus);
+            stream << " vs. defense " << attack.defense;
+
+            if (attack.criticalHitImmune) {
+                stream << ": critical hit negated by immunity; hit.";
+            } else if (attack.result == AttackResultType::CriticalHit) {
+                stream << ": critical hit.";
+            } else {
+                stream << ": not confirmed; hit.";
+            }
+        } else {
+            stream << ": " << getAttackResultText(attack.result) << ".";
+        }
+
+        game.messageLog().addCombat(stream.str());
     }
 }
 

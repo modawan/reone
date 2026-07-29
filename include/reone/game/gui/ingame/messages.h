@@ -42,6 +42,8 @@ public:
 
     void onGUILoaded() override;
 
+    void refresh();
+
 private:
     struct Controls {
         std::shared_ptr<gui::Button> BTN_COMBAT;
@@ -68,6 +70,11 @@ private:
     };
 
     Controls _controls;
+    bool _showingFeedback {false};
+
+    void showDialogMessages();
+    void showFeedbackMessages();
+    void toggleMessages();
 
     void bindControls() {
         _controls.BTN_COMBAT = findControl<gui::Button>("BTN_COMBAT");

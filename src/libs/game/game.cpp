@@ -665,6 +665,7 @@ void Game::resetGame() {
     _party.reset();
     _combat.reset();
     _journal.reset();
+    _messageLog.reset();
     _statusSummary.reset();
     if (_hud) {
         _hud->resetStatusSummaryPresentation();

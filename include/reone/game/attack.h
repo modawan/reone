@@ -125,6 +125,11 @@ public:
     void applyEffects(Creature &attacker, Object &target, Game &game);
 
     /**
+     * Add one combat-feedback entry for each collected physical attack.
+     */
+    void addCombatFeedback(Game &game, const Creature &attacker, const Object &target) const;
+
+    /**
      * Get the best result for a series of attacks collected in AttackBuffer.
      */
     AttackResultType result() const;
@@ -136,11 +141,32 @@ public:
 
 private:
     struct Attack {
-        Attack(Source source, AttackResultType result) :
-            source(source), result(result) {}
+        Attack(
+            Source source,
+            AttackResultType result,
+            int roll,
+            int attackBonus,
+            int defense,
+            int confirmationRoll,
+            bool assuredHit,
+            bool criticalHitImmune) :
+            source(source),
+            result(result),
+            roll(roll),
+            attackBonus(attackBonus),
+            defense(defense),
+            confirmationRoll(confirmationRoll),
+            assuredHit(assuredHit),
+            criticalHitImmune(criticalHitImmune) {}
 
         Source source;
         AttackResultType result;
+        int roll;
+        int attackBonus;
+        int defense;
+        int confirmationRoll;
+        bool assuredHit;
+        bool criticalHitImmune;
         SmallVector<Damage, 4> damage;
     };
 

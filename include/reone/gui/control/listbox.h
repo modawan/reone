@@ -81,6 +81,7 @@ public:
     void setItemsInteractive(bool interactive);
     void setProtoMatchContent(bool match);
     void setRenderItemIconsForButtonProto(bool render);
+    void scrollToBottom();
 
     int getItemCount() const;
     const Item &getItemAt(int index) const;

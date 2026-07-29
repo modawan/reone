@@ -45,6 +45,7 @@
 #include "gui/saveload.h"
 #include "journal.h"
 #include "location.h"
+#include "messagelog.h"
 #include "object/area.h"
 #include "object/camera/animated.h"
 #include "object/camera/dialog.h"
@@ -138,6 +139,7 @@ public:
     Party &party() { return _party; }
     Combat &combat() { return _combat; }
     Journal &journal() { return _journal; }
+    MessageLog &messageLog() { return _messageLog; }
     ScriptRunner &scriptRunner() { return *_scriptRunner; }
     Map &map() { return *_map; }
     script::IRoutines &routines() { return *_routines; }
@@ -437,6 +439,7 @@ private:
     Combat _combat;
     SwoopRace _swoopRace;
     Journal _journal;
+    MessageLog _messageLog;
     StatusSummaryAccumulator _statusSummary;
 
     std::unique_ptr<script::IRoutines> _routines;

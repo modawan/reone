@@ -340,6 +340,33 @@ void ListBox::setRenderItemIconsForButtonProto(bool render) {
     updateItemSlots();
 }
 
+void ListBox::scrollToBottom() {
+    if (!_protoItem || _items.empty()) {
+        _itemOffset = 0;
+        updateItemSlots();
+        return;
+    }
+
+    float height = 0.0f;
+    size_t offset = _items.size();
+    while (offset > 0) {
+        const Item &item = _items[offset - 1];
+        float itemHeight = _protoMatchContent
+                               ? item._textLines.size() * _protoItem->text().font->height()
+                               : _protoItem->extent().height;
+        itemHeight += _padding;
+
+        if (height > 0.0f && height + itemHeight > _extent.height) {
+            break;
+        }
+        height += itemHeight;
+        --offset;
+    }
+
+    _itemOffset = static_cast<int>(offset);
+    updateItemSlots();
+}
+
 int ListBox::getItemTextWidth() const {
     if (!_protoItem)
         return 0;

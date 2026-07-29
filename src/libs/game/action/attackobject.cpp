@@ -163,6 +163,7 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
 
         attack(round, attacker, *_target, _services.game.animations, _attacks);
         attacker.setLastAttackResult(_attacks.lastResult());
+        _attacks.addCombatFeedback(_game, attacker, *_target);
 
         if (auto target = dyn_cast<Creature>(_target)) {
             target->runAttackedScript(attacker.id());
