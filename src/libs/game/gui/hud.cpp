@@ -397,7 +397,6 @@ std::optional<TransitionPortal> HUD::currentTransitionCandidate() const {
 }
 
 void HUD::render() {
-    _game.floatingText().prepare();
     _gui->render();
 
     renderMinimap();
@@ -413,6 +412,7 @@ void HUD::render() {
     }
     _select.render();
     _actionBar.render();
+    _game.floatingText().render();
 
     if (_statusSummary && _statusSummary->isVisible()) {
         _statusSummary->render();

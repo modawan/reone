@@ -633,15 +633,6 @@ static constexpr int kStrRefAttackRoll = 42119;
 static constexpr int kStrRefAttackRollSuccess = 42133;
 static constexpr int kStrRefAttackRollFailure = 42134;
 
-static std::string getFeedbackObjectName(
-    ServicesView &services,
-    const Object &object) {
-
-    return object.name().empty()
-               ? services.resource.strings.getText(0)
-               : object.name();
-}
-
 static void substituteFeedbackToken(
     std::string &text,
     int token,
@@ -690,8 +681,8 @@ void AttackBuffer::addCombatFeedback(
         return;
     }
 
-    const std::string attackerName = getFeedbackObjectName(services, attacker);
-    const std::string targetName = getFeedbackObjectName(services, target);
+    const std::string &attackerName = attacker.name();
+    const std::string &targetName = target.name();
 
     for (const Attack &attack : _attacks) {
         bool successful = isAttackSuccessful(attack.result);

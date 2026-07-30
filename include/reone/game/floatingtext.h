@@ -61,7 +61,7 @@ public:
     void addMiss(const Creature &attacker, const Object &target);
 
     void update(float dt);
-    void prepare();
+    void render();
     void reset();
 
 private:
@@ -87,7 +87,6 @@ private:
     std::vector<std::shared_ptr<gui::Label>> _labels;
     std::vector<Entry> _entries;
     std::shared_ptr<graphics::Font> _font;
-    bool _fontLoadFailed {false};
 
     void add(const Object &object, std::string text, Style style, float duration);
     bool ensureLabelCount(std::size_t count);
