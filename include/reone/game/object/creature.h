@@ -228,6 +228,7 @@ public:
     bool isInCombat() const { return _combatState.active; }
     bool isDebilitated() const;
     bool isTwoWeaponFighting() const;
+    std::shared_ptr<Item> getOffhandAttackWeapon() const;
 
     uint32_t getAttemptedAttackTarget() const { return _combatState.attemptedAttackTarget; }
     std::shared_ptr<Object> getAttackTarget() const { return _combatState.attackTarget; }
@@ -485,7 +486,7 @@ private:
         bool offHand,
         int *smallOffhandBonus = nullptr) const;
     int getDuelingBonus() const;
-    void getWeaponDamage(int slot, int &min, int &max) const;
+    void getWeaponDamage(const Item *weapon, int &min, int &max) const;
 
     // END Animation
 

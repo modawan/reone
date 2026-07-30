@@ -35,6 +35,8 @@ class IReputes {
 public:
     virtual ~IReputes() = default;
 
+    virtual int getRepute(const Creature &left, const Creature &right) const = 0;
+    virtual int getRepute(Faction left, Faction right) const = 0;
     virtual bool getIsEnemy(const Creature &left, const Creature &right) const = 0;
     virtual bool getIsEnemy(Faction left, Faction right) const = 0;
     virtual bool getIsFriend(const Creature &left, const Creature &right) const = 0;
@@ -49,6 +51,8 @@ public:
 
     void init();
 
+    int getRepute(const Creature &left, const Creature &right) const override;
+    int getRepute(Faction left, Faction right) const override;
     bool getIsEnemy(const Creature &left, const Creature &right) const override;
     bool getIsEnemy(Faction left, Faction right) const override;
     bool getIsFriend(const Creature &left, const Creature &right) const override;
@@ -59,7 +63,6 @@ private:
     std::vector<std::string> _factionLabels;
     std::vector<std::vector<int>> _factionValues;
 
-    int getRepute(Faction left, Faction right) const;
 };
 
 } // namespace game

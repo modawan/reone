@@ -184,8 +184,8 @@ void UseFeatAction::execute(std::shared_ptr<Action> self, Object &actor, float d
 
         attack(_feat, round, attacker, *_target, _services.game.animations, _attacks);
         _attacks.resolveMeleeSpecialAttack(_feat, attacker, *_target, _game);
+        _attacks.resolveDamage(*_target);
         attacker.setLastAttackResult(_attacks.lastResult());
-        _attacks.addCombatFeedback(_game, _services, attacker, *_target);
 
         if (auto target = dyn_cast<Creature>(_target)) {
             target->runAttackedScript(attacker.id());
@@ -195,6 +195,7 @@ void UseFeatAction::execute(std::shared_ptr<Action> self, Object &actor, float d
         return;
     }
     case AttackSchedule::Damage: {
+        _attacks.addCombatFeedback(_game, _services, attacker, *_target);
         _attacks.applyEffects(attacker, *_target, _game);
         break;
     }

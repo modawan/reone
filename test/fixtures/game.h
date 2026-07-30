@@ -90,6 +90,8 @@ public:
 
 class MockReputes : public IReputes, boost::noncopyable {
 public:
+    MOCK_METHOD(int, getReputation, (const Creature &left, const Creature &right), (const override));
+    MOCK_METHOD(int, getReputation, (Faction left, Faction right), (const override));
     MOCK_METHOD(bool, getIsEnemy, (const Creature &left, const Creature &right), (const override));
     MOCK_METHOD(bool, getIsEnemy, (Faction left, Faction right), (const override));
     MOCK_METHOD(bool, getIsFriend, (const Creature &left, const Creature &right), (const override));

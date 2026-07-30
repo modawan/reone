@@ -304,6 +304,7 @@ static void computeWeaponDamage(
 
     DamageType type = getBaseDamageType(weapon.damageFlags());
     damage.addBaseDamage(std::max(amount, 1), type);
+    damage.setDamageFlags(weapon.damageFlags());
     attacker.addPhysicalDamageModifiers(
         damage,
         dyn_cast<Creature>(&target),
@@ -335,6 +336,7 @@ static void computeUnarmedDamage(
         nullptr, result == AttackResultType::CriticalHit);
 
     damage.addBaseDamage(std::max(amount, 1), DamageType::Bludgeoning);
+    damage.setDamageFlags(static_cast<int>(DamageType::Bludgeoning));
     attacker.addPhysicalDamageModifiers(
         damage,
         dyn_cast<Creature>(&target),
@@ -470,10 +472,7 @@ void AttackBuffer::addPhysicalAttacks(const Creature &attacker, const Object &ta
             attackRollBonus, mainThreatBonus, damageBonus);
     }
 
-    auto offhand = attacker.getEquippedItem(InventorySlots::leftWeapon);
-    if (main->weaponWield() == WeaponWield::DoubleBladedSword) {
-        offhand = main;
-    }
+    auto offhand = attacker.getOffhandAttackWeapon();
     if (offhand) {
         int offhandThreatBonus = getSpecialAttackThreatBonus(feat, offhand.get());
         addWeaponAttack(
@@ -603,6 +602,17 @@ void AttackBuffer::addUnarmedAttack(const Creature &attacker, const Object &targ
         attacker, target, resolution.result, damageBonus, _attacks.back().damage);
 }
 
+void AttackBuffer::resolveDamage(Object &target) {
+    for (Attack &attack : _attacks) {
+        if (attack.damage.empty()) {
+            continue;
+        }
+
+        attack.damage.mitigate(target);
+        attack.resolvedDamage = attack.damage.resolvedDamage();
+    }
+}
+
 void AttackBuffer::applyEffects(Creature &attacker, Object &target, Game &game) {
     for (Attack &attack : _attacks) {
         if (!attack.ranged && !isAttackSuccessful(attack.result)) {
@@ -697,11 +707,13 @@ void AttackBuffer::addCombatFeedback(
         return;
     }
 
-    bool visible = canReceiveCombatFeedback(*leader, attacker);
-    if (const auto *targetCreature = dyn_cast<Creature>(&target)) {
-        visible = visible || canReceiveCombatFeedback(*leader, *targetCreature);
-    }
-    if (!visible) {
+    bool broadcastFromAttacker = canReceiveCombatFeedback(*leader, attacker);
+    const auto *targetCreature = dyn_cast<Creature>(&target);
+    bool broadcastFromTarget = targetCreature &&
+                               canReceiveCombatFeedback(*leader, *targetCreature);
+    int broadcasts = static_cast<int>(broadcastFromAttacker) +
+                     static_cast<int>(broadcastFromTarget);
+    if (broadcasts == 0) {
         return;
     }
 
@@ -738,10 +750,12 @@ void AttackBuffer::addCombatFeedback(
                         successful ? kStrRefAttackRollSuccess : kStrRefAttackRollFailure)},
                 {1, std::to_string(attack.roll + attack.attackBonus)},
                 {2, std::to_string(attack.defense)},
-                {3, std::to_string(std::max(attack.damage.baseDamage(), 0))},
+                {3, std::to_string(std::max(attack.resolvedDamage, 0))},
             });
 
-        game.messageLog().addCombat(std::move(feedback));
+        for (int broadcast = 0; broadcast < broadcasts; ++broadcast) {
+            game.messageLog().addCombat(feedback);
+        }
 
         const AttackBonusBreakdown &bonus = attack.attackBonusBreakdown;
         std::string breakdown = getFeedbackString(
@@ -840,7 +854,9 @@ void AttackBuffer::addCombatFeedback(
             }
         }
 
-        game.messageLog().addFeedback(std::move(breakdown));
+        for (int broadcast = 0; broadcast < broadcasts; ++broadcast) {
+            game.messageLog().addFeedback(breakdown);
+        }
     }
 }
 

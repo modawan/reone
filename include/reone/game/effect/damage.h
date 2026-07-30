@@ -44,11 +44,13 @@ public:
 
     void add(int amount, DamageType type);
     void addBaseDamage(int amount, DamageType type);
+    void setDamageFlags(int damageFlags);
     void setPower(DamagePower power);
     void mitigate(Object &object);
 
     int total() const;
     int baseDamage() const { return _baseDamage; }
+    int resolvedDamage() const { return _mitigated ? _resolvedDamage : total(); }
     DamagePower power() const { return _power; }
     bool empty() const { return _components.empty(); }
 
@@ -58,8 +60,9 @@ private:
     void addResolved(int amount, DamageType type);
 
     DamagePower _power;
+    int _damageFlags {static_cast<int>(DamageType::Universal)};
     int _baseDamage {0};
-    DamageType _baseDamageType {DamageType::Universal};
+    int _resolvedDamage {0};
     SmallVector<DamageComponent, 4> _components;
     bool _mitigated {false};
 };
@@ -84,7 +87,7 @@ public:
 
     void applyTo(Object &object) override;
 
-    int amount() const { return _damage.total(); }
+    int amount() const { return _damage.resolvedDamage(); }
     const DamagePacket &packet() const { return _damage; }
     uint32_t damager() const { return _damager; }
 

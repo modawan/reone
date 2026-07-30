@@ -140,6 +140,11 @@ public:
                           int damageBonus = 0);
 
     /**
+     * Resolve target-side damage mitigation for each physical attack.
+     */
+    void resolveDamage(Object &target);
+
+    /**
      * Apply the delayed damage and secondary effects of each physical attack.
      */
     void applyEffects(Creature &attacker, Object &target, Game &game);
@@ -201,6 +206,7 @@ private:
         bool assuredHit;
         bool criticalHitImmune;
         bool stunTarget {false};
+        int resolvedDamage {0};
         DamagePacket damage;
     };
 

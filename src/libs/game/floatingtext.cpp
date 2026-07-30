@@ -21,7 +21,6 @@
 
 #include "reone/game/game.h"
 #include "reone/game/object.h"
-#include "reone/game/object/area.h"
 #include "reone/game/object/camera.h"
 #include "reone/game/object/creature.h"
 #include "reone/graphics/camera.h"
@@ -132,21 +131,21 @@ void FloatingText::render() {
         return;
     }
 
-    auto module = _game.module();
     auto camera = _game.getActiveCamera();
-    if (!module || !camera) {
+    if (!camera) {
         return;
     }
 
-    auto area = module->area();
     auto cameraNode = camera->cameraSceneNode();
     auto graphicsCamera = cameraNode ? cameraNode->camera() : nullptr;
-    if (!area || !graphicsCamera) {
+    if (!graphicsCamera) {
         return;
     }
 
     const glm::mat4 &projection = graphicsCamera->projection();
     const glm::mat4 &view = graphicsCamera->view();
+    const glm::vec3 cameraForward = graphicsCamera->forward();
+    const glm::vec3 cameraPosition = graphicsCamera->position();
     const float lineHeight = _font->height();
 
     _services.graphics.uniforms.setGlobals([&options](auto &globals) {
@@ -163,30 +162,50 @@ void FloatingText::render() {
 
     _services.graphics.context.withViewport(
         {0, 0, options.width, options.height},
-        [this, area, &projection, &view, &options, lineHeight]() {
+        [this, &projection, &view, cameraForward, cameraPosition,
+         &options, lineHeight]() {
             _services.graphics.context.withDepthTestMode(
                 DepthTestMode::None,
-                [this, area, &projection, &view, &options, lineHeight]() {
+                [this, &projection, &view, cameraForward, cameraPosition,
+                 &options, lineHeight]() {
                     _services.graphics.context.withDepthMask(
                         false,
-                        [this, area, &projection, &view, &options, lineHeight]() {
+                        [this, &projection, &view, cameraForward, cameraPosition,
+                         &options, lineHeight]() {
                             _services.graphics.context.withBlendMode(
                                 BlendMode::Normal,
-                                [this, area, &projection, &view, &options, lineHeight]() {
-                                    for (auto it = _entries.rbegin(); it != _entries.rend(); ++it) {
+                                [this, &projection, &view, cameraForward, cameraPosition,
+                                 &options, lineHeight]() {
+                                    static const glm::vec4 viewport(
+                                        0.0f,
+                                        0.0f,
+                                        1.0f,
+                                        1.0f);
+                                    for (auto it = _entries.rbegin();
+                                         it != _entries.rend();
+                                         ++it) {
                                         const Entry &entry = *it;
                                         auto object = _game.getObjectById(entry.objectId);
                                         if (!object) {
                                             continue;
                                         }
 
-                                        glm::vec3 screen = area->getSelectableScreenCoords(
-                                            object,
-                                            projection,
-                                            view);
-                                        if (screen.z >= 1.0f) {
+                                        auto model = object->sceneNode();
+                                        if (!model) {
                                             continue;
                                         }
+
+                                        const glm::vec3 position = model->origin();
+                                        if (glm::dot(cameraForward, position) <=
+                                            glm::dot(cameraForward, cameraPosition)) {
+                                            continue;
+                                        }
+
+                                        glm::vec3 screen = glm::project(
+                                            position,
+                                            view,
+                                            projection,
+                                            viewport);
 
                                         glm::vec3 color;
                                         switch (entry.style) {

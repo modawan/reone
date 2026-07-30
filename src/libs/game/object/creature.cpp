@@ -1185,12 +1185,30 @@ void Creature::deactivateCombat(float delay) {
 }
 
 bool Creature::isTwoWeaponFighting() const {
-    if (getEquippedItem(InventorySlots::leftWeapon)) {
-        return true;
+    return static_cast<bool>(getOffhandAttackWeapon());
+}
+
+std::shared_ptr<Item> Creature::getOffhandAttackWeapon() const {
+    auto main = getEquippedItem(InventorySlots::rightWeapon);
+    if (!main) {
+        return nullptr;
     }
 
-    auto main = getEquippedItem(InventorySlots::rightWeapon);
-    return main && main->weaponWield() == WeaponWield::DoubleBladedSword;
+    int relativeSize = static_cast<int>(main->weaponSize()) -
+                       static_cast<int>(_size);
+    if (relativeSize > 0) {
+        return main->weaponWield() == WeaponWield::DoubleBladedSword
+                   ? main
+                   : nullptr;
+    }
+
+    auto offhand = getEquippedItem(InventorySlots::leftWeapon);
+    if (!offhand ||
+        offhand->weaponType() == WeaponType::None ||
+        offhand->weaponWield() == WeaponWield::None) {
+        return nullptr;
+    }
+    return offhand;
 }
 
 void Creature::beginCombatAttack(std::shared_ptr<Object> target, FeatType feat) {
@@ -1418,14 +1436,9 @@ int Creature::getAttackBonus(const Item *weapon, bool offHand) const {
 }
 
 int Creature::getAttackBonus(bool offHand) const {
-    auto weapon = getEquippedItem(
-        offHand ? InventorySlots::leftWeapon : InventorySlots::rightWeapon);
-    if (!weapon && offHand) {
-        auto main = getEquippedItem(InventorySlots::rightWeapon);
-        if (main && main->weaponWield() == WeaponWield::DoubleBladedSword) {
-            weapon = main;
-        }
-    }
+    auto weapon = offHand
+                      ? getOffhandAttackWeapon()
+                      : getEquippedItem(InventorySlots::rightWeapon);
     return getAttackBonus(weapon.get(), offHand);
 }
 
@@ -1992,12 +2005,11 @@ void Creature::addPhysicalDamageModifiers(
 }
 
 void Creature::getMainHandDamage(int &min, int &max) const {
-    getWeaponDamage(InventorySlots::rightWeapon, min, max);
+    auto weapon = getEquippedItem(InventorySlots::rightWeapon);
+    getWeaponDamage(weapon.get(), min, max);
 }
 
-void Creature::getWeaponDamage(int slot, int &min, int &max) const {
-    auto weapon = getEquippedItem(slot);
-
+void Creature::getWeaponDamage(const Item *weapon, int &min, int &max) const {
     if (!weapon) {
         min = 1;
         max = 1;
@@ -2017,7 +2029,8 @@ void Creature::getWeaponDamage(int slot, int &min, int &max) const {
 }
 
 void Creature::getOffhandDamage(int &min, int &max) const {
-    getWeaponDamage(InventorySlots::leftWeapon, min, max);
+    auto weapon = getOffhandAttackWeapon();
+    getWeaponDamage(weapon.get(), min, max);
 }
 
 void Creature::onEventSignalled(const std::string &name) {
@@ -2309,11 +2322,11 @@ int Creature::getWeaponWieldNumber(WeaponWield wield) const {
     case WeaponWield::StunBaton:
         return 1;
     case WeaponWield::SingleSword:
-        return isSlotEquipped(InventorySlots::leftWeapon) ? 4 : 2;
+        return getOffhandAttackWeapon() ? 4 : 2;
     case WeaponWield::DoubleBladedSword:
         return 3;
     case WeaponWield::BlasterPistol:
-        return isSlotEquipped(InventorySlots::leftWeapon) ? 6 : 5;
+        return getOffhandAttackWeapon() ? 6 : 5;
     case WeaponWield::BlasterRifle:
         return 7;
     case WeaponWield::HeavyWeapon:
@@ -2348,11 +2361,9 @@ int Creature::getTwoWeaponAttackPenalty(
         return 0;
     }
 
-    auto offHandWeapon = getEquippedItem(InventorySlots::leftWeapon);
-    bool doubleBladed = mainHand->weaponWield() == WeaponWield::DoubleBladedSword;
-    if (doubleBladed) {
-        offHandWeapon = mainHand;
-    }
+    auto offHandWeapon = getOffhandAttackWeapon();
+    bool doubleBladed = offHandWeapon == mainHand &&
+                        mainHand->weaponWield() == WeaponWield::DoubleBladedSword;
     if (!offHandWeapon || offHandWeapon->weaponType() == WeaponType::None) {
         return 0;
     }
