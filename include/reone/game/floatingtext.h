@@ -30,13 +30,6 @@ class Font;
 
 }
 
-namespace gui {
-
-class IGUI;
-class Label;
-
-}
-
 namespace game {
 
 class Creature;
@@ -53,8 +46,6 @@ public:
         _game(game),
         _services(services) {
     }
-
-    void init(gui::IGUI &gui);
 
     void addDamage(const Object &object, int amount, int adjustedAmount, uint32_t damager);
     void addHeal(const Object &object, int amount);
@@ -83,14 +74,11 @@ private:
     Game &_game;
     ServicesView &_services;
 
-    gui::IGUI *_gui {nullptr};
-    std::vector<std::shared_ptr<gui::Label>> _labels;
     std::vector<Entry> _entries;
     std::shared_ptr<graphics::Font> _font;
+    std::string _fontResRef;
 
     void add(const Object &object, std::string text, Style style, float duration);
-    bool ensureLabelCount(std::size_t count);
-    void hideLabels();
 };
 
 } // namespace game

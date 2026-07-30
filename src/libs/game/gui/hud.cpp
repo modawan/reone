@@ -75,8 +75,6 @@ void HUD::preload(IGUI &gui) {
 
 void HUD::onGUILoaded() {
     bindControls();
-    _game.floatingText().init(*_gui);
-
     _actionBar.addDescription(
         findControl<gui::Label>("LBL_ACTIONDESC"),
         findControl<gui::Label>("LBL_ACTIONDESCBG"));

@@ -668,14 +668,14 @@ void AttackBuffer::addCombatFeedback(
         return;
     }
 
-    auto player = game.party().player();
-    if (!player) {
+    auto leader = game.party().getLeader();
+    if (!leader) {
         return;
     }
 
-    bool visible = canReceiveCombatFeedback(*player, attacker);
+    bool visible = canReceiveCombatFeedback(*leader, attacker);
     if (const auto *targetCreature = dyn_cast<Creature>(&target)) {
-        visible = visible || canReceiveCombatFeedback(*player, *targetCreature);
+        visible = visible || canReceiveCombatFeedback(*leader, *targetCreature);
     }
     if (!visible) {
         return;
