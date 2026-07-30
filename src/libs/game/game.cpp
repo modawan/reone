@@ -1025,11 +1025,6 @@ void Game::renderGUI() {
         _cursor->render();
     }
     renderDeveloperOverlay();
-    if (_screen == Screen::InGame) {
-        // World feedback is the final GUI layer so no HUD, cursor, or developer
-        // overlay pass can overwrite it or leave incompatible render state.
-        _floatingText.render();
-    }
 }
 
 void Game::renderDeveloperOverlay() {

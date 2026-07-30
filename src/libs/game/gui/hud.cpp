@@ -75,6 +75,7 @@ void HUD::preload(IGUI &gui) {
 
 void HUD::onGUILoaded() {
     bindControls();
+    _game.floatingText().init(*_gui);
 
     _actionBar.addDescription(
         findControl<gui::Label>("LBL_ACTIONDESC"),
@@ -396,6 +397,7 @@ std::optional<TransitionPortal> HUD::currentTransitionCandidate() const {
 }
 
 void HUD::render() {
+    _game.floatingText().prepare();
     _gui->render();
 
     renderMinimap();

@@ -132,7 +132,11 @@ public:
     /**
      * Add one combat-feedback entry for each collected physical attack.
      */
-    void addCombatFeedback(Game &game, const Creature &attacker, const Object &target) const;
+    void addCombatFeedback(
+        Game &game,
+        ServicesView &services,
+        const Creature &attacker,
+        const Object &target) const;
 
     /**
      * Get the best result for a series of attacks collected in AttackBuffer.
@@ -180,6 +184,7 @@ private:
     };
 
     SmallVector<Attack, 8> _attacks;
+    FeatType _feat {FeatType::Invalid};
 };
 
 /**

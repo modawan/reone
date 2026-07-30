@@ -21,14 +21,14 @@ namespace reone {
 
 namespace game {
 
-void MessageLog::add(Kind kind, std::string text) {
+void MessageLog::add(uint32_t type, Style style, std::string text) {
     if (text.empty()) {
         return;
     }
     while (_entries.size() >= kMaxEntries) {
         _entries.pop_front();
     }
-    _entries.push_back({kind, std::move(text)});
+    _entries.push_back({type, style, std::move(text)});
 }
 
 } // namespace game

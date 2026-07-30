@@ -25,16 +25,13 @@
 #include "reone/game/object/area.h"
 #include "reone/game/object/camera.h"
 #include "reone/game/object/creature.h"
-#include "reone/graphics/camera.h"
-#include "reone/graphics/context.h"
 #include "reone/graphics/font.h"
-#include "reone/graphics/uniforms.h"
+#include "reone/gui/control/label.h"
+#include "reone/gui/gui.h"
 #include "reone/resource/provider/fonts.h"
 #include "reone/resource/strings.h"
 #include "reone/scene/node/camera.h"
 #include "reone/system/logutil.h"
-
-using namespace reone::graphics;
 
 namespace reone {
 
@@ -42,6 +39,7 @@ namespace game {
 
 static constexpr float kFloatingTextOffsetY = 32.0f;
 static constexpr float kFloatingTextDuration = 1.5f;
+static constexpr int kFloatingTextWidth = 200;
 static constexpr int kMaxFloatingTextEntries = 5;
 static constexpr int kMissStrRef = 1373;
 
@@ -59,8 +57,20 @@ static std::shared_ptr<Object> findAreaObject(const Area &area, uint32_t objectI
     return it != area.objects().end() ? *it : nullptr;
 }
 
+void FloatingText::init(gui::IGUI &gui) {
+    hideLabels();
+    _labels.clear();
+    _font.reset();
+    _fontLoadFailed = false;
+    _gui = _game.isTSL() ? nullptr : &gui;
+}
+
 void FloatingText::addDamage(
     const Object &object, int amount, int adjustedAmount, uint32_t damager) {
+
+    if (_game.isTSL()) {
+        return;
+    }
 
     auto leader = _game.party().getLeader();
     if (!leader) {
@@ -75,6 +85,10 @@ void FloatingText::addDamage(
 }
 
 void FloatingText::addHeal(const Object &object, int amount) {
+    if (_game.isTSL()) {
+        return;
+    }
+
     auto module = _game.module();
     auto area = module ? module->area() : nullptr;
     auto selected = area ? area->selectedObject() : nullptr;
@@ -86,6 +100,10 @@ void FloatingText::addHeal(const Object &object, int amount) {
 }
 
 void FloatingText::addMiss(const Creature &attacker, const Object &target) {
+    if (_game.isTSL()) {
+        return;
+    }
+
     auto leader = _game.party().getLeader();
     if (!leader || attacker.id() != leader->id()) {
         return;
@@ -114,10 +132,6 @@ void FloatingText::add(const Object &object, std::string text, Style style, floa
         }),
         _entries.end());
 
-    debug(
-        str(boost::format("Floating text queued: object=%u text='%s'") %
-            object.id() % text),
-        LogChannel::Combat);
     _entries.push_back({object.id(), std::move(text), style, duration, duration, 1});
 }
 
@@ -132,15 +146,53 @@ void FloatingText::update(float dt) {
         _entries.end());
 }
 
-void FloatingText::render() {
-    if (_entries.empty()) {
+bool FloatingText::ensureLabelCount(std::size_t count) {
+    if (!_gui || !_font) {
+        return false;
+    }
+
+    while (_labels.size() < count) {
+        auto control = _gui->newControl(
+            gui::ControlType::Label,
+            "__FLOATING_TEXT_" + std::to_string(_labels.size()));
+        if (!control) {
+            return false;
+        }
+
+        std::shared_ptr<gui::Control> base(std::move(control));
+        auto label = std::dynamic_pointer_cast<gui::Label>(base);
+        if (!label) {
+            return false;
+        }
+
+        gui::Control::Text text;
+        text.font = _font;
+        text.align = gui::Control::TextAlign::CenterCenter;
+        label->setExtent({0, 0, kFloatingTextWidth, static_cast<int>(std::ceil(_font->height()))});
+        label->setText(std::move(text));
+        label->setSelectable(false);
+        label->setVisible(false);
+
+        _gui->addControlToBack(label);
+        _labels.push_back(std::move(label));
+    }
+    return true;
+}
+
+void FloatingText::hideLabels() {
+    for (const auto &label : _labels) {
+        label->setVisible(false);
+    }
+}
+
+void FloatingText::prepare() {
+    hideLabels();
+
+    if (_game.isTSL() || !_gui || _entries.empty()) {
         return;
     }
     if (!_font && !_fontLoadFailed) {
         _font = _services.resource.fonts.getExact("fnt_d16x16");
-        if (!_font || _font->height() <= 0.0f) {
-            _font = _services.resource.fonts.get("dialogfont16x16");
-        }
         _fontLoadFailed = !_font || _font->height() <= 0.0f;
         if (_fontLoadFailed) {
             warn("FloatingText: unable to load KOTOR 1 combat font");
@@ -166,97 +218,60 @@ void FloatingText::render() {
 
     const glm::mat4 &projection = graphicsCamera->projection();
     const glm::mat4 &view = graphicsCamera->view();
-    const float width = static_cast<float>(_game.options().graphics.width);
-    const float height = static_cast<float>(_game.options().graphics.height);
+    const int screenWidth = _game.options().graphics.width;
+    const int screenHeight = _game.options().graphics.height;
+    const int lineHeight = std::max(1, static_cast<int>(std::ceil(_font->height())));
+    const glm::ivec2 &controlOffset = _gui->controlOffset();
 
-    _services.graphics.uniforms.setGlobals([width, height](auto &globals) {
-        globals.reset();
-        globals.projection = glm::ortho(
-            0.0f,
-            width,
-            height,
-            0.0f,
-            0.0f,
-            100.0f);
-        globals.projectionInv = glm::inverse(globals.projection);
-    });
-
-    auto renderEntries = [this, &area, &projection, &view, width, height]() {
-        for (Entry &entry : _entries) {
-            auto object = findAreaObject(*area, entry.objectId);
-            if (!object) {
-                continue;
-            }
-
-            glm::vec3 screen = area->getSelectableScreenCoords(
-                object,
-                projection,
-                view);
-            if (!std::isfinite(screen.x) ||
-                !std::isfinite(screen.y) ||
-                !std::isfinite(screen.z) ||
-                screen.z >= 1.0f) {
-                continue;
-            }
-
-            float alpha = glm::clamp(entry.remaining / entry.duration, 0.0f, 1.0f);
-            glm::vec3 color;
-            switch (entry.style) {
-            case Style::Damage:
-                color = kDamageColor;
-                break;
-            case Style::Heal:
-                color = kHealColor;
-                break;
-            case Style::Miss:
-                color = kMissColor;
-                break;
-            }
-
-            glm::vec3 position(
-                width * screen.x,
-                height * (1.0f - screen.y) - kFloatingTextOffsetY -
-                    static_cast<float>(entry.stack - 1) * _font->height(),
-                0.0f);
-
-            _font->render(
-                entry.text,
-                position + glm::vec3(1.0f, 1.0f, 0.0f),
-                glm::vec4(0.0f, 0.0f, 0.0f, alpha),
-                TextGravity::CenterTop);
-            _font->render(
-                entry.text,
-                position,
-                glm::vec4(color, alpha),
-                TextGravity::CenterTop);
-
-            if (!entry.submitted) {
-                debug(
-                    str(boost::format(
-                            "Floating text submitted: object=%u screen=(%.3f, %.3f, %.3f)") %
-                        entry.objectId % screen.x % screen.y % screen.z),
-                    LogChannel::Combat);
-                entry.submitted = true;
-            }
+    std::size_t labelIndex = 0;
+    for (const Entry &entry : _entries) {
+        auto object = findAreaObject(*area, entry.objectId);
+        if (!object) {
+            continue;
         }
-    };
 
-    glm::ivec4 viewport(0, 0, static_cast<int>(width), static_cast<int>(height));
-    _services.graphics.context.withViewport(viewport, [this, &renderEntries]() {
-        _services.graphics.context.withPolygonMode(PolygonMode::Fill, [this, &renderEntries]() {
-            _services.graphics.context.withFaceCullMode(FaceCullMode::None, [this, &renderEntries]() {
-                _services.graphics.context.withDepthTestMode(DepthTestMode::None, [this, &renderEntries]() {
-                    _services.graphics.context.withDepthMask(false, [this, &renderEntries]() {
-                        _services.graphics.context.withBlendMode(BlendMode::Normal, renderEntries);
-                    });
-                });
-            });
-        });
-    });
+        glm::vec3 screen = area->getSelectableScreenCoords(object, projection, view);
+        if (!std::isfinite(screen.x) ||
+            !std::isfinite(screen.y) ||
+            !std::isfinite(screen.z) ||
+            screen.z >= 1.0f) {
+            continue;
+        }
+        if (!ensureLabelCount(labelIndex + 1)) {
+            break;
+        }
+
+        glm::vec3 color;
+        switch (entry.style) {
+        case Style::Damage:
+            color = kDamageColor;
+            break;
+        case Style::Heal:
+            color = kHealColor;
+            break;
+        case Style::Miss:
+            color = kMissColor;
+            break;
+        }
+
+        int x = static_cast<int>(std::lround(screenWidth * screen.x));
+        int y = static_cast<int>(std::lround(screenHeight * (1.0f - screen.y)));
+        int left = x - kFloatingTextWidth / 2 - controlOffset.x;
+        int top = y - static_cast<int>(kFloatingTextOffsetY) - entry.stack * lineHeight - controlOffset.y;
+
+        auto &label = *_labels[labelIndex++];
+        label.setExtent({left, top, kFloatingTextWidth, lineHeight});
+        label.setTextFont(_font);
+        label.setTextMessage(entry.text);
+        label.setTextColor(color);
+        label.setTextAlpha(glm::clamp(entry.remaining / entry.duration, 0.0f, 1.0f));
+        label.setVisible(true);
+    }
 }
 
 void FloatingText::reset() {
     _entries.clear();
+    hideLabels();
     _font.reset();
     _fontLoadFailed = false;
 }

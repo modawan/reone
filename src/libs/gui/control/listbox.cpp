@@ -230,6 +230,11 @@ void ListBox::render(const glm::ivec2 &screenSize,
         }
         _protoItem->setSelected(_selectedItemIndex == itemIdx);
 
+        glm::vec3 originalTextColor(_protoItem->text().color);
+        if (item.textColor) {
+            _protoItem->setTextColor(*item.textColor);
+        }
+
         auto imageButton = std::dynamic_pointer_cast<ImageButton>(_protoItem);
         if (imageButton) {
             imageButton->render(itemOffset, item._textLines, item.iconText, item.iconTexture, item.iconFrame, pass);
@@ -239,6 +244,8 @@ void ListBox::render(const glm::ivec2 &screenSize,
             _protoItem->setTextLines(item._textLines);
             _protoItem->render(screenSize, itemOffset, pass);
         }
+
+        _protoItem->setTextColor(originalTextColor);
 
         if (_protoMatchContent) {
             itemOffset.y += item._textLines.size() * (_protoItem->text().font->height() + _padding);

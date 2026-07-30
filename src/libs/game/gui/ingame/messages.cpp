@@ -38,6 +38,9 @@ static constexpr int kStrRefShow = 1563;
 static constexpr int kStrRefDialogModeButton = 371;
 static constexpr int kStrRefFeedbackModeButton = 42167;
 
+static const glm::vec3 kFeedbackColor(0.0f, 0.66f, 0.98f);
+static const glm::vec3 kCombatColor(0.74f, 0.11f, 0.0f);
+
 void MessagesMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
@@ -67,8 +70,17 @@ void MessagesMenu::refresh() {
     _controls.LB_MESSAGES->clearItems();
 
     for (const MessageLog::Entry &entry : _game.messageLog().entries()) {
+        if ((entry.type & MessageLog::kFeedbackMessageType) == 0) {
+            continue;
+        }
+
         gui::ListBox::Item item;
         item.text = entry.text;
+        if (!_game.isTSL()) {
+            item.textColor = entry.style == MessageLog::Style::Red
+                                 ? kCombatColor
+                                 : kFeedbackColor;
+        }
         _controls.LB_MESSAGES->addItem(std::move(item));
     }
     _controls.LB_MESSAGES->scrollToBottom();

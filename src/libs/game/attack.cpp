@@ -18,6 +18,7 @@
 #include "reone/game/attack.h"
 
 #include "reone/game/di/services.h"
+#include "reone/game/d20/feats.h"
 #include "reone/game/effect/acdecrease.h"
 #include "reone/game/effect/immunity.h"
 #include "reone/game/effect/stunned.h"
@@ -31,7 +32,7 @@
 #include "reone/system/randomutil.h"
 
 #include <algorithm>
-#include <sstream>
+#include <initializer_list>
 
 namespace reone {
 
@@ -440,6 +441,8 @@ static bool isCriticalStrikeFeat(FeatType feat) {
 
 void AttackBuffer::addPhysicalAttacks(const Creature &attacker, const Object &target,
                                       FeatType feat) {
+    _feat = feat;
+
     int mainHandAttacks = 1 + attacker.modifiedAttacks();
     if (grantsExtraMainHandAttack(feat)) {
         ++mainHandAttacks;
@@ -622,53 +625,57 @@ static bool canReceiveCombatFeedback(
            player.getSquareDistanceTo(subject) <= kCombatFeedbackRange2;
 }
 
-static std::string getFeedbackObjectName(const Object &object) {
-    if (!object.name().empty()) {
-        return object.name();
-    }
-    if (!object.tag().empty()) {
-        return object.tag();
-    }
-    return str(boost::format("Object %u") % object.id());
+static constexpr int kStrRefAttackSummary = 42042;
+static constexpr int kStrRefAttackSuccessVerb = 42043;
+static constexpr int kStrRefAttackFailureVerb = 42044;
+static constexpr int kStrRefAttackFeat = 42046;
+static constexpr int kStrRefAttackRoll = 42119;
+static constexpr int kStrRefAttackRollSuccess = 42133;
+static constexpr int kStrRefAttackRollFailure = 42134;
+
+static std::string getFeedbackObjectName(
+    ServicesView &services,
+    const Object &object) {
+
+    return object.name().empty()
+               ? services.resource.strings.getText(0)
+               : object.name();
 }
 
-static void appendRollExpression(std::ostringstream &stream, int roll, int bonus) {
-    stream << roll;
-    if (bonus < 0) {
-        stream << " - " << -bonus;
-    } else {
-        stream << " + " << bonus;
+static void substituteFeedbackToken(
+    std::string &text,
+    int token,
+    const std::string &value) {
+
+    const std::string marker = "<CUSTOM" + std::to_string(token) + ">";
+    size_t pos = 0;
+    while ((pos = text.find(marker, pos)) != std::string::npos) {
+        text.replace(pos, marker.size(), value);
+        pos += value.size();
     }
-    stream << " = " << roll + bonus;
 }
 
-static const char *getAttackResultText(AttackResultType result) {
-    switch (result) {
-    case AttackResultType::HitSuccessful:
-        return "hit";
-    case AttackResultType::CriticalHit:
-        return "critical hit";
-    case AttackResultType::AutomaticHit:
-        return "automatic hit";
-    case AttackResultType::Miss:
-        return "miss";
-    case AttackResultType::AttackResisted:
-        return "resisted";
-    case AttackResultType::AttackFailed:
-        return "failed";
-    case AttackResultType::Parried:
-        return "parried";
-    case AttackResultType::Deflected:
-        return "deflected";
-    default:
-        return "invalid";
+static std::string getFeedbackString(
+    ServicesView &services,
+    int strRef,
+    std::initializer_list<std::pair<int, std::string>> tokens) {
+
+    std::string text = services.resource.strings.getText(strRef);
+    for (const auto &[token, value] : tokens) {
+        substituteFeedbackToken(text, token, value);
     }
+    return text;
 }
 
 void AttackBuffer::addCombatFeedback(
     Game &game,
+    ServicesView &services,
     const Creature &attacker,
     const Object &target) const {
+
+    if (game.isTSL()) {
+        return;
+    }
 
     auto player = game.party().player();
     if (!player) {
@@ -683,43 +690,45 @@ void AttackBuffer::addCombatFeedback(
         return;
     }
 
-    const std::string attackerName = getFeedbackObjectName(attacker);
-    const std::string targetName = getFeedbackObjectName(target);
+    const std::string attackerName = getFeedbackObjectName(services, attacker);
+    const std::string targetName = getFeedbackObjectName(services, target);
 
     for (const Attack &attack : _attacks) {
-        std::ostringstream stream;
-        stream << attackerName << " attacks " << targetName;
-        if (attack.source == Source::Offhand) {
-            stream << " (offhand)";
-        }
-        stream << ": roll ";
-        appendRollExpression(stream, attack.roll, attack.attackBonus);
-        if (attack.roll == 1) {
-            stream << " (natural 1)";
-        } else if (attack.roll == 20) {
-            stream << " (natural 20)";
-        }
-        stream << " vs. defense " << attack.defense;
+        bool successful = isAttackSuccessful(attack.result);
+        std::string feedback = getFeedbackString(
+            services,
+            kStrRefAttackSummary,
+            {
+                {0, attackerName},
+                {1, services.resource.strings.getText(
+                        successful ? kStrRefAttackSuccessVerb : kStrRefAttackFailureVerb)},
+                {2, targetName},
+            });
+        feedback += ". ";
 
-        if (attack.assuredHit) {
-            stream << ": assured hit.";
-        } else if (attack.confirmationRoll != 0) {
-            stream << "; critical confirmation ";
-            appendRollExpression(stream, attack.confirmationRoll, attack.attackBonus);
-            stream << " vs. defense " << attack.defense;
-
-            if (attack.criticalHitImmune) {
-                stream << ": critical hit negated by immunity; hit.";
-            } else if (attack.result == AttackResultType::CriticalHit) {
-                stream << ": critical hit.";
-            } else {
-                stream << ": not confirmed; hit.";
+        if (isPhysicalAttackFeat(_feat)) {
+            auto feat = services.game.feats.get(_feat);
+            if (feat) {
+                feedback += getFeedbackString(
+                    services,
+                    kStrRefAttackFeat,
+                    {{0, feat->name}});
+                feedback += ". ";
             }
-        } else {
-            stream << ": " << getAttackResultText(attack.result) << ".";
         }
 
-        game.messageLog().addCombat(stream.str());
+        feedback += getFeedbackString(
+            services,
+            kStrRefAttackRoll,
+            {
+                {0, services.resource.strings.getText(
+                        successful ? kStrRefAttackRollSuccess : kStrRefAttackRollFailure)},
+                {1, std::to_string(attack.roll + attack.attackBonus)},
+                {2, std::to_string(attack.defense)},
+                {3, std::to_string(std::max(attack.damage.baseDamage(), 0))},
+            });
+
+        game.messageLog().addCombat(std::move(feedback));
     }
 }
 

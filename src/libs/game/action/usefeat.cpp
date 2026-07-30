@@ -185,7 +185,7 @@ void UseFeatAction::execute(std::shared_ptr<Action> self, Object &actor, float d
         attack(_feat, round, attacker, *_target, _services.game.animations, _attacks);
         _attacks.resolveMeleeSpecialAttack(_feat, attacker, *_target, _game);
         attacker.setLastAttackResult(_attacks.lastResult());
-        _attacks.addCombatFeedback(_game, attacker, *_target);
+        _attacks.addCombatFeedback(_game, _services, attacker, *_target);
 
         if (auto target = dyn_cast<Creature>(_target)) {
             target->runAttackedScript(attacker.id());

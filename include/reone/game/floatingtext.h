@@ -30,6 +30,13 @@ class Font;
 
 }
 
+namespace gui {
+
+class IGUI;
+class Label;
+
+}
+
 namespace game {
 
 class Creature;
@@ -47,12 +54,14 @@ public:
         _services(services) {
     }
 
+    void init(gui::IGUI &gui);
+
     void addDamage(const Object &object, int amount, int adjustedAmount, uint32_t damager);
     void addHeal(const Object &object, int amount);
     void addMiss(const Creature &attacker, const Object &target);
 
     void update(float dt);
-    void render();
+    void prepare();
     void reset();
 
 private:
@@ -69,17 +78,20 @@ private:
         float remaining;
         float duration;
         int stack;
-        bool submitted {false};
     };
 
     Game &_game;
     ServicesView &_services;
 
+    gui::IGUI *_gui {nullptr};
+    std::vector<std::shared_ptr<gui::Label>> _labels;
     std::vector<Entry> _entries;
     std::shared_ptr<graphics::Font> _font;
     bool _fontLoadFailed {false};
 
     void add(const Object &object, std::string text, Style style, float duration);
+    bool ensureLabelCount(std::size_t count);
+    void hideLabels();
 };
 
 } // namespace game

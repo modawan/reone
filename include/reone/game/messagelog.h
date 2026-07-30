@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <string>
 #include <utility>
@@ -31,21 +32,27 @@ namespace game {
  */
 class MessageLog {
 public:
-    enum class Kind {
-        Feedback,
-        Combat,
+    enum class Style {
+        Blue,
+        Red,
     };
 
     struct Entry {
-        Kind kind;
+        uint32_t type;
+        Style style;
         std::string text;
     };
 
     static constexpr std::size_t kMaxEntries = 64;
+    static constexpr uint32_t kFeedbackMessageType = 0x80;
 
-    void add(Kind kind, std::string text);
-    void addFeedback(std::string text) { add(Kind::Feedback, std::move(text)); }
-    void addCombat(std::string text) { add(Kind::Combat, std::move(text)); }
+    void add(uint32_t type, Style style, std::string text);
+    void addFeedback(std::string text) {
+        add(kFeedbackMessageType, Style::Blue, std::move(text));
+    }
+    void addCombat(std::string text) {
+        add(kFeedbackMessageType, Style::Red, std::move(text));
+    }
     void reset() { _entries.clear(); }
 
     const std::deque<Entry> &entries() const { return _entries; }

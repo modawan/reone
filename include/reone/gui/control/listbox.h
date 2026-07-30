@@ -19,6 +19,8 @@
 
 #include "../control.h"
 
+#include <optional>
+
 namespace reone {
 
 namespace gui {
@@ -38,6 +40,7 @@ public:
         std::string iconText;
         std::shared_ptr<graphics::Texture> iconTexture;
         std::shared_ptr<graphics::Texture> iconFrame;
+        std::optional<glm::vec3> textColor;
         bool invalid {false};
 
         std::vector<std::string> _textLines;
