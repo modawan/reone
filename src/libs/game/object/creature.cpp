@@ -24,6 +24,7 @@
 #include "reone/game/action.h"
 #include "reone/game/action/attackobject.h"
 #include "reone/game/animationutil.h"
+#include "reone/game/attack.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/acdecrease.h"
@@ -230,21 +231,27 @@ static bool defensePropertyApplies(
     }
 }
 
-static int getSituationalAttackBonus(
+static void getSituationalAttackBonuses(
     const Creature &attacker,
     const Creature &target,
-    const Item *weapon) {
+    const Item *weapon,
+    int &closeProximityRangedBonus,
+    int &meleeOnRangedBonus) {
+
+    closeProximityRangedBonus = 0;
+    meleeOnRangedBonus = 0;
 
     if (weapon && weapon->isRanged()) {
-        return attacker.getSquareDistanceTo(target) <= kCloseRangeAttackDistance2
-                   ? kSituationalAttackBonus
-                   : 0;
+        if (attacker.getSquareDistanceTo(target) <= kCloseRangeAttackDistance2) {
+            closeProximityRangedBonus = kSituationalAttackBonus;
+        }
+        return;
     }
 
     auto targetWeapon = target.getEquippedItem(InventorySlots::rightWeapon);
-    return targetWeapon && targetWeapon->isRanged()
-               ? kSituationalAttackBonus
-               : 0;
+    if (targetWeapon && targetWeapon->isRanged()) {
+        meleeOnRangedBonus = kSituationalAttackBonus;
+    }
 }
 
 static bool equippedItemAppliesToAttack(
@@ -1231,141 +1238,179 @@ Alignment Creature::alignment() const {
     return Alignment::Neutral;
 }
 
+AttackBonusBreakdown Creature::getAttackBonusBreakdown(
+    const Creature *target,
+    const Item *weapon,
+    bool offHand) const {
+
+    AttackBonusBreakdown result;
+
+    int strengthModifier = _attributes.getAbilityModifier(Ability::Strength);
+    int dexterityModifier = _attributes.getAbilityModifier(Ability::Dexterity);
+
+    if (weapon && weapon->isRanged()) {
+        result.dexterityModifier = dexterityModifier;
+    } else if (weapon && dexterityModifier > strengthModifier && weapon->isLightsaber()) {
+        // KOTOR 1 treats lightsabers as finesse weapons. KOTOR 2's feat-gated
+        // extension is deferred with the rest of the TSL-specific combat rules.
+        result.dexterityModifier = dexterityModifier;
+    } else {
+        result.strengthModifier = strengthModifier;
+    }
+
+    int modifierBonus = 0;
+    int modifierPenalty = 0;
+
+    for (const auto &applied : effects()) {
+        switch (applied.effect->type()) {
+        case EffectType::AttackIncrease: {
+            const auto &effect = static_cast<const AttackIncreaseEffect &>(*applied.effect);
+            if (effect.bonus() > 0 &&
+                attackModifierApplies(effect.modifierType(), weapon, offHand)) {
+                modifierBonus += effect.bonus();
+            }
+            break;
+        }
+        case EffectType::AttackDecrease: {
+            const auto &effect = static_cast<const AttackDecreaseEffect &>(*applied.effect);
+            if (effect.penalty() > 0 &&
+                attackModifierApplies(effect.modifierType(), weapon, offHand)) {
+                modifierPenalty += effect.penalty();
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    auto bonusCosts = _services.resource.twoDas.get("iprp_bonuscost");
+    auto penaltyCosts = getDecreaseModifierCostTable(_services);
+    for (const auto &[slot, item] : _equipment) {
+        if (!item || !equippedItemAppliesToAttack(slot, *item, weapon, offHand)) {
+            continue;
+        }
+
+        int itemBonus = 0;
+        int itemPenalty = 0;
+        for (const auto &property : item->properties()) {
+            if (property.upgradeType != 0) {
+                continue;
+            }
+
+            int modifier = 0;
+            auto propertyType = static_cast<ItemProperty>(property.propertyName);
+            switch (propertyType) {
+            case ItemProperty::EnhancementBonus:
+            case ItemProperty::EnhancementBonusVsAlignmentGroup:
+            case ItemProperty::EnhancementBonusVsRacialGroup:
+            case ItemProperty::AttackBonus:
+            case ItemProperty::AttackBonusVsAlignmentGroup:
+            case ItemProperty::AttackBonusVsRacialGroup: {
+                if (!attackPropertyApplies(
+                        propertyType,
+                        property.subtype,
+                        target)) {
+                    continue;
+                }
+                if (!bonusCosts) {
+                    continue;
+                }
+                auto value = bonusCosts->getIntOpt(property.costValue, "value");
+                if (!value || *value <= 0) {
+                    continue;
+                }
+                modifier = *value;
+                break;
+            }
+            case ItemProperty::AttackPenalty:
+            case ItemProperty::DecreasedAttackModifier: {
+                if (!penaltyCosts) {
+                    continue;
+                }
+                auto value = penaltyCosts->getIntOpt(property.costValue, "value");
+                if (!value || *value >= 0) {
+                    continue;
+                }
+                modifier = *value;
+                break;
+            }
+            default:
+                continue;
+            }
+
+            if (isHandSpecificAttackModifierSlot(slot)) {
+                addAttackModifier(modifier, modifierBonus, modifierPenalty);
+            } else if (modifier > 0) {
+                itemBonus = std::max(itemBonus, modifier);
+            } else {
+                itemPenalty = std::max(itemPenalty, -modifier);
+            }
+        }
+        modifierBonus += itemBonus;
+        modifierPenalty += itemPenalty;
+    }
+
+    result.effectBonus = std::min(modifierBonus, 20) -
+                         std::min(modifierPenalty, 20);
+
+    if (weapon &&
+        weapon->weaponFocusFeat() != FeatType::Invalid &&
+        _attributes.hasFeat(weapon->weaponFocusFeat())) {
+        result.weaponFocusBonus = 1;
+    }
+
+    if (target) {
+        getSituationalAttackBonuses(
+            *this,
+            *target,
+            weapon,
+            result.closeProximityRangedBonus,
+            result.meleeOnRangedBonus);
+    }
+
+    int twoWeaponPenalty = getTwoWeaponAttackPenalty(
+        weapon,
+        offHand,
+        &result.smallOffhandBonus);
+    result.dualWieldPenalty = -twoWeaponPenalty - result.smallOffhandBonus;
+
+    if (!offHand) {
+        result.duelingBonus = getDuelingBonus();
+        switch (result.duelingBonus) {
+        case 3:
+            result.duelingFeat = FeatType::MasterDueling;
+            break;
+        case 2:
+            result.duelingFeat = FeatType::ImprovedDueling;
+            break;
+        case 1:
+            result.duelingFeat = FeatType::Dueling;
+            break;
+        default:
+            break;
+        }
+    }
+
+    result.baseAttackBonus = _attributes.getAggregateAttackBonus();
+    result.total = result.baseAttackBonus +
+                   result.strengthModifier +
+                   result.dexterityModifier +
+                   result.dualWieldPenalty +
+                   result.smallOffhandBonus +
+                   result.duelingBonus +
+                   result.closeProximityRangedBonus +
+                   result.meleeOnRangedBonus +
+                   result.weaponFocusBonus +
+                   result.effectBonus;
+    return result;
+}
+
 int Creature::getAttackBonus(
     const Creature *target,
     const Item *weapon,
     bool offHand) const {
-    int strengthModifier = _attributes.getAbilityModifier(Ability::Strength);
-    int dexterityModifier = _attributes.getAbilityModifier(Ability::Dexterity);
-
-    int abilityModifier = strengthModifier;
-    if (weapon && weapon->isRanged()) {
-        abilityModifier = dexterityModifier;
-    } else if (weapon && dexterityModifier > strengthModifier) {
-        // KOTOR 1 treats lightsabers as finesse weapons. KOTOR 2's feat-gated
-        // extension is deferred with the rest of the TSL-specific combat rules.
-        if (weapon->isLightsaber()) {
-            abilityModifier = dexterityModifier;
-        }
-    }
-
-    int attackModifier = 0;
-    int featBonus = 0;
-    {
-        int modifierBonus = 0;
-        int modifierPenalty = 0;
-
-        for (const auto &applied : effects()) {
-            switch (applied.effect->type()) {
-            case EffectType::AttackIncrease: {
-                const auto &effect = static_cast<const AttackIncreaseEffect &>(*applied.effect);
-                if (effect.bonus() > 0 &&
-                    attackModifierApplies(effect.modifierType(), weapon, offHand)) {
-                    modifierBonus += effect.bonus();
-                }
-                break;
-            }
-            case EffectType::AttackDecrease: {
-                const auto &effect = static_cast<const AttackDecreaseEffect &>(*applied.effect);
-                if (effect.penalty() > 0 &&
-                    attackModifierApplies(effect.modifierType(), weapon, offHand)) {
-                    modifierPenalty += effect.penalty();
-                }
-                break;
-            }
-            default:
-                break;
-            }
-        }
-
-        auto bonusCosts = _services.resource.twoDas.get("iprp_bonuscost");
-        auto penaltyCosts = getDecreaseModifierCostTable(_services);
-        for (const auto &[slot, item] : _equipment) {
-            if (!item || !equippedItemAppliesToAttack(slot, *item, weapon, offHand)) {
-                continue;
-            }
-
-            int itemBonus = 0;
-            int itemPenalty = 0;
-            for (const auto &property : item->properties()) {
-                if (property.upgradeType != 0) {
-                    continue;
-                }
-
-                int modifier = 0;
-                auto propertyType = static_cast<ItemProperty>(property.propertyName);
-                switch (propertyType) {
-                case ItemProperty::EnhancementBonus:
-                case ItemProperty::EnhancementBonusVsAlignmentGroup:
-                case ItemProperty::EnhancementBonusVsRacialGroup:
-                case ItemProperty::AttackBonus:
-                case ItemProperty::AttackBonusVsAlignmentGroup:
-                case ItemProperty::AttackBonusVsRacialGroup: {
-                    if (!attackPropertyApplies(
-                            propertyType,
-                            property.subtype,
-                            target)) {
-                        continue;
-                    }
-                    if (!bonusCosts) {
-                        continue;
-                    }
-                    auto value = bonusCosts->getIntOpt(property.costValue, "value");
-                    if (!value || *value <= 0) {
-                        continue;
-                    }
-                    modifier = *value;
-                    break;
-                }
-                case ItemProperty::AttackPenalty:
-                case ItemProperty::DecreasedAttackModifier: {
-                    if (!penaltyCosts) {
-                        continue;
-                    }
-                    auto value = penaltyCosts->getIntOpt(property.costValue, "value");
-                    if (!value || *value >= 0) {
-                        continue;
-                    }
-                    modifier = *value;
-                    break;
-                }
-                default:
-                    continue;
-                }
-
-                if (isHandSpecificAttackModifierSlot(slot)) {
-                    addAttackModifier(modifier, modifierBonus, modifierPenalty);
-                } else if (modifier > 0) {
-                    itemBonus = std::max(itemBonus, modifier);
-                } else {
-                    itemPenalty = std::max(itemPenalty, -modifier);
-                }
-            }
-            modifierBonus += itemBonus;
-            modifierPenalty += itemPenalty;
-        }
-
-        attackModifier = std::min(modifierBonus, 20) -
-                         std::min(modifierPenalty, 20);
-
-        if (weapon &&
-            weapon->weaponFocusFeat() != FeatType::Invalid &&
-            _attributes.hasFeat(weapon->weaponFocusFeat())) {
-            featBonus = 1;
-        }
-    }
-
-    int situationalBonus = target
-                               ? getSituationalAttackBonus(*this, *target, weapon)
-                               : 0;
-
-    return _attributes.getAggregateAttackBonus() +
-           abilityModifier +
-           attackModifier +
-           featBonus +
-           situationalBonus +
-           (offHand ? 0 : getDuelingBonus()) -
-           getTwoWeaponAttackPenalty(weapon, offHand);
+    return getAttackBonusBreakdown(target, weapon, offHand).total;
 }
 
 int Creature::getAttackBonus(const Item *weapon, bool offHand) const {
@@ -2289,7 +2334,15 @@ int Creature::getRelativeWeaponSize(const Item &weapon) const {
     return relativeSize >= -2 && relativeSize <= 1 ? relativeSize : -10;
 }
 
-int Creature::getTwoWeaponAttackPenalty(const Item *weapon, bool offHand) const {
+int Creature::getTwoWeaponAttackPenalty(
+    const Item *weapon,
+    bool offHand,
+    int *smallOffhandBonus) const {
+
+    if (smallOffhandBonus) {
+        *smallOffhandBonus = 0;
+    }
+
     auto mainHand = getEquippedItem(InventorySlots::rightWeapon);
     if (!mainHand || mainHand->weaponType() == WeaponType::None) {
         return 0;
@@ -2329,6 +2382,10 @@ int Creature::getTwoWeaponAttackPenalty(const Item *weapon, bool offHand) const 
         int relativeSize = getRelativeWeaponSize(
             mainHand->isRanged() ? *mainHand : *offHandWeapon);
         balanced = mainHand->isRanged() ? relativeSize <= -1 : relativeSize == -1;
+    }
+
+    if (balanced && smallOffhandBonus) {
+        *smallOffhandBonus = 2;
     }
 
     int penalty = balanced ? 4 : 6;

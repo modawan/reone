@@ -527,10 +527,12 @@ void AttackBuffer::addWeaponAttack(
     Source source, int attackRollBonus, int attackThreatBonus, int damageBonus) {
 
     const auto *targetCreature = dyn_cast<Creature>(&target);
-    attackRollBonus += attacker.getAttackBonus(
+    int specialAttackBonus = attackRollBonus;
+    AttackBonusBreakdown attackBonusBreakdown = attacker.getAttackBonusBreakdown(
         targetCreature,
         &weapon,
         source == AttackBuffer::Source::Offhand);
+    attackRollBonus += attackBonusBreakdown.total;
     int criticalThreat = getCriticalThreat(&weapon, attackThreatBonus);
 
     AttackResolution resolution = computeAttack(
@@ -546,6 +548,8 @@ void AttackBuffer::addWeaponAttack(
         resolution.result,
         resolution.roll,
         resolution.attackBonus,
+        specialAttackBonus,
+        std::move(attackBonusBreakdown),
         resolution.defense,
         resolution.confirmationRoll,
         resolution.assuredHit,
@@ -562,10 +566,12 @@ void AttackBuffer::addWeaponAttack(
 void AttackBuffer::addUnarmedAttack(const Creature &attacker, const Object &target,
                                     int attackRollBonus, int attackThreatBonus, int damageBonus) {
     const auto *targetCreature = dyn_cast<Creature>(&target);
-    attackRollBonus += attacker.getAttackBonus(
+    int specialAttackBonus = attackRollBonus;
+    AttackBonusBreakdown attackBonusBreakdown = attacker.getAttackBonusBreakdown(
         targetCreature,
         nullptr,
         false);
+    attackRollBonus += attackBonusBreakdown.total;
     auto gloves = attacker.getEquippedItem(InventorySlots::hands);
     int criticalThreat = getCriticalThreat(gloves.get(), attackThreatBonus);
 
@@ -582,6 +588,8 @@ void AttackBuffer::addUnarmedAttack(const Creature &attacker, const Object &targ
         resolution.result,
         resolution.roll,
         resolution.attackBonus,
+        specialAttackBonus,
+        std::move(attackBonusBreakdown),
         resolution.defense,
         resolution.confirmationRoll,
         resolution.assuredHit,
@@ -632,6 +640,22 @@ static constexpr int kStrRefAttackFeat = 42046;
 static constexpr int kStrRefAttackRoll = 42119;
 static constexpr int kStrRefAttackRollSuccess = 42133;
 static constexpr int kStrRefAttackRollFailure = 42134;
+static constexpr int kStrRefAttackBreakdown = 42146;
+static constexpr int kStrRefStrengthModifier = 42154;
+static constexpr int kStrRefMainhand = 42314;
+static constexpr int kStrRefOffhand = 42315;
+static constexpr int kStrRefAttackRollComponent = 42316;
+static constexpr int kStrRefMeleeOnRangedBonus = 42317;
+static constexpr int kStrRefFeatAttackBonus = 42318;
+static constexpr int kStrRefCloseProximityRangedBonus = 42330;
+static constexpr int kStrRefWeaponFocusBonus = 42331;
+static constexpr int kStrRefEffectBonus = 42332;
+static constexpr int kStrRefDualWieldPenalty = 42333;
+static constexpr int kStrRefSmallOffhandBonus = 42334;
+static constexpr int kStrRefDexterityModifier = 42375;
+static constexpr int kStrRefAutomaticHit = 42390;
+static constexpr int kStrRefAutomaticMiss = 42391;
+static constexpr int kStrRefBaseAttackBonus = 42392;
 
 static void substituteFeedbackToken(
     std::string &text,
@@ -699,13 +723,11 @@ void AttackBuffer::addCombatFeedback(
 
         if (isPhysicalAttackFeat(_feat)) {
             auto feat = services.game.feats.get(_feat);
-            if (feat) {
-                feedback += getFeedbackString(
-                    services,
-                    kStrRefAttackFeat,
-                    {{0, feat->name}});
-                feedback += ". ";
-            }
+            feedback += getFeedbackString(
+                services,
+                kStrRefAttackFeat,
+                {{0, feat->name}});
+            feedback += ". ";
         }
 
         feedback += getFeedbackString(
@@ -720,6 +742,105 @@ void AttackBuffer::addCombatFeedback(
             });
 
         game.messageLog().addCombat(std::move(feedback));
+
+        const AttackBonusBreakdown &bonus = attack.attackBonusBreakdown;
+        std::string breakdown = getFeedbackString(
+            services,
+            kStrRefAttackBreakdown,
+            {
+                {0, services.resource.strings.getText(
+                        attack.source == Source::Main
+                            ? kStrRefMainhand
+                            : kStrRefOffhand)},
+                {1, std::to_string(attack.roll + attack.attackBonus)},
+            });
+        breakdown += getFeedbackString(
+            services,
+            kStrRefAttackRollComponent,
+            {{0, std::to_string(attack.roll)}});
+
+        if (!attack.assuredHit && attack.roll == 20) {
+            breakdown += " ";
+            breakdown += services.resource.strings.getText(kStrRefAutomaticHit);
+        } else if (!attack.assuredHit && attack.roll == 1) {
+            breakdown += " ";
+            breakdown += services.resource.strings.getText(kStrRefAutomaticMiss);
+        } else {
+            breakdown += getFeedbackString(
+                services,
+                kStrRefBaseAttackBonus,
+                {{0, std::to_string(bonus.baseAttackBonus)}});
+
+            if (bonus.dualWieldPenalty != 0) {
+                breakdown += getFeedbackString(
+                    services,
+                    kStrRefDualWieldPenalty,
+                    {{0, std::to_string(bonus.dualWieldPenalty)}});
+            }
+            if (bonus.smallOffhandBonus != 0) {
+                breakdown += getFeedbackString(
+                    services,
+                    kStrRefSmallOffhandBonus,
+                    {{0, std::to_string(bonus.smallOffhandBonus)}});
+            }
+            if (_feat != FeatType::Invalid && attack.specialAttackBonus != 0) {
+                auto feat = services.game.feats.get(_feat);
+                breakdown += getFeedbackString(
+                    services,
+                    kStrRefFeatAttackBonus,
+                    {
+                        {0, feat->name},
+                        {1, std::to_string(attack.specialAttackBonus)},
+                    });
+            }
+            if (bonus.duelingBonus != 0) {
+                auto feat = services.game.feats.get(bonus.duelingFeat);
+                breakdown += getFeedbackString(
+                    services,
+                    kStrRefFeatAttackBonus,
+                    {
+                        {0, feat->name},
+                        {1, std::to_string(bonus.duelingBonus)},
+                    });
+            }
+            if (bonus.closeProximityRangedBonus != 0) {
+                breakdown += getFeedbackString(
+                    services,
+                    kStrRefCloseProximityRangedBonus,
+                    {{0, std::to_string(bonus.closeProximityRangedBonus)}});
+            }
+            if (bonus.meleeOnRangedBonus != 0) {
+                breakdown += getFeedbackString(
+                    services,
+                    kStrRefMeleeOnRangedBonus,
+                    {{0, std::to_string(bonus.meleeOnRangedBonus)}});
+            }
+            if (bonus.dexterityModifier != 0) {
+                breakdown += getFeedbackString(
+                    services,
+                    kStrRefDexterityModifier,
+                    {{0, std::to_string(bonus.dexterityModifier)}});
+            } else if (bonus.strengthModifier != 0) {
+                breakdown += getFeedbackString(
+                    services,
+                    kStrRefStrengthModifier,
+                    {{0, std::to_string(bonus.strengthModifier)}});
+            }
+            if (bonus.weaponFocusBonus != 0) {
+                breakdown += getFeedbackString(
+                    services,
+                    kStrRefWeaponFocusBonus,
+                    {{0, std::to_string(bonus.weaponFocusBonus)}});
+            }
+            if (bonus.effectBonus != 0) {
+                breakdown += getFeedbackString(
+                    services,
+                    kStrRefEffectBonus,
+                    {{0, std::to_string(bonus.effectBonus)}});
+            }
+        }
+
+        game.messageLog().addFeedback(std::move(breakdown));
     }
 }
 

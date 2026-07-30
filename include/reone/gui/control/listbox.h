@@ -122,7 +122,11 @@ private:
     // END Event listeners
 
     void updateItemSlots();
+    void updateItemsLayout();
 
+    int getInnerHeight() const;
+    int getItemWidth() const;
+    int getItemHeight(const Item &item) const;
     int getItemTextWidth() const;
     int getItemIndex(int y) const;
     bool shouldRenderItemIconsForButtonProto() const;

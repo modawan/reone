@@ -79,6 +79,21 @@ bool isAttackSuccessful(AttackResultType result);
  */
 bool isPhysicalAttackFeat(FeatType feat);
 
+struct AttackBonusBreakdown {
+    int total {0};
+    int baseAttackBonus {0};
+    int strengthModifier {0};
+    int dexterityModifier {0};
+    int dualWieldPenalty {0};
+    int smallOffhandBonus {0};
+    FeatType duelingFeat {FeatType::Invalid};
+    int duelingBonus {0};
+    int closeProximityRangedBonus {0};
+    int meleeOnRangedBonus {0};
+    int weaponFocusBonus {0};
+    int effectBonus {0};
+};
+
 /**
  * Make and collect multiple attacks, but delay damage effects until later.
  */
@@ -156,6 +171,8 @@ private:
             AttackResultType result,
             int roll,
             int attackBonus,
+            int specialAttackBonus,
+            AttackBonusBreakdown attackBonusBreakdown,
             int defense,
             int confirmationRoll,
             bool assuredHit,
@@ -165,6 +182,8 @@ private:
             result(result),
             roll(roll),
             attackBonus(attackBonus),
+            specialAttackBonus(specialAttackBonus),
+            attackBonusBreakdown(std::move(attackBonusBreakdown)),
             defense(defense),
             confirmationRoll(confirmationRoll),
             assuredHit(assuredHit),
@@ -175,6 +194,8 @@ private:
         AttackResultType result;
         int roll;
         int attackBonus;
+        int specialAttackBonus;
+        AttackBonusBreakdown attackBonusBreakdown;
         int defense;
         int confirmationRoll;
         bool assuredHit;

@@ -31,6 +31,7 @@
 #include "reone/scene/render/pass.h"
 #include "reone/system/logutil.h"
 
+#include <algorithm>
 #include <sstream>
 
 using namespace reone::graphics;
@@ -130,11 +131,7 @@ int ListBox::getItemIndex(int y) const {
 
     for (size_t i = _itemOffset; i < _items.size(); ++i) {
         const Item &item = _items[i];
-        if (_protoMatchContent) {
-            itemy += item._textLines.size() * _protoItem->text().font->height();
-        } else {
-            itemy += protoExtent.height;
-        }
+        itemy += getItemHeight(item);
         itemy += _padding;
         if (y < itemy)
             return static_cast<int>(i);
@@ -164,17 +161,16 @@ bool ListBox::handleMouseWheel(int x, int y) {
 void ListBox::updateItemSlots() {
     _slotCount = 0;
 
-    // Increase the number of slots until they no longer fit vertically
+    // Increase the number of slots until they no longer fit vertically.
+    // KOTOR lays out unequal rows inside the list border, with one padding
+    // interval accounted for by every visible row.
     float y = 0.0f;
+    int innerHeight = getInnerHeight();
     for (size_t i = _itemOffset; i < _items.size(); ++i) {
-        if (_protoMatchContent) {
-            y += _items[i]._textLines.size() * _protoItem->text().font->height();
-        } else {
-            y += _protoItem->extent().height;
-        }
+        y += getItemHeight(_items[i]);
         y += _padding;
 
-        if (y > _extent.height)
+        if (y > innerHeight)
             break;
 
         ++_slotCount;
@@ -217,8 +213,7 @@ void ListBox::render(const glm::ivec2 &screenSize,
     if (!_protoItem)
         return;
 
-    glm::vec2 itemOffset(offset);
-
+    glm::ivec2 itemOffset(offset);
     for (int i = 0; i < _slotCount; ++i) {
         int itemIdx = i + _itemOffset;
         if (itemIdx >= _items.size())
@@ -226,7 +221,7 @@ void ListBox::render(const glm::ivec2 &screenSize,
 
         const Item &item = _items[itemIdx];
         if (_protoMatchContent) {
-            _protoItem->setHeight(static_cast<int>(item._textLines.size() * (_protoItem->text().font->height() + _padding)));
+            _protoItem->setExtentHeight(getItemHeight(item));
         }
         _protoItem->setSelected(_selectedItemIndex == itemIdx);
 
@@ -247,11 +242,7 @@ void ListBox::render(const glm::ivec2 &screenSize,
 
         _protoItem->setTextColor(originalTextColor);
 
-        if (_protoMatchContent) {
-            itemOffset.y += item._textLines.size() * (_protoItem->text().font->height() + _padding);
-        } else {
-            itemOffset.y += _protoItem->extent().height + _padding;
-        }
+        itemOffset.y += getItemHeight(item) + _padding;
     }
 
     if (_scrollBar) {
@@ -276,6 +267,7 @@ void ListBox::stretch(float x, float y, int mask) {
         // Do not change width of the scroll bar
         _scrollBar->stretch(x, y, mask & ~kStretchWidth);
     }
+    updateItemsLayout();
 }
 
 void ListBox::setSelected(bool selected) {
@@ -287,7 +279,7 @@ void ListBox::setSelected(bool selected) {
 
 void ListBox::setExtent(Extent extent) {
     Control::setExtent(extent);
-    updateItemSlots();
+    updateItemsLayout();
 }
 
 void ListBox::setExtentHeight(int height) {
@@ -333,18 +325,12 @@ void ListBox::setItemsInteractive(bool interactive) {
 
 void ListBox::setProtoMatchContent(bool match) {
     _protoMatchContent = match;
+    updateItemsLayout();
 }
 
 void ListBox::setRenderItemIconsForButtonProto(bool render) {
     _renderItemIconsForButtonProto = render;
-
-    if (!_protoItem)
-        return;
-
-    for (auto &item : _items) {
-        item._textLines = breakText(item.text, *_protoItem->text().font, getItemTextWidth());
-    }
-    updateItemSlots();
+    updateItemsLayout();
 }
 
 void ListBox::scrollToBottom() {
@@ -358,12 +344,10 @@ void ListBox::scrollToBottom() {
     size_t offset = _items.size();
     while (offset > 0) {
         const Item &item = _items[offset - 1];
-        float itemHeight = _protoMatchContent
-                               ? item._textLines.size() * _protoItem->text().font->height()
-                               : _protoItem->extent().height;
+        float itemHeight = static_cast<float>(getItemHeight(item));
         itemHeight += _padding;
 
-        if (height > 0.0f && height + itemHeight > _extent.height) {
+        if (height > 0.0f && height + itemHeight > getInnerHeight()) {
             break;
         }
         height += itemHeight;
@@ -374,11 +358,66 @@ void ListBox::scrollToBottom() {
     updateItemSlots();
 }
 
+void ListBox::updateItemsLayout() {
+    if (!_protoItem) {
+        return;
+    }
+
+    if (_protoMatchContent) {
+        auto extent = _protoItem->extent();
+        extent.width = getItemWidth();
+        _protoItem->setExtent(std::move(extent));
+    }
+
+    int textWidth = getItemTextWidth();
+    for (auto &item : _items) {
+        item._textLines = breakText(item.text, *_protoItem->text().font, textWidth);
+    }
+    updateItemSlots();
+}
+
+int ListBox::getInnerHeight() const {
+    int height = _extent.height;
+    if (_border) {
+        height -= 2 * _border->dimension;
+    }
+    return std::max(height, 0);
+}
+
+int ListBox::getItemWidth() const {
+    int width = _extent.width;
+    if (_scrollBar) {
+        width -= _scrollBar->extent().width;
+    }
+    if (_border) {
+        width -= 2 * _border->dimension;
+    }
+    width -= 2 * _padding;
+    return std::max(width, 0);
+}
+
+int ListBox::getItemHeight(const Item &item) const {
+    if (!_protoItem) {
+        return 0;
+    }
+    if (!_protoMatchContent) {
+        return _protoItem->extent().height;
+    }
+
+    float fontHeight = _protoItem->text().font->height();
+    int textHeight = static_cast<int>(item._textLines.size() * fontHeight + 0.5f);
+    if (static_cast<int>(fontHeight + 0.5f) <= 15) {
+        ++textHeight;
+    }
+    return textHeight + 2 * _protoItem->border().dimension;
+}
+
 int ListBox::getItemTextWidth() const {
     if (!_protoItem)
         return 0;
 
-    int width = _protoItem->extent().width;
+    int width = _protoItem->extent().width -
+                2 * _protoItem->border().dimension;
     if (shouldRenderItemIconsForButtonProto()) {
         // Button-proto item icons render in a square gutter sized from the row height.
         int itemIconWidth = _protoItem->extent().height;

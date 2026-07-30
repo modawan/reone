@@ -32,11 +32,11 @@ namespace reone {
 
 namespace game {
 
-static constexpr int kStrRefDialogMessages = 42142;
-static constexpr int kStrRefFeedbackMessages = 42143;
-static constexpr int kStrRefShow = 1563;
-static constexpr int kStrRefDialogModeButton = 371;
-static constexpr int kStrRefFeedbackModeButton = 42167;
+static constexpr int kStrRefMessages = 1563;
+static constexpr int kStrRefDialog = 371;
+static constexpr int kStrRefFeedback = 42167;
+static constexpr int kStrRefShowFeedback = 42142;
+static constexpr int kStrRefShowDialog = 42143;
 
 static const glm::vec3 kFeedbackColor(0.0f, 0.66f, 0.98f);
 static const glm::vec3 kCombatColor(0.74f, 0.11f, 0.0f);
@@ -100,10 +100,10 @@ void MessagesMenu::showDialogMessages() {
     _controls.LB_MESSAGES->setVisible(false);
     _controls.LB_DIALOG->setVisible(true);
     _controls.LBL_MESSAGES->setTextMessage(
-        _services.resource.strings.getText(kStrRefDialogMessages));
+        _services.resource.strings.getText(kStrRefMessages) + " - " +
+        _services.resource.strings.getText(kStrRefDialog));
     _controls.BTN_SHOW->setTextMessage(
-        _services.resource.strings.getText(kStrRefShow) + " - " +
-        _services.resource.strings.getText(kStrRefDialogModeButton));
+        _services.resource.strings.getText(kStrRefShowFeedback));
     _showingFeedback = false;
 }
 
@@ -112,10 +112,10 @@ void MessagesMenu::showFeedbackMessages() {
         _controls.LB_DIALOG->setVisible(false);
         _controls.LB_MESSAGES->setVisible(true);
         _controls.LBL_MESSAGES->setTextMessage(
-            _services.resource.strings.getText(kStrRefFeedbackMessages));
+            _services.resource.strings.getText(kStrRefMessages) + " - " +
+            _services.resource.strings.getText(kStrRefFeedback));
         _controls.BTN_SHOW->setTextMessage(
-            _services.resource.strings.getText(kStrRefShow) + " - " +
-            _services.resource.strings.getText(kStrRefFeedbackModeButton));
+            _services.resource.strings.getText(kStrRefShowDialog));
         _showingFeedback = true;
         return;
     }

@@ -47,6 +47,7 @@ namespace game {
 constexpr float kDefaultAttackRange = 2.0f;
 
 class DamagePacket;
+struct AttackBonusBreakdown;
 
 class Creature : public Object, public scene::IAnimationEventListener {
 public:
@@ -236,6 +237,10 @@ public:
     AttackResultType getLastAttackResult() const { return _lastAttackResult; }
     int modifiedAttacks() const { return _modifiedAttacks; }
     bool hasAssuredHit() const { return _assuredHit; }
+    AttackBonusBreakdown getAttackBonusBreakdown(
+        const Creature *target,
+        const Item *weapon,
+        bool offHand) const;
     int getAttackBonus(const Creature *target, const Item *weapon, bool offHand) const;
     int getAttackBonus(const Item *weapon, bool offHand) const;
     int getAttackBonus(bool offHand = false) const;
@@ -475,7 +480,10 @@ private:
     bool getWeaponInfo(WeaponType &type, WeaponWield &wield) const;
     int getWeaponWieldNumber(WeaponWield wield) const;
     int getRelativeWeaponSize(const Item &weapon) const;
-    int getTwoWeaponAttackPenalty(const Item *weapon, bool offHand) const;
+    int getTwoWeaponAttackPenalty(
+        const Item *weapon,
+        bool offHand,
+        int *smallOffhandBonus = nullptr) const;
     int getDuelingBonus() const;
     void getWeaponDamage(int slot, int &min, int &max) const;
 
