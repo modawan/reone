@@ -61,7 +61,6 @@ private:
     int _baseDamage {0};
     DamageType _baseDamageType {DamageType::Universal};
     SmallVector<DamageComponent, 4> _components;
-    SmallVector<DamageComponent, 12> _contributions;
     bool _mitigated {false};
 };
 

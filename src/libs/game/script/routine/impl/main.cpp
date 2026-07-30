@@ -3471,8 +3471,7 @@ static Variable GetIsTalentValid(const std::vector<Variable> &args, const Routin
 static Variable GetAttemptedAttackTarget(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
     auto caller = checkCreature(getCaller(ctx));
-    auto target = caller->getAttemptedAttackTarget();
-    return Variable::ofObject(getObjectIdOrInvalid(target));
+    return Variable::ofObject(caller->getAttemptedAttackTarget());
 }
 
 static Variable GetTypeFromTalent(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5747,9 +5746,10 @@ static Variable GetLastCombatFeatUsed(const std::vector<Variable> &args, const R
     auto oAttacker = getObjectOrCaller(args, 0, ctx);
 
     // Transform
+    auto attacker = checkCreature(oAttacker);
 
     // Execute
-    throw RoutineNotImplementedException("GetLastCombatFeatUsed");
+    return Variable::ofInt(static_cast<int>(attacker->getLastCombatFeat()));
 }
 
 static Variable GetLastAttackResult(const std::vector<Variable> &args, const RoutineContext &ctx) {

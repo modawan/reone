@@ -318,7 +318,8 @@ protected:
     // Effects
 
     void updateEffects(float dt);
-    void applyInstantEffect(Effect &effect);
+    bool applyInstantEffect(Effect &effect);
+    virtual void onEffectsCleared() {}
 
     // END Effects
 };

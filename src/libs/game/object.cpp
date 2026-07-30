@@ -361,19 +361,23 @@ void Object::moveDropableItemsTo(Object &other) {
 
 void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration) {
     if (durationType == DurationType::Instant) {
-        applyInstantEffect(*effect);
+        if (applyInstantEffect(*effect)) {
+            effect->onRemove(*this);
+        }
     } else {
         AppliedEffect appliedEffect;
         appliedEffect.effect = effect;
         appliedEffect.durationType = durationType;
         appliedEffect.duration = duration;
         _effects.push_back(std::move(appliedEffect));
-        applyInstantEffect(*_effects.back().effect);
+        if (!_effects.back().effect->onApply(*this)) {
+            _effects.pop_back();
+        }
     }
 }
 
-void Object::applyInstantEffect(Effect &effect) {
-    effect.applyTo(*this);
+bool Object::applyInstantEffect(Effect &effect) {
+    return effect.onApply(*this);
 }
 
 void Object::updateEffects(float dt) {
@@ -384,7 +388,9 @@ void Object::updateEffects(float dt) {
             effect.duration = glm::max(0.0f, effect.duration - dt);
         }
         if (temporary && effect.duration == 0.0f) {
+            std::shared_ptr<Effect> removed = effect.effect;
             it = _effects.erase(it);
+            removed->onRemove(*this);
         } else {
             ++it;
         }
@@ -466,13 +472,25 @@ std::shared_ptr<Item> Object::getItemByTag(const std::string &tag) {
 }
 
 void Object::clearAllEffects() {
+    std::vector<std::shared_ptr<Effect>> removed;
+    removed.reserve(_effects.size());
+    for (AppliedEffect &effect : _effects) {
+        removed.push_back(std::move(effect.effect));
+    }
     _effects.clear();
+
+    for (const std::shared_ptr<Effect> &effect : removed) {
+        effect->onRemove(*this);
+    }
+    onEffectsCleared();
 }
 
 void Object::removeEffect(const std::shared_ptr<Effect> &effect) {
     for (auto it = _effects.begin(); it != _effects.end(); ++it) {
         if (it->effect == effect) {
+            std::shared_ptr<Effect> removed = it->effect;
             _effects.erase(it);
+            removed->onRemove(*this);
             return;
         }
     }

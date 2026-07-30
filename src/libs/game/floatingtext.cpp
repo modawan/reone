@@ -18,6 +18,7 @@
 #include "reone/game/floatingtext.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include "reone/game/game.h"
 #include "reone/game/object.h"
@@ -31,6 +32,7 @@
 #include "reone/resource/provider/fonts.h"
 #include "reone/resource/strings.h"
 #include "reone/scene/node/camera.h"
+#include "reone/system/logutil.h"
 
 using namespace reone::graphics;
 
@@ -48,9 +50,12 @@ static const glm::vec3 kHealColor(0.28f, 0.92f, 0.11f);
 static const glm::vec3 kMissColor(1.0f);
 
 static std::shared_ptr<Object> findAreaObject(const Area &area, uint32_t objectId) {
-    auto it = std::find_if(area.objects().begin(), area.objects().end(), [objectId](const auto &object) {
-        return object && object->id() == objectId;
-    });
+    auto it = std::find_if(
+        area.objects().begin(),
+        area.objects().end(),
+        [objectId](const auto &object) {
+            return object && object->id() == objectId;
+        });
     return it != area.objects().end() ? *it : nullptr;
 }
 
@@ -94,7 +99,7 @@ void FloatingText::addMiss(const Creature &attacker, const Object &target) {
 }
 
 void FloatingText::add(const Object &object, std::string text, Style style, float duration) {
-    if (text.empty() || duration <= 0.0f || !isInActiveArea(object)) {
+    if (text.empty() || duration <= 0.0f) {
         return;
     }
 
@@ -109,13 +114,11 @@ void FloatingText::add(const Object &object, std::string text, Style style, floa
         }),
         _entries.end());
 
+    debug(
+        str(boost::format("Floating text queued: object=%u text='%s'") %
+            object.id() % text),
+        LogChannel::Combat);
     _entries.push_back({object.id(), std::move(text), style, duration, duration, 1});
-}
-
-bool FloatingText::isInActiveArea(const Object &object) const {
-    auto module = _game.module();
-    auto area = module ? module->area() : nullptr;
-    return area && findAreaObject(*area, object.id());
 }
 
 void FloatingText::update(float dt) {
@@ -133,10 +136,15 @@ void FloatingText::render() {
     if (_entries.empty()) {
         return;
     }
-    if (!_font) {
+    if (!_font && !_fontLoadFailed) {
         _font = _services.resource.fonts.getExact("fnt_d16x16");
         if (!_font || _font->height() <= 0.0f) {
-            _font = _services.resource.fonts.getExact("dialogfont16x16");
+            _font = _services.resource.fonts.get("dialogfont16x16");
+        }
+        _fontLoadFailed = !_font || _font->height() <= 0.0f;
+        if (_fontLoadFailed) {
+            warn("FloatingText: unable to load KOTOR 1 combat font");
+            _font.reset();
         }
     }
     if (!_font) {
@@ -173,22 +181,10 @@ void FloatingText::render() {
         globals.projectionInv = glm::inverse(globals.projection);
     });
 
-    auto renderEntries = [this, &area, &projection, &view, &graphicsCamera, width, height]() {
-        for (const Entry &entry : _entries) {
+    auto renderEntries = [this, &area, &projection, &view, width, height]() {
+        for (Entry &entry : _entries) {
             auto object = findAreaObject(*area, entry.objectId);
             if (!object) {
-                continue;
-            }
-
-            auto sceneNode = object->sceneNode();
-            if (!sceneNode || !sceneNode->isEnabled()) {
-                continue;
-            }
-
-            glm::vec3 selectablePosition = object->getSelectablePosition();
-            if (glm::dot(
-                    graphicsCamera->forward(),
-                    selectablePosition - graphicsCamera->position()) <= 0.0f) {
                 continue;
             }
 
@@ -196,7 +192,10 @@ void FloatingText::render() {
                 object,
                 projection,
                 view);
-            if (screen.z >= 1.0f) {
+            if (!std::isfinite(screen.x) ||
+                !std::isfinite(screen.y) ||
+                !std::isfinite(screen.z) ||
+                screen.z >= 1.0f) {
                 continue;
             }
 
@@ -222,15 +221,36 @@ void FloatingText::render() {
 
             _font->render(
                 entry.text,
+                position + glm::vec3(1.0f, 1.0f, 0.0f),
+                glm::vec4(0.0f, 0.0f, 0.0f, alpha),
+                TextGravity::CenterTop);
+            _font->render(
+                entry.text,
                 position,
                 glm::vec4(color, alpha),
                 TextGravity::CenterTop);
+
+            if (!entry.submitted) {
+                debug(
+                    str(boost::format(
+                            "Floating text submitted: object=%u screen=(%.3f, %.3f, %.3f)") %
+                        entry.objectId % screen.x % screen.y % screen.z),
+                    LogChannel::Combat);
+                entry.submitted = true;
+            }
         }
     };
 
-    _services.graphics.context.withDepthTestMode(DepthTestMode::None, [this, &renderEntries]() {
-        _services.graphics.context.withDepthMask(false, [this, &renderEntries]() {
-            _services.graphics.context.withBlendMode(BlendMode::Normal, renderEntries);
+    glm::ivec4 viewport(0, 0, static_cast<int>(width), static_cast<int>(height));
+    _services.graphics.context.withViewport(viewport, [this, &renderEntries]() {
+        _services.graphics.context.withPolygonMode(PolygonMode::Fill, [this, &renderEntries]() {
+            _services.graphics.context.withFaceCullMode(FaceCullMode::None, [this, &renderEntries]() {
+                _services.graphics.context.withDepthTestMode(DepthTestMode::None, [this, &renderEntries]() {
+                    _services.graphics.context.withDepthMask(false, [this, &renderEntries]() {
+                        _services.graphics.context.withBlendMode(BlendMode::Normal, renderEntries);
+                    });
+                });
+            });
         });
     });
 }
@@ -238,6 +258,7 @@ void FloatingText::render() {
 void FloatingText::reset() {
     _entries.clear();
     _font.reset();
+    _fontLoadFailed = false;
 }
 
 } // namespace game

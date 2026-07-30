@@ -157,6 +157,9 @@ void UseFeatAction::addProjectiles(const Creature &creature, FeatType feat) {
 
 void UseFeatAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     Creature &attacker = static_cast<Creature &>(actor);
+    if (isPhysicalAttackFeat(_feat)) {
+        attacker.setAttemptedAttackTarget(_target->id());
+    }
 
     if (_target->isDead()) {
         finish(attacker);

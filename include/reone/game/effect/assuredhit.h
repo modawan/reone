@@ -29,7 +29,8 @@ public:
         Effect(EffectType::AssuredHit) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
+    void onRemove(Object &object) override;
 };
 
 } // namespace game

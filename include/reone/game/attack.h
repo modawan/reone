@@ -75,6 +75,11 @@ bool isRangedWieldType(CreatureWieldType type);
 bool isAttackSuccessful(AttackResultType result);
 
 /**
+ * Predicate for feats that resolve as a physical weapon or unarmed attack.
+ */
+bool isPhysicalAttackFeat(FeatType feat);
+
+/**
  * Make and collect multiple attacks, but delay damage effects until later.
  */
 class AttackBuffer {

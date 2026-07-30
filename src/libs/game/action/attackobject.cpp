@@ -139,6 +139,7 @@ void AttackObjectAction::addProjectiles(const Creature &creature) {
 
 void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     Creature &attacker = cast<Creature>(actor);
+    attacker.setAttemptedAttackTarget(_target->id());
 
     if (_target->isDead()) {
         finish(attacker);

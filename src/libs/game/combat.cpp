@@ -49,26 +49,38 @@ bool CombatRound::canExecute(Action &action) const {
     return false;
 }
 
-static Object *getTarget(Action &action) {
+static std::shared_ptr<Object> getTarget(Action &action) {
     if (auto *attack = dyn_cast<AttackObjectAction>(&action)) {
-        return attack->target().get();
+        return attack->target();
     }
     if (auto *feat = dyn_cast<UseFeatAction>(&action)) {
-        return feat->target().get();
+        return feat->target();
     }
 
     return nullptr;
 }
 
-static void recordCombatAction(Object &actor, Object &target, Action &action) {
-    if (!isHostileAction(action)) {
+static FeatType getCombatFeat(Action &action) {
+    if (auto *feat = dyn_cast<UseFeatAction>(&action)) {
+        return isPhysicalAttackFeat(feat->feat())
+                   ? feat->feat()
+                   : FeatType::Invalid;
+    }
+    return FeatType::Invalid;
+}
+
+static void recordCombatAction(
+    Object &actor,
+    const std::shared_ptr<Object> &target,
+    Action &action) {
+
+    if (!target || !isHostileAction(action)) {
         return;
     }
 
-    target.setLastHostileActor(actor.id());
+    target->setLastHostileActor(actor.id());
     if (auto *creature = dyn_cast<Creature>(&actor)) {
-        creature->setLastHostileTarget(target.id());
-        creature->setLastAttackAction(action.type());
+        creature->beginCombatAttack(target, getCombatFeat(action));
     }
 }
 
@@ -129,10 +141,10 @@ const CombatRound &Combat::addAction(const std::shared_ptr<Action> &action, Obje
 
     // Find an existing round where target and attacker roles are reversed, and
     // append the action to this round.
-    Object *target = getTarget(*action);
+    std::shared_ptr<Object> target = getTarget(*action);
     if (target) {
         if (CombatRound *round = tryAppendAction(action, actor.id(), target->id())) {
-            recordCombatAction(actor, *target, *action);
+            recordCombatAction(actor, target, *action);
             debug(str(boost::format("Append attack: %s -> %s") % actor.tag() % target->tag()), LogChannel::Combat);
             return *round;
         }
@@ -144,7 +156,7 @@ const CombatRound &Combat::addAction(const std::shared_ptr<Action> &action, Obje
     CombatRound &newRound = *_rounds.back();
 
     if (target) {
-        recordCombatAction(actor, *target, *action);
+        recordCombatAction(actor, target, *action);
         debug(str(boost::format("Start round: %s -> %s") % actor.tag() % target->tag()), LogChannel::Combat);
     } else {
         debug(str(boost::format("Start round: %s") % actor.tag()), LogChannel::Combat);
@@ -238,13 +250,26 @@ void Combat::updateRound(CombatRound &round, float dt) {
 
 void Combat::finishRound(CombatRound &round) {
     SmallSet<uint32_t, 4> objects;
+    SmallSet<uint32_t, 2> attackers;
     for (CombatRound::RoundAction &action : round.actions) {
         objects.insert(action.attacker);
         objects.insert(action.target);
+        if (isHostileAction(*action.action)) {
+            attackers.insert(action.attacker);
+        }
 
         if (Logger::instance.isChannelEnabled(LogChannel::Combat)) {
             auto attacker = _game.getObjectById<Creature>(action.attacker);
-            debug(str(boost::format("Finish round: %s") % attacker->tag()), LogChannel::Combat);
+            std::string attackerLabel = attacker
+                                            ? attacker->tag()
+                                            : str(boost::format("Object %u") % action.attacker);
+            debug(str(boost::format("Finish round: %s") % attackerLabel), LogChannel::Combat);
+        }
+    }
+
+    for (uint32_t id : attackers) {
+        if (auto attacker = _game.getObjectById<Creature>(id)) {
+            attacker->finishCombatRound();
         }
     }
 

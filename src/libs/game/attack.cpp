@@ -20,7 +20,6 @@
 #include "reone/game/di/services.h"
 #include "reone/game/effect/acdecrease.h"
 #include "reone/game/effect/immunity.h"
-#include "reone/game/effect/modifyattacks.h"
 #include "reone/game/effect/stunned.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
@@ -80,13 +79,30 @@ bool isAttackSuccessful(AttackResultType result) {
     }
 }
 
-static bool hasAssuredHitEffect(const Creature &attacker) {
-    for (const Object::AppliedEffect &applied : attacker.effects()) {
-        if (applied.effect->type() == EffectType::AssuredHit) {
-            return true;
-        }
+bool isPhysicalAttackFeat(FeatType feat) {
+    switch (feat) {
+    case FeatType::CriticalStrike:
+    case FeatType::ImprovedCriticalStrike:
+    case FeatType::MasterCriticalStrike:
+    case FeatType::Flurry:
+    case FeatType::ImprovedFlurry:
+    case FeatType::WhirlwindAttack:
+    case FeatType::PowerAttack:
+    case FeatType::ImprovedPowerAttack:
+    case FeatType::MasterPowerAttack:
+    case FeatType::RapidShot:
+    case FeatType::ImprovedRapidShot:
+    case FeatType::MultiShot:
+    case FeatType::SniperShot:
+    case FeatType::ImprovedSniperShot:
+    case FeatType::MasterSniperShot:
+    case FeatType::PowerBlast:
+    case FeatType::ImprovedPowerBlast:
+    case FeatType::MasterPowerBlast:
+        return true;
+    default:
+        return false;
     }
-    return false;
 }
 
 static bool hasActiveItemProperty(
@@ -192,7 +208,7 @@ static AttackResolution computeAttack(
     // Attack roll
     resolution.roll = randomInt(1, 20);
 
-    if (hasAssuredHitEffect(attacker)) {
+    if (attacker.hasAssuredHit()) {
         resolution.result = AttackResultType::HitSuccessful;
         resolution.assuredHit = true;
         debug(str(boost::format("computeAttack: assured hit: roll(%d)") % resolution.roll),
@@ -329,21 +345,6 @@ static void computeUnarmedDamage(
           LogChannel::Combat);
 }
 
-static int getBonusEffectAttacks(const Creature &attacker) {
-    int attacks = 0;
-
-    for (const Object::AppliedEffect &applied : attacker.effects()) {
-        if (applied.effect->type() != EffectType::ModifyAttacks) {
-            continue;
-        }
-
-        const auto &effect = static_cast<const ModifyAttacksEffect &>(*applied.effect);
-        attacks = std::clamp(attacks + effect.attacks(), 0, 2);
-    }
-
-    return attacks;
-}
-
 static bool grantsExtraMainHandAttack(FeatType feat) {
     switch (feat) {
     case FeatType::Flurry:
@@ -439,7 +440,7 @@ static bool isCriticalStrikeFeat(FeatType feat) {
 
 void AttackBuffer::addPhysicalAttacks(const Creature &attacker, const Object &target,
                                       FeatType feat) {
-    int mainHandAttacks = 1 + getBonusEffectAttacks(attacker);
+    int mainHandAttacks = 1 + attacker.modifiedAttacks();
     if (grantsExtraMainHandAttack(feat)) {
         ++mainHandAttacks;
     }

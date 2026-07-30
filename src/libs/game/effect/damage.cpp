@@ -235,7 +235,6 @@ void DamagePacket::add(int amount, DamageType type) {
     }
 
     addResolved(amount, type);
-    _contributions.push_back({amount, type});
 }
 
 void DamagePacket::addBaseDamage(int amount, DamageType type) {
@@ -262,46 +261,56 @@ void DamagePacket::mitigate(Object &object) {
     }
     _mitigated = true;
 
+    SmallVector<DamageComponent, 4> components(std::move(_components));
     _components.resize(0);
     if (object.plotFlag()) {
         _baseDamage = 0;
-        _contributions.resize(0);
         return;
     }
 
-    if (_baseDamage > 0) {
-        _baseDamage = applyDamageImmunity(
-            object,
-            _baseDamageType,
-            _baseDamage);
-        _baseDamage = applyDamageResistance(
-            object,
-            _baseDamageType,
-            _baseDamage);
-        _baseDamage = applyDamageReduction(
-            object,
-            _baseDamageType,
-            _power,
-            _baseDamage);
-        addResolved(_baseDamage, _baseDamageType);
-    }
+    std::sort(
+        components.begin(),
+        components.end(),
+        [](const DamageComponent &lhs, const DamageComponent &rhs) {
+            return static_cast<int>(lhs.type) < static_cast<int>(rhs.type);
+        });
 
-    for (const DamageComponent &contribution : _contributions) {
-        int amount = contribution.amount;
-        if (amount > 0) {
-            amount = applyDamageImmunity(
+    int finalBaseDamage = 0;
+    for (const DamageComponent &component : components) {
+        int amount = applyDamageImmunity(
+            object,
+            component.type,
+            component.amount);
+        amount = applyDamageResistance(
+            object,
+            component.type,
+            amount);
+
+        int basePortion = component.type == _baseDamageType
+                              ? std::min(_baseDamage, component.amount)
+                              : 0;
+        int survivingBase = basePortion > 0
+                                ? std::min(
+                                      amount,
+                                      static_cast<int>(
+                                          static_cast<int64_t>(basePortion) * amount /
+                                          component.amount))
+                                : 0;
+        if (survivingBase > 0) {
+            int reducedBase = applyDamageReduction(
                 object,
-                contribution.type,
-                amount);
-            amount = applyDamageResistance(
-                object,
-                contribution.type,
-                amount);
+                component.type,
+                _power,
+                survivingBase);
+            amount -= survivingBase - reducedBase;
+            survivingBase = reducedBase;
         }
-        addResolved(amount, contribution.type);
+
+        finalBaseDamage += survivingBase;
+        addResolved(amount, component.type);
     }
 
-    _contributions.resize(0);
+    _baseDamage = finalBaseDamage;
 }
 
 int DamagePacket::total() const {

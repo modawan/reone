@@ -69,6 +69,7 @@ private:
         float remaining;
         float duration;
         int stack;
+        bool submitted {false};
     };
 
     Game &_game;
@@ -76,9 +77,9 @@ private:
 
     std::vector<Entry> _entries;
     std::shared_ptr<graphics::Font> _font;
+    bool _fontLoadFailed {false};
 
     void add(const Object &object, std::string text, Style style, float duration);
-    bool isInActiveArea(const Object &object) const;
 };
 
 } // namespace game

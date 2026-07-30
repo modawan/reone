@@ -1186,20 +1186,39 @@ bool Creature::isTwoWeaponFighting() const {
     return main && main->weaponWield() == WeaponWield::DoubleBladedSword;
 }
 
-std::shared_ptr<Object> Creature::getAttemptedAttackTarget() const {
-    auto action = getCurrentAction();
-    if (!action) {
-        return nullptr;
+void Creature::beginCombatAttack(std::shared_ptr<Object> target, FeatType feat) {
+    _combatState.attackTarget = std::move(target);
+    _combatState.attackAction = ActionType::AttackObject;
+    _combatState.combatFeat = feat;
+}
+
+void Creature::finishCombatRound() {
+    if (_combatState.attackTarget) {
+        _lastHostileTarget = _combatState.attackTarget->id();
+    } else {
+        _lastHostileTarget = script::kObjectInvalid;
     }
-    std::shared_ptr<Object> target;
-    switch (action->type()) {
-    case ActionType::AttackObject:
-        target = cast<AttackObjectAction>(*action).target();
-        break;
-    default:
-        break;
+    _lastAttackAction = _combatState.attackAction;
+    if (_combatState.combatFeat != FeatType::Invalid) {
+        _lastCombatFeat = _combatState.combatFeat;
     }
-    return target;
+}
+
+void Creature::adjustModifiedAttacks(int amount) {
+    _modifiedAttacks = std::clamp(_modifiedAttacks + amount, 0, 2);
+}
+
+void Creature::onEffectsCleared() {
+    _modifiedAttacks = 0;
+    _assuredHit = false;
+}
+
+bool Creature::applyAssuredHit() {
+    if (_assuredHit) {
+        return false;
+    }
+    _assuredHit = true;
+    return true;
 }
 
 Alignment Creature::alignment() const {
@@ -1223,22 +1242,9 @@ int Creature::getAttackBonus(
     if (weapon && weapon->isRanged()) {
         abilityModifier = dexterityModifier;
     } else if (weapon && dexterityModifier > strengthModifier) {
-        bool finesse = !_game.isTSL() && weapon->isLightsaber();
-        if (_game.isTSL()) {
-            finesse = weapon->isLightsaber() &&
-                       _attributes.hasFeat(FeatType::FinesseLightsabers);
-            switch (weapon->weaponWield()) {
-            case WeaponWield::StunBaton:
-            case WeaponWield::SingleSword:
-            case WeaponWield::DoubleBladedSword:
-                finesse = finesse ||
-                           _attributes.hasFeat(FeatType::FinesseMeleeWeapons);
-                break;
-            default:
-                break;
-            }
-        }
-        if (finesse) {
+        // KOTOR 1 treats lightsabers as finesse weapons. KOTOR 2's feat-gated
+        // extension is deferred with the rest of the TSL-specific combat rules.
+        if (weapon->isLightsaber()) {
             abilityModifier = dexterityModifier;
         }
     }

@@ -89,6 +89,9 @@ public:
         bool shouldDeactivate {false};
         bool debilitated {false};
         std::shared_ptr<Object> attackTarget;
+        uint32_t attemptedAttackTarget {script::kObjectInvalid};
+        ActionType attackAction {ActionType::QueueEmpty};
+        FeatType combatFeat {FeatType::Invalid};
         Timer deactivationTimer;
     };
 
@@ -225,11 +228,14 @@ public:
     bool isDebilitated() const;
     bool isTwoWeaponFighting() const;
 
-    std::shared_ptr<Object> getAttemptedAttackTarget() const;
+    uint32_t getAttemptedAttackTarget() const { return _combatState.attemptedAttackTarget; }
     std::shared_ptr<Object> getAttackTarget() const { return _combatState.attackTarget; }
     uint32_t getLastHostileTarget() const { return _lastHostileTarget; }
     ActionType getLastAttackAction() const { return _lastAttackAction; }
+    FeatType getLastCombatFeat() const { return _lastCombatFeat; }
     AttackResultType getLastAttackResult() const { return _lastAttackResult; }
+    int modifiedAttacks() const { return _modifiedAttacks; }
+    bool hasAssuredHit() const { return _assuredHit; }
     int getAttackBonus(const Creature *target, const Item *weapon, bool offHand) const;
     int getAttackBonus(const Item *weapon, bool offHand) const;
     int getAttackBonus(bool offHand = false) const;
@@ -254,12 +260,15 @@ public:
     void getMainHandDamage(int &min, int &max) const;
     void getOffhandDamage(int &min, int &max) const;
 
-    void setAttackTarget(std::shared_ptr<Object> target) {
-        _combatState.attackTarget = std::move(target);
+    void setAttemptedAttackTarget(uint32_t target) {
+        _combatState.attemptedAttackTarget = target;
     }
-    void setLastHostileTarget(uint32_t target) { _lastHostileTarget = target; }
-    void setLastAttackAction(ActionType action) { _lastAttackAction = action; }
+    void beginCombatAttack(std::shared_ptr<Object> target, FeatType feat);
+    void finishCombatRound();
     void setLastAttackResult(AttackResultType result) { _lastAttackResult = result; }
+    void adjustModifiedAttacks(int amount);
+    bool applyAssuredHit();
+    void removeAssuredHit() { _assuredHit = false; }
 
     // END Combat
 
@@ -378,7 +387,10 @@ private:
     CombatState _combatState;
     uint32_t _lastHostileTarget {script::kObjectInvalid};
     ActionType _lastAttackAction {ActionType::QueueEmpty};
+    FeatType _lastCombatFeat {FeatType::Invalid};
     AttackResultType _lastAttackResult {AttackResultType::Invalid};
+    int _modifiedAttacks {0};
+    bool _assuredHit {false};
     bool _immortal {false};
     std::shared_ptr<resource::SoundSet> _soundSet;
     BodyBag _bodyBag;
@@ -408,6 +420,7 @@ private:
 
     void loadTransformFromGIT(const resource::generated::GIT_Creature_List &git);
 
+    void onEffectsCleared() override;
     void updateModel();
 
     // Refresh appearance-derived state (model type, size, speeds, footstep, envmap,

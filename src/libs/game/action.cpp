@@ -17,6 +17,8 @@
 
 #include "reone/game/action.h"
 
+#include "reone/game/action/usefeat.h"
+#include "reone/game/attack.h"
 #include "reone/system/logutil.h"
 
 namespace reone {
@@ -29,10 +31,11 @@ void Action::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
 }
 
 bool isHostileAction(Action &action) {
-    // TODO: handle feats and spells
     switch (action.type()) {
     case ActionType::AttackObject:
         return true;
+    case ActionType::UseFeat:
+        return isPhysicalAttackFeat(static_cast<UseFeatAction &>(action).feat());
     default:
         break;
     }
