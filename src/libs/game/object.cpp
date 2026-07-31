@@ -122,6 +122,7 @@ void Object::clearAllActions(bool force) {
                     break;
                 }
                 action->cancel(action, *this);
+                action->markCancelled();
                 _actions.pop_front();
             }
             if (!_actions.empty() && _actions.front() == executingAction) {
@@ -136,6 +137,7 @@ void Object::clearAllActions(bool force) {
             break;
         }
         _actions.back()->cancel(action, *this);
+        action->markCancelled();
         _actions.pop_back();
     }
 }

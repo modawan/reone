@@ -18,7 +18,6 @@
 #pragma once
 
 #include <memory>
-#include <optional>
 #include <string>
 
 namespace reone {
@@ -38,45 +37,6 @@ void validateTwoDARow(
     const resource::TwoDA &table,
     const std::string &resRef,
     int row);
-
-std::optional<int> getTwoDAIntOpt(
-    const resource::TwoDA &table,
-    const std::string &resRef,
-    int row,
-    const std::string &column);
-
-std::string getRequiredTwoDAString(
-    const resource::TwoDA &table,
-    const std::string &resRef,
-    int row,
-    const std::string &column);
-
-int getRequiredTwoDAInt(
-    const resource::TwoDA &table,
-    const std::string &resRef,
-    int row,
-    const std::string &column);
-
-std::string getTwoDAStringOrBlank(
-    const resource::TwoDA &table,
-    const std::string &resRef,
-    int row,
-    const std::string &column,
-    std::string blankValue);
-
-int getTwoDAIntOrBlank(
-    const resource::TwoDA &table,
-    const std::string &resRef,
-    int row,
-    const std::string &column,
-    int blankValue);
-
-float getTwoDAFloatOrBlank(
-    const resource::TwoDA &table,
-    const std::string &resRef,
-    int row,
-    const std::string &column,
-    float blankValue);
 
 } // namespace game
 

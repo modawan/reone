@@ -132,42 +132,32 @@ void Item::deserializeBase(const resource::Gff &gff) {
     }
 
     auto baseItems = getRequiredTwoDA(_services.resource.twoDas, "baseitems");
-    _attackRange = getTwoDAFloatOrBlank(
-        *baseItems, "baseitems", _baseItem, "maxattackrange", 0.0f);
-    _baseDefense = getTwoDAIntOrBlank(
-        *baseItems, "baseitems", _baseItem, "baseac", 0);
-    _criticalHitMultiplier = getTwoDAIntOrBlank(
-        *baseItems, "baseitems", _baseItem, "crithitmult", 0);
-    _criticalThreat = getTwoDAIntOrBlank(
-        *baseItems, "baseitems", _baseItem, "critthreat", 0);
-    _damageFlags = getTwoDAIntOrBlank(
-        *baseItems, "baseitems", _baseItem, "damageflags", 0);
-    _dieToRoll = getTwoDAIntOrBlank(
-        *baseItems, "baseitems", _baseItem, "dietoroll", 0);
-    _maxDexterityBonus = getTwoDAIntOrBlank(
-        *baseItems, "baseitems", _baseItem, "dexbonus", -1);
-    _equipableSlots = static_cast<uint32_t>(getTwoDAIntOrBlank(
-        *baseItems, "baseitems", _baseItem, "equipableslots", 0));
-    _itemClass = boost::to_lower_copy(getTwoDAStringOrBlank(
-        *baseItems, "baseitems", _baseItem, "itemclass", ""));
-    _numDice = getTwoDAIntOrBlank(
-        *baseItems, "baseitems", _baseItem, "numdice", 0);
-    _acBonusType = static_cast<ACBonus>(getTwoDAIntOrBlank(
-        *baseItems,
-        "baseitems",
+    _attackRange = baseItems->getFloat(_baseItem, "maxattackrange", 0.0f);
+    _baseDefense = baseItems->getInt(_baseItem, "baseac", 0);
+    _criticalHitMultiplier = baseItems->getInt(_baseItem, "crithitmult", 0);
+    _criticalThreat = baseItems->getInt(_baseItem, "critthreat", 0);
+    _damageFlags = baseItems->getInt(_baseItem, "damageflags", 0);
+    _dieToRoll = baseItems->getInt(_baseItem, "dietoroll", 0);
+    _maxDexterityBonus = baseItems->getInt(_baseItem, "dexbonus", -1);
+    _equipableSlots = static_cast<uint32_t>(
+        baseItems->getInt(_baseItem, "equipableslots", 0));
+    _itemClass = boost::to_lower_copy(
+        baseItems->getString(_baseItem, "itemclass"));
+    _numDice = baseItems->getInt(_baseItem, "numdice", 0);
+    _acBonusType = static_cast<ACBonus>(baseItems->getInt(
         _baseItem,
         "ac_enchant",
         static_cast<int>(ACBonus::Invalid)));
-    _weaponType = static_cast<WeaponType>(getTwoDAIntOrBlank(
-        *baseItems, "baseitems", _baseItem, "weapontype", 0));
-    _weaponWield = static_cast<WeaponWield>(getTwoDAIntOrBlank(
-        *baseItems, "baseitems", _baseItem, "weaponwield", 0));
-    _weaponSize = static_cast<CreatureSize>(getTwoDAIntOrBlank(
-        *baseItems, "baseitems", _baseItem, "weaponsize", 0));
-    _weaponFocusFeat = static_cast<FeatType>(getTwoDAIntOrBlank(
-        *baseItems, "baseitems", _baseItem, "focfeat", 0));
-    _weaponSpecializationFeat = static_cast<FeatType>(getTwoDAIntOrBlank(
-        *baseItems, "baseitems", _baseItem, "specfeat", 0));
+    _weaponType = static_cast<WeaponType>(
+        baseItems->getInt(_baseItem, "weapontype", 0));
+    _weaponWield = static_cast<WeaponWield>(
+        baseItems->getInt(_baseItem, "weaponwield", 0));
+    _weaponSize = static_cast<CreatureSize>(
+        baseItems->getInt(_baseItem, "weaponsize", 0));
+    _weaponFocusFeat = static_cast<FeatType>(
+        baseItems->getInt(_baseItem, "focfeat", 0));
+    _weaponSpecializationFeat = static_cast<FeatType>(
+        baseItems->getInt(_baseItem, "specfeat", 0));
 
     std::string iconResRef;
     if (isEquippable(InventorySlots::body)) {
@@ -190,18 +180,19 @@ void Item::deserializeBase(const resource::Gff &gff) {
 void Item::loadAmmunitionType() {
     auto baseItems = getRequiredTwoDA(_services.resource.twoDas, "baseitems");
 
-    int ammunitionIdx = getTwoDAIntOrBlank(
-        *baseItems, "baseitems", _baseItem, "ammunitiontype", 0);
-    if (ammunitionIdx != -1) {
-        std::shared_ptr<TwoDA> twoDa(_services.resource.twoDas.get("ammunitiontypes"));
-        _ammunitionType = std::make_shared<Item::AmmunitionType>();
-        _ammunitionType->model = _services.resource.models.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "model")));
-        _ammunitionType->muzzleFlash = _services.resource.models.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "muzzleflash")));
-        _ammunitionType->shotSound1 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "shotsound0")));
-        _ammunitionType->shotSound2 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "shotsound1")));
-        _ammunitionType->impactSound1 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "impactsound0")));
-        _ammunitionType->impactSound2 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "impactsound1")));
+    int ammunitionIdx = baseItems->getInt(_baseItem, "ammunitiontype", 0);
+    if (ammunitionIdx < 1) {
+        return;
     }
+
+    auto twoDa = getRequiredTwoDA(_services.resource.twoDas, "ammunitiontypes");
+    _ammunitionType = std::make_shared<Item::AmmunitionType>();
+    _ammunitionType->model = _services.resource.models.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "model")));
+    _ammunitionType->muzzleFlash = _services.resource.models.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "muzzleflash")));
+    _ammunitionType->shotSound1 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "shotsound0")));
+    _ammunitionType->shotSound2 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "shotsound1")));
+    _ammunitionType->impactSound1 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "impactsound0")));
+    _ammunitionType->impactSound2 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "impactsound1")));
 }
 
 void Item::update(float dt) {

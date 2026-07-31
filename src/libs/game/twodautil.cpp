@@ -28,20 +28,6 @@ namespace reone {
 
 namespace game {
 
-static bool hasColumn(const TwoDA &table, const std::string &column) {
-    return std::find(
-               table.columns().begin(),
-               table.columns().end(),
-               column) != table.columns().end();
-}
-
-static int parseInt(const std::string &value) {
-    bool hexadecimal = value.size() > 2 &&
-                       value[0] == '0' &&
-                       (value[1] == 'x' || value[1] == 'X');
-    return std::stoi(value, nullptr, hexadecimal ? 16 : 10);
-}
-
 std::shared_ptr<TwoDA> getRequiredTwoDA(
     ITwoDAs &twoDas,
     const std::string &resRef) {
@@ -63,116 +49,6 @@ void validateTwoDARow(
             "%s.2da row out of range: %d/%d") %
             resRef % row % table.getRowCount()));
     }
-}
-
-static void validateTwoDALookup(
-    const TwoDA &table,
-    const std::string &resRef,
-    int row,
-    const std::string &column) {
-
-    validateTwoDARow(table, resRef, row);
-    if (!hasColumn(table, column)) {
-        throw ValidationException(
-            resRef + ".2da column not found: " + column);
-    }
-}
-
-static std::optional<std::string> getTwoDAStringOpt(
-    const TwoDA &table,
-    const std::string &resRef,
-    int row,
-    const std::string &column) {
-
-    validateTwoDALookup(table, resRef, row, column);
-    return table.getStringOpt(row, column);
-}
-
-std::optional<int> getTwoDAIntOpt(
-    const TwoDA &table,
-    const std::string &resRef,
-    int row,
-    const std::string &column) {
-
-    auto value = getTwoDAStringOpt(table, resRef, row, column);
-    if (!value || value->empty()) {
-        return std::nullopt;
-    }
-    return parseInt(*value);
-}
-
-static std::optional<float> getTwoDAFloatOpt(
-    const TwoDA &table,
-    const std::string &resRef,
-    int row,
-    const std::string &column) {
-
-    auto value = getTwoDAStringOpt(table, resRef, row, column);
-    if (!value || value->empty()) {
-        return std::nullopt;
-    }
-    return std::stof(*value);
-}
-
-std::string getRequiredTwoDAString(
-    const TwoDA &table,
-    const std::string &resRef,
-    int row,
-    const std::string &column) {
-
-    auto value = getTwoDAStringOpt(table, resRef, row, column);
-    if (!value || value->empty()) {
-        throw ValidationException(str(boost::format(
-            "%s.2da value missing: row %d, column %s") %
-            resRef % row % column));
-    }
-    return *value;
-}
-
-int getRequiredTwoDAInt(
-    const TwoDA &table,
-    const std::string &resRef,
-    int row,
-    const std::string &column) {
-
-    auto value = getTwoDAIntOpt(table, resRef, row, column);
-    if (!value) {
-        throw ValidationException(str(boost::format(
-            "%s.2da value missing: row %d, column %s") %
-            resRef % row % column));
-    }
-    return *value;
-}
-
-std::string getTwoDAStringOrBlank(
-    const TwoDA &table,
-    const std::string &resRef,
-    int row,
-    const std::string &column,
-    std::string blankValue) {
-
-    auto value = getTwoDAStringOpt(table, resRef, row, column);
-    return !value || value->empty() ? std::move(blankValue) : *value;
-}
-
-int getTwoDAIntOrBlank(
-    const TwoDA &table,
-    const std::string &resRef,
-    int row,
-    const std::string &column,
-    int blankValue) {
-
-    return getTwoDAIntOpt(table, resRef, row, column).value_or(blankValue);
-}
-
-float getTwoDAFloatOrBlank(
-    const TwoDA &table,
-    const std::string &resRef,
-    int row,
-    const std::string &column,
-    float blankValue) {
-
-    return getTwoDAFloatOpt(table, resRef, row, column).value_or(blankValue);
 }
 
 } // namespace game

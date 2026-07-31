@@ -304,12 +304,7 @@ static int getCostTableValue(
     int blankValue) {
 
     auto table = getRequiredTwoDA(services.resource.twoDas, resRef);
-    return getTwoDAIntOrBlank(
-        *table,
-        resRef,
-        row,
-        column,
-        blankValue);
+    return table->getInt(row, column, blankValue);
 }
 
 struct NamedTwoDA {
@@ -324,11 +319,8 @@ static NamedTwoDA getItemPropertyCostTable(
     auto costTables = getRequiredTwoDA(
         services.resource.twoDas,
         kItemPropertyCostTable);
-    std::string resRef = boost::to_lower_copy(getRequiredTwoDAString(
-        *costTables,
-        kItemPropertyCostTable,
-        index,
-        "name"));
+    std::string resRef = boost::to_lower_copy(
+        costTables->getString(index, "name"));
     return {resRef, getRequiredTwoDA(services.resource.twoDas, resRef)};
 }
 
@@ -341,9 +333,7 @@ static int getItemPropertyValue(
     auto costTable = getItemPropertyCostTable(
         services,
         property.costTable);
-    return getTwoDAIntOrBlank(
-        *costTable.table,
-        costTable.resRef,
+    return costTable.table->getInt(
         property.costValue,
         column,
         blankValue);
@@ -396,19 +386,11 @@ static std::optional<DamageModifier> getDamageModifier(
 
     DamageModifier result {costValue, 0, 0, 0, type};
 
-    auto numDice = getTwoDAIntOpt(
-        *table,
-        kDamageCostTable,
-        costValue,
-        "numdice");
+    auto numDice = table->getIntOpt(costValue, "numdice");
     if (!numDice) {
         result.flat = costValue;
     } else {
-        auto die = getTwoDAIntOpt(
-            *table,
-            kDamageCostTable,
-            costValue,
-            "die");
+        auto die = table->getIntOpt(costValue, "die");
         if (!die) {
             throw ValidationException(
                 "Missing die in iprp_damagecost row " +
@@ -576,11 +558,10 @@ void Creature::loadAppearanceProperties() {
     _runSpeed = appearances->getFloat(_appearance, "rundist", 1.0f);
     float personalSpace = appearances->getFloat(_appearance, "perspace", 0.6f);
     _creaturePersonalSpace = appearances->getFloat(_appearance, "creperspace", personalSpace);
-    _size = static_cast<CreatureSize>(getRequiredTwoDAInt(
-        *appearances,
-        "appearance",
+    _size = static_cast<CreatureSize>(appearances->getInt(
         _appearance,
-        "sizecategory"));
+        "sizecategory",
+        static_cast<int>(CreatureSize::Invalid)));
     _footstepType = appearances->getInt(_appearance, "footsteptype", -1);
     _envmap = boost::to_lower_copy(appearances->getString(_appearance, "envmap"));
 

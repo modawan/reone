@@ -235,17 +235,9 @@ void Combat::update(float dt) {
 }
 
 static bool isActionFinished(const CombatRound::RoundAction &action, const Game &game) {
-    if (action.action->isCompleted()) {
-        return true;
-    }
-
-    std::shared_ptr<Object> actor = game.getObjectById(action.attacker);
-    if (!actor) {
-        return true;
-    }
-
-    const auto &actions = actor->actions();
-    return std::find(actions.begin(), actions.end(), action.action) == actions.end();
+    return action.action->isCompleted() ||
+           action.action->isCancelled() ||
+           !game.getObjectById(action.attacker);
 }
 
 void Combat::retireCompletedRounds() {
