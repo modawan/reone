@@ -70,6 +70,7 @@
 #include "statussummary.h"
 #include "swooprace.h"
 #include "talent.h"
+#include "turret.h"
 
 #include <queue>
 #include <vector>
@@ -106,7 +107,8 @@ public:
         SwoopRace,
         PazaakWager,
         PazaakSetup,
-        PazaakBoard
+        PazaakBoard,
+        Turret
     };
 
     Game(
@@ -123,6 +125,7 @@ public:
         _party(*this),
         _combat(*this, services),
         _swoopRace(*this),
+        _turret(*this, services),
         _journal(services.resource.gffs, services.resource.strings),
         _floatingText(*this, services) {
         initJournalNotifications();
@@ -177,6 +180,18 @@ public:
     void exitSwoopRace();
 
     // END Swoop race
+
+    // Turret minigame
+
+    void openTurret();
+    void closeTurret();
+
+    // Exit the active turret: returns to the lifecycle origin if a lifecycle
+    // session is in progress, otherwise just stops the dev session in place.
+    void exitTurret();
+
+    // END Turret minigame
+
     void openInGameMenu(InGameMenuTab tab);
     void openLevelUp();
     void notifyLevelUpPending(const Creature &creature);
@@ -438,11 +453,11 @@ private:
     DeveloperOverlay _developerOverlay;
     std::shared_ptr<graphics::Font> _developerFont;
 
-    // Non-blocking swoop lifecycle session: origin module/state -> swoop module
-    // -> auto-start race -> forced-success finish -> return to origin. Passive
+    // Non-blocking minigame lifecycle session: origin module/state -> minigame
+    // module -> auto-start -> forced-success finish -> return to origin. Passive
     // bookkeeping only; it does not touch party membership, inventory, or story.
-    struct SwoopLifecycle {
-        bool active {false};        // a lifecycle race is in progress (return pending)
+    struct MinigameLifecycle {
+        bool active {false};        // a lifecycle session is in progress (return pending)
         bool haveOrigin {false};    // origin position/facing captured
         std::string originModule;   // module resref to return to
         glm::vec3 originPosition {0.0f};
@@ -450,7 +465,23 @@ private:
         bool forcedSuccess {true};  // PR1: finish is always non-blocking success
     };
 
-    SwoopLifecycle _swoopLifecycle;
+    MinigameLifecycle _swoopLifecycle;
+    MinigameLifecycle _turretLifecycle;
+
+    // A turret session scheduled by the startturretgame console command. The
+    // transition goes through the normal deferred module load, so whether the
+    // target really is a turret area is only known once it has loaded; this
+    // carries the return origin across that gap.
+    struct PendingTurretRequest {
+        bool active {false};
+        std::string targetModule;
+        std::string originModule;
+        glm::vec3 originPosition {0.0f};
+        float originFacing {0.0f};
+        bool haveOrigin {false};
+    };
+
+    PendingTurretRequest _pendingTurret;
 
     std::shared_ptr<movie::IMovie> _movie;
     std::queue<std::string> _moduleTransitionMovies;
@@ -474,6 +505,7 @@ private:
     Party _party;
     Combat _combat;
     SwoopRace _swoopRace;
+    Turret _turret;
     Journal _journal;
     MessageLog _messageLog;
     FloatingText _floatingText;
@@ -566,6 +598,25 @@ private:
     // Stop the active lifecycle race and return to the stored origin module
     // (restoring the leader's position/facing). Safe no-op if no lifecycle race.
     void finishSwoopLifecycle(bool success);
+
+    // Same, for the turret minigame. The outcome is carried through rather than
+    // reduced to a success flag: a win, a loss and an abandoned session all
+    // return to the origin, but only a win emits the completion state.
+    void finishTurretLifecycle(Turret::Outcome outcome);
+
+    // Apply the vanilla post-turret globals for the given turret module
+    // (K1 M12ab confirmed; others no-op). Only a victory writes them.
+    void applyTurretResult(const std::string &turretModule, Turret::Outcome outcome);
+
+    // Give up on a scheduled turret session and go back where it started.
+    void abandonPendingTurret(const std::string &reason);
+
+    // Send the party back to a lifecycle session's origin, restoring the
+    // leader's recorded position and facing.
+    void returnToLifecycleOrigin(const std::string &module,
+                                 bool haveOrigin,
+                                 const glm::vec3 &position,
+                                 float facing);
 
     // Show/hide the active party creatures. Used to suppress the normal party
     // while a minigame is running: vanilla does not add the party to the scene
@@ -724,6 +775,10 @@ private:
     void consoleSwoopState(const ConsoleArgs &tokens);
     void consoleStartSwoopRace(const ConsoleArgs &tokens);
     void consoleFinishSwoop(const ConsoleArgs &tokens);
+    void consoleStartTurret(const ConsoleArgs &tokens);
+    void consoleStopTurret(const ConsoleArgs &tokens);
+    void consoleTurretState(const ConsoleArgs &tokens);
+    void consoleStartTurretGame(const ConsoleArgs &tokens);
     void consoleShowImGui(const ConsoleArgs &tokens);
 
     // END Console commands

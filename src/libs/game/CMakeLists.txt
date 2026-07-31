@@ -338,6 +338,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/swooprace.h
     ${GAME_INCLUDE_DIR}/talent.h
     ${GAME_INCLUDE_DIR}/transitioncandidate.h
+    ${GAME_INCLUDE_DIR}/turret.h
     ${GAME_INCLUDE_DIR}/twodautil.h
     ${GAME_INCLUDE_DIR}/types.h
     ${GAME_INCLUDE_DIR}/visualeffects.h)
@@ -553,6 +554,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/surfaces.cpp
     ${GAME_SOURCE_DIR}/swooprace.cpp
     ${GAME_SOURCE_DIR}/transitioncandidate.cpp
+    ${GAME_SOURCE_DIR}/turret.cpp
     ${GAME_SOURCE_DIR}/twodautil.cpp
     ${GAME_SOURCE_DIR}/visualeffects.cpp)
 
