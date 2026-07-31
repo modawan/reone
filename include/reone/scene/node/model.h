@@ -134,6 +134,27 @@ public:
     void resumeAnimation();
     void setAnimationTime(float time);
 
+    /**
+     * Stop the channel playing the named animation, leaving every other channel
+     * alone.
+     *
+     * Overlay animations are additive by design: playing one pushes a channel
+     * and nothing ever pops it. That is fine for a fixed set of layers, but a
+     * model whose overlay state changes over time - a HUD that swaps one pose
+     * for another while unrelated layers keep running - would otherwise grow a
+     * channel per change. Removing the outgoing animation by name keeps the set
+     * bounded without disturbing the layers that should persist.
+     *
+     * Safe and idempotent: removing an animation that is not playing is a no-op.
+     *
+     * @return true if a channel was removed
+     */
+    bool removeAnimation(const std::string &name);
+
+    bool isAnimationPlaying(const std::string &name) const;
+
+    size_t animationChannelCount() const { return _animChannels.size(); }
+
     bool isAnimationFinished() const;
 
     std::string activeAnimationName() const;

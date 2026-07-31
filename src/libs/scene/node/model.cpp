@@ -275,6 +275,33 @@ void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation
     }
 }
 
+bool ModelSceneNode::removeAnimation(const std::string &name) {
+    std::string lower(boost::to_lower_copy(name));
+    bool removed = false;
+    for (auto it = _animChannels.begin(); it != _animChannels.end();) {
+        if (it->anim && it->anim->name() == lower) {
+            it = _animChannels.erase(it);
+            removed = true;
+            continue;
+        }
+        ++it;
+    }
+    if (removed && _animChannels.empty()) {
+        _animBlendMode = AnimationBlendMode::Single;
+    }
+    return removed;
+}
+
+bool ModelSceneNode::isAnimationPlaying(const std::string &name) const {
+    std::string lower(boost::to_lower_copy(name));
+    for (const auto &channel : _animChannels) {
+        if (channel.anim && channel.anim->name() == lower) {
+            return true;
+        }
+    }
+    return false;
+}
+
 ModelSceneNode::AnimationBlendMode ModelSceneNode::getAnimationBlendMode(int flags) {
     return (flags & AnimationFlags::blend) ? AnimationBlendMode::Blend : ((flags & AnimationFlags::overlay) ? AnimationBlendMode::Overlay : AnimationBlendMode::Single);
 }
