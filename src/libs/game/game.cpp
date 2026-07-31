@@ -468,6 +468,10 @@ void Game::initConsole() {
         registerConsoleCommand("swoopstate", "print the current swoop race progress/lateral state", &Game::consoleSwoopState);
         registerConsoleCommand("startswooprace", "enter a swoop module from the current one and auto-start the race", &Game::consoleStartSwoopRace);
         registerConsoleCommand("finishswoop", "finish the lifecycle swoop race (forced success) and return to origin", &Game::consoleFinishSwoop);
+        registerConsoleCommand("startturret", "enter the turret minigame for the current area", &Game::consoleStartTurret);
+        registerConsoleCommand("startturretgame", "enter a turret module from the current one and auto-start the minigame", &Game::consoleStartTurretGame);
+        registerConsoleCommand("stopturret", "exit the turret minigame", &Game::consoleStopTurret);
+        registerConsoleCommand("turretstate", "print the current turret aim/health/enemy state", &Game::consoleTurretState);
     }
 }
 
@@ -543,6 +547,11 @@ bool Game::handle(const input::Event &event) {
                 return true;
             }
             break;
+        case Screen::Turret:
+            if (_turret.handle(event)) {
+                return true;
+            }
+            break;
         default:
             break;
         }
@@ -598,6 +607,22 @@ void Game::update(float frameTime) {
                       % _swoopRace.finishProgress()
                       % _swoopLifecycle.originModule));
             finishSwoopLifecycle(/*success=*/true);
+        }
+    }
+
+    if (_turret.isActive()) {
+        _turret.update(dt);
+
+        // Non-blocking auto-finish: a lifecycle session ends as soon as the
+        // turret reaches a win or a loss and returns to the origin module. Plain
+        // dev sessions (no lifecycle) keep running so the dev stays in control.
+        if (_turretLifecycle.active && _turret.finished()) {
+            debug(str(boost::format("turret: auto-finish outcome=%s hp=%d/%d returning=%s")
+                      % turretOutcomeName(_turret.outcome())
+                      % _turret.hitPoints()
+                      % _turret.maxHitPoints()
+                      % _turretLifecycle.originModule));
+            finishTurretLifecycle(_turret.outcome());
         }
     }
 
@@ -754,11 +779,27 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
         _swoopRace.stop();
         _cameraType = _savedCameraType;
     }
-    // A direct module load (e.g. warp) while a lifecycle race is pending means
-    // the player navigated away; abandon the pending return. (Lifecycle-managed
-    // loads clear the session beforehand, so this only fires on external loads.)
+    if (_turret.isActive()) {
+        _turret.stop();
+        _cameraType = _savedCameraType;
+    }
+    // A direct module load (e.g. warp) while a lifecycle session is pending
+    // means the player navigated away; abandon the pending return.
+    // (Lifecycle-managed loads clear the session beforehand, so this only fires
+    // on external loads.)
     if (_swoopLifecycle.active) {
-        _swoopLifecycle = SwoopLifecycle();
+        _swoopLifecycle = MinigameLifecycle();
+    }
+    if (_turretLifecycle.active) {
+        _turretLifecycle = MinigameLifecycle();
+    }
+    // Likewise a scheduled turret session is only good for the module it named:
+    // any other load means the transition was superseded, and keeping the
+    // request would block startturretgame until the game was reset.
+    if (_pendingTurret.active && !boost::iequals(_pendingTurret.targetModule, name)) {
+        debug(str(boost::format("turret: scheduled session for '%s' dropped, loading '%s' instead")
+                  % _pendingTurret.targetModule % name));
+        _pendingTurret = PendingTurretRequest();
     }
 
     if (_screen == Screen::Conversation && _conversation) {
@@ -841,6 +882,10 @@ void Game::resetGame() {
     if (_swoopRace.isActive()) {
         _swoopRace.stop();
     }
+    if (_turret.isActive()) {
+        _turret.stop();
+    }
+    _pendingTurret = PendingTurretRequest();
     _screen = Screen::None;
     _services.audio.mixer.stopAll();
     _music.reset();
@@ -1585,34 +1630,77 @@ void Game::loadNextModule() {
             haveOrigin = true;
         }
     }
-    bool wasLifecycleActive = _swoopLifecycle.active;
+    bool wasLifecycleActive = _swoopLifecycle.active || _turretLifecycle.active;
 
     loadModule(_nextModule, _nextEntry);
 
     _nextModule.clear();
     _nextEntry.clear();
 
-    // Vanilla K1 swoop entry: a dialogue node fires a script that calls
+    // Vanilla K1 minigame entry: a dialogue node or cutscene script calls
     // StartNewModule("<*mg>"); the engine auto-enters the minigame on load (no
     // dedicated start routine). Route that generic transition through the
-    // forced-success lifecycle harness when the loaded area is a swoop minigame.
-    if (wasLifecycleActive || _swoopLifecycle.active) {
+    // forced-success lifecycle harness when the loaded area declares one.
+    // A session scheduled by startturretgame carries its own origin, captured
+    // before the transition was queued.
+    bool pendingTurret = _pendingTurret.active && boost::iequals(_pendingTurret.targetModule, target);
+    if (pendingTurret) {
+        originModule = _pendingTurret.originModule;
+        originPosition = _pendingTurret.originPosition;
+        originFacing = _pendingTurret.originFacing;
+        haveOrigin = _pendingTurret.haveOrigin;
+    }
+
+    if (wasLifecycleActive || _swoopLifecycle.active || _turretLifecycle.active) {
         return;
     }
     if (originModule.empty() || boost::iequals(originModule, target)) {
+        if (pendingTurret) {
+            abandonPendingTurret("no origin module");
+        }
         return;
     }
     auto mod = _module;
-    if (!mod || !mod->area() || !mod->area()->hasMinigame()) {
+    auto area = mod ? mod->area() : nullptr;
+    bool hasMinigame = area && area->hasMinigame();
+    MinigameType minigameType = hasMinigame ? area->miniGame().type : MinigameType::None;
+
+    auto resolution = resolveTurretRequest(pendingTurret, hasMinigame, minigameType);
+    if (resolution == TurretRequestResolution::AbortNoMinigame ||
+        resolution == TurretRequestResolution::AbortWrongType) {
+        abandonPendingTurret(turretRequestResolutionMessage(resolution));
         return;
     }
-    if (mod->area()->miniGame().type != MinigameType::SwoopRace) {
+
+    if (!hasMinigame) {
+        return;
+    }
+    if (minigameType == MinigameType::Turret) {
+        openTurret();
+        if (_turret.isActive()) {
+            _turretLifecycle = MinigameLifecycle();
+            _turretLifecycle.active = true;
+            _turretLifecycle.haveOrigin = haveOrigin;
+            _turretLifecycle.originModule = originModule;
+            _turretLifecycle.originPosition = originPosition;
+            _turretLifecycle.originFacing = originFacing;
+            _turretLifecycle.forcedSuccess = true;
+            _pendingTurret = PendingTurretRequest();
+            debug(str(boost::format("turret: lifecycle start origin=%s target=%s hook=%s")
+                      % originModule % target
+                      % (pendingTurret ? "startturretgame" : "StartNewModule")));
+        } else if (pendingTurret) {
+            abandonPendingTurret("turret failed to start");
+        }
+        return;
+    }
+    if (minigameType != MinigameType::SwoopRace) {
         return;
     }
 
     openSwoopRace();
     if (_swoopRace.isActive()) {
-        _swoopLifecycle = SwoopLifecycle();
+        _swoopLifecycle = MinigameLifecycle();
         _swoopLifecycle.active = true;
         _swoopLifecycle.haveOrigin = haveOrigin;
         _swoopLifecycle.originModule = originModule;
@@ -2208,8 +2296,8 @@ void Game::finishSwoopLifecycle(bool success) {
     // Capture and clear the session first so the upcoming module load does not
     // re-enter this path. The current module (before returning) is the race
     // module, which selects the planet-specific result contract.
-    SwoopLifecycle session = _swoopLifecycle;
-    _swoopLifecycle = SwoopLifecycle();
+    MinigameLifecycle session = _swoopLifecycle;
+    _swoopLifecycle = MinigameLifecycle();
     std::string raceModule = _module ? _module->name() : "";
 
     // Stop the race (removes bike models, restores camera/FOV/input, screen).
@@ -2339,6 +2427,227 @@ void Game::applySwoopForcedSuccessResult(const std::string &raceModule) {
     }
     setGlobalBoolean("TAR_SWOOP_RUN", true);
     applyTarisForcedWinningTime();
+}
+
+void Game::openTurret() {
+    if (_turret.isActive()) {
+        _console.printLine("turret: already running");
+        return;
+    }
+    if (!_module || !_module->area()) {
+        _console.printLine("turret: no module loaded");
+        return;
+    }
+    auto area = _module->area();
+    if (!area->hasMinigame() || area->miniGame().type != MinigameType::Turret) {
+        _console.printLine("turret: current area has no turret minigame");
+        return;
+    }
+
+    const auto &mg = area->miniGame();
+    auto camera = area->getCamera<FirstPersonCamera>(CameraType::FirstPerson);
+    if (camera) {
+        camera->stopMovement();
+    }
+
+    _savedCameraType = _cameraType;
+    if (!_turret.start(mg, camera, area->name())) {
+        _console.printLine("turret: failed to start (see log)");
+        return;
+    }
+
+    _cameraType = CameraType::FirstPerson;
+    setRelativeMouseMode(true);
+    changeScreen(Screen::Turret);
+
+    // The minigame owns the party now; drop any actions queued before entry so
+    // they do not survive the module transitions (mirrors the swoop entry).
+    for (auto &member : _party.members()) {
+        if (member.creature) {
+            member.creature->clearAllActions(/*force=*/true);
+        }
+    }
+
+    // Vanilla does not add the party to the scene in a minigame module; the
+    // turret actor represents the player. Restored on exit.
+    setPartyVisible(false);
+
+    if (!mg.music.empty()) {
+        playMusic(mg.music);
+    }
+
+    debug(str(boost::format("turret: started track=%s anchor=%s models=%zu banks=%zu enemies=%zu hp=%d camfov=%.0f clip=[%.2f,%.0f]")
+              % mg.player.trackResRef
+              % _turret.anchorSource()
+              % mg.player.models.size()
+              % _turret.gunBankCount()
+              % _turret.enemyCount()
+              % _turret.hitPoints()
+              % mg.cameraViewAngle
+              % mg.nearClip
+              % mg.farClip));
+    debug(str(boost::format("turret: hud gauge=%s radar=%s healthState=%d(%s) heading=%d contacts=%zu radarChannels=%zu alarm=%d")
+              % (_turret.haveHealthHud() ? "mgf_hud02" : "<missing>")
+              % (_turret.haveRadarHud() ? "mgf_hud01" : "<missing>")
+              % _turret.healthState()
+              % turretHealthAnimation(_turret.healthState())
+              % _turret.headingState()
+              % _turret.contactsLive()
+              % _turret.radarChannelCount()
+              % static_cast<int>(_turret.alarmActive())));
+    debug(str(boost::format("turret: camera mount=%s hook=%s eyeOffset=[%.3f,%.3f,%.3f] targetOffset=[%.1f,%.1f,%.1f] rotate=%d")
+              % (mg.player.cameraResRef.empty() ? "<none>" : mg.player.cameraResRef)
+              % (_turret.haveCameraHook() ? "camerahook" : "<missing>")
+              % _turret.cameraHookOffset().x
+              % _turret.cameraHookOffset().y
+              % _turret.cameraHookOffset().z
+              % mg.player.targetOffset.x
+              % mg.player.targetOffset.y
+              % mg.player.targetOffset.z
+              % static_cast<int>(mg.player.cameraRotate)));
+    debug(str(boost::format("turret: aim pitch=[%.1f,%.1f]%s yaw=[%.1f,%.1f]%s authoredStart=[%.1f,%.1f,%.1f] startPitch=%.1f startYaw=%.1f")
+              % glm::degrees(_turret.aim().minPitch())
+              % glm::degrees(_turret.aim().maxPitch())
+              % (_turret.aim().pitchBounded() ? "" : " (infinite)")
+              % glm::degrees(_turret.aim().minYaw())
+              % glm::degrees(_turret.aim().maxYaw())
+              % (_turret.aim().yawBounded() ? "" : " (infinite)")
+              % mg.player.startOffset.x
+              % mg.player.startOffset.y
+              % mg.player.startOffset.z
+              % glm::degrees(_turret.aim().startPitch())
+              % glm::degrees(_turret.aim().startYaw())));
+}
+
+void Game::closeTurret() {
+    if (!_turret.isActive()) {
+        debug("turret: closeTurret called but turret not active");
+        return;
+    }
+    _turret.stop();
+    setPartyVisible(true);
+    _cameraType = _savedCameraType;
+    setRelativeMouseMode(_cameraType == CameraType::FirstPerson);
+    openInGame();
+    debug("turret: stopped (party restored, camera reset)");
+}
+
+void Game::exitTurret() {
+    // Escape / stopturret entry point. If a lifecycle session is in progress,
+    // return to the origin module; otherwise just stop the dev session in place.
+    if (_turretLifecycle.active) {
+        // A session abandoned mid-run is still InProgress; it returns to the
+        // origin but is neither a win nor a loss.
+        finishTurretLifecycle(_turret.outcome());
+    } else if (_pendingTurret.active) {
+        // Scheduled but never started: drop the request rather than leaving it
+        // to fire on a later transition into the same module.
+        abandonPendingTurret("cancelled");
+    } else {
+        closeTurret();
+    }
+}
+
+void Game::returnToLifecycleOrigin(const std::string &module,
+                                   bool haveOrigin,
+                                   const glm::vec3 &position,
+                                   float facing) {
+    if (module.empty()) {
+        return;
+    }
+    loadModule(module);
+    if (!haveOrigin) {
+        return;
+    }
+    auto mod = _module;
+    if (!mod || !mod->area()) {
+        return;
+    }
+    auto leader = _party.getLeader();
+    if (!leader) {
+        return;
+    }
+    leader->setPosition(position);
+    leader->setFacing(facing);
+    mod->area()->determineObjectRoom(*leader);
+    mod->area()->onPartyLeaderMoved(/*roomChanged=*/true);
+}
+
+void Game::abandonPendingTurret(const std::string &reason) {
+    if (!_pendingTurret.active) {
+        return;
+    }
+    PendingTurretRequest request = _pendingTurret;
+    _pendingTurret = PendingTurretRequest();
+    _console.printLine(str(boost::format("turret: lifecycle aborted (%s), returning to origin=%s")
+                           % reason % request.originModule));
+    returnToLifecycleOrigin(request.originModule,
+                            request.haveOrigin,
+                            request.originPosition,
+                            request.originFacing);
+}
+
+void Game::finishTurretLifecycle(Turret::Outcome outcome) {
+    // Repeated calls are no-ops: the session is cleared below before anything
+    // else runs, so neither the return nor the completion state can be emitted
+    // twice for one session.
+    if (!_turretLifecycle.active) {
+        return;
+    }
+    // Capture and clear the session first so the upcoming module load does not
+    // re-enter this path. The current module (before returning) is the turret
+    // module, which selects the return contract.
+    MinigameLifecycle session = _turretLifecycle;
+    _turretLifecycle = MinigameLifecycle();
+    std::string turretModule = _module ? _module->name() : "";
+
+    closeTurret();
+
+    // Prefer the vanilla return module (the StartNewModule target the turret's
+    // end scripts use); fall back to the module the player came from.
+    std::string returnModule = game::turretReturnModule(turretModule, session.originModule);
+    if (returnModule.empty()) {
+        // Nothing authored and nothing captured: stay put rather than schedule
+        // a transition to an empty module name.
+        debug("turret: no return module, staying put");
+        applyTurretResult(turretModule, outcome);
+        return;
+    }
+    bool returningToOrigin = boost::iequals(returnModule, session.originModule);
+    returnToLifecycleOrigin(returnModule,
+                            returningToOrigin && session.haveOrigin,
+                            session.originPosition,
+                            session.originFacing);
+
+    applyTurretResult(turretModule, outcome);
+
+    debug(str(boost::format("turret: finished outcome=%s returning=%s")
+              % turretOutcomeName(outcome)
+              % returnModule));
+}
+
+void Game::applyTurretResult(const std::string &turretModule, Turret::Outcome outcome) {
+    // K1 M12ab result contract, confirmed from local assets: k_pebo_mgload seeds
+    // the globals ebo_num_fighters (Number) and ebo_turret_done (Boolean); each
+    // enemy death script decrements ebo_num_fighters and, on the last kill, sets
+    // ebo_turret_done before returning to ebo_m12aa. reone substitutes the
+    // minigame and never runs those scripts, so reproduce their outputs here.
+    //
+    // Only the last kill writes them in vanilla, so only a victory writes them
+    // here: a defeat or an abandoned session leaves the turret outstanding.
+    if (!boost::iequals(turretModule, "m12ab")) {
+        return;
+    }
+    if (!turretSessionSucceeded(outcome)) {
+        _console.printLine(str(boost::format(
+            "turret: result module=m12ab outcome=%s (no completion state written)")
+            % turretOutcomeName(outcome)));
+        return;
+    }
+    setGlobalNumber("ebo_num_fighters", 0);
+    setGlobalBoolean("ebo_turret_done", true);
+    _console.printLine(
+        "turret: result module=m12ab outcome=won ebo_turret_done=1 ebo_num_fighters=0");
 }
 
 void Game::openInGameMenu(InGameMenuTab tab) {
@@ -2941,6 +3250,8 @@ GameGUI *Game::getScreenGUI() const {
         return _pazaakSetup.get();
     case Screen::PazaakBoard:
         return _pazaakBoard.get();
+    case Screen::Turret:
+        return nullptr; // the turret HUD is part of the player model set
     default:
         return nullptr;
     }
@@ -3804,7 +4115,7 @@ void Game::consoleStartSwoopRace(const ConsoleArgs &args) {
     }
 
     // Capture origin module/state before transitioning.
-    SwoopLifecycle session;
+    MinigameLifecycle session;
     session.originModule = _module->name();
     session.forcedSuccess = true;
     if (auto leader = _party.getLeader()) {
@@ -3866,6 +4177,92 @@ void Game::consoleSwoopState(const ConsoleArgs &args) {
                            % pos.x % pos.y % pos.z
                            % _swoopRace.lateralLeftBound()
                            % _swoopRace.lateralRightBound()));
+}
+
+void Game::consoleStartTurret(const ConsoleArgs &args) {
+    openTurret();
+}
+
+void Game::consoleStartTurretGame(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "module");
+
+    std::string target(boost::to_lower_copy(std::string(args[1].value())));
+    std::string originModule(_module ? _module->name() : "");
+    bool alreadyActive = _turretLifecycle.active || _pendingTurret.active || _turret.isActive();
+
+    auto error = validateTurretRequest(target,
+                                       originModule,
+                                       _moduleNames.count(target) > 0,
+                                       alreadyActive);
+    if (error != TurretRequestError::None) {
+        _console.printLine(str(boost::format("turret: %s") % turretRequestErrorMessage(error)));
+        return;
+    }
+
+    // Capture the origin now: the transition is deferred, and by the time it
+    // runs the current module is already gone.
+    _pendingTurret = PendingTurretRequest();
+    _pendingTurret.active = true;
+    _pendingTurret.targetModule = target;
+    _pendingTurret.originModule = originModule;
+    if (auto leader = _party.getLeader()) {
+        _pendingTurret.originPosition = leader->position();
+        _pendingTurret.originFacing = leader->getFacing();
+        _pendingTurret.haveOrigin = true;
+    }
+
+    // Go through the normal deferred transition so the Type 2 detection in
+    // loadNextModule starts the minigame, exactly as a script entry would.
+    scheduleModuleTransition(target, "");
+
+    _console.printLine(str(boost::format("turret: lifecycle scheduled origin=%s target=%s")
+                           % originModule % target));
+}
+
+void Game::consoleStopTurret(const ConsoleArgs &args) {
+    // If a lifecycle session is active, return to origin safely; otherwise stop
+    // in place.
+    exitTurret();
+}
+
+void Game::consoleTurretState(const ConsoleArgs &args) {
+    if (!_turret.isActive()) {
+        _console.printLine("turret: not active");
+        return;
+    }
+    glm::vec3 pos = _turret.position();
+    const char *outcome = "in-progress";
+    switch (_turret.outcome()) {
+    case Turret::Outcome::Won:
+        outcome = "won";
+        break;
+    case Turret::Outcome::Lost:
+        outcome = "lost";
+        break;
+    default:
+        break;
+    }
+    _console.printLine(str(boost::format("turret: pitch=%.1f yaw=%.1f hp=%d/%d enemies=%zu/%zu bullets=%zu elapsed=%.1f pos=[%.1f,%.1f,%.1f] outcome=%s")
+                           % glm::degrees(_turret.aim().pitch())
+                           % glm::degrees(_turret.aim().yaw())
+                           % _turret.hitPoints()
+                           % _turret.maxHitPoints()
+                           % _turret.enemiesAlive()
+                           % _turret.enemyCount()
+                           % _turret.bulletCount()
+                           % _turret.elapsed()
+                           % pos.x % pos.y % pos.z
+                           % outcome));
+    _console.printLine(str(boost::format("  hud: health=%d(%s) heading=%d alarm=%d contacts=%zu/%zu gauge=%d radar=%d radarChannels=%zu")
+                           % _turret.healthState()
+                           % turretHealthAnimation(_turret.healthState())
+                           % _turret.headingState()
+                           % static_cast<int>(_turret.alarmActive())
+                           % _turret.contactsLive()
+                           % kTurretContactCount
+                           % static_cast<int>(_turret.haveHealthHud())
+                           % static_cast<int>(_turret.haveRadarHud())
+                           % _turret.radarChannelCount()));
 }
 
 } // namespace game
