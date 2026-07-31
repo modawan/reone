@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <optional>
+#include <stdexcept>
+
 #include "reone/system/smallvector.h"
 
 #include "../effect.h"
@@ -25,10 +28,11 @@ namespace reone {
 
 namespace game {
 
-struct DamageComponent {
-    int amount;
-    DamageType type;
-};
+inline constexpr int kAllDamageTypeFlags = 8199;
+inline constexpr int kPhysicalDamageTypeFlags = 16391;
+
+DamageType getPrimaryDamageType(int damageFlags);
+bool damageTypeMatches(int modifierFlags, int damageFlags);
 
 /**
  * Typed damage caused by one hit.
@@ -43,28 +47,28 @@ public:
     }
 
     void add(int amount, DamageType type);
-    void addBaseDamage(int amount, DamageType type);
     void setDamageFlags(int damageFlags);
     void setPower(DamagePower power);
-    void mitigate(Object &object);
+    void resolve(Object &object);
 
     int total() const;
-    int baseDamage() const { return _baseDamage; }
-    int resolvedDamage() const { return _mitigated ? _resolvedDamage : total(); }
-    DamagePower power() const { return _power; }
+    int resolvedDamage() const;
     bool empty() const { return _components.empty(); }
-
-    const ISmallVector<DamageComponent> &components() const { return _components; }
+    bool isResolved() const { return _resolvedDamage.has_value(); }
 
 private:
+    struct Component {
+        int amount;
+        DamageType type;
+    };
+
+    void requireUnresolved() const;
     void addResolved(int amount, DamageType type);
 
     DamagePower _power;
-    int _damageFlags {static_cast<int>(DamageType::Universal)};
-    int _baseDamage {0};
-    int _resolvedDamage {0};
-    SmallVector<DamageComponent, 4> _components;
-    bool _mitigated {false};
+    int _damageFlags {0};
+    SmallVector<Component, 4> _components;
+    std::optional<int> _resolvedDamage;
 };
 
 class DamageEffect : public Effect {
@@ -76,19 +80,21 @@ public:
         Effect(EffectType::Damage),
         _damage(power),
         _damager(damager) {
-        _damage.addBaseDamage(amount, type);
+        _damage.add(amount, type);
+        _damage.setDamageFlags(static_cast<int>(type));
     }
 
     DamageEffect(DamagePacket damage, uint32_t damager) :
         Effect(EffectType::Damage),
         _damage(std::move(damage)),
         _damager(damager) {
+        if (!_damage.isResolved()) {
+            throw std::invalid_argument("Damage packet has not been resolved");
+        }
     }
 
     void applyTo(Object &object) override;
 
-    int amount() const { return _damage.resolvedDamage(); }
-    const DamagePacket &packet() const { return _damage; }
     uint32_t damager() const { return _damager; }
 
 private:

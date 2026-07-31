@@ -18,36 +18,18 @@
 #include "reone/game/effect/damageimmunityincrease.h"
 
 #include "reone/game/effect/damageimmunitydecrease.h"
-#include "reone/game/effect/immunity.h"
 #include "reone/game/object.h"
 
 namespace reone {
 
 namespace game {
 
-void DamageImmunityIncreaseEffect::applyTo(Object &) {
-    if (_percentImmunity < 0) {
-        _active = false;
-    }
+bool DamageImmunityIncreaseEffect::onApply(Object &) {
+    return _percentImmunity >= 0;
 }
 
-void DamageImmunityDecreaseEffect::applyTo(Object &object) {
-    if (_percentImmunity < 0 || object.plotFlag()) {
-        _active = false;
-        return;
-    }
-
-    for (const Object::AppliedEffect &applied : object.effects()) {
-        if (applied.effect->type() != EffectType::Immunity) {
-            continue;
-        }
-
-        const auto &effect = static_cast<const ImmunityEffect &>(*applied.effect);
-        if (effect.immunityType() == ImmunityType::DamageImmunityDecrease) {
-            _active = false;
-            return;
-        }
-    }
+bool DamageImmunityDecreaseEffect::onApply(Object &object) {
+    return _percentImmunity >= 0 && !object.plotFlag();
 }
 
 } // namespace game

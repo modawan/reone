@@ -25,7 +25,6 @@
 #include "reone/game/object.h"
 #include "reone/game/projectiles.h"
 #include "reone/scene/graphs.h"
-#include "reone/system/randomutil.h"
 
 namespace reone {
 
@@ -90,16 +89,6 @@ static std::optional<ProjectileAttackType> getProjectileType(FeatType feat) {
     }
 }
 
-static std::string getStunBatonAttackAnim(int variant) {
-    variant = variant % 2;
-    return str(boost::format("g1a%d") % variant);
-}
-
-static std::string getUnarmedAttackAnim(int variant) {
-    variant = variant % 2;
-    return str(boost::format("g8a%d") % variant);
-}
-
 static std::string getAttackAnim(FeatType feat, CreatureWieldType attackerWield) {
     const char *format = getAnimFormat(feat);
     if (!format) {
@@ -121,10 +110,7 @@ static void attack(FeatType feat, const CombatRound &round,
         targetWield = targetCreature->getWieldType();
     }
 
-    int variant = randomInt(1, 5);
-
     CreatureWieldType attackerWield = attacker.getWieldType();
-    bool isMelee = isMeleeWieldType(attacker.getWieldType());
 
     std::string attackAnim = getAttackAnim(feat, attackerWield);
     attacker.playAnimation(attackAnim, animProp);
@@ -184,19 +170,13 @@ void UseFeatAction::execute(std::shared_ptr<Action> self, Object &actor, float d
 
         attack(_feat, round, attacker, *_target, _services.game.animations, _attacks);
         _attacks.resolveMeleeSpecialAttack(_feat, attacker, *_target, _game);
-        _attacks.resolveDamage(*_target);
-        attacker.setLastAttackResult(_attacks.lastResult());
-
-        if (auto target = dyn_cast<Creature>(_target)) {
-            target->runAttackedScript(attacker.id());
-        }
+        _attacks.resolve(attacker, *_target);
 
         addProjectiles(attacker, _feat);
         return;
     }
     case AttackSchedule::Damage: {
-        _attacks.addCombatFeedback(_game, _services, attacker, *_target);
-        _attacks.applyEffects(attacker, *_target, _game);
+        _attacks.signal(_game, _services, attacker, *_target);
         break;
     }
     case AttackSchedule::Finish: {

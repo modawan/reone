@@ -80,18 +80,32 @@ bool isAttackSuccessful(AttackResultType result);
 bool isPhysicalAttackFeat(FeatType feat);
 
 struct AttackBonusBreakdown {
-    int total {0};
     int baseAttackBonus {0};
     int strengthModifier {0};
     int dexterityModifier {0};
     int dualWieldPenalty {0};
     int smallOffhandBonus {0};
+    int featBonus {0};
     FeatType duelingFeat {FeatType::Invalid};
     int duelingBonus {0};
     int closeProximityRangedBonus {0};
     int meleeOnRangedBonus {0};
     int weaponFocusBonus {0};
     int effectBonus {0};
+
+    int total() const {
+        return baseAttackBonus +
+               strengthModifier +
+               dexterityModifier +
+               dualWieldPenalty +
+               smallOffhandBonus +
+               featBonus +
+               duelingBonus +
+               closeProximityRangedBonus +
+               meleeOnRangedBonus +
+               weaponFocusBonus +
+               effectBonus;
+    }
 };
 
 /**
@@ -120,53 +134,17 @@ public:
         Object &target,
         Game &game);
 
-    /**
-     * Calculate an attack roll and base damage packet for a weapon attack.
-     * The packet is retained until applyEffects().
-     */
-    void addWeaponAttack(const Creature &attacker, const Object &target, const Item &weapon,
-                         Source source = Source::Main,
-                         int attackRollBonus = 0,
-                         int attackThreatBonus = 0,
-                         int damageBonus = 0);
-
-    /**
-     * Calculate an attack roll and base damage packet for an unarmed attack.
-     * The packet is retained until applyEffects().
-     */
-    void addUnarmedAttack(const Creature &attacker, const Object &target,
-                          int attackRollBonus = 0,
-                          int attackThreatBonus = 0,
-                          int damageBonus = 0);
-
-    /**
-     * Resolve target-side damage mitigation for each physical attack.
-     */
-    void resolveDamage(Object &target);
-
-    /**
-     * Apply the delayed damage and secondary effects of each physical attack.
-     */
-    void applyEffects(Creature &attacker, Object &target, Game &game);
-
-    /**
-     * Add one combat-feedback entry for each collected physical attack.
-     */
-    void addCombatFeedback(
+    void resolve(Creature &attacker, Object &target);
+    void signal(
         Game &game,
         ServicesView &services,
-        const Creature &attacker,
-        const Object &target) const;
+        Creature &attacker,
+        Object &target);
 
     /**
      * Get the best result for a series of attacks collected in AttackBuffer.
      */
     AttackResultType result() const;
-
-    /**
-     * Get the result of the final attack in the round.
-     */
-    AttackResultType lastResult() const;
 
 private:
     struct Attack {
@@ -175,40 +153,43 @@ private:
             bool ranged,
             AttackResultType result,
             int roll,
-            int attackBonus,
-            int specialAttackBonus,
             AttackBonusBreakdown attackBonusBreakdown,
             int defense,
-            int confirmationRoll,
-            bool assuredHit,
-            bool criticalHitImmune) :
+            bool assuredHit) :
             source(source),
             ranged(ranged),
             result(result),
             roll(roll),
-            attackBonus(attackBonus),
-            specialAttackBonus(specialAttackBonus),
             attackBonusBreakdown(std::move(attackBonusBreakdown)),
             defense(defense),
-            confirmationRoll(confirmationRoll),
-            assuredHit(assuredHit),
-            criticalHitImmune(criticalHitImmune) {}
+            assuredHit(assuredHit) {}
 
         Source source;
         bool ranged;
         AttackResultType result;
         int roll;
-        int attackBonus;
-        int specialAttackBonus;
         AttackBonusBreakdown attackBonusBreakdown;
         int defense;
-        int confirmationRoll;
         bool assuredHit;
-        bool criticalHitImmune;
         bool stunTarget {false};
-        int resolvedDamage {0};
         DamagePacket damage;
     };
+
+    void addPhysicalAttack(
+        const Creature &attacker,
+        const Object &target,
+        const Item *weapon,
+        Source source,
+        int attackRollBonus,
+        int attackThreatBonus,
+        int damageBonus);
+    void resolveDamage(Object &target);
+    void applyEffects(Creature &attacker, Object &target, Game &game);
+    void addCombatFeedback(
+        Game &game,
+        ServicesView &services,
+        const Creature &attacker,
+        const Object &target) const;
 
     SmallVector<Attack, 8> _attacks;
     FeatType _feat {FeatType::Invalid};

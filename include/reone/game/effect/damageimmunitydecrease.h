@@ -31,16 +31,14 @@ public:
         _percentImmunity(percentImmunity) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
     DamageType damageType() const { return _damageType; }
     int percentImmunity() const { return _percentImmunity; }
-    bool active() const { return _active; }
 
 private:
     DamageType _damageType;
     int _percentImmunity;
-    bool _active {true};
 };
 
 } // namespace game

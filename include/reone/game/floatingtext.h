@@ -67,7 +67,6 @@ private:
         std::string text;
         Style style;
         float remaining;
-        float duration;
         int stack;
     };
 
@@ -78,7 +77,7 @@ private:
     std::shared_ptr<graphics::Font> _font;
     std::string _fontResRef;
 
-    void add(const Object &object, std::string text, Style style, float duration);
+    void add(const Object &object, std::string text, Style style);
 };
 
 } // namespace game

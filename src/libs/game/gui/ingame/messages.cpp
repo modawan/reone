@@ -52,21 +52,20 @@ void MessagesMenu::onGUILoaded() {
             _game.openInGame();
         }
     });
-    if (_game.isTSL()) {
-        _controls.BTN_FEEDBACK->setOnClick([this]() {
-            showFeedbackMessages();
-        });
-    } else {
+    if (!_game.isTSL()) {
         _controls.BTN_SHOW->setOnClick([this]() {
             toggleMessages();
         });
+        _controls.LB_MESSAGES->setItemsInteractive(false);
+        _controls.LB_MESSAGES->setProtoMatchContent(true);
     }
-
-    _controls.LB_MESSAGES->setItemsInteractive(false);
-    _controls.LB_MESSAGES->setProtoMatchContent(true);
 }
 
 void MessagesMenu::refresh() {
+    if (_game.isTSL()) {
+        return;
+    }
+
     _controls.LB_MESSAGES->clearItems();
 
     for (const MessageLog::Entry &entry : _game.messageLog().entries()) {
@@ -76,11 +75,9 @@ void MessagesMenu::refresh() {
 
         gui::ListBox::Item item;
         item.text = entry.text;
-        if (!_game.isTSL()) {
-            item.textColor = entry.style == MessageLog::Style::Red
-                                 ? kCombatColor
-                                 : kFeedbackColor;
-        }
+        item.textColor = entry.style == MessageLog::Style::Combat
+                             ? kCombatColor
+                             : kFeedbackColor;
         _controls.LB_MESSAGES->addItem(std::move(item));
     }
     _controls.LB_MESSAGES->scrollToBottom();
@@ -93,10 +90,6 @@ void MessagesMenu::refresh() {
 }
 
 void MessagesMenu::showDialogMessages() {
-    if (_game.isTSL()) {
-        return;
-    }
-
     _controls.LB_MESSAGES->setVisible(false);
     _controls.LB_DIALOG->setVisible(true);
     _controls.LBL_MESSAGES->setTextMessage(
@@ -108,32 +101,13 @@ void MessagesMenu::showDialogMessages() {
 }
 
 void MessagesMenu::showFeedbackMessages() {
-    if (!_game.isTSL()) {
-        _controls.LB_DIALOG->setVisible(false);
-        _controls.LB_MESSAGES->setVisible(true);
-        _controls.LBL_MESSAGES->setTextMessage(
-            _services.resource.strings.getText(kStrRefMessages) + " - " +
-            _services.resource.strings.getText(kStrRefFeedback));
-        _controls.BTN_SHOW->setTextMessage(
-            _services.resource.strings.getText(kStrRefShowDialog));
-        _showingFeedback = true;
-        return;
-    }
-
-    _controls.LB_COMBAT->setVisible(false);
     _controls.LB_DIALOG->setVisible(false);
-    _controls.LB_EFFECTS_BAD->setVisible(false);
-    _controls.LB_EFFECTS_GOOD->setVisible(false);
     _controls.LB_MESSAGES->setVisible(true);
-
-    _controls.LBL_EFFECTS_BAD->setVisible(false);
-    _controls.LBL_EFFECTS_GOOD->setVisible(false);
-    _controls.LBL_MESSAGES->setVisible(true);
-
-    _controls.BTN_COMBAT->setSelected(false);
-    _controls.BTN_DIALOG->setSelected(false);
-    _controls.BTN_EFFECTS->setSelected(false);
-    _controls.BTN_FEEDBACK->setSelected(true);
+    _controls.LBL_MESSAGES->setTextMessage(
+        _services.resource.strings.getText(kStrRefMessages) + " - " +
+        _services.resource.strings.getText(kStrRefFeedback));
+    _controls.BTN_SHOW->setTextMessage(
+        _services.resource.strings.getText(kStrRefShowDialog));
     _showingFeedback = true;
 }
 

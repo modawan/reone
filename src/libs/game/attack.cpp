@@ -42,7 +42,6 @@ static constexpr char kModelEventDetonate[] = "detonate";
 static constexpr float kProjectileSpeed = 16.0f;
 static constexpr int kUnarmedCriticalThreat = 1;
 static constexpr int kCriticalHitImmunityPropertySubtype = 8;
-static constexpr int kAllDamageTypes = 8199;
 static constexpr float kSpecialAttackDefensePenaltyDuration = 3.0f;
 static constexpr float kCriticalStrikeStunDuration = 6.0f;
 
@@ -181,12 +180,8 @@ static int getCriticalThreat(const Item *weapon, int threatBonus) {
 struct AttackResolution {
     AttackResultType result {AttackResultType::Invalid};
     int roll {0};
-    int attackBonus {0};
     int defense {0};
-    int criticalThreat {0};
-    int confirmationRoll {0};
     bool assuredHit {false};
-    bool criticalHitImmune {false};
 };
 
 static AttackResolution computeAttack(
@@ -197,8 +192,6 @@ static AttackResolution computeAttack(
     int damageFlags) {
 
     AttackResolution resolution;
-    resolution.attackBonus = attackBonus;
-    resolution.criticalThreat = criticalThreat;
 
     // Determine defense of a target
     const auto *targetCreature = dyn_cast<Creature>(&target);
@@ -224,27 +217,27 @@ static AttackResolution computeAttack(
     }
 
     if (resolution.roll != 20 &&
-        (resolution.roll + resolution.attackBonus) < resolution.defense) {
+        (resolution.roll + attackBonus) < resolution.defense) {
         resolution.result = AttackResultType::Miss;
         debug(str(boost::format("computeAttack: miss: roll(%d), bonus(%d), defense(%d)") %
-                  resolution.roll % resolution.attackBonus % resolution.defense),
+                  resolution.roll % attackBonus % resolution.defense),
               LogChannel::Combat);
         return resolution;
     }
 
     // Critical threat
-    if (resolution.roll >= (21 - resolution.criticalThreat)) {
+    if (resolution.roll >= (21 - criticalThreat)) {
         // Critical confirmation
-        resolution.confirmationRoll = randomInt(1, 20);
-        if ((resolution.confirmationRoll + resolution.attackBonus) >= resolution.defense) {
-            resolution.criticalHitImmune =
+        int confirmationRoll = randomInt(1, 20);
+        if ((confirmationRoll + attackBonus) >= resolution.defense) {
+            bool criticalHitImmune =
                 targetCreature && hasCriticalHitImmunity(*targetCreature);
-            if (!resolution.criticalHitImmune) {
+            if (!criticalHitImmune) {
                 resolution.result = AttackResultType::CriticalHit;
                 debug(str(boost::format("computeAttack: critical hit: roll(%d), confirmation(%d),"
                                         " bonus(%d), defense(%d), critical threat(%d)") %
-                          resolution.roll % resolution.confirmationRoll % resolution.attackBonus %
-                          resolution.defense % resolution.criticalThreat),
+                          resolution.roll % confirmationRoll % attackBonus %
+                          resolution.defense % criticalThreat),
                       LogChannel::Combat);
                 return resolution;
             }
@@ -254,23 +247,10 @@ static AttackResolution computeAttack(
     resolution.result = AttackResultType::HitSuccessful;
     debug(str(boost::format("computeAttack: hit: roll(%d), bonus(%d), defense(%d),"
                             " critical threat(%d)") %
-              resolution.roll % resolution.attackBonus % resolution.defense % resolution.criticalThreat),
+              resolution.roll % attackBonus % resolution.defense % criticalThreat),
           LogChannel::Combat);
 
     return resolution;
-}
-
-static DamageType getBaseDamageType(int damageFlags) {
-    if (damageFlags <= 0) {
-        return DamageType::Universal;
-    }
-
-    int type = 1;
-    while (damageFlags > 1) {
-        damageFlags >>= 1;
-        type <<= 1;
-    }
-    return static_cast<DamageType>(type);
 }
 
 static int rollDamageDice(int numDice, int die) {
@@ -287,7 +267,7 @@ static void computeWeaponDamage(
     int damageBonus, DamagePacket &damage) {
 
     int multiplier = result == AttackResultType::CriticalHit
-                         ? std::max(weapon.criticalHitMultiplier(), 1)
+                         ? weapon.criticalHitMultiplier()
                          : 1;
     bool offHand = source == AttackBuffer::Source::Offhand;
 
@@ -302,8 +282,8 @@ static void computeWeaponDamage(
     amount += attacker.getMassiveCriticalDamage(
         &weapon, result == AttackResultType::CriticalHit);
 
-    DamageType type = getBaseDamageType(weapon.damageFlags());
-    damage.addBaseDamage(std::max(amount, 1), type);
+    DamageType type = getPrimaryDamageType(weapon.damageFlags());
+    damage.add(std::max(amount, 1), type);
     damage.setDamageFlags(weapon.damageFlags());
     attacker.addPhysicalDamageModifiers(
         damage,
@@ -335,7 +315,7 @@ static void computeUnarmedDamage(
     amount += attacker.getMassiveCriticalDamage(
         nullptr, result == AttackResultType::CriticalHit);
 
-    damage.addBaseDamage(std::max(amount, 1), DamageType::Bludgeoning);
+    damage.add(std::max(amount, 1), DamageType::Bludgeoning);
     damage.setDamageFlags(static_cast<int>(DamageType::Bludgeoning));
     attacker.addPhysicalDamageModifiers(
         damage,
@@ -458,26 +438,41 @@ void AttackBuffer::addPhysicalAttacks(const Creature &attacker, const Object &ta
         auto gloves = attacker.getEquippedItem(InventorySlots::hands);
         int attackThreatBonus = getSpecialAttackThreatBonus(feat, gloves.get());
         for (int i = 0; i < mainHandAttacks; ++i) {
-            addUnarmedAttack(
-                attacker, target,
-                attackRollBonus, attackThreatBonus, damageBonus);
+            addPhysicalAttack(
+                attacker,
+                target,
+                nullptr,
+                Source::Main,
+                attackRollBonus,
+                attackThreatBonus,
+                damageBonus);
         }
         return;
     }
 
     int mainThreatBonus = getSpecialAttackThreatBonus(feat, main.get());
     for (int i = 0; i < mainHandAttacks; ++i) {
-        addWeaponAttack(
-            attacker, target, *main, AttackBuffer::Source::Main,
-            attackRollBonus, mainThreatBonus, damageBonus);
+        addPhysicalAttack(
+            attacker,
+            target,
+            main.get(),
+            Source::Main,
+            attackRollBonus,
+            mainThreatBonus,
+            damageBonus);
     }
 
     auto offhand = attacker.getOffhandAttackWeapon();
     if (offhand) {
         int offhandThreatBonus = getSpecialAttackThreatBonus(feat, offhand.get());
-        addWeaponAttack(
-            attacker, target, *offhand, AttackBuffer::Source::Offhand,
-            attackRollBonus, offhandThreatBonus, damageBonus);
+        addPhysicalAttack(
+            attacker,
+            target,
+            offhand.get(),
+            Source::Offhand,
+            attackRollBonus,
+            offhandThreatBonus,
+            damageBonus);
     }
 }
 
@@ -496,7 +491,7 @@ void AttackBuffer::resolveMeleeSpecialAttack(
         auto effect = game.newEffect<ACDecreaseEffect>(
             defensePenalty,
             ACBonus::Dodge,
-            kAllDamageTypes);
+            kAllDamageTypeFlags);
         attacker.applyEffect(
             std::move(effect),
             DurationType::Temporary,
@@ -521,85 +516,70 @@ void AttackBuffer::resolveMeleeSpecialAttack(
     }
 }
 
-void AttackBuffer::addWeaponAttack(
-    const Creature &attacker, const Object &target, const Item &weapon,
-    Source source, int attackRollBonus, int attackThreatBonus, int damageBonus) {
+void AttackBuffer::addPhysicalAttack(
+    const Creature &attacker,
+    const Object &target,
+    const Item *weapon,
+    Source source,
+    int attackRollBonus,
+    int attackThreatBonus,
+    int damageBonus) {
 
+    bool offHand = source == Source::Offhand;
     const auto *targetCreature = dyn_cast<Creature>(&target);
-    int specialAttackBonus = attackRollBonus;
     AttackBonusBreakdown attackBonusBreakdown = attacker.getAttackBonusBreakdown(
         targetCreature,
-        &weapon,
-        source == AttackBuffer::Source::Offhand);
-    attackRollBonus += attackBonusBreakdown.total;
-    int criticalThreat = getCriticalThreat(&weapon, attackThreatBonus);
+        weapon,
+        offHand);
+    attackBonusBreakdown.featBonus = attackRollBonus;
+    attackRollBonus = attackBonusBreakdown.total();
+
+    auto handItem = weapon
+                        ? std::shared_ptr<Item>()
+                        : attacker.getEquippedItem(InventorySlots::hands);
+    const Item *criticalWeapon = weapon ? weapon : handItem.get();
+    int criticalThreat = getCriticalThreat(criticalWeapon, attackThreatBonus);
+    int damageFlags = weapon
+                          ? weapon->damageFlags()
+                          : static_cast<int>(DamageType::Bludgeoning);
 
     AttackResolution resolution = computeAttack(
         attacker,
         target,
         attackRollBonus,
         criticalThreat,
-        weapon.damageFlags());
+        damageFlags);
 
     _attacks.emplace_back(
         source,
-        weapon.isRanged(),
+        weapon && weapon->isRanged(),
         resolution.result,
         resolution.roll,
-        resolution.attackBonus,
-        specialAttackBonus,
         std::move(attackBonusBreakdown),
         resolution.defense,
-        resolution.confirmationRoll,
-        resolution.assuredHit,
-        resolution.criticalHitImmune);
+        resolution.assuredHit);
 
     if (!isAttackSuccessful(resolution.result)) {
         return;
     }
 
-    computeWeaponDamage(attacker, target, weapon, source, resolution.result,
-                        damageBonus, _attacks.back().damage);
-}
-
-void AttackBuffer::addUnarmedAttack(const Creature &attacker, const Object &target,
-                                    int attackRollBonus, int attackThreatBonus, int damageBonus) {
-    const auto *targetCreature = dyn_cast<Creature>(&target);
-    int specialAttackBonus = attackRollBonus;
-    AttackBonusBreakdown attackBonusBreakdown = attacker.getAttackBonusBreakdown(
-        targetCreature,
-        nullptr,
-        false);
-    attackRollBonus += attackBonusBreakdown.total;
-    auto gloves = attacker.getEquippedItem(InventorySlots::hands);
-    int criticalThreat = getCriticalThreat(gloves.get(), attackThreatBonus);
-
-    AttackResolution resolution = computeAttack(
-        attacker,
-        target,
-        attackRollBonus,
-        criticalThreat,
-        static_cast<int>(DamageType::Bludgeoning));
-
-    _attacks.emplace_back(
-        AttackBuffer::Source::Main,
-        false,
-        resolution.result,
-        resolution.roll,
-        resolution.attackBonus,
-        specialAttackBonus,
-        std::move(attackBonusBreakdown),
-        resolution.defense,
-        resolution.confirmationRoll,
-        resolution.assuredHit,
-        resolution.criticalHitImmune);
-
-    if (!isAttackSuccessful(resolution.result)) {
-        return;
+    if (weapon) {
+        computeWeaponDamage(
+            attacker,
+            target,
+            *weapon,
+            source,
+            resolution.result,
+            damageBonus,
+            _attacks.back().damage);
+    } else {
+        computeUnarmedDamage(
+            attacker,
+            target,
+            resolution.result,
+            damageBonus,
+            _attacks.back().damage);
     }
-
-    computeUnarmedDamage(
-        attacker, target, resolution.result, damageBonus, _attacks.back().damage);
 }
 
 void AttackBuffer::resolveDamage(Object &target) {
@@ -608,8 +588,20 @@ void AttackBuffer::resolveDamage(Object &target) {
             continue;
         }
 
-        attack.damage.mitigate(target);
-        attack.resolvedDamage = attack.damage.resolvedDamage();
+        attack.damage.resolve(target);
+    }
+}
+
+void AttackBuffer::resolve(Creature &attacker, Object &target) {
+    if (_attacks.empty()) {
+        throw std::logic_error("Physical attack buffer is empty");
+    }
+
+    resolveDamage(target);
+    attacker.setLastAttackResult(_attacks.back().result);
+
+    if (auto *targetCreature = dyn_cast<Creature>(&target)) {
+        targetCreature->runAttackedScript(attacker.id());
     }
 }
 
@@ -631,6 +623,16 @@ void AttackBuffer::applyEffects(Creature &attacker, Object &target, Game &game) 
                 kCriticalStrikeStunDuration);
         }
     }
+}
+
+void AttackBuffer::signal(
+    Game &game,
+    ServicesView &services,
+    Creature &attacker,
+    Object &target) {
+
+    addCombatFeedback(game, services, attacker, target);
+    applyEffects(attacker, target, game);
 }
 
 static constexpr float kCombatFeedbackRange2 = 900.0f;
@@ -667,27 +669,18 @@ static constexpr int kStrRefAutomaticHit = 42390;
 static constexpr int kStrRefAutomaticMiss = 42391;
 static constexpr int kStrRefBaseAttackBonus = 42392;
 
-static void substituteFeedbackToken(
-    std::string &text,
-    int token,
-    const std::string &value) {
-
-    const std::string marker = "<CUSTOM" + std::to_string(token) + ">";
-    size_t pos = 0;
-    while ((pos = text.find(marker, pos)) != std::string::npos) {
-        text.replace(pos, marker.size(), value);
-        pos += value.size();
-    }
-}
-
 static std::string getFeedbackString(
+    Game &game,
     ServicesView &services,
     int strRef,
     std::initializer_list<std::pair<int, std::string>> tokens) {
 
     std::string text = services.resource.strings.getText(strRef);
     for (const auto &[token, value] : tokens) {
-        substituteFeedbackToken(text, token, value);
+        text = game.substituteCustomToken(
+            std::move(text),
+            token,
+            value);
     }
     return text;
 }
@@ -723,6 +716,7 @@ void AttackBuffer::addCombatFeedback(
     for (const Attack &attack : _attacks) {
         bool successful = isAttackSuccessful(attack.result);
         std::string feedback = getFeedbackString(
+            game,
             services,
             kStrRefAttackSummary,
             {
@@ -736,6 +730,7 @@ void AttackBuffer::addCombatFeedback(
         if (isPhysicalAttackFeat(_feat)) {
             auto feat = services.game.feats.get(_feat);
             feedback += getFeedbackString(
+                game,
                 services,
                 kStrRefAttackFeat,
                 {{0, feat->name}});
@@ -743,22 +738,31 @@ void AttackBuffer::addCombatFeedback(
         }
 
         feedback += getFeedbackString(
+            game,
             services,
             kStrRefAttackRoll,
             {
                 {0, services.resource.strings.getText(
                         successful ? kStrRefAttackRollSuccess : kStrRefAttackRollFailure)},
-                {1, std::to_string(attack.roll + attack.attackBonus)},
+                {1, std::to_string(
+                        attack.roll + attack.attackBonusBreakdown.total())},
                 {2, std::to_string(attack.defense)},
-                {3, std::to_string(std::max(attack.resolvedDamage, 0))},
+                {3, std::to_string(
+                        attack.damage.empty()
+                            ? 0
+                            : attack.damage.resolvedDamage())},
             });
 
         for (int broadcast = 0; broadcast < broadcasts; ++broadcast) {
-            game.messageLog().addCombat(feedback);
+            game.messageLog().add(
+                MessageLog::kFeedbackMessageType,
+                MessageLog::Style::Combat,
+                feedback);
         }
 
         const AttackBonusBreakdown &bonus = attack.attackBonusBreakdown;
         std::string breakdown = getFeedbackString(
+            game,
             services,
             kStrRefAttackBreakdown,
             {
@@ -766,9 +770,11 @@ void AttackBuffer::addCombatFeedback(
                         attack.source == Source::Main
                             ? kStrRefMainhand
                             : kStrRefOffhand)},
-                {1, std::to_string(attack.roll + attack.attackBonus)},
+                {1, std::to_string(
+                        attack.roll + attack.attackBonusBreakdown.total())},
             });
         breakdown += getFeedbackString(
+            game,
             services,
             kStrRefAttackRollComponent,
             {{0, std::to_string(attack.roll)}});
@@ -781,35 +787,40 @@ void AttackBuffer::addCombatFeedback(
             breakdown += services.resource.strings.getText(kStrRefAutomaticMiss);
         } else {
             breakdown += getFeedbackString(
+                game,
                 services,
                 kStrRefBaseAttackBonus,
                 {{0, std::to_string(bonus.baseAttackBonus)}});
 
             if (bonus.dualWieldPenalty != 0) {
                 breakdown += getFeedbackString(
+                    game,
                     services,
                     kStrRefDualWieldPenalty,
                     {{0, std::to_string(bonus.dualWieldPenalty)}});
             }
             if (bonus.smallOffhandBonus != 0) {
                 breakdown += getFeedbackString(
+                    game,
                     services,
                     kStrRefSmallOffhandBonus,
                     {{0, std::to_string(bonus.smallOffhandBonus)}});
             }
-            if (_feat != FeatType::Invalid && attack.specialAttackBonus != 0) {
+            if (_feat != FeatType::Invalid && bonus.featBonus != 0) {
                 auto feat = services.game.feats.get(_feat);
                 breakdown += getFeedbackString(
+                    game,
                     services,
                     kStrRefFeatAttackBonus,
                     {
                         {0, feat->name},
-                        {1, std::to_string(attack.specialAttackBonus)},
+                        {1, std::to_string(bonus.featBonus)},
                     });
             }
             if (bonus.duelingBonus != 0) {
                 auto feat = services.game.feats.get(bonus.duelingFeat);
                 breakdown += getFeedbackString(
+                    game,
                     services,
                     kStrRefFeatAttackBonus,
                     {
@@ -819,35 +830,41 @@ void AttackBuffer::addCombatFeedback(
             }
             if (bonus.closeProximityRangedBonus != 0) {
                 breakdown += getFeedbackString(
+                    game,
                     services,
                     kStrRefCloseProximityRangedBonus,
                     {{0, std::to_string(bonus.closeProximityRangedBonus)}});
             }
             if (bonus.meleeOnRangedBonus != 0) {
                 breakdown += getFeedbackString(
+                    game,
                     services,
                     kStrRefMeleeOnRangedBonus,
                     {{0, std::to_string(bonus.meleeOnRangedBonus)}});
             }
             if (bonus.dexterityModifier != 0) {
                 breakdown += getFeedbackString(
+                    game,
                     services,
                     kStrRefDexterityModifier,
                     {{0, std::to_string(bonus.dexterityModifier)}});
             } else if (bonus.strengthModifier != 0) {
                 breakdown += getFeedbackString(
+                    game,
                     services,
                     kStrRefStrengthModifier,
                     {{0, std::to_string(bonus.strengthModifier)}});
             }
             if (bonus.weaponFocusBonus != 0) {
                 breakdown += getFeedbackString(
+                    game,
                     services,
                     kStrRefWeaponFocusBonus,
                     {{0, std::to_string(bonus.weaponFocusBonus)}});
             }
             if (bonus.effectBonus != 0) {
                 breakdown += getFeedbackString(
+                    game,
                     services,
                     kStrRefEffectBonus,
                     {{0, std::to_string(bonus.effectBonus)}});
@@ -855,7 +872,10 @@ void AttackBuffer::addCombatFeedback(
         }
 
         for (int broadcast = 0; broadcast < broadcasts; ++broadcast) {
-            game.messageLog().addFeedback(breakdown);
+            game.messageLog().add(
+                MessageLog::kFeedbackMessageType,
+                MessageLog::Style::Normal,
+                breakdown);
         }
     }
 }
@@ -885,12 +905,6 @@ AttackResultType AttackBuffer::result() const {
     }
 
     return sortedByScore[bestIndex];
-}
-
-AttackResultType AttackBuffer::lastResult() const {
-    return _attacks.empty()
-               ? AttackResultType::Invalid
-               : _attacks.back().result;
 }
 
 std::shared_ptr<Item> determineProjectileWeapon(Creature &attacker, Projectile::Source source) {

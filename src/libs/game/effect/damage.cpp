@@ -30,21 +30,27 @@ namespace reone {
 
 namespace game {
 
-static constexpr int kAllDamageTypes = 8199;
-static constexpr int kPhysicalDamageTypes = 16391;
 static constexpr int kDamageTypeCount = 15;
 
-static bool damageTypeMatches(DamageType modifierType, DamageType damageType) {
-    int modifierFlags = static_cast<int>(modifierType);
-    int damageFlags = static_cast<int>(damageType);
+DamageType getPrimaryDamageType(int damageFlags) {
+    assert(damageFlags > 0);
 
-    if (modifierFlags == kAllDamageTypes) {
+    int type = 1;
+    while (damageFlags > 1) {
+        damageFlags >>= 1;
+        type <<= 1;
+    }
+    return static_cast<DamageType>(type);
+}
+
+bool damageTypeMatches(int modifierFlags, int damageFlags) {
+    if (modifierFlags == kAllDamageTypeFlags) {
         return true;
     }
     if (modifierFlags <= 0 || damageFlags == 0) {
         return false;
     }
-    if (modifierFlags == kPhysicalDamageTypes) {
+    if (modifierFlags == kPhysicalDamageTypeFlags) {
         return (damageFlags & static_cast<int>(DamageType::Physical)) != 0;
     }
     return (modifierFlags & damageFlags) != 0;
@@ -74,8 +80,9 @@ static int getDamageImmunity(const Object &object, DamageType damageType) {
             case EffectType::DamageImmunityIncrease: {
                 const auto &effect =
                     static_cast<const DamageImmunityIncreaseEffect &>(*applied.effect);
-                if (effect.active() &&
-                    damageTypeMatches(effect.damageType(), type)) {
+                if (damageTypeMatches(
+                        static_cast<int>(effect.damageType()),
+                        static_cast<int>(type))) {
                     immunity = std::clamp(
                         immunity + effect.percentImmunity(),
                         -100,
@@ -86,8 +93,9 @@ static int getDamageImmunity(const Object &object, DamageType damageType) {
             case EffectType::DamageImmunityDecrease: {
                 const auto &effect =
                     static_cast<const DamageImmunityDecreaseEffect &>(*applied.effect);
-                if (effect.active() &&
-                    damageTypeMatches(effect.damageType(), type)) {
+                if (damageTypeMatches(
+                        static_cast<int>(effect.damageType()),
+                        static_cast<int>(type))) {
                     immunity = std::clamp(
                         immunity - effect.percentImmunity(),
                         -100,
@@ -148,7 +156,9 @@ static int applyDamageResistance(
         }
 
         auto effect = std::static_pointer_cast<DamageResistanceEffect>(applied.effect);
-        if (!damageTypeMatches(effect->damageType(), damageType) ||
+        if (!damageTypeMatches(
+                static_cast<int>(effect->damageType()),
+                static_cast<int>(damageType)) ||
             effect->amount() <= resistance) {
             continue;
         }
@@ -177,8 +187,8 @@ static int applyDamageReduction(
         return 0;
     }
     if (!damageTypeMatches(
-            static_cast<DamageType>(kPhysicalDamageTypes),
-            damageType)) {
+            kPhysicalDamageTypeFlags,
+            static_cast<int>(damageType))) {
         return damage;
     }
 
@@ -217,8 +227,14 @@ static int applyDamageReduction(
     return std::max(0, damage - prevented);
 }
 
+void DamagePacket::requireUnresolved() const {
+    if (isResolved()) {
+        throw std::logic_error("Damage packet has already been resolved");
+    }
+}
+
 void DamagePacket::addResolved(int amount, DamageType type) {
-    for (DamageComponent &component : _components) {
+    for (Component &component : _components) {
         if (component.type == type) {
             component.amount = std::max(component.amount + amount, 1);
             return;
@@ -230,40 +246,34 @@ void DamagePacket::addResolved(int amount, DamageType type) {
 }
 
 void DamagePacket::add(int amount, DamageType type) {
-    if (_mitigated || amount == 0) {
+    requireUnresolved();
+    if (amount == 0) {
         return;
     }
 
-    addResolved(amount, type);
-}
-
-void DamagePacket::addBaseDamage(int amount, DamageType type) {
-    if (_mitigated || amount <= 0) {
-        return;
-    }
-
-    _damageFlags = static_cast<int>(type);
-    _baseDamage += amount;
     addResolved(amount, type);
 }
 
 void DamagePacket::setDamageFlags(int damageFlags) {
-    if (!_mitigated && damageFlags != 0) {
-        _damageFlags = damageFlags;
+    requireUnresolved();
+    if (damageFlags == 0) {
+        throw std::invalid_argument("Damage flags must not be zero");
     }
+    _damageFlags = damageFlags;
 }
 
 void DamagePacket::setPower(DamagePower power) {
+    requireUnresolved();
     if (static_cast<int>(power) > static_cast<int>(_power)) {
         _power = power;
     }
 }
 
-void DamagePacket::mitigate(Object &object) {
-    if (_mitigated) {
-        return;
+void DamagePacket::resolve(Object &object) {
+    requireUnresolved();
+    if (_damageFlags == 0) {
+        throw std::logic_error("Damage packet has no damage flags");
     }
-    _mitigated = true;
 
     int amount = total();
     if (object.plotFlag()) {
@@ -278,16 +288,25 @@ void DamagePacket::mitigate(Object &object) {
     _resolvedDamage = amount;
 }
 
+int DamagePacket::resolvedDamage() const {
+    if (!_resolvedDamage) {
+        throw std::logic_error("Damage packet has not been resolved");
+    }
+    return *_resolvedDamage;
+}
+
 int DamagePacket::total() const {
     int result = 0;
-    for (const DamageComponent &component : _components) {
+    for (const Component &component : _components) {
         result += component.amount;
     }
     return result;
 }
 
 void DamageEffect::applyTo(Object &object) {
-    _damage.mitigate(object);
+    if (!_damage.isResolved()) {
+        _damage.resolve(object);
+    }
 
     int amount = _damage.resolvedDamage();
     debug(str(boost::format("Damage taken: %s %d") % object.tag() % amount));

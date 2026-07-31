@@ -242,8 +242,6 @@ public:
         const Creature *target,
         const Item *weapon,
         bool offHand) const;
-    int getAttackBonus(const Creature *target, const Item *weapon, bool offHand) const;
-    int getAttackBonus(const Item *weapon, bool offHand) const;
     int getAttackBonus(bool offHand = false) const;
     int getDefense(const Creature *attacker, int damageFlags) const;
     int getDefense() const;
@@ -383,7 +381,7 @@ private:
     float _walkSpeed {0.0f};
     float _runSpeed {0.0f};
     float _creaturePersonalSpace {0.6f};
-    CreatureSize _size {CreatureSize::Medium};
+    CreatureSize _size {CreatureSize::Invalid};
     MovementType _movementType {MovementType::None};
     bool _talking {false};
 

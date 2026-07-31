@@ -391,8 +391,7 @@ void Control::renderText(const std::vector<std::string> &lines,
     getTextPosition(position, static_cast<int>(lines.size()), size, gravity);
 
     glm::vec3 linePosition(0.0f);
-    glm::vec3 rgb((_selected && _hilight) ? _hilight->color : _text.color);
-    glm::vec4 color(rgb, _text.alpha);
+    glm::vec3 color((_selected && _hilight) ? _hilight->color : _text.color);
 
     for (auto &line : lines) {
         linePosition.x = static_cast<float>(position.x + offset.x);
@@ -621,10 +620,6 @@ void Control::setTextFont(std::shared_ptr<Font> font) {
 
 void Control::setTextColor(glm::vec3 color) {
     _text.color = std::move(color);
-}
-
-void Control::setTextAlpha(float alpha) {
-    _text.alpha = alpha;
 }
 
 void Control::setSceneName(std::string name) {

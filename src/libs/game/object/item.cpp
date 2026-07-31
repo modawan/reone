@@ -20,6 +20,7 @@
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
 #include "reone/game/di/services.h"
+#include "reone/game/twodautil.h"
 #include "reone/game/game.h"
 #include "reone/graphics/di/services.h"
 #include "reone/resource/2da.h"
@@ -130,28 +131,43 @@ void Item::deserializeBase(const resource::Gff &gff) {
         return;
     }
 
-    std::shared_ptr<TwoDA> baseItems(_services.resource.twoDas.get("baseitems"));
-    if (!baseItems) {
-        return;
-    }
-    _attackRange = baseItems->getInt(_baseItem, "maxattackrange");
-    _baseDefense = baseItems->getInt(_baseItem, "baseac");
-    _criticalHitMultiplier = baseItems->getInt(_baseItem, "crithitmult");
-    _criticalThreat = baseItems->getInt(_baseItem, "critthreat");
-    _damageFlags = baseItems->getInt(_baseItem, "damageflags");
-    _dieToRoll = baseItems->getInt(_baseItem, "dietoroll");
-    _maxDexterityBonus = baseItems->getInt(_baseItem, "dexbonus", -1);
-    _equipableSlots = baseItems->getHexInt(_baseItem, "equipableslots", 0);
-    _itemClass = boost::to_lower_copy(baseItems->getString(_baseItem, "itemclass"));
-    _numDice = baseItems->getInt(_baseItem, "numdice");
-    _acBonusType = static_cast<ACBonus>(baseItems->getInt(_baseItem, "ac_enchant", -1));
-    _weaponType = static_cast<WeaponType>(baseItems->getInt(_baseItem, "weapontype"));
-    _weaponWield = static_cast<WeaponWield>(baseItems->getInt(_baseItem, "weaponwield"));
-    _weaponSize = static_cast<CreatureSize>(baseItems->getInt(_baseItem, "weaponsize"));
-    _weaponFocusFeat = static_cast<FeatType>(
-        baseItems->getInt(_baseItem, "focfeat", static_cast<int>(FeatType::Invalid)));
-    _weaponSpecializationFeat = static_cast<FeatType>(
-        baseItems->getInt(_baseItem, "specfeat", static_cast<int>(FeatType::Invalid)));
+    auto baseItems = getRequiredTwoDA(_services.resource.twoDas, "baseitems");
+    _attackRange = getTwoDAFloatOrBlank(
+        *baseItems, "baseitems", _baseItem, "maxattackrange", 0.0f);
+    _baseDefense = getTwoDAIntOrBlank(
+        *baseItems, "baseitems", _baseItem, "baseac", 0);
+    _criticalHitMultiplier = getTwoDAIntOrBlank(
+        *baseItems, "baseitems", _baseItem, "crithitmult", 0);
+    _criticalThreat = getTwoDAIntOrBlank(
+        *baseItems, "baseitems", _baseItem, "critthreat", 0);
+    _damageFlags = getTwoDAIntOrBlank(
+        *baseItems, "baseitems", _baseItem, "damageflags", 0);
+    _dieToRoll = getTwoDAIntOrBlank(
+        *baseItems, "baseitems", _baseItem, "dietoroll", 0);
+    _maxDexterityBonus = getTwoDAIntOrBlank(
+        *baseItems, "baseitems", _baseItem, "dexbonus", -1);
+    _equipableSlots = static_cast<uint32_t>(getTwoDAIntOrBlank(
+        *baseItems, "baseitems", _baseItem, "equipableslots", 0));
+    _itemClass = boost::to_lower_copy(getTwoDAStringOrBlank(
+        *baseItems, "baseitems", _baseItem, "itemclass", ""));
+    _numDice = getTwoDAIntOrBlank(
+        *baseItems, "baseitems", _baseItem, "numdice", 0);
+    _acBonusType = static_cast<ACBonus>(getTwoDAIntOrBlank(
+        *baseItems,
+        "baseitems",
+        _baseItem,
+        "ac_enchant",
+        static_cast<int>(ACBonus::Invalid)));
+    _weaponType = static_cast<WeaponType>(getTwoDAIntOrBlank(
+        *baseItems, "baseitems", _baseItem, "weapontype", 0));
+    _weaponWield = static_cast<WeaponWield>(getTwoDAIntOrBlank(
+        *baseItems, "baseitems", _baseItem, "weaponwield", 0));
+    _weaponSize = static_cast<CreatureSize>(getTwoDAIntOrBlank(
+        *baseItems, "baseitems", _baseItem, "weaponsize", 0));
+    _weaponFocusFeat = static_cast<FeatType>(getTwoDAIntOrBlank(
+        *baseItems, "baseitems", _baseItem, "focfeat", 0));
+    _weaponSpecializationFeat = static_cast<FeatType>(getTwoDAIntOrBlank(
+        *baseItems, "baseitems", _baseItem, "specfeat", 0));
 
     std::string iconResRef;
     if (isEquippable(InventorySlots::body)) {
@@ -172,9 +188,10 @@ void Item::deserializeBase(const resource::Gff &gff) {
 }
 
 void Item::loadAmmunitionType() {
-    std::shared_ptr<TwoDA> baseItems(_services.resource.twoDas.get("baseitems"));
+    auto baseItems = getRequiredTwoDA(_services.resource.twoDas, "baseitems");
 
-    int ammunitionIdx = baseItems->getInt(_baseItem, "ammunitiontype", -1);
+    int ammunitionIdx = getTwoDAIntOrBlank(
+        *baseItems, "baseitems", _baseItem, "ammunitiontype", 0);
     if (ammunitionIdx != -1) {
         std::shared_ptr<TwoDA> twoDa(_services.resource.twoDas.get("ammunitiontypes"));
         _ammunitionType = std::make_shared<Item::AmmunitionType>();

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 The reone project contributors
+ * Copyright (c) 2020-2023 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,42 +17,41 @@
 
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
-#include <deque>
-#include <string>
-#include <utility>
+#include <algorithm>
 
 namespace reone {
 
 namespace game {
 
-/**
- * Rolling in-game feedback history.
- */
-class MessageLog {
+class DamageAbsorption {
 public:
-    enum class Style : uint8_t {
-        Normal = 0,
-        Combat = 1,
-    };
+    DamageAbsorption(int amount, int limit) :
+        _amount(amount),
+        _limit(limit),
+        _limited(limit > 0) {
+    }
 
-    struct Entry {
-        uint32_t type;
-        Style style;
-        std::string text;
-    };
+    int amount() const { return _amount; }
 
-    static constexpr std::size_t kMaxEntries = 64;
-    static constexpr uint32_t kFeedbackMessageType = 0x80;
+    int absorb(int damage) {
+        if (damage <= 0 || _amount <= 0) {
+            return 0;
+        }
+        if (!_limited) {
+            return std::min(damage, _amount);
+        }
 
-    void add(uint32_t type, Style style, std::string text);
-    void reset() { _entries.clear(); }
+        int remaining = _limit;
+        _limit = std::max(0, _limit - damage);
+        return std::min(damage, _limit == 0 ? remaining : _amount);
+    }
 
-    const std::deque<Entry> &entries() const { return _entries; }
+    bool exhausted() const { return _limited && _limit == 0; }
 
 private:
-    std::deque<Entry> _entries;
+    int _amount;
+    int _limit;
+    bool _limited;
 };
 
 } // namespace game

@@ -33,8 +33,6 @@ public:
     bool onApply(Object &object) override;
     void onRemove(Object &object) override;
 
-    int attacks() const { return _attacks; }
-
 private:
     int _attacks;
 };

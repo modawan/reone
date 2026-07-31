@@ -41,13 +41,7 @@ static constexpr float kMaxAttackRange = 20.0f;
 static constexpr float kAttackTargetSearchPadding = 2.0f;
 
 static bool isTemporarilyDead(const Creature &creature, const Party &party) {
-    bool partyMember = std::any_of(
-        party.members().begin(),
-        party.members().end(),
-        [&creature](const Party::Member &member) {
-            return member.creature && member.creature->id() == creature.id();
-        });
-    return partyMember && creature.currentHitPoints() <= 0;
+    return party.isMember(creature) && creature.currentHitPoints() <= 0;
 }
 
 static bool isUnavailableAttackTarget(const Creature &creature, const Party &party) {
@@ -319,11 +313,9 @@ void Combat::finishRound(CombatRound &round) {
         }
 
         if (Logger::instance.isChannelEnabled(LogChannel::Combat)) {
-            auto attacker = _game.getObjectById<Creature>(action.attacker);
-            std::string attackerLabel = attacker
-                                            ? attacker->tag()
-                                            : str(boost::format("Object %u") % action.attacker);
-            debug(str(boost::format("Finish round: %s") % attackerLabel), LogChannel::Combat);
+            if (auto attacker = _game.getObjectById<Creature>(action.attacker)) {
+                debug(str(boost::format("Finish round: %s") % attacker->tag()), LogChannel::Combat);
+            }
         }
     }
 
@@ -354,16 +346,7 @@ void Combat::finishRound(CombatRound &round) {
             continue;
         }
 
-        bool hasPendingUserAction = false;
-        for (const std::shared_ptr<Action> &queued : leader->actions()) {
-            if (queued != action.action &&
-                !queued->isCompleted() &&
-                queued->isUserAction()) {
-                hasPendingUserAction = true;
-                break;
-            }
-        }
-        if (hasPendingUserAction) {
+        if (leader->hasUserActionsPending(action.action.get())) {
             continue;
         }
 

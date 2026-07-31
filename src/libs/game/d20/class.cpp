@@ -22,6 +22,7 @@
 #include "reone/resource/strings.h"
 
 #include "reone/game/d20/classes.h"
+#include "reone/game/twodautil.h"
 
 using namespace reone::resource;
 
@@ -63,13 +64,16 @@ void CreatureClass::load(const TwoDA &twoDa, int row) {
     std::string skillsTable(boost::to_lower_copy(twoDa.getString(row, "skillstable")));
     loadClassSkills(skillsTable);
 
-    std::string savingThrowTable(boost::to_lower_copy(twoDa.getString(row, "savingthrowtable")));
+    std::string savingThrowTable(boost::to_lower_copy(
+        getRequiredTwoDAString(twoDa, "classes", row, "savingthrowtable")));
     loadSavingThrows(savingThrowTable);
 
-    std::string attackBonusTable(boost::to_lower_copy(twoDa.getString(row, "attackbonustable")));
+    std::string attackBonusTable(boost::to_lower_copy(
+        getRequiredTwoDAString(twoDa, "classes", row, "attackbonustable")));
     loadAttackBonuses(attackBonusTable);
 
-    std::string defenseBonusColumn(boost::to_lower_copy(twoDa.getString(row, "armorclasscolumn")));
+    std::string defenseBonusColumn(boost::to_lower_copy(
+        getRequiredTwoDAString(twoDa, "classes", row, "armorclasscolumn")));
     loadDefenseBonuses(defenseBonusColumn);
 
     std::string featsPrefix(boost::to_lower_copy(twoDa.getString(row, "featstable")));
@@ -92,30 +96,39 @@ void CreatureClass::loadClassSkills(const std::string &skillsTable) {
 }
 
 void CreatureClass::loadSavingThrows(const std::string &savingThrowTable) {
-    std::shared_ptr<TwoDA> twoDa(_twoDas.get(savingThrowTable));
+    auto twoDa = getRequiredTwoDA(_twoDas, savingThrowTable);
     for (int row = 0; row < twoDa->getRowCount(); ++row) {
-        int level = twoDa->getInt(row, "level");
+        int level = getRequiredTwoDAInt(
+            *twoDa, savingThrowTable, row, "level");
 
         SavingThrows throws;
-        throws.fortitude = twoDa->getInt(row, "fortsave");
-        throws.reflex = twoDa->getInt(row, "refsave");
-        throws.will = twoDa->getInt(row, "willsave");
+        throws.fortitude = getRequiredTwoDAInt(
+            *twoDa, savingThrowTable, row, "fortsave");
+        throws.reflex = getRequiredTwoDAInt(
+            *twoDa, savingThrowTable, row, "refsave");
+        throws.will = getRequiredTwoDAInt(
+            *twoDa, savingThrowTable, row, "willsave");
 
         _savingThrowsByLevel.insert(std::make_pair(level, std::move(throws)));
     }
 }
 
 void CreatureClass::loadAttackBonuses(const std::string &attackBonusTable) {
-    std::shared_ptr<TwoDA> twoDa(_twoDas.get(attackBonusTable));
+    auto twoDa = getRequiredTwoDA(_twoDas, attackBonusTable);
     for (int row = 0; row < twoDa->getRowCount(); ++row) {
-        _attackBonuses.push_back(twoDa->getInt(row, "bab"));
+        _attackBonuses.push_back(getRequiredTwoDAInt(
+            *twoDa, attackBonusTable, row, "bab"));
     }
 }
 
 void CreatureClass::loadDefenseBonuses(const std::string &defenseBonusColumn) {
-    std::shared_ptr<TwoDA> twoDa(_twoDas.get(kDefenseBonusTwoDAResRef));
+    auto twoDa = getRequiredTwoDA(_twoDas, kDefenseBonusTwoDAResRef);
     for (int row = 0; row < twoDa->getRowCount(); ++row) {
-        _defenseBonuses.push_back(twoDa->getInt(row, defenseBonusColumn));
+        _defenseBonuses.push_back(getRequiredTwoDAInt(
+            *twoDa,
+            kDefenseBonusTwoDAResRef,
+            row,
+            defenseBonusColumn));
     }
 }
 

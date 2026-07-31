@@ -95,7 +95,7 @@ public:
     const std::string &baseBodyVariation() const { return _baseBodyVariation; }
     const std::string &itemClass() const { return _itemClass; }
     const std::string &localizedName() const { return _localizedName.str(); }
-    float attackRange() const { return static_cast<float>(_attackRange); }
+    float attackRange() const { return _attackRange; }
     int bodyVariation() const { return _bodyVariation; }
     int damageFlags() const {
         return _damageFlags != 0
@@ -156,7 +156,7 @@ private:
 
     std::shared_ptr<graphics::Texture> _icon;
     uint32_t _equipableSlots {0};
-    int _attackRange {0};
+    float _attackRange {0.0f};
     int _numDice {0};
     int _dieToRoll {0};
     int _damageFlags {0};

@@ -163,19 +163,13 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         attacker.setMovementRestricted(true);
 
         attack(round, attacker, *_target, _services.game.animations, _attacks);
-        _attacks.resolveDamage(*_target);
-        attacker.setLastAttackResult(_attacks.lastResult());
-
-        if (auto target = dyn_cast<Creature>(_target)) {
-            target->runAttackedScript(attacker.id());
-        }
+        _attacks.resolve(attacker, *_target);
 
         addProjectiles(attacker);
         return;
     }
     case AttackSchedule::Damage: {
-        _attacks.addCombatFeedback(_game, _services, attacker, *_target);
-        _attacks.applyEffects(attacker, *_target, _game);
+        _attacks.signal(_game, _services, attacker, *_target);
         break;
     }
     case AttackSchedule::Finish: {

@@ -46,7 +46,6 @@ void NameEntry::onGUILoaded() {
         loadRandomName();
     });
     _controls.END_BTN->setOnClick([this]() {
-        _charGen.setCharacterName(std::string(_buffer.str()));
         _charGen.goToNextStep();
         _charGen.openSteps();
     });

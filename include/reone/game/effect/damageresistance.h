@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include <algorithm>
-
 #include "../effect.h"
+#include "damageabsorption.h"
 
 namespace reone {
 
@@ -30,40 +29,19 @@ public:
     DamageResistanceEffect(DamageType damageType, int amount, int limit) :
         Effect(EffectType::DamageResistance),
         _damageType(damageType),
-        _amount(amount),
-        _limit(limit),
-        _limited(limit > 0) {
+        _absorption(amount, limit) {
     }
 
     void applyTo(Object &object) override;
 
     DamageType damageType() const { return _damageType; }
-    int amount() const { return _amount; }
-
-    int absorb(int damage) {
-        if (damage <= 0 || _amount <= 0) {
-            return 0;
-        }
-
-        if (!_limited) {
-            return std::min(damage, _amount);
-        }
-
-        int remaining = _limit;
-        _limit = std::max(0, _limit - damage);
-        if (_limit == 0) {
-            return std::min(damage, remaining);
-        }
-        return std::min(damage, _amount);
-    }
-
-    bool exhausted() const { return _limited && _limit == 0; }
+    int amount() const { return _absorption.amount(); }
+    int absorb(int damage) { return _absorption.absorb(damage); }
+    bool exhausted() const { return _absorption.exhausted(); }
 
 private:
     DamageType _damageType;
-    int _amount;
-    int _limit;
-    bool _limited;
+    DamageAbsorption _absorption;
 };
 
 } // namespace game

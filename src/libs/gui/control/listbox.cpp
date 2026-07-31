@@ -42,7 +42,6 @@ namespace reone {
 
 namespace gui {
 
-static constexpr int kItemPadding = 3;
 static constexpr glm::vec3 kInvalidItemBorderColor {1.0f, 0.0f, 0.0f};
 
 void ListBox::clearItems() {
@@ -381,7 +380,7 @@ int ListBox::getInnerHeight() const {
     if (_border) {
         height -= 2 * _border->dimension;
     }
-    return std::max(height, 0);
+    return height;
 }
 
 int ListBox::getItemWidth() const {
@@ -393,7 +392,7 @@ int ListBox::getItemWidth() const {
         width -= 2 * _border->dimension;
     }
     width -= 2 * _padding;
-    return std::max(width, 0);
+    return width;
 }
 
 int ListBox::getItemHeight(const Item &item) const {

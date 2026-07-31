@@ -112,10 +112,10 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/effect/cutsceneparalyze.h
     ${GAME_INCLUDE_DIR}/effect/cutscenestunned.h
     ${GAME_INCLUDE_DIR}/effect/damage.h
+    ${GAME_INCLUDE_DIR}/effect/damageabsorption.h
     ${GAME_INCLUDE_DIR}/effect/damagedecrease.h
     ${GAME_INCLUDE_DIR}/effect/damageforcepoints.h
     ${GAME_INCLUDE_DIR}/effect/damageimmunitydecrease.h
-    ${GAME_INCLUDE_DIR}/effect/damageimmunityincrease.h
     ${GAME_INCLUDE_DIR}/effect/damageimmunityincrease.h
     ${GAME_INCLUDE_DIR}/effect/damageincrease.h
     ${GAME_INCLUDE_DIR}/effect/damagereduction.h
@@ -335,6 +335,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/swooprace.h
     ${GAME_INCLUDE_DIR}/talent.h
     ${GAME_INCLUDE_DIR}/transitioncandidate.h
+    ${GAME_INCLUDE_DIR}/twodautil.h
     ${GAME_INCLUDE_DIR}/types.h
     ${GAME_INCLUDE_DIR}/visualeffects.h)
 
@@ -545,6 +546,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/surfaces.cpp
     ${GAME_SOURCE_DIR}/swooprace.cpp
     ${GAME_SOURCE_DIR}/transitioncandidate.cpp
+    ${GAME_SOURCE_DIR}/twodautil.cpp
     ${GAME_SOURCE_DIR}/visualeffects.cpp)
 
 add_library(game STATIC ${GAME_HEADERS} ${GAME_SOURCES} ${CLANG_FORMAT_PATH})

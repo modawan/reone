@@ -27,6 +27,7 @@
 #include "reone/graphics/context.h"
 #include "reone/graphics/font.h"
 #include "reone/graphics/uniforms.h"
+#include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/fonts.h"
 #include "reone/resource/strings.h"
 #include "reone/scene/node/camera.h"
@@ -59,9 +60,9 @@ void FloatingText::addDamage(
     }
 
     if (damager == leader->id()) {
-        add(object, std::to_string(amount), Style::Damage, kFloatingTextDuration);
+        add(object, std::to_string(amount), Style::Damage);
     } else if (object.id() == leader->id()) {
-        add(object, std::to_string(adjustedAmount), Style::Damage, kFloatingTextDuration);
+        add(object, std::to_string(adjustedAmount), Style::Damage);
     }
 }
 
@@ -70,7 +71,7 @@ void FloatingText::addHeal(const Object &object, int amount) {
         return;
     }
 
-    add(object, std::to_string(amount), Style::Heal, kFloatingTextDuration);
+    add(object, std::to_string(amount), Style::Heal);
 }
 
 void FloatingText::addMiss(const Creature &attacker, const Object &target) {
@@ -86,11 +87,10 @@ void FloatingText::addMiss(const Creature &attacker, const Object &target) {
     add(
         target,
         _services.resource.strings.getText(kMissStrRef),
-        Style::Miss,
-        kFloatingTextDuration);
+        Style::Miss);
 }
 
-void FloatingText::add(const Object &object, std::string text, Style style, float duration) {
+void FloatingText::add(const Object &object, std::string text, Style style) {
     for (Entry &entry : _entries) {
         if (entry.objectId == object.id()) {
             ++entry.stack;
@@ -102,7 +102,7 @@ void FloatingText::add(const Object &object, std::string text, Style style, floa
         }),
         _entries.end());
 
-    _entries.push_back({object.id(), std::move(text), style, duration, duration, 1});
+    _entries.push_back({object.id(), std::move(text), style, kFloatingTextDuration, 1});
 }
 
 void FloatingText::update(float dt) {
@@ -124,11 +124,12 @@ void FloatingText::render() {
     const std::string fontResRef(
         options.width > 1279 ? "fnt_d16x16b" : "fnt_d16x16a");
     if (!_font || _fontResRef != fontResRef) {
-        _font = _services.resource.fonts.getExact(fontResRef);
+        _font = _services.resource.fonts.get(fontResRef);
         _fontResRef = fontResRef;
     }
     if (!_font) {
-        return;
+        throw resource::ResourceNotFoundException(
+            "Floating-text font not found: " + fontResRef);
     }
 
     auto camera = _game.getActiveCamera();
@@ -224,10 +225,7 @@ void FloatingText::render() {
                                         float y = options.height * (1.0f - screen.y) -
                                                   kFloatingTextOffsetY -
                                                   (entry.stack - 0.5f) * lineHeight;
-                                        float alpha = glm::clamp(
-                                            entry.remaining / entry.duration,
-                                            0.0f,
-                                            1.0f);
+                                        float alpha = entry.remaining / kFloatingTextDuration;
 
                                         _font->render(
                                             entry.text,

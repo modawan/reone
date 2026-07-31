@@ -103,7 +103,6 @@ public:
         std::string text;
         std::shared_ptr<graphics::Font> font;
         glm::vec3 color {1.0f};
-        float alpha {1.0f};
         TextAlign align {TextAlign::CenterCenter};
     };
 
@@ -166,7 +165,6 @@ public:
     void setSceneName(std::string name);
     void setText(Text text);
     void setTextColor(glm::vec3 color);
-    void setTextAlpha(float alpha);
     void setTextMessage(std::string text);
     void setTextFont(std::shared_ptr<graphics::Font> font);
     void setTintBorderFill(bool tint) { _tintBorderFill = tint; }

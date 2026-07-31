@@ -205,11 +205,12 @@ void Object::executeActions(float dt) {
     _executingAction.reset();
 }
 
-bool Object::hasUserActionsPending() const {
+bool Object::hasUserActionsPending(const Action *excluded) const {
     // TODO: must only work during combat
-    for (auto &action : _actions) {
-        if (action->isUserAction())
+    for (const auto &action : _actions) {
+        if (action.get() != excluded && action->isUserAction()) {
             return true;
+        }
     }
     return false;
 }
@@ -361,7 +362,7 @@ void Object::moveDropableItemsTo(Object &other) {
 
 void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration) {
     if (durationType == DurationType::Instant) {
-        if (applyInstantEffect(*effect)) {
+        if (effect->onApply(*this)) {
             effect->onRemove(*this);
         }
     } else {
@@ -374,10 +375,6 @@ void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType dur
             _effects.pop_back();
         }
     }
-}
-
-bool Object::applyInstantEffect(Effect &effect) {
-    return effect.onApply(*this);
 }
 
 void Object::updateEffects(float dt) {
@@ -494,6 +491,25 @@ void Object::removeEffect(const std::shared_ptr<Effect> &effect) {
             return;
         }
     }
+}
+
+bool Object::hasEffect(EffectType type) const {
+    return std::any_of(
+        _effects.begin(),
+        _effects.end(),
+        [type](const AppliedEffect &applied) {
+            return applied.effect->type() == type;
+        });
+}
+
+int Object::applyDamageToHitPoints(int amount, int currentHitPoints) {
+    bool minimumOne = isMinOneHP();
+    int minimumHitPoints = minimumOne ? 1 : 0;
+    int adjustedAmount = minimumOne
+                             ? std::min(amount, std::max(0, currentHitPoints - minimumHitPoints))
+                             : amount;
+    _currentHitPoints = std::max(minimumHitPoints, currentHitPoints - amount);
+    return adjustedAmount;
 }
 
 void Object::damage(int amount, uint32_t damager) {

@@ -96,15 +96,9 @@ public:
     void update(float dt);
     void reset() { _rounds.clear(); }
 
-public:
+private:
     using RoundQueue = std::deque<std::unique_ptr<CombatRound>>;
 
-    /**
-     * Returns current combat rounds ordered from oldest to newest.
-     */
-    const RoundQueue &rounds() const { return _rounds; }
-
-private:
     Game &_game;
     ServicesView &_services;
 

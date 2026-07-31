@@ -109,7 +109,6 @@ private:
     int _slotCount {0};
     int _itemOffset {0};
     int _selectedItemIndex {-1};
-    int _itemMargin {0};
     bool _itemsInteractive {true};
     bool _protoMatchContent {false}; /**< proto item height must match its content */
     bool _renderItemIconsForButtonProto {false};

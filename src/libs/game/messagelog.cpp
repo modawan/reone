@@ -22,9 +22,6 @@ namespace reone {
 namespace game {
 
 void MessageLog::add(uint32_t type, Style style, std::string text) {
-    if (text.empty()) {
-        return;
-    }
     while (_entries.size() >= kMaxEntries) {
         _entries.pop_front();
     }

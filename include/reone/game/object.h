@@ -145,6 +145,7 @@ public:
     };
 
     const std::deque<AppliedEffect> &effects() const { return _effects; }
+    bool hasEffect(EffectType type) const;
     std::shared_ptr<Effect> getFirstEffect();
     std::shared_ptr<Effect> getNextEffect();
 
@@ -191,7 +192,7 @@ public:
     void addActionOnTop(std::shared_ptr<Action> action);
     void delayAction(std::shared_ptr<Action> action, float seconds);
 
-    bool hasUserActionsPending() const;
+    bool hasUserActionsPending(const Action *excluded = nullptr) const;
 
     std::shared_ptr<Action> getCurrentAction() const;
 
@@ -319,8 +320,9 @@ protected:
     // Effects
 
     void updateEffects(float dt);
-    bool applyInstantEffect(Effect &effect);
     virtual void onEffectsCleared() {}
+
+    int applyDamageToHitPoints(int amount, int currentHitPoints);
 
     // END Effects
 };

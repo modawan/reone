@@ -31,10 +31,8 @@ void StunnedEffect::applyTo(Object &object) {
 
 void StunnedEffect::onRemove(Object &object) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
-        for (const Object::AppliedEffect &applied : creature->effects()) {
-            if (applied.effect->type() == EffectType::Stunned) {
-                return;
-            }
+        if (creature->hasEffect(EffectType::Stunned)) {
+            return;
         }
         creature->resumeStateDrivenAnimation();
     }
