@@ -47,7 +47,10 @@ public:
         float lifeExpectancy,
         std::vector<std::pair<float, float>> animatedBirthrate = {},
         std::vector<Animation::Event> animationEvents = {},
-        float animationSpeed = 1.0f) {
+        float animationSpeed = 1.0f,
+        ModelNode::Emitter::UpdateMode updateMode =
+            ModelNode::Emitter::UpdateMode::Fountain,
+        bool loop = false) {
 
         _graphicsModule.init();
         _audioModule.init();
@@ -74,7 +77,8 @@ public:
             true,
             rootNode.get());
         auto emitter = std::make_shared<ModelNode::Emitter>();
-        emitter->updateMode = ModelNode::Emitter::UpdateMode::Fountain;
+        emitter->updateMode = updateMode;
+        emitter->loop = loop;
         emitterNode->setEmitter(emitter);
         emitterNode->floatTracks()[ControllerTypes::birthrate].add(0.0f, initialBirthrate);
         emitterNode->floatTracks()[ControllerTypes::lifeExp].add(0.0f, lifeExpectancy);
@@ -269,6 +273,19 @@ TEST(ParticleUtil, should_spawn_at_the_same_rate_across_frame_rates) {
     EXPECT_EQ(400, particles60Hz);
     EXPECT_EQ(400, particles144Hz);
     EXPECT_NEAR(accumulator60Hz, accumulator144Hz, 1e-4f);
+}
+
+TEST(ParticleUtil, should_age_new_particles_from_their_birth_time) {
+    float accumulator = 0.0f;
+
+    auto schedule = particleutil::advanceSpawnSchedule(
+        20.0f,
+        0.1f,
+        accumulator);
+
+    ASSERT_EQ(2, schedule.count);
+    EXPECT_NEAR(0.05f, schedule.ages[0], 1e-6f);
+    EXPECT_NEAR(0.0f, schedule.ages[1], 1e-6f);
 }
 
 TEST(ParticleUtil, should_clear_spawn_remainder_when_emitter_stops) {
@@ -484,20 +501,36 @@ TEST(ParticleUtil, should_integrate_animated_birthrate_across_frame_partitions) 
     AnimatedEmitterHarness singleUpdate(
         0.0f,
         1.0f,
-        {{0.0f, 0.0f}, {0.1f, 20.0f}});
+        {{0.0f, 10.0f}, {0.1f, 30.0f}});
     AnimatedEmitterHarness partitionedUpdate(
         0.0f,
         1.0f,
-        {{0.0f, 0.0f}, {0.1f, 20.0f}});
+        {{0.0f, 10.0f}, {0.1f, 30.0f}});
 
     singleUpdate.model().update(0.1f);
     partitionedUpdate.model().update(0.05f);
     partitionedUpdate.model().update(0.05f);
 
-    EXPECT_EQ(1u, singleUpdate.emitter().children().size());
-    EXPECT_EQ(
+    ASSERT_EQ(2u, singleUpdate.emitter().children().size());
+    ASSERT_EQ(
         singleUpdate.emitter().children().size(),
         partitionedUpdate.emitter().children().size());
+
+    std::vector<float> singleLifetimes;
+    std::vector<float> partitionedLifetimes;
+    for (auto *child : singleUpdate.emitter().children()) {
+        singleLifetimes.push_back(
+            static_cast<const ParticleSceneNode *>(child)->lifetime());
+    }
+    for (auto *child : partitionedUpdate.emitter().children()) {
+        partitionedLifetimes.push_back(
+            static_cast<const ParticleSceneNode *>(child)->lifetime());
+    }
+    std::sort(singleLifetimes.begin(), singleLifetimes.end());
+    std::sort(partitionedLifetimes.begin(), partitionedLifetimes.end());
+    for (size_t i = 0; i < singleLifetimes.size(); ++i) {
+        EXPECT_NEAR(singleLifetimes[i], partitionedLifetimes[i], 1e-5f);
+    }
 }
 
 TEST(ParticleUtil, should_keep_fractional_births_until_an_animated_emitter_stops) {
@@ -643,6 +676,45 @@ TEST(ParticleUtil, should_advance_culled_animation_without_hidden_particles_or_s
     harness.model().update(0.05f);
 
     EXPECT_EQ(1u, harness.emitter().children().size());
+}
+
+TEST(ParticleUtil, should_not_replay_a_culled_non_looping_single_emitter) {
+    AnimatedEmitterHarness harness(
+        0.0f,
+        1.0f,
+        {},
+        {},
+        1.0f,
+        ModelNode::Emitter::UpdateMode::Single,
+        false);
+    harness.model().setCulled(true);
+
+    harness.model().update(0.1f);
+    harness.model().setCulled(false);
+    harness.model().update(0.1f);
+
+    EXPECT_TRUE(harness.emitter().children().empty());
+}
+
+TEST(ParticleUtil, should_keep_a_culled_looping_single_emitter_eligible) {
+    AnimatedEmitterHarness harness(
+        0.0f,
+        1.0f,
+        {},
+        {},
+        1.0f,
+        ModelNode::Emitter::UpdateMode::Single,
+        true);
+    harness.model().setCulled(true);
+
+    harness.model().update(0.1f);
+    harness.model().setCulled(false);
+    harness.model().update(0.1f);
+
+    ASSERT_EQ(1u, harness.emitter().children().size());
+    auto particle = static_cast<const ParticleSceneNode *>(
+        *harness.emitter().children().begin());
+    EXPECT_NEAR(0.1f, particle->lifetime(), 1e-6f);
 }
 
 TEST(ParticleUtil, should_refresh_a_frozen_emitter_after_culled_animation_time) {

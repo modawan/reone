@@ -58,34 +58,51 @@ MotionBlurBasis buildMotionBlurBasis(
     return {right, up, 1.0f + trailLength / particleLength};
 }
 
-int advanceSpawnAccumulator(float birthrate, float dt, float &accumulator) {
+ParticleSpawnSchedule advanceSpawnSchedule(
+    float birthrate,
+    float dt,
+    float &accumulator) {
+
+    ParticleSpawnSchedule schedule;
     if (!std::isfinite(birthrate) ||
         !std::isfinite(dt) ||
         !std::isfinite(accumulator) ||
         birthrate <= 0.0f) {
         accumulator = 0.0f;
-        return 0;
+        return schedule;
     }
     if (dt <= 0.0f) {
-        return 0;
+        return schedule;
     }
     if (dt > kMaxContinuousParticleDelta) {
         accumulator = 0.0f;
-        return 0;
+        return schedule;
     }
 
-    accumulator += birthrate * dt;
-    if (!std::isfinite(accumulator)) {
+    float previousAccumulator = glm::clamp(accumulator, 0.0f, 1.0f);
+    float accumulatedBirths = previousAccumulator + birthrate * dt;
+    if (!std::isfinite(accumulatedBirths)) {
         accumulator = 0.0f;
-        return 0;
+        return schedule;
     }
 
-    float wholeParticles = glm::floor(accumulator);
-    accumulator -= wholeParticles;
-    if (wholeParticles >= static_cast<float>(kMaxSpawnParticlesPerUpdate)) {
-        return kMaxSpawnParticlesPerUpdate;
+    float wholeParticles = glm::floor(accumulatedBirths);
+    accumulator = accumulatedBirths - wholeParticles;
+    schedule.count = wholeParticles >=
+                             static_cast<float>(kMaxSpawnParticlesPerUpdate)
+                         ? kMaxSpawnParticlesPerUpdate
+                         : static_cast<int>(wholeParticles);
+    for (int i = 0; i < schedule.count; ++i) {
+        float birthTime =
+            (1.0f - previousAccumulator + static_cast<float>(i)) /
+            birthrate;
+        schedule.ages[i] = glm::clamp(dt - birthTime, 0.0f, dt);
     }
-    return static_cast<int>(wholeParticles);
+    return schedule;
+}
+
+int advanceSpawnAccumulator(float birthrate, float dt, float &accumulator) {
+    return advanceSpawnSchedule(birthrate, dt, accumulator).count;
 }
 
 AtlasFrameBounds atlasFrameBounds(

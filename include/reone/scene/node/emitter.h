@@ -58,7 +58,9 @@ public:
     };
 
     struct BirthrateStep {
-        float birthCount {0.0f};
+        float startRate {0.0f};
+        float endRate {0.0f};
+        float duration {0.0f};
         bool resetAccumulator {false};
     };
 
@@ -185,7 +187,7 @@ private:
 
     void spawnParticles(float dt);
     void removeExpiredParticles(float dt);
-    bool doSpawnParticle();
+    bool doSpawnParticle(float initialAge = 0.0f);
     void spawnLightningParticles();
     ParticleSceneNode *takeParticle();
     bool isSpawningSuppressed() const;

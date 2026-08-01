@@ -32,6 +32,11 @@ namespace particleutil {
 constexpr float kMaxContinuousParticleDelta = 0.25f;
 constexpr int kMaxSpawnParticlesPerUpdate = 256;
 
+struct ParticleSpawnSchedule {
+    std::array<float, kMaxSpawnParticlesPerUpdate> ages {0.0f};
+    int count {0};
+};
+
 struct MotionBlurBasis {
     glm::vec3 right {0.0f};
     glm::vec3 up {0.0f};
@@ -58,6 +63,11 @@ MotionBlurBasis buildMotionBlurBasis(
     float blurLength);
 
 int advanceSpawnAccumulator(float birthrate, float dt, float &accumulator);
+
+ParticleSpawnSchedule advanceSpawnSchedule(
+    float birthrate,
+    float dt,
+    float &accumulator);
 
 AtlasFrameBounds atlasFrameBounds(
     const glm::ivec2 &textureSize,

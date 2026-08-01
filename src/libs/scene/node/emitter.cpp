@@ -37,41 +37,34 @@ using namespace reone::graphics;
 
 namespace {
 
-float integratePositiveLinearSegment(float leftValue, float rightValue, float duration) {
-    if (duration <= 0.0f || (leftValue <= 0.0f && rightValue <= 0.0f)) {
-        return 0.0f;
-    }
-    if (leftValue >= 0.0f && rightValue >= 0.0f) {
-        return 0.5f * (leftValue + rightValue) * duration;
-    }
-
-    float zeroFactor = -leftValue / (rightValue - leftValue);
-    if (leftValue > 0.0f) {
-        return 0.5f * leftValue * duration * zeroFactor;
-    }
-    return 0.5f * rightValue * duration * (1.0f - zeroFactor);
-}
-
 void appendBirthrateReset(
-    std::vector<reone::scene::EmitterSceneNode::BirthrateStep> &steps) {
+    std::vector<reone::scene::EmitterSceneNode::BirthrateStep> &steps,
+    float duration = 0.0f) {
 
     if (steps.empty() || !steps.back().resetAccumulator) {
-        steps.push_back({0.0f, true});
+        steps.push_back({0.0f, 0.0f, duration, true});
+    } else {
+        steps.back().duration += duration;
     }
 }
 
-void appendBirthCount(
+void appendPositiveBirthrateSegment(
     std::vector<reone::scene::EmitterSceneNode::BirthrateStep> &steps,
-    float birthCount) {
+    float startRate,
+    float endRate,
+    float duration) {
 
-    if (!std::isfinite(birthCount) || birthCount <= 0.0f) {
+    if (!std::isfinite(startRate) ||
+        !std::isfinite(endRate) ||
+        !std::isfinite(duration) ||
+        duration <= 0.0f) {
         return;
     }
-    if (!steps.empty() && !steps.back().resetAccumulator) {
-        steps.back().birthCount += birthCount;
-    } else {
-        steps.push_back({birthCount, false});
-    }
+    steps.push_back({
+        glm::max(startRate, 0.0f),
+        glm::max(endRate, 0.0f),
+        duration,
+        false});
 }
 
 void appendBirthrateTrackSpan(
@@ -94,18 +87,40 @@ void appendBirthrateTrackSpan(
     }
 
     auto appendSegment = [&](float rightTime, float rightValue) {
-        if (leftValue <= 0.0f) {
-            appendBirthrateReset(steps);
-        }
-        appendBirthCount(
-            steps,
-            integratePositiveLinearSegment(
+        float duration = (rightTime - leftTime) / playbackSpeed;
+        if (leftValue <= 0.0f && rightValue <= 0.0f) {
+            appendBirthrateReset(steps, duration);
+        } else if (leftValue >= 0.0f && rightValue >= 0.0f) {
+            if (leftValue <= 0.0f) {
+                appendBirthrateReset(steps);
+            }
+            appendPositiveBirthrateSegment(
+                steps,
                 leftValue,
                 rightValue,
-                rightTime - leftTime) /
-                playbackSpeed);
-        if (rightValue <= 0.0f) {
-            appendBirthrateReset(steps);
+                duration);
+            if (rightValue <= 0.0f) {
+                appendBirthrateReset(steps);
+            }
+        } else {
+            float zeroFactor = -leftValue / (rightValue - leftValue);
+            float firstDuration = duration * zeroFactor;
+            float secondDuration = duration - firstDuration;
+            if (leftValue > 0.0f) {
+                appendPositiveBirthrateSegment(
+                    steps,
+                    leftValue,
+                    0.0f,
+                    firstDuration);
+                appendBirthrateReset(steps, secondDuration);
+            } else {
+                appendBirthrateReset(steps, firstDuration);
+                appendPositiveBirthrateSegment(
+                    steps,
+                    0.0f,
+                    rightValue,
+                    secondDuration);
+            }
         }
         leftTime = rightTime;
         leftValue = rightValue;
@@ -126,7 +141,34 @@ void appendBirthrateTrackSpan(
     appendSegment(endTime, rightValue);
 }
 
-int advanceAnimatedSpawnAccumulator(
+float timeAtIntegratedBirthCount(
+    float startRate,
+    float endRate,
+    float duration,
+    double birthCount) {
+
+    if (duration <= 0.0f || birthCount <= 0.0) {
+        return 0.0f;
+    }
+
+    double slope =
+        (static_cast<double>(endRate) - static_cast<double>(startRate)) /
+        static_cast<double>(duration);
+    double discriminant =
+        static_cast<double>(startRate) * static_cast<double>(startRate) +
+        2.0 * slope * birthCount;
+    double root = std::sqrt(glm::max(discriminant, 0.0));
+    double denominator = static_cast<double>(startRate) + root;
+    if (denominator <= 0.0) {
+        return duration;
+    }
+    return glm::clamp(
+        static_cast<float>(2.0 * birthCount / denominator),
+        0.0f,
+        duration);
+}
+
+reone::scene::particleutil::ParticleSpawnSchedule advanceAnimatedSpawnAccumulator(
     const std::vector<reone::scene::EmitterSceneNode::BirthrateStep> &steps,
     float dt,
     float &accumulator) {
@@ -138,45 +180,67 @@ int advanceAnimatedSpawnAccumulator(
         dt <= 0.0f ||
         dt > reone::scene::particleutil::kMaxContinuousParticleDelta) {
         accumulator = 0.0f;
-        return 0;
+        return {};
     }
 
-    int spawnCount = 0;
+    reone::scene::particleutil::ParticleSpawnSchedule schedule;
+    float elapsed = 0.0f;
     for (const auto &step : steps) {
         if (step.resetAccumulator) {
             accumulator = 0.0f;
+            elapsed += glm::max(step.duration, 0.0f);
             continue;
         }
-        if (!std::isfinite(step.birthCount) || step.birthCount <= 0.0f) {
+        if (!std::isfinite(step.startRate) ||
+            !std::isfinite(step.endRate) ||
+            !std::isfinite(step.duration) ||
+            step.duration <= 0.0f) {
             continue;
         }
 
-        accumulator += step.birthCount;
-        if (!std::isfinite(accumulator)) {
+        double segmentBirths =
+            0.5 *
+            (static_cast<double>(step.startRate) +
+             static_cast<double>(step.endRate)) *
+            static_cast<double>(step.duration);
+        double previousAccumulator = glm::clamp(accumulator, 0.0f, 1.0f);
+        double accumulatedBirths = previousAccumulator + segmentBirths;
+        if (!std::isfinite(accumulatedBirths)) {
             accumulator = 0.0f;
+            elapsed += step.duration;
             continue;
         }
 
-        float wholeParticles =
-            glm::floor(accumulator + kWholeParticleEpsilon);
-        accumulator -= wholeParticles;
+        double wholeParticles =
+            glm::floor(accumulatedBirths + kWholeParticleEpsilon);
+        accumulator = static_cast<float>(accumulatedBirths - wholeParticles);
         if (accumulator < 0.0f &&
             accumulator > -kWholeParticleEpsilon) {
             accumulator = 0.0f;
         }
-        int remainingCapacity =
-            reone::scene::particleutil::kMaxSpawnParticlesPerUpdate -
-            spawnCount;
-        if (remainingCapacity <= 0) {
-            continue;
+        int birthsInSegment = static_cast<int>(glm::min(
+            wholeParticles,
+            static_cast<double>(
+                reone::scene::particleutil::kMaxSpawnParticlesPerUpdate)));
+        for (int i = 0;
+             i < birthsInSegment &&
+             schedule.count < reone::scene::particleutil::kMaxSpawnParticlesPerUpdate;
+             ++i) {
+            double targetBirthCount =
+                1.0 - previousAccumulator + static_cast<double>(i);
+            float birthTime = timeAtIntegratedBirthCount(
+                step.startRate,
+                step.endRate,
+                step.duration,
+                targetBirthCount);
+            schedule.ages[schedule.count++] = glm::clamp(
+                dt - (elapsed + birthTime),
+                0.0f,
+                dt);
         }
-        if (wholeParticles >= static_cast<float>(remainingCapacity)) {
-            spawnCount += remainingCapacity;
-        } else {
-            spawnCount += static_cast<int>(wholeParticles);
-        }
+        elapsed += step.duration;
     }
-    return spawnCount;
+    return schedule;
 }
 
 } // namespace
@@ -431,12 +495,6 @@ void EmitterSceneNode::init() {
 
 void EmitterSceneNode::update(float dt) {
     removeExpiredParticles(dt);
-    if (isSpawningSuppressed()) {
-        discardSpawnTime(dt);
-    } else {
-        spawnParticles(dt);
-    }
-    _birthrateStepsForUpdate.reset();
 
     for (auto &child : _children) {
         if (child->type() != SceneNodeType::Particle) {
@@ -445,6 +503,13 @@ void EmitterSceneNode::update(float dt) {
         auto particle = static_cast<ParticleSceneNode *>(child);
         particle->update(dt);
     }
+
+    if (isSpawningSuppressed()) {
+        discardSpawnTime(dt);
+    } else {
+        spawnParticles(dt);
+    }
+    _birthrateStepsForUpdate.reset();
 }
 
 bool EmitterSceneNode::isSpawningSuppressed() const {
@@ -459,7 +524,14 @@ bool EmitterSceneNode::isSpawningSuppressed() const {
 void EmitterSceneNode::discardSpawnTime(float dt) {
     _birthAccumulator = 0.0f;
 
-    if (_modelNode.emitter()->updateMode != ModelNode::Emitter::UpdateMode::Lightning) {
+    auto emitter = _modelNode.emitter();
+    if (emitter->updateMode == ModelNode::Emitter::UpdateMode::Single) {
+        if (!emitter->loop) {
+            _spawned = true;
+        }
+        return;
+    }
+    if (emitter->updateMode != ModelNode::Emitter::UpdateMode::Lightning) {
         return;
     }
     _birthTimer.update(dt);
@@ -492,19 +564,17 @@ void EmitterSceneNode::spawnParticles(float dt) {
     std::shared_ptr<ModelNode::Emitter> emitter(_modelNode.emitter());
     switch (emitter->updateMode) {
     case ModelNode::Emitter::UpdateMode::Fountain: {
-        int spawnCount = _birthrateStepsForUpdate
-                             ? advanceAnimatedSpawnAccumulator(
-                                   *_birthrateStepsForUpdate,
-                                   dt,
-                                   _birthAccumulator)
-                             : particleutil::advanceSpawnAccumulator(
-                                   _birthrate,
-                                   dt,
-                                   _birthAccumulator);
-        for (;
-             spawnCount > 0;
-             --spawnCount) {
-            if (!doSpawnParticle()) {
+        auto schedule = _birthrateStepsForUpdate
+                            ? advanceAnimatedSpawnAccumulator(
+                                  *_birthrateStepsForUpdate,
+                                  dt,
+                                  _birthAccumulator)
+                            : particleutil::advanceSpawnSchedule(
+                                  _birthrate,
+                                  dt,
+                                  _birthAccumulator);
+        for (int i = 0; i < schedule.count; ++i) {
+            if (!doSpawnParticle(schedule.ages[i])) {
                 break;
             }
         }
@@ -512,7 +582,7 @@ void EmitterSceneNode::spawnParticles(float dt) {
     }
     case ModelNode::Emitter::UpdateMode::Single:
         if (!_spawned || (_children.empty() && emitter->loop)) {
-            doSpawnParticle();
+            doSpawnParticle(dt);
             _spawned = true;
         }
         break;
@@ -547,7 +617,7 @@ ParticleSceneNode *EmitterSceneNode::takeParticle() {
     return particle;
 }
 
-bool EmitterSceneNode::doSpawnParticle() {
+bool EmitterSceneNode::doSpawnParticle(float initialAge) {
     auto particle = takeParticle();
     if (!particle) {
         return false;
@@ -572,6 +642,9 @@ bool EmitterSceneNode::doSpawnParticle() {
     }
 
     addChild(*particle);
+    if (initialAge > 0.0f) {
+        particle->update(initialAge);
+    }
     return true;
 }
 
