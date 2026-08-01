@@ -104,17 +104,17 @@ TEST(VisualEffectParticleProfile, should_select_all_nine_kotor_grenade_profiles)
         EXPECT_GT(profile.policy.reconstructionStrength, 0.0f);
         EXPECT_LE(profile.policy.reconstructionStrength, 1.0f);
         EXPECT_GE(profile.policy.alphaExponent, 1.15f);
-        EXPECT_LE(profile.policy.alphaExponent, 1.9f);
+        EXPECT_LE(profile.policy.alphaExponent, 2.0f);
         EXPECT_GT(profile.policy.trailCoreIntensity, 0.0f);
         EXPECT_LE(profile.policy.trailCoreIntensity, 0.4f);
-        EXPECT_GE(profile.policy.coverageContrast, 0.5f);
+        EXPECT_GE(profile.policy.coverageContrast, 0.25f);
         EXPECT_LE(profile.policy.coverageContrast, 0.9f);
         EXPECT_GT(profile.motionMaxWidth, 0.0f);
         EXPECT_LE(profile.motionMaxWidth, 0.22f);
         EXPECT_GT(profile.motionMaxLength, 0.0f);
         EXPECT_LE(profile.motionMaxLength, 1.5f);
 
-        EXPECT_GE(profile.opacity, 0.4f);
+        EXPECT_GE(profile.opacity, 0.3f);
         EXPECT_LE(profile.opacity, 0.85f);
         EXPECT_GE(profile.worldZOpacity, profile.opacity);
         EXPECT_LE(profile.worldZOpacity, 0.9f);
@@ -128,6 +128,23 @@ TEST(VisualEffectParticleProfile, should_select_all_nine_kotor_grenade_profiles)
         EXPECT_LE(profile.colorTint.b, 1.0f);
         EXPECT_GE(profile.colorIntensity, 1.0f);
         EXPECT_LE(profile.colorIntensity, 1.05f);
+    }
+}
+
+TEST(VisualEffectParticleProfile, should_keep_broad_area_grenades_localized) {
+    constexpr size_t broadAreaIndices[] = {0, 4, 5, 6};
+
+    for (size_t index : broadAreaIndices) {
+        const auto &entry = kKotorGrenadeVisuals[index];
+        SCOPED_TRACE(entry.label);
+        auto profile = selectedProfile(GameID::KotOR, entry);
+
+        EXPECT_LE(profile.largeParticleScale, 0.60f);
+        EXPECT_LE(profile.worldZScale, 0.60f);
+        EXPECT_LE(profile.opacity, 0.55f);
+        EXPECT_LE(profile.worldZOpacity, 0.60f);
+        EXPECT_GE(profile.policy.alphaExponent, 1.50f);
+        EXPECT_LE(profile.policy.coverageContrast, 0.50f);
     }
 }
 

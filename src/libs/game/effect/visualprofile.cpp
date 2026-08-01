@@ -36,17 +36,19 @@ static scene::ParticleRenderProfile baseGrenadeProfile() {
 
 static scene::ParticleRenderProfile fragmentationGrenadeProfile() {
     auto profile = baseGrenadeProfile();
-    profile.largeParticleScale = 0.82f;
-    profile.worldZScale = 0.78f;
-    profile.opacity = 0.80f;
-    profile.worldZOpacity = 0.85f;
-    profile.motionOpacity = 0.55f;
-    profile.motionLengthScale = 0.70f;
-    profile.motionMaxWidth = 0.16f;
-    profile.motionMaxLength = 1.10f;
-    profile.policy.reconstructionStrength = 0.70f;
-    profile.policy.alphaExponent = 1.20f;
+    profile.largeParticleScale = 0.50f;
+    profile.worldZScale = 0.48f;
+    profile.opacity = 0.38f;
+    profile.worldZOpacity = 0.42f;
+    profile.motionOpacity = 0.40f;
+    profile.motionLengthScale = 0.55f;
+    profile.motionMaxWidth = 0.12f;
+    profile.motionMaxLength = 0.80f;
+    profile.colorTint = glm::vec3(1.0f, 0.78f, 0.50f);
+    profile.policy.reconstructionStrength = 0.80f;
+    profile.policy.alphaExponent = 1.85f;
     profile.policy.trailCoreIntensity = 0.04f;
+    profile.policy.coverageContrast = 0.32f;
     return profile;
 }
 
@@ -103,49 +105,55 @@ static scene::ParticleRenderProfile poisonGrenadeProfile() {
 
 static scene::ParticleRenderProfile sonicGrenadeProfile() {
     auto profile = baseGrenadeProfile();
-    profile.largeParticleScale = 0.80f;
-    profile.worldZScale = 0.76f;
-    profile.opacity = 0.70f;
-    profile.worldZOpacity = 0.74f;
-    profile.motionOpacity = 0.45f;
-    profile.motionLengthScale = 0.58f;
-    profile.motionMaxWidth = 0.14f;
-    profile.motionMaxLength = 0.92f;
-    profile.policy.reconstructionStrength = 0.72f;
-    profile.policy.alphaExponent = 1.35f;
+    profile.largeParticleScale = 0.42f;
+    profile.worldZScale = 0.40f;
+    profile.opacity = 0.32f;
+    profile.worldZOpacity = 0.35f;
+    profile.motionOpacity = 0.35f;
+    profile.motionLengthScale = 0.45f;
+    profile.motionMaxWidth = 0.10f;
+    profile.motionMaxLength = 0.70f;
+    profile.colorTint = glm::vec3(0.55f, 0.75f, 1.0f);
+    profile.policy.reconstructionStrength = 0.82f;
+    profile.policy.alphaExponent = 1.90f;
     profile.policy.trailCoreIntensity = 0.04f;
+    profile.policy.coverageContrast = 0.28f;
     return profile;
 }
 
 static scene::ParticleRenderProfile adhesiveGrenadeProfile() {
     auto profile = baseGrenadeProfile();
-    profile.largeParticleScale = 0.86f;
-    profile.worldZScale = 0.82f;
-    profile.opacity = 0.78f;
-    profile.worldZOpacity = 0.82f;
-    profile.motionOpacity = 0.52f;
-    profile.motionLengthScale = 0.68f;
-    profile.motionMaxWidth = 0.16f;
-    profile.motionMaxLength = 1.08f;
-    profile.policy.reconstructionStrength = 0.68f;
-    profile.policy.alphaExponent = 1.18f;
+    profile.largeParticleScale = 0.58f;
+    profile.worldZScale = 0.54f;
+    profile.opacity = 0.45f;
+    profile.worldZOpacity = 0.48f;
+    profile.motionOpacity = 0.40f;
+    profile.motionLengthScale = 0.50f;
+    profile.motionMaxWidth = 0.12f;
+    profile.motionMaxLength = 0.80f;
+    profile.colorTint = glm::vec3(0.55f, 0.82f, 1.0f);
+    profile.policy.reconstructionStrength = 0.80f;
+    profile.policy.alphaExponent = 1.60f;
     profile.policy.trailCoreIntensity = 0.03f;
+    profile.policy.coverageContrast = 0.35f;
     return profile;
 }
 
 static scene::ParticleRenderProfile cryobanGrenadeProfile() {
     auto profile = baseGrenadeProfile();
-    profile.largeParticleScale = 0.76f;
-    profile.worldZScale = 0.72f;
-    profile.opacity = 0.68f;
-    profile.worldZOpacity = 0.72f;
-    profile.motionOpacity = 0.42f;
-    profile.motionLengthScale = 0.55f;
-    profile.motionMaxWidth = 0.13f;
-    profile.motionMaxLength = 0.85f;
-    profile.policy.reconstructionStrength = 0.74f;
-    profile.policy.alphaExponent = 1.40f;
+    profile.largeParticleScale = 0.38f;
+    profile.worldZScale = 0.42f;
+    profile.opacity = 0.50f;
+    profile.worldZOpacity = 0.55f;
+    profile.motionOpacity = 0.35f;
+    profile.motionLengthScale = 0.40f;
+    profile.motionMaxWidth = 0.10f;
+    profile.motionMaxLength = 0.65f;
+    profile.colorTint = glm::vec3(0.35f, 0.75f, 1.0f);
+    profile.policy.reconstructionStrength = 0.82f;
+    profile.policy.alphaExponent = 1.70f;
     profile.policy.trailCoreIntensity = 0.04f;
+    profile.policy.coverageContrast = 0.40f;
     return profile;
 }
 
