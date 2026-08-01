@@ -380,7 +380,7 @@ int ListBox::getInnerHeight() const {
     if (_border) {
         height -= 2 * _border->dimension;
     }
-    return height;
+    return std::max(height, 0);
 }
 
 int ListBox::getItemWidth() const {
@@ -392,7 +392,7 @@ int ListBox::getItemWidth() const {
         width -= 2 * _border->dimension;
     }
     width -= 2 * _padding;
-    return width;
+    return std::max(width, 0);
 }
 
 int ListBox::getItemHeight(const Item &item) const {
