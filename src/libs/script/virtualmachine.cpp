@@ -1001,7 +1001,7 @@ void VirtualMachine::executeDESTRUCT(const Instruction &ins) {
 
 void VirtualMachine::executeDECISP(const Instruction &ins) {
     int dstIdx = static_cast<int>(_stack.size()) + ins.stackOffset / 4;
-    auto it = std::reverse_iterator(_stack.begin() + dstIdx);
+    auto it = _stack.rbegin() + (static_cast<int>(_stack.size()) - dstIdx - 1);
     logOperandsIt(it, it + 1);
     _stack[dstIdx] = Variable::ofInt(_stack[dstIdx].intValue - 1);
     logResultsIt(it, it + 1);
@@ -1009,7 +1009,7 @@ void VirtualMachine::executeDECISP(const Instruction &ins) {
 
 void VirtualMachine::executeINCISP(const Instruction &ins) {
     int dstIdx = static_cast<int>(_stack.size()) + ins.stackOffset / 4;
-    auto it = std::reverse_iterator(_stack.begin() + dstIdx);
+    auto it = _stack.rbegin() + (static_cast<int>(_stack.size()) - dstIdx - 1);
     logOperandsIt(it, it + 1);
     _stack[dstIdx] = Variable::ofInt(_stack[dstIdx].intValue + 1);
     logResultsIt(it, it + 1);
@@ -1055,7 +1055,7 @@ void VirtualMachine::executeCPTOPBP(const Instruction &ins) {
 void VirtualMachine::executeDECIBP(const Instruction &ins) {
     int dstIdx = _globalCount + ins.stackOffset / 4;
 
-    auto it = std::reverse_iterator(_stack.begin() + dstIdx);
+    auto it = _stack.rbegin() + (static_cast<int>(_stack.size()) - dstIdx - 1);
     logOperandsIt(it, it + 1);
     _stack[dstIdx] = Variable::ofInt(_stack[dstIdx].intValue - 1);
     logResultsIt(it, it + 1);
@@ -1064,7 +1064,7 @@ void VirtualMachine::executeDECIBP(const Instruction &ins) {
 void VirtualMachine::executeINCIBP(const Instruction &ins) {
     int dstIdx = _globalCount + ins.stackOffset / 4;
 
-    auto it = std::reverse_iterator(_stack.begin() + dstIdx);
+    auto it = _stack.rbegin() + (static_cast<int>(_stack.size()) - dstIdx - 1);
     logOperandsIt(it, it + 1);
     _stack[dstIdx] = Variable::ofInt(_stack[dstIdx].intValue + 1);
     logResultsIt(it, it + 1);

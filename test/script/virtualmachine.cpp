@@ -203,6 +203,49 @@ TEST(VirtualMachine, should_run_script_program__loop) {
     EXPECT_EQ(10, result);
 }
 
+TEST(VirtualMachine, should_run_script_program__increment_decrement_stack_relative) {
+    // given
+    auto program = std::make_shared<ScriptProgram>("some_program");
+    program->add(Instruction::newCONSTI(5));  // 5
+    program->add(Instruction::newINCISP(-4)); // 6
+    program->add(Instruction::newINCISP(-4)); // 7
+    program->add(Instruction::newDECISP(-4)); // 6
+    program->add(Instruction::newCONSTI(0));  // 6, 0
+    program->add(Instruction::newINCISP(-8)); // 7, 0
+    program->add(Instruction::newDECISP(-4)); // 7, -1
+    program->add(Instruction::newMOVSP(-4));  // 7
+
+    auto context = std::make_unique<ExecutionContext>();
+    auto machine = VirtualMachine(program, std::move(context));
+
+    // when
+    auto result = machine.run();
+
+    // then
+    EXPECT_EQ(7, result);
+}
+
+TEST(VirtualMachine, should_run_script_program__increment_decrement_base_relative) {
+    // given
+    auto program = std::make_shared<ScriptProgram>("some_program");
+    program->add(Instruction::newCONSTI(5));            // 5
+    program->add(Instruction::newCONSTI(9));            // 5, 9
+    program->add(Instruction(InstructionType::SAVEBP)); // 5, 9, 2
+    program->add(Instruction::newINCIBP(-8));           // 6, 9, 2
+    program->add(Instruction::newINCIBP(-8));           // 7, 9, 2
+    program->add(Instruction::newDECIBP(-4));           // 7, 8, 2
+    program->add(Instruction::newMOVSP(-8));            // 7
+
+    auto context = std::make_unique<ExecutionContext>();
+    auto machine = VirtualMachine(program, std::move(context));
+
+    // when
+    auto result = machine.run();
+
+    // then
+    EXPECT_EQ(7, result);
+}
+
 TEST(VirtualMachine, should_run_script_program__action) {
     // given
     auto program = std::make_shared<ScriptProgram>("some_program");
