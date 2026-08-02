@@ -144,6 +144,16 @@ void Item::deserializeBase(const resource::Gff &gff) {
     _numDice = baseItems->getInt(_baseItem, "numdice");
     _weaponType = static_cast<WeaponType>(baseItems->getInt(_baseItem, "weapontype"));
     _weaponWield = static_cast<WeaponWield>(baseItems->getInt(_baseItem, "weaponwield"));
+    _poweredItem = baseItems->getInt(_baseItem, "powereditem") != 0;
+    if (_poweredItem) {
+        auto loadSound = [this, &baseItems](const char *column) {
+            auto resRef = boost::to_lower_copy(baseItems->getString(_baseItem, column));
+            return resRef.empty() ? nullptr : _services.resource.audioClips.get(resRef);
+        };
+        _powerUpSound = loadSound("powerupsnd");
+        _powerDownSound = loadSound("powerdownsnd");
+        _poweredSound = loadSound("poweredsnd");
+    }
 
     std::string iconResRef;
     if (isEquippable(InventorySlots::body)) {
@@ -209,6 +219,42 @@ void Item::playImpactSound(int variant, glm::vec3 position) {
             1.0f,
             false,
             std::move(position));
+    }
+}
+
+void Item::powerUp(glm::vec3 position) {
+    if (!_poweredItem || _isPowered) {
+        return;
+    }
+    _isPowered = true;
+    if (_powerUpSound) {
+        _services.audio.mixer.play(_powerUpSound, AudioType::Sound, 1.0f, false, position);
+    }
+    if (_poweredAudioSource) {
+        _poweredAudioSource->stop();
+    }
+    if (_poweredSound) {
+        _poweredAudioSource = _services.audio.mixer.play(_poweredSound, AudioType::Sound, 1.0f, true, position);
+    }
+}
+
+void Item::powerDown(glm::vec3 position) {
+    if (!_poweredItem || !_isPowered) {
+        return;
+    }
+    _isPowered = false;
+    if (_poweredAudioSource) {
+        _poweredAudioSource->stop();
+        _poweredAudioSource.reset();
+    }
+    if (_powerDownSound) {
+        _services.audio.mixer.play(_powerDownSound, AudioType::Sound, 1.0f, false, position);
+    }
+}
+
+void Item::updatePoweredSoundPosition(glm::vec3 position) {
+    if (_poweredAudioSource) {
+        _poweredAudioSource->setPosition(position);
     }
 }
 

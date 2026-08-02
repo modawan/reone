@@ -212,6 +212,7 @@ void Creature::update(float dt) {
     Object::update(dt);
     updateModelAnimation();
     updateCombat(dt);
+    updateLightsaberSoundPositions();
 }
 
 void Creature::updateModelAnimation() {
@@ -308,9 +309,19 @@ void Creature::damage(int amount, uint32_t damager) {
 
 void Creature::updateCombat(float dt) {
     _combatState.deactivationTimer.update(dt);
+    _lightsaberIdlePowerDownTimer.update(dt);
+    if (_lightsaberIdlePowerDownPending &&
+        !_combatState.active &&
+        _lightsaberIdlePowerDownTimer.elapsed()) {
+        _lightsaberIdlePowerDownPending = false;
+        setLightsabersPowered(false, true);
+    }
     if (_combatState.shouldDeactivate && _combatState.deactivationTimer.elapsed()) {
         _combatState.active = false;
         _combatState.debilitated = false;
+        _combatState.shouldDeactivate = false;
+        _animDirty = true;
+        setLightsabersPowered(false, true);
     }
 }
 
@@ -430,6 +441,11 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
         return false;
     }
 
+    auto previous = getEquippedItem(slot);
+    if (previous && previous != item) {
+        previous->powerDown(_position);
+        previous->setEquipped(false);
+    }
     _equipment[slot] = item;
     item->setEquipped(true);
 
@@ -445,12 +461,9 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
     if (_sceneNode) {
         updateModel();
 
-        if (slot == InventorySlots::rightWeapon) {
-            auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
-            auto weapon = static_cast<ModelSceneNode *>(model->getAttachment("rhand"));
-            if (weapon && weapon->model().classification() == MdlClassification::lightsaber) {
-                weapon->playAnimation("powerup");
-            }
+        if (_combatState.active &&
+            (slot == InventorySlots::rightWeapon || slot == InventorySlots::leftWeapon)) {
+            setLightsabersPowered(true, true);
         }
     }
 
@@ -462,6 +475,7 @@ void Creature::unequip(const std::shared_ptr<Item> &item) {
         if (equipped.second != item) {
             continue;
         }
+        item->powerDown(_position);
         item->setEquipped(false);
         _equipment.erase(equipped.first);
         uint32_t prevAppearance = _appearance;
@@ -737,15 +751,73 @@ void Creature::runOnNotice(const Object &object, bool heard, bool seen) {
 }
 
 void Creature::activateCombat() {
+    _lightsaberIdlePowerDownPending = false;
+    if (_combatState.active) {
+        _combatState.shouldDeactivate = false;
+        return;
+    }
     _combatState.active = true;
     _combatState.shouldDeactivate = false;
+    _animDirty = true;
+    setLightsabersPowered(true, true);
+}
+
+void Creature::setLightsabersPowered(bool powered, bool animate) {
+    auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+    if (!model) {
+        return;
+    }
+
+    const std::array<std::pair<int, std::string>, 2> weaponSlots {{
+        {InventorySlots::rightWeapon, g_rightHandNode},
+        {InventorySlots::leftWeapon, g_leftHandNode},
+    }};
+    for (auto [slot, attachment] : weaponSlots) {
+        auto weapon = static_cast<ModelSceneNode *>(model->getAttachment(attachment));
+        if (!weapon || weapon->model().classification() != MdlClassification::lightsaber) {
+            continue;
+        }
+
+        const auto activeAnimation = weapon->activeAnimationName();
+        if ((powered && (activeAnimation == "powerup" || activeAnimation == "powered")) ||
+            (!powered && (activeAnimation == "powerdown" || activeAnimation == "off"))) {
+            continue;
+        }
+        weapon->playAnimation(animate ? (powered ? "powerup" : "powerdown") : (powered ? "powered" : "off"));
+        if (!animate) {
+            continue;
+        }
+        auto item = getEquippedItem(slot);
+        if (item) {
+            powered ? item->powerUp(_position) : item->powerDown(_position);
+        }
+    }
+}
+
+void Creature::updateLightsaberSoundPositions() {
+    for (int slot : {InventorySlots::rightWeapon, InventorySlots::leftWeapon}) {
+        auto item = getEquippedItem(slot);
+        if (item) {
+            item->updatePoweredSoundPosition(_position);
+        }
+    }
 }
 
 void Creature::deactivateCombat(float delay) {
-    if (_combatState.active) {
-        _combatState.shouldDeactivate = true;
-        _combatState.deactivationTimer.reset(delay);
+    if (delay <= 0.0f) {
+        _lightsaberIdlePowerDownPending = false;
+        _combatState.active = false;
+        _combatState.shouldDeactivate = false;
+        _combatState.debilitated = false;
+        _animDirty = true;
+        setLightsabersPowered(false, true);
+        return;
     }
+    if (!_combatState.active) {
+        return;
+    }
+    _combatState.shouldDeactivate = true;
+    _combatState.deactivationTimer.reset(delay);
 }
 
 bool Creature::isTwoWeaponFighting() const {
@@ -825,6 +897,14 @@ void Creature::getOffhandDamage(int &min, int &max) const {
 }
 
 void Creature::onEventSignalled(const std::string &name) {
+    if (name == "draw_weapon") {
+        setLightsabersPowered(true, true);
+        if (!_combatState.active) {
+            _lightsaberIdlePowerDownPending = true;
+            _lightsaberIdlePowerDownTimer.reset(8.0f);
+        }
+        return;
+    }
     if (_footstepType == -1 || _walkmeshMaterial == -1 || name != "snd_footstep") {
         return;
     }
@@ -1221,6 +1301,7 @@ std::shared_ptr<ModelSceneNode> Creature::buildModel() {
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
     auto sceneNode = sceneGraph.newModel(*model, ModelUsage::Creature);
     sceneNode->setDrawDistance(_game.options().graphics.drawDistance);
+    sceneNode->setAnimationEventListener(*this);
 
     return sceneNode;
 }
@@ -1276,6 +1357,9 @@ void Creature::finalizeModel(ModelSceneNode &body) {
         if (weaponModel) {
             std::shared_ptr<ModelSceneNode> weaponSceneNode(sceneGraph.newModel(*weaponModel, ModelUsage::Equipment));
             body.attach(g_rightHandNode, *weaponSceneNode);
+            if (weaponModel->classification() == MdlClassification::lightsaber) {
+                weaponSceneNode->playAnimation(_combatState.active ? "powered" : "off");
+            }
         }
     }
 
@@ -1287,6 +1371,9 @@ void Creature::finalizeModel(ModelSceneNode &body) {
         if (weaponModel) {
             std::shared_ptr<ModelSceneNode> weaponSceneNode(sceneGraph.newModel(*weaponModel, ModelUsage::Equipment));
             body.attach(g_leftHandNode, *weaponSceneNode);
+            if (weaponModel->classification() == MdlClassification::lightsaber) {
+                weaponSceneNode->playAnimation(_combatState.active ? "powered" : "off");
+            }
         }
     }
 }

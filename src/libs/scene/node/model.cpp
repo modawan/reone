@@ -258,7 +258,10 @@ void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation
     if (properties.flags & AnimationFlags::propagate) {
         for (auto &attachment : _attachments) {
             if (attachment.second->type() == SceneNodeType::Model) {
-                static_cast<ModelSceneNode *>(attachment.second)->playAnimation(anim, lipAnim, properties);
+                // Attachments have their own animation sets. Resolve by name so
+                // an unrelated body animation cannot replace a weapon's local
+                // state animation (for example, a lightsaber's "off" pose).
+                static_cast<ModelSceneNode *>(attachment.second)->playAnimation(anim.name(), lipAnim, properties);
             }
         }
     }
