@@ -22,6 +22,7 @@
 #include "reone/graphics/window.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/gameprobe.h"
+#include "reone/system/stringutil.h"
 
 using namespace reone::audio;
 using namespace reone::game;
@@ -142,11 +143,12 @@ void Engine::init() {
         for (std::string line; std::getline(file, line);) {
             // getline keeps the carriage return of a CRLF file, which would end
             // up inside the last argument of every command.
-            if (!line.empty() && line.back() == '\r') {
-                line.pop_back();
-            }
-            if (!line.empty()) {
-                _console->execute(line);
+            //
+            // Remove trailing and leading spaces as well.
+
+            std::string_view command = string_strip(line);
+            if (!command.empty()) {
+                _console->execute(command);
             }
         }
     }
