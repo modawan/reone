@@ -62,6 +62,7 @@ public:
     ClassType getEffectiveClass() const;
     int getClassLevel(ClassType clazz) const;
     int getAggregateAttackBonus() const;
+    int getAggregateDefenseBonus() const;
     SavingThrows getAggregateSavingThrows() const;
 
     // END Class Levels

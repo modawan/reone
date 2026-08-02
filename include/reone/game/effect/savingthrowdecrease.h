@@ -34,6 +34,10 @@ public:
 
     void applyTo(Object &object) override;
 
+    int save() const { return _save; }
+    int value() const { return _value; }
+    SavingThrowType savingThrowType() const { return _savingThrowType; }
+
 private:
     int _save;
     int _value;

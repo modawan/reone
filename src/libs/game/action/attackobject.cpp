@@ -68,16 +68,7 @@ static std::string getStunBatonAttackAnim(int variant) {
 
 static void attack(const CombatRound &round, Creature &attacker, Object &target,
                    const IAnimations &anims, AttackBuffer &attacks) {
-
-    if (auto main = attacker.getEquippedItem(InventorySlots::rightWeapon)) {
-        attacks.addWeaponAttack(attacker, target, *main);
-
-        if (auto offhand = attacker.getEquippedItem(InventorySlots::leftWeapon)) {
-            attacks.addWeaponAttack(attacker, target, *offhand);
-        }
-    } else {
-        attacks.addUnarmedAttack(attacker, target);
-    }
+    attacks.addPhysicalAttacks(attacker, target);
 
     scene::AnimationProperties animProp =
         scene::AnimationProperties::fromFlags(scene::AnimationFlags::blend);
@@ -148,6 +139,7 @@ void AttackObjectAction::addProjectiles(const Creature &creature) {
 
 void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     Creature &attacker = cast<Creature>(actor);
+    attacker.setAttemptedAttackTarget(_target->id());
 
     if (_target->isDead()) {
         finish(attacker);
@@ -171,16 +163,13 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         attacker.setMovementRestricted(true);
 
         attack(round, attacker, *_target, _services.game.animations, _attacks);
-
-        if (auto target = dyn_cast<Creature>(_target)) {
-            target->runAttackedScript(attacker.id());
-        }
+        _attacks.resolve(attacker, *_target);
 
         addProjectiles(attacker);
         return;
     }
     case AttackSchedule::Damage: {
-        _attacks.applyEffects(attacker, *_target, _game);
+        _attacks.signal(_game, _services, attacker, *_target);
         break;
     }
     case AttackSchedule::Finish: {

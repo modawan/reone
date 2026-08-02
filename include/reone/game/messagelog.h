@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,14 +15,45 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/game/effect/damageresistance.h"
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <deque>
+#include <string>
+#include <utility>
 
 namespace reone {
 
 namespace game {
 
-void DamageResistanceEffect::applyTo(Object &) {
-}
+/**
+ * Rolling in-game feedback history.
+ */
+class MessageLog {
+public:
+    enum class Style : uint8_t {
+        Normal = 0,
+        Combat = 1,
+    };
+
+    struct Entry {
+        uint32_t type;
+        Style style;
+        std::string text;
+    };
+
+    static constexpr std::size_t kMaxEntries = 64;
+    static constexpr uint32_t kFeedbackMessageType = 0x80;
+
+    void add(uint32_t type, Style style, std::string text);
+    void reset() { _entries.clear(); }
+
+    const std::deque<Entry> &entries() const { return _entries; }
+
+private:
+    std::deque<Entry> _entries;
+};
 
 } // namespace game
 

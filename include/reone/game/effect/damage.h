@@ -17,13 +17,59 @@
 
 #pragma once
 
+#include <optional>
+#include <stdexcept>
+
+#include "reone/system/smallvector.h"
+
 #include "../effect.h"
 
 namespace reone {
 
 namespace game {
 
-class Creature;
+inline constexpr int kAllDamageTypeFlags = 8199;
+inline constexpr int kPhysicalDamageTypeFlags = 16391;
+
+DamageType getPrimaryDamageType(int damageFlags);
+bool damageTypeMatches(int modifierFlags, int damageFlags);
+
+/**
+ * Typed damage caused by one hit.
+ *
+ * A packet may contain multiple damage types, but it is applied to the target
+ * as one damage event.
+ */
+class DamagePacket {
+public:
+    explicit DamagePacket(DamagePower power = DamagePower::Normal) :
+        _power(power) {
+    }
+
+    void add(int amount, DamageType type);
+    void setDamageFlags(int damageFlags);
+    void setPower(DamagePower power);
+    void resolve(Object &object);
+
+    int total() const;
+    int resolvedDamage() const;
+    bool empty() const { return _components.empty(); }
+    bool isResolved() const { return _resolvedDamage.has_value(); }
+
+private:
+    struct Component {
+        int amount;
+        DamageType type;
+    };
+
+    void requireUnresolved() const;
+    void addResolved(int amount, DamageType type);
+
+    DamagePower _power;
+    int _damageFlags {0};
+    SmallVector<Component, 4> _components;
+    std::optional<int> _resolvedDamage;
+};
 
 class DamageEffect : public Effect {
 public:
@@ -32,22 +78,27 @@ public:
                  DamagePower power,
                  uint32_t damager) :
         Effect(EffectType::Damage),
-        _amount(amount),
-        _type(type),
-        _power(power),
+        _damage(power),
         _damager(damager) {
+        _damage.add(amount, type);
+        _damage.setDamageFlags(static_cast<int>(type));
+    }
+
+    DamageEffect(DamagePacket damage, uint32_t damager) :
+        Effect(EffectType::Damage),
+        _damage(std::move(damage)),
+        _damager(damager) {
+        if (!_damage.isResolved()) {
+            throw std::invalid_argument("Damage packet has not been resolved");
+        }
     }
 
     void applyTo(Object &object) override;
 
-    int amount() const { return _amount; }
-    DamageType type() const { return _type; }
     uint32_t damager() const { return _damager; }
 
 private:
-    int _amount;
-    DamageType _type;
-    DamagePower _power;
+    DamagePacket _damage;
     uint32_t _damager;
 };
 

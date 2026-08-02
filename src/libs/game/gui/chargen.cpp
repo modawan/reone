@@ -252,6 +252,7 @@ void CharacterGeneration::startLevelUp() {
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
 
     Character character;
+    character.name = partyLeader->name();
     character.appearance = partyLeader->appearance();
     character.gender = partyLeader->gender();
     character.attributes = partyLeader->attributes();
@@ -348,6 +349,7 @@ void CharacterGeneration::finish() {
     } else {
         std::shared_ptr<Creature> player = _game.newCreature();
         player->setTag(kObjectTagPlayer);
+        player->setName(_character.name);
         player->setGender(_character.gender);
         player->setAppearance(_character.appearance);
         player->loadAppearance();
@@ -378,6 +380,7 @@ void CharacterGeneration::setCharacter(Character character) {
     bool appearanceChanged = character.appearance != _character.appearance;
 
     _character = std::move(character);
+    _controls.LBL_NAME->setTextMessage(_character.name);
 
     if (appearanceChanged) {
         reloadCharacterModel();
@@ -386,6 +389,11 @@ void CharacterGeneration::setCharacter(Character character) {
     }
 
     updateAttributes();
+}
+
+void CharacterGeneration::setCharacterName(std::string name) {
+    _character.name = std::move(name);
+    _controls.LBL_NAME->setTextMessage(_character.name);
 }
 
 void CharacterGeneration::reloadCharacterModel() {

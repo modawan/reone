@@ -15,13 +15,40 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/game/effect/damageresistance.h"
+#include "reone/game/twodautil.h"
+
+#include "reone/resource/2da.h"
+#include "reone/resource/exception/notfound.h"
+#include "reone/resource/provider/2das.h"
+#include "reone/system/exception/validation.h"
+
+using namespace reone::resource;
 
 namespace reone {
 
 namespace game {
 
-void DamageResistanceEffect::applyTo(Object &) {
+std::shared_ptr<TwoDA> getRequiredTwoDA(
+    ITwoDAs &twoDas,
+    const std::string &resRef) {
+
+    auto table = twoDas.get(resRef);
+    if (!table) {
+        throw ResourceNotFoundException("2DA not found: " + resRef);
+    }
+    return table;
+}
+
+void validateTwoDARow(
+    const TwoDA &table,
+    const std::string &resRef,
+    int row) {
+
+    if (row < 0 || row >= table.getRowCount()) {
+        throw ValidationException(str(boost::format(
+            "%s.2da row out of range: %d/%d") %
+            resRef % row % table.getRowCount()));
+    }
 }
 
 } // namespace game

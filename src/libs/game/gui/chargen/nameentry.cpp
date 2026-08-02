@@ -39,7 +39,8 @@ static const ResRef kLastNameLtrResRef("humanl");
 void NameEntry::onGUILoaded() {
     bindControls();
 
-    _controls.NAME_BOX_EDIT->setTextMessage("");
+    _input.setText(_charGen.character().name);
+    _controls.NAME_BOX_EDIT->setTextMessage(_charGen.character().name);
 
     _controls.BTN_RANDOM->setOnClick([this]() {
         loadRandomName();
@@ -55,7 +56,9 @@ void NameEntry::onGUILoaded() {
 
 bool NameEntry::handle(const input::Event &event) {
     if (event.type == input::EventType::KeyDown && _input.handle(event)) {
-        _controls.NAME_BOX_EDIT->setTextMessage(std::string(_buffer.str()));
+        std::string name(_buffer.str());
+        _controls.NAME_BOX_EDIT->setTextMessage(name);
+        _charGen.setCharacterName(std::move(name));
         return true;
     }
     return _gui->handle(event);
@@ -67,7 +70,9 @@ void NameEntry::loadRandomName() {
     auto nameLtr = _services.resource.ltrs.get(nameLtrResRef);
     auto lastNameLtr = _services.resource.ltrs.get(kLastNameLtrResRef);
     auto generated = nameLtr->randomName(8) + " " + lastNameLtr->randomName(8);
+    _input.setText(generated);
     _controls.NAME_BOX_EDIT->setTextMessage(generated);
+    _charGen.setCharacterName(std::move(generated));
 }
 
 } // namespace game

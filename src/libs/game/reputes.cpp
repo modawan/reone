@@ -61,20 +61,8 @@ void Reputes::init() {
     }
 }
 
-bool Reputes::getIsEnemy(const Creature &left, const Creature &right) const {
-    return getIsEnemy(left.faction(), right.faction());
-}
-
-bool Reputes::getIsEnemy(Faction left, Faction right) const {
-    return getRepute(left, right) < 50;
-}
-
-bool Reputes::getIsFriend(const Creature &left, const Creature &right) const {
-    return getRepute(left.faction(), right.faction()) > 50;
-}
-
-bool Reputes::getIsNeutral(const Creature &left, const Creature &right) const {
-    return getRepute(left.faction(), right.faction()) == 50;
+int Reputes::getRepute(const Creature &left, const Creature &right) const {
+    return getRepute(left.faction(), right.faction());
 }
 
 int Reputes::getRepute(Faction left, Faction right) const {
@@ -86,6 +74,22 @@ int Reputes::getRepute(Faction left, Faction right) const {
         return kDefaultRepute;
 
     return _factionValues[leftFaction][rightFaction];
+}
+
+bool Reputes::getIsEnemy(const Creature &left, const Creature &right) const {
+    return getIsEnemy(left.faction(), right.faction());
+}
+
+bool Reputes::getIsEnemy(Faction left, Faction right) const {
+    return getRepute(left, right) < 50;
+}
+
+bool Reputes::getIsFriend(const Creature &left, const Creature &right) const {
+    return getRepute(left, right) > 50;
+}
+
+bool Reputes::getIsNeutral(const Creature &left, const Creature &right) const {
+    return getRepute(left, right) == 50;
 }
 
 } // namespace game

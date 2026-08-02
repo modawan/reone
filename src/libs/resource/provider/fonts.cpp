@@ -46,6 +46,7 @@ std::shared_ptr<Font> Fonts::doGet(std::string resRef) {
     return font;
 }
 
+
 } // namespace resource
 
 } // namespace reone

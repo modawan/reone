@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <string>
+
 #include "d20/attributes.h"
 
 #include "types.h"
@@ -26,6 +28,7 @@ namespace reone {
 namespace game {
 
 struct Character {
+    std::string name;
     Gender gender {Gender::Male};
     int appearance {0};
     CreatureAttributes attributes;

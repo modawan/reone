@@ -33,6 +33,9 @@ public:
 
     void applyTo(Object &object) override;
 
+    int bonus() const { return _bonus; }
+    AttackBonus modifierType() const { return _modifierType; }
+
 private:
     int _bonus;
     AttackBonus _modifierType;

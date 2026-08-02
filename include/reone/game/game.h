@@ -31,6 +31,7 @@
 #include "di/services.h"
 #include "effect.h"
 #include "event.h"
+#include "floatingtext.h"
 #include "gui/chargen.h"
 #include "gui/computer.h"
 #include "gui/container.h"
@@ -46,6 +47,7 @@
 #include "gui/saveload.h"
 #include "journal.h"
 #include "location.h"
+#include "messagelog.h"
 #include "object/area.h"
 #include "object/camera/animated.h"
 #include "object/camera/dialog.h"
@@ -121,7 +123,8 @@ public:
         _party(*this),
         _combat(*this, services),
         _swoopRace(*this),
-        _journal(services.resource.gffs, services.resource.strings) {
+        _journal(services.resource.gffs, services.resource.strings),
+        _floatingText(*this, services) {
         initJournalNotifications();
     }
 
@@ -143,6 +146,8 @@ public:
     Party &party() { return _party; }
     Combat &combat() { return _combat; }
     Journal &journal() { return _journal; }
+    MessageLog &messageLog() { return _messageLog; }
+    FloatingText &floatingText() { return _floatingText; }
     ScriptRunner &scriptRunner() { return *_scriptRunner; }
     Map &map() { return *_map; }
     script::IRoutines &routines() { return *_routines; }
@@ -464,6 +469,8 @@ private:
     Combat _combat;
     SwoopRace _swoopRace;
     Journal _journal;
+    MessageLog _messageLog;
+    FloatingText _floatingText;
     StatusSummaryAccumulator _statusSummary;
 
     std::unique_ptr<script::IRoutines> _routines;

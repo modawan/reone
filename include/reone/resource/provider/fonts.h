@@ -75,6 +75,7 @@ public:
         return _objects.insert(make_pair(key, std::move(object))).first->second;
     }
 
+
 private:
     std::unordered_map<std::string, std::shared_ptr<graphics::Font>> _objects;
 

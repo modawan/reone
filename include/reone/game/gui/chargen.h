@@ -99,6 +99,7 @@ public:
     const Character &character() const { return _character; }
 
     void setCharacter(Character character);
+    void setCharacterName(std::string name);
 
     const std::string &musicResRef() const {
         return _musicResRef;

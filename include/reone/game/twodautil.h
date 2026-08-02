@@ -15,14 +15,28 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/game/effect/damageresistance.h"
+#pragma once
+
+#include <memory>
+#include <string>
 
 namespace reone {
 
+namespace resource {
+class ITwoDAs;
+class TwoDA;
+}
+
 namespace game {
 
-void DamageResistanceEffect::applyTo(Object &) {
-}
+std::shared_ptr<resource::TwoDA> getRequiredTwoDA(
+    resource::ITwoDAs &twoDas,
+    const std::string &resRef);
+
+void validateTwoDARow(
+    const resource::TwoDA &table,
+    const std::string &resRef,
+    int row);
 
 } // namespace game
 

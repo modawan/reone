@@ -31,7 +31,10 @@ public:
         _percentImmunity(percentImmunity) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
+
+    DamageType damageType() const { return _damageType; }
+    int percentImmunity() const { return _percentImmunity; }
 
 private:
     DamageType _damageType;

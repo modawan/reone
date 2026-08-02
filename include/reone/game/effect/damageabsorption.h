@@ -15,14 +15,44 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/game/effect/damageresistance.h"
+#pragma once
+
+#include <algorithm>
 
 namespace reone {
 
 namespace game {
 
-void DamageResistanceEffect::applyTo(Object &) {
-}
+class DamageAbsorption {
+public:
+    DamageAbsorption(int amount, int limit) :
+        _amount(amount),
+        _limit(limit),
+        _limited(limit > 0) {
+    }
+
+    int amount() const { return _amount; }
+
+    int absorb(int damage) {
+        if (damage <= 0 || _amount <= 0) {
+            return 0;
+        }
+        if (!_limited) {
+            return std::min(damage, _amount);
+        }
+
+        int remaining = _limit;
+        _limit = std::max(0, _limit - damage);
+        return std::min(damage, _limit == 0 ? remaining : _amount);
+    }
+
+    bool exhausted() const { return _limited && _limit == 0; }
+
+private:
+    int _amount;
+    int _limit;
+    bool _limited;
+};
 
 } // namespace game
 

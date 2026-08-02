@@ -17,12 +17,21 @@
 
 #include "reone/game/effect/assuredhit.h"
 
+#include "reone/game/object/creature.h"
+
 namespace reone {
 
 namespace game {
 
-void AssuredHitEffect::applyTo(Object &object) {
-    // TODO: implement
+bool AssuredHitEffect::onApply(Object &object) {
+    auto *creature = dyn_cast<Creature>(&object);
+    return creature && creature->applyAssuredHit();
+}
+
+void AssuredHitEffect::onRemove(Object &object) {
+    if (auto *creature = dyn_cast<Creature>(&object)) {
+        creature->removeAssuredHit();
+    }
 }
 
 } // namespace game

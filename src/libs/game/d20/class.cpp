@@ -22,6 +22,7 @@
 #include "reone/resource/strings.h"
 
 #include "reone/game/d20/classes.h"
+#include "reone/game/twodautil.h"
 
 using namespace reone::resource;
 
@@ -30,6 +31,7 @@ namespace reone {
 namespace game {
 
 static const char kSkillsTwoDAResRef[] = "skills";
+static const char kDefenseBonusTwoDAResRef[] = "acbonus";
 static const char kFeatTwoDAResRef[] = "feat";
 static const char kFeatGainTwoDAResRef[] = "featgain";
 static const char kPowerGainTwoDAResRef[] = "classpowergain";
@@ -62,11 +64,19 @@ void CreatureClass::load(const TwoDA &twoDa, int row) {
     std::string skillsTable(boost::to_lower_copy(twoDa.getString(row, "skillstable")));
     loadClassSkills(skillsTable);
 
-    std::string savingThrowTable(boost::to_lower_copy(twoDa.getString(row, "savingthrowtable")));
+    std::string savingThrowTable(boost::to_lower_copy(
+        twoDa.getString(row, "savingthrowtable")));
     loadSavingThrows(savingThrowTable);
 
-    std::string attackBonusTable(boost::to_lower_copy(twoDa.getString(row, "attackbonustable")));
+    std::string attackBonusTable(boost::to_lower_copy(
+        twoDa.getString(row, "attackbonustable")));
     loadAttackBonuses(attackBonusTable);
+
+    std::string defenseBonusColumn(boost::to_lower_copy(
+        twoDa.getString(row, "armorclasscolumn")));
+    if (!defenseBonusColumn.empty()) {
+        loadDefenseBonuses(defenseBonusColumn);
+    }
 
     std::string featsPrefix(boost::to_lower_copy(twoDa.getString(row, "featstable")));
     loadFeatListValues(featsPrefix);
@@ -88,7 +98,7 @@ void CreatureClass::loadClassSkills(const std::string &skillsTable) {
 }
 
 void CreatureClass::loadSavingThrows(const std::string &savingThrowTable) {
-    std::shared_ptr<TwoDA> twoDa(_twoDas.get(savingThrowTable));
+    auto twoDa = getRequiredTwoDA(_twoDas, savingThrowTable);
     for (int row = 0; row < twoDa->getRowCount(); ++row) {
         int level = twoDa->getInt(row, "level");
 
@@ -102,9 +112,16 @@ void CreatureClass::loadSavingThrows(const std::string &savingThrowTable) {
 }
 
 void CreatureClass::loadAttackBonuses(const std::string &attackBonusTable) {
-    std::shared_ptr<TwoDA> twoDa(_twoDas.get(attackBonusTable));
+    auto twoDa = getRequiredTwoDA(_twoDas, attackBonusTable);
     for (int row = 0; row < twoDa->getRowCount(); ++row) {
         _attackBonuses.push_back(twoDa->getInt(row, "bab"));
+    }
+}
+
+void CreatureClass::loadDefenseBonuses(const std::string &defenseBonusColumn) {
+    auto twoDa = getRequiredTwoDA(_twoDas, kDefenseBonusTwoDAResRef);
+    for (int row = 0; row < twoDa->getRowCount(); ++row) {
+        _defenseBonuses.push_back(twoDa->getInt(row, defenseBonusColumn));
     }
 }
 
@@ -179,6 +196,13 @@ int CreatureClass::getAttackBonus(int level) const {
         throw std::out_of_range(str(boost::format("Level out of range: %d/%d") % level % static_cast<int>(_attackBonuses.size())));
     }
     return _attackBonuses[level - 1];
+}
+
+int CreatureClass::getDefenseBonus(int level) const {
+    if (level < 0 || level >= static_cast<int>(_defenseBonuses.size())) {
+        throw std::out_of_range(str(boost::format("Level out of range: %d/%d") % level % static_cast<int>(_defenseBonuses.size())));
+    }
+    return _defenseBonuses[level];
 }
 
 int CreatureClass::getFeatGain(int level) const {

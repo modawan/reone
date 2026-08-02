@@ -21,6 +21,7 @@
 #include "reone/game/action/usefeat.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/reputes.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
 #include "reone/system/logutil.h"
@@ -36,6 +37,16 @@ namespace game {
 
 static constexpr float kRoundDuration = 3.0f;
 static constexpr float kDeactivateDelay = 8.0f;
+static constexpr float kMaxAttackRange = 20.0f;
+static constexpr float kAttackTargetSearchPadding = 2.0f;
+
+static bool isTemporarilyDead(const Creature &creature, const Party &party) {
+    return party.isMember(creature) && creature.currentHitPoints() <= 0;
+}
+
+static bool isUnavailableAttackTarget(const Creature &creature, const Party &party) {
+    return creature.isDead() || isTemporarilyDead(creature, party);
+}
 
 bool CombatRound::canExecute(Action &action) const {
     State requiredState[] = {CombatRound::FirstAction, CombatRound::SecondAction};
@@ -48,19 +59,87 @@ bool CombatRound::canExecute(Action &action) const {
     return false;
 }
 
-static Object *getTarget(Action &action) {
+static std::shared_ptr<Object> getTarget(Action &action) {
     if (auto *attack = dyn_cast<AttackObjectAction>(&action)) {
-        return attack->target().get();
+        return attack->target();
     }
     if (auto *feat = dyn_cast<UseFeatAction>(&action)) {
-        return feat->target().get();
+        return feat->target();
     }
 
     return nullptr;
 }
 
+static FeatType getCombatFeat(Action &action) {
+    if (auto *feat = dyn_cast<UseFeatAction>(&action)) {
+        return isPhysicalAttackFeat(feat->feat())
+                   ? feat->feat()
+                   : FeatType::Invalid;
+    }
+    return FeatType::Invalid;
+}
+
+static void recordCombatAction(
+    Object &actor,
+    const std::shared_ptr<Object> &target,
+    Action &action) {
+
+    if (!target || !isHostileAction(action)) {
+        return;
+    }
+
+    target->setLastHostileActor(actor.id());
+    if (auto *creature = dyn_cast<Creature>(&actor)) {
+        creature->beginCombatAttack(target, getCombatFeat(action));
+    }
+}
+
 static bool isRoundPastFirstAttack(float time) {
     return time >= 0.5f * kRoundDuration;
+}
+
+static float getAttackTargetSearchRange(const Creature &attacker) {
+    return std::min(attacker.getAttackRange(), kMaxAttackRange) + kAttackTargetSearchPadding;
+}
+
+static std::shared_ptr<Creature> findNearestEnemy(
+    Area &area,
+    const Creature &attacker,
+    const Creature &observer,
+    float maxDistance,
+    const IReputes &reputes,
+    const Party &party) {
+
+    std::shared_ptr<Creature> nearest;
+    float nearestDistance = maxDistance;
+
+    for (const std::shared_ptr<Object> &object : area.getObjectsByType(ObjectType::Creature)) {
+        auto candidate = std::static_pointer_cast<Creature>(object);
+        if (candidate->id() == attacker.id() ||
+            candidate->id() == observer.id() ||
+            isUnavailableAttackTarget(*candidate, party)) {
+            continue;
+        }
+
+        bool isEnemy = observer.id() == attacker.id()
+                           ? reputes.getIsEnemy(attacker, *candidate)
+                           : reputes.getIsEnemy(*candidate, attacker);
+        if (!isEnemy || observer.perception().seen.count(candidate->id()) == 0) {
+            continue;
+        }
+
+        float distance = attacker.getDistanceTo(*candidate) -
+                         observer.creaturePersonalSpace() -
+                         candidate->creaturePersonalSpace();
+        if (distance >= nearestDistance || !area.isObjectSeen(observer, *candidate)) {
+            continue;
+        }
+
+        nearest = std::move(candidate);
+        nearestDistance = distance;
+    }
+
+    return nearest;
 }
 
 CombatRound *Combat::findRoundForAction(
@@ -116,9 +195,10 @@ const CombatRound &Combat::addAction(const std::shared_ptr<Action> &action, Obje
 
     // Find an existing round where target and attacker roles are reversed, and
     // append the action to this round.
-    Object *target = getTarget(*action);
+    std::shared_ptr<Object> target = getTarget(*action);
     if (target) {
         if (CombatRound *round = tryAppendAction(action, actor.id(), target->id())) {
+            recordCombatAction(actor, target, *action);
             debug(str(boost::format("Append attack: %s -> %s") % actor.tag() % target->tag()), LogChannel::Combat);
             return *round;
         }
@@ -130,6 +210,7 @@ const CombatRound &Combat::addAction(const std::shared_ptr<Action> &action, Obje
     CombatRound &newRound = *_rounds.back();
 
     if (target) {
+        recordCombatAction(actor, target, *action);
         debug(str(boost::format("Start round: %s -> %s") % actor.tag() % target->tag()), LogChannel::Combat);
     } else {
         debug(str(boost::format("Start round: %s") % actor.tag()), LogChannel::Combat);
@@ -150,7 +231,36 @@ void Combat::update(float dt) {
         updateRound(*round, dt);
     }
 
-    // TODO: clear history
+    retireCompletedRounds();
+}
+
+static bool isActionFinished(const CombatRound::RoundAction &action, const Game &game) {
+    return action.action->isCompleted() ||
+           action.action->isCancelled() ||
+           !game.getObjectById(action.attacker);
+}
+
+void Combat::retireCompletedRounds() {
+    for (auto it = _rounds.begin(); it != _rounds.end();) {
+        CombatRound &round = **it;
+        if (round.state != CombatRound::Finished) {
+            ++it;
+            continue;
+        }
+
+        bool actionsFinished = std::all_of(
+            round.actions.begin(),
+            round.actions.end(),
+            [this](const CombatRound::RoundAction &action) {
+                return isActionFinished(action, _game);
+            });
+
+        if (actionsFinished) {
+            it = _rounds.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 static void setMovement(CombatRound &round, bool enabled) {
@@ -186,22 +296,105 @@ void Combat::updateRound(CombatRound &round, float dt) {
 
 void Combat::finishRound(CombatRound &round) {
     SmallSet<uint32_t, 4> objects;
+    SmallSet<uint32_t, 2> attackers;
     for (CombatRound::RoundAction &action : round.actions) {
         objects.insert(action.attacker);
         objects.insert(action.target);
+        if (isHostileAction(*action.action)) {
+            attackers.insert(action.attacker);
+        }
 
         if (Logger::instance.isChannelEnabled(LogChannel::Combat)) {
-            auto attacker = _game.getObjectById<Creature>(action.attacker);
-            debug(str(boost::format("Finish round: %s") % attacker->tag()), LogChannel::Combat);
+            if (auto attacker = _game.getObjectById<Creature>(action.attacker)) {
+                debug(str(boost::format("Finish round: %s") % attacker->tag()), LogChannel::Combat);
+            }
         }
     }
 
+    for (uint32_t id : attackers) {
+        if (auto attacker = _game.getObjectById<Creature>(id)) {
+            attacker->finishCombatRound();
+        }
+    }
+
+    std::shared_ptr<Creature> leader = _game.party().getLeader();
     for (uint32_t id : objects) {
         std::shared_ptr<Object> object = _game.getObjectById(id);
         if (object && isa<Creature>(object)) {
             auto &participant = cast<Creature>(*object);
-            participant.runEndRoundScript();
+            if (!leader || participant.id() != leader->id()) {
+                participant.runEndRoundScript();
+            }
             participant.deactivateCombat(kDeactivateDelay);
+        }
+    }
+
+    if (!leader || isUnavailableAttackTarget(*leader, _game.party())) {
+        return;
+    }
+
+    for (CombatRound::RoundAction &action : round.actions) {
+        if (action.attacker != leader->id()) {
+            continue;
+        }
+
+        if (leader->hasUserActionsPending(action.action.get())) {
+            continue;
+        }
+
+        std::shared_ptr<Object> target = _game.getObjectById(action.target);
+        auto targetCreature = dyn_cast<Creature>(target);
+        bool targetUnavailable = !target || target->isDead() ||
+                                 (targetCreature && isTemporarilyDead(
+                                      *targetCreature,
+                                      _game.party()));
+        if (!targetUnavailable) {
+            if (leader->getCurrentAction() != action.action) {
+                continue;
+            }
+            if (targetCreature &&
+                _services.game.reputes.getRepute(*leader, *targetCreature) > 10) {
+                continue;
+            }
+
+            leader->addAction(_game.newAction<AttackObjectAction>(std::move(target)));
+            continue;
+        }
+
+        if (!isa<AttackObjectAction>(action.action.get()) &&
+            !isa<UseFeatAction>(action.action.get())) {
+            continue;
+        }
+
+        std::shared_ptr<Creature> enemy;
+        std::shared_ptr<Module> module = _game.module();
+        std::shared_ptr<Area> area = module ? module->area() : nullptr;
+        if (area) {
+            float searchRange = getAttackTargetSearchRange(*leader);
+            if (auto previousTarget = dyn_cast<Creature>(target)) {
+                enemy = findNearestEnemy(
+                    *area,
+                    *leader,
+                    *previousTarget,
+                    searchRange,
+                    _services.game.reputes,
+                    _game.party());
+            }
+            if (!enemy) {
+                enemy = findNearestEnemy(
+                    *area,
+                    *leader,
+                    *leader,
+                    searchRange,
+                    _services.game.reputes,
+                    _game.party());
+            }
+        }
+
+        if (enemy) {
+            leader->addAction(_game.newAction<AttackObjectAction>(std::move(enemy)));
+        } else {
+            leader->deactivateCombat(0.0f);
         }
     }
 }

@@ -20,6 +20,7 @@
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
 #include "reone/game/di/services.h"
+#include "reone/game/twodautil.h"
 #include "reone/game/game.h"
 #include "reone/graphics/di/services.h"
 #include "reone/resource/2da.h"
@@ -130,20 +131,33 @@ void Item::deserializeBase(const resource::Gff &gff) {
         return;
     }
 
-    std::shared_ptr<TwoDA> baseItems(_services.resource.twoDas.get("baseitems"));
-    if (!baseItems) {
-        return;
-    }
-    _attackRange = baseItems->getInt(_baseItem, "maxattackrange");
-    _criticalHitMultiplier = baseItems->getInt(_baseItem, "crithitmult");
-    _criticalThreat = baseItems->getInt(_baseItem, "critthreat");
-    _damageFlags = baseItems->getInt(_baseItem, "damageflags");
-    _dieToRoll = baseItems->getInt(_baseItem, "dietoroll");
-    _equipableSlots = baseItems->getHexInt(_baseItem, "equipableslots", 0);
-    _itemClass = boost::to_lower_copy(baseItems->getString(_baseItem, "itemclass"));
-    _numDice = baseItems->getInt(_baseItem, "numdice");
-    _weaponType = static_cast<WeaponType>(baseItems->getInt(_baseItem, "weapontype"));
-    _weaponWield = static_cast<WeaponWield>(baseItems->getInt(_baseItem, "weaponwield"));
+    auto baseItems = getRequiredTwoDA(_services.resource.twoDas, "baseitems");
+    _attackRange = baseItems->getFloat(_baseItem, "maxattackrange", 0.0f);
+    _baseDefense = baseItems->getInt(_baseItem, "baseac", 0);
+    _criticalHitMultiplier = baseItems->getInt(_baseItem, "crithitmult", 0);
+    _criticalThreat = baseItems->getInt(_baseItem, "critthreat", 0);
+    _damageFlags = baseItems->getInt(_baseItem, "damageflags", 0);
+    _dieToRoll = baseItems->getInt(_baseItem, "dietoroll", 0);
+    _maxDexterityBonus = baseItems->getInt(_baseItem, "dexbonus", -1);
+    _equipableSlots = static_cast<uint32_t>(
+        baseItems->getInt(_baseItem, "equipableslots", 0));
+    _itemClass = boost::to_lower_copy(
+        baseItems->getString(_baseItem, "itemclass"));
+    _numDice = baseItems->getInt(_baseItem, "numdice", 0);
+    _acBonusType = static_cast<ACBonus>(baseItems->getInt(
+        _baseItem,
+        "ac_enchant",
+        static_cast<int>(ACBonus::Invalid)));
+    _weaponType = static_cast<WeaponType>(
+        baseItems->getInt(_baseItem, "weapontype", 0));
+    _weaponWield = static_cast<WeaponWield>(
+        baseItems->getInt(_baseItem, "weaponwield", 0));
+    _weaponSize = static_cast<CreatureSize>(
+        baseItems->getInt(_baseItem, "weaponsize", 0));
+    _weaponFocusFeat = static_cast<FeatType>(
+        baseItems->getInt(_baseItem, "focfeat", 0));
+    _weaponSpecializationFeat = static_cast<FeatType>(
+        baseItems->getInt(_baseItem, "specfeat", 0));
 
     std::string iconResRef;
     if (isEquippable(InventorySlots::body)) {
@@ -164,19 +178,21 @@ void Item::deserializeBase(const resource::Gff &gff) {
 }
 
 void Item::loadAmmunitionType() {
-    std::shared_ptr<TwoDA> baseItems(_services.resource.twoDas.get("baseitems"));
+    auto baseItems = getRequiredTwoDA(_services.resource.twoDas, "baseitems");
 
-    int ammunitionIdx = baseItems->getInt(_baseItem, "ammunitiontype", -1);
-    if (ammunitionIdx != -1) {
-        std::shared_ptr<TwoDA> twoDa(_services.resource.twoDas.get("ammunitiontypes"));
-        _ammunitionType = std::make_shared<Item::AmmunitionType>();
-        _ammunitionType->model = _services.resource.models.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "model")));
-        _ammunitionType->muzzleFlash = _services.resource.models.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "muzzleflash")));
-        _ammunitionType->shotSound1 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "shotsound0")));
-        _ammunitionType->shotSound2 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "shotsound1")));
-        _ammunitionType->impactSound1 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "impactsound0")));
-        _ammunitionType->impactSound2 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "impactsound1")));
+    int ammunitionIdx = baseItems->getInt(_baseItem, "ammunitiontype", 0);
+    if (ammunitionIdx < 1) {
+        return;
     }
+
+    auto twoDa = getRequiredTwoDA(_services.resource.twoDas, "ammunitiontypes");
+    _ammunitionType = std::make_shared<Item::AmmunitionType>();
+    _ammunitionType->model = _services.resource.models.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "model")));
+    _ammunitionType->muzzleFlash = _services.resource.models.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "muzzleflash")));
+    _ammunitionType->shotSound1 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "shotsound0")));
+    _ammunitionType->shotSound2 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "shotsound1")));
+    _ammunitionType->impactSound1 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "impactsound0")));
+    _ammunitionType->impactSound2 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "impactsound1")));
 }
 
 void Item::update(float dt) {
