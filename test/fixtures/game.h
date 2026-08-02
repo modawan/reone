@@ -31,6 +31,7 @@
 #include "reone/game/footstepsounds.h"
 #include "reone/game/gui/sounds.h"
 #include "reone/game/options.h"
+#include "reone/game/pazaaksession.h"
 #include "reone/game/portraits.h"
 #include "reone/game/projectiles.h"
 #include "reone/game/reputes.h"
@@ -42,9 +43,16 @@
 
 namespace reone {
 
+namespace resource {
+
+class Gff;
+
+}
+
 namespace game {
 
 class Game;
+class Object;
 
 class MockCameraStyles : public ICameraStyles, boost::noncopyable {
 public:
@@ -141,6 +149,25 @@ public:
 class TestGameModule : boost::noncopyable {
 public:
     static std::pair<std::string, std::string> scheduledTransition(const Game &game);
+    static void configurePazaak(
+        Game &game,
+        bool guiLoadSucceeds,
+        PazaakSession::HandSelector playerSelector,
+        PazaakSession::HandSelector opponentSelector,
+        PazaakSession::MainDeckFactory mainDeckFactory,
+        std::function<void(const std::string &, uint32_t)> continuation);
+    static void setCurrentScreen(Game &game, int screen);
+    static void initConsole(Game &game);
+    static void setActiveModule(Game &game, bool active);
+    static void setPazaakDevelopmentSelectedObject(
+        Game &game,
+        std::shared_ptr<Object> object);
+    static void removeObject(Game &game, uint32_t objectId);
+    static void useRuntimePazaakGUIs(Game &game);
+    static void useAuthoredPazaakDecks(Game &game);
+    static void finishPazaak(Game &game, PazaakCompletedResult result);
+    static void serializePazaakPartyTable(const Game &game, resource::Gff &gff);
+    static void deserializePartyTable(Game &game, resource::Gff &gff);
 
     void init() {
         _cameraStyles = std::make_unique<MockCameraStyles>();
@@ -199,8 +226,47 @@ private:
 
 class StubConsole : public IConsole, boost::noncopyable {
 public:
-    void registerCommand(std::string name, std::string description, CommandHandler handler) override {}
-    void printLine(const std::string &text) override {}
+    struct RegisteredCommand {
+        std::string description;
+        CommandHandler handler;
+    };
+
+    void registerCommand(
+        std::string name,
+        std::string description,
+        CommandHandler handler) override {
+
+        commands.emplace(
+            std::move(name),
+            RegisteredCommand {std::move(description), std::move(handler)});
+    }
+
+    void printLine(const std::string &text) override {
+        lines.push_back(text);
+    }
+
+    bool hasCommand(const std::string &name) const {
+        return commands.find(name) != commands.end();
+    }
+
+    void execute(
+        const std::string &name,
+        std::vector<std::string> arguments = {}) {
+
+        auto found = commands.find(name);
+        if (found == commands.end()) {
+            throw std::runtime_error("Command is not registered: " + name);
+        }
+        ConsoleArgs::TokenList tokens {name};
+        tokens.insert(
+            tokens.end(),
+            arguments.begin(),
+            arguments.end());
+        found->second.handler(ConsoleArgs(std::move(tokens)));
+    }
+
+    std::map<std::string, RegisteredCommand> commands;
+    std::vector<std::string> lines;
 };
 
 } // namespace game

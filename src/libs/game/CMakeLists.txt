@@ -286,6 +286,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/mainmenu.h
     ${GAME_INCLUDE_DIR}/gui/map.h
     ${GAME_INCLUDE_DIR}/gui/partyselect.h
+    ${GAME_INCLUDE_DIR}/gui/pazaak.h
     ${GAME_INCLUDE_DIR}/gui/saveload.h
     ${GAME_INCLUDE_DIR}/gui/selectoverlay.h
     ${GAME_INCLUDE_DIR}/gui/sounds.h
@@ -315,6 +316,8 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/object/waypoint.h
     ${GAME_INCLUDE_DIR}/options.h
     ${GAME_INCLUDE_DIR}/party.h
+    ${GAME_INCLUDE_DIR}/pazaak.h
+    ${GAME_INCLUDE_DIR}/pazaaksession.h
     ${GAME_INCLUDE_DIR}/pathfinder.h
     ${GAME_INCLUDE_DIR}/player.h
     ${GAME_INCLUDE_DIR}/portrait.h
@@ -500,6 +503,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/mainmenu.cpp
     ${GAME_SOURCE_DIR}/gui/map.cpp
     ${GAME_SOURCE_DIR}/gui/partyselect.cpp
+    ${GAME_SOURCE_DIR}/gui/pazaak.cpp
     ${GAME_SOURCE_DIR}/gui/saveload.cpp
     ${GAME_SOURCE_DIR}/gui/selectoverlay.cpp
     ${GAME_SOURCE_DIR}/gui/sounds.cpp
@@ -525,6 +529,8 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/object/trigger.cpp
     ${GAME_SOURCE_DIR}/object/waypoint.cpp
     ${GAME_SOURCE_DIR}/party.cpp
+    ${GAME_SOURCE_DIR}/pazaak.cpp
+    ${GAME_SOURCE_DIR}/pazaaksession.cpp
     ${GAME_SOURCE_DIR}/pathfinder.cpp
     ${GAME_SOURCE_DIR}/player.cpp
     ${GAME_SOURCE_DIR}/portraits.cpp

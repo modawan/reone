@@ -3502,16 +3502,34 @@ static Variable PlayPazaak(const std::vector<Variable> &args, const RoutineConte
     auto nMaxWager = getInt(args, 2);
     auto bShowTutorial = getIntOrElse(args, 3, 0);
     auto oOpponent = getObjectOrNull(args, 4, ctx);
+    if (!oOpponent) {
+        // K1's authored k_act_mispaz call omits the optional opponent. In
+        // NWScript that argument defaults to OBJECT_INVALID; the script caller
+        // is the only authored identity/continuation context available.
+        oOpponent = getCaller(ctx);
+    }
 
-    // Transform
+    auto endScript = boost::to_lower_copy(sEndScript);
 
     // Execute
-    throw RoutineNotImplementedException("PlayPazaak");
+    ctx.game.playPazaak(
+        nOpponentPazaakDeck,
+        std::move(endScript),
+        nMaxWager,
+        bShowTutorial != 0,
+        oOpponent);
+    return Variable::ofNull();
 }
 
 static Variable GetLastPazaakResult(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    throw RoutineNotImplementedException("GetLastPazaakResult");
+    const auto &result = ctx.game.lastPazaakResult();
+    if (!result) {
+        return Variable::ofInt(0);
+    }
+    // Shipped K1 scripts consume 1 as a player win and 0 as a player loss.
+    // Forfeit follows the loss path.
+    return Variable::ofInt(
+        *result == PazaakCompletedResult::PlayerWon ? 1 : 0);
 }
 
 static Variable DisplayFeedBackText(const std::vector<Variable> &args, const RoutineContext &ctx) {

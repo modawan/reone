@@ -42,6 +42,7 @@
 #include "gui/mainmenu.h"
 #include "gui/map.h"
 #include "gui/partyselect.h"
+#include "gui/pazaak.h"
 #include "gui/saveload.h"
 #include "journal.h"
 #include "location.h"
@@ -62,6 +63,7 @@
 #include "object/waypoint.h"
 #include "options.h"
 #include "party.h"
+#include "pazaaksession.h"
 #include "script/runner.h"
 #include "swooprace.h"
 #include "statussummary.h"
@@ -99,7 +101,10 @@ public:
         Container,
         PartySelection,
         SaveLoad,
-        SwoopRace
+        SwoopRace,
+        PazaakWager,
+        PazaakSetup,
+        PazaakBoard
     };
 
     Game(
@@ -173,6 +178,27 @@ public:
     void openContainer(const std::shared_ptr<Object> &container);
     void openPartySelection(const PartySelectionContext &ctx);
     void openSaveLoad(SaveLoadMode mode);
+
+    // KotOR I Pazaak lifecycle
+
+    bool playPazaak(
+        int opponentDeck,
+        std::string continuationScript,
+        int maximumWager,
+        bool tutorialRequested,
+        const std::shared_ptr<Object> &opponent);
+
+    PazaakSession *pazaakSession() { return _pazaakSession.get(); }
+    const PazaakSession *pazaakSession() const { return _pazaakSession.get(); }
+    const std::optional<PazaakCompletedResult> &lastPazaakResult() const { return _lastPazaakResult; }
+
+    void showPazaakSetup();
+    void showPazaakBoard();
+    void cancelPazaak();
+    void abortPazaak();
+    void completePazaakIfReady();
+
+    // END KotOR I Pazaak lifecycle
 
     void startCharacterGeneration();
     void startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef);
@@ -375,6 +401,7 @@ public:
     void deserializeGlobalVariables(resource::Gff &gvtGff);
     void deserializeParty(resource::Gff &ifoGff);
     void deserializePartyTable(resource::Gff &ptGff);
+    void serializePazaakPartyTable(resource::Gff &ptGff) const;
     void deserializePartyMembers(resource::Gff &ptGff);
     void deserializeJournal(const resource::Gff &ptGff);
     void deserializeInventory(resource::Gff &inventoryGff);
@@ -455,6 +482,31 @@ private:
     std::unique_ptr<ContainerGUI> _container;
     std::unique_ptr<PartySelection> _partySelect;
     std::unique_ptr<SaveLoad> _saveLoad;
+    std::unique_ptr<PazaakWagerGUI> _pazaakWager;
+    std::unique_ptr<PazaakSetupGUI> _pazaakSetup;
+    std::unique_ptr<PazaakBoardGUI> _pazaakBoard;
+
+    std::unique_ptr<PazaakSession> _pazaakSession;
+    std::optional<PazaakCompletedResult> _lastPazaakResult;
+    std::weak_ptr<Object> _pazaakContinuationCaller;
+    Screen _pazaakOriginScreen {Screen::None};
+    bool _pazaakGUIsReady {false};
+    bool _pazaakDevelopmentLaunch {false};
+    bool _pazaakSelectionPersisted {false};
+    bool _pazaakSettlementApplied {false};
+    bool _pazaakShowcaseHands {false};
+    float _pazaakOpponentEventElapsed {0.0f};
+
+    // Narrow injectable seams used by focused lifecycle tests.
+    PazaakSession::HandSelector _pazaakPlayerHandSelector;
+    PazaakSession::HandSelector _pazaakOpponentHandSelector;
+    PazaakSession::MainDeckFactory _pazaakMainDeckFactory;
+    PazaakSession::FirstParticipantSelector _pazaakFirstParticipantSelector;
+    bool _pazaakPaceAutomaticDraws {true};
+    std::function<bool()> _pazaakGuiLoadOverride;
+    std::function<void(const std::string &, uint32_t)> _pazaakContinuationOverride;
+    std::weak_ptr<Object> _pazaakDevelopmentSelectedObjectOverride;
+    std::optional<pazaak::SideDeck> _pazaakOpponentDeckOverride;
 
     std::unique_ptr<Map> _map;
     std::unique_ptr<LoadingScreen> _loadScreen;
@@ -558,6 +610,15 @@ private:
     // GUI
 
     void loadInGameMenus();
+    bool loadPazaakGUIs();
+    bool startPazaakFlow(
+        PazaakSessionParams params,
+        const std::shared_ptr<Object> &continuationCaller,
+        bool developmentLaunch);
+    bool startDevelopmentPazaak(std::string opponentName);
+    void finishPazaak(PazaakCompletedResult result);
+    void releasePazaakFlow(bool restoreOrigin);
+    Screen safePazaakOriginScreen() const;
 
     void changeScreen(Screen screen);
 
@@ -642,6 +703,7 @@ private:
     void consoleOpenCloseDoor(const ConsoleArgs &tokens);
     void consoleListGames(const ConsoleArgs &tokens);
     void consoleLoadGame(const ConsoleArgs &tokens);
+    void consoleStartPazaak(const ConsoleArgs &tokens);
     void consoleMiniGameInfo(const ConsoleArgs &tokens);
     void consoleStartSwoop(const ConsoleArgs &tokens);
     void consoleStopSwoop(const ConsoleArgs &tokens);
