@@ -55,6 +55,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/pazaakintegration.cpp
     ${TESTS_SOURCE_DIR}/game/pazaaksession.cpp
     ${TESTS_SOURCE_DIR}/game/pathfinder.cpp
+    ${TESTS_SOURCE_DIR}/game/reputes.cpp
     ${TESTS_SOURCE_DIR}/game/statussummary.cpp
     ${TESTS_SOURCE_DIR}/game/transitioncandidate.cpp
     ${TESTS_SOURCE_DIR}/graphics/aabb.cpp

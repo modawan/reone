@@ -1460,24 +1460,26 @@ std::shared_ptr<Creature> Area::getNearestCreature(const std::shared_ptr<Object>
     return nth < candidates.size() ? candidates[nth].first : nullptr;
 }
 
-static bool matchesReputation(const Creature &creature, const Object *target,
+// The criteria describe the candidate's standing with the creature the search
+// is centred on, so that creature is the source of every disposition query.
+static bool matchesReputation(const Creature &candidate, const Object *target,
                               ReputationType reputation, IReputes &reputes) {
     if (!target || target->type() != ObjectType::Creature) {
         return false;
     }
-    const Creature &targetCreature = static_cast<const Creature &>(*target);
+    const Creature &searching = static_cast<const Creature &>(*target);
 
     switch (reputation) {
     case ReputationType::Friend:
-        return reputes.getIsFriend(creature, targetCreature);
+        return reputes.getIsFriend(searching, candidate);
     case ReputationType::Enemy: {
         // Do not consider dead enemies as enemies. Scripts use
         // GetNearestCreature to find a new target, and targeting dead bodies is
         // a poor tactic.
-        return !creature.isDead() && reputes.getIsEnemy(creature, targetCreature);
+        return !candidate.isDead() && reputes.getIsEnemy(searching, candidate);
     }
     case ReputationType::Neutral:
-        return reputes.getIsNeutral(creature, targetCreature);
+        return reputes.getIsNeutral(searching, candidate);
     }
     return false;
 }
