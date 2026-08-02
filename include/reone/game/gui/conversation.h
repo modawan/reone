@@ -77,6 +77,9 @@ protected:
 
     virtual void setReplyLines(std::vector<std::string> lines) = 0;
 
+    // How a one-liner presents its entry, alongside setMessage/setReplyLines.
+    virtual void setBarkText(std::string text, float duration);
+
     virtual void onStart();
     virtual void onFinish();
     virtual void onLoadEntry();
