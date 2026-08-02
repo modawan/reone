@@ -44,6 +44,20 @@ struct VisualEffectDesc {
     std::shared_ptr<audio::AudioClip> soundImpact;
 };
 
+namespace VisualEffectIds {
+
+constexpr uint32_t grenadeFragmentation = 3003;
+constexpr uint32_t grenadeStun = 3004;
+constexpr uint32_t thermalDetonator = 3005;
+constexpr uint32_t grenadePoison = 3006;
+constexpr uint32_t grenadeSonic = 3007;
+constexpr uint32_t grenadeAdhesive = 3008;
+constexpr uint32_t grenadeCryoban = 3009;
+constexpr uint32_t grenadePlasma = 3010;
+constexpr uint32_t grenadeIon = 3011;
+
+} // namespace VisualEffectIds
+
 class IVisualEffects {
 public:
     virtual std::optional<const VisualEffectDesc *> get(uint32_t id) const = 0;

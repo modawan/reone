@@ -48,6 +48,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/d20/class.cpp
     ${TESTS_SOURCE_DIR}/game/d20/spells.cpp
     ${TESTS_SOURCE_DIR}/game/conversation.cpp
+    ${TESTS_SOURCE_DIR}/game/effect/visual.cpp
     ${TESTS_SOURCE_DIR}/game/journal.cpp
     ${TESTS_SOURCE_DIR}/game/messagebus.cpp
     ${TESTS_SOURCE_DIR}/game/object.cpp
@@ -90,6 +91,8 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/resource/resref.cpp
     ${TESTS_SOURCE_DIR}/resource/strings.cpp
     ${TESTS_SOURCE_DIR}/scene/model.cpp
+    ${TESTS_SOURCE_DIR}/scene/particleprofile.cpp
+    ${TESTS_SOURCE_DIR}/scene/particleutil.cpp
     ${TESTS_SOURCE_DIR}/script/format/ncsreader.cpp
     ${TESTS_SOURCE_DIR}/script/format/ncswriter.cpp
     ${TESTS_SOURCE_DIR}/script/virtualmachine.cpp

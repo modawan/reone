@@ -236,6 +236,7 @@ public:
     bool quaternionValueAt(ControllerType type, float time, glm::quat &value) const;
 
     KeyframeTrackMap<float> &floatTracks() { return _floatTracks; }
+    const KeyframeTrackMap<float> &floatTracks() const { return _floatTracks; }
     KeyframeTrackMap<glm::vec3> &vectorTracks() { return _vectorTracks; }
     KeyframeTrackMap<glm::quat> &quaternionTracks() { return _quaternionTracks; }
 

@@ -55,6 +55,7 @@ public:
         static constexpr int alpha = 2;
         static constexpr int selfIllumColor = 4;
         static constexpr int color = 8;
+        static constexpr int emitter = 16;
     };
 
     struct AnimationState {
@@ -63,6 +64,7 @@ public:
         float alpha {0.0f};
         glm::vec3 selfIllumColor {0.0f};
         glm::vec3 color {0.0f};
+        EmitterSceneNode::AnimationState emitter;
     };
 
     struct AnimationChannel {
@@ -70,6 +72,9 @@ public:
         std::shared_ptr<graphics::LipAnimation> lipAnim;
         AnimationProperties properties;
         float time {0.0f};
+        float particleTime {0.0f};
+        float updateDuration {0.0f};
+        std::vector<EmitterSceneNode::AnimationTimeSpan> updateTimeSpans;
         std::unordered_map<uint16_t, AnimationState> stateByNodeNumber;
         bool freeze {false};     /**< channel time is not to be updated */
         bool transition {false}; /**< when computing states, use animation transition time as channel time */
@@ -123,6 +128,7 @@ public:
     void setMainTexture(graphics::Texture *texture);
     void setEnvironmentMap(graphics::Texture *texture);
     void setPickable(bool pickable) { _pickable = pickable; }
+    void setParticleRenderProfile(const ParticleRenderProfile &profile);
 
     // Animation
 
@@ -170,12 +176,14 @@ private:
 
     std::deque<AnimationChannel> _animChannels;
     AnimationBlendMode _animBlendMode {AnimationBlendMode::Single};
+    std::vector<std::string> _pendingAnimationEvents;
 
     // END Animation
 
     // Flags
 
     bool _pickable {false};
+    ParticleRenderProfile _particleRenderProfile;
 
     // END Flags
 
@@ -185,6 +193,7 @@ private:
 
     void updateAnimations(float dt);
     void updateAnimationChannel(AnimationChannel &channel, float dt);
+    void dispatchAnimationEvents();
     void computeAnimationStates(AnimationChannel &channel, float time, const graphics::ModelNode &modelNode);
     void applyAnimationStates(const graphics::ModelNode &modelNode);
 

@@ -29,17 +29,427 @@
 #include "reone/scene/graph.h"
 #include "reone/scene/node/camera.h"
 #include "reone/scene/node/particle.h"
+#include "reone/scene/particleutil.h"
 #include "reone/scene/render/pass.h"
 #include "reone/system/randomutil.h"
 
 using namespace reone::graphics;
 
+namespace {
+
+void appendBirthrateReset(
+    std::vector<reone::scene::EmitterSceneNode::BirthrateStep> &steps,
+    float duration = 0.0f) {
+
+    if (steps.empty() || !steps.back().resetAccumulator) {
+        steps.push_back({0.0f, 0.0f, duration, true});
+    } else {
+        steps.back().duration += duration;
+    }
+}
+
+void appendPositiveBirthrateSegment(
+    std::vector<reone::scene::EmitterSceneNode::BirthrateStep> &steps,
+    float startRate,
+    float endRate,
+    float duration) {
+
+    if (!std::isfinite(startRate) ||
+        !std::isfinite(endRate) ||
+        !std::isfinite(duration) ||
+        duration <= 0.0f) {
+        return;
+    }
+    steps.push_back({
+        glm::max(startRate, 0.0f),
+        glm::max(endRate, 0.0f),
+        duration,
+        false});
+}
+
+void appendBirthrateTrackSpan(
+    const reone::graphics::KeyframeTrack<float> &track,
+    float startTime,
+    float endTime,
+    float playbackSpeed,
+    std::vector<reone::scene::EmitterSceneNode::BirthrateStep> &steps) {
+
+    if (endTime <= startTime || playbackSpeed <= 0.0f) {
+        appendBirthrateReset(steps);
+        return;
+    }
+
+    float leftTime = startTime;
+    float leftValue = 0.0f;
+    if (!track.valueAtTime(leftTime, leftValue)) {
+        appendBirthrateReset(steps);
+        return;
+    }
+
+    auto appendSegment = [&](float rightTime, float rightValue) {
+        float duration = (rightTime - leftTime) / playbackSpeed;
+        if (leftValue <= 0.0f && rightValue <= 0.0f) {
+            appendBirthrateReset(steps, duration);
+        } else if (leftValue >= 0.0f && rightValue >= 0.0f) {
+            if (leftValue <= 0.0f) {
+                appendBirthrateReset(steps);
+            }
+            appendPositiveBirthrateSegment(
+                steps,
+                leftValue,
+                rightValue,
+                duration);
+            if (rightValue <= 0.0f) {
+                appendBirthrateReset(steps);
+            }
+        } else {
+            float zeroFactor = -leftValue / (rightValue - leftValue);
+            float firstDuration = duration * zeroFactor;
+            float secondDuration = duration - firstDuration;
+            if (leftValue > 0.0f) {
+                appendPositiveBirthrateSegment(
+                    steps,
+                    leftValue,
+                    0.0f,
+                    firstDuration);
+                appendBirthrateReset(steps, secondDuration);
+            } else {
+                appendBirthrateReset(steps, firstDuration);
+                appendPositiveBirthrateSegment(
+                    steps,
+                    0.0f,
+                    rightValue,
+                    secondDuration);
+            }
+        }
+        leftTime = rightTime;
+        leftValue = rightValue;
+    };
+
+    for (const auto &keyframe : track.keyframes()) {
+        if (keyframe.time <= startTime || keyframe.time >= endTime) {
+            continue;
+        }
+
+        float rightValue = 0.0f;
+        track.valueAtTime(keyframe.time, rightValue);
+        appendSegment(keyframe.time, rightValue);
+    }
+
+    float rightValue = 0.0f;
+    track.valueAtTime(endTime, rightValue);
+    appendSegment(endTime, rightValue);
+}
+
+float timeAtIntegratedBirthCount(
+    float startRate,
+    float endRate,
+    float duration,
+    double birthCount) {
+
+    if (duration <= 0.0f || birthCount <= 0.0) {
+        return 0.0f;
+    }
+
+    double slope =
+        (static_cast<double>(endRate) - static_cast<double>(startRate)) /
+        static_cast<double>(duration);
+    double discriminant =
+        static_cast<double>(startRate) * static_cast<double>(startRate) +
+        2.0 * slope * birthCount;
+    double root = std::sqrt(glm::max(discriminant, 0.0));
+    double denominator = static_cast<double>(startRate) + root;
+    if (denominator <= 0.0) {
+        return duration;
+    }
+    return glm::clamp(
+        static_cast<float>(2.0 * birthCount / denominator),
+        0.0f,
+        duration);
+}
+
+reone::scene::particleutil::ParticleSpawnSchedule advanceAnimatedSpawnAccumulator(
+    const std::vector<reone::scene::EmitterSceneNode::BirthrateStep> &steps,
+    float dt,
+    float &accumulator) {
+
+    static constexpr float kWholeParticleEpsilon = 1e-5f;
+
+    if (!std::isfinite(dt) ||
+        !std::isfinite(accumulator) ||
+        dt <= 0.0f ||
+        dt > reone::scene::particleutil::kMaxContinuousParticleDelta) {
+        accumulator = 0.0f;
+        return {};
+    }
+
+    reone::scene::particleutil::ParticleSpawnSchedule schedule;
+    float elapsed = 0.0f;
+    for (const auto &step : steps) {
+        if (step.resetAccumulator) {
+            accumulator = 0.0f;
+            elapsed += glm::max(step.duration, 0.0f);
+            continue;
+        }
+        if (!std::isfinite(step.startRate) ||
+            !std::isfinite(step.endRate) ||
+            !std::isfinite(step.duration) ||
+            step.duration <= 0.0f) {
+            continue;
+        }
+
+        double segmentBirths =
+            0.5 *
+            (static_cast<double>(step.startRate) +
+             static_cast<double>(step.endRate)) *
+            static_cast<double>(step.duration);
+        double previousAccumulator = glm::clamp(accumulator, 0.0f, 1.0f);
+        double accumulatedBirths = previousAccumulator + segmentBirths;
+        if (!std::isfinite(accumulatedBirths)) {
+            accumulator = 0.0f;
+            elapsed += step.duration;
+            continue;
+        }
+
+        double wholeParticles =
+            glm::floor(accumulatedBirths + kWholeParticleEpsilon);
+        accumulator = static_cast<float>(accumulatedBirths - wholeParticles);
+        if (accumulator < 0.0f &&
+            accumulator > -kWholeParticleEpsilon) {
+            accumulator = 0.0f;
+        }
+        int birthsInSegment = static_cast<int>(glm::min(
+            wholeParticles,
+            static_cast<double>(
+                reone::scene::particleutil::kMaxSpawnParticlesPerUpdate)));
+        for (int i = 0;
+             i < birthsInSegment &&
+             schedule.count < reone::scene::particleutil::kMaxSpawnParticlesPerUpdate;
+             ++i) {
+            double targetBirthCount =
+                1.0 - previousAccumulator + static_cast<double>(i);
+            float birthTime = timeAtIntegratedBirthCount(
+                step.startRate,
+                step.endRate,
+                step.duration,
+                targetBirthCount);
+            schedule.ages[schedule.count++] = glm::clamp(
+                dt - (elapsed + birthTime),
+                0.0f,
+                dt);
+        }
+        elapsed += step.duration;
+    }
+    return schedule;
+}
+
+} // namespace
+
 namespace reone {
 
 namespace scene {
 
-static constexpr float kMotionBlurStrength = 0.25f;
-static constexpr float kProjectileSpeed = 16.0f;
+bool EmitterSceneNode::AnimationState::empty() const {
+    return !birthrate &&
+           !birthrateStepsForUpdate &&
+           !lifeExpectancy &&
+           !xSize &&
+           !ySize &&
+           !frameStart &&
+           !frameEnd &&
+           !fps &&
+           !spread &&
+           !velocity &&
+           !randomVelocity &&
+           !blurLength &&
+           !mass &&
+           !grav &&
+           !lightningDelay &&
+           !lightningRadius &&
+           !lightningScale &&
+           !lightningSubDiv &&
+           !particleSizeStart &&
+           !particleSizeMid &&
+           !particleSizeEnd &&
+           !colorStart &&
+           !colorMid &&
+           !colorEnd &&
+           !alphaStart &&
+           !alphaMid &&
+           !alphaEnd;
+}
+
+EmitterSceneNode::AnimationState EmitterSceneNode::animationStateAt(
+    const ModelNode &animationNode,
+    float time) {
+
+    AnimationState state;
+    auto readFloat = [&animationNode, time](ControllerType type) -> std::optional<float> {
+        float value;
+        if (animationNode.floatValueAtTime(type, time, value)) {
+            return value;
+        }
+        return std::nullopt;
+    };
+    auto readInt = [&readFloat](ControllerType type) -> std::optional<int> {
+        auto value = readFloat(type);
+        return value ? std::make_optional(static_cast<int>(*value)) : std::nullopt;
+    };
+    auto readVector = [&animationNode, time](ControllerType type) -> std::optional<glm::vec3> {
+        glm::vec3 value;
+        if (animationNode.vectorValueAtTime(type, time, value)) {
+            return value;
+        }
+        return std::nullopt;
+    };
+
+    state.birthrate = readFloat(ControllerTypes::birthrate);
+    state.lifeExpectancy = readFloat(ControllerTypes::lifeExp);
+    state.xSize = readFloat(ControllerTypes::xSize);
+    state.ySize = readFloat(ControllerTypes::ySize);
+    state.frameStart = readInt(ControllerTypes::frameStart);
+    state.frameEnd = readInt(ControllerTypes::frameEnd);
+    state.fps = readFloat(ControllerTypes::fps);
+    state.spread = readFloat(ControllerTypes::spread);
+    state.velocity = readFloat(ControllerTypes::velocity);
+    state.randomVelocity = readFloat(ControllerTypes::randVel);
+    state.blurLength = readFloat(ControllerTypes::blurLength);
+    state.mass = readFloat(ControllerTypes::mass);
+    state.grav = readFloat(ControllerTypes::grav);
+    state.lightningDelay = readFloat(ControllerTypes::lightingDelay);
+    state.lightningRadius = readFloat(ControllerTypes::lightingRadius);
+    state.lightningScale = readFloat(ControllerTypes::lightingScale);
+    state.lightningSubDiv = readInt(ControllerTypes::lightingSubDiv);
+    state.particleSizeStart = readFloat(ControllerTypes::sizeStart);
+    state.particleSizeMid = readFloat(ControllerTypes::sizeMid);
+    state.particleSizeEnd = readFloat(ControllerTypes::sizeEnd);
+    state.colorStart = readVector(ControllerTypes::colorStart);
+    state.colorMid = readVector(ControllerTypes::colorMid);
+    state.colorEnd = readVector(ControllerTypes::colorEnd);
+    state.alphaStart = readFloat(ControllerTypes::alphaStart);
+    state.alphaMid = readFloat(ControllerTypes::alphaMid);
+    state.alphaEnd = readFloat(ControllerTypes::alphaEnd);
+
+    return state;
+}
+
+std::optional<std::vector<EmitterSceneNode::BirthrateStep>>
+EmitterSceneNode::animationBirthrateStepsForUpdate(
+    const ModelNode &animationNode,
+    const std::vector<AnimationTimeSpan> &timeSpans,
+    float playbackSpeed,
+    float dt) {
+
+    const auto &floatTracks = animationNode.floatTracks();
+    auto track = floatTracks.find(ControllerTypes::birthrate);
+    if (track == floatTracks.end()) {
+        return std::nullopt;
+    }
+
+    std::vector<BirthrateStep> steps;
+    if (dt <= 0.0f || playbackSpeed <= 0.0f || timeSpans.empty()) {
+        appendBirthrateReset(steps);
+        return steps;
+    }
+
+    for (const auto &timeSpan : timeSpans) {
+        for (size_t repetition = 0;
+             repetition < timeSpan.repetitions;
+             ++repetition) {
+            appendBirthrateTrackSpan(
+                track->second,
+                timeSpan.startTime,
+                timeSpan.endTime,
+                playbackSpeed,
+                steps);
+        }
+    }
+    return steps;
+}
+
+void EmitterSceneNode::applyAnimationState(const AnimationState &state) {
+    if (state.birthrate) {
+        _birthrate = glm::max(*state.birthrate, 0.0f);
+    }
+    if (state.birthrateStepsForUpdate) {
+        _birthrateStepsForUpdate = *state.birthrateStepsForUpdate;
+    }
+    if (state.lifeExpectancy) {
+        _lifeExpectancy = *state.lifeExpectancy;
+    }
+    if (state.xSize) {
+        _size.x = *state.xSize;
+    }
+    if (state.ySize) {
+        _size.y = *state.ySize;
+    }
+    if (state.frameStart) {
+        _frameStart = *state.frameStart;
+    }
+    if (state.frameEnd) {
+        _frameEnd = *state.frameEnd;
+    }
+    if (state.fps) {
+        _fps = *state.fps;
+    }
+    if (state.spread) {
+        _spread = *state.spread;
+    }
+    if (state.velocity) {
+        _velocity = *state.velocity;
+    }
+    if (state.randomVelocity) {
+        _randomVelocity = *state.randomVelocity;
+    }
+    if (state.blurLength) {
+        _blurLength = *state.blurLength;
+    }
+    if (state.mass) {
+        _mass = *state.mass;
+    }
+    if (state.grav) {
+        _grav = *state.grav;
+    }
+    if (state.lightningDelay) {
+        _lightningDelay = *state.lightningDelay;
+    }
+    if (state.lightningRadius) {
+        _lightningRadius = *state.lightningRadius;
+    }
+    if (state.lightningScale) {
+        _lightningScale = *state.lightningScale;
+    }
+    if (state.lightningSubDiv) {
+        _lightningSubDiv = *state.lightningSubDiv;
+    }
+    if (state.particleSizeStart) {
+        _particleSize.start = *state.particleSizeStart;
+    }
+    if (state.particleSizeMid) {
+        _particleSize.mid = *state.particleSizeMid;
+    }
+    if (state.particleSizeEnd) {
+        _particleSize.end = *state.particleSizeEnd;
+    }
+    if (state.colorStart) {
+        _color.start = *state.colorStart;
+    }
+    if (state.colorMid) {
+        _color.mid = *state.colorMid;
+    }
+    if (state.colorEnd) {
+        _color.end = *state.colorEnd;
+    }
+    if (state.alphaStart) {
+        _alpha.start = *state.alphaStart;
+    }
+    if (state.alphaMid) {
+        _alpha.mid = *state.alphaMid;
+    }
+    if (state.alphaEnd) {
+        _alpha.end = *state.alphaEnd;
+    }
+}
 
 void EmitterSceneNode::init() {
     _modelNode.floatValueAtTime(ControllerTypes::birthrate, 0.0f, _birthrate);
@@ -59,6 +469,7 @@ void EmitterSceneNode::init() {
     _modelNode.floatValueAtTime(ControllerTypes::spread, 0.0f, _spread);
     _modelNode.floatValueAtTime(ControllerTypes::velocity, 0.0f, _velocity);
     _modelNode.floatValueAtTime(ControllerTypes::randVel, 0.0f, _randomVelocity);
+    _modelNode.floatValueAtTime(ControllerTypes::blurLength, 0.0f, _blurLength);
     _modelNode.floatValueAtTime(ControllerTypes::mass, 0.0f, _mass);
     _modelNode.floatValueAtTime(ControllerTypes::grav, 0.0f, _grav);
     _modelNode.floatValueAtTime(ControllerTypes::lightingDelay, 0.0f, _lightningDelay);
@@ -80,29 +491,52 @@ void EmitterSceneNode::init() {
     _modelNode.floatValueAtTime(ControllerTypes::alphaMid, 0.0f, _alpha.mid);
     _modelNode.floatValueAtTime(ControllerTypes::alphaEnd, 0.0f, _alpha.end);
 
-    if (_birthrate != 0.0f) {
-        _birthInterval = 1.0f / _birthrate;
-    }
-
-    // Pre-allocate particles
-    int numParticles;
-    if (_modelNode.emitter()->updateMode == ModelNode::Emitter::UpdateMode::Single) {
-        numParticles = 1;
-    } else {
-        numParticles = kMaxParticles;
-    }
-    for (int i = 0; i < numParticles; ++i) {
-        _particlePool.push_back(_sceneGraph.newParticle(*this).get());
-    }
 }
 
 void EmitterSceneNode::update(float dt) {
     removeExpiredParticles(dt);
-    spawnParticles(dt);
 
     for (auto &child : _children) {
+        if (child->type() != SceneNodeType::Particle) {
+            continue;
+        }
         auto particle = static_cast<ParticleSceneNode *>(child);
         particle->update(dt);
+    }
+
+    if (isSpawningSuppressed()) {
+        discardSpawnTime(dt);
+    } else {
+        spawnParticles(dt);
+    }
+    _birthrateStepsForUpdate.reset();
+}
+
+bool EmitterSceneNode::isSpawningSuppressed() const {
+    for (auto ancestor = parent(); ancestor; ancestor = ancestor->parent()) {
+        if (ancestor->type() == SceneNodeType::Model && ancestor->isCulled()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void EmitterSceneNode::discardSpawnTime(float dt) {
+    _birthAccumulator = 0.0f;
+
+    auto emitter = _modelNode.emitter();
+    if (emitter->updateMode == ModelNode::Emitter::UpdateMode::Single) {
+        if (!emitter->loop) {
+            _spawned = true;
+        }
+        return;
+    }
+    if (emitter->updateMode != ModelNode::Emitter::UpdateMode::Lightning) {
+        return;
+    }
+    _birthTimer.update(dt);
+    if (_birthTimer.elapsed()) {
+        _birthTimer.reset(_lightningDelay);
     }
 }
 
@@ -129,18 +563,26 @@ void EmitterSceneNode::removeExpiredParticles(float dt) {
 void EmitterSceneNode::spawnParticles(float dt) {
     std::shared_ptr<ModelNode::Emitter> emitter(_modelNode.emitter());
     switch (emitter->updateMode) {
-    case ModelNode::Emitter::UpdateMode::Fountain:
-        if (_birthrate != 0.0f) {
-            _birthTimer.update(dt);
-            if (_birthTimer.elapsed()) {
-                doSpawnParticle();
-                _birthTimer.reset(_birthInterval);
+    case ModelNode::Emitter::UpdateMode::Fountain: {
+        auto schedule = _birthrateStepsForUpdate
+                            ? advanceAnimatedSpawnAccumulator(
+                                  *_birthrateStepsForUpdate,
+                                  dt,
+                                  _birthAccumulator)
+                            : particleutil::advanceSpawnSchedule(
+                                  _birthrate,
+                                  dt,
+                                  _birthAccumulator);
+        for (int i = 0; i < schedule.count; ++i) {
+            if (!doSpawnParticle(schedule.ages[i])) {
+                break;
             }
         }
         break;
+    }
     case ModelNode::Emitter::UpdateMode::Single:
         if (!_spawned || (_children.empty() && emitter->loop)) {
-            doSpawnParticle();
+            doSpawnParticle(dt);
             _spawned = true;
         }
         break;
@@ -156,12 +598,30 @@ void EmitterSceneNode::spawnParticles(float dt) {
     }
 }
 
-void EmitterSceneNode::doSpawnParticle() {
-    // Take particle from the pool, if available
-    if (_particlePool.empty()) {
-        return;
+ParticleSceneNode *EmitterSceneNode::takeParticle() {
+    if (!_particlePool.empty()) {
+        auto particle = _particlePool.front();
+        _particlePool.pop_front();
+        return particle;
     }
-    auto particle = static_cast<ParticleSceneNode *>(_particlePool.front());
+
+    int maxParticles = _modelNode.emitter()->updateMode == ModelNode::Emitter::UpdateMode::Single
+                           ? 1
+                           : graphics::kMaxParticles;
+    if (_particleCount >= maxParticles) {
+        return nullptr;
+    }
+
+    auto particle = _sceneGraph.newParticle(*this).get();
+    ++_particleCount;
+    return particle;
+}
+
+bool EmitterSceneNode::doSpawnParticle(float initialAge) {
+    auto particle = takeParticle();
+    if (!particle) {
+        return false;
+    }
     particle->setLifetime(0.0f);
 
     float halfW = 0.005f * _size.x;
@@ -181,9 +641,11 @@ void EmitterSceneNode::doSpawnParticle() {
         particle->setAnimLength((_frameEnd - _frameStart + 1) / _fps);
     }
 
-    // Remove particle from pool and append it to emitter
-    _particlePool.pop_front();
     addChild(*particle);
+    if (initialAge > 0.0f) {
+        particle->update(initialAge);
+    }
+    return true;
 }
 
 void EmitterSceneNode::spawnLightningParticles() {
@@ -228,12 +690,10 @@ void EmitterSceneNode::spawnLightningParticles() {
     }
 
     for (auto &segment : segments) {
-        // Take particle from the pool, if available
-        if (_particlePool.empty()) {
+        auto particle = takeParticle();
+        if (!particle) {
             return;
         }
-        auto particle = _particlePool.front();
-        _particlePool.pop_front();
         particle->setLifetime(0.0f);
 
         glm::vec3 endToStart(segment.second - segment.first);
@@ -247,6 +707,9 @@ void EmitterSceneNode::spawnLightningParticles() {
 }
 
 void EmitterSceneNode::detonate() {
+    if (isSpawningSuppressed()) {
+        return;
+    }
     doSpawnParticle();
 }
 
@@ -263,7 +726,8 @@ void EmitterSceneNode::renderLeafs(IRenderPass &pass, const std::vector<SceneNod
     auto emitterUp = glm::vec3(_absTransform[1]);
     auto emitterForward = glm::vec3(_absTransform[2]);
 
-    auto view = _sceneGraph.camera()->get().camera()->view();
+    auto &cameraNode = _sceneGraph.camera()->get();
+    auto view = cameraNode.camera()->view();
     auto cameraRight = glm::vec3(view[0][0], view[1][0], view[2][0]);
     auto cameraUp = glm::vec3(view[0][1], view[1][1], view[2][1]);
     auto cameraForward = glm::vec3(view[0][2], view[1][2], view[2][2]);
@@ -274,17 +738,38 @@ void EmitterSceneNode::renderLeafs(IRenderPass &pass, const std::vector<SceneNod
         particles[i].frame = particle->frame();
         particles[i].position = particle->origin();
         particles[i].size = glm::vec2(particle->size());
-        particles[i].color = glm::vec4(particle->color(), particle->alpha());
+        particles[i].color = glm::vec4(
+            particle->color() * _renderProfile.colorTint * _renderProfile.colorIntensity,
+            particle->alpha());
+        particles[i].color.a *= _renderProfile.opacity;
         switch (emitter->renderMode) {
         case ModelNode::Emitter::RenderMode::BillboardToLocalZ:
-        case ModelNode::Emitter::RenderMode::MotionBlur:
-            if (emitter->renderMode == ModelNode::Emitter::RenderMode::MotionBlur) {
-                particles[i].size = glm::vec2(particle->size().x, (1.0f + kMotionBlurStrength * kProjectileSpeed) * particle->size().y);
-            }
             particles[i].right = glm::vec4(emitterUp, 0.0f);
             particles[i].up = glm::vec4(emitterRight, 0.0f);
             break;
+        case ModelNode::Emitter::RenderMode::MotionBlur: {
+            auto basis = particleutil::buildMotionBlurBasis(
+                _absTransform,
+                particle->velocity(),
+                cameraNode.origin() - particle->origin(),
+                cameraRight,
+                cameraUp,
+                particles[i].size.y,
+                _blurLength);
+            particles[i].size.x = glm::min(particles[i].size.x, _renderProfile.motionMaxWidth);
+            particles[i].size.y = particleutil::clampMotionTrailLength(
+                particles[i].size.y,
+                basis.lengthScale,
+                _renderProfile.motionLengthScale,
+                _renderProfile.motionMaxLength);
+            particles[i].color.a *= _renderProfile.motionOpacity;
+            particles[i].right = glm::vec4(basis.right, 0.0f);
+            particles[i].up = glm::vec4(basis.up, 0.0f);
+            break;
+        }
         case ModelNode::Emitter::RenderMode::BillboardToWorldZ:
+            particles[i].size *= _renderProfile.worldZScale;
+            particles[i].color.a *= _renderProfile.worldZOpacity;
             particles[i].right = glm::vec4(0.0f, 1.0f, 0.0, 0.0f);
             particles[i].up = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
             break;
@@ -306,11 +791,25 @@ void EmitterSceneNode::renderLeafs(IRenderPass &pass, const std::vector<SceneNod
             particles[i].up = glm::vec4(cameraUp, 0.0f);
             break;
         }
+        if (emitter->renderMode != ModelNode::Emitter::RenderMode::MotionBlur &&
+            emitter->renderMode != ModelNode::Emitter::RenderMode::BillboardToWorldZ) {
+            float largestDimension = glm::max(particles[i].size.x, particles[i].size.y);
+            float largeParticleFactor = glm::smoothstep(1.0f, 4.0f, largestDimension);
+            particles[i].size *= glm::mix(1.0f, _renderProfile.largeParticleScale, largeParticleFactor);
+        }
     }
     bool twosided = _modelNode.emitter()->twosided || _modelNode.emitter()->renderMode == ModelNode::Emitter::RenderMode::MotionBlur;
     auto faceCulling = twosided ? FaceCullMode::None : FaceCullMode::Back;
     bool premultipliedAlpha = emitter->blendMode == ModelNode::Emitter::BlendMode::Lighten;
-    pass.drawParticles(*texture, faceCulling, premultipliedAlpha, emitter->gridSize, particles);
+    bool motionBlur = emitter->renderMode == ModelNode::Emitter::RenderMode::MotionBlur;
+    pass.drawParticles(
+        *texture,
+        faceCulling,
+        premultipliedAlpha,
+        motionBlur,
+        _renderProfile.policy,
+        emitter->gridSize,
+        particles);
 }
 
 } // namespace scene

@@ -156,6 +156,15 @@ struct alignas(16) ParticleUniformsParticle {
 
 struct ParticleUniforms {
     glm::ivec2 gridSize {0};
+    int reconstructionMode {0};
+    int alphaMode {0};
+    int trailMode {0};
+    int motionBlur {0};
+    float reconstructionStrength {0.0f};
+    float alphaExponent {1.0f};
+    float trailCoreIntensity {0.0f};
+    float coverageContrast {0.0f};
+    int diagnosticMode {0};
     ParticleUniformsParticle particles[kMaxParticles];
 };
 

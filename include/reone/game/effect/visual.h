@@ -17,12 +17,15 @@
 
 #pragma once
 
+#include "reone/resource/types.h"
+
 #include "../effect.h"
 
 namespace reone {
 
 namespace scene {
 class ModelSceneNode;
+struct ParticleRenderProfile;
 }
 
 namespace game {
@@ -30,9 +33,19 @@ namespace game {
 class ServicesView;
 struct VisualEffectDesc;
 
+bool particleRenderProfileForVisualEffect(
+    resource::GameID gameId,
+    uint32_t visualEffectId,
+    const VisualEffectDesc &desc,
+    scene::ParticleRenderProfile &profile);
+
 class VisualEffect : public Effect {
 public:
-    VisualEffect(int visualEffectId, bool missEffect, ServicesView &services);
+    VisualEffect(
+        int visualEffectId,
+        bool missEffect,
+        resource::GameID gameId,
+        ServicesView &services);
     ~VisualEffect();
 
     void applyTo(Object &object) override;
@@ -42,6 +55,7 @@ public:
 private:
     int _visualEffectId;
     bool _missEffect;
+    resource::GameID _gameId;
     const VisualEffectDesc *_desc {nullptr};
     std::optional<glm::vec3> _location;
     ServicesView &_services;

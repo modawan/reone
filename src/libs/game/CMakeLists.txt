@@ -460,6 +460,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/effect/temporaryhitpoints.cpp
     ${GAME_SOURCE_DIR}/effect/trueseeing.cpp
     ${GAME_SOURCE_DIR}/effect/visual.cpp
+    ${GAME_SOURCE_DIR}/effect/visualprofile.cpp
     ${GAME_SOURCE_DIR}/effect/vpregenmodifier.cpp
     ${GAME_SOURCE_DIR}/effect/whirlwind.cpp
     ${GAME_SOURCE_DIR}/effect.cpp

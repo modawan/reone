@@ -65,6 +65,7 @@ void ModelSceneNode::buildNodeTree(ModelNode &node, SceneNode &parent) {
         sceneNode = _sceneGraph.newLight(*this, node);
     } else if (node.isEmitter()) {
         sceneNode = _sceneGraph.newEmitter(node);
+        static_cast<EmitterSceneNode *>(sceneNode.get())->setRenderProfile(_particleRenderProfile);
     } else {
         sceneNode = _sceneGraph.newDummy(node);
     }
@@ -102,8 +103,9 @@ void ModelSceneNode::update(float dt) {
     if (!_enabled) {
         return;
     }
-    SceneNode::update(dt);
     updateAnimations(dt);
+    SceneNode::update(dt);
+    dispatchAnimationEvents();
 }
 
 void ModelSceneNode::renderLeafs(IRenderPass &pass, const std::vector<SceneNode *> &leafs) {
@@ -153,6 +155,9 @@ void ModelSceneNode::attach(const std::string &parentName, SceneNode &node) {
     parent->addChild(node);
 
     _attachments.insert(std::make_pair(parentName, &node));
+    if (node.type() == SceneNodeType::Model) {
+        static_cast<ModelSceneNode *>(&node)->setParticleRenderProfile(_particleRenderProfile);
+    }
 
     computeAABB();
 }
@@ -188,6 +193,20 @@ void ModelSceneNode::setEnvironmentMap(Texture *texture) {
     for (auto &child : _children) {
         if (child->type() == SceneNodeType::Dummy || child->type() == SceneNodeType::Mesh) {
             static_cast<ModelNodeSceneNode *>(child)->setEnvironmentMap(texture);
+        }
+    }
+}
+
+void ModelSceneNode::setParticleRenderProfile(const ParticleRenderProfile &profile) {
+    _particleRenderProfile = profile;
+    for (auto &[_, node] : _nodeByNumber) {
+        if (node->type() == SceneNodeType::Emitter) {
+            static_cast<EmitterSceneNode *>(node)->setRenderProfile(profile);
+        }
+    }
+    for (auto &[_, attachment] : _attachments) {
+        if (attachment->type() == SceneNodeType::Model) {
+            static_cast<ModelSceneNode *>(attachment)->setParticleRenderProfile(profile);
         }
     }
 }
@@ -232,6 +251,7 @@ void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation
         if (transition) {
             _animChannels[0].transition = true;
             _animChannels[0].time = glm::max(0.0f, _animChannels[0].anim->transitionTime() - kTransitionLength);
+            _animChannels[0].particleTime = _animChannels[0].time;
         }
         while (_animChannels.size() > 2ll) {
             _animChannels.pop_back();
@@ -269,6 +289,13 @@ ModelSceneNode::AnimationBlendMode ModelSceneNode::getAnimationBlendMode(int fla
 }
 
 void ModelSceneNode::updateAnimations(float dt) {
+    _pendingAnimationEvents.clear();
+    for (auto &channel : _animChannels) {
+        for (auto &[_, state] : channel.stateByNodeNumber) {
+            state.emitter.birthrateStepsForUpdate.reset();
+        }
+    }
+
     // Erase finished channels
     switch (_animBlendMode) {
     case AnimationBlendMode::Single:
@@ -300,6 +327,14 @@ void ModelSceneNode::updateAnimations(float dt) {
         }
         if (!channel.freeze) {
             updateAnimationChannel(channel, dt);
+        } else if (!_culled) {
+            channel.updateDuration = 0.0f;
+            channel.updateTimeSpans.clear();
+            float time = channel.transition
+                             ? channel.anim->transitionTime()
+                             : channel.time;
+            channel.stateByNodeNumber.clear();
+            computeAnimationStates(channel, time, *_model->rootNode());
         }
     }
 
@@ -313,9 +348,57 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
     // Take length from the lip animation, if any
     float length = channel.lipAnim ? channel.lipAnim->length() : channel.anim->length();
 
-    // Advance time
+    // Track exact wrapped intervals for animated particle birthrate integration.
     float oldTime = channel.time;
-    channel.time = glm::min(length, channel.time + channel.properties.speed * dt);
+    channel.updateDuration = dt;
+    channel.updateTimeSpans.clear();
+    float advance = glm::max(channel.properties.speed * dt, 0.0f);
+    bool loop = channel.properties.flags & AnimationFlags::loop;
+
+    if (length > 0.0f && advance > 0.0f) {
+        float particleTime = glm::clamp(
+            channel.particleTime,
+            0.0f,
+            length);
+        if (loop && particleTime == length) {
+            particleTime = 0.0f;
+        }
+
+        float particleEnd = glm::min(length, particleTime + advance);
+        if (!loop || particleTime + advance < length) {
+            channel.updateTimeSpans.push_back(
+                {particleTime, particleEnd, 1});
+            channel.particleTime = particleEnd;
+        } else {
+            float remaining = advance;
+            float firstSpan = length - particleTime;
+            if (firstSpan > 0.0f) {
+                channel.updateTimeSpans.push_back(
+                    {particleTime, length, 1});
+                remaining -= firstSpan;
+            }
+
+            size_t fullLoops = static_cast<size_t>(
+                glm::floor(remaining / length));
+            if (fullLoops > 0) {
+                channel.updateTimeSpans.push_back(
+                    {0.0f, length, fullLoops});
+                remaining -= static_cast<float>(fullLoops) * length;
+            }
+            if (remaining > 0.0f) {
+                channel.updateTimeSpans.push_back(
+                    {0.0f, remaining, 1});
+            }
+            channel.particleTime = remaining;
+        }
+    } else if (length <= 0.0f) {
+        channel.particleTime = 0.0f;
+    }
+
+    // Preserve the established animation-state clock and endpoint presentation.
+    channel.time = length > 0.0f
+                       ? glm::min(length, oldTime + advance)
+                       : 0.0f;
 
     // Clear transition flag if past transition time
     if (channel.transition && channel.time >= channel.anim->transitionTime()) {
@@ -323,9 +406,9 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
     }
 
     // Signal events between previous and current time
-    for (auto &event : channel.anim->events()) {
+    for (const auto &event : channel.anim->events()) {
         if (event.time > oldTime && event.time <= channel.time) {
-            signalEvent(event.name);
+            _pendingAnimationEvents.push_back(event.name);
         }
     }
 
@@ -338,13 +421,19 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
 
     bool lastFrame = channel.time == length;
     if (lastFrame) {
-        bool loop = channel.properties.flags & AnimationFlags::loop;
         if (loop) {
             channel.time = 0.0f;
         } else {
             channel.finished = true;
         }
     }
+}
+
+void ModelSceneNode::dispatchAnimationEvents() {
+    for (const auto &event : _pendingAnimationEvents) {
+        signalEvent(event);
+    }
+    _pendingAnimationEvents.clear();
 }
 
 static bool doesNodeHaveAncestor(const ModelNode &node, const std::string &name) {
@@ -409,14 +498,28 @@ void ModelSceneNode::computeAnimationStates(AnimationChannel &channel, float tim
             state.transform *= glm::translate(position);
             state.transform *= glm::mat4_cast(orientation);
         }
-        if (animNode->floatValueAtTime(ControllerTypes::alpha, time, state.alpha)) {
+        if (modelNode.isMesh() && animNode->floatValueAtTime(ControllerTypes::alpha, time, state.alpha)) {
             state.flags |= AnimationStateFlags::alpha;
         }
-        if (animNode->vectorValueAtTime(ControllerTypes::selfIllumColor, time, state.selfIllumColor)) {
+        if (modelNode.isMesh() && animNode->vectorValueAtTime(ControllerTypes::selfIllumColor, time, state.selfIllumColor)) {
             state.flags |= AnimationStateFlags::selfIllumColor;
         }
-        if (animNode->vectorValueAtTime(ControllerTypes::color, time, state.color)) {
+        if (modelNode.isLight() && animNode->vectorValueAtTime(ControllerTypes::color, time, state.color)) {
             state.flags |= AnimationStateFlags::color;
+        }
+        if (modelNode.isEmitter()) {
+            state.emitter = EmitterSceneNode::animationStateAt(
+                *animNode,
+                channel.particleTime);
+            state.emitter.birthrateStepsForUpdate =
+                EmitterSceneNode::animationBirthrateStepsForUpdate(
+                *animNode,
+                channel.updateTimeSpans,
+                channel.properties.speed,
+                channel.updateDuration);
+            if (!state.emitter.empty()) {
+                state.flags |= AnimationStateFlags::emitter;
+            }
         }
         channel.stateByNodeNumber[modelNode.number()] = std::move(state);
     }
@@ -481,6 +584,10 @@ void ModelSceneNode::applyAnimationStates(const ModelNode &modelNode) {
                 combined.flags |= AnimationStateFlags::color;
                 combined.color = state1.color;
             }
+            if (state1.flags & AnimationStateFlags::emitter) {
+                combined.flags |= AnimationStateFlags::emitter;
+                combined.emitter = state1.emitter;
+            }
             break;
         }
         case AnimationBlendMode::Overlay:
@@ -506,6 +613,10 @@ void ModelSceneNode::applyAnimationStates(const ModelNode &modelNode) {
                     combined.flags |= AnimationStateFlags::color;
                     combined.color = state.color;
                 }
+                if ((state.flags & AnimationStateFlags::emitter) && !(combined.flags & AnimationStateFlags::emitter)) {
+                    combined.flags |= AnimationStateFlags::emitter;
+                    combined.emitter = state.emitter;
+                }
             }
             break;
         default:
@@ -523,6 +634,9 @@ void ModelSceneNode::applyAnimationStates(const ModelNode &modelNode) {
         }
         if (combined.flags & AnimationStateFlags::color) {
             static_cast<LightSceneNode *>(sceneNode)->setColor(combined.color);
+        }
+        if (combined.flags & AnimationStateFlags::emitter) {
+            static_cast<EmitterSceneNode *>(sceneNode)->applyAnimationState(combined.emitter);
         }
     }
 
@@ -551,6 +665,7 @@ void ModelSceneNode::setAnimationTime(float time) {
     }
     auto &channel = _animChannels.front();
     channel.time = time;
+    channel.particleTime = time;
     bool looped = (channel.properties.flags & AnimationFlags::loop) != 0;
     bool frozen = channel.freeze;
     if (looped) {

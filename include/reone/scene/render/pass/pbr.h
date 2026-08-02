@@ -81,6 +81,8 @@ public:
     void drawParticles(graphics::Texture &texture,
                        graphics::FaceCullMode faceCulling,
                        bool premultipliedAlpha,
+                       bool motionBlur,
+                       const ParticleRenderPolicy &policy,
                        const glm::ivec2 &gridSize,
                        const std::vector<ParticleInstance> &particles) override;
 
