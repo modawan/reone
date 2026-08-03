@@ -464,6 +464,7 @@ private:
     std::set<std::string> _saveNames;
     bool _quitRequested {false};
     bool _relativeMouseMode {false};
+    bool _showImGui {false};
 
     uint32_t _nextObjectId {2}; // ids 0 and 1 are reserved
     std::map<uint32_t, std::shared_ptr<Object>> _objectById;
@@ -601,6 +602,7 @@ private:
     void updateMusic();
     void updateCamera(float dt);
     void updateSceneGraph(float dt);
+    void updateImGui(float dt);
 
     // END Updates
 
@@ -722,6 +724,7 @@ private:
     void consoleSwoopState(const ConsoleArgs &tokens);
     void consoleStartSwoopRace(const ConsoleArgs &tokens);
     void consoleFinishSwoop(const ConsoleArgs &tokens);
+    void consoleShowImGui(const ConsoleArgs &tokens);
 
     // END Console commands
 };
