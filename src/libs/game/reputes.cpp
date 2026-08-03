@@ -17,6 +17,8 @@
 
 #include "reone/game/reputes.h"
 
+#include <algorithm>
+
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
 
@@ -29,6 +31,8 @@ namespace reone {
 namespace game {
 
 static constexpr int kDefaultRepute = 50;
+static constexpr int kMinRepute = 0;
+static constexpr int kMaxRepute = 100;
 
 void Reputes::init() {
     std::shared_ptr<TwoDA> repute(_twoDas.get("repute"));
@@ -61,31 +65,48 @@ void Reputes::init() {
     }
 }
 
-bool Reputes::getIsEnemy(const Creature &left, const Creature &right) const {
-    return getIsEnemy(left.faction(), right.faction());
-}
+int Reputes::getReputation(Faction sourceFaction, Faction targetFaction) const {
+    int source = static_cast<int>(sourceFaction);
+    int target = static_cast<int>(targetFaction);
 
-bool Reputes::getIsEnemy(Faction left, Faction right) const {
-    return getRepute(left, right) < 50;
-}
-
-bool Reputes::getIsFriend(const Creature &left, const Creature &right) const {
-    return getRepute(left.faction(), right.faction()) > 50;
-}
-
-bool Reputes::getIsNeutral(const Creature &left, const Creature &right) const {
-    return getRepute(left.faction(), right.faction()) == 50;
-}
-
-int Reputes::getRepute(Faction left, Faction right) const {
-    int leftFaction = static_cast<int>(left);
-    int rightFaction = static_cast<int>(right);
-
-    if (leftFaction < 0 || leftFaction >= _factionValues.size() ||
-        rightFaction < 0 || rightFaction >= _factionValues[leftFaction].size())
+    if (source < 0 || source >= static_cast<int>(_factionValues.size()) ||
+        target < 0 || target >= static_cast<int>(_factionValues[source].size()))
         return kDefaultRepute;
 
-    return _factionValues[leftFaction][rightFaction];
+    return _factionValues[source][target];
+}
+
+void Reputes::adjustReputation(Faction sourceFaction, Faction targetFaction, int adjustment) {
+    int source = static_cast<int>(sourceFaction);
+    int target = static_cast<int>(targetFaction);
+
+    // Only the source faction's view of the target moves. A faction's view of
+    // itself is fixed, and out-of-range factions have no cell to adjust.
+    if (source < 0 || source >= static_cast<int>(_factionValues.size()) ||
+        target < 0 || target >= static_cast<int>(_factionValues[source].size()) ||
+        source == target) {
+        return;
+    }
+
+    int64_t adjusted = static_cast<int64_t>(_factionValues[source][target]) + adjustment;
+    _factionValues[source][target] = static_cast<int>(
+        std::clamp(adjusted, static_cast<int64_t>(kMinRepute), static_cast<int64_t>(kMaxRepute)));
+}
+
+bool Reputes::getIsEnemy(const Creature &source, const Creature &target) const {
+    return getIsEnemy(source.faction(), target.faction());
+}
+
+bool Reputes::getIsEnemy(Faction sourceFaction, Faction targetFaction) const {
+    return getReputation(sourceFaction, targetFaction) < 50;
+}
+
+bool Reputes::getIsFriend(const Creature &source, const Creature &target) const {
+    return getReputation(source.faction(), target.faction()) > 50;
+}
+
+bool Reputes::getIsNeutral(const Creature &source, const Creature &target) const {
+    return getReputation(source.faction(), target.faction()) == 50;
 }
 
 } // namespace game

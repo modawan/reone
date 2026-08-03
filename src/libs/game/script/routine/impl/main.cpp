@@ -23,6 +23,8 @@
 #include "reone/game/effect/visual.h"
 #include "reone/game/event.h"
 #include "reone/game/game.h"
+#include "reone/game/object/door.h"
+#include "reone/game/object/placeable.h"
 #include "reone/game/reputes.h"
 #include "reone/game/script/routine/argutil.h"
 #include "reone/game/script/routine/context.h"
@@ -2094,6 +2096,21 @@ static Variable GetReputation(const std::vector<Variable> &args, const RoutineCo
     throw RoutineNotImplementedException("GetReputation");
 }
 
+// The faction member naming a reputation source need not be a creature --
+// modules commonly place an inert object purely to stand in for its faction.
+static std::optional<Faction> getObjectFaction(const Object &object) {
+    switch (object.type()) {
+    case ObjectType::Creature:
+        return static_cast<const Creature &>(object).faction();
+    case ObjectType::Door:
+        return static_cast<const Door &>(object).faction();
+    case ObjectType::Placeable:
+        return static_cast<const Placeable &>(object).faction();
+    default:
+        return std::nullopt;
+    }
+}
+
 static Variable AdjustReputation(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto oTarget = getObject(args, 0, ctx);
@@ -2101,9 +2118,18 @@ static Variable AdjustReputation(const std::vector<Variable> &args, const Routin
     auto nAdjustment = getInt(args, 2);
 
     // Transform
+    auto target = dyn_cast<Creature>(oTarget);
+    if (!target) {
+        return Variable::ofNull();
+    }
+    auto sourceFaction = getObjectFaction(*oSourceFactionMember);
+    if (!sourceFaction) {
+        return Variable::ofNull();
+    }
 
     // Execute
-    throw RoutineNotImplementedException("AdjustReputation");
+    ctx.services.game.reputes.adjustReputation(*sourceFaction, target->faction(), nAdjustment);
+    return Variable::ofNull();
 }
 
 static Variable GetModuleFileName(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -2383,7 +2409,8 @@ static Variable GetIsEnemy(const std::vector<Variable> &args, const RoutineConte
     auto source = checkCreature(oSource);
 
     // Execute
-    bool enemy = ctx.services.game.reputes.getIsEnemy(*target, *source);
+    // oTarget is an enemy of oSource when oSource's faction regards it as one.
+    bool enemy = ctx.services.game.reputes.getIsEnemy(*source, *target);
     return Variable::ofInt(static_cast<int>(enemy));
 }
 
@@ -2397,7 +2424,7 @@ static Variable GetIsFriend(const std::vector<Variable> &args, const RoutineCont
     auto source = checkCreature(oSource);
 
     // Execute
-    bool isFriend = ctx.services.game.reputes.getIsFriend(*target, *source);
+    bool isFriend = ctx.services.game.reputes.getIsFriend(*source, *target);
     return Variable::ofInt(static_cast<int>(isFriend));
 }
 
@@ -2411,7 +2438,7 @@ static Variable GetIsNeutral(const std::vector<Variable> &args, const RoutineCon
     auto source = checkCreature(oSource);
 
     // Execute
-    bool neutral = ctx.services.game.reputes.getIsNeutral(*target, *source);
+    bool neutral = ctx.services.game.reputes.getIsNeutral(*source, *target);
     return Variable::ofInt(static_cast<int>(neutral));
 }
 

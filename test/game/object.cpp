@@ -1967,3 +1967,27 @@ TEST(Reputes, should_use_authored_creature_faction_dispositions) {
     EXPECT_TRUE(reputes.getIsNeutral(*friendly1, *neutral));
     EXPECT_TRUE(reputes.getIsNeutral(*neutral, *friendly1));
 }
+
+TEST(AreaReputationSearch, treats_the_creature_being_searched_around_as_the_source) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    testSceneGraph(engine);
+    auto area = game.newArea();
+    auto searching = game.newCreature();
+    searching->setFaction(Faction::Hostile1);
+    auto candidate = game.newCreature();
+    candidate->setFaction(Faction::Friendly1);
+    area->add(candidate);
+    auto &reputes = static_cast<MockReputes &>(engine.services().game.reputes);
+
+    // The search is centred on `searching`, so a candidate's hostility is
+    // judged from that creature's point of view, not the other way round.
+    EXPECT_CALL(reputes, getIsEnemy(Ref(*searching), Ref(*candidate)))
+        .WillOnce(Return(true));
+
+    Area::SearchCriteriaList criterias {
+        {CreatureType::Reputation, static_cast<int>(ReputationType::Enemy)}};
+
+    EXPECT_EQ(candidate, area->getNearestCreature(searching, criterias));
+}
