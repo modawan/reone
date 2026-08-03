@@ -123,6 +123,7 @@ public:
     void setMainTexture(graphics::Texture *texture);
     void setEnvironmentMap(graphics::Texture *texture);
     void setPickable(bool pickable) { _pickable = pickable; }
+    void setAnimationEventListener(IAnimationEventListener &listener) { _animEventListener = &listener; }
 
     // Animation
 

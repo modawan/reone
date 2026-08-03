@@ -877,6 +877,10 @@ void Area::loadPartyMember(const std::shared_ptr<Creature> &member, int index, b
 }
 
 void Area::unloadPartyMember(const std::shared_ptr<Creature> &member) {
+    // Party creatures persist across modules, but combat does not. Reset it
+    // before rebuilding their models in the destination area so powered
+    // weapons do not leak their active state through a transition.
+    member->deactivateCombat(0.0f);
     doDestroyObject(member->id());
 }
 

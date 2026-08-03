@@ -357,6 +357,8 @@ private:
 
     std::shared_ptr<audio::AudioSource> _audioSourceVoice;
     std::shared_ptr<audio::AudioSource> _audioSourceFootstep;
+    bool _lightsaberIdlePowerDownPending {false};
+    Timer _lightsaberIdlePowerDownTimer;
 
     // Animation
 
@@ -383,6 +385,8 @@ private:
     // appearance when none remains. Updates _appearance only; callers rebuild the model.
     void updateDisguise();
     void updateCombat(float dt);
+    void setLightsabersPowered(bool powered, bool animate);
+    void updateLightsaberSoundPositions();
 
     void runDeathScript(uint32_t damagerId);
     void runDamagedScript(uint32_t damagerId);

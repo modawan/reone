@@ -82,6 +82,9 @@ public:
 
     void playShotSound(int variant, glm::vec3 position);
     void playImpactSound(int variant, glm::vec3 position);
+    void powerUp(glm::vec3 position);
+    void powerDown(glm::vec3 position);
+    void updatePoweredSoundPosition(glm::vec3 position);
 
     bool isEquippable() const;
     bool isEquippable(int slot) const;
@@ -154,6 +157,12 @@ private:
 
     bool _equipped {false};
     std::shared_ptr<AmmunitionType> _ammunitionType;
+    bool _poweredItem {false};
+    bool _isPowered {false};
+    std::shared_ptr<audio::AudioClip> _powerUpSound;
+    std::shared_ptr<audio::AudioClip> _powerDownSound;
+    std::shared_ptr<audio::AudioClip> _poweredSound;
+    std::shared_ptr<audio::AudioSource> _poweredAudioSource;
 
     int _criticalThreat {0};
     int _criticalHitMultiplier {0};
