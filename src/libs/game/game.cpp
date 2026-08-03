@@ -92,6 +92,8 @@
 #include "reone/system/smallset.h"
 #include "reone/system/threadutil.h"
 
+#include <imgui.h>
+
 using namespace reone::audio;
 using namespace reone::graphics;
 using namespace reone::gui;
@@ -468,6 +470,7 @@ void Game::initConsole() {
         registerConsoleCommand("swoopstate", "print the current swoop race progress/lateral state", &Game::consoleSwoopState);
         registerConsoleCommand("startswooprace", "enter a swoop module from the current one and auto-start the race", &Game::consoleStartSwoopRace);
         registerConsoleCommand("finishswoop", "finish the lifecycle swoop race (forced success) and return to origin", &Game::consoleFinishSwoop);
+        registerConsoleCommand("showimgui", "open imgui demo", &Game::consoleShowImGui);
     }
 }
 
@@ -614,6 +617,9 @@ void Game::update(float frameTime) {
     updateSceneGraph(dt);
     if (!_paused) {
         updateDrawDebug(dt);
+    }
+    if (_showImGui) {
+        updateImGui(dt);
     }
 }
 
@@ -3019,6 +3025,10 @@ CameraType Game::getConversationCamera(int &cameraId) const {
     return _conversation->getCamera(cameraId);
 }
 
+void Game::updateImGui(float dt) {
+    ImGui::ShowDemoWindow(&_showImGui);
+}
+
 std::shared_ptr<Object> Game::getConsoleTargetObject() {
     auto object = getConsoleArea()->selectedObject();
     if (!object) {
@@ -3865,6 +3875,12 @@ void Game::consoleSwoopState(const ConsoleArgs &args) {
                            % pos.x % pos.y % pos.z
                            % _swoopRace.lateralLeftBound()
                            % _swoopRace.lateralRightBound()));
+}
+
+void Game::consoleShowImGui(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "1|0");
+    bool show = args.get<int>(1).value();
+    _showImGui = show;
 }
 
 } // namespace game
