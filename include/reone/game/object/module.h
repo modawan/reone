@@ -79,6 +79,12 @@ public:
 
     std::vector<ContextAction> getContextActions(const std::shared_ptr<Object> &object) const;
 
+    // Reputation is directed, so how the player may interact with a creature
+    // follows that creature's own view of the party leader, not the reverse
+    // relationship: an effect that lowers only the creature's hostility still
+    // has to open up conversation. A dead creature is never hostile.
+    bool isHostileToPartyLeader(const Creature &creature) const;
+
     const std::string &name() const { return _name; }
     const ModuleInfo &info() const { return _info; }
     std::shared_ptr<Area> area() const { return _area; }
@@ -112,6 +118,8 @@ private:
     bool handleKeyDown(const input::KeyEvent &event);
 
     // END User input
+
+    friend class TestGameModule;
 };
 
 } // namespace game

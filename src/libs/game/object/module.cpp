@@ -216,8 +216,7 @@ bool Module::handleMouseMotion(const input::MouseMotionEvent &event) {
                 cursor = CursorType::Pickup;
             } else {
                 auto creature = static_cast<Creature *>(object);
-                bool isEnemy = _services.game.reputes.getIsEnemy(*creature, *_game.party().getLeader());
-                cursor = isEnemy ? CursorType::Attack : CursorType::Talk;
+                cursor = isHostileToPartyLeader(*creature) ? CursorType::Attack : CursorType::Talk;
             }
             break;
         }
@@ -274,6 +273,13 @@ void Module::onObjectClick(const std::shared_ptr<Object> &object) {
     }
 }
 
+bool Module::isHostileToPartyLeader(const Creature &creature) const {
+    if (creature.isDead()) {
+        return false;
+    }
+    return _services.game.reputes.getIsEnemy(creature, *_game.party().getLeader());
+}
+
 void Module::onCreatureClick(const std::shared_ptr<Creature> &creature) {
     debug(str(boost::format("Module: click: creature '%s', faction %d") % creature->tag() % static_cast<int>(creature->faction())));
 
@@ -285,8 +291,7 @@ void Module::onCreatureClick(const std::shared_ptr<Creature> &creature) {
             partyLeader->addAction(_game.newAction<OpenContainerAction>(creature));
         }
     } else {
-        bool isEnemy = _services.game.reputes.getIsEnemy(*partyLeader, *creature);
-        if (isEnemy) {
+        if (isHostileToPartyLeader(*creature)) {
             partyLeader->clearAllActions();
             auto action = _game.newAction<AttackObjectAction>(creature);
             action->setUserAction(true);
@@ -353,7 +358,7 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
     case ObjectType::Creature: {
         auto leader = _game.party().getLeader();
         auto creature = std::static_pointer_cast<Creature>(object);
-        if (!creature->isDead() && _services.game.reputes.getIsEnemy(*leader, *creature)) {
+        if (isHostileToPartyLeader(*creature)) {
             actions.push_back(ContextAction(ActionType::AttackObject));
             auto weapon = leader->getEquippedItem(InventorySlots::rightWeapon);
             if (weapon && weapon->isRanged()) {
