@@ -242,6 +242,9 @@ void Conversation::loadEntry(int index, bool start) {
     loadReplies();
     loadVoiceOver();
 
+    // Run entry scripts
+    runScripts(*_currentEntry);
+
     // Conversation is a one-liner if there is exactly one empty reply that has no entries
     bool oneLiner = false;
     if (start && _replies.size() == 1ll) {
@@ -249,7 +252,6 @@ void Conversation::loadEntry(int index, bool start) {
         oneLiner = reply.text.empty() && reply.entries.empty();
     }
     if (!oneLiner && isNonPresentationalEntry()) {
-        runScripts(*_currentEntry);
         pickReply(0);
         return;
     }
@@ -263,9 +265,6 @@ void Conversation::loadEntry(int index, bool start) {
         finish();
         return;
     }
-
-    // Run entry scripts
-    runScripts(*_currentEntry);
 
     if (_autoSkip) {
         if (std::optional<bool> skip = _autoSkip->trySkipEntry()) {
