@@ -2460,6 +2460,16 @@ void Game::openTurret() {
     setRelativeMouseMode(true);
     changeScreen(Screen::Turret);
 
+    // Every started session is a lifecycle session, so a win or a loss is
+    // consumed the same way however the turret was entered. A session started
+    // in place - the startturret developer command, or any entry that did not
+    // come from a module transition - captures no origin; finishing one falls
+    // through to the authored return module when the turret area names one and
+    // otherwise leaves the player where they are. A transition-driven entry
+    // overwrites this in onModuleLoaded with the origin it captured.
+    _turretLifecycle = MinigameLifecycle();
+    _turretLifecycle.active = true;
+
     // The minigame owns the party now; drop any actions queued before entry so
     // they do not survive the module transitions (mirrors the swoop entry).
     for (auto &member : _party.members()) {

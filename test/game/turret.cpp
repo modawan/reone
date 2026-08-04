@@ -881,6 +881,29 @@ TEST(TurretReturn, an_authored_destination_still_applies_with_no_captured_origin
     EXPECT_EQ(turretReturnModule("m12ab", ""), "ebo_m12aa");
 }
 
+// Launch parity. A session started in place (startturret) captures no origin;
+// one entered through a module transition (startturretgame) captures the module
+// it came from. Both are lifecycle sessions, so an outcome resolves the same
+// way for either - the entry route may only decide where the player lands.
+
+TEST(TurretReturn, both_launch_routes_resolve_a_win_the_same_way) {
+    const auto direct = turretReturnModule("m12ab", "");                 // startturret
+    const auto viaTransition = turretReturnModule("m12ab", "ebo_m12aa"); // startturretgame
+
+    EXPECT_EQ(direct, viaTransition);
+    EXPECT_EQ(direct, "ebo_m12aa");
+    EXPECT_TRUE(turretSessionSucceeded(Turret::Outcome::Won));
+}
+
+TEST(TurretReturn, a_direct_session_stays_put_only_when_nothing_is_authored) {
+    // No authored destination and no captured origin: the only case in which a
+    // resolved session leaves the player where they are.
+    EXPECT_EQ(turretReturnModule("custom_mg", ""), "");
+    // An authored destination is honoured even without an origin, so a direct
+    // session is not stranded in the minigame module.
+    EXPECT_FALSE(turretReturnModule("m12ab", "").empty());
+}
+
 // Outcome semantics. Only a victory may emit the completion state; a defeat and
 // an abandoned session must both be distinguishable from it and from each other.
 
