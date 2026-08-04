@@ -201,9 +201,19 @@ struct TurretBullet {
     uint32_t damage {0};
     bool fromPlayer {false};
 
+    // Set on creation, cleared by the first advance(). Firing and bullet
+    // integration run in the same tick, so without this a bolt is carried
+    // speed*dt down range before it is ever drawn and never appears at the
+    // barrel it came from. Holding the first step presents the authored muzzle
+    // transform once; flight then proceeds normally.
+    bool atMuzzle {true};
+
     /**
      * Advance the bullet by one step. Returns false once it has outlived its
      * lifespan and should be culled.
+     *
+     * The first call after spawning consumes the muzzle frame and does not
+     * integrate; every later call moves the bullet.
      */
     bool advance(float dt);
 
