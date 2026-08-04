@@ -24,6 +24,7 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/camera/firstperson.h"
+#include "reone/graphics/animation.h"
 #include "reone/graphics/types.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/audioclips.h"
@@ -362,6 +363,13 @@ std::string turretContactAnimation(size_t enemyIndex) {
 std::string turretContactDeathAnimation(size_t enemyIndex) {
     auto live = turretContactAnimation(enemyIndex);
     return live.empty() ? live : live + "d";
+}
+
+bool turretDeathEffectComplete(float elapsed, float duration) {
+    if (duration <= 0.0f) {
+        return true;
+    }
+    return elapsed >= duration;
 }
 
 int turretHeadingState(float yawRadians) {
@@ -778,6 +786,34 @@ void clearHook(const std::shared_ptr<ModelSceneNode> &model, const std::string &
 
 } // namespace
 
+void Turret::releaseEnemyNodes(Enemy &enemy) {
+    // Everything a fighter owns hangs off its model root: the authored gun bank
+    // models on their hooks, and - built by the model loader itself - the
+    // reference models the fighter names (mgf_sithfighter attaches an fx_ref
+    // engine flare at each of its OmenRef nodes), plus its lights and emitters.
+    // Dropping the root and its rail therefore retires the whole fighter,
+    // without this code having to know which effects it authored.
+    auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
+    for (auto &bank : enemy.gunBanks) {
+        if (bank.spec) {
+            clearHook(enemy.modelNode, gunBankHookName(bank.spec->bankId));
+        }
+    }
+    enemy.gunBanks.clear();
+    clearHook(enemy.trackNode, kModelHookName);
+    if (enemy.modelNode) {
+        enemy.modelNode->removeAllChildren();
+        sceneGraph.removeRoot(*enemy.modelNode);
+    }
+    if (enemy.trackNode) {
+        sceneGraph.removeRoot(*enemy.trackNode);
+    }
+    enemy.extraNodes.clear();
+    enemy.modelNode.reset();
+    enemy.trackNode.reset();
+    enemy.nodesReleased = true;
+}
+
 void Turret::detachAll() {
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
 
@@ -791,20 +827,7 @@ void Turret::detachAll() {
     _bulletNodePool.clear();
 
     for (auto &enemy : _enemies) {
-        for (auto &bank : enemy.gunBanks) {
-            if (bank.spec) {
-                clearHook(enemy.modelNode, gunBankHookName(bank.spec->bankId));
-            }
-        }
-        enemy.gunBanks.clear();
-        clearHook(enemy.trackNode, kModelHookName);
-        if (enemy.modelNode) {
-            enemy.modelNode->removeAllChildren();
-            sceneGraph.removeRoot(*enemy.modelNode);
-        }
-        if (enemy.trackNode) {
-            sceneGraph.removeRoot(*enemy.trackNode);
-        }
+        releaseEnemyNodes(enemy);
     }
     _enemies.clear();
 
@@ -1040,9 +1063,22 @@ void Turret::updateEnemies(float dt) {
         if (!enemy.alive) {
             if (!enemy.deathHandled) {
                 enemy.deathHandled = true;
+                // The authored death animation decides how long the wreck stays.
+                if (auto dying = enemy.modelNode->model().getAnimation("die")) {
+                    enemy.deathDuration = dying->length();
+                }
                 enemy.modelNode->playAnimation("die");
                 if (enemy.spec && !enemy.spec->sounds.death.empty()) {
                     playSound(enemy.spec->sounds.death);
+                }
+            } else if (!enemy.nodesReleased) {
+                // "die" only fades the hull mesh; the fx_ref flares, lights and
+                // emitters the fighter owns are untouched by it and would keep
+                // riding the rail forever. Retire the whole fighter once the
+                // authored effect has played out.
+                enemy.deathElapsed += dt;
+                if (turretDeathEffectComplete(enemy.deathElapsed, enemy.deathDuration)) {
+                    releaseEnemyNodes(enemy);
                 }
             }
             continue;
