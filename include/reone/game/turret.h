@@ -299,6 +299,16 @@ std::string turretContactDeathAnimation(size_t enemyIndex);
 constexpr size_t kTurretContactCount = 6;
 
 /**
+ * Whether a destroyed fighter has finished presenting its death effect.
+ *
+ * The shipped fighter carries its destruction as a non-looping "die" animation
+ * (mgf_sithfighter authors 2.3s), so the animation's own length is how long the
+ * wreck is meant to stay on screen. A fighter with no authored death animation
+ * has nothing to wait for and is released at once.
+ */
+bool turretDeathEffectComplete(float elapsed, float duration);
+
+/**
  * Radar heading pose index for a turret yaw, as a whole degree in [0, 360).
  */
 int turretHeadingState(float yawRadians);
@@ -422,6 +432,13 @@ public:
         int hitPoints {0};
         bool alive {true};
         bool deathHandled {false};
+
+        // Death effect bookkeeping. A destroyed fighter keeps playing its
+        // authored "die" animation for that animation's own length, after which
+        // everything it owns leaves the scene.
+        float deathElapsed {0.0f};
+        float deathDuration {0.0f};
+        bool nodesReleased {false};
     };
 
     struct Bullet {
@@ -567,6 +584,13 @@ private:
                                                      const glm::vec3 &position);
     bool loadPlayer(const MinigameSpec &spec);
     void loadEnemies(const MinigameSpec &spec);
+
+    /**
+     * Retire everything a fighter owns: its gun bank models, its model root
+     * with the reference models, lights and emitters the loader built under it,
+     * and its rail. Safe to call twice.
+     */
+    void releaseEnemyNodes(Enemy &enemy);
     void loadGunBanks(const std::vector<MinigameGunBankSpec> &specs,
                       scene::ModelSceneNode &mount,
                       std::vector<GunBank> &out);

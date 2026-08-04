@@ -591,6 +591,45 @@ TEST(TurretDestruction, the_destruction_band_selects_the_empty_gauge) {
     EXPECT_EQ(turretHealthAnimation(turretHealthState(1999)), "health00");
 }
 
+// A destroyed fighter keeps its authored "die" animation on screen for that
+// animation's own length, then everything it owns is retired. Without the
+// retirement the fighter's fx_ref engine flares, lights and emitters survive
+// the hull fade and keep riding the rail.
+
+TEST(TurretDestruction, the_death_effect_lasts_the_authored_animation_length) {
+    // mgf_sithfighter authors a 2.3s non-looping "die".
+    EXPECT_FALSE(turretDeathEffectComplete(0.0f, 2.3f));
+    EXPECT_FALSE(turretDeathEffectComplete(1.0f, 2.3f));
+    EXPECT_FALSE(turretDeathEffectComplete(2.29f, 2.3f));
+    EXPECT_TRUE(turretDeathEffectComplete(2.3f, 2.3f));
+    EXPECT_TRUE(turretDeathEffectComplete(5.0f, 2.3f));
+}
+
+TEST(TurretDestruction, a_fighter_with_no_death_animation_is_retired_at_once) {
+    EXPECT_TRUE(turretDeathEffectComplete(0.0f, 0.0f));
+    EXPECT_TRUE(turretDeathEffectComplete(0.0f, -1.0f));
+}
+
+TEST(TurretDestruction, death_effects_of_separate_fighters_are_independent) {
+    // Each fighter accumulates its own elapsed time, so one dying later does
+    // not retire early on another's clock.
+    const float duration = 2.3f;
+    float first = 0.0f;
+    float second = 0.0f;
+
+    for (int i = 0; i < 100; ++i) { // ~1.67s
+        first += 1.0f / 60.0f;
+    }
+    EXPECT_FALSE(turretDeathEffectComplete(first, duration));
+
+    for (int i = 0; i < 40; ++i) {
+        first += 1.0f / 60.0f;
+        second += 1.0f / 60.0f;
+    }
+    EXPECT_TRUE(turretDeathEffectComplete(first, duration));
+    EXPECT_FALSE(turretDeathEffectComplete(second, duration));
+}
+
 TEST(TurretHealthGauge, an_undamaged_hawk_reads_full) {
     // 3000 is the authored Hit_Points/Max_HPs; the first damage lands below it.
     EXPECT_EQ(turretHealthState(2999), 12);
