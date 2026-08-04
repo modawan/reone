@@ -335,6 +335,7 @@ TEST(TurretBullet, advances_along_its_direction_at_the_authored_speed) {
     bullet.speed = 300.0f;
     bullet.lifespan = 3.0f;
 
+    ASSERT_TRUE(bullet.advance(0.0f)); // muzzle frame
     ASSERT_TRUE(bullet.advance(0.5f));
 
     EXPECT_NEAR(bullet.position.y, 150.0f, 1e-3f);
@@ -347,6 +348,7 @@ TEST(TurretBullet, is_culled_once_it_outlives_its_lifespan) {
     bullet.speed = 300.0f;
     bullet.lifespan = 1.0f;
 
+    ASSERT_TRUE(bullet.advance(0.0f)); // muzzle frame
     ASSERT_TRUE(bullet.advance(0.9f));
     EXPECT_FALSE(bullet.advance(0.2f));
 }
@@ -357,7 +359,71 @@ TEST(TurretBullet, an_expired_bullet_is_culled_on_the_next_step) {
 
     bullet.expire();
 
+    ASSERT_TRUE(bullet.advance(0.01f)); // the muzzle frame is presented first
     EXPECT_FALSE(bullet.advance(0.01f));
+}
+
+// Firing and bullet integration run in the same tick, so without a held first
+// step every bolt is carried speed*dt down range before it is ever drawn, and
+// never appears at the barrel that fired it.
+
+TEST(TurretBullet, the_first_step_presents_the_muzzle_without_moving) {
+    TurretBullet bullet;
+    bullet.position = glm::vec3(1.285f, 2.067f, 0.736f); // authored bullethook0
+    bullet.direction = glm::vec3(0.0f, 1.0f, 0.0f);
+    bullet.speed = 300.0f;
+    bullet.lifespan = 3.0f;
+
+    ASSERT_TRUE(bullet.advance(1.0f / 60.0f));
+
+    EXPECT_NEAR(bullet.position.x, 1.285f, 1e-4f);
+    EXPECT_NEAR(bullet.position.y, 2.067f, 1e-4f);
+    EXPECT_NEAR(bullet.position.z, 0.736f, 1e-4f);
+    EXPECT_FLOAT_EQ(bullet.life, 0.0f);
+    EXPECT_FALSE(bullet.atMuzzle);
+}
+
+TEST(TurretBullet, flight_resumes_normally_after_the_muzzle_frame) {
+    TurretBullet bullet;
+    bullet.direction = glm::vec3(0.0f, 1.0f, 0.0f);
+    bullet.speed = 300.0f;
+    bullet.lifespan = 3.0f;
+
+    bullet.advance(1.0f / 60.0f);
+    bullet.advance(1.0f / 60.0f);
+    bullet.advance(1.0f / 60.0f);
+
+    // Two integrating steps, not three: the muzzle frame is held.
+    EXPECT_NEAR(bullet.position.y, 2.0f * 300.0f / 60.0f, 1e-3f);
+}
+
+TEST(TurretBullet, both_banks_hold_their_own_muzzle_on_the_first_frame) {
+    // The authored gun bank hooks of mgf_turret, carrying mgg_turret's
+    // bullethook0: distinct, symmetric, 2.57 units apart.
+    TurretBullet left;
+    left.position = glm::vec3(-1.285f, 2.067f, 0.736f);
+    left.direction = glm::vec3(0.0f, 1.0f, 0.0f);
+    left.speed = 300.0f;
+    left.lifespan = 3.0f;
+
+    TurretBullet right;
+    right.position = glm::vec3(1.285f, 2.067f, 0.736f);
+    right.direction = glm::vec3(0.0f, 1.0f, 0.0f);
+    right.speed = 300.0f;
+    right.lifespan = 3.0f;
+
+    left.advance(1.0f / 60.0f);
+    right.advance(1.0f / 60.0f);
+
+    EXPECT_NEAR(right.position.x - left.position.x, 2.570f, 1e-3f);
+    EXPECT_NEAR(left.position.x, -right.position.x, 1e-4f);
+    EXPECT_GT(glm::abs(right.position.x), 1.0f); // neither collapses to centre
+
+    // Separation survives flight: the banks fire on parallel headings.
+    left.advance(0.5f);
+    right.advance(0.5f);
+    EXPECT_NEAR(right.position.x - left.position.x, 2.570f, 1e-3f);
+    EXPECT_NEAR(left.position.y, right.position.y, 1e-4f);
 }
 
 // Projectile presentation. The bolt models are authored along +Y, so a bullet
@@ -453,6 +519,7 @@ TEST(TurretProjectile, a_bolt_advances_along_its_oriented_direction) {
     bullet.speed = 300.0f;
     bullet.lifespan = 3.0f;
 
+    ASSERT_TRUE(bullet.advance(0.0f)); // muzzle frame
     ASSERT_TRUE(bullet.advance(0.1f));
 
     // Yawed 90 degrees, +Y maps onto -X.

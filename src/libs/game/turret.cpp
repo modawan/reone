@@ -300,6 +300,13 @@ bool TurretGunTimer::tryFire() {
 }
 
 bool TurretBullet::advance(float dt) {
+    // A bolt is created and integrated within the same tick, so its first step
+    // is spent standing at the muzzle: that is the only frame in which it is
+    // drawn where the authored gun bank actually points.
+    if (atMuzzle) {
+        atMuzzle = false;
+        return true;
+    }
     life += dt;
     if (life >= lifespan) {
         return false;
