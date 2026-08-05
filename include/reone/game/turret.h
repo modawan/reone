@@ -326,6 +326,23 @@ bool turretDeathEffectComplete(float elapsed, float duration);
 void turretDisableReferenceAttachments(scene::ModelSceneNode &model);
 
 /**
+ * How far along its own forward axis a bolt must start so that none of its
+ * visible geometry lies behind the muzzle it was fired from.
+ *
+ * A bolt model's origin is not its tail. The shipped Ebon Hawk bolt
+ * (mgb_ebonleft) draws from -1.953 to +8.620 along model +Y, so pinning the
+ * origin to the authored bullethook0 buries nearly two units of bolt inside the
+ * gun. Starting the bolt ahead by however far it reaches backwards puts its
+ * tail on the muzzle plane instead.
+ *
+ * \param modelMinForward the model-space minimum of the bolt's visible bounds
+ *                        along the model forward axis (+Y)
+ * \return a non-negative displacement; zero for a bolt drawn wholly ahead of
+ *         its origin
+ */
+float turretMuzzleClearance(float modelMinForward);
+
+/**
  * Radar heading pose index for a turret yaw, as a whole degree in [0, 360).
  */
 int turretHeadingState(float yawRadians);
