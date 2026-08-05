@@ -920,6 +920,97 @@ struct FighterFixture {
 
 } // namespace
 
+// Rail detachment. Emitter particles are children of the emitter that spawned
+// them, so a wreck still attached to the looping rail hook carries its whole
+// explosion along with it. These cover the transform bookkeeping the detach
+// depends on; the wiring itself is exercised in the engine.
+
+namespace {
+
+// A rail carrying a fighter on its "modelhook", the way loadEnemies builds it.
+struct RailFixture : FighterFixture {
+    std::unique_ptr<Model> railModel;
+    std::shared_ptr<ModelSceneNode> rail;
+
+    RailFixture() {
+        auto railRoot = std::make_shared<ModelNode>(0, "m12ab_mgt02", glm::vec3(0.0f),
+                                                    glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+        auto hook = std::make_shared<ModelNode>(1, "modelhook", glm::vec3(0.0f),
+                                                glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, railRoot.get());
+        railRoot->addChild(hook);
+        railModel = std::make_unique<Model>("m12ab_mgt02", 0, railRoot,
+                                            std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+        rail = makeModelSceneNode(*railModel);
+        rail->attach("modelhook", *node);
+    }
+
+    // Where the rail's hook has carried the fighter to.
+    glm::vec3 fighterWorldPos() const {
+        return glm::vec3(node->absoluteTransform()[3]);
+    }
+
+    void moveRail(const glm::vec3 &to) {
+        rail->getNodeByName("modelhook")->setLocalTransform(glm::translate(to));
+    }
+};
+
+} // namespace
+
+TEST(TurretDestruction, a_wreck_keeps_the_pose_it_died_in_when_it_leaves_the_rail) {
+    RailFixture fixture;
+    fixture.moveRail(glm::vec3(40.0f, 12.0f, -3.0f));
+    glm::mat4 atDeath = fixture.node->absoluteTransform();
+
+    // What detachEnemyFromTrack does: capture the world pose, drop the hook
+    // attachment, then re-root at that pose.
+    fixture.rail->getNodeByName("modelhook")->removeAllChildren();
+    fixture.node->setLocalTransform(atDeath);
+
+    EXPECT_NEAR(fixture.fighterWorldPos().x, 40.0f, 1e-4f);
+    EXPECT_NEAR(fixture.fighterWorldPos().y, 12.0f, 1e-4f);
+    EXPECT_NEAR(fixture.fighterWorldPos().z, -3.0f, 1e-4f);
+}
+
+TEST(TurretDestruction, the_rail_no_longer_carries_a_detached_wreck) {
+    RailFixture fixture;
+    fixture.moveRail(glm::vec3(40.0f, 12.0f, -3.0f));
+    glm::mat4 atDeath = fixture.node->absoluteTransform();
+    fixture.rail->getNodeByName("modelhook")->removeAllChildren();
+    fixture.node->setLocalTransform(atDeath);
+
+    // The rail keeps looping; the wreck must not follow it any more.
+    fixture.moveRail(glm::vec3(500.0f, -250.0f, 90.0f));
+
+    EXPECT_NEAR(fixture.fighterWorldPos().x, 40.0f, 1e-4f);
+    EXPECT_NEAR(fixture.fighterWorldPos().y, 12.0f, 1e-4f);
+    EXPECT_NEAR(fixture.fighterWorldPos().z, -3.0f, 1e-4f);
+}
+
+TEST(TurretDestruction, a_live_fighter_still_rides_its_rail) {
+    RailFixture fixture;
+
+    fixture.moveRail(glm::vec3(7.0f, 8.0f, 9.0f));
+
+    EXPECT_NEAR(fixture.fighterWorldPos().x, 7.0f, 1e-4f);
+    EXPECT_NEAR(fixture.fighterWorldPos().y, 8.0f, 1e-4f);
+    EXPECT_NEAR(fixture.fighterWorldPos().z, 9.0f, 1e-4f);
+}
+
+TEST(TurretDestruction, detaching_leaves_the_death_effects_running) {
+    RailFixture fixture;
+    glm::mat4 atDeath = fixture.node->absoluteTransform();
+    fixture.rail->getNodeByName("modelhook")->removeAllChildren();
+    fixture.node->setLocalTransform(atDeath);
+    turretDisableReferenceAttachments(*fixture.node);
+
+    // Only the engine flare goes out. The explosion emitter, the hull and the
+    // wreck itself must all survive the detach so the blast can play.
+    EXPECT_TRUE(fixture.node->isEnabled());
+    EXPECT_TRUE(fixture.node->getNodeByName("explode")->isEnabled());
+    EXPECT_TRUE(fixture.node->getNodeByName("sith_wing")->isEnabled());
+    EXPECT_FALSE(fixture.flare->isEnabled());
+}
+
 TEST(TurretDestruction, the_engine_flare_goes_out_the_moment_a_fighter_dies) {
     FighterFixture fighter;
     ASSERT_TRUE(fighter.flare->isEnabled());

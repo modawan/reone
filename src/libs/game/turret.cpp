@@ -810,6 +810,27 @@ void clearHook(const std::shared_ptr<ModelSceneNode> &model, const std::string &
 
 } // namespace
 
+void Turret::detachEnemyFromTrack(Enemy &enemy) {
+    if (!enemy.modelNode || enemy.detachedFromTrack) {
+        return;
+    }
+    enemy.detachedFromTrack = true;
+    if (!enemy.trackNode) {
+        return; // already a scene root: nothing is translating it
+    }
+    // Preserve the pose the fighter died in, then move it from the rail's hook
+    // to the scene root the tracks themselves live under. The hook keeps
+    // looping, but the wreck no longer inherits it; anything the "die"
+    // animation does to the model still applies on top of this transform.
+    glm::mat4 world = enemy.modelNode->absoluteTransform();
+    clearHook(enemy.trackNode, kModelHookName);
+    enemy.modelNode->setLocalTransform(world);
+    // A wreck sits where it was killed while the rail carries on, so the
+    // culling that assumes actors stay near their track root no longer holds.
+    enemy.modelNode->setCullingEnabled(false);
+    _services.scene.graphs.get(kSceneMain).addRoot(enemy.modelNode);
+}
+
 void Turret::releaseEnemyNodes(Enemy &enemy) {
     // Everything a fighter owns hangs off its model root: the authored gun bank
     // models on their hooks, and - built by the model loader itself - the
@@ -1103,6 +1124,12 @@ void Turret::updateEnemies(float dt) {
                 // burns steadily for as long as its node lives, so a wreck that
                 // kept it would trail a lit flare through the whole animation.
                 turretDisableReferenceAttachments(*enemy.modelNode);
+                // Particles are children of the emitter that made them, so a
+                // wreck still riding its rail carries its whole explosion along
+                // with it. Take the fighter off the rail first, keeping it where
+                // it died, and the blast stays at the kill instead of sailing
+                // across the sky.
+                detachEnemyFromTrack(enemy);
                 enemy.modelNode->playAnimation("die");
                 if (enemy.spec && !enemy.spec->sounds.death.empty()) {
                     playSound(enemy.spec->sounds.death);
