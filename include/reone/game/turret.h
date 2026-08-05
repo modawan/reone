@@ -473,6 +473,7 @@ public:
         float deathElapsed {0.0f};
         float deathDuration {0.0f};
         bool nodesReleased {false};
+        bool detachedFromTrack {false};
     };
 
     struct Bullet {
@@ -625,6 +626,17 @@ private:
      * and its rail. Safe to call twice.
      */
     void releaseEnemyNodes(Enemy &enemy);
+
+    /**
+     * Take a destroyed fighter off its flight rail, keeping the world pose it
+     * died in, and re-root it alongside the tracks.
+     *
+     * Emitter particles are children of the emitter that spawned them, so a
+     * wreck still attached to the looping rail hook carries its whole explosion
+     * with it. Detaching stops the rail translating the fighter; the authored
+     * "die" animation still plays on top. Safe to call twice.
+     */
+    void detachEnemyFromTrack(Enemy &enemy);
     void loadGunBanks(const std::vector<MinigameGunBankSpec> &specs,
                       scene::ModelSceneNode &mount,
                       std::vector<GunBank> &out);
