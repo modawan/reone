@@ -412,6 +412,83 @@ TEST(TurretBullet, flight_resumes_normally_after_the_muzzle_frame) {
     EXPECT_NEAR(bullet.position.y, 2.0f * 300.0f / 60.0f, 1e-3f);
 }
 
+// A bolt model's origin is not its tail. mgb_ebonleft draws from -1.953 to
+// +8.620 along model +Y, so pinning the origin to bullethook0 buries nearly two
+// units of bolt inside the gun.
+
+TEST(TurretBullet, a_bolt_starts_clear_of_the_muzzle_by_its_own_reach_behind) {
+    EXPECT_NEAR(turretMuzzleClearance(-1.953f), 1.953f, 1e-4f); // mgb_ebonleft
+    EXPECT_NEAR(turretMuzzleClearance(-1.520f), 1.520f, 1e-4f); // mgb_sithfighter
+}
+
+TEST(TurretBullet, a_bolt_drawn_wholly_ahead_of_its_origin_is_not_displaced) {
+    EXPECT_FLOAT_EQ(turretMuzzleClearance(0.0f), 0.0f);
+    EXPECT_FLOAT_EQ(turretMuzzleClearance(2.5f), 0.0f);
+}
+
+TEST(TurretBullet, no_visible_geometry_is_left_behind_the_muzzle_plane) {
+    const float modelMin = -1.953f; // mgb_ebonleft rear reach
+    const float muzzleY = 2.067f;   // authored bullethook0
+
+    float spawnY = muzzleY + turretMuzzleClearance(modelMin);
+    float tailY = spawnY + modelMin;
+
+    EXPECT_GE(tailY, muzzleY - 1e-4f);
+    EXPECT_NEAR(tailY, muzzleY, 1e-4f); // sits exactly on the plane, no further
+}
+
+TEST(TurretBullet, the_clearance_follows_the_bolt_heading_not_a_world_axis) {
+    // Yawed 90 degrees, model +Y maps onto -X, so the displacement must too.
+    glm::quat yawed = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+
+    TurretBullet bullet;
+    bullet.position = glm::vec3(1.285f, 2.067f, 0.736f);
+    bullet.orientation = yawed;
+    bullet.direction = turretFireDirection(yawed);
+    bullet.speed = 300.0f;
+    bullet.lifespan = 3.0f;
+
+    float clearance = turretMuzzleClearance(-1.953f);
+    bullet.position += bullet.direction * clearance;
+
+    EXPECT_NEAR(bullet.position.x, 1.285f - 1.953f, 1e-3f);
+    EXPECT_NEAR(bullet.position.y, 2.067f, 1e-3f);
+}
+
+TEST(TurretBullet, clearance_does_not_consume_the_muzzle_frame_or_alter_speed) {
+    TurretBullet bullet;
+    bullet.position = glm::vec3(0.0f, 2.067f, 0.0f);
+    bullet.direction = glm::vec3(0.0f, 1.0f, 0.0f);
+    bullet.speed = 300.0f;
+    bullet.lifespan = 3.0f;
+    bullet.position += bullet.direction * turretMuzzleClearance(-1.953f);
+    float spawnY = bullet.position.y;
+
+    // Still a held first frame: placement is not a movement step.
+    ASSERT_TRUE(bullet.advance(1.0f / 60.0f));
+    EXPECT_NEAR(bullet.position.y, spawnY, 1e-4f);
+    EXPECT_FLOAT_EQ(bullet.life, 0.0f);
+
+    // Flight then runs at the authored speed, unchanged by the displacement.
+    ASSERT_TRUE(bullet.advance(1.0f / 60.0f));
+    EXPECT_NEAR(bullet.position.y, spawnY + 300.0f / 60.0f, 1e-3f);
+    EXPECT_NEAR(bullet.life, 1.0f / 60.0f, 1e-5f);
+}
+
+TEST(TurretBullet, clearance_keeps_the_banks_distinct_and_symmetric) {
+    float clearance = turretMuzzleClearance(-1.953f);
+    glm::vec3 forward(0.0f, 1.0f, 0.0f);
+
+    glm::vec3 left = glm::vec3(-1.285f, 2.067f, 0.736f) + forward * clearance;
+    glm::vec3 right = glm::vec3(1.285f, 2.067f, 0.736f) + forward * clearance;
+
+    // The displacement is along the shared heading, so it cannot pull the two
+    // banks together.
+    EXPECT_NEAR(right.x - left.x, 2.570f, 1e-3f);
+    EXPECT_NEAR(left.x, -right.x, 1e-4f);
+    EXPECT_NEAR(left.y, right.y, 1e-4f);
+}
+
 TEST(TurretBullet, both_banks_hold_their_own_muzzle_on_the_first_frame) {
     // The authored gun bank hooks of mgf_turret, carrying mgg_turret's
     // bullethook0: distinct, symmetric, 2.57 units apart.

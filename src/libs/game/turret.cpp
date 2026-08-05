@@ -373,6 +373,10 @@ bool turretDeathEffectComplete(float elapsed, float duration) {
     return elapsed >= duration;
 }
 
+float turretMuzzleClearance(float modelMinForward) {
+    return glm::max(0.0f, -modelMinForward);
+}
+
 void turretDisableReferenceAttachments(ModelSceneNode &model) {
     std::stack<std::reference_wrapper<const graphics::ModelNode>> pending;
     if (auto root = model.model().rootNode()) {
@@ -1042,6 +1046,11 @@ void Turret::spawnBullet(const MinigameGunBankSpec &bank,
 
     bullet.modelNode = acquireBulletNode(bullet.modelResRef);
     if (bullet.modelNode) {
+        // The bolt is drawn from its own origin, which sits partway along the
+        // shot rather than at its tail. Start it far enough ahead that the part
+        // reaching backwards clears the gun instead of being drawn inside it.
+        bullet.sim.position += bullet.sim.direction *
+                               turretMuzzleClearance(bullet.modelNode->model().aabb().min().y);
         bullet.modelNode->setLocalTransform(turretBulletTransform(bullet.sim));
         _services.scene.graphs.get(kSceneMain).addRoot(bullet.modelNode);
     }
