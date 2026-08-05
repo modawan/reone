@@ -619,6 +619,135 @@ TEST(TurretProjectile, a_bolt_advances_along_its_oriented_direction) {
     EXPECT_NEAR(bullet.position.y, 0.0f, 1e-3f);
 }
 
+// Muzzle heading. The gun banks are not aligned with the hull they hang on: on
+// the K1 turret each bullethook0 sits about five degrees below the turret body
+// and half a degree inboard, so the pair converges down range. Firing on the
+// turret root's heading throws both corrections away.
+
+namespace {
+
+// The authored hook orientations, as measured from the shipped models: pitch up
+// 2 degrees, toed inboard 0.5 degrees, mirrored per bank. The turret body they
+// hang on is pitched 7 degrees.
+glm::quat makeMuzzleOrientation(float pitchDeg, float toeDeg) {
+    return glm::angleAxis(glm::radians(toeDeg), glm::vec3(0.0f, 0.0f, 1.0f)) *
+           glm::angleAxis(glm::radians(pitchDeg), glm::vec3(1.0f, 0.0f, 0.0f));
+}
+
+} // namespace
+
+TEST(TurretProjectile, each_bank_fires_on_its_own_muzzle_heading) {
+    glm::vec3 left = turretFireDirection(makeMuzzleOrientation(2.0f, 0.5f));
+    glm::vec3 right = turretFireDirection(makeMuzzleOrientation(2.0f, -0.5f));
+
+    // Distinct headings, mirrored about the centre plane.
+    EXPECT_NEAR(left.x, -right.x, 1e-5f);
+    EXPECT_GT(glm::abs(left.x), 1e-4f);
+    EXPECT_NEAR(left.y, right.y, 1e-5f);
+    EXPECT_NEAR(left.z, right.z, 1e-5f);
+}
+
+TEST(TurretProjectile, the_authored_toe_in_makes_the_banks_converge) {
+    glm::vec3 leftOrigin(-1.2848f, 2.0665f, 0.7359f);
+    glm::vec3 rightOrigin(1.2848f, 2.0665f, 0.7359f);
+    glm::vec3 left = turretFireDirection(makeMuzzleOrientation(2.0f, -0.5f));
+    glm::vec3 right = turretFireDirection(makeMuzzleOrientation(2.0f, 0.5f));
+
+    float startGap = rightOrigin.x - leftOrigin.x;
+    glm::vec3 leftFar = leftOrigin + left * 100.0f;
+    glm::vec3 rightFar = rightOrigin + right * 100.0f;
+
+    // Toed inboard: the gap closes with distance instead of staying constant.
+    EXPECT_LT(rightFar.x - leftFar.x, startGap);
+}
+
+TEST(TurretProjectile, the_authored_muzzle_pitch_is_not_replaced_by_the_hull) {
+    glm::vec3 fromMuzzle = turretFireDirection(makeMuzzleOrientation(2.0f, 0.0f));
+    glm::vec3 fromRoot = turretFireDirection(makeMuzzleOrientation(7.0f, 0.0f));
+
+    EXPECT_NEAR(glm::degrees(glm::asin(fromMuzzle.z)), 2.0f, 1e-3f);
+    EXPECT_NEAR(glm::degrees(glm::asin(fromRoot.z)), 7.0f, 1e-3f);
+    // Substituting the hull heading would raise the shot five degrees.
+    EXPECT_GT(fromRoot.z, fromMuzzle.z);
+}
+
+TEST(TurretProjectile, the_muzzle_heading_survives_turret_pitch_and_yaw) {
+    // A hook keeps its authored offset from the body under any aim, because it
+    // is composed with the turret transform rather than replacing it.
+    glm::quat body = glm::angleAxis(glm::radians(40.0f), glm::vec3(0.0f, 0.0f, 1.0f)) *
+                     glm::angleAxis(glm::radians(25.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    glm::quat hookLocal = makeMuzzleOrientation(-5.0f, 0.5f);
+
+    glm::vec3 bodyDir = turretFireDirection(body);
+    glm::vec3 muzzleDir = turretFireDirection(body * hookLocal);
+
+    EXPECT_NEAR(glm::length(muzzleDir), 1.0f, 1e-5f);
+    // Still offset from the hull heading after the aim is applied.
+    float cosAngle = glm::clamp(glm::dot(bodyDir, muzzleDir), -1.0f, 1.0f);
+    EXPECT_NEAR(glm::degrees(glm::acos(cosAngle)), 5.025f, 0.05f);
+}
+
+TEST(TurretProjectile, clearance_is_applied_along_the_muzzle_heading) {
+    glm::quat muzzle = makeMuzzleOrientation(2.0f, 0.5f);
+
+    TurretBullet bullet;
+    bullet.position = glm::vec3(-1.2848f, 2.0665f, 0.7359f);
+    bullet.orientation = muzzle;
+    bullet.direction = turretFireDirection(muzzle);
+    bullet.speed = 300.0f;
+    bullet.lifespan = 3.0f;
+
+    glm::vec3 origin = bullet.position;
+    float clearance = turretMuzzleClearance(-1.953f);
+    bullet.position += bullet.direction * clearance;
+
+    // Displaced exactly along the heading it will fly, not along world Y.
+    glm::vec3 delta = bullet.position - origin;
+    EXPECT_NEAR(glm::length(delta), clearance, 1e-4f);
+    EXPECT_NEAR(glm::dot(glm::normalize(delta), bullet.direction), 1.0f, 1e-5f);
+}
+
+TEST(TurretProjectile, the_drawn_bolt_and_its_collision_path_share_one_heading) {
+    glm::quat muzzle = makeMuzzleOrientation(2.0f, -0.5f);
+
+    TurretBullet bullet;
+    bullet.orientation = muzzle;
+    bullet.direction = turretFireDirection(muzzle);
+    bullet.speed = 300.0f;
+    bullet.lifespan = 3.0f;
+
+    // The model is drawn along its own +Y, transformed by the same orientation
+    // the simulation integrates along.
+    glm::mat4 transform = turretBulletTransform(bullet);
+    glm::vec3 drawnAxis = glm::normalize(glm::vec3(glm::mat3(transform) * glm::vec3(0.0f, 1.0f, 0.0f)));
+
+    EXPECT_NEAR(drawnAxis.x, bullet.direction.x, 1e-5f);
+    EXPECT_NEAR(drawnAxis.y, bullet.direction.y, 1e-5f);
+    EXPECT_NEAR(drawnAxis.z, bullet.direction.z, 1e-5f);
+
+    bullet.advance(1.0f / 60.0f); // muzzle frame
+    glm::vec3 before = bullet.position;
+    bullet.advance(1.0f / 60.0f);
+    glm::vec3 travelled = glm::normalize(bullet.position - before);
+    EXPECT_NEAR(glm::dot(travelled, drawnAxis), 1.0f, 1e-5f);
+}
+
+TEST(TurretProjectile, a_bolt_on_its_muzzle_heading_reaches_a_target_on_that_axis) {
+    glm::vec3 origin(1.2848f, 2.0665f, 0.7359f);
+    glm::quat muzzle = makeMuzzleOrientation(2.0f, 0.5f);
+    glm::vec3 direction = turretFireDirection(muzzle);
+
+    // A fighter sitting on the authored firing axis is hit. Fired on the hull
+    // heading instead, the same shot is five degrees high and clears the
+    // authored 20 unit sphere well inside the bolt's 900 unit range.
+    const float range = 300.0f;
+    glm::vec3 target = origin + direction * range;
+    glm::vec3 hullDirection = turretFireDirection(makeMuzzleOrientation(7.0f, 0.0f));
+
+    EXPECT_TRUE(sphereContainsPoint(target, 20.0f, origin + direction * range));
+    EXPECT_FALSE(sphereContainsPoint(target, 20.0f, origin + hullDirection * range));
+}
+
 TEST(TurretCollision, sphere_contains_points_within_its_radius) {
     glm::vec3 center(10.0f, 20.0f, 30.0f);
 

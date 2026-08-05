@@ -1012,12 +1012,15 @@ void Turret::fire() {
             }
             bank.modelNode->playAnimation("fire");
         }
-        // The muzzle decides only where the bolt appears; its travel and its
-        // orientation both come from the turret itself, so every bank fires
-        // symmetrically and the aim adds no extra rotation per bank.
+        // The muzzle decides where the bolt appears and where it goes. The gun
+        // banks are not aligned with the hull they are mounted on: on the K1
+        // turret each bullethook0 sits five degrees below the turret body and
+        // toed half a degree inboard, so the pair converges down range. Taking
+        // the heading from the turret root instead threw both corrections away
+        // and fired every bank on the hull axis - above the guns, and parallel.
         spawnBullet(*bank.spec,
                     transformOrigin(muzzle),
-                    transformOrientation(_turretRoot->absoluteTransform()),
+                    transformOrientation(muzzle),
                     /*fromPlayer=*/true);
         if (!bank.spec->fireSound.empty()) {
             playSound(bank.spec->fireSound);
