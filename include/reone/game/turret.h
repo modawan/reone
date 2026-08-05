@@ -309,6 +309,23 @@ constexpr size_t kTurretContactCount = 6;
 bool turretDeathEffectComplete(float elapsed, float duration);
 
 /**
+ * Switch off the always-on effect models a minigame actor carries.
+ *
+ * The model loader resolves every authored reference node into a separate
+ * model and attaches it there; on mgf_sithfighter those are the fx_ref engine
+ * flares hanging at its OmenRef nodes, which burn for as long as the node
+ * lives because nothing animates them. A fighter that has just been destroyed
+ * should stop showing engine glow at once, while its hull death animation and
+ * the emitters that animation detonates play out.
+ *
+ * Only loader-built reference attachments are touched, so the actor's meshes,
+ * lights, emitters and any gun bank models hooked on by the minigame are left
+ * running. Identifying them by the authored reference flag keeps this free of
+ * per-model node names.
+ */
+void turretDisableReferenceAttachments(scene::ModelSceneNode &model);
+
+/**
  * Radar heading pose index for a turret yaw, as a whole degree in [0, 360).
  */
 int turretHeadingState(float yawRadians);

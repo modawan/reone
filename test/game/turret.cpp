@@ -10,8 +10,23 @@
 #include <gtest/gtest.h>
 
 #include "reone/game/turret.h"
+#include "reone/graphics/animation.h"
+#include "reone/graphics/model.h"
+#include "reone/graphics/options.h"
+#include "reone/scene/graph.h"
+#include "reone/scene/node/model.h"
+#include "reone/scene/node/modelnode.h"
 
+#include "../fixtures/audio.h"
+#include "../fixtures/graphics.h"
+#include "../fixtures/resource.h"
+#include "../fixtures/scene.h"
+
+using namespace reone::audio;
 using namespace reone::game;
+using namespace reone::graphics;
+using namespace reone::resource;
+using namespace reone::scene;
 
 namespace {
 
@@ -608,6 +623,139 @@ TEST(TurretDestruction, the_death_effect_lasts_the_authored_animation_length) {
 TEST(TurretDestruction, a_fighter_with_no_death_animation_is_retired_at_once) {
     EXPECT_TRUE(turretDeathEffectComplete(0.0f, 0.0f));
     EXPECT_TRUE(turretDeathEffectComplete(0.0f, -1.0f));
+}
+
+namespace {
+
+// A fighter shaped like mgf_sithfighter: a hull mesh, an explosion emitter, a
+// reference node the loader hangs an engine flare on, and a plain hook the
+// minigame attaches a gun bank model to.
+struct FighterFixture {
+    MockRenderPipelineFactory pipelineFactory;
+    GraphicsOptions graphicsOpt;
+    TestGraphicsModule graphicsModule;
+    TestAudioModule audioModule;
+    TestResourceModule resourceModule;
+    std::unique_ptr<SceneGraph> scene;
+
+    std::shared_ptr<ModelNode> root;
+    std::unique_ptr<Model> model;
+    std::shared_ptr<ModelSceneNode> node;
+
+    std::unique_ptr<Model> flareModel;
+    std::shared_ptr<ModelSceneNode> flare;
+    std::unique_ptr<Model> gunModel;
+    std::shared_ptr<ModelSceneNode> gun;
+
+    FighterFixture() {
+        graphicsModule.init();
+        audioModule.init();
+        resourceModule.init();
+        scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt,
+                                             graphicsModule.services(),
+                                             audioModule.services(),
+                                             resourceModule.services());
+
+        root = std::make_shared<ModelNode>(0, "fighter", glm::vec3(0.0f),
+                                           glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+
+        auto hull = std::make_shared<ModelNode>(1, "sith_wing", glm::vec3(0.0f),
+                                                glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, root.get());
+        hull->setMesh(std::make_shared<ModelNode::TriangleMesh>());
+        root->addChild(hull);
+
+        auto explode = std::make_shared<ModelNode>(2, "explode", glm::vec3(0.0f),
+                                                   glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, root.get());
+        explode->setEmitter(std::make_shared<ModelNode::Emitter>());
+        root->addChild(explode);
+
+        // An authored reference node. The referenced model name is left empty so
+        // the loader does not try to resolve it; the flare is attached below the
+        // same way the loader would.
+        auto omenRef = std::make_shared<ModelNode>(3, "omenref05", glm::vec3(0.0f),
+                                                   glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, root.get());
+        omenRef->setReference(std::make_shared<ModelNode::Reference>());
+        root->addChild(omenRef);
+
+        auto gunHook = std::make_shared<ModelNode>(4, "gunbank0", glm::vec3(0.0f),
+                                                   glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, root.get());
+        root->addChild(gunHook);
+
+        model = std::make_unique<Model>("fighter", 0, root,
+                                        std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+        node = makeModelSceneNode(*model);
+
+        flareModel = makeSimpleModel("fx_ref");
+        flare = makeModelSceneNode(*flareModel);
+        node->attach("omenref05", *flare);
+
+        gunModel = makeSimpleModel("mgg_null");
+        gun = makeModelSceneNode(*gunModel);
+        node->attach("gunbank0", *gun);
+    }
+
+    std::unique_ptr<Model> makeSimpleModel(const std::string &name) {
+        auto modelRoot = std::make_shared<ModelNode>(0, name, glm::vec3(0.0f),
+                                                     glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+        modelRoot->setMesh(std::make_shared<ModelNode::TriangleMesh>());
+        return std::make_unique<Model>(name, 0, modelRoot,
+                                       std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    }
+
+    std::shared_ptr<ModelSceneNode> makeModelSceneNode(Model &m) {
+        auto n = std::make_shared<ModelSceneNode>(m, ModelUsage::Creature, *scene,
+                                                  graphicsModule.services(),
+                                                  audioModule.services(),
+                                                  resourceModule.services());
+        n->init();
+        return n;
+    }
+};
+
+} // namespace
+
+TEST(TurretDestruction, the_engine_flare_goes_out_the_moment_a_fighter_dies) {
+    FighterFixture fighter;
+    ASSERT_TRUE(fighter.flare->isEnabled());
+
+    turretDisableReferenceAttachments(*fighter.node);
+
+    EXPECT_FALSE(fighter.flare->isEnabled());
+}
+
+TEST(TurretDestruction, the_hull_survives_for_its_death_animation) {
+    FighterFixture fighter;
+
+    turretDisableReferenceAttachments(*fighter.node);
+
+    // The wreck itself, its explosion emitter and the gun bank model hooked on
+    // by the minigame all keep running: only loader-built reference
+    // attachments are switched off.
+    EXPECT_TRUE(fighter.node->isEnabled());
+    EXPECT_TRUE(fighter.gun->isEnabled());
+    EXPECT_TRUE(fighter.node->getNodeByName("sith_wing")->isEnabled());
+    EXPECT_TRUE(fighter.node->getNodeByName("explode")->isEnabled());
+}
+
+TEST(TurretDestruction, disabling_the_flare_twice_is_harmless) {
+    FighterFixture fighter;
+
+    turretDisableReferenceAttachments(*fighter.node);
+    turretDisableReferenceAttachments(*fighter.node);
+
+    EXPECT_FALSE(fighter.flare->isEnabled());
+    EXPECT_TRUE(fighter.gun->isEnabled());
+}
+
+TEST(TurretDestruction, a_replayed_fighter_starts_with_its_flare_lit) {
+    // Sessions build their fighters fresh, so a kill in one run cannot leave a
+    // later run's flare switched off.
+    FighterFixture first;
+    turretDisableReferenceAttachments(*first.node);
+    ASSERT_FALSE(first.flare->isEnabled());
+
+    FighterFixture replay;
+    EXPECT_TRUE(replay.flare->isEnabled());
 }
 
 TEST(TurretDestruction, death_effects_of_separate_fighters_are_independent) {

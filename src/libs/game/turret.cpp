@@ -18,6 +18,7 @@
 #include "reone/game/turret.h"
 
 #include <array>
+#include <stack>
 
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
@@ -370,6 +371,25 @@ bool turretDeathEffectComplete(float elapsed, float duration) {
         return true;
     }
     return elapsed >= duration;
+}
+
+void turretDisableReferenceAttachments(ModelSceneNode &model) {
+    std::stack<std::reference_wrapper<const graphics::ModelNode>> pending;
+    if (auto root = model.model().rootNode()) {
+        pending.push(*root);
+    }
+    while (!pending.empty()) {
+        const auto &node = pending.top().get();
+        pending.pop();
+        if (node.isReference()) {
+            if (auto attachment = model.getAttachment(node.name())) {
+                attachment->setEnabled(false);
+            }
+        }
+        for (const auto &child : node.children()) {
+            pending.push(*child);
+        }
+    }
 }
 
 int turretHeadingState(float yawRadians) {
@@ -1067,6 +1087,10 @@ void Turret::updateEnemies(float dt) {
                 if (auto dying = enemy.modelNode->model().getAnimation("die")) {
                     enemy.deathDuration = dying->length();
                 }
+                // The engine glow is not part of the death presentation: it
+                // burns steadily for as long as its node lives, so a wreck that
+                // kept it would trail a lit flare through the whole animation.
+                turretDisableReferenceAttachments(*enemy.modelNode);
                 enemy.modelNode->playAnimation("die");
                 if (enemy.spec && !enemy.spec->sounds.death.empty()) {
                     playSound(enemy.spec->sounds.death);
