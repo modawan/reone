@@ -63,9 +63,9 @@ enum class ModulePrimaryOrigin {
 };
 
 /**
- * Archive families the policy models. "_adrx" is absent on purpose: it has
- * never been observed, is not a supported family, and must never be treated
- * as "_adx".
+ * Archive families the policy models. The set is closed and matched exactly:
+ * a name that is not one of these does not become a member of the family it
+ * most resembles, and nothing catch-all stands in for one.
  *
  * SavedResourceImage, SavedArchive and Nwm describe primary candidates rather
  * than sources the module branch mounts. For the saved pair, mountMetadata

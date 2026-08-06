@@ -519,8 +519,8 @@ TEST(ModulePolicy, attempt_order_is_deterministic_and_independent_of_inventory_o
 }
 
 TEST(ModulePolicy, never_synthesizes_a_family_the_inventory_did_not_offer) {
-    // There is no unsupported-adjunct family to synthesize, and a plan only
-    // ever contains families that were actually offered.
+    // Families are matched exactly, so a plan only ever contains the families
+    // the inventory actually offered.
     auto plan = planModuleLoad(request(GameID::TSL), {
         source("module.rim", ModuleArchiveFamily::PrimaryRim),
         source("module_adx.rim", ModuleArchiveFamily::AdxRim),
