@@ -1050,6 +1050,19 @@ void Creature::runSpawnScript() {
     }
 }
 
+void Creature::runBlockedScript(uint32_t blockingDoorId) {
+    if (_onBlocked.empty()) {
+        return;
+    }
+    // The obstructing door travels with the run as an argument, so every
+    // continuation and delayed action started from it goes on seeing the door
+    // this event was raised for, whatever the creature has run into since.
+    _game.scriptRunner().run(
+        _onBlocked,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::BlockingDoor, Variable::ofObject(blockingDoorId)}});
+}
+
 void Creature::runEndRoundScript() {
     if (!_onEndRound.empty()) {
         _game.scriptRunner().run(_onEndRound, _id);
@@ -2277,7 +2290,27 @@ void Creature::advanceOnPath(bool run, float dt) {
         } else {
             setMovementType(Creature::MovementType::None);
         }
+        // Report a door that obstructed this step. A door can stop the creature
+        // from making progress while the slide in moveCreature still produces
+        // some sideways motion, so this is keyed on the recorded obstruction
+        // rather than on whether the step moved the creature at all.
+        dispatchBlockedEvent();
     }
+}
+
+void Creature::dispatchBlockedEvent() {
+    if (_blockingDoorId == script::kObjectInvalid) {
+        // Nothing obstructed this step. Re-arm, so meeting the same door again
+        // later reports again.
+        _blockedEventDoorId = script::kObjectInvalid;
+        return;
+    }
+    if (_blockedEventDoorId == _blockingDoorId) {
+        // Still the same obstruction that was already reported.
+        return;
+    }
+    _blockedEventDoorId = _blockingDoorId;
+    runBlockedScript(_blockingDoorId);
 }
 
 void Creature::updatePath(const glm::vec3 &dest) {

@@ -23,6 +23,8 @@
 #include "../fixtures/engine.h"
 
 #include "reone/game/action/closedoor.h"
+#include "reone/game/action/movetopoint.h"
+#include "reone/game/action/opendoor.h"
 #include "reone/game/action/unlockobject.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/areatransition.h"
@@ -34,9 +36,11 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/item.h"
+#include "reone/game/object/module.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/reputes.h"
+#include "reone/game/room.h"
 #include "reone/game/script/routines.h"
 #include "reone/graphics/animation.h"
 #include "reone/graphics/model.h"
@@ -146,6 +150,11 @@ public:
 
 std::pair<std::string, std::string> reone::game::TestGameModule::scheduledTransition(const Game &game) {
     return {game._nextModule, game._nextEntry};
+}
+
+void reone::game::TestGameModule::setActiveModuleArea(Game &game, std::shared_ptr<Area> area) {
+    game._module = game.newModule();
+    game._module->_area = std::move(area);
 }
 
 namespace {
@@ -264,6 +273,24 @@ std::shared_ptr<Gff> makeJournalWithPlotXP() {
             Gff::Field::newList("Categories", {category})});
 }
 
+// Obstruction reported by the shared testWalk stub. Null by default, so walking
+// is unobstructed unless a test opts in through ScopedWalkObstruction.
+scene::IUser *&walkObstruction() {
+    static scene::IUser *obstruction = nullptr;
+    return obstruction;
+}
+
+class ScopedWalkObstruction {
+public:
+    explicit ScopedWalkObstruction(scene::IUser &obstruction) {
+        walkObstruction() = &obstruction;
+    }
+
+    ~ScopedWalkObstruction() {
+        walkObstruction() = nullptr;
+    }
+};
+
 scene::MockSceneGraph &testSceneGraph(TestEngine &engine) {
     static NiceMock<scene::MockSceneGraph> graph;
     // A real SceneGraph keeps every node it hands out alive in its own set, and
@@ -324,7 +351,20 @@ scene::MockSceneGraph &testSceneGraph(TestEngine &engine) {
                 return node;
             }));
         ON_CALL(graph, testWalk(_, _, _, _))
-            .WillByDefault(Return(false));
+            .WillByDefault(Invoke([](const glm::vec3 &origin,
+                                     const glm::vec3 &dest,
+                                     const scene::IUser *excludeUser,
+                                     scene::Collision &collision) {
+                auto *obstruction = walkObstruction();
+                if (!obstruction || obstruction == excludeUser) {
+                    return false;
+                }
+                collision.user = obstruction;
+                collision.intersection = dest;
+                collision.normal = glm::vec3(0.0f, -1.0f, 0.0f);
+                collision.material = 0;
+                return true;
+            }));
         ON_CALL(graph, testElevation(_, _))
             .WillByDefault(Invoke([](const glm::vec3 &position, scene::Collision &collision) {
                 collision.intersection = position;
@@ -387,7 +427,49 @@ std::shared_ptr<Door> makeTransitionDoor(
     return door;
 }
 
-std::shared_ptr<Creature> makeMovingCreature(Game &game, TestEngine &engine) {
+// Door without linked-module metadata, so it blocks and opens without also
+// generating a transition trigger.
+std::shared_ptr<Door> makePlainDoor(
+    Game &game,
+    TestEngine &engine,
+    bool locked = false,
+    std::string onOpen = "",
+    glm::vec3 position = glm::vec3(0.0f)) {
+
+    testSceneGraph(engine);
+    auto walkmesh = makeDoorWalkmesh();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("genericdoors"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeGenericDoorsTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_))
+        .Times(AnyNumber());
+    EXPECT_CALL(engine.resourceModule().walkmeshes(), get("testdoor0", ResType::Dwk))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(walkmesh));
+    EXPECT_CALL(engine.resourceModule().walkmeshes(), get("testdoor1", ResType::Dwk))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeDoorWalkmesh()));
+
+    auto gff = Gff::Builder()
+                   .field(Gff::Field::newByte("GenericType", 1))
+                   .field(Gff::Field::newByte("Static", 0))
+                   .field(Gff::Field::newByte("Locked", locked ? 1 : 0))
+                   .field(Gff::Field::newShort("HP", 20))
+                   .field(Gff::Field::newResRef("OnOpen", std::move(onOpen)))
+                   .field(Gff::Field::newFloat("X", position.x))
+                   .field(Gff::Field::newFloat("Y", position.y))
+                   .field(Gff::Field::newFloat("Z", position.z))
+                   .build();
+    auto door = game.newDoor();
+    door->deserialize(*gff);
+    return door;
+}
+
+std::shared_ptr<Creature> makeMovingCreature(
+    Game &game,
+    TestEngine &engine,
+    std::string onBlocked = "") {
+
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .Times(AnyNumber())
         .WillRepeatedly(Return(makeAppearanceTable()));
@@ -401,10 +483,19 @@ std::shared_ptr<Creature> makeMovingCreature(Game &game, TestEngine &engine) {
                    .field(Gff::Field::newWord("SoundSetFile", 0xffff))
                    .field(Gff::Field::newByte("BodyBag", 0xff))
                    .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                   .field(Gff::Field::newResRef("ScriptOnBlocked", std::move(onBlocked)))
                    .build();
     auto creature = game.newCreature();
     creature->deserialize(*gff);
     return creature;
+}
+
+// Navigation-driven step towards dest. Goes through Creature::advanceOnPath, so
+// it exercises the same path AI, scripts and actions take, unlike direct player
+// locomotion which calls Area::moveCreature.
+void navigationStep(Creature &creature, const glm::vec3 &dest, float dt = 1.0f) {
+    creature.setPath(dest, std::vector<glm::vec3> {dest}, 0);
+    creature.advanceOnPath(false, dt);
 }
 
 std::shared_ptr<Gff> makeTransitionTriggerGff(
@@ -2940,4 +3031,581 @@ TEST(AreaReputationSearch, treats_the_creature_being_searched_around_as_the_sour
         {CreatureType::Reputation, static_cast<int>(ReputationType::Enemy)}};
 
     EXPECT_EQ(candidate, area->getNearestCreature(searching, criterias));
+}
+
+namespace {
+
+// Script execution counts, keyed by resref. Static so the stub registered on the
+// shared scripts mock stays valid past the test that installed it.
+std::map<std::string, int> &scriptRunCounts() {
+    static std::map<std::string, int> counts;
+    return counts;
+}
+
+struct BlockedDoorFixtureBase {
+    TestEngine &engine;
+    StubConsole console;
+    Game game;
+    std::shared_ptr<Area> area;
+
+    BlockedDoorFixtureBase() :
+        engine(testEngine()),
+        game(GameID::KotOR, "", engine.options(), engine.services(), console) {
+
+        game.initLocalServices();
+        area = game.newArea();
+        TestGameModule::setActiveModuleArea(game, area);
+    }
+
+    std::shared_ptr<Creature> addCreature(std::string onBlocked) {
+        auto creature = makeMovingCreature(game, engine, std::move(onBlocked));
+        creature->setPosition(glm::vec3(0.0f));
+        area->add(creature);
+        return creature;
+    }
+
+    // Start counting executions of a script. The script itself resolves to
+    // nothing, which is enough to observe dispatch.
+    void countScriptRuns(const std::string &resRef) {
+        scriptRunCounts()[resRef] = 0;
+        EXPECT_CALL(engine.resourceModule().scripts(), get(resRef))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([](const std::string &key) {
+                ++scriptRunCounts()[key];
+                return std::shared_ptr<script::ScriptProgram>();
+            }));
+    }
+
+    int scriptRuns(const std::string &resRef) const {
+        return scriptRunCounts()[resRef];
+    }
+};
+
+// A door that swaps its collision the instant it is told to open: makePlainDoor
+// gives it no model, so there is no opening animation to wait on.
+struct BlockedDoorFixture : BlockedDoorFixtureBase {
+    std::shared_ptr<Door> door;
+
+    explicit BlockedDoorFixture(bool locked = false, std::string onOpen = "") {
+        door = makePlainDoor(game, engine, locked, std::move(onOpen));
+        area->add(door);
+    }
+};
+
+// A door that actually swings. makeLifecycleDoor gives it a real opening1
+// animation, so it spends several frames in the doorway on its way open, which
+// is the case the blocked event has to sit through without repeating.
+struct SwingingDoorFixture : BlockedDoorFixtureBase {
+    std::shared_ptr<Door> door;
+
+    SwingingDoorFixture() {
+        door = makeLifecycleDoor(game, engine, /*openState=*/0);
+        area->add(door);
+    }
+
+    // Keep the walk obstruction in step with what the door's own collision is
+    // doing, so navigation meets exactly the doorway the door presents.
+    void syncObstruction() {
+        if (doorwayBlocks(*door)) {
+            if (!_obstruction) {
+                _obstruction.emplace(*door);
+            }
+        } else {
+            _obstruction.reset();
+        }
+    }
+
+private:
+    std::optional<ScopedWalkObstruction> _obstruction;
+};
+
+const glm::vec3 kFarDestination {0.0f, 10.0f, 0.0f};
+
+} // namespace
+
+TEST(CreatureBlockedByDoor, should_record_the_door_that_obstructs_navigation) {
+    BlockedDoorFixture fixture;
+    auto npc = fixture.addCreature("k_def_blocked01");
+    fixture.countScriptRuns("k_def_blocked01");
+
+    EXPECT_EQ(script::kObjectInvalid, npc->blockingDoorId());
+
+    ScopedWalkObstruction obstruction(*fixture.door);
+    navigationStep(*npc, kFarDestination);
+
+    EXPECT_EQ(fixture.door->id(), npc->blockingDoorId());
+    EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
+}
+
+TEST(CreatureBlockedByDoor, should_dispatch_authored_blocked_script_once_per_continuous_obstruction) {
+    BlockedDoorFixture fixture;
+    auto npc = fixture.addCreature("k_def_blocked01");
+
+    fixture.countScriptRuns("k_def_blocked01");
+
+    ScopedWalkObstruction obstruction(*fixture.door);
+    for (int i = 0; i < 10; ++i) {
+        navigationStep(*npc, kFarDestination);
+    }
+
+    // Ten obstructed steps against the same door, one dispatch.
+    EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
+}
+
+TEST(CreatureBlockedByDoor, should_rearm_blocked_script_after_unobstructed_movement) {
+    BlockedDoorFixture fixture;
+    auto npc = fixture.addCreature("k_def_blocked01");
+    fixture.countScriptRuns("k_def_blocked01");
+
+    {
+        ScopedWalkObstruction obstruction(*fixture.door);
+        navigationStep(*npc, kFarDestination);
+        navigationStep(*npc, kFarDestination);
+    }
+    EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
+
+    // An unobstructed step re-arms.
+    navigationStep(*npc, kFarDestination);
+    EXPECT_EQ(script::kObjectInvalid, npc->blockingDoorId());
+
+    ScopedWalkObstruction obstruction(*fixture.door);
+    navigationStep(*npc, kFarDestination);
+    EXPECT_EQ(fixture.door->id(), npc->blockingDoorId());
+    EXPECT_EQ(2, fixture.scriptRuns("k_def_blocked01"));
+}
+
+// A door keeps filling the doorway for the whole of its opening animation, so a
+// creature walking into one it has already reported keeps meeting the same
+// blocker for several frames. That is one obstruction, not one per frame.
+TEST(CreatureBlockedByDoor, should_not_repeat_while_the_door_it_reported_is_opening) {
+    SwingingDoorFixture fixture;
+    auto npc = fixture.addCreature("k_def_blocked01");
+    fixture.countScriptRuns("k_def_blocked01");
+
+    fixture.syncObstruction();
+    ASSERT_TRUE(doorwayBlocks(*fixture.door));
+
+    navigationStep(*npc, kFarDestination);
+    EXPECT_EQ(fixture.door->id(), npc->blockingDoorId());
+    EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
+
+    // What the authored AI does in response to that one report.
+    fixture.door->open();
+    ASSERT_TRUE(fixture.door->isOpening());
+    ASSERT_TRUE(doorwayBlocks(*fixture.door));
+
+    // Frames inside the one-second opening animation. The door is on its way
+    // but has not arrived, so it is still standing in the doorway.
+    for (int frame = 0; frame < 3; ++frame) {
+        stepDoor(*fixture.door, 0.4f);
+        fixture.syncObstruction();
+        ASSERT_TRUE(doorwayBlocks(*fixture.door)) << "frame " << frame;
+        navigationStep(*npc, kFarDestination);
+        EXPECT_TRUE(fixture.door->isOpening()) << "frame " << frame;
+        EXPECT_EQ(fixture.door->id(), npc->blockingDoorId()) << "frame " << frame;
+    }
+    EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
+
+    // The transition arrives and the doorway opens up.
+    stepDoor(*fixture.door, 0.4f);
+    fixture.syncObstruction();
+    ASSERT_FALSE(fixture.door->isOpening());
+    ASSERT_FALSE(doorwayBlocks(*fixture.door));
+    ASSERT_TRUE(fixture.door->isOpen());
+
+    // The movement that was blocked all along now makes progress, and the
+    // blocked state clears so this door can report again another time.
+    float before = npc->position().y;
+    navigationStep(*npc, kFarDestination);
+    EXPECT_GT(npc->position().y, before);
+    EXPECT_EQ(script::kObjectInvalid, npc->blockingDoorId());
+    EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
+}
+
+// A different door taking over the doorway is a new obstruction, and reports in
+// its own right even though the creature never got an unobstructed step.
+TEST(CreatureBlockedByDoor, should_report_another_door_that_takes_over_the_obstruction) {
+    BlockedDoorFixture fixture;
+    auto other = makePlainDoor(fixture.game, fixture.engine, false, "", glm::vec3(0.0f, 2.0f, 0.0f));
+    fixture.area->add(other);
+    auto npc = fixture.addCreature("k_def_blocked01");
+    fixture.countScriptRuns("k_def_blocked01");
+
+    {
+        ScopedWalkObstruction obstruction(*fixture.door);
+        navigationStep(*npc, kFarDestination);
+    }
+    EXPECT_EQ(fixture.door->id(), npc->blockingDoorId());
+    EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
+
+    {
+        ScopedWalkObstruction obstruction(*other);
+        navigationStep(*npc, kFarDestination);
+    }
+    EXPECT_EQ(other->id(), npc->blockingDoorId());
+    EXPECT_EQ(2, fixture.scriptRuns("k_def_blocked01"));
+}
+
+TEST(CreatureBlockedByDoor, should_run_the_script_authored_on_each_creature) {
+    BlockedDoorFixture fixture;
+    auto npc = fixture.addCreature("k_def_blocked01");
+    auto companion = fixture.addCreature("k_hen_blocked01");
+    fixture.game.party().addMember(0, companion);
+
+    // Each creature runs what its own template names. The engine picks neither
+    // the script nor the 1009/2009 event number those scripts pass on.
+    fixture.countScriptRuns("k_def_blocked01");
+    fixture.countScriptRuns("k_hen_blocked01");
+
+    ScopedWalkObstruction obstruction(*fixture.door);
+    navigationStep(*npc, kFarDestination);
+    navigationStep(*companion, kFarDestination);
+
+    EXPECT_EQ(1, fixture.scriptRuns("k_def_blocked01"));
+    EXPECT_EQ(1, fixture.scriptRuns("k_hen_blocked01"));
+}
+
+TEST(CreatureBlockedByDoor, should_not_dispatch_for_directly_controlled_player_locomotion) {
+    BlockedDoorFixture fixture;
+    auto leader = fixture.addCreature("k_hen_blocked01");
+    fixture.game.party().addMember(kNpcPlayer, leader);
+    fixture.game.party().setPlayer(leader);
+
+    // Player::update drives the leader through Area::moveCreature directly and
+    // never through navigation, so no blocked event is raised.
+    fixture.countScriptRuns("k_hen_blocked01");
+
+    ScopedWalkObstruction obstruction(*fixture.door);
+    EXPECT_FALSE(fixture.area->moveCreature(leader, glm::vec2(0.0f, 1.0f), false, 1.0f));
+
+    EXPECT_EQ(0, fixture.scriptRuns("k_hen_blocked01"));
+
+    // The collision layer still records what obstructed the leader.
+    EXPECT_EQ(fixture.door->id(), leader->blockingDoorId());
+}
+
+TEST(CreatureBlockedByDoor, should_ignore_obstructions_that_are_not_doors) {
+    BlockedDoorFixture fixture;
+    auto npc = fixture.addCreature("k_def_blocked01");
+    fixture.countScriptRuns("k_def_blocked01");
+
+    Room room("testroom", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    ScopedWalkObstruction obstruction(room);
+    navigationStep(*npc, kFarDestination);
+
+    EXPECT_EQ(script::kObjectInvalid, npc->blockingDoorId());
+    EXPECT_EQ(0, fixture.scriptRuns("k_def_blocked01"));
+}
+
+// Invoke GetBlockingDoor with the arguments a blocked-event run would carry.
+uint32_t callGetBlockingDoor(Routines &routines, const script::ExecutionContext &execution) {
+    script::ExecutionContext copy(execution);
+    return routines.get(336).invoke({}, copy).objectId;
+}
+
+script::ExecutionContext blockedEventContext(uint32_t callerId, uint32_t blockingDoorId) {
+    script::ExecutionContext execution;
+    execution.args.emplace_back(script::ArgKind::Caller, script::Variable::ofObject(callerId));
+    execution.args.emplace_back(script::ArgKind::BlockingDoor, script::Variable::ofObject(blockingDoorId));
+    return execution;
+}
+
+TEST(BlockingDoorRoutines, get_blocking_door_reports_the_door_captured_by_the_event) {
+    BlockedDoorFixture fixture;
+    auto npc = fixture.addCreature("k_def_blocked01");
+    Routines routines(GameID::KotOR, &fixture.game, &fixture.engine.services());
+    routines.init();
+
+    auto execution = blockedEventContext(npc->id(), fixture.door->id());
+
+    EXPECT_EQ(fixture.door->id(), callGetBlockingDoor(routines, execution));
+}
+
+TEST(BlockingDoorRoutines, get_blocking_door_reports_invalid_without_a_captured_door) {
+    BlockedDoorFixture fixture;
+    auto npc = fixture.addCreature("k_def_blocked01");
+    Routines routines(GameID::KotOR, &fixture.game, &fixture.engine.services());
+    routines.init();
+
+    // A run that is not a blocked event carries no such argument, whoever the
+    // caller is.
+    script::ExecutionContext execution;
+    execution.args.emplace_back(script::ArgKind::Caller, script::Variable::ofObject(npc->id()));
+
+    EXPECT_EQ(script::kObjectInvalid, callGetBlockingDoor(routines, execution));
+}
+
+TEST(BlockingDoorRoutines, get_blocking_door_keeps_the_captured_door_when_the_obstruction_moves_on) {
+    BlockedDoorFixture fixture;
+    auto npc = fixture.addCreature("k_def_blocked01");
+    fixture.countScriptRuns("k_def_blocked01");
+    auto other = makePlainDoor(fixture.game, fixture.engine);
+    fixture.area->add(other);
+    Routines routines(GameID::KotOR, &fixture.game, &fixture.engine.services());
+    routines.init();
+
+    // Blocked by the first door, and a continuation of that run holds it.
+    {
+        ScopedWalkObstruction obstruction(*fixture.door);
+        navigationStep(*npc, kFarDestination);
+    }
+    ASSERT_EQ(fixture.door->id(), npc->blockingDoorId());
+    auto execution = blockedEventContext(npc->id(), fixture.door->id());
+
+    // The creature then runs into a different door entirely.
+    {
+        ScopedWalkObstruction obstruction(*other);
+        navigationStep(*npc, kFarDestination);
+    }
+    ASSERT_EQ(other->id(), npc->blockingDoorId());
+
+    // The continuation still speaks for the event it came from.
+    EXPECT_EQ(fixture.door->id(), callGetBlockingDoor(routines, execution));
+}
+
+TEST(BlockingDoorRoutines, a_captured_door_that_is_destroyed_is_reported_but_not_valid) {
+    BlockedDoorFixture fixture;
+    auto npc = fixture.addCreature("k_def_blocked01");
+    Routines routines(GameID::KotOR, &fixture.game, &fixture.engine.services());
+    routines.init();
+
+    auto execution = blockedEventContext(npc->id(), fixture.door->id());
+    TestGameModule::removeObject(fixture.game, fixture.door->id());
+
+    // GetBlockingDoor keeps no validity policy of its own: the captured id comes
+    // back, and it is GetIsObjectValid that reports the object has gone.
+    EXPECT_EQ(fixture.door->id(), callGetBlockingDoor(routines, execution));
+
+    script::ExecutionContext validityCtx(execution);
+    std::vector<script::Variable> validityArgs {script::Variable::ofObject(fixture.door->id())};
+    EXPECT_EQ(0, routines.get(42).invoke(validityArgs, validityCtx).intValue);
+}
+
+TEST(BlockingDoorRoutines, the_authored_blocked_script_can_act_on_the_door_that_blocked_it) {
+    BlockedDoorFixture fixture;
+    auto npc = fixture.addCreature("k_def_blocked01");
+    ASSERT_FALSE(fixture.door->isLocked());
+
+    // An OnBlocked script that locks whatever door GetBlockingDoor hands it.
+    // SetLocked takes the object on top of the flag, matching how the shipped
+    // scripts push it.
+    auto program = std::make_shared<script::ScriptProgram>("k_def_blocked01");
+    program->add(script::Instruction::newCONSTI(1));
+    program->add(script::Instruction::newACTION(336, 0));
+    program->add(script::Instruction::newACTION(324, 2));
+    program->add(script::Instruction(script::InstructionType::RETN));
+    EXPECT_CALL(fixture.engine.resourceModule().scripts(), get("k_def_blocked01"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(program));
+
+    {
+        ScopedWalkObstruction obstruction(*fixture.door);
+        navigationStep(*npc, kFarDestination);
+    }
+
+    // The door reached the script, so the argument survived dispatch.
+    EXPECT_TRUE(fixture.door->isLocked());
+}
+
+TEST(BlockingDoorRoutines, unlocked_door_is_openable_and_door_action_open_opens_it) {
+    BlockedDoorFixture fixture(false, "door_on_open");
+    auto npc = fixture.addCreature("k_def_blocked01");
+    fixture.countScriptRuns("door_on_open");
+    Routines routines(GameID::KotOR, &fixture.game, &fixture.engine.services());
+    routines.init();
+    script::ExecutionContext execution;
+    execution.args.emplace_back(script::ArgKind::Caller, script::Variable::ofObject(npc->id()));
+
+    auto possible = routines.get(337).invoke(
+        {script::Variable::ofObject(fixture.door->id()),
+         script::Variable::ofInt(static_cast<int>(DoorAction::Open))},
+        execution);
+    EXPECT_EQ(1, possible.intValue);
+
+    ASSERT_FALSE(fixture.door->isOpen());
+
+    routines.get(338).invoke(
+        {script::Variable::ofObject(fixture.door->id()),
+         script::Variable::ofInt(static_cast<int>(DoorAction::Open))},
+        execution);
+
+    // Opened, and the OnOpen event fired, exactly as for any other open.
+    EXPECT_TRUE(fixture.door->isOpen());
+    EXPECT_EQ(1, fixture.scriptRuns("door_on_open"));
+}
+
+TEST(BlockingDoorRoutines, door_action_open_leaves_the_same_state_as_open_door_action) {
+    BlockedDoorFixture routineFixture;
+    auto routineNpc = routineFixture.addCreature("k_def_blocked01");
+    Routines routines(GameID::KotOR, &routineFixture.game, &routineFixture.engine.services());
+    routines.init();
+    script::ExecutionContext execution;
+    execution.args.emplace_back(script::ArgKind::Caller, script::Variable::ofObject(routineNpc->id()));
+
+    routines.get(338).invoke(
+        {script::Variable::ofObject(routineFixture.door->id()),
+         script::Variable::ofInt(static_cast<int>(DoorAction::Open))},
+        execution);
+
+    BlockedDoorFixture actionFixture;
+    auto actionNpc = actionFixture.addCreature("k_def_blocked01");
+    actionNpc->setPosition(actionFixture.door->position());
+    auto action = actionFixture.game.newAction<OpenDoorAction>(actionFixture.door);
+    action->execute(action, *actionNpc, 0.0f);
+
+    // The routine and the action leave a door in the same state, because both
+    // go through Door::open.
+    EXPECT_EQ(actionFixture.door->isOpen(), routineFixture.door->isOpen());
+    EXPECT_EQ(actionFixture.door->isLocked(), routineFixture.door->isLocked());
+    EXPECT_EQ(actionFixture.door->isSelectable(), routineFixture.door->isSelectable());
+    EXPECT_TRUE(routineFixture.door->isOpen());
+}
+
+TEST(BlockingDoorRoutines, locked_door_is_not_openable_and_door_action_open_leaves_it_shut) {
+    BlockedDoorFixture fixture(true);
+    auto npc = fixture.addCreature("k_def_blocked01");
+    Routines routines(GameID::KotOR, &fixture.game, &fixture.engine.services());
+    routines.init();
+    script::ExecutionContext execution;
+    execution.args.emplace_back(script::ArgKind::Caller, script::Variable::ofObject(npc->id()));
+
+    auto possible = routines.get(337).invoke(
+        {script::Variable::ofObject(fixture.door->id()),
+         script::Variable::ofInt(static_cast<int>(DoorAction::Open))},
+        execution);
+    EXPECT_EQ(0, possible.intValue);
+
+    routines.get(338).invoke(
+        {script::Variable::ofObject(fixture.door->id()),
+         script::Variable::ofInt(static_cast<int>(DoorAction::Open))},
+        execution);
+
+    EXPECT_FALSE(fixture.door->isOpen());
+    EXPECT_TRUE(fixture.door->isLocked());
+}
+
+TEST(BlockingDoorRoutines, bash_follows_shared_eligibility_and_keeps_the_blocked_action) {
+    BlockedDoorFixture fixture(true);
+    auto npc = fixture.addCreature("k_def_blocked01");
+    fixture.door->setCurrentHitPoints(20);
+    auto &reputes = static_cast<MockReputes &>(fixture.engine.services().game.reputes);
+    Routines routines(GameID::KotOR, &fixture.game, &fixture.engine.services());
+    routines.init();
+    script::ExecutionContext execution;
+    execution.args.emplace_back(script::ArgKind::Caller, script::Variable::ofObject(npc->id()));
+
+    auto bashPossible = [&]() {
+        return routines.get(337)
+            .invoke(
+                {script::Variable::ofObject(fixture.door->id()),
+                 script::Variable::ofInt(static_cast<int>(DoorAction::Bash))},
+                execution)
+            .intValue;
+    };
+
+    // Not an enemy of the door: the same answer the player context action gives.
+    EXPECT_CALL(reputes, getIsEnemy(A<Faction>(), A<Faction>()))
+        .WillRepeatedly(Return(false));
+    EXPECT_EQ(0, bashPossible());
+
+    Mock::VerifyAndClearExpectations(&reputes);
+    EXPECT_CALL(reputes, getIsEnemy(A<Faction>(), A<Faction>()))
+        .WillRepeatedly(Return(true));
+    EXPECT_EQ(1, bashPossible());
+
+    // A plot door is never bashable, so the AI cannot get through it at all.
+    fixture.door->setPlotFlag(true);
+    EXPECT_EQ(0, bashPossible());
+    fixture.door->setPlotFlag(false);
+
+    // The movement the creature was blocked on stays queued behind the bash.
+    auto movement = fixture.game.newAction<MoveToPointAction>(kFarDestination);
+    npc->addAction(movement);
+
+    routines.get(338).invoke(
+        {script::Variable::ofObject(fixture.door->id()),
+         script::Variable::ofInt(static_cast<int>(DoorAction::Bash))},
+        execution);
+
+    ASSERT_EQ(2, npc->actions().size());
+    EXPECT_EQ(ActionType::AttackObject, npc->actions().front()->type());
+    EXPECT_EQ(movement, npc->actions().back());
+}
+
+TEST(BlockingDoorRoutines, unsupported_door_actions_are_impossible_and_do_nothing) {
+    BlockedDoorFixture fixture(true);
+    auto npc = fixture.addCreature("k_def_blocked01");
+    Routines routines(GameID::KotOR, &fixture.game, &fixture.engine.services());
+    routines.init();
+    script::ExecutionContext execution;
+    execution.args.emplace_back(script::ArgKind::Caller, script::Variable::ofObject(npc->id()));
+
+    for (auto action : {DoorAction::Unlock, DoorAction::Ignore, DoorAction::Knock}) {
+        auto possible = routines.get(337).invoke(
+            {script::Variable::ofObject(fixture.door->id()),
+             script::Variable::ofInt(static_cast<int>(action))},
+            execution);
+        EXPECT_EQ(0, possible.intValue);
+
+        routines.get(338).invoke(
+            {script::Variable::ofObject(fixture.door->id()),
+             script::Variable::ofInt(static_cast<int>(action))},
+            execution);
+    }
+
+    EXPECT_FALSE(fixture.door->isOpen());
+    EXPECT_TRUE(fixture.door->isLocked());
+    EXPECT_TRUE(npc->actions().empty());
+}
+
+TEST(BlockingDoorRoutines, are_registered_for_both_kotor_and_tsl) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    Routines k1Routines(GameID::KotOR, &game, &engine.services());
+    Routines k2Routines(GameID::TSL, &game, &engine.services());
+    k1Routines.init();
+    k2Routines.init();
+
+    for (auto *routines : {&k1Routines, &k2Routines}) {
+        EXPECT_EQ("GetBlockingDoor", routines->get(336).name());
+        EXPECT_EQ("GetIsDoorActionPossible", routines->get(337).name());
+        EXPECT_EQ("DoDoorAction", routines->get(338).name());
+        EXPECT_EQ(336, routines->getIndexByName("GetBlockingDoor"));
+        EXPECT_EQ(337, routines->getIndexByName("GetIsDoorActionPossible"));
+        EXPECT_EQ(338, routines->getIndexByName("DoDoorAction"));
+    }
+}
+
+TEST(OpenDoorAction, still_opens_an_unlocked_door_and_fires_on_open) {
+    BlockedDoorFixture fixture(false, "door_on_open");
+    auto npc = fixture.addCreature("k_def_blocked01");
+    fixture.countScriptRuns("door_on_open");
+    npc->setPosition(fixture.door->position());
+
+    auto action = fixture.game.newAction<OpenDoorAction>(fixture.door);
+    action->execute(action, *npc, 0.0f);
+
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_TRUE(fixture.door->isOpen());
+    EXPECT_EQ(1, fixture.scriptRuns("door_on_open"));
+}
+
+TEST(OpenDoorAction, still_refuses_a_locked_door_and_fires_on_fail_to_open) {
+    BlockedDoorFixture fixture(true);
+    auto npc = fixture.addCreature("k_def_blocked01");
+    auto gff = Gff::Builder()
+                   .field(Gff::Field::newResRef("OnFailToOpen", "door_on_fail"))
+                   .build();
+    fixture.door->deserialize(*gff);
+    fixture.countScriptRuns("door_on_fail");
+    npc->setPosition(fixture.door->position());
+
+    auto action = fixture.game.newAction<OpenDoorAction>(fixture.door);
+    action->execute(action, *npc, 0.0f);
+
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_FALSE(fixture.door->isOpen());
+    EXPECT_TRUE(fixture.door->isLocked());
+    EXPECT_EQ(1, fixture.scriptRuns("door_on_fail"));
 }

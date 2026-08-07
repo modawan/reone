@@ -91,6 +91,8 @@ public:
     Player &player() { return *_player; }
 
 private:
+    friend class TestGameModule;
+
     std::string _name;
     ModuleInfo _info;
     std::shared_ptr<Area> _area;

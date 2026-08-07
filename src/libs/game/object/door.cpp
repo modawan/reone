@@ -37,6 +37,8 @@
 
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/reputes.h"
 
 using namespace reone::graphics;
 using namespace reone::resource;
@@ -434,6 +436,16 @@ void Door::runDeathScript(uint32_t damagerId) {
 
 void Door::setLocked(bool locked) {
     _locked = locked;
+}
+
+bool canBashDoor(const Door &door, const Creature &actor, const IReputes &reputes) {
+    return door.isLocked() &&
+           door.isSelectable() &&
+           !door.isDead() &&
+           !door.plotFlag() &&
+           !door.isNotBlastable() &&
+           reputes.getIsEnemy(actor.faction(), door.faction()) &&
+           (door.hitPoints() > 0 || door.currentHitPoints() > 0);
 }
 
 void Door::updateTransform() {

@@ -26,6 +26,7 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/location.h"
+#include "reone/game/object/door.h"
 #include "reone/game/party.h"
 #include "reone/game/reputes.h"
 #include "reone/game/room.h"
@@ -900,7 +901,21 @@ bool Area::moveCreature(const std::shared_ptr<Creature> &creature, const glm::ve
     dest.x += dir.x * speedDt;
     dest.y += dir.y * speedDt;
 
-    if (sceneGraph.testWalk(origin, dest, creature.get(), collision)) {
+    bool obstructed = sceneGraph.testWalk(origin, dest, creature.get(), collision);
+
+    // Remember a door that obstructs the intended direction of travel, so that
+    // navigation can raise the blocked event and GetBlockingDoor can report it.
+    // This is taken from the test against the intended direction: the slide
+    // below may still salvage some sideways motion, but the door did block
+    // where the creature wanted to go.
+    auto *blockingDoor = obstructed ? dynamic_cast<Door *>(collision.user) : nullptr;
+    if (blockingDoor) {
+        creature->setBlockingDoor(blockingDoor->id());
+    } else {
+        creature->clearBlockingDoor();
+    }
+
+    if (obstructed) {
         // Try moving along the surface
         glm::vec2 right(glm::normalize(glm::vec2(glm::cross(up, collision.normal))));
         glm::vec2 newDir(glm::normalize(right * glm::dot(dir, right)));
