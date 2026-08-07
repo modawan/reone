@@ -5006,7 +5006,15 @@ static Variable GetLastHostileActor(const std::vector<Variable> &args, const Rou
     auto oVictim = getObjectOrCaller(args, 0, ctx);
 
     // Execute
-    return Variable::ofObject(oVictim->getLastHostileActor());
+    uint32_t actorId = oVictim->getLastHostileActor();
+    if (actorId != script::kObjectInvalid) {
+        auto actor = ctx.game.getObjectById<Creature>(actorId);
+        if (!actor || actor->isDead() || actor->isTemporarilyDead()) {
+            actorId = script::kObjectInvalid;
+            oVictim->setLastHostileActor(actorId);
+        }
+    }
+    return Variable::ofObject(actorId);
 }
 
 static Variable ExportAllCharacters(const std::vector<Variable> &args, const RoutineContext &ctx) {

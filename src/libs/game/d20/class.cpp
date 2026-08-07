@@ -199,8 +199,11 @@ int CreatureClass::getAttackBonus(int level) const {
 }
 
 int CreatureClass::getDefenseBonus(int level) const {
-    if (level < 0 || level >= static_cast<int>(_defenseBonuses.size())) {
-        throw std::out_of_range(str(boost::format("Level out of range: %d/%d") % level % static_cast<int>(_defenseBonuses.size())));
+    assert(level >= 0);
+    assert(!_defenseBonuses.empty());
+
+    if (level >= static_cast<int>(_defenseBonuses.size())) {
+        return _defenseBonuses.back();
     }
     return _defenseBonuses[level];
 }

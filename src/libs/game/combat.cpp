@@ -40,12 +40,8 @@ static constexpr float kDeactivateDelay = 8.0f;
 static constexpr float kMaxAttackRange = 20.0f;
 static constexpr float kAttackTargetSearchPadding = 2.0f;
 
-static bool isTemporarilyDead(const Creature &creature, const Party &party) {
-    return party.isMember(creature) && creature.currentHitPoints() <= 0;
-}
-
-static bool isUnavailableAttackTarget(const Creature &creature, const Party &party) {
-    return creature.isDead() || isTemporarilyDead(creature, party);
+static bool isUnavailableAttackTarget(const Creature &creature) {
+    return creature.isDead() || creature.isTemporarilyDead();
 }
 
 bool CombatRound::canExecute(Action &action) const {
@@ -107,8 +103,7 @@ static std::shared_ptr<Creature> findNearestEnemy(
     const Creature &attacker,
     const Creature &observer,
     float maxDistance,
-    const IReputes &reputes,
-    const Party &party) {
+    const IReputes &reputes) {
 
     std::shared_ptr<Creature> nearest;
     float nearestDistance = maxDistance;
@@ -117,7 +112,7 @@ static std::shared_ptr<Creature> findNearestEnemy(
         auto candidate = std::static_pointer_cast<Creature>(object);
         if (candidate->id() == attacker.id() ||
             candidate->id() == observer.id() ||
-            isUnavailableAttackTarget(*candidate, party)) {
+            isUnavailableAttackTarget(*candidate)) {
             continue;
         }
 
@@ -329,7 +324,7 @@ void Combat::finishRound(CombatRound &round) {
         }
     }
 
-    if (!leader || isUnavailableAttackTarget(*leader, _game.party())) {
+    if (!leader || isUnavailableAttackTarget(*leader)) {
         return;
     }
 
@@ -343,11 +338,9 @@ void Combat::finishRound(CombatRound &round) {
         }
 
         std::shared_ptr<Object> target = _game.getObjectById(action.target);
-        auto targetCreature = dyn_cast<Creature>(target);
+        auto targetCreature = target ? dyn_cast<Creature>(target) : nullptr;
         bool targetUnavailable = !target || target->isDead() ||
-                                 (targetCreature && isTemporarilyDead(
-                                      *targetCreature,
-                                      _game.party()));
+                                 (targetCreature && targetCreature->isTemporarilyDead());
         if (!targetUnavailable) {
             if (leader->getCurrentAction() != action.action) {
                 continue;
@@ -371,14 +364,13 @@ void Combat::finishRound(CombatRound &round) {
         std::shared_ptr<Area> area = module ? module->area() : nullptr;
         if (area) {
             float searchRange = getAttackTargetSearchRange(*leader);
-            if (auto previousTarget = dyn_cast<Creature>(target)) {
+            if (targetCreature) {
                 enemy = findNearestEnemy(
                     *area,
                     *leader,
-                    *previousTarget,
+                    *targetCreature,
                     searchRange,
-                    _services.game.reputes,
-                    _game.party());
+                    _services.game.reputes);
             }
             if (!enemy) {
                 enemy = findNearestEnemy(
@@ -386,8 +378,7 @@ void Combat::finishRound(CombatRound &round) {
                     *leader,
                     *leader,
                     searchRange,
-                    _services.game.reputes,
-                    _game.party());
+                    _services.game.reputes);
             }
         }
 

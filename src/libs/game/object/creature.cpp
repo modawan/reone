@@ -635,6 +635,10 @@ bool Creature::isDebilitated() const {
     return _combatState.debilitated || hasEffect(EffectType::Stunned);
 }
 
+bool Creature::isTemporarilyDead() const {
+    return _game.party().isMember(*this) && currentHitPoints() <= 0;
+}
+
 bool Creature::canExecuteActions() const {
     return !hasEffect(EffectType::Stunned);
 }
@@ -759,7 +763,16 @@ void Creature::updateCombat(float dt) {
     _combatState.deactivationTimer.update(dt);
     if (_combatState.shouldDeactivate && _combatState.deactivationTimer.elapsed()) {
         _combatState.active = false;
+        _combatState.shouldDeactivate = false;
         _combatState.debilitated = false;
+        _combatState.attackTarget.reset();
+        _combatState.attemptedAttackTarget = script::kObjectInvalid;
+        _combatState.attackAction = ActionType::QueueEmpty;
+        _combatState.combatFeat = FeatType::Invalid;
+        _lastHostileTarget = script::kObjectInvalid;
+        _lastAttackAction = ActionType::QueueEmpty;
+        _lastCombatFeat = FeatType::Invalid;
+        setLastHostileActor(script::kObjectInvalid);
     }
 }
 
@@ -1281,10 +1294,28 @@ AttackBonusBreakdown Creature::getAttackBonusBreakdown(
 
     if (weapon && weapon->isRanged()) {
         result.dexterityModifier = dexterityModifier;
-    } else if (weapon && dexterityModifier > strengthModifier && weapon->isLightsaber()) {
-        // KOTOR 1 treats lightsabers as finesse weapons. KOTOR 2's feat-gated
-        // extension is deferred with the rest of the TSL-specific combat rules.
-        result.dexterityModifier = dexterityModifier;
+    } else if (weapon && dexterityModifier > strengthModifier) {
+        bool finesse = !_game.isTSL() && weapon->isLightsaber();
+        if (weapon->isLightsaber() &&
+            _attributes.hasFeat(FeatType::FinesseLightsabers)) {
+            finesse = true;
+        }
+        switch (weapon->weaponWield()) {
+        case WeaponWield::StunBaton:
+        case WeaponWield::SingleSword:
+        case WeaponWield::DoubleBladedSword:
+            finesse = finesse ||
+                       _attributes.hasFeat(FeatType::FinesseMeleeWeapons);
+            break;
+        default:
+            break;
+        }
+
+        if (finesse) {
+            result.dexterityModifier = dexterityModifier;
+        } else {
+            result.strengthModifier = strengthModifier;
+        }
     } else {
         result.strengthModifier = strengthModifier;
     }

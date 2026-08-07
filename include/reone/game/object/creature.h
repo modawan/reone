@@ -227,6 +227,7 @@ public:
 
     bool isInCombat() const { return _combatState.active; }
     bool isDebilitated() const;
+    bool isTemporarilyDead() const;
     bool isTwoWeaponFighting() const;
     std::shared_ptr<Item> getOffhandAttackWeapon() const;
 

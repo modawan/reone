@@ -47,6 +47,20 @@ static const glm::vec3 kDamageColor(0.74f, 0.11f, 0.0f);
 static const glm::vec3 kHealColor(0.28f, 0.92f, 0.11f);
 static const glm::vec3 kMissColor(1.0f);
 
+static glm::vec2 projectToScreen(
+    const glm::vec3 &position,
+    const glm::mat4 &view,
+    const glm::mat4 &projection,
+    int width,
+    int height) {
+
+    static const glm::vec4 viewport(0.0f, 0.0f, 1.0f, 1.0f);
+    glm::vec3 screen = glm::project(position, view, projection, viewport);
+    return glm::vec2(
+        width * screen.x,
+        height * (1.0f - screen.y));
+}
+
 void FloatingText::addDamage(
     const Object &object, int amount, int adjustedAmount, uint32_t damager) {
 
@@ -102,7 +116,37 @@ void FloatingText::add(const Object &object, std::string text, Style style) {
         }),
         _entries.end());
 
-    _entries.push_back({object.id(), std::move(text), style, kFloatingTextDuration, 1});
+    std::optional<glm::vec2> anchorOffset;
+    auto model = object.sceneNode();
+    auto camera = _game.getActiveCamera();
+    auto cameraNode = camera ? camera->cameraSceneNode() : nullptr;
+    auto graphicsCamera = cameraNode ? cameraNode->camera() : nullptr;
+    if (model && graphicsCamera) {
+        const auto &options = _game.options().graphics;
+        const glm::mat4 &projection = graphicsCamera->projection();
+        const glm::mat4 &view = graphicsCamera->view();
+        glm::vec2 originScreen = projectToScreen(
+            model->origin(),
+            view,
+            projection,
+            options.width,
+            options.height);
+        glm::vec2 reticleScreen = projectToScreen(
+            object.getSelectablePosition(),
+            view,
+            projection,
+            options.width,
+            options.height);
+        anchorOffset = reticleScreen - originScreen;
+    }
+
+    _entries.push_back({
+        object.id(),
+        std::move(text),
+        style,
+        kFloatingTextDuration,
+        1,
+        std::move(anchorOffset)});
 }
 
 void FloatingText::update(float dt) {
@@ -177,11 +221,6 @@ void FloatingText::render() {
                                 BlendMode::Normal,
                                 [this, &projection, &view, cameraForward, cameraPosition,
                                  &options, lineHeight]() {
-                                    static const glm::vec4 viewport(
-                                        0.0f,
-                                        0.0f,
-                                        1.0f,
-                                        1.0f);
                                     for (auto it = _entries.rbegin();
                                          it != _entries.rend();
                                          ++it) {
@@ -202,11 +241,16 @@ void FloatingText::render() {
                                             continue;
                                         }
 
-                                        glm::vec3 screen = glm::project(
+                                        if (!entry.anchorOffset) {
+                                            continue;
+                                        }
+
+                                        glm::vec2 screen = projectToScreen(
                                             position,
                                             view,
                                             projection,
-                                            viewport);
+                                            options.width,
+                                            options.height);
 
                                         glm::vec3 color;
                                         switch (entry.style) {
@@ -221,8 +265,8 @@ void FloatingText::render() {
                                             break;
                                         }
 
-                                        float x = options.width * screen.x;
-                                        float y = options.height * (1.0f - screen.y) -
+                                        float x = screen.x + entry.anchorOffset->x;
+                                        float y = screen.y + entry.anchorOffset->y -
                                                   kFloatingTextOffsetY -
                                                   (entry.stack - 0.5f) * lineHeight;
                                         float alpha = entry.remaining / kFloatingTextDuration;

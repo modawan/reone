@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -68,6 +69,7 @@ private:
         Style style;
         float remaining;
         int stack;
+        std::optional<glm::vec2> anchorOffset;
     };
 
     Game &_game;

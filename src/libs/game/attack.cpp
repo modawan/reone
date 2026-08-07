@@ -607,6 +607,7 @@ void AttackBuffer::resolve(Creature &attacker, Object &target) {
 
 void AttackBuffer::applyEffects(Creature &attacker, Object &target, Game &game) {
     for (Attack &attack : _attacks) {
+        // Failed ranged attacks do not produce floating miss text.
         if (!attack.ranged && !isAttackSuccessful(attack.result)) {
             game.floatingText().addMiss(attacker, target);
         }
