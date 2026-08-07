@@ -101,6 +101,7 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/resource.h
     ${RESOURCE_INCLUDE_DIR}/resources.h
     ${RESOURCE_INCLUDE_DIR}/resref.h
+    ${RESOURCE_INCLUDE_DIR}/sourcelist.h
     ${RESOURCE_INCLUDE_DIR}/strings.h
     ${RESOURCE_INCLUDE_DIR}/talktable.h
     ${RESOURCE_INCLUDE_DIR}/types.h

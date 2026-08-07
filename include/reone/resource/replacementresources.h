@@ -36,13 +36,25 @@ public:
     void clearLocal() override;
     void clearSave() override;
 
-    void addEXE(const std::filesystem::path &path) override;
-    void addKEY(const std::filesystem::path &path) override;
-    void addERF(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
-    void addMemERF(ByteBuffer buffer, ContainerKind kind) override;
-    void addRIM(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
-    void addMemRIM(ByteBuffer buffer, ContainerKind kind = ContainerKind::Global) override;
-    void addFolder(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
+    void addEXE(const std::filesystem::path &path,
+                std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addKEY(const std::filesystem::path &path,
+                std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addERF(const std::filesystem::path &path,
+                ContainerKind kind = ContainerKind::Global,
+                std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addMemERF(ByteBuffer buffer,
+                   ContainerKind kind,
+                   std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addRIM(const std::filesystem::path &path,
+                ContainerKind kind = ContainerKind::Global,
+                std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addMemRIM(ByteBuffer buffer,
+                   ContainerKind kind = ContainerKind::Global,
+                   std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addFolder(const std::filesystem::path &path,
+                   ContainerKind kind = ContainerKind::Global,
+                   std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
 
     Resource get(const ResourceId &id) override;
     std::optional<Resource> find(const ResourceId &id) override;

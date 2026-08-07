@@ -22,24 +22,35 @@
 #include "container.h"
 #include "id.h"
 #include "resource.h"
+#include "sourcelist.h"
 
 namespace reone {
 
 namespace resource {
 
-enum class ContainerKind {
-    Global,
-    Local,
-    Save,
-};
-
 struct ResourceContainerPair {
     std::unique_ptr<IResourceContainer> provider;
     ContainerKind kind;
+    std::optional<ResourceSourceBucket> bucket;
 };
 
-using ResourceContainerList = std::list<ResourceContainerPair>;
+using ResourceContainerList = ResourceSourceList<ResourceContainerPair>;
 
+/**
+ * Facade over the sources game data is read from.
+ *
+ * Every mount takes an optional bucket. Passing none keeps the source in the
+ * insertion order the engine has always used, which is what all current
+ * callers do; passing one places the source in the raw lookup order instead.
+ * Which sources belong in which bucket is a decision for the callers, not for
+ * this layer.
+ *
+ * The two are not mixed: whichever a backend is given first fixes how it
+ * orders sources until it is emptied, and mounting across that choice throws
+ * ValidationException. A caller migrating to buckets migrates every mount it
+ * makes, because an unbucketed source has no position in the raw lookup order
+ * to be ranked at.
+ */
 class IResources {
 public:
     virtual ~IResources() = default;
@@ -48,13 +59,25 @@ public:
     virtual void clearLocal() = 0;
     virtual void clearSave() = 0;
 
-    virtual void addEXE(const std::filesystem::path &path) = 0;
-    virtual void addKEY(const std::filesystem::path &path) = 0;
-    virtual void addERF(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) = 0;
-    virtual void addMemERF(ByteBuffer buffer, ContainerKind kind) = 0;
-    virtual void addRIM(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) = 0;
-    virtual void addMemRIM(ByteBuffer buffer, ContainerKind kind = ContainerKind::Global) = 0;
-    virtual void addFolder(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) = 0;
+    virtual void addEXE(const std::filesystem::path &path,
+                        std::optional<ResourceSourceBucket> bucket = std::nullopt) = 0;
+    virtual void addKEY(const std::filesystem::path &path,
+                        std::optional<ResourceSourceBucket> bucket = std::nullopt) = 0;
+    virtual void addERF(const std::filesystem::path &path,
+                        ContainerKind kind = ContainerKind::Global,
+                        std::optional<ResourceSourceBucket> bucket = std::nullopt) = 0;
+    virtual void addMemERF(ByteBuffer buffer,
+                           ContainerKind kind,
+                           std::optional<ResourceSourceBucket> bucket = std::nullopt) = 0;
+    virtual void addRIM(const std::filesystem::path &path,
+                        ContainerKind kind = ContainerKind::Global,
+                        std::optional<ResourceSourceBucket> bucket = std::nullopt) = 0;
+    virtual void addMemRIM(ByteBuffer buffer,
+                           ContainerKind kind = ContainerKind::Global,
+                           std::optional<ResourceSourceBucket> bucket = std::nullopt) = 0;
+    virtual void addFolder(const std::filesystem::path &path,
+                           ContainerKind kind = ContainerKind::Global,
+                           std::optional<ResourceSourceBucket> bucket = std::nullopt) = 0;
 
     virtual Resource get(const ResourceId &id) = 0;
     virtual std::optional<Resource> find(const ResourceId &id) = 0;
@@ -67,31 +90,38 @@ public:
     }
 
     void clearLocal() override {
-        clearSome(ContainerKind::Local);
+        _containers.clearKind(ContainerKind::Local);
     }
 
     void clearSave() override {
-        clearSome(ContainerKind::Save);
+        _containers.clearKind(ContainerKind::Save);
     }
 
-    void clearSome(ContainerKind kind) {
-        auto toErase = std::remove_if(_containers.begin(), _containers.end(), [kind](auto &pair) {
-            return pair.kind == kind;
-        });
-        _containers.erase(toErase, _containers.end());
+    void add(std::unique_ptr<IResourceContainer> provider,
+             ContainerKind kind = ContainerKind::Global,
+             std::optional<ResourceSourceBucket> bucket = std::nullopt) {
+        _containers.add(ResourceContainerPair {std::move(provider), kind, bucket});
     }
 
-    void add(std::unique_ptr<IResourceContainer> provider, ContainerKind kind = ContainerKind::Global) {
-        _containers.push_front(ResourceContainerPair {std::move(provider), kind});
-    }
-
-    void addEXE(const std::filesystem::path &path) override;
-    void addKEY(const std::filesystem::path &path) override;
-    void addERF(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
-    void addMemERF(ByteBuffer buffer, ContainerKind kind) override;
-    void addRIM(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
-    void addMemRIM(ByteBuffer buffer, ContainerKind kind = ContainerKind::Global) override;
-    void addFolder(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
+    void addEXE(const std::filesystem::path &path,
+                std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addKEY(const std::filesystem::path &path,
+                std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addERF(const std::filesystem::path &path,
+                ContainerKind kind = ContainerKind::Global,
+                std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addMemERF(ByteBuffer buffer,
+                   ContainerKind kind,
+                   std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addRIM(const std::filesystem::path &path,
+                ContainerKind kind = ContainerKind::Global,
+                std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addMemRIM(ByteBuffer buffer,
+                   ContainerKind kind = ContainerKind::Global,
+                   std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addFolder(const std::filesystem::path &path,
+                   ContainerKind kind = ContainerKind::Global,
+                   std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
 
     Resource get(const ResourceId &id) override;
     std::optional<Resource> find(const ResourceId &id) override;

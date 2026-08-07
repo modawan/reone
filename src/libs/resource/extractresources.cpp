@@ -31,13 +31,13 @@ namespace reone {
 
 namespace resource {
 
-void ExtractResources::addKEY(const std::filesystem::path &path) {
+void ExtractResources::addKEY(const std::filesystem::path &path, std::optional<ResourceSourceBucket> bucket) {
     auto index = std::make_shared<std::unordered_map<ResourceId, extract::FileResource>>();
     extract::Chitin chitin(path);
     for (auto &res : chitin.resources()) {
         index->emplace(res.id(), res);
     }
-    addSource(ContainerKind::Global, [index](const ResourceId &id) -> std::optional<ByteBuffer> {
+    addSource(ContainerKind::Global, bucket, [index](const ResourceId &id) -> std::optional<ByteBuffer> {
         auto it = index->find(id);
         if (it == index->end()) {
             return std::nullopt;
@@ -46,9 +46,9 @@ void ExtractResources::addKEY(const std::filesystem::path &path) {
     });
 }
 
-void ExtractResources::addERF(const std::filesystem::path &path, ContainerKind kind) {
+void ExtractResources::addERF(const std::filesystem::path &path, ContainerKind kind, std::optional<ResourceSourceBucket> bucket) {
     auto capsule = std::make_shared<extract::LazyCapsule>(path);
-    addSource(kind, [capsule](const ResourceId &id) -> std::optional<ByteBuffer> {
+    addSource(kind, bucket, [capsule](const ResourceId &id) -> std::optional<ByteBuffer> {
         auto res = capsule->find(id);
         if (!res) {
             return std::nullopt;
@@ -57,13 +57,13 @@ void ExtractResources::addERF(const std::filesystem::path &path, ContainerKind k
     });
 }
 
-void ExtractResources::addRIM(const std::filesystem::path &path, ContainerKind kind) {
+void ExtractResources::addRIM(const std::filesystem::path &path, ContainerKind kind, std::optional<ResourceSourceBucket> bucket) {
     // LazyCapsule picks the reader by file extension; the director only mounts
     // RIMs from *.rim paths.
-    addERF(path, kind);
+    addERF(path, kind, bucket);
 }
 
-void ExtractResources::addMemArchive(ByteBuffer buffer, ContainerKind kind, bool rim) {
+void ExtractResources::addMemArchive(ByteBuffer buffer, ContainerKind kind, std::optional<ResourceSourceBucket> bucket, bool rim) {
     auto bytes = std::make_shared<ByteBuffer>(std::move(buffer));
     auto index = std::make_shared<std::unordered_map<ResourceId, std::pair<uint32_t, uint32_t>>>();
 
@@ -84,7 +84,7 @@ void ExtractResources::addMemArchive(ByteBuffer buffer, ContainerKind kind, bool
         }
     }
 
-    addSource(kind, [bytes, index](const ResourceId &id) -> std::optional<ByteBuffer> {
+    addSource(kind, bucket, [bytes, index](const ResourceId &id) -> std::optional<ByteBuffer> {
         auto it = index->find(id);
         if (it == index->end()) {
             return std::nullopt;
@@ -97,15 +97,15 @@ void ExtractResources::addMemArchive(ByteBuffer buffer, ContainerKind kind, bool
     });
 }
 
-void ExtractResources::addMemERF(ByteBuffer buffer, ContainerKind kind) {
-    addMemArchive(std::move(buffer), kind, false);
+void ExtractResources::addMemERF(ByteBuffer buffer, ContainerKind kind, std::optional<ResourceSourceBucket> bucket) {
+    addMemArchive(std::move(buffer), kind, bucket, false);
 }
 
-void ExtractResources::addMemRIM(ByteBuffer buffer, ContainerKind kind) {
-    addMemArchive(std::move(buffer), kind, true);
+void ExtractResources::addMemRIM(ByteBuffer buffer, ContainerKind kind, std::optional<ResourceSourceBucket> bucket) {
+    addMemArchive(std::move(buffer), kind, bucket, true);
 }
 
-void ExtractResources::addFolder(const std::filesystem::path &path, ContainerKind kind) {
+void ExtractResources::addFolder(const std::filesystem::path &path, ContainerKind kind, std::optional<ResourceSourceBucket> bucket) {
     auto index = std::make_shared<std::unordered_map<ResourceId, std::filesystem::path>>();
     if (std::filesystem::exists(path)) {
         for (auto &entry : std::filesystem::recursive_directory_iterator(path)) {
@@ -118,7 +118,7 @@ void ExtractResources::addFolder(const std::filesystem::path &path, ContainerKin
             }
         }
     }
-    addSource(kind, [index](const ResourceId &id) -> std::optional<ByteBuffer> {
+    addSource(kind, bucket, [index](const ResourceId &id) -> std::optional<ByteBuffer> {
         auto it = index->find(id);
         if (it == index->end()) {
             return std::nullopt;
@@ -133,7 +133,7 @@ void ExtractResources::addFolder(const std::filesystem::path &path, ContainerKin
     });
 }
 
-void ExtractResources::addEXE(const std::filesystem::path &path) {
+void ExtractResources::addEXE(const std::filesystem::path &path, std::optional<ResourceSourceBucket> bucket) {
     static const std::unordered_map<PEResType, ResType> kPEResTypeToResType {
         {PEResType::Cursor, ResType::Cursor},
         {PEResType::CursorGroup, ResType::CursorGroup},
@@ -156,7 +156,7 @@ void ExtractResources::addEXE(const std::filesystem::path &path) {
             path);
         index->emplace(res.id(), std::move(res));
     }
-    addSource(ContainerKind::Global, [index](const ResourceId &id) -> std::optional<ByteBuffer> {
+    addSource(ContainerKind::Global, bucket, [index](const ResourceId &id) -> std::optional<ByteBuffer> {
         auto it = index->find(id);
         if (it == index->end()) {
             return std::nullopt;
