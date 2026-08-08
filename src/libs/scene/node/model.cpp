@@ -257,11 +257,19 @@ void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation
     // Optionally propagate animation to attachments
     if (properties.flags & AnimationFlags::propagate) {
         for (auto &attachment : _attachments) {
-            if (attachment.second->type() == SceneNodeType::Model) {
-                // Attachments have their own animation sets. Resolve by name so
+            if (attachment.second->type() != SceneNodeType::Model) {
+                continue;
+            }
+            auto &attachedModel = *static_cast<ModelSceneNode *>(attachment.second);
+            if (attachedModel.usage() == ModelUsage::Creature) {
+                // Creature attachments, such as heads, are parts of a composite
+                // model driven by the animations of the body they belong to.
+                attachedModel.playAnimation(anim, lipAnim, properties);
+            } else {
+                // Other attachments have their own animation sets. Resolve by name so
                 // an unrelated body animation cannot replace a weapon's local
                 // state animation (for example, a lightsaber's "off" pose).
-                static_cast<ModelSceneNode *>(attachment.second)->playAnimation(anim.name(), lipAnim, properties);
+                attachedModel.playAnimation(anim.name(), lipAnim, properties);
             }
         }
     }
