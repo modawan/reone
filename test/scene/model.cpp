@@ -420,6 +420,170 @@ TEST(ModelSceneNode, pick_model_at) {
     EXPECT_EQ(dummy1.get(), picked1);
 }
 
+TEST(ModelSceneNode, should_propagate_animation_object_to_creature_attachment) {
+    // given
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+
+    auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    // body model, with a head hook and no node of its own to animate
+    auto bodyRootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto headHookNode = std::make_shared<ModelNode>(1, "headhook", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, bodyRootNode.get());
+    bodyRootNode->addChild(headHookNode);
+
+    // body animation, targeting a node that only exists in the head model
+    auto animRootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, nullptr);
+    auto animEyelidNode = std::make_shared<ModelNode>(1, "eyelid_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, animRootNode.get());
+    animEyelidNode->vectorTracks()[ControllerTypes::position].add(0.0f, glm::vec3(0.0f));
+    animEyelidNode->vectorTracks()[ControllerTypes::position].add(1.0f, glm::vec3(1.0f, 2.0f, 3.0f));
+    animRootNode->addChild(animEyelidNode);
+
+    auto bodyAnimations = std::vector<std::shared_ptr<Animation>> {
+        std::make_shared<Animation>("some_animation", 1.0f, 0.5f, "root_node", animRootNode, std::vector<Animation::Event>())};
+
+    auto bodyModel = Model("some_body", 0, bodyRootNode, bodyAnimations, "", 1.0f);
+
+    // head model, without any animation of its own
+    auto headRootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto eyelidNode = std::make_shared<ModelNode>(1, "eyelid_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, headRootNode.get());
+    headRootNode->addChild(eyelidNode);
+
+    auto headModel = Model("some_head", 0, headRootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+
+    auto bodySceneNode = std::make_shared<ModelSceneNode>(
+        bodyModel,
+        ModelUsage::Creature,
+        *scene,
+        graphicsModule.services(),
+        audioModule.services(),
+        resourceModule.services());
+
+    auto headSceneNode = std::make_shared<ModelSceneNode>(
+        headModel,
+        ModelUsage::Creature,
+        *scene,
+        graphicsModule.services(),
+        audioModule.services(),
+        resourceModule.services());
+
+    // when
+    bodySceneNode->init();
+    headSceneNode->init();
+    bodySceneNode->attach("headhook", *headSceneNode);
+    bodySceneNode->playAnimation("some_animation", nullptr, AnimationProperties::fromFlags(AnimationFlags::loop | AnimationFlags::propagate));
+    bodySceneNode->update(1.0f);
+
+    // then: the head plays the body animation object, not a lookup by name
+    auto &headChannels = headSceneNode->animationChannels();
+    ASSERT_EQ(1ll, headChannels.size());
+    EXPECT_EQ(bodyModel.getAnimation("some_animation").get(), headChannels[0].anim);
+
+    // then: the body controller reaches the node that only the head owns
+    auto eyelidSceneNode = headSceneNode->getNodeByName("eyelid_node");
+    ASSERT_TRUE(static_cast<bool>(eyelidSceneNode));
+    auto &eyelidPosition = eyelidSceneNode->localTransform()[3];
+    EXPECT_NEAR(1.0f, eyelidPosition.x, 1e-5);
+    EXPECT_NEAR(2.0f, eyelidPosition.y, 1e-5);
+    EXPECT_NEAR(3.0f, eyelidPosition.z, 1e-5);
+}
+
+TEST(ModelSceneNode, should_keep_equipment_attachment_animation_local) {
+    // given
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+
+    auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    // body model, with a right hand hook
+    auto bodyRootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto handHookNode = std::make_shared<ModelNode>(1, "rhand", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, bodyRootNode.get());
+    bodyRootNode->addChild(handHookNode);
+
+    // body animation, targeting the blade node of the weapon model
+    auto animRootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, nullptr);
+    auto animBladeNode = std::make_shared<ModelNode>(1, "blade_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, animRootNode.get());
+    animBladeNode->vectorTracks()[ControllerTypes::position].add(0.0f, glm::vec3(0.0f));
+    animBladeNode->vectorTracks()[ControllerTypes::position].add(1.0f, glm::vec3(1.0f, 2.0f, 3.0f));
+    animRootNode->addChild(animBladeNode);
+
+    auto bodyAnimations = std::vector<std::shared_ptr<Animation>> {
+        std::make_shared<Animation>("some_animation", 1.0f, 0.5f, "root_node", animRootNode, std::vector<Animation::Event>())};
+
+    auto bodyModel = Model("some_body", 0, bodyRootNode, bodyAnimations, "", 1.0f);
+
+    // weapon model, with a local retracted blade animation
+    auto weaponRootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto bladeNode = std::make_shared<ModelNode>(1, "blade_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, weaponRootNode.get());
+    weaponRootNode->addChild(bladeNode);
+
+    auto offAnimRootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, nullptr);
+    auto offAnimBladeNode = std::make_shared<ModelNode>(1, "blade_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, offAnimRootNode.get());
+    offAnimBladeNode->vectorTracks()[ControllerTypes::position].add(0.0f, glm::vec3(-1.0f, -2.0f, -3.0f));
+    offAnimRootNode->addChild(offAnimBladeNode);
+
+    auto weaponAnimations = std::vector<std::shared_ptr<Animation>> {
+        std::make_shared<Animation>("off", 1.0f, 0.5f, "root_node", offAnimRootNode, std::vector<Animation::Event>())};
+
+    auto weaponModel = Model("some_weapon", 0, weaponRootNode, weaponAnimations, "", 1.0f);
+
+    auto bodySceneNode = std::make_shared<ModelSceneNode>(
+        bodyModel,
+        ModelUsage::Creature,
+        *scene,
+        graphicsModule.services(),
+        audioModule.services(),
+        resourceModule.services());
+
+    auto weaponSceneNode = std::make_shared<ModelSceneNode>(
+        weaponModel,
+        ModelUsage::Equipment,
+        *scene,
+        graphicsModule.services(),
+        audioModule.services(),
+        resourceModule.services());
+
+    // when
+    bodySceneNode->init();
+    weaponSceneNode->init();
+    bodySceneNode->attach("rhand", *weaponSceneNode);
+    weaponSceneNode->playAnimation("off", nullptr, AnimationProperties::fromFlags(AnimationFlags::loop));
+    bodySceneNode->playAnimation("some_animation", nullptr, AnimationProperties::fromFlags(AnimationFlags::loop | AnimationFlags::propagate));
+    bodySceneNode->update(1.0f);
+
+    // then: the weapon has no animation of that name and keeps its local state
+    EXPECT_EQ("off", weaponSceneNode->activeAnimationName());
+    auto &weaponChannels = weaponSceneNode->animationChannels();
+    ASSERT_EQ(1ll, weaponChannels.size());
+    EXPECT_EQ(weaponModel.getAnimation("off").get(), weaponChannels[0].anim);
+
+    // then: the body controller does not reach the weapon blade
+    auto bladeSceneNode = weaponSceneNode->getNodeByName("blade_node");
+    ASSERT_TRUE(static_cast<bool>(bladeSceneNode));
+    auto &bladePosition = bladeSceneNode->localTransform()[3];
+    EXPECT_NEAR(-1.0f, bladePosition.x, 1e-5);
+    EXPECT_NEAR(-2.0f, bladePosition.y, 1e-5);
+    EXPECT_NEAR(-3.0f, bladePosition.z, 1e-5);
+}
+
 TEST(ModelSceneNode, should_keep_lip_animation_alive_for_channel_lifetime) {
     // given
     auto graphicsOpt = GraphicsOptions();
