@@ -30,8 +30,8 @@ namespace reone {
 
 namespace game {
 
-void DoCommandAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    auto executionCtx = std::make_unique<ExecutionContext>(*_actionToDo);
+void runCommandAsActor(const ExecutionContext &command, Object &actor) {
+    auto executionCtx = std::make_unique<ExecutionContext>(command);
 
     // ExecutionContext may be applied to another actor - update the Caller
     // argument to match. We keep other arguments intact because this is a
@@ -58,8 +58,12 @@ void DoCommandAction::execute(std::shared_ptr<Action> self, Object &actor, float
                                         Variable::ofObject(actor.id()));
     }
 
-    std::shared_ptr<ScriptProgram> program(_actionToDo->savedState->program);
+    std::shared_ptr<ScriptProgram> program(command.savedState->program);
     VirtualMachine(program, std::move(executionCtx)).run();
+}
+
+void DoCommandAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    runCommandAsActor(*_actionToDo, actor);
     complete();
 }
 

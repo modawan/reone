@@ -143,8 +143,17 @@ static Variable AssignCommand(const std::vector<Variable> &args, const RoutineCo
     // Transform
 
     // Execute
-    auto commandAction = ctx.game.newAction<DoCommandAction>(std::move(aActionToAssign));
-    oActionSubject->addAction(std::move(commandAction));
+    // An assigned command runs in place as the subject, it is not itself
+    // queued. What it contains decides what reaches the queue: an Action
+    // routine inside it queues on the subject, anything else takes effect now.
+    //
+    // Queueing the command starves it behind whatever the subject is already
+    // doing, and scripts rely on the difference. 103PER rolls the player
+    // mid-run with AssignCommand(oPC, PlayOverlayAnimation(...)) while an
+    // ActionMoveToLocation is still in flight, then queues a head turn behind
+    // that move - a sequence that only reads correctly if the overlay lands
+    // immediately and the head turn waits.
+    runCommandAsActor(*aActionToAssign, *oActionSubject);
     return Variable::ofNull();
 }
 

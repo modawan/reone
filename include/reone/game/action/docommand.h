@@ -29,6 +29,21 @@ struct ExecutionContext;
 
 namespace game {
 
+class Object;
+
+/**
+ * Run a saved command as actor, here and now.
+ *
+ * The command is a script fragment that was captured elsewhere, so its Caller
+ * is rewritten to actor before it runs while its other arguments are kept: the
+ * fragment is a continuation of the context that saved it.
+ *
+ * Whether a command reaches the action queue is decided by what it contains,
+ * not by how it is dispatched. Action routines inside it queue on actor as
+ * they always do; everything else simply takes effect.
+ */
+void runCommandAsActor(const script::ExecutionContext &command, Object &actor);
+
 class DoCommandAction : public Action {
 public:
     DoCommandAction(Game &game, ServicesView &services, std::shared_ptr<script::ExecutionContext> actionToDo) :
