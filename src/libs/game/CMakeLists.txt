@@ -336,6 +336,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/swooprace.h
     ${GAME_INCLUDE_DIR}/talent.h
     ${GAME_INCLUDE_DIR}/transitioncandidate.h
+    ${GAME_INCLUDE_DIR}/turret.h
     ${GAME_INCLUDE_DIR}/types.h
     ${GAME_INCLUDE_DIR}/visualeffects.h)
 
@@ -511,6 +512,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/journal.cpp
     ${GAME_SOURCE_DIR}/statussummary.cpp
     ${GAME_SOURCE_DIR}/messagebus.cpp
+    ${GAME_SOURCE_DIR}/minigame.cpp
     ${GAME_SOURCE_DIR}/object.cpp
     ${GAME_SOURCE_DIR}/object/area.cpp
     ${GAME_SOURCE_DIR}/object/camera/animated.cpp
@@ -547,6 +549,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/surfaces.cpp
     ${GAME_SOURCE_DIR}/swooprace.cpp
     ${GAME_SOURCE_DIR}/transitioncandidate.cpp
+    ${GAME_SOURCE_DIR}/turret.cpp
     ${GAME_SOURCE_DIR}/visualeffects.cpp)
 
 add_library(game STATIC ${GAME_HEADERS} ${GAME_SOURCES} ${CLANG_FORMAT_PATH})
