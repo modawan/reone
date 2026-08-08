@@ -3657,9 +3657,10 @@ void Game::consoleSelectObjectByTag(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "tag");
     std::string_view tag = args[1].value();
 
-    for (auto [id, object] : _objectById) {
+    auto area = getConsoleArea();
+    for (auto &object : area->objects()) {
         if (object->tag() == tag) {
-            getConsoleArea()->selectObject(object, /*force=*/true);
+            area->selectObject(object, /*force=*/true);
             return;
         }
     }
