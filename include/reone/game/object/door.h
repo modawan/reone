@@ -50,9 +50,32 @@ public:
 
     bool isSelectable() const override;
     void damage(int amount, uint32_t damager) override;
+    void update(float dt) override;
 
     void open();
     void close();
+
+    /**
+     * Resting state the door last physically reached. A door in transition
+     * still reports the state it is leaving, because that is where it still
+     * stands, and its collision, pose and open flag all follow from it.
+     */
+    DoorState state() const { return _state; }
+
+    /** Transition the door is playing, if any. */
+    DoorTransition transition() const { return _transition; }
+
+    /**
+     * True while the door is swinging open. It has not reached its opened pose
+     * yet, so the doorway is still blocking and isOpen is still false.
+     */
+    bool isOpening() const { return _transition == DoorTransition::Opening; }
+
+    /**
+     * True while the door is swinging shut. It has not reached its closed pose
+     * yet, so the doorway is still passable and isOpen is still true.
+     */
+    bool isClosing() const { return _transition == DoorTransition::Closing; }
 
     bool isLocked() const { return _locked; }
     bool isStatic() const { return _static; }
@@ -92,7 +115,7 @@ private:
     resource::LocString _locName;
     uint32_t _appearance {0};
     uint8_t _genericType {0};
-    bool _isOpen {false};
+    DoorState _state {DoorState::Closed};
     bool _autoRemoveKey {false};
     Faction _faction {Faction::Invalid};
     uint8_t _fort {0};
@@ -152,11 +175,29 @@ private:
 
     // END Scripts
 
+    /**
+     * The transition in flight. It names an animation to wait on and nothing
+     * else: collision, pose and the open flag are read off _state alone, and
+     * _state only moves when a transition arrives. A reversal overwrites this,
+     * which is what stops the superseded transition from ever completing.
+     */
+    DoorTransition _transition {DoorTransition::None};
+
     void runDamagedScript(uint32_t damagerId);
     void runDeathScript(uint32_t damagerId);
 
     void deserializeAll(const resource::Gff &gff);
     void loadAppearance();
+
+    /** Put model pose, walkmeshes and the open flag into correspondence with _state. */
+    void applyRestingState();
+    void applyRestingPose();
+    void enableStateWalkmeshes();
+    void beginTransition(DoorTransition transition);
+    void finishTransition();
+    bool isTransitionComplete() const;
+    static const char *transitionAnimation(DoorTransition transition);
+    static DoorState transitionTarget(DoorTransition transition);
     void loadLinkedTransitionGeometry(const graphics::Walkmesh &walkmesh);
     void updateTransform() override;
 };

@@ -1204,6 +1204,26 @@ enum class DoorAction {
     Knock = 4
 };
 
+/**
+ * Resting state of a door, as authored in the OpenState/AnimationState fields
+ * of a UTD and as tracked at runtime. A door opens to one of two sides, each
+ * with its own model pose and its own walkmesh. These are the only places a
+ * door ever physically stands: one that is mid-transition is still standing in
+ * the resting state it last reached, until the transition arrives at the next.
+ */
+enum class DoorState {
+    Closed = 0,
+    Opened1 = 1,
+    Opened2 = 2
+};
+
+/** Transition a door is playing towards its next resting state, if any. */
+enum class DoorTransition {
+    None,
+    Opening,
+    Closing
+};
+
 enum class DamagePower {
     Normal = 0,
     PlusOne = 1,
