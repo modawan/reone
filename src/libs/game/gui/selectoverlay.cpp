@@ -36,7 +36,6 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/party.h"
-#include "reone/game/reputes.h"
 
 using namespace reone::graphics;
 using namespace reone::resource;
@@ -238,7 +237,7 @@ void SelectionOverlay::update() {
 
             auto hilightedCreature = std::dynamic_pointer_cast<Creature>(hilightedObject);
             if (hilightedCreature) {
-                _hilightedHostile = !hilightedCreature->isDead() && _services.game.reputes.getIsEnemy(*(_game.party().getLeader()), *hilightedCreature);
+                _hilightedHostile = module->isHostileToPartyLeader(*hilightedCreature);
             }
         }
     }
@@ -285,7 +284,7 @@ void SelectionOverlay::update() {
 
             auto selectedCreature = std::dynamic_pointer_cast<Creature>(selectedObject);
             if (selectedCreature) {
-                _selectedHostile = !selectedCreature->isDead() && _services.game.reputes.getIsEnemy(*_game.party().getLeader(), *selectedCreature);
+                _selectedHostile = module->isHostileToPartyLeader(*selectedCreature);
             }
         }
     }

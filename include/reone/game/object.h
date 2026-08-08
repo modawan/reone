@@ -97,6 +97,7 @@ public:
     std::shared_ptr<scene::SceneNode> sceneNode() const { return _sceneNode; }
 
     void setTag(std::string tag) { _tag = std::move(tag); }
+    void setConversation(std::string conversation) { _conversation = std::move(conversation); }
     void setPlotFlag(bool plot) { _plot = plot; }
     void setCommandable(bool commandable) { _commandable = commandable; }
     void setIsInConversation(bool isInConversation) { _isInConversation = isInConversation; }

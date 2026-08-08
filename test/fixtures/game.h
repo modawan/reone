@@ -52,6 +52,7 @@ class Gff;
 namespace game {
 
 class Game;
+class Module;
 class Object;
 
 class MockCameraStyles : public ICameraStyles, boost::noncopyable {
@@ -170,6 +171,7 @@ public:
     static void finishPazaak(Game &game, PazaakCompletedResult result);
     static void serializePazaakPartyTable(const Game &game, resource::Gff &gff);
     static void deserializePartyTable(Game &game, resource::Gff &gff);
+    static void clickCreature(Module &module, const std::shared_ptr<Creature> &creature);
 
     void init() {
         _cameraStyles = std::make_unique<MockCameraStyles>();
