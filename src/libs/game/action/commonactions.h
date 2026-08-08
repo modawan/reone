@@ -22,6 +22,7 @@ namespace reone {
 namespace game {
 
 class Door;
+class Game;
 class Object;
 class Party;
 class Placeable;
@@ -38,6 +39,10 @@ bool unlockDoor(Door &door, Object &actor, float distance, float dt);
 // Move an actor to a placeable and unlock it. Returns true when this action is
 // complete.
 bool unlockPlaceable(Placeable &placeable, Object &actor, float distance, float dt);
+
+// Set position and facing of an actor, and update area visibility.
+void jumpToPositionFacing(Object &actor, const glm::vec3 &position,
+                          float facing, Game &game);
 
 } // namespace game
 

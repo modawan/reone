@@ -18,6 +18,7 @@
 #include "commonactions.h"
 
 #include "reone/game/action.h"
+#include "reone/game/game.h"
 #include "reone/game/object.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
@@ -96,6 +97,32 @@ bool unlockPlaceable(Placeable &placeable, Object &actor, float distance, float 
     placeable.setLocked(false);
 
     return true;
+}
+
+void jumpToPositionFacing(Object &actor, const glm::vec3 &position,
+                          float facing, Game &game) {
+    actor.setPosition(position);
+    actor.setFacing(facing);
+
+    auto module = game.module();
+    if (!module) {
+        return;
+    }
+
+    auto area = game.module()->area();
+    if (!area) {
+        return;
+    }
+
+    Room *roomBefore = actor.room();
+    area->determineObjectRoom(actor);
+    Room *roomAfter = actor.room();
+
+    if (auto leader = game.party().getLeader()) {
+        if (leader->id() == actor.id()) {
+            area->onPartyLeaderMoved(roomBefore != roomAfter);
+        }
+    }
 }
 
 } // namespace game
