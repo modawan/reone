@@ -6934,9 +6934,14 @@ static Variable PlayOverlayAnimation(const std::vector<Variable> &args, const Ro
     auto nAnimation = getInt(args, 1);
 
     // Transform
+    auto target = checkCreature(oTarget);
+    auto animation = static_cast<AnimationType>(nAnimation);
 
     // Execute
-    throw RoutineNotImplementedException("PlayOverlayAnimation");
+    // As nwscript describes it: plays on the creature even while it is moving,
+    // and places no action on the queue.
+    target->playOverlayAnimation(animation);
+    return Variable::ofNull();
 }
 
 static Variable UnlockAllSongs(const std::vector<Variable> &args, const RoutineContext &ctx) {

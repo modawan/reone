@@ -223,6 +223,9 @@ std::shared_ptr<TwoDA> makeAppearanceTable() {
     builder.row({"S", "1", "1", "-1", "", "", ""});
     builder.row({"S", "1", "1", "-1", "", "", ""});
     builder.row({"S", "1", "1", "-1", "", "", ""});
+    // Row 3 is a body model rather than a creature model, so tests can cover
+    // the humanoid side of the animation naming split.
+    builder.row({"B", "1", "1", "-1", "", "", ""});
     return std::shared_ptr<TwoDA>(builder.build());
 }
 
@@ -3608,4 +3611,260 @@ TEST(OpenDoorAction, still_refuses_a_locked_door_and_fires_on_fail_to_open) {
     EXPECT_FALSE(fixture.door->isOpen());
     EXPECT_TRUE(fixture.door->isLocked());
     EXPECT_EQ(1, fixture.scriptRuns("door_on_fail"));
+}
+
+namespace {
+
+// Locomotion is what an overlay has to survive, and Creature drives it with
+// loopBlend, so the base channel below the overlay is a blended looping one.
+constexpr int kLocomotionFlags = scene::AnimationFlags::loopBlend | scene::AnimationFlags::propagate;
+
+struct OverlayFixture {
+    graphics::GraphicsOptions graphicsOptions;
+    std::shared_ptr<graphics::Model> model;
+    std::unique_ptr<scene::SceneGraph> graph;
+    std::shared_ptr<scene::ModelSceneNode> node;
+
+    std::vector<std::string> channelNames() const {
+        std::vector<std::string> names;
+        for (auto &channel : node->animationChannels()) {
+            names.push_back(channel.anim->name());
+        }
+        return names;
+    }
+};
+
+// A creature with a live model carrying both spellings of the dive roll plus a
+// run clip to act as locomotion underneath it.
+void setUpOverlay(OverlayFixture &fixture, TestEngine &engine) {
+    fixture.model = makeModel(
+        "body",
+        {makeAnimation("run"),
+         makeAnimation("pause1"),
+         makeAnimation("diveroll"),
+         makeAnimation("cdiveroll")});
+    fixture.graph = std::make_unique<scene::SceneGraph>(
+        "test",
+        engine.sceneModule().renderPipelineFactory(),
+        fixture.graphicsOptions,
+        engine.services().graphics,
+        engine.services().audio,
+        engine.services().resource);
+    fixture.node = fixture.graph->newModel(*fixture.model, scene::ModelUsage::Creature);
+}
+
+// A creature whose appearance row makes it a body model, i.e. the humanoid
+// naming branch the player character takes.
+void makeHumanoid(TestCreature &creature, TestEngine &engine) {
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(engine.services().game.portraits), getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto gff = Gff::Builder()
+                   .field(Gff::Field::newDword("Appearance_Type", 3))
+                   .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+                   .field(Gff::Field::newByte("BodyBag", 0xff))
+                   .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                   .build();
+    creature.deserialize(*gff);
+    ASSERT_EQ(Creature::ModelType::Character, creature.modelType());
+}
+
+} // namespace
+
+// A. The dive roll resolves through the ordinary animation naming path, on both
+// sides of the creature/body model split.
+TEST(OverlayAnimation, should_resolve_the_dive_roll_for_a_body_model) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    OverlayFixture fixture;
+    setUpOverlay(fixture, engine);
+    TestCreature creature(1, "test", game, engine.services());
+    makeHumanoid(creature, engine);
+    creature.setSceneNode(fixture.node);
+
+    creature.playOverlayAnimation(AnimationType::FireForgetDiveRoll);
+
+    EXPECT_EQ("diveroll", fixture.node->activeAnimationName());
+}
+
+TEST(OverlayAnimation, should_resolve_the_dive_roll_for_a_creature_model) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    OverlayFixture fixture;
+    setUpOverlay(fixture, engine);
+    TestCreature creature(1, "test", game, engine.services());
+    ASSERT_EQ(Creature::ModelType::Creature, creature.modelType());
+    creature.setSceneNode(fixture.node);
+
+    creature.playOverlayAnimation(AnimationType::FireForgetDiveRoll);
+
+    EXPECT_EQ("cdiveroll", fixture.node->activeAnimationName());
+}
+
+// C and D. The overlay plays while the creature is running, and the locomotion
+// channel underneath survives it. The other playAnimation overloads refuse
+// outright while a creature is moving, which is exactly what an overlay must
+// not do.
+TEST(OverlayAnimation, should_layer_over_locomotion_without_displacing_it) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    OverlayFixture fixture;
+    setUpOverlay(fixture, engine);
+    TestCreature creature(1, "test", game, engine.services());
+    creature.setSceneNode(fixture.node);
+    creature.setMovementType(Creature::MovementType::Run);
+    fixture.node->playAnimation(
+        "run", nullptr, scene::AnimationProperties::fromFlags(kLocomotionFlags));
+    ASSERT_EQ("run", fixture.node->activeAnimationName());
+
+    creature.playOverlayAnimation(AnimationType::FireForgetDiveRoll);
+
+    // The overlay is on top, and the run it was layered over is still there.
+    EXPECT_EQ("cdiveroll", fixture.node->activeAnimationName());
+    EXPECT_THAT(fixture.channelNames(), ElementsAre("cdiveroll", "run"));
+}
+
+// A normal animation request is still refused while moving, so the overlay path
+// is doing something the ordinary one cannot.
+TEST(OverlayAnimation, should_still_refuse_a_plain_animation_while_moving) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    OverlayFixture fixture;
+    setUpOverlay(fixture, engine);
+    TestCreature creature(1, "test", game, engine.services());
+    creature.setSceneNode(fixture.node);
+    creature.setMovementType(Creature::MovementType::Run);
+    fixture.node->playAnimation(
+        "run", nullptr, scene::AnimationProperties::fromFlags(kLocomotionFlags));
+
+    creature.playAnimation("cdiveroll");
+
+    EXPECT_EQ("run", fixture.node->activeAnimationName());
+}
+
+// C. Queued actions are untouched: the routine places nothing on the queue and
+// completes nothing already on it.
+TEST(OverlayAnimation, should_leave_the_action_queue_alone) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    OverlayFixture fixture;
+    setUpOverlay(fixture, engine);
+    TestCreature creature(1, "test", game, engine.services());
+    creature.setSceneNode(fixture.node);
+    creature.setMovementType(Creature::MovementType::Run);
+    auto pending = game.newAction<PlayAnimationAction>(AnimationType::LoopingPause, 1.0f, 0.0f);
+    creature.addAction(pending);
+    ASSERT_EQ(1u, creature.actions().size());
+
+    creature.playOverlayAnimation(AnimationType::FireForgetDiveRoll);
+
+    EXPECT_EQ(1u, creature.actions().size());
+    EXPECT_EQ(pending, creature.getCurrentAction());
+    EXPECT_FALSE(pending->isCompleted());
+}
+
+// F. Fire and forget: the layer expires on its own and the locomotion beneath
+// it becomes current again.
+TEST(OverlayAnimation, should_expire_and_hand_back_to_locomotion) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    OverlayFixture fixture;
+    setUpOverlay(fixture, engine);
+    TestCreature creature(1, "test", game, engine.services());
+    creature.setSceneNode(fixture.node);
+    creature.setMovementType(Creature::MovementType::Run);
+    fixture.node->playAnimation(
+        "run", nullptr, scene::AnimationProperties::fromFlags(kLocomotionFlags));
+    creature.playOverlayAnimation(AnimationType::FireForgetDiveRoll);
+    ASSERT_EQ("cdiveroll", fixture.node->activeAnimationName());
+
+    // Part way through, the layer is still on top.
+    fixture.node->update(0.5f);
+    EXPECT_EQ("cdiveroll", fixture.node->activeAnimationName());
+
+    // The clip is one second long; once past it the layer is dropped.
+    fixture.node->update(0.6f);
+    fixture.node->update(0.1f);
+
+    EXPECT_EQ("run", fixture.node->activeAnimationName());
+    EXPECT_THAT(fixture.channelNames(), ElementsAre("run"));
+}
+
+// E. An animation with no mapping is a no-op rather than a corruption.
+TEST(OverlayAnimation, should_ignore_an_animation_it_cannot_name) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    OverlayFixture fixture;
+    setUpOverlay(fixture, engine);
+    TestCreature creature(1, "test", game, engine.services());
+    creature.setSceneNode(fixture.node);
+    fixture.node->playAnimation(
+        "run", nullptr, scene::AnimationProperties::fromFlags(kLocomotionFlags));
+
+    creature.playOverlayAnimation(AnimationType::FireForgetScream);
+
+    EXPECT_EQ("run", fixture.node->activeAnimationName());
+    EXPECT_THAT(fixture.channelNames(), ElementsAre("run"));
+}
+
+TEST(OverlayAnimation, should_ignore_an_overlay_on_a_creature_with_no_model) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    TestCreature creature(1, "test", game, engine.services());
+    ASSERT_FALSE(creature.sceneNode());
+
+    // Nothing to animate, so this must simply do nothing.
+    creature.playOverlayAnimation(AnimationType::FireForgetDiveRoll);
+
+    EXPECT_FALSE(creature.sceneNode());
+}
+
+// B and E. Routine 854 resolves its target and drives the overlay, and a
+// non-creature target is reported rather than crashing.
+TEST(OverlayAnimation, routine_854_plays_the_overlay_on_its_target) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    Routines routines(GameID::TSL, &game, &engine.services());
+    routines.init();
+    auto &routine = routines.get(854);
+    ASSERT_EQ("PlayOverlayAnimation", routine.name());
+
+    // Registered with the game so the routine can resolve it by id, and given a
+    // model so the overlay it plays is observable.
+    OverlayFixture fixture;
+    setUpOverlay(fixture, engine);
+    auto creature = game.newObject<TestCreature>("test", game, engine.services());
+    creature->setSceneNode(fixture.node);
+    fixture.node->playAnimation(
+        "run", nullptr, scene::AnimationProperties::fromFlags(kLocomotionFlags));
+    auto placeable = game.newPlaceable();
+    script::ExecutionContext ctx;
+
+    routine.invoke(
+        {script::Variable::ofObject(creature->id()), script::Variable::ofInt(123)}, ctx);
+
+    // The requested animation reached the creature and was layered on.
+    EXPECT_EQ("cdiveroll", fixture.node->activeAnimationName());
+    EXPECT_THAT(fixture.channelNames(), ElementsAre("cdiveroll", "run"));
+
+    // A non-creature target is rejected by argument checking, which the routine
+    // framework turns into a logged failure and a default return value, leaving
+    // the animation state alone.
+    auto result = routine.invoke(
+        {script::Variable::ofObject(placeable->id()), script::Variable::ofInt(123)}, ctx);
+    EXPECT_EQ(script::VariableType::Void, result.type);
+    EXPECT_EQ("cdiveroll", fixture.node->activeAnimationName());
 }
