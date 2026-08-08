@@ -17,6 +17,8 @@
 
 #include "reone/game/action/startconversation.h"
 
+#include "reone/system/logutil.h"
+
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/party.h"
@@ -28,6 +30,28 @@ namespace game {
 static constexpr float kMaxConversationDistance = 4.0f;
 
 void StartConversationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    // A queued ActionStartConversation that comes up while a dialogue is
+    // already running is discarded, not honored and not deferred.
+    //
+    // Scripts queue a conversation on a creature as a recovery measure, to be
+    // taken only once whatever is on screen has finished - K2 103PER reply
+    // scripts do this, and reaching one mid-scene must not restart the scene.
+    // Honoring the action would replace the running conversation, which also
+    // robs it of its EndConversation script and of the globals that script
+    // latches, so the replacement can pick the same opening entry and loop
+    // forever. Deferring it until the conversation ends is equally wrong: the
+    // recovery call would then fire the moment the dialogue it was guarding
+    // against completed, and the speaker would immediately re-greet the player.
+    //
+    // Dropping it matches retail, where the action fails outright while the
+    // engine is in dialogue mode.
+    if (_game.isConversationActive()) {
+        debug("Discarding StartConversation, a conversation is already active",
+              LogChannel::Conversation);
+        complete();
+        return;
+    }
+
     auto actorPtr = _game.getObjectById(actor.id());
 
     // A creature walks up to its conversation partner before talking. If the

@@ -5599,7 +5599,7 @@ static Variable IsNPCPartyMember(const std::vector<Variable> &args, const Routin
 
 static Variable GetIsConversationActive(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    bool active = ctx.game.currentScreen() == game::Game::Screen::Conversation;
+    bool active = ctx.game.isConversationActive();
     return Variable::ofInt(active);
 }
 

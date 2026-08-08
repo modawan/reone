@@ -224,6 +224,11 @@ public:
         return _screen;
     }
 
+    /** True while a conversation owns the screen, i.e. a dialogue is running. */
+    bool isConversationActive() const {
+        return _screen == Screen::Conversation;
+    }
+
     std::shared_ptr<movie::IMovie> movie() const {
         return _movie;
     }
