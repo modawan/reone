@@ -219,6 +219,10 @@ void Console::executeInputText() {
 }
 
 void Console::execute(std::string_view command) {
+    if (command.empty() || command.front() == '#') {
+        return;
+    }
+
     game::ConsoleArgs::TokenList tokens;
     boost::split(tokens, command, boost::is_space(), boost::token_compress_on);
     if (tokens.empty()) {
