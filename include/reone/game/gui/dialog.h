@@ -50,6 +50,15 @@ private:
         bool restoreCulling {true};
     };
 
+    /**
+     * A cutscene clip named directly by a DLG animation ordinal, together with
+     * whether the clip loops rather than playing once.
+     */
+    struct CutAnimation {
+        std::string name;
+        bool looping {false};
+    };
+
     struct Controls {
         std::shared_ptr<gui::Label> LBL_MESSAGE;
         std::shared_ptr<gui::ListBox> LB_REPLIES;
@@ -59,6 +68,12 @@ private:
 
     std::shared_ptr<Object> _currentSpeaker;
     std::map<std::string, Participant> _participantByTag;
+
+    /**
+     * Ordinary creatures currently holding an authored cutscene pose. They keep
+     * it until another authored animation replaces it or the dialogue ends.
+     */
+    std::vector<std::shared_ptr<Creature>> _heldCutParticipants;
 
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;
@@ -75,14 +90,17 @@ private:
 
     void updateCamera();
     void updateParticipantAnimations();
+    void applyCutAnimation(const std::string &participant, const CutAnimation &cut);
+    void applyDialogAnimation(const std::string &participant, int ordinal);
     void restoreInactiveStuntParticipants();
-    bool enterMixedStunt(Participant &participant, const std::shared_ptr<graphics::Animation> &animation);
+    bool enterMixedStunt(Participant &participant, const std::shared_ptr<graphics::Animation> &animation, bool looping);
     void leaveMixedStunt(Participant &participant);
 
     glm::vec3 getTalkPosition(const Object &object) const;
     DialogCamera::Variant getRandomCameraVariant() const;
-    std::string getStuntAnimationName(int ordinal) const;
-    AnimationType getStuntAnimationType(int ordinal) const;
+    static std::optional<CutAnimation> decodeCutAnimation(int ordinal);
+    AnimationType getDialogAnimationType(int ordinal) const;
+    std::shared_ptr<Creature> resolveParticipantCreature(const std::string &participant) const;
     bool hasStuntPresentation() const;
     std::shared_ptr<graphics::Animation> getStuntParticipantAnimation(
         const std::string &participant,
@@ -107,6 +125,8 @@ private:
 
     void loadStuntParticipants();
     void releaseStuntParticipants();
+    void holdCutParticipant(const std::shared_ptr<Creature> &creature);
+    void releaseHeldCutParticipants();
 
     // END Participants
 };
