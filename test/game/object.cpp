@@ -45,8 +45,10 @@
 #include "reone/resource/2da.h"
 #include "reone/resource/gff.h"
 #include "reone/scene/collision.h"
+#include "reone/scene/node/dummy.h"
 #include "reone/scene/node/model.h"
 #include "reone/scene/node/trigger.h"
+#include "reone/scene/node/walkmesh.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/program.h"
 
@@ -247,6 +249,11 @@ std::shared_ptr<Gff> makeJournalWithPlotXP() {
 
 scene::MockSceneGraph &testSceneGraph(TestEngine &engine) {
     static NiceMock<scene::MockSceneGraph> graph;
+    // A real SceneGraph keeps every node it hands out alive in its own set, and
+    // node trees rely on that: ModelSceneNode::buildNodeTree only keeps raw
+    // pointers to the child nodes it asks the graph for. The factories below
+    // have to retain them the same way.
+    static std::vector<std::shared_ptr<scene::SceneNode>> createdNodes;
     static bool initialized = false;
     if (!initialized) {
         EXPECT_CALL(engine.sceneModule().graphs(), get(_))
@@ -260,6 +267,44 @@ scene::MockSceneGraph &testSceneGraph(TestEngine &engine) {
                     engine.services().graphics,
                     engine.services().audio,
                     engine.services().resource);
+            }));
+        ON_CALL(graph, newModel(_, _))
+            .WillByDefault(Invoke([&engine](graphics::Model &model, scene::ModelUsage usage) {
+                auto node = std::make_shared<scene::ModelSceneNode>(
+                    model,
+                    usage,
+                    graph,
+                    engine.services().graphics,
+                    engine.services().audio,
+                    engine.services().resource);
+                createdNodes.push_back(node);
+                node->init();
+                return node;
+            }));
+        ON_CALL(graph, newWalkmesh(_))
+            .WillByDefault(Invoke([&engine](graphics::Walkmesh &walkmesh) {
+                // init() is skipped on purpose: it uploads a debug-render mesh,
+                // which needs the render thread. Collision only consults the
+                // node's enabled flag and transform.
+                auto node = std::make_shared<scene::WalkmeshSceneNode>(
+                    walkmesh,
+                    graph,
+                    engine.services().graphics,
+                    engine.services().audio,
+                    engine.services().resource);
+                createdNodes.push_back(node);
+                return node;
+            }));
+        ON_CALL(graph, newDummy(_))
+            .WillByDefault(Invoke([&engine](graphics::ModelNode &modelNode) {
+                auto node = std::make_shared<scene::DummySceneNode>(
+                    modelNode,
+                    graph,
+                    engine.services().graphics,
+                    engine.services().audio,
+                    engine.services().resource);
+                createdNodes.push_back(node);
+                return node;
             }));
         ON_CALL(graph, testWalk(_, _, _, _))
             .WillByDefault(Return(false));
@@ -1538,6 +1583,419 @@ TEST(LinkedDoorTransition, should_allow_normal_close_action_and_reactivate_when_
     EXPECT_EQ(
         scheduledTransition(engine, game),
         std::make_pair(std::string("destination_module"), std::string("destination_waypoint")));
+}
+
+namespace {
+
+// Every K1 and K2 door model carries these five animations. The three resting
+// poses are zero length in the shipped models; makeAnimation gives each a
+// length of one second, which is what lets the transitions be stepped.
+struct DoorAnimations {
+    bool opening {true};
+    bool closing {true};
+};
+
+std::shared_ptr<graphics::Model> makeDoorModel(DoorAnimations present) {
+    std::vector<std::shared_ptr<graphics::Animation>> animations {
+        makeAnimation("closed"),
+        makeAnimation("opened1"),
+        makeAnimation("opened2")};
+    if (present.opening) {
+        animations.push_back(makeAnimation("opening1"));
+    }
+    if (present.closing) {
+        animations.push_back(makeAnimation("closing1"));
+    }
+    return makeModel("testdoor", std::move(animations));
+}
+
+// A door with a live model and all three walkmeshes, authored into the given
+// resting state.
+std::shared_ptr<Door> makeLifecycleDoor(
+    Game &game,
+    TestEngine &engine,
+    int openState,
+    DoorAnimations present = DoorAnimations()) {
+
+    testSceneGraph(engine);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("genericdoors"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeGenericDoorsTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get("testdoor"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeDoorModel(present)));
+    for (auto suffix : {"testdoor0", "testdoor1", "testdoor2"}) {
+        EXPECT_CALL(engine.resourceModule().walkmeshes(), get(suffix, ResType::Dwk))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(makeDoorWalkmesh()));
+    }
+
+    auto gff = Gff::Builder()
+                   .field(Gff::Field::newByte("GenericType", 1))
+                   .field(Gff::Field::newByte("Static", 0))
+                   .field(Gff::Field::newByte("OpenState", static_cast<uint8_t>(openState)))
+                   .build();
+    auto door = game.newDoor();
+    door->deserialize(*gff);
+    return door;
+}
+
+std::string doorPose(const Door &door) {
+    auto model = std::static_pointer_cast<scene::ModelSceneNode>(door.sceneNode());
+    return model ? model->activeAnimationName() : std::string();
+}
+
+// One frame, in the order Game::update runs them: objects first, then the scene
+// graph advances model animations. A door therefore notices that a transition
+// animation finished on the frame after it actually did.
+void stepDoor(Door &door, float dt) {
+    door.update(dt);
+    auto model = std::static_pointer_cast<scene::ModelSceneNode>(door.sceneNode());
+    if (model) {
+        model->update(dt);
+    }
+}
+
+// The doorway is obstructed exactly when the closed walkmesh is live.
+bool doorwayBlocks(const Door &door) {
+    return door.walkmeshClosed() && door.walkmeshClosed()->isEnabled();
+}
+
+} // namespace
+
+// A. A door authored closed keeps loading closed and blocking.
+TEST(DoorLifecycle, should_load_an_authored_closed_door_closed_and_blocking) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto door = makeLifecycleDoor(game, engine, /*openState=*/0);
+
+    EXPECT_EQ(DoorState::Closed, door->state());
+    EXPECT_FALSE(door->isOpen());
+    EXPECT_EQ(DoorTransition::None, door->transition());
+    EXPECT_TRUE(doorwayBlocks(*door));
+    EXPECT_FALSE(door->walkmeshOpen1()->isEnabled());
+    EXPECT_FALSE(door->walkmeshOpen2()->isEnabled());
+    EXPECT_EQ("closed", doorPose(*door));
+}
+
+// B. A door authored open loads open, non-blocking, and already in its opened
+// pose - not sitting shut, and not replaying an opening it finished offscreen.
+TEST(DoorLifecycle, should_load_an_authored_open1_door_open_and_passable) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto door = makeLifecycleDoor(game, engine, /*openState=*/1);
+
+    EXPECT_EQ(DoorState::Opened1, door->state());
+    EXPECT_TRUE(door->isOpen());
+    EXPECT_EQ(DoorTransition::None, door->transition());
+    EXPECT_FALSE(doorwayBlocks(*door));
+    EXPECT_TRUE(door->walkmeshOpen1()->isEnabled());
+    EXPECT_FALSE(door->walkmeshOpen2()->isEnabled());
+    EXPECT_EQ("opened1", doorPose(*door));
+}
+
+// The second open side is a distinct pose and a distinct walkmesh, so it must
+// not be folded into the first. K2 101PER PERDoor105 is authored this way.
+TEST(DoorLifecycle, should_load_an_authored_open2_door_on_its_second_side) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto door = makeLifecycleDoor(game, engine, /*openState=*/2);
+
+    EXPECT_EQ(DoorState::Opened2, door->state());
+    EXPECT_TRUE(door->isOpen());
+    EXPECT_FALSE(doorwayBlocks(*door));
+    EXPECT_FALSE(door->walkmeshOpen1()->isEnabled());
+    EXPECT_TRUE(door->walkmeshOpen2()->isEnabled());
+    EXPECT_EQ("opened2", doorPose(*door));
+}
+
+TEST(DoorLifecycle, should_treat_an_unsupported_authored_open_state_as_closed) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto door = makeLifecycleDoor(game, engine, /*openState=*/7);
+
+    EXPECT_EQ(DoorState::Closed, door->state());
+    EXPECT_TRUE(doorwayBlocks(*door));
+}
+
+// B. A door that is swinging open is still in the doorway. Retail K2 will not
+// let the player past one until the opening animation has finished.
+TEST(DoorLifecycle, should_keep_blocking_the_doorway_until_the_open_completes) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto door = makeLifecycleDoor(game, engine, /*openState=*/0);
+    ASSERT_TRUE(doorwayBlocks(*door));
+
+    door->open();
+
+    // The opening has begun. The door is on its way, but it has not arrived,
+    // so it is still standing where it was and still obstructs the doorway.
+    EXPECT_EQ(DoorState::Closed, door->state());
+    EXPECT_FALSE(door->isOpen());
+    EXPECT_TRUE(door->isOpening());
+    EXPECT_EQ("opening1", doorPose(*door));
+    EXPECT_TRUE(doorwayBlocks(*door));
+    EXPECT_FALSE(door->walkmeshOpen1()->isEnabled());
+    EXPECT_FALSE(door->walkmeshOpen2()->isEnabled());
+
+    // Part way through the opening animation: still blocking. The animation is
+    // one second long, so these steps stay well inside it.
+    stepDoor(*door, 0.4f);
+    EXPECT_TRUE(door->isOpening());
+    EXPECT_FALSE(door->isOpen());
+    EXPECT_TRUE(doorwayBlocks(*door));
+
+    stepDoor(*door, 0.4f);
+    EXPECT_TRUE(door->isOpening());
+    EXPECT_TRUE(doorwayBlocks(*door));
+
+    // The step that carries the animation to its end. The door is still
+    // blocking on this frame, because it polls before the model advances.
+    stepDoor(*door, 0.4f);
+    EXPECT_TRUE(doorwayBlocks(*door));
+
+    // Now the door observes the finished animation and the doorway opens up.
+    stepDoor(*door, 0.4f);
+    EXPECT_FALSE(door->isOpening());
+    EXPECT_FALSE(doorwayBlocks(*door));
+    EXPECT_TRUE(door->walkmeshOpen1()->isEnabled());
+    EXPECT_FALSE(door->walkmeshOpen2()->isEnabled());
+    EXPECT_TRUE(door->isOpen());
+    EXPECT_EQ(DoorState::Opened1, door->state());
+    EXPECT_EQ("opened1", doorPose(*door));
+}
+
+// C. The mirror image. A door that is swinging shut has not sealed the doorway
+// yet, which is what lets K2 103PER close TO102PER behind a walking player.
+TEST(DoorLifecycle, should_not_block_the_doorway_until_the_close_completes) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto door = makeLifecycleDoor(game, engine, /*openState=*/1);
+
+    door->close();
+
+    // The close has begun, but somebody in the doorway is not sealed in: the
+    // door is still standing open until the animation says otherwise.
+    EXPECT_EQ(DoorState::Opened1, door->state());
+    EXPECT_TRUE(door->isOpen());
+    EXPECT_TRUE(door->isClosing());
+    EXPECT_EQ("closing1", doorPose(*door));
+    EXPECT_FALSE(doorwayBlocks(*door));
+    EXPECT_TRUE(door->walkmeshOpen1()->isEnabled());
+
+    // Part way through the closing animation: still passable.
+    stepDoor(*door, 0.4f);
+    EXPECT_TRUE(door->isClosing());
+    EXPECT_FALSE(doorwayBlocks(*door));
+
+    stepDoor(*door, 0.4f);
+    EXPECT_TRUE(door->isClosing());
+    EXPECT_FALSE(doorwayBlocks(*door));
+
+    // The step that carries the animation to its end.
+    stepDoor(*door, 0.4f);
+    EXPECT_FALSE(doorwayBlocks(*door));
+
+    // Now the door observes the finished animation and the doorway goes solid.
+    stepDoor(*door, 0.4f);
+    EXPECT_FALSE(door->isClosing());
+    EXPECT_TRUE(doorwayBlocks(*door));
+    EXPECT_FALSE(door->walkmeshOpen1()->isEnabled());
+    EXPECT_FALSE(door->isOpen());
+    EXPECT_EQ(DoorState::Closed, door->state());
+    EXPECT_EQ("closed", doorPose(*door));
+}
+
+// D. Closing part way through an opening. The superseded opening must never
+// complete afterwards and hand the doorway over.
+TEST(DoorLifecycle, should_discard_a_pending_open_when_the_door_closes_again) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto door = makeLifecycleDoor(game, engine, /*openState=*/0);
+
+    door->open();
+    stepDoor(*door, 0.4f);
+    ASSERT_TRUE(door->isOpening());
+
+    door->close();
+    EXPECT_FALSE(door->isOpening());
+    EXPECT_TRUE(door->isClosing());
+    EXPECT_TRUE(doorwayBlocks(*door));
+
+    // Past where the original opening would have completed, and on past where
+    // the close completes. The doorway is never handed over at any point.
+    for (int i = 0; i < 5; ++i) {
+        stepDoor(*door, 0.4f);
+        EXPECT_TRUE(doorwayBlocks(*door)) << "step " << i;
+        EXPECT_FALSE(door->isOpen()) << "step " << i;
+    }
+
+    EXPECT_EQ(DoorTransition::None, door->transition());
+    EXPECT_EQ(DoorState::Closed, door->state());
+    EXPECT_EQ("closed", doorPose(*door));
+}
+
+// E. Reopening part way through a close. The superseded close must never
+// complete afterwards and seal the doorway.
+TEST(DoorLifecycle, should_discard_a_pending_close_when_the_door_reopens) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto door = makeLifecycleDoor(game, engine, /*openState=*/1);
+
+    door->close();
+    stepDoor(*door, 0.4f);
+    ASSERT_TRUE(door->isClosing());
+
+    door->open();
+    EXPECT_FALSE(door->isClosing());
+    EXPECT_TRUE(door->isOpening());
+    EXPECT_FALSE(doorwayBlocks(*door));
+    EXPECT_TRUE(door->isOpen());
+
+    // Past where the original close would have completed, and on past where the
+    // reopening completes. The doorway is never sealed at any point.
+    for (int i = 0; i < 5; ++i) {
+        stepDoor(*door, 0.4f);
+        EXPECT_FALSE(doorwayBlocks(*door)) << "step " << i;
+        EXPECT_TRUE(door->isOpen()) << "step " << i;
+    }
+
+    EXPECT_EQ(DoorTransition::None, door->transition());
+    EXPECT_EQ(DoorState::Opened1, door->state());
+    EXPECT_TRUE(door->walkmeshOpen1()->isEnabled());
+    EXPECT_EQ("opened1", doorPose(*door));
+}
+
+// F. A door with nothing to animate has to arrive anyway, in both directions.
+TEST(DoorLifecycle, should_open_immediately_when_there_is_no_opening_animation) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto door = makeLifecycleDoor(game, engine, /*openState=*/0, DoorAnimations {false, true});
+    ASSERT_TRUE(doorwayBlocks(*door));
+
+    door->open();
+
+    EXPECT_FALSE(door->isOpening());
+    EXPECT_FALSE(doorwayBlocks(*door));
+    EXPECT_TRUE(door->isOpen());
+    EXPECT_EQ(DoorState::Opened1, door->state());
+    EXPECT_EQ("opened1", doorPose(*door));
+}
+
+TEST(DoorLifecycle, should_block_immediately_when_there_is_no_closing_animation) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto door = makeLifecycleDoor(game, engine, /*openState=*/1, DoorAnimations {true, false});
+    ASSERT_FALSE(doorwayBlocks(*door));
+
+    door->close();
+
+    EXPECT_FALSE(door->isClosing());
+    EXPECT_TRUE(doorwayBlocks(*door));
+    EXPECT_FALSE(door->isOpen());
+    EXPECT_EQ("closed", doorPose(*door));
+}
+
+// G. Repeated commands are stable, and in particular never invert collision for
+// a frame on their way to the state the door is already in.
+TEST(DoorLifecycle, should_keep_a_closed_door_blocking_when_closed_again) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto door = makeLifecycleDoor(game, engine, /*openState=*/1);
+    door->close();
+    stepDoor(*door, 1.5f);
+    stepDoor(*door, 0.1f);
+    ASSERT_TRUE(doorwayBlocks(*door));
+
+    door->close();
+    EXPECT_TRUE(doorwayBlocks(*door));
+    stepDoor(*door, 0.1f);
+
+    EXPECT_TRUE(doorwayBlocks(*door));
+    EXPECT_FALSE(door->isOpen());
+    EXPECT_EQ(DoorTransition::None, door->transition());
+    EXPECT_EQ(DoorState::Closed, door->state());
+    EXPECT_EQ("closed", doorPose(*door));
+}
+
+TEST(DoorLifecycle, should_keep_an_open_door_passable_when_opened_again) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto door = makeLifecycleDoor(game, engine, /*openState=*/1);
+    ASSERT_FALSE(doorwayBlocks(*door));
+
+    door->open();
+    EXPECT_FALSE(doorwayBlocks(*door));
+    stepDoor(*door, 0.1f);
+
+    EXPECT_FALSE(doorwayBlocks(*door));
+    EXPECT_TRUE(door->isOpen());
+    EXPECT_EQ(DoorTransition::None, door->transition());
+    EXPECT_EQ(DoorState::Opened1, door->state());
+    EXPECT_TRUE(door->walkmeshOpen1()->isEnabled());
+    EXPECT_EQ("opened1", doorPose(*door));
+}
+
+// Opening an already opening door must not rewind the leaf, which would push
+// the moment the doorway frees up further and further out under a click spam.
+TEST(DoorLifecycle, should_not_restart_an_opening_that_is_already_running) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto door = makeLifecycleDoor(game, engine, /*openState=*/0);
+
+    door->open();
+    stepDoor(*door, 0.4f);
+    door->open();
+    ASSERT_TRUE(door->isOpening());
+
+    // Three more steps carry the original animation past its one second and let
+    // the door observe it. A restart would need a fourth.
+    stepDoor(*door, 0.4f);
+    stepDoor(*door, 0.4f);
+    stepDoor(*door, 0.4f);
+
+    EXPECT_FALSE(door->isOpening());
+    EXPECT_TRUE(door->isOpen());
+    EXPECT_FALSE(doorwayBlocks(*door));
+}
+
+// A door that is opening is on its way out of reach, so it must not be offered
+// for interaction again while it swings.
+TEST(DoorLifecycle, should_not_offer_an_opening_door_for_interaction) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto door = makeLifecycleDoor(game, engine, /*openState=*/0);
+    ASSERT_TRUE(door->isSelectable());
+
+    door->open();
+    EXPECT_FALSE(door->isSelectable());
+
+    stepDoor(*door, 0.4f);
+    EXPECT_FALSE(door->isSelectable());
+
+    stepDoor(*door, 0.4f);
+    stepDoor(*door, 0.4f);
+    stepDoor(*door, 0.4f);
+    ASSERT_TRUE(door->isOpen());
+    EXPECT_FALSE(door->isSelectable());
 }
 
 TEST(Party, should_award_xp_to_pool_and_sync_current_members) {
