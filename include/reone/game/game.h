@@ -137,6 +137,17 @@ public:
     void update(float frameTime);
     void render();
 
+    /**
+     * Report, and clear, whether a break in gameplay time has occurred since
+     * the last call.
+     *
+     * Loading a module blocks for as long as reading it takes, and that wall
+     * time is not time the game world experienced. The caller owns the frame
+     * clock, so it is the caller that has to open a new epoch; this only says
+     * that one is due.
+     */
+    bool consumeTimingDiscontinuity();
+
     void playVideo(const std::string &name);
 
     bool isPaused() const { return _paused; }
@@ -491,6 +502,7 @@ private:
     CameraType _cameraType {CameraType::ThirdPerson};
     CameraType _savedCameraType {CameraType::ThirdPerson};
     bool _paused {false};
+    bool _timingDiscontinuity {false};
     std::set<std::string> _moduleNames;
     std::set<std::string> _saveNames;
     bool _quitRequested {false};

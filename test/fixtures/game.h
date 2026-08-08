@@ -160,6 +160,7 @@ public:
         PazaakSession::MainDeckFactory mainDeckFactory,
         std::function<void(const std::string &, uint32_t)> continuation);
     static void setCurrentScreen(Game &game, int screen);
+    static void raiseTimingDiscontinuity(Game &game);
     static void initConsole(Game &game);
     static void setActiveModule(Game &game, bool active);
     static void setPazaakDevelopmentSelectedObject(

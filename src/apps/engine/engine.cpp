@@ -244,6 +244,12 @@ int Engine::run() {
             continue;
         }
         uint64_t ticks = clock.micros();
+        if (_game->consumeTimingDiscontinuity()) {
+            // A synchronous load blocked somewhere in the last frame. Rebase
+            // onto now so that interval is not charged to the world as elapsed
+            // gameplay time: this frame opens a new epoch and starts at zero.
+            _ticks = ticks;
+        }
         auto frameTime = (ticks - _ticks) / 10e5f;
         _ticks = ticks;
         _profiler->measure(kMainThreadName, kProfilerInputTimeIndex, [this, &quit]() {
