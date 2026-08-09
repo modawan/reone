@@ -302,6 +302,24 @@ bool ModelSceneNode::isAnimationPlaying(const std::string &name) const {
     return false;
 }
 
+bool ModelSceneNode::restartAnimation(const std::string &name) {
+    auto anim = _model->getAnimation(name);
+    if (!anim) {
+        return false;
+    }
+    auto channel = std::find_if(_animChannels.begin(), _animChannels.end(), [&](const auto &channel) {
+        return channel.anim == anim.get();
+    });
+    if (channel == _animChannels.end()) {
+        return false;
+    }
+
+    channel->time = 0.0f;
+    channel->stateByNodeNumber.clear();
+    channel->finished = false;
+    return true;
+}
+
 ModelSceneNode::AnimationBlendMode ModelSceneNode::getAnimationBlendMode(int flags) {
     return (flags & AnimationFlags::blend) ? AnimationBlendMode::Blend : ((flags & AnimationFlags::overlay) ? AnimationBlendMode::Overlay : AnimationBlendMode::Single);
 }
