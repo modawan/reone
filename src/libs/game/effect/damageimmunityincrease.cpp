@@ -17,12 +17,19 @@
 
 #include "reone/game/effect/damageimmunityincrease.h"
 
+#include "reone/game/effect/damageimmunitydecrease.h"
+#include "reone/game/object.h"
+
 namespace reone {
 
 namespace game {
 
-void DamageImmunityIncreaseEffect::applyTo(Object &object) {
-    // TODO: implement
+bool DamageImmunityIncreaseEffect::onApply(Object &) {
+    return _percentImmunity >= 0;
+}
+
+bool DamageImmunityDecreaseEffect::onApply(Object &object) {
+    return _percentImmunity >= 0 && !object.plotFlag();
 }
 
 } // namespace game

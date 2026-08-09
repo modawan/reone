@@ -52,6 +52,10 @@ void Font::load(std::shared_ptr<Texture> texture) {
 }
 
 void Font::render(std::string_view text, const glm::vec3 &position, const glm::vec3 &color, TextGravity gravity) {
+    render(text, position, glm::vec4(color, 1.0f), gravity);
+}
+
+void Font::render(std::string_view text, const glm::vec3 &position, const glm::vec4 &color, TextGravity gravity) {
     if (text.empty()) {
         return;
     }
@@ -61,7 +65,7 @@ void Font::render(std::string_view text, const glm::vec3 &position, const glm::v
 
     _uniforms.setLocals([this, &color](auto &locals) {
         locals.reset();
-        locals.color = glm::vec4(color, 1.0f);
+        locals.color = color;
     });
 
     int numBlocks = static_cast<int>(text.size()) / kMaxTextChars;

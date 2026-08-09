@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,31 +17,41 @@
 
 #pragma once
 
-#include "../effect.h"
+#include <algorithm>
 
 namespace reone {
 
 namespace game {
 
-class SavingThrowDecreaseEffect : public Effect {
+class DamageAbsorption {
 public:
-    SavingThrowDecreaseEffect(int save, int value, SavingThrowType savingThrowType) :
-        Effect(EffectType::SavingThrowDecrease),
-        _save(save),
-        _value(value),
-        _savingThrowType(savingThrowType) {
+    DamageAbsorption(int amount, int limit) :
+        _amount(amount),
+        _limit(limit),
+        _limited(limit > 0) {
     }
 
-    void applyTo(Object &object) override;
+    int amount() const { return _amount; }
 
-    int save() const { return _save; }
-    int value() const { return _value; }
-    SavingThrowType savingThrowType() const { return _savingThrowType; }
+    int absorb(int damage) {
+        if (damage <= 0 || _amount <= 0) {
+            return 0;
+        }
+        if (!_limited) {
+            return std::min(damage, _amount);
+        }
+
+        int remaining = _limit;
+        _limit = std::max(0, _limit - damage);
+        return std::min(damage, _limit == 0 ? remaining : _amount);
+    }
+
+    bool exhausted() const { return _limited && _limit == 0; }
 
 private:
-    int _save;
-    int _value;
-    SavingThrowType _savingThrowType;
+    int _amount;
+    int _limit;
+    bool _limited;
 };
 
 } // namespace game

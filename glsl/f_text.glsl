@@ -12,5 +12,5 @@ void main() {
     vec2 uv = fragUV1 * uTextChars[fragInstanceID].uv.zw + uTextChars[fragInstanceID].uv.xy;
     vec4 mainTexSample = texture(sMainTex, uv);
     vec3 objectColor = uColor.rgb * mainTexSample.rgb;
-    fragColor = vec4(objectColor, mainTexSample.a);
+    fragColor = vec4(objectColor, uColor.a * mainTexSample.a);
 }

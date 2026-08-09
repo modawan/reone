@@ -46,6 +46,9 @@ namespace game {
 
 constexpr float kDefaultAttackRange = 2.0f;
 
+class DamagePacket;
+struct AttackBonusBreakdown;
+
 class Creature : public Object, public scene::IAnimationEventListener {
 public:
     enum class ModelType {
@@ -87,6 +90,9 @@ public:
         bool shouldDeactivate {false};
         bool debilitated {false};
         std::shared_ptr<Object> attackTarget;
+        uint32_t attemptedAttackTarget {script::kObjectInvalid};
+        ActionType attackAction {ActionType::QueueEmpty};
+        FeatType combatFeat {FeatType::Invalid};
         Timer deactivationTimer;
     };
 
@@ -119,7 +125,7 @@ public:
     void stopTalking();
 
     bool isSelectable() const override;
-    bool isMovementRestricted() const { return _movementRestricted; }
+    bool isMovementRestricted() const { return _movementRestricted || !canExecuteActions(); }
     bool isLevelUpPending() const;
 
     glm::vec3 getSelectablePosition() const override;
@@ -133,12 +139,14 @@ public:
     float walkSpeed() const { return _walkSpeed; }
     float runSpeed() const { return _runSpeed; }
     float creaturePersonalSpace() const { return _creaturePersonalSpace; }
+    CreatureSize size() const { return _size; }
     CreatureAttributes &attributes() { return _attributes; }
     const CreatureAttributes &attributes() const { return _attributes; }
     ItemAttributes &itemAttributes() { return _itemAttributes; }
     const ItemAttributes &itemAttributes() const { return _itemAttributes; }
     Faction faction() const { return _faction; }
     int xp() const { return _xp; }
+    Alignment alignment() const;
     RacialType racialType() const { return _race; }
     Subrace subrace() const { return _subrace; }
     NPCAIStyle aiStyle() const { return _aiStyle; }
@@ -218,19 +226,54 @@ public:
     void deactivateCombat(float delay);
 
     bool isInCombat() const { return _combatState.active; }
-    bool isDebilitated() const { return _combatState.debilitated; }
+    bool isDebilitated() const;
+    bool isTemporarilyDead() const;
     bool isTwoWeaponFighting() const;
+    std::shared_ptr<Item> getOffhandAttackWeapon() const;
 
-    std::shared_ptr<Object> getAttemptedAttackTarget() const;
+    uint32_t getAttemptedAttackTarget() const { return _combatState.attemptedAttackTarget; }
     std::shared_ptr<Object> getAttackTarget() const { return _combatState.attackTarget; }
+    uint32_t getLastHostileTarget() const { return _lastHostileTarget; }
+    ActionType getLastAttackAction() const { return _lastAttackAction; }
+    FeatType getLastCombatFeat() const { return _lastCombatFeat; }
+    AttackResultType getLastAttackResult() const { return _lastAttackResult; }
+    int modifiedAttacks() const { return _modifiedAttacks; }
+    bool hasAssuredHit() const { return _assuredHit; }
+    AttackBonusBreakdown getAttackBonusBreakdown(
+        const Creature *target,
+        const Item *weapon,
+        bool offHand) const;
     int getAttackBonus(bool offHand = false) const;
+    int getDefense(const Creature *attacker, int damageFlags) const;
     int getDefense() const;
+    int getFortitudeSave(SavingThrowType savingThrowType = SavingThrowType::All) const;
+    bool rollFortitudeSave(
+        int difficultyClass,
+        SavingThrowType savingThrowType = SavingThrowType::All) const;
+    int getPhysicalDamageBonus(const Item *weapon, bool offHand) const;
+    int getMassiveCriticalDamage(const Item *weapon, bool criticalHit) const;
+    int getItemDamageImmunity(DamageType type) const;
+    int getItemDamageResistance(DamageType type) const;
+    void getItemDamageReduction(int &amount, DamagePower &power) const;
+    int getDamageResistanceFeatBonus() const;
+    void addPhysicalDamageModifiers(
+        DamagePacket &damage,
+        const Creature *target,
+        const Item *weapon,
+        bool offHand,
+        int criticalMultiplier) const;
     void getMainHandDamage(int &min, int &max) const;
     void getOffhandDamage(int &min, int &max) const;
 
-    void setAttackTarget(std::shared_ptr<Object> target) {
-        _combatState.attackTarget = std::move(target);
+    void setAttemptedAttackTarget(uint32_t target) {
+        _combatState.attemptedAttackTarget = target;
     }
+    void beginCombatAttack(std::shared_ptr<Object> target, FeatType feat);
+    void finishCombatRound();
+    void setLastAttackResult(AttackResultType result) { _lastAttackResult = result; }
+    void adjustModifiedAttacks(int amount);
+    bool applyAssuredHit();
+    void removeAssuredHit() { _assuredHit = false; }
 
     // END Combat
 
@@ -277,6 +320,9 @@ public:
     void setIsListening(bool value) { _isListening = value; }
 
     // END Listeners
+
+protected:
+    bool canExecuteActions() const override;
 
 private:
     // Serializable
@@ -336,6 +382,7 @@ private:
     float _walkSpeed {0.0f};
     float _runSpeed {0.0f};
     float _creaturePersonalSpace {0.6f};
+    CreatureSize _size {CreatureSize::Invalid};
     MovementType _movementType {MovementType::None};
     bool _talking {false};
 
@@ -343,6 +390,12 @@ private:
 
     bool _movementRestricted {false};
     CombatState _combatState;
+    uint32_t _lastHostileTarget {script::kObjectInvalid};
+    ActionType _lastAttackAction {ActionType::QueueEmpty};
+    FeatType _lastCombatFeat {FeatType::Invalid};
+    AttackResultType _lastAttackResult {AttackResultType::Invalid};
+    int _modifiedAttacks {0};
+    bool _assuredHit {false};
     bool _immortal {false};
     std::shared_ptr<resource::SoundSet> _soundSet;
     BodyBag _bodyBag;
@@ -374,9 +427,10 @@ private:
 
     void loadTransformFromGIT(const resource::generated::GIT_Creature_List &git);
 
+    void onEffectsCleared() override;
     void updateModel();
 
-    // Refresh appearance-derived state (model type, speeds, footstep, envmap,
+    // Refresh appearance-derived state (model type, size, speeds, footstep, envmap,
     // portrait) for the current _appearance, without building a scene node.
     void loadAppearanceProperties();
 
@@ -429,7 +483,13 @@ private:
 
     bool getWeaponInfo(WeaponType &type, WeaponWield &wield) const;
     int getWeaponWieldNumber(WeaponWield wield) const;
-    void getWeaponDamage(int slot, int &min, int &max) const;
+    int getRelativeWeaponSize(const Item &weapon) const;
+    int getTwoWeaponAttackPenalty(
+        const Item *weapon,
+        bool offHand,
+        int *smallOffhandBonus = nullptr) const;
+    int getDuelingBonus() const;
+    void getWeaponDamage(const Item *weapon, int &min, int &max) const;
 
     // END Animation
 

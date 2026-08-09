@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,13 +15,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/game/effect/damageresistance.h"
+#include "reone/game/messagelog.h"
 
 namespace reone {
 
 namespace game {
 
-void DamageResistanceEffect::applyTo(Object &) {
+void MessageLog::add(uint32_t type, Style style, std::string text) {
+    while (_entries.size() >= kMaxEntries) {
+        _entries.pop_front();
+    }
+    _entries.push_back({type, style, std::move(text)});
 }
 
 } // namespace game

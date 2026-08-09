@@ -121,7 +121,10 @@ std::optional<int> TwoDA::getIntOpt(int row, const std::string &column) const {
     if (value.empty()) {
         return std::nullopt;
     }
-    return stoi(value);
+    bool hexadecimal = value.size() > 2 &&
+                       value[0] == '0' &&
+                       (value[1] == 'x' || value[1] == 'X');
+    return stoi(value, nullptr, hexadecimal ? 16 : 10);
 }
 
 uint32_t TwoDA::getHexInt(int row, const std::string &column, uint32_t defValue) const {

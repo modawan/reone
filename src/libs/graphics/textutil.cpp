@@ -19,74 +19,86 @@
 
 #include "reone/graphics/font.h"
 
+#include <cctype>
+#include <string_view>
+
 namespace reone {
 
 namespace graphics {
 
+static float measureCharacter(Font &font, char ch) {
+    return font.measure(std::string_view(&ch, 1));
+}
+
+static bool isAlphabetic(char ch) {
+    return std::isalpha(static_cast<unsigned char>(ch)) != 0;
+}
+
 std::vector<std::string> breakText(const std::string &text, Font &font, int maxWidth) {
     std::vector<std::string> result;
-    std::string line;
-    std::ostringstream tokenBuffer;
+    if (text.empty()) {
+        return result;
+    }
 
-    for (char ch : text) {
-        switch (ch) {
-        case '\n': {
-            std::string token(tokenBuffer.str());
-            if (!token.empty()) {
-                tokenBuffer.str("");
-                if (!line.empty()) {
-                    line += " ";
-                }
-                line += token;
-            }
-            if (!line.empty()) {
-                result.push_back(line);
-                line = "";
-            }
-            break;
+    size_t lineStart = 0;
+    while (lineStart < text.size()) {
+        if (text[lineStart] == '\n') {
+            result.emplace_back();
+            ++lineStart;
+            continue;
         }
-        case ' ': {
-            std::string token(tokenBuffer.str());
-            if (!token.empty()) {
-                tokenBuffer.str("");
 
-                std::string test(line);
-                if (!test.empty()) {
-                    test += " ";
-                }
-                test += token;
+        float width = 0.0f;
+        size_t breakAt = std::string::npos;
+        size_t cursor = lineStart;
+        bool wrapped = false;
 
-                if (font.measure(test) <= maxWidth) {
-                    line = std::move(test);
+        while (cursor < text.size() && text[cursor] != '\n') {
+            char ch = text[cursor];
+            width += measureCharacter(font, ch);
+
+            if (ch == ' ' && cursor > lineStart) {
+                breakAt = cursor;
+            } else if (ch == '-' &&
+                       cursor > lineStart &&
+                       cursor + 1 < text.size() &&
+                       isAlphabetic(text[cursor - 1]) &&
+                       isAlphabetic(text[cursor + 1])) {
+                breakAt = cursor;
+            }
+
+            if (width >= static_cast<float>(maxWidth)) {
+                size_t lineEnd;
+                size_t nextLineStart;
+                if (breakAt != std::string::npos) {
+                    bool breakAfter = text[breakAt] == '-';
+                    lineEnd = breakAt + static_cast<size_t>(breakAfter);
+                    nextLineStart = breakAt + 1;
+                } else if (cursor > lineStart) {
+                    lineEnd = cursor;
+                    nextLineStart = cursor;
                 } else {
-                    result.push_back(line);
-                    line = std::move(token);
+                    lineEnd = cursor + 1;
+                    nextLineStart = cursor + 1;
                 }
-            }
-            break;
-        }
-        default:
-            tokenBuffer.put(ch);
-            break;
-        }
-    }
 
-    std::string token(tokenBuffer.str());
-    std::string test(line);
-    if (!token.empty()) {
-        if (!test.empty()) {
-            test += " ";
-        }
-        test += token;
-    }
-    if (!test.empty()) {
-        if (font.measure(test) <= maxWidth) {
-            result.push_back(test);
-        } else {
-            result.push_back(line);
-            if (!token.empty()) {
-                result.push_back(token);
+                result.emplace_back(text.substr(lineStart, lineEnd - lineStart));
+                lineStart = nextLineStart;
+                wrapped = true;
+                break;
             }
+            ++cursor;
+        }
+
+        if (wrapped) {
+            continue;
+        }
+
+        result.emplace_back(text.substr(lineStart, cursor - lineStart));
+        if (cursor == text.size()) {
+            lineStart = cursor;
+        } else {
+            lineStart = cursor + 1;
         }
     }
 

@@ -71,8 +71,10 @@ public:
 
     bool isUserAction() const { return _userAction; }
     bool isCompleted() const { return _completed; }
+    bool isCancelled() const { return _cancelled; }
 
     void setUserAction(bool val) { _userAction = val; }
+    void markCancelled() { _cancelled = true; }
 
 protected:
     const float kDefaultMaxObjectDistance = 2.0f;
@@ -84,6 +86,7 @@ protected:
 
     bool _userAction {false};
     bool _completed {false};
+    bool _cancelled {false};
     bool _locked {false};
 
     Action(

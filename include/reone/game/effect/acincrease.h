@@ -34,6 +34,10 @@ public:
 
     void applyTo(Object &object) override;
 
+    int bonus() const { return _value; }
+    ACBonus modifierType() const { return _modifyType; }
+    int damageType() const { return _damageType; }
+
 private:
     int _value;
     ACBonus _modifyType;

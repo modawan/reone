@@ -96,16 +96,9 @@ public:
     void update(float dt);
     void reset() { _rounds.clear(); }
 
-public:
+private:
     using RoundQueue = std::deque<std::unique_ptr<CombatRound>>;
 
-    /**
-     * Returns a list of past (completed) rounds as well as current rounds
-     * ordered from oldest to newest.
-     */
-    const RoundQueue &rounds() const { return _rounds; }
-
-private:
     Game &_game;
     ServicesView &_services;
 
@@ -113,6 +106,7 @@ private:
 
     void updateRound(CombatRound &round, float dt);
     void finishRound(CombatRound &round);
+    void retireCompletedRounds();
 
     CombatRound *findRoundForAction(const std::shared_ptr<Action> &action, uint32_t attacker);
     CombatRound *tryAppendAction(const std::shared_ptr<Action> &action, uint32_t attacker, uint32_t target);

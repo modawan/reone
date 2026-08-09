@@ -112,10 +112,10 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/effect/cutsceneparalyze.h
     ${GAME_INCLUDE_DIR}/effect/cutscenestunned.h
     ${GAME_INCLUDE_DIR}/effect/damage.h
+    ${GAME_INCLUDE_DIR}/effect/damageabsorption.h
     ${GAME_INCLUDE_DIR}/effect/damagedecrease.h
     ${GAME_INCLUDE_DIR}/effect/damageforcepoints.h
     ${GAME_INCLUDE_DIR}/effect/damageimmunitydecrease.h
-    ${GAME_INCLUDE_DIR}/effect/damageimmunityincrease.h
     ${GAME_INCLUDE_DIR}/effect/damageimmunityincrease.h
     ${GAME_INCLUDE_DIR}/effect/damageincrease.h
     ${GAME_INCLUDE_DIR}/effect/damagereduction.h
@@ -183,6 +183,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/equipmentrules.h
     ${GAME_INCLUDE_DIR}/event.h
     ${GAME_INCLUDE_DIR}/footstepsounds.h
+    ${GAME_INCLUDE_DIR}/floatingtext.h
     ${GAME_INCLUDE_DIR}/game.h
     ${GAME_INCLUDE_DIR}/itemdescription.h
     ${GAME_INCLUDE_DIR}/gui.h
@@ -295,6 +296,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/statussummary.h
     ${GAME_INCLUDE_DIR}/location.h
     ${GAME_INCLUDE_DIR}/messagebus.h
+    ${GAME_INCLUDE_DIR}/messagelog.h
     ${GAME_INCLUDE_DIR}/minigame.h
     ${GAME_INCLUDE_DIR}/object.h
     ${GAME_INCLUDE_DIR}/object/area.h
@@ -336,6 +338,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/swooprace.h
     ${GAME_INCLUDE_DIR}/talent.h
     ${GAME_INCLUDE_DIR}/transitioncandidate.h
+    ${GAME_INCLUDE_DIR}/twodautil.h
     ${GAME_INCLUDE_DIR}/types.h
     ${GAME_INCLUDE_DIR}/visualeffects.h)
 
@@ -465,6 +468,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/effect.cpp
     ${GAME_SOURCE_DIR}/equipmentrules.cpp
     ${GAME_SOURCE_DIR}/footstepsounds.cpp
+    ${GAME_SOURCE_DIR}/floatingtext.cpp
     ${GAME_SOURCE_DIR}/game.cpp
     ${GAME_SOURCE_DIR}/itemdescription.cpp
     ${GAME_SOURCE_DIR}/gui/actionbar.cpp
@@ -511,6 +515,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/journal.cpp
     ${GAME_SOURCE_DIR}/statussummary.cpp
     ${GAME_SOURCE_DIR}/messagebus.cpp
+    ${GAME_SOURCE_DIR}/messagelog.cpp
     ${GAME_SOURCE_DIR}/object.cpp
     ${GAME_SOURCE_DIR}/object/area.cpp
     ${GAME_SOURCE_DIR}/object/camera/animated.cpp
@@ -547,6 +552,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/surfaces.cpp
     ${GAME_SOURCE_DIR}/swooprace.cpp
     ${GAME_SOURCE_DIR}/transitioncandidate.cpp
+    ${GAME_SOURCE_DIR}/twodautil.cpp
     ${GAME_SOURCE_DIR}/visualeffects.cpp)
 
 add_library(game STATIC ${GAME_HEADERS} ${GAME_SOURCES} ${CLANG_FORMAT_PATH})

@@ -92,14 +92,19 @@ public:
     bool isDropable() const { return _dropable; }
     bool isIdentified() const { return _identified; }
     bool isEquipped() const { return _equipped; }
+    bool isLightsaber() const { return _baseItem >= 8 && _baseItem <= 10; }
     bool isRanged() const { return _weaponType == WeaponType::Ranged; }
 
     const std::string &baseBodyVariation() const { return _baseBodyVariation; }
     const std::string &itemClass() const { return _itemClass; }
     const std::string &localizedName() const { return _localizedName.str(); }
-    float attackRange() const { return static_cast<float>(_attackRange); }
+    float attackRange() const { return _attackRange; }
     int bodyVariation() const { return _bodyVariation; }
-    int damageFlags() const { return _damageFlags; }
+    int damageFlags() const {
+        return _damageFlags != 0
+                   ? _damageFlags
+                   : static_cast<int>(DamageType::Universal);
+    }
     int dieToRoll() const { return _dieToRoll; }
     int modelVariation() const { return _modelVariation; }
     int numDice() const { return _numDice; }
@@ -109,11 +114,17 @@ public:
     std::shared_ptr<graphics::Texture> icon() const { return _icon; }
     WeaponType weaponType() const { return _weaponType; }
     WeaponWield weaponWield() const { return _weaponWield; }
+    CreatureSize weaponSize() const { return _weaponSize; }
     const std::string &description() const { return _description.str(); }
     const std::string &descIdentified() const { return _descIdentified.str(); }
     int baseItemType() const { return _baseItem; }
     int criticalThreat() const { return _criticalThreat; }
     int criticalHitMultiplier() const { return _criticalHitMultiplier; }
+    FeatType weaponFocusFeat() const { return _weaponFocusFeat; }
+    FeatType weaponSpecializationFeat() const { return _weaponSpecializationFeat; }
+    int baseDefense() const { return _baseDefense; }
+    int maxDexterityBonus() const { return _maxDexterityBonus; }
+    ACBonus acBonusType() const { return _acBonusType; }
     std::optional<SpellType> activateSpell() const { return _activateSpell; }
     const std::vector<PropertyEntry> &properties() const { return _properties; }
 
@@ -148,12 +159,13 @@ private:
 
     std::shared_ptr<graphics::Texture> _icon;
     uint32_t _equipableSlots {0};
-    int _attackRange {0};
+    float _attackRange {0.0f};
     int _numDice {0};
     int _dieToRoll {0};
     int _damageFlags {0};
     WeaponType _weaponType {WeaponType::None};
     WeaponWield _weaponWield {WeaponWield::None};
+    CreatureSize _weaponSize {CreatureSize::Invalid};
 
     bool _equipped {false};
     std::shared_ptr<AmmunitionType> _ammunitionType;
@@ -166,6 +178,11 @@ private:
 
     int _criticalThreat {0};
     int _criticalHitMultiplier {0};
+    FeatType _weaponFocusFeat {FeatType::Invalid};
+    FeatType _weaponSpecializationFeat {FeatType::Invalid};
+    int _baseDefense {0};
+    int _maxDexterityBonus {-1};
+    ACBonus _acBonusType {ACBonus::Invalid};
 
     std::optional<SpellType> _activateSpell;
     int _disguiseAppearance {-1};

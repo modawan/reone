@@ -481,13 +481,17 @@ void Equipment::updateEquipment() {
     partyLeader->getOffhandDamage(min, max);
     _controls.LBL_ATKL->setTextMessage(str(boost::format("%d-%d") % min % max));
 
-    int attackBonus = partyLeader->getAttackBonus();
-    std::string attackBonusString(std::to_string(attackBonus));
-    if (attackBonus > 0) {
-        attackBonusString.insert(0, "+");
-    }
-    _controls.LBL_TOHITL->setTextMessage(attackBonusString);
-    _controls.LBL_TOHITR->setTextMessage(attackBonusString);
+    auto formatAttackBonus = [](int attackBonus) {
+        std::string result(std::to_string(attackBonus));
+        if (attackBonus > 0) {
+            result.insert(0, "+");
+        }
+        return result;
+    };
+    _controls.LBL_TOHITL->setTextMessage(
+        formatAttackBonus(partyLeader->getAttackBonus(true)));
+    _controls.LBL_TOHITR->setTextMessage(
+        formatAttackBonus(partyLeader->getAttackBonus()));
 }
 
 std::shared_ptr<Texture> Equipment::getEmptySlotIcon(Slot slot) const {

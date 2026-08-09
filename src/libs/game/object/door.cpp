@@ -212,7 +212,8 @@ void Door::damage(int amount, uint32_t damager) {
     if (amount == std::numeric_limits<int>::max()) {
         _currentHitPoints = isMinOneHP() ? 1 : 0;
     } else {
-        _currentHitPoints = std::max(isMinOneHP() ? 1 : 0, currentHitPoints - amount);
+        int adjustedAmount = applyDamageToHitPoints(amount, currentHitPoints);
+        _game.floatingText().addDamage(*this, amount, adjustedAmount, damager);
     }
 
     damager = damager ? damager : script::kObjectInvalid;
