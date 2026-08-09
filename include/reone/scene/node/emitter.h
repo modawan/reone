@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "reone/graphics/aabb.h"
 #include "reone/system/timer.h"
 
 #include "modelnode.h"
@@ -30,6 +31,11 @@ class ParticleSceneNode;
 
 class EmitterSceneNode : public ModelNodeSceneNode {
 public:
+    struct ParticleBasis {
+        glm::vec3 right {0.0f};
+        glm::vec3 up {0.0f};
+    };
+
     EmitterSceneNode(
         graphics::ModelNode &modelNode,
         ISceneGraph &sceneGraph,
@@ -53,6 +59,13 @@ public:
 
     void detonate();
     void rearmSingle();
+
+    static ParticleBasis localZParticleBasis(const glm::mat4 &emitterTransform);
+    static graphics::AABB particleBounds(
+        const glm::vec3 &origin,
+        const glm::vec2 &size,
+        const ParticleBasis &basis);
+    graphics::AABB particleBounds(const ParticleSceneNode &particle) const;
 
     float getParticleSize(float time) const { return _particleSize.get(time); };
     glm::vec3 getColor(float time) const { return _color.get(time); };

@@ -6,6 +6,7 @@
 #include "reone/scene/graph.h"
 #include "reone/scene/node/emitter.h"
 #include "reone/scene/node/model.h"
+#include "reone/scene/node/particle.h"
 #include "../fixtures/audio.h"
 #include "../fixtures/graphics.h"
 #include "../fixtures/resource.h"
@@ -17,6 +18,107 @@ using namespace reone::audio;
 using namespace reone::scene;
 using namespace reone::resource;
 
+TEST(EmitterSceneNode, local_z_particle_basis_preserves_authored_winding) {
+    auto orientation = glm::angleAxis(glm::half_pi<float>(), glm::normalize(glm::vec3(1.0f, 2.0f, 3.0f)));
+    auto transform = glm::mat4_cast(orientation);
+
+    auto basis = EmitterSceneNode::localZParticleBasis(transform);
+    auto authoredRight = glm::vec3(transform[0]);
+    auto authoredUp = glm::vec3(transform[1]);
+    auto authoredForward = glm::normalize(glm::vec3(transform[2]));
+
+    EXPECT_LT(glm::length(basis.right - authoredRight), 0.0001f);
+    EXPECT_LT(glm::length(basis.up - authoredUp), 0.0001f);
+    EXPECT_GT(glm::dot(glm::normalize(glm::cross(basis.right, basis.up)), authoredForward), 0.9999f);
+}
+
+TEST(EmitterSceneNode, particle_bounds_include_rendered_billboard_extent) {
+    EmitterSceneNode::ParticleBasis basis {
+        glm::vec3(2.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 0.5f, 0.0f),
+    };
+
+    auto bounds = EmitterSceneNode::particleBounds(
+        glm::vec3(10.0f, 20.0f, 30.0f),
+        glm::vec2(8.0f, 4.0f),
+        basis);
+
+    EXPECT_FLOAT_EQ(2.0f, bounds.min().x);
+    EXPECT_FLOAT_EQ(19.0f, bounds.min().y);
+    EXPECT_FLOAT_EQ(30.0f, bounds.min().z);
+    EXPECT_FLOAT_EQ(18.0f, bounds.max().x);
+    EXPECT_FLOAT_EQ(21.0f, bounds.max().y);
+    EXPECT_FLOAT_EQ(30.0f, bounds.max().z);
+}
+
+TEST(EmitterSceneNode, billboard_intersecting_frustum_is_retained_when_center_is_outside) {
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+
+    auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
+    auto cameraNode = scene->newCamera();
+    cameraNode->setPerspectiveProjection(glm::half_pi<float>(), 1.0f, 0.25f, 10.0f);
+    scene->setActiveCamera(cameraNode.get());
+
+    auto emitterData = std::make_shared<ModelNode::Emitter>();
+    emitterData->updateMode = ModelNode::Emitter::UpdateMode::Fountain;
+    emitterData->renderMode = ModelNode::Emitter::RenderMode::Normal;
+    auto modelNode = ModelNode(0, "emitter", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    modelNode.setEmitter(emitterData);
+    auto emitter = scene->newEmitter(modelNode);
+    emitter->init();
+
+    auto particle = scene->newParticle(*emitter);
+    particle->setLocalTransform(glm::translate(glm::mat4(1.0f), glm::vec3(5.5f, 0.0f, -5.0f)));
+    particle->setSize(glm::vec2(2.0f));
+
+    auto camera = cameraNode->camera();
+    ASSERT_FALSE(camera->isInFrustum(particle->origin()));
+    EXPECT_TRUE(camera->isInFrustum(emitter->particleBounds(*particle)));
+}
+
+TEST(ModelSceneNode, emitter_only_model_is_not_rejected_by_degenerate_root_bounds) {
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+
+    auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
+    auto rootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto emitterData = std::make_shared<ModelNode::Emitter>();
+    emitterData->updateMode = ModelNode::Emitter::UpdateMode::Fountain;
+    emitterData->renderMode = ModelNode::Emitter::RenderMode::Normal;
+    auto emitterNode = std::make_shared<ModelNode>(1, "emitter_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, rootNode.get());
+    emitterNode->setEmitter(emitterData);
+    rootNode->addChild(emitterNode);
+
+    auto model = Model("emitter_only", 0, rootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    model.init();
+    auto modelNode = scene->newModel(model, ModelUsage::GUI);
+    modelNode->setLocalTransform(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -100.0f)));
+    scene->addRoot(modelNode);
+
+    auto cameraNode = scene->newCamera();
+    cameraNode->setPerspectiveProjection(glm::radians(55.0f), 1.0f, 0.25f, 10.0f);
+    scene->setActiveCamera(cameraNode.get());
+
+    ASSERT_TRUE(modelNode->isPoint());
+    ASSERT_TRUE(modelNode->hasActiveRenderableEmitters());
+
+    scene->update(0.0f);
+
+    EXPECT_FALSE(modelNode->isCulled());
+}
 TEST(EmitterSceneNode, looping_model_animation_rearms_single_emitter_after_particle_expires) {
     auto graphicsOpt = GraphicsOptions();
     auto pipelineFactory = MockRenderPipelineFactory();

@@ -184,6 +184,11 @@ void SceneGraph::cullRoots() {
             continue; // disable distance and frustum culling
         }
 
+        if (root->isPoint() && root->hasActiveRenderableEmitters()) {
+            root->setCulled(false);
+            continue; // emitter-only models are culled per live particle
+        }
+
         float distanceToCamera = root->getSquareDistanceTo(*_activeCamera);
         float drawDistance = root->drawDistance() * root->drawDistance();
 
@@ -418,7 +423,7 @@ void SceneGraph::prepareTransparentLeafs() {
                 continue;
             }
             auto particle = static_cast<ParticleSceneNode *>(child);
-            if (!camera->isInFrustum(particle->origin())) {
+            if (!camera->isInFrustum(emitter->particleBounds(*particle))) {
                 continue;
             }
             leafs.push_back(particle);

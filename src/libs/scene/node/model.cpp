@@ -144,6 +144,24 @@ void ModelSceneNode::signalEvent(const std::string &name) {
     }
 }
 
+bool ModelSceneNode::hasActiveRenderableEmitters() const {
+    std::function<bool(const SceneNode &)> visit = [&](const SceneNode &node) {
+        if (!node.isEnabled()) {
+            return false;
+        }
+        if (node.type() == SceneNodeType::Emitter) {
+            auto &emitterNode = static_cast<const EmitterSceneNode &>(node);
+            auto emitter = emitterNode.modelNode().emitter();
+            return emitter &&
+                   emitter->updateMode != ModelNode::Emitter::UpdateMode::Invalid &&
+                   emitter->renderMode != ModelNode::Emitter::RenderMode::Invalid;
+        }
+        return std::any_of(node.children().begin(), node.children().end(), [&](const auto &child) {
+            return visit(*child);
+        });
+    };
+    return visit(*this);
+}
 void ModelSceneNode::attach(const std::string &parentName, SceneNode &node) {
     auto maybeParent = _nodeByName.find(parentName);
     if (maybeParent == _nodeByName.end()) {

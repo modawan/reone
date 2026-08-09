@@ -110,6 +110,7 @@ public:
     void signalEvent(const std::string &name);
 
     bool isPickable() const { return _pickable; }
+    bool hasActiveRenderableEmitters() const;
 
     ModelNodeSceneNode *getNodeByNumber(uint16_t number);
     ModelNodeSceneNode *getNodeByName(const std::string &name);

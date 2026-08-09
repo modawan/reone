@@ -257,6 +257,67 @@ void EmitterSceneNode::rearmSingle() {
     }
 }
 
+EmitterSceneNode::ParticleBasis EmitterSceneNode::localZParticleBasis(const glm::mat4 &emitterTransform) {
+    return {
+        glm::vec3(emitterTransform[0]),
+        glm::vec3(emitterTransform[1]),
+    };
+}
+
+graphics::AABB EmitterSceneNode::particleBounds(
+    const glm::vec3 &origin,
+    const glm::vec2 &size,
+    const ParticleBasis &basis) {
+    auto halfExtent = 0.5f * (
+        glm::abs(size.x) * glm::abs(basis.right) +
+        glm::abs(size.y) * glm::abs(basis.up));
+    return graphics::AABB(origin - halfExtent, origin + halfExtent);
+}
+
+graphics::AABB EmitterSceneNode::particleBounds(const ParticleSceneNode &particle) const {
+    auto emitter = _modelNode.emitter();
+    auto size = particle.size();
+    ParticleBasis basis;
+
+    auto emitterRight = glm::vec3(_absTransform[0]);
+    auto emitterUp = glm::vec3(_absTransform[1]);
+    auto emitterForward = glm::vec3(_absTransform[2]);
+
+    auto view = _sceneGraph.camera()->get().camera()->view();
+    auto cameraRight = glm::vec3(view[0][0], view[1][0], view[2][0]);
+    auto cameraUp = glm::vec3(view[0][1], view[1][1], view[2][1]);
+
+    switch (emitter->renderMode) {
+    case ModelNode::Emitter::RenderMode::BillboardToLocalZ:
+        basis = localZParticleBasis(_absTransform);
+        break;
+    case ModelNode::Emitter::RenderMode::MotionBlur:
+        size.y *= 1.0f + kMotionBlurStrength * kProjectileSpeed;
+        basis = {emitterUp, emitterRight};
+        break;
+    case ModelNode::Emitter::RenderMode::BillboardToWorldZ:
+        basis = {
+            glm::vec3(0.0f, 1.0f, 0.0f),
+            glm::vec3(1.0f, 0.0f, 0.0f),
+        };
+        break;
+    case ModelNode::Emitter::RenderMode::AlignedToParticleDir:
+        basis = {emitterRight, emitterForward};
+        break;
+    case ModelNode::Emitter::RenderMode::Linked: {
+        auto particleUp = particle.dir();
+        auto particleForward = glm::cross(particleUp, cameraRight);
+        auto particleRight = glm::cross(particleForward, particleUp);
+        basis = {particleRight, particleUp};
+        break;
+    }
+    case ModelNode::Emitter::RenderMode::Normal:
+    default:
+        basis = {cameraRight, cameraUp};
+        break;
+    }
+    return particleBounds(particle.origin(), size, basis);
+}
 void EmitterSceneNode::renderLeafs(IRenderPass &pass, const std::vector<SceneNode *> &leafs) {
     if (leafs.empty()) {
         return;
@@ -283,7 +344,12 @@ void EmitterSceneNode::renderLeafs(IRenderPass &pass, const std::vector<SceneNod
         particles[i].size = glm::vec2(particle->size());
         particles[i].color = glm::vec4(particle->color(), particle->alpha());
         switch (emitter->renderMode) {
-        case ModelNode::Emitter::RenderMode::BillboardToLocalZ:
+        case ModelNode::Emitter::RenderMode::BillboardToLocalZ: {
+            auto basis = localZParticleBasis(_absTransform);
+            particles[i].right = glm::vec4(basis.right, 0.0f);
+            particles[i].up = glm::vec4(basis.up, 0.0f);
+            break;
+        }
         case ModelNode::Emitter::RenderMode::MotionBlur:
             if (emitter->renderMode == ModelNode::Emitter::RenderMode::MotionBlur) {
                 particles[i].size = glm::vec2(particle->size().x, (1.0f + kMotionBlurStrength * kProjectileSpeed) * particle->size().y);
