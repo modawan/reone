@@ -208,6 +208,7 @@ private:
 
     void updateAnimations(float dt);
     void updateAnimationChannel(AnimationChannel &channel, float dt);
+    void rearmSingleEmitters(const std::string &animationRoot);
     void computeAnimationStates(AnimationChannel &channel, float time, const graphics::ModelNode &modelNode);
     void applyAnimationStates(const graphics::ModelNode &modelNode);
 
