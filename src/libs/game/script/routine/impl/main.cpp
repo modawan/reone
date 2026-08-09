@@ -383,18 +383,27 @@ static Variable GetItemPossessor(const std::vector<Variable> &args, const Routin
 
 static Variable GetItemPossessedBy(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreature = getObject(args, 0, ctx);
+    auto oObject = getObject(args, 0, ctx);
     auto sItemTag = getString(args, 1);
 
     // Transform
-    auto creature = checkCreature(oCreature);
     auto itemTag = boost::to_lower_copy(sItemTag);
 
     // Execute
     if (itemTag.empty()) {
         return Variable::ofObject(kObjectInvalid);
     }
-    auto item = creature->getItemByTag(itemTag);
+    auto item = oObject->getItemByTag(itemTag);
+    if (!item) {
+        if (auto creature = dyn_cast<Creature>(oObject)) {
+            for (auto &[slot, equippedItem] : creature->equipment()) {
+                if (equippedItem->tag() == itemTag) {
+                    item = equippedItem;
+                }
+            }
+        }
+    }
+
     return Variable::ofObject(getObjectIdOrInvalid(item));
 }
 
