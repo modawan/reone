@@ -112,6 +112,128 @@ TEST(ModelSceneNode, should_build_from_model) {
     EXPECT_EQ(static_cast<int>(SceneNodeType::Emitter), static_cast<int>(emitterSceneNode->type()));
 }
 
+namespace {
+
+// A model carrying several zero-length animations on disjoint nodes, which is
+// the shape of the shipped minigame HUD: one heading pose plus a contact loop
+// per fighter, all needing to run at once.
+struct OverlayModelFixture {
+    GraphicsOptions graphicsOpt;
+    MockRenderPipelineFactory pipelineFactory;
+    TestGraphicsModule graphicsModule;
+    TestAudioModule audioModule;
+    TestResourceModule resourceModule;
+    std::unique_ptr<SceneGraph> scene;
+    std::shared_ptr<ModelNode> rootNode;
+    std::vector<std::shared_ptr<Animation>> animations;
+    std::unique_ptr<Model> model;
+    std::shared_ptr<ModelSceneNode> node;
+
+    explicit OverlayModelFixture(const std::vector<std::string> &names) {
+        graphicsModule.init();
+        audioModule.init();
+        resourceModule.init();
+        scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt,
+                                             graphicsModule.services(),
+                                             audioModule.services(),
+                                             resourceModule.services());
+        rootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f),
+                                               glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+        for (const auto &name : names) {
+            auto animRoot = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f),
+                                                        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+            animations.push_back(std::make_shared<Animation>(
+                name, 0.0f, 0.0f, "", animRoot, std::vector<Animation::Event>()));
+        }
+        model = std::make_unique<Model>("hud_model", 0, rootNode, animations, "", 1.0f);
+        node = std::make_shared<ModelSceneNode>(*model, ModelUsage::Placeable, *scene,
+                                                graphicsModule.services(),
+                                                audioModule.services(),
+                                                resourceModule.services());
+        node->init();
+    }
+
+    void overlay(const std::string &name) {
+        node->playAnimation(name, nullptr,
+                            AnimationProperties::fromFlags(AnimationFlags::loopOverlay));
+    }
+};
+
+} // namespace
+
+TEST(ModelSceneNode, overlay_animations_on_disjoint_nodes_run_together) {
+    OverlayModelFixture fixture({"contact01", "contact02", "heading000"});
+
+    fixture.overlay("contact01");
+    fixture.overlay("contact02");
+    fixture.overlay("heading000");
+
+    EXPECT_EQ(fixture.node->animationChannelCount(), 3u);
+    EXPECT_TRUE(fixture.node->isAnimationPlaying("contact01"));
+    EXPECT_TRUE(fixture.node->isAnimationPlaying("heading000"));
+}
+
+TEST(ModelSceneNode, removing_one_overlay_leaves_the_others_running) {
+    OverlayModelFixture fixture({"contact01", "contact02", "heading000"});
+    fixture.overlay("contact01");
+    fixture.overlay("contact02");
+    fixture.overlay("heading000");
+
+    EXPECT_TRUE(fixture.node->removeAnimation("contact01"));
+
+    EXPECT_EQ(fixture.node->animationChannelCount(), 2u);
+    EXPECT_FALSE(fixture.node->isAnimationPlaying("contact01"));
+    EXPECT_TRUE(fixture.node->isAnimationPlaying("contact02"));
+    EXPECT_TRUE(fixture.node->isAnimationPlaying("heading000"));
+}
+
+TEST(ModelSceneNode, removing_an_animation_that_is_not_playing_is_harmless) {
+    OverlayModelFixture fixture({"contact01", "heading000"});
+    fixture.overlay("contact01");
+
+    EXPECT_FALSE(fixture.node->removeAnimation("heading000"));
+    EXPECT_FALSE(fixture.node->removeAnimation("no_such_animation"));
+
+    EXPECT_EQ(fixture.node->animationChannelCount(), 1u);
+    EXPECT_TRUE(fixture.node->isAnimationPlaying("contact01"));
+}
+
+TEST(ModelSceneNode, repeated_removal_is_idempotent) {
+    OverlayModelFixture fixture({"contact01"});
+    fixture.overlay("contact01");
+
+    EXPECT_TRUE(fixture.node->removeAnimation("contact01"));
+    EXPECT_FALSE(fixture.node->removeAnimation("contact01"));
+    EXPECT_FALSE(fixture.node->removeAnimation("contact01"));
+
+    EXPECT_EQ(fixture.node->animationChannelCount(), 0u);
+}
+
+TEST(ModelSceneNode, replacing_a_pose_keeps_the_channel_count_bounded) {
+    // Swapping one zero-length heading pose for the next, as the turret does
+    // every time its yaw crosses a whole degree, must not accumulate channels.
+    std::vector<std::string> names {"contact01"};
+    for (int i = 0; i < 8; ++i) {
+        names.push_back(str(boost::format("heading%03d") % i));
+    }
+    OverlayModelFixture fixture(names);
+    fixture.overlay("contact01");
+
+    std::string previous;
+    for (int i = 0; i < 8; ++i) {
+        std::string next = str(boost::format("heading%03d") % i);
+        if (!previous.empty()) {
+            fixture.node->removeAnimation(previous);
+        }
+        fixture.overlay(next);
+        previous = next;
+        EXPECT_EQ(fixture.node->animationChannelCount(), 2u) << "after " << next;
+    }
+
+    EXPECT_TRUE(fixture.node->isAnimationPlaying("contact01"));
+    EXPECT_TRUE(fixture.node->isAnimationPlaying("heading007"));
+}
+
 TEST(ModelSceneNode, should_play_single_fire_forget_animation) {
     // given
     auto graphicsOpt = GraphicsOptions();
