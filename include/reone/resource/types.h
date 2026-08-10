@@ -38,6 +38,7 @@ enum class ResType : uint16_t {
     Mdl = 2002,
     Nss = 2009,
     Ncs = 2010,
+    Mod = 2011,
     Are = 2012,
     Set = 2013,
     Ifo = 2014,
@@ -69,7 +70,9 @@ enum class ResType : uint16_t {
     Dwk = 2052,
     Pwk = 2053,
     Jrl = 2056,
-    Mod = 2057,
+    // 0x0809 is the saved module archive. The name Mod was historically bound
+    // to this value, which is why the nested saved module resolves through it.
+    Sav = 2057,
     Utw = 2058,
     Ssf = 2060,
     Ndb = 2064,
@@ -81,6 +84,7 @@ enum class ResType : uint16_t {
     Lip = 3004,
     Tpc = 3007,
     Mdx = 3008,
+    Rsv = 3009,
 
     // Mods and engine-specific
     Mp3 = 0x1000,

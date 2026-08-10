@@ -27,7 +27,16 @@ class TwoDAReader;
 
 class TwoDA : boost::noncopyable {
 public:
+    /**
+     * A data row together with the label that names it.
+     *
+     * The label is the first token of a row and is a key in its own right:
+     * some tables are addressed by it rather than by a cell value, and it is
+     * not always the row ordinal. It is therefore retained rather than
+     * discarded, and is not part of the column data.
+     */
     struct Row {
+        std::string label;
         std::vector<std::string> values;
     };
 
@@ -38,8 +47,14 @@ public:
             return *this;
         }
 
+        /// Append a row labelled by its ordinal, as an unlabelled table is
+        /// written out.
         Builder &row(std::vector<std::string> values) {
-            _rows.push_back({std::move(values)});
+            return row(std::to_string(_rows.size()), std::move(values));
+        }
+
+        Builder &row(std::string label, std::vector<std::string> values) {
+            _rows.push_back({std::move(label), std::move(values)});
             return *this;
         }
 
@@ -63,6 +78,15 @@ public:
             }
         }
     }
+
+    /**
+     * Find a row by its label, folding ASCII case as the original lookup does.
+     * Distinct from a cell lookup: a table may be keyed by label alone, and a
+     * label is not a column.
+     *
+     * @return row index or -1 when not found
+     */
+    int indexByLabel(const std::string &label) const;
 
     /**
      * @return row index or -1 when not found
@@ -92,8 +116,9 @@ public:
     const std::vector<std::string> &columns() const { return _columns; }
     const std::vector<Row> &rows() const { return _rows; }
 
-    static Row newRow(std::vector<std::string> values) {
+    static Row newRow(std::string label, std::vector<std::string> values) {
         auto row = Row();
+        row.label = std::move(label);
         row.values = std::move(values);
         return row;
     }

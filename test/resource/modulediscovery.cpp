@@ -409,7 +409,7 @@ TEST(ModuleDiscovery, does_not_look_inside_archives) {
     auto save = tmp.path / "save";
     std::filesystem::create_directories(save);
     writeErf(save / "foo.sav", ErfWriter::FileType::MOD,
-             {{"inner", ResType::Mod, "nested module blob"}});
+             {{"inner", ResType::Sav, "nested module blob"}});
 
     auto result = discoverModuleSources("foo", {root("save", save, ModulePrimaryOrigin::GameInProgress)});
 

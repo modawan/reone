@@ -159,9 +159,10 @@ protected:
         _script.init();
     }
 
-    std::unique_ptr<ResourceDirector> makeDirector(const std::filesystem::path &gamePath) {
+    std::unique_ptr<ResourceDirector> makeDirector(const std::filesystem::path &gamePath,
+                                                   GameID gameId = GameID::KotOR) {
         return std::make_unique<ResourceDirector>(
-            GameID::KotOR,
+            gameId,
             gamePath,
             _graphicsOpt,
             _graphics.services(),
@@ -171,7 +172,9 @@ protected:
             _lips,
             _paths,
             _resources,
-            _scripts);
+            _auxResources,
+            _scripts,
+            _twoDas);
     }
 
     std::string find(const std::string &resRef, ResType type = ResType::Txt) {
@@ -187,8 +190,10 @@ protected:
     NiceMock<MockLips> _lips;
     NiceMock<MockPaths> _paths;
     NiceMock<MockScripts> _scripts;
+    NiceMock<MockTwoDAs> _twoDas;
 
     ExtractResources _resources;
+    ExtractResources _auxResources;
 };
 
 TEST_F(ExtractResourcesDirectorLookup, should_mount_global_locations_in_precedence_order) {
@@ -221,11 +226,16 @@ TEST_F(ExtractResourcesDirectorLookup, should_mount_global_locations_in_preceden
         director->init();
     }
 
-    EXPECT_EQ("chitin", find("a")) << "chitin must beat shaderpack";
     EXPECT_EQ("gui pack", find("b")) << "GUI texture pack must beat chitin";
     EXPECT_EQ("texture pack", find("c")) << "quality texture pack must beat GUI pack";
     EXPECT_EQ("patch", find("d")) << "patch.erf must beat texture packs";
     EXPECT_EQ("override", find("e")) << "override must beat patch.erf";
+
+    // The shader pack no longer competes with game data at all: it holds only
+    // GLSL, so it is kept out of the game's resource list entirely. This used
+    // to assert that chitin outranked it.
+    EXPECT_EQ("chitin", find("a"));
+    EXPECT_EQ("shaderpack", dataOf(_auxResources.find(ResourceId("a", ResType::Txt))));
 }
 
 TEST_F(ExtractResourcesDirectorLookup, should_mount_module_locations_over_global_and_clear_on_transition) {
@@ -289,7 +299,7 @@ TEST_F(ExtractResourcesDirectorLookup, should_mount_save_scope_and_modules_neste
     writeErf(slot / "savegame.sav", ErfWriter::FileType::ERF,
              {{"loose", ResType::Txt, "save archive"},
               {"first_only", ResType::Txt, "first save"},
-              {"bar", ResType::Mod, std::string(nestedModule.begin(), nestedModule.end())}});
+              {"bar", ResType::Sav, std::string(nestedModule.begin(), nestedModule.end())}});
 
     auto secondSlot = game.path / "saves" / "000002";
     std::filesystem::create_directories(secondSlot);

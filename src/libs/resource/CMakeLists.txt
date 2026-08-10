@@ -64,6 +64,7 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/layout.h
     ${RESOURCE_INCLUDE_DIR}/ltr.h
     ${RESOURCE_INCLUDE_DIR}/modulediscovery.h
+    ${RESOURCE_INCLUDE_DIR}/modulemount.h
     ${RESOURCE_INCLUDE_DIR}/modulepolicy.h
     ${RESOURCE_INCLUDE_DIR}/parser/2da/appearance.h
     ${RESOURCE_INCLUDE_DIR}/parser/2da/genericdoors.h
@@ -146,6 +147,7 @@ set(RESOURCE_SOURCES
     ${RESOURCE_SOURCE_DIR}/gff.cpp
     ${RESOURCE_SOURCE_DIR}/ltr.cpp
     ${RESOURCE_SOURCE_DIR}/modulediscovery.cpp
+    ${RESOURCE_SOURCE_DIR}/modulemount.cpp
     ${RESOURCE_SOURCE_DIR}/modulepolicy.cpp
     ${RESOURCE_SOURCE_DIR}/parser/2da/appearance.cpp
     ${RESOURCE_SOURCE_DIR}/parser/2da/genericdoors.cpp

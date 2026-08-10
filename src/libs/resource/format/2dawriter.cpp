@@ -54,8 +54,11 @@ void TwoDAWriter::writeHeaders() {
 }
 
 void TwoDAWriter::writeLabels() {
-    for (int i = 0; i < _twoDa.getRowCount(); ++i) {
-        _writer->writeString(std::to_string(i));
+    // Write the label a row actually carries, so that a table keyed by label
+    // survives a read/write round trip. Synthesizing the ordinal here would
+    // silently discard that key.
+    for (auto &row : _twoDa.rows()) {
+        _writer->writeString(row.label);
         _writer->writeChar('\t');
     }
 }

@@ -139,6 +139,9 @@ private:
     std::unique_ptr<Gffs> _gffs;
     std::unique_ptr<IResourceReplacements> _replacements;
     std::unique_ptr<IResources> _resources;
+    /// Sources outside the Odyssey raw lookup model: the shader pack, the
+    /// executable, and streamed audio for an activated game.
+    std::unique_ptr<IResources> _auxResources;
     std::unique_ptr<Strings> _strings;
     std::unique_ptr<TwoDAs> _twoDas;
     std::unique_ptr<Scripts> _scripts;

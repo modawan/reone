@@ -66,6 +66,8 @@ static std::unordered_map<ResType, std::string> g_extByType {
     {ResType::Pwk, "pwk"},
     {ResType::Jrl, "jrl"},
     {ResType::Mod, "mod"},
+    {ResType::Sav, "sav"},
+    {ResType::Rsv, "rsv"},
     {ResType::Utw, "utw"},
     {ResType::Ssf, "ssf"},
     {ResType::Ndb, "ndb"},

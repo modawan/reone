@@ -32,7 +32,7 @@ void TwoDAReader::load() {
     _reader.skipBytes(1); // newline
     _columns = readTokens();
     _rowCount = _reader.readUint32();
-    readTokens(_rowCount);
+    _labels = readTokens(_rowCount);
 
     loadRows();
     loadTable();
@@ -56,6 +56,9 @@ void TwoDAReader::loadRows() {
 
     for (int i = 0; i < _rowCount; ++i) {
         TwoDA::Row row;
+        // A truncated label block leaves the ordinal, which is what an
+        // unlabelled table would have carried anyway.
+        row.label = i < static_cast<int>(_labels.size()) ? _labels[i] : std::to_string(i);
         for (int j = 0; j < columnCount; ++j) {
             int cellIdx = i * columnCount + j;
             size_t off = pos + offsets[cellIdx];

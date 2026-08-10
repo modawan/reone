@@ -345,6 +345,31 @@ protected:
     std::unique_ptr<ReplacementResources> _resources;
 };
 
+TEST_P(ReplacementOverlayBucketsTest, should_apply_one_store_to_every_list_that_shares_it) {
+    // Sources outside the Odyssey lookup order are held in a separate list, but
+    // they are read through the same replacement store. A second store would
+    // silently make those resources unreplaceable.
+    std::unique_ptr<IResources> auxBackend;
+    if (GetParam() == Backend::Legacy) {
+        auxBackend = std::make_unique<Resources>();
+    } else {
+        auxBackend = std::make_unique<ExtractResources>();
+    }
+    ReplacementResources aux(std::move(auxBackend), _replacements);
+
+    mount("bucketed", ResourceSourceBucket::LooseDirectory);
+    aux.addMemERF(erfBytes("shared", "auxiliary"), ContainerKind::Global);
+
+    EXPECT_EQ("bucketed", shared());
+    EXPECT_EQ("auxiliary", dataOf(aux.find(id())));
+
+    _replacements.replaceResource(id(), bytes("replacement"));
+
+    EXPECT_EQ("replacement", shared());
+    EXPECT_EQ("replacement", dataOf(aux.find(id())))
+        << "the same store must sit above an unplaced auxiliary source too";
+}
+
 TEST_P(ReplacementOverlayBucketsTest, should_carry_the_bucket_through_to_the_backend) {
     mount("loose", ResourceSourceBucket::LooseDirectory);
     mount("keybif", ResourceSourceBucket::KeyBif);
