@@ -76,14 +76,21 @@ std::vector<std::string> TwoDAReader::readTokens(int maxCount) {
     std::vector<std::string> tokens;
     StringBuilder str;
     for (auto ch = _reader.readChar();; ch = _reader.readChar()) {
-        if (ch == '\t') {
+        // Retail ships both delimiters for the same layout. The BIF copies of
+        // these tables separate labels with tabs; the copies K1 carries inside
+        // global.rim separate them with NULs and are otherwise identical, down
+        // to the row count that follows. Only a NUL with nothing accumulated
+        // ends the section, which is exactly what the tab form produces at its
+        // own terminator, so one rule reads both.
+        if (ch == '\t' || ch == '\0') {
+            if (ch == '\0' && str.string().empty()) {
+                break;
+            }
             tokens.push_back(str.string());
             if (tokens.size() == maxCount) {
                 break;
             }
             str.clear();
-        } else if (ch == '\0') {
-            break;
         } else {
             str.append(ch);
         }
