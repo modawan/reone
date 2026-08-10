@@ -36,16 +36,10 @@ static constexpr char kMusicDirectoryName[] = "streammusic";
 static constexpr char kSoundsDirectoryName[] = "streamsounds";
 static constexpr char kWavesDirectoryName[] = "streamwaves";
 static constexpr char kVoiceDirectoryName[] = "streamvoice";
-static constexpr char kLipsDirectoryName[] = "lips";
-static constexpr char kModulesDirectoryName[] = "modules";
-static constexpr char kOverrideDirectoryName[] = "override";
 static constexpr char kRimsDirectoryName[] = "rims";
 static constexpr char kMoviesDirectoryName[] = "movies";
 static constexpr char kExeFilenameKotor[] = "swkotor.exe";
 static constexpr char kExeFilenameTsl[] = "swkotor2.exe";
-
-static constexpr char kModulesRootId[] = "modules";
-static constexpr char kLipsRootId[] = "lips";
 
 static constexpr char kTexturePackTpa[] = "swpc_tex_tpa.erf";
 static constexpr char kTexturePackTpb[] = "swpc_tex_tpb.erf";
@@ -87,9 +81,12 @@ static std::vector<std::string> sortedKeys(const std::unordered_map<std::string,
     return keys;
 }
 
-Installation::Installation(resource::GameID game, std::filesystem::path root) :
+Installation::Installation(resource::GameID game,
+                           std::filesystem::path root,
+                           resource::OdysseyResourceRoots odysseyRoots) :
     _game(game),
-    _root(std::move(root)) {
+    _root(std::move(root)),
+    _odysseyRoots(std::move(odysseyRoots)) {
 }
 
 void Installation::clearLocationCaches() {
@@ -110,19 +107,7 @@ void Installation::loadChitin() {
 }
 
 std::vector<resource::ModuleSearchRoot> Installation::moduleSearchRoots() const {
-    std::vector<resource::ModuleSearchRoot> roots;
-    if (auto modulesPath = findFileIgnoreCase(_root, kModulesDirectoryName)) {
-        roots.push_back(resource::ModuleSearchRoot {
-            kModulesRootId, *modulesPath, resource::ModulePrimaryOrigin::Modules, 0, 0});
-    }
-    // The lips location supplies a module's own support archives. It is
-    // searched after the module location, which is the order their mounts are
-    // attempted in.
-    if (auto lipsPath = findFileIgnoreCase(_root, kLipsDirectoryName)) {
-        roots.push_back(resource::ModuleSearchRoot {
-            kLipsRootId, *lipsPath, resource::ModulePrimaryOrigin::Modules, 0, 0});
-    }
-    return roots;
+    return resource::moduleSearchRoots(_game, _root, _odysseyRoots);
 }
 
 /// Position of a bucket in the raw lookup order. A family the policy assigns no
@@ -245,15 +230,8 @@ void Installation::loadModules() {
 }
 
 std::vector<std::string> Installation::moduleNames() {
-    auto modulesPath = findFileIgnoreCase(_root, kModulesDirectoryName);
-    if (!modulesPath) {
-        return {};
-    }
-    // Only the module location is enumerated. The lips location is searched for
-    // a known module's support archives, but the global archives it also holds
-    // are not modules and must not be offered as ones.
-    return resource::discoverModuleRoots({resource::ModuleSearchRoot {
-        kModulesRootId, *modulesPath, resource::ModulePrimaryOrigin::Modules, 0, 0}});
+    return resource::discoverModuleRoots(
+        resource::primaryModuleSearchRoots(_game, _root, _odysseyRoots));
 }
 
 const std::vector<ModuleArchive> &Installation::moduleArchives() {
@@ -308,46 +286,24 @@ void Installation::loadOverride() {
     if (_overrideLoaded) {
         return;
     }
-    auto overridePath = findFileIgnoreCase(_root, kOverrideDirectoryName);
-    if (!overridePath) {
-        _overrideIndex.clear();
-        _overrideLoaded = true;
-        return;
-    }
-
-    std::vector<FileResource> loose;
-    for (auto &entry : std::filesystem::directory_iterator(*overridePath)) {
-        if (entry.is_regular_file()) {
-            auto id = resourceIdFromPath(entry.path());
-            if (id) {
-                loose.emplace_back(
-                    id->resRef.value(),
-                    id->type,
-                    static_cast<uint32_t>(entry.file_size()),
-                    0,
-                    entry.path());
-            }
-            continue;
-        }
-        if (!entry.is_directory()) {
-            continue;
-        }
-        auto relKey = entry.path().filename().string();
-        std::vector<FileResource> subdir;
-        indexLooseFiles(entry.path(), subdir);
-        if (!subdir.empty()) {
-            _override[relKey] = std::move(subdir);
-        }
-    }
-    if (!loose.empty()) {
-        sortResources(loose);
-        _override["."] = std::move(loose);
-    }
     _overrideIndex.clear();
-    for (const auto &key : sortedKeys(_override)) {
-        auto &list = _override.at(key);
-        for (auto &res : list) {
-            _overrideIndex.emplace(res.id(), res);
+    _override.clear();
+    auto roots = resource::looseOverrideRoots(_game, _root, _odysseyRoots);
+    for (std::size_t i = 0; i < roots.size(); ++i) {
+        std::vector<FileResource> files;
+        indexLooseFiles(roots[i], files);
+        auto key = "root" + std::to_string(i);
+        _override[key] = files;
+        std::unordered_map<resource::ResourceId, FileResource> rootIndex;
+        for (const auto &file : files) {
+            // Files are path-sorted, so first insertion preserves the existing
+            // deterministic winner among duplicate subdirectories in one root.
+            rootIndex.emplace(file.id(), file);
+        }
+        // Natural registration order is oldest to newest, so assignment makes
+        // the later configured root the lookup winner just as runtime does.
+        for (const auto &[id, file] : rootIndex) {
+            _overrideIndex.insert_or_assign(id, file);
         }
     }
     _overrideLoaded = true;
@@ -406,9 +362,13 @@ void Installation::loadLips() {
     if (_lipsLoaded) {
         return;
     }
-    auto lipsPath = findFileIgnoreCase(_root, kLipsDirectoryName);
-    if (lipsPath) {
-        indexCapsuleDict(*lipsPath, isCapsuleFile, _lips);
+    auto roots = resource::lipsRoots(_game, _root, _odysseyRoots);
+    for (std::size_t i = 0; i < roots.size(); ++i) {
+        std::unordered_map<std::string, std::vector<FileResource>> indexed;
+        indexCapsuleDict(roots[i], isCapsuleFile, indexed);
+        for (auto &[name, files] : indexed) {
+            _lips["root" + std::to_string(i) + ":" + name] = std::move(files);
+        }
     }
     _lipsLoaded = true;
     clearLocationCaches();

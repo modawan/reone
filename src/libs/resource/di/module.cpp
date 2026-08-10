@@ -92,10 +92,12 @@ void ResourceModule::init() {
         *_resources,
         *_auxResources,
         *_scripts,
-        *_twoDas);
+        *_twoDas,
+        _odysseyRoots);
 
-    _director->init();
     _strings->init(_gamePath);
+    loadLiveTalkTables(*_strings, _odysseyRoots);
+    _director->init();
     _shaders->init();
     _textures->init();
 

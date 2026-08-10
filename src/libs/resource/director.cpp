@@ -53,9 +53,7 @@ static constexpr char kMusicDirectoryName[] = "streammusic";
 static constexpr char kSoundsDirectoryName[] = "streamsounds";
 static constexpr char kWavesDirectoryName[] = "streamwaves";
 static constexpr char kVoiceDirectoryName[] = "streamvoice";
-static constexpr char kModulesDirectoryName[] = "modules";
 static constexpr char kSavesDirectoryName[] = "saves";
-static constexpr char kLipsDirectoryName[] = "lips";
 static constexpr char kOverrideDirectoryName[] = "override";
 static constexpr char kRimsDirectoryName[] = "rims";
 static constexpr char kGlobalRimFilename[] = "global.rim";
@@ -72,8 +70,6 @@ static constexpr char kExeFilenameTsl[] = "swkotor2.exe";
 
 static constexpr char kShaderPackFilename[] = "shaderpack.erf";
 
-static constexpr char kModulesRootId[] = "modules";
-static constexpr char kLipsRootId[] = "lips";
 /// Root fixed-name installation support archives are offered under.
 static constexpr char kRootRootId[] = "hd0";
 /// Root the staged active module is offered under. reone has no current-game
@@ -138,10 +134,9 @@ std::set<std::string> ResourceDirector::moduleNames() {
     // "_s.rim" would expose _a and _adx as modules of their own, which they
     // never are.
     //
-    // Only the module location is enumerated. The lips location is searched for
-    // a known module's support archives, but the global archives it also holds
-    // are not modules and must not be offered as ones.
-    auto roots = discoverModuleRoots({modulesSearchRoot()});
+    // Enumerate shared primary roots only. LIPS roots remain support-only.
+    auto roots = discoverModuleRoots(
+        primaryModuleSearchRoots(_gameId, _gamePath, _odysseyRoots));
     return std::set<std::string>(roots.begin(), roots.end());
 }
 
@@ -431,10 +426,68 @@ void ResourceDirector::loadK1GlobalResources() {
     loadPlayerSupportResource();
 }
 
+void ResourceDirector::loadLiveResources() {
+    for (std::size_t i = 0; i < _odysseyRoots.livePackages.size(); ++i) {
+        if (!_odysseyRoots.livePackages[i]) {
+            continue;
+        }
+        const auto &root = *_odysseyRoots.livePackages[i];
+        auto basename = "live" + std::to_string(i + 1);
+        auto attempt = [](const auto &mount) {
+            try {
+                mount();
+            } catch (const std::exception &) {
+                // Every package member is best-effort and independent.
+            }
+        };
+
+        if (auto key = findFileIgnoreCase(root, basename + ".key")) {
+            attempt([&] {
+                _resources.addKEY(*key, bucketOf(ResourceSourceBucket::KeyBif));
+            });
+        }
+        if (auto rims = findFileIgnoreCase(root, "rimsxbox")) {
+            if (auto baseRim = findFileIgnoreCase(*rims, basename + ".rim")) {
+                attempt([&] {
+                    _resources.addRIM(*baseRim,
+                                      ResourceOwner::Global,
+                                      bucketOf(ResourceSourceBucket::ResourceImage));
+                });
+            }
+        }
+        if (auto mod = findFileIgnoreCase(root, basename + ".mod")) {
+            attempt([&] {
+                _resources.addERF(*mod,
+                                  ResourceOwner::Global,
+                                  bucketOf(ResourceSourceBucket::EncapsulatedClass2));
+            });
+        }
+        if (auto rims = findFileIgnoreCase(root, "rimsxbox")) {
+            if (auto dxRim = findFileIgnoreCase(*rims, basename + "dx.rim")) {
+                attempt([&] {
+                    _resources.addRIM(*dxRim,
+                                      ResourceOwner::Global,
+                                      bucketOf(ResourceSourceBucket::ResourceImage));
+                });
+            }
+        }
+        if (auto overridePath = findFileIgnoreCase(root, "override")) {
+            if (auto textures = findEncapsulatedByBasename(*overridePath, "textures")) {
+                attempt([&] {
+                    _resources.addERF(*textures,
+                                      ResourceOwner::Global,
+                                      bucketOf(ResourceSourceBucket::EncapsulatedClass1));
+                });
+            }
+        }
+    }
+}
+
 void ResourceDirector::loadGlobalResources() {
     loadAuxiliaryResources();
     if (_gameId == GameID::KotOR) {
         loadK1GlobalResources();
+        loadLiveResources();
         return;
     }
 
@@ -448,10 +501,9 @@ void ResourceDirector::loadGlobalResources() {
     loadTexturePackResources();
     loadStreamResources();
 
-    auto lipsPath = findFileIgnoreCase(_gamePath, kLipsDirectoryName);
-    if (lipsPath) {
+    for (const auto &lipsPath : lipsRoots(_gameId, _gamePath, _odysseyRoots)) {
         for (auto &filename : g_globalLipFiles) {
-            if (auto globalLipPath = findFileIgnoreCase(*lipsPath, filename)) {
+            if (auto globalLipPath = findFileIgnoreCase(lipsPath, filename)) {
                 // A global LIP archive is a caller-selected encapsulated
                 // source. Class 2 keeps it where it has always sat relative to
                 // the texture packs it is mounted after.
@@ -467,12 +519,13 @@ void ResourceDirector::loadGlobalResources() {
                           ResourceOwner::Global,
                           bucketOf(ResourceSourceBucket::EncapsulatedClass1));
     }
-    if (auto overridePath = findFileIgnoreCase(_gamePath, kOverrideDirectoryName)) {
-        _resources.addFolder(*overridePath,
+    for (const auto &overridePath : looseOverrideRoots(_gameId, _gamePath, _odysseyRoots)) {
+        _resources.addFolder(overridePath,
                              ResourceOwner::Global,
                              bucketOf(ResourceSourceBucket::LooseDirectory));
     }
     loadGlobalRimResource();
+    loadLiveResources();
 }
 
 void ResourceDirector::loadModuleResources(const std::string &name) {
@@ -480,23 +533,15 @@ void ResourceDirector::loadModuleResources(const std::string &name) {
 }
 
 ModuleSearchRoot ResourceDirector::modulesSearchRoot() {
-    auto modulesPath = findFileIgnoreCase(_gamePath, kModulesDirectoryName);
-    if (!modulesPath) {
+    auto roots = primaryModuleSearchRoots(_gameId, _gamePath, _odysseyRoots);
+    if (roots.empty()) {
         throw ResourceNotFoundException("Modules directory not found");
     }
-    return ModuleSearchRoot {kModulesRootId, *modulesPath, ModulePrimaryOrigin::Modules, 0, 0};
+    return roots.front();
 }
 
 std::vector<ModuleSearchRoot> ResourceDirector::moduleSearchRoots() {
-    std::vector<ModuleSearchRoot> roots;
-    roots.push_back(modulesSearchRoot());
-    // The lips location supplies a module's own support archives. It is
-    // searched after the module location, which is the order their mounts are
-    // attempted in.
-    if (auto lipsPath = findFileIgnoreCase(_gamePath, kLipsDirectoryName)) {
-        roots.push_back(ModuleSearchRoot {kLipsRootId, *lipsPath, ModulePrimaryOrigin::Modules, 0, 0});
-    }
-    return roots;
+    return resource::moduleSearchRoots(_gameId, _gamePath, _odysseyRoots);
 }
 
 /**

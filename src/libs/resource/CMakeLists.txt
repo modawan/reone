@@ -17,6 +17,7 @@ set(RESOURCE_INCLUDE_DIR ${REONE_INCLUDE_DIR}/reone/resource)
 set(RESOURCE_SOURCE_DIR ${CMAKE_SOURCE_DIR}/src/libs/resource)
 
 set(RESOURCE_HEADERS
+    ${RESOURCE_INCLUDE_DIR}/odysseyroots.h
     ${RESOURCE_INCLUDE_DIR}/2da.h
     ${RESOURCE_INCLUDE_DIR}/container.h
     ${RESOURCE_INCLUDE_DIR}/container/erf.h
@@ -110,6 +111,7 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/typeutil.h)
 
 set(RESOURCE_SOURCES
+    ${RESOURCE_SOURCE_DIR}/odysseyroots.cpp
     ${RESOURCE_SOURCE_DIR}/2da.cpp
     ${RESOURCE_SOURCE_DIR}/extract/capsule.cpp
     ${RESOURCE_SOURCE_DIR}/extract/chitin.cpp

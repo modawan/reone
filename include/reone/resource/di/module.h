@@ -82,7 +82,8 @@ public:
                    graphics::GraphicsModule &graphics,
                    audio::AudioModule &audio,
                    script::ScriptModule &script,
-                   ResourcesBackend resourcesBackend = ResourcesBackend::Legacy) :
+                   ResourcesBackend resourcesBackend = ResourcesBackend::Legacy,
+                   OdysseyResourceRoots odysseyRoots = {}) :
         _gameId(gameId),
         _gamePath(std::move(gamePath)),
         _graphicsOpt(graphicsOpt),
@@ -90,7 +91,11 @@ public:
         _graphics(graphics),
         _audio(audio),
         _script(script),
-        _resourcesBackend(resourcesBackend) {
+        _resourcesBackend(resourcesBackend),
+        _odysseyRoots(std::move(odysseyRoots)) {
+        if (!_odysseyRoots.nwmFiles) {
+            _odysseyRoots.nwmFiles = defaultOdysseyResourceRoots(_gamePath).nwmFiles;
+        }
     }
 
     ~ResourceModule() { deinit(); }
@@ -117,6 +122,7 @@ public:
     ResourceDirector &director() { return *_director; }
 
     ResourceServices &services() { return *_services; }
+    const OdysseyResourceRoots &odysseyRoots() const { return _odysseyRoots; }
 
     void setGameID(GameID id) {
         _gameId = id;
@@ -136,6 +142,7 @@ private:
     script::ScriptModule &_script;
     ResourcesBackend _resourcesBackend {ResourcesBackend::Legacy};
 
+    OdysseyResourceRoots _odysseyRoots;
     std::unique_ptr<Gffs> _gffs;
     std::unique_ptr<IResourceReplacements> _replacements;
     std::unique_ptr<IResources> _resources;

@@ -40,6 +40,7 @@
 #include "reone/system/stream/fileoutput.h"
 #include "reone/system/stream/memoryoutput.h"
 
+#include "../fixtures/archive.h"
 #include "../fixtures/graphics.h"
 #include "../fixtures/resource.h"
 #include "../fixtures/script.h"
@@ -194,9 +195,12 @@ protected:
         game.mkdir("modules");
     }
 
-    std::unique_ptr<ResourceDirector> makeDirector(const std::filesystem::path &gamePath) {
+    std::unique_ptr<ResourceDirector> makeDirector(
+        const std::filesystem::path &gamePath,
+        OdysseyResourceRoots roots = {},
+        GameID game = GameID::TSL) {
         return std::make_unique<ResourceDirector>(
-            GameID::TSL,
+            game,
             gamePath,
             _graphicsOpt,
             _graphics.services(),
@@ -208,7 +212,8 @@ protected:
             *_resources,
             *_auxResources,
             _scripts,
-            _twoDas);
+            _twoDas,
+            std::move(roots));
     }
 
     std::string find(const std::string &resRef, ResType type = ResType::Txt) {
@@ -697,6 +702,261 @@ TEST_P(K2ModuleLoadingTest, admits_a_later_loose_directory_mounted_by_another_ca
     ASSERT_NO_THROW(_resources->addFolder(loose, ResourceOwner::Global, bucket));
 
     EXPECT_EQ("late folder", find("shared")) << "the source added last wins inside its own bucket";
+}
+
+TEST_P(K2ModuleLoadingTest, mounts_bound_live_packages_in_fixed_global_order) {
+    TmpDir game("reone_test_live_global");
+    TmpDir cwd("reone_test_live_global_cwd");
+    TmpDir live1("reone_test_live_global_1");
+    TmpDir live2("reone_test_live_global_2");
+    makeInstallation(game, cwd);
+
+    reone::test::writeKeyBif(live1.path, "data/live1.bif",
+                             {{"key_shared", ResType::Txt, "live1 key"}});
+    std::filesystem::rename(live1.path / "chitin.key", live1.path / "live1.key");
+    reone::test::writeKeyBif(live2.path, "data/live2.bif",
+                             {{"key_shared", ResType::Txt, "live2 key"}});
+    std::filesystem::rename(live2.path / "chitin.key", live2.path / "live2.key");
+
+    auto rims1 = live1.mkdir("RIMSXBOX");
+    auto rims2 = live2.mkdir("RIMSXBOX");
+    // A malformed member is independent: the later MOD and DX image still mount.
+    writeFile(rims1 / "live1.rim", "broken");
+    writeRim(rims1 / "live1dx.rim",
+             {{"image_shared", ResType::Txt, "live1 dx"},
+              {"after_broken", ResType::Txt, "live1 dx"}});
+    writeRim(rims2 / "live2.rim", {{"image_shared", ResType::Txt, "live2 base"}});
+    writeRim(rims2 / "live2dx.rim", {{"image_shared", ResType::Txt, "live2 dx"}});
+
+    writeErf(live1.path / "live1.mod", ErfWriter::FileType::MOD,
+             {{"class2_shared", ResType::Txt, "live1 mod"},
+              {"after_broken_mod", ResType::Txt, "live1 mod"}});
+    writeErf(live2.path / "live2.mod", ErfWriter::FileType::MOD,
+             {{"class2_shared", ResType::Txt, "live2 mod"}});
+
+    auto override1 = live1.mkdir("OVERRIDE");
+    auto override2 = live2.mkdir("OVERRIDE");
+    writeErf(override1 / "textures.erf", ErfWriter::FileType::ERF,
+             {{"class1_shared", ResType::Txt, "live1 textures"}});
+    writeErf(override2 / "textures.mod", ErfWriter::FileType::MOD,
+             {{"class1_shared", ResType::Txt, "live2 textures"}});
+    writeErf(live2.path / "unlisted.erf", ErfWriter::FileType::ERF,
+             {{"unlisted", ResType::Txt, "must stay absent"}});
+    auto implicit = game.mkdir("LIVE3");
+    writeErf(implicit / "live3.mod", ErfWriter::FileType::MOD,
+             {{"implicit_live", ResType::Txt, "must stay absent"}});
+
+    OdysseyResourceRoots roots;
+    roots.livePackages[0] = live1.path;
+    roots.livePackages[1] = live2.path;
+    auto director = makeDirector(game.path, roots);
+    {
+        CwdGuard guard(cwd.path);
+        ASSERT_NO_THROW(director->init());
+    }
+
+    EXPECT_EQ("live2 key", find("key_shared"));
+    EXPECT_EQ("live2 dx", find("image_shared"));
+    EXPECT_EQ("live2 mod", find("class2_shared"));
+    EXPECT_EQ("live2 textures", find("class1_shared"));
+    EXPECT_EQ("live1 dx", find("after_broken"));
+    EXPECT_EQ("live1 mod", find("after_broken_mod"));
+    EXPECT_FALSE(has("unlisted"));
+    EXPECT_FALSE(has("implicit_live"));
+}
+
+TEST_P(K2ModuleLoadingTest, configured_k2_override_roots_mount_in_natural_order) {
+    TmpDir game("reone_test_configured_override");
+    TmpDir cwd("reone_test_configured_override_cwd");
+    TmpDir localized("reone_test_configured_override_localized");
+    TmpDir subscribed("reone_test_configured_override_subscribed");
+    makeInstallation(game, cwd);
+
+    auto base = game.mkdir("override");
+    auto first = localized.mkdir("override");
+    auto second = subscribed.mkdir("override");
+    writeFile(base / "shared.txt", "base");
+    writeFile(first / "shared.txt", "localized");
+    writeFile(second / "shared.txt", "subscribed");
+
+    OdysseyResourceRoots roots;
+    roots.k2OverrideRoots = {localized.path, subscribed.path};
+    auto director = makeDirector(game.path, roots);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+
+    EXPECT_EQ("subscribed", find("shared"));
+
+    extract::Installation tooling(GameID::TSL, game.path, roots);
+    auto location = tooling.resource(
+        ResourceId("shared", ResType::Txt), extract::SearchScope {extract::SearchLocation::Override});
+    ASSERT_TRUE(location.has_value());
+    auto data = location->readData();
+    EXPECT_EQ("subscribed", std::string(data.begin(), data.end()));
+}
+
+TEST_P(K2ModuleLoadingTest, live_primary_selection_uses_package_order_not_global_recency) {
+    TmpDir game("reone_test_live_primary");
+    TmpDir cwd("reone_test_live_primary_cwd");
+    TmpDir live1("reone_test_live_primary_1");
+    TmpDir live2("reone_test_live_primary_2");
+    makeInstallation(game, cwd);
+
+    writeErf(live1.mkdir("MODULES") / "foo.mod", ErfWriter::FileType::MOD,
+             {{"primary", ResType::Txt, "live1"}});
+    writeErf(live2.mkdir("MODULES") / "foo.mod", ErfWriter::FileType::MOD,
+             {{"primary", ResType::Txt, "live2"}});
+
+    OdysseyResourceRoots roots;
+    roots.livePackages[0] = live1.path;
+    roots.livePackages[1] = live2.path;
+    auto director = makeDirector(game.path, roots);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onModuleLoad("foo");
+
+    EXPECT_EQ("live1", find("primary"));
+}
+
+TEST_P(K2ModuleLoadingTest, preserves_the_game_specific_modules_versus_live_primary_order) {
+    for (auto gameId : {GameID::KotOR, GameID::TSL}) {
+        _resources->clear();
+        _auxResources->clear();
+        TmpDir game(gameId == GameID::KotOR ? "reone_test_k1_live_primary"
+                                            : "reone_test_k2_live_primary");
+        TmpDir cwd(gameId == GameID::KotOR ? "reone_test_k1_live_primary_cwd"
+                                          : "reone_test_k2_live_primary_cwd");
+        TmpDir live(gameId == GameID::KotOR ? "reone_test_k1_live_root"
+                                            : "reone_test_k2_live_root");
+        makeInstallation(game, cwd);
+        writeErf(game.path / "modules" / "foo.mod", ErfWriter::FileType::MOD,
+                 {{"primary", ResType::Txt, "ordinary"}});
+        writeErf(live.mkdir("MODULES") / "foo.mod", ErfWriter::FileType::MOD,
+                 {{"primary", ResType::Txt, "live"}});
+
+        OdysseyResourceRoots roots;
+        roots.livePackages[0] = live.path;
+        auto director = makeDirector(game.path, roots, gameId);
+        {
+            CwdGuard guard(cwd.path);
+            director->init();
+        }
+        director->onModuleLoad("foo");
+
+        EXPECT_EQ(gameId == GameID::KotOR ? "ordinary" : "live", find("primary"));
+    }
+}
+
+TEST_P(K2ModuleLoadingTest, configured_module_families_follow_the_established_true_false_order) {
+    TmpDir game("reone_test_configured_modules");
+    TmpDir cwd("reone_test_configured_modules_cwd");
+    TmpDir localized("reone_test_configured_modules_localized");
+    TmpDir subscribed("reone_test_configured_modules_subscribed");
+    makeInstallation(game, cwd);
+
+    auto base = game.path / "modules";
+    auto first = localized.mkdir("modules");
+    auto second = subscribed.mkdir("modules");
+    writeRim(base / "foo.rim", {{"primary", ResType::Txt, "base rim"}});
+    writeRim(first / "foo_s.rim", {{"static", ResType::Txt, "localized static"}});
+    writeRim(second / "foo_s.rim", {{"static", ResType::Txt, "subscribed static"}});
+    writeErf(base / "foo_dlg.erf", ErfWriter::FileType::ERF,
+             {{"dialogue", ResType::Txt, "base dialogue"}});
+    writeErf(first / "foo_dlg.erf", ErfWriter::FileType::ERF,
+             {{"dialogue", ResType::Txt, "localized dialogue"}});
+    writeErf(second / "foo_dlg.erf", ErfWriter::FileType::ERF,
+             {{"dialogue", ResType::Txt, "subscribed dialogue"}});
+    writeErf(base / "bar.mod", ErfWriter::FileType::MOD,
+             {{"base_mod", ResType::Txt, "base"},
+              {"mod_collision", ResType::Txt, "base"}});
+    writeErf(first / "bar.mod", ErfWriter::FileType::MOD,
+             {{"localized_mod", ResType::Txt, "localized"},
+              {"mod_collision", ResType::Txt, "localized"}});
+    writeErf(second / "bar.mod", ErfWriter::FileType::MOD,
+             {{"subscribed_mod", ResType::Txt, "subscribed"},
+              {"mod_collision", ResType::Txt, "subscribed"}});
+    auto baseLips = game.mkdir("lips");
+    auto firstLips = localized.mkdir("lips");
+    auto secondLips = subscribed.mkdir("lips");
+    writeErf(baseLips / "baz_loc.mod", ErfWriter::FileType::MOD,
+             {{"base_lips", ResType::Txt, "base"}});
+    writeErf(firstLips / "baz_loc.mod", ErfWriter::FileType::MOD,
+             {{"localized_lips", ResType::Txt, "localized"}});
+    writeErf(secondLips / "baz_loc.mod", ErfWriter::FileType::MOD,
+             {{"subscribed_lips", ResType::Txt, "subscribed"}});
+    writeRim(base / "baz.rim", {{"baz_primary", ResType::Txt, "base"}});
+
+    OdysseyResourceRoots roots;
+    roots.k2OverrideRoots = {localized.path, subscribed.path};
+    auto director = makeDirector(game.path, roots);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onModuleLoad("foo");
+
+    EXPECT_EQ("localized static", find("static"));
+    EXPECT_EQ("subscribed dialogue", find("dialogue"));
+
+    director->onModuleLoad("bar");
+    EXPECT_EQ("base", find("base_mod"));
+    EXPECT_EQ("localized", find("localized_mod"));
+    EXPECT_EQ("subscribed", find("subscribed_mod"));
+    EXPECT_EQ("subscribed", find("mod_collision"));
+
+    director->onModuleLoad("baz");
+    EXPECT_EQ("base", find("base_lips"));
+    EXPECT_EQ("localized", find("localized_lips"));
+    EXPECT_EQ("subscribed", find("subscribed_lips"));
+}
+
+TEST(OdysseyResourceRoots, tooling_and_runtime_expand_the_same_bound_module_locations) {
+    TmpDir game("reone_test_roots_tooling");
+    TmpDir live("reone_test_roots_tooling_live");
+    TmpDir configured("reone_test_roots_tooling_configured");
+    std::filesystem::create_directories(game.path / "modules");
+    writeErf(live.mkdir("MODULES") / "liveonly.mod", ErfWriter::FileType::MOD, {});
+    writeErf(configured.mkdir("modules") / "configuredonly.mod", ErfWriter::FileType::MOD, {});
+
+    OdysseyResourceRoots roots;
+    roots.livePackages[0] = live.path;
+    roots.k2OverrideRoots = {configured.path};
+    auto runtimeRoots = primaryModuleSearchRoots(GameID::TSL, game.path, roots);
+    auto runtimeNames = discoverModuleRoots(runtimeRoots);
+    auto toolingNames = extract::Installation(GameID::TSL, game.path, roots).moduleNames();
+
+    EXPECT_EQ(runtimeNames, toolingNames);
+    EXPECT_THAT(toolingNames, testing::ElementsAre("configuredonly", "liveonly"));
+}
+
+TEST(OdysseyResourceRoots, keeps_unbound_live_slots_absent_and_deduplicates_lips_by_identity) {
+    TmpDir game("reone_test_roots_absent");
+    TmpDir configured("reone_test_roots_dedup");
+    std::filesystem::create_directories(game.path / "modules");
+    auto lips = configured.mkdir("lips");
+
+    OdysseyResourceRoots roots;
+    roots.livePackages[1] = std::nullopt;
+    roots.k2OverrideRoots = {configured.path, configured.path};
+
+    auto primary = primaryModuleSearchRoots(GameID::TSL, game.path, roots);
+    auto support = lipsRoots(GameID::TSL, game.path, roots);
+    auto moduleRoots = moduleSearchRoots(GameID::TSL, game.path, roots);
+
+    ASSERT_EQ(1, primary.size());
+    EXPECT_EQ(ModulePrimaryOrigin::Modules, primary[0].origin);
+    ASSERT_EQ(1, support.size());
+    EXPECT_EQ(lips.lexically_normal(), support[0].lexically_normal());
+    ASSERT_EQ(2, moduleRoots.size());
+    EXPECT_EQ(ModulePrimaryOrigin::ConfiguredModuleRoot, moduleRoots[1].origin);
+    EXPECT_EQ(0, moduleRoots[1].rootOrder);
+    EXPECT_TRUE(defaultOdysseyResourceRoots(game.path).nwmFiles.has_value());
+    EXPECT_EQ((game.path / "nwm").lexically_normal(),
+              defaultOdysseyResourceRoots(game.path).nwmFiles->lexically_normal());
 }
 
 TEST(ResourceDirectorActivation, places_both_games_in_the_raw_lookup_order) {

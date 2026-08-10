@@ -17,6 +17,8 @@
 
 #include <gtest/gtest.h>
 
+#include "reone/resource/format/tlkwriter.h"
+#include "reone/resource/odysseyroots.h"
 #include "reone/resource/strings.h"
 #include "reone/system/binarywriter.h"
 #include "reone/system/logutil.h"
@@ -201,4 +203,46 @@ TEST(Strings, a_slot_beyond_the_observable_seven_is_rejected) {
                  std::out_of_range);
     EXPECT_THROW(strings.loadTalkTable(Strings::kTalkTableSlotCount, "unused.tlk"),
                  std::out_of_range);
+}
+
+TEST(Strings, shared_roots_populate_bound_live_slots_without_disturbing_dialog) {
+    auto dir = std::filesystem::temp_directory_path() / "reone_test_live_tlk_composition";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir / "game");
+    std::filesystem::create_directories(dir / "live1");
+    std::filesystem::create_directories(dir / "live2");
+    std::filesystem::create_directories(dir / "live3");
+    std::filesystem::create_directories(dir / "live4");
+
+    TalkTable dialog(std::vector<TalkTable::String> {{"dialog", ""}});
+    TlkWriter(dialog).save(dir / "game" / "dialog.tlk");
+    TalkTable live1(std::vector<TalkTable::String> {
+        {"live1 collision", ""}, {"live1 fallback", ""}});
+    TlkWriter(live1).save(dir / "live1" / "live1.tlk");
+    TalkTable live2(std::vector<TalkTable::String> {
+        {"", ""}, {"live2 collision", ""}, {"live2 fallback", ""}});
+    TlkWriter(live2).save(dir / "live2" / "live2.tlk");
+    FileOutputStream malformed(dir / "live3" / "live3.tlk");
+    malformed.write("broken", 6);
+    malformed.close();
+    TalkTable live4(std::vector<TalkTable::String> {
+        {"", ""}, {"", ""}, {"", ""}, {"live4 after malformed", ""}});
+    TlkWriter(live4).save(dir / "live4" / "live4.tlk");
+
+    OdysseyResourceRoots roots;
+    roots.livePackages[0] = dir / "live1";
+    roots.livePackages[1] = dir / "live2";
+    roots.livePackages[2] = dir / "live3";
+    roots.livePackages[3] = dir / "live4";
+
+    Strings strings;
+    strings.init(dir / "game");
+    ASSERT_NO_THROW(loadLiveTalkTables(strings, roots));
+
+    EXPECT_EQ("dialog", strings.getText(0));
+    EXPECT_EQ("live1 fallback", strings.getText(1));
+    EXPECT_EQ("live2 fallback", strings.getText(2));
+    EXPECT_EQ("live4 after malformed", strings.getText(3));
+
+    std::filesystem::remove_all(dir);
 }

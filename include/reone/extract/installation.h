@@ -24,6 +24,7 @@
 
 #include "reone/resource/modulediscovery.h"
 #include "reone/resource/modulepolicy.h"
+#include "reone/resource/odysseyroots.h"
 #include "reone/resource/types.h"
 
 namespace reone {
@@ -57,7 +58,9 @@ struct ModuleArchive {
 /// Game installation indexer and resolver (PyKotor Installation).
 class Installation {
 public:
-    Installation(resource::GameID game, std::filesystem::path root);
+    Installation(resource::GameID game,
+                 std::filesystem::path root,
+                 resource::OdysseyResourceRoots odysseyRoots = {});
 
     resource::GameID game() const { return _game; }
     const std::filesystem::path &root() const { return _root; }
@@ -102,10 +105,9 @@ public:
      * Modules the installation can actually enter, sorted and independent of
      * directory enumeration order.
      *
-     * Only the module location is enumerated, and only a primary-eligible
-     * archive introduces a name. A location holding nothing but support
-     * archives contributes none, and the global archives kept alongside a
-     * module's own support archives in the lips location are not modules.
+     * Shared primary roots are enumerated, and only a primary-eligible archive
+     * introduces a name. Support-only LIPS locations are excluded, so their
+     * global and per-module archives never become module names.
      */
     std::vector<std::string> moduleNames();
 
@@ -134,6 +136,7 @@ public:
 private:
     resource::GameID _game;
     std::filesystem::path _root;
+    resource::OdysseyResourceRoots _odysseyRoots;
 
     bool _chitinLoaded {false};
     bool _modulesLoaded {false};

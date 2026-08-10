@@ -18,6 +18,7 @@
 #pragma once
 
 #include "modulediscovery.h"
+#include "odysseyroots.h"
 #include "modulemount.h"
 #include "resources.h"
 #include "types.h"
@@ -83,9 +84,11 @@ public:
                      IResources &resources,
                      IResources &auxResources,
                      IScripts &scripts,
-                     ITwoDAs &twoDas) :
+                     ITwoDAs &twoDas,
+                     OdysseyResourceRoots odysseyRoots = {}) :
         _gameId(gameId),
         _gamePath(gamePath),
+        _odysseyRoots(std::move(odysseyRoots)),
         _graphicsOpt(graphicsOpt),
         _graphicsSvc(graphicsSvc),
         _scriptSvc(scriptSvc),
@@ -109,6 +112,7 @@ public:
 private:
     GameID _gameId;
     const std::filesystem::path &_gamePath;
+    OdysseyResourceRoots _odysseyRoots;
     const graphics::GraphicsOptions &_graphicsOpt;
     graphics::GraphicsServices &_graphicsSvc;
     script::ScriptServices &_scriptSvc;
@@ -140,6 +144,7 @@ private:
     void loadTexturePackResources();
     void loadPlayerSupportResource();
     void loadK1GlobalResources();
+    void loadLiveResources();
     void loadSaveGameResources(std::string_view name);
 
     void loadModuleResources(const std::string &name);
