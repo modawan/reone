@@ -278,12 +278,11 @@ void ResourceDirector::loadK1StreamResources() {
  * images when something asks for them, so mounting them here because the files
  * exist would invent sources the engine never registers.
  *
- * K2 startup is not traced here, so this stays K1's.
+ * Both games register this source. Their startup routines use the same
+ * RIMS: logical directory even though the other global sources around it
+ * differ by game.
  */
 void ResourceDirector::loadRimsDirectory() {
-    if (_gameId != GameID::KotOR) {
-        return;
-    }
     if (auto rimsPath = findFileIgnoreCase(_gamePath, kRimsDirectoryName)) {
         _resources.addFolder(*rimsPath,
                              ResourceOwner::Global,
@@ -300,9 +299,6 @@ void ResourceDirector::loadRimsDirectory() {
  * invent sources the engine never registers.
  */
 void ResourceDirector::loadGlobalRimResource() {
-    if (_gameId != GameID::KotOR) {
-        return;
-    }
     auto rimsPath = findFileIgnoreCase(_gamePath, kRimsDirectoryName);
     if (!rimsPath) {
         return;
@@ -447,6 +443,8 @@ void ResourceDirector::loadGlobalResources() {
         _resources.addKEY(*keyPath, bucketOf(ResourceSourceBucket::KeyBif));
     }
 
+    loadRimsDirectory();
+
     loadTexturePackResources();
     loadStreamResources();
 
@@ -474,6 +472,7 @@ void ResourceDirector::loadGlobalResources() {
                              ResourceOwner::Global,
                              bucketOf(ResourceSourceBucket::LooseDirectory));
     }
+    loadGlobalRimResource();
 }
 
 void ResourceDirector::loadModuleResources(const std::string &name) {

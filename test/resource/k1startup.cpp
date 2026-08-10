@@ -492,16 +492,22 @@ TEST_P(K1StartupTest, an_absent_player_archive_is_not_a_failure) {
 
 // Game discrimination.
 
-TEST_P(K1StartupTest, k2_mounts_no_player_archive_and_no_rims_sources) {
-    TmpDir game("reone_test_k2_no_k1_sources");
-    TmpDir cwd("reone_test_k2_no_k1_sources_cwd");
+TEST_P(K1StartupTest, k2_mounts_rims_and_global_image_but_not_k1_support_archives) {
+    TmpDir game("reone_test_k2_global_images");
+    TmpDir cwd("reone_test_k2_global_images_cwd");
     makeInstallation(game, cwd);
 
     writeErf(game.path / "players.erf", ErfWriter::FileType::ERF,
              {{"from_players", ResType::Txt, "players"}});
-    writeRim(game.mkdir("rims") / "global.rim", {{"from_global", ResType::Txt, "global"}});
+    auto rims = game.mkdir("rims");
+    writeFile(rims / "loose.txt", "rims loose");
+    writeRim(rims / "global.rim",
+             {{"from_global", ResType::Txt, "global"},
+              {kProbe, ResType::Txt, "global rim"}});
     writeErf(game.mkdir("override") / "textures.erf", ErfWriter::FileType::ERF,
              {{"from_override_textures", ResType::Txt, "textures"}});
+    reone::test::writeKeyBif(game.path, "data/sample.bif",
+                             {{kProbe, ResType::Txt, "key bif"}});
 
     auto director = makeDirector(game.path, GameID::TSL);
     {
@@ -510,8 +516,14 @@ TEST_P(K1StartupTest, k2_mounts_no_player_archive_and_no_rims_sources) {
     }
 
     EXPECT_FALSE(has("from_players")) << "the player archive is a K1 source";
-    EXPECT_FALSE(has("from_global")) << "the rims location is a K1 source";
     EXPECT_FALSE(has("from_override_textures")) << "the override texture archive is a K1 source";
+    EXPECT_EQ("rims loose", find("loose")) << "RIMS is an active loose resource directory";
+    EXPECT_EQ("global", find("from_global")) << "global.rim is an active resource image";
+    EXPECT_EQ("global rim", find(kProbe)) << "the image bucket outranks KEY/BIF";
+
+    EXPECT_NO_THROW(director->onModuleLoad("missing"));
+    EXPECT_EQ("rims loose", find("loose")) << "the RIMS directory has Global lifetime";
+    EXPECT_EQ("global", find("from_global")) << "global.rim has Global lifetime";
 }
 
 TEST_P(K1StartupTest, k2_keeps_its_streams_out_of_raw_lookup) {
@@ -658,7 +670,7 @@ TEST_P(K1StartupTest, the_global_image_supplies_the_two_da_that_the_key_table_al
     makeInstallation(game, cwd);
 
     // The key table carries the ordinary tab-delimited copy...
-    reone::test::writeKeyBif(game.path, "data\sample.bif",
+    reone::test::writeKeyBif(game.path, "data/sample.bif",
                              {{"probe", ResType::TwoDA, twoDaBytes("keybif", '\t')}});
     // ...and the global image carries the NUL-delimited one, as retail does.
     writeRim(game.mkdir("rims") / "global.rim",
