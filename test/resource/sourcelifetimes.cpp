@@ -372,6 +372,73 @@ INSTANTIATE_TEST_SUITE_P(Backends,
                          testing::Values(Backend::Legacy, Backend::Extract),
                          backendName);
 
+/**
+ * Test-only backend decorator that turns one otherwise valid disk mount into a
+ * non-validation failure. ModuleMountExecutor catches std::exception from a
+ * backend and reports a missed mount, which is the production path that must
+ * now produce Failed rather than committing a partial module.
+ */
+class RejectingResources : public IResources {
+public:
+    RejectingResources(std::unique_ptr<IResources> backend, std::string rejectedName) :
+        _backend(std::move(backend)),
+        _rejectedName(std::move(rejectedName)) {
+    }
+
+    void clear() override { _backend->clear(); }
+    void clearOwner(ResourceOwner owner) override { _backend->clearOwner(owner); }
+    ResourceMountToken mountToken() const override { return _backend->mountToken(); }
+    void rollbackTo(ResourceMountToken token) override { _backend->rollbackTo(token); }
+
+    void addEXE(const std::filesystem::path &path,
+                std::optional<ResourceSourceBucket> bucket) override {
+        _backend->addEXE(path, bucket);
+    }
+    void addKEY(const std::filesystem::path &path,
+                std::optional<ResourceSourceBucket> bucket) override {
+        _backend->addKEY(path, bucket);
+    }
+    void addERF(const std::filesystem::path &path,
+                ResourceOwner owner,
+                std::optional<ResourceSourceBucket> bucket) override {
+        reject(path);
+        _backend->addERF(path, owner, bucket);
+    }
+    void addMemERF(ByteBuffer buffer,
+                   ResourceOwner owner,
+                   std::optional<ResourceSourceBucket> bucket) override {
+        _backend->addMemERF(std::move(buffer), owner, bucket);
+    }
+    void addRIM(const std::filesystem::path &path,
+                ResourceOwner owner,
+                std::optional<ResourceSourceBucket> bucket) override {
+        reject(path);
+        _backend->addRIM(path, owner, bucket);
+    }
+    void addMemRIM(ByteBuffer buffer,
+                   ResourceOwner owner,
+                   std::optional<ResourceSourceBucket> bucket) override {
+        _backend->addMemRIM(std::move(buffer), owner, bucket);
+    }
+    void addFolder(const std::filesystem::path &path,
+                   ResourceOwner owner,
+                   std::optional<ResourceSourceBucket> bucket) override {
+        _backend->addFolder(path, owner, bucket);
+    }
+
+    Resource get(const ResourceId &id) override { return _backend->get(id); }
+    std::optional<Resource> find(const ResourceId &id) override { return _backend->find(id); }
+
+private:
+    void reject(const std::filesystem::path &path) const {
+        if (path.filename().string() == _rejectedName) {
+            throw std::runtime_error("injected non-validation mount failure");
+        }
+    }
+
+    std::unique_ptr<IResources> _backend;
+    std::string _rejectedName;
+};
 /// Save and module lifetimes as the director drives them.
 class SourceLifetimeFixture {
 protected:
@@ -390,6 +457,9 @@ protected:
         _auxResources = std::make_unique<Resources>();
     }
 
+    void rejectDiskMount(const std::string &filename) {
+        _resources = std::make_unique<RejectingResources>(std::move(_resources), filename);
+    }
     void makeInstallation(TmpDir &game, TmpDir &cwd) {
         writeErf(cwd.path / "shaderpack.erf", ErfWriter::FileType::ERF, {});
         game.mkdir("modules");
@@ -857,6 +927,104 @@ TEST_P(SourceLifetimeDirectorTest, a_module_that_fails_partway_leaves_none_of_it
     EXPECT_EQ(beforeAttempt, _count());
 }
 
+TEST_P(SourceLifetimeDirectorTest, a_non_exception_required_failure_rolls_back_the_new_module) {
+    TmpDir game("reone_test_lifetime_required_result_failure");
+    TmpDir cwd("reone_test_lifetime_required_result_failure_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeRim(modules / "foo.rim", {{"foo_base", ResType::Txt, "base"}});
+    writeRim(modules / "foo_a.rim", {{"foo_area", ResType::Txt, "area"}});
+    writeRim(modules / "foo_s.rim", {{"foo_static", ResType::Txt, "static"}});
+    rejectDiskMount("foo_s.rim");
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    auto globalCount = _count();
+
+    EXPECT_NO_THROW(director->onModuleLoad("foo"));
+    EXPECT_EQ(globalCount, _count());
+    EXPECT_FALSE(has("foo_area")) << "an adjunct mounted before the required failure is rolled back";
+    EXPECT_FALSE(has("foo_base")) << "an ordinary active image is not the CURRENTGAME recovery route";
+    EXPECT_FALSE(has("foo_static"));
+}
+
+TEST_P(SourceLifetimeDirectorTest, a_required_failure_can_recover_through_active_saved_state) {
+    TmpDir game("reone_test_lifetime_required_recovery");
+    TmpDir cwd("reone_test_lifetime_required_recovery_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeRim(modules / "foo.rim", {{"disk_base", ResType::Txt, "disk"}});
+    writeRim(modules / "foo_a.rim", {{"foo_area", ResType::Txt, "area"}});
+    writeRim(modules / "foo_s.rim", {{"foo_static", ResType::Txt, "static"}});
+
+    auto staged = erfBytes(ErfWriter::FileType::MOD,
+                           {{"recovered", ResType::Txt, "saved state"}});
+    auto slot = game.mkdir("saves/slot_a");
+    writeErf(slot / "savegame.sav", ErfWriter::FileType::ERF,
+             {{"foo", ResType::Sav, blob(staged)}});
+    rejectDiskMount("foo_s.rim");
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onGameLoad("slot_a");
+
+    EXPECT_NO_THROW(director->onModuleLoad("foo"));
+    EXPECT_EQ("saved state", find("recovered"));
+    EXPECT_TRUE(has("foo_area")) << "the recovered module transaction is committed";
+    EXPECT_FALSE(has("foo_static"));
+}
+
+TEST_P(SourceLifetimeDirectorTest, no_primary_with_discoverable_sidecars_rolls_back_everything) {
+    TmpDir game("reone_test_lifetime_no_primary_sidecars");
+    TmpDir cwd("reone_test_lifetime_no_primary_sidecars_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeRim(modules / "foo_a.rim", {{"foo_area", ResType::Txt, "area"}});
+    writeRim(modules / "foo_s.rim", {{"foo_static", ResType::Txt, "static"}});
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    auto globalCount = _count();
+
+    EXPECT_NO_THROW(director->onModuleLoad("foo"));
+    EXPECT_EQ(globalCount, _count());
+    EXPECT_FALSE(has("foo_area"));
+    EXPECT_FALSE(has("foo_static"));
+}
+
+TEST_P(SourceLifetimeDirectorTest, a_best_effort_failure_does_not_fail_the_module) {
+    TmpDir game("reone_test_lifetime_best_effort_result");
+    TmpDir cwd("reone_test_lifetime_best_effort_result_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeRim(modules / "foo.rim", {{"foo_base", ResType::Txt, "base"}});
+    writeErf(modules / "foo_dlg.erf", ErfWriter::FileType::ERF,
+             {{"foo_dialogue", ResType::Txt, "dialogue"}});
+    rejectDiskMount("foo_dlg.erf");
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+
+    EXPECT_NO_THROW(director->onModuleLoad("foo"));
+    EXPECT_EQ("base", find("foo_base"));
+    EXPECT_FALSE(has("foo_dialogue"));
+}
 /// The same rollback for an unreadable archive on disk. Both backends decide an
 /// archive is unusable as they mount it, so both fail here; archivevalidation
 /// covers that contract itself.

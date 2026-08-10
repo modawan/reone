@@ -289,7 +289,9 @@ TEST_F(ModuleMountExecutorTest, reports_a_required_family_that_mounted_nothing) 
         MountCardinality::FirstSuccessful,
         {attempt("gone", ModuleArchiveFamily::StaticRim, MountFailureEffect::FailOrCurrentGameFallback)}));
 
-    EXPECT_TRUE(run(plan).requiredFailure);
+    auto report = run(plan);
+    EXPECT_TRUE(report.requiredFailure);
+    EXPECT_EQ(ModuleLoadOutcome::Failed, report.outcome);
 }
 
 TEST_F(ModuleMountExecutorTest, keeps_a_best_effort_failure_out_of_the_required_result) {
@@ -325,6 +327,7 @@ TEST_F(ModuleMountExecutorTest, mounts_the_selected_primary_as_the_active_table)
     EXPECT_EQ((std::vector<std::string> {"modules:foo_s.rim", "modules:foo.rim"}), mountedIds(report))
         << "the active table is mounted last, so it wins its bucket";
     EXPECT_EQ("primary", shared());
+    EXPECT_EQ(ModuleLoadOutcome::Succeeded, report.outcome);
 }
 
 TEST_F(ModuleMountExecutorTest, does_not_mount_the_primary_twice_in_the_mod_branch) {
@@ -380,6 +383,11 @@ TEST_F(ModuleMountExecutorTest, recovers_through_the_staged_archive_when_a_requi
         ModuleArchiveFamily::StaticRim,
         MountCardinality::FirstSuccessful,
         {attempt("modules:foo_s.rim", ModuleArchiveFamily::StaticRim, MountFailureEffect::FailOrCurrentGameFallback)}));
+    ModulePrimarySelection selection;
+    selection.candidate = ModulePrimaryCandidate {
+        candidate("currentgame:foo.sav", ModuleArchiveFamily::SavedArchive),
+        ModulePrimaryKind::SavedArchive};
+    plan.primary = selection;
     plan.activeState.encapsulatedArchive = *mountMetadata(ModuleArchiveFamily::SavedArchive);
 
     auto report = run(plan);
@@ -387,6 +395,7 @@ TEST_F(ModuleMountExecutorTest, recovers_through_the_staged_archive_when_a_requi
     EXPECT_TRUE(report.requiredFailure);
     EXPECT_EQ((std::vector<std::string> {"currentgame:foo.sav"}), mountedIds(report));
     EXPECT_EQ("recovered", shared());
+    EXPECT_EQ(ModuleLoadOutcome::RecoveredThroughActiveState, report.outcome);
 }
 
 TEST_F(ModuleMountExecutorTest, looks_at_one_candidate_only_for_a_zero_or_one_family) {
@@ -491,4 +500,5 @@ TEST_F(ModuleMountExecutorTest, mounts_nothing_for_a_plan_without_a_primary) {
     auto report = run(plan);
     EXPECT_TRUE(report.outcomes.empty());
     EXPECT_FALSE(report.requiredFailure);
+    EXPECT_EQ(ModuleLoadOutcome::Failed, report.outcome);
 }

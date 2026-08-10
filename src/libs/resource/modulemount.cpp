@@ -158,14 +158,16 @@ void ModuleMountExecutor::runFamily(const ModuleFamilyPlan &family, ModuleMountR
     }
 }
 
-void ModuleMountExecutor::runActiveState(const ModuleLoadPlan &plan, ModuleMountReport &report) {
+bool ModuleMountExecutor::runActiveState(const ModuleLoadPlan &plan, ModuleMountReport &report) {
+    bool activeStateMounted = false;
     if (plan.primary) {
         const auto &primary = plan.primary->candidate.source;
         // In the MOD branch the selected archive is also a branch attempt and
         // is already mounted. Selecting a source and mounting the module's
         // tables are separate operations, so this is the only place the two can
         // coincide.
-        if (!report.mounted(primary.sourceId)) {
+        activeStateMounted = report.mounted(primary.sourceId);
+        if (!activeStateMounted) {
             auto metadata = mountMetadata(primary.family);
             // A packaged module reaches its final form through staging, so the
             // policy assigns it no bucket and there is nothing to mount here.
@@ -173,47 +175,59 @@ void ModuleMountExecutor::runActiveState(const ModuleLoadPlan &plan, ModuleMount
                 // What this phase mounts is the module's active state, so it
                 // takes the active-state owner whatever family supplied it. The
                 // bucket still comes from the family: how long a source lives
-                // and where it is searched are answered separately. Both owners
-                // are retired on a module transition today, so this separates
-                // the two lifetimes without moving either of them.
+                // and where it is searched are answered separately.
                 metadata->owner = plan.activeState.owner;
-                mountBySourceId(primary.sourceId,
-                                primary.family,
-                                ModuleMountPhase::ActiveCurrentGame,
-                                *metadata,
-                                report);
+                activeStateMounted = mountBySourceId(primary.sourceId,
+                                                     primary.family,
+                                                     ModuleMountPhase::ActiveCurrentGame,
+                                                     *metadata,
+                                                     report);
             }
         }
     }
-    // Recovery is a consequence of the branch flow, not of the selection: a
-    // required mount can fail whether or not a primary was chosen.
     if (!report.requiredFailure) {
-        return;
+        return false;
     }
-    // Recovery route: a required branch mount failed, so the staged class-2
-    // archive stands in for it when the inventory offers one.
+
+    // A successfully mounted saved archive is the original CURRENTGAME
+    // recovery route, including when it was already the selected primary.
+    for (const auto &outcome : report.outcomes) {
+        if (outcome.mounted &&
+            outcome.family == ModuleArchiveFamily::SavedArchive &&
+            outcome.phase == ModuleMountPhase::ActiveCurrentGame) {
+            return true;
+        }
+    }
+
+    // Otherwise try the staged class-2 archive once as recovery.
     for (const auto &source : _sources.sources()) {
         if (source.candidate.family != ModuleArchiveFamily::SavedArchive) {
             continue;
         }
-        if (report.mounted(source.candidate.sourceId)) {
-            break;
-        }
-        mountBySourceId(source.candidate.sourceId,
-                        ModuleArchiveFamily::SavedArchive,
-                        ModuleMountPhase::ActiveCurrentGame,
-                        plan.activeState.encapsulatedArchive,
-                        report);
-        break;
+        return mountBySourceId(source.candidate.sourceId,
+                               ModuleArchiveFamily::SavedArchive,
+                               ModuleMountPhase::ActiveCurrentGame,
+                               plan.activeState.encapsulatedArchive,
+                               report);
     }
+    return false;
 }
-
 ModuleMountReport ModuleMountExecutor::run(const ModuleLoadPlan &plan) {
     ModuleMountReport report;
     for (const auto &family : plan.families) {
         runFamily(family, report);
     }
-    runActiveState(plan, report);
+    bool recovered = runActiveState(plan, report);
+    if (!plan.primary) {
+        return report;
+    }
+    if (report.requiredFailure) {
+        report.outcome = recovered
+                             ? ModuleLoadOutcome::RecoveredThroughActiveState
+                             : ModuleLoadOutcome::Failed;
+    } else if (report.mounted(plan.primary->candidate.source.sourceId)) {
+        report.outcome = ModuleLoadOutcome::Succeeded;
+    }
     return report;
 }
 

@@ -608,7 +608,9 @@ void ResourceDirector::loadModuleResourcesFromPolicy(const std::string &name) {
     ModuleMountExecutor executor(_resources, index);
     auto report = executor.run(plan);
 
-    transaction.commit();
+    if (report.outcome != ModuleLoadOutcome::Failed) {
+        transaction.commit();
+    }
 
     if (!plan.primary) {
         warn("No primary source found for module '" + discovered.moduleRoot + "'");

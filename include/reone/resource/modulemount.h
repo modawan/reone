@@ -69,6 +69,12 @@ private:
     std::vector<RuntimeModuleSource> _sources;
 };
 
+enum class ModuleLoadOutcome {
+    Succeeded,
+    RecoveredThroughActiveState,
+    Failed,
+};
+
 struct ModuleMountOutcome {
     std::string sourceId;
     ModuleArchiveFamily family {ModuleArchiveFamily::PrimaryRim};
@@ -86,6 +92,7 @@ struct ModuleMountOutcome {
 struct ModuleMountReport {
     std::vector<ModuleMountOutcome> outcomes;
     bool requiredFailure {false};
+    ModuleLoadOutcome outcome {ModuleLoadOutcome::Failed};
 
     bool mounted(const std::string &sourceId) const;
     std::size_t mountedCount() const;
@@ -114,7 +121,7 @@ private:
 
     bool mount(const RuntimeModuleSource &source, const ModuleSourceMetadata &metadata);
     void runFamily(const ModuleFamilyPlan &family, ModuleMountReport &report);
-    void runActiveState(const ModuleLoadPlan &plan, ModuleMountReport &report);
+    bool runActiveState(const ModuleLoadPlan &plan, ModuleMountReport &report);
     bool mountBySourceId(const std::string &sourceId,
                          ModuleArchiveFamily family,
                          ModuleMountPhase phase,
