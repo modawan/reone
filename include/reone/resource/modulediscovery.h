@@ -19,6 +19,7 @@
 
 #include "reone/resource/modulepolicy.h"
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -187,6 +188,27 @@ std::vector<std::string> discoverModuleRoots(const std::vector<ModuleSearchRoot>
  */
 ModuleDiscoveryResult discoverModuleSources(std::string_view requestedModule,
                                             const std::vector<ModuleSearchRoot> &roots);
+
+/**
+ * Extensions the generic encapsulated opener probes for an exact basename, in
+ * the order it probes them.
+ *
+ * A caller that mounts a basename rather than a filename gets whichever of
+ * these exists first. This is the opener's own order, not a preference of the
+ * caller's, so every such mount shares it.
+ */
+extern const std::array<std::string_view, 5> kEncapsulatedProbeOrder;
+
+/**
+ * The first encapsulated container matching an exact basename in a location,
+ * or nothing when the location holds none of them.
+ *
+ * Nothing is opened or validated here; this only answers which file the
+ * basename resolves to. An absent basename is a normal answer, not an error.
+ */
+std::optional<std::filesystem::path> findEncapsulatedByBasename(
+    const std::filesystem::path &directory,
+    std::string_view basename);
 
 /// Candidate inventory for the policy, in discovery order.
 std::vector<ModuleSourceCandidate> plannerInventory(const ModuleDiscoveryResult &discovered);

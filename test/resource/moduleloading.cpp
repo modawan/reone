@@ -699,9 +699,11 @@ TEST_P(K2ModuleLoadingTest, admits_a_later_loose_directory_mounted_by_another_ca
     EXPECT_EQ("late folder", find("shared")) << "the source added last wins inside its own bucket";
 }
 
-TEST(ResourceDirectorActivation, activates_only_the_game_whose_precedence_is_established) {
+TEST(ResourceDirectorActivation, places_both_games_in_the_raw_lookup_order) {
+    // Both games are activated. K1's own startup and module registration are
+    // now evidenced, so neither game keeps the insertion-ordered stack.
     EXPECT_TRUE(usesBucketedLookup(GameID::TSL));
-    EXPECT_FALSE(usesBucketedLookup(GameID::KotOR));
+    EXPECT_TRUE(usesBucketedLookup(GameID::KotOR));
 }
 
 INSTANTIATE_TEST_SUITE_P(Backends,

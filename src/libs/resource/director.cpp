@@ -57,6 +57,10 @@ static constexpr char kModulesDirectoryName[] = "modules";
 static constexpr char kSavesDirectoryName[] = "saves";
 static constexpr char kLipsDirectoryName[] = "lips";
 static constexpr char kOverrideDirectoryName[] = "override";
+static constexpr char kRimsDirectoryName[] = "rims";
+static constexpr char kGlobalRimFilename[] = "global.rim";
+static constexpr char kPlayersBasename[] = "players";
+static constexpr char kOverrideTexturesBasename[] = "textures";
 
 static constexpr char kTexturePackFilenameGUI[] = "swpc_tex_gui.erf";
 static constexpr char kTexturePackFilenameHigh[] = "swpc_tex_tpa.erf";
@@ -70,6 +74,8 @@ static constexpr char kShaderPackFilename[] = "shaderpack.erf";
 
 static constexpr char kModulesRootId[] = "modules";
 static constexpr char kLipsRootId[] = "lips";
+/// Root fixed-name installation support archives are offered under.
+static constexpr char kRootRootId[] = "hd0";
 /// Root the staged active module is offered under. reone has no current-game
 /// directory; the equivalent is the save archive already in scope.
 static constexpr char kStagedRootId[] = "currentgame";
@@ -151,8 +157,16 @@ std::set<std::string> ResourceDirector::saveNames() {
     return names;
 }
 
+/**
+ * Whether a game's sources are placed in the Odyssey raw lookup order.
+ *
+ * Both games are, and the answer no longer varies. It stays a named question
+ * because a source list is homogeneous: anything mounting into a game's list
+ * has to agree with the director about how that list is ordered, and the
+ * toolkit asks the same question when it mounts after startup.
+ */
 bool usesBucketedLookup(GameID game) {
-    return game == GameID::TSL;
+    return game == GameID::KotOR || game == GameID::TSL;
 }
 
 std::optional<ResourceSourceBucket> ResourceDirector::bucketOf(ResourceSourceBucket bucket) const {
@@ -197,62 +211,249 @@ void ResourceDirector::loadAuxiliaryResources() {
  * stay exactly where they have always been.
  */
 void ResourceDirector::loadStreamResources() {
-    auto &target = bucketed() ? _auxResources : _resources;
-
+    if (_gameId == GameID::KotOR) {
+        loadK1StreamResources();
+        return;
+    }
+    // K2 keeps its streamed audio out of the raw lookup order. Its own startup
+    // is not traced here, so this is left exactly as it was.
     auto musicPath = findFileIgnoreCase(_gamePath, kMusicDirectoryName);
     if (musicPath) {
-        target.addFolder(*musicPath);
+        _auxResources.addFolder(*musicPath);
     }
     auto soundsPath = findFileIgnoreCase(_gamePath, kSoundsDirectoryName);
     if (soundsPath) {
-        target.addFolder(*soundsPath);
+        _auxResources.addFolder(*soundsPath);
     }
+    auto voicePath = findFileIgnoreCase(_gamePath, kVoiceDirectoryName);
+    if (voicePath) {
+        _auxResources.addFolder(*voicePath);
+    }
+}
 
-    if (_gameId == GameID::TSL) {
-        auto voicePath = findFileIgnoreCase(_gamePath, kVoiceDirectoryName);
-        if (voicePath) {
-            target.addFolder(*voicePath);
-        }
-    } else {
-        auto wavesPath = findFileIgnoreCase(_gamePath, kWavesDirectoryName);
-        if (wavesPath) {
-            target.addFolder(*wavesPath);
-        }
+/**
+ * K1 streamed audio, as its startup registers it.
+ *
+ * K1 is not uniform about this and the difference is evidenced, not a
+ * simplification. Startup registers HD0:STREAMMUSIC and HD0:STREAMWAVES as
+ * ordinary resource directories, so both sit in the loose bucket and can answer
+ * an ordinary lookup. HD0:STREAMSOUNDS has no bare alias and is never
+ * registered: the only string for it is the path template HD0:STREAMSOUNDS\%s,
+ * so it is reached by constructed path and stays out of raw lookup entirely.
+ *
+ * The sounds directory therefore goes to the auxiliary list, where the audio
+ * provider still finds it and no ordinary lookup can.
+ */
+void ResourceDirector::loadK1StreamResources() {
+    // Waves first, then music: that is the order startup registers them in,
+    // and within the loose bucket the later one wins.
+    auto wavesPath = findFileIgnoreCase(_gamePath, kWavesDirectoryName);
+    if (wavesPath) {
+        _resources.addFolder(*wavesPath,
+                             ResourceOwner::Global,
+                             bucketOf(ResourceSourceBucket::LooseDirectory));
     }
+    auto musicPath = findFileIgnoreCase(_gamePath, kMusicDirectoryName);
+    if (musicPath) {
+        _resources.addFolder(*musicPath,
+                             ResourceOwner::Global,
+                             bucketOf(ResourceSourceBucket::LooseDirectory));
+    }
+    auto soundsPath = findFileIgnoreCase(_gamePath, kSoundsDirectoryName);
+    if (soundsPath) {
+        _auxResources.addFolder(*soundsPath);
+    }
+}
+
+/**
+ * The K1 rims location and its global image.
+ *
+ * These are two sources with two roles, and K1 startup registers them
+ * separately. The directory itself is a resource directory, so a loose file
+ * dropped there answers like any other loose file. GLOBAL.rim is registered on
+ * its own as a resource image.
+ *
+ * Only that one image is mounted. The directory holds several other images,
+ * and startup names none of them: the rest are reached as module or menu
+ * images when something asks for them, so mounting them here because the files
+ * exist would invent sources the engine never registers.
+ *
+ * K2 startup is not traced here, so this stays K1's.
+ */
+void ResourceDirector::loadRimsDirectory() {
+    if (_gameId != GameID::KotOR) {
+        return;
+    }
+    if (auto rimsPath = findFileIgnoreCase(_gamePath, kRimsDirectoryName)) {
+        _resources.addFolder(*rimsPath,
+                             ResourceOwner::Global,
+                             bucketOf(ResourceSourceBucket::LooseDirectory));
+    }
+}
+
+/**
+ * The global resource image, registered last of the startup sources.
+ *
+ * Only this one image is mounted. The rims location holds several others and
+ * startup names none of them: the rest are reached as module or menu images
+ * when something asks for them, so mounting them because the files exist would
+ * invent sources the engine never registers.
+ */
+void ResourceDirector::loadGlobalRimResource() {
+    if (_gameId != GameID::KotOR) {
+        return;
+    }
+    auto rimsPath = findFileIgnoreCase(_gamePath, kRimsDirectoryName);
+    if (!rimsPath) {
+        return;
+    }
+    if (auto globalRimPath = findFileIgnoreCase(*rimsPath, kGlobalRimFilename)) {
+        _resources.addRIM(*globalRimPath,
+                          ResourceOwner::Global,
+                          bucketOf(ResourceSourceBucket::ResourceImage));
+    }
+}
+
+/**
+ * The K1 override texture archive.
+ *
+ * Startup mounts the exact basename OVERRIDE:textures as an encapsulated
+ * source with source id 1, which is class 1: above every image and class-2
+ * archive, below the loose directories. It is a resource-manager source in its
+ * own right and has nothing to do with the texture packs, which are class 2 and
+ * mounted by the texture subsystem.
+ *
+ * K1 mounts exactly this one base location. It enumerates no configured roots
+ * for it, so neither does this.
+ *
+ * It is registered immediately before the patch archive because that is the
+ * order startup registers them in, and the two share a bucket: within class 1
+ * the later mount wins, so the order is the behaviour. Stock installations ship
+ * no such archive, and its absence is normal.
+ */
+void ResourceDirector::loadOverrideTexturesResource() {
+    if (_gameId != GameID::KotOR) {
+        return;
+    }
+    auto overridePath = findFileIgnoreCase(_gamePath, kOverrideDirectoryName);
+    if (!overridePath) {
+        return;
+    }
+    auto texturesPath = findEncapsulatedByBasename(*overridePath, kOverrideTexturesBasename);
+    if (!texturesPath) {
+        return;
+    }
+    _resources.addERF(*texturesPath,
+                      ResourceOwner::Global,
+                      bucketOf(ResourceSourceBucket::EncapsulatedClass1));
+}
+
+/**
+ * The GUI and quality-selected texture packs.
+ *
+ * Both games mount these as encapsulated class-2 sources. K1 does it from its
+ * own LoadTexturePack, which builds the path under the TEXTUREPACKS: alias and
+ * hands it to AddEncapsulatedResourceFile with source id 2 into a four-slot
+ * table; K2 does the same. They are not startup-table sources in either game,
+ * but they are ordinary resource-manager sources.
+ */
+void ResourceDirector::loadTexturePackResources() {
+    auto texPacksPath = findFileIgnoreCase(_gamePath, kTexturePackDirectoryName);
+    if (!texPacksPath) {
+        return;
+    }
+    if (auto guiPackPath = findFileIgnoreCase(*texPacksPath, kTexturePackFilenameGUI)) {
+        _resources.addERF(*guiPackPath,
+                          ResourceOwner::Global,
+                          bucketOf(ResourceSourceBucket::EncapsulatedClass2));
+    }
+    auto &texPack = kTexQualityToTexPack.at(_graphicsOpt.textureQuality);
+    if (auto texPackPath = findFileIgnoreCase(*texPacksPath, texPack)) {
+        _resources.addERF(*texPackPath,
+                          ResourceOwner::Global,
+                          bucketOf(ResourceSourceBucket::EncapsulatedClass2));
+    }
+}
+
+/**
+ * The K1 player archive.
+ *
+ * K1 mounts this from its module support phase but never removes it: that path
+ * removes only temporary directories, and re-adding the same exact filename
+ * rebuilds the existing table in place rather than inserting another. Its
+ * observable lifetime is therefore the whole session at a fixed position, which
+ * is what mounting it once here reproduces. Module ownership would retire and
+ * re-mount it on every transition, moving it to the newest position in its
+ * bucket each time, which the original never does.
+ *
+ * The engine mounts an exact basename, so the container extension is probed
+ * rather than assumed.
+ */
+void ResourceDirector::loadPlayerSupportResource() {
+    auto playersPath = findEncapsulatedByBasename(_gamePath, kPlayersBasename);
+    if (!playersPath) {
+        return;
+    }
+    _resources.addERF(*playersPath,
+                      ResourceOwner::Global,
+                      bucketOf(ResourceSourceBucket::EncapsulatedClass2));
+}
+
+/**
+ * K1 startup sources, in the order K1 registers them.
+ *
+ * The order is the behaviour. Four of these share the loose bucket and two
+ * share class 1, and within a bucket the source registered later wins, so
+ * reproducing the chronology is what reproduces the winners. K1 registers the
+ * override directory early and the streaming directories late, which means a
+ * streamed asset outranks an override file of the same resref and type: the
+ * opposite of what mounting override last would give.
+ *
+ * Only sources reone reads through are mounted. The original also registers
+ * TEMPCLIENT:, ERRORTEX:, SERVERVAULT: and PORTRAITS:, which reone has no
+ * consumer for, and HD0:MOVIES, which reone plays by direct path.
+ */
+void ResourceDirector::loadK1GlobalResources() {
+    if (auto overridePath = findFileIgnoreCase(_gamePath, kOverrideDirectoryName)) {
+        _resources.addFolder(*overridePath,
+                             ResourceOwner::Global,
+                             bucketOf(ResourceSourceBucket::LooseDirectory));
+    }
+    if (auto keyPath = findFileIgnoreCase(_gamePath, kKeyFilename)) {
+        _resources.addKEY(*keyPath, bucketOf(ResourceSourceBucket::KeyBif));
+    }
+    loadRimsDirectory();
+    loadOverrideTexturesResource();
+    if (auto patchPath = findFileIgnoreCase(_gamePath, kPatchFilename)) {
+        _resources.addERF(*patchPath,
+                          ResourceOwner::Global,
+                          bucketOf(ResourceSourceBucket::EncapsulatedClass1));
+    }
+    loadK1StreamResources();
+    loadGlobalRimResource();
+    loadTexturePackResources();
+    loadPlayerSupportResource();
 }
 
 void ResourceDirector::loadGlobalResources() {
     loadAuxiliaryResources();
+    if (_gameId == GameID::KotOR) {
+        loadK1GlobalResources();
+        return;
+    }
 
     auto keyPath = findFileIgnoreCase(_gamePath, kKeyFilename);
     if (keyPath) {
         _resources.addKEY(*keyPath, bucketOf(ResourceSourceBucket::KeyBif));
     }
 
-    auto texPacksPath = findFileIgnoreCase(_gamePath, kTexturePackDirectoryName);
-    if (texPacksPath) {
-        auto guiPackPath = findFileIgnoreCase(*texPacksPath, kTexturePackFilenameGUI);
-        if (guiPackPath) {
-            _resources.addERF(*guiPackPath,
-                              ResourceOwner::Global,
-                              bucketOf(ResourceSourceBucket::EncapsulatedClass2));
-        }
-        auto &texPack = kTexQualityToTexPack.at(_graphicsOpt.textureQuality);
-        auto texPackPath = findFileIgnoreCase(*texPacksPath, texPack);
-        if (texPackPath) {
-            _resources.addERF(*texPackPath,
-                              ResourceOwner::Global,
-                              bucketOf(ResourceSourceBucket::EncapsulatedClass2));
-        }
-    }
-
+    loadTexturePackResources();
     loadStreamResources();
 
     auto lipsPath = findFileIgnoreCase(_gamePath, kLipsDirectoryName);
     if (lipsPath) {
         for (auto &filename : g_globalLipFiles) {
-            auto globalLipPath = findFileIgnoreCase(*lipsPath, filename);
-            if (globalLipPath) {
+            if (auto globalLipPath = findFileIgnoreCase(*lipsPath, filename)) {
                 // A global LIP archive is a caller-selected encapsulated
                 // source. Class 2 keeps it where it has always sat relative to
                 // the texture packs it is mounted after.
@@ -263,14 +464,12 @@ void ResourceDirector::loadGlobalResources() {
         }
     }
 
-    auto patchPath = findFileIgnoreCase(_gamePath, kPatchFilename);
-    if (patchPath) {
+    if (auto patchPath = findFileIgnoreCase(_gamePath, kPatchFilename)) {
         _resources.addERF(*patchPath,
                           ResourceOwner::Global,
                           bucketOf(ResourceSourceBucket::EncapsulatedClass1));
     }
-    auto overridePath = findFileIgnoreCase(_gamePath, kOverrideDirectoryName);
-    if (overridePath) {
+    if (auto overridePath = findFileIgnoreCase(_gamePath, kOverrideDirectoryName)) {
         _resources.addFolder(*overridePath,
                              ResourceOwner::Global,
                              bucketOf(ResourceSourceBucket::LooseDirectory));
@@ -278,45 +477,7 @@ void ResourceDirector::loadGlobalResources() {
 }
 
 void ResourceDirector::loadModuleResources(const std::string &name) {
-    if (bucketed()) {
-        loadModuleResourcesFromPolicy(name);
-    } else {
-        loadModuleResourcesLegacy(name);
-    }
-}
-
-/**
- * Module loading for a game that is not yet activated.
- *
- * This is the flat insertion-ordered stack the engine has always used. It is
- * retained unchanged rather than reimplemented, so that activating one game
- * cannot change the other.
- */
-void ResourceDirector::loadModuleResourcesLegacy(const std::string &name) {
-    std::optional<std::filesystem::path> modulesPath = findFileIgnoreCase(_gamePath, kModulesDirectoryName);
-    if (!modulesPath) {
-        throw ResourceNotFoundException("Modules directory not found");
-    }
-
-    // Scoped for the same reason the activated path is: an archive that fails
-    // to open partway down this list must not leave the ones above it mounted.
-    // The stack itself, and the order it is built in, are unchanged.
-    ResourceMountTransaction transaction(_resources);
-
-    loadRIM(*modulesPath, name, ResourceOwner::ActiveModule);
-    loadRIM(*modulesPath, name + "_s", ResourceOwner::ActiveModule);
-    loadERF(*modulesPath, name, ResourceOwner::ActiveModule);
-    loadERF(*modulesPath, name + "_loc", ResourceOwner::ActiveModule);
-
-    if (auto lipsPath = findFileIgnoreCase(_gamePath, kLipsDirectoryName)) {
-        loadERF(*lipsPath, name + "_loc", ResourceOwner::ActiveModule);
-    }
-
-    if (_gameId == GameID::TSL) {
-        loadERF(*modulesPath, name + "_dlg", ResourceOwner::ActiveModule);
-    }
-
-    transaction.commit();
+    loadModuleResourcesFromPolicy(name);
 }
 
 ModuleSearchRoot ResourceDirector::modulesSearchRoot() {
@@ -521,46 +682,6 @@ void ResourceDirector::loadSaveGameResources(std::string_view name) {
 
     transaction.commit();
     _savegamePath = std::move(savegamePath);
-}
-
-void ResourceDirector::loadRIM(const std::filesystem::path &path, const std::string &name, ResourceOwner owner) {
-    // Try to find a module with the same name in already loaded resources.
-    // Same idea as in loadERF.
-    std::optional<Resource> res = _resources.find(ResourceId(name, ResType::Res));
-    if (res) {
-        _resources.addMemRIM(res->data, owner);
-        return;
-    }
-
-    if (auto rimPath = findFileIgnoreCase(path, name + ".rim")) {
-        _resources.addRIM(*rimPath, owner);
-    }
-}
-
-void ResourceDirector::loadERF(const std::filesystem::path &path, const std::string &name, ResourceOwner owner) {
-    // Try to find a module with the same name in already loaded resources.
-    //
-    // This allows us to support savegame archives: savegame.sav is an ERF
-    // archive that contains ERF modules. When loading from a save game we add
-    // savegame.sav ERF container. Module lookups resolve to modules from this
-    // container, and fall back to filesystem search if the module is not in the
-    // save archive.
-    // Type 0x0809 is the saved module archive, which is what a nested module
-    // in savegame.sav is stored as. This probe is unchanged; only the name it
-    // is spelled with was wrong before.
-    std::optional<Resource> res = _resources.find(ResourceId(name, ResType::Sav));
-    if (res) {
-        _resources.addMemERF(res->data, owner);
-        return;
-    }
-
-    if (auto modPath = findFileIgnoreCase(path, name + ".mod")) {
-        _resources.addERF(*modPath, owner);
-    }
-
-    if (auto erfPath = findFileIgnoreCase(path, name + ".erf")) {
-        _resources.addERF(*erfPath, owner);
-    }
 }
 
 } // namespace resource

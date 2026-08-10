@@ -17,6 +17,8 @@
 
 #include "reone/resource/modulediscovery.h"
 
+#include "reone/system/fileutil.h"
+
 #include <algorithm>
 #include <array>
 #include <set>
@@ -274,6 +276,24 @@ ModuleDiscoveryResult discoverModuleSources(std::string_view requestedModule,
         }
     }
     return result;
+}
+
+const std::array<std::string_view, 5> kEncapsulatedProbeOrder {
+    ".nwm", ".mod", ".sav", ".erf", ".hak"};
+
+std::optional<std::filesystem::path> findEncapsulatedByBasename(
+    const std::filesystem::path &directory,
+    std::string_view basename) {
+    if (basename.empty()) {
+        return std::nullopt;
+    }
+    for (auto extension : kEncapsulatedProbeOrder) {
+        auto filename = std::string(basename) + std::string(extension);
+        if (auto path = findFileIgnoreCase(directory, filename)) {
+            return path;
+        }
+    }
+    return std::nullopt;
 }
 
 std::vector<ModuleSourceCandidate> plannerInventory(const ModuleDiscoveryResult &discovered) {

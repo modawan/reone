@@ -133,10 +133,16 @@ private:
     void loadGlobalResources();
     void loadAuxiliaryResources();
     void loadStreamResources();
+    void loadK1StreamResources();
+    void loadRimsDirectory();
+    void loadGlobalRimResource();
+    void loadOverrideTexturesResource();
+    void loadTexturePackResources();
+    void loadPlayerSupportResource();
+    void loadK1GlobalResources();
     void loadSaveGameResources(std::string_view name);
 
     void loadModuleResources(const std::string &name);
-    void loadModuleResourcesLegacy(const std::string &name);
     void loadModuleResourcesFromPolicy(const std::string &name);
 
     ModuleSearchRoot modulesSearchRoot();
@@ -144,8 +150,6 @@ private:
     void addStagedModuleSources(const std::string &moduleRoot, RuntimeModuleSourceIndex &index);
     bool includeModuleInSave(const std::string &moduleRoot);
 
-    void loadRIM(const std::filesystem::path &path, const std::string &name, ResourceOwner owner);
-    void loadERF(const std::filesystem::path &path, const std::string &name, ResourceOwner owner);
 };
 
 } // namespace resource

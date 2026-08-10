@@ -376,13 +376,18 @@ TEST_F(ResourceDirectorLookup, should_mount_module_locations_over_global_and_cle
 
     director->onModuleLoad("foo");
 
-    EXPECT_EQ("mod", find("m")) << ".mod must beat _s.rim, .rim and all global locations, including override";
-    EXPECT_EQ("main rim", find("rim_only"));
-    EXPECT_EQ("data rim", find("rims_only"));
+    // K1 is activated, so the buckets decide. A loose override file outranks
+    // every module source, and the MOD branch suppresses the static image and
+    // leaves the base image unmounted.
+    EXPECT_EQ("override", find("m")) << "a loose override file outranks every module archive";
+    EXPECT_FALSE(_resources.find(ResourceId("rim_only", ResType::Txt)))
+        << "the MOD branch does not mount the base image";
+    EXPECT_FALSE(_resources.find(ResourceId("rims_only", ResType::Txt)))
+        << "the MOD branch suppresses the static image";
 
     director->onModuleLoad("bar");
 
-    EXPECT_EQ("bar rim", find("m")) << "previous module containers must be dropped on transition";
+    EXPECT_EQ("override", find("m")) << "previous module containers must be dropped on transition";
     EXPECT_FALSE(_resources.find(ResourceId("rim_only", ResType::Txt)));
 }
 
@@ -419,7 +424,10 @@ TEST_F(ResourceDirectorLookup, should_mount_save_scope_and_modules_nested_in_sav
 
     director->onGameLoad("000001");
 
-    EXPECT_EQ("save archive", find("loose")) << "savegame.sav must beat loose files in the save folder";
+    // The save folder is a loose directory and the archive is class 2, so the
+    // folder wins. The old flat stack had the archive win only because it was
+    // mounted last.
+    EXPECT_EQ("save folder", find("loose")) << "a loose save file outranks the save archive";
 
     director->onModuleLoad("bar");
 
