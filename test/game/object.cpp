@@ -108,7 +108,24 @@ public:
 
     static bool applyAnimation(DialogGUI &gui, const std::string &tag, int ordinal) {
         auto animation = gui.getStuntParticipantAnimation(tag, ordinal);
-        return animation && gui.enterMixedStunt(gui._participantByTag.at(tag), animation);
+        if (!animation) {
+            return false;
+        }
+        auto cut = DialogGUI::decodeCutAnimation(ordinal);
+        return gui.enterMixedStunt(gui._participantByTag.at(tag), animation, cut && cut->looping);
+    }
+
+    static std::optional<DialogGUI::CutAnimation> decodeCut(int ordinal) {
+        return DialogGUI::decodeCutAnimation(ordinal);
+    }
+
+    static void setOwner(DialogGUI &gui, std::shared_ptr<Object> owner) {
+        gui._owner = std::move(owner);
+    }
+
+    static void updateAnimationsForEntry(DialogGUI &gui, const resource::Dialog::EntryReply &entry) {
+        gui._currentEntry = &entry;
+        gui.updateParticipantAnimations();
     }
 
     static bool isActive(DialogGUI &gui, const std::string &tag) {
@@ -933,6 +950,388 @@ TEST(DialogGUI, should_leave_no_partial_mixed_stunt_state_when_inputs_are_missin
     EXPECT_FALSE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
     EXPECT_FALSE(MixedStuntTestAccess::isActive(gui, "PLAYER"));
     EXPECT_FALSE(player->isStuntMode());
+}
+
+// Owns the graphics options the scene graph keeps a reference to.
+struct DialogAnimScene {
+    graphics::GraphicsOptions graphicsOptions;
+    scene::SceneGraph graph;
+
+    explicit DialogAnimScene(TestEngine &engine) :
+        graph(
+            "test",
+            engine.sceneModule().renderPipelineFactory(),
+            graphicsOptions,
+            engine.services().graphics,
+            engine.services().audio,
+            engine.services().resource) {
+    }
+
+    std::shared_ptr<TestCreature> newCreature(
+        Game &game,
+        TestEngine &engine,
+        uint32_t id,
+        std::string tag,
+        const std::shared_ptr<graphics::Model> &model) {
+        auto creature = std::make_shared<TestCreature>(id, std::move(tag), game, engine.services());
+        creature->setSceneNode(graph.newModel(*model, scene::ModelUsage::Creature));
+        return creature;
+    }
+};
+
+std::shared_ptr<scene::ModelSceneNode> modelNodeOf(const std::shared_ptr<Creature> &creature) {
+    return std::static_pointer_cast<scene::ModelSceneNode>(creature->sceneNode());
+}
+
+std::shared_ptr<TwoDA> makeDialogAnimationsTable() {
+    TwoDA::Builder builder;
+    builder.columns({"name"});
+    for (int i = 0; i < 30; ++i) {
+        builder.row({""});
+    }
+    builder.row({"Talk_Normal"});
+    return builder.build();
+}
+
+TEST(DialogGUI, should_decode_participant_animation_ordinals_by_cut_band) {
+    struct Expectation {
+        int ordinal;
+        const char *name;
+        bool looping;
+    };
+    const Expectation expectations[] {
+        {1000, "cut001", false},
+        {1011, "cut012", false},
+        {1013, "cut014", false},
+        {1199, "cut200", false},
+        {1200, "cut001w", false},
+        {1201, "cut002w", false},
+        {1399, "cut200w", false},
+        {1400, "cut001l", true},
+        {1409, "cut010l", true},
+        {1412, "cut013l", true},
+        {1599, "cut200l", true},
+        {1600, "cut001wl", true},
+        {1601, "cut002wl", true},
+        {1799, "cut200wl", true}};
+
+    for (auto &expected : expectations) {
+        auto cut = MixedStuntTestAccess::decodeCut(expected.ordinal);
+        ASSERT_TRUE(cut.has_value()) << "ordinal " << expected.ordinal;
+        EXPECT_EQ(cut->name, expected.name) << "ordinal " << expected.ordinal;
+        EXPECT_EQ(cut->looping, expected.looping) << "ordinal " << expected.ordinal;
+    }
+
+    // Ordinals outside the known cut bands keep their own meaning and must not
+    // be reinterpreted as clip names.
+    for (int ordinal : {0, 35, 40, 70, 999, 1800, 2000, 9999, 10000, 10038, 10511}) {
+        EXPECT_FALSE(MixedStuntTestAccess::decodeCut(ordinal).has_value()) << "ordinal " << ordinal;
+    }
+}
+
+TEST(DialogGUI, should_animate_the_real_player_when_an_animated_cut_authors_no_stunt_participants) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    DialogAnimScene scene(engine);
+
+    auto held = makeAnimation("cut010l");
+    auto oneShot = makeAnimation("cut012");
+    auto superModel = makeModel("supermodel", {held, oneShot});
+    auto bodyModel = makeModel("player_body", {makeAnimation("cpause1")});
+    bodyModel->setSuperModel(superModel);
+    auto player = scene.newCreature(game, engine, 1, "player", bodyModel);
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    auto node = modelNodeOf(player);
+
+    auto dialog = std::make_shared<Dialog>();
+    dialog->animatedCutscene = true;
+    DialogGUI gui(game, engine.services());
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+    ASSERT_EQ(MixedStuntTestAccess::participantCount(gui), 0);
+
+    // A held clip resolves through the supermodel and stays on the creature.
+    Dialog::EntryReply inTank;
+    inTank.animations.push_back({"player", 1409});
+    MixedStuntTestAccess::updateAnimationsForEntry(gui, inTank);
+
+    ASSERT_EQ(node->animationChannels().size(), 1);
+    EXPECT_EQ(node->activeAnimationName(), "cut010l");
+    EXPECT_EQ(node->animationChannels().front().anim, held.get());
+    EXPECT_TRUE(node->animationChannels().front().properties.flags & scene::AnimationFlags::loop);
+    node->update(0.6f);
+    node->update(0.6f);
+    EXPECT_FALSE(node->isAnimationFinished());
+
+    // A one-shot clip from the same band group plays once.
+    Dialog::EntryReply draining;
+    draining.animations.push_back({"player", 1011});
+    MixedStuntTestAccess::updateAnimationsForEntry(gui, draining);
+
+    EXPECT_EQ(node->activeAnimationName(), "cut012");
+    EXPECT_EQ(node->animationChannels().front().anim, oneShot.get());
+    EXPECT_FALSE(node->animationChannels().front().properties.flags & scene::AnimationFlags::loop);
+    node->update(0.6f);
+    node->update(0.6f);
+    EXPECT_TRUE(node->isAnimationFinished());
+}
+
+TEST(DialogGUI, should_animate_an_ordinary_participant_from_a_cut_band_ordinal) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    DialogAnimScene scene(engine);
+
+    auto prone = makeAnimation("cut013l");
+    auto rise = makeAnimation("cut014");
+    auto ownerModel = makeModel("owner_body", {prone, rise});
+    auto owner = scene.newCreature(game, engine, 2, "owner", ownerModel);
+    auto node = modelNodeOf(owner);
+
+    auto dialog = std::make_shared<Dialog>();
+    dialog->animatedCutscene = false;
+    DialogGUI gui(game, engine.services());
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+    MixedStuntTestAccess::setOwner(gui, owner);
+
+    Dialog::EntryReply lying;
+    lying.animations.push_back({"owner", 1412});
+    MixedStuntTestAccess::updateAnimationsForEntry(gui, lying);
+    EXPECT_EQ(node->activeAnimationName(), "cut013l");
+    EXPECT_EQ(node->animationChannels().front().anim, prone.get());
+    EXPECT_TRUE(node->animationChannels().front().properties.flags & scene::AnimationFlags::loop);
+
+    Dialog::EntryReply standing;
+    standing.animations.push_back({"owner", 1013});
+    MixedStuntTestAccess::updateAnimationsForEntry(gui, standing);
+    EXPECT_EQ(node->activeAnimationName(), "cut014");
+    EXPECT_EQ(node->animationChannels().front().anim, rise.get());
+    EXPECT_FALSE(node->animationChannels().front().properties.flags & scene::AnimationFlags::loop);
+}
+
+TEST(DialogGUI, should_hold_an_authored_cut_pose_until_the_dialogue_releases_the_participant) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    DialogAnimScene scene(engine);
+
+    auto idle = makeAnimation("cpause1");
+    auto drain = makeAnimation("cut012");
+    auto prone = makeAnimation("cut013l");
+    auto ownerModel = makeModel("owner_body", {idle, drain, prone}, graphics::MdlClassification::character);
+    auto owner = scene.newCreature(game, engine, 7, "owner", ownerModel);
+    owner->resumeStateDrivenAnimation();
+    auto node = modelNodeOf(owner);
+    ASSERT_EQ(node->activeAnimationName(), "cpause1");
+
+    auto dialog = std::make_shared<Dialog>();
+    dialog->animatedCutscene = true;
+    DialogGUI gui(game, engine.services());
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+    MixedStuntTestAccess::setOwner(gui, owner);
+
+    // A one-shot cut clip runs to its end.
+    Dialog::EntryReply draining;
+    draining.animations.push_back({"owner", 1011});
+    MixedStuntTestAccess::updateAnimationsForEntry(gui, draining);
+    EXPECT_EQ(node->activeAnimationName(), "cut012");
+
+    node->update(0.6f);
+    owner->update(0.0f);
+    node->update(0.6f);
+    owner->update(0.0f);
+
+    // Having finished, it holds its final frame rather than falling back to the
+    // state-driven idle.
+    ASSERT_EQ(node->animationChannels().size(), 1);
+    EXPECT_TRUE(node->isAnimationFinished());
+    EXPECT_EQ(node->activeAnimationName(), "cut012");
+    EXPECT_EQ(node->animationChannels().front().anim, drain.get());
+
+    // The authored sequence puts a script-only entry between the two clips. It
+    // must not release the held pose.
+    Dialog::EntryReply scriptOnly;
+    MixedStuntTestAccess::updateAnimationsForEntry(gui, scriptOnly);
+    owner->update(0.0f);
+    EXPECT_EQ(node->activeAnimationName(), "cut012");
+    EXPECT_EQ(node->animationChannels().front().anim, drain.get());
+
+    // The next authored animation replaces it.
+    Dialog::EntryReply lying;
+    lying.animations.push_back({"owner", 1412});
+    MixedStuntTestAccess::updateAnimationsForEntry(gui, lying);
+    owner->update(0.0f);
+    EXPECT_EQ(node->activeAnimationName(), "cut013l");
+    EXPECT_TRUE(node->animationChannels().front().properties.flags & scene::AnimationFlags::loop);
+
+    // A looping clip is not dropped when it passes its end either.
+    node->update(0.6f);
+    owner->update(0.0f);
+    node->update(0.6f);
+    owner->update(0.0f);
+    EXPECT_FALSE(node->isAnimationFinished());
+    EXPECT_EQ(node->activeAnimationName(), "cut013l");
+
+    // Finishing the dialogue hands the creature back to state-driven animation.
+    MixedStuntTestAccess::finish(gui);
+    EXPECT_EQ(node->activeAnimationName(), "cpause1");
+}
+
+TEST(DialogGUI, should_drive_stunt_and_ordinary_participants_from_one_animated_cut_entry) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    DialogAnimScene scene(engine);
+
+    // Both models carry a clip of the same name, so the assertions below
+    // distinguish the model each participant was driven from.
+    auto stuntClip = makeAnimation("cut001w");
+    auto stuntModel = makeModel("principal_stunt", {stuntClip});
+    auto principalModel = makeModel("principal_body", {makeAnimation("cut001w")});
+    auto principal = scene.newCreature(game, engine, 3, "owner", principalModel);
+    auto extraClip = makeAnimation("cut001w");
+    auto extraModel = makeModel("extra_body", {extraClip});
+    auto extra = scene.newCreature(game, engine, 4, "player", extraModel);
+    game.party().addMember(kNpcPlayer, extra);
+    game.party().setPlayer(extra);
+
+    EXPECT_CALL(engine.resourceModule().models(), get("principal_stunt"))
+        .WillOnce(Return(stuntModel));
+
+    auto dialog = std::make_shared<Dialog>();
+    dialog->animatedCutscene = true;
+    dialog->stunts.push_back({"owner", "principal_stunt"});
+    DialogGUI gui(game, engine.services());
+    MixedStuntTestAccess::setOwner(gui, principal);
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+    ASSERT_EQ(MixedStuntTestAccess::participantCount(gui), 1);
+
+    Dialog::EntryReply entry;
+    entry.animations.push_back({"owner", 1200});
+    entry.animations.push_back({"player", 1200});
+    MixedStuntTestAccess::updateAnimationsForEntry(gui, entry);
+
+    // The stunt-bound principal is driven from the stunt model.
+    auto principalNode = modelNodeOf(principal);
+    ASSERT_EQ(principalNode->animationChannels().size(), 1);
+    EXPECT_EQ(principalNode->animationChannels().front().anim, stuntClip.get());
+
+    // The ordinary extra is driven from its own model in the same entry.
+    auto extraNode = modelNodeOf(extra);
+    ASSERT_EQ(extraNode->animationChannels().size(), 1);
+    EXPECT_EQ(extraNode->animationChannels().front().anim, extraClip.get());
+}
+
+TEST(DialogGUI, should_keep_driving_fully_stunted_animated_cuts_from_the_stunt_model) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    DialogAnimScene scene(engine);
+
+    auto first = makeAnimation("cut001w");
+    auto second = makeAnimation("cut002w");
+    auto stuntModel = makeModel("player_stunt", {first, second});
+    auto bodyModel = makeModel("player_body", {makeAnimation("cut001w"), makeAnimation("cpause1")});
+    auto player = scene.newCreature(game, engine, 5, "player", bodyModel);
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    auto node = modelNodeOf(player);
+
+    EXPECT_CALL(engine.resourceModule().models(), get("player_stunt"))
+        .WillOnce(Return(stuntModel));
+
+    auto dialog = std::make_shared<Dialog>();
+    dialog->animatedCutscene = true;
+    dialog->stunts.push_back({"player", "player_stunt"});
+    DialogGUI gui(game, engine.services());
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+    ASSERT_EQ(MixedStuntTestAccess::participantCount(gui), 1);
+
+    Dialog::EntryReply entry;
+    entry.animations.push_back({"player", 1201});
+    MixedStuntTestAccess::updateAnimationsForEntry(gui, entry);
+
+    ASSERT_EQ(node->animationChannels().size(), 1);
+    EXPECT_EQ(node->activeAnimationName(), "cut002w");
+    EXPECT_EQ(node->animationChannels().front().anim, second.get());
+    EXPECT_FALSE(node->animationChannels().front().properties.flags & scene::AnimationFlags::loop);
+    EXPECT_TRUE(node->animationChannels().front().properties.flags & scene::AnimationFlags::propagate);
+}
+
+TEST(DialogGUI, should_not_animate_a_stunt_participant_from_its_own_model) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    DialogAnimScene scene(engine);
+
+    // The stunt model is the authored source, and it lacks the requested clip.
+    // The creature's own model carries a clip of that name, which must not be
+    // substituted for it.
+    auto stuntModel = makeModel("owner_stunt", {makeAnimation("cut001w")});
+    auto ownModel = makeModel("owner_body", {makeAnimation("cpause1"), makeAnimation("cut002w")},
+                              graphics::MdlClassification::character);
+    auto owner = scene.newCreature(game, engine, 8, "owner", ownModel);
+    owner->resumeStateDrivenAnimation();
+    auto node = modelNodeOf(owner);
+    ASSERT_EQ(node->activeAnimationName(), "cpause1");
+
+    EXPECT_CALL(engine.resourceModule().models(), get("owner_stunt"))
+        .WillOnce(Return(stuntModel));
+
+    auto dialog = std::make_shared<Dialog>();
+    dialog->animatedCutscene = true;
+    dialog->stunts.push_back({"owner", "owner_stunt"});
+    DialogGUI gui(game, engine.services());
+    MixedStuntTestAccess::setOwner(gui, owner);
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+    ASSERT_EQ(MixedStuntTestAccess::participantCount(gui), 1);
+
+    Dialog::EntryReply entry;
+    entry.animations.push_back({"owner", 1201});
+    MixedStuntTestAccess::updateAnimationsForEntry(gui, entry);
+
+    EXPECT_EQ(node->activeAnimationName(), "cpause1");
+}
+
+TEST(DialogGUI, should_not_resolve_dialoganimations_ordinals_against_a_stunt_model) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    DialogAnimScene scene(engine);
+
+    // Shape of 650DAN/650kreia: a stunt-bound participant that also receives a
+    // dialoganimations ordinal.
+    auto stuntClip = makeAnimation("cut001w");
+    auto stuntModel = makeModel("owner_stunt", {stuntClip});
+    auto talk = makeAnimation("tlknorm");
+    auto ownerModel = makeModel("owner_body", {talk, makeAnimation("cpause1")});
+    auto owner = scene.newCreature(game, engine, 6, "owner", ownerModel);
+    auto node = modelNodeOf(owner);
+
+    EXPECT_CALL(engine.resourceModule().models(), get("owner_stunt"))
+        .WillOnce(Return(stuntModel));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("dialoganimations"))
+        .WillOnce(Return(makeDialogAnimationsTable()));
+
+    auto dialog = std::make_shared<Dialog>();
+    dialog->animatedCutscene = false;
+    dialog->stunts.push_back({"owner", "owner_stunt"});
+    DialogGUI gui(game, engine.services());
+    MixedStuntTestAccess::setOwner(gui, owner);
+    MixedStuntTestAccess::loadParticipants(gui, dialog);
+    ASSERT_EQ(MixedStuntTestAccess::participantCount(gui), 1);
+
+    Dialog::EntryReply entry;
+    entry.animations.push_back({"owner", 10030});
+    MixedStuntTestAccess::updateAnimationsForEntry(gui, entry);
+
+    // Resolved through dialoganimations.2da on the creature's own model, and
+    // the stunt model was never asked for a semantic animation name.
+    ASSERT_EQ(node->animationChannels().size(), 1);
+    EXPECT_EQ(node->animationChannels().front().anim, talk.get());
+    EXPECT_NE(node->animationChannels().front().anim, stuntClip.get());
+    EXPECT_FALSE(MixedStuntTestAccess::isActive(gui, "owner"));
 }
 
 TEST(Object, should_convert_credits_to_party_gold_when_looted_by_party_member) {

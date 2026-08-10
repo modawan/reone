@@ -51,6 +51,27 @@ static const char kControlTagTopFrame[] = "TOP";
 static const char kControlTagBottomFrame[] = "BOTTOM";
 static const char kObjectTagOwner[] = "owner";
 
+// Odyssey DLG participant animation ordinals occupy two namespaces.
+//
+// Ordinals at or above kDialogAnimationBase index dialoganimations.2da and name
+// a semantic dialogue animation. Lower ordinals name a cutscene clip on the
+// target model directly, and are split into fixed-width bands: the band selects
+// the clip name suffix and whether the clip is held, while the offset within the
+// band selects the clip number. Both namespaces are independent of AnimatedCut
+// and of whether the participant is driven by a stunt model.
+static constexpr int kDialogAnimationBase = 10000;
+static constexpr int kCutAnimationBandSize = 200;
+
+static const struct CutAnimationBand {
+    int base;
+    const char *suffix;
+    bool looping;
+} g_cutAnimationBands[] {
+    {1000, "", false},
+    {1200, "w", false},
+    {1400, "l", true},
+    {1600, "wl", true}};
+
 static const std::unordered_map<std::string, AnimationType> g_animTypeByName {
     {"dead", AnimationType::LoopingDead},
     {"taunt", AnimationType::FireForgetTaunt},
@@ -136,6 +157,7 @@ void DialogGUI::configureReplies() {
 
 void DialogGUI::onStart() {
     _currentSpeaker = _owner;
+    _heldCutParticipants.clear();
     loadStuntParticipants();
 
     auto camera = _game.module()->area()->getCamera<AnimatedCamera>(CameraType::Animated);
@@ -150,14 +172,7 @@ void DialogGUI::loadStuntParticipants() {
     _participantByTag.clear();
 
     for (auto &stunt : _dialog->stunts) {
-        std::shared_ptr<Creature> creature;
-        if (stunt.participant == kObjectTagOwner) {
-            creature = std::dynamic_pointer_cast<Creature>(_owner);
-        } else if (boost::iequals(stunt.participant, kObjectTagPlayer)) {
-            creature = _game.party().player();
-        } else {
-            creature = std::dynamic_pointer_cast<Creature>(_game.module()->area()->getObjectByTag(stunt.participant));
-        }
+        std::shared_ptr<Creature> creature(resolveParticipantCreature(stunt.participant));
         if (!creature) {
             warn("Dialog: participant creature not found by tag: " + stunt.participant);
             continue;
@@ -185,12 +200,26 @@ bool DialogGUI::hasStuntPresentation() const {
     return _dialog->isAnimatedCutscene() || !_dialog->stunts.empty();
 }
 
+std::shared_ptr<Creature> DialogGUI::resolveParticipantCreature(const std::string &participant) const {
+    if (participant == kObjectTagOwner) {
+        return std::dynamic_pointer_cast<Creature>(_owner);
+    }
+    if (boost::iequals(participant, kObjectTagPlayer)) {
+        return _game.party().player();
+    }
+    return std::dynamic_pointer_cast<Creature>(_game.module()->area()->getObjectByTag(participant));
+}
+
 std::shared_ptr<Animation> DialogGUI::getStuntParticipantAnimation(
     const std::string &participant,
     int ordinal) const {
+    auto cut = decodeCutAnimation(ordinal);
+    if (!cut) {
+        return nullptr;
+    }
     auto maybeParticipant = _participantByTag.find(participant);
     return maybeParticipant != _participantByTag.end()
-               ? maybeParticipant->second.model->getAnimation(getStuntAnimationName(ordinal))
+               ? maybeParticipant->second.model->getAnimation(cut->name)
                : nullptr;
 }
 
@@ -225,14 +254,14 @@ void DialogGUI::restoreInactiveStuntParticipants() {
     }
 }
 
-bool DialogGUI::enterMixedStunt(Participant &participant, const std::shared_ptr<Animation> &animation) {
+bool DialogGUI::enterMixedStunt(Participant &participant, const std::shared_ptr<Animation> &animation, bool looping) {
     if (!participant.mixedStuntActive && participant.creature->isStuntMode()) {
         warn("Dialog: participant is already in stunt mode: " + participant.creature->tag());
         return false;
     }
 
     AnimationProperties properties;
-    properties.flags = AnimationFlags::propagate;
+    properties.flags = AnimationFlags::propagate | (looping ? AnimationFlags::loop : 0);
     properties.scale = 1.0f;
     if (!participant.creature->playExternalAnimation(animation, std::move(properties))) {
         return false;
@@ -342,53 +371,107 @@ DialogCamera::Variant DialogGUI::getRandomCameraVariant() const {
 }
 
 void DialogGUI::updateParticipantAnimations() {
+    // Each authored animation is resolved on its own. The ordinal decides which
+    // animation is meant, the participant decides which model plays it, and a
+    // single entry may drive stunt-bound participants and ordinary area
+    // creatures side by side.
     for (auto &anim : _currentEntry->animations) {
-        if (_dialog->isAnimatedCutscene()) {
-            auto maybeParticipant = _participantByTag.find(anim.participant);
-            if (maybeParticipant == _participantByTag.end()) {
-                warn("Dialog: participant not found by tag: " + anim.participant);
-                continue;
-            }
-            const Participant &participant = maybeParticipant->second;
-            std::string animName(getStuntAnimationName(anim.animation));
-            std::shared_ptr<Animation> animation(participant.model->getAnimation(animName));
-            if (animation) {
-                AnimationProperties properties;
-                properties.flags = AnimationFlags::propagate;
-                properties.scale = 1.0f;
-                participant.creature->playExternalAnimation(animation, std::move(properties));
-            }
-        } else if (auto animation = getStuntParticipantAnimation(anim.participant, anim.animation)) {
-            Participant &participant = _participantByTag.at(anim.participant);
-            enterMixedStunt(participant, animation);
+        if (auto cut = decodeCutAnimation(anim.animation)) {
+            applyCutAnimation(anim.participant, *cut);
         } else {
-            std::shared_ptr<Creature> participant;
-            if (anim.participant == "owner") {
-                participant = std::dynamic_pointer_cast<Creature>(_owner);
-            } else {
-                participant = std::dynamic_pointer_cast<Creature>(_game.module()->area()->getObjectByTag(anim.participant));
-            }
-            if (!participant) {
-                warn("Dialog: participant creature not found by tag: " + anim.participant);
-                continue;
-            }
-            AnimationType animType = getStuntAnimationType(anim.animation);
-            if (animType != AnimationType::Invalid) {
-                participant->playAnimation(animType);
-            }
+            applyDialogAnimation(anim.participant, anim.animation);
         }
     }
 }
 
-std::string DialogGUI::getStuntAnimationName(int ordinal) const {
-    return str(boost::format("cut%03dw") % (ordinal - 1200 + 1));
+void DialogGUI::applyCutAnimation(const std::string &participant, const CutAnimation &cut) {
+    auto maybeParticipant = _participantByTag.find(participant);
+    if (maybeParticipant != _participantByTag.end()) {
+        Participant &stunt = maybeParticipant->second;
+        if (auto animation = stunt.model->getAnimation(cut.name)) {
+            if (_dialog->isAnimatedCutscene()) {
+                AnimationProperties properties;
+                properties.flags = AnimationFlags::propagate | (cut.looping ? AnimationFlags::loop : 0);
+                properties.scale = 1.0f;
+                stunt.creature->playExternalAnimation(animation, std::move(properties));
+            } else {
+                enterMixedStunt(stunt, animation, cut.looping);
+            }
+            return;
+        }
+        // The stunt model is the authored source for this participant, so a
+        // missing clip is a data problem rather than a reason to silently
+        // animate from somewhere else. Staged participants also sit at the
+        // stunt origin, where an in-place clip would play in the wrong place.
+        warn("Dialog: stunt model has no animation: " + cut.name);
+        return;
+    }
+
+    auto creature = resolveParticipantCreature(participant);
+    if (!creature) {
+        warn("Dialog: participant creature not found by tag: " + participant);
+        return;
+    }
+    auto node = creature->sceneNode();
+    if (!node || node->type() != SceneNodeType::Model) {
+        return;
+    }
+    // Cut clips authored without the world-space suffix live on the creature's
+    // own model, so they play in place rather than through stunt staging.
+    auto animation = std::static_pointer_cast<ModelSceneNode>(node)->model().getAnimation(cut.name);
+    if (!animation) {
+        return;
+    }
+    AnimationProperties properties;
+    if (cut.looping) {
+        properties.flags |= AnimationFlags::loop;
+    }
+    // Authored cutscene clips stay under dialogue ownership: a one-shot clip
+    // holds its final frame instead of falling back to the state-driven idle,
+    // because the authored sequence may leave entries without an AnimList
+    // before the next clip takes over.
+    if (creature->playExternalAnimation(animation, std::move(properties))) {
+        holdCutParticipant(creature);
+    }
 }
 
-AnimationType DialogGUI::getStuntAnimationType(int ordinal) const {
-    std::shared_ptr<TwoDA> animations(_services.resource.twoDas.get("dialoganimations"));
-    int index = ordinal - 10000;
+void DialogGUI::applyDialogAnimation(const std::string &participant, int ordinal) {
+    auto creature = resolveParticipantCreature(participant);
+    if (!creature) {
+        warn("Dialog: participant creature not found by tag: " + participant);
+        return;
+    }
+    AnimationType animType = getDialogAnimationType(ordinal);
+    if (animType != AnimationType::Invalid) {
+        creature->playAnimation(animType);
+    }
+}
 
-    if (index < 0 || index >= animations->getRowCount()) {
+std::optional<DialogGUI::CutAnimation> DialogGUI::decodeCutAnimation(int ordinal) {
+    for (auto &band : g_cutAnimationBands) {
+        int offset = ordinal - band.base;
+        if (offset < 0 || offset >= kCutAnimationBandSize) {
+            continue;
+        }
+        CutAnimation cut;
+        cut.name = str(boost::format("cut%03d%s") % (offset + 1) % band.suffix);
+        cut.looping = band.looping;
+        return cut;
+    }
+    return std::nullopt;
+}
+
+AnimationType DialogGUI::getDialogAnimationType(int ordinal) const {
+    if (ordinal < kDialogAnimationBase) {
+        // Cut-band ordinals never reach here. Anything else below the 2DA base
+        // belongs to no namespace reone recognises, so it is left unplayed.
+        warn("Dialog: unsupported animation ordinal: " + std::to_string(ordinal));
+        return AnimationType::Invalid;
+    }
+    std::shared_ptr<TwoDA> animations(_services.resource.twoDas.get("dialoganimations"));
+    int index = ordinal - kDialogAnimationBase;
+
+    if (index >= animations->getRowCount()) {
         warn("Dialog: animation index out of bounds: " + std::to_string(index));
         return AnimationType::Invalid;
     }
@@ -419,12 +502,27 @@ void DialogGUI::onFinish() {
     if (hasStuntPresentation()) {
         releaseStuntParticipants();
     }
+    releaseHeldCutParticipants();
 
     // Make current speaker stop talking, if any
     auto speakerCreature = std::dynamic_pointer_cast<Creature>(_currentSpeaker);
     if (speakerCreature) {
         speakerCreature->stopTalking();
     }
+}
+
+void DialogGUI::holdCutParticipant(const std::shared_ptr<Creature> &creature) {
+    auto maybeHeld = std::find(_heldCutParticipants.begin(), _heldCutParticipants.end(), creature);
+    if (maybeHeld == _heldCutParticipants.end()) {
+        _heldCutParticipants.push_back(creature);
+    }
+}
+
+void DialogGUI::releaseHeldCutParticipants() {
+    for (auto &creature : _heldCutParticipants) {
+        creature->resumeStateDrivenAnimation();
+    }
+    _heldCutParticipants.clear();
 }
 
 void DialogGUI::releaseStuntParticipants() {
