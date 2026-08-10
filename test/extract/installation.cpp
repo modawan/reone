@@ -139,7 +139,15 @@ TEST(InstallationModuleRoot, filters_module_capsules_by_root) {
     EXPECT_EQ("foo", str(loc->readData()));
 }
 
-TEST(InstallationModuleRoot, prioritizes_mod_then_static_rim_then_rim) {
+/**
+ * A module archive's position comes from its bucket, not from its extension.
+ *
+ * This replaces the ".mod beats _s.rim beats .rim" ladder the installation used
+ * to apply. That ladder is not an Odyssey lookup order: a resource image
+ * outranks an encapsulated class-2 archive whenever the two hold the same key,
+ * whichever of them was mounted first.
+ */
+TEST(InstallationModuleRoot, orders_module_archives_by_lookup_bucket_not_by_extension) {
     TmpDir tmp("reone_test_installation_module_archive_order");
     std::filesystem::create_directories(tmp.path / "modules");
 
@@ -153,17 +161,9 @@ TEST(InstallationModuleRoot, prioritizes_mod_then_static_rim_then_rim) {
     auto locations = installation.locations(ResourceId("probe", ResType::Txt), SearchScope {SearchLocation::Modules});
 
     ASSERT_EQ(3u, locations.size());
-    EXPECT_EQ("mod", str(locations[0].readData()));
+    EXPECT_EQ("rim", str(locations[0].readData()));
     EXPECT_EQ("static rim", str(locations[1].readData()));
-    EXPECT_EQ("rim", str(locations[2].readData()));
-}
-
-TEST(InstallationModuleRoot, getModuleRoot_strips_suffixes) {
-    EXPECT_EQ("foo", Installation::getModuleRoot("foo_s.rim"));
-    EXPECT_EQ("foo", Installation::getModuleRoot("foo_dlg.erf"));
-    EXPECT_EQ("modbar", Installation::getModuleRoot("modbar.mod"));
-    EXPECT_EQ("modbar", Installation::getModuleRoot("modbar_loc.mod"));
-    EXPECT_EQ("modbar", Installation::getModuleRoot("MODBAR.RIM"));
+    EXPECT_EQ("mod", str(locations[2].readData())) << "a class-2 archive cannot outrank a resource image";
 }
 
 TEST(InstallationModuleRoot, loads_lips_loc_capsule_for_module) {

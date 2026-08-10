@@ -22,11 +22,37 @@
 #include "finder.h"
 #include "lookupcontext.h"
 
+#include "reone/resource/modulediscovery.h"
+#include "reone/resource/modulepolicy.h"
 #include "reone/resource/types.h"
 
 namespace reone {
 
 namespace extract {
+
+/**
+ * One module archive present in the installation, with the role and lookup
+ * position the shared discovery and policy layers give it.
+ *
+ * family is the canonical role, resolved from the filename by shared
+ * classification rather than read off the extension here. bucket is where the
+ * source sits in raw lookup once mounted, and resourceImage is what the
+ * container physically is; the two are separate facts, and an extension
+ * decides neither of them on its own.
+ */
+struct ModuleArchive {
+    /// Module the archive belongs to. A support archive resolves to the module
+    /// it supports, never to its own stem.
+    std::string moduleRoot;
+    resource::ModuleArchiveFamily family {resource::ModuleArchiveFamily::PrimaryRim};
+    /// Location the archive was found in, e.g. "modules" or "lips".
+    std::string rootId;
+    std::filesystem::path path;
+    /// Raw lookup bucket once mounted, or nothing for a family whose mount
+    /// route is the caller's to choose rather than the policy's to assign.
+    std::optional<resource::ResourceSourceBucket> bucket;
+    bool resourceImage {false};
+};
 
 /// Game installation indexer and resolver (PyKotor Installation).
 class Installation {
@@ -72,12 +98,28 @@ public:
     const std::vector<std::filesystem::path> &customFolders() const { return _customFolders; }
     const std::vector<std::filesystem::path> &customCapsules() const { return _customCapsules; }
 
-    /// Module root of a module archive filename, e.g. "foo" for "foo_s.rim".
-    static std::string getModuleRoot(std::string_view capsuleFilename);
+    /**
+     * Modules the installation can actually enter, sorted and independent of
+     * directory enumeration order.
+     *
+     * Only the module location is enumerated, and only a primary-eligible
+     * archive introduces a name. A location holding nothing but support
+     * archives contributes none, and the global archives kept alongside a
+     * module's own support archives in the lips location are not modules.
+     */
+    std::vector<std::string> moduleNames();
 
-    /// Relative paths under the game root at which archives of the given
-    /// module root may reside.
-    static std::vector<std::string> moduleArchiveRelPaths(std::string_view moduleRoot);
+    /**
+     * Every archive belonging to the current module root, whatever family, in
+     * canonical raw lookup order.
+     *
+     * This is the complete inventory rather than the set a running game would
+     * mount: nothing is suppressed here, because which support families a game
+     * uses is policy and this answers what physically exists. The order is the
+     * lookup order, so the first entry serving a resource is the one a lookup
+     * would return and the rest are the other places it also lives.
+     */
+    const std::vector<ModuleArchive> &moduleArchives();
 
     std::optional<std::filesystem::path> moviePath(std::string_view name);
 
@@ -105,7 +147,7 @@ private:
     bool _executableLoaded {false};
 
     std::vector<FileResource> _chitin;
-    std::unordered_map<std::string, std::filesystem::path> _moduleCapsulePaths;
+    std::vector<ModuleArchive> _moduleArchives;
     std::unordered_map<std::string, std::vector<FileResource>> _override;
     std::unordered_map<resource::ResourceId, FileResource> _overrideIndex;
     std::unordered_map<std::string, std::vector<FileResource>> _texturePacks;
@@ -157,6 +199,10 @@ private:
                        std::vector<LocationResult> &out);
 
     void checkModules(const resource::ResourceId &id, std::vector<LocationResult> &out);
+
+    /// Locations searched for a known module's archives, in the order their
+    /// mounts are attempted.
+    std::vector<resource::ModuleSearchRoot> moduleSearchRoots() const;
 
     void checkTexturePack(const char *packName,
                           const resource::ResourceId &id,

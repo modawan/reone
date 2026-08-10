@@ -29,6 +29,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "reone/extract/installation.h"
 #include "reone/graphics/options.h"
 #include "reone/resource/director.h"
 #include "reone/resource/exception/notfound.h"
@@ -525,6 +526,59 @@ TEST_P(K2ModuleLoadingTest, never_reports_a_sidecar_as_a_module) {
     auto director = makeDirector(game.path);
 
     EXPECT_EQ((std::set<std::string> {"bar", "foo"}), director->moduleNames());
+
+    // The installation indexer answers the same question over the same
+    // inventory, and must answer it identically.
+    auto tooling = extract::Installation(GameID::TSL, game.path).moduleNames();
+    EXPECT_EQ(director->moduleNames(), (std::set<std::string> {tooling.begin(), tooling.end()}));
+}
+
+/// The runtime mounts what the policy plans; the indexer reports everything
+/// that exists. Both must agree on which files belong to the module and on
+/// what each one is, which is the only part the two share.
+TEST_P(K2ModuleLoadingTest, agrees_with_the_installation_indexer_on_module_archives) {
+    TmpDir game("reone_test_k2_indexer");
+    TmpDir cwd("reone_test_k2_indexer_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeRim(modules / "foo.rim", {{"from_rim", ResType::Txt, "rim"}});
+    writeRim(modules / "foo_s.rim", {{"from_static", ResType::Txt, "static"}});
+    writeRim(modules / "foo_a.rim", {{"from_area", ResType::Txt, "area"}});
+    writeRim(modules / "foo_adx.rim", {{"from_adx", ResType::Txt, "adx"}});
+    writeErf(modules / "foo_dlg.erf", ErfWriter::FileType::ERF, {{"from_dlg", ResType::Txt, "dlg"}});
+    auto lips = game.mkdir("lips");
+    writeErf(lips / "foo_loc.mod", ErfWriter::FileType::MOD, {{"from_loc", ResType::Txt, "loc"}});
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onModuleLoad("foo");
+
+    extract::Installation installation(GameID::TSL, game.path);
+    installation.setModuleRoot("foo");
+
+    std::map<std::string, ModuleArchiveFamily> indexed;
+    for (const auto &archive : installation.moduleArchives()) {
+        indexed.emplace(boost::to_lower_copy(archive.path.filename().string()), archive.family);
+    }
+    EXPECT_EQ((std::map<std::string, ModuleArchiveFamily> {
+                  {"foo.rim", ModuleArchiveFamily::PrimaryRim},
+                  {"foo_a.rim", ModuleArchiveFamily::AreaRim},
+                  {"foo_adx.rim", ModuleArchiveFamily::AdxRim},
+                  {"foo_dlg.erf", ModuleArchiveFamily::Dialogue},
+                  {"foo_loc.mod", ModuleArchiveFamily::Localization},
+                  {"foo_s.rim", ModuleArchiveFamily::StaticRim},
+              }),
+              indexed);
+
+    // Every archive the indexer resolved really is reachable through the
+    // module the runtime just loaded.
+    for (const auto &resRef : {"from_rim", "from_static", "from_area", "from_adx", "from_dlg", "from_loc"}) {
+        EXPECT_TRUE(has(resRef)) << resRef;
+    }
 }
 
 // Transitions.
