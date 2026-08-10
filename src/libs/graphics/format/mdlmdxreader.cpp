@@ -630,10 +630,10 @@ std::shared_ptr<ModelNode::Emitter> MdlMdxReader::readEmitter() {
     std::string chunkName(boost::to_lower_copy(_mdl.readString(16)));
     uint32_t twosided = _mdl.readUint32();
     uint32_t loop = _mdl.readUint32();
-    uint32_t renderOrder = _mdl.readUint32();
-    uint32_t frameBlending = _mdl.readUint32();
+    uint16_t renderOrder = _mdl.readUint16();
+    uint8_t frameBlending = _mdl.readByte();
     std::string depthTexture(boost::to_lower_copy(_mdl.readString(32)));
-    _mdl.skipBytes(1); // padding
+    _mdl.skipBytes(1); // unknown
     uint32_t flags = _mdl.readUint32();
 
     auto emitter = std::make_shared<ModelNode::Emitter>();
