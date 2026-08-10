@@ -437,12 +437,6 @@ protected:
     void SetUp() override { initBackend(GetParam()); }
 };
 
-/// The few things only the eagerly validating backend can observe.
-class LegacySourceLifetimeTest : public SourceLifetimeFixture, public testing::Test {
-protected:
-    void SetUp() override { initBackend(Backend::Legacy); }
-};
-
 // Save slots.
 
 namespace {
@@ -863,18 +857,10 @@ TEST_P(SourceLifetimeDirectorTest, a_module_that_fails_partway_leaves_none_of_it
     EXPECT_EQ(beforeAttempt, _count());
 }
 
-/**
- * The same rollback for an unreadable archive on disk, which only the legacy
- * backend notices at mount time.
- *
- * Resources opens and validates a container as it is mounted; ExtractResources
- * mounts a lazy handle and does not touch the file until something is read out
- * of it. So a corrupt file on disk fails the module load on one backend and
- * not on the other. That divergence predates this suite and is about when an
- * archive is validated rather than about who owns it, so it is pinned here
- * rather than changed.
- */
-TEST_F(LegacySourceLifetimeTest, a_corrupt_archive_on_disk_rolls_back_the_module) {
+/// The same rollback for an unreadable archive on disk. Both backends decide an
+/// archive is unusable as they mount it, so both fail here; archivevalidation
+/// covers that contract itself.
+TEST_P(SourceLifetimeDirectorTest, a_corrupt_archive_on_disk_rolls_back_the_module) {
     TmpDir game("reone_test_lifetime_corrupt_disk");
     TmpDir cwd("reone_test_lifetime_corrupt_disk_cwd");
     makeInstallation(game, cwd);

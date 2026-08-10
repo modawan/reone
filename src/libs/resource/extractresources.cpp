@@ -46,8 +46,24 @@ void ExtractResources::addKEY(const std::filesystem::path &path, std::optional<R
     });
 }
 
+/**
+ * Mount a container from disk.
+ *
+ * The index is read before the source is registered, so an archive that cannot
+ * be opened is rejected by the mount that took it on rather than by whichever
+ * lookup happens to reach it first. Deferring that decision would make a
+ * corrupt archive mount successfully and fail later, leaving a module that is
+ * neither loaded nor failed; it is also the point the other backend has always
+ * decided at, and one loading contract cannot be answered at two different
+ * moments depending on which backend is in use.
+ *
+ * Payloads are not read here. What is validated is the container: its signature
+ * and the table of what it holds. Resource bytes are still read one at a time,
+ * on demand, exactly as before.
+ */
 void ExtractResources::addERF(const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto capsule = std::make_shared<extract::LazyCapsule>(path);
+    capsule->load();
     addSource(owner, bucket, [capsule](const ResourceId &id) -> std::optional<ByteBuffer> {
         auto res = capsule->find(id);
         if (!res) {
