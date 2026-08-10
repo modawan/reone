@@ -277,7 +277,7 @@ static ModelStats analyzeModels(const std::filesystem::path &gameDir) {
     ModelStats stats;
     Resources resources;
     resources.addKEY(gameDir / std::string("chitin.key"));
-    for (const auto &[container, kind, bucket] : resources.containers()) {
+    for (const auto &[container, owner, bucket, sequence] : resources.containers()) {
         const auto &resIds = container->resourceIds();
         for (const auto &resId : resIds) {
             if (resId.type != ResType::Mdl) {

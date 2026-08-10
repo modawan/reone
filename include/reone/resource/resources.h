@@ -30,8 +30,9 @@ namespace resource {
 
 struct ResourceContainerPair {
     std::unique_ptr<IResourceContainer> provider;
-    ContainerKind kind;
+    ResourceOwner owner;
     std::optional<ResourceSourceBucket> bucket;
+    ResourceMountToken sequence {0};
 };
 
 using ResourceContainerList = ResourceSourceList<ResourceContainerPair>;
@@ -50,33 +51,47 @@ using ResourceContainerList = ResourceSourceList<ResourceContainerPair>;
  * ValidationException. A caller migrating to buckets migrates every mount it
  * makes, because an unbucketed source has no position in the raw lookup order
  * to be ranked at.
+ *
+ * Every mount also takes an owner, which says what retires the source. Owner
+ * and bucket are independent: clearing an owner never reorders what remains,
+ * and a bucket never implies a lifetime.
  */
 class IResources {
 public:
     virtual ~IResources() = default;
 
     virtual void clear() = 0;
-    virtual void clearLocal() = 0;
-    virtual void clearSave() = 0;
+
+    /// Retire every source of one owner. The other owners are untouched, and
+    /// the order of what remains does not change.
+    virtual void clearOwner(ResourceOwner owner) = 0;
+
+    /// The token a mount would take next, for undoing an operation that fails
+    /// partway through. Prefer ResourceMountTransaction over calling this and
+    /// rollbackTo by hand.
+    virtual ResourceMountToken mountToken() const = 0;
+
+    /// Retire every source mounted at or after the token, whatever its owner.
+    virtual void rollbackTo(ResourceMountToken token) = 0;
 
     virtual void addEXE(const std::filesystem::path &path,
                         std::optional<ResourceSourceBucket> bucket = std::nullopt) = 0;
     virtual void addKEY(const std::filesystem::path &path,
                         std::optional<ResourceSourceBucket> bucket = std::nullopt) = 0;
     virtual void addERF(const std::filesystem::path &path,
-                        ContainerKind kind = ContainerKind::Global,
+                        ResourceOwner owner = ResourceOwner::Global,
                         std::optional<ResourceSourceBucket> bucket = std::nullopt) = 0;
     virtual void addMemERF(ByteBuffer buffer,
-                           ContainerKind kind,
+                           ResourceOwner owner,
                            std::optional<ResourceSourceBucket> bucket = std::nullopt) = 0;
     virtual void addRIM(const std::filesystem::path &path,
-                        ContainerKind kind = ContainerKind::Global,
+                        ResourceOwner owner = ResourceOwner::Global,
                         std::optional<ResourceSourceBucket> bucket = std::nullopt) = 0;
     virtual void addMemRIM(ByteBuffer buffer,
-                           ContainerKind kind = ContainerKind::Global,
+                           ResourceOwner owner = ResourceOwner::Global,
                            std::optional<ResourceSourceBucket> bucket = std::nullopt) = 0;
     virtual void addFolder(const std::filesystem::path &path,
-                           ContainerKind kind = ContainerKind::Global,
+                           ResourceOwner owner = ResourceOwner::Global,
                            std::optional<ResourceSourceBucket> bucket = std::nullopt) = 0;
 
     virtual Resource get(const ResourceId &id) = 0;
@@ -89,18 +104,22 @@ public:
         _containers.clear();
     }
 
-    void clearLocal() override {
-        _containers.clearKind(ContainerKind::Local);
+    void clearOwner(ResourceOwner owner) override {
+        _containers.clearOwner(owner);
     }
 
-    void clearSave() override {
-        _containers.clearKind(ContainerKind::Save);
+    ResourceMountToken mountToken() const override {
+        return _containers.mountToken();
+    }
+
+    void rollbackTo(ResourceMountToken token) override {
+        _containers.rollbackTo(token);
     }
 
     void add(std::unique_ptr<IResourceContainer> provider,
-             ContainerKind kind = ContainerKind::Global,
+             ResourceOwner owner = ResourceOwner::Global,
              std::optional<ResourceSourceBucket> bucket = std::nullopt) {
-        _containers.add(ResourceContainerPair {std::move(provider), kind, bucket});
+        _containers.add(ResourceContainerPair {std::move(provider), owner, bucket});
     }
 
     void addEXE(const std::filesystem::path &path,
@@ -108,19 +127,19 @@ public:
     void addKEY(const std::filesystem::path &path,
                 std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
     void addERF(const std::filesystem::path &path,
-                ContainerKind kind = ContainerKind::Global,
+                ResourceOwner owner = ResourceOwner::Global,
                 std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
     void addMemERF(ByteBuffer buffer,
-                   ContainerKind kind,
+                   ResourceOwner owner,
                    std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
     void addRIM(const std::filesystem::path &path,
-                ContainerKind kind = ContainerKind::Global,
+                ResourceOwner owner = ResourceOwner::Global,
                 std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
     void addMemRIM(ByteBuffer buffer,
-                   ContainerKind kind = ContainerKind::Global,
+                   ResourceOwner owner = ResourceOwner::Global,
                    std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
     void addFolder(const std::filesystem::path &path,
-                   ContainerKind kind = ContainerKind::Global,
+                   ResourceOwner owner = ResourceOwner::Global,
                    std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
 
     Resource get(const ResourceId &id) override;

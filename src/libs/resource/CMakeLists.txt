@@ -66,6 +66,7 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/modulediscovery.h
     ${RESOURCE_INCLUDE_DIR}/modulemount.h
     ${RESOURCE_INCLUDE_DIR}/modulepolicy.h
+    ${RESOURCE_INCLUDE_DIR}/mounttransaction.h
     ${RESOURCE_INCLUDE_DIR}/parser/2da/appearance.h
     ${RESOURCE_INCLUDE_DIR}/parser/2da/genericdoors.h
     ${RESOURCE_INCLUDE_DIR}/parser/2da/heads.h

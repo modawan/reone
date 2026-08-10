@@ -694,7 +694,7 @@ TEST_P(K2ModuleLoadingTest, admits_a_later_loose_directory_mounted_by_another_ca
     if (usesBucketedLookup(GameID::TSL)) {
         bucket = ResourceSourceBucket::LooseDirectory;
     }
-    ASSERT_NO_THROW(_resources->addFolder(loose, ContainerKind::Global, bucket));
+    ASSERT_NO_THROW(_resources->addFolder(loose, ResourceOwner::Global, bucket));
 
     EXPECT_EQ("late folder", find("shared")) << "the source added last wins inside its own bucket";
 }

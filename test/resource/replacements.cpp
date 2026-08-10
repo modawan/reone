@@ -19,6 +19,7 @@
 
 #include "reone/resource/extractresources.h"
 #include "reone/resource/format/erfwriter.h"
+#include "reone/resource/mounttransaction.h"
 #include "reone/resource/replacementresources.h"
 #include "reone/resource/replacements.h"
 #include "reone/resource/resources.h"
@@ -77,8 +78,8 @@ protected:
         return ResourceId(std::move(resRef), ResType::Txt);
     }
 
-    void addMounted(std::string resRef, std::string data, ContainerKind kind = ContainerKind::Global) {
-        _resources->addMemERF(erfBytes({ErfWriter::Resource {std::move(resRef), ResType::Txt, bytes(data)}}), kind);
+    void addMounted(std::string resRef, std::string data, ResourceOwner owner = ResourceOwner::Global) {
+        _resources->addMemERF(erfBytes({ErfWriter::Resource {std::move(resRef), ResType::Txt, bytes(data)}}), owner);
     }
 
     ResourceReplacements _replacements;
@@ -164,15 +165,33 @@ TEST_P(ReplacementResourcesTest, returned_data_remains_valid_after_replacement_c
 }
 
 TEST_P(ReplacementResourcesTest, replacements_survive_local_and_save_scope_changes) {
-    addMounted("shared", "global", ContainerKind::Global);
-    addMounted("shared", "save", ContainerKind::Save);
-    addMounted("shared", "local", ContainerKind::Local);
+    addMounted("shared", "global", ResourceOwner::Global);
+    addMounted("shared", "save", ResourceOwner::SaveSlot);
+    addMounted("shared", "local", ResourceOwner::ActiveModule);
     _replacements.replaceResource(id("shared"), bytes("replacement"));
 
-    _resources->clearLocal();
-    _resources->clearSave();
+    _resources->clearOwner(ResourceOwner::ActiveModule);
+    _resources->clearOwner(ResourceOwner::SaveSlot);
 
     EXPECT_EQ("replacement", dataOf(_resources->find(id("shared"))));
+}
+
+TEST_P(ReplacementResourcesTest, replacements_survive_an_undone_mount) {
+    addMounted("shared", "global", ResourceOwner::Global);
+    _replacements.replaceResource(id("shared"), bytes("replacement"));
+
+    {
+        ResourceMountTransaction transaction(*_resources);
+        addMounted("shared", "module", ResourceOwner::ActiveModule);
+    }
+
+    // Replacements are not mounted sources. Taking back the sources of a failed
+    // operation cannot reach them, and cannot move them either.
+    EXPECT_EQ("replacement", dataOf(_resources->find(id("shared"))));
+
+    _replacements.clearResourceReplacements();
+    EXPECT_EQ("global", dataOf(_resources->find(id("shared"))))
+        << "the undone mount really was removed underneath the replacement";
 }
 
 TEST(ResourceReplacementsRevision, advances_on_every_meaningful_state_transition) {

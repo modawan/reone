@@ -26,17 +26,6 @@ namespace reone {
 
 namespace resource {
 
-ContainerKind containerKindOf(ResourceOwner owner) {
-    switch (owner) {
-    case ResourceOwner::Global:
-        return ContainerKind::Global;
-    case ResourceOwner::SaveSlot:
-        return ContainerKind::Save;
-    default:
-        return ContainerKind::Local;
-    }
-}
-
 bool isResourceImageFamily(ModuleArchiveFamily family) {
     switch (family) {
     case ModuleArchiveFamily::PrimaryRim:
@@ -79,7 +68,7 @@ std::size_t ModuleMountReport::mountedCount() const {
 }
 
 bool ModuleMountExecutor::mount(const RuntimeModuleSource &source, const ModuleSourceMetadata &metadata) {
-    auto kind = containerKindOf(metadata.owner);
+    auto owner = metadata.owner;
     auto image = isResourceImageFamily(source.candidate.family);
     try {
         if (const auto *path = std::get_if<std::filesystem::path>(&source.locator)) {
@@ -87,9 +76,9 @@ bool ModuleMountExecutor::mount(const RuntimeModuleSource &source, const ModuleS
                 return false;
             }
             if (image) {
-                _resources.addRIM(*path, kind, metadata.bucket);
+                _resources.addRIM(*path, owner, metadata.bucket);
             } else {
-                _resources.addERF(*path, kind, metadata.bucket);
+                _resources.addERF(*path, owner, metadata.bucket);
             }
             return true;
         }
@@ -102,9 +91,9 @@ bool ModuleMountExecutor::mount(const RuntimeModuleSource &source, const ModuleS
             return false;
         }
         if (image) {
-            _resources.addMemRIM(res->data, kind, metadata.bucket);
+            _resources.addMemRIM(res->data, owner, metadata.bucket);
         } else {
-            _resources.addMemERF(res->data, kind, metadata.bucket);
+            _resources.addMemERF(res->data, owner, metadata.bucket);
         }
         return true;
     } catch (const ValidationException &) {
@@ -181,6 +170,13 @@ void ModuleMountExecutor::runActiveState(const ModuleLoadPlan &plan, ModuleMount
             // A packaged module reaches its final form through staging, so the
             // policy assigns it no bucket and there is nothing to mount here.
             if (metadata) {
+                // What this phase mounts is the module's active state, so it
+                // takes the active-state owner whatever family supplied it. The
+                // bucket still comes from the family: how long a source lives
+                // and where it is searched are answered separately. Both owners
+                // are retired on a module transition today, so this separates
+                // the two lifetimes without moving either of them.
+                metadata->owner = plan.activeState.owner;
                 mountBySourceId(primary.sourceId,
                                 primary.family,
                                 ModuleMountPhase::ActiveCurrentGame,

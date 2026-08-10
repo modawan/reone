@@ -25,6 +25,7 @@
 #include "reone/resource/modulediscovery.h"
 #include "reone/resource/modulemount.h"
 #include "reone/resource/modulepolicy.h"
+#include "reone/resource/mounttransaction.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/dialogs.h"
 #include "reone/resource/provider/gffs.h"
@@ -87,19 +88,42 @@ void ResourceDirector::init() {
     loadGlobalResources();
 }
 
+/**
+ * Retire the module that was here and put the next one in its place.
+ *
+ * Both module owners go: the support sources of the old module, and the state
+ * of the old module. They are retired separately even though they happen to be
+ * retired together here, because they are two lifetimes; collapsing them would
+ * make it impossible to replace one without the other later.
+ *
+ * Global and save-slot sources are untouched. A module transition is no reason
+ * to rebuild the installation or to leave the save that is loaded.
+ */
 void ResourceDirector::onModuleLoad(const std::string &name) {
     _dialogs.clear();
     _paths.clear();
     _scripts.clear();
     _lips.clear();
     _gffs.clear();
-    _resources.clearLocal();
+    _resources.clearOwner(ResourceOwner::ActiveModule);
+    _resources.clearOwner(ResourceOwner::ActiveModuleState);
 
     loadModuleResources(name);
 }
 
+/**
+ * Replace the loaded save.
+ *
+ * The GFF cache is cleared here rather than left to the module load that
+ * follows, because the caller reads the save's own records in between. Those
+ * records are keyed by resref and type alone, so the previous save's copy would
+ * be served from the cache whatever is mounted: retiring a source does not
+ * reach a result already parsed out of it. No other provider cache is read
+ * before the module load clears it, so no other one is cleared here.
+ */
 void ResourceDirector::onGameLoad(std::string_view name) {
-    _resources.clearSave();
+    _gffs.clear();
+    _resources.clearOwner(ResourceOwner::SaveSlot);
     loadSaveGameResources(name);
 }
 
@@ -210,14 +234,14 @@ void ResourceDirector::loadGlobalResources() {
         auto guiPackPath = findFileIgnoreCase(*texPacksPath, kTexturePackFilenameGUI);
         if (guiPackPath) {
             _resources.addERF(*guiPackPath,
-                              ContainerKind::Global,
+                              ResourceOwner::Global,
                               bucketOf(ResourceSourceBucket::EncapsulatedClass2));
         }
         auto &texPack = kTexQualityToTexPack.at(_graphicsOpt.textureQuality);
         auto texPackPath = findFileIgnoreCase(*texPacksPath, texPack);
         if (texPackPath) {
             _resources.addERF(*texPackPath,
-                              ContainerKind::Global,
+                              ResourceOwner::Global,
                               bucketOf(ResourceSourceBucket::EncapsulatedClass2));
         }
     }
@@ -233,7 +257,7 @@ void ResourceDirector::loadGlobalResources() {
                 // source. Class 2 keeps it where it has always sat relative to
                 // the texture packs it is mounted after.
                 _resources.addERF(*globalLipPath,
-                                  ContainerKind::Global,
+                                  ResourceOwner::Global,
                                   bucketOf(ResourceSourceBucket::EncapsulatedClass2));
             }
         }
@@ -242,13 +266,13 @@ void ResourceDirector::loadGlobalResources() {
     auto patchPath = findFileIgnoreCase(_gamePath, kPatchFilename);
     if (patchPath) {
         _resources.addERF(*patchPath,
-                          ContainerKind::Global,
+                          ResourceOwner::Global,
                           bucketOf(ResourceSourceBucket::EncapsulatedClass1));
     }
     auto overridePath = findFileIgnoreCase(_gamePath, kOverrideDirectoryName);
     if (overridePath) {
         _resources.addFolder(*overridePath,
-                             ContainerKind::Global,
+                             ResourceOwner::Global,
                              bucketOf(ResourceSourceBucket::LooseDirectory));
     }
 }
@@ -274,18 +298,25 @@ void ResourceDirector::loadModuleResourcesLegacy(const std::string &name) {
         throw ResourceNotFoundException("Modules directory not found");
     }
 
-    loadRIM(*modulesPath, name, ContainerKind::Local);
-    loadRIM(*modulesPath, name + "_s", ContainerKind::Local);
-    loadERF(*modulesPath, name, ContainerKind::Local);
-    loadERF(*modulesPath, name + "_loc", ContainerKind::Local);
+    // Scoped for the same reason the activated path is: an archive that fails
+    // to open partway down this list must not leave the ones above it mounted.
+    // The stack itself, and the order it is built in, are unchanged.
+    ResourceMountTransaction transaction(_resources);
+
+    loadRIM(*modulesPath, name, ResourceOwner::ActiveModule);
+    loadRIM(*modulesPath, name + "_s", ResourceOwner::ActiveModule);
+    loadERF(*modulesPath, name, ResourceOwner::ActiveModule);
+    loadERF(*modulesPath, name + "_loc", ResourceOwner::ActiveModule);
 
     if (auto lipsPath = findFileIgnoreCase(_gamePath, kLipsDirectoryName)) {
-        loadERF(*lipsPath, name + "_loc", ContainerKind::Local);
+        loadERF(*lipsPath, name + "_loc", ResourceOwner::ActiveModule);
     }
 
     if (_gameId == GameID::TSL) {
-        loadERF(*modulesPath, name + "_dlg", ContainerKind::Local);
+        loadERF(*modulesPath, name + "_dlg", ResourceOwner::ActiveModule);
     }
+
+    transaction.commit();
 }
 
 ModuleSearchRoot ResourceDirector::modulesSearchRoot() {
@@ -402,8 +433,22 @@ void ResourceDirector::loadModuleResourcesFromPolicy(const std::string &name) {
 
     auto plan = planModuleLoad(request, inventory);
 
+    // Mounting the module is one operation. Sources are mounted in phases and a
+    // later one can throw, which would otherwise leave the earlier phases in
+    // place: a module that is neither the old one nor the new one, still
+    // answering lookups. Whatever is mounted from here on goes away together if
+    // the load does not finish.
+    //
+    // This does not put the previous module back. Its sources were retired
+    // before this ran, and reinstating them would be a new load rather than an
+    // undo of this one; whether the caller can still use the module it had is
+    // its own question.
+    ResourceMountTransaction transaction(_resources);
+
     ModuleMountExecutor executor(_resources, index);
     auto report = executor.run(plan);
+
+    transaction.commit();
 
     if (!plan.primary) {
         warn("No primary source found for module '" + discovered.moduleRoot + "'");
@@ -422,6 +467,30 @@ void ResourceDirector::loadModuleResourcesFromPolicy(const std::string &name) {
     }
 }
 
+/**
+ * Put a save slot's sources in scope.
+ *
+ * Both sources are owned by the save slot, so loading another save retires
+ * them. They were global before, which meant no save was ever unloaded and the
+ * resources of every save visited stayed resolvable for the rest of the
+ * process; a resource held only by the previous save could then answer a lookup
+ * made under the current one.
+ *
+ * Mounting the outer archive directly is a compatibility path, not the Odyssey
+ * architecture: the original unpacks the container into the live working state
+ * and reads the loose results, so the container is never a source in its own
+ * right. Replacing the direct mount with that unpack step belongs to the save
+ * architecture work; giving it the right lifetime does not depend on it and is
+ * done here.
+ *
+ * Class 2 remains a compatibility placement for that direct mount rather than
+ * an evidenced bucket for the container: it is the least privileged position
+ * that still lets the save supply resources held nowhere else, and it cannot
+ * shadow a live module source.
+ *
+ * The whole setup is one operation. A slot whose archive is missing leaves no
+ * loose directory mounted behind it, so a failed load cannot half-load a save.
+ */
 void ResourceDirector::loadSaveGameResources(std::string_view name) {
     auto allSavesPath = findFileIgnoreCase(_gamePath, kSavesDirectoryName);
     if (!allSavesPath) {
@@ -433,55 +502,42 @@ void ResourceDirector::loadSaveGameResources(std::string_view name) {
         throw ResourceNotFoundException(str(boost::format("Save directory not found: %s") % name));
     }
 
+    ResourceMountTransaction transaction(_resources);
+
     // Add savegame directory itself, so we can load globalvars.res
     // partytable.res and savenfo.res.
     _resources.addFolder(*savePath,
-                         ContainerKind::Global,
+                         ResourceOwner::SaveSlot,
                          bucketOf(ResourceSourceBucket::LooseDirectory));
 
-    _savegamePath = findFileIgnoreCase(*savePath, "savegame.sav");
-    if (!_savegamePath) {
+    auto savegamePath = findFileIgnoreCase(*savePath, "savegame.sav");
+    if (!savegamePath) {
         throw ResourceNotFoundException("savegame.sav not found");
     }
 
-    // Add savegame resource archive.
-    //
-    // The archive itself is genuine: a save slot really does hold a MOD V1.0
-    // container packed from the game-in-progress directory. What differs is
-    // what is done with it. The original engine unpacks the container back out
-    // into the game-in-progress directory and reads the loose results, so the
-    // container is never a source in its own right; reone instead mounts it
-    // directly and reads through it.
-    //
-    // Class 2 is therefore a compatibility placement for that direct mount
-    // rather than an evidenced bucket for the container: it is the least
-    // privileged position that still lets the save supply resources held
-    // nowhere else, and it cannot shadow a live module source. Replacing the
-    // direct mount with an unpack step belongs to the save architecture work.
-    //
-    // The ownership here is known to be wrong: these are save-slot sources
-    // mounted as global, so clearSave does not retire them. That is left
-    // untouched, exactly as it is today.
-    _resources.addERF(*_savegamePath,
-                      ContainerKind::Global,
+    _resources.addERF(*savegamePath,
+                      ResourceOwner::SaveSlot,
                       bucketOf(ResourceSourceBucket::EncapsulatedClass2));
+
+    transaction.commit();
+    _savegamePath = std::move(savegamePath);
 }
 
-void ResourceDirector::loadRIM(const std::filesystem::path &path, const std::string &name, ContainerKind kind) {
+void ResourceDirector::loadRIM(const std::filesystem::path &path, const std::string &name, ResourceOwner owner) {
     // Try to find a module with the same name in already loaded resources.
     // Same idea as in loadERF.
     std::optional<Resource> res = _resources.find(ResourceId(name, ResType::Res));
     if (res) {
-        _resources.addMemRIM(res->data, kind);
+        _resources.addMemRIM(res->data, owner);
         return;
     }
 
     if (auto rimPath = findFileIgnoreCase(path, name + ".rim")) {
-        _resources.addRIM(*rimPath, kind);
+        _resources.addRIM(*rimPath, owner);
     }
 }
 
-void ResourceDirector::loadERF(const std::filesystem::path &path, const std::string &name, ContainerKind kind) {
+void ResourceDirector::loadERF(const std::filesystem::path &path, const std::string &name, ResourceOwner owner) {
     // Try to find a module with the same name in already loaded resources.
     //
     // This allows us to support savegame archives: savegame.sav is an ERF
@@ -494,16 +550,16 @@ void ResourceDirector::loadERF(const std::filesystem::path &path, const std::str
     // is spelled with was wrong before.
     std::optional<Resource> res = _resources.find(ResourceId(name, ResType::Sav));
     if (res) {
-        _resources.addMemERF(res->data, kind);
+        _resources.addMemERF(res->data, owner);
         return;
     }
 
     if (auto modPath = findFileIgnoreCase(path, name + ".mod")) {
-        _resources.addERF(*modPath, kind);
+        _resources.addERF(*modPath, owner);
     }
 
     if (auto erfPath = findFileIgnoreCase(path, name + ".erf")) {
-        _resources.addERF(*erfPath, kind);
+        _resources.addERF(*erfPath, owner);
     }
 }
 

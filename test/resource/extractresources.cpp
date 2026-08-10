@@ -97,10 +97,10 @@ TEST(ExtractResourcesLookup, should_prefer_last_added_source_for_colliding_id) {
     resources.addMemERF(erfBytes(ErfWriter::FileType::ERF,
                                  {{"shared", ResType::Txt, "first"},
                                   {"first_only", ResType::Txt, "from first"}}),
-                        ContainerKind::Global);
+                        ResourceOwner::Global);
     resources.addMemERF(erfBytes(ErfWriter::FileType::ERF,
                                  {{"shared", ResType::Txt, "second"}}),
-                        ContainerKind::Global);
+                        ResourceOwner::Global);
 
     EXPECT_EQ("second", dataOf(resources.find(ResourceId("shared", ResType::Txt))));
     EXPECT_EQ("from first", dataOf(resources.find(ResourceId("first_only", ResType::Txt))));
@@ -111,24 +111,24 @@ TEST(ExtractResourcesLookup, should_clear_sources_by_kind_only) {
     resources.addMemERF(erfBytes(ErfWriter::FileType::ERF,
                                  {{"shared", ResType::Txt, "global"},
                                   {"global_only", ResType::Txt, "global"}}),
-                        ContainerKind::Global);
+                        ResourceOwner::Global);
     resources.addMemERF(erfBytes(ErfWriter::FileType::ERF,
                                  {{"shared", ResType::Txt, "save"},
                                   {"save_only", ResType::Txt, "save"}}),
-                        ContainerKind::Save);
+                        ResourceOwner::SaveSlot);
     resources.addMemERF(erfBytes(ErfWriter::FileType::ERF,
                                  {{"shared", ResType::Txt, "local"},
                                   {"local_only", ResType::Txt, "local"}}),
-                        ContainerKind::Local);
+                        ResourceOwner::ActiveModule);
 
     EXPECT_EQ("local", dataOf(resources.find(ResourceId("shared", ResType::Txt))));
 
-    resources.clearLocal();
+    resources.clearOwner(ResourceOwner::ActiveModule);
     EXPECT_EQ("save", dataOf(resources.find(ResourceId("shared", ResType::Txt))));
     EXPECT_FALSE(resources.find(ResourceId("local_only", ResType::Txt)));
     EXPECT_TRUE(resources.find(ResourceId("global_only", ResType::Txt)));
 
-    resources.clearSave();
+    resources.clearOwner(ResourceOwner::SaveSlot);
     EXPECT_EQ("global", dataOf(resources.find(ResourceId("shared", ResType::Txt))));
     EXPECT_FALSE(resources.find(ResourceId("save_only", ResType::Txt)));
     EXPECT_TRUE(resources.find(ResourceId("global_only", ResType::Txt)));
@@ -136,7 +136,7 @@ TEST(ExtractResourcesLookup, should_clear_sources_by_kind_only) {
 
 TEST(ExtractResourcesLookup, should_serve_memory_rim_archives) {
     ExtractResources resources;
-    resources.addMemRIM(rimBytes({{"entry", ResType::Txt, "rim payload"}}), ContainerKind::Local);
+    resources.addMemRIM(rimBytes({{"entry", ResType::Txt, "rim payload"}}), ResourceOwner::ActiveModule);
 
     EXPECT_EQ("rim payload", dataOf(resources.find(ResourceId("entry", ResType::Txt))));
     EXPECT_FALSE(resources.find(ResourceId("missing", ResType::Txt)));
@@ -324,11 +324,8 @@ TEST_F(ExtractResourcesDirectorLookup, should_mount_save_scope_and_modules_neste
 
     EXPECT_EQ("second save", find("loose")) << "the save loaded last must win";
 
-    // Same known defect the legacy characterization pins: the director mounts
-    // save sources with the default Global kind, so clearSave is a no-op and
-    // sources of previously loaded saves leak. The backend must honor caller
-    // kinds, not paper over this; the fix belongs to the director.
-    EXPECT_EQ("first save", find("first_only")) << "previous save sources currently leak";
+    EXPECT_EQ("<not found>", find("first_only"))
+        << "sources of the previous save must not survive loading another";
 }
 
 TEST_F(ExtractResourcesDirectorLookup, should_throw_when_save_slot_is_missing) {

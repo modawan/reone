@@ -44,8 +44,9 @@ using namespace reone::test;
 namespace {
 
 struct TestSource {
-    ContainerKind kind;
+    ResourceOwner owner;
     std::optional<ResourceSourceBucket> bucket;
+    ResourceMountToken sequence {0};
     std::string name;
 };
 
@@ -60,8 +61,8 @@ std::vector<std::string> names(const ResourceSourceList<TestSource> &list) {
 void add(ResourceSourceList<TestSource> &list,
          std::string name,
          std::optional<ResourceSourceBucket> bucket = std::nullopt,
-         ContainerKind kind = ContainerKind::Global) {
-    list.add(TestSource {kind, bucket, std::move(name)});
+         ResourceOwner owner = ResourceOwner::Global) {
+    list.add(TestSource {owner, bucket, 0, std::move(name)});
 }
 
 enum class Backend {
@@ -184,7 +185,7 @@ TEST(ResourceSourceList, should_release_its_mode_once_empty) {
     EXPECT_NO_THROW(add(list, "loose", ResourceSourceBucket::LooseDirectory));
     EXPECT_EQ(ResourceSourceOrder::Bucketed, list.order());
 
-    list.clearKind(ContainerKind::Global);
+    list.clearOwner(ResourceOwner::Global);
 
     EXPECT_EQ(ResourceSourceOrder::Empty, list.order()) << "clearing a scope empty must release the mode too";
     EXPECT_NO_THROW(add(list, "unplaced again"));
@@ -192,17 +193,17 @@ TEST(ResourceSourceList, should_release_its_mode_once_empty) {
 
 TEST(ResourceSourceList, should_clear_one_kind_across_every_bucket) {
     ResourceSourceList<TestSource> list;
-    add(list, "global_loose", ResourceSourceBucket::LooseDirectory, ContainerKind::Global);
-    add(list, "local_loose", ResourceSourceBucket::LooseDirectory, ContainerKind::Local);
-    add(list, "local_keybif", ResourceSourceBucket::KeyBif, ContainerKind::Local);
-    add(list, "save_image", ResourceSourceBucket::ResourceImage, ContainerKind::Save);
+    add(list, "global_loose", ResourceSourceBucket::LooseDirectory, ResourceOwner::Global);
+    add(list, "local_loose", ResourceSourceBucket::LooseDirectory, ResourceOwner::ActiveModule);
+    add(list, "local_keybif", ResourceSourceBucket::KeyBif, ResourceOwner::ActiveModule);
+    add(list, "save_image", ResourceSourceBucket::ResourceImage, ResourceOwner::SaveSlot);
 
-    list.clearKind(ContainerKind::Local);
+    list.clearOwner(ResourceOwner::ActiveModule);
 
     EXPECT_EQ((std::vector<std::string> {"global_loose", "save_image"}), names(list))
         << "scope decides when a source goes away, never where it is searched";
 
-    list.clearKind(ContainerKind::Save);
+    list.clearOwner(ResourceOwner::SaveSlot);
     EXPECT_EQ((std::vector<std::string> {"global_loose"}), names(list));
 
     list.clear();
@@ -224,8 +225,8 @@ protected:
 
     void mount(const std::string &data,
                std::optional<ResourceSourceBucket> bucket = std::nullopt,
-               ContainerKind kind = ContainerKind::Global) {
-        _resources->addMemERF(erfBytes("shared", data), kind, bucket);
+               ResourceOwner owner = ResourceOwner::Global) {
+        _resources->addMemERF(erfBytes("shared", data), owner, bucket);
     }
 
     std::string shared() {
@@ -283,26 +284,26 @@ TEST_P(ResourceSourceBucketsTest, should_place_rim_sources_in_the_requested_buck
 
     mount("loose", ResourceSourceBucket::LooseDirectory);
     _resources->addMemRIM(rimBytes("shared", "memory rim"),
-                          ContainerKind::Global,
+                          ResourceOwner::Global,
                           ResourceSourceBucket::KeyBif);
     _resources->addRIM(dir.path / "disk.rim",
-                       ContainerKind::Global,
+                       ResourceOwner::Global,
                        ResourceSourceBucket::KeyBif);
 
     EXPECT_EQ("loose", shared());
 }
 
 TEST_P(ResourceSourceBucketsTest, should_leave_bucket_order_intact_when_clearing_a_scope) {
-    mount("global keybif", ResourceSourceBucket::KeyBif, ContainerKind::Global);
-    mount("save image", ResourceSourceBucket::ResourceImage, ContainerKind::Save);
-    mount("local loose", ResourceSourceBucket::LooseDirectory, ContainerKind::Local);
+    mount("global keybif", ResourceSourceBucket::KeyBif, ResourceOwner::Global);
+    mount("save image", ResourceSourceBucket::ResourceImage, ResourceOwner::SaveSlot);
+    mount("local loose", ResourceSourceBucket::LooseDirectory, ResourceOwner::ActiveModule);
 
     EXPECT_EQ("local loose", shared());
 
-    _resources->clearLocal();
+    _resources->clearOwner(ResourceOwner::ActiveModule);
     EXPECT_EQ("save image", shared());
 
-    _resources->clearSave();
+    _resources->clearOwner(ResourceOwner::SaveSlot);
     EXPECT_EQ("global keybif", shared());
 
     _resources->clear();
@@ -334,7 +335,7 @@ protected:
     }
 
     void mount(const std::string &data, std::optional<ResourceSourceBucket> bucket) {
-        _resources->addMemERF(erfBytes("shared", data), ContainerKind::Global, bucket);
+        _resources->addMemERF(erfBytes("shared", data), ResourceOwner::Global, bucket);
     }
 
     std::string shared() {
@@ -358,7 +359,7 @@ TEST_P(ReplacementOverlayBucketsTest, should_apply_one_store_to_every_list_that_
     ReplacementResources aux(std::move(auxBackend), _replacements);
 
     mount("bucketed", ResourceSourceBucket::LooseDirectory);
-    aux.addMemERF(erfBytes("shared", "auxiliary"), ContainerKind::Global);
+    aux.addMemERF(erfBytes("shared", "auxiliary"), ResourceOwner::Global);
 
     EXPECT_EQ("bucketed", shared());
     EXPECT_EQ("auxiliary", dataOf(aux.find(id())));

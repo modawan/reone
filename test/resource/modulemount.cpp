@@ -142,14 +142,21 @@ std::vector<std::string> attemptedIds(const ModuleMountReport &report) {
 
 } // namespace
 
-// Ownership maps onto a lifetime scope; it never decides lookup order.
+// Ownership says when a source goes away; it never decides lookup order.
 
-TEST(ModuleMount, maps_active_module_and_its_state_onto_one_lifetime) {
-    EXPECT_EQ(ContainerKind::Global, containerKindOf(ResourceOwner::Global));
-    EXPECT_EQ(ContainerKind::Save, containerKindOf(ResourceOwner::SaveSlot));
-    // Retiring these separately needs owner handles, which do not exist yet.
-    EXPECT_EQ(ContainerKind::Local, containerKindOf(ResourceOwner::ActiveModule));
-    EXPECT_EQ(ContainerKind::Local, containerKindOf(ResourceOwner::ActiveModuleState));
+TEST(ModuleMount, gives_the_module_and_its_state_separate_owners) {
+    // The state of the module is not one of its support sources. Both are
+    // retired on a transition today, but a save can be replaced under a module
+    // that is not, so the two lifetimes stay distinct.
+    EXPECT_EQ(ResourceOwner::ActiveModule, mountMetadata(ModuleArchiveFamily::StaticRim)->owner);
+    EXPECT_EQ(ResourceOwner::ActiveModule, mountMetadata(ModuleArchiveFamily::AdxRim)->owner);
+    EXPECT_EQ(ResourceOwner::ActiveModule, mountMetadata(ModuleArchiveFamily::PrimaryMod)->owner);
+    EXPECT_EQ(ResourceOwner::ActiveModule, mountMetadata(ModuleArchiveFamily::Dialogue)->owner);
+
+    EXPECT_EQ(ResourceOwner::ActiveModuleState,
+              mountMetadata(ModuleArchiveFamily::SavedArchive)->owner);
+    EXPECT_EQ(ResourceOwner::ActiveModuleState,
+              mountMetadata(ModuleArchiveFamily::SavedResourceImage)->owner);
 }
 
 TEST(ModuleMount, derives_container_form_from_the_family_not_the_bucket) {
@@ -217,7 +224,7 @@ protected:
         MemoryOutputStream stream(buffer);
         writer.save(ErfWriter::FileType::ERF, stream);
         _resources.addMemERF(std::move(buffer),
-                             ContainerKind::Save,
+                             ResourceOwner::SaveSlot,
                              ResourceSourceBucket::EncapsulatedClass2);
     }
 
@@ -432,7 +439,7 @@ TEST_F(ModuleMountExecutorTest, lets_a_structural_rejection_escape_rather_than_r
     // the caller, not an archive that failed to open. Reporting it as a missed
     // mount would hide it behind a best-effort result.
     TmpDir tmp("reone_test_mount_structural");
-    _resources.addMemERF(erfBytes("shared", "unplaced"), ContainerKind::Global);
+    _resources.addMemERF(erfBytes("shared", "unplaced"), ResourceOwner::Global);
     addDiskSource("placed", ModuleArchiveFamily::StaticRim, tmp.writeRim("foo_s.rim", "placed"));
 
     ModuleLoadPlan plan;

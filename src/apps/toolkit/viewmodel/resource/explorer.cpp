@@ -442,7 +442,7 @@ void ResourceExplorerViewModel::loadEngine() {
         if (usesBucketedLookup(_gameId)) {
             bucket = ResourceSourceBucket::LooseDirectory;
         }
-        _resourceModule->resources().addFolder(_resourcesPath, ContainerKind::Global, bucket);
+        _resourceModule->resources().addFolder(_resourcesPath, ResourceOwner::Global, bucket);
     }
 
     _modelResViewModel->initScene();

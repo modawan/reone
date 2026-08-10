@@ -122,14 +122,6 @@ private:
                          ModuleMountReport &report);
 };
 
-/// Lifetime scope a mounted source is held under. Ownership answers when a
-/// source goes away; it never answers where a source is searched.
-///
-/// ActiveModule and ActiveModuleState both map to Local: the two are one
-/// lifetime until owner-scoped clearing exists, which is deliberately not part
-/// of this stage.
-ContainerKind containerKindOf(ResourceOwner owner);
-
 /// Whether a family's mounted table is a resource image rather than an
 /// encapsulated archive. Derived from the family, not from the bucket, so that
 /// container form and lookup order stay separate decisions.

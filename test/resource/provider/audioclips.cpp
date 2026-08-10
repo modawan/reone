@@ -81,8 +81,8 @@ TEST(AudioClips, resolves_a_streamed_asset_from_the_streaming_location_first) {
     // that must play, so an ordinary source may not take its place.
     Resources ordinary;
     Resources streams;
-    ordinary.addMemERF(erfWith("vo", ResType::Wav, wavBytes(kOrdinaryRate)), ContainerKind::Global);
-    streams.addMemERF(erfWith("vo", ResType::Wav, wavBytes(kStreamRate)), ContainerKind::Global);
+    ordinary.addMemERF(erfWith("vo", ResType::Wav, wavBytes(kOrdinaryRate)), ResourceOwner::Global);
+    streams.addMemERF(erfWith("vo", ResType::Wav, wavBytes(kStreamRate)), ResourceOwner::Global);
 
     AudioClips clips(ordinary, streams);
     auto clip = clips.get("vo");
@@ -95,7 +95,7 @@ TEST(AudioClips, resolves_a_streamed_asset_from_the_streaming_location_first) {
 TEST(AudioClips, falls_back_to_ordinary_resources_for_anything_not_streamed) {
     Resources ordinary;
     Resources streams;
-    ordinary.addMemERF(erfWith("sfx", ResType::Wav, wavBytes(kOrdinaryRate)), ContainerKind::Global);
+    ordinary.addMemERF(erfWith("sfx", ResType::Wav, wavBytes(kOrdinaryRate)), ResourceOwner::Global);
 
     AudioClips clips(ordinary, streams);
     auto clip = clips.get("sfx");

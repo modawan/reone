@@ -144,8 +144,8 @@ private:
     void addStagedModuleSources(const std::string &moduleRoot, RuntimeModuleSourceIndex &index);
     bool includeModuleInSave(const std::string &moduleRoot);
 
-    void loadRIM(const std::filesystem::path &path, const std::string &name, ContainerKind kind);
-    void loadERF(const std::filesystem::path &path, const std::string &name, ContainerKind kind);
+    void loadRIM(const std::filesystem::path &path, const std::string &name, ResourceOwner owner);
+    void loadERF(const std::filesystem::path &path, const std::string &name, ResourceOwner owner);
 };
 
 } // namespace resource

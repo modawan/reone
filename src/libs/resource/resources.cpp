@@ -31,43 +31,43 @@ namespace resource {
 void Resources::addKEY(const std::filesystem::path &path, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<KeyBifResourceContainer>(path);
     provider->init();
-    add(std::move(provider), ContainerKind::Global, bucket);
+    add(std::move(provider), ResourceOwner::Global, bucket);
 }
 
-void Resources::addERF(const std::filesystem::path &path, ContainerKind kind, std::optional<ResourceSourceBucket> bucket) {
+void Resources::addERF(const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<ErfResourceContainer>(path);
     provider->init();
-    add(std::move(provider), kind, bucket);
+    add(std::move(provider), owner, bucket);
 }
 
-void Resources::addMemERF(ByteBuffer buffer, ContainerKind kind, std::optional<ResourceSourceBucket> bucket) {
+void Resources::addMemERF(ByteBuffer buffer, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<ErfResourceContainer>(std::move(buffer));
     provider->init();
-    add(std::move(provider), kind, bucket);
+    add(std::move(provider), owner, bucket);
 }
 
-void Resources::addRIM(const std::filesystem::path &path, ContainerKind kind, std::optional<ResourceSourceBucket> bucket) {
+void Resources::addRIM(const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<RimResourceContainer>(path);
     provider->init();
-    add(std::move(provider), kind, bucket);
+    add(std::move(provider), owner, bucket);
 }
 
-void Resources::addMemRIM(ByteBuffer buffer, ContainerKind kind, std::optional<ResourceSourceBucket> bucket) {
+void Resources::addMemRIM(ByteBuffer buffer, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<RimResourceContainer>(buffer);
     provider->init();
-    add(std::move(provider), kind, bucket);
+    add(std::move(provider), owner, bucket);
 }
 
 void Resources::addEXE(const std::filesystem::path &path, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<ExeResourceContainer>(path);
     provider->init();
-    add(std::move(provider), ContainerKind::Global, bucket);
+    add(std::move(provider), ResourceOwner::Global, bucket);
 }
 
-void Resources::addFolder(const std::filesystem::path &path, ContainerKind kind, std::optional<ResourceSourceBucket> bucket) {
+void Resources::addFolder(const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<FolderResourceContainer>(path);
     provider->init();
-    add(std::move(provider), kind, bucket);
+    add(std::move(provider), owner, bucket);
 }
 
 Resource Resources::get(const ResourceId &id) {

@@ -27,12 +27,16 @@ void ReplacementResources::clear() {
     _backend->clear();
 }
 
-void ReplacementResources::clearLocal() {
-    _backend->clearLocal();
+void ReplacementResources::clearOwner(ResourceOwner owner) {
+    _backend->clearOwner(owner);
 }
 
-void ReplacementResources::clearSave() {
-    _backend->clearSave();
+ResourceMountToken ReplacementResources::mountToken() const {
+    return _backend->mountToken();
+}
+
+void ReplacementResources::rollbackTo(ResourceMountToken token) {
+    _backend->rollbackTo(token);
 }
 
 void ReplacementResources::addEXE(const std::filesystem::path &path, std::optional<ResourceSourceBucket> bucket) {
@@ -43,24 +47,24 @@ void ReplacementResources::addKEY(const std::filesystem::path &path, std::option
     _backend->addKEY(path, bucket);
 }
 
-void ReplacementResources::addERF(const std::filesystem::path &path, ContainerKind kind, std::optional<ResourceSourceBucket> bucket) {
-    _backend->addERF(path, kind, bucket);
+void ReplacementResources::addERF(const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
+    _backend->addERF(path, owner, bucket);
 }
 
-void ReplacementResources::addMemERF(ByteBuffer buffer, ContainerKind kind, std::optional<ResourceSourceBucket> bucket) {
-    _backend->addMemERF(std::move(buffer), kind, bucket);
+void ReplacementResources::addMemERF(ByteBuffer buffer, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
+    _backend->addMemERF(std::move(buffer), owner, bucket);
 }
 
-void ReplacementResources::addRIM(const std::filesystem::path &path, ContainerKind kind, std::optional<ResourceSourceBucket> bucket) {
-    _backend->addRIM(path, kind, bucket);
+void ReplacementResources::addRIM(const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
+    _backend->addRIM(path, owner, bucket);
 }
 
-void ReplacementResources::addMemRIM(ByteBuffer buffer, ContainerKind kind, std::optional<ResourceSourceBucket> bucket) {
-    _backend->addMemRIM(std::move(buffer), kind, bucket);
+void ReplacementResources::addMemRIM(ByteBuffer buffer, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
+    _backend->addMemRIM(std::move(buffer), owner, bucket);
 }
 
-void ReplacementResources::addFolder(const std::filesystem::path &path, ContainerKind kind, std::optional<ResourceSourceBucket> bucket) {
-    _backend->addFolder(path, kind, bucket);
+void ReplacementResources::addFolder(const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
+    _backend->addFolder(path, owner, bucket);
 }
 
 Resource ReplacementResources::get(const ResourceId &id) {

@@ -214,10 +214,10 @@ TEST(ResourcesLookup, should_prefer_last_added_container_for_colliding_id) {
     resources.addMemERF(erfBytes(ErfWriter::FileType::ERF,
                                  {{"shared", ResType::Txt, "first"},
                                   {"first_only", ResType::Txt, "from first"}}),
-                        ContainerKind::Global);
+                        ResourceOwner::Global);
     resources.addMemERF(erfBytes(ErfWriter::FileType::ERF,
                                  {{"shared", ResType::Txt, "second"}}),
-                        ContainerKind::Global);
+                        ResourceOwner::Global);
 
     EXPECT_EQ("second", dataOf(resources.find(ResourceId("shared", ResType::Txt))));
     EXPECT_EQ("from first", dataOf(resources.find(ResourceId("first_only", ResType::Txt))));
@@ -228,24 +228,24 @@ TEST(ResourcesLookup, should_clear_containers_by_kind_only) {
     resources.addMemERF(erfBytes(ErfWriter::FileType::ERF,
                                  {{"shared", ResType::Txt, "global"},
                                   {"global_only", ResType::Txt, "global"}}),
-                        ContainerKind::Global);
+                        ResourceOwner::Global);
     resources.addMemERF(erfBytes(ErfWriter::FileType::ERF,
                                  {{"shared", ResType::Txt, "save"},
                                   {"save_only", ResType::Txt, "save"}}),
-                        ContainerKind::Save);
+                        ResourceOwner::SaveSlot);
     resources.addMemERF(erfBytes(ErfWriter::FileType::ERF,
                                  {{"shared", ResType::Txt, "local"},
                                   {"local_only", ResType::Txt, "local"}}),
-                        ContainerKind::Local);
+                        ResourceOwner::ActiveModule);
 
     EXPECT_EQ("local", dataOf(resources.find(ResourceId("shared", ResType::Txt))));
 
-    resources.clearLocal();
+    resources.clearOwner(ResourceOwner::ActiveModule);
     EXPECT_EQ("save", dataOf(resources.find(ResourceId("shared", ResType::Txt))));
     EXPECT_FALSE(resources.find(ResourceId("local_only", ResType::Txt)));
     EXPECT_TRUE(resources.find(ResourceId("global_only", ResType::Txt)));
 
-    resources.clearSave();
+    resources.clearOwner(ResourceOwner::SaveSlot);
     EXPECT_EQ("global", dataOf(resources.find(ResourceId("shared", ResType::Txt))));
     EXPECT_FALSE(resources.find(ResourceId("save_only", ResType::Txt)));
     EXPECT_TRUE(resources.find(ResourceId("global_only", ResType::Txt)));
@@ -429,12 +429,10 @@ TEST_F(ResourceDirectorLookup, should_mount_save_scope_and_modules_nested_in_sav
 
     EXPECT_EQ("second save", find("loose")) << "the save loaded last must win";
 
-    // Known defect this test pins on purpose: loadSaveGameResources mounts
-    // save containers with the default Global kind, so clearSave is a no-op
-    // and containers of previously loaded saves leak. The newest save only
-    // wins by stacking order. A future save-scope fix should flip this
-    // expectation to "not found".
-    EXPECT_EQ("first save", find("first_only")) << "previous save containers currently leak";
+    // The newest save no longer wins merely by stacking order: the previous
+    // one is unloaded, so a resource only it held stops resolving.
+    EXPECT_EQ("<not found>", find("first_only"))
+        << "containers of the previous save must not survive loading another";
 }
 
 TEST_F(ResourceDirectorLookup, should_throw_when_save_slot_is_missing) {

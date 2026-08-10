@@ -30,13 +30,14 @@ namespace reone {
 
 namespace resource {
 
-/// Lifetime scope of a mounted source. Independent of the bucket it is
-/// searched in.
-enum class ContainerKind {
-    Global,
-    Local,
-    Save,
-};
+/**
+ * A point in the mount sequence.
+ *
+ * Every mount takes the next value, so a token read before an operation names
+ * exactly the sources that operation went on to add. This is what makes a
+ * failed operation removable without knowing what it tried to mount.
+ */
+using ResourceMountToken = std::uint64_t;
 
 /**
  * How a source list orders what it holds.
@@ -71,11 +72,17 @@ constexpr std::size_t bucketRank(ResourceSourceBucket bucket) {
  * backend. Entries are held in lookup order, so a backend resolves an id by
  * walking the list and taking the first hit.
  *
- * Entry must expose a ContainerKind kind and an
- * std::optional<ResourceSourceBucket> bucket. Everything else about an entry,
- * including how the source is actually read, belongs to the backend: what is
- * shared here is which source wins and when a source goes away, which is
- * exactly what the two backends have to agree on.
+ * Entry must expose a ResourceOwner owner, an
+ * std::optional<ResourceSourceBucket> bucket, and a ResourceMountToken
+ * sequence this list assigns. Everything else about an entry, including how
+ * the source is actually read, belongs to the backend: what is shared here is
+ * which source wins and when a source goes away, which is exactly what the two
+ * backends have to agree on.
+ *
+ * Owner and bucket answer different questions and are never derived from each
+ * other. The bucket says where a source is searched; the owner says what makes
+ * it go away. A source is not searched earlier for being shorter-lived, and it
+ * does not live longer for being searched first.
  *
  * A list is homogeneous. In insertion mode, which is what every caller uses
  * today, the source added last wins and the list behaves exactly like the
@@ -114,17 +121,17 @@ public:
         auto required = entry.bucket ? ResourceSourceOrder::Bucketed
                                      : ResourceSourceOrder::Insertion;
         auto current = order();
-        if (current == ResourceSourceOrder::Empty) {
-            _entries.push_front(std::move(entry));
-            return;
-        }
-        if (current != required) {
+        // The mode is checked before the sequence is spent, so a rejected mount
+        // leaves the list exactly as it was, token included.
+        if (current != ResourceSourceOrder::Empty && current != required) {
             throw ValidationException(
                 required == ResourceSourceOrder::Bucketed
                     ? "Cannot mount a bucketed source into an insertion-ordered resource source list"
                     : "Cannot mount an unbucketed source into a bucketed resource source list");
         }
-        if (current == ResourceSourceOrder::Insertion) {
+        entry.sequence = _nextSequence++;
+        if (current == ResourceSourceOrder::Empty ||
+            current == ResourceSourceOrder::Insertion) {
             _entries.push_front(std::move(entry));
             return;
         }
@@ -137,15 +144,40 @@ public:
         _entries.insert(position, std::move(entry));
     }
 
+    /**
+     * Drop every source.
+     *
+     * The mount sequence deliberately keeps counting. Reusing a spent token
+     * would let a rollback taken before the clear match sources mounted after
+     * it, which is the one way a token could name something it never covered.
+     */
     void clear() {
         _entries.clear();
     }
 
-    /// Drop every source of one scope, in every bucket. Scope answers when a
-    /// source goes away; it never answers where a source is searched.
-    void clearKind(ContainerKind kind) {
-        _entries.remove_if([kind](const Entry &entry) {
-            return entry.kind == kind;
+    /// Drop every source of one owner, in every bucket. Ownership answers when
+    /// a source goes away; it never answers where a source is searched.
+    void clearOwner(ResourceOwner owner) {
+        _entries.remove_if([owner](const Entry &entry) {
+            return entry.owner == owner;
+        });
+    }
+
+    /// The token a mount would take next. Read it before an operation to be
+    /// able to undo exactly that operation.
+    ResourceMountToken mountToken() const { return _nextSequence; }
+
+    /**
+     * Drop every source mounted at or after the token, whatever its owner.
+     *
+     * This undoes an operation rather than retiring a lifetime, which is why it
+     * is expressed in mount order and not in ownership: a failed operation has
+     * to take back what it added, including sources whose owner still has other
+     * members that must survive.
+     */
+    void rollbackTo(ResourceMountToken token) {
+        _entries.remove_if([token](const Entry &entry) {
+            return entry.sequence >= token;
         });
     }
 
@@ -159,6 +191,7 @@ public:
 
 private:
     Entries _entries;
+    ResourceMountToken _nextSequence {0};
 };
 
 } // namespace resource

@@ -56,15 +56,16 @@ public:
 class MockResources : public IResources, boost::noncopyable {
 public:
     MOCK_METHOD(void, clear, (), (override));
-    MOCK_METHOD(void, clearLocal, (), (override));
-    MOCK_METHOD(void, clearSave, (), (override));
+    MOCK_METHOD(void, clearOwner, (ResourceOwner owner), (override));
+    MOCK_METHOD(ResourceMountToken, mountToken, (), (const, override));
+    MOCK_METHOD(void, rollbackTo, (ResourceMountToken token), (override));
     MOCK_METHOD(void, addEXE, (const std::filesystem::path &path, std::optional<ResourceSourceBucket> bucket), (override));
     MOCK_METHOD(void, addKEY, (const std::filesystem::path &path, std::optional<ResourceSourceBucket> bucket), (override));
-    MOCK_METHOD(void, addERF, (const std::filesystem::path &path, ContainerKind kind, std::optional<ResourceSourceBucket> bucket), (override));
-    MOCK_METHOD(void, addMemERF, (ByteBuffer buffer, ContainerKind kind, std::optional<ResourceSourceBucket> bucket), (override));
-    MOCK_METHOD(void, addRIM, (const std::filesystem::path &path, ContainerKind kind, std::optional<ResourceSourceBucket> bucket), (override));
-    MOCK_METHOD(void, addMemRIM, (ByteBuffer buffer, ContainerKind kind, std::optional<ResourceSourceBucket> bucket), (override));
-    MOCK_METHOD(void, addFolder, (const std::filesystem::path &path, ContainerKind kind, std::optional<ResourceSourceBucket> bucket), (override));
+    MOCK_METHOD(void, addERF, (const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket), (override));
+    MOCK_METHOD(void, addMemERF, (ByteBuffer buffer, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket), (override));
+    MOCK_METHOD(void, addRIM, (const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket), (override));
+    MOCK_METHOD(void, addMemRIM, (ByteBuffer buffer, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket), (override));
+    MOCK_METHOD(void, addFolder, (const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket), (override));
 
     MOCK_METHOD(Resource, get, (const ResourceId &id), (override));
     MOCK_METHOD(std::optional<Resource>, find, (const ResourceId &id), (override));
