@@ -129,6 +129,7 @@ public:
 
     void playAnimation(const std::string &name, std::shared_ptr<graphics::LipAnimation> lipAnim = nullptr, AnimationProperties properties = AnimationProperties());
     void playAnimation(graphics::Animation &anim, std::shared_ptr<graphics::LipAnimation> lipAnim = nullptr, AnimationProperties properties = AnimationProperties());
+    bool restartAnimation(const std::string &name);
 
     void pauseAnimation();
     void resumeAnimation();
