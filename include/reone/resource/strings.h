@@ -17,9 +17,11 @@
 
 #pragma once
 
-#include "format/tlkreader.h"
+#include "talktable.h"
 
 #include "types.h"
+
+#include <array>
 
 namespace reone {
 
@@ -35,19 +37,22 @@ public:
 
 class Strings : public IStrings {
 public:
+    static constexpr std::size_t kTalkTableSlotCount = 7;
+
     Strings() = default;
 
     void init(const std::filesystem::path &gameDir);
 
+    void setTalkTable(std::size_t slot, std::shared_ptr<TalkTable> table);
+    bool loadTalkTable(std::size_t slot, const std::filesystem::path &path);
+
     std::string getText(int strRef) override;
     std::string getSound(int strRef) override;
 
-    void setTalkTable(std::shared_ptr<TalkTable> table) {
-        _table = std::move(table);
-    }
-
 private:
-    std::shared_ptr<TalkTable> _table;
+    std::array<std::shared_ptr<TalkTable>, kTalkTableSlotCount> _tables;
+
+    const TalkTable::String *findString(int strRef) const;
 
     void process(std::string &str);
     void stripDeveloperNotes(std::string &str);

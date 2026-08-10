@@ -25,6 +25,20 @@
 using namespace reone;
 using namespace reone::resource;
 
+namespace {
+
+std::shared_ptr<TalkTable> table(std::initializer_list<TalkTable::String> strings) {
+    return std::make_shared<TalkTable>(std::vector<TalkTable::String>(strings));
+}
+
+std::shared_ptr<TalkTable> tableWithWinningRow(std::size_t row, std::string text) {
+    std::vector<TalkTable::String> strings(row + 1);
+    strings[row].text = std::move(text);
+    return std::make_shared<TalkTable>(std::move(strings));
+}
+
+} // namespace
+
 TEST(Strings, should_init_talktable_and_get_string_and_sound) {
     // given
 
@@ -71,4 +85,120 @@ TEST(Strings, should_init_talktable_and_get_string_and_sound) {
     // cleanup
 
     std::filesystem::remove_all(tmpDirPath);
+}
+
+TEST(Strings, searches_loaded_slots_in_observable_order) {
+    Strings strings;
+    strings.setTalkTable(0, table({{"base zero", "base zero sound"}}));
+    strings.setTalkTable(1, table({{"live1 zero", "live1 zero sound"},
+                                   {"live1 one", "live1 one sound"}}));
+    strings.setTalkTable(2, table({{"live2 zero", "live2 zero sound"},
+                                   {"live2 one", "live2 one sound"},
+                                   {"live2 two", "live2 two sound"}}));
+
+    EXPECT_EQ("base zero", strings.getText(0));
+    EXPECT_EQ("live1 one", strings.getText(1));
+    EXPECT_EQ("live2 two", strings.getText(2));
+    EXPECT_EQ("live1 one sound", strings.getSound(1));
+}
+
+TEST(Strings, skips_missing_intermediate_slots) {
+    Strings strings;
+    strings.setTalkTable(0, table({{"base", ""}}));
+    strings.setTalkTable(2, table({{"live2 zero", ""}, {"live2 one", ""}}));
+
+    EXPECT_EQ("live2 one", strings.getText(1));
+}
+
+TEST(Strings, the_first_table_containing_the_row_wins_even_when_fields_are_empty) {
+    Strings strings;
+    strings.setTalkTable(0, table({{"", ""}}));
+    strings.setTalkTable(1, table({{"later text", "later sound"}}));
+
+    EXPECT_EQ("", strings.getText(0));
+    EXPECT_EQ("", strings.getSound(0));
+}
+
+TEST(Strings, live1_wins_a_collision_when_dialog_lacks_the_row) {
+    Strings strings;
+    strings.setTalkTable(0, table({}));
+    strings.setTalkTable(1, table({{"live1", "live1 sound"}}));
+    strings.setTalkTable(2, table({{"live2", "live2 sound"}}));
+
+    EXPECT_EQ("live1", strings.getText(0));
+    EXPECT_EQ("live1 sound", strings.getSound(0));
+}
+
+TEST(Strings, unresolved_rows_and_minus_one_are_empty) {
+    Strings strings;
+    strings.setTalkTable(0, table({{"base", "base sound"}}));
+
+    EXPECT_EQ("", strings.getText(42));
+    EXPECT_EQ("", strings.getSound(42));
+    EXPECT_EQ("", strings.getText(-1));
+    EXPECT_EQ("", strings.getSound(-1));
+}
+
+TEST(Strings, negative_values_other_than_minus_one_are_masked) {
+    Strings strings;
+    strings.setTalkTable(0, table({{"zero", ""}, {"one", "one sound"}}));
+    auto strRefWithNegativeSignAndRowOne = static_cast<int>(0xff000001u);
+
+    EXPECT_LT(strRefWithNegativeSignAndRowOne, 0);
+    EXPECT_EQ("one", strings.getText(strRefWithNegativeSignAndRowOne));
+    EXPECT_EQ("one sound", strings.getSound(strRefWithNegativeSignAndRowOne));
+}
+
+TEST(Strings, replacing_a_slot_changes_only_that_slot_and_never_reorders_it) {
+    Strings strings;
+    strings.setTalkTable(1, table({{"live1 old", ""}}));
+    strings.setTalkTable(2, table({{"live2", ""}, {"live2 one", ""}}));
+
+    EXPECT_EQ("live1 old", strings.getText(0));
+    EXPECT_EQ("live2 one", strings.getText(1));
+
+    strings.setTalkTable(1, table({{"live1 new", ""}}));
+
+    EXPECT_EQ("live1 new", strings.getText(0));
+    EXPECT_EQ("live2 one", strings.getText(1));
+}
+
+TEST(Strings, a_failed_file_replacement_leaves_only_that_slot_empty) {
+    auto dir = std::filesystem::temp_directory_path() / "reone_test_strings_replace";
+    std::filesystem::create_directories(dir);
+
+    Strings strings;
+    strings.setTalkTable(1, table({{"live1", ""}}));
+    strings.setTalkTable(2, table({{"live2", ""}}));
+
+    EXPECT_FALSE(strings.loadTalkTable(1, dir / "missing.tlk"));
+    EXPECT_EQ("live2", strings.getText(0));
+
+    auto malformedPath = dir / "malformed.tlk";
+    FileOutputStream malformed(malformedPath);
+    malformed.write("not a tlk", 9);
+    malformed.close();
+    strings.setTalkTable(1, table({{"live1 again", ""}}));
+    EXPECT_FALSE(strings.loadTalkTable(1, malformedPath));
+    EXPECT_EQ("live2", strings.getText(0));
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST(Strings, every_observable_slot_is_searchable) {
+    for (std::size_t target = 0; target < Strings::kTalkTableSlotCount; ++target) {
+        Strings strings;
+        strings.setTalkTable(target, tableWithWinningRow(target, "slot " + std::to_string(target)));
+
+        EXPECT_EQ("slot " + std::to_string(target), strings.getText(static_cast<int>(target)));
+    }
+}
+
+TEST(Strings, a_slot_beyond_the_observable_seven_is_rejected) {
+    Strings strings;
+
+    EXPECT_THROW(strings.setTalkTable(Strings::kTalkTableSlotCount, table({{"eighth", ""}})),
+                 std::out_of_range);
+    EXPECT_THROW(strings.loadTalkTable(Strings::kTalkTableSlotCount, "unused.tlk"),
+                 std::out_of_range);
 }
