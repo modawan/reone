@@ -121,6 +121,13 @@ std::vector<ModuleSearchRoot> primaryModuleSearchRoots(
     const std::filesystem::path &gamePath,
     const OdysseyResourceRoots &roots) {
     std::vector<ModuleSearchRoot> result;
+    if (roots.nwmFiles) {
+        if (auto nwm = child(roots.nwmFiles->parent_path(),
+                             roots.nwmFiles->filename().string())) {
+            result.push_back(ModuleSearchRoot {
+                "nwm", *nwm, ModulePrimaryOrigin::NwmFiles, 0, 0});
+        }
+    }
     if (auto base = child(gamePath, "modules")) {
         result.push_back(ModuleSearchRoot {
             "modules", *base, ModulePrimaryOrigin::Modules, 0, 0});

@@ -1075,6 +1075,62 @@ TEST_P(SourceLifetimeDirectorTest, an_absent_optional_source_is_not_a_failure) {
     EXPECT_TRUE(has("static_only")) << "a missing optional family does not roll back a good one";
 }
 
+TEST_P(SourceLifetimeDirectorTest, nwm_state_is_replaced_across_nwm_and_ordinary_transitions) {
+    TmpDir game("reone_test_lifetime_nwm_transitions");
+    TmpDir cwd("reone_test_lifetime_nwm_transitions_cwd");
+    makeInstallation(game, cwd);
+    auto nwm = game.mkdir("nwm");
+    auto modules = game.path / "modules";
+    writeErf(nwm / "a.nwm", ErfWriter::FileType::MOD,
+             {{"probe", ResType::Txt, "nwm a"}, {"a_only", ResType::Txt, "a"}});
+    writeErf(nwm / "b.nwm", ErfWriter::FileType::MOD,
+             {{"probe", ResType::Txt, "nwm b"}, {"b_only", ResType::Txt, "b"}});
+    writeErf(modules / "ordinary.mod", ErfWriter::FileType::MOD,
+             {{"probe", ResType::Txt, "ordinary"}, {"ordinary_only", ResType::Txt, "m"}});
+
+    auto director = makeDirector(game.path);
+    { CwdGuard guard(cwd.path); director->init(); }
+    auto globals = _count();
+
+    director->onModuleLoad("a");
+    EXPECT_EQ("nwm a", find("probe"));
+    EXPECT_EQ(globals + 1, _count());
+    director->onModuleLoad("b");
+    EXPECT_EQ("nwm b", find("probe"));
+    EXPECT_FALSE(has("a_only"));
+    EXPECT_EQ(globals + 1, _count());
+    director->onModuleLoad("a");
+    EXPECT_EQ("nwm a", find("probe"));
+    EXPECT_FALSE(has("b_only"));
+    EXPECT_EQ(globals + 1, _count());
+    director->onModuleLoad("ordinary");
+    EXPECT_EQ("ordinary", find("probe"));
+    EXPECT_FALSE(has("a_only"));
+    EXPECT_EQ(globals + 1, _count());
+    director->onModuleLoad("a");
+    EXPECT_EQ("nwm a", find("probe"));
+    EXPECT_FALSE(has("ordinary_only"));
+    EXPECT_EQ(globals + 1, _count());
+}
+
+TEST_P(SourceLifetimeDirectorTest, a_corrupt_selected_nwm_rolls_back_without_restoring_old_state) {
+    TmpDir game("reone_test_lifetime_nwm_corrupt");
+    TmpDir cwd("reone_test_lifetime_nwm_corrupt_cwd");
+    makeInstallation(game, cwd);
+    auto nwm = game.mkdir("nwm");
+    writeErf(nwm / "good.nwm", ErfWriter::FileType::MOD,
+             {{"good_only", ResType::Txt, "good"}});
+    writeFile(nwm / "broken.nwm", "not an erf");
+    auto director = makeDirector(game.path);
+    { CwdGuard guard(cwd.path); director->init(); }
+    auto globals = _count();
+    director->onModuleLoad("good");
+    ASSERT_TRUE(has("good_only"));
+    EXPECT_THROW(director->onModuleLoad("broken"), ValidationException);
+    EXPECT_FALSE(has("good_only"));
+    EXPECT_EQ(globals, _count());
+}
+
 INSTANTIATE_TEST_SUITE_P(Backends,
                          SourceLifetimeDirectorTest,
                          testing::Values(Backend::Legacy, Backend::Extract),

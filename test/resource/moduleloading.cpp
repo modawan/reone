@@ -851,6 +851,66 @@ TEST_P(K2ModuleLoadingTest, preserves_the_game_specific_modules_versus_live_prim
     }
 }
 
+TEST_P(K2ModuleLoadingTest, activates_the_default_nwm_root_directly_for_both_games) {
+    for (auto gameId : {GameID::KotOR, GameID::TSL}) {
+        _resources->clear();
+        _auxResources->clear();
+        TmpDir game(gameId == GameID::KotOR ? "reone_test_k1_nwm" : "reone_test_k2_nwm");
+        TmpDir cwd(gameId == GameID::KotOR ? "reone_test_k1_nwm_cwd" : "reone_test_k2_nwm_cwd");
+        makeInstallation(game, cwd);
+        writeErf(game.mkdir("nwm") / "foo.nwm", ErfWriter::FileType::MOD,
+                 {{"nwm_only", ResType::Txt, "nwm"}});
+        auto director = makeDirector(game.path, {}, gameId);
+        { CwdGuard guard(cwd.path); director->init(); }
+        director->onModuleLoad("foo");
+        EXPECT_EQ("nwm", find("nwm_only"));
+        _resources->clearOwner(ResourceOwner::ActiveModuleState);
+        EXPECT_FALSE(has("nwm_only")) << "NWM must use the active-state owner";
+        auto runtimeNames = director->moduleNames();
+        auto toolingNames = extract::Installation(gameId, game.path).moduleNames();
+        EXPECT_THAT(toolingNames, testing::UnorderedElementsAreArray(runtimeNames));
+        EXPECT_THAT(toolingNames, testing::Contains("foo"));
+    }
+}
+
+TEST_P(K2ModuleLoadingTest, nwm_precedes_every_unsaved_disk_primary) {
+    for (auto gameId : {GameID::KotOR, GameID::TSL}) {
+        _resources->clear();
+        _auxResources->clear();
+        TmpDir game(gameId == GameID::KotOR ? "reone_test_k1_nwm_order" : "reone_test_k2_nwm_order");
+        TmpDir cwd(gameId == GameID::KotOR ? "reone_test_k1_nwm_order_cwd" : "reone_test_k2_nwm_order_cwd");
+        TmpDir live(gameId == GameID::KotOR ? "reone_test_k1_nwm_live" : "reone_test_k2_nwm_live");
+        makeInstallation(game, cwd);
+        writeErf(game.mkdir("nwm") / "foo.nwm", ErfWriter::FileType::MOD,
+                 {{"primary", ResType::Txt, "nwm"}});
+        writeErf(game.path / "modules" / "foo.mod", ErfWriter::FileType::MOD,
+                 {{"primary", ResType::Txt, "ordinary"}});
+        writeErf(live.mkdir("MODULES") / "foo.mod", ErfWriter::FileType::MOD,
+                 {{"primary", ResType::Txt, "live"}});
+        OdysseyResourceRoots roots;
+        roots.livePackages[0] = live.path;
+        auto director = makeDirector(game.path, roots, gameId);
+        { CwdGuard guard(cwd.path); director->init(); }
+        director->onModuleLoad("foo");
+        EXPECT_EQ("nwm", find("primary"));
+    }
+}
+
+TEST_P(K2ModuleLoadingTest, nwm_sidecars_without_a_nwm_primary_do_not_activate) {
+    TmpDir game("reone_test_nwm_no_primary");
+    TmpDir cwd("reone_test_nwm_no_primary_cwd");
+    makeInstallation(game, cwd);
+    auto nwm = game.mkdir("nwm");
+    writeErf(nwm / "foo_loc.mod", ErfWriter::FileType::MOD,
+             {{"sidecar", ResType::Txt, "localization"}});
+    writeRim(nwm / "foo_s.rim", {{"static_sidecar", ResType::Txt, "static"}});
+    auto director = makeDirector(game.path);
+    { CwdGuard guard(cwd.path); director->init(); }
+    EXPECT_NO_THROW(director->onModuleLoad("foo"));
+    EXPECT_FALSE(has("sidecar"));
+    EXPECT_FALSE(has("static_sidecar"));
+}
+
 TEST_P(K2ModuleLoadingTest, configured_module_families_follow_the_established_true_false_order) {
     TmpDir game("reone_test_configured_modules");
     TmpDir cwd("reone_test_configured_modules_cwd");
@@ -921,8 +981,9 @@ TEST(OdysseyResourceRoots, tooling_and_runtime_expand_the_same_bound_module_loca
     std::filesystem::create_directories(game.path / "modules");
     writeErf(live.mkdir("MODULES") / "liveonly.mod", ErfWriter::FileType::MOD, {});
     writeErf(configured.mkdir("modules") / "configuredonly.mod", ErfWriter::FileType::MOD, {});
+    writeErf(game.mkdir("nwm") / "nwmonly.nwm", ErfWriter::FileType::MOD, {});
 
-    OdysseyResourceRoots roots;
+    OdysseyResourceRoots roots = defaultOdysseyResourceRoots(game.path);
     roots.livePackages[0] = live.path;
     roots.k2OverrideRoots = {configured.path};
     auto runtimeRoots = primaryModuleSearchRoots(GameID::TSL, game.path, roots);
@@ -930,7 +991,7 @@ TEST(OdysseyResourceRoots, tooling_and_runtime_expand_the_same_bound_module_loca
     auto toolingNames = extract::Installation(GameID::TSL, game.path, roots).moduleNames();
 
     EXPECT_EQ(runtimeNames, toolingNames);
-    EXPECT_THAT(toolingNames, testing::ElementsAre("configuredonly", "liveonly"));
+    EXPECT_THAT(toolingNames, testing::ElementsAre("configuredonly", "liveonly", "nwmonly"));
 }
 
 TEST(OdysseyResourceRoots, keeps_unbound_live_slots_absent_and_deduplicates_lips_by_identity) {

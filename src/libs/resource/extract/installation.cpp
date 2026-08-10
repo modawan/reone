@@ -87,6 +87,9 @@ Installation::Installation(resource::GameID game,
     _game(game),
     _root(std::move(root)),
     _odysseyRoots(std::move(odysseyRoots)) {
+    if (!_odysseyRoots.nwmFiles) {
+        _odysseyRoots.nwmFiles = resource::defaultOdysseyResourceRoots(_root).nwmFiles;
+    }
 }
 
 void Installation::clearLocationCaches() {

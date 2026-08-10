@@ -30,6 +30,7 @@
 #include "reone/resource/format/rimwriter.h"
 #include "reone/resource/modulemount.h"
 #include "reone/resource/resources.h"
+#include "../fixtures/resource.h"
 #include "reone/system/exception/validation.h"
 #include "reone/system/stream/fileoutput.h"
 #include "reone/system/stream/memoryoutput.h"
@@ -241,6 +242,33 @@ protected:
     Resources _resources;
     RuntimeModuleSourceIndex _index;
 };
+
+TEST(ModuleMountExecutorNwm, mounts_only_the_selected_nwm_as_class_2_active_state) {
+    testing::StrictMock<MockResources> resources;
+    RuntimeModuleSourceIndex index;
+    TmpDir tmp("reone_test_mount_nwm_metadata");
+    auto path = tmp.writeErf("foo.nwm", "nwm");
+    index.add(RuntimeModuleSource {
+        candidate("nwm:foo.nwm", ModuleArchiveFamily::Nwm), path});
+
+    ModuleLoadPlan plan;
+    ModulePrimarySelection selection;
+    selection.candidate = ModulePrimaryCandidate {
+        candidate("nwm:foo.nwm", ModuleArchiveFamily::Nwm),
+        ModulePrimaryKind::Nwm};
+    plan.primary = selection;
+    plan.activeState.owner = ResourceOwner::ActiveModuleState;
+
+    EXPECT_CALL(resources,
+                addERF(path,
+                       ResourceOwner::ActiveModuleState,
+                       std::optional<ResourceSourceBucket>(
+                           ResourceSourceBucket::EncapsulatedClass2)));
+
+    ModuleMountExecutor executor(resources, index);
+    auto report = executor.run(plan);
+    EXPECT_EQ((std::vector<std::string> {"nwm:foo.nwm"}), mountedIds(report));
+}
 
 TEST_F(ModuleMountExecutorTest, mounts_every_attempt_of_an_all_successful_family) {
     TmpDir tmp("reone_test_mount_all");

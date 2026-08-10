@@ -169,8 +169,15 @@ bool ModuleMountExecutor::runActiveState(const ModuleLoadPlan &plan, ModuleMount
         activeStateMounted = report.mounted(primary.sourceId);
         if (!activeStateMounted) {
             auto metadata = mountMetadata(primary.family);
-            // A packaged module reaches its final form through staging, so the
-            // policy assigns it no bucket and there is nothing to mount here.
+            // NWM has no generic mount metadata: discovery of a packaged module
+            // does not make it a permanent class-2 source. Only the selected
+            // NWM becomes the active module state, directly and without
+            // CURRENTGAME staging.
+            if (primary.family == ModuleArchiveFamily::Nwm) {
+                metadata = ModuleSourceMetadata {
+                    ResourceSourceBucket::EncapsulatedClass2,
+                    plan.activeState.owner};
+            }
             if (metadata) {
                 // What this phase mounts is the module's active state, so it
                 // takes the active-state owner whatever family supplied it. The

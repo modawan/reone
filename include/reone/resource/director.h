@@ -100,6 +100,9 @@ public:
         _auxResources(auxResources),
         _scripts(scripts),
         _twoDas(twoDas) {
+        if (!_odysseyRoots.nwmFiles) {
+            _odysseyRoots.nwmFiles = defaultOdysseyResourceRoots(_gamePath).nwmFiles;
+        }
     }
 
     void init() override;
