@@ -54,6 +54,11 @@ void Map::load(const std::string &area, const resource::generated::ARE_Map &map)
     loadTextures(area);
 }
 
+void Map::retireRuntimeSession() {
+    _areaTexture.reset();
+    _selectedNote.reset();
+}
+
 void Map::loadProperties(const resource::generated::ARE_Map &map) {
     _northAxis = map.NorthAxis;
     _worldPoint1 = glm::vec2(map.WorldPt1X, map.WorldPt1Y);

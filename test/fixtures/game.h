@@ -52,6 +52,7 @@ class Gff;
 namespace game {
 
 class Game;
+class Conversation;
 class Object;
 
 class MockCameraStyles : public ICameraStyles, boost::noncopyable {
@@ -164,6 +165,14 @@ public:
     static void setCurrentScreen(Game &game, int screen);
     static void initConsole(Game &game);
     static void setActiveModule(Game &game, bool active);
+    static void cacheActiveModule(Game &game, std::string name);
+    static size_t objectRegistrySize(const Game &game);
+    static size_t loadedModuleCount(const Game &game);
+    static uint32_t nextObjectId(const Game &game);
+    static void bindConversation(Game &game, Conversation &conversation);
+    static bool hasConversation(const Game &game);
+    static void bindHUDSelection(Game &game, std::shared_ptr<Object> object);
+    static bool hasHUDSelection(const Game &game);
     static void setPazaakDevelopmentSelectedObject(
         Game &game,
         std::shared_ptr<Object> object);

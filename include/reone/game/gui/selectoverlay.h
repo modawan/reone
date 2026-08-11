@@ -34,6 +34,8 @@ class Game;
 class Object;
 
 class SelectionOverlay {
+    friend class TestGameModule;
+
 public:
     SelectionOverlay(
         Game &game,

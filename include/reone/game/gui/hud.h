@@ -37,6 +37,8 @@ namespace reone {
 namespace game {
 
 class HUD : public GameGUI {
+    friend class TestGameModule;
+
 public:
     HUD(Game &game, ServicesView &services) :
         GameGUI(game, services),

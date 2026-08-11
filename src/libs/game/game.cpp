@@ -844,16 +844,31 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
             openInGame();
         } catch (const std::exception &e) {
             error("Failed loading module '" + name + "': " + std::string(e.what()));
+            if (fromSave) {
+                retireRuntimeSession();
+            }
         }
     });
 }
 
-void Game::resetGame() {
+void Game::retireRuntimeSession() {
+    _runtimeSessionPlayable = false;
+    _screen = Screen::None;
+
     abortPazaak();
+    _lastPazaakResult.reset();
+    _pazaakContinuationCaller.reset();
+    _pazaakDevelopmentSelectedObjectOverride.reset();
     if (_swoopRace.isActive()) {
         _swoopRace.stop();
     }
-    _screen = Screen::None;
+    _swoopLifecycle = SwoopLifecycle();
+
+    if (_conversation) {
+        _conversation->cleanupForModuleTransition();
+        _conversation = nullptr;
+    }
+
     _services.audio.mixer.stopAll();
     _music.reset();
     _movie.reset();
@@ -865,12 +880,44 @@ void Game::resetGame() {
     _cameraType = CameraType::ThirdPerson;
     _savedCameraType = CameraType::ThirdPerson;
     _paused = false;
-    _quitRequested = false;
     _relativeMouseMode = false;
-    if (_conversation) {
-        _conversation->cleanupForModuleTransition();
-        _conversation = nullptr;
+
+    _statusSummary.reset();
+    if (_hud) {
+        _hud->resetStatusSummaryPresentation();
     }
+
+    // Drop GUI-owned object selections, conversation participants and
+    // container/party bindings before releasing the runtime graph.
+    _hud.reset();
+    _inGame.reset();
+    _dialog.reset();
+    _computer.reset();
+    _container.reset();
+    _partySelect.reset();
+
+    if (_map) {
+        _map->retireRuntimeSession();
+    }
+
+    _combat.reset();
+    _party.retireRuntimeSession();
+
+    _services.scene.graphs.get(kSceneMain).clear();
+    _module.reset();
+    _loadedModules.clear();
+
+    _objectById.clear();
+    _nextObjectId = kFirstRuntimeObjectId;
+
+    _nextModule.clear();
+    _nextEntry.clear();
+}
+
+void Game::resetGame() {
+    retireRuntimeSession();
+
+    _quitRequested = false;
     _globalStrings.clear();
     _globalBooleans.clear();
     _globalNumbers.clear();
@@ -878,14 +925,7 @@ void Game::resetGame() {
     _customTokens.clear();
 
     _party.reset();
-    _combat.reset();
     _journal.reset();
-    _statusSummary.reset();
-    if (_hud) {
-        _hud->resetStatusSummaryPresentation();
-    }
-    _module.reset();
-    _loadedModules.clear();
 }
 
 void Game::loadGame(std::string_view name) {
@@ -1967,6 +2007,7 @@ void Game::withLoadingScreen(const std::string &imageResRef, const std::function
 }
 
 void Game::openMainMenu() {
+    resetGame();
     if (!_mainMenu) {
         _mainMenu = tryLoadGUI<MainMenu>();
     }
@@ -1981,6 +2022,7 @@ void Game::openMainMenu() {
 }
 
 void Game::openInGame() {
+    _runtimeSessionPlayable = static_cast<bool>(_module);
     changeScreen(Screen::InGame);
 }
 
@@ -2966,6 +3008,7 @@ void Game::notifyLevelUpPending(const Creature &creature) {
 }
 
 void Game::startCharacterGeneration() {
+    resetGame();
     if (!_charGen) {
         _charGen = tryLoadGUI<CharacterGeneration>();
     }

@@ -129,9 +129,7 @@ bool Party::addMember(int npc, std::shared_ptr<Creature> creature) {
 }
 
 void Party::reset() {
-    _player.reset();
-    _availableMembers.clear();
-    _members.clear();
+    retireRuntimeSession();
     _solo = false;
     _gold = 0;
     _xp = 0;
@@ -139,6 +137,12 @@ void Party::reset() {
     _pazaakCardCounts.fill(0);
     _pazaakSideDeck.fill(-1);
     _persistedState = PersistedState();
+}
+
+void Party::retireRuntimeSession() {
+    _player.reset();
+    _availableMembers.clear();
+    _members.clear();
 }
 
 void Party::clear() {

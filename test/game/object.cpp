@@ -70,6 +70,24 @@ public:
         const std::string &authoredText) const {
         return descriptionText(category, entry, authoredText);
     }
+
+    void captureDescription(
+        StatusSummaryCategory category,
+        std::shared_ptr<gui::Label> description) {
+        auto &row = _rows[static_cast<size_t>(category)];
+        row.description = std::move(description);
+        row.descriptionExtent = row.description->extent();
+        row.authoredText = row.description->text().text;
+    }
+
+    std::string formatCapturedDescription(
+        StatusSummaryCategory category,
+        const StatusSummaryEntry &entry) const {
+        return descriptionText(
+            category,
+            entry,
+            _rows[static_cast<size_t>(category)].authoredText);
+    }
 };
 
 class TestConversation : public Conversation {
@@ -1911,6 +1929,42 @@ TEST(XPStatusSummary, should_format_authored_plot_xp_text_without_mutating_globa
             "Experience: <CUSTOM0>"),
         "Experience: 350");
     EXPECT_EQ(game.substituteCustomTokens("<CUSTOM0>"), "existing");
+}
+
+TEST(XPStatusSummary, cached_gui_preserves_text_across_retirement_and_load_publication) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    NiceMock<gui::MockGUI> gui;
+    auto description = std::make_shared<gui::Label>(
+        gui,
+        engine.services().scene.graphs,
+        engine.services().graphics,
+        engine.services().resource);
+    description->setTextMessage("Experience: <CUSTOM0>");
+
+    game.submitStatusSummary(StatusSummaryCategory::PlotXP, 350);
+    TestStatusSummary newGameSummary(game, engine.services(), game.statusSummary());
+    newGameSummary.captureDescription(StatusSummaryCategory::PlotXP, description);
+    EXPECT_EQ(
+        "Experience: 350",
+        newGameSummary.formatCapturedDescription(
+            StatusSummaryCategory::PlotXP,
+            game.statusSummary().pending().entry(StatusSummaryCategory::PlotXP)));
+
+    newGameSummary.reset();
+    EXPECT_EQ("Experience: <CUSTOM0>", description->text().text);
+
+    game.statusSummary().reset();
+    game.submitStatusSummary(StatusSummaryCategory::PlotXP, 350);
+    TestStatusSummary loadedGameSummary(game, engine.services(), game.statusSummary());
+    loadedGameSummary.captureDescription(StatusSummaryCategory::PlotXP, description);
+    EXPECT_EQ(
+        "Experience: 350",
+        loadedGameSummary.formatCapturedDescription(
+            StatusSummaryCategory::PlotXP,
+            game.statusSummary().pending().entry(StatusSummaryCategory::PlotXP)));
 }
 
 TEST(XPStatusSummary, should_leave_authored_journal_text_unchanged) {

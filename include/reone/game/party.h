@@ -99,6 +99,11 @@ public:
     // to their default values.
     void reset();
 
+    // Retire instantiated creature bindings while preserving save-wide logical
+    // state. A later runtime reconstruction phase can materialize those
+    // bindings again from the committed working state.
+    void retireRuntimeSession();
+
     void clear();
     void switchLeader();
 

@@ -162,6 +162,8 @@ public:
     void openMainMenu();
     void openInGame();
 
+    bool hasPlayableRuntimeSession() const { return _runtimeSessionPlayable; }
+
     // Swoop race (developer skeleton)
 
     void openSwoopRace();
@@ -260,6 +262,11 @@ public:
 
     // Clear state of the current game before loading a new game.
     void resetGame();
+
+    // Retire instantiated gameplay state without changing committed resource or
+    // save-wide logical state. Runtime reconstruction must explicitly publish a
+    // new playable session afterwards.
+    void retireRuntimeSession();
 
     // END Module loading
 
@@ -458,8 +465,10 @@ private:
     bool _quitRequested {false};
     bool _relativeMouseMode {false};
 
-    uint32_t _nextObjectId {2}; // ids 0 and 1 are reserved
+    static constexpr uint32_t kFirstRuntimeObjectId = 2; // ids 0 and 1 are reserved
+    uint32_t _nextObjectId {kFirstRuntimeObjectId};
     std::map<uint32_t, std::shared_ptr<Object>> _objectById;
+    bool _runtimeSessionPlayable {false};
 
     // Services
 

@@ -143,7 +143,7 @@ void StatusSummary::clearPresentation() {
         }
         if (row.description) {
             row.description->setVisible(false);
-            row.description->setTextMessage("");
+            row.description->setTextMessage(row.authoredText);
             row.description->setExtent(row.descriptionExtent);
         }
     }
