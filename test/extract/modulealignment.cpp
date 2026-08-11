@@ -74,6 +74,9 @@ std::vector<std::pair<std::string, ModuleArchiveFamily>> sharedArchives(
     for (const auto &source : discoverModuleSources(module, roots).sources) {
         result.emplace_back(boost::to_lower_copy(source.filename), source.candidate.family);
     }
+    for (const auto &source : discoverRimsModuleAdjuncts(module, root)) {
+        result.emplace_back(boost::to_lower_copy(source.filename), source.candidate.family);
+    }
     return result;
 }
 
@@ -92,13 +95,15 @@ std::vector<std::pair<std::string, ModuleArchiveFamily>> installationArchives(
 void writeMixedInstallation(const std::filesystem::path &root) {
     auto modules = root / "modules";
     auto lips = root / "lips";
+    auto rims = root / "rims";
     std::filesystem::create_directories(modules);
     std::filesystem::create_directories(lips);
+    std::filesystem::create_directories(rims);
 
     writeRim(modules / "foo.rim", {{"probe", ResType::Txt, "primary rim"}});
     writeRim(modules / "foo_s.rim", {{"probe", ResType::Txt, "static"}});
-    writeRim(modules / "foo_a.rim", {{"probe", ResType::Txt, "area"}});
-    writeRim(modules / "foo_adx.rim", {{"probe", ResType::Txt, "adx"}});
+    writeRim(rims / "foo_a.rim", {{"probe", ResType::Txt, "area"}});
+    writeRim(rims / "foo_adx.rim", {{"probe", ResType::Txt, "adx"}});
     writeErf(modules / "foo_dlg.erf", ErfType::ERF, {{"probe", ResType::Txt, "dialogue"}});
     writeErf(modules / "foo_loc.mod", ErfType::MOD, {{"probe", ResType::Txt, "module loc"}});
     writeErf(modules / "bar.mod", ErfType::MOD, {});
@@ -300,8 +305,9 @@ TEST(InstallationModuleArchives, k2_mod_layout_ranks_adx_above_a_above_the_modul
     std::filesystem::create_directories(tmp.path / "modules");
 
     writeErf(tmp.path / "modules" / "foo.mod", ErfType::MOD, {});
-    writeRim(tmp.path / "modules" / "foo_a.rim", {});
-    writeRim(tmp.path / "modules" / "foo_adx.rim", {});
+    std::filesystem::create_directories(tmp.path / "rims");
+    writeRim(tmp.path / "rims" / "foo_a.rim", {});
+    writeRim(tmp.path / "rims" / "foo_adx.rim", {});
 
     Installation installation(GameID::TSL, tmp.path);
     installation.setModuleRoot("foo");
@@ -351,13 +357,19 @@ TEST(InstallationModuleArchives, order_is_independent_of_directory_creation_orde
     std::filesystem::create_directories(first.path / "modules");
     std::filesystem::create_directories(second.path / "modules");
 
-    for (const auto &name : {"foo.rim", "foo_a.rim", "foo_adx.rim", "foo_s.rim"}) {
+    std::filesystem::create_directories(first.path / "rims");
+    std::filesystem::create_directories(second.path / "rims");
+    for (const auto &name : {"foo.rim", "foo_s.rim"}) {
         writeRim(first.path / "modules" / name, {});
     }
-    for (const auto &name : {"foo_s.rim", "foo_adx.rim", "foo_a.rim", "foo.rim"}) {
+    writeRim(first.path / "rims" / "foo_a.rim", {});
+    writeRim(first.path / "rims" / "foo_adx.rim", {});
+    for (const auto &name : {"foo_s.rim", "foo.rim"}) {
         writeRim(second.path / "modules" / name, {});
     }
 
+    writeRim(second.path / "rims" / "foo_adx.rim", {});
+    writeRim(second.path / "rims" / "foo_a.rim", {});
     Installation a(GameID::TSL, first.path);
     Installation b(GameID::TSL, second.path);
     a.setModuleRoot("foo");

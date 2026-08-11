@@ -340,9 +340,10 @@ TEST_P(ArchiveValidationDirectorTest, rolls_back_what_the_failed_load_had_alread
     // The adjunct images mount before the static image is reached, so the
     // failure genuinely happens partway through.
     auto modules = game.path / "modules";
+    auto rims = game.mkdir("rims");
     writeRim(modules / "foo.rim", {{"probe", ResType::Txt, "base"}});
-    writeRim(modules / "foo_a.rim", {{"from_area", ResType::Txt, "area"}});
-    writeRim(modules / "foo_adx.rim", {{"from_adx", ResType::Txt, "adx"}});
+    writeRim(rims / "foo_a.rim", {{"from_area", ResType::Txt, "area"}});
+    writeRim(rims / "foo_adx.rim", {{"from_adx", ResType::Txt, "adx"}});
     writeCorrupt(modules / "foo_s.rim");
 
     auto director = makeDirector(game.path);
@@ -366,8 +367,9 @@ TEST_P(ArchiveValidationDirectorTest, repeating_a_failed_load_leaves_the_same_st
     makeInstallation(game, cwd);
 
     auto modules = game.path / "modules";
+    auto rims = game.mkdir("rims");
     writeRim(modules / "foo.rim", {{"probe", ResType::Txt, "base"}});
-    writeRim(modules / "foo_a.rim", {{"from_area", ResType::Txt, "area"}});
+    writeRim(rims / "foo_a.rim", {{"from_area", ResType::Txt, "area"}});
     writeCorrupt(modules / "foo_s.rim");
 
     auto director = makeDirector(game.path);
@@ -390,8 +392,9 @@ TEST_P(ArchiveValidationDirectorTest, a_valid_module_loads_cleanly_after_a_failu
     makeInstallation(game, cwd);
 
     auto modules = game.path / "modules";
+    auto rims = game.mkdir("rims");
     writeRim(modules / "foo.rim", {{"probe", ResType::Txt, "broken base"}});
-    writeRim(modules / "foo_a.rim", {{"from_area", ResType::Txt, "area"}});
+    writeRim(rims / "foo_a.rim", {{"from_area", ResType::Txt, "area"}});
     writeCorrupt(modules / "foo_s.rim");
 
     writeRim(modules / "bar.rim", {{"probe", ResType::Txt, "good base"}});

@@ -668,11 +668,12 @@ namespace {
 void writeTransitionModules(TmpDir &game) {
     auto modules = game.path / "modules";
     auto lips = game.mkdir("lips");
+    auto rims = game.mkdir("rims");
 
     writeRim(modules / "a.rim", {{"probe", ResType::Txt, "a base"}, {"a_base", ResType::Txt, "x"}});
     writeRim(modules / "a_s.rim", {{"a_static", ResType::Txt, "x"}});
-    writeRim(modules / "a_a.rim", {{"a_area", ResType::Txt, "x"}});
-    writeRim(modules / "a_adx.rim", {{"a_adx", ResType::Txt, "x"}});
+    writeRim(rims / "a_a.rim", {{"a_area", ResType::Txt, "x"}});
+    writeRim(rims / "a_adx.rim", {{"a_adx", ResType::Txt, "x"}});
     writeErf(modules / "a_dlg.erf", ErfWriter::FileType::ERF, {{"a_dlg", ResType::Txt, "x"}});
     writeErf(lips / "a_loc.mod", ErfWriter::FileType::MOD, {{"a_loc", ResType::Txt, "x"}});
 
@@ -687,7 +688,7 @@ void writeTransitionModules(TmpDir &game) {
              {{"probe", ResType::Txt, "c mod"}, {"c_mod", ResType::Txt, "x"}});
     writeRim(modules / "c_s.rim", {{"c_static", ResType::Txt, "x"}});
     writeErf(modules / "c_dlg.erf", ErfWriter::FileType::ERF, {{"c_dlg", ResType::Txt, "x"}});
-    writeRim(modules / "c_a.rim", {{"c_area", ResType::Txt, "x"}});
+    writeRim(rims / "c_a.rim", {{"c_area", ResType::Txt, "x"}});
 }
 
 } // namespace
@@ -886,11 +887,12 @@ TEST_P(SourceLifetimeDirectorTest, a_module_that_fails_partway_leaves_none_of_it
     makeInstallation(game, cwd);
 
     auto modules = game.path / "modules";
+    auto rims = game.mkdir("rims");
     writeRim(modules / "good.rim", {{"probe", ResType::Txt, "good"}});
 
     writeRim(modules / "broken.rim", {{"probe", ResType::Txt, "broken base"}});
-    writeRim(modules / "broken_a.rim", {{"broken_area", ResType::Txt, "x"}});
-    writeRim(modules / "broken_adx.rim", {{"broken_adx", ResType::Txt, "x"}});
+    writeRim(rims / "broken_a.rim", {{"broken_area", ResType::Txt, "x"}});
+    writeRim(rims / "broken_adx.rim", {{"broken_adx", ResType::Txt, "x"}});
 
     // Saved state for the module that is not a readable archive. It wins
     // primary selection, so the active-state phase tries to read it.
@@ -933,8 +935,9 @@ TEST_P(SourceLifetimeDirectorTest, a_non_exception_required_failure_rolls_back_t
     makeInstallation(game, cwd);
 
     auto modules = game.path / "modules";
+    auto rims = game.mkdir("rims");
     writeRim(modules / "foo.rim", {{"foo_base", ResType::Txt, "base"}});
-    writeRim(modules / "foo_a.rim", {{"foo_area", ResType::Txt, "area"}});
+    writeRim(rims / "foo_a.rim", {{"foo_area", ResType::Txt, "area"}});
     writeRim(modules / "foo_s.rim", {{"foo_static", ResType::Txt, "static"}});
     rejectDiskMount("foo_s.rim");
 
@@ -959,7 +962,8 @@ TEST_P(SourceLifetimeDirectorTest, a_required_failure_can_recover_through_active
 
     auto modules = game.path / "modules";
     writeRim(modules / "foo.rim", {{"disk_base", ResType::Txt, "disk"}});
-    writeRim(modules / "foo_a.rim", {{"foo_area", ResType::Txt, "area"}});
+    auto rims = game.mkdir("rims");
+    writeRim(rims / "foo_a.rim", {{"foo_area", ResType::Txt, "area"}});
     writeRim(modules / "foo_s.rim", {{"foo_static", ResType::Txt, "static"}});
 
     auto staged = erfBytes(ErfWriter::FileType::MOD,
@@ -988,7 +992,8 @@ TEST_P(SourceLifetimeDirectorTest, no_primary_with_discoverable_sidecars_rolls_b
     makeInstallation(game, cwd);
 
     auto modules = game.path / "modules";
-    writeRim(modules / "foo_a.rim", {{"foo_area", ResType::Txt, "area"}});
+    auto rims = game.mkdir("rims");
+    writeRim(rims / "foo_a.rim", {{"foo_area", ResType::Txt, "area"}});
     writeRim(modules / "foo_s.rim", {{"foo_static", ResType::Txt, "static"}});
 
     auto director = makeDirector(game.path);
@@ -1034,9 +1039,10 @@ TEST_P(SourceLifetimeDirectorTest, a_corrupt_archive_on_disk_rolls_back_the_modu
     makeInstallation(game, cwd);
 
     auto modules = game.path / "modules";
+    auto rims = game.mkdir("rims");
     writeRim(modules / "broken.rim", {{"probe", ResType::Txt, "broken base"}});
-    writeRim(modules / "broken_a.rim", {{"broken_area", ResType::Txt, "x"}});
-    writeRim(modules / "broken_adx.rim", {{"broken_adx", ResType::Txt, "x"}});
+    writeRim(rims / "broken_a.rim", {{"broken_area", ResType::Txt, "x"}});
+    writeRim(rims / "broken_adx.rim", {{"broken_adx", ResType::Txt, "x"}});
     writeFile(modules / "broken_s.rim", "not a rim at all");
 
     auto director = makeDirector(game.path);

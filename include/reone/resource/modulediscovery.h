@@ -190,6 +190,14 @@ ModuleDiscoveryResult discoverModuleSources(std::string_view requestedModule,
                                             const std::vector<ModuleSearchRoot> &roots);
 
 /**
+ * Construct the two exact module adjunct images from the installation RIMS
+ * location. These names are probed directly and RIMS is never enumerated.
+ */
+std::vector<DiscoveredModuleSource> discoverRimsModuleAdjuncts(
+    std::string_view moduleRoot,
+    const std::filesystem::path &gamePath);
+
+/**
  * Extensions the generic encapsulated opener probes for an exact basename, in
  * the order it probes them.
  *

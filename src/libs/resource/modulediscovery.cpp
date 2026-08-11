@@ -260,6 +260,10 @@ ModuleDiscoveryResult discoverModuleSources(std::string_view requestedModule,
                 }
                 continue;
             }
+            if (classified.archive->family == ModuleArchiveFamily::AreaRim ||
+                classified.archive->family == ModuleArchiveFamily::AdxRim) {
+                continue;
+            }
 
             DiscoveredModuleSource source;
             source.candidate = ModuleSourceCandidate {
@@ -277,6 +281,49 @@ ModuleDiscoveryResult discoverModuleSources(std::string_view requestedModule,
     }
     return result;
 }
+std::vector<DiscoveredModuleSource> discoverRimsModuleAdjuncts(
+    std::string_view moduleRoot,
+    const std::filesystem::path &gamePath) {
+    std::vector<DiscoveredModuleSource> result;
+    auto normalized = normalizeModuleName(moduleRoot);
+    if (!normalized.root) {
+        return result;
+    }
+    auto rims = findFileIgnoreCase(gamePath, "rims");
+    if (!rims) {
+        return result;
+    }
+
+    struct ExactAdjunct {
+        const char *suffix;
+        ModuleArchiveFamily family;
+    };
+    static const std::array<ExactAdjunct, 2> kAdjuncts {{
+        {"_a.rim", ModuleArchiveFamily::AreaRim},
+        {"_adx.rim", ModuleArchiveFamily::AdxRim},
+    }};
+    for (const auto &adjunct : kAdjuncts) {
+        auto filename = *normalized.root + adjunct.suffix;
+        auto path = findFileIgnoreCase(*rims, filename);
+        if (!path) {
+            continue;
+        }
+        DiscoveredModuleSource source;
+        source.candidate = ModuleSourceCandidate {
+            "rims:" + filename,
+            "rims",
+            ModulePrimaryOrigin::Modules,
+            adjunct.family,
+            0,
+            0};
+        source.path = *path;
+        source.filename = path->filename().string();
+        source.moduleRoot = *normalized.root;
+        result.push_back(std::move(source));
+    }
+    return result;
+}
+
 
 const std::array<std::string_view, 5> kEncapsulatedProbeOrder {
     ".nwm", ".mod", ".sav", ".erf", ".hak"};

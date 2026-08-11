@@ -158,6 +158,10 @@ void Installation::loadModules() {
     if (discovered.nameRejection) {
         return;
     }
+    auto rimsAdjuncts = resource::discoverRimsModuleAdjuncts(discovered.moduleRoot, _root);
+    discovered.sources.insert(discovered.sources.end(),
+                              rimsAdjuncts.begin(),
+                              rimsAdjuncts.end());
     auto inventory = resource::plannerInventory(discovered);
 
     resource::ModulePolicyRequest request;

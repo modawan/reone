@@ -158,8 +158,8 @@ TEST(ModuleDiscovery, resolves_candidates_against_a_root_that_looks_like_a_sidec
     EXPECT_TRUE(result.rejected.empty());
     EXPECT_EQ(ModuleArchiveFamily::PrimaryRim, familyOf(result, "foo_s.rim"));
     EXPECT_EQ(ModuleArchiveFamily::StaticRim, familyOf(result, "foo_s_s.rim"));
-    EXPECT_EQ(ModuleArchiveFamily::AreaRim, familyOf(result, "foo_s_a.rim"));
-    EXPECT_EQ(ModuleArchiveFamily::AdxRim, familyOf(result, "foo_s_adx.rim"));
+    EXPECT_FALSE(familyOf(result, "foo_s_a.rim"));
+    EXPECT_FALSE(familyOf(result, "foo_s_adx.rim"));
 }
 
 TEST(ModuleDiscovery, resolves_the_same_files_differently_with_and_without_a_root) {
@@ -239,8 +239,8 @@ TEST(ModuleDiscovery, discovers_a_packed_module_with_its_adjuncts) {
     // Discovery reports everything present; suppressing _s and _dlg under a
     // module archive is the policy's decision, not discovery's.
     EXPECT_EQ(ModuleArchiveFamily::PrimaryMod, familyOf(result, "foo.mod"));
-    EXPECT_EQ(ModuleArchiveFamily::AreaRim, familyOf(result, "foo_a.rim"));
-    EXPECT_EQ(ModuleArchiveFamily::AdxRim, familyOf(result, "foo_adx.rim"));
+    EXPECT_FALSE(familyOf(result, "foo_a.rim"));
+    EXPECT_FALSE(familyOf(result, "foo_adx.rim"));
     EXPECT_EQ(ModuleArchiveFamily::StaticRim, familyOf(result, "foo_s.rim"));
     EXPECT_EQ(ModuleArchiveFamily::Dialogue, familyOf(result, "foo_dlg.erf"));
     EXPECT_TRUE(result.rejected.empty());
@@ -257,7 +257,7 @@ TEST(ModuleDiscovery, reports_an_unsupported_sidecar_rather_than_absorbing_it) {
 
     auto result = discoverModuleSources("foo", {root("modules", modules)});
 
-    EXPECT_EQ((std::vector<std::string> {"foo.rim", "foo_adx.rim"}), discoveredNames(result));
+    EXPECT_EQ((std::vector<std::string> {"foo.rim"}), discoveredNames(result));
     EXPECT_EQ((std::vector<std::string> {"foo_adrx.rim", "foo_bar.erf"}), rejectedNames(result));
     ASSERT_EQ(2, result.rejected.size());
     // Relative to a known root, both carry a suffix no supported family
@@ -335,7 +335,7 @@ TEST(ModuleDiscovery, output_does_not_depend_on_directory_creation_order) {
     auto forward = discoverModuleSources("foo", {root("modules", forwardDir.path / "modules")});
     auto reverse = discoverModuleSources("foo", {root("modules", reverseDir.path / "modules")});
 
-    EXPECT_EQ((std::vector<std::string> {"foo.rim", "foo_a.rim", "foo_adx.rim", "foo_s.rim"}),
+    EXPECT_EQ((std::vector<std::string> {"foo.rim", "foo_s.rim"}),
               discoveredNames(forward));
     EXPECT_EQ(discoveredNames(forward), discoveredNames(reverse));
 }
@@ -457,16 +457,42 @@ TEST(ModuleDiscovery, feeds_the_policy_with_a_consumable_inventory) {
 
     std::vector<ModuleArchiveFamily> families;
     for (const auto &family : plan.families) families.push_back(family.family);
-    EXPECT_EQ((std::vector<ModuleArchiveFamily> {ModuleArchiveFamily::AreaRim,
-                                                 ModuleArchiveFamily::AdxRim,
-                                                 ModuleArchiveFamily::StaticRim,
+    EXPECT_EQ((std::vector<ModuleArchiveFamily> {ModuleArchiveFamily::StaticRim,
                                                  ModuleArchiveFamily::Dialogue}),
               families);
 }
 
+TEST(ModuleDiscovery, constructs_only_exact_adjunct_names_from_rims) {
+    TmpDir tmp("reone_test_discovery_exact_rims");
+    auto rims = tmp.path / "RiMs";
+    auto modules = tmp.path / "modules";
+    std::filesystem::create_directories(rims);
+    std::filesystem::create_directories(modules);
+    touch(rims / "FoO_A.RiM");
+    touch(rims / "foo_adx.rim");
+    touch(rims / "bar_a.rim");
+    touch(rims / "foo_extra.rim");
+    std::filesystem::create_directories(rims / "nested");
+    touch(rims / "nested" / "foo_a.rim");
+    touch(modules / "foo_a.rim");
+
+    auto exact = discoverRimsModuleAdjuncts("FOO.MOD", tmp.path);
+    ASSERT_EQ(2u, exact.size());
+    EXPECT_EQ(ModuleArchiveFamily::AreaRim, exact[0].candidate.family);
+    EXPECT_EQ(ModuleArchiveFamily::AdxRim, exact[1].candidate.family);
+    EXPECT_EQ("rims:foo_a.rim", exact[0].candidate.sourceId);
+    EXPECT_EQ("rims:foo_adx.rim", exact[1].candidate.sourceId);
+    EXPECT_EQ(rims / "FoO_A.RiM", exact[0].path);
+    EXPECT_EQ(rims / "foo_adx.rim", exact[1].path);
+
+    auto generic = discoverModuleSources("foo", {root("modules", modules)});
+    EXPECT_TRUE(generic.sources.empty());
+}
 TEST(ModuleDiscovery, saved_candidates_reach_the_policy_gate) {
     TmpDir tmp("reone_test_discovery_save_gate");
     auto save = tmp.path / "save";
+
+
     auto modules = tmp.path / "modules";
     std::filesystem::create_directories(save);
     std::filesystem::create_directories(modules);

@@ -606,6 +606,10 @@ void ResourceDirector::loadModuleResourcesFromPolicy(const std::string &name) {
     }
 
     RuntimeModuleSourceIndex index;
+    for (auto &source : discoverRimsModuleAdjuncts(discovered.moduleRoot, _gamePath)) {
+        index.add(RuntimeModuleSource {source.candidate, source.path});
+    }
+
     for (const auto &source : discovered.sources) {
         index.add(RuntimeModuleSource {source.candidate, source.path});
     }

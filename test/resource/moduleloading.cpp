@@ -283,10 +283,11 @@ TEST_P(K2ModuleLoadingTest, prefers_the_adx_image_then_the_area_image_over_the_m
     writeErf(modules / "foo.mod", ErfWriter::FileType::MOD,
              {{"shared", ResType::Txt, "mod"},
               {"a_vs_mod", ResType::Txt, "mod"}});
-    writeRim(modules / "foo_a.rim",
+    auto rims = game.mkdir("rims");
+    writeRim(rims / "foo_a.rim",
              {{"shared", ResType::Txt, "area image"},
               {"a_vs_mod", ResType::Txt, "area image"}});
-    writeRim(modules / "foo_adx.rim", {{"shared", ResType::Txt, "adx image"}});
+    writeRim(rims / "foo_adx.rim", {{"shared", ResType::Txt, "adx image"}});
 
     auto director = makeDirector(game.path);
     {
@@ -516,8 +517,6 @@ TEST_P(K2ModuleLoadingTest, never_reports_a_sidecar_as_a_module) {
     auto modules = game.path / "modules";
     writeRim(modules / "foo.rim", {});
     writeRim(modules / "foo_s.rim", {});
-    writeRim(modules / "foo_a.rim", {});
-    writeRim(modules / "foo_adx.rim", {});
     writeErf(modules / "foo_dlg.erf", ErfWriter::FileType::ERF, {});
     writeErf(modules / "bar.mod", ErfWriter::FileType::MOD, {});
 
@@ -549,8 +548,9 @@ TEST_P(K2ModuleLoadingTest, agrees_with_the_installation_indexer_on_module_archi
     auto modules = game.path / "modules";
     writeRim(modules / "foo.rim", {{"from_rim", ResType::Txt, "rim"}});
     writeRim(modules / "foo_s.rim", {{"from_static", ResType::Txt, "static"}});
-    writeRim(modules / "foo_a.rim", {{"from_area", ResType::Txt, "area"}});
-    writeRim(modules / "foo_adx.rim", {{"from_adx", ResType::Txt, "adx"}});
+    auto rims = game.mkdir("rims");
+    writeRim(rims / "foo_a.rim", {{"from_area", ResType::Txt, "area"}});
+    writeRim(rims / "foo_adx.rim", {{"from_adx", ResType::Txt, "adx"}});
     writeErf(modules / "foo_dlg.erf", ErfWriter::FileType::ERF, {{"from_dlg", ResType::Txt, "dlg"}});
     auto lips = game.mkdir("lips");
     writeErf(lips / "foo_loc.mod", ErfWriter::FileType::MOD, {{"from_loc", ResType::Txt, "loc"}});
@@ -909,6 +909,84 @@ TEST_P(K2ModuleLoadingTest, nwm_sidecars_without_a_nwm_primary_do_not_activate) 
     EXPECT_NO_THROW(director->onModuleLoad("foo"));
     EXPECT_FALSE(has("sidecar"));
     EXPECT_FALSE(has("static_sidecar"));
+}
+
+TEST_P(K2ModuleLoadingTest, module_and_nwm_roots_cannot_supply_rims_adjuncts) {
+    {
+        TmpDir game("reone_test_adjunct_modules_negative");
+        TmpDir cwd("reone_test_adjunct_modules_negative_cwd");
+        makeInstallation(game, cwd);
+        auto modules = game.path / "modules";
+        writeErf(modules / "foo.mod", ErfWriter::FileType::MOD,
+                 {{"primary", ResType::Txt, "modules"}});
+        writeRim(modules / "foo_a.rim", {{"stray_area", ResType::Txt, "modules"}});
+        writeRim(modules / "foo_adx.rim", {{"stray_adx", ResType::Txt, "modules"}});
+        auto director = makeDirector(game.path);
+        { CwdGuard guard(cwd.path); director->init(); }
+        director->onModuleLoad("foo");
+        EXPECT_EQ("modules", find("primary"));
+        EXPECT_FALSE(has("stray_area"));
+        EXPECT_FALSE(has("stray_adx"));
+    }
+
+    _resources->clear();
+    _auxResources->clear();
+    {
+        TmpDir game("reone_test_adjunct_nwm_negative");
+        TmpDir cwd("reone_test_adjunct_nwm_negative_cwd");
+        makeInstallation(game, cwd);
+        auto nwm = game.mkdir("nwm");
+        writeErf(nwm / "foo.nwm", ErfWriter::FileType::MOD,
+                 {{"primary", ResType::Txt, "nwm"}});
+        writeRim(nwm / "foo_a.rim", {{"stray_area", ResType::Txt, "nwm"}});
+        writeRim(nwm / "foo_adx.rim", {{"stray_adx", ResType::Txt, "nwm"}});
+        auto director = makeDirector(game.path);
+        { CwdGuard guard(cwd.path); director->init(); }
+        director->onModuleLoad("foo");
+        EXPECT_EQ("nwm", find("primary"));
+        EXPECT_FALSE(has("stray_area"));
+        EXPECT_FALSE(has("stray_adx"));
+    }
+}
+
+TEST_P(K2ModuleLoadingTest, live_module_roots_cannot_supply_rims_adjuncts) {
+    TmpDir game("reone_test_adjunct_live_negative");
+    TmpDir cwd("reone_test_adjunct_live_negative_cwd");
+    TmpDir live("reone_test_adjunct_live_root");
+    makeInstallation(game, cwd);
+    auto modules = live.mkdir("MODULES");
+    writeErf(modules / "foo.mod", ErfWriter::FileType::MOD,
+             {{"primary", ResType::Txt, "live"}});
+    writeRim(modules / "foo_a.rim", {{"stray_area", ResType::Txt, "live"}});
+    writeRim(modules / "foo_adx.rim", {{"stray_adx", ResType::Txt, "live"}});
+    OdysseyResourceRoots roots;
+    roots.livePackages[0] = live.path;
+    auto director = makeDirector(game.path, roots);
+    { CwdGuard guard(cwd.path); director->init(); }
+    director->onModuleLoad("foo");
+    EXPECT_EQ("live", find("primary"));
+    EXPECT_FALSE(has("stray_area"));
+    EXPECT_FALSE(has("stray_adx"));
+}
+
+TEST_P(K2ModuleLoadingTest, configured_module_roots_cannot_supply_rims_adjuncts) {
+    TmpDir game("reone_test_adjunct_configured_negative");
+    TmpDir cwd("reone_test_adjunct_configured_negative_cwd");
+    TmpDir configured("reone_test_adjunct_configured_root");
+    makeInstallation(game, cwd);
+    writeRim(game.path / "modules" / "foo.rim",
+             {{"primary", ResType::Txt, "base"}});
+    auto modules = configured.mkdir("modules");
+    writeRim(modules / "foo_a.rim", {{"stray_area", ResType::Txt, "configured"}});
+    writeRim(modules / "foo_adx.rim", {{"stray_adx", ResType::Txt, "configured"}});
+    OdysseyResourceRoots roots;
+    roots.k2OverrideRoots = {configured.path};
+    auto director = makeDirector(game.path, roots);
+    { CwdGuard guard(cwd.path); director->init(); }
+    director->onModuleLoad("foo");
+    EXPECT_EQ("base", find("primary"));
+    EXPECT_FALSE(has("stray_area"));
+    EXPECT_FALSE(has("stray_adx"));
 }
 
 TEST_P(K2ModuleLoadingTest, configured_module_families_follow_the_established_true_false_order) {
