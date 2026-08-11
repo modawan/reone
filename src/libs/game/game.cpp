@@ -563,6 +563,12 @@ bool Game::handle(const input::Event &event) {
     return false;
 }
 
+bool Game::consumeTimingDiscontinuity() {
+    bool discontinuity = _timingDiscontinuity;
+    _timingDiscontinuity = false;
+    return discontinuity;
+}
+
 void Game::update(float frameTime) {
     float dt = frameTime * _gameSpeed;
     if (_movie) {
@@ -877,12 +883,17 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
             std::string musicName(_module->area()->music());
             playMusic(musicName);
 
-            //_ticks = _services.system.clock.ticks();
             openInGame();
         } catch (const std::exception &e) {
             error("Failed loading module '" + name + "': " + std::string(e.what()));
         }
     });
+
+    // However long that took, none of it was time the game world lived
+    // through. Whoever drives the frame clock has to start a new epoch before
+    // the next update, or the whole load lands on the world as one enormous
+    // step.
+    _timingDiscontinuity = true;
 }
 
 void Game::resetGame() {
