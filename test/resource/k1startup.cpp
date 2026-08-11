@@ -172,11 +172,12 @@ protected:
     }
 
     std::unique_ptr<ResourceDirector> makeDirector(const std::filesystem::path &p,
-                                                   GameID game = GameID::KotOR) {
+                                                   GameID game = GameID::KotOR,
+                                                   OdysseyResourceRoots roots = {}) {
         _gamePath = p;
         return std::make_unique<ResourceDirector>(
             game, _gamePath, _graphicsOpt, _graphics.services(), _script.services(),
-            _dialogs, _gffs, _lips, _paths, *_resources, *_auxResources, _scripts, _twoDas);
+            _dialogs, _gffs, _lips, _paths, *_resources, *_auxResources, _scripts, _twoDas, std::move(roots));
     }
 
     /// An installation with a modules directory and the shader pack the
@@ -541,6 +542,63 @@ TEST_P(K1StartupTest, k2_keeps_its_streams_out_of_raw_lookup) {
     }
 
     EXPECT_EQ("override", find(kProbe)) << "K2 streams are not raw lookup sources";
+}
+
+TEST_P(K1StartupTest, k2_rims_loose_directory_outranks_base_override) {
+    TmpDir game("reone_test_k2_rims_override");
+    TmpDir cwd("reone_test_k2_rims_override_cwd");
+    makeInstallation(game, cwd);
+    writeFile(game.mkdir("override") / "probe.txt", "base override");
+    writeFile(game.mkdir("rims") / "probe.txt", "rims");
+
+    auto director = makeDirector(game.path, GameID::TSL);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    EXPECT_EQ("rims", find(kProbe));
+}
+
+TEST_P(K1StartupTest, k2_loose_startup_preserves_natural_configured_order_below_rims) {
+    TmpDir game("reone_test_k2_loose_order");
+    TmpDir cwd("reone_test_k2_loose_order_cwd");
+    TmpDir configured0("reone_test_k2_loose_order_0");
+    TmpDir configured1("reone_test_k2_loose_order_1");
+    makeInstallation(game, cwd);
+    writeFile(game.mkdir("override") / "probe.txt", "base override");
+    writeFile(configured0.mkdir("override") / "probe.txt", "configured 0");
+    writeFile(configured1.mkdir("override") / "probe.txt", "configured 1");
+    auto rims = game.mkdir("rims");
+    writeFile(rims / "probe.txt", "rims");
+
+    OdysseyResourceRoots roots;
+    roots.k2OverrideRoots = {configured0.path, configured1.path};
+    auto director = makeDirector(game.path, GameID::TSL, roots);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    EXPECT_EQ("rims", find(kProbe));
+
+    std::filesystem::remove(rims / "probe.txt");
+    _resources->clear();
+    _auxResources->clear();
+    director = makeDirector(game.path, GameID::TSL, roots);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    EXPECT_EQ("configured 1", find(kProbe));
+
+    std::filesystem::remove(configured1.path / "override" / "probe.txt");
+    _resources->clear();
+    _auxResources->clear();
+    director = makeDirector(game.path, GameID::TSL, roots);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    EXPECT_EQ("configured 0", find(kProbe));
 }
 
 INSTANTIATE_TEST_SUITE_P(Backends,

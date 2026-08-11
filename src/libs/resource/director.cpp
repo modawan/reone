@@ -496,8 +496,6 @@ void ResourceDirector::loadGlobalResources() {
         _resources.addKEY(*keyPath, bucketOf(ResourceSourceBucket::KeyBif));
     }
 
-    loadRimsDirectory();
-
     loadTexturePackResources();
     loadStreamResources();
 
@@ -524,6 +522,7 @@ void ResourceDirector::loadGlobalResources() {
                              ResourceOwner::Global,
                              bucketOf(ResourceSourceBucket::LooseDirectory));
     }
+    loadRimsDirectory();
     loadGlobalRimResource();
     loadLiveResources();
 }
