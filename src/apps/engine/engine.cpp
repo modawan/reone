@@ -230,7 +230,11 @@ void Engine::deinit() {
 
 int Engine::run() {
     auto &clock = _services->system.clock;
-    _ticks = clock.millis();
+    // Sampled in microseconds every frame below, so the baseline has to be
+    // microseconds too. Seeding it from millis() made the first frame time
+    // come out as very nearly the whole clock epoch - the counter runs from
+    // system boot, so it was routinely days.
+    _ticks = clock.micros();
 
     bool quit = false;
     while (!quit) {
