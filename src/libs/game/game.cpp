@@ -909,6 +909,24 @@ void Game::loadGame(std::string_view name) {
     // save game.
     _services.resource.director.onModuleLoad(nfo.lastModule);
 
+    // Restore the save-wide faction table before any module objects can query
+    // disposition. A missing or malformed optional FAC starts from fresh base
+    // data; it must never preserve relationships from the previous save.
+    std::optional<IReputes::State> reputesState;
+    try {
+        if (auto reputesGff = decodeSaveGff(
+                _services.resource.director.findSaveWorking(
+                    ResourceId("repute", ResType::Fac)))) {
+            reputesState = _services.game.reputes.parse(*reputesGff);
+        }
+    } catch (const std::exception &e) {
+        warn("Game: invalid repute.fac: " + std::string(e.what()));
+    }
+    if (!reputesState) {
+        reputesState = _services.game.reputes.baseState();
+    }
+    _services.game.reputes.replace(std::move(*reputesState));
+
     // Deserialize global variables
     auto globalVars = decodeSaveGff(
         _services.resource.director.findSaveMetadata(ResourceId("globalvars", ResType::Res)));
@@ -992,12 +1010,93 @@ void Game::deserializeParty(resource::Gff &ifoGff) {
         _party.setXP(xp);
     }
 
-    deserializePartyTable(*ptGff);
+    Party::PersistedState partyState = parsePartyTable(*ptGff);
+    replacePartyTable(std::move(partyState));
+    deserializePazaakPartyTable(*ptGff);
+    deserializeAvailableNpcs();
     deserializePartyMembers(*ptGff);
     deserializeJournal(*ptGff);
 }
 
-void Game::deserializePartyTable(resource::Gff &ptGff) {
+Party::PersistedState Game::parsePartyTable(const resource::Gff &ptGff) const {
+    Party::PersistedState state;
+    state.pcName = ptGff.getString("PT_PCNAME");
+    state.itemComponent = ptGff.getUint("PT_ITEM_COMPONENT");
+    state.itemChemical = ptGff.getUint("PT_ITEM_CHEMICAL");
+    state.swoopUpgrades[0] = ptGff.getUint("PT_SWOOP1");
+    state.swoopUpgrades[1] = ptGff.getUint("PT_SWOOP2");
+    state.swoopUpgrades[2] = ptGff.getUint("PT_SWOOP3");
+    state.playedSeconds = ptGff.getUint("PT_PLAYEDSECONDS");
+    uint32_t playedMinutes = ptGff.getUint("PT_PLAYEDMINUTES");
+    if (playedMinutes != 0) {
+        state.playedSeconds = playedMinutes * 60;
+    }
+    state.controlledNpc = ptGff.getInt("PT_CONTROLLED_NP", -1);
+    state.soloMode = ptGff.getBool("PT_SOLOMODE");
+
+    const auto memberList = ptGff.getList("PT_MEMBERS");
+    size_t memberCount = std::min<size_t>(
+        std::min<size_t>(ptGff.getUint("PT_NUM_MEMBERS"), memberList.size()), 2);
+    for (size_t index = 0; index < memberCount; ++index) {
+        int npc = memberList[index]->getInt("PT_MEMBER_ID", -1);
+        state.memberIds.push_back(npc);
+        if (memberList[index]->getBool("PT_IS_LEADER")) {
+            state.leader = npc;
+        }
+    }
+
+    const auto puppetList = ptGff.getList("PT_PUPPETS");
+    size_t puppetCount = std::min<size_t>(
+        std::min<size_t>(ptGff.getUint("PT_NUM_PUPPETS"), puppetList.size()),
+        Party::kMaxPuppetCount);
+    for (size_t index = 0; index < puppetCount; ++index) {
+        state.puppetIds.push_back(puppetList[index]->getInt("PT_PUPPET_ID", -1));
+    }
+
+    const auto availableNpcs = ptGff.getList("PT_AVAIL_NPCS");
+    size_t npcCount = std::min(
+        availableNpcs.size(), isTSL() ? Party::kK2NpcCount : Party::kK1NpcCount);
+    for (size_t npc = 0; npc < npcCount; ++npc) {
+        state.npcAvailable[npc] = availableNpcs[npc]->getBool("PT_NPC_AVAIL");
+        state.npcSelectable[npc] = availableNpcs[npc]->getBool("PT_NPC_SELECT", true);
+    }
+
+    const auto influences = ptGff.getList("PT_INFLUENCE");
+    for (size_t npc = 0; npc < std::min(influences.size(), Party::kMaxNpcCount); ++npc) {
+        state.influence[npc] = influences[npc]->getInt("PT_NPC_INFLUENCE", -1);
+    }
+
+    const auto availablePuppets = ptGff.getList("PT_AVAIL_PUPS");
+    for (size_t puppet = 0;
+         puppet < std::min(availablePuppets.size(), Party::kMaxPuppetCount);
+         ++puppet) {
+        state.puppetAvailable[puppet] =
+            availablePuppets[puppet]->getBool("PT_PUP_AVAIL");
+        state.puppetSelectable[puppet] =
+            availablePuppets[puppet]->getBool("PT_PUP_SELECT", true);
+    }
+
+    state.aiState = ptGff.getInt("PT_AISTATE");
+    state.followState = ptGff.getInt("PT_FOLLOWSTATE");
+    if (auto galaxy = ptGff.findStruct("GlxyMap")) {
+        state.galaxyPointCount = galaxy->getUint("GlxyMapNumPnts");
+        uint32_t mask = galaxy->getUint("GlxyMapPlntMsk");
+        for (size_t planet = 0; planet < Party::kGalaxyPlanetCount; ++planet) {
+            state.planetAvailable[planet] = (mask & (1u << planet)) != 0;
+            state.planetSelectable[planet] = (mask & (1u << (planet + 16))) != 0;
+        }
+        state.selectedPlanet = galaxy->getInt("GlxyMapSelPnt", -1);
+    }
+    state.mapDisabled = ptGff.getBool("PT_DISABLEMAP");
+    state.regenerationDisabled = ptGff.getBool("PT_DISABLEREGEN");
+    return state;
+}
+
+void Game::replacePartyTable(Party::PersistedState state) {
+    _party.setPersistedState(std::move(state));
+}
+
+void Game::deserializePazaakPartyTable(resource::Gff &ptGff) {
     const auto &pazaakCards = ptGff.getList("PT_PAZAAKCARDS");
     const auto &pazaakSide = ptGff.getList("PT_PAZSIDELIST");
     // Each title stores its own number of ownership entries, so the saved table
@@ -1041,28 +1140,35 @@ void Game::deserializePartyTable(resource::Gff &ptGff) {
         warn("Game: invalid Pazaak list sizes in PARTYTABLE.res");
     }
 
-    int nextNpc = 0;
-    for (const auto &npcState : ptGff.getList("PT_AVAIL_NPCS")) {
-        int npc = nextNpc++;
-        if (!npcState->getBool("PT_NPC_AVAIL")) {
+}
+
+void Game::deserializeAvailableNpcs() {
+    const auto &persisted = _party.persistedState();
+    size_t npcCount = isTSL() ? Party::kK2NpcCount : Party::kK1NpcCount;
+    for (size_t npc = 0; npc < npcCount; ++npc) {
+        if (!persisted.npcAvailable[npc]) {
             continue;
         }
-        // TODO: handle selectability of NPCs.
-        bool select = npcState->getBool("PT_NPC_SELECT");
-
         std::string utc = str(boost::format("availnpc%d") % npc);
 
-        auto utcGff = decodeSaveGff(
-            _services.resource.director.findSaveWorking(ResourceId(utc, ResType::Utc)));
+        std::shared_ptr<Gff> utcGff;
+        try {
+            utcGff = decodeSaveGff(
+                _services.resource.director.findSaveWorking(ResourceId(utc, ResType::Utc)));
+        } catch (const std::exception &e) {
+            warn("Game: invalid " + utc + ".utc: " + std::string(e.what()));
+            continue;
+        }
         if (!utcGff) {
-            return;
+            warn("Game: missing " + utc + ".utc");
+            continue;
         }
 
         std::shared_ptr<Creature> creature = newCreature();
         _objectById.insert(std::make_pair(creature->id(), creature));
         creature->deserialize(*utcGff);
 
-        _party.addAvailableMember(npc, creature);
+        _party.addAvailableMember(static_cast<int>(npc), creature);
     }
 }
 
@@ -1082,6 +1188,7 @@ void Game::deserializePartyMembers(resource::Gff &ptGff) {
         auto member = _party.getAvailableMember(npc);
         if (!member) {
             warn("Game: NPC is not available: " + std::to_string(npc));
+            return;
         }
 
         _party.addMember(npc, member);

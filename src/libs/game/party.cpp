@@ -31,6 +31,11 @@ static constexpr char kBlueprintResRefBastila[] = "p_bastilla";
 static constexpr char kBlueprintResRefAtton[] = "p_atton";
 static constexpr char kBlueprintResRefKreia[] = "p_kreia";
 
+void Party::setPersistedState(PersistedState state) {
+    _solo = state.soloMode;
+    _persistedState = std::move(state);
+}
+
 void Party::setPazaakData(
     PazaakCardCounts counts,
     PazaakSideDeck sideDeck,
@@ -133,6 +138,7 @@ void Party::reset() {
     _pazaakDataValid = false;
     _pazaakCardCounts.fill(0);
     _pazaakSideDeck.fill(-1);
+    _persistedState = PersistedState();
 }
 
 void Party::clear() {

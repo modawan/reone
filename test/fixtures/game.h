@@ -98,6 +98,9 @@ public:
 
 class MockReputes : public IReputes, boost::noncopyable {
 public:
+    MOCK_METHOD(State, baseState, (), (const override));
+    MOCK_METHOD(std::optional<State>, parse, (const resource::Gff &gff), (const override));
+    MOCK_METHOD(void, replace, (State state), (override));
     MOCK_METHOD(int, getReputation, (Faction sourceFaction, Faction targetFaction), (const override));
     MOCK_METHOD(void, adjustReputation, (Faction sourceFaction, Faction targetFaction, int adjustment), (override));
     MOCK_METHOD(bool, getIsEnemy, (const Creature &source, const Creature &target), (const override));
@@ -170,6 +173,10 @@ public:
     static void finishPazaak(Game &game, PazaakCompletedResult result);
     static void serializePazaakPartyTable(const Game &game, resource::Gff &gff);
     static void deserializePartyTable(Game &game, resource::Gff &gff);
+    static void deserializeAvailableNpcs(Game &game);
+    static void deserializeGlobalVariables(Game &game, resource::Gff &gff);
+    static void replaceJournal(Game &game, const resource::Gff &gff);
+    static void replaceInventory(Game &game, resource::Gff &gff);
 
     void init() {
         _cameraStyles = std::make_unique<MockCameraStyles>();

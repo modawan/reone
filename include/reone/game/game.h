@@ -400,7 +400,10 @@ public:
 
     void deserializeGlobalVariables(resource::Gff &gvtGff);
     void deserializeParty(resource::Gff &ifoGff);
-    void deserializePartyTable(resource::Gff &ptGff);
+    Party::PersistedState parsePartyTable(const resource::Gff &ptGff) const;
+    void replacePartyTable(Party::PersistedState state);
+    void deserializePazaakPartyTable(resource::Gff &ptGff);
+    void deserializeAvailableNpcs();
     void serializePazaakPartyTable(resource::Gff &ptGff) const;
     void deserializePartyMembers(resource::Gff &ptGff);
     void deserializeJournal(const resource::Gff &ptGff);
