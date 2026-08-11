@@ -91,6 +91,7 @@ enum class ArgKind {
     ClickingObject,
     EnteringObject,
     ExitingObject,
+    BlockingDoor,
     LastClosedBy,
     LastOpenedBy,
     LastPerceived,

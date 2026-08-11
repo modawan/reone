@@ -3286,7 +3286,14 @@ static Variable GetDistanceToObject2D(const std::vector<Variable> &args, const R
 
 static Variable GetBlockingDoor(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetBlockingDoor");
+    // Captured when the blocked event was raised, so a continuation of that run
+    // reports the door the event was about rather than whatever obstructs the
+    // creature by the time the continuation asks. Validity is left to
+    // GetIsObjectValid, as for any other object a script holds on to.
+    if (const Variable *blockingDoor = ctx.execution.findArg(ArgKind::BlockingDoor)) {
+        return *blockingDoor;
+    }
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetIsDoorActionPossible(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3295,9 +3302,29 @@ static Variable GetIsDoorActionPossible(const std::vector<Variable> &args, const
     auto nDoorAction = getInt(args, 1);
 
     // Transform
+    auto targetDoor = checkDoor(oTargetDoor);
+    auto doorAction = static_cast<DoorAction>(nDoorAction);
 
     // Execute
-    throw RoutineNotImplementedException("GetIsDoorActionPossible");
+    bool possible = false;
+    switch (doorAction) {
+    case DoorAction::Open:
+        possible = !targetDoor->isLocked();
+        break;
+    case DoorAction::Bash: {
+        auto caller = std::dynamic_pointer_cast<Creature>(getCaller(ctx));
+        possible = caller && canBashDoor(*targetDoor, *caller, ctx.services.game.reputes);
+        break;
+    }
+    default:
+        // No shipped K1 or K2 content performs UNLOCK, IGNORE or KNOCK, so
+        // there is no behaviour to reproduce. Report them as impossible rather
+        // than guessing at semantics.
+        debug(str(boost::format("Unsupported door action: %d") % nDoorAction), LogChannel::Script);
+        break;
+    }
+
+    return Variable::ofInt(static_cast<int>(possible));
 }
 
 static Variable DoDoorAction(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3306,9 +3333,39 @@ static Variable DoDoorAction(const std::vector<Variable> &args, const RoutineCon
     auto nDoorAction = getInt(args, 1);
 
     // Transform
+    auto targetDoor = checkDoor(oTargetDoor);
+    auto doorAction = static_cast<DoorAction>(nDoorAction);
+    auto caller = getCaller(ctx);
 
     // Execute
-    throw RoutineNotImplementedException("DoDoorAction");
+    switch (doorAction) {
+    case DoorAction::Open:
+        // Opening is immediate: the routine returns void and the door state,
+        // animation, walkmesh swap and OnOpen event are the same ones a door
+        // opened through OpenDoorAction goes through. Nothing is queued, so a
+        // movement action that was blocked by this door stays in place and
+        // resumes once the door stops obstructing.
+        if (!targetDoor->isLocked()) {
+            targetDoor->open();
+            targetDoor->onOpen(caller->id());
+        }
+        break;
+    case DoorAction::Bash: {
+        // Bashing is a sustained attack rather than an immediate state change,
+        // so it goes on top of the queue: whatever the creature was doing stays
+        // behind it instead of being discarded.
+        auto creature = std::dynamic_pointer_cast<Creature>(caller);
+        if (creature && canBashDoor(*targetDoor, *creature, ctx.services.game.reputes)) {
+            creature->addActionOnTop(ctx.game.newAction<AttackObjectAction>(targetDoor));
+        }
+        break;
+    }
+    default:
+        debug(str(boost::format("Unsupported door action: %d") % nDoorAction), LogChannel::Script);
+        break;
+    }
+
+    return Variable::ofNull();
 }
 
 static Variable GetFirstItemInInventory(const std::vector<Variable> &args, const RoutineContext &ctx) {

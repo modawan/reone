@@ -26,6 +26,9 @@ namespace reone {
 
 namespace game {
 
+class Creature;
+class IReputes;
+
 class Door : public Object {
 public:
     Door(
@@ -201,6 +204,13 @@ private:
     void loadLinkedTransitionGeometry(const graphics::Walkmesh &walkmesh);
     void updateTransform() override;
 };
+
+/**
+ * Whether actor is allowed to bash door open. This is the single definition of
+ * door bash eligibility, shared by the player context action and by the
+ * DOOR_ACTION_BASH script routines.
+ */
+bool canBashDoor(const Door &door, const Creature &actor, const IReputes &reputes);
 
 } // namespace game
 

@@ -51,6 +51,7 @@ class Gff;
 
 namespace game {
 
+class Area;
 class Game;
 class Module;
 class Object;
@@ -163,6 +164,7 @@ public:
     static void raiseTimingDiscontinuity(Game &game);
     static void initConsole(Game &game);
     static void setActiveModule(Game &game, bool active);
+    static void setActiveModuleArea(Game &game, std::shared_ptr<Area> area);
     static void setPazaakDevelopmentSelectedObject(
         Game &game,
         std::shared_ptr<Object> object);

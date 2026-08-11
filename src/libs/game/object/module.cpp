@@ -45,16 +45,6 @@ namespace reone {
 
 namespace game {
 
-static bool canBashDoor(const Door &door, const Creature &actor, const IReputes &reputes) {
-    return door.isLocked() &&
-           door.isSelectable() &&
-           !door.isDead() &&
-           !door.plotFlag() &&
-           !door.isNotBlastable() &&
-           reputes.getIsEnemy(actor.faction(), door.faction()) &&
-           (door.hitPoints() > 0 || door.currentHitPoints() > 0);
-}
-
 static bool canUseSecurityOnPlaceable(const Placeable &placeable, const Creature &actor) {
     return placeable.hasInventory() &&
            placeable.isLocked() &&
