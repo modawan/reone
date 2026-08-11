@@ -59,6 +59,7 @@
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/format/erfreader.h"
 #include "reone/resource/format/erfwriter.h"
+#include "reone/resource/format/gffreader.h"
 #include "reone/resource/format/gffwriter.h"
 #include "reone/resource/parser/gff/gvt.h"
 #include "reone/resource/parser/gff/nfo.h"
@@ -90,6 +91,7 @@
 #include "reone/system/logutil.h"
 #include "reone/system/randomutil.h"
 #include "reone/system/smallset.h"
+#include "reone/system/stream/memoryinput.h"
 #include "reone/system/threadutil.h"
 
 using namespace reone::audio;
@@ -110,6 +112,16 @@ static constexpr char kDeveloperActorToggleHelp[] = "Ctrl+Shift+A";
 static constexpr char kDeveloperActorLongToggleHelp[] = "Ctrl+Shift+L";
 static constexpr char kDeveloperWatchToggleHelp[] = "Ctrl+Shift+W";
 static constexpr float kDeveloperActorLabelDistance = 32.0f;
+
+static std::shared_ptr<Gff> decodeSaveGff(std::optional<Resource> resource) {
+    if (!resource) {
+        return {};
+    }
+    MemoryInputStream stream(resource->data);
+    GffReader reader(stream);
+    reader.load();
+    return reader.root();
+}
 
 static const char *screenName(Game::Screen screen) {
     switch (screen) {
@@ -885,7 +897,8 @@ void Game::loadGame(std::string_view name) {
     // Add savegame files to resource resolution.
     _services.resource.director.onGameLoad(name);
 
-    std::shared_ptr<Gff> saveInfo(_services.resource.gffs.get("savenfo", ResType::Res));
+    auto saveInfo = decodeSaveGff(
+        _services.resource.director.findSaveMetadata(ResourceId("savenfo", ResType::Res)));
     if (!saveInfo) {
         throw ResourceNotFoundException("saveinfo.res not found");
     }
@@ -897,7 +910,8 @@ void Game::loadGame(std::string_view name) {
     _services.resource.director.onModuleLoad(nfo.lastModule);
 
     // Deserialize global variables
-    std::shared_ptr<Gff> globalVars(_services.resource.gffs.get("globalvars", ResType::Res));
+    auto globalVars = decodeSaveGff(
+        _services.resource.director.findSaveMetadata(ResourceId("globalvars", ResType::Res)));
     if (!globalVars) {
         throw ResourceNotFoundException("globalvars.res not found");
     }
@@ -911,7 +925,8 @@ void Game::loadGame(std::string_view name) {
     deserializeParty(*ifo);
 
     // Once the player is loaded, deserialize player's inventory.
-    if (auto inventoryGff = _services.resource.gffs.get("inventory", ResType::Res)) {
+    if (auto inventoryGff = decodeSaveGff(
+            _services.resource.director.findSaveWorking(ResourceId("inventory", ResType::Res)))) {
         deserializeInventory(*inventoryGff);
     }
 
@@ -959,7 +974,8 @@ void Game::deserializeParty(resource::Gff &ifoGff) {
     _party.addMember(kNpcPlayer, player);
     _party.setPlayer(player);
 
-    std::shared_ptr<Gff> ptGff(_services.resource.gffs.get("partytable", ResType::Res));
+    auto ptGff = decodeSaveGff(
+        _services.resource.director.findSaveMetadata(ResourceId("partytable", ResType::Res)));
     if (!ptGff) {
         return;
     }
@@ -1036,7 +1052,8 @@ void Game::deserializePartyTable(resource::Gff &ptGff) {
 
         std::string utc = str(boost::format("availnpc%d") % npc);
 
-        std::shared_ptr<Gff> utcGff(_services.resource.gffs.get(utc, ResType::Utc));
+        auto utcGff = decodeSaveGff(
+            _services.resource.director.findSaveWorking(ResourceId(utc, ResType::Utc)));
         if (!utcGff) {
             return;
         }

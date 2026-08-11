@@ -391,7 +391,7 @@ TEST_F(ResourceDirectorLookup, should_mount_module_locations_over_global_and_cle
     EXPECT_FALSE(_resources.find(ResourceId("rim_only", ResType::Txt)));
 }
 
-TEST_F(ResourceDirectorLookup, should_mount_save_scope_and_modules_nested_in_save_archive) {
+TEST_F(ResourceDirectorLookup, should_keep_save_session_explicit_and_load_modules_from_working_state) {
     TmpDir game("reone_test_lookup_save");
     TmpDir cwd("reone_test_lookup_save_cwd");
     writeErf(cwd.path / "shaderpack.erf", ErfWriter::FileType::ERF, {});
@@ -413,6 +413,7 @@ TEST_F(ResourceDirectorLookup, should_mount_save_scope_and_modules_nested_in_sav
               {"bar", ResType::Sav, std::string(nestedModule.begin(), nestedModule.end())}});
 
     auto secondSlot = game.mkdir("saves/000002");
+    writeFile(secondSlot / "loose.txt", "second folder");
     writeErf(secondSlot / "savegame.sav", ErfWriter::FileType::ERF,
              {{"loose", ResType::Txt, "second save"}});
 
@@ -424,10 +425,8 @@ TEST_F(ResourceDirectorLookup, should_mount_save_scope_and_modules_nested_in_sav
 
     director->onGameLoad("000001");
 
-    // The save folder is a loose directory and the archive is class 2, so the
-    // folder wins. The old flat stack had the archive win only because it was
-    // mounted last.
-    EXPECT_EQ("save folder", find("loose")) << "a loose save file outranks the save archive";
+    // Loose slot metadata and archive working state have distinct explicit routes.
+    EXPECT_EQ("save folder", dataOf(director->findSaveMetadata(ResourceId("loose", ResType::Txt))));
 
     director->onModuleLoad("bar");
 
@@ -435,12 +434,11 @@ TEST_F(ResourceDirectorLookup, should_mount_save_scope_and_modules_nested_in_sav
 
     director->onGameLoad("000002");
 
-    EXPECT_EQ("second save", find("loose")) << "the save loaded last must win";
+    EXPECT_EQ("second folder", dataOf(director->findSaveMetadata(ResourceId("loose", ResType::Txt))));
 
-    // The newest save no longer wins merely by stacking order: the previous
-    // one is unloaded, so a resource only it held stops resolving.
-    EXPECT_EQ("<not found>", find("first_only"))
-        << "containers of the previous save must not survive loading another";
+    // Replacing the session retires resources held only by its predecessor.
+    EXPECT_EQ("<not found>", dataOf(director->findSaveWorking(ResourceId("first_only", ResType::Txt))))
+        << "the previous working state must not survive loading another";
 }
 
 TEST_F(ResourceDirectorLookup, should_throw_when_save_slot_is_missing) {

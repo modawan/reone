@@ -18,6 +18,7 @@
 #include "reone/resource/container/erf.h"
 
 #include "reone/resource/format/erfreader.h"
+#include "reone/system/exception/validation.h"
 
 namespace reone {
 
@@ -30,13 +31,26 @@ void ErfResourceContainer::init() {
     auto &keys = reader.keys();
     auto &erfResources = reader.resources();
 
+    if (keys.size() != erfResources.size()) {
+        throw ValidationException("ERF key and resource counts differ");
+    }
+    auto archiveSize = static_cast<uint64_t>(_storage.stream().length());
     for (auto i = 0; i < keys.size(); ++i) {
+        const auto &entry = erfResources[i];
+        auto offset = static_cast<uint64_t>(entry.offset);
+        auto size = static_cast<uint64_t>(entry.size);
+        if (offset > archiveSize || size > archiveSize - offset) {
+            throw ValidationException("ERF resource extends beyond the archive");
+        }
+        if (!_resourceIds.insert(keys[i].resId).second) {
+            throw ValidationException("ERF contains a duplicate resource identity");
+        }
+
         auto resource = Resource();
         resource.id = keys[i].resId;
-        resource.offset = erfResources[i].offset;
-        resource.fileSize = erfResources[i].size;
-        _resourceIds.insert(resource.id);
-        _idToResource.insert(std::make_pair(keys[i].resId, std::move(resource)));
+        resource.offset = entry.offset;
+        resource.fileSize = entry.size;
+        _idToResource.emplace(keys[i].resId, std::move(resource));
     }
 }
 

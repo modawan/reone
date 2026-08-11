@@ -22,6 +22,7 @@
 #include "resources.h"
 
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -35,12 +36,15 @@ namespace resource {
  *
  * The policy consumes only the candidate; the locator is the physical fact it
  * must not see. A discovered archive carries its path, and a module staged
- * inside an archive already in scope carries the id it is read back by. No
- * filesystem path is invented for the latter.
+ * inside a mounted source carries the id it is read back by. A logical working
+ * state supplies a lazy exact-resource reader instead. No filesystem path is
+ * invented for either staged form.
  */
+using RuntimeModuleResourceReader = std::function<std::optional<Resource>()>;
+
 struct RuntimeModuleSource {
     ModuleSourceCandidate candidate;
-    std::variant<std::filesystem::path, ResourceId> locator;
+    std::variant<std::filesystem::path, ResourceId, RuntimeModuleResourceReader> locator;
 };
 
 /**

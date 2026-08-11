@@ -98,6 +98,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/resource/2da.cpp
     ${TESTS_SOURCE_DIR}/resource/resources.cpp
     ${TESTS_SOURCE_DIR}/resource/resref.cpp
+    ${TESTS_SOURCE_DIR}/resource/saveworkingstate.cpp
     ${TESTS_SOURCE_DIR}/resource/sourcebuckets.cpp
     ${TESTS_SOURCE_DIR}/resource/sourcelifetimes.cpp
     ${TESTS_SOURCE_DIR}/resource/strings.cpp

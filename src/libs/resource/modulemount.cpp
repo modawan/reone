@@ -82,18 +82,22 @@ bool ModuleMountExecutor::mount(const RuntimeModuleSource &source, const ModuleS
             }
             return true;
         }
-        // A module staged inside an archive already in scope. The bytes are read
-        // back through one explicit id: the container is never walked into, so
-        // nested archives do not become recursively active.
-        const auto &id = std::get<ResourceId>(source.locator);
-        auto res = _resources.find(id);
+        // A staged module is read through one explicit identity or logical-state
+        // reader. The container is never walked into, so nested archives do not
+        // become recursively active and the policy remains storage-agnostic.
+        std::optional<Resource> res;
+        if (const auto *id = std::get_if<ResourceId>(&source.locator)) {
+            res = _resources.find(*id);
+        } else {
+            res = std::get<RuntimeModuleResourceReader>(source.locator)();
+        }
         if (!res) {
             return false;
         }
         if (image) {
-            _resources.addMemRIM(res->data, owner, metadata.bucket);
+            _resources.addMemRIM(std::move(res->data), owner, metadata.bucket);
         } else {
-            _resources.addMemERF(res->data, owner, metadata.bucket);
+            _resources.addMemERF(std::move(res->data), owner, metadata.bucket);
         }
         return true;
     } catch (const ValidationException &) {
