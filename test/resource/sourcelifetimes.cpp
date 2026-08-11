@@ -1146,7 +1146,7 @@ INSTANTIATE_TEST_SUITE_P(Backends,
 /// applies to it all the same.
 class K1SourceLifetimeTest : public SourceLifetimeDirectorTest {};
 
-TEST_P(K1SourceLifetimeTest, retires_module_sources_on_the_unactivated_path) {
+TEST_P(K1SourceLifetimeTest, retires_module_sources_on_the_activated_path) {
     TmpDir game("reone_test_lifetime_k1");
     TmpDir cwd("reone_test_lifetime_k1_cwd");
     makeInstallation(game, cwd);
@@ -1170,14 +1170,14 @@ TEST_P(K1SourceLifetimeTest, retires_module_sources_on_the_unactivated_path) {
     director->onModuleLoad("b");
     EXPECT_EQ("b base", find("probe"));
     EXPECT_FALSE(has("a_base"));
-    EXPECT_FALSE(has("a_static")) << "the unactivated stack is retired by owner too";
+    EXPECT_FALSE(has("a_static")) << "the activated stack is retired by owner too";
 
     director->onModuleLoad("a");
     EXPECT_EQ("a base", find("probe"));
     EXPECT_EQ(sourcesForA, _count());
 }
 
-TEST_P(K1SourceLifetimeTest, unloads_a_save_on_the_unactivated_path) {
+TEST_P(K1SourceLifetimeTest, unloads_a_save_on_the_activated_path) {
     TmpDir game("reone_test_lifetime_k1_saves");
     TmpDir cwd("reone_test_lifetime_k1_saves_cwd");
     makeInstallation(game, cwd);

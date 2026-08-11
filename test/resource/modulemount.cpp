@@ -489,9 +489,9 @@ TEST_F(ModuleMountExecutorTest, lets_a_structural_rejection_escape_rather_than_r
 
 TEST_F(ModuleMountExecutorTest, treats_a_corrupt_archive_as_a_failed_load_rather_than_a_missing_source) {
     // Best effort means a source that is not there, not one that is there and
-    // unreadable. The unactivated path mounts without a guard, so a corrupt
+    // unreadable. The shared activated path mounts without a guard, so a corrupt
     // archive already aborts the module load; swallowing it here would make an
-    // activated game quietly more tolerant than an unactivated one.
+    // game quietly more tolerant than the other.
     TmpDir tmp("reone_test_mount_corrupt");
     tmp.write("foo_s.rim", ByteBuffer {'n', 'o', 't', ' ', 'a', ' ', 'r', 'i', 'm'});
     addDiskSource("corrupt", ModuleArchiveFamily::StaticRim, tmp.path / "foo_s.rim");

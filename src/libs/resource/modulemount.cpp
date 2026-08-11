@@ -104,7 +104,7 @@ bool ModuleMountExecutor::mount(const RuntimeModuleSource &source, const ModuleS
         // holds unplaced ones; that is a fault in the plan or the caller, and
         // degrading it to a missed mount would hide it behind a best-effort
         // result. The archive readers raise it for a malformed container, which
-        // the unactivated path does not guard against either, so swallowing it
+        // the shared activated path does not guard against either, so swallowing it
         // would leave an activated game quietly more tolerant of broken data.
         //
         // Best effort covers a source that is not there, which is answered

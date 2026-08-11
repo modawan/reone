@@ -53,7 +53,7 @@ class ITwoDAs;
  *
  * A source list is homogeneous, so anything mounting into the game's resource
  * list has to agree with the director about this. K2 is activated; K1 keeps the
- * insertion-ordered stack it has always used until its own global startup
+ * shared bucketed stack established by its global startup
  * precedence is established.
  */
 bool usesBucketedLookup(GameID game);
@@ -153,7 +153,6 @@ private:
     void loadModuleResources(const std::string &name);
     void loadModuleResourcesFromPolicy(const std::string &name);
 
-    ModuleSearchRoot modulesSearchRoot();
     std::vector<ModuleSearchRoot> moduleSearchRoots();
     void addStagedModuleSources(const std::string &moduleRoot, RuntimeModuleSourceIndex &index);
     bool includeModuleInSave(const std::string &moduleRoot);

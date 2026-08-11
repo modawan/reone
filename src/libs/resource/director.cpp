@@ -531,14 +531,6 @@ void ResourceDirector::loadModuleResources(const std::string &name) {
     loadModuleResourcesFromPolicy(name);
 }
 
-ModuleSearchRoot ResourceDirector::modulesSearchRoot() {
-    auto roots = primaryModuleSearchRoots(_gameId, _gamePath, _odysseyRoots);
-    if (roots.empty()) {
-        throw ResourceNotFoundException("Modules directory not found");
-    }
-    return roots.front();
-}
-
 std::vector<ModuleSearchRoot> ResourceDirector::moduleSearchRoots() {
     return resource::moduleSearchRoots(_gameId, _gamePath, _odysseyRoots);
 }

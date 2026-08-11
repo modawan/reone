@@ -92,6 +92,7 @@ public:
         _audio(audio),
         _script(script),
         _resourcesBackend(resourcesBackend),
+        _nwmFilesDerived(!odysseyRoots.nwmFiles),
         _odysseyRoots(std::move(odysseyRoots)) {
         if (!_odysseyRoots.nwmFiles) {
             _odysseyRoots.nwmFiles = defaultOdysseyResourceRoots(_gamePath).nwmFiles;
@@ -130,6 +131,9 @@ public:
 
     void setGamePath(std::filesystem::path path) {
         _gamePath = std::move(path);
+        if (_nwmFilesDerived) {
+            _odysseyRoots.nwmFiles = defaultOdysseyResourceRoots(_gamePath).nwmFiles;
+        }
     }
 
 private:
@@ -142,6 +146,7 @@ private:
     script::ScriptModule &_script;
     ResourcesBackend _resourcesBackend {ResourcesBackend::Legacy};
 
+    bool _nwmFilesDerived {false};
     OdysseyResourceRoots _odysseyRoots;
     std::unique_ptr<Gffs> _gffs;
     std::unique_ptr<IResourceReplacements> _replacements;

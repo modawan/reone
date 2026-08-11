@@ -23,12 +23,17 @@
  * from its bucket and not from when it was mounted. Both backends must agree.
  *
  * The K1 characterization suites in lookup.cpp and extractresources.cpp
- * continue to describe the unactivated path, which this does not change.
+ * continue to describe the shared activated path, which this does not change.
  */
 
+#include "reone/audio/di/module.h"
+#include "reone/audio/options.h"
+#include "reone/graphics/di/module.h"
+#include "reone/script/di/module.h"
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "reone/resource/di/module.h"
 #include "reone/extract/installation.h"
 #include "reone/graphics/options.h"
 #include "reone/resource/director.h"
@@ -448,7 +453,7 @@ TEST_P(K2ModuleLoadingTest, resolves_the_save_folder_above_the_outer_save_archiv
     director->onGameLoad("000001");
 
     // The save folder is a loose directory and the outer archive is not. This
-    // reverses the unactivated order, where whichever was mounted last won.
+    // reverses the former insertion order, where whichever was mounted last won.
     EXPECT_EQ("save folder", find("loose"));
     EXPECT_EQ("save archive", find("archive_only"))
         << "the outer archive must still supply what nothing else holds";
@@ -1096,6 +1101,52 @@ TEST(OdysseyResourceRoots, keeps_unbound_live_slots_absent_and_deduplicates_lips
     EXPECT_TRUE(defaultOdysseyResourceRoots(game.path).nwmFiles.has_value());
     EXPECT_EQ((game.path / "nwm").lexically_normal(),
               defaultOdysseyResourceRoots(game.path).nwmFiles->lexically_normal());
+}
+
+TEST(OdysseyResourceRoots, resource_module_refreshes_only_a_derived_nwm_root) {
+    TmpDir newGame("reone_test_roots_set_game_path_new");
+    TmpDir custom("reone_test_roots_set_game_path_custom");
+    TmpDir cwd("reone_test_roots_set_game_path_cwd");
+    std::filesystem::create_directories(newGame.path / "nwm");
+    std::filesystem::create_directories(custom.path);
+    std::filesystem::create_directories(cwd.path / "nwm");
+    writeErf(newGame.path / "nwm" / "newonly.nwm", ErfWriter::FileType::MOD, {});
+    writeErf(custom.path / "customonly.nwm", ErfWriter::FileType::MOD, {});
+    writeErf(cwd.path / "nwm" / "cwdonly.nwm", ErfWriter::FileType::MOD, {});
+    graphics::GraphicsOptions graphicsOpt;
+    audio::AudioOptions audioOpt;
+    graphics::GraphicsModule graphics(graphicsOpt);
+    audio::AudioModule audio(audioOpt);
+    script::ScriptModule script;
+    ResourceModule derived(
+        GameID::TSL, {}, graphicsOpt, audioOpt, graphics, audio, script);
+    ASSERT_EQ(std::filesystem::path("nwm"), *derived.odysseyRoots().nwmFiles);
+    derived.setGamePath(newGame.path);
+    EXPECT_EQ((newGame.path / "nwm").lexically_normal(),
+              derived.odysseyRoots().nwmFiles->lexically_normal());
+    {
+        CwdGuard guard(cwd.path);
+        auto runtime = discoverModuleRoots(
+            primaryModuleSearchRoots(GameID::TSL, newGame.path, derived.odysseyRoots()));
+        auto tooling = extract::Installation(
+            GameID::TSL, newGame.path, derived.odysseyRoots()).moduleNames();
+        EXPECT_EQ((std::vector<std::string> {"newonly"}), runtime);
+        EXPECT_THAT(tooling, testing::ElementsAre("newonly"));
+    }
+    OdysseyResourceRoots explicitRoots;
+    explicitRoots.nwmFiles = custom.path;
+    ResourceModule explicitModule(GameID::TSL,
+                                  {},
+                                  graphicsOpt,
+                                  audioOpt,
+                                  graphics,
+                                  audio,
+                                  script,
+                                  ResourcesBackend::Legacy,
+                                  explicitRoots);
+    explicitModule.setGamePath(newGame.path);
+    EXPECT_EQ(custom.path.lexically_normal(),
+              explicitModule.odysseyRoots().nwmFiles->lexically_normal());
 }
 
 TEST(ResourceDirectorActivation, places_both_games_in_the_raw_lookup_order) {
