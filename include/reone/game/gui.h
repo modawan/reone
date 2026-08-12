@@ -26,6 +26,12 @@
 
 namespace reone {
 
+namespace gui {
+
+class ListBox;
+
+}
+
 namespace game {
 
 class Game;
@@ -43,6 +49,8 @@ public:
     }
 
 protected:
+    friend class HUDTestAccess;
+
     Game &_game;
     ServicesView &_services;
     std::string _resRef;
@@ -60,6 +68,16 @@ protected:
     virtual void onGUILoaded() {}
 
     void loadBackground(BackgroundType type);
+
+    /**
+     * Points an item list at the slot silhouettes baked into this GUI's own
+     * panel art, so the list can repaint them under its actual rows.
+     *
+     * K1's inventory and equipment panels share one authored slot strip and
+     * the same measured slot geometry. K2 bakes no slots and needs none of
+     * this; calling it there is a no-op.
+     */
+    void useBakedItemSlotArt(gui::ListBox &listBox);
 
     virtual void configureControls() {}
     void onClick(const std::string &control) override;
