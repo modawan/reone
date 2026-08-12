@@ -241,8 +241,12 @@ void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation
 
     case AnimationBlendMode::Overlay:
         // In Overlay mode, clear channels only if previous mode is not
-        // Overlay and add animation on top
-        if (_animBlendMode != AnimationBlendMode::Overlay) {
+        // Overlay and add animation on top. A layered animation keeps them
+        // instead: it plays over whatever the model is already doing, so the
+        // channels underneath go on running and go on supplying every node the
+        // layered animation leaves alone.
+        if (_animBlendMode != AnimationBlendMode::Overlay &&
+            !(properties.flags & AnimationFlags::layer)) {
             _animChannels.clear();
         }
         _animChannels.push_front(AnimationChannel(anim, lipAnim, properties));

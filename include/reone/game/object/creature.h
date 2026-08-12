@@ -173,6 +173,15 @@ public:
     bool playExternalAnimation(const std::shared_ptr<graphics::Animation> &anim, scene::AnimationProperties properties = scene::AnimationProperties());
     void resumeStateDrivenAnimation();
 
+    /**
+     * Play an animation as a layer over whatever the creature is already doing,
+     * including while it is walking or running. Unlike the other playAnimation
+     * overloads this neither waits for the creature to stand still nor takes
+     * over its state-driven animation, so locomotion carries on underneath and
+     * the layer disappears on its own once it has run.
+     */
+    void playOverlayAnimation(AnimationType type);
+
     void updateModelAnimation();
 
     // END Animation

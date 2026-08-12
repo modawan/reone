@@ -56,6 +56,13 @@ struct AnimationFlags {
 
     static constexpr int propagate = 0x10; /**< propagate animation to attached models */
 
+    /**
+     * With overlay, layer on top of whatever is already playing instead of
+     * replacing it, so the animations underneath keep running and keep
+     * supplying the nodes this one does not animate.
+     */
+    static constexpr int layer = 0x20;
+
     static constexpr int loopOverlay = loop | overlay;
     static constexpr int loopBlend = loop | blend;
 };
