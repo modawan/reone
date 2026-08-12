@@ -17,6 +17,8 @@
 
 #include "reone/gui/control/iconchain.h"
 
+#include "reone/gui/control/scrollbar.h"
+
 #include "reone/scene/render/pass.h"
 
 using namespace reone::scene;
@@ -191,6 +193,24 @@ void IconChain::render(const glm::ivec2 &screenSize,
             renderFocusedBorder(item, focused, itemExtent, offset, pass);
         }
     }
+
+    if (_scrollBar) {
+        int rowCount = getMaxRow() + 1;
+        int visibleRows = getVisibleRowCount();
+        if (rowCount > visibleRows) {
+            ScrollBar::ScrollState state;
+            state.count = rowCount;
+            state.numVisible = visibleRows;
+            state.offset = _rowOffset;
+            auto &scrollBar = static_cast<ScrollBar &>(*_scrollBar);
+            scrollBar.setScrollState(std::move(state));
+            scrollBar.render(screenSize, offset, pass);
+        }
+    }
+}
+
+void IconChain::setScrollBar(std::shared_ptr<Control> scrollBar) {
+    _scrollBar = std::move(scrollBar);
 }
 
 void IconChain::setSelected(bool selected) {
