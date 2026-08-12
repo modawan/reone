@@ -22,6 +22,8 @@ namespace reone {
 namespace audio {
 
 struct AudioOptions {
+    /** Master silence for unattended headless runs. */
+    bool muted {false};
     int musicVolume {85};
     int voiceVolume {85};
     int soundVolume {85};
