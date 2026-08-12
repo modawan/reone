@@ -52,15 +52,12 @@ std::shared_ptr<gui::IconChain> addIconSelectionChain(
     IconSelectionCallbacks callbacks);
 
 /**
- * Applies the title-bar and description-box treatment shared by the feat and
- * power selection screens: constrained border slices and caption padding on
- * TSL, and the description box's right edge aligned with the
- * remaining-selections bar's.
+ * Applies the caption and description treatment shared by the chargen
+ * selection screens: caption text inset by its border slice on TSL, and the
+ * description box's right edge aligned with the remaining-selections bar's.
  */
-void styleIconSelectionTitles(
+void styleChargenTitles(
     Game &game,
-    gui::Label &mainTitle,
-    gui::Label &subTitle,
     gui::Label &remainingLabel,
     gui::ListBox &descriptionBox);
 

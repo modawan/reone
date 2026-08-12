@@ -95,12 +95,7 @@ void CharGenPowers::onGUILoaded() {
     bindControls();
     _defaultPowerNameText = _controls.LBL_POWER->text().text;
 
-    styleIconSelectionTitles(
-        _game,
-        *_controls.MAIN_TITLE_LBL,
-        *_controls.SUB_TITLE_LBL,
-        *_controls.SELECTIONS_REMAINING_LBL,
-        *_controls.LB_DESC);
+    styleChargenTitles(_game, *_controls.SELECTIONS_REMAINING_LBL, *_controls.LB_DESC);
 
     IconSelectionCallbacks callbacks;
     callbacks.onItemFocus = [this](const std::string &item) {

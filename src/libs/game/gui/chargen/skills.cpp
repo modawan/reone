@@ -17,6 +17,8 @@
 
 #include "reone/game/gui/chargen/skills.h"
 
+#include "reone/game/gui/chargen/iconselection.h"
+
 #include "reone/game/d20/classes.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
@@ -63,6 +65,7 @@ void CharGenSkills::onGUILoaded() {
         label->setHilightColor(_baseColor);
     }
 
+    styleChargenTitles(_game, *_controls.SELECTIONS_REMAINING_LBL, *_controls.LB_DESC);
     _controls.LB_DESC->setProtoMatchContent(true);
 
     _controls.COMPUTER_USE_POINTS_BTN->setDisabled(true);
