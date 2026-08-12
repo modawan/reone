@@ -253,7 +253,13 @@ void Control::renderBorder(const Border &border,
     glm::mat4 transform(1.0f);
     glm::mat3x4 uv(1.0f);
 
-    if (border.fill) {
+    // The fill sits inside the frame, so a control smaller than twice its
+    // border dimension has no room for one. Drawing it anyway passed a
+    // negative size to the quad, which came out as a bright line across the
+    // middle of the control. The edges below have always guarded this.
+    glm::ivec2 fillSize {size.x - 2 * border.dimension, size.y - 2 * border.dimension};
+
+    if (border.fill && fillSize.x > 0 && fillSize.y > 0) {
         if (border.fillTransform == Border::FillTransform::Rotate180) {
             uv = glm::mat3x4(
                 glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
@@ -267,7 +273,7 @@ void Control::renderBorder(const Border &border,
             pass.drawImage(
                 *border.fill,
                 {_extent.left + border.dimension + offset.x, _extent.top + border.dimension + offset.y},
-                {size.x - 2 * border.dimension, size.y - 2 * border.dimension},
+                fillSize,
                 _tintBorderFill ? glm::vec4(color, 1.0f) : glm::vec4(1.0f),
                 uv,
                 _sharpenBorderFillAlpha ? ImageAlphaMode::Sharpen : ImageAlphaMode::Default);
