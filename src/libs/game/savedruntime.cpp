@@ -216,6 +216,12 @@ SerializedScriptSituation SerializedScriptSituation::fromGff(const resource::Gff
                                       : SavedVmStackPayload(unsupportedPayload(*item));
             break;
         }
+        case SavedVmStackType::Event: {
+            auto structure = item->findStruct("GameDefinedStrct");
+            value.payload = structure ? SavedVmStackPayload(savedScriptEventFromGff(*structure))
+                                      : SavedVmStackPayload(unsupportedPayload(*item));
+            break;
+        }
         case SavedVmStackType::Location: {
             auto structure = item->findStruct("GameDefinedStrct");
             value.payload = structure ? SavedVmStackPayload(savedLocationFromGff(*structure))
@@ -232,6 +238,13 @@ SerializedScriptSituation SerializedScriptSituation::fromGff(const resource::Gff
 }
 
 bool SerializedScriptSituation::bindObjectReferences(const Game &game) {
+    if (_runtimeSession && *_runtimeSession != game._runtimeSessionGeneration) {
+        return false;
+    }
+    if (!_runtimeSession) {
+        _runtimeSession = game._runtimeSessionGeneration;
+    }
+
     bool allBound = true;
     for (auto &entry : stack) {
         if (auto reference = std::get_if<SavedObjectReference>(&entry.payload)) {
@@ -240,9 +253,17 @@ bool SerializedScriptSituation::bindObjectReferences(const Game &game) {
             if (effect->creatorId != kSavedRuntimeInvalidObjectId) {
                 allBound = game.bindEffectCreator(*effect) && allBound;
             }
+        } else if (auto event = std::get_if<SavedScriptEvent>(&entry.payload)) {
+            for (auto &reference : event->objects) {
+                bindReference(game, reference, allBound);
+            }
         }
     }
     return allBound;
+}
+
+bool SerializedScriptSituation::isBoundToCurrentRuntimeSession(const Game &game) const {
+    return _runtimeSession && *_runtimeSession == game._runtimeSessionGeneration;
 }
 
 SavedActionParameter SavedActionParameter::fromGff(const resource::Gff &gff) {

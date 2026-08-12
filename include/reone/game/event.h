@@ -28,11 +28,31 @@ public:
     Event(int number) :
         _number(number) {
     }
+    Event(
+        int number,
+        std::vector<int32_t> integers,
+        std::vector<float> floats,
+        std::vector<std::string> strings,
+        std::vector<uint32_t> objects) :
+        _number(number),
+        _integers(std::move(integers)),
+        _floats(std::move(floats)),
+        _strings(std::move(strings)),
+        _objects(std::move(objects)) {
+    }
 
     int number() const { return _number; }
+    const std::vector<int32_t> &integers() const { return _integers; }
+    const std::vector<float> &floats() const { return _floats; }
+    const std::vector<std::string> &strings() const { return _strings; }
+    const std::vector<uint32_t> &objects() const { return _objects; }
 
 private:
     int _number;
+    std::vector<int32_t> _integers;
+    std::vector<float> _floats;
+    std::vector<std::string> _strings;
+    std::vector<uint32_t> _objects;
 };
 
 } // namespace game

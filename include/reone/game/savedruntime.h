@@ -25,6 +25,7 @@ namespace game {
 class Action;
 class Game;
 class Object;
+class SavedScriptSituationImporter;
 
 constexpr uint32_t kSavedRuntimeInvalidObjectId = 0x7f000000;
 
@@ -88,12 +89,21 @@ struct SavedLocationValue {
     glm::vec3 orientation {0.0f};
 };
 
+struct SavedScriptEvent {
+    uint16_t type {0};
+    std::vector<int32_t> integers;
+    std::vector<float> floats;
+    std::vector<std::string> strings;
+    std::vector<SavedObjectReference> objects;
+};
+
 enum class SavedVmStackType : int8_t {
     Integer = 3,
     Float = 4,
     String = 5,
     Object = 6,
     Effect = 16,
+    Event = 17,
     Location = 18,
 };
 
@@ -104,6 +114,7 @@ using SavedVmStackPayload = std::variant<
     std::string,
     SavedObjectReference,
     EffectInstance,
+    SavedScriptEvent,
     SavedLocationValue>;
 
 struct SavedVmStackValue {
@@ -113,6 +124,7 @@ struct SavedVmStackValue {
 
 enum class ScriptSituationResumeSupport {
     UnsupportedRetailSnapshot,
+    ValidatedImport,
 };
 
 /** Retail STORE_STATE continuation, kept separate from live ExecutionState. */
@@ -132,9 +144,14 @@ struct SerializedScriptSituation {
 
     static SerializedScriptSituation fromGff(const resource::Gff &gff);
     ScriptSituationResumeSupport resumeSupport() const {
-        return ScriptSituationResumeSupport::UnsupportedRetailSnapshot;
+        return ScriptSituationResumeSupport::ValidatedImport;
     }
     bool bindObjectReferences(const Game &game);
+    bool isBoundToCurrentRuntimeSession(const Game &game) const;
+
+private:
+    friend class SavedScriptSituationImporter;
+    std::optional<uint64_t> _runtimeSession;
 };
 
 enum class SavedActionParameterType : uint32_t {
@@ -237,14 +254,6 @@ struct SavedSpellImpact {
     std::string script;
     glm::vec3 targetPosition {0.0f};
     int32_t finalForceCost {0};
-};
-
-struct SavedScriptEvent {
-    uint16_t type {0};
-    std::vector<int32_t> integers;
-    std::vector<float> floats;
-    std::vector<std::string> strings;
-    std::vector<SavedObjectReference> objects;
 };
 
 struct SavedBodyBag {

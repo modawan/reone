@@ -89,6 +89,8 @@ class Font;
 namespace game {
 
 struct SavedObjectReference;
+struct SerializedScriptSituation;
+class SavedScriptContinuation;
 
 class Game : boost::noncopyable {
 public:
@@ -429,6 +431,8 @@ public:
 
 private:
     friend class TestGameModule;
+    friend struct SerializedScriptSituation;
+    friend class SavedScriptContinuation;
 
     resource::GameID _gameId;
     std::filesystem::path _path;

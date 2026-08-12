@@ -129,6 +129,11 @@ bool EffectInstance::bindCreator(const std::shared_ptr<Object> &object) {
     return true;
 }
 
+SavedEffectValue::SavedEffectValue(EffectInstance instance) :
+    Effect(static_cast<EffectType>(instance.retailType)),
+    _instance(std::move(instance)) {
+}
+
 } // namespace game
 
 } // namespace reone

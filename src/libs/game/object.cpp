@@ -360,6 +360,31 @@ void Object::moveDropableItemsTo(Object &other) {
 }
 
 void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration) {
+    if (auto saved = std::dynamic_pointer_cast<SavedEffectValue>(effect)) {
+        EffectInstance instance(saved->instance());
+        if (instance.hasStableId()) {
+            _game.importEffectId(instance.id);
+        } else {
+            instance.id = _game.allocateEffectId();
+        }
+
+        instance.subType = static_cast<uint16_t>(
+            (instance.subType & ~static_cast<uint16_t>(0x7)) |
+            static_cast<uint16_t>(durationType));
+        instance.duration = duration;
+        instance.remainingDuration = durationType == DurationType::Temporary
+                                         ? std::optional<float>(duration)
+                                         : std::nullopt;
+        instance.skipOnLoad = false;
+
+        // The save-facing instance remains authoritative. Unsupported retail
+        // effects stay typed and queryable rather than pretending that the
+        // SavedEffectValue wrapper implements their gameplay behavior.
+        instance.effect.reset();
+        restoreEffect(std::move(instance));
+        return;
+    }
+
     EffectInstance instance;
     instance.effect = effect;
     instance.id = _game.allocateEffectId();

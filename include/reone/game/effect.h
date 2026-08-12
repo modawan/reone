@@ -68,6 +68,8 @@ private:
     std::set<EffectId> _ids;
 };
 
+struct EffectInstance;
+
 class Effect : public script::EngineType {
 public:
     Effect(EffectType type) :
@@ -131,6 +133,22 @@ struct EffectInstance {
 private:
     friend class Game;
     bool bindCreator(const std::shared_ptr<Object> &object);
+};
+
+/**
+ * A serialized EffectInstance used as an NWScript engine value.
+ *
+ * This deliberately reuses the save-facing effect model. Applying it through
+ * Object::applyEffect preserves that semantic payload instead of inventing a
+ * second, save-only effect representation.
+ */
+class SavedEffectValue : public Effect {
+public:
+    explicit SavedEffectValue(EffectInstance instance);
+    const EffectInstance &instance() const { return _instance; }
+
+private:
+    EffectInstance _instance;
 };
 
 } // namespace game

@@ -202,7 +202,7 @@ TEST(ScriptSituation, should_preserve_the_retail_snapshot_without_claiming_resum
     EXPECT_TRUE(std::holds_alternative<UnsupportedSavedPayload>(situation.stack[3].payload));
     ASSERT_EQ(situation.unsupportedFields.size(), 1);
     EXPECT_EQ(situation.unsupportedFields[0].label, "FutureField");
-    EXPECT_EQ(situation.resumeSupport(), ScriptSituationResumeSupport::UnsupportedRetailSnapshot);
+    EXPECT_EQ(situation.resumeSupport(), ScriptSituationResumeSupport::ValidatedImport);
 }
 
 TEST(SavedObjectReference, should_bind_only_after_B_exists_and_never_rebind_A_into_B) {

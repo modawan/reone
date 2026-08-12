@@ -36,6 +36,9 @@ class IScripts;
 
 namespace game {
 
+class Game;
+class SavedScriptContinuation;
+
 class ScriptRunner {
 public:
     ScriptRunner(script::IRoutines &routines, resource::IScripts &scripts) :
@@ -50,6 +53,16 @@ public:
     // Run a script with a single ArgKind::Caller argument. When callerId is 0,
     // run a script without arguments.
     int run(const std::string &resRef, uint32_t callerId = 0);
+
+    int run(
+        const SavedScriptContinuation &continuation,
+        const Game &game,
+        const std::vector<script::Argument> &args);
+
+    int run(
+        const SavedScriptContinuation &continuation,
+        const Game &game,
+        uint32_t callerId);
 
 private:
     script::IRoutines &_routines;
