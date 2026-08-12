@@ -250,6 +250,13 @@ void EmitterSceneNode::detonate() {
     doSpawnParticle();
 }
 
+void EmitterSceneNode::rearmSingle() {
+    auto emitter = _modelNode.emitter();
+    if (emitter && emitter->updateMode == ModelNode::Emitter::UpdateMode::Single) {
+        _spawned = false;
+    }
+}
+
 void EmitterSceneNode::renderLeafs(IRenderPass &pass, const std::vector<SceneNode *> &leafs) {
     if (leafs.empty()) {
         return;

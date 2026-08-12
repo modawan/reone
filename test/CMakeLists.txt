@@ -95,6 +95,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/resource/resources.cpp
     ${TESTS_SOURCE_DIR}/resource/resref.cpp
     ${TESTS_SOURCE_DIR}/resource/strings.cpp
+    ${TESTS_SOURCE_DIR}/scene/emitter.cpp
     ${TESTS_SOURCE_DIR}/scene/model.cpp
     ${TESTS_SOURCE_DIR}/script/format/ncsreader.cpp
     ${TESTS_SOURCE_DIR}/script/format/ncswriter.cpp

@@ -397,6 +397,7 @@ void ModelSceneNode::updateAnimationChannel(AnimationChannel &channel, float dt)
         bool loop = channel.properties.flags & AnimationFlags::loop;
         if (loop) {
             channel.time = 0.0f;
+            rearmSingleEmitters(channel.anim->root());
         } else {
             channel.finished = true;
         }
@@ -415,6 +416,16 @@ static bool doesNodeHaveAncestor(const ModelNode &node, const std::string &name)
         return false;
     }
     return doesNodeHaveAncestor(*parent, name);
+}
+
+void ModelSceneNode::rearmSingleEmitters(const std::string &animationRoot) {
+    for (auto &[number, node] : _nodeByNumber) {
+        if (node->type() != SceneNodeType::Emitter ||
+            !doesNodeHaveAncestor(node->modelNode(), animationRoot)) {
+            continue;
+        }
+        static_cast<EmitterSceneNode *>(node)->rearmSingle();
+    }
 }
 
 void ModelSceneNode::computeAnimationStates(AnimationChannel &channel, float time, const ModelNode &modelNode) {
