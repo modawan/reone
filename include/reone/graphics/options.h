@@ -28,6 +28,8 @@ struct GraphicsOptions {
     int height {768};
     int winScale {100};
     bool fullscreen {false};
+    /** Hide the presentation window while retaining a renderable surface. */
+    bool headless {false};
     bool vsync {true};
     bool grass {true};
     bool pbr {false};

@@ -197,6 +197,21 @@ void Context::blitFramebuffer(Framebuffer &source,
                       glFilter);
 }
 
+std::shared_ptr<Texture> Context::captureScreen(int width, int height) {
+    auto pixels = std::make_shared<ByteBuffer>();
+    pixels->resize(static_cast<size_t>(3) * width * height);
+    // GUI scene controls render through child framebuffers and may leave one
+    // bound for reading. A screenshot is the composed window back buffer.
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glReadBuffer(GL_BACK);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels->data());
+
+    auto texture = std::make_shared<Texture>("screenshot", TextureType::TwoDim, Texture::Properties {});
+    texture->setPixels(width, height, PixelFormat::RGB8, Texture::Layer {pixels});
+    return texture;
+}
+
 void Context::bindUniformBuffer(UniformBuffer &buffer, int index) {
     buffer.bind(index);
 }

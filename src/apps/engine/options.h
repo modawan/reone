@@ -40,6 +40,9 @@ struct Options {
      * Execute console commands from a file at startup.
      */
     std::string commandsFile;
+    /** Write frame captureFrame to this path, then exit. */
+    std::string capturePath;
+    int captureFrame {3};
 
     std::unique_ptr<game::OptionsView> toView() {
         return std::make_unique<game::OptionsView>(game, graphics, audio);

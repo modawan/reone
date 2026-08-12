@@ -52,11 +52,14 @@ std::unique_ptr<Options> OptionsParser::parse() {
     descCommon.add_options()                                                                                                    //
         ("game", value<std::string>(), "path to game directory")                                                                //
         ("commands-file", value<std::string>()->default_value(""), "execute console commands from a file at startup")           //
+        ("capture", value<std::string>()->default_value(""), "write a screenshot to this path and exit")                        //
+        ("captureframe", value<int>()->default_value(3), "frame to capture on, counted from the first rendered frame")         //
         ("dev", value<bool>()->default_value(options->game.developer), "enable developer mode")                                 //
         ("width", value<int>()->default_value(options->graphics.width), "render width")                                         //
         ("height", value<int>()->default_value(options->graphics.height), "render height")                                      //
         ("winscale", value<int>()->default_value(options->graphics.winScale), "window scale")                                   //
         ("fullscreen", value<bool>()->default_value(options->graphics.fullscreen), "enable fullscreen")                         //
+        ("headless", value<bool>()->default_value(false), "never show the window; for scripted batch runs")                     //
         ("vsync", value<bool>()->default_value(options->graphics.vsync), "enable v-sync")                                       //
         ("grass", value<bool>()->default_value(options->graphics.grass), "enable grass")                                        //
         ("pbr", value<bool>()->default_value(options->graphics.pbr), "enable physically-based rendering")                       //
@@ -68,14 +71,14 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("shadowres", value<int>()->default_value(glm::log2(options->graphics.shadowResolution) - 10), "shadow map resolution") //
         ("anisofilter", value<int>()->default_value(options->graphics.anisotropicFiltering), "anisotropic filtering")           //
         ("drawdist", value<int>()->default_value(static_cast<int>(kDefaultObjectDrawDistance)), "draw distance")                //
-        ("musicvol", value<int>()->default_value(options->audio.musicVolume), "music volume in percents")                       //
-        ("voicevol", value<int>()->default_value(options->audio.voiceVolume), "voice volume in percents")                       //
-        ("soundvol", value<int>()->default_value(options->audio.soundVolume), "sound volume in percents")                       //
         ("guiscale", value<float>()->default_value(options->graphics.guiScale), "GUI layout scale")                              //
         ("guitextscale", value<float>()->default_value(options->graphics.guiTextScale), "GUI text scale")                       //
         ("guidialogtextscale", value<float>()->default_value(options->graphics.guiDialogTextScale), "dialog text scale")       //
         ("guiborderscale", value<float>()->default_value(options->graphics.guiBorderScale), "GUI border scale")                 //
         ("guilistscale", value<float>()->default_value(options->graphics.guiListScale), "GUI list row scale")                    //
+        ("musicvol", value<int>()->default_value(options->audio.musicVolume), "music volume in percents")                       //
+        ("voicevol", value<int>()->default_value(options->audio.voiceVolume), "voice volume in percents")                       //
+        ("soundvol", value<int>()->default_value(options->audio.soundVolume), "sound volume in percents")                       //
         ("movievol", value<int>()->default_value(options->audio.movieVolume), "movie volume in percents")                       //
         ("logsev", value<int>()->default_value(static_cast<int>(options->logging.severity)), "minimum log severity")            //
         ("logch", value<int>()->default_value(defaultLogChannels), "log channel mask");
@@ -96,10 +99,14 @@ std::unique_ptr<Options> OptionsParser::parse() {
 
     options->game.path = vars.count("game") > 0 ? std::filesystem::path(vars["game"].as<std::string>()) : std::filesystem::current_path();
     options->game.developer = vars["dev"].as<bool>();
+    options->capturePath = vars["capture"].as<std::string>();
+    options->captureFrame = vars["captureframe"].as<int>();
     options->graphics.width = vars["width"].as<int>();
     options->graphics.height = vars["height"].as<int>();
     options->graphics.winScale = vars["winscale"].as<int>();
     options->graphics.fullscreen = vars["fullscreen"].as<bool>();
+    options->graphics.headless = vars["headless"].as<bool>();
+    options->audio.muted = options->graphics.headless;
     options->graphics.vsync = vars["vsync"].as<bool>();
     options->graphics.grass = vars["grass"].as<bool>();
     options->graphics.pbr = vars["pbr"].as<bool>();
@@ -111,6 +118,11 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options->graphics.shadowResolution = 1 << (10 + vars["shadowres"].as<int>());
     options->graphics.anisotropicFiltering = vars["anisofilter"].as<int>();
     options->graphics.drawDistance = static_cast<float>(vars["drawdist"].as<int>());
+    options->graphics.guiScale = positiveFiniteScale(vars, "guiscale");
+    options->graphics.guiTextScale = positiveFiniteScale(vars, "guitextscale");
+    options->graphics.guiDialogTextScale = positiveFiniteScale(vars, "guidialogtextscale");
+    options->graphics.guiBorderScale = positiveFiniteScale(vars, "guiborderscale");
+    options->graphics.guiListScale = positiveFiniteScale(vars, "guilistscale");
     options->audio.musicVolume = vars["musicvol"].as<int>();
     options->audio.voiceVolume = vars["voicevol"].as<int>();
     options->audio.soundVolume = vars["soundvol"].as<int>();
@@ -118,11 +130,6 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options->logging.severity = static_cast<LogSeverity>(vars["logsev"].as<int>());
 
     std::set<LogChannel> logChannels;
-    options->graphics.guiScale = positiveFiniteScale(vars, "guiscale");
-    options->graphics.guiTextScale = positiveFiniteScale(vars, "guitextscale");
-    options->graphics.guiDialogTextScale = positiveFiniteScale(vars, "guidialogtextscale");
-    options->graphics.guiBorderScale = positiveFiniteScale(vars, "guiborderscale");
-    options->graphics.guiListScale = positiveFiniteScale(vars, "guilistscale");
     int logChannelsMask = vars["logch"].as<int>();
     if ((logChannelsMask & static_cast<int>(LogChannel::Global)) != 0) {
         logChannels.insert(LogChannel::Global);
