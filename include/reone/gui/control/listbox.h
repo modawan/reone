@@ -110,6 +110,7 @@ public:
     Control &protoItem() const { return *_protoItem; }
     Control *protoItemOrNull() const { return _protoItem.get(); }
     Control &scrollBar() const { return *_scrollBar; }
+    std::shared_ptr<Control> scrollBarOrNull() const { return _scrollBar; }
     int selectedItemIndex() const { return _selectedItemIndex; }
 
     // Event listeners

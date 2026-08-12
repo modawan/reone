@@ -51,6 +51,9 @@ public:
 
     void reset(bool levelUp);
 
+    /** Selects the first selectable grid entry, for scripted captures. */
+    void selectFirstEntryForCapture();
+
 private:
     struct Controls {
         std::shared_ptr<gui::Button> BTN_ACCEPT;

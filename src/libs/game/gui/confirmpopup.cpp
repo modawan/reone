@@ -30,6 +30,8 @@ namespace game {
 
 static const char kIconControlTag[] = "LBL_POPUPICON";
 
+static constexpr int kAuthoredCanvasWidth = 640;
+static constexpr int kAuthoredCanvasHeight = 480;
 static constexpr int kIconSize = 32;
 static constexpr int kIconPadding = 6;
 
@@ -39,7 +41,7 @@ void ConfirmPopup::preload(IGUI &gui) {
     // The confirmation dialog is authored for 640x480 in both games. It
     // scales and centers with the game-wide Scaled default from the base
     // preload; an explicit Center here kept it at native size.
-    gui.setResolution(640, 480);
+    gui.setResolution(kAuthoredCanvasWidth, kAuthoredCanvasHeight);
 }
 
 void ConfirmPopup::onGUILoaded() {
@@ -54,13 +56,19 @@ void ConfirmPopup::onGUILoaded() {
 
     // The authored confirmation panel reserves a second button row. This
     // popup only exposes OK, so retain the top inset below that button instead
-    // of leaving the unused row as a large empty footer.
+    // of leaving the unused row as a large empty footer, and center the
+    // trimmed panel in the authored canvas so the Scaled layout lands it
+    // mid-screen at any resolution.
     auto &root = _gui->rootControl();
-    int topInset = std::max(0, std::min(
-                                   _controls.LB_MESSAGE->extent().top,
-                                   _controls.BTN_OK->extent().top));
-    int contentBottom = _controls.BTN_OK->extent().top + _controls.BTN_OK->extent().height;
-    root.setExtentHeight(std::min(root.extent().height, contentBottom + topInset));
+    auto rootAuthored = root.authoredExtent();
+    const auto &okAuthored = _controls.BTN_OK->authoredExtent();
+    const auto &messageAuthored = _controls.LB_MESSAGE->authoredExtent();
+    int topInset = std::max(0, std::min(messageAuthored.top, okAuthored.top));
+    rootAuthored.height = std::min(rootAuthored.height, okAuthored.top + okAuthored.height + topInset);
+    rootAuthored.left = (kAuthoredCanvasWidth - rootAuthored.width) / 2;
+    rootAuthored.top = (kAuthoredCanvasHeight - rootAuthored.height) / 2;
+    root.setAuthoredExtent(std::move(rootAuthored));
+    _gui->refreshLayout();
 
     _messageExtent = _controls.LB_MESSAGE->protoItem().extent();
     _iconSize = std::max(1, static_cast<int>(std::lround(kIconSize * _gui->scale())));

@@ -147,6 +147,7 @@ std::shared_ptr<IconChain> addIconSelectionChain(
     cellStyle.drawItemBorderFill = true;
     cellStyle.drawItemBorderBeforeIcon = game.isTSL();
     chain->setCellStyle(std::move(cellStyle));
+    chain->setScrollBar(sourceList.scrollBarOrNull());
     chain->setOnItemFocus(std::move(callbacks.onItemFocus));
     chain->setOnItemFocusCleared(std::move(callbacks.onItemFocusCleared));
     chain->setOnItemDoubleClick(std::move(callbacks.onItemDoubleClick));

@@ -136,6 +136,7 @@ public:
     int padding() const { return _padding; }
     Border &border() const { return *_border; }
     const Extent &authoredExtent() const { return _authoredExtent; }
+    void setAuthoredExtent(Extent extent) { _authoredExtent = std::move(extent); }
 
     /** The combined layout and text factor used to render this control's text. */
     float scale() const { return _scale; }

@@ -3619,9 +3619,10 @@ static std::string joinConsoleArgs(const ConsoleArgs &args, size_t first) {
 }
 
 void Game::consoleOpenCharacterGeneration(const ConsoleArgs &args) {
-    consoleCheckUsage(args, 1, 1, "class|feats|powers");
+    consoleCheckUsage(args, 1, 2, "class|feats|powers [select]");
 
     std::string_view screen(args[1].value());
+    bool selectFirst = args.size() > 2 && boost::iequals(std::string(args[2].value()), "select");
     if (boost::iequals(screen, "class")) {
         startCharacterGeneration();
         if (_charGen) {
@@ -3651,6 +3652,9 @@ void Game::consoleOpenCharacterGeneration(const ConsoleArgs &args) {
             _charGen->startCustom();
         }
         _charGen->openFeats();
+        if (selectFirst) {
+            _charGen->feats().selectFirstEntryForCapture();
+        }
         return;
     }
     if (boost::iequals(screen, "powers")) {
@@ -3664,6 +3668,9 @@ void Game::consoleOpenCharacterGeneration(const ConsoleArgs &args) {
         character.attributes.addClassLevels(clazz.get(), 1);
         _charGen->setCharacter(std::move(character));
         _charGen->openPowers();
+        if (selectFirst) {
+            _charGen->powers().selectFirstEntryForCapture();
+        }
         return;
     }
     throw std::runtime_error("Unknown character-generation screen: " + std::string(screen));

@@ -349,6 +349,15 @@ void CharGenPowers::onPowerActivated(const std::string &power) {
     }
 }
 
+void CharGenPowers::selectFirstEntryForCapture() {
+    for (const auto &entry : _displayEntries) {
+        if (entry.visible && entry.selectable && !entry.chosen) {
+            onPowerActivated(std::to_string(static_cast<int>(entry.type)));
+            return;
+        }
+    }
+}
+
 void CharGenPowers::activateFocusedPower() {
     const IconChain::Item *item = _controls.ICONCHAIN_POWERS->focusedItem();
     if (!item) {
