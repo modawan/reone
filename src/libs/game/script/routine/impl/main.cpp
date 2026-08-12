@@ -3478,7 +3478,10 @@ static Variable GetLastDisarmed(const std::vector<Variable> &args, const Routine
 
 static Variable GetLastDisturbed(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetLastDisturbed");
+    if (const Variable *lastDisturbed = ctx.execution.findArg(ArgKind::LastDisturbed)) {
+        return *lastDisturbed;
+    }
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetLastLocked(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3493,12 +3496,18 @@ static Variable GetLastUnlocked(const std::vector<Variable> &args, const Routine
 
 static Variable GetInventoryDisturbType(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetInventoryDisturbType");
+    if (const Variable *disturbType = ctx.execution.findArg(ArgKind::InventoryDisturbType)) {
+        return *disturbType;
+    }
+    return Variable::ofInt(0);
 }
 
 static Variable GetInventoryDisturbItem(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetInventoryDisturbItem");
+    if (const Variable *disturbItem = ctx.execution.findArg(ArgKind::InventoryDisturbItem)) {
+        return *disturbItem;
+    }
+    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable ShowUpgradeScreen(const std::vector<Variable> &args, const RoutineContext &ctx) {

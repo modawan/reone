@@ -332,6 +332,12 @@ void ListBox::setRenderItemIconsForButtonProto(bool render) {
     updateItemsLayout();
 }
 
+void ListBox::setItemOffset(int offset) {
+    if (_items.size()) {
+        _itemOffset = std::min(offset, static_cast<int>(_items.size() - 1));
+    }
+}
+
 void ListBox::scrollToBottom() {
     if (!_protoItem || _items.empty()) {
         _itemOffset = 0;
