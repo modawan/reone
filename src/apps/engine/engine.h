@@ -92,8 +92,6 @@ private:
     std::queue<input::Event> _events;
 
     uint64_t _ticks {0};
-    int _frameIndex {0};
-    bool _captured {false};
     std::deque<std::string> _scriptedCommands;
     int _scriptPauseFrames {0};
     std::optional<CaptureRequest> _captureRequest;
@@ -108,10 +106,6 @@ private:
     void captureIfRequested(bool &quit);
     void captureFrame(const std::filesystem::path &path);
     std::filesystem::path numberedCapturePath(const CaptureRequest &request) const;
-
-    bool isCaptureRun() const {
-        return !_options.capturePath.empty();
-    }
 
     void showCursor(bool show);
     void setRelativeMouseMode(bool relative);
