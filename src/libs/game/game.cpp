@@ -1719,6 +1719,7 @@ std::shared_ptr<Store> Game::newStore(
 void Game::prepareSavedRuntimeNamespace(const resource::Gff &ifo) {
     uint32_t nextObjectId = kFirstRuntimeObjectId;
     if (ifo.readDword(nextObjectId, "Mod_NextObjId0") &&
+        nextObjectId != 0 &&
         nextObjectId < kFirstRuntimeObjectId) {
         throw ValidationException("Invalid Mod_NextObjId0");
     }

@@ -2165,6 +2165,24 @@ TEST(SavedRuntimeState, restores_explicit_object_identity_and_allocator_cursors)
     EXPECT_EQ(900u, game.nextEffectId());
 }
 
+TEST(SavedRuntimeState, accepts_retail_zero_object_cursor_but_rejects_reserved_nonzero_cursor) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto unavailableCursor = Gff::Builder()
+                                 .field(Gff::Field::newDword("Mod_NextObjId0", 0))
+                                 .build();
+    EXPECT_NO_THROW(game.prepareSavedRuntimeNamespace(*unavailableCursor));
+    EXPECT_EQ(2u, game.newItem()->id());
+
+    auto reservedCursor = Gff::Builder()
+                              .field(Gff::Field::newDword("Mod_NextObjId0", 1))
+                              .build();
+    EXPECT_THROW(game.prepareSavedRuntimeNamespace(*reservedCursor), ValidationException);
+}
+
 TEST(SavedRuntimeState, rejects_reserved_invalid_and_duplicate_object_ids) {
     TestEngine engine;
     engine.init();
