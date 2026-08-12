@@ -34,6 +34,7 @@
 #include "floatingtext.h"
 #include "gui/chargen.h"
 #include "gui/computer.h"
+#include "gui/confirmpopup.h"
 #include "gui/container.h"
 #include "gui/conversation.h"
 #include "gui/dialog.h"
@@ -536,6 +537,7 @@ private:
     std::unique_ptr<InGameMenu> _inGame;
     std::unique_ptr<DialogGUI> _dialog;
     std::unique_ptr<ComputerGUI> _computer;
+    std::unique_ptr<ConfirmPopup> _confirmPopup;
     std::unique_ptr<ContainerGUI> _container;
     std::unique_ptr<PartySelection> _partySelect;
     std::unique_ptr<SaveLoad> _saveLoad;
@@ -692,7 +694,7 @@ private:
         PazaakSessionParams params,
         const std::shared_ptr<Object> &continuationCaller,
         bool developmentLaunch);
-    bool startDevelopmentPazaak(std::string opponentName);
+    bool startDevelopmentPazaak(std::string opponentName, int maximumWager = 0);
     void finishPazaak(PazaakCompletedResult result);
     void releasePazaakFlow(bool restoreOrigin);
     Screen safePazaakOriginScreen() const;
@@ -754,6 +756,12 @@ private:
     void consoleGiveXP(const ConsoleArgs &tokens);
     void consoleGiveGold(const ConsoleArgs &tokens);
     void consoleWarp(const ConsoleArgs &tokens);
+    void consoleOpenMenu(const ConsoleArgs &tokens);
+    void consoleOpenCharacterGeneration(const ConsoleArgs &tokens);
+    void consoleSkipMovie(const ConsoleArgs &tokens);
+    void consoleShowBark(const ConsoleArgs &tokens);
+    void consoleShowPopup(const ConsoleArgs &tokens);
+    void consoleShowGalleryMode(const ConsoleArgs &tokens);
     void consoleRunScript(const ConsoleArgs &tokens);
     void consoleShowAABB(const ConsoleArgs &tokens);
     void consoleShowWalkmesh(const ConsoleArgs &tokens);

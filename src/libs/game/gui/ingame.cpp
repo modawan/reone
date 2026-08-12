@@ -244,6 +244,11 @@ void InGameMenu::openEquipment() {
     changeTab(InGameMenuTab::Equipment);
 }
 
+void InGameMenu::openEquipmentItems() {
+    _equip->openItems(Equipment::Slot::Body);
+    changeTab(InGameMenuTab::Equipment);
+}
+
 void InGameMenu::changeTab(InGameMenuTab tab) {
     auto gui = getActiveTabGUI();
     if (gui) {
