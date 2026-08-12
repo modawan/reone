@@ -206,9 +206,6 @@ public:
         hud._controls.LBL_BACK1 = std::move(control);
     }
 
-    static void renderHealth(HUD &hud) {
-        hud.renderHealth(0);
-    }
 };
 
 } // namespace reone::game
@@ -1923,42 +1920,6 @@ TEST(GUIExternalRendererGeometry, should_scale_action_icons_to_their_button_rect
     EXPECT_FLOAT_EQ(model[1][1], 46.8f);
     EXPECT_FLOAT_EQ(model[3][0], 912.6f);
     EXPECT_FLOAT_EQ(model[3][1], 372.6f);
-}
-
-TEST(GUIExternalRendererGeometry, should_scale_portrait_health_bar_width_and_inset) {
-    TestEngine &engine = testEngine();
-    StubConsole console;
-    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto member = game.newObject<TestCreature>(kSceneMain, game, engine.services());
-    member->setHitPointsForTest(100);
-    game.party().addMember(kNpcPlayer, member);
-    auto gui = std::make_shared<NiceMock<gui::MockGUI>>();
-    glm::ivec2 controlOffset(0);
-    ON_CALL(*gui, controlOffset()).WillByDefault(ReturnRef(controlOffset));
-    auto portrait = std::make_shared<gui::Label>(
-        *gui,
-        engine.services().scene.graphs,
-        engine.services().graphics,
-        engine.services().resource);
-    portrait->setExtent({1800, 360, 180, 360});
-    ON_CALL(*gui, scale()).WillByDefault(Return(1.8f));
-    HUD hud(game, engine.services());
-    HUDTestAccess::setHealthControl(hud, gui, portrait);
-
-    glm::mat4 model;
-    ON_CALL(engine.graphicsModule().uniforms(), setLocals(_))
-        .WillByDefault(Invoke([&](const std::function<void(graphics::LocalUniforms &)> &setter) {
-            graphics::LocalUniforms locals;
-            setter(locals);
-            model = locals.model;
-            throw std::runtime_error("captured health bar geometry");
-        }));
-
-    EXPECT_THROW(HUDTestAccess::renderHealth(hud), std::runtime_error);
-    EXPECT_FLOAT_EQ(model[0][0], 9.0f);
-    EXPECT_FLOAT_EQ(model[1][1], 360.0f);
-    EXPECT_FLOAT_EQ(model[3][0], 1954.8f);
-    EXPECT_FLOAT_EQ(model[3][1], 360.0f);
 }
 
 TEST(CameraProjection, should_follow_a_resolution_change_after_all_camera_types_load) {

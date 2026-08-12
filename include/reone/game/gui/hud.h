@@ -268,7 +268,6 @@ private:
     void updateTransitionPresentation();
     std::optional<TransitionPortal> currentTransitionCandidate() const;
 
-    void renderHealth(int memberIndex);
     void renderMinimap();
 };
 
