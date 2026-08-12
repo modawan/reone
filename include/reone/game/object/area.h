@@ -244,6 +244,7 @@ private:
 
     Pathfinder _pathfinder;
     std::string _localizedName;
+    resource::generated::ARE_Map _map;
     RoomMap _rooms;
     resource::Visibility _visibility;
     CameraStyle _camStyleDefault;
@@ -269,7 +270,6 @@ private:
 
     // Cameras
 
-    float _cameraAspect {0.0f};
     std::shared_ptr<FirstPersonCamera> _firstPersonCamera;
     std::shared_ptr<ThirdPersonCamera> _thirdPersonCamera;
     std::shared_ptr<DialogCamera> _dialogCamera;

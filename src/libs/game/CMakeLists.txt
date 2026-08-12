@@ -520,6 +520,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/minigame.cpp
     ${GAME_SOURCE_DIR}/object.cpp
     ${GAME_SOURCE_DIR}/object/area.cpp
+    ${GAME_SOURCE_DIR}/object/camera.cpp
     ${GAME_SOURCE_DIR}/object/camera/animated.cpp
     ${GAME_SOURCE_DIR}/object/camera/dialog.cpp
     ${GAME_SOURCE_DIR}/object/camera/firstperson.cpp

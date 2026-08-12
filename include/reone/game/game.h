@@ -338,24 +338,24 @@ public:
         return newObject<Sound>(std::move(sceneName), *this, _services);
     }
 
-    inline std::shared_ptr<AnimatedCamera> newAnimatedCamera(float aspect, std::string sceneName = kSceneMain) {
-        return newObject<AnimatedCamera>(aspect, std::move(sceneName), *this, _services);
+    inline std::shared_ptr<AnimatedCamera> newAnimatedCamera(std::string sceneName = kSceneMain) {
+        return newObject<AnimatedCamera>(std::move(sceneName), *this, _services);
     }
 
-    inline std::shared_ptr<DialogCamera> newDialogCamera(CameraStyle style, float aspect, std::string sceneName = kSceneMain) {
-        return newObject<DialogCamera>(std::move(style), aspect, std::move(sceneName), *this, _services);
+    inline std::shared_ptr<DialogCamera> newDialogCamera(CameraStyle style, std::string sceneName = kSceneMain) {
+        return newObject<DialogCamera>(std::move(style), std::move(sceneName), *this, _services);
     }
 
-    inline std::shared_ptr<FirstPersonCamera> newFirstPersonCamera(float fovy, float aspect, std::string sceneName = kSceneMain) {
-        return newObject<FirstPersonCamera>(fovy, aspect, std::move(sceneName), *this, _services);
+    inline std::shared_ptr<FirstPersonCamera> newFirstPersonCamera(float fovy, std::string sceneName = kSceneMain) {
+        return newObject<FirstPersonCamera>(fovy, std::move(sceneName), *this, _services);
     }
 
-    inline std::shared_ptr<StaticCamera> newStaticCamera(float aspect, std::string sceneName = kSceneMain) {
-        return newObject<StaticCamera>(aspect, std::move(sceneName), *this, _services);
+    inline std::shared_ptr<StaticCamera> newStaticCamera(std::string sceneName = kSceneMain) {
+        return newObject<StaticCamera>(std::move(sceneName), *this, _services);
     }
 
-    inline std::shared_ptr<ThirdPersonCamera> newThirdPersonCamera(CameraStyle style, float aspect, std::string sceneName = kSceneMain) {
-        return newObject<ThirdPersonCamera>(std::move(style), aspect, std::move(sceneName), *this, _services);
+    inline std::shared_ptr<ThirdPersonCamera> newThirdPersonCamera(CameraStyle style, std::string sceneName = kSceneMain) {
+        return newObject<ThirdPersonCamera>(std::move(style), std::move(sceneName), *this, _services);
     }
 
     inline std::shared_ptr<Encounter> newEncounter(std::string sceneName = kSceneMain) {
