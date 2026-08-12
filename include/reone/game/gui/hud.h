@@ -57,6 +57,9 @@ public:
     void activateStatusSummaryIndicator(StatusSummaryCategory category);
     void resetStatusSummaryPresentation();
 
+    /** Exposes representative HUD state for the scripted gallery fixture. */
+    void showCapturePresentation();
+
 private:
     friend class HUDTestAccess;
 
@@ -163,6 +166,7 @@ private:
     std::unique_ptr<AreaTransition> _areaTransition;
     StatusSummaryIndicator _journalIndicator;
     StatusSummaryIndicator _plotXPIndicator;
+    bool _capturePresentation {false};
 
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;

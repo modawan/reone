@@ -367,6 +367,22 @@ void HUD::update(float dt) {
 
     // Hide minimap when there is no image to display
     _controls.LBL_MAPBORDER->setVisible(_game.map().isLoaded());
+
+    if (_capturePresentation) {
+        _controls.LBL_CHAR1->setVisible(true);
+        _controls.LBL_BACK1->setVisible(true);
+        _controls.PB_HEALTH->setVisible(true);
+        _controls.PB_HEALTH->setValue(65);
+        _controls.PB_VIT1->setVisible(true);
+        _controls.PB_VIT1->setValue(65);
+        _controls.PB_FORCE1->setVisible(true);
+        _controls.PB_FORCE1->setValue(45);
+    }
+}
+
+void HUD::showCapturePresentation() {
+    _capturePresentation = true;
+    _gui->rootControl().setVisible(true);
 }
 
 void HUD::updateTransitionPresentation() {
