@@ -178,7 +178,11 @@ void Equipment::configureItemsListBox() {
     _controls.LB_ITEMS->setItemsInteractive(false);
     _controls.LB_ITEMS->setSelectionMode(ListBox::SelectionMode::OnClick);
     _controls.LB_ITEMS->setRenderItemIconsForButtonProto(true);
-    _controls.LB_ITEMS->setPadding(5);
+    // See InventoryMenu: K1's baked slot strip has a fractional period in
+    // authored pixels, so the rows are repainted over it and this is a free
+    // density knob. K2's equipment list uses its tighter two-pixel gap.
+    _controls.LB_ITEMS->setPadding(_game.isTSL() ? 2 : 8);
+    useBakedItemSlotArt(*_controls.LB_ITEMS);
     _controls.LB_ITEMS->setOnItemClick([this](const std::string &item) {
         onItemsListBoxItemClick(item);
     });

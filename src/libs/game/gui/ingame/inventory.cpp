@@ -312,7 +312,13 @@ void InventoryMenu::configureItemsListBox() {
 
     _controls.LB_ITEMS->setSelectionMode(ListBox::SelectionMode::OnClick);
     _controls.LB_ITEMS->setRenderItemIconsForButtonProto(true);
-    _controls.LB_ITEMS->setPadding(5);
+    // K1's panel art is a 512x512 texture stretched onto the 640x480 canvas,
+    // so its baked slot strip repeats every 61 texels - 57.19 authored pixels,
+    // which no integer proto height plus padding can match. The rows are
+    // repainted over that strip instead, which leaves this a free density
+    // knob. K2 uses the five-pixel gap established by its menu layout.
+    _controls.LB_ITEMS->setPadding(_game.isTSL() ? 5 : 8);
+    useBakedItemSlotArt(*_controls.LB_ITEMS);
     _controls.LB_ITEMS->setOnItemClick([this](const std::string &) {
         updateItemDescription();
     });

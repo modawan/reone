@@ -23,16 +23,22 @@
 #include "reone/game/game.h"
 #include "reone/game/gui/sounds.h"
 #include "reone/graphics/di/services.h"
+#include "reone/gui/control/listbox.h"
 #include "reone/gui/guis.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/textures.h"
 #include "reone/scene/di/services.h"
+#include "reone/scene/render/pass.h"
+
+#include <algorithm>
+#include <cmath>
 
 using namespace reone::audio;
 using namespace reone::graphics;
 using namespace reone::gui;
 using namespace reone::resource;
+using namespace reone::scene;
 
 namespace reone {
 
@@ -154,6 +160,104 @@ void GameGUI::loadBackground(BackgroundType type) {
     if (_gui) {
         _gui->setBackground(_services.resource.textures.get(resRef, TextureUsage::MainTex));
     }
+}
+
+void GameGUI::useBakedItemSlotArt(ListBox &listBox) {
+    if (_game.isTSL()) {
+        return;
+    }
+    auto &root = _gui->rootControl();
+    if (!root.border().fill) {
+        return;
+    }
+
+    // Pixel bounds measured in K1's authored 640x480 canvas. The panel art
+    // stores one slot as separate icon and nameplate silhouettes, so the two
+    // can be repainted independently of the baked strip - whose period is
+    // fractional in this canvas and so never registers with the row pitch.
+    // Everything else is derived from the proto item.
+    static constexpr int kIconInkLeft = 5;
+    static constexpr int kInkTop = 3;
+    static constexpr int kInkOvershoot = 1;
+    static constexpr int kNameplateInkLeft = 8;
+    static constexpr int kNameplateInkTrim = 9;
+    static constexpr int kIconOutlineInset = 5;
+    static constexpr int kNameplateOutlineInset = 2;
+
+    const auto &authoredCanvas = root.authoredExtent();
+    const auto &slot = listBox.protoItem().authoredExtent();
+    glm::vec2 canvas(authoredCanvas.width, authoredCanvas.height);
+    if (canvas.x <= 0.0f || canvas.y <= 0.0f) {
+        return;
+    }
+    auto panel = root.border().fill;
+
+    Control::Extent iconInk {
+        slot.left + kIconInkLeft,
+        slot.top + kInkTop,
+        slot.height - kIconInkLeft,
+        slot.height + kInkOvershoot};
+    Control::Extent nameplateInk {
+        slot.left + slot.height + kNameplateInkLeft,
+        slot.top + kInkTop,
+        slot.width - slot.height - kNameplateInkTrim,
+        slot.height + kInkOvershoot};
+
+    listBox.setBackgroundRenderer(
+        [panel, canvas, iconInk, nameplateInk](const ListBox &list, const glm::ivec2 &offset, IRenderPass &pass) {
+            auto viewport = list.itemsViewport();
+            if (viewport.width <= 0 || viewport.height <= 0 || list.layoutScale() <= 0.0f) {
+                return;
+            }
+            auto blit = [&](const Control::Extent &source, const Control::Extent &destination) {
+                if (source.width <= 0 || source.height <= 0 ||
+                    destination.width <= 0 || destination.height <= 0) {
+                    return;
+                }
+                glm::mat3x4 uv(
+                    glm::vec4(source.width / canvas.x, 0.0f, 0.0f, 0.0f),
+                    glm::vec4(0.0f, source.height / canvas.y, 0.0f, 0.0f),
+                    glm::vec4(source.left / canvas.x,
+                              1.0f - (source.top + source.height) / canvas.y,
+                              0.0f,
+                              0.0f));
+                pass.drawImage(
+                    *panel,
+                    {destination.left + offset.x, destination.top + offset.y},
+                    {destination.width, destination.height},
+                    glm::vec4(1.0f),
+                    uv);
+            };
+
+            // Cover the baked strip with a single texel lifted from the gap
+            // between two authored slots, so only the rows placed below
+            // survive. A zero-scale UV makes every fragment sample that texel.
+            const auto &slot = list.protoItem().authoredExtent();
+            glm::vec4 gap(
+                (slot.left + slot.height / 2 + 0.5f) / canvas.x,
+                1.0f - (slot.top + slot.height + list.padding() / 2 + 0.5f) / canvas.y,
+                0.0f,
+                0.0f);
+            pass.drawImage(
+                *panel,
+                {viewport.left + offset.x, viewport.top + offset.y},
+                {viewport.width, viewport.height},
+                glm::vec4(1.0f),
+                glm::mat3x4(glm::vec4(0.0f), glm::vec4(0.0f), gap));
+
+            int iconInset = static_cast<int>(std::lround(kIconOutlineInset * list.layoutScale()));
+            int plateInset = static_cast<int>(std::lround(kNameplateOutlineInset * list.layoutScale()));
+            for (int i = 0; i < list.visibleItemCount(); ++i) {
+                auto row = list.visibleItemExtent(i);
+                int iconSize = std::max(row.height - 2 * iconInset, 0);
+                blit(iconInk, {row.left + iconInset, row.top + iconInset, iconSize, iconSize});
+                blit(nameplateInk,
+                     {row.left + row.height + plateInset,
+                      row.top + plateInset,
+                      std::max(row.width - row.height - 2 * plateInset, 0),
+                      std::max(row.height - 2 * plateInset, 0)});
+            }
+        });
 }
 
 std::string GameGUI::guiResRef(const std::string &base) const {
