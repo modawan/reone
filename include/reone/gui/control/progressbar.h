@@ -52,6 +52,7 @@ private:
 
     Progress _progress;
     int _value {0};
+    bool _startFromLeft {true};
 };
 
 } // namespace gui
