@@ -30,7 +30,6 @@ public:
     FirstPersonCamera(
         uint32_t id,
         float fovy,
-        float aspect,
         std::string sceneName,
         Game &game,
         ServicesView &services) :
@@ -39,8 +38,7 @@ public:
             std::move(sceneName),
             game,
             services),
-        _fovy(fovy),
-        _aspect(aspect) {
+        _fovy(fovy) {
     }
 
     void load();
@@ -64,7 +62,6 @@ private:
     };
 
     float _fovy;
-    float _aspect;
 
     glm::vec3 _position {0.0f};
     float _pitch {0.0f};
@@ -76,6 +73,7 @@ private:
     bool handleKeyUp(const input::KeyEvent &event);
 
     void updateSceneNode();
+    void updateProjection() override;
 };
 
 } // namespace game

@@ -49,7 +49,7 @@ public:
         return false;
     }
 
-    void update(float dt) override {}
+    void update(float dt) override;
 
     virtual void stopMovement() {
     }
@@ -70,6 +70,12 @@ protected:
 
     float _facing {0.0f};
     bool _mouseLookMode {false};
+
+    int _projectionWidth {-1};
+    int _projectionHeight {-1};
+
+    void rebuildProjection();
+    virtual void updateProjection() = 0;
 };
 
 } // namespace game

@@ -156,9 +156,6 @@ Area::Area(
 }
 
 void Area::init() {
-    const GraphicsOptions &opts = _game.options().graphics;
-    _cameraAspect = opts.width / static_cast<float>(opts.height);
-
     _objectsByType.insert(std::make_pair(ObjectType::Creature, ObjectList()));
     _objectsByType.insert(std::make_pair(ObjectType::Item, ObjectList()));
     _objectsByType.insert(std::make_pair(ObjectType::Trigger, ObjectList()));
@@ -192,6 +189,9 @@ void Area::load(std::string name, const Gff &are, const Gff &git, bool fromSave)
 }
 
 void Area::activate() {
+    // Map is presentation state owned by Game, while loaded areas are cached.
+    // Restore this area's map whenever a cached module becomes active again.
+    _game.map().load(_name, _map);
     applySceneProperties();
 
     for (auto &pair : _rooms) {
@@ -250,7 +250,8 @@ void Area::loadScripts(const resource::generated::ARE &are) {
 }
 
 void Area::loadMap(const resource::generated::ARE &are) {
-    _game.map().load(_name, are.Map);
+    _map = are.Map;
+    _game.map().load(_name, _map);
 }
 
 void Area::loadStealthXP(const resource::generated::ARE &are) {
@@ -384,7 +385,7 @@ void Area::loadSounds(const resource::Gff &gff, bool fromSave) {
 
 void Area::loadCameras(const resource::Gff &gff, bool fromSave) {
     for (auto &cameraGff : gff.getList("CameraList")) {
-        std::shared_ptr<StaticCamera> camera = _game.newStaticCamera(_cameraAspect, _sceneName);
+        std::shared_ptr<StaticCamera> camera = _game.newStaticCamera(_sceneName);
         camera->deserialize(*cameraGff);
         if (fromSave) camera->captureSaveRecord(*cameraGff, {SaveRecordOriginKind::ActiveGitObject, _name});
         add(camera);
@@ -539,20 +540,20 @@ void Area::initCameras(const glm::vec3 &entryPosition, float entryFacing) {
 
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
 
-    _firstPersonCamera = _game.newFirstPersonCamera(glm::radians(kDefaultFieldOfView), _cameraAspect, _sceneName);
+    _firstPersonCamera = _game.newFirstPersonCamera(glm::radians(kDefaultFieldOfView), _sceneName);
     _firstPersonCamera->load();
     _firstPersonCamera->setPosition(position);
     _firstPersonCamera->setFacing(entryFacing);
 
-    _thirdPersonCamera = _game.newThirdPersonCamera(_camStyleDefault, _cameraAspect, _sceneName);
+    _thirdPersonCamera = _game.newThirdPersonCamera(_camStyleDefault, _sceneName);
     _thirdPersonCamera->load();
     _thirdPersonCamera->setTargetPosition(position);
     _thirdPersonCamera->setFacing(entryFacing);
 
-    _dialogCamera = _game.newDialogCamera(_camStyleDefault, _cameraAspect, _sceneName);
+    _dialogCamera = _game.newDialogCamera(_camStyleDefault, _sceneName);
     _dialogCamera->load();
 
-    _animatedCamera = _game.newAnimatedCamera(_cameraAspect, _sceneName);
+    _animatedCamera = _game.newAnimatedCamera(_sceneName);
     _animatedCamera->load();
 }
 

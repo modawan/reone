@@ -29,7 +29,6 @@ class StaticCamera : public Camera {
 public:
     StaticCamera(
         uint32_t id,
-        float aspect,
         std::string sceneName,
         Game &game,
         ServicesView &services) :
@@ -37,8 +36,7 @@ public:
             id,
             std::move(sceneName),
             game,
-            services),
-        _aspect(aspect) {
+            services) {
     }
 
     void deserialize(const resource::Gff &gff);
@@ -62,7 +60,7 @@ private:
 
     // END Serializable
 
-    float _aspect;
+    void updateProjection() override;
 };
 
 } // namespace game
