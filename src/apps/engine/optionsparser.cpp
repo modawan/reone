@@ -52,8 +52,6 @@ std::unique_ptr<Options> OptionsParser::parse() {
     descCommon.add_options()                                                                                                    //
         ("game", value<std::string>(), "path to game directory")                                                                //
         ("commands-file", value<std::string>()->default_value(""), "execute console commands from a file at startup")           //
-        ("capture", value<std::string>()->default_value(""), "write a screenshot to this path and exit")                        //
-        ("captureframe", value<int>()->default_value(3), "frame to capture on, counted from the first rendered frame")         //
         ("dev", value<bool>()->default_value(options->game.developer), "enable developer mode")                                 //
         ("width", value<int>()->default_value(options->graphics.width), "render width")                                         //
         ("height", value<int>()->default_value(options->graphics.height), "render height")                                      //
@@ -99,14 +97,11 @@ std::unique_ptr<Options> OptionsParser::parse() {
 
     options->game.path = vars.count("game") > 0 ? std::filesystem::path(vars["game"].as<std::string>()) : std::filesystem::current_path();
     options->game.developer = vars["dev"].as<bool>();
-    options->capturePath = vars["capture"].as<std::string>();
-    options->captureFrame = vars["captureframe"].as<int>();
     options->graphics.width = vars["width"].as<int>();
     options->graphics.height = vars["height"].as<int>();
     options->graphics.winScale = vars["winscale"].as<int>();
     options->graphics.fullscreen = vars["fullscreen"].as<bool>();
     options->graphics.headless = vars["headless"].as<bool>();
-    options->audio.muted = options->graphics.headless;
     options->graphics.vsync = vars["vsync"].as<bool>();
     options->graphics.grass = vars["grass"].as<bool>();
     options->graphics.pbr = vars["pbr"].as<bool>();

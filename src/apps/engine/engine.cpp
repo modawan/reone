@@ -98,7 +98,7 @@ void Engine::init() {
         throw std::runtime_error("SDL_Init failed: " + std::string(SDL_GetError()));
     }
 
-    if (_options.graphics.headless || isCaptureRun()) {
+    if (_options.graphics.headless) {
         _options.graphics.winScale = 100;
         _options.audio.muted = true;
     }
@@ -194,7 +194,6 @@ void Engine::init() {
         *_services,
         *_console);
     _game->init();
-
 }
 
 void Engine::deinit() {
@@ -234,7 +233,7 @@ int Engine::run() {
         if (quit) {
             break;
         }
-        if (!_window->isInFocus() && !_options.graphics.headless && !isCaptureRun()) {
+        if (!_window->isInFocus() && !_options.graphics.headless) {
             std::this_thread::sleep_for(std::chrono::milliseconds {100});
             continue;
         }
@@ -247,7 +246,7 @@ int Engine::run() {
         }
         auto frameTime = (ticks - _ticks) / 10e5f;
         _ticks = ticks;
-        if (_options.graphics.headless || isCaptureRun()) {
+        if (_options.graphics.headless) {
             frameTime = 1.0f / 60.0f;
         }
         processScriptedCommands(quit);
@@ -285,7 +284,6 @@ int Engine::run() {
             setRelativeMouseMode(relmouse);
             _profiler->update(frameTime);
         });
-        ++_frameIndex;
         _profiler->measure(kMainThreadName, kProfilerRenderGraphicsTimeIndex, [this, &quit]() {
             _services->graphics.statistic.resetDrawCalls();
             if (_options.graphics.pbr) {
@@ -383,11 +381,6 @@ void Engine::captureIfRequested(bool &quit) {
         if (_captureRequest->index >= _captureRequest->count) {
             _captureRequest.reset();
         }
-    }
-    if (isCaptureRun() && !_captured && _frameIndex >= _options.captureFrame) {
-        captureFrame(_options.capturePath);
-        _captured = true;
-        quit = true;
     }
 }
 
