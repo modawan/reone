@@ -43,20 +43,22 @@ void SceneInitializer::invoke() {
     if (!cameraNode) {
         return;
     }
-    cameraNode->setOrthographicProjection(
-        -_aspect * _modelScale + _modelOffset.x,
-        _aspect * _modelScale + _modelOffset.x,
-        -_modelScale + _modelOffset.y,
-        _modelScale + _modelOffset.y,
-        _zNear, _zFar);
+    if (_perspectiveVerticalFov) {
+        cameraNode->setPerspectiveProjection(*_perspectiveVerticalFov, _aspect, _zNear, _zFar);
+    } else {
+        cameraNode->setOrthographicProjection(
+            -_aspect * _modelScale + _modelOffset.x,
+            _aspect * _modelScale + _modelOffset.x,
+            -_modelScale + _modelOffset.y,
+            _modelScale + _modelOffset.y,
+            _zNear, _zFar);
+    }
 
     if (_cameraNodeName.empty()) {
         cameraNode->setLocalTransform(_cameraTransform);
-    } else {
-        std::shared_ptr<ModelNode> modelNode(model->model().getNodeByName(_cameraNodeName));
-        if (modelNode) {
-            cameraNode->setLocalTransform(modelNode->absoluteTransform() * _cameraTransform);
-        }
+    } else if (model->getNodeByName(_cameraNodeName)) {
+        model->attach(_cameraNodeName, *cameraNode);
+        cameraNode->setLocalTransform(_cameraTransform);
     }
     _sceneGraph.setActiveCamera(cameraNode.get());
 }
@@ -69,6 +71,11 @@ SceneInitializer &SceneInitializer::aspect(float aspect) {
 SceneInitializer &SceneInitializer::depth(float zNear, float zFar) {
     _zNear = zNear;
     _zFar = zFar;
+    return *this;
+}
+
+SceneInitializer &SceneInitializer::perspective(float verticalFov) {
+    _perspectiveVerticalFov = verticalFov;
     return *this;
 }
 
