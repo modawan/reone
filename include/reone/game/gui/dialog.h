@@ -116,6 +116,7 @@ private:
 
     // Loading
 
+    int bandHeight() const;
     void loadFrames();
     void loadCurrentSpeaker();
 
