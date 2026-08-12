@@ -437,6 +437,7 @@ void Game::initConsole() {
     registerConsoleCommand("showbark", "show a timed HUD bark message", &Game::consoleShowBark);
     registerConsoleCommand("showpopup", "show the confirmation popup with an optional icon", &Game::consoleShowPopup);
     registerConsoleCommand("showgallerymode", "open a deterministic gameplay-mode gallery fixture", &Game::consoleShowGalleryMode);
+    registerConsoleCommand("graphics", "toggle 3D scene rendering: graphics on|off", &Game::consoleGraphics);
     registerConsoleCommand("showhud", "open the third-person gameplay HUD for a scripted capture", &Game::consoleShowHUD);
     registerConsoleCommand("selectdialogoption", "select a dialog option without activating it for a scripted capture", &Game::consoleSelectDialogOption);
     registerConsoleCommand("kill", "kill selected object", &Game::consoleKill);
@@ -1263,7 +1264,7 @@ void Game::playMusic(const std::string &resRef) {
 }
 
 void Game::renderScene() {
-    if (!_module) {
+    if (!_module || !_options.graphics.sceneRender) {
         return;
     }
     auto &scene = _services.scene.graphs.get(kSceneMain);
@@ -3699,6 +3700,18 @@ void Game::consoleShowPopup(const ConsoleArgs &args) {
         icon = _services.resource.textures.get(std::string(iconResRef), TextureUsage::GUI);
     }
     _confirmPopup->show(joinConsoleArgs(args, 2), std::move(icon));
+}
+
+void Game::consoleGraphics(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "on|off");
+    auto mode = std::string(args[1].value());
+    if (boost::iequals(mode, "on")) {
+        _options.graphics.sceneRender = true;
+    } else if (boost::iequals(mode, "off")) {
+        _options.graphics.sceneRender = false;
+    } else {
+        throw std::runtime_error("Expected on or off");
+    }
 }
 
 void Game::consoleShowHUD(const ConsoleArgs &args) {

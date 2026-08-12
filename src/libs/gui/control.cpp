@@ -220,7 +220,7 @@ void Control::render(const glm::ivec2 &screenSize,
     if (!_textLines.empty()) {
         renderText(_textLines, offset, size, pass);
     }
-    if (!_sceneName.empty()) {
+    if (!_sceneName.empty() && _gui.sceneRenderEnabled()) {
         std::optional<std::reference_wrapper<Texture>> output;
         _graphicsSvc.context.withBlendMode(BlendMode::None, [this, &output]() {
             output = _sceneGraphs.get(_sceneName).render({_extent.width, _extent.height});
