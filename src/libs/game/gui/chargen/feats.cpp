@@ -220,7 +220,8 @@ void CharGenFeats::refreshIconChain() {
 }
 
 void CharGenFeats::refreshIconChainSelection() {
-    if (!_levelUp) {
+    bool showIconChain = _levelUp || _game.isTSL();
+    if (!showIconChain) {
         return;
     }
 
@@ -374,6 +375,15 @@ void CharGenFeats::onFeatActivated(const std::string &feat) {
         maybeDisplayEntry != _displayEntries.end() &&
         maybeDisplayEntry->availability == FeatAvailability::Selectable) {
         toggleSelectedFeat(featType);
+    }
+}
+
+void CharGenFeats::selectFirstEntryForCapture() {
+    for (auto &entry : _displayEntries) {
+        if (entry.availability == FeatAvailability::Selectable) {
+            onFeatActivated(std::to_string(static_cast<int>(entry.type)));
+            return;
+        }
     }
 }
 

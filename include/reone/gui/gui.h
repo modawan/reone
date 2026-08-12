@@ -110,6 +110,9 @@ public:
     virtual void setDefaultHilightColor(glm::vec3 color) = 0;
     virtual void setBackground(std::shared_ptr<graphics::Texture> texture) = 0;
 
+    /** Reapplies the layout after authored geometry or the resolution changed. */
+    virtual void refreshLayout() {}
+
     virtual std::unique_ptr<Control> newControl(ControlType type, std::string tag) = 0;
     virtual void addControlToFront(std::shared_ptr<Control> control, ControlCoordinates coordinates) = 0;
     virtual void addControlToBack(std::shared_ptr<Control> control, ControlCoordinates coordinates) = 0;
@@ -224,6 +227,10 @@ public:
     }
 
     void setBackground(std::shared_ptr<graphics::Texture> texture) override;
+
+    void refreshLayout() override {
+        applyLayout();
+    }
 
     std::unique_ptr<Control> newControl(ControlType type, std::string tag) override;
 

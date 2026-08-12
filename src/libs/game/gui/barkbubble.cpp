@@ -45,6 +45,9 @@ void BarkBubble::onGUILoaded() {
     float scale = _gui->scale();
     auto &root = _gui->rootControl();
     auto rootAuthored = root.authoredExtent();
+    if (_authoredTopOverride) {
+        rootAuthored.top = *_authoredTopOverride;
+    }
     Control::Extent rootExtent {
         static_cast<int>(std::lround(rootAuthored.left * scale)),
         static_cast<int>(std::lround(rootAuthored.top * scale)),

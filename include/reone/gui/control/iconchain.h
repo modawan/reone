@@ -110,6 +110,7 @@ public:
     void setCellOrigin(int x, int y);
     void setCellStep(int x, int y);
     void setRowOffsets(std::vector<int> offsets);
+    void setScrollBar(std::shared_ptr<Control> scrollBar);
     void setCellStyle(CellStyle style);
 
     // Event listeners
@@ -129,6 +130,7 @@ private:
     glm::ivec2 _cellOrigin {-1};
     glm::ivec2 _cellStep {0};
     std::vector<int> _rowOffsets;
+    std::shared_ptr<Control> _scrollBar;
     CellStyle _cellStyle;
     int _rowOffset {0};
     int _focusedItemIndex {-1};

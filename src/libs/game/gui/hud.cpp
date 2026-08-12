@@ -52,6 +52,9 @@ namespace game {
 
 static std::string g_attackIcon("i_attack");
 
+/** Authored-canvas gap between the minimap frame and the TSL bark bubble. */
+static constexpr int kBarkBubbleMapGap = 8;
+
 static void tintK2HUDMenuButton(const std::shared_ptr<Button> &button, const glm::vec3 &baseColor) {
     if (!button) {
         return;
@@ -235,6 +238,12 @@ void HUD::onGUILoaded() {
     _select.init();
 
     _barkBubble = std::make_unique<BarkBubble>(_game, _services);
+    if (_game.isTSL()) {
+        // TSL authors the bark bubble over the minimap frame. Keep it below;
+        // both GUIs share the 800x600 authored canvas.
+        const auto &mapBorder = _controls.LBL_MAPBORDER->authoredExtent();
+        _barkBubble->setAuthoredTop(mapBorder.top + mapBorder.height + kBarkBubbleMapGap);
+    }
     _barkBubble->init();
 
     _statusSummary = std::make_unique<StatusSummary>(_game, _services, _game.statusSummary());
