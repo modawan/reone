@@ -184,8 +184,10 @@ public:
     void setTextColor(glm::vec3 color);
     void setTextMessage(std::string text);
     void setTextFont(std::shared_ptr<graphics::Font> font);
+    void setTextPaddingLeft(int padding) { _textPaddingLeft = padding; }
     void setTintBorderFill(bool tint) { _tintBorderFill = tint; }
     void setSharpenBorderFillAlpha(bool sharpen) { _sharpenBorderFillAlpha = sharpen; }
+    void setConstrainBorderSlices(bool constrain) { _constrainBorderSlices = constrain; }
     void setUseBorderColorOverride(bool use);
     void setVisible(bool visible);
 
@@ -243,11 +245,13 @@ protected:
     Text _text;
     std::string _sceneName;
     int _padding {0};
+    int _textPaddingLeft {0};
     glm::mat4 _transform {1.0f};
     bool _visible {true};
     bool _disabled {false};
     bool _selected {false};
     bool _hilightOverBorder {false};
+    bool _constrainBorderSlices {false};
     bool _selectable {false};
     bool _tintBorderFill {false};
     bool _sharpenBorderFillAlpha {false};

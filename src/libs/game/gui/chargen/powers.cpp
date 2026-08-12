@@ -119,6 +119,21 @@ void CharGenPowers::onGUILoaded() {
     bindControls();
     _defaultPowerNameText = _controls.LBL_POWER->text().text;
 
+    if (_game.isTSL()) {
+        _controls.MAIN_TITLE_LBL->setConstrainBorderSlices(true);
+        _controls.SUB_TITLE_LBL->setConstrainBorderSlices(true);
+        _controls.SELECTIONS_REMAINING_LBL->setConstrainBorderSlices(true);
+        _controls.SELECTIONS_REMAINING_LBL->setTextPaddingLeft(
+            _controls.SELECTIONS_REMAINING_LBL->border().dimension);
+    }
+
+    // Align the description box's right edge with the remaining-selections
+    // bar's, keeping the left edge.
+    auto descExtent = _controls.LB_DESC->extent();
+    const auto &remainingExtent = _controls.SELECTIONS_REMAINING_LBL->extent();
+    descExtent.width = remainingExtent.left + remainingExtent.width - descExtent.left;
+    _controls.LB_DESC->setExtent(descExtent);
+
     auto iconChainControl = std::shared_ptr<Control>(_gui->newControl(ControlType::IconChain, "ICONCHAIN_POWERS"));
     _controls.ICONCHAIN_POWERS = std::static_pointer_cast<IconChain>(iconChainControl);
     _controls.ICONCHAIN_POWERS->setExtent(_controls.LB_POWERS->extent());
@@ -198,7 +213,8 @@ void CharGenPowers::onGUILoaded() {
     }
     cellStyle.iconSize = scalePixels(kPowerIconSize, layoutScale);
     cellStyle.dimLockedBackground = !_game.isTSL();
-    cellStyle.drawItemBorderFill = !_game.isTSL();
+    cellStyle.drawItemBorderFill = true;
+    cellStyle.drawItemBorderBeforeIcon = _game.isTSL();
     _controls.ICONCHAIN_POWERS->setCellStyle(std::move(cellStyle));
     _controls.ICONCHAIN_POWERS->setOnItemFocus([this](const std::string &item) {
         onPowerFocused(item);
@@ -263,7 +279,7 @@ void CharGenPowers::refreshControls() {
 
 void CharGenPowers::refreshSelectionControls() {
     int remaining = _powerGain - static_cast<int>(_selectedPowers.size());
-    _controls.SELECTIONS_REMAINING_LBL->setTextMessage(std::to_string(remaining));
+    _controls.REMAINING_SELECTIONS_LBL->setTextMessage(std::to_string(remaining));
     _controls.ACCEPT_BTN->setDisabled(remaining != 0);
 }
 
