@@ -40,7 +40,7 @@ void Cursor::render() {
         locals.reset();
         locals.model = std::move(transform);
     });
-    _context.useProgram(_shaderRegistry.get(ShaderProgramId::mvpTexture));
+    _context.useProgram(_shaderRegistry.get(ShaderProgramId::mvpIcon));
     _context.withBlendMode(BlendMode::Normal, [this]() {
         _meshRegistry.get(MeshName::quad).draw(_statistic);
     });

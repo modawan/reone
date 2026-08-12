@@ -166,7 +166,7 @@ void Map::renderNotes(Mode mode, const glm::vec4 &bounds) {
             locals.model = std::move(transform);
             locals.color = glm::vec4(selected ? guiColorHilight : guiColorBase, 1.0f);
         });
-        _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpTexture));
+        _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
         _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
     }
 }
@@ -247,7 +247,7 @@ void Map::renderPartyLeader(Mode mode, const glm::vec4 &bounds) {
         locals.reset();
         locals.model = std::move(transform);
     });
-    _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpTexture));
+    _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
 }
 

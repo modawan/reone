@@ -96,7 +96,8 @@ public:
                    const glm::ivec2 &position,
                    const glm::ivec2 &scale,
                    glm::vec4 color,
-                   glm::mat3x4 uv) override;
+                   glm::mat3x4 uv,
+                   ImageAlphaMode alphaMode) override;
 
 private:
     graphics::GraphicsOptions &_options;
