@@ -86,7 +86,7 @@ private:
         _controls.LB_REPLIES = findControl<gui::ListBox>("LB_REPLIES");
     }
 
-    void addFrame(std::string tag, int top, int height);
+    void addFrame(std::string tag, int top);
     void configureMessage();
     void configureReplies();
     void repositionMessage();
@@ -120,6 +120,7 @@ private:
     // Loading
 
     int bandHeight() const;
+    gui::Control::Extent bandExtent(int top) const;
     void loadFrames();
     void loadCurrentSpeaker();
 

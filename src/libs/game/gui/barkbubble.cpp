@@ -83,8 +83,8 @@ void BarkBubble::setBarkText(const std::string &text, float duration) {
         int lineHeight = std::max(1, static_cast<int>(std::lround(
                                          _controls.LBL_BARKTEXT->text().font->height() *
                                          _controls.LBL_BARKTEXT->scale())));
-        int padding = std::max(0, static_cast<int>(std::lround(
-                                      _controls.LBL_BARKTEXT->authoredExtent().left * _gui->scale())));
+        // Baked into the control extents by onGUILoaded.
+        int padding = std::max(0, _controls.LBL_BARKTEXT->extent().left - _gui->rootControl().extent().left);
 
         _gui->rootControl().setVisible(true);
         _gui->rootControl().setExtentHeight(lineCount * lineHeight + 2 * padding);

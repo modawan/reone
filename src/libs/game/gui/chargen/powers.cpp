@@ -17,6 +17,8 @@
 
 #include "reone/game/gui/chargen/powers.h"
 
+#include "reone/game/gui/chargen/iconselection.h"
+
 #include "reone/game/d20/classes.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/chargen.h"
@@ -35,32 +37,6 @@ using namespace reone::resource;
 namespace reone {
 
 namespace game {
-
-static constexpr int kPowerIconCellSize = 40;
-static constexpr int kPowerIconColumnCount = 3;
-static constexpr int kPowerIconSize = 32;
-static constexpr int kK1PowerArrowSize = 32;
-static constexpr int kTSLPowerArrowSize = 32;
-static constexpr int kK1VisiblePowerRows = 5;
-static constexpr int kTSLVisiblePowerRows = 7;
-static constexpr char kK1PowerCellFill[] = "lbl_indent";
-static constexpr char kK1PowerArrow[] = "lbl_skarr";
-static constexpr char kK1PowerCellBorderCorner[] = "border2d";
-static constexpr char kK1PowerCellBorderEdge[] = "border1d";
-static constexpr int kK1PowerCellBorderDimension = 8;
-static constexpr glm::vec3 kK1PowerBorderGreen {0.278431f, 0.921569f, 0.105882f};
-static constexpr glm::vec3 kK1PowerBorderGreenDim = 0.7f * kK1PowerBorderGreen;
-static constexpr glm::vec3 kK1PowerBorderGold {0.980392f, 1.0f, 0.0f};
-static constexpr glm::vec3 kK1PowerBorderRed {0.698039f, 0.0f, 0.0f};
-static constexpr glm::vec3 kTSLLockedPowerBorderColor {0.698039f, 0.0f, 0.0f};
-static constexpr glm::vec3 kTSLSelectablePowerBorderColor {0.05098f, 0.34902f, 0.270588f};
-static constexpr glm::vec3 kTSLOwnedPowerBorderColor {0.101961f, 0.698039f, 0.54902f};
-static constexpr glm::vec3 kTSLChosenPowerBorderColor {1.0f};
-static constexpr char kTSLPowerArrow[] = "uibit_abi_arrow";
-
-static int scalePixels(int pixels, float scale) {
-    return std::max(1, static_cast<int>(std::lround(pixels * scale)));
-}
 
 static IconChain::State getPowerIconState(SpellAvailability availability) {
     switch (availability) {
@@ -94,7 +70,7 @@ static std::map<SpellType, glm::ivec2> getPowerIconPositions(
             chainRoots.push_back(root);
         }
         int index = maybeIndex.first->second++;
-        result.emplace(entry.type, glm::ivec2(index % kPowerIconColumnCount, index / kPowerIconColumnCount));
+        result.emplace(entry.type, glm::ivec2(index % kIconSelectionColumnCount, index / kIconSelectionColumnCount));
     }
 
     std::map<SpellType, int> rowBases;
@@ -102,7 +78,7 @@ static std::map<SpellType, glm::ivec2> getPowerIconPositions(
     for (auto root : chainRoots) {
         int count = nextIndexByRoot.at(root);
         rowBases.emplace(root, nextRow);
-        nextRow += (count + kPowerIconColumnCount - 1) / kPowerIconColumnCount;
+        nextRow += (count + kIconSelectionColumnCount - 1) / kIconSelectionColumnCount;
     }
 
     for (const auto &entry : entries) {
@@ -119,113 +95,31 @@ void CharGenPowers::onGUILoaded() {
     bindControls();
     _defaultPowerNameText = _controls.LBL_POWER->text().text;
 
-    if (_game.isTSL()) {
-        _controls.MAIN_TITLE_LBL->setConstrainBorderSlices(true);
-        _controls.SUB_TITLE_LBL->setConstrainBorderSlices(true);
-        _controls.SELECTIONS_REMAINING_LBL->setConstrainBorderSlices(true);
-        _controls.SELECTIONS_REMAINING_LBL->setTextPaddingLeft(
-            _controls.SELECTIONS_REMAINING_LBL->border().dimension);
-    }
+    styleIconSelectionTitles(
+        _game,
+        *_controls.MAIN_TITLE_LBL,
+        *_controls.SUB_TITLE_LBL,
+        *_controls.SELECTIONS_REMAINING_LBL,
+        *_controls.LB_DESC);
 
-    // Align the description box's right edge with the remaining-selections
-    // bar's, keeping the left edge.
-    auto descExtent = _controls.LB_DESC->extent();
-    const auto &remainingExtent = _controls.SELECTIONS_REMAINING_LBL->extent();
-    descExtent.width = remainingExtent.left + remainingExtent.width - descExtent.left;
-    _controls.LB_DESC->setExtent(descExtent);
-
-    auto iconChainControl = std::shared_ptr<Control>(_gui->newControl(ControlType::IconChain, "ICONCHAIN_POWERS"));
-    _controls.ICONCHAIN_POWERS = std::static_pointer_cast<IconChain>(iconChainControl);
-    _controls.ICONCHAIN_POWERS->setExtent(_controls.LB_POWERS->extent());
-    _controls.ICONCHAIN_POWERS->setPadding(_controls.LB_POWERS->padding());
-    _controls.ICONCHAIN_POWERS->setBorder(_controls.LB_POWERS->border());
-    if (!_game.isTSL()) {
-        _controls.ICONCHAIN_POWERS->setHilight(_controls.LB_POWERS->border());
-        _controls.ICONCHAIN_POWERS->setHilightColor(_hilightColor);
-    }
-    _controls.ICONCHAIN_POWERS->setTintBorderFill(_game.isTSL());
-    float layoutScale = _gui->scale();
-    int cellSize = scalePixels(kPowerIconCellSize, layoutScale);
-    _controls.ICONCHAIN_POWERS->setCellSize(cellSize);
-    auto &listExtent = _controls.LB_POWERS->extent();
-    auto &protoExtent = _controls.LB_POWERS->protoItem().extent();
-    int contentInsetY = protoExtent.top - listExtent.top;
-    int originY = contentInsetY;
-    int rowStep = protoExtent.height;
-    if (!_game.isTSL()) {
-        int contentHeight = listExtent.height - 2 * contentInsetY;
-        int remainingHeight = contentHeight - kK1VisiblePowerRows * cellSize;
-        int gapCount = kK1VisiblePowerRows + 1;
-        int rowGap = (remainingHeight + gapCount / 2) / gapCount;
-        originY += rowGap;
-        rowStep = cellSize + rowGap;
-    } else {
-        int fillInsetY = _controls.LB_POWERS->border().dimension;
-        int fillHeight = listExtent.height - 2 * fillInsetY;
-        int rowRange = fillHeight - cellSize;
-        int gapCount = kTSLVisiblePowerRows - 1;
-        std::vector<int> rowOffsets;
-        rowOffsets.reserve(kTSLVisiblePowerRows);
-        for (int row = 0; row < kTSLVisiblePowerRows; ++row) {
-            rowOffsets.push_back(
-                fillInsetY + (row * rowRange + gapCount / 2) / gapCount);
-        }
-        _controls.ICONCHAIN_POWERS->setRowOffsets(std::move(rowOffsets));
-    }
-    _controls.ICONCHAIN_POWERS->setCellOrigin(protoExtent.left - listExtent.left, originY);
-    _controls.ICONCHAIN_POWERS->setCellStep(
-        (protoExtent.width - cellSize) / (kPowerIconColumnCount - 1),
-        rowStep);
-
-    IconChain::CellStyle cellStyle;
-    if (!_game.isTSL()) {
-        cellStyle.backgroundTexture = _services.resource.textures.get(kK1PowerCellFill, TextureUsage::GUI);
-        cellStyle.linkTexture = _services.resource.textures.get(kK1PowerArrow, TextureUsage::GUI);
-        int arrowSize = scalePixels(kK1PowerArrowSize, layoutScale);
-        cellStyle.linkSize = {arrowSize, arrowSize};
-        cellStyle.itemBorder = std::make_shared<Control::Border>();
-        cellStyle.itemBorder->corner = _services.resource.textures.get(kK1PowerCellBorderCorner, TextureUsage::GUI);
-        cellStyle.itemBorder->edge = _services.resource.textures.get(kK1PowerCellBorderEdge, TextureUsage::GUI);
-        cellStyle.itemBorder->dimension = scalePixels(kK1PowerCellBorderDimension, layoutScale);
-        cellStyle.borderColors = std::make_shared<IconChain::CellStyle::BorderColors>();
-        cellStyle.borderColors->owned = kK1PowerBorderGreenDim;
-        cellStyle.borderColors->selected = kK1PowerBorderGreen;
-        cellStyle.focusedBorderColors = std::make_shared<IconChain::CellStyle::FocusedBorderColors>();
-        cellStyle.focusedBorderColors->locked = kK1PowerBorderRed;
-        cellStyle.focusedBorderColors->selectable = kK1PowerBorderGold;
-        cellStyle.focusedBorderColors->owned = kK1PowerBorderGreen;
-        cellStyle.focusedBorderColors->selected = kK1PowerBorderGreen;
-        cellStyle.onlyDrawItemBorderWhenBright = true;
-    } else {
-        cellStyle.linkTexture = _services.resource.textures.get(kTSLPowerArrow, TextureUsage::GUI);
-        int arrowSize = scalePixels(kTSLPowerArrowSize, layoutScale);
-        cellStyle.linkSize = {arrowSize, arrowSize};
-        cellStyle.borderColors = std::make_shared<IconChain::CellStyle::BorderColors>();
-        cellStyle.borderColors->locked = kTSLLockedPowerBorderColor;
-        cellStyle.borderColors->selectable = kTSLSelectablePowerBorderColor;
-        cellStyle.borderColors->owned = kTSLOwnedPowerBorderColor;
-        cellStyle.borderColors->selected = kTSLChosenPowerBorderColor;
-        cellStyle.focusedBorderColors = std::make_shared<IconChain::CellStyle::FocusedBorderColors>();
-        cellStyle.focusedBorderColors->locked = kTSLLockedPowerBorderColor;
-        cellStyle.focusedBorderColors->selectable = kTSLSelectablePowerBorderColor;
-        cellStyle.focusedBorderColors->owned = kTSLOwnedPowerBorderColor;
-        cellStyle.focusedBorderColors->selected = kTSLChosenPowerBorderColor;
-    }
-    cellStyle.iconSize = scalePixels(kPowerIconSize, layoutScale);
-    cellStyle.dimLockedBackground = !_game.isTSL();
-    cellStyle.drawItemBorderFill = true;
-    cellStyle.drawItemBorderBeforeIcon = _game.isTSL();
-    _controls.ICONCHAIN_POWERS->setCellStyle(std::move(cellStyle));
-    _controls.ICONCHAIN_POWERS->setOnItemFocus([this](const std::string &item) {
+    IconSelectionCallbacks callbacks;
+    callbacks.onItemFocus = [this](const std::string &item) {
         onPowerFocused(item);
-    });
-    _controls.ICONCHAIN_POWERS->setOnItemFocusCleared([this]() {
+    };
+    callbacks.onItemFocusCleared = [this]() {
         resetFocusedPowerName();
-    });
-    _controls.ICONCHAIN_POWERS->setOnItemDoubleClick([this](const std::string &item) {
+    };
+    callbacks.onItemDoubleClick = [this](const std::string &item) {
         onPowerActivated(item);
-    });
-    _gui->addControlToBack(_controls.ICONCHAIN_POWERS, IGUI::ControlCoordinates::Screen);
+    };
+    _controls.ICONCHAIN_POWERS = addIconSelectionChain(
+        *_gui,
+        _game,
+        _services,
+        "ICONCHAIN_POWERS",
+        *_controls.LB_POWERS,
+        _hilightColor,
+        std::move(callbacks));
 
     _controls.LB_DESC->setProtoMatchContent(true);
     _controls.LB_POWERS->setVisible(false);
@@ -285,7 +179,7 @@ void CharGenPowers::refreshSelectionControls() {
 
 void CharGenPowers::refreshIconChain() {
     _controls.ICONCHAIN_POWERS->clearItems();
-    _controls.ICONCHAIN_POWERS->setColumnCount(kPowerIconColumnCount);
+    _controls.ICONCHAIN_POWERS->setColumnCount(kIconSelectionColumnCount);
 
     auto positions = getPowerIconPositions(_displayEntries);
     std::string firstVisible;

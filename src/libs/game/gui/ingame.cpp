@@ -245,7 +245,7 @@ void InGameMenu::openEquipment() {
 }
 
 void InGameMenu::openEquipmentItems() {
-    _equip->openItems(Equipment::Slot::Body);
+    _equip->openItems();
     changeTab(InGameMenuTab::Equipment);
 }
 

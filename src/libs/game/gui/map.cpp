@@ -161,9 +161,7 @@ void Map::renderNotes(Mode mode, const glm::vec4 &bounds, float scale) {
             continue;
 
         glm::vec2 mapPos(getMapPosition(waypoint->position()));
-        mapPos.x *= (_game.isTSL() ? kTSLMapWidth : kKotorMapWidth) /
-                    static_cast<float>(_areaTexture->width());
-        mapPos.y *= kMapHeight / static_cast<float>(_areaTexture->height());
+        normalizeMapPosition(mapPos);
 
         glm::vec2 notePos;
         notePos.x = bounds[0] + mapPos.x * bounds[2];
@@ -187,6 +185,12 @@ void Map::renderNotes(Mode mode, const glm::vec4 &bounds, float scale) {
         _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
         _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
     }
+}
+
+void Map::normalizeMapPosition(glm::vec2 &mapPos) const {
+    mapPos.x *= (_game.isTSL() ? kTSLMapWidth : kKotorMapWidth) /
+                static_cast<float>(_areaTexture->width());
+    mapPos.y *= kMapHeight / static_cast<float>(_areaTexture->height());
 }
 
 glm::vec2 Map::getMapPosition(const glm::vec2 &world) const {
@@ -228,9 +232,7 @@ void Map::renderPartyLeader(Mode mode, const glm::vec4 &bounds, float scale) {
     if (mode == Mode::Default) {
         glm::vec2 worldPos(partyLeader->position());
         glm::vec2 mapPos(getMapPosition(worldPos));
-        mapPos.x *= (_game.isTSL() ? kTSLMapWidth : kKotorMapWidth) /
-                    static_cast<float>(_areaTexture->width());
-        mapPos.y *= kMapHeight / static_cast<float>(_areaTexture->height());
+        normalizeMapPosition(mapPos);
 
         arrowPos.x = bounds[0] + mapPos.x * bounds[2];
         arrowPos.y = bounds[1] + mapPos.y * bounds[3];

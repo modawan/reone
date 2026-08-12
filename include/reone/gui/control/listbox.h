@@ -146,7 +146,6 @@ private:
     void updateItemSlots();
     void updateItemsLayout();
     int getInnerHeight() const;
-    int scaledPadding() const { return static_cast<int>(_padding * _layoutScale); }
     float getItemPitch(const Item &item) const;
     int getItemWidth() const;
     int getItemHeight(const Item &item) const;

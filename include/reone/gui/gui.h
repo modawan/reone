@@ -128,11 +128,7 @@ public:
 
     }
 
-    /** Both derived from the current resolution, which can change at runtime. */
-    float aspect() const {
-        return _options.width / static_cast<float>(_options.height);
-    }
-
+    /** Derived from the current resolution, which can change at runtime. */
     glm::ivec2 screenCenter() const {
         return {_options.width / 2, _options.height / 2};
     }

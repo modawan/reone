@@ -140,42 +140,36 @@ int DialogGUI::bandHeight() const {
     return _game.options().graphics.height / kBandDivisor;
 }
 
-void DialogGUI::loadFrames() {
-
-    int band = bandHeight();
-    addFrame(kControlTagTopFrame, 0, band);
-    addFrame(kControlTagBottomFrame, _game.options().graphics.height - band, band);
+Control::Extent DialogGUI::bandExtent(int top) const {
+    return {0, top, _game.options().graphics.width, bandHeight()};
 }
 
-void DialogGUI::addFrame(std::string tag, int top, int height) {
+void DialogGUI::loadFrames() {
+    addFrame(kControlTagTopFrame, 0);
+    addFrame(kControlTagBottomFrame, _game.options().graphics.height - bandHeight());
+}
+
+void DialogGUI::addFrame(std::string tag, int top) {
     auto frame = _gui->newControl(ControlType::Panel, tag);
-
-    Control::Extent extent;
-    extent.left = 0;
-    extent.top = top;
-    extent.width = _game.options().graphics.width;
-    extent.height = height;
-
-    frame->setExtent(std::move(extent));
+    frame->setExtent(bandExtent(top));
     frame->setBorderFill("blackfill");
 
     _gui->addControlToFront(std::move(frame), IGUI::ControlCoordinates::Screen);
 }
 
 void DialogGUI::configureMessage() {
-    _controls.LBL_MESSAGE->setExtent({0, 0, _game.options().graphics.width, bandHeight()});
+    _controls.LBL_MESSAGE->setExtent(bandExtent(0));
     _controls.LBL_MESSAGE->setTextColor(_baseColor);
 }
 
 void DialogGUI::configureReplies() {
-    int band = bandHeight();
     // Reply prose is authored for a 4:3 dialogue safe area. Keep that area
     // centred on wider displays, but preserve the original left alignment
     // inside it so choices scan as a conventional vertical list.
     // The list's root remains full-width so its authored child coordinates
     // do not receive the safe-area offset twice. The row prototype below is
     // positioned in the 4:3 rectangle itself.
-    _controls.LB_REPLIES->setExtent({0, _game.options().graphics.height - band, _game.options().graphics.width, band});
+    _controls.LB_REPLIES->setExtent(bandExtent(_game.options().graphics.height - bandHeight()));
     _controls.LB_REPLIES->setProtoMatchContent(true);
     _controls.LB_REPLIES->protoItem().setTextFont(_controls.LBL_MESSAGE->text().font);
     _controls.LB_REPLIES->protoItem().setScale(_controls.LBL_MESSAGE->scale());
@@ -600,17 +594,15 @@ void DialogGUI::setReplyLines(std::vector<std::string> lines) {
     }
     // The bottom black band belongs to the replies as a group. The authored
     // list is top-anchored, so move its row prototype to centre the group.
-    auto firstRow = _controls.LB_REPLIES->visibleItemExtent(0);
-    auto lastRow = _controls.LB_REPLIES->visibleItemExtent(static_cast<int>(lines.size()) - 1);
-    int listHeight = lastRow.top + lastRow.height - firstRow.top;
-    int bandTop = _controls.LB_REPLIES->extent().top;
-    int bandHeight = _controls.LB_REPLIES->extent().height;
+    // The first visible row sits exactly at the prototype's top.
     auto extent = _controls.LB_REPLIES->protoItem().extent();
+    auto lastRow = _controls.LB_REPLIES->visibleItemExtent(static_cast<int>(lines.size()) - 1);
+    int listHeight = lastRow.top + lastRow.height - extent.top;
+    const auto &band = _controls.LB_REPLIES->extent();
     int safeWidth = std::min(_game.options().graphics.width, _game.options().graphics.height * 4 / 3);
-    int safeLeft = (_game.options().graphics.width - safeWidth) / 2;
-    extent.left = safeLeft;
+    extent.left = (_game.options().graphics.width - safeWidth) / 2;
     extent.width = safeWidth;
-    extent.top = bandTop + (bandHeight - listHeight) / 2;
+    extent.top = band.top + (band.height - listHeight) / 2;
     _controls.LB_REPLIES->protoItem().setExtent(std::move(extent));
 }
 
