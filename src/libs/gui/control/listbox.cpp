@@ -207,6 +207,9 @@ void ListBox::render(const glm::ivec2 &screenSize,
     if (!_visible)
         return;
 
+    if (_backgroundRenderer) {
+        _backgroundRenderer(*this, offset, pass);
+    }
     Control::render(screenSize, offset, pass);
 
     if (!_protoItem)
@@ -407,6 +410,41 @@ int ListBox::getInnerHeight() const {
         height -= 2 * _border->dimension;
     }
     return std::max(height, 0);
+}
+
+Control::Extent ListBox::itemsViewport() const {
+    if (!_protoItem) {
+        return {};
+    }
+    int border = _border ? _border->dimension : 0;
+    int top = _protoItem->extent().top;
+    return {
+        _extent.left + border,
+        top,
+        _extent.width - 2 * border,
+        _extent.top + _extent.height - border - top};
+}
+
+int ListBox::visibleItemCount() const {
+    return std::max(0, std::min(_slotCount, static_cast<int>(_items.size()) - _itemOffset));
+}
+
+Control::Extent ListBox::visibleItemExtent(int index) const {
+    if (!_protoItem) {
+        return {};
+    }
+    // Accumulate the fractional pitch and round once, so rows do not creep
+    // away from the artwork behind them as the list gets longer.
+    float y = 0.0f;
+    for (int i = 0; i < index && i + _itemOffset < static_cast<int>(_items.size()); ++i) {
+        y += getItemPitch(_items[i + _itemOffset]);
+    }
+    const Extent &proto = _protoItem->extent();
+    return {
+        proto.left,
+        _protoItem->extent().top + static_cast<int>(std::lround(y)),
+        proto.width,
+        proto.height};
 }
 
 float ListBox::getItemPitch(const Item &item) const {

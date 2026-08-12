@@ -87,6 +87,23 @@ public:
     void setRenderItemIconsForButtonProto(bool render);
     void scrollToBottom();
 
+    /**
+     * Draws underneath the list's own frame and rows. Lets a GUI repaint
+     * artwork that its panel bakes in at the authored row pitch, which no
+     * longer registers with the rows once they are laid out at a different
+     * density.
+     */
+    using BackgroundRenderer = std::function<void(const ListBox &, const glm::ivec2 &offset, scene::IRenderPass &)>;
+    void setBackgroundRenderer(BackgroundRenderer renderer) { _backgroundRenderer = std::move(renderer); }
+
+    /** The area the rows occupy, inside the frame. Control-space. */
+    Extent itemsViewport() const;
+    int visibleItemCount() const;
+    /** Control-space rectangle of the n-th currently visible row. */
+    Extent visibleItemExtent(int index) const;
+    /** Row density relative to the authored layout. */
+    float layoutScale() const { return _layoutScale; }
+
     int getItemCount() const;
     const Item &getItemAt(int index) const;
 
@@ -115,6 +132,7 @@ private:
     bool _protoMatchContent {false}; /**< proto item height must match its content */
     bool _renderItemIconsForButtonProto {false};
     float _layoutScale {1.0f};
+    BackgroundRenderer _backgroundRenderer;
 
     // Event listeners
 
