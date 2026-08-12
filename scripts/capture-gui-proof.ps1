@@ -55,6 +55,7 @@ function New-GameStates([string]$module, [string]$swoop, [bool]$party, [string]$
         @("g_w_blstrcrbn001", "g_w_blstrpstl001 2", "g_w_blstrrfl001", "g_w_bowcstr001", "g_w_dsrptpstl001 2", "g_w_dsrptrfl001", "g_w_ionblstr02 2", "g_w_ionrfl01")
     }
     $fixture = @("selectleader") + ($items | ForEach-Object { "additem $_" })
+    $dialogEntrySkips = "autoskipentries " + (("1 " * 32).Trim())
 
     $states = [System.Collections.Generic.List[object]]::new()
     $startupStates | ForEach-Object { $states.Add($_) }
@@ -62,12 +63,13 @@ function New-GameStates([string]$module, [string]$swoop, [bool]$party, [string]$
         @{ Id = "character-generation"; Frame = 60; Commands = @("openchargen class") },
         @{ Id = "character-feats"; Frame = 60; Commands = @("warp $module", "openchargen feats") },
         @{ Id = "character-powers"; Frame = 60; Commands = @("warp $module", "openchargen powers") },
-        @{ Id = "gameplay"; Frame = $readyFrame; Commands = @("warp $module") },
+        @{ Id = "gameplay"; Frame = $readyFrame; Commands = @("warp $module", "showhud") },
         @{ Id = "swoop"; Frame = 30; Commands = @("warp $swoop", "showgallerymode swoop") },
         @{ Id = "pazaak-wager"; Frame = 30; Commands = @("warp $module", "givegold 100", "showgallerymode pazaak wager") },
         @{ Id = "pazaak-setup"; Frame = 30; Commands = @("warp $module", "showgallerymode pazaak setup") },
         @{ Id = "pazaak-board"; Frame = 30; Commands = @("warp $module", "showgallerymode pazaak board") },
         @{ Id = "dialog"; Frame = $dialogFrame; Commands = @("warp $module", "startconversation $dialog") },
+        @{ Id = "dialog-options"; Frame = 30; Commands = @("warp $module", "autoskipenable 1", $dialogEntrySkips, "autoskipreplies 0", "startconversation $dialog"); BeforeCaptureCommands = @("selectdialogoption 0"); AfterCommands = @("autoskipenable 0") },
         @{ Id = "computer"; Frame = $readyFrame; Commands = @("warp $computerModule", "startconversation $computerDialog") }
     ))
 
@@ -116,7 +118,9 @@ foreach ($game in $games) {
                 $delay = if ($isStartup) { $state.Frame - $frame } else { $state.Frame }
                 if ($isStartup) { $frame = $state.Frame }
                 if ($delay -gt 0) { $lines.Add("pause $delay") }
+                if ($state.BeforeCaptureCommands) { $state.BeforeCaptureCommands | ForEach-Object { $lines.Add($_) } }
                 $lines.Add("capture $((Join-Path $runDir "$($state.Id).tga").Replace('\', '/'))")
+                if ($state.AfterCommands) { $state.AfterCommands | ForEach-Object { $lines.Add($_) } }
             }
             $lines.Add("quit")
             $commandPath = Join-Path $runDir "commands.txt"

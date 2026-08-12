@@ -131,6 +131,10 @@ void DialogGUI::onGUILoaded() {
     });
 }
 
+void DialogGUI::selectReplyForCapture(int index) {
+    _controls.LB_REPLIES->setSelectedItemIndex(index);
+}
+
 int DialogGUI::bandHeight() const {
     return _game.options().graphics.height / kBandDivisor;
 }

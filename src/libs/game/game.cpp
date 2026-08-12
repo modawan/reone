@@ -437,6 +437,8 @@ void Game::initConsole() {
     registerConsoleCommand("showbark", "show a timed HUD bark message", &Game::consoleShowBark);
     registerConsoleCommand("showpopup", "show the confirmation popup with an optional icon", &Game::consoleShowPopup);
     registerConsoleCommand("showgallerymode", "open a deterministic gameplay-mode gallery fixture", &Game::consoleShowGalleryMode);
+    registerConsoleCommand("showhud", "open the third-person gameplay HUD for a scripted capture", &Game::consoleShowHUD);
+    registerConsoleCommand("selectdialogoption", "select a dialog option without activating it for a scripted capture", &Game::consoleSelectDialogOption);
     registerConsoleCommand("kill", "kill selected object", &Game::consoleKill);
     registerConsoleCommand("additem", "add item to selected object", &Game::consoleAddItem);
     registerConsoleCommand("givexp", "give experience to selected creature", &Game::consoleGiveXP);
@@ -3216,6 +3218,9 @@ void Game::startCharacterGeneration() {
 }
 
 void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef) {
+    if (_captureHUDPresentation) {
+        return;
+    }
     std::shared_ptr<Gff> dlg(_services.resource.gffs.get(resRef, ResType::Dlg));
     if (!dlg) {
         warn("Game: conversation not found: " + resRef);
@@ -3631,6 +3636,18 @@ void Game::consoleOpenCharacterGeneration(const ConsoleArgs &args) {
         throw std::runtime_error("Character generation GUI is unavailable");
     }
     if (boost::iequals(screen, "feats")) {
+        if (isTSL()) {
+            // TSL's new-character screen uses the icon grid. Give the capture
+            // fixture the same first-level state as the manual custom flow.
+            std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(ClassType::JediGuardian));
+            if (!clazz) {
+                throw std::runtime_error("Starting class is unavailable");
+            }
+            Character character(_charGen->character());
+            character.attributes = clazz->defaultAttributes();
+            _charGen->setCharacter(std::move(character));
+            _charGen->startCustom();
+        }
         _charGen->openFeats();
         return;
     }
@@ -3682,6 +3699,25 @@ void Game::consoleShowPopup(const ConsoleArgs &args) {
         icon = _services.resource.textures.get(std::string(iconResRef), TextureUsage::GUI);
     }
     _confirmPopup->show(joinConsoleArgs(args, 2), std::move(icon));
+}
+
+void Game::consoleShowHUD(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    if (!_module || !_hud) {
+        throw std::runtime_error("HUD capture fixture requires a loaded module");
+    }
+    _captureHUDPresentation = true;
+    _cameraType = CameraType::ThirdPerson;
+    openInGame();
+    _hud->showCapturePresentation();
+}
+
+void Game::consoleSelectDialogOption(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "index");
+    if (_screen != Screen::Conversation || _conversation != _dialog.get()) {
+        throw std::runtime_error("Dialog selection fixture requires an active character conversation");
+    }
+    _dialog->selectReplyForCapture(args.get<int>(1).value());
 }
 
 void Game::consoleShowGalleryMode(const ConsoleArgs &args) {
@@ -4028,6 +4064,7 @@ void Game::consoleStartConversation(const ConsoleArgs &args) {
     consoleCheckUsage(args, 0, 1, "[dlg_resref]");
 
     auto leader = getConsoleLeader();
+    _captureHUDPresentation = false;
     auto resRef = args[1];
     if (resRef) {
         startDialog(leader, std::string(resRef.value()));

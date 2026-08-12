@@ -40,6 +40,9 @@ public:
 
     void update(float dt) override;
 
+    /** Selects, but does not activate, a reply for a scripted visual capture. */
+    void selectReplyForCapture(int index);
+
 private:
     struct Participant {
         std::shared_ptr<graphics::Model> model;

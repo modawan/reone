@@ -534,6 +534,7 @@ private:
     std::unique_ptr<MainMenu> _mainMenu;
     std::unique_ptr<CharacterGeneration> _charGen;
     std::unique_ptr<HUD> _hud;
+    bool _captureHUDPresentation {false};
     std::unique_ptr<InGameMenu> _inGame;
     std::unique_ptr<DialogGUI> _dialog;
     std::unique_ptr<ComputerGUI> _computer;
@@ -762,6 +763,8 @@ private:
     void consoleShowBark(const ConsoleArgs &tokens);
     void consoleShowPopup(const ConsoleArgs &tokens);
     void consoleShowGalleryMode(const ConsoleArgs &tokens);
+    void consoleShowHUD(const ConsoleArgs &tokens);
+    void consoleSelectDialogOption(const ConsoleArgs &tokens);
     void consoleRunScript(const ConsoleArgs &tokens);
     void consoleShowAABB(const ConsoleArgs &tokens);
     void consoleShowWalkmesh(const ConsoleArgs &tokens);
