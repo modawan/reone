@@ -82,12 +82,7 @@ void CharGenFeats::onGUILoaded() {
     bindControls();
     _defaultFeatNameText = _controls.LBL_NAME->text().text;
 
-    styleIconSelectionTitles(
-        _game,
-        *_controls.MAIN_TITLE_LBL,
-        *_controls.SUB_TITLE_LBL,
-        *_controls.STD_SELECTIONS_REMAINING_LBL,
-        *_controls.LB_DESC);
+    styleChargenTitles(_game, *_controls.STD_SELECTIONS_REMAINING_LBL, *_controls.LB_DESC);
 
     IconSelectionCallbacks callbacks;
     callbacks.onItemFocus = [this](const std::string &item) {

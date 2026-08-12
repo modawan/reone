@@ -252,19 +252,14 @@ void Control::renderBorder(const Border &border,
     glm::vec3 color(getBorderColor());
     glm::mat4 transform(1.0f);
     glm::mat3x4 uv(1.0f);
-    int leftWidth = border.dimension;
-    int rightWidth = border.dimension;
-    int topHeight = border.dimension;
-    int bottomHeight = border.dimension;
-    if (_constrainBorderSlices) {
-        // Some TSL title bars are thinner than two authored slices. Balance
-        // the opposing pieces on the constrained axis so their translucent
-        // pixels meet rather than accumulating through the center.
-        leftWidth = std::min(border.dimension, std::max(0, (size.x + 1) / 2));
-        rightWidth = std::min(border.dimension, std::max(0, size.x - leftWidth));
-        topHeight = std::min(border.dimension, std::max(0, (size.y + 1) / 2));
-        bottomHeight = std::min(border.dimension, std::max(0, size.y - topHeight));
-    }
+    // Controls thinner than two authored slices - the TSL title bars - split
+    // the constrained axis between the opposing pieces so their translucent
+    // pixels meet rather than accumulating through the center. Controls with
+    // room for both slices keep the full authored dimension on every side.
+    int leftWidth = std::min(border.dimension, std::max(0, (size.x + 1) / 2));
+    int rightWidth = std::min(border.dimension, std::max(0, size.x - leftWidth));
+    int topHeight = std::min(border.dimension, std::max(0, (size.y + 1) / 2));
+    int bottomHeight = std::min(border.dimension, std::max(0, size.y - topHeight));
     glm::ivec2 fillSize {size.x - leftWidth - rightWidth, size.y - topHeight - bottomHeight};
 
     if (border.fill && fillSize.x > 0 && fillSize.y > 0) {
