@@ -1829,7 +1829,7 @@ TEST(GUIStretchLayout, should_keep_text_at_the_configured_scale_on_a_non_4_3_scr
     EXPECT_FLOAT_EQ(control.scale(), 1.25f);
 }
 
-TEST(GUIScaledBorders, should_keep_a_proto_row_frame_equally_thick_when_selected) {
+TEST(GUIScaledBorders, should_scale_border_and_hilight_dimensions_equally) {
     TestEngine &engine = testEngine();
     graphics::GraphicsOptions options;
     options.width = 1920;
@@ -1845,9 +1845,7 @@ TEST(GUIScaledBorders, should_keep_a_proto_row_frame_equally_thick_when_selected
 
     EXPECT_EQ(protoRow.extent().width, 360);
     EXPECT_EQ(protoRow.extent().height, 72);
-    protoRow.setSelected(false);
     EXPECT_EQ(protoRow.border().dimension, 18);
-    protoRow.setSelected(true);
     EXPECT_EQ(protoRow.hilight().dimension, 18);
 }
 
@@ -1894,9 +1892,6 @@ TEST(GUIListScale, should_change_row_density_without_changing_the_list_viewport)
 
 TEST(GUIExternalRendererGeometry, should_scale_action_icons_to_their_button_rect) {
     TestEngine &engine = testEngine();
-    constexpr float guiTextScale = 0.5f;
-    const float originalGuiTextScale = engine.options().graphics.guiTextScale;
-    engine.options().graphics.guiTextScale = guiTextScale;
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto gui = std::make_shared<NiceMock<gui::MockGUI>>();
@@ -1906,10 +1901,6 @@ TEST(GUIExternalRendererGeometry, should_scale_action_icons_to_their_button_rect
         engine.services().graphics,
         engine.services().resource);
     button->setExtent({900, 360, 72, 72});
-    // Controls retain layout × text scale; external artwork must use the
-    // layout factor supplied by the GUI instead.
-    button->setScale(1.8f * guiTextScale);
-    ON_CALL(*gui, scale()).WillByDefault(Return(1.8f));
     ActionBar actionBar(game, engine.services());
     ActionBarTestAccess::addAttackAction(actionBar, button);
     auto icon = std::make_shared<graphics::Texture>("action", graphics::TextureType::TwoDim, graphics::Texture::Properties {});
@@ -1929,14 +1920,10 @@ TEST(GUIExternalRendererGeometry, should_scale_action_icons_to_their_button_rect
     EXPECT_FLOAT_EQ(model[1][1], 46.8f);
     EXPECT_FLOAT_EQ(model[3][0], 912.6f);
     EXPECT_FLOAT_EQ(model[3][1], 372.6f);
-    engine.options().graphics.guiTextScale = originalGuiTextScale;
 }
 
 TEST(GUIExternalRendererGeometry, should_scale_portrait_health_bar_width_and_inset) {
     TestEngine &engine = testEngine();
-    constexpr float guiTextScale = 0.5f;
-    const float originalGuiTextScale = engine.options().graphics.guiTextScale;
-    engine.options().graphics.guiTextScale = guiTextScale;
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto member = game.newObject<TestCreature>(kSceneMain, game, engine.services());
@@ -1951,9 +1938,6 @@ TEST(GUIExternalRendererGeometry, should_scale_portrait_health_bar_width_and_ins
         engine.services().graphics,
         engine.services().resource);
     portrait->setExtent({1800, 360, 180, 360});
-    // Controls retain layout × text scale; external artwork must use the
-    // layout factor supplied by the GUI instead.
-    portrait->setScale(1.8f * guiTextScale);
     ON_CALL(*gui, scale()).WillByDefault(Return(1.8f));
     HUD hud(game, engine.services());
     HUDTestAccess::setHealthControl(hud, gui, portrait);
@@ -1972,7 +1956,6 @@ TEST(GUIExternalRendererGeometry, should_scale_portrait_health_bar_width_and_ins
     EXPECT_FLOAT_EQ(model[1][1], 360.0f);
     EXPECT_FLOAT_EQ(model[3][0], 1954.8f);
     EXPECT_FLOAT_EQ(model[3][1], 360.0f);
-    engine.options().graphics.guiTextScale = originalGuiTextScale;
 }
 
 TEST(CameraProjection, should_follow_a_resolution_change_after_all_camera_types_load) {

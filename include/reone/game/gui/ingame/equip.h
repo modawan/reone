@@ -64,7 +64,7 @@ public:
 
     void update();
     void update(float dt) override;
-    void openItems(Slot slot);
+    void openItems();
 
 private:
     static constexpr int kNumControlsBar = 5;

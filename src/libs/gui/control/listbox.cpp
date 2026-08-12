@@ -442,7 +442,7 @@ Control::Extent ListBox::visibleItemExtent(int index) const {
     const Extent &proto = _protoItem->extent();
     return {
         proto.left,
-        _protoItem->extent().top + static_cast<int>(std::lround(y)),
+        proto.top + static_cast<int>(std::lround(y)),
         proto.width,
         proto.height};
 }
@@ -463,7 +463,7 @@ int ListBox::getItemWidth() const {
     if (_border) {
         width -= 2 * _border->dimension;
     }
-    width -= 2 * scaledPadding();
+    width -= 2 * static_cast<int>(_padding * _layoutScale);
     return std::max(width, 0);
 }
 
