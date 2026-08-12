@@ -73,7 +73,7 @@ private:
     bool handleKeyUp(const input::KeyEvent &event);
 
     void updateSceneNode();
-    void updateProjection() override;
+    float projectionFovy() const override;
 };
 
 } // namespace game

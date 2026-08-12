@@ -10,6 +10,8 @@
 #include "reone/game/object/camera.h"
 
 #include "reone/game/game.h"
+#include "reone/graphics/types.h"
+#include "reone/scene/node/camera.h"
 
 namespace reone {
 
@@ -23,8 +25,9 @@ void Camera::update(float) {
 }
 
 void Camera::rebuildProjection() {
-    updateProjection();
     auto &options = _game.options().graphics;
+    float aspect = options.width / static_cast<float>(options.height);
+    cameraSceneNode()->setPerspectiveProjection(projectionFovy(), aspect, graphics::kDefaultClipPlaneNear, graphics::kDefaultClipPlaneFar);
     _projectionWidth = options.width;
     _projectionHeight = options.height;
 }

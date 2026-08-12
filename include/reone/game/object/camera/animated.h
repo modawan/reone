@@ -57,7 +57,7 @@ private:
     std::shared_ptr<scene::ModelSceneNode> _model;
     float _fovy {kDefaultAnimCamFOV};
 
-    void updateProjection();
+    float projectionFovy() const override;
 };
 
 } // namespace game

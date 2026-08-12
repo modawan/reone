@@ -62,7 +62,7 @@ private:
     float _rotationSpeed {0.0f};
 
     void updateSceneNode();
-    void updateProjection() override;
+    float projectionFovy() const override;
 
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleKeyUp(const input::KeyEvent &event);

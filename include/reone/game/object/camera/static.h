@@ -50,7 +50,7 @@ private:
 
     // END Serializable
 
-    void updateProjection() override;
+    float projectionFovy() const override;
 };
 
 } // namespace game

@@ -75,7 +75,7 @@ protected:
     int _projectionHeight {-1};
 
     void rebuildProjection();
-    virtual void updateProjection() = 0;
+    virtual float projectionFovy() const = 0;
 };
 
 } // namespace game

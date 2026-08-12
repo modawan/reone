@@ -43,10 +43,8 @@ void ThirdPersonCamera::load() {
     rebuildProjection();
 }
 
-void ThirdPersonCamera::updateProjection() {
-    auto &opts = _game.options().graphics;
-    float aspect = opts.width / static_cast<float>(opts.height);
-    cameraSceneNode()->setPerspectiveProjection(glm::radians(_style.viewAngle), aspect, kDefaultClipPlaneNear, kDefaultClipPlaneFar);
+float ThirdPersonCamera::projectionFovy() const {
+    return glm::radians(_style.viewAngle);
 }
 
 bool ThirdPersonCamera::handle(const input::Event &event) {
