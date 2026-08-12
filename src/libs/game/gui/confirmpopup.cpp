@@ -71,10 +71,8 @@ void ConfirmPopup::onGUILoaded() {
     const auto &messageAuthored = _controls.LB_MESSAGE->authoredExtent();
     int topInset = std::max(0, std::min(messageAuthored.top, okAuthored.top));
     rootAuthored.height = std::min(rootAuthored.height, okAuthored.top + okAuthored.height + topInset);
-    rootAuthored.left = (kAuthoredCanvasWidth - rootAuthored.width) / 2;
-    rootAuthored.top = (kAuthoredCanvasHeight - rootAuthored.height) / 2;
     root.setAuthoredExtent(std::move(rootAuthored));
-    _gui->refreshLayout();
+    centerRootInCanvas(kAuthoredCanvasWidth, kAuthoredCanvasHeight);
 
     _messageExtent = _controls.LB_MESSAGE->protoItem().extent();
     _iconSize = std::max(1, static_cast<int>(std::lround(kIconSize * _gui->scale())));

@@ -519,6 +519,7 @@ void Game::initConsole() {
     registerConsoleCommand("graphics", "toggle 3D scene rendering: graphics on|off", &Game::consoleGraphics);
     registerConsoleCommand("seed", "reseed the shared random generator: seed <number>", &Game::consoleSeed);
     registerConsoleCommand("showhud", "open the third-person gameplay HUD for a scripted capture", &Game::consoleShowHUD);
+    registerConsoleCommand("opencontainer", "open the container screen on the party leader for a scripted capture", &Game::consoleOpenContainer);
     registerConsoleCommand("selectdialogoption", "select a dialog option without activating it for a scripted capture", &Game::consoleSelectDialogOption);
     registerConsoleCommand("kill", "kill selected object", &Game::consoleKill);
     registerConsoleCommand("additem", "add item to selected object", &Game::consoleAddItem);
@@ -4551,6 +4552,15 @@ void Game::consoleGraphics(const ConsoleArgs &args) {
     } else {
         throw std::runtime_error("Expected on or off");
     }
+}
+
+void Game::consoleOpenContainer(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    auto leader = getConsoleLeader();
+    if (!leader || !_container) {
+        throw std::runtime_error("Container fixture requires a loaded module");
+    }
+    openContainer(leader);
 }
 
 void Game::consoleShowHUD(const ConsoleArgs &args) {

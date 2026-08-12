@@ -260,6 +260,15 @@ void GameGUI::useBakedItemSlotArt(ListBox &listBox) {
         });
 }
 
+void GameGUI::centerRootInCanvas(int canvasWidth, int canvasHeight) {
+    auto &root = _gui->rootControl();
+    auto authored = root.authoredExtent();
+    authored.left = (canvasWidth - authored.width) / 2;
+    authored.top = (canvasHeight - authored.height) / 2;
+    root.setAuthoredExtent(std::move(authored));
+    _gui->refreshLayout();
+}
+
 std::string GameGUI::guiResRef(const std::string &base) const {
     return _game.isTSL() ? base + "_p" : base;
 }

@@ -69,6 +69,9 @@ protected:
 
     void loadBackground(BackgroundType type);
 
+    /** Centers the root panel in its authored canvas and reapplies layout. */
+    void centerRootInCanvas(int canvasWidth, int canvasHeight);
+
     /**
      * Points an item list at the slot silhouettes baked into this GUI's own
      * panel art, so the list can repaint them under its actual rows.
