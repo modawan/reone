@@ -50,7 +50,14 @@ void ProgressBar::load(const resource::generated::GUI_BASECONTROL &gui, bool pro
 void ProgressBar::render(const glm::ivec2 &screenSize,
                          const glm::ivec2 &offset,
                          scene::IRenderPass &pass) {
-    if (!_visible || _value == 0 || !_progress.fill) {
+    if (!_visible) {
+        return;
+    }
+    // The authored backing - the same capsule art tinted with the border
+    // colour - draws at full size behind the cropped fill, so a partially
+    // filled bar keeps its full silhouette.
+    Control::render(screenSize, offset, pass);
+    if (_value == 0 || !_progress.fill) {
         return;
     }
     // The fill fraction follows the bar's long axis, keeping the full
