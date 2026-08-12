@@ -27,6 +27,9 @@
 #include "reone/graphics/textureutil.h"
 #include "reone/graphics/uniforms.h"
 
+#include <algorithm>
+#include <cmath>
+
 using namespace reone::audio;
 using namespace reone::graphics;
 
@@ -101,7 +104,20 @@ void Movie::render() {
             glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
     });
     _graphicsSvc.context.useProgram(_graphicsSvc.shaderRegistry.get(ShaderProgramId::ndcTexture));
-    _graphicsSvc.meshRegistry.get(MeshName::quadNDC).draw(_graphicsSvc.statistic);
+    glm::ivec4 viewport(_graphicsSvc.context.viewport());
+    float factor = std::min(
+        viewport.z / static_cast<float>(_width),
+        viewport.w / static_cast<float>(_height));
+    int width = static_cast<int>(std::lround(_width * factor));
+    int height = static_cast<int>(std::lround(_height * factor));
+    glm::ivec4 movieViewport {
+        viewport.x + (viewport.z - width) / 2,
+        viewport.y + (viewport.w - height) / 2,
+        width,
+        height};
+    _graphicsSvc.context.withViewport(movieViewport, [this]() {
+        _graphicsSvc.meshRegistry.get(MeshName::quadNDC).draw(_graphicsSvc.statistic);
+    });
 }
 
 } // namespace movie
