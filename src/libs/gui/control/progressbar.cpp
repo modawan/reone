@@ -54,24 +54,33 @@ void ProgressBar::render(const glm::ivec2 &screenSize,
         return;
     }
     // The fill fraction follows the bar's long axis, keeping the full
-    // authored size on the cross axis. Tall bars - the party vitality and
+    // authored size on the cross axis, and crops the art to the visible
+    // fraction instead of squashing it. Tall bars - the party vitality and
     // Force columns - grow from the bottom; wide bars anchor to their
     // authored start edge.
+    float fraction = _value / 100.0f;
+    glm::mat3x4 uv(1.0f);
     if (_extent.height > _extent.width) {
-        float h = _extent.height * _value / 100.0f;
+        float h = _extent.height * fraction;
+        uv[1][1] = fraction;
+        uv[2][1] = 0.0f;
         pass.drawImage(
             *_progress.fill,
             {_extent.left + offset.x, _extent.top + _extent.height - h + offset.y},
             {_extent.width, h},
-            glm::vec4(_progress.color, 1.0f));
+            glm::vec4(_progress.color, 1.0f),
+            uv);
     } else {
-        float w = _extent.width * _value / 100.0f;
+        float w = _extent.width * fraction;
         float left = _startFromLeft ? _extent.left : _extent.left + _extent.width - w;
+        uv[0][0] = fraction;
+        uv[2][0] = _startFromLeft ? 0.0f : 1.0f - fraction;
         pass.drawImage(
             *_progress.fill,
             {left + offset.x, _extent.top + offset.y},
             {w, _extent.height},
-            glm::vec4(_progress.color, 1.0f));
+            glm::vec4(_progress.color, 1.0f),
+            uv);
     }
 }
 

@@ -150,8 +150,14 @@ std::shared_ptr<IconChain> addIconSelectionChain(
     auto scrollBar = sourceList.scrollBarOrNull();
     if (scrollBar) {
         // The list scales its scroll bar with the row-density factor; the grid
-        // panel is laid out at plain GUI scale, so restretch it to match.
+        // panel is laid out at plain GUI scale, so restretch it to match, then
+        // inset it into the panel's fill area so it clears the frame slices.
         scrollBar->stretch(layoutScale, layoutScale);
+        auto barExtent = scrollBar->extent();
+        int inset = chain->border().dimension;
+        barExtent.top = chain->extent().top + inset;
+        barExtent.height = chain->extent().height - 2 * inset;
+        scrollBar->setExtent(std::move(barExtent));
     }
     chain->setScrollBar(std::move(scrollBar));
     chain->setOnItemFocus(std::move(callbacks.onItemFocus));
