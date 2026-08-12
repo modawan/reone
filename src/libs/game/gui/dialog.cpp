@@ -59,6 +59,11 @@ static const char kObjectTagOwner[] = "owner";
 // the clip name suffix and whether the clip is held, while the offset within the
 // band selects the clip number. Both namespaces are independent of AnimatedCut
 // and of whether the participant is driven by a stunt model.
+// The conversation bands are viewport-relative, not authored plate art:
+// the subtitle sits in the top quarter and the reply list in the bottom
+// quarter of whatever viewport the game is running at.
+static constexpr int kBandDivisor = 4;
+
 static constexpr int kDialogAnimationBase = 10000;
 static constexpr int kCutAnimationBandSize = 200;
 
@@ -126,19 +131,22 @@ void DialogGUI::onGUILoaded() {
     });
 }
 
-void DialogGUI::loadFrames() {
-    int rootTop = _gui->rootControl().extent().top;
-    int messageHeight = _controls.LBL_MESSAGE->extent().height;
+int DialogGUI::bandHeight() const {
+    return _game.options().graphics.height / kBandDivisor;
+}
 
-    addFrame(kControlTagTopFrame, -rootTop, messageHeight);
-    addFrame(kControlTagBottomFrame, 0, _game.options().graphics.height - rootTop);
+void DialogGUI::loadFrames() {
+
+    int band = bandHeight();
+    addFrame(kControlTagTopFrame, 0, band);
+    addFrame(kControlTagBottomFrame, _game.options().graphics.height - band, band);
 }
 
 void DialogGUI::addFrame(std::string tag, int top, int height) {
     auto frame = _gui->newControl(ControlType::Panel, tag);
 
     Control::Extent extent;
-    extent.left = -_gui->rootControl().extent().left;
+    extent.left = 0;
     extent.top = top;
     extent.width = _game.options().graphics.width;
     extent.height = height;
@@ -150,11 +158,13 @@ void DialogGUI::addFrame(std::string tag, int top, int height) {
 }
 
 void DialogGUI::configureMessage() {
-    _controls.LBL_MESSAGE->setExtentTop(-_gui->rootControl().extent().top);
+    _controls.LBL_MESSAGE->setExtent({0, 0, _game.options().graphics.width, bandHeight()});
     _controls.LBL_MESSAGE->setTextColor(_baseColor);
 }
 
 void DialogGUI::configureReplies() {
+    int band = bandHeight();
+    _controls.LB_REPLIES->setExtent({0, _game.options().graphics.height - band, _game.options().graphics.width, band});
     _controls.LB_REPLIES->setProtoMatchContent(true);
     _controls.LB_REPLIES->protoItem().setHilightColor(_hilightColor);
     _controls.LB_REPLIES->protoItem().setTextColor(_baseColor);
@@ -493,7 +503,7 @@ void DialogGUI::repositionMessage() {
 
     if (_entryEnded) {
         text.align = Control::TextAlign::CenterBottom;
-        top = -_gui->rootControl().extent().top;
+        top = 0;
     } else {
         text.align = Control::TextAlign::CenterTop;
         top = _controls.LB_REPLIES->extent().top;
