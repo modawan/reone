@@ -66,7 +66,7 @@ function New-GameStates([string]$module, [string]$swoop, [bool]$party, [string]$
         @{ Id = "character-powers"; Frame = 60; Commands = @("warp $module", "openchargen powers") },
         @{ Id = "character-feats-dense"; Frame = 60; ListScale = 0.75; Commands = @("warp $module", "openchargen feats select") },
         @{ Id = "character-powers-dense"; Frame = 60; ListScale = 0.75; Commands = @("warp $module", "openchargen powers select") },
-        @{ Id = "container"; Frame = 30; Commands = @("warp $module", "opencontainer") },
+        @{ Id = "container"; Frame = 30; Commands = (@("warp $module") + $fixture + @("opencontainer")) },
         @{ Id = "gameplay"; Frame = $readyFrame; Commands = @("warp $module", "showhud") },
         @{ Id = "swoop"; Frame = 30; Commands = @("warp $swoop", "showgallerymode swoop") },
         @{ Id = "pazaak-wager"; Frame = 30; Commands = @("warp $module", "givegold 100", "showgallerymode pazaak wager") },
