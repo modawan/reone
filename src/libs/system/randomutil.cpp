@@ -21,6 +21,10 @@ namespace reone {
 
 static std::default_random_engine g_generator(static_cast<uint32_t>(time(nullptr)));
 
+void setRandomSeed(uint32_t seed) {
+    g_generator.seed(seed);
+}
+
 int randomInt(int min, int max) {
     std::uniform_int_distribution<int> dist(min, max);
     return dist(g_generator);
