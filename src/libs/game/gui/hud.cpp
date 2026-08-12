@@ -175,6 +175,11 @@ void HUD::onGUILoaded() {
         tintK2HUDMenuButton(_controls.BTN_JOU, _baseColor);
         tintK2HUDMenuButton(_controls.BTN_MAP, _baseColor);
         tintK2HUDMenuButton(_controls.BTN_OPT, _baseColor);
+        // The bar backings are colour masks like the rest of the TSL HUD.
+        for (auto &bar : {_controls.PB_VIT1, _controls.PB_VIT2, _controls.PB_VIT3,
+                          _controls.PB_FORCE1, _controls.PB_FORCE2, _controls.PB_FORCE3}) {
+            bar->setTintBorderFill(true);
+        }
     } else {
         _controls.LBL_COMBATBG1->setVisible(false);
         _controls.LBL_COMBATBG2->setVisible(false);

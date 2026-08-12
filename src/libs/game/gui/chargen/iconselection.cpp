@@ -155,6 +155,7 @@ std::shared_ptr<IconChain> addIconSelectionChain(
         scrollBar->stretch(layoutScale, layoutScale);
         auto barExtent = scrollBar->extent();
         int inset = chain->border().dimension;
+        barExtent.left = chain->extent().left + chain->extent().width - inset - barExtent.width;
         barExtent.top = chain->extent().top + inset;
         barExtent.height = chain->extent().height - 2 * inset;
         scrollBar->setExtent(std::move(barExtent));
