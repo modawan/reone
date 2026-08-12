@@ -7,18 +7,23 @@
  * (at your option) any later version.
  */
 
+#include <algorithm>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "../fixtures/engine.h"
 
 #include "reone/game/action.h"
+#include "reone/game/effect.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/conversation.h"
 #include "reone/game/gui/hud.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/module.h"
+#include "reone/game/room.h"
+#include "reone/scene/collision.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -416,4 +421,125 @@ TEST(RuntimeSession, saved_session_can_publish_repeated_ordinary_module_transiti
     EXPECT_FALSE(game.getObjectById(targetArea->id()));
     EXPECT_FALSE(game.getObjectById(targetWorldObject->id()));
     EXPECT_EQ(sessionGeneration, TestGameModule::runtimeSessionGeneration(game));
+}
+
+TEST(ModuleLoadContext, separates_saved_world_provenance_from_session_placement) {
+    auto fresh = resolveModuleLoadContext(false, false);
+    auto initialRestore = resolveModuleLoadContext(true, true);
+    auto savedTransition = resolveModuleLoadContext(false, true);
+
+    EXPECT_EQ(ModuleLoadContext::FreshModule, fresh);
+    EXPECT_FALSE(restoresSavedWorld(fresh));
+    EXPECT_FALSE(restoresSavedSession(fresh));
+
+    EXPECT_EQ(ModuleLoadContext::InitialSaveRestore, initialRestore);
+    EXPECT_TRUE(restoresSavedWorld(initialRestore));
+    EXPECT_TRUE(restoresSavedSession(initialRestore));
+
+    EXPECT_EQ(ModuleLoadContext::SavedModuleTransition, savedTransition);
+    EXPECT_TRUE(restoresSavedWorld(savedTransition));
+    EXPECT_FALSE(restoresSavedSession(savedTransition));
+}
+
+TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_room) {
+    TestEngine engine;
+    engine.init();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    configureRuntimeMocks(engine, sceneGraph);
+    Room sourceRoom("source", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    Room destinationRoom("destination", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    ON_CALL(sceneGraph, testElevation(_, _))
+        .WillByDefault(Invoke([&destinationRoom](
+                                  const glm::vec3 &position,
+                                  scene::Collision &collision) {
+            collision.intersection = position;
+            collision.user = &destinationRoom;
+            return true;
+        }));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto sourceArea = game.newArea();
+    auto player = game.newCreature();
+    player->setPosition(glm::vec3(91.83f, 146.54f, 3.75f));
+    player->setFacing(1.25f);
+    player->setCurrentHitPoints(17);
+    auto effect = std::make_shared<Effect>(EffectType::Invalid);
+    player->applyEffect(effect, DurationType::Permanent);
+    int actionExecutions = 0;
+    auto action = game.newAction<CountingAction>(actionExecutions);
+    player->addAction(action);
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().setActualPlayer(player);
+
+    sourceArea->add(player);
+    player->setRoom(&sourceRoom);
+    ASSERT_EQ(&sourceRoom, player->room());
+    ASSERT_TRUE(sourceRoom.tenants().count(player.get()));
+
+    sourceArea->unloadParty();
+
+    EXPECT_EQ(nullptr, player->room());
+    EXPECT_FALSE(sourceRoom.tenants().count(player.get()));
+    EXPECT_EQ(player, game.party().player());
+    EXPECT_EQ(17, player->currentHitPoints());
+    ASSERT_EQ(1, player->effects().size());
+    EXPECT_EQ(effect, player->effects().front().effect);
+    ASSERT_EQ(1, player->actions().size());
+    EXPECT_EQ(action, player->actions().front());
+    EXPECT_EQ(0, actionExecutions);
+
+    auto destinationArea = game.newArea();
+    glm::vec3 entry(9.085618f, -42.946671f, 0.0f);
+    destinationArea->loadParty(entry, 0.5f, false);
+
+    EXPECT_EQ(entry, player->position());
+    EXPECT_FLOAT_EQ(0.5f, player->getFacing());
+    EXPECT_EQ(&destinationRoom, player->room());
+    EXPECT_TRUE(destinationRoom.tenants().count(player.get()));
+    EXPECT_EQ(player, game.party().player());
+    EXPECT_EQ(player, game.getObjectById(player->id()));
+    EXPECT_EQ(17, player->currentHitPoints());
+    EXPECT_EQ(1, player->effects().size());
+    EXPECT_EQ(1, player->actions().size());
+    EXPECT_EQ(0, actionExecutions);
+    auto &destinationCreatures = destinationArea->getObjectsByType(ObjectType::Creature);
+    EXPECT_NE(destinationCreatures.end(),
+              std::find(destinationCreatures.begin(), destinationCreatures.end(), player));
+}
+
+TEST(RuntimeSession, initial_save_restore_preserves_archived_party_placement) {
+    TestEngine engine;
+    engine.init();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    configureRuntimeMocks(engine, sceneGraph);
+    Room savedRoom("saved", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    ON_CALL(sceneGraph, testElevation(_, _))
+        .WillByDefault(Invoke([&savedRoom](
+                                  const glm::vec3 &position,
+                                  scene::Collision &collision) {
+            collision.intersection = position;
+            collision.user = &savedRoom;
+            return true;
+        }));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto area = game.newArea();
+    auto player = game.newCreature();
+    glm::vec3 archivedPosition(11.3286257f, -40.3899155f, 0.0f);
+    player->setPosition(archivedPosition);
+    player->setFacing(0.75f);
+    player->setCurrentHitPoints(23);
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+
+    area->loadParty(glm::vec3(-6.82759f, -26.73170f, 0.0f), 1.5f, true);
+
+    EXPECT_EQ(archivedPosition, player->position());
+    EXPECT_FLOAT_EQ(0.75f, player->getFacing());
+    EXPECT_EQ(&savedRoom, player->room());
+    EXPECT_TRUE(savedRoom.tenants().count(player.get()));
+    EXPECT_EQ(23, player->currentHitPoints());
 }

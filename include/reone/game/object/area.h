@@ -172,7 +172,10 @@ public:
     // Party
 
     void unloadPartyMember(const std::shared_ptr<Creature> &member);
-    void loadParty(const glm::vec3 &position, float facing, bool fromSave = false);
+    void loadParty(
+        const glm::vec3 &position,
+        float facing,
+        bool preserveSavedPlacement = false);
     void unloadParty();
     void reloadParty();
 
@@ -323,7 +326,10 @@ private:
     void updateVisibility();
     void updateHeartbeat(float dt);
 
-    void loadPartyMember(const std::shared_ptr<Creature> &member, int index, bool fromSave);
+    void loadPartyMember(
+        const std::shared_ptr<Creature> &member,
+        int index,
+        bool preserveSavedPlacement);
     glm::vec3 findPartyPosition(const Creature &member, const glm::vec3 &position) const;
 
     struct CreatureCollision {

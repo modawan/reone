@@ -858,10 +858,10 @@ glm::vec3 Area::findPartyPosition(const Creature &member, const glm::vec3 &posit
     return position;
 }
 
-void Area::loadPartyMember(const std::shared_ptr<Creature> &member, int index, bool fromSave) {
+void Area::loadPartyMember(const std::shared_ptr<Creature> &member, int index, bool preserveSavedPlacement) {
     bool loaded = std::find(_objects.begin(), _objects.end(), member) != _objects.end();
 
-    if (!fromSave && index > 0) {
+    if (!preserveSavedPlacement && index > 0) {
         auto leader = _game.party().getLeader();
         glm::vec3 position(leader->position());
 
@@ -875,7 +875,7 @@ void Area::loadPartyMember(const std::shared_ptr<Creature> &member, int index, b
     }
 
     bool landed = landObject(*member);
-    if (!fromSave && index == 0 && !landed) {
+    if (!preserveSavedPlacement && index == 0 && !landed) {
         glm::vec3 position(member->position());
         glm::vec3 fallbackPosition(position);
         fallbackPosition.z = scene::kElevationTestZ;
@@ -892,7 +892,7 @@ void Area::loadPartyMember(const std::shared_ptr<Creature> &member, int index, b
     }
 
     add(member);
-    if (!fromSave) {
+    if (!preserveSavedPlacement) {
         member->runSpawnScript();
     }
 }
@@ -903,20 +903,24 @@ void Area::unloadPartyMember(const std::shared_ptr<Creature> &member) {
     // weapons do not leak their active state through a transition.
     member->deactivateCombat(0.0f);
     doDestroyObject(member->id());
+
+    // Party objects outlive this Area. Do not leave their semantic room
+    // membership pointing into the retiring module's room graph.
+    member->setRoom(nullptr);
 }
 
-void Area::loadParty(const glm::vec3 &position, float facing, bool fromSave) {
+void Area::loadParty(const glm::vec3 &position, float facing, bool preserveSavedPlacement) {
     Party &party = _game.party();
     auto leader = party.getLeader();
 
-    if (!fromSave) {
+    if (!preserveSavedPlacement) {
         leader->setPosition(position);
         leader->setFacing(facing);
     }
-    loadPartyMember(leader, 0, fromSave);
+    loadPartyMember(leader, 0, preserveSavedPlacement);
 
     for (int i = 1; i < party.getSize(); ++i) {
-        loadPartyMember(party.getMember(i), i, fromSave);
+        loadPartyMember(party.getMember(i), i, preserveSavedPlacement);
     }
 }
 

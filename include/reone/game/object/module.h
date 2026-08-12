@@ -69,9 +69,11 @@ public:
         return from->type() == ObjectType::Module;
     }
 
-    void load(std::string name, const resource::Gff &ifo, bool fromSave = false);
+    void load(std::string name, const resource::Gff &ifo, bool restoreSavedWorld = false);
     void activate();
-    void loadParty(const std::string &entry = "", bool fromSave = false);
+    void loadParty(
+        const std::string &entry = "",
+        bool preserveSavedPlacement = false);
     void runOnLoadScript();
     void runOnStartScript();
 
@@ -122,7 +124,9 @@ private:
     // Loading
 
     void loadInfo(const resource::generated::IFO &ifo);
-    void loadArea(const resource::generated::IFO &ifo, bool fromSave = false);
+    void loadArea(
+        const resource::generated::IFO &ifo,
+        bool restoreSavedWorld = false);
     void loadPlayer();
     void loadLimboCreatures(const resource::Gff &ifo);
     void deliverSavedEvent(PublishedSavedEvent &event);

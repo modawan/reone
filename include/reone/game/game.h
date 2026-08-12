@@ -88,6 +88,19 @@ class Font;
 
 namespace game {
 
+enum class ModuleLoadContext {
+    FreshModule,
+    InitialSaveRestore,
+    SavedModuleTransition,
+};
+
+ModuleLoadContext resolveModuleLoadContext(
+    bool initialSaveRestore,
+    bool savedModuleSnapshot);
+
+bool restoresSavedWorld(ModuleLoadContext context);
+bool restoresSavedSession(ModuleLoadContext context);
+
 struct SavedObjectReference;
 struct SerializedScriptSituation;
 class SavedScriptContinuation;
@@ -255,7 +268,10 @@ public:
     /**
      * @param entry waypoint tag to spawn at, or empty string to spawn at default location
      */
-    void loadModule(const std::string &name, std::string entry = "", bool fromSave = false);
+    void loadModule(
+        const std::string &name,
+        std::string entry = "",
+        bool initialSaveRestore = false);
 
     void scheduleModuleTransition(const std::string &moduleName, const std::string &entry);
     void scheduleModuleTransitionWithMovies(const std::string &moduleName, const std::string &entry, std::vector<std::string> movies);

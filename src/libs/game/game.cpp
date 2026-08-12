@@ -108,6 +108,26 @@ namespace reone {
 
 namespace game {
 
+ModuleLoadContext resolveModuleLoadContext(
+    bool initialSaveRestore,
+    bool savedModuleSnapshot) {
+
+    if (initialSaveRestore) {
+        return ModuleLoadContext::InitialSaveRestore;
+    }
+    return savedModuleSnapshot
+               ? ModuleLoadContext::SavedModuleTransition
+               : ModuleLoadContext::FreshModule;
+}
+
+bool restoresSavedWorld(ModuleLoadContext context) {
+    return context != ModuleLoadContext::FreshModule;
+}
+
+bool restoresSavedSession(ModuleLoadContext context) {
+    return context == ModuleLoadContext::InitialSaveRestore;
+}
+
 bool Game::bindEffectCreator(EffectInstance &effect) const {
     auto it = _objectById.find(effect.creatorId);
     return effect.bindCreator(it == _objectById.end() ? nullptr : it->second);
@@ -783,7 +803,7 @@ bool Game::handleMouseButtonUp(const input::MouseButtonEvent &event) {
     return false;
 }
 
-void Game::loadModule(const std::string &name, std::string entry, bool fromSave) {
+void Game::loadModule(const std::string &name, std::string entry, bool initialSaveRestore) {
     info("Loading module '" + name + "'");
 
     // A module transition is a technical Pazaak abort. It must not manufacture
@@ -807,7 +827,7 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
         _conversation->cleanupForModuleTransition();
     }
 
-    withLoadingScreen("load_" + name, [this, &name, &entry, fromSave]() {
+    withLoadingScreen("load_" + name, [this, &name, &entry, initialSaveRestore]() {
         loadInGameMenus();
 
         try {
@@ -838,23 +858,27 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
             if (!ifo) {
                 throw ResourceNotFoundException("Module IFO not found");
             }
-            bool restoringSavedState = fromSave || ifo->getBool("Mod_IsSaveGame");
+            ModuleLoadContext context = resolveModuleLoadContext(
+                initialSaveRestore,
+                ifo->getBool("Mod_IsSaveGame"));
+            bool restoringSavedWorld = restoresSavedWorld(context);
+            bool restoringSavedSession = restoresSavedSession(context);
 
-            _module = restoringSavedState ? newSavedModule() : newModule();
-            _module->load(name, *ifo, restoringSavedState);
+            _module = restoringSavedWorld ? newSavedModule() : newModule();
+            _module->load(name, *ifo, restoringSavedWorld);
             _loadedModules.insert(std::make_pair(name, _module));
 
             if (_party.isEmpty()) {
                 loadDefaultParty();
             }
 
-            if (!restoringSavedState) {
+            if (!restoringSavedWorld) {
                 _module->runOnLoadScript();
             }
 
-            _module->loadParty(entry, restoringSavedState);
+            _module->loadParty(entry, restoringSavedSession);
 
-            if (restoringSavedState) {
+            if (restoringSavedWorld) {
                 bindSavedRuntimeState();
                 publishSavedRuntimeState();
             }
@@ -873,7 +897,7 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
             openInGame();
         } catch (const std::exception &e) {
             error("Failed loading module '" + name + "': " + std::string(e.what()));
-            if (fromSave) {
+            if (initialSaveRestore) {
                 retireRuntimeSession();
             } else {
                 retireActiveModuleRuntime();

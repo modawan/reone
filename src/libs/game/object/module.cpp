@@ -75,14 +75,14 @@ static bool canBashPlaceable(const Placeable &placeable, const Creature &actor, 
            (placeable.hitPoints() > 0 || placeable.currentHitPoints() > 0);
 }
 
-void Module::load(std::string name, const Gff &ifo, bool fromSave) {
+void Module::load(std::string name, const Gff &ifo, bool restoreSavedWorld) {
     _name = std::move(name);
     _publishedSavedEvents.clear();
     _savedEventsPublished = false;
 
     auto ifoParsed = resource::generated::parseIFO(ifo);
-    _isSaveGame = fromSave && ifoParsed.Mod_IsSaveGame != 0;
-    if (fromSave) {
+    _isSaveGame = restoreSavedWorld && ifoParsed.Mod_IsSaveGame != 0;
+    if (restoreSavedWorld) {
         deserializeRuntimeState(ifo);
         deserializeSavedEventQueue(ifo);
         loadLimboCreatures(ifo);
@@ -90,13 +90,13 @@ void Module::load(std::string name, const Gff &ifo, bool fromSave) {
         _savedEventQueue = SavedEventQueue {};
     }
     loadInfo(ifoParsed);
-    loadArea(ifoParsed, fromSave);
+    loadArea(ifoParsed, restoreSavedWorld);
 
     _area->initCameras(_info.entryPosition, _info.entryFacing);
 
     loadPlayer();
 
-    if (!fromSave) {
+    if (!restoreSavedWorld) {
         _area->runSpawnScripts();
     }
 }
@@ -125,10 +125,10 @@ void Module::loadInfo(const resource::generated::IFO &ifo) {
     _info.onModStart = boost::to_lower_copy(ifo.Mod_OnModStart);
 }
 
-void Module::loadArea(const resource::generated::IFO &ifo, bool fromSave) {
+void Module::loadArea(const resource::generated::IFO &ifo, bool restoreSavedWorld) {
     reone::info("Load area '" + _info.entryArea + "'");
 
-    if (fromSave) {
+    if (restoreSavedWorld) {
         auto area = std::find_if(
             ifo.Mod_Area_list.begin(),
             ifo.Mod_Area_list.end(),
@@ -149,7 +149,7 @@ void Module::loadArea(const resource::generated::IFO &ifo, bool fromSave) {
         throw ResourceNotFoundException("Area GIT not found: " + _info.entryArea);
     }
 
-    _area->load(_info.entryArea, *are, *git, fromSave);
+    _area->load(_info.entryArea, *are, *git, restoreSavedWorld);
 
 }
 void Module::loadLimboCreatures(const resource::Gff &ifo) {
@@ -165,16 +165,16 @@ void Module::loadPlayer() {
     _player = std::make_unique<Player>(*this, *_area, *_area->getCamera(CameraType::ThirdPerson), _game.party());
 }
 
-void Module::loadParty(const std::string &entry, bool fromSave) {
+void Module::loadParty(const std::string &entry, bool preserveSavedPlacement) {
     glm::vec3 position(0.0f);
     float facing = 0.0f;
     getEntryPoint(entry, position, facing);
 
-    _area->loadParty(position, facing, fromSave);
+    _area->loadParty(position, facing, preserveSavedPlacement);
     _area->onPartyLeaderMoved(true);
     _area->update3rdPersonCameraFacing();
 
-    if (!fromSave) {
+    if (!preserveSavedPlacement) {
         _area->runOnEnterScript();
     }
 }
