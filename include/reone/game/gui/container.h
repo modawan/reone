@@ -51,7 +51,16 @@ private:
 
     Controls _controls;
 
+    enum class Mode {
+        ContainerToPlayer,
+        PlayerToContainer,
+    };
+
+    Mode _mode {Mode::ContainerToPlayer};
     std::shared_ptr<Object> _container;
+
+    std::string _giveItemMsg;
+    std::string _getItemsMsg;
 
     void onGUILoaded() override;
 
@@ -64,7 +73,11 @@ private:
     }
 
     void configureItemsListBox();
+    void populateItems(Object &source, bool onlyDropable, bool skipCredits);
+    void switchMode();
     void transferItemsToPlayer();
+    void onItemDoubleClick(const std::string &tag);
+    void close();
 
     std::shared_ptr<graphics::Texture> getItemFrameTexture(int stackSize) const;
 };

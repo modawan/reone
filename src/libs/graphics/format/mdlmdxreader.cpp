@@ -127,7 +127,7 @@ MdlMdxReader::ArrayDefinition MdlMdxReader::readArrayDefinition() {
 
 void MdlMdxReader::readNodeNames(const std::vector<uint32_t> &offsets) {
     for (uint32_t offset : offsets) {
-        std::string name(boost::to_lower_copy(_mdl.readCStringAt(kMdlDataOffset + offset, 32)));
+        std::string name(boost::to_lower_copy(_mdl.readCStringAt(kMdlDataOffset + offset, 64)));
         _nodeNames.push_back(std::move(name));
     }
 }

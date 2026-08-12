@@ -77,6 +77,7 @@ public:
 
     void loadFromBlueprint(const std::string &resRef);
     void deserialize(const resource::Gff &gff);
+    void clone(Item &from);
 
     void update(float dt) override;
 
