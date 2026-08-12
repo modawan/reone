@@ -26,15 +26,15 @@ namespace reone {
 
 namespace graphics {
 
-static float measureCharacter(Font &font, char ch) {
-    return font.measure(std::string_view(&ch, 1));
+static float measureCharacter(Font &font, char ch, float scale) {
+    return font.measure(std::string_view(&ch, 1), scale);
 }
 
 static bool isAlphabetic(char ch) {
     return std::isalpha(static_cast<unsigned char>(ch)) != 0;
 }
 
-std::vector<std::string> breakText(const std::string &text, Font &font, int maxWidth) {
+std::vector<std::string> breakText(const std::string &text, Font &font, int maxWidth, float scale) {
     std::vector<std::string> result;
     if (text.empty()) {
         return result;
@@ -55,7 +55,7 @@ std::vector<std::string> breakText(const std::string &text, Font &font, int maxW
 
         while (cursor < text.size() && text[cursor] != '\n') {
             char ch = text[cursor];
-            width += measureCharacter(font, ch);
+            width += measureCharacter(font, ch, scale);
 
             if (ch == ' ' && cursor > lineStart) {
                 breakAt = cursor;

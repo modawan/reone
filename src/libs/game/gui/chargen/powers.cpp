@@ -25,6 +25,9 @@
 #include "reone/gui/control/listbox.h"
 #include "reone/resource/provider/textures.h"
 
+#include <algorithm>
+#include <cmath>
+
 using namespace reone::gui;
 using namespace reone::graphics;
 using namespace reone::resource;
@@ -54,6 +57,10 @@ static constexpr glm::vec3 kTSLSelectablePowerBorderColor {0.05098f, 0.34902f, 0
 static constexpr glm::vec3 kTSLOwnedPowerBorderColor {0.101961f, 0.698039f, 0.54902f};
 static constexpr glm::vec3 kTSLChosenPowerBorderColor {1.0f};
 static constexpr char kTSLPowerArrow[] = "uibit_abi_arrow";
+
+static int scalePixels(int pixels, float scale) {
+    return std::max(1, static_cast<int>(std::lround(pixels * scale)));
+}
 
 static IconChain::State getPowerIconState(SpellAvailability availability) {
     switch (availability) {
@@ -122,7 +129,9 @@ void CharGenPowers::onGUILoaded() {
         _controls.ICONCHAIN_POWERS->setHilightColor(_hilightColor);
     }
     _controls.ICONCHAIN_POWERS->setTintBorderFill(_game.isTSL());
-    _controls.ICONCHAIN_POWERS->setCellSize(kPowerIconCellSize);
+    float layoutScale = _gui->scale();
+    int cellSize = scalePixels(kPowerIconCellSize, layoutScale);
+    _controls.ICONCHAIN_POWERS->setCellSize(cellSize);
     auto &listExtent = _controls.LB_POWERS->extent();
     auto &protoExtent = _controls.LB_POWERS->protoItem().extent();
     int contentInsetY = protoExtent.top - listExtent.top;
@@ -130,15 +139,15 @@ void CharGenPowers::onGUILoaded() {
     int rowStep = protoExtent.height;
     if (!_game.isTSL()) {
         int contentHeight = listExtent.height - 2 * contentInsetY;
-        int remainingHeight = contentHeight - kK1VisiblePowerRows * kPowerIconCellSize;
+        int remainingHeight = contentHeight - kK1VisiblePowerRows * cellSize;
         int gapCount = kK1VisiblePowerRows + 1;
         int rowGap = (remainingHeight + gapCount / 2) / gapCount;
         originY += rowGap;
-        rowStep = kPowerIconCellSize + rowGap;
+        rowStep = cellSize + rowGap;
     } else {
         int fillInsetY = _controls.LB_POWERS->border().dimension;
         int fillHeight = listExtent.height - 2 * fillInsetY;
-        int rowRange = fillHeight - kPowerIconCellSize;
+        int rowRange = fillHeight - cellSize;
         int gapCount = kTSLVisiblePowerRows - 1;
         std::vector<int> rowOffsets;
         rowOffsets.reserve(kTSLVisiblePowerRows);
@@ -150,18 +159,19 @@ void CharGenPowers::onGUILoaded() {
     }
     _controls.ICONCHAIN_POWERS->setCellOrigin(protoExtent.left - listExtent.left, originY);
     _controls.ICONCHAIN_POWERS->setCellStep(
-        (protoExtent.width - kPowerIconCellSize) / (kPowerIconColumnCount - 1),
+        (protoExtent.width - cellSize) / (kPowerIconColumnCount - 1),
         rowStep);
 
     IconChain::CellStyle cellStyle;
     if (!_game.isTSL()) {
         cellStyle.backgroundTexture = _services.resource.textures.get(kK1PowerCellFill, TextureUsage::GUI);
         cellStyle.linkTexture = _services.resource.textures.get(kK1PowerArrow, TextureUsage::GUI);
-        cellStyle.linkSize = {kK1PowerArrowSize, kK1PowerArrowSize};
+        int arrowSize = scalePixels(kK1PowerArrowSize, layoutScale);
+        cellStyle.linkSize = {arrowSize, arrowSize};
         cellStyle.itemBorder = std::make_shared<Control::Border>();
         cellStyle.itemBorder->corner = _services.resource.textures.get(kK1PowerCellBorderCorner, TextureUsage::GUI);
         cellStyle.itemBorder->edge = _services.resource.textures.get(kK1PowerCellBorderEdge, TextureUsage::GUI);
-        cellStyle.itemBorder->dimension = kK1PowerCellBorderDimension;
+        cellStyle.itemBorder->dimension = scalePixels(kK1PowerCellBorderDimension, layoutScale);
         cellStyle.borderColors = std::make_shared<IconChain::CellStyle::BorderColors>();
         cellStyle.borderColors->owned = kK1PowerBorderGreenDim;
         cellStyle.borderColors->selected = kK1PowerBorderGreen;
@@ -173,7 +183,8 @@ void CharGenPowers::onGUILoaded() {
         cellStyle.onlyDrawItemBorderWhenBright = true;
     } else {
         cellStyle.linkTexture = _services.resource.textures.get(kTSLPowerArrow, TextureUsage::GUI);
-        cellStyle.linkSize = {kTSLPowerArrowSize, kTSLPowerArrowSize};
+        int arrowSize = scalePixels(kTSLPowerArrowSize, layoutScale);
+        cellStyle.linkSize = {arrowSize, arrowSize};
         cellStyle.borderColors = std::make_shared<IconChain::CellStyle::BorderColors>();
         cellStyle.borderColors->locked = kTSLLockedPowerBorderColor;
         cellStyle.borderColors->selectable = kTSLSelectablePowerBorderColor;
@@ -185,7 +196,7 @@ void CharGenPowers::onGUILoaded() {
         cellStyle.focusedBorderColors->owned = kTSLOwnedPowerBorderColor;
         cellStyle.focusedBorderColors->selected = kTSLChosenPowerBorderColor;
     }
-    cellStyle.iconSize = kPowerIconSize;
+    cellStyle.iconSize = scalePixels(kPowerIconSize, layoutScale);
     cellStyle.dimLockedBackground = !_game.isTSL();
     cellStyle.drawItemBorderFill = !_game.isTSL();
     _controls.ICONCHAIN_POWERS->setCellStyle(std::move(cellStyle));
@@ -198,7 +209,7 @@ void CharGenPowers::onGUILoaded() {
     _controls.ICONCHAIN_POWERS->setOnItemDoubleClick([this](const std::string &item) {
         onPowerActivated(item);
     });
-    _gui->addControlToBack(_controls.ICONCHAIN_POWERS);
+    _gui->addControlToBack(_controls.ICONCHAIN_POWERS, IGUI::ControlCoordinates::Screen);
 
     _controls.LB_DESC->setProtoMatchContent(true);
     _controls.LB_POWERS->setVisible(false);

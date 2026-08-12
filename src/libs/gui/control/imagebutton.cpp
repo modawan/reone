@@ -112,8 +112,8 @@ void ImageButton::renderIcon(
     if (!iconText.empty() && _iconFont) {
         glm::vec3 position(0.0f);
         position.x = static_cast<float>(offset.x + _extent.left + _extent.height);
-        position.y = static_cast<float>(offset.y + _extent.top + _extent.height - 0.5f * _iconFont->height());
-        _iconFont->render(iconText, position, color, TextGravity::LeftCenter);
+        position.y = static_cast<float>(offset.y + _extent.top + _extent.height - 0.5f * _iconFont->height() * _scale);
+        _iconFont->render(iconText, position, color, TextGravity::LeftCenter, _scale);
     }
 }
 

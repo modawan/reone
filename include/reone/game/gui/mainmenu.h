@@ -63,7 +63,10 @@ private:
 
     std::string _musicResRef;
 
+protected:
     void preload(gui::IGUI &gui) override;
+
+private:
     void onGUILoaded() override;
 
     void bindControls() {

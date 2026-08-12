@@ -82,6 +82,7 @@ public:
     void setSelectionMode(SelectionMode mode);
     void setSelectedItemIndex(int index);
     void setItemsInteractive(bool interactive);
+    void setScrollBarEnabled(bool enabled);
     void setProtoMatchContent(bool match);
     void setRenderItemIconsForButtonProto(bool render);
     void scrollToBottom();
@@ -112,8 +113,10 @@ private:
     int _itemOffset {0};
     int _selectedItemIndex {-1};
     bool _itemsInteractive {true};
+    bool _scrollBarEnabled {true};
     bool _protoMatchContent {false}; /**< proto item height must match its content */
     bool _renderItemIconsForButtonProto {false};
+    float _layoutScale {1.0f};
 
     // Event listeners
 
@@ -124,8 +127,9 @@ private:
 
     void updateItemSlots();
     void updateItemsLayout();
-
     int getInnerHeight() const;
+    int scaledPadding() const { return static_cast<int>(_padding * _layoutScale); }
+    float getItemPitch(const Item &item) const;
     int getItemWidth() const;
     int getItemHeight(const Item &item) const;
     int getItemTextWidth() const;

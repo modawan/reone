@@ -57,6 +57,11 @@ void MapMenu::onGUILoaded() {
     });
 
     if (!_game.isTSL()) {
+        // These two one-line buttons are authored as top-aligned because the
+        // retail font filled their short controls. Independent text scaling
+        // otherwise leaves the smaller glyphs pinned to one edge.
+        _controls.BTN_PRTYSLCT->setTextAlignment(Control::TextAlign::CenterCenter);
+        _controls.BTN_RETURN->setTextAlignment(Control::TextAlign::CenterCenter);
         _controls.BTN_PRTYSLCT->setOnClick([this]() {
             _game.openPartySelection(PartySelectionContext());
         });
@@ -74,7 +79,7 @@ void MapMenu::render() {
         extent.width,
         extent.height);
 
-    _game.map().render(Map::Mode::Default, bounds);
+    _game.map().render(Map::Mode::Default, bounds, _gui->scale());
 }
 
 void MapMenu::refreshControls() {

@@ -17,6 +17,9 @@
 
 #include "reone/game/gui/barkbubble.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "reone/game/game.h"
 
 using namespace reone::audio;
@@ -29,12 +32,36 @@ namespace reone {
 namespace game {
 
 void BarkBubble::preload(IGUI &gui) {
+    GameGUI::preload(gui);
     gui.setScaling(GUI::ScalingMode::PositionRelativeToCenter);
 }
 
 void BarkBubble::onGUILoaded() {
     bindControls();
-    _gui->rootControl().setVisible(false);
+
+    // Unlike the HUD, the bubble's text extent is authored relative to its
+    // panel. PositionRelativeToCenter otherwise anchors both controls as
+    // independent screen-space objects and separates them after scaling.
+    float scale = _gui->scale();
+    auto &root = _gui->rootControl();
+    auto rootAuthored = root.authoredExtent();
+    Control::Extent rootExtent {
+        static_cast<int>(std::lround(rootAuthored.left * scale)),
+        static_cast<int>(std::lround(rootAuthored.top * scale)),
+        static_cast<int>(std::lround(rootAuthored.width * scale)),
+        static_cast<int>(std::lround(rootAuthored.height * scale))};
+    root.setExtent(rootExtent);
+    root.setPresentationScale(scale);
+
+    auto labelAuthored = _controls.LBL_BARKTEXT->authoredExtent();
+    _controls.LBL_BARKTEXT->setExtent({
+        rootExtent.left + static_cast<int>(std::lround(labelAuthored.left * scale)),
+        rootExtent.top + static_cast<int>(std::lround(labelAuthored.top * scale)),
+        static_cast<int>(std::lround(labelAuthored.width * scale)),
+        static_cast<int>(std::lround(labelAuthored.height * scale))});
+    _controls.LBL_BARKTEXT->setPresentationScale(scale);
+
+    root.setVisible(false);
     _controls.LBL_BARKTEXT->setVisible(false);
 }
 
@@ -50,17 +77,19 @@ void BarkBubble::setBarkText(const std::string &text, float duration) {
         _gui->rootControl().setVisible(false);
         _controls.LBL_BARKTEXT->setVisible(false);
     } else {
-        float textWidth = _controls.LBL_BARKTEXT->text().font->measure(text);
-        int lineCount = static_cast<int>(textWidth / static_cast<float>(_controls.LBL_BARKTEXT->extent().width)) + 1;
-        int padding = _controls.LBL_BARKTEXT->extent().left;
-        float rootHeight = lineCount * _controls.LBL_BARKTEXT->text().font->height() + 2 * padding;
-        float labelHeight = lineCount * _controls.LBL_BARKTEXT->text().font->height();
+        _controls.LBL_BARKTEXT->setTextMessage(text);
+
+        int lineCount = std::max(1, static_cast<int>(_controls.LBL_BARKTEXT->textLines().size()));
+        int lineHeight = std::max(1, static_cast<int>(std::lround(
+                                         _controls.LBL_BARKTEXT->text().font->height() *
+                                         _controls.LBL_BARKTEXT->scale())));
+        int padding = std::max(0, static_cast<int>(std::lround(
+                                      _controls.LBL_BARKTEXT->authoredExtent().left * _gui->scale())));
 
         _gui->rootControl().setVisible(true);
-        _gui->rootControl().setExtentHeight(static_cast<int>(rootHeight));
+        _gui->rootControl().setExtentHeight(lineCount * lineHeight + 2 * padding);
 
-        _controls.LBL_BARKTEXT->setExtentHeight(static_cast<int>(labelHeight));
-        _controls.LBL_BARKTEXT->setTextMessage(text);
+        _controls.LBL_BARKTEXT->setExtentHeight(lineCount * lineHeight);
         _controls.LBL_BARKTEXT->setVisible(true);
     }
 
