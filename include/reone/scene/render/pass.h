@@ -51,6 +51,11 @@ enum class RenderPassName {
     Debug
 };
 
+enum class ImageAlphaMode {
+    Default,
+    Sharpen
+};
+
 struct ParticleInstance {
     int frame {0};
     glm::vec3 position {0.0f};
@@ -117,7 +122,16 @@ public:
                            const glm::ivec2 &position,
                            const glm::ivec2 &scale,
                            glm::vec4 color = glm::vec4(1.0f),
-                           glm::mat3x4 uv = glm::mat3x4(1.0f)) = 0;
+                           glm::mat3x4 uv = glm::mat3x4(1.0f),
+                           ImageAlphaMode alphaMode = ImageAlphaMode::Default) = 0;
+
+    void drawIcon(graphics::Texture &texture,
+                  const glm::ivec2 &position,
+                  const glm::ivec2 &scale,
+                  glm::vec4 color = glm::vec4(1.0f),
+                  glm::mat3x4 uv = glm::mat3x4(1.0f)) {
+        drawImage(texture, position, scale, color, uv, ImageAlphaMode::Sharpen);
+    }
 };
 
 } // namespace scene

@@ -319,7 +319,7 @@ void SelectionOverlay::renderReticle(std::shared_ptr<Texture> texture, const glm
         locals.reset();
         locals.model = std::move(transform);
     });
-    _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpTexture));
+    _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
 }
 
@@ -452,7 +452,7 @@ void SelectionOverlay::renderActionArrow(int index, bool previous) {
                 glm::vec4(1.0f, 1.0f, 0.0f, 0.0f));
         }
     });
-    _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpTexture));
+    _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpIcon));
     _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
 }
 

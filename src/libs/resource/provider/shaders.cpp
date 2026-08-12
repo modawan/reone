@@ -49,6 +49,7 @@ static const std::string kGeometryDirLightShadows = "g_dirlightshadow";
 static const std::string kGeometryPointLightShadows = "g_ptlightshadow";
 
 static const std::string kFragColor = "f_color";
+static const std::string kFragIcon = "f_icon";
 static const std::string kFragRetroOpaqueModel = "f_rtr_opaqmodel";
 static const std::string kFragRetroGrass = "f_rtr_grass";
 static const std::string kFragRetroAABB = "f_rtr_aabb";
@@ -104,6 +105,7 @@ void Shaders::init() {
     auto geomPointLightShadows = initShader(ShaderType::Geometry, kGeometryPointLightShadows);
 
     auto fragColor = initShader(ShaderType::Fragment, kFragColor);
+    auto fragIcon = initShader(ShaderType::Fragment, kFragIcon);
     auto fragRetroOpaqueModel = initShader(ShaderType::Fragment, kFragRetroOpaqueModel);
     auto fragRetroGrass = initShader(ShaderType::Fragment, kFragRetroGrass);
     auto fragRetroAABB = initShader(ShaderType::Fragment, kFragRetroAABB);
@@ -151,6 +153,7 @@ void Shaders::init() {
     _shaderRegistry.add(ShaderProgramId::pbrWalkmesh, initShaderProgram({vertWalkmesh, fragPBRWalkmesh}));
     _shaderRegistry.add(ShaderProgramId::dirLightShadows, initShaderProgram({vertShadows, geomDirLightShadows, fragNull}));
     _shaderRegistry.add(ShaderProgramId::mvpColor, initShaderProgram({vertMVP, fragColor}));
+    _shaderRegistry.add(ShaderProgramId::mvpIcon, initShaderProgram({vertMVP, fragIcon}));
     _shaderRegistry.add(ShaderProgramId::mvpTexture, initShaderProgram({vertMVP, fragTexture}));
     _shaderRegistry.add(ShaderProgramId::ndcTexture, initShaderProgram({vertPassthrough, fragTextureNoPerspective}));
     _shaderRegistry.add(ShaderProgramId::oitBlend, initShaderProgram({vertPassthrough, fragOITBlend}));

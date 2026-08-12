@@ -175,7 +175,7 @@ void IconChain::render(const glm::ivec2 &screenSize,
         bool focused = static_cast<int>(i) == _focusedItemIndex;
         if (item.iconTexture) {
             Extent iconExtent(getItemIconExtent(itemExtent));
-            pass.drawImage(
+            pass.drawIcon(
                 *item.iconTexture,
                 {offset.x + iconExtent.left, offset.y + iconExtent.top},
                 {iconExtent.width, iconExtent.height},

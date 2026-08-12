@@ -103,7 +103,7 @@ void ImageButton::renderIcon(
     }
 
     if (iconTexture) {
-        pass.drawImage(
+        pass.drawIcon(
             *iconTexture,
             {offset.x + _extent.left, offset.y + _extent.top},
             {_extent.height, _extent.height});
