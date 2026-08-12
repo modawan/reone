@@ -359,6 +359,11 @@ void Equipment::update(float dt) {
     updateCandidateDescription();
 }
 
+void Equipment::openItems(Slot slot) {
+    update();
+    selectSlot(slot);
+}
+
 void Equipment::updatePortraits() {
     if (_game.isTSL())
         return;
