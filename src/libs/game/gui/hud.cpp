@@ -354,29 +354,27 @@ void HUD::update(float dt) {
             LBL_LEVELUP.setVisible(member->isLevelUpPending());
             if (!_game.isTSL()) {
                 LBL_LVLUPBG->setVisible(member->isLevelUpPending());
-            } else {
-                int hitPoints = member->hitPoints();
-                vitalityBars[i]->setVisible(true);
-                vitalityBars[i]->setValue(hitPoints > 0
-                    ? std::clamp(100 * member->currentHitPoints() / hitPoints, 0, 100)
-                    : 0);
-
-                int forcePoints = member->forcePoints();
-                forceBars[i]->setVisible(forcePoints > 0);
-                forceBars[i]->setValue(forcePoints > 0
-                    ? std::clamp(100 * member->currentForce() / forcePoints, 0, 100)
-                    : 0);
             }
+            int maxHitPoints = member->maxHitPoints();
+            vitalityBars[i]->setVisible(true);
+            vitalityBars[i]->setValue(maxHitPoints > 0
+                ? std::clamp(100 * member->currentHitPoints() / maxHitPoints, 0, 100)
+                : 0);
+
+            int forcePoints = member->forcePoints();
+            forceBars[i]->setVisible(forcePoints > 0);
+            forceBars[i]->setValue(forcePoints > 0
+                ? std::clamp(100 * member->currentForce() / forcePoints, 0, 100)
+                : 0);
         } else {
             LBL_CHAR.setVisible(false);
             LBL_BACK.setVisible(false);
             LBL_LEVELUP.setVisible(false);
             if (!_game.isTSL()) {
                 LBL_LVLUPBG->setVisible(false);
-            } else {
-                vitalityBars[i]->setVisible(false);
-                forceBars[i]->setVisible(false);
             }
+            vitalityBars[i]->setVisible(false);
+            forceBars[i]->setVisible(false);
         }
     }
 
@@ -463,10 +461,6 @@ void HUD::render() {
 
     renderMinimap();
 
-    Party &party = _game.party();
-    for (int i = 0; i < party.getSize(); ++i) {
-        renderHealth(i);
-    }
 
     _barkBubble->render();
     if (_areaTransition && _areaTransition->isVisible()) {
@@ -494,42 +488,6 @@ void HUD::renderMinimap() {
     // The frame is a control and scales with the layout; the map drawn inside
     // it is not, so it has to be told.
     _game.map().render(Map::Mode::Minimap, bounds, _gui->scale());
-}
-
-void HUD::renderHealth(int memberIndex) {
-    if (_game.isTSL())
-        return;
-
-    Party &party = _game.party();
-    std::vector<Label *> backLabels {
-        _controls.LBL_BACK1.get(),
-        _controls.LBL_BACK2.get(),
-        _controls.LBL_BACK3.get()};
-
-    if (memberIndex >= backLabels.size()) {
-        return;
-    }
-
-    Label &LBL_CHAR = *backLabels[memberIndex];
-    const Control::Extent &extent = LBL_CHAR.extent();
-    // The bar is artwork in the portrait's layout space, not text.
-    float scale = _gui->scale();
-
-    std::shared_ptr<Creature> member(party.getMember(memberIndex));
-    float w = 5.0f * scale;
-    float h = glm::clamp(member->currentHitPoints() / static_cast<float>(member->hitPoints()), 0.0f, 1.0f) * extent.height;
-
-    glm::mat4 transform(1.0f);
-    transform = glm::translate(transform, glm::vec3(_gui->controlOffset().x + extent.left + extent.width - 14.0f * scale, _gui->controlOffset().y + extent.top + extent.height - h, 0.0f));
-    transform = glm::scale(transform, glm::vec3(w, h, 1.0f));
-
-    _services.graphics.uniforms.setLocals([this, transform](auto &locals) {
-        locals.reset();
-        locals.model = std::move(transform);
-        locals.color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
-    });
-    _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::mvpColor));
-    _services.graphics.meshRegistry.get(MeshName::quad).draw(_services.graphics.statistic);
 }
 
 void HUD::toggleCombat(bool enabled) {
