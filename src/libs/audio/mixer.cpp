@@ -74,6 +74,9 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
 }
 
 float AudioMixer::gainByType(AudioType type, float gain) const {
+    if (_options.muted) {
+        return 0.0f;
+    }
     int volume;
     switch (type) {
     case AudioType::Music:

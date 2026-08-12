@@ -66,6 +66,9 @@ public:
                                  int mask = FramebufferBlitFlags::color,
                                  FramebufferBlitFilter filter = FramebufferBlitFilter::Nearest) = 0;
 
+    /** Reads the back buffer before presentation for automated screenshots. */
+    virtual std::shared_ptr<Texture> captureScreen(int width, int height) = 0;
+
     virtual void bindUniformBuffer(UniformBuffer &buffer, int index) = 0;
     virtual void bindTexture(Texture &texture, int unit = TextureUnits::mainTex) = 0;
 
@@ -126,6 +129,8 @@ public:
                          int dstColorIdx = 0,
                          int mask = FramebufferBlitFlags::color,
                          FramebufferBlitFilter filter = FramebufferBlitFilter::Nearest) override;
+
+    std::shared_ptr<Texture> captureScreen(int width, int height) override;
 
     void bindUniformBuffer(UniformBuffer &buffer, int index) override;
     void bindTexture(Texture &texture, int unit = TextureUnits::mainTex) override;
