@@ -315,6 +315,14 @@ void HUD::update(float dt) {
         _controls.LBL_LEVELUP1.get(),
         _controls.LBL_LEVELUP2.get(),
         _controls.LBL_LEVELUP3.get()};
+    std::array<ProgressBar *, 3> vitalityBars {
+        _controls.PB_VIT1.get(),
+        _controls.PB_VIT2.get(),
+        _controls.PB_VIT3.get()};
+    std::array<ProgressBar *, 3> forceBars {
+        _controls.PB_FORCE1.get(),
+        _controls.PB_FORCE2.get(),
+        _controls.PB_FORCE3.get()};
 
     for (int i = 0; i < 3; ++i) {
         Label &LBL_CHAR = *charLabels[i];
@@ -334,6 +342,18 @@ void HUD::update(float dt) {
             LBL_LEVELUP.setVisible(member->isLevelUpPending());
             if (!_game.isTSL()) {
                 LBL_LVLUPBG->setVisible(member->isLevelUpPending());
+            } else {
+                int hitPoints = member->hitPoints();
+                vitalityBars[i]->setVisible(true);
+                vitalityBars[i]->setValue(hitPoints > 0
+                    ? std::clamp(100 * member->currentHitPoints() / hitPoints, 0, 100)
+                    : 0);
+
+                int forcePoints = member->forcePoints();
+                forceBars[i]->setVisible(forcePoints > 0);
+                forceBars[i]->setValue(forcePoints > 0
+                    ? std::clamp(100 * member->currentForce() / forcePoints, 0, 100)
+                    : 0);
             }
         } else {
             LBL_CHAR.setVisible(false);
@@ -341,6 +361,9 @@ void HUD::update(float dt) {
             LBL_LEVELUP.setVisible(false);
             if (!_game.isTSL()) {
                 LBL_LVLUPBG->setVisible(false);
+            } else {
+                vitalityBars[i]->setVisible(false);
+                forceBars[i]->setVisible(false);
             }
         }
     }
