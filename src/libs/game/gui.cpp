@@ -123,7 +123,10 @@ void GameGUI::loadBackground(BackgroundType type) {
             break;
         case BackgroundType::Computer0:
         case BackgroundType::Computer1:
-            resRef = "pnl_computer_pc";
+            // The terminal bezel is the computer_p panel's own fill; using it
+            // as the backdrop too drew a cropped second copy behind the
+            // panel. The retail terminal sits on a void fill.
+            resRef = "black";
             break;
         default:
             return;
