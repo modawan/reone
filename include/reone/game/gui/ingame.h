@@ -50,6 +50,7 @@ public:
     void render() override;
 
     void openEquipment();
+    void openEquipmentItems();
     void openInventory();
     void openCharacter();
     void openAbilities();
