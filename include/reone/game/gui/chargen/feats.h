@@ -98,7 +98,7 @@ private:
         _controls.SUB_TITLE_LBL = findControl<gui::Label>("SUB_TITLE_LBL");
     }
 
-    void loadLevelUpDisplayEntries();
+    void loadDisplayEntries();
     void refreshControls();
     void refreshSelectionControls();
     void refreshIconChain();
