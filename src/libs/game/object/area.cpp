@@ -175,10 +175,11 @@ void Area::load(std::string name, const Gff &are, const Gff &git, bool fromSave)
 
     auto areParsed = resource::generated::parseARE(are);
     auto gitParsed = resource::generated::parseGIT(git);
+    deserializeRuntimeState(are);
 
     loadARE(areParsed);
     loadLYT();
-    loadGIT(gitParsed, git);
+    loadGIT(gitParsed, git, fromSave);
     loadVIS();
     loadPTH();
 }
@@ -358,17 +359,18 @@ void Area::applySceneProperties() {
     sceneGraph.setFog(fogProperties);
 }
 
-void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff) {
+void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff, bool fromSave) {
     loadProperties(git);
-    loadCreatures(gff);
-    loadDoors(gff);
-    loadPlaceables(gff);
-    loadWaypoints(gff);
-    loadTriggers(gff);
-    loadSounds(gff);
+    loadCreatures(gff, fromSave);
+    loadDoors(gff, fromSave);
+    loadPlaceables(gff, fromSave);
+    loadWaypoints(gff, fromSave);
+    loadTriggers(gff, fromSave);
+    loadSounds(gff, fromSave);
     loadCameras(gff);
-    loadEncounters(gff);
-    loadStores(gff);
+    loadEncounters(gff, fromSave);
+    loadStores(gff, fromSave);
+    loadItems(gff, fromSave);
 }
 
 void Area::loadProperties(const resource::generated::GIT &git) {
@@ -379,50 +381,56 @@ void Area::loadProperties(const resource::generated::GIT &git) {
     }
 }
 
-void Area::loadCreatures(const resource::Gff &gff) {
+void Area::loadCreatures(const resource::Gff &gff, bool fromSave) {
     for (const auto &creatureGff : gff.getList("Creature List")) {
-        std::shared_ptr<Creature> creature = _game.newCreature(_sceneName);
+        std::shared_ptr<Creature> creature = fromSave ? _game.newCreature(*creatureGff, _sceneName)
+                                                     : _game.newCreature(_sceneName);
         creature->deserialize(*creatureGff);
         landObject(*creature);
         add(creature);
     }
 }
 
-void Area::loadDoors(const resource::Gff &gff) {
+void Area::loadDoors(const resource::Gff &gff, bool fromSave) {
     for (auto &doorGff : gff.getList("Door List")) {
-        std::shared_ptr<Door> door = _game.newDoor(_sceneName);
+        std::shared_ptr<Door> door = fromSave ? _game.newDoor(*doorGff, _sceneName)
+                                             : _game.newDoor(_sceneName);
         door->deserialize(*doorGff);
         add(door);
     }
 }
 
-void Area::loadPlaceables(const resource::Gff &gff) {
+void Area::loadPlaceables(const resource::Gff &gff, bool fromSave) {
     for (auto &placeableGff : gff.getList("Placeable List")) {
-        std::shared_ptr<Placeable> placeable = _game.newPlaceable(_sceneName);
+        std::shared_ptr<Placeable> placeable = fromSave ? _game.newPlaceable(*placeableGff, _sceneName)
+                                                       : _game.newPlaceable(_sceneName);
         placeable->deserialize(*placeableGff);
         add(placeable);
     }
 }
 
-void Area::loadWaypoints(const resource::Gff &gff) {
+void Area::loadWaypoints(const resource::Gff &gff, bool fromSave) {
     for (auto &waypointGff : gff.getList("WaypointList")) {
-        std::shared_ptr<Waypoint> waypoint = _game.newWaypoint(_sceneName);
+        std::shared_ptr<Waypoint> waypoint = fromSave ? _game.newWaypoint(*waypointGff, _sceneName)
+                                                     : _game.newWaypoint(_sceneName);
         waypoint->deserialize(*waypointGff);
         add(waypoint);
     }
 }
 
-void Area::loadTriggers(const resource::Gff &gff) {
+void Area::loadTriggers(const resource::Gff &gff, bool fromSave) {
     for (auto &triggerGff : gff.getList("TriggerList")) {
-        std::shared_ptr<Trigger> trigger = _game.newTrigger(_sceneName);
+        std::shared_ptr<Trigger> trigger = fromSave ? _game.newTrigger(*triggerGff, _sceneName)
+                                                   : _game.newTrigger(_sceneName);
         trigger->deserialize(*triggerGff);
         add(trigger);
     }
 }
 
-void Area::loadSounds(const resource::Gff &gff) {
+void Area::loadSounds(const resource::Gff &gff, bool fromSave) {
     for (auto &soundGff : gff.getList("SoundList")) {
-        std::shared_ptr<Sound> sound = _game.newSound(_sceneName);
+        std::shared_ptr<Sound> sound = fromSave ? _game.newSound(*soundGff, _sceneName)
+                                               : _game.newSound(_sceneName);
         sound->deserialize(*soundGff);
         add(sound);
     }
@@ -436,22 +444,33 @@ void Area::loadCameras(const resource::Gff &gff) {
     }
 }
 
-void Area::loadEncounters(const resource::Gff &gff) {
+void Area::loadEncounters(const resource::Gff &gff, bool fromSave) {
     for (auto &encounterGff : gff.getList("Encounter List")) {
-        std::shared_ptr<Encounter> encounter = _game.newEncounter(_sceneName);
+        std::shared_ptr<Encounter> encounter = fromSave ? _game.newEncounter(*encounterGff, _sceneName)
+                                                       : _game.newEncounter(_sceneName);
         encounter->deserialize(*encounterGff);
         add(encounter);
     }
 }
 
-void Area::loadStores(const resource::Gff &gff) {
+void Area::loadStores(const resource::Gff &gff, bool fromSave) {
     for (auto &storeGff : gff.getList("StoreList")) {
-        std::shared_ptr<Store> store = _game.newStore(_sceneName);
+        std::shared_ptr<Store> store = fromSave ? _game.newStore(*storeGff, _sceneName)
+                                               : _game.newStore(_sceneName);
         store->deserialize(*storeGff);
         add(store);
     }
 }
 
+
+void Area::loadItems(const resource::Gff &gff, bool fromSave) {
+    for (auto &itemGff : gff.getList("List")) {
+        std::shared_ptr<Item> item = fromSave ? _game.newItem(*itemGff)
+                                             : _game.newItem();
+        item->deserialize(*itemGff);
+        add(item);
+    }
+}
 void Area::loadLYT() {
     auto layout = _services.resource.layouts.get(_name);
     if (!layout) {
@@ -873,7 +892,9 @@ void Area::loadPartyMember(const std::shared_ptr<Creature> &member, int index, b
     }
 
     add(member);
-    member->runSpawnScript();
+    if (!fromSave) {
+        member->runSpawnScript();
+    }
 }
 
 void Area::unloadPartyMember(const std::shared_ptr<Creature> &member) {

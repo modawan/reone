@@ -49,17 +49,21 @@ namespace game {
 
 void Door::deserialize(const resource::Gff &gff) {
     std::string templateRes;
-    if (gff.readResRef(templateRes, "TemplateResRef")) {
+    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto utd = _services.resource.gffs.get(templateRes, ResType::Utd)) {
             deserializeAll(*utd);
         }
     }
     deserializeAll(gff);
     loadAppearance();
+    if (_open) {
+        open();
+    }
     updateTransform();
 }
 
 void Door::deserializeAll(const resource::Gff &gff) {
+    deserializeRuntimeState(gff);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
     }
@@ -69,7 +73,7 @@ void Door::deserializeAll(const resource::Gff &gff) {
 
     gff.readDword(_appearance, "Appearance");
     gff.readByte(_genericType, "GenericType");
-    gff.readBool(_isOpen, "OpenState");
+    gff.readBool(_open, "OpenState");
     gff.readBool(_autoRemoveKey, "AutoRemoveKey");
     {
         float bearing;
@@ -88,6 +92,9 @@ void Door::deserializeAll(const resource::Gff &gff) {
         _maxHitPoints = _hitPoints;
     }
     gff.readShort(_currentHitPoints, "CurrentHP");
+    if (gff.has("ObjectId") && gff.has("CurrentHP")) {
+        _dead = _currentHitPoints <= 0;
+    }
     gff.readBool(_plot, "Plot");
     gff.readBool(_minOneHP, "Min1HP");
     if (gff.readString(_keyName, "KeyName")) {

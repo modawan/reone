@@ -92,7 +92,6 @@ private:
     resource::LocString _locName;
     uint32_t _appearance {0};
     uint8_t _genericType {0};
-    bool _isOpen {false};
     bool _autoRemoveKey {false};
     Faction _faction {Faction::Invalid};
     uint8_t _fort {0};

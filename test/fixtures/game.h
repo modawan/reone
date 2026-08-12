@@ -182,6 +182,11 @@ public:
     static void finishPazaak(Game &game, PazaakCompletedResult result);
     static void serializePazaakPartyTable(const Game &game, resource::Gff &gff);
     static void deserializePartyTable(Game &game, resource::Gff &gff);
+    static void publishPartyRuntimeState(
+        Game &game,
+        resource::Gff &ifoGff,
+        const std::shared_ptr<resource::Gff> &ptGff,
+        const std::shared_ptr<resource::Gff> &pcGff);
     static void deserializeAvailableNpcs(Game &game);
     static void deserializeGlobalVariables(Game &game, resource::Gff &gff);
     static void replaceJournal(Game &game, const resource::Gff &gff);

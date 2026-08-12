@@ -33,6 +33,7 @@
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
+#include "reone/game/object/encounter.h"
 #include "reone/game/object/item.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/object/trigger.h"
@@ -47,6 +48,7 @@
 #include "reone/scene/collision.h"
 #include "reone/scene/node/model.h"
 #include "reone/scene/node/trigger.h"
+#include "reone/system/exception/validation.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/program.h"
 
@@ -2137,4 +2139,209 @@ TEST(AreaReputationSearch, treats_the_creature_being_searched_around_as_the_sour
         {CreatureType::Reputation, static_cast<int>(ReputationType::Enemy)}};
 
     EXPECT_EQ(candidate, area->getNearestCreature(searching, criterias));
+}
+
+TEST(SavedRuntimeState, restores_explicit_object_identity_and_allocator_cursors) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto ifo = Gff::Builder()
+                   .field(Gff::Field::newDword("Mod_NextObjId0", 700))
+                   .field(Gff::Field::newDword64("Mod_Effect_NxtId", 900))
+                   .build();
+    game.prepareSavedRuntimeNamespace(*ifo);
+
+    auto saved = Gff::Builder()
+                     .field(Gff::Field::newDword("ObjectId", 650))
+                     .build();
+    auto item = game.newItem(*saved);
+    item->deserializeRuntimeState(*saved);
+
+    EXPECT_EQ(650u, item->id());
+    EXPECT_EQ(item, game.getObjectById(650));
+    EXPECT_EQ(700u, game.newItem()->id());
+    EXPECT_EQ(900u, game.nextEffectId());
+}
+
+TEST(SavedRuntimeState, rejects_reserved_invalid_and_duplicate_object_ids) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto reserved = Gff::Builder()
+                        .field(Gff::Field::newDword("ObjectId", 1))
+                        .build();
+    auto invalid = Gff::Builder()
+                       .field(Gff::Field::newDword("ObjectId", std::numeric_limits<uint32_t>::max()))
+                       .build();
+    auto saved = Gff::Builder()
+                     .field(Gff::Field::newDword("ObjectId", 42))
+                     .build();
+
+    EXPECT_THROW(game.newItem(*reserved), ValidationException);
+    EXPECT_THROW(game.newItem(*invalid), ValidationException);
+    EXPECT_NO_THROW(game.newItem(*saved));
+    EXPECT_THROW(game.newItem(*saved), ValidationException);
+}
+
+TEST(SavedRuntimeState, reserves_module_and_area_structural_ids) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto module = game.newSavedModule();
+    auto area = game.newSavedArea(1);
+
+    EXPECT_EQ(0u, module->id());
+    EXPECT_EQ(1u, area->id());
+    EXPECT_EQ(2u, engine.gameModule().objectRegistrySize(game));
+}
+
+TEST(SavedRuntimeState, restores_swvar_boolean_and_numeric_locals) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto bit0 = Gff::Builder()
+                    .field(Gff::Field::newDword("Variable", 1u << 31))
+                    .build();
+    auto bit1 = Gff::Builder()
+                    .field(Gff::Field::newDword("Variable", 1u << 2))
+                    .build();
+    auto byte0 = Gff::Builder()
+                     .field(Gff::Field::newByte("Variable", 0))
+                     .build();
+    auto byte1 = Gff::Builder()
+                     .field(Gff::Field::newByte("Variable", 173))
+                     .build();
+    auto variables = Gff::Builder()
+                         .field(Gff::Field::newList("BitArray", {bit0, bit1}))
+                         .field(Gff::Field::newList("ByteArray", {byte0, byte1}))
+                         .build();
+    auto saved = Gff::Builder()
+                     .field(Gff::Field::newStruct("SWVarTable", variables))
+                     .build();
+
+    auto item = game.newItem();
+    item->deserializeRuntimeState(*saved);
+
+    EXPECT_TRUE(item->getLocalBoolean(31));
+    EXPECT_TRUE(item->getLocalBoolean(34));
+    EXPECT_FALSE(item->getLocalBoolean(30));
+    EXPECT_EQ(173, item->getLocalNumber(1));
+    EXPECT_EQ(0, item->getLocalNumber(0));
+}
+
+TEST(SavedRuntimeState, resolves_references_only_after_saved_graph_construction) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto sourceGff = Gff::Builder()
+                         .field(Gff::Field::newDword("ObjectId", 80))
+                         .field(Gff::Field::newDword("CreatorId", 81))
+                         .field(Gff::Field::newDword("TargetId", 999))
+                         .build();
+    auto targetGff = Gff::Builder()
+                         .field(Gff::Field::newDword("ObjectId", 81))
+                         .build();
+    auto source = game.newItem(*sourceGff);
+    source->deserializeRuntimeState(*sourceGff);
+    EXPECT_FALSE(source->savedReference("CreatorId"));
+
+    auto target = game.newItem(*targetGff);
+    target->deserializeRuntimeState(*targetGff);
+    game.resolveSavedObjectReferences();
+
+    EXPECT_EQ(target, source->savedReference("CreatorId"));
+    EXPECT_FALSE(source->savedReference("TargetId"));
+}
+
+TEST(SavedRuntimeState, preserves_and_binds_saved_encounter_runtime_state) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto areaObject = Gff::Builder()
+                          .field(Gff::Field::newDword("AreaObject", 90))
+                          .build();
+    auto saved = Gff::Builder()
+                     .field(Gff::Field::newDword("ObjectId", 89))
+                     .field(Gff::Field::newInt("AreaListMaxSize", 8))
+                     .field(Gff::Field::newInt("AreaListSize", 1))
+                     .field(Gff::Field::newList("AreaList", {areaObject}))
+                     .field(Gff::Field::newFloat("AreaPoints", 3.5f))
+                     .field(Gff::Field::newInt("CurrentSpawns", 2))
+                     .field(Gff::Field::newInt("CustomScriptId", 17))
+                     .field(Gff::Field::newByte("Exhausted", 1))
+                     .field(Gff::Field::newDword("HeartbeatDay", 4))
+                     .field(Gff::Field::newDword("HeartbeatTime", 5))
+                     .field(Gff::Field::newDword("LastEntered", 6))
+                     .field(Gff::Field::newDword("LastLeft", 7))
+                     .field(Gff::Field::newDword("LastSpawnDay", 8))
+                     .field(Gff::Field::newDword("LastSpawnTime", 9))
+                     .field(Gff::Field::newInt("NumberSpawned", 10))
+                     .field(Gff::Field::newFloat("SpawnPoolActive", 11.5f))
+                     .field(Gff::Field::newByte("Started", 1))
+                     .build();
+
+    auto encounter = game.newEncounter(*saved);
+    encounter->deserialize(*saved);
+    auto targetGff = Gff::Builder()
+                         .field(Gff::Field::newDword("ObjectId", 90))
+                         .build();
+    auto target = game.newItem(*targetGff);
+    game.resolveSavedObjectReferences();
+
+    const auto &state = encounter->savedRuntimeState();
+    EXPECT_EQ(8, state.areaListMaxSize);
+    EXPECT_EQ(1, state.areaListSize);
+    EXPECT_EQ(std::vector<uint32_t>({90}), state.areaObjectIds);
+    EXPECT_FLOAT_EQ(3.5f, state.areaPoints);
+    EXPECT_EQ(2, state.currentSpawns);
+    EXPECT_EQ(17, state.customScriptId);
+    EXPECT_TRUE(state.exhausted);
+    EXPECT_EQ(4u, state.heartbeatDay);
+    EXPECT_EQ(5u, state.heartbeatTime);
+    EXPECT_EQ(6u, state.lastEntered);
+    EXPECT_EQ(7u, state.lastLeft);
+    EXPECT_EQ(8u, state.lastSpawnDay);
+    EXPECT_EQ(9u, state.lastSpawnTime);
+    EXPECT_EQ(10, state.numberSpawned);
+    EXPECT_FLOAT_EQ(11.5f, state.spawnPoolActive);
+    EXPECT_TRUE(state.started);
+    EXPECT_EQ(target, encounter->savedAreaObject(0));
+}
+
+TEST(SavedRuntimeState, restores_saved_creature_death_from_current_hit_points) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(engine.services().game.portraits), getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto saved = Gff::Builder()
+                     .field(Gff::Field::newDword("ObjectId", 82))
+                     .field(Gff::Field::newShort("CurrentHitPoints", 0))
+                     .field(Gff::Field::newDword("Appearance_Type", 0))
+                     .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+                     .field(Gff::Field::newByte("BodyBag", 0xff))
+                     .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                     .build();
+    auto creature = game.newCreature(*saved);
+    creature->deserialize(*saved);
+
+    EXPECT_EQ(0, creature->currentHitPoints());
+    EXPECT_TRUE(creature->isDead());
 }

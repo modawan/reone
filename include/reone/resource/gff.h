@@ -220,6 +220,7 @@ public:
         return false;
     }
 
+    bool has(std::string_view name) const { return get(name) != nullptr; }
     bool getBool(const std::string &name, bool defValue = false) const;
     int32_t getInt(const std::string &name, int32_t defValue = 0) const;
     int64_t getInt64(const std::string &name, int64_t defValue = 0) const;

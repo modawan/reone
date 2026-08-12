@@ -387,7 +387,7 @@ TEST_F(SavedSituationTest, delay_event_and_do_command_action_payloads_share_the_
     // ActionDoCommand/DoCommand owns the same script-situation wire payload;
     // the broad action restorer decides when the resulting action is run.
     SavedActionRecord action;
-    action.actionId = static_cast<uint32_t>(ActionType::DoCommand);
+    action.actionId = 37; // Retail AIActionDoCommand, not Reone ActionType.
     action.parameters.push_back(SavedActionParameter {
         static_cast<uint32_t>(SavedActionParameterType::ScriptSituation),
         actionSituation});
@@ -396,7 +396,12 @@ TEST_F(SavedSituationTest, delay_event_and_do_command_action_payloads_share_the_
     auto importedAction = SavedScriptSituationImporter(game, scripts).import(actionPayload);
     ASSERT_TRUE(importedAction) << importedAction.message;
     EXPECT_EQ(runner.run(*importedAction.continuation, game, uint32_t {0}), 42);
-    EXPECT_EQ(action.executionSupport(), SavedExecutionSupport::RepresentableButUnsupported);
+    EXPECT_EQ(action.executionSupport(), SavedExecutionSupport::Executable);
+    SavedScriptSituationImporter actionImporter(game, scripts);
+    auto runtimeAction = action.toRuntimeAction(game, &actionImporter);
+    ASSERT_TRUE(runtimeAction);
+    EXPECT_EQ(runtimeAction->type(), ActionType::DoCommand);
+    EXPECT_FALSE(runtimeAction->isCompleted());
 
     // Retail DelayCommand delivery is a Timed EventQueue situation. Absolute
     // Day/Time scheduling remains outside this explicit import/execution seam.
@@ -410,6 +415,7 @@ TEST_F(SavedSituationTest, delay_event_and_do_command_action_payloads_share_the_
     auto importedEvent = SavedScriptSituationImporter(game, scripts).import(eventPayload);
     ASSERT_TRUE(importedEvent) << importedEvent.message;
     EXPECT_EQ(runner.run(*importedEvent.continuation, game, uint32_t {0}), 42);
+    EXPECT_EQ(event.executionSupport(), SavedExecutionSupport::Executable);
 }
 
 TEST_F(SavedSituationTest, missing_stack_object_remains_a_safe_raw_identity_for_runtime_resolution) {

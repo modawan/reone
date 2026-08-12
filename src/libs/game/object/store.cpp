@@ -32,7 +32,7 @@ namespace game {
 
 void Store::deserialize(const resource::Gff &gff) {
     std::string templateRes;
-    if (gff.readResRef(templateRes, "ResRef")) {
+    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "ResRef")) {
         if (auto utm = _services.resource.gffs.get(templateRes, ResType::Utm)) {
             deserializeAll(*utm);
         }
@@ -42,6 +42,7 @@ void Store::deserialize(const resource::Gff &gff) {
 }
 
 void Store::deserializeAll(const resource::Gff &gff) {
+    deserializeRuntimeState(gff);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
     }
@@ -72,7 +73,7 @@ void Store::deserializeAll(const resource::Gff &gff) {
 
 void Store::deserializeItems(const resource::Gff &gff) {
     for (const auto &itemGff : gff.getList("ItemList")) {
-        std::shared_ptr<Item> item = _game.newItem();
+        std::shared_ptr<Item> item = _game.newItem(*itemGff);
         item->deserialize(*itemGff);
         addItem(item);
     }

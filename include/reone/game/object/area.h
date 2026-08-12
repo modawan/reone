@@ -376,18 +376,19 @@ private:
 
     // Loading GIT
 
-    void loadGIT(const resource::generated::GIT &git, const resource::Gff &gff);
+    void loadGIT(const resource::generated::GIT &git, const resource::Gff &gff, bool fromSave);
 
     void loadProperties(const resource::generated::GIT &git);
-    void loadCreatures(const resource::Gff &gff);
-    void loadDoors(const resource::Gff &gff);
-    void loadPlaceables(const resource::Gff &gff);
-    void loadWaypoints(const resource::Gff &gff);
-    void loadTriggers(const resource::Gff &gff);
-    void loadSounds(const resource::Gff &gff);
+    void loadCreatures(const resource::Gff &gff, bool fromSave);
+    void loadDoors(const resource::Gff &gff, bool fromSave);
+    void loadPlaceables(const resource::Gff &gff, bool fromSave);
+    void loadWaypoints(const resource::Gff &gff, bool fromSave);
+    void loadTriggers(const resource::Gff &gff, bool fromSave);
+    void loadSounds(const resource::Gff &gff, bool fromSave);
     void loadCameras(const resource::Gff &gff);
-    void loadEncounters(const resource::Gff &gff);
-    void loadStores(const resource::Gff &gff);
+    void loadEncounters(const resource::Gff &gff, bool fromSave);
+    void loadStores(const resource::Gff &gff, bool fromSave);
+    void loadItems(const resource::Gff &gff, bool fromSave);
 
     // END Loading GIT
 

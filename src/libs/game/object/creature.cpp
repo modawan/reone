@@ -1500,7 +1500,7 @@ std::string Creature::getWeaponModelName(int slot) const {
 
 void Creature::deserialize(const resource::Gff &gff) {
     std::string templateRes;
-    if (gff.readResRef(templateRes, "TemplateResRef")) {
+    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto utc = _services.resource.gffs.get(templateRes, ResType::Utc)) {
             deserializeAll(*utc);
         }
@@ -1513,6 +1513,10 @@ void Creature::deserialize(const resource::Gff &gff) {
 
 void Creature::deserializeAll(const resource::Gff &gff) {
     Object::deserialize(gff);
+    if (gff.has("ObjectId") && gff.has("CurrentHitPoints")) {
+        _dead = _currentHitPoints <= 0;
+    }
+
 
     // index into racialtypes.2da
     gff.readEnum(_race, "Race");
@@ -1557,6 +1561,11 @@ void Creature::deserializeAll(const resource::Gff &gff) {
 
     // index into creaturespeed.2da
     gff.readInt(_walkRate, "WalkRate");
+    uint8_t movementRate;
+    if (gff.readByte(movementRate, "MovementRate")) {
+        _walkRate = movementRate;
+    }
+    gff.readBool(_isListening, "Listening");
 
     gff.readByte(_naturalAC, "NaturalAC");
     gff.readShort(_forcePoints, "ForcePoints");
@@ -1706,9 +1715,26 @@ void Creature::deserializePerception(const resource::Gff &gff) {
 }
 
 void Creature::deserializeEquipItems(const resource::Gff &gff) {
+    if (gff.has("ObjectId")) {
+        _equipment.clear();
+    }
     for (const auto &itemGff : gff.getList("Equip_ItemList")) {
-        std::shared_ptr<Item> item = _game.newItem();
+        std::shared_ptr<Item> item = _game.newItem(*itemGff);
         item->deserialize(*itemGff);
+        if (gff.has("ObjectId")) {
+            uint32_t slotMask = itemGff->type();
+            if (slotMask != 0 && (slotMask & (slotMask - 1)) == 0) {
+                int slot = 0;
+                while ((slotMask >>= 1) != 0) {
+                    ++slot;
+                }
+                if (equip(slot, item)) {
+                    continue;
+                }
+                warn(str(boost::format("saved item is not equippable in slot %d: %s") % slot % item->tag()));
+            }
+        }
+
         if (item->isEquippable(InventorySlots::body)) {
             equip(InventorySlots::body, item);
         } else if (item->isEquippable(InventorySlots::rightWeapon)) {

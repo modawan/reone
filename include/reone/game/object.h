@@ -27,6 +27,7 @@
 #include "action.h"
 #include "action/playanimation.h"
 #include "effect.h"
+#include "savedruntime.h"
 #include "types.h"
 
 namespace reone {
@@ -199,6 +200,19 @@ public:
 
     const std::map<int, bool> &localBooleans() const { return _localBooleans; }
     const std::map<int, int> &localNumbers() const { return _localNumbers; }
+    void deserializeRuntimeState(const resource::Gff &gff);
+    void bindSavedRuntimeState();
+    void publishSavedRuntimeState();
+    const std::vector<EffectInstance> &savedEffects() const { return _savedEffects; }
+    const SavedActionQueue &savedActionQueue() const { return _savedActionQueue; }
+    bool hasPublishedSavedRuntimeState() const { return _savedRuntimePublished; }
+
+
+    void resolveSavedReferences(
+        const std::function<std::shared_ptr<Object>(uint32_t)> &resolver);
+    std::shared_ptr<Object> savedReference(std::string_view field) const;
+
+
 
     void setLocalBoolean(int index, bool value);
     void setLocalNumber(int index, int value);
@@ -267,6 +281,13 @@ protected:
     // END Actions
 
     // Local variables
+    std::map<std::string, uint32_t> _savedReferenceIds;
+    std::map<std::string, std::weak_ptr<Object>> _savedReferences;
+    std::vector<EffectInstance> _savedEffects;
+    SavedActionQueue _savedActionQueue;
+    bool _savedRuntimeParsed {false};
+    bool _savedRuntimePublished {false};
+
 
     std::map<int, bool> _localBooleans;
     std::map<int, int> _localNumbers;

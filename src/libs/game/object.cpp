@@ -20,6 +20,8 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/item.h"
+#include "reone/game/script/savedsituation.h"
+#include "reone/resource/provider/scripts.h"
 #include "reone/game/room.h"
 #include "reone/resource/gff.h"
 #include "reone/system/logutil.h"
@@ -73,11 +75,17 @@ void Object::deserialize(const resource::Gff &gff) {
         }
     }
 
-    for (const auto &itemGff : gff.getList("ItemList")) {
-        std::shared_ptr<Item> item = _game.newItem();
-        item->deserialize(*itemGff);
-        addItem(item);
+    if (gff.has("ObjectId")) {
+        _items.clear();
     }
+    if (_type != ObjectType::Placeable && _type != ObjectType::Store) {
+        for (const auto &itemGff : gff.getList("ItemList")) {
+            std::shared_ptr<Item> item = _game.newItem(*itemGff);
+            item->deserialize(*itemGff);
+            addItem(item);
+        }
+    }
+    deserializeRuntimeState(gff);
 }
 
 void Object::update(float dt) {
@@ -107,6 +115,137 @@ void Object::setLocalBoolean(int index, bool value) {
 
 void Object::setLocalNumber(int index, int value) {
     _localNumbers[index] = value;
+}
+void Object::deserializeRuntimeState(const resource::Gff &gff) {
+
+    _localBooleans.clear();
+    _localNumbers.clear();
+    if (auto variables = gff.findStruct("SWVarTable")) {
+        const auto bits = variables->getList("BitArray");
+        for (size_t word = 0; word < std::min<size_t>(bits.size(), 5); ++word) {
+            uint32_t value = bits[word]->getUint("Variable");
+            for (int bit = 0; bit < 32; ++bit) {
+                if ((value & (1u << bit)) != 0) {
+                    _localBooleans[static_cast<int>(word * 32 + bit)] = true;
+                }
+            }
+        }
+
+        const auto bytes = variables->getList("ByteArray");
+        for (size_t index = 0; index < std::min<size_t>(bytes.size(), 32); ++index) {
+            uint8_t value = 0;
+            if (bytes[index]->readByte(value, "Variable") && value != 0) {
+                _localNumbers[static_cast<int>(index)] = value;
+            }
+        }
+    }
+
+    _savedEffects.clear();
+    _savedActionQueue = SavedActionQueue {};
+    _savedRuntimeParsed = gff.has("EffectList") || gff.has("ActionList");
+    _savedRuntimePublished = false;
+    if (_savedRuntimeParsed) {
+        for (const auto &effect : gff.getList("EffectList")) {
+            _savedEffects.push_back(EffectInstance::fromGff(*effect));
+        }
+        _savedActionQueue = SavedActionQueue::fromGff(gff);
+        _effects.clear();
+        _actions.clear();
+        _delayed.clear();
+        _executingAction.reset();
+    }
+
+    _savedReferenceIds.clear();
+    _savedReferences.clear();
+    static const std::array<std::string_view, 9> referenceFields {
+        "AreaId",
+        "CreatorId",
+        "LastAttacker",
+        "LastDamager",
+        "LastHostileActor",
+        "LastPerceived",
+        "MasterID",
+        "OwnerId",
+        "TargetId",
+    };
+    for (auto field : referenceFields) {
+        uint32_t id = 0;
+        if (gff.readDword(id, field)) {
+            _savedReferenceIds.emplace(std::string(field), id);
+        }
+    }
+
+    size_t perceptionIndex = 0;
+    for (const auto &perception : gff.getList("PerceptionList")) {
+        uint32_t id = 0;
+        if (perception->readDword(id, "ObjectId")) {
+            _savedReferenceIds.emplace(
+                "Perception/" + std::to_string(perceptionIndex), id);
+        }
+        ++perceptionIndex;
+    }
+}
+
+void Object::bindSavedRuntimeState() {
+    if (!_savedRuntimeParsed) {
+        return;
+    }
+    for (auto &effect : _savedEffects) {
+        if (effect.creatorId != kSavedEffectInvalidObjectId) {
+            _game.bindEffectCreator(effect);
+        }
+    }
+    for (auto &action : _savedActionQueue.actions) {
+        action.bindObjectReferences(_game);
+    }
+}
+
+void Object::publishSavedRuntimeState() {
+    if (!_savedRuntimeParsed || _savedRuntimePublished) {
+        return;
+    }
+    SavedScriptSituationImporter importer(
+        _game, _services.resource.scripts);
+
+    for (const auto &savedEffect : _savedEffects) {
+        EffectInstance effect(savedEffect);
+        if (effect.durationType() == DurationType::Temporary) {
+            auto remaining = _game.remainingEffectDuration(effect);
+            if (!remaining || *remaining <= 0.0f) {
+                continue;
+            }
+            effect.remainingDuration = *remaining;
+        }
+        if (effect.hasStableId()) {
+            _game.importEffectId(effect.id);
+        } else {
+            effect.id = _game.allocateEffectId();
+        }
+        restoreEffect(std::move(effect));
+    }
+
+    for (const auto &savedAction : _savedActionQueue.actions) {
+        auto action = savedAction.toRuntimeAction(_game, &importer);
+        if (action) {
+            addAction(std::move(action));
+        }
+    }
+    _savedRuntimePublished = true;
+}
+
+void Object::resolveSavedReferences(
+    const std::function<std::shared_ptr<Object>(uint32_t)> &resolver) {
+    _savedReferences.clear();
+    for (const auto &[field, id] : _savedReferenceIds) {
+        if (auto object = resolver(id)) {
+            _savedReferences.emplace(field, object);
+        }
+    }
+}
+
+std::shared_ptr<Object> Object::savedReference(std::string_view field) const {
+    auto found = _savedReferences.find(std::string(field));
+    return found == _savedReferences.end() ? nullptr : found->second.lock();
 }
 
 void Object::clearAllActions(bool force) {

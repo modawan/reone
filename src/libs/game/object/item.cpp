@@ -50,19 +50,19 @@ void Item::loadFromBlueprint(const std::string &resRef) {
 
 void Item::deserialize(const resource::Gff &gff) {
     std::string ref;
-    if (gff.readResRef(ref, "EquippedRes")) {
+    if (!gff.has("ObjectId") && gff.readResRef(ref, "EquippedRes")) {
         if (auto uti = _services.resource.gffs.get(ref, ResType::Uti)) {
             deserializeAll(*uti);
         }
     }
 
-    if (gff.readResRef(ref, "InventoryRes")) {
+    if (!gff.has("ObjectId") && gff.readResRef(ref, "InventoryRes")) {
         if (auto uti = _services.resource.gffs.get(ref, ResType::Uti)) {
             deserializeAll(*uti);
         }
     }
 
-    if (gff.readResRef(ref, "TemplateResRef")) {
+    if (!gff.has("ObjectId") && gff.readResRef(ref, "TemplateResRef")) {
         if (auto uti = _services.resource.gffs.get(ref, ResType::Uti)) {
             deserializeAll(*uti);
         }

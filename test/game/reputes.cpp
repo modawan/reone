@@ -263,6 +263,26 @@ std::shared_ptr<Gff> influence(int value) {
         .build();
 }
 
+std::shared_ptr<Gff> dialogMessage(std::string speaker, std::string text) {
+    return Gff::Builder()
+        .field(Gff::Field::newCExoString("PT_DLG_MSG_SPKR", std::move(speaker)))
+        .field(Gff::Field::newCExoString("PT_DLG_MSG_MSG", std::move(text)))
+        .build();
+}
+
+std::shared_ptr<Gff> logMessage(
+    std::string_view prefix,
+    std::string colorLabel,
+    uint8_t color,
+    uint32_t type,
+    std::string text) {
+    return Gff::Builder()
+        .field(Gff::Field::newByte(std::move(colorLabel), color))
+        .field(Gff::Field::newDword(std::string(prefix) + "_TYPE", type))
+        .field(Gff::Field::newCExoString(std::string(prefix) + "_MSG", std::move(text)))
+        .build();
+}
+
 std::shared_ptr<Gff> partyTableA() {
     auto galaxy = Gff::Builder()
         .field(Gff::Field::newDword("GlxyMapNumPnts", 16))
@@ -271,7 +291,7 @@ std::shared_ptr<Gff> partyTableA() {
         .build();
     return Gff::Builder()
         .field(Gff::Field::newCExoString("PT_PCNAME", "A"))
-        .field(Gff::Field::newDword("PT_ITEM_COMPONENT", 9))
+        .field(Gff::Field::newDword("PT_ITEM_COMPONEN", 9))
         .field(Gff::Field::newDword("PT_PLAYEDSECONDS", 123))
         .field(Gff::Field::newInt("PT_CONTROLLED_NP", 1))
         .field(Gff::Field::newByte("PT_SOLOMODE", 1))
@@ -286,6 +306,14 @@ std::shared_ptr<Gff> partyTableA() {
         .field(Gff::Field::newList("PT_INFLUENCE", {influence(42)}))
         .field(Gff::Field::newInt("PT_AISTATE", 4))
         .field(Gff::Field::newInt("PT_FOLLOWSTATE", 5))
+        .field(Gff::Field::newList(
+            "PT_DLG_MSG_LIST", {dialogMessage("Carth", "Dialog history")}))
+        .field(Gff::Field::newList(
+            "PT_FB_MSG_LIST",
+            {logMessage("PT_FB_MSG", "PT_FB_MSG_COLOR", 0, 0x80, "Feedback history")}))
+        .field(Gff::Field::newList(
+            "PT_COM_MSG_LIST",
+            {logMessage("PT_COM_MSG", "PT_COM_MSG_COOR", 1, 0x80, "Combat history")}))
         .field(Gff::Field::newStruct("GlxyMap", galaxy))
         .build();
 }
@@ -378,6 +406,17 @@ TEST(SaveWidePartyTable, k2_retains_puppet_influence_and_resource_state) {
     EXPECT_EQ(42, state.influence[0]);
     EXPECT_EQ(9u, state.itemComponent);
     EXPECT_EQ(5, state.followState);
+    ASSERT_EQ(1u, state.dialogMessages.size());
+    EXPECT_EQ("Carth", state.dialogMessages[0].speaker);
+    EXPECT_EQ("Dialog history", state.dialogMessages[0].text);
+    ASSERT_EQ(1u, state.feedbackMessages.size());
+    EXPECT_EQ(0u, state.feedbackMessages[0].color);
+    EXPECT_EQ(0x80u, state.feedbackMessages[0].type);
+    EXPECT_EQ("Feedback history", state.feedbackMessages[0].text);
+    ASSERT_EQ(1u, state.combatMessages.size());
+    EXPECT_EQ(1u, state.combatMessages[0].color);
+    EXPECT_EQ(0x80u, state.combatMessages[0].type);
+    EXPECT_EQ("Combat history", state.combatMessages[0].text);
     EXPECT_TRUE(fixture.game.party().isSoloMode());
 }
 
@@ -577,6 +616,14 @@ void reone::game::TestGameModule::deserializeAvailableNpcs(Game &game) {
     game.deserializeAvailableNpcs();
 }
 
+void reone::game::TestGameModule::publishPartyRuntimeState(
+    Game &game,
+    Gff &ifoGff,
+    const std::shared_ptr<Gff> &ptGff,
+    const std::shared_ptr<Gff> &pcGff) {
+    game.publishPartyRuntimeState(ifoGff, ptGff, pcGff);
+}
+
 void reone::game::TestGameModule::deserializeGlobalVariables(Game &game, Gff &gff) {
     game.deserializeGlobalVariables(gff);
 }
@@ -649,6 +696,13 @@ std::shared_ptr<TwoDA> appearanceTable() {
     return std::shared_ptr<TwoDA>(builder.build());
 }
 
+Resource encodedGff(ResType type, const Gff &gff) {
+    ByteBuffer bytes;
+    MemoryOutputStream output(bytes);
+    GffWriter(type, gff).save(output);
+    return Resource {std::move(bytes)};
+}
+
 Resource encodedCreature(std::string tag) {
     auto gff = Gff::Builder()
         .field(Gff::Field::newCExoString("Tag", std::move(tag)))
@@ -657,10 +711,7 @@ Resource encodedCreature(std::string tag) {
         .field(Gff::Field::newByte("BodyBag", 0xff))
         .field(Gff::Field::newByte("PerceptionRange", 0xff))
         .build();
-    ByteBuffer bytes;
-    MemoryOutputStream output(bytes);
-    GffWriter(ResType::Utc, *gff).save(output);
-    return Resource {std::move(bytes)};
+    return encodedGff(ResType::Utc, *gff);
 }
 
 std::shared_ptr<Gff> availableTable(size_t availableIndex) {
@@ -670,6 +721,25 @@ std::shared_ptr<Gff> availableTable(size_t availableIndex) {
     }
     return Gff::Builder()
         .field(Gff::Field::newList("PT_AVAIL_NPCS", std::move(states)))
+        .build();
+}
+
+std::shared_ptr<Gff> savedPlayer(std::string tag, uint32_t id, bool primary) {
+    return Gff::Builder()
+        .field(Gff::Field::newCExoString("Tag", std::move(tag)))
+        .field(Gff::Field::newDword("ObjectId", id))
+        .field(Gff::Field::newByte("Mod_IsPrimaryPlr", primary))
+        .field(Gff::Field::newDword("Appearance_Type", 0))
+        .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+        .field(Gff::Field::newByte("BodyBag", 0xff))
+        .field(Gff::Field::newByte("PerceptionRange", 0xff))
+        .build();
+}
+
+std::shared_ptr<Gff> emptyPartyTable(int controlledNpc = -1) {
+    return Gff::Builder()
+        .field(Gff::Field::newInt("PT_CONTROLLED_NP", controlledNpc))
+        .field(Gff::Field::newByte("PT_NUM_MEMBERS", 0))
         .build();
 }
 
@@ -788,4 +858,90 @@ TEST(SaveWideAvailableNpcs, malformed_optional_record_is_ignored) {
     TestGameModule::deserializeAvailableNpcs(fixture.game);
 
     EXPECT_FALSE(fixture.game.party().getAvailableMember(0));
+}
+
+TEST(SaveWideAvailablePuppets, k2_materializes_available_puppet_resource) {
+    Fixture fixture(GameID::TSL);
+    EXPECT_CALL(fixture.engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(appearanceTable()));
+    EXPECT_CALL(fixture.engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(fixture.engine.services().game.portraits),
+                getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto table = Gff::Builder()
+                     .field(Gff::Field::newList("PT_AVAIL_PUPS", {availablePuppet(true, true)}))
+                     .build();
+    TestGameModule::deserializePartyTable(fixture.game, *table);
+    EXPECT_CALL(fixture.engine.resourceModule().director(),
+                findSaveWorking(ResourceId("availpup0", ResType::Utc)))
+        .WillOnce(Return(encodedCreature("puppet_a")));
+
+    TestGameModule::deserializeAvailableNpcs(fixture.game);
+    ASSERT_TRUE(fixture.game.party().getAvailablePuppet(0));
+    EXPECT_EQ("puppet_a", fixture.game.party().getAvailablePuppet(0)->tag());
+}
+
+TEST(SavedPlayerRestoration, primary_module_player_does_not_duplicate_pc_utc) {
+    Fixture fixture(GameID::TSL);
+    EXPECT_CALL(fixture.engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(appearanceTable()));
+    EXPECT_CALL(fixture.engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(fixture.engine.services().game.portraits),
+                getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto partyTable = emptyPartyTable();
+    auto player = savedPlayer("primary", 100, true);
+    auto ifo = Gff::Builder()
+                   .field(Gff::Field::newList("Mod_PlayerList", {player}))
+                   .build();
+
+    TestGameModule::publishPartyRuntimeState(
+        fixture.game, *ifo, partyTable, nullptr);
+
+    ASSERT_TRUE(fixture.game.party().player());
+    EXPECT_EQ(fixture.game.party().player(), fixture.game.party().actualPlayer());
+    EXPECT_EQ(100u, fixture.game.party().player()->id());
+    EXPECT_EQ(1, fixture.game.party().getSize());
+}
+
+TEST(SavedPlayerRestoration, controlled_companion_keeps_pc_utc_as_actual_player) {
+    Fixture fixture(GameID::TSL);
+    EXPECT_CALL(fixture.engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(appearanceTable()));
+    EXPECT_CALL(fixture.engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(fixture.engine.services().game.portraits),
+                getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto partyTable = Gff::Builder()
+                          .field(Gff::Field::newInt("PT_CONTROLLED_NP", 0))
+                          .field(Gff::Field::newByte("PT_NUM_MEMBERS", 1))
+                          .field(Gff::Field::newList("PT_MEMBERS", {member(0, true)}))
+                          .build();
+    auto pc = Gff::Builder()
+                  .field(Gff::Field::newCExoString("Tag", "actual_pc"))
+                  .field(Gff::Field::newDword("Appearance_Type", 0))
+                  .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+                  .field(Gff::Field::newByte("BodyBag", 0xff))
+                  .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                  .build();
+    auto controlled = savedPlayer("controlled", 101, false);
+    auto ifo = Gff::Builder()
+                   .field(Gff::Field::newList("Mod_PlayerList", {controlled}))
+                   .build();
+
+    TestGameModule::publishPartyRuntimeState(
+        fixture.game, *ifo, partyTable, pc);
+
+    ASSERT_TRUE(fixture.game.party().player());
+    ASSERT_TRUE(fixture.game.party().actualPlayer());
+    EXPECT_NE(fixture.game.party().player(), fixture.game.party().actualPlayer());
+    EXPECT_EQ(101u, fixture.game.party().player()->id());
+    EXPECT_EQ(fixture.game.party().player(), fixture.game.party().getLeader());
+    EXPECT_EQ("actual_pc", fixture.game.party().actualPlayer()->tag());
+    EXPECT_EQ(fixture.game.party().actualPlayer(),
+              fixture.game.party().getMemberByNPC(kNpcPlayer));
+    EXPECT_EQ(2, fixture.game.party().getSize());
 }

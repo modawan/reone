@@ -194,7 +194,9 @@ struct SavedActionRecord {
 
     static SavedActionRecord fromGff(const resource::Gff &gff);
     SavedExecutionSupport executionSupport() const;
-    std::shared_ptr<Action> toRuntimeAction(Game &game) const;
+    std::shared_ptr<Action> toRuntimeAction(
+        Game &game,
+        const SavedScriptSituationImporter *importer = nullptr) const;
     bool bindObjectReferences(const Game &game);
 };
 

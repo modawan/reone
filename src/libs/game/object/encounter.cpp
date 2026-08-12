@@ -31,7 +31,7 @@ namespace game {
 
 void Encounter::deserialize(const resource::Gff &gff) {
     std::string templateRes;
-    if (gff.readResRef(templateRes, "TemplateResRef")) {
+    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto ute = _services.resource.gffs.get(templateRes, ResType::Ute)) {
             deserializeAll(*ute);
         }
@@ -40,6 +40,8 @@ void Encounter::deserialize(const resource::Gff &gff) {
 }
 
 void Encounter::deserializeAll(const resource::Gff &gff) {
+    deserializeRuntimeState(gff);
+    deserializeSavedRuntimeState(gff);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
     }
@@ -77,6 +79,40 @@ void Encounter::deserializeAll(const resource::Gff &gff) {
     deserializeSpawnPoints(gff);
 
     updateTransform();
+}
+
+void Encounter::deserializeSavedRuntimeState(const resource::Gff &gff) {
+    _savedRuntimeState = SavedRuntimeState {};
+    gff.readInt(_savedRuntimeState.areaListMaxSize, "AreaListMaxSize");
+    gff.readInt(_savedRuntimeState.areaListSize, "AreaListSize");
+    gff.readFloat(_savedRuntimeState.areaPoints, "AreaPoints");
+    gff.readInt(_savedRuntimeState.currentSpawns, "CurrentSpawns");
+    gff.readInt(_savedRuntimeState.customScriptId, "CustomScriptId");
+    gff.readBool(_savedRuntimeState.exhausted, "Exhausted");
+    gff.readDword(_savedRuntimeState.heartbeatDay, "HeartbeatDay");
+    gff.readDword(_savedRuntimeState.heartbeatTime, "HeartbeatTime");
+    gff.readDword(_savedRuntimeState.lastEntered, "LastEntered");
+    gff.readDword(_savedRuntimeState.lastLeft, "LastLeft");
+    gff.readDword(_savedRuntimeState.lastSpawnDay, "LastSpawnDay");
+    gff.readDword(_savedRuntimeState.lastSpawnTime, "LastSpawnTime");
+    gff.readInt(_savedRuntimeState.numberSpawned, "NumberSpawned");
+    gff.readFloat(_savedRuntimeState.spawnPoolActive, "SpawnPoolActive");
+    gff.readBool(_savedRuntimeState.started, "Started");
+
+    size_t index = 0;
+    for (const auto &entry : gff.getList("AreaList")) {
+        uint32_t id = 0;
+        if (entry->readDword(id, "AreaObject")) {
+            _savedRuntimeState.areaObjectIds.push_back(id);
+            _savedReferenceIds.insert_or_assign(
+                "EncounterArea/" + std::to_string(index), id);
+        }
+        ++index;
+    }
+}
+
+std::shared_ptr<Object> Encounter::savedAreaObject(size_t index) const {
+    return savedReference("EncounterArea/" + std::to_string(index));
 }
 
 void Encounter::deserializeCreatures(const resource::Gff &gff) {

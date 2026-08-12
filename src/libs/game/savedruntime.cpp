@@ -13,6 +13,7 @@
 
 #include "reone/game/action/wait.h"
 #include "reone/game/game.h"
+#include "reone/game/script/savedsituation.h"
 
 namespace reone {
 
@@ -323,14 +324,31 @@ SavedExecutionSupport SavedActionRecord::executionSupport() const {
     if (actionId == 30 && !parameters.empty() && std::holds_alternative<float>(parameters.front().payload)) {
         return SavedExecutionSupport::Executable;
     }
+    if (actionId == 37 &&
+        parameters.size() == 1 &&
+        std::holds_alternative<SerializedScriptSituation>(parameters.front().payload)) {
+        return SavedExecutionSupport::Executable;
+    }
     return SavedExecutionSupport::RepresentableButUnsupported;
 }
 
-std::shared_ptr<Action> SavedActionRecord::toRuntimeAction(Game &game) const {
+std::shared_ptr<Action> SavedActionRecord::toRuntimeAction(
+    Game &game, const SavedScriptSituationImporter *importer) const {
     if (executionSupport() != SavedExecutionSupport::Executable) {
         return nullptr;
     }
-    return game.newAction<WaitAction>(std::get<float>(parameters.front().payload));
+    if (actionId == 30) {
+        return game.newAction<WaitAction>(std::get<float>(parameters.front().payload));
+    }
+    if (!importer) {
+        return nullptr;
+    }
+    auto result = importer->import(
+        std::get<SerializedScriptSituation>(parameters.front().payload));
+    if (!result) {
+        return nullptr;
+    }
+    return game.newAction<SavedDoCommandAction>(std::move(result.continuation));
 }
 
 bool SavedActionRecord::bindObjectReferences(const Game &game) {
@@ -404,6 +422,15 @@ SavedEventRecord SavedEventRecord::fromGff(const resource::Gff &gff) {
 SavedExecutionSupport SavedEventRecord::executionSupport() const {
     if (eventId == static_cast<uint32_t>(SavedEventType::ForcedAction)) {
         return SavedExecutionSupport::RetailDiscards;
+    }
+    if (eventId == static_cast<uint32_t>(SavedEventType::Timed) &&
+        std::holds_alternative<SerializedScriptSituation>(payload)) {
+        return SavedExecutionSupport::Executable;
+    }
+    if ((eventId == static_cast<uint32_t>(SavedEventType::ApplyEffect) ||
+         eventId == static_cast<uint32_t>(SavedEventType::RemoveEffect)) &&
+        std::holds_alternative<EffectInstance>(payload)) {
+        return SavedExecutionSupport::Executable;
     }
     return SavedExecutionSupport::RepresentableButUnsupported;
 }

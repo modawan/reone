@@ -52,6 +52,17 @@ public:
     static constexpr size_t kMaxPuppetCount = 3;
     static constexpr size_t kGalaxyPlanetCount = 16;
 
+    struct SavedDialogMessage {
+        std::string speaker;
+        std::string text;
+    };
+
+    struct SavedLogMessage {
+        uint8_t color {0};
+        uint32_t type {0};
+        std::string text;
+    };
+
     struct PersistedState {
         std::string pcName;
         uint32_t itemComponent {0};
@@ -76,6 +87,9 @@ public:
         int selectedPlanet {-1};
         bool mapDisabled {false};
         bool regenerationDisabled {false};
+        std::vector<SavedDialogMessage> dialogMessages;
+        std::vector<SavedLogMessage> feedbackMessages;
+        std::vector<SavedLogMessage> combatMessages;
 
         PersistedState() {
             npcSelectable.fill(true);
@@ -114,6 +128,7 @@ public:
     std::shared_ptr<Creature> getLeader() const;
 
     std::shared_ptr<Creature> player() const { return _player; }
+    std::shared_ptr<Creature> actualPlayer() const { return _actualPlayer ? _actualPlayer : _player; }
     const std::vector<Member> &members() const { return _members; }
 
     const PersistedState &persistedState() const { return _persistedState; }
@@ -122,6 +137,7 @@ public:
     void setPartyLeader(int npc);
     void setPartyLeaderByIndex(int index);
     void setPlayer(const std::shared_ptr<Creature> &player);
+    void setActualPlayer(const std::shared_ptr<Creature> &player) { _actualPlayer = player; }
     void setSoloMode(bool value) { _solo = value; }
 
     // Members
@@ -149,10 +165,16 @@ public:
     bool removeAvailableMember(int npc);
 
     bool isMemberAvailable(int npc) const;
-
     std::shared_ptr<Creature> getAvailableMember(int npc) const;
 
     // END Available members
+
+    // Available puppets
+
+    bool addAvailablePuppet(int puppet, std::shared_ptr<Creature> creature);
+    std::shared_ptr<Creature> getAvailablePuppet(int puppet) const;
+
+    // END Available puppets
 
     // Default party
 
@@ -218,6 +240,7 @@ private:
     Game &_game;
 
     std::shared_ptr<Creature> _player;
+    std::shared_ptr<Creature> _actualPlayer;
     std::map<int, std::shared_ptr<Creature>> _availableMembers;
     std::vector<Member> _members;
     bool _solo {false};
@@ -228,6 +251,7 @@ private:
     PazaakCardCounts _pazaakCardCounts {};
     PazaakSideDeck _pazaakSideDeck {};
     PersistedState _persistedState;
+    std::map<int, std::shared_ptr<Creature>> _availablePuppets;
 
     bool handleKeyDown(const input::KeyEvent &event);
 

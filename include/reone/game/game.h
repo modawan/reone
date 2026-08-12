@@ -281,37 +281,50 @@ public:
     inline std::shared_ptr<Module> newModule() {
         return newObject<Module>(*this, _services);
     }
+    inline std::shared_ptr<Module> newSavedModule() {
+        return newObjectAtId<Module>(0, true, *this, _services);
+    }
     inline std::shared_ptr<Item> newItem() {
         return newObject<Item>(*this, _services);
     }
+    std::shared_ptr<Item> newItem(const resource::Gff &gff);
 
     inline std::shared_ptr<Area> newArea(std::string sceneName = kSceneMain) {
         return newObject<Area>(std::move(sceneName), *this, _services);
+    }
+    inline std::shared_ptr<Area> newSavedArea(uint32_t id, std::string sceneName = kSceneMain) {
+        return newObjectAtId<Area>(id, true, std::move(sceneName), *this, _services);
     }
 
     inline std::shared_ptr<Creature> newCreature(std::string sceneName = kSceneMain) {
         return newObject<Creature>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Creature> newCreature(const resource::Gff &gff, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Placeable> newPlaceable(std::string sceneName = kSceneMain) {
         return newObject<Placeable>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Placeable> newPlaceable(const resource::Gff &gff, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Door> newDoor(std::string sceneName = kSceneMain) {
         return newObject<Door>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Door> newDoor(const resource::Gff &gff, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Waypoint> newWaypoint(std::string sceneName = kSceneMain) {
         return newObject<Waypoint>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Waypoint> newWaypoint(const resource::Gff &gff, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Trigger> newTrigger(std::string sceneName = kSceneMain) {
         return newObject<Trigger>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Trigger> newTrigger(const resource::Gff &gff, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Sound> newSound(std::string sceneName = kSceneMain) {
         return newObject<Sound>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Sound> newSound(const resource::Gff &gff, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<AnimatedCamera> newAnimatedCamera(float aspect, std::string sceneName = kSceneMain) {
         return newObject<AnimatedCamera>(aspect, std::move(sceneName), *this, _services);
@@ -336,10 +349,22 @@ public:
     inline std::shared_ptr<Encounter> newEncounter(std::string sceneName = kSceneMain) {
         return newObject<Encounter>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Encounter> newEncounter(const resource::Gff &gff, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Store> newStore(std::string sceneName = kSceneMain) {
         return newObject<Store>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Store> newStore(const resource::Gff &gff, std::string sceneName = kSceneMain);
+
+    void prepareSavedRuntimeNamespace(const resource::Gff &ifo);
+    void resolveSavedObjectReferences();
+    void bindSavedRuntimeState();
+    void publishSavedRuntimeState();
+
+    uint32_t worldTimeDay() const { return _worldTimeDay; }
+    uint32_t worldTimeOfDay() const { return _worldTimeOfDay; }
+    uint8_t minutesPerHour() const { return _minutesPerHour; }
+    std::optional<float> remainingEffectDuration(const EffectInstance &effect) const;
 
     template <class T>
     inline std::shared_ptr<T> getObjectById(uint32_t id) const {
@@ -348,9 +373,10 @@ public:
 
     template <class T, class... Args>
     inline std::shared_ptr<T> newObject(Args &&...args) {
-        auto object = std::make_shared<T>(_nextObjectId++, std::forward<Args>(args)...);
-        auto [inserted, _] = _objectById.insert(std::make_pair(object->id(), std::move(object)));
-        return std::static_pointer_cast<T>(inserted->second);
+        while (_objectById.count(_nextObjectId)) {
+            ++_nextObjectId;
+        }
+        return newObjectAtId<T>(_nextObjectId++, false, std::forward<Args>(args)...);
     }
 
     template <class T, class... Args>
@@ -420,6 +446,10 @@ public:
 
     void deserializeGlobalVariables(resource::Gff &gvtGff);
     void deserializeParty(resource::Gff &ifoGff);
+    void publishPartyRuntimeState(
+        resource::Gff &ifoGff,
+        const std::shared_ptr<resource::Gff> &ptGff,
+        const std::shared_ptr<resource::Gff> &pcGff);
     Party::PersistedState parsePartyTable(const resource::Gff &ptGff) const;
     void replacePartyTable(Party::PersistedState state);
     void deserializePazaakPartyTable(resource::Gff &ptGff);
@@ -486,6 +516,11 @@ private:
     EffectIdNamespace _effectIds;
     bool _runtimeSessionPlayable {false};
     uint64_t _runtimeSessionGeneration {1};
+    static constexpr uint32_t kMillisecondsPerDay = 24u * 60u * 60u * 1000u;
+    uint32_t _worldTimeDay {0};
+    uint32_t _worldTimeOfDay {0};
+    uint8_t _minutesPerHour {5};
+    double _worldTimeFraction {0.0};
 
     // Services
 
@@ -573,6 +608,32 @@ private:
 
     void stopMovement();
 
+    void advanceWorldTime(float dt);
+
+    uint32_t savedObjectId(const resource::Gff &gff) const;
+    void registerObject(
+        const std::shared_ptr<Object> &object,
+        bool allowReserved);
+
+    template <class T, class... Args>
+    inline std::shared_ptr<T> newObjectAtId(
+        uint32_t id,
+        bool allowReserved,
+        Args &&...args) {
+        auto object = std::make_shared<T>(id, std::forward<Args>(args)...);
+        registerObject(object, allowReserved);
+        return object;
+    }
+
+    template <class T, class... Args>
+    inline std::shared_ptr<T> newObjectFromGff(
+        const resource::Gff &gff,
+        Args &&...args) {
+        return newObjectAtId<T>(
+            savedObjectId(gff),
+            false,
+            std::forward<Args>(args)...);
+    }
     void loadDefaultParty();
     bool loadParty();
     void loadNextModule();

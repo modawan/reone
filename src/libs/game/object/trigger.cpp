@@ -65,7 +65,7 @@ void Trigger::loadFromBlueprint(const std::string &resRef) {
 
 void Trigger::deserialize(const resource::Gff &gff) {
     std::string templateRes;
-    if (gff.readResRef(templateRes, "TemplateResRef")) {
+    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto utt = _services.resource.gffs.get(templateRes, ResType::Utt)) {
             deserializeAll(*utt);
         }
@@ -92,6 +92,7 @@ void Trigger::configureLinkedDoorTransition(const std::shared_ptr<Door> &door) {
 }
 
 void Trigger::deserializeAll(const resource::Gff &gff) {
+    deserializeRuntimeState(gff);
     gff.readResRef(_onHeartbeat, "ScriptHeartbeat");
     gff.readResRef(_onEnter, "ScriptOnEnter");
     gff.readResRef(_onExit, "ScriptOnExit");

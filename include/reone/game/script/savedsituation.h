@@ -11,6 +11,7 @@
 
 #include "reone/script/executionstate.h"
 
+#include "../action.h"
 #include "../savedruntime.h"
 
 namespace reone {
@@ -88,6 +89,23 @@ private:
     Game &_game;
     resource::IScripts &_scripts;
 };
+/** Runtime DoCommand action backed by a validated retail continuation. */
+class SavedDoCommandAction : public Action {
+public:
+    SavedDoCommandAction(
+        Game &game,
+        ServicesView &services,
+        std::shared_ptr<SavedScriptContinuation> continuation) :
+        Action(game, services, ActionType::DoCommand),
+        _continuation(std::move(continuation)) {
+    }
+
+    void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+
+private:
+    std::shared_ptr<SavedScriptContinuation> _continuation;
+};
+
 
 } // namespace game
 

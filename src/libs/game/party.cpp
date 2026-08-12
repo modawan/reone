@@ -114,6 +114,20 @@ bool Party::removeAvailableMember(int npc) {
     return false;
 }
 
+bool Party::addAvailablePuppet(int puppet, std::shared_ptr<Creature> creature) {
+    if (_availablePuppets.count(puppet)) {
+        warn(str(boost::format("Party: puppet %d already exists") % puppet));
+        return false;
+    }
+    _availablePuppets.emplace(puppet, std::move(creature));
+    return true;
+}
+
+std::shared_ptr<Creature> Party::getAvailablePuppet(int puppet) const {
+    auto found = _availablePuppets.find(puppet);
+    return found == _availablePuppets.end() ? nullptr : found->second;
+}
+
 bool Party::addMember(int npc, std::shared_ptr<Creature> creature) {
     // A creature joining the party derives its XP from the shared party pool.
     if (creature) {
@@ -141,8 +155,10 @@ void Party::reset() {
 
 void Party::retireRuntimeSession() {
     _player.reset();
+    _actualPlayer.reset();
     _availableMembers.clear();
     _members.clear();
+    _availablePuppets.clear();
 }
 
 void Party::clear() {
@@ -275,10 +291,11 @@ bool Party::isMember(const Object &object) const {
 }
 
 std::shared_ptr<Object> Party::sharedInventoryReceiver(const std::shared_ptr<Object> &receiver) const {
+    auto inventoryOwner = actualPlayer();
     // A party member's non-equipped items belong to the shared party inventory
-    // (the player creature). Non-party receivers keep their own inventory.
-    if (receiver && _player && isMember(*receiver)) {
-        return _player;
+    // (the actual player creature). Non-party receivers keep their own inventory.
+    if (receiver && inventoryOwner && isMember(*receiver)) {
+        return inventoryOwner;
     }
     return receiver;
 }

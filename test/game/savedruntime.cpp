@@ -183,6 +183,110 @@ TEST(SavedAction, should_convert_only_a_proven_supported_reone_action) {
     EXPECT_EQ(unknown.executionSupport(), SavedExecutionSupport::RepresentableButUnsupported);
 }
 
+TEST(SavedRuntimePublication, should_separate_parse_bind_and_idempotent_publication) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    ON_CALL(engine.sceneModule().graphs(), get(_)).WillByDefault(ReturnRef(sceneGraph));
+
+    auto saved = Gff::Builder()
+                     .field(Gff::Field::newList(
+                         "EffectList", {minimalEffect()}))
+                     .field(Gff::Field::newList(
+                         "ActionList",
+                         {action(
+                              30,
+                              7,
+                              {valueParameter(
+                                  2,
+                                  Gff::Field::newFloat("Value", 1.5f))}),
+                          action(0xdead, 8)}))
+                     .build();
+    auto object = game.newCreature();
+
+    object->deserializeRuntimeState(*saved);
+
+    ASSERT_EQ(object->savedEffects().size(), 1);
+    ASSERT_EQ(object->savedActionQueue().actions.size(), 2);
+    EXPECT_TRUE(object->effects().empty());
+    EXPECT_TRUE(object->actions().empty());
+    EXPECT_FALSE(object->hasPublishedSavedRuntimeState());
+
+    object->bindSavedRuntimeState();
+    EXPECT_FALSE(object->hasPublishedSavedRuntimeState());
+    object->publishSavedRuntimeState();
+
+    ASSERT_EQ(object->effects().size(), 1);
+    EXPECT_EQ(object->effects().front().id, 10);
+    ASSERT_EQ(object->actions().size(), 1);
+    EXPECT_EQ(object->actions().front()->type(), ActionType::Wait);
+    EXPECT_FALSE(object->actions().front()->isCompleted());
+    EXPECT_EQ(
+        object->savedActionQueue().actions[1].executionSupport(),
+        SavedExecutionSupport::RepresentableButUnsupported);
+    EXPECT_TRUE(object->hasPublishedSavedRuntimeState());
+
+    object->publishSavedRuntimeState();
+    EXPECT_EQ(object->effects().size(), 1);
+    EXPECT_EQ(object->actions().size(), 1);
+}
+
+
+TEST(SavedRuntimePublication, should_publish_supported_events_without_dispatching_them) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    ON_CALL(engine.sceneModule().graphs(), get(_)).WillByDefault(ReturnRef(sceneGraph));
+
+    auto ifo = Gff::Builder()
+                   .field(Gff::Field::newDword("Mod_CalendarDay", 4))
+                   .field(Gff::Field::newDword("Mod_TimeOfDay", 100))
+                   .field(Gff::Field::newDword("Mod_MinPerHour", 5))
+                   .build();
+    game.prepareSavedRuntimeNamespace(*ifo);
+    auto module = game.newModule();
+
+    auto queue = Gff::Builder()
+                     .field(Gff::Field::newList(
+                         "EventQueue",
+                         {event(5, 4, 100, minimalEffect()),
+                          event(11, 4, 101),
+                          event(18, 4, 102)}))
+                     .build();
+    module->deserializeSavedEventQueue(*queue);
+    module->bindSavedEventQueue();
+    module->publishSavedEventQueue();
+
+    ASSERT_EQ(module->savedEventQueue().events.size(), 3);
+    EXPECT_EQ(module->pendingSavedEventCount(), 1);
+    EXPECT_TRUE(module->effects().empty());
+
+    module->publishSavedEventQueue();
+    EXPECT_EQ(module->pendingSavedEventCount(), 1);
+    module->dispatchDueSavedEvents();
+
+    EXPECT_EQ(module->pendingSavedEventCount(), 0);
+    ASSERT_EQ(module->effects().size(), 1);
+    EXPECT_EQ(module->effects().front().id, 10);
+    EXPECT_EQ(
+        module->savedEventQueue().events[1].executionSupport(),
+        SavedExecutionSupport::RepresentableButUnsupported);
+    EXPECT_EQ(
+        module->savedEventQueue().events[2].executionSupport(),
+        SavedExecutionSupport::RetailDiscards);
+
+    EffectInstance expiring;
+    expiring.subType = static_cast<uint16_t>(DurationType::Temporary);
+    expiring.expiryDay = 4;
+    expiring.expiryTime = 60100;
+    auto remaining = game.remainingEffectDuration(expiring);
+    ASSERT_TRUE(remaining);
+    EXPECT_FLOAT_EQ(*remaining, 5.0f);
+}
+
+
 TEST(ScriptSituation, should_preserve_the_retail_snapshot_without_claiming_resume) {
     SerializedScriptSituation situation = SerializedScriptSituation::fromGff(*savedSituation());
 

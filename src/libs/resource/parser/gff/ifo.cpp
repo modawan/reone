@@ -28,6 +28,7 @@ namespace generated {
 static IFO_Mod_Area_list parseIFO_Mod_Area_list(const Gff &gff) {
     IFO_Mod_Area_list strct;
     strct.Area_Name = gff.getString("Area_Name");
+    strct.ObjectId = gff.getUint("ObjectId", 1);
     return strct;
 }
 
@@ -56,6 +57,8 @@ IFO parseIFO(const Gff &gff) {
     strct.Mod_OnActvtItem = gff.getString("Mod_OnActvtItem");
     strct.Mod_OnClientEntr = gff.getString("Mod_OnClientEntr");
     strct.Mod_OnClientLeav = gff.getString("Mod_OnClientLeav");
+    strct.Mod_Effect_NxtId = gff.getUint64("Mod_Effect_NxtId");
+    strct.Mod_NextObjId0 = gff.getUint("Mod_NextObjId0", 2);
     strct.Mod_OnHeartbeat = gff.getString("Mod_OnHeartbeat");
     strct.Mod_OnModLoad = gff.getString("Mod_OnModLoad");
     strct.Mod_OnModStart = gff.getString("Mod_OnModStart");

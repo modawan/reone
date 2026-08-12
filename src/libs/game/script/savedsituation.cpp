@@ -14,6 +14,8 @@
 #include "reone/game/effect.h"
 #include "reone/game/event.h"
 #include "reone/game/game.h"
+#include "reone/game/object.h"
+#include "reone/game/script/runner.h"
 #include "reone/game/location.h"
 #include "reone/resource/provider/scripts.h"
 #include "reone/script/format/ncsreader.h"
@@ -256,6 +258,14 @@ SavedScriptSituationImportResult SavedScriptSituationImporter::import(
             situation.scriptName,
             *situation._runtimeSession));
     return result;
+}
+
+void SavedDoCommandAction::execute(
+    std::shared_ptr<Action>, Object &actor, float) {
+    if (_continuation) {
+        _game.scriptRunner().run(*_continuation, _game, actor.id());
+    }
+    complete();
 }
 
 } // namespace game
