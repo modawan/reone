@@ -36,11 +36,7 @@ static void setVisible(const std::shared_ptr<Label> &control, bool visible) {
 }
 
 void ComputerGUI::preload(IGUI &gui) {
-    gui.setScaling(GUI::ScalingMode::Stretch);
-
-    if (_game.isTSL()) {
-        gui.setResolution(800, 600);
-    }
+    GameGUI::preload(gui);
 }
 
 void ComputerGUI::onGUILoaded() {

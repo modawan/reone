@@ -47,7 +47,14 @@ public:
 
     void load(const std::string &area, const resource::generated::ARE_Map &map);
 
-    void render(Mode mode, const glm::vec4 &bounds);
+    /**
+     * @param scale the factor the owning GUI draws its layout at.
+     *
+     * The map and its markers are drawn into a control's rect but not by the
+     * control, so nothing else carries the layout scale to them: the frame
+     * shrank with the GUI while the map inside it stayed native size.
+     */
+    void render(Mode mode, const glm::vec4 &bounds, float scale);
 
     bool isLoaded() const { return static_cast<bool>(_areaTexture); }
 
@@ -73,9 +80,9 @@ private:
     void loadProperties(const resource::generated::ARE_Map &map);
     void loadTextures(const std::string &area);
 
-    void renderArea(Mode mode, const glm::vec4 &bounds);
-    void renderPartyLeader(Mode mode, const glm::vec4 &bounds);
-    void renderNotes(Mode mode, const glm::vec4 &bounds);
+    void renderArea(Mode mode, const glm::vec4 &bounds, float scale);
+    void renderPartyLeader(Mode mode, const glm::vec4 &bounds, float scale);
+    void renderNotes(Mode mode, const glm::vec4 &bounds, float scale);
 
     glm::vec2 getMapPosition(const glm::vec2 &world) const;
 };

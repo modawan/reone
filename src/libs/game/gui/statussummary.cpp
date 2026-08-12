@@ -69,6 +69,7 @@ void StatusSummary::onGUILoaded() {
         row.icon = findControl<Label>(kIconTags[i]);
         row.description = findControl<Label>(kDescriptionTags[i]);
         if (row.icon) {
+            row.icon->setSharpenBorderFillAlpha(true);
             row.iconExtent = row.icon->extent();
         }
         if (row.description) {

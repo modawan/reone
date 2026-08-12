@@ -106,6 +106,9 @@ void Equipment::onGUILoaded() {
         if ((slotName.first == Slot::WeapL2 || slotName.first == Slot::WeapR2) && !_game.isTSL())
             continue;
         _lblInv[slotName.first] = findControl<Label>("LBL_INV_" + slotName.second);
+        if (_lblInv[slotName.first]) {
+            _lblInv[slotName.first]->setSharpenBorderFillAlpha(true);
+        }
         _btnInv[slotName.first] = findControl<Button>("BTN_INV_" + slotName.second);
     }
 

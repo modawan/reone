@@ -129,7 +129,10 @@ private:
     std::unique_ptr<MapMenu> _map;
     std::unique_ptr<OptionsMenu> _options;
 
+protected:
     void preload(gui::IGUI &gui) override;
+
+private:
     void onGUILoaded() override;
 
     void bindControls() {

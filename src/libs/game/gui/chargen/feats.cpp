@@ -26,6 +26,9 @@
 #include "reone/gui/control/listbox.h"
 #include "reone/resource/provider/textures.h"
 
+#include <algorithm>
+#include <cmath>
+
 using namespace reone::audio;
 
 using namespace reone::gui;
@@ -57,6 +60,10 @@ static constexpr glm::vec3 kTSLSelectableFeatBorderColor {0.05098f, 0.34902f, 0.
 static constexpr glm::vec3 kTSLOwnedFeatBorderColor {0.101961f, 0.698039f, 0.54902f};
 static constexpr glm::vec3 kTSLSelectedFeatBorderColor {1.0f};
 static constexpr char kTSLFeatArrow[] = "uibit_abi_arrow";
+
+static int scalePixels(int pixels, float scale) {
+    return std::max(1, static_cast<int>(std::lround(pixels * scale)));
+}
 
 static std::map<FeatType, glm::ivec2> getFeatIconPositions(
     const std::vector<FeatDisplayEntry> &entries) {
@@ -109,7 +116,9 @@ void CharGenFeats::onGUILoaded() {
         _controls.ICONCHAIN_FEATS->setHilightColor(_hilightColor);
     }
     _controls.ICONCHAIN_FEATS->setTintBorderFill(_game.isTSL());
-    _controls.ICONCHAIN_FEATS->setCellSize(kFeatIconCellSize);
+    float layoutScale = _gui->scale();
+    int cellSize = scalePixels(kFeatIconCellSize, layoutScale);
+    _controls.ICONCHAIN_FEATS->setCellSize(cellSize);
     auto &featListExtent = _controls.LB_FEATS->extent();
     auto &featProtoExtent = _controls.LB_FEATS->protoItem().extent();
     int featContentInsetY = featProtoExtent.top - featListExtent.top;
@@ -117,15 +126,15 @@ void CharGenFeats::onGUILoaded() {
     int featRowStep = featProtoExtent.height;
     if (!_game.isTSL()) {
         int featContentHeight = featListExtent.height - 2 * featContentInsetY;
-        int remainingHeight = featContentHeight - kK1VisibleFeatRows * kFeatIconCellSize;
+        int remainingHeight = featContentHeight - kK1VisibleFeatRows * cellSize;
         int featGapCount = kK1VisibleFeatRows + 1;
         int featRowGap = (remainingHeight + featGapCount / 2) / featGapCount;
         featOriginY += featRowGap;
-        featRowStep = kFeatIconCellSize + featRowGap;
+        featRowStep = cellSize + featRowGap;
     } else {
         int featFillInsetY = _controls.LB_FEATS->border().dimension;
         int featFillHeight = featListExtent.height - 2 * featFillInsetY;
-        int featRowRange = featFillHeight - kFeatIconCellSize;
+        int featRowRange = featFillHeight - cellSize;
         int featGapCount = kTSLVisibleFeatRows - 1;
         std::vector<int> featRowOffsets;
         featRowOffsets.reserve(kTSLVisibleFeatRows);
@@ -139,7 +148,7 @@ void CharGenFeats::onGUILoaded() {
         featProtoExtent.left - featListExtent.left,
         featOriginY);
     _controls.ICONCHAIN_FEATS->setCellStep(
-        (featProtoExtent.width - kFeatIconCellSize) / (kFeatIconColumnCount - 1),
+        (featProtoExtent.width - cellSize) / (kFeatIconColumnCount - 1),
         featRowStep);
     IconChain::CellStyle cellStyle;
     if (!_game.isTSL()) {
@@ -149,7 +158,8 @@ void CharGenFeats::onGUILoaded() {
         cellStyle.linkTexture = _services.resource.textures.get(
             kK1FeatArrow,
             TextureUsage::GUI);
-        cellStyle.linkSize = {kK1FeatArrowSize, kK1FeatArrowSize};
+        int arrowSize = scalePixels(kK1FeatArrowSize, layoutScale);
+        cellStyle.linkSize = {arrowSize, arrowSize};
         cellStyle.itemBorder = std::make_shared<Control::Border>();
         cellStyle.itemBorder->corner = _services.resource.textures.get(
             kK1FeatCellBorderCorner,
@@ -157,7 +167,7 @@ void CharGenFeats::onGUILoaded() {
         cellStyle.itemBorder->edge = _services.resource.textures.get(
             kK1FeatCellBorderEdge,
             TextureUsage::GUI);
-        cellStyle.itemBorder->dimension = kK1FeatCellBorderDimension;
+        cellStyle.itemBorder->dimension = scalePixels(kK1FeatCellBorderDimension, layoutScale);
         cellStyle.borderColors = std::make_shared<IconChain::CellStyle::BorderColors>();
         cellStyle.borderColors->owned = kK1FeatBorderGreenDim;
         cellStyle.borderColors->selected = kK1FeatBorderGreen;
@@ -171,7 +181,8 @@ void CharGenFeats::onGUILoaded() {
         cellStyle.linkTexture = _services.resource.textures.get(
             kTSLFeatArrow,
             TextureUsage::GUI);
-        cellStyle.linkSize = {kTSLFeatArrowSize, kTSLFeatArrowSize};
+        int arrowSize = scalePixels(kTSLFeatArrowSize, layoutScale);
+        cellStyle.linkSize = {arrowSize, arrowSize};
         cellStyle.borderColors = std::make_shared<IconChain::CellStyle::BorderColors>();
         cellStyle.borderColors->locked = kTSLLockedFeatBorderColor;
         cellStyle.borderColors->selectable = kTSLSelectableFeatBorderColor;
@@ -183,7 +194,7 @@ void CharGenFeats::onGUILoaded() {
         cellStyle.focusedBorderColors->owned = kTSLOwnedFeatBorderColor;
         cellStyle.focusedBorderColors->selected = kTSLSelectedFeatBorderColor;
     }
-    cellStyle.iconSize = kFeatIconSize;
+    cellStyle.iconSize = scalePixels(kFeatIconSize, layoutScale);
     cellStyle.dimLockedBackground = !_game.isTSL();
     cellStyle.drawItemBorderFill = !_game.isTSL();
     _controls.ICONCHAIN_FEATS->setCellStyle(std::move(cellStyle));
@@ -197,7 +208,7 @@ void CharGenFeats::onGUILoaded() {
     _controls.ICONCHAIN_FEATS->setOnItemDoubleClick([this](const std::string &item) {
         onFeatActivated(item);
     });
-    _gui->addControlToBack(_controls.ICONCHAIN_FEATS);
+    _gui->addControlToBack(_controls.ICONCHAIN_FEATS, IGUI::ControlCoordinates::Screen);
 
     _controls.LB_DESC->setProtoMatchContent(true);
     _controls.LB_FEATS->setSelectionMode(ListBox::SelectionMode::OnClick);

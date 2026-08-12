@@ -69,6 +69,7 @@ void Control::Extent::getCenter(int &x, int &y) const {
 void Control::load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) {
     loadExtent(gui.EXTENT);
     loadBorder(gui.BORDER);
+    _tintBorderFill = _gui.tintBorderFills();
 
     if (static_cast<ControlType>(gui.CONTROLTYPE) == ControlType::Panel) {
         _id = -1;
@@ -98,10 +99,11 @@ void Control::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIt
 }
 
 void Control::loadExtent(const resource::generated::GUI_EXTENT &gui) {
-    _extent.left = gui.LEFT;
-    _extent.top = gui.TOP;
-    _extent.width = gui.WIDTH;
-    _extent.height = gui.HEIGHT;
+    _authoredExtent.left = gui.LEFT;
+    _authoredExtent.top = gui.TOP;
+    _authoredExtent.width = gui.WIDTH;
+    _authoredExtent.height = gui.HEIGHT;
+    _extent = _authoredExtent;
 }
 
 void Control::loadBorder(const resource::generated::GUI_BORDER &gui) {
@@ -122,6 +124,7 @@ void Control::loadBorder(const resource::generated::GUI_BORDER &gui) {
     }
 
     _border->dimension = gui.DIMENSION;
+    _authoredBorderDimension = gui.DIMENSION;
     _border->color = gui.COLOR;
 }
 
@@ -140,7 +143,7 @@ void Control::loadText(const resource::generated::GUI_TEXT &gui) {
 void Control::updateTextLines() {
     _textLines.clear();
     if (_text.font && !_text.text.empty()) {
-        _textLines = breakText(_text.text, *_text.font, _extent.width);
+        _textLines = breakText(_text.text, *_text.font, _extent.width, _scale);
     }
 }
 
@@ -162,6 +165,7 @@ void Control::loadHilight(const resource::generated::GUI_BORDER &gui) {
     }
 
     _hilight->dimension = gui.DIMENSION;
+    _authoredHilightDimension = gui.DIMENSION;
     _hilight->color = gui.COLOR;
 }
 
@@ -398,8 +402,8 @@ void Control::renderText(const std::vector<std::string> &lines,
     for (auto &line : lines) {
         linePosition.x = static_cast<float>(position.x + offset.x);
         linePosition.y = static_cast<float>(position.y + offset.y);
-        _text.font->render(line, linePosition, color, gravity);
-        position.y += static_cast<int>(_text.font->height());
+        _text.font->render(line, linePosition, color, gravity, _scale);
+        position.y += static_cast<int>(_text.font->height() * _scale);
     }
 }
 
@@ -434,14 +438,14 @@ void Control::getTextPosition(glm::ivec2 &position, int lineCount, const glm::iv
         position.y = _extent.top;
         break;
     case TextAlign::CenterBottom:
-        position.y = _extent.top + size.y - static_cast<int>(glm::max(0, lineCount - 1) * _text.font->height());
+        position.y = _extent.top + size.y - static_cast<int>(glm::max(0, lineCount - 1) * _text.font->height() * _scale);
         break;
     case TextAlign::RightCenter:
     case TextAlign::LeftCenter:
     case TextAlign::CenterCenter:
     case TextAlign::RightCenter2:
     default:
-        position.y = _extent.top + size.y / 2 - static_cast<int>(0.5f * (lineCount - 1) * _text.font->height());
+        position.y = _extent.top + size.y / 2 - static_cast<int>(0.5f * (lineCount - 1) * _text.font->height() * _scale);
         break;
     }
     // Horizontal alignment
@@ -465,18 +469,38 @@ void Control::getTextPosition(glm::ivec2 &position, int lineCount, const glm::iv
 
 void Control::stretch(float x, float y, int mask) {
     if (mask & kStretchLeft) {
-        _extent.left = static_cast<int>(_extent.left * x);
+        _extent.left = static_cast<int>(_authoredExtent.left * x);
     }
     if (mask & kStretchTop) {
-        _extent.top = static_cast<int>(_extent.top * y);
+        _extent.top = static_cast<int>(_authoredExtent.top * y);
     }
     if (mask & kStretchWidth) {
-        _extent.width = static_cast<int>(_extent.width * x);
+        _extent.width = static_cast<int>(_authoredExtent.width * x);
     }
     if (mask & kStretchHeight) {
-        _extent.height = static_cast<int>(_extent.height * y);
+        _extent.height = static_cast<int>(_authoredExtent.height * y);
     }
+    float frameLayoutScale = x == y ? x : 1.0f;
+    setPresentationScale(frameLayoutScale, _gui.textLayoutScale(x, y));
     updateTransform();
+}
+
+void Control::setPresentationScale(float layoutScale) {
+    setPresentationScale(layoutScale, layoutScale);
+}
+
+void Control::setPresentationScale(float frameLayoutScale, float textLayoutScale) {
+    // Text and frame slices do not follow the extent on their own. Keeping
+    // this separate lets compound controls give their contents an independent
+    // density while retaining the parent's layout rectangle.
+    _scale = textLayoutScale * _gui.textScale();
+    if (_border) {
+        _border->dimension = static_cast<int>(_authoredBorderDimension * frameLayoutScale * _gui.borderScale());
+    }
+    if (_hilight) {
+        _hilight->dimension = static_cast<int>(_authoredHilightDimension * frameLayoutScale * _gui.borderScale());
+    }
+    updateTextLines();
 }
 
 void Control::setSelectable(bool selectable) {
@@ -526,6 +550,7 @@ void Control::setExtentTop(int top) {
 
 void Control::setBorder(Border border) {
     _border = std::make_shared<Border>(std::move(border));
+    _authoredBorderDimension = _border->dimension;
 }
 
 void Control::setBorderFill(std::string resRef) {
@@ -571,6 +596,7 @@ void Control::setUseBorderColorOverride(bool use) {
 
 void Control::setHilight(Border hilight) {
     _hilight = std::make_shared<Border>(hilight);
+    _authoredHilightDimension = _hilight->dimension;
 }
 
 void Control::setHilightColor(glm::vec3 color) {
@@ -612,6 +638,10 @@ void Control::setHilightFillTransform(Border::FillTransform transform) {
 void Control::setText(Text text) {
     _text = std::move(text);
     updateTextLines();
+}
+
+void Control::setTextAlignment(TextAlign align) {
+    _text.align = align;
 }
 
 void Control::setTextMessage(std::string text) {

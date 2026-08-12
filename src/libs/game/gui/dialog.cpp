@@ -106,7 +106,12 @@ static const std::unordered_map<std::string, AnimationType> g_animTypeByName {
     {"kneel_talk_sad", AnimationType::LoopingKneelTalkSad}};
 
 void DialogGUI::preload(IGUI &gui) {
+    GameGUI::preload(gui);
+    // Conversation bands and reply boxes are viewport-relative rather than
+    // authored plate art. Their dialog-specific font scale follows the
+    // uniform limiting axis without inheriting the global text multiplier.
     gui.setScaling(GUI::ScalingMode::Stretch);
+    gui.setTextScale(_game.options().graphics.guiDialogTextScale);
 }
 
 void DialogGUI::onGUILoaded() {
@@ -141,7 +146,7 @@ void DialogGUI::addFrame(std::string tag, int top, int height) {
     frame->setExtent(std::move(extent));
     frame->setBorderFill("blackfill");
 
-    _gui->addControlToFront(std::move(frame));
+    _gui->addControlToFront(std::move(frame), IGUI::ControlCoordinates::Screen);
 }
 
 void DialogGUI::configureMessage() {

@@ -27,7 +27,8 @@ using namespace reone::graphics;
 TEST(TxiReader, should_load_txi) {
     // given
     auto txiBytes = StringBuilder()
-                        .append("blending additive")
+                        .append("blending additive\n")
+                        .append("spacingr 0.015625")
                         .string();
     auto txi = MemoryInputStream(txiBytes);
     auto reader = TxiReader();
@@ -38,4 +39,5 @@ TEST(TxiReader, should_load_txi) {
     // then
     auto features = reader.features();
     EXPECT_EQ(static_cast<int>(Texture::Blending::Additive), static_cast<int>(features.blending));
+    EXPECT_FLOAT_EQ(features.spacingR, 0.015625f);
 }

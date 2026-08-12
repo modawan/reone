@@ -75,9 +75,7 @@ PartySelection::PartySelection(Game &game, ServicesView &services) :
 }
 
 void PartySelection::onGUILoaded() {
-    if (!_game.isTSL()) {
-        loadBackground(BackgroundType::Menu);
-    }
+    loadBackground(BackgroundType::Menu);
 
     bindControls();
 

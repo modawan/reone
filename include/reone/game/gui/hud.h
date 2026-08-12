@@ -56,6 +56,8 @@ public:
     void resetStatusSummaryPresentation();
 
 private:
+    friend class HUDTestAccess;
+
     struct Controls {
         std::shared_ptr<gui::Button> BTN_ABI;
         std::shared_ptr<gui::Button> BTN_CHAR;

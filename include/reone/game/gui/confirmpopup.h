@@ -61,6 +61,8 @@ private:
 
     std::shared_ptr<gui::Control> _icon;
     gui::Control::Extent _messageExtent;
+    int _iconSize {0};
+    int _iconPadding {0};
 
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;
