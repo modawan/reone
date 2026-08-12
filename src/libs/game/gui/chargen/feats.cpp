@@ -106,6 +106,19 @@ void CharGenFeats::onGUILoaded() {
     bindControls();
     _defaultFeatNameText = _controls.LBL_NAME->text().text;
 
+    if (_game.isTSL()) {
+        _controls.MAIN_TITLE_LBL->setConstrainBorderSlices(true);
+        _controls.SUB_TITLE_LBL->setConstrainBorderSlices(true);
+        _controls.STD_SELECTIONS_REMAINING_LBL->setConstrainBorderSlices(true);
+    }
+
+    // Align the description box's right edge with the remaining-selections
+    // bar's, keeping the left edge.
+    auto descExtent = _controls.LB_DESC->extent();
+    const auto &remainingExtent = _controls.STD_SELECTIONS_REMAINING_LBL->extent();
+    descExtent.width = remainingExtent.left + remainingExtent.width - descExtent.left;
+    _controls.LB_DESC->setExtent(descExtent);
+
     auto iconChainControl = std::shared_ptr<Control>(_gui->newControl(ControlType::IconChain, "ICONCHAIN_FEATS"));
     _controls.ICONCHAIN_FEATS = std::static_pointer_cast<IconChain>(iconChainControl);
     _controls.ICONCHAIN_FEATS->setExtent(_controls.LB_FEATS->extent());
@@ -121,6 +134,10 @@ void CharGenFeats::onGUILoaded() {
     _controls.ICONCHAIN_FEATS->setCellSize(cellSize);
     auto &featListExtent = _controls.LB_FEATS->extent();
     auto &featProtoExtent = _controls.LB_FEATS->protoItem().extent();
+    if (_game.isTSL()) {
+        int remainingInsetX = _controls.STD_SELECTIONS_REMAINING_LBL->border().dimension;
+        _controls.STD_SELECTIONS_REMAINING_LBL->setTextPaddingLeft(remainingInsetX);
+    }
     int featContentInsetY = featProtoExtent.top - featListExtent.top;
     int featOriginY = featContentInsetY;
     int featRowStep = featProtoExtent.height;
@@ -196,7 +213,8 @@ void CharGenFeats::onGUILoaded() {
     }
     cellStyle.iconSize = scalePixels(kFeatIconSize, layoutScale);
     cellStyle.dimLockedBackground = !_game.isTSL();
-    cellStyle.drawItemBorderFill = !_game.isTSL();
+    cellStyle.drawItemBorderFill = true;
+    cellStyle.drawItemBorderBeforeIcon = _game.isTSL();
     _controls.ICONCHAIN_FEATS->setCellStyle(std::move(cellStyle));
     _controls.ICONCHAIN_FEATS->setVisible(false);
     _controls.ICONCHAIN_FEATS->setOnItemFocus([this](const std::string &item) {
@@ -221,10 +239,10 @@ void CharGenFeats::onGUILoaded() {
     });
 
     _controls.BTN_ACCEPT->setOnClick([this]() {
-        if (_levelUp) {
-            if (_selectedFeats.size() != static_cast<size_t>(_points)) {
-                return;
-            }
+        if (_selectedFeats.size() != static_cast<size_t>(_points)) {
+            return;
+        }
+        if (_points > 0) {
             updateCharacter();
         }
         _charGen.goToNextStep();
@@ -253,20 +271,21 @@ void CharGenFeats::reset(bool levelUp) {
     _controls.LB_DESC->clearItems();
     resetFocusedFeatName();
 
-    if (levelUp) {
-        loadLevelUpDisplayEntries();
-    }
+    loadDisplayEntries();
 
     refreshControls();
     _controls.BTN_SELECT->setDisabled(true);
     _controls.BTN_RECOMMENDED->setDisabled(true);
 }
 
-void CharGenFeats::loadLevelUpDisplayEntries() {
+void CharGenFeats::loadDisplayEntries() {
     const CreatureAttributes &attributes = _charGen.character().attributes;
     std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(attributes.getEffectiveClass()));
 
-    _points = _services.game.feats.getLevelUpChoiceCount(attributes, *clazz);
+    // New-character selection applies the class's first-level gain; level-up
+    // selection applies the gain for the class level being added.
+    int classLevel = attributes.getClassLevel(clazz->type());
+    _points = clazz->getFeatGain(classLevel + (_levelUp ? 1 : 0));
     _displayEntries = _services.game.feats.getLevelUpDisplayEntries(attributes, *clazz);
 }
 
@@ -278,13 +297,14 @@ void CharGenFeats::refreshControls() {
 
 void CharGenFeats::refreshSelectionControls() {
     _controls.STD_REMAINING_SELECTIONS_LBL->setTextMessage(std::to_string(_points - static_cast<int>(_selectedFeats.size())));
-    _controls.BTN_ACCEPT->setDisabled(_levelUp && _selectedFeats.size() != static_cast<size_t>(_points));
+    _controls.BTN_ACCEPT->setDisabled(_selectedFeats.size() != static_cast<size_t>(_points));
 }
 
 void CharGenFeats::refreshIconChain() {
     _controls.ICONCHAIN_FEATS->clearItems();
-    _controls.ICONCHAIN_FEATS->setVisible(_levelUp);
-    if (!_levelUp) {
+    bool showIconChain = _levelUp || _game.isTSL();
+    _controls.ICONCHAIN_FEATS->setVisible(showIconChain);
+    if (!showIconChain) {
         return;
     }
 
@@ -338,7 +358,7 @@ void CharGenFeats::refreshIconChainSelection() {
 
 void CharGenFeats::refreshIconChainLinks() {
     _controls.ICONCHAIN_FEATS->clearLinks();
-    if (!_levelUp) {
+    if (_points == 0) {
         return;
     }
 
@@ -387,7 +407,7 @@ void CharGenFeats::refreshIconChainLinks() {
 }
 
 void CharGenFeats::refreshListBox() {
-    _controls.LB_FEATS->setVisible(!_levelUp);
+    _controls.LB_FEATS->setVisible(!_levelUp && !_game.isTSL());
     _controls.LB_FEATS->clearItems();
     for (auto &entry : _displayEntries) {
         std::shared_ptr<Feat> feat(_services.game.feats.get(entry.type));
@@ -463,7 +483,7 @@ void CharGenFeats::resetFocusedFeatName() {
 
 void CharGenFeats::onFeatFocused(const std::string &feat) {
     showFeatDescription(static_cast<FeatType>(std::stoi(feat)));
-    _controls.BTN_SELECT->setDisabled(!_levelUp);
+    _controls.BTN_SELECT->setDisabled(_points == 0);
 }
 
 void CharGenFeats::onFeatActivated(const std::string &feat) {
@@ -473,7 +493,7 @@ void CharGenFeats::onFeatActivated(const std::string &feat) {
     auto maybeDisplayEntry = std::find_if(
         _displayEntries.begin(), _displayEntries.end(),
         [&featType](auto &entry) { return entry.type == featType; });
-    if (_levelUp &&
+    if (_points > 0 &&
         maybeDisplayEntry != _displayEntries.end() &&
         maybeDisplayEntry->availability == FeatAvailability::Selectable) {
         toggleSelectedFeat(featType);

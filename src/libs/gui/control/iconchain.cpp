@@ -173,6 +173,10 @@ void IconChain::render(const glm::ivec2 &screenSize,
         }
 
         bool focused = static_cast<int>(i) == _focusedItemIndex;
+        if (_cellStyle.drawItemBorderBeforeIcon) {
+            renderItemBorder(item, focused, itemExtent, offset, pass);
+            renderFocusedBorder(item, focused, itemExtent, offset, pass);
+        }
         if (item.iconTexture) {
             Extent iconExtent(getItemIconExtent(itemExtent));
             pass.drawIcon(
@@ -182,8 +186,10 @@ void IconChain::render(const glm::ivec2 &screenSize,
                 getItemIconColor(item));
         }
 
-        renderItemBorder(item, focused, itemExtent, offset, pass);
-        renderFocusedBorder(item, focused, itemExtent, offset, pass);
+        if (!_cellStyle.drawItemBorderBeforeIcon) {
+            renderItemBorder(item, focused, itemExtent, offset, pass);
+            renderFocusedBorder(item, focused, itemExtent, offset, pass);
+        }
     }
 }
 

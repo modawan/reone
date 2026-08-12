@@ -70,6 +70,7 @@ public:
         bool dimLockedBackground {false};
         bool drawItemBorderFill {true};
         bool onlyDrawItemBorderWhenBright {false};
+        bool drawItemBorderBeforeIcon {false};
     };
 
     IconChain(

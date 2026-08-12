@@ -274,12 +274,20 @@ void Control::renderBorder(const Border &border,
     glm::vec3 color(getBorderColor());
     glm::mat4 transform(1.0f);
     glm::mat3x4 uv(1.0f);
-
-    // The fill sits inside the frame, so a control smaller than twice its
-    // border dimension has no room for one. Drawing it anyway passed a
-    // negative size to the quad, which came out as a bright line across the
-    // middle of the control. The edges below have always guarded this.
-    glm::ivec2 fillSize {size.x - 2 * border.dimension, size.y - 2 * border.dimension};
+    int leftWidth = border.dimension;
+    int rightWidth = border.dimension;
+    int topHeight = border.dimension;
+    int bottomHeight = border.dimension;
+    if (_constrainBorderSlices) {
+        // Some TSL title bars are thinner than two authored slices. Balance
+        // the opposing pieces on the constrained axis so their translucent
+        // pixels meet rather than accumulating through the center.
+        leftWidth = std::min(border.dimension, std::max(0, (size.x + 1) / 2));
+        rightWidth = std::min(border.dimension, std::max(0, size.x - leftWidth));
+        topHeight = std::min(border.dimension, std::max(0, (size.y + 1) / 2));
+        bottomHeight = std::min(border.dimension, std::max(0, size.y - topHeight));
+    }
+    glm::ivec2 fillSize {size.x - leftWidth - rightWidth, size.y - topHeight - bottomHeight};
 
     if (part != BorderRenderPart::Frame && border.fill && fillSize.x > 0 && fillSize.y > 0) {
         if (border.fillTransform == Border::FillTransform::Rotate180) {
@@ -294,7 +302,7 @@ void Control::renderBorder(const Border &border,
         _graphicsSvc.context.withBlendMode(blending, [&]() {
             pass.drawImage(
                 *border.fill,
-                {_extent.left + border.dimension + offset.x, _extent.top + border.dimension + offset.y},
+                {_extent.left + leftWidth + offset.x, _extent.top + topHeight + offset.y},
                 fillSize,
                 _tintBorderFill ? glm::vec4(color, 1.0f) : glm::vec4(1.0f),
                 uv,
@@ -303,12 +311,12 @@ void Control::renderBorder(const Border &border,
     }
 
     if (part != BorderRenderPart::Fill && border.edge) {
-        int width = size.x - 2 * border.dimension;
-        int height = size.y - 2 * border.dimension;
+        int width = fillSize.x;
+        int height = fillSize.y;
 
         if (height > 0.0f) {
             int x = _extent.left + offset.x;
-            int y = _extent.top + border.dimension + offset.y;
+            int y = _extent.top + topHeight + offset.y;
 
             // Left edge
             uv = glm::mat3x4(
@@ -318,7 +326,7 @@ void Control::renderBorder(const Border &border,
             pass.drawImage(
                 *border.edge,
                 {x, y},
-                {border.dimension, height},
+                {leftWidth, height},
                 glm::vec4(color, 1.0f),
                 uv);
 
@@ -329,21 +337,21 @@ void Control::renderBorder(const Border &border,
                 glm::vec4(0.0f, 0.0f, 0.0f, 0.0f));
             pass.drawImage(
                 *border.edge,
-                {x + size.x - border.dimension, y},
-                {border.dimension, height},
+                {x + size.x - rightWidth, y},
+                {rightWidth, height},
                 glm::vec4(color, 1.0f),
                 uv);
         }
 
         if (width > 0.0f) {
-            int x = _extent.left + border.dimension + offset.x;
+            int x = _extent.left + leftWidth + offset.x;
             int y = _extent.top + offset.y;
 
             // Top edge
             pass.drawImage(
                 *border.edge,
                 {x, y},
-                {width, border.dimension},
+                {width, topHeight},
                 glm::vec4(color, 1.0f));
 
             // Bottom edge
@@ -353,8 +361,8 @@ void Control::renderBorder(const Border &border,
                 glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
             pass.drawImage(
                 *border.edge,
-                {x, y + size.y - border.dimension},
-                {width, border.dimension},
+                {x, y + size.y - bottomHeight},
+                {width, bottomHeight},
                 glm::vec4(color, 1.0f),
                 uv);
         }
@@ -368,7 +376,7 @@ void Control::renderBorder(const Border &border,
         pass.drawImage(
             *border.corner,
             {x, y},
-            {border.dimension, border.dimension},
+            {leftWidth, topHeight},
             glm::vec4(color, 1.0f));
 
         // Bottom left corner
@@ -378,8 +386,8 @@ void Control::renderBorder(const Border &border,
             glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
         pass.drawImage(
             *border.corner,
-            {x, y + size.y - border.dimension},
-            {border.dimension, border.dimension},
+            {x, y + size.y - bottomHeight},
+            {leftWidth, bottomHeight},
             glm::vec4(color, 1.0f),
             uv);
 
@@ -390,8 +398,8 @@ void Control::renderBorder(const Border &border,
             glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
         pass.drawImage(
             *border.corner,
-            {x + size.x - border.dimension, y},
-            {border.dimension, border.dimension},
+            {x + size.x - rightWidth, y},
+            {rightWidth, topHeight},
             glm::vec4(color, 1.0f),
             uv);
 
@@ -402,8 +410,8 @@ void Control::renderBorder(const Border &border,
             glm::vec4(1.0f, 1.0f, 0.0f, 0.0f));
         pass.drawImage(
             *border.corner,
-            {x + size.x - border.dimension, y + size.y - border.dimension},
-            {border.dimension, border.dimension},
+            {x + size.x - rightWidth, y + size.y - bottomHeight},
+            {rightWidth, bottomHeight},
             glm::vec4(color, 1.0f),
             uv);
     }
@@ -480,7 +488,7 @@ void Control::getTextPosition(glm::ivec2 &position, int lineCount, const glm::iv
     switch (_text.align) {
     case TextAlign::LeftTop:
     case TextAlign::LeftCenter:
-        position.x = _extent.left;
+        position.x = _extent.left + _textPaddingLeft;
         break;
     case TextAlign::RightCenter:
     case TextAlign::RightCenter2:
