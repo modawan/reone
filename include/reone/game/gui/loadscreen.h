@@ -46,7 +46,10 @@ private:
 
     Controls _controls;
 
+protected:
     void preload(gui::IGUI &gui) override;
+
+private:
     void onGUILoaded() override;
 
     void bindControls() {

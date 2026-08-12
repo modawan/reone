@@ -39,6 +39,11 @@ struct GraphicsOptions {
     int shadowResolution {2048};
     int anisotropicFiltering {2};
     float drawDistance {kDefaultObjectDrawDistance};
+    float guiScale {1.0f};
+    float guiTextScale {0.5f};
+    float guiDialogTextScale {0.6f};
+    float guiBorderScale {1.0f};
+    float guiListScale {0.75f};
 };
 
 } // namespace graphics

@@ -75,6 +75,19 @@ void HUD::preload(IGUI &gui) {
 
 void HUD::onGUILoaded() {
     bindControls();
+
+    // The menu strip and the action queue are icon artwork, magnified on any
+    // modern screen, so they get their alpha edge reconstructed.
+    for (auto &icon : {_controls.BTN_EQU, _controls.BTN_INV, _controls.BTN_CHAR,
+                       _controls.BTN_ABI, _controls.BTN_MSG, _controls.BTN_JOU,
+                       _controls.BTN_MAP, _controls.BTN_OPT}) {
+        icon->setSharpenBorderFillAlpha(true);
+    }
+    for (auto &icon : {_controls.LBL_QUEUE0, _controls.LBL_QUEUE1,
+                       _controls.LBL_QUEUE2, _controls.LBL_QUEUE3}) {
+        icon->setSharpenBorderFillAlpha(true);
+    }
+
     _actionBar.addDescription(
         findControl<gui::Label>("LBL_ACTIONDESC"),
         findControl<gui::Label>("LBL_ACTIONDESCBG"));
@@ -409,7 +422,7 @@ void HUD::render() {
         _areaTransition->render();
     }
     _select.render();
-    _actionBar.render();
+    _actionBar.render(_gui->scale());
     _game.floatingText().render();
 
     if (_statusSummary && _statusSummary->isVisible()) {
@@ -427,7 +440,9 @@ void HUD::renderMinimap() {
     bounds[3] = static_cast<float>(extent.height);
 
     std::shared_ptr<Area> area(_game.module()->area());
-    _game.map().render(Map::Mode::Minimap, bounds);
+    // The frame is a control and scales with the layout; the map drawn inside
+    // it is not, so it has to be told.
+    _game.map().render(Map::Mode::Minimap, bounds, _gui->scale());
 }
 
 void HUD::renderHealth(int memberIndex) {
@@ -446,13 +461,15 @@ void HUD::renderHealth(int memberIndex) {
 
     Label &LBL_CHAR = *backLabels[memberIndex];
     const Control::Extent &extent = LBL_CHAR.extent();
+    // The bar is artwork in the portrait's layout space, not text.
+    float scale = _gui->scale();
 
     std::shared_ptr<Creature> member(party.getMember(memberIndex));
-    float w = 5.0f;
+    float w = 5.0f * scale;
     float h = glm::clamp(member->currentHitPoints() / static_cast<float>(member->hitPoints()), 0.0f, 1.0f) * extent.height;
 
     glm::mat4 transform(1.0f);
-    transform = glm::translate(transform, glm::vec3(_gui->controlOffset().x + extent.left + extent.width - 14.0f, _gui->controlOffset().y + extent.top + extent.height - h, 0.0f));
+    transform = glm::translate(transform, glm::vec3(_gui->controlOffset().x + extent.left + extent.width - 14.0f * scale, _gui->controlOffset().y + extent.top + extent.height - h, 0.0f));
     transform = glm::scale(transform, glm::vec3(w, h, 1.0f));
 
     _services.graphics.uniforms.setLocals([this, transform](auto &locals) {

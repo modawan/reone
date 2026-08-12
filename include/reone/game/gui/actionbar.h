@@ -49,9 +49,11 @@ public:
                  std::shared_ptr<gui::Button> down);
 
     void update();
-    void render();
+    void render(float layoutScale);
 
 private:
+    friend class ActionBarTestAccess;
+
     void handleMouseWheel(ActionSlot &slot, int x, int y);
     void handleMouseButtonDown(ActionSlot &slot);
 

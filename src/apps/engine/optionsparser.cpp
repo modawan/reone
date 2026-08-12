@@ -17,6 +17,8 @@
 
 #include "optionsparser.h"
 
+#include <cmath>
+
 #include "reone/system/types.h"
 
 using namespace boost::program_options;
@@ -27,6 +29,14 @@ using namespace reone::graphics;
 namespace reone {
 
 static constexpr char kConfigFilename[] = "reone.cfg";
+
+static float positiveFiniteScale(const variables_map &vars, const char *name) {
+    float value = vars[name].as<float>();
+    if (!std::isfinite(value) || value <= 0.0f) {
+        throw std::invalid_argument(std::string("--") + name + " must be finite and greater than zero");
+    }
+    return value;
+}
 
 std::unique_ptr<Options> OptionsParser::parse() {
     auto options = std::make_unique<Options>();
@@ -61,6 +71,11 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("musicvol", value<int>()->default_value(options->audio.musicVolume), "music volume in percents")                       //
         ("voicevol", value<int>()->default_value(options->audio.voiceVolume), "voice volume in percents")                       //
         ("soundvol", value<int>()->default_value(options->audio.soundVolume), "sound volume in percents")                       //
+        ("guiscale", value<float>()->default_value(options->graphics.guiScale), "GUI layout scale")                              //
+        ("guitextscale", value<float>()->default_value(options->graphics.guiTextScale), "GUI text scale")                       //
+        ("guidialogtextscale", value<float>()->default_value(options->graphics.guiDialogTextScale), "dialog text scale")       //
+        ("guiborderscale", value<float>()->default_value(options->graphics.guiBorderScale), "GUI border scale")                 //
+        ("guilistscale", value<float>()->default_value(options->graphics.guiListScale), "GUI list row scale")                    //
         ("movievol", value<int>()->default_value(options->audio.movieVolume), "movie volume in percents")                       //
         ("logsev", value<int>()->default_value(static_cast<int>(options->logging.severity)), "minimum log severity")            //
         ("logch", value<int>()->default_value(defaultLogChannels), "log channel mask");
@@ -103,6 +118,11 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options->logging.severity = static_cast<LogSeverity>(vars["logsev"].as<int>());
 
     std::set<LogChannel> logChannels;
+    options->graphics.guiScale = positiveFiniteScale(vars, "guiscale");
+    options->graphics.guiTextScale = positiveFiniteScale(vars, "guitextscale");
+    options->graphics.guiDialogTextScale = positiveFiniteScale(vars, "guidialogtextscale");
+    options->graphics.guiBorderScale = positiveFiniteScale(vars, "guiborderscale");
+    options->graphics.guiListScale = positiveFiniteScale(vars, "guilistscale");
     int logChannelsMask = vars["logch"].as<int>();
     if ((logChannelsMask & static_cast<int>(LogChannel::Global)) != 0) {
         logChannels.insert(LogChannel::Global);

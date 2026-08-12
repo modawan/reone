@@ -68,8 +68,17 @@ void GameGUI::init() {
 }
 
 void GameGUI::preload(IGUI &gui) {
+    // Every game GUI defaults to scaled mode. It preserves the authored
+    // aspect and fits the layout on the limiting screen axis.
+    //
+    // Subclasses that need edge anchoring override this after the base call.
+    gui.setScaling(IGUI::ScalingMode::Scaled);
     if (_game.isTSL()) {
         gui.setResolution(800, 600);
+        // TSL's GUI fills are authored as color masks. Their BORDER.COLOR
+        // values carry the screen palette; drawing the textures white turns
+        // title bars and panels into opaque gray rectangles.
+        gui.setTintBorderFills(true);
     } else {
         gui.setDefaultHilightColor(kGUIColorHilight);
     }
@@ -99,6 +108,13 @@ void GameGUI::loadBackground(BackgroundType type) {
 
     if (_game.isTSL()) {
         switch (type) {
+        case BackgroundType::Menu:
+        case BackgroundType::Load:
+            // TSL's pause-menu plate is transparent outside its authored
+            // frame. The retail menus put blackfill behind it so the paused
+            // world cannot show through at wider aspect ratios.
+            resRef = "blackfill";
+            break;
         case BackgroundType::Computer0:
         case BackgroundType::Computer1:
             resRef = "pnl_computer_pc";

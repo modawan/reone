@@ -38,6 +38,9 @@ namespace game {
 static constexpr int kArrowSize = 32;
 static constexpr int kMapNoteSize = 16;
 static constexpr float kSelectedMapNoteScale = 1.5f;
+static constexpr float kKotorMapWidth = 440.0f;
+static constexpr float kTSLMapWidth = 512.0f;
+static constexpr float kMapHeight = 256.0f;
 
 Map::Map(Game &game, ServicesView &services) :
     _game(game),
@@ -79,18 +82,18 @@ void Map::loadTextures(const std::string &area) {
     }
 }
 
-void Map::render(Mode mode, const glm::vec4 &bounds) {
+void Map::render(Mode mode, const glm::vec4 &bounds, float scale) {
     if (!_areaTexture) {
         return;
     }
-    _services.graphics.context.withBlendMode(BlendMode::Normal, [this, &mode, &bounds]() {
-        renderArea(mode, bounds);
-        renderNotes(mode, bounds);
-        renderPartyLeader(mode, bounds);
+    _services.graphics.context.withBlendMode(BlendMode::Normal, [this, &mode, &bounds, scale]() {
+        renderArea(mode, bounds, scale);
+        renderNotes(mode, bounds, scale);
+        renderPartyLeader(mode, bounds, scale);
     });
 }
 
-void Map::renderArea(Mode mode, const glm::vec4 &bounds) {
+void Map::renderArea(Mode mode, const glm::vec4 &bounds, float scale) {
     if (mode == Mode::Minimap) {
         std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
         if (!partyLeader) {
@@ -101,13 +104,22 @@ void Map::renderArea(Mode mode, const glm::vec4 &bounds) {
         glm::vec2 worldPos(partyLeader->position());
         glm::vec2 mapPos(getMapPosition(worldPos));
 
+        // Drawn at the layout's scale, not the texture's native size: the
+        // minimap frame is a control and shrinks with the GUI, so a native-size
+        // map inside it is the wrong zoom and slides under its own scissor.
+        // The offsets that centre the party leader are in the same pixel space
+        // and take the same factor.
+        const float mapWidth = _areaTexture->width() * scale;
+        const float mapHeight = _areaTexture->height() * scale;
+
         glm::vec3 topLeft(0.0f);
-        topLeft.x = bounds[0] + 0.5f * bounds[2] - mapPos.x * 440.0f / static_cast<float>(_areaTexture->width()) * _areaTexture->width();
-        topLeft.y = bounds[1] + 0.5f * bounds[3] - mapPos.y * _areaTexture->height();
+        float logicalMapWidth = _game.isTSL() ? kTSLMapWidth : kKotorMapWidth;
+        topLeft.x = bounds[0] + 0.5f * bounds[2] - mapPos.x * logicalMapWidth * scale;
+        topLeft.y = bounds[1] + 0.5f * bounds[3] - mapPos.y * mapHeight;
 
         glm::mat4 transform(1.0f);
         transform = glm::translate(transform, topLeft);
-        transform = glm::scale(transform, glm::vec3(_areaTexture->width(), _areaTexture->height(), 1.0f));
+        transform = glm::scale(transform, glm::vec3(mapWidth, mapHeight, 1.0f));
 
         _services.graphics.uniforms.setLocals([transform](auto &locals) {
             locals.reset();
@@ -137,7 +149,7 @@ void Map::renderArea(Mode mode, const glm::vec4 &bounds) {
     }
 }
 
-void Map::renderNotes(Mode mode, const glm::vec4 &bounds) {
+void Map::renderNotes(Mode mode, const glm::vec4 &bounds, float scale) {
     if (mode != Mode::Default) {
         return;
     }
@@ -149,15 +161,16 @@ void Map::renderNotes(Mode mode, const glm::vec4 &bounds) {
             continue;
 
         glm::vec2 mapPos(getMapPosition(waypoint->position()));
-        mapPos.x *= bounds[2] / static_cast<float>(_areaTexture->width());
-        mapPos.y *= bounds[3] / static_cast<float>(_areaTexture->height());
+        mapPos.x *= (_game.isTSL() ? kTSLMapWidth : kKotorMapWidth) /
+                    static_cast<float>(_areaTexture->width());
+        mapPos.y *= kMapHeight / static_cast<float>(_areaTexture->height());
 
         glm::vec2 notePos;
         notePos.x = bounds[0] + mapPos.x * bounds[2];
         notePos.y = bounds[1] + mapPos.y * bounds[3];
 
         bool selected = waypoint == _selectedNote;
-        float noteSize = (selected ? kSelectedMapNoteScale : 1.0f) * kMapNoteSize;
+        float noteSize = (selected ? kSelectedMapNoteScale : 1.0f) * kMapNoteSize * scale;
 
         glm::mat4 transform(1.0f);
         transform = glm::translate(transform, glm::vec3(notePos.x - 0.5f * noteSize, notePos.y - 0.5f * noteSize, 0.0f));
@@ -203,7 +216,7 @@ glm::vec2 Map::getMapPosition(const glm::vec2 &world) const {
     return result;
 }
 
-void Map::renderPartyLeader(Mode mode, const glm::vec4 &bounds) {
+void Map::renderPartyLeader(Mode mode, const glm::vec4 &bounds, float scale) {
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
     if (!partyLeader) {
         return;
@@ -215,9 +228,9 @@ void Map::renderPartyLeader(Mode mode, const glm::vec4 &bounds) {
     if (mode == Mode::Default) {
         glm::vec2 worldPos(partyLeader->position());
         glm::vec2 mapPos(getMapPosition(worldPos));
-
-        mapPos.x *= bounds[2] / static_cast<float>(_areaTexture->width());
-        mapPos.y *= bounds[3] / static_cast<float>(_areaTexture->height());
+        mapPos.x *= (_game.isTSL() ? kTSLMapWidth : kKotorMapWidth) /
+                    static_cast<float>(_areaTexture->width());
+        mapPos.y *= kMapHeight / static_cast<float>(_areaTexture->height());
 
         arrowPos.x = bounds[0] + mapPos.x * bounds[2];
         arrowPos.y = bounds[1] + mapPos.y * bounds[3];
@@ -245,8 +258,9 @@ void Map::renderPartyLeader(Mode mode, const glm::vec4 &bounds) {
     glm::mat4 transform(1.0f);
     transform = glm::translate(transform, arrowPos);
     transform = glm::rotate(transform, facing, glm::vec3(0.0f, 0.0f, 1.0f));
-    transform = glm::translate(transform, glm::vec3(-0.5f * kArrowSize, -0.5f * kArrowSize, 0.0f));
-    transform = glm::scale(transform, glm::vec3(kArrowSize, kArrowSize, 1.0f));
+    const float arrowSize = kArrowSize * scale;
+    transform = glm::translate(transform, glm::vec3(-0.5f * arrowSize, -0.5f * arrowSize, 0.0f));
+    transform = glm::scale(transform, glm::vec3(arrowSize, arrowSize, 1.0f));
 
     _services.graphics.uniforms.setLocals([this, transform](auto &locals) {
         locals.reset();

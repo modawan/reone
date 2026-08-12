@@ -31,6 +31,7 @@ namespace reone {
 namespace game {
 
 void LoadingScreen::preload(IGUI &gui) {
+    GameGUI::preload(gui);
     if (_game.isTSL()) {
         gui.setResolution(800, 600);
     }

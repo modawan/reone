@@ -50,9 +50,14 @@ static void configureTopNavigationIcon(const std::shared_ptr<ImageButton> &butto
         return;
     }
     button->setSelectable(false);
+    button->setSharpenBorderFillAlpha(true);
 }
 
 void InGameMenu::preload(IGUI &gui) {
+    // Chain the base: without it this GUI - the top navigation icon strip
+    // among it - missed the game-wide scaled mode and floated unscaled over
+    // the scaled subscreens.
+    GameGUI::preload(gui);
     if (_game.isTSL()) {
         gui.setResolution(800, 600);
     }
