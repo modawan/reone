@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory = $true)][string]$Kotor2Dir,
     [string]$OutputDir = "",
     [string[]]$States = @(),
-    [int[]]$Widths = @()
+    [int[]]$Widths = @(),
+    [switch]$NoWorld
 )
 
 $ErrorActionPreference = "Stop"
@@ -107,6 +108,7 @@ foreach ($game in $games) {
             # One engine process per (game, resolution, list scale): the states
             # are sequenced through a command file instead of restarting.
             $lines = [System.Collections.Generic.List[string]]::new()
+            if ($NoWorld) { $lines.Add("graphics off") }
             $frame = 0
             foreach ($state in $group.Group) {
                 $isStartup = -not $state.Commands

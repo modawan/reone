@@ -30,6 +30,8 @@ struct GraphicsOptions {
     bool fullscreen {false};
     /** Hide the presentation window while retaining a renderable surface. */
     bool headless {false};
+    /** Draw 3D scene content: the world and scene-backed GUI panels. */
+    bool sceneRender {true};
     bool vsync {true};
     bool grass {true};
     bool pbr {false};

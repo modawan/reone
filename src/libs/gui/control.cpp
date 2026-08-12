@@ -223,10 +223,9 @@ void Control::render(const glm::ivec2 &screenSize,
     if (_selected && _hilight) {
         borderStorage[borderCount++] = _hilight.get();
     }
-
     renderControlLayers(
         ArrayRef<const Border *>(borderStorage.data(), borderCount),
-        !_sceneName.empty(),
+        !_sceneName.empty() && _gui.sceneRenderEnabled(),
         [this, &offset, &size, &pass](const Border &border, BorderRenderPart part) {
             renderBorder(border, offset, size, pass, part);
         },
