@@ -461,7 +461,7 @@ void Control::getTextPosition(glm::ivec2 &position, int lineCount, const glm::iv
     switch (_text.align) {
     case TextAlign::LeftTop:
     case TextAlign::LeftCenter:
-        position.x = _extent.left + _textPaddingLeft;
+        position.x = _extent.left + textPaddingLeft();
         break;
     case TextAlign::RightCenter:
     case TextAlign::RightCenter2:
@@ -474,6 +474,18 @@ void Control::getTextPosition(glm::ivec2 &position, int lineCount, const glm::iv
         position.x = _extent.left + size.x / 2;
         break;
     }
+}
+
+int Control::textPaddingLeft() const {
+    if (_textPaddingLeft > 0) {
+        return _textPaddingLeft;
+    }
+    // Left-aligned label text starts inside the authored frame art, not
+    // under its border slice.
+    if (_type == ControlType::Label && _border && (_border->corner || _border->edge)) {
+        return _border->dimension;
+    }
+    return 0;
 }
 
 void Control::stretch(float x, float y, int mask) {

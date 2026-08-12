@@ -185,6 +185,7 @@ public:
     void setTextMessage(std::string text);
     void setTextFont(std::shared_ptr<graphics::Font> font);
     void setTextPaddingLeft(int padding) { _textPaddingLeft = padding; }
+    int textPaddingLeft() const;
     void setTintBorderFill(bool tint) { _tintBorderFill = tint; }
     void setSharpenBorderFillAlpha(bool sharpen) { _sharpenBorderFillAlpha = sharpen; }
     void setUseBorderColorOverride(bool use);

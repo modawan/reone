@@ -159,10 +159,6 @@ void styleChargenTitles(
     Label &remainingLabel,
     ListBox &descriptionBox) {
 
-    if (game.isTSL()) {
-        remainingLabel.setTextPaddingLeft(remainingLabel.border().dimension);
-    }
-
     // Align the description box's right edge with the remaining-selections
     // bar's, keeping the left edge.
     auto descExtent = descriptionBox.extent();
