@@ -1493,7 +1493,7 @@ void Game::deserializeInventory(resource::Gff &inventoryGff) {
     }
 
     for (const auto &itemGff : inventoryGff.getList("ItemList")) {
-        std::shared_ptr<Item> item = newItem(*itemGff);
+        std::shared_ptr<Item> item = newOwnedItem();
         item->deserialize(*itemGff);
         player->addItem(item);
     }

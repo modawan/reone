@@ -308,6 +308,13 @@ public:
     inline std::shared_ptr<Item> newItem() {
         return newObject<Item>(*this, _services);
     }
+    // Items serialized inside an owning inventory/equipment record use an
+    // owner-local identity scope. Their saved ObjectId can legitimately match
+    // another owned item or an independently registered world object, so the
+    // runtime registry must assign them a fresh unambiguous identity.
+    inline std::shared_ptr<Item> newOwnedItem() {
+        return newItem();
+    }
     std::shared_ptr<Item> newItem(const resource::Gff &gff);
 
     inline std::shared_ptr<Area> newArea(std::string sceneName = kSceneMain) {

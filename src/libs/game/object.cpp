@@ -80,9 +80,7 @@ void Object::deserialize(const resource::Gff &gff) {
     }
     if (_type != ObjectType::Placeable && _type != ObjectType::Store) {
         for (const auto &itemGff : gff.getList("ItemList")) {
-            std::shared_ptr<Item> item = gff.has("ObjectId")
-                                             ? _game.newItem(*itemGff)
-                                             : _game.newItem();
+            std::shared_ptr<Item> item = _game.newOwnedItem();
             item->deserialize(*itemGff);
             addItem(item);
         }

@@ -189,6 +189,7 @@ public:
         const std::shared_ptr<resource::Gff> &ptGff,
         const std::shared_ptr<resource::Gff> &pcGff);
     static void deserializeAvailableNpcs(Game &game);
+    static void deserializeInventory(Game &game, resource::Gff &gff);
     static void deserializeGlobalVariables(Game &game, resource::Gff &gff);
     static void replaceJournal(Game &game, const resource::Gff &gff);
     static void replaceInventory(Game &game, resource::Gff &gff);

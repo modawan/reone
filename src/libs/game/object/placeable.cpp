@@ -151,7 +151,7 @@ void Placeable::deserializeAll(const resource::Gff &gff) {
         _items.clear();
     }
     for (const auto &itemGff : gff.getList("ItemList")) {
-        std::shared_ptr<Item> item = _game.newItem(*itemGff);
+        std::shared_ptr<Item> item = _game.newOwnedItem();
         item->deserialize(*itemGff);
         item->setDropable(true);
         addItem(item);

@@ -73,7 +73,7 @@ void Store::deserializeAll(const resource::Gff &gff) {
 
 void Store::deserializeItems(const resource::Gff &gff) {
     for (const auto &itemGff : gff.getList("ItemList")) {
-        std::shared_ptr<Item> item = _game.newItem(*itemGff);
+        std::shared_ptr<Item> item = _game.newOwnedItem();
         item->deserialize(*itemGff);
         addItem(item);
     }

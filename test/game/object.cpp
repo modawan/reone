@@ -149,6 +149,10 @@ std::pair<std::string, std::string> reone::game::TestGameModule::scheduledTransi
     return {game._nextModule, game._nextEntry};
 }
 
+void reone::game::TestGameModule::deserializeInventory(Game &game, Gff &gff) {
+    game.deserializeInventory(gff);
+}
+
 namespace {
 
 class TestAreaTransition : public AreaTransition {
@@ -2432,4 +2436,67 @@ TEST(SavedRuntimeState, detached_creatures_keep_nested_item_ids_owner_scoped) {
     EXPECT_NE(218u, secondItem->id());
     EXPECT_NE(firstItem->id(), secondItem->id());
     EXPECT_FALSE(game.getObjectById(218));
+}
+
+TEST(SavedRuntimeState, keeps_authoritative_owner_items_local_to_their_owner_namespace) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .WillRepeatedly(Return(makeBaseItemsTable()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(engine.services().game.portraits), getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto savedLongsword = Gff::Builder()
+                              .type(1u << InventorySlots::body)
+                              .field(Gff::Field::newDword("ObjectId", 15))
+                              .field(Gff::Field::newCExoString("Tag", "g_w_lngswrd01"))
+                              .field(Gff::Field::newInt("BaseItem", 2))
+                              .field(Gff::Field::newWord("StackSize", 2))
+                              .field(Gff::Field::newList("PropertiesList", {}))
+                              .build();
+    auto savedPlayer = Gff::Builder()
+                           .field(Gff::Field::newDword("ObjectId", 2147483646u))
+                           .field(Gff::Field::newDword("Appearance_Type", 0))
+                           .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+                           .field(Gff::Field::newByte("BodyBag", 0xff))
+                           .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                           .field(Gff::Field::newList("Equip_ItemList", {savedLongsword}))
+                           .build();
+    auto ifo = Gff::Builder()
+                   .field(Gff::Field::newList("Mod_PlayerList", {savedPlayer}))
+                   .build();
+
+    TestGameModule::publishPartyRuntimeState(game, *ifo, nullptr, nullptr);
+
+    auto player = game.party().actualPlayer();
+    ASSERT_TRUE(player);
+    auto equipped = player->getEquippedItem(InventorySlots::body);
+    ASSERT_TRUE(equipped);
+    EXPECT_NE(15u, equipped->id());
+    EXPECT_FALSE(game.getObjectById(15));
+
+    auto inventory = Gff::Builder()
+                         .field(Gff::Field::newList("ItemList", {savedLongsword}))
+                         .build();
+    TestGameModule::deserializeInventory(game, *inventory);
+
+    ASSERT_EQ(1, player->items().size());
+    auto carried = player->items().front();
+    EXPECT_NE(15u, carried->id());
+    EXPECT_NE(equipped->id(), carried->id());
+    EXPECT_FALSE(game.getObjectById(15));
+
+    auto savedWorldItem = Gff::Builder()
+                              .field(Gff::Field::newDword("ObjectId", 15))
+                              .build();
+    auto worldItem = game.newItem(*savedWorldItem);
+    EXPECT_EQ(15u, worldItem->id());
+    EXPECT_EQ(worldItem, game.getObjectById(15));
+    EXPECT_THROW(game.newItem(*savedWorldItem), ValidationException);
 }

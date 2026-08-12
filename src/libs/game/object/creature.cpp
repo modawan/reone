@@ -1722,9 +1722,7 @@ void Creature::deserializeEquipItems(const resource::Gff &gff) {
         _equipment.clear();
     }
     for (const auto &itemGff : gff.getList("Equip_ItemList")) {
-        std::shared_ptr<Item> item = gff.has("ObjectId")
-                                         ? _game.newItem(*itemGff)
-                                         : _game.newItem();
+        std::shared_ptr<Item> item = _game.newOwnedItem();
         item->deserialize(*itemGff);
         if (gff.has("ObjectId")) {
             uint32_t slotMask = itemGff->type();
