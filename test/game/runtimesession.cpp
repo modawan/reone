@@ -472,17 +472,28 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
     game.party().setActualPlayer(player);
+    auto companion = game.newCreature();
+    companion->setPosition(glm::vec3(90.0f, 145.0f, 3.75f));
+    game.party().addMember(0, companion);
 
     sourceArea->add(player);
+    sourceArea->add(companion);
     player->setRoom(&sourceRoom);
+    companion->setRoom(&sourceRoom);
     ASSERT_EQ(&sourceRoom, player->room());
+    ASSERT_EQ(&sourceRoom, companion->room());
     ASSERT_TRUE(sourceRoom.tenants().count(player.get()));
+    ASSERT_TRUE(sourceRoom.tenants().count(companion.get()));
 
     sourceArea->unloadParty();
 
     EXPECT_EQ(nullptr, player->room());
+    EXPECT_EQ(nullptr, companion->room());
     EXPECT_FALSE(sourceRoom.tenants().count(player.get()));
+    EXPECT_FALSE(sourceRoom.tenants().count(companion.get()));
     EXPECT_EQ(player, game.party().player());
+    ASSERT_EQ(2, game.party().getSize());
+    EXPECT_EQ(companion, game.party().getMember(1));
     EXPECT_EQ(17, player->currentHitPoints());
     ASSERT_EQ(1, player->effects().size());
     EXPECT_EQ(effect, player->effects().front().effect);
@@ -498,7 +509,9 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
     EXPECT_FLOAT_EQ(0.5f, player->getFacing());
     EXPECT_EQ(&destinationRoom, player->room());
     EXPECT_TRUE(destinationRoom.tenants().count(player.get()));
+    EXPECT_EQ(&destinationRoom, companion->room());
     EXPECT_EQ(player, game.party().player());
+    EXPECT_TRUE(destinationRoom.tenants().count(companion.get()));
     EXPECT_EQ(player, game.getObjectById(player->id()));
     EXPECT_EQ(17, player->currentHitPoints());
     EXPECT_EQ(1, player->effects().size());
@@ -507,6 +520,8 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
     auto &destinationCreatures = destinationArea->getObjectsByType(ObjectType::Creature);
     EXPECT_NE(destinationCreatures.end(),
               std::find(destinationCreatures.begin(), destinationCreatures.end(), player));
+    EXPECT_NE(destinationCreatures.end(),
+              std::find(destinationCreatures.begin(), destinationCreatures.end(), companion));
 }
 
 TEST(RuntimeSession, initial_save_restore_preserves_archived_party_placement) {
