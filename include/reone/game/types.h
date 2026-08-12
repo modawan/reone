@@ -122,7 +122,10 @@ enum class CameraStyleType {
 enum class DurationType {
     Instant = 0,
     Temporary = 1,
-    Permanent = 2
+    Permanent = 2,
+    Equipped = 3,
+    Innate = 4,
+    Invalid = 0xff
 };
 
 enum class CameraType {

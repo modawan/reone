@@ -360,16 +360,44 @@ void Object::moveDropableItemsTo(Object &other) {
 }
 
 void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration) {
-    if (durationType == DurationType::Instant) {
-        applyInstantEffect(*effect);
-    } else {
-        AppliedEffect appliedEffect;
-        appliedEffect.effect = effect;
-        appliedEffect.durationType = durationType;
-        appliedEffect.duration = duration;
-        _effects.push_back(std::move(appliedEffect));
+    EffectInstance instance;
+    instance.effect = effect;
+    instance.id = _game.allocateEffectId();
+    instance.subType = static_cast<uint16_t>(durationType);
+    instance.duration = duration;
+    if (durationType == DurationType::Temporary) {
+        instance.remainingDuration = duration;
+    }
+    instance.exposed = 1;
+    restoreEffect(std::move(instance));
+}
+
+bool Object::restoreEffect(EffectInstance effect) {
+    if (!effect.shouldRestoreOnLoad()) {
+        return false;
+    }
+    if (effect.durationType() == DurationType::Instant && effect.effect) {
+        applyInstantEffect(*effect.effect);
+        return true;
+    }
+    _effects.push_back(std::move(effect));
+    if (_effects.back().effect) {
         applyInstantEffect(*_effects.back().effect);
     }
+    return true;
+}
+
+size_t Object::removeEffectsById(EffectId id) {
+    size_t removed = 0;
+    for (auto it = _effects.begin(); it != _effects.end();) {
+        if (it->id == id) {
+            it = _effects.erase(it);
+            ++removed;
+        } else {
+            ++it;
+        }
+    }
+    return removed;
 }
 
 void Object::applyInstantEffect(Effect &effect) {
@@ -378,12 +406,12 @@ void Object::applyInstantEffect(Effect &effect) {
 
 void Object::updateEffects(float dt) {
     for (auto it = _effects.begin(); it != _effects.end();) {
-        AppliedEffect &effect = *it;
-        bool temporary = effect.durationType == DurationType::Temporary;
+        EffectInstance &effect = *it;
+        bool temporary = effect.durationType() == DurationType::Temporary && effect.remainingDuration;
         if (temporary) {
-            effect.duration = glm::max(0.0f, effect.duration - dt);
+            *effect.remainingDuration = glm::max(0.0f, *effect.remainingDuration - dt);
         }
-        if (temporary && effect.duration == 0.0f) {
+        if (temporary && *effect.remainingDuration == 0.0f) {
             it = _effects.erase(it);
         } else {
             ++it;

@@ -134,14 +134,10 @@ public:
 
     void clearAllEffects();
     void applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration = 0.0f);
+    bool restoreEffect(EffectInstance effect);
+    size_t removeEffectsById(EffectId id);
 
-    struct AppliedEffect {
-        std::shared_ptr<Effect> effect;
-        DurationType durationType {DurationType::Instant};
-        float duration {0.0f};
-    };
-
-    const std::deque<AppliedEffect> &effects() const { return _effects; }
+    const std::deque<EffectInstance> &effects() const { return _effects; }
     std::shared_ptr<Effect> getFirstEffect();
     std::shared_ptr<Effect> getNextEffect();
 
@@ -252,7 +248,7 @@ protected:
     glm::mat4 _transform {1.0f};
     bool _visible {true};
     Room *_room {nullptr};
-    std::deque<AppliedEffect> _effects;
+    std::deque<EffectInstance> _effects;
     bool _open {false};
     bool _stunt {false};
     std::string _activeAnimName;

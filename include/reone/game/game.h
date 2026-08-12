@@ -359,6 +359,14 @@ public:
         return std::make_shared<T>(std::forward<Args>(args)...);
     }
 
+    EffectId allocateEffectId() { return _effectIds.allocate(); }
+    EffectIdImportResult importEffectId(EffectId id) { return _effectIds.importId(id); }
+    bool setNextEffectId(EffectId id) { return _effectIds.setNextId(id); }
+    EffectId nextEffectId() const { return _effectIds.nextId(); }
+    bool hasEffectId(EffectId id) const { return _effectIds.contains(id); }
+    size_t effectIdCount() const { return _effectIds.size(); }
+    bool bindEffectCreator(EffectInstance &effect) const;
+
     template <class... Args>
     inline std::shared_ptr<Event> newEvent(Args &&...args) {
         return std::make_shared<Event>(std::forward<Args>(args)...);
@@ -468,6 +476,7 @@ private:
     static constexpr uint32_t kFirstRuntimeObjectId = 2; // ids 0 and 1 are reserved
     uint32_t _nextObjectId {kFirstRuntimeObjectId};
     std::map<uint32_t, std::shared_ptr<Object>> _objectById;
+    EffectIdNamespace _effectIds;
     bool _runtimeSessionPlayable {false};
 
     // Services

@@ -106,6 +106,11 @@ namespace reone {
 
 namespace game {
 
+bool Game::bindEffectCreator(EffectInstance &effect) const {
+    auto it = _objectById.find(effect.creatorId);
+    return effect.bindCreator(it == _objectById.end() ? nullptr : it->second);
+}
+
 static constexpr char kDeveloperOverlayToggleHelp[] = "Ctrl+Shift+D";
 static constexpr char kDeveloperTriggerToggleHelp[] = "Ctrl+Shift+T";
 static constexpr char kDeveloperActorToggleHelp[] = "Ctrl+Shift+A";
@@ -909,6 +914,7 @@ void Game::retireRuntimeSession() {
 
     _objectById.clear();
     _nextObjectId = kFirstRuntimeObjectId;
+    _effectIds.reset();
 
     _nextModule.clear();
     _nextEntry.clear();
