@@ -154,17 +154,12 @@ std::shared_ptr<IconChain> addIconSelectionChain(
     return chain;
 }
 
-void styleIconSelectionTitles(
+void styleChargenTitles(
     Game &game,
-    Label &mainTitle,
-    Label &subTitle,
     Label &remainingLabel,
     ListBox &descriptionBox) {
 
     if (game.isTSL()) {
-        mainTitle.setConstrainBorderSlices(true);
-        subTitle.setConstrainBorderSlices(true);
-        remainingLabel.setConstrainBorderSlices(true);
         remainingLabel.setTextPaddingLeft(remainingLabel.border().dimension);
     }
 
