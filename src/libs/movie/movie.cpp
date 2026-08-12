@@ -104,7 +104,7 @@ void Movie::render() {
             glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
     });
     _graphicsSvc.context.useProgram(_graphicsSvc.shaderRegistry.get(ShaderProgramId::ndcTexture));
-    glm::ivec4 viewport(_graphicsSvc.context.viewport());
+    const glm::ivec4 &viewport = _graphicsSvc.context.viewport();
     float factor = std::min(
         viewport.z / static_cast<float>(_width),
         viewport.w / static_cast<float>(_height));

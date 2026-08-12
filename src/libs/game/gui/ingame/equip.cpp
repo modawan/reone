@@ -359,9 +359,9 @@ void Equipment::update(float dt) {
     updateCandidateDescription();
 }
 
-void Equipment::openItems(Slot slot) {
+void Equipment::openItems() {
     update();
-    selectSlot(slot);
+    selectSlot(Slot::Body);
 }
 
 void Equipment::updatePortraits() {

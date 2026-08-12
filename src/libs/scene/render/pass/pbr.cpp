@@ -325,9 +325,9 @@ void PBRRenderPass::drawAABB(const std::vector<glm::vec4> &corners) {
 void PBRRenderPass::drawImage(Texture &texture,
                               const glm::ivec2 &position,
                               const glm::ivec2 &scale,
-                              glm::vec4 color = glm::vec4(1.0f),
-                              glm::mat3x4 uv = glm::mat3x4(1.0f),
-                              ImageAlphaMode alphaMode = ImageAlphaMode::Default) {
+                              glm::vec4 color,
+                              glm::mat3x4 uv,
+                              ImageAlphaMode alphaMode) {
     _uniforms.setLocals([&position, &color, &uv, &scale](auto &locals) {
         locals.reset();
         locals.model = glm::translate(glm::vec3(position.x, position.y, 0.0f));

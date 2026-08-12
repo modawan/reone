@@ -87,6 +87,9 @@ private:
     void renderNotes(Mode mode, const glm::vec4 &bounds, float scale);
 
     glm::vec2 getMapPosition(const glm::vec2 &world) const;
+
+    /** Converts a normalized map position into logical map-canvas pixels. */
+    void normalizeMapPosition(glm::vec2 &mapPos) const;
 };
 
 } // namespace game
