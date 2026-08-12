@@ -17,6 +17,7 @@
 
 #include "reone/game/action/jumptolocation.h"
 
+#include "commonactions.h"
 #include "reone/game/object.h"
 
 namespace reone {
@@ -24,9 +25,7 @@ namespace reone {
 namespace game {
 
 void JumpToLocationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    actor.setPosition(_location->position());
-    actor.setFacing(_location->facing());
-
+    jumpToPositionFacing(actor, _location->position(), _location->facing(), _game);
     complete();
 }
 

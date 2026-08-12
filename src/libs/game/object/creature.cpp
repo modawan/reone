@@ -850,6 +850,30 @@ bool Creature::playExternalAnimation(const std::shared_ptr<Animation> &anim, Ani
     });
 }
 
+void Creature::playOverlayAnimation(AnimationType type) {
+    std::string animName(getAnimationName(type));
+    if (animName.empty()) {
+        return;
+    }
+    auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
+    if (!model) {
+        return;
+    }
+    // Deliberately not routed through doPlayAnimation: that refuses to play
+    // anything while the creature is moving, which is the one case an overlay
+    // exists to cover. _animFireForget is left alone too, so
+    // updateModelAnimation goes on driving locomotion underneath the layer,
+    // and the layer erases itself once it has finished.
+    model->playAnimation(
+        animName,
+        nullptr,
+        AnimationProperties::fromFlags(
+            AnimationFlags::overlay |
+            AnimationFlags::layer |
+            AnimationFlags::fireForget |
+            AnimationFlags::propagate));
+}
+
 void Creature::resumeStateDrivenAnimation() {
     _animFireForget = false;
     _animDirty = true;
@@ -2390,6 +2414,11 @@ std::string Creature::getAnimationName(AnimationType anim) const {
         return "greeting";
     case AnimationType::FireForgetTaunt:
         return getFirstIfCreatureModel("ctaunt", "taunt");
+    case AnimationType::FireForgetDiveRoll:
+        // Row 567 of K2 animations.2da, the one animation the shipped scripts
+        // ever ask PlayOverlayAnimation for. K1 has neither the clip nor the
+        // constant.
+        return getFirstIfCreatureModel("cdiveroll", "diveroll");
     case AnimationType::FireForgetVictory1:
         return getFirstIfCreatureModel("cvictory", "victory");
     case AnimationType::FireForgetInject:
@@ -2434,7 +2463,6 @@ std::string Creature::getAnimationName(AnimationType anim) const {
     case AnimationType::FireForgetThrowLow:
     case AnimationType::FireForgetCustom01:
     case AnimationType::FireForgetForceCast:
-    case AnimationType::FireForgetDiveRoll:
     case AnimationType::FireForgetScream:
     default:
         debug("CreatureAnimationResolver: unsupported animation type: " + std::to_string(static_cast<int>(anim)));

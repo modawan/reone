@@ -27,20 +27,32 @@
 #include "reone/scene/graphs.h"
 #include "reone/system/randomutil.h"
 
+#include "attackanimations.h"
+
 namespace reone {
 
 namespace game {
 
-static std::string getMeleeAttackAnim(CreatureWieldType attackerWield,
-                                      CreatureWieldType targetWield,
-                                      int variant, bool duel) {
+// Attack animation variants are numbered from 1 - a0 is not an authored
+// animation. Cinematic attacks consume the whole 1-5 roll, while non-cinematic
+// attacks keep to the a1/a2 subset this selector has always intended to use.
+// Some K2 families author further variants; selecting those is a separate
+// change.
+static constexpr int kNonCinematicVariants = 2;
+
+static int nonCinematicVariant(int variant) {
+    return 1 + std::max(0, variant - 1) % kNonCinematicVariants;
+}
+
+std::string getMeleeAttackAnim(CreatureWieldType attackerWield,
+                               CreatureWieldType targetWield,
+                               int variant, bool duel) {
     // Cinematic attack variants.
     if (duel && isMeleeWieldType(targetWield)) {
         return str(boost::format("c%da%d") % static_cast<int>(attackerWield) % variant);
     }
 
-    // Only 2 non-cinematic variants.
-    variant = variant % 3;
+    variant = nonCinematicVariant(variant);
 
     if (targetWield != CreatureWieldType::None) {
         return str(boost::format("m%da%d") % static_cast<int>(attackerWield) % variant);
@@ -49,7 +61,7 @@ static std::string getMeleeAttackAnim(CreatureWieldType attackerWield,
     return str(boost::format("g%da%d") % static_cast<int>(attackerWield) % variant);
 }
 
-static std::string getUnarmedAttackAnim(CreatureWieldType attackerWield, CreatureWieldType targetWield, int variant, bool duel) {
+std::string getUnarmedAttackAnim(CreatureWieldType attackerWield, CreatureWieldType targetWield, int variant, bool duel) {
     if (attackerWield == CreatureWieldType::HandToHandComplex) {
         if (duel && targetWield == attackerWield) {
             return str(boost::format("c%da%d") % static_cast<int>(attackerWield) % variant);
@@ -57,12 +69,12 @@ static std::string getUnarmedAttackAnim(CreatureWieldType attackerWield, Creatur
     }
 
     // Fallback to a basic unarmed animation.
-    variant = variant % 3;
+    variant = nonCinematicVariant(variant);
     return str(boost::format("g8a%d") % variant);
 }
 
-static std::string getStunBatonAttackAnim(int variant) {
-    variant = variant % 3;
+std::string getStunBatonAttackAnim(int variant) {
+    variant = nonCinematicVariant(variant);
     return str(boost::format("g1a%d") % variant);
 }
 
