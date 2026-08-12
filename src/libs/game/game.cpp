@@ -814,6 +814,7 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
             if (_module) {
                 _module->area()->runOnExitScript();
                 _module->area()->unloadParty();
+                retireActiveModuleRuntime();
             }
 
             // Do not carry a displayed or pending batch, indicator, or GUI
@@ -833,33 +834,27 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
 
             _services.scene.graphs.get(kSceneMain).clear();
 
-            auto maybeModule = _loadedModules.find(name);
-            if (maybeModule != _loadedModules.end()) {
-                _module = maybeModule->second;
-                _module->activate();
-            } else {
-
-                std::shared_ptr<Gff> ifo(_services.resource.gffs.get("module", ResType::Ifo));
-                if (!ifo) {
-                    throw ResourceNotFoundException("Module IFO not found");
-                }
-
-                _module = fromSave ? newSavedModule() : newModule();
-                _module->load(name, *ifo, fromSave);
-                _loadedModules.insert(std::make_pair(name, _module));
+            std::shared_ptr<Gff> ifo(_services.resource.gffs.get("module", ResType::Ifo));
+            if (!ifo) {
+                throw ResourceNotFoundException("Module IFO not found");
             }
+            bool restoringSavedState = fromSave || ifo->getBool("Mod_IsSaveGame");
+
+            _module = restoringSavedState ? newSavedModule() : newModule();
+            _module->load(name, *ifo, restoringSavedState);
+            _loadedModules.insert(std::make_pair(name, _module));
 
             if (_party.isEmpty()) {
                 loadDefaultParty();
             }
 
-            if (!fromSave) {
+            if (!restoringSavedState) {
                 _module->runOnLoadScript();
             }
 
-            _module->loadParty(entry, fromSave);
+            _module->loadParty(entry, restoringSavedState);
 
-            if (fromSave) {
+            if (restoringSavedState) {
                 bindSavedRuntimeState();
                 publishSavedRuntimeState();
             }
@@ -880,9 +875,57 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
             error("Failed loading module '" + name + "': " + std::string(e.what()));
             if (fromSave) {
                 retireRuntimeSession();
+            } else {
+                retireActiveModuleRuntime();
+                _screen = Screen::None;
             }
         }
     });
+}
+
+void Game::retireActiveModuleRuntime() {
+    _runtimeSessionPlayable = false;
+
+    std::set<uint32_t> sessionObjectIds;
+    std::function<void(const std::shared_ptr<Object> &)> preserve;
+    preserve = [&](const std::shared_ptr<Object> &object) {
+        if (!object || !sessionObjectIds.insert(object->id()).second) {
+            return;
+        }
+        for (const auto &item : object->items()) {
+            preserve(item);
+        }
+        if (object->type() != ObjectType::Creature) {
+            return;
+        }
+        auto creature = std::static_pointer_cast<Creature>(object);
+        for (const auto &[_, item] : creature->equipment()) {
+            preserve(item);
+        }
+    };
+
+    preserve(_party.player());
+    preserve(_party.actualPlayer());
+    for (const auto &member : _party.members()) {
+        preserve(member.creature);
+    }
+    for (size_t npc = 0; npc < Party::kMaxNpcCount; ++npc) {
+        preserve(_party.getAvailableMember(static_cast<int>(npc)));
+    }
+    for (size_t puppet = 0; puppet < Party::kMaxPuppetCount; ++puppet) {
+        preserve(_party.getAvailablePuppet(static_cast<int>(puppet)));
+    }
+
+    _combat.reset();
+    _module.reset();
+    _loadedModules.clear();
+    for (auto it = _objectById.begin(); it != _objectById.end();) {
+        if (sessionObjectIds.count(it->first) != 0) {
+            ++it;
+        } else {
+            it = _objectById.erase(it);
+        }
+    }
 }
 
 void Game::retireRuntimeSession() {

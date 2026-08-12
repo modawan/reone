@@ -230,3 +230,40 @@ TEST(GffReader, should_read_gff) {
     EXPECT_EQ(2, gff->getList("List")[0]->getUint("Struct2Word"));
     EXPECT_EQ(3, gff->getList("List")[1]->getInt("Struct3Short"));
 }
+
+TEST(GffReader, should_treat_retail_invalid_offset_as_empty_list) {
+    auto input = StringBuilder()
+                     // header
+                     .append("RES V3.2")
+                     .append("\x38\x00\x00\x00", 4) // offset to structs
+                     .append("\x01\x00\x00\x00", 4) // number of structs
+                     .append("\x44\x00\x00\x00", 4) // offset to fields
+                     .append("\x01\x00\x00\x00", 4) // number of fields
+                     .append("\x50\x00\x00\x00", 4) // offset to labels
+                     .append("\x01\x00\x00\x00", 4) // number of labels
+                     .append("\x60\x00\x00\x00", 4) // offset to field data
+                     .append("\x00\x00\x00\x00", 4) // size of field data
+                     .append("\x60\x00\x00\x00", 4) // offset to field indices
+                     .append("\x00\x00\x00\x00", 4) // size of field indices
+                     .append("\x60\x00\x00\x00", 4) // offset to list indices
+                     .append("\x00\x00\x00\x00", 4) // size of list indices
+                     // root struct: one direct field
+                     .append("\xff\xff\xff\xff", 4)
+                     .append("\x00\x00\x00\x00", 4)
+                     .append("\x01\x00\x00\x00", 4)
+                     // list field with retail's empty-list sentinel
+                     .append("\x0f\x00\x00\x00", 4)
+                     .append("\x00\x00\x00\x00", 4)
+                     .append("\xff\xff\xff\xff", 4)
+                     // label
+                     .append("EmptyList\x00\x00\x00\x00\x00\x00\x00", 16)
+                     .string();
+
+    auto stream = MemoryInputStream(input);
+    auto reader = GffReader(stream);
+
+    EXPECT_NO_THROW(reader.load());
+    ASSERT_TRUE(reader.root());
+    ASSERT_EQ(1, reader.root()->fields().size());
+    EXPECT_TRUE(reader.root()->getList("EmptyList").empty());
+}

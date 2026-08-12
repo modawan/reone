@@ -169,6 +169,7 @@ public:
     static size_t objectRegistrySize(const Game &game);
     static size_t loadedModuleCount(const Game &game);
     static uint32_t nextObjectId(const Game &game);
+    static uint64_t runtimeSessionGeneration(const Game &game);
     static void bindConversation(Game &game, Conversation &conversation);
     static bool hasConversation(const Game &game);
     static void bindHUDSelection(Game &game, std::shared_ptr<Object> object);

@@ -267,6 +267,11 @@ public:
     // Clear state of the current game before loading a new game.
     void resetGame();
 
+    // Retire only active-module runtime objects. Party/session objects and
+    // committed save-wide state survive so an ordinary transition can build
+    // and publish its destination without becoming a full-session load.
+    void retireActiveModuleRuntime();
+
     // Retire instantiated gameplay state without changing committed resource or
     // save-wide logical state. Runtime reconstruction must explicitly publish a
     // new playable session afterwards.

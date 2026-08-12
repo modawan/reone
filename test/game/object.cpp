@@ -2345,3 +2345,73 @@ TEST(SavedRuntimeState, restores_saved_creature_death_from_current_hit_points) {
     EXPECT_EQ(0, creature->currentHitPoints());
     EXPECT_TRUE(creature->isDead());
 }
+
+TEST(SavedRuntimeState, keeps_min_one_hp_creature_alive_when_saved_at_zero) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(engine.services().game.portraits), getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto saved = Gff::Builder()
+                     .field(Gff::Field::newDword("ObjectId", 83))
+                     .field(Gff::Field::newShort("CurrentHitPoints", 0))
+                     .field(Gff::Field::newByte("Min1HP", 1))
+                     .field(Gff::Field::newDword("Appearance_Type", 0))
+                     .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+                     .field(Gff::Field::newByte("BodyBag", 0xff))
+                     .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                     .build();
+    auto creature = game.newCreature(*saved);
+    creature->deserialize(*saved);
+
+    EXPECT_EQ(1, creature->currentHitPoints());
+    EXPECT_FALSE(creature->isDead());
+}
+
+TEST(SavedRuntimeState, detached_creatures_keep_nested_item_ids_owner_scoped) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .WillRepeatedly(Return(makeBaseItemsTable()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(engine.services().game.portraits), getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto savedItem = Gff::Builder()
+                         .type(1u << InventorySlots::body)
+                         .field(Gff::Field::newDword("ObjectId", 218))
+                         .field(Gff::Field::newInt("BaseItem", 2))
+                         .field(Gff::Field::newList("PropertiesList", {}))
+                         .build();
+    auto detachedCreature = Gff::Builder()
+                                .field(Gff::Field::newDword("Appearance_Type", 0))
+                                .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+                                .field(Gff::Field::newByte("BodyBag", 0xff))
+                                .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                                .field(Gff::Field::newList("Equip_ItemList", {savedItem}))
+                                .build();
+
+    auto first = game.newCreature();
+    first->deserialize(*detachedCreature);
+    auto second = game.newCreature();
+    EXPECT_NO_THROW(second->deserialize(*detachedCreature));
+
+    auto firstItem = first->getEquippedItem(InventorySlots::body);
+    auto secondItem = second->getEquippedItem(InventorySlots::body);
+    ASSERT_TRUE(firstItem);
+    ASSERT_TRUE(secondItem);
+    EXPECT_NE(218u, firstItem->id());
+    EXPECT_NE(218u, secondItem->id());
+    EXPECT_NE(firstItem->id(), secondItem->id());
+    EXPECT_FALSE(game.getObjectById(218));
+}

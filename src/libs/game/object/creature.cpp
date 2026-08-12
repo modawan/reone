@@ -1514,6 +1514,9 @@ void Creature::deserialize(const resource::Gff &gff) {
 void Creature::deserializeAll(const resource::Gff &gff) {
     Object::deserialize(gff);
     if (gff.has("ObjectId") && gff.has("CurrentHitPoints")) {
+        if (_minOneHP && _currentHitPoints < 1) {
+            _currentHitPoints = 1;
+        }
         _dead = _currentHitPoints <= 0;
     }
 
@@ -1719,7 +1722,9 @@ void Creature::deserializeEquipItems(const resource::Gff &gff) {
         _equipment.clear();
     }
     for (const auto &itemGff : gff.getList("Equip_ItemList")) {
-        std::shared_ptr<Item> item = _game.newItem(*itemGff);
+        std::shared_ptr<Item> item = gff.has("ObjectId")
+                                         ? _game.newItem(*itemGff)
+                                         : _game.newItem();
         item->deserialize(*itemGff);
         if (gff.has("ObjectId")) {
             uint32_t slotMask = itemGff->type();

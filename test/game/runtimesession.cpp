@@ -88,6 +88,10 @@ uint32_t reone::game::TestGameModule::nextObjectId(const Game &game) {
     return game._nextObjectId;
 }
 
+uint64_t reone::game::TestGameModule::runtimeSessionGeneration(const Game &game) {
+    return game._runtimeSessionGeneration;
+}
+
 void reone::game::TestGameModule::bindConversation(Game &game, Conversation &conversation) {
     game._conversation = &conversation;
 }
@@ -337,4 +341,79 @@ TEST(RuntimeSession, full_game_reset_still_clears_logical_state) {
     EXPECT_TRUE(game.party().persistedState().pcName.empty());
     EXPECT_EQ(0, game.journal().getEntryState("old_plot"));
     EXPECT_EQ(0, TestGameModule::objectRegistrySize(game));
+}
+
+TEST(RuntimeSession, saved_session_can_publish_repeated_ordinary_module_transitions_without_accumulation) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    TestGameModule::setActiveModule(game, true);
+    TestGameModule::cacheActiveModule(game, "module_a");
+    auto oldModule = game.module();
+    auto oldArea = game.newArea();
+    auto oldWorldObject = game.newCreature();
+
+    auto player = game.newCreature();
+    auto inventoryItem = game.newItem();
+    player->addItem(inventoryItem);
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().setActualPlayer(player);
+
+    auto available = game.newCreature();
+    game.party().addAvailableMember(0, available);
+    game.setGlobalNumber("SESSION", 9);
+    game.openInGame();
+
+    auto sessionGeneration = TestGameModule::runtimeSessionGeneration(game);
+    auto oldModuleId = oldModule->id();
+    auto oldAreaId = oldArea->id();
+    auto oldWorldObjectId = oldWorldObject->id();
+    ASSERT_EQ(6, TestGameModule::objectRegistrySize(game));
+    ASSERT_EQ(1, TestGameModule::loadedModuleCount(game));
+
+    game.retireActiveModuleRuntime();
+
+    EXPECT_FALSE(game.hasPlayableRuntimeSession());
+    EXPECT_FALSE(game.module());
+    EXPECT_EQ(0, TestGameModule::loadedModuleCount(game));
+    EXPECT_EQ(3, TestGameModule::objectRegistrySize(game));
+    EXPECT_FALSE(game.getObjectById(oldModuleId));
+    EXPECT_FALSE(game.getObjectById(oldAreaId));
+    EXPECT_FALSE(game.getObjectById(oldWorldObjectId));
+    EXPECT_EQ(player, game.getObjectById(player->id()));
+    EXPECT_EQ(inventoryItem, game.getObjectById(inventoryItem->id()));
+    EXPECT_EQ(available, game.getObjectById(available->id()));
+    EXPECT_EQ(9, game.getGlobalNumber("SESSION"));
+    EXPECT_EQ(sessionGeneration, TestGameModule::runtimeSessionGeneration(game));
+
+    TestGameModule::setActiveModule(game, true);
+    TestGameModule::cacheActiveModule(game, "module_b");
+    auto targetModule = game.module();
+    auto targetArea = game.newArea();
+    auto targetWorldObject = game.newCreature();
+    ASSERT_EQ(6, TestGameModule::objectRegistrySize(game));
+    game.openInGame();
+
+    EXPECT_TRUE(game.hasPlayableRuntimeSession());
+    EXPECT_EQ(targetModule, game.module());
+    EXPECT_EQ(targetModule, game.getObjectById(targetModule->id()));
+    EXPECT_EQ(targetArea, game.getObjectById(targetArea->id()));
+    EXPECT_EQ(targetWorldObject, game.getObjectById(targetWorldObject->id()));
+    EXPECT_EQ(sessionGeneration, TestGameModule::runtimeSessionGeneration(game));
+
+    game.retireActiveModuleRuntime();
+
+    EXPECT_FALSE(game.hasPlayableRuntimeSession());
+    EXPECT_EQ(3, TestGameModule::objectRegistrySize(game));
+    EXPECT_EQ(0, TestGameModule::loadedModuleCount(game));
+    EXPECT_EQ(player, game.getObjectById(player->id()));
+    EXPECT_EQ(inventoryItem, game.getObjectById(inventoryItem->id()));
+    EXPECT_EQ(available, game.getObjectById(available->id()));
+    EXPECT_FALSE(game.getObjectById(targetModule->id()));
+    EXPECT_FALSE(game.getObjectById(targetArea->id()));
+    EXPECT_FALSE(game.getObjectById(targetWorldObject->id()));
+    EXPECT_EQ(sessionGeneration, TestGameModule::runtimeSessionGeneration(game));
 }
