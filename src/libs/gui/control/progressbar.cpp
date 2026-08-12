@@ -42,6 +42,7 @@ void ProgressBar::load(const resource::generated::GUI_BASECONTROL &gui, bool pro
     auto &controlStruct = *static_cast<const resource::generated::GUI_CONTROLS *>(&gui);
     if (controlStruct.PROGRESS) {
         _progress.fill = _resourceSvc.textures.get(controlStruct.PROGRESS->FILL, TextureUsage::GUI);
+        _progress.color = controlStruct.PROGRESS->COLOR;
     }
 }
 
@@ -55,7 +56,8 @@ void ProgressBar::render(const glm::ivec2 &screenSize,
     pass.drawImage(
         *_progress.fill,
         {_extent.left + offset.x, _extent.top + offset.y},
-        {w, _extent.height});
+        {w, _extent.height},
+        glm::vec4(_progress.color, 1.0f));
 }
 
 void ProgressBar::setValue(int value) {

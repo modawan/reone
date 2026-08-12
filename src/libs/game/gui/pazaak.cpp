@@ -255,6 +255,7 @@ PazaakWagerGUI::PazaakWagerGUI(Game &game, ServicesView &services) :
 }
 
 void PazaakWagerGUI::onGUILoaded() {
+    loadBackground(BackgroundType::Menu);
     auto button = [this](const std::string &tag) {
         auto control = findControl<Button>(tag);
         if (!control) {
@@ -329,6 +330,7 @@ bool PazaakSetupGUI::handle(const input::Event &event) {
 }
 
 void PazaakSetupGUI::onGUILoaded() {
+    loadBackground(BackgroundType::Menu);
     auto button = [this](const std::string &tag) {
         auto control = findControl<Button>(tag);
         if (!control) {
@@ -513,6 +515,7 @@ bool PazaakBoardGUI::handle(const input::Event &event) {
 }
 
 void PazaakBoardGUI::onGUILoaded() {
+    loadBackground(BackgroundType::Menu);
     auto button = [this](const std::string &tag) {
         auto control = findControl<Button>(tag);
         if (!control) {
