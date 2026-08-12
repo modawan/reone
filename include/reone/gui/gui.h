@@ -98,6 +98,9 @@ public:
     virtual float listScale() const { return 1.0f; }
     virtual bool tintBorderFills() const = 0;
 
+    /** Whether scene-backed controls may render their 3D content. */
+    virtual bool sceneRenderEnabled() const { return true; }
+
     virtual void setEventListener(IGUIEventListener &listener) = 0;
     virtual void setResolution(int x, int y) = 0;
     virtual void setScaling(ScalingMode scaling) = 0;
@@ -205,6 +208,10 @@ public:
 
     bool tintBorderFills() const override {
         return _tintBorderFills;
+    }
+
+    bool sceneRenderEnabled() const override {
+        return _options.sceneRender;
     }
 
     void setControlScaling(const std::string &tag, ScalingMode scaling) override {
