@@ -18,6 +18,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <set>
+
 #include "../fixtures/engine.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/action/usetalentonobject.h"
@@ -25,6 +27,11 @@
 #include "reone/game/script/routines.h"
 #include "reone/resource/types.h"
 #include "reone/script/executioncontext.h"
+
+// Attack animation selection stays internal to the action implementation. The
+// variant is rolled inside the action, so calling these helpers is the only way
+// to exercise a specific roll.
+#include "../../src/libs/game/action/attackanimations.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -224,4 +231,120 @@ TEST(Action, get_is_conversation_active_reports_the_shared_predicate) {
 
     setScreen(game, Game::Screen::Conversation);
     EXPECT_EQ(1, routine.invoke({}, ctx).intValue);
+}
+
+namespace {
+
+// Authored attack animations this selector may choose from. Variant 0 is not
+// authored in any family, in either game. K2 authors further non-cinematic
+// variants for some families, which this selector deliberately leaves unused.
+const std::set<std::string> kAuthoredAttackAnims {
+    "g1a1", "g1a2",                               // stun baton
+    "g2a1", "g2a2", "m2a1", "m2a2",               // single sword
+    "g3a1", "g3a2", "m3a1", "m3a2",               // double bladed sword
+    "g4a1", "g4a2", "m4a1", "m4a2",               // dual swords
+    "g8a1", "g8a2",                               // unarmed
+    "c2a1", "c2a2", "c2a3", "c2a4", "c2a5",       // single sword duel
+    "c3a1", "c3a2", "c3a3", "c3a4", "c3a5",       // double bladed duel
+    "c4a1", "c4a2", "c4a3", "c4a4", "c4a5",       // dual swords duel
+    "c10a1", "c10a2", "c10a3", "c10a4", "c10a5"}; // complex unarmed duel
+
+constexpr int kFirstVariantRoll = 1;
+constexpr int kLastVariantRoll = 5;
+
+} // namespace
+
+TEST(AttackAnimation, non_cinematic_melee_attacks_never_request_variant_zero) {
+    const CreatureWieldType wields[] {
+        CreatureWieldType::SingleSword,
+        CreatureWieldType::DoubleBladedSword,
+        CreatureWieldType::DualSwords};
+
+    for (auto wield : wields) {
+        for (int roll = kFirstVariantRoll; roll <= kLastVariantRoll; ++roll) {
+            // A door or a placeable has no wield of its own.
+            std::string generic = getMeleeAttackAnim(wield, CreatureWieldType::None, roll, /*duel=*/false);
+            // A creature attacked outside a duel.
+            std::string monster = getMeleeAttackAnim(wield, CreatureWieldType::SingleSword, roll, /*duel=*/false);
+            std::string stunBaton = getStunBatonAttackAnim(roll);
+            std::string unarmed = getUnarmedAttackAnim(
+                CreatureWieldType::HandToHand, CreatureWieldType::None, roll, /*duel=*/false);
+
+            for (const std::string &anim : {generic, monster, stunBaton, unarmed}) {
+                EXPECT_THAT(anim, Not(EndsWith("a0"))) << "roll " << roll;
+                EXPECT_EQ(1u, kAuthoredAttackAnims.count(anim)) << anim << " is not an authored animation";
+            }
+        }
+    }
+}
+
+TEST(AttackAnimation, a_roll_of_three_selects_an_authored_variant) {
+    // A roll of 3 used to reduce to variant 0, which exists in no animation
+    // family, so the attacker played nothing at all.
+    EXPECT_EQ("g1a1", getStunBatonAttackAnim(3));
+    EXPECT_EQ("g2a1", getMeleeAttackAnim(CreatureWieldType::SingleSword, CreatureWieldType::None, 3, /*duel=*/false));
+    EXPECT_EQ("m2a1", getMeleeAttackAnim(CreatureWieldType::SingleSword, CreatureWieldType::SingleSword, 3, /*duel=*/false));
+    EXPECT_EQ("g8a1", getUnarmedAttackAnim(CreatureWieldType::HandToHand, CreatureWieldType::None, 3, /*duel=*/false));
+}
+
+TEST(AttackAnimation, stun_baton_attacks_select_authored_variants) {
+    // Every roll has to land on an animation the models author.
+    std::set<std::string> selected;
+    for (int roll = kFirstVariantRoll; roll <= kLastVariantRoll; ++roll) {
+        selected.insert(getStunBatonAttackAnim(roll));
+    }
+
+    EXPECT_EQ((std::set<std::string> {"g1a1", "g1a2"}), selected);
+}
+
+TEST(AttackAnimation, generic_single_sword_attacks_select_authored_variants) {
+    std::set<std::string> selected;
+    for (int roll = kFirstVariantRoll; roll <= kLastVariantRoll; ++roll) {
+        selected.insert(getMeleeAttackAnim(
+            CreatureWieldType::SingleSword, CreatureWieldType::None, roll, /*duel=*/false));
+    }
+
+    EXPECT_EQ((std::set<std::string> {"g2a1", "g2a2"}), selected);
+}
+
+TEST(AttackAnimation, non_duel_creature_attacks_select_authored_monster_variants) {
+    std::set<std::string> selected;
+    for (int roll = kFirstVariantRoll; roll <= kLastVariantRoll; ++roll) {
+        selected.insert(getMeleeAttackAnim(
+            CreatureWieldType::SingleSword, CreatureWieldType::SingleSword, roll, /*duel=*/false));
+    }
+
+    EXPECT_EQ((std::set<std::string> {"m2a1", "m2a2"}), selected);
+}
+
+TEST(AttackAnimation, unarmed_attacks_select_authored_variants) {
+    std::set<std::string> selected;
+    for (int roll = kFirstVariantRoll; roll <= kLastVariantRoll; ++roll) {
+        selected.insert(getUnarmedAttackAnim(
+            CreatureWieldType::HandToHand, CreatureWieldType::None, roll, /*duel=*/false));
+        // A complex unarmed attacker outside a duel falls back to the same set.
+        selected.insert(getUnarmedAttackAnim(
+            CreatureWieldType::HandToHandComplex, CreatureWieldType::SingleSword, roll, /*duel=*/false));
+    }
+
+    EXPECT_EQ((std::set<std::string> {"g8a1", "g8a2"}), selected);
+}
+
+TEST(AttackAnimation, duels_still_select_all_five_cinematic_variants) {
+    std::set<std::string> selected;
+    for (int roll = kFirstVariantRoll; roll <= kLastVariantRoll; ++roll) {
+        selected.insert(getMeleeAttackAnim(
+            CreatureWieldType::SingleSword, CreatureWieldType::DualSwords, roll, /*duel=*/true));
+    }
+
+    EXPECT_EQ((std::set<std::string> {"c2a1", "c2a2", "c2a3", "c2a4", "c2a5"}), selected);
+
+    // Complex unarmed duels keep their own cinematic variants.
+    std::set<std::string> unarmed;
+    for (int roll = kFirstVariantRoll; roll <= kLastVariantRoll; ++roll) {
+        unarmed.insert(getUnarmedAttackAnim(
+            CreatureWieldType::HandToHandComplex, CreatureWieldType::HandToHandComplex, roll, /*duel=*/true));
+    }
+
+    EXPECT_EQ((std::set<std::string> {"c10a1", "c10a2", "c10a3", "c10a4", "c10a5"}), unarmed);
 }
