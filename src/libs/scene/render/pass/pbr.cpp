@@ -326,7 +326,8 @@ void PBRRenderPass::drawImage(Texture &texture,
                               const glm::ivec2 &position,
                               const glm::ivec2 &scale,
                               glm::vec4 color = glm::vec4(1.0f),
-                              glm::mat3x4 uv = glm::mat3x4(1.0f)) {
+                              glm::mat3x4 uv = glm::mat3x4(1.0f),
+                              ImageAlphaMode alphaMode = ImageAlphaMode::Default) {
     _uniforms.setLocals([&position, &color, &uv, &scale](auto &locals) {
         locals.reset();
         locals.model = glm::translate(glm::vec3(position.x, position.y, 0.0f));
@@ -334,7 +335,10 @@ void PBRRenderPass::drawImage(Texture &texture,
         locals.uv = std::move(uv);
         locals.color = std::move(color);
     });
-    _context.useProgram(_shaderRegistry.get(ShaderProgramId::mvpTexture));
+    const char *programId = alphaMode == ImageAlphaMode::Sharpen
+                                ? ShaderProgramId::mvpIcon
+                                : ShaderProgramId::mvpTexture;
+    _context.useProgram(_shaderRegistry.get(programId));
     _context.bindTexture(texture, TextureUnits::mainTex);
     _meshRegistry.get(MeshName::quad).draw(_statistic);
 }

@@ -186,6 +186,7 @@ public:
         _children.insert(_children.begin(), child);
     }
 
+    void setSharpenBorderFillAlpha(bool sharpen) { _sharpenBorderFillAlpha = sharpen; }
     void addChildToBack(Control &child) {
         _children.push_back(child);
     }
@@ -250,6 +251,7 @@ protected:
     // Event listeners
 
     std::function<void()> _onClick;
+    bool _sharpenBorderFillAlpha {false};
     std::function<void(bool)> _onSelectedChanged;
     std::function<void(int, int)> _onMouseWheel;
 

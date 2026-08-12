@@ -78,7 +78,7 @@ void renderContextActionIcon(const ContextAction &action, glm::mat4 transform, S
         locals.reset();
         locals.model = transform;
     });
-    services.graphics.context.useProgram(services.graphics.shaderRegistry.get(graphics::ShaderProgramId::mvpTexture));
+    services.graphics.context.useProgram(services.graphics.shaderRegistry.get(graphics::ShaderProgramId::mvpIcon));
     services.graphics.meshRegistry.get(graphics::MeshName::quad).draw(services.graphics.statistic);
 }
 
