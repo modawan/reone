@@ -88,6 +88,8 @@ class Font;
 
 namespace game {
 
+struct SavedObjectReference;
+
 class Game : boost::noncopyable {
 public:
     enum class Screen {
@@ -366,6 +368,7 @@ public:
     bool hasEffectId(EffectId id) const { return _effectIds.contains(id); }
     size_t effectIdCount() const { return _effectIds.size(); }
     bool bindEffectCreator(EffectInstance &effect) const;
+    bool bindSavedObjectReference(SavedObjectReference &reference) const;
 
     template <class... Args>
     inline std::shared_ptr<Event> newEvent(Args &&...args) {
@@ -478,6 +481,7 @@ private:
     std::map<uint32_t, std::shared_ptr<Object>> _objectById;
     EffectIdNamespace _effectIds;
     bool _runtimeSessionPlayable {false};
+    uint64_t _runtimeSessionGeneration {1};
 
     // Services
 

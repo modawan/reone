@@ -16,6 +16,7 @@
  */
 
 #include "reone/game/game.h"
+#include "reone/game/savedruntime.h"
 
 #include <cctype>
 #include <exception>
@@ -109,6 +110,28 @@ namespace game {
 bool Game::bindEffectCreator(EffectInstance &effect) const {
     auto it = _objectById.find(effect.creatorId);
     return effect.bindCreator(it == _objectById.end() ? nullptr : it->second);
+}
+
+bool Game::bindSavedObjectReference(SavedObjectReference &reference) const {
+    if (reference._runtimeSession && *reference._runtimeSession != _runtimeSessionGeneration) {
+        reference._object.reset();
+        return false;
+    }
+    if (reference.isInvalid()) {
+        reference._object.reset();
+        return false;
+    }
+    if (!reference._runtimeSession) {
+        reference._runtimeSession = _runtimeSessionGeneration;
+    }
+
+    auto it = _objectById.find(reference.id);
+    if (it == _objectById.end()) {
+        reference._object.reset();
+        return false;
+    }
+    reference._object = it->second;
+    return true;
 }
 
 static constexpr char kDeveloperOverlayToggleHelp[] = "Ctrl+Shift+D";
@@ -857,6 +880,7 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
 }
 
 void Game::retireRuntimeSession() {
+    ++_runtimeSessionGeneration;
     _runtimeSessionPlayable = false;
     _screen = Screen::None;
 
