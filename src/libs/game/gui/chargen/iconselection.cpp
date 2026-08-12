@@ -147,7 +147,13 @@ std::shared_ptr<IconChain> addIconSelectionChain(
     cellStyle.drawItemBorderFill = true;
     cellStyle.drawItemBorderBeforeIcon = game.isTSL();
     chain->setCellStyle(std::move(cellStyle));
-    chain->setScrollBar(sourceList.scrollBarOrNull());
+    auto scrollBar = sourceList.scrollBarOrNull();
+    if (scrollBar) {
+        // The list scales its scroll bar with the row-density factor; the grid
+        // panel is laid out at plain GUI scale, so restretch it to match.
+        scrollBar->stretch(layoutScale, layoutScale);
+    }
+    chain->setScrollBar(std::move(scrollBar));
     chain->setOnItemFocus(std::move(callbacks.onItemFocus));
     chain->setOnItemFocusCleared(std::move(callbacks.onItemFocusCleared));
     chain->setOnItemDoubleClick(std::move(callbacks.onItemDoubleClick));
