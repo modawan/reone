@@ -861,6 +861,14 @@ glm::vec3 Area::findPartyPosition(const Creature &member, const glm::vec3 &posit
 void Area::loadPartyMember(const std::shared_ptr<Creature> &member, int index, bool preserveSavedPlacement) {
     bool loaded = std::find(_objects.begin(), _objects.end(), member) != _objects.end();
 
+    // A live party member can cross this boundary while a dialogue still owns
+    // its model as a stunt participant. Destination placement is a new
+    // presentation lifetime: release the old assignment before applying the
+    // entry transform so an authored destination stunt can acquire the same PC.
+    if (!preserveSavedPlacement) {
+        member->stopStuntMode();
+    }
+
     if (!preserveSavedPlacement && index > 0) {
         auto leader = _game.party().getLeader();
         glm::vec3 position(leader->position());

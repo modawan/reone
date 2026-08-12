@@ -480,6 +480,8 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
     sourceArea->add(companion);
     player->setRoom(&sourceRoom);
     companion->setRoom(&sourceRoom);
+    player->startStuntMode();
+    ASSERT_TRUE(player->isStuntMode());
     ASSERT_EQ(&sourceRoom, player->room());
     ASSERT_EQ(&sourceRoom, companion->room());
     ASSERT_TRUE(sourceRoom.tenants().count(player.get()));
@@ -489,6 +491,7 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
 
     EXPECT_EQ(nullptr, player->room());
     EXPECT_EQ(nullptr, companion->room());
+    EXPECT_TRUE(player->isStuntMode());
     EXPECT_FALSE(sourceRoom.tenants().count(player.get()));
     EXPECT_FALSE(sourceRoom.tenants().count(companion.get()));
     EXPECT_EQ(player, game.party().player());
@@ -505,6 +508,7 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
     glm::vec3 entry(9.085618f, -42.946671f, 0.0f);
     destinationArea->loadParty(entry, 0.5f, false);
 
+    EXPECT_FALSE(player->isStuntMode());
     EXPECT_EQ(entry, player->position());
     EXPECT_FLOAT_EQ(0.5f, player->getFacing());
     EXPECT_EQ(&destinationRoom, player->room());
