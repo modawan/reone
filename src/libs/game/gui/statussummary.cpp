@@ -63,6 +63,8 @@ StatusSummary::StatusSummary(
 }
 
 void StatusSummary::onGUILoaded() {
+    centerRootInCanvas(_game.isTSL() ? 800 : 640, _game.isTSL() ? 600 : 480);
+
     _ok = findControl<Button>("BTN_OK");
     for (size_t i = 0; i < _rows.size(); ++i) {
         auto &row = _rows[i];
