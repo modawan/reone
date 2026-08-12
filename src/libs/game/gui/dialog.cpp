@@ -169,8 +169,17 @@ void DialogGUI::configureMessage() {
 
 void DialogGUI::configureReplies() {
     int band = bandHeight();
+    // Reply prose is authored for a 4:3 dialogue safe area. Keep that area
+    // centred on wider displays, but preserve the original left alignment
+    // inside it so choices scan as a conventional vertical list.
+    // The list's root remains full-width so its authored child coordinates
+    // do not receive the safe-area offset twice. The row prototype below is
+    // positioned in the 4:3 rectangle itself.
     _controls.LB_REPLIES->setExtent({0, _game.options().graphics.height - band, _game.options().graphics.width, band});
     _controls.LB_REPLIES->setProtoMatchContent(true);
+    _controls.LB_REPLIES->protoItem().setTextFont(_controls.LBL_MESSAGE->text().font);
+    _controls.LB_REPLIES->protoItem().setScale(_controls.LBL_MESSAGE->scale());
+    _controls.LB_REPLIES->protoItem().setTextAlignment(Control::TextAlign::LeftCenter);
     _controls.LB_REPLIES->protoItem().setHilightColor(_hilightColor);
     _controls.LB_REPLIES->protoItem().setTextColor(_baseColor);
 }
@@ -589,6 +598,20 @@ void DialogGUI::setReplyLines(std::vector<std::string> lines) {
         item.text = lines[i];
         _controls.LB_REPLIES->addItem(std::move(item));
     }
+    // The bottom black band belongs to the replies as a group. The authored
+    // list is top-anchored, so move its row prototype to centre the group.
+    auto firstRow = _controls.LB_REPLIES->visibleItemExtent(0);
+    auto lastRow = _controls.LB_REPLIES->visibleItemExtent(static_cast<int>(lines.size()) - 1);
+    int listHeight = lastRow.top + lastRow.height - firstRow.top;
+    int bandTop = _controls.LB_REPLIES->extent().top;
+    int bandHeight = _controls.LB_REPLIES->extent().height;
+    auto extent = _controls.LB_REPLIES->protoItem().extent();
+    int safeWidth = std::min(_game.options().graphics.width, _game.options().graphics.height * 4 / 3);
+    int safeLeft = (_game.options().graphics.width - safeWidth) / 2;
+    extent.left = safeLeft;
+    extent.width = safeWidth;
+    extent.top = bandTop + (bandHeight - listHeight) / 2;
+    _controls.LB_REPLIES->protoItem().setExtent(std::move(extent));
 }
 
 void DialogGUI::update(float dt) {
