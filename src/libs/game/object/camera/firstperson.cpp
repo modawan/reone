@@ -15,8 +15,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/game/game.h"
-
 #include "reone/game/object/camera/firstperson.h"
 
 #include "reone/game/di/services.h"
@@ -41,10 +39,8 @@ void FirstPersonCamera::load() {
     rebuildProjection();
 }
 
-void FirstPersonCamera::updateProjection() {
-    auto &opts = _game.options().graphics;
-    float aspect = opts.width / static_cast<float>(opts.height);
-    cameraSceneNode()->setPerspectiveProjection(_fovy, aspect, kDefaultClipPlaneNear, kDefaultClipPlaneFar);
+float FirstPersonCamera::projectionFovy() const {
+    return _fovy;
 }
 
 bool FirstPersonCamera::handle(const input::Event &event) {

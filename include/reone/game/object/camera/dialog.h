@@ -63,7 +63,7 @@ private:
     Variant _variant {Variant::Both};
 
     void updateSceneNode();
-    void updateProjection() override;
+    float projectionFovy() const override;
 };
 
 } // namespace game

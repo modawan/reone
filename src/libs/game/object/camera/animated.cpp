@@ -15,8 +15,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/game/game.h"
-
 #include "reone/game/object/camera/animated.h"
 
 #include "reone/game/di/services.h"
@@ -39,10 +37,8 @@ void AnimatedCamera::load() {
     rebuildProjection();
 }
 
-void AnimatedCamera::updateProjection() {
-    auto &opts = _game.options().graphics;
-    float aspect = opts.width / static_cast<float>(opts.height);
-    cameraSceneNode()->setPerspectiveProjection(glm::radians(_fovy), aspect, kDefaultClipPlaneNear, kDefaultClipPlaneFar);
+float AnimatedCamera::projectionFovy() const {
+    return glm::radians(_fovy);
 }
 
 void AnimatedCamera::update(float dt) {
