@@ -44,6 +44,11 @@ static constexpr int kInventoryResRef = 393;
 
 void ContainerGUI::onGUILoaded() {
     bindControls();
+    centerRootInCanvas(_game.isTSL() ? 800 : 640, _game.isTSL() ? 600 : 480);
+
+    // The row label is authored top-aligned on the assumption the retail
+    // font filled the row; centre it on the actual scaled text.
+    _controls.LB_ITEMS->protoItem().setTextAlignment(Control::TextAlign::LeftCenter);
 
     std::string btnMessage(_services.resource.strings.getText(kSwitchToResRef) + " " + _services.resource.strings.getText(kGiveItemResRef));
     _controls.BTN_GIVEITEMS->setTextMessage(btnMessage);

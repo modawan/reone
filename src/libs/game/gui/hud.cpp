@@ -135,6 +135,9 @@ void HUD::onGUILoaded() {
     _controls.LBL_CMBTEFCTRED2->setVisible(false);
     _controls.LBL_CMBTEFCTRED3->setVisible(false);
     _controls.LBL_CMBTMODEMSG->setVisible(false);
+    // Stretch-gated combat controls keep authored rectangles, but the mode
+    // message is text and follows the HUD's uniform text scale.
+    _controls.LBL_CMBTMODEMSG->setScale(_gui->scale() * _gui->textScale());
     _controls.LBL_CMBTMSGBG->setVisible(false);
     _controls.LBL_COMBATBG3->setVisible(false);
     _controls.LBL_DARKSHIFT->setVisible(false);
