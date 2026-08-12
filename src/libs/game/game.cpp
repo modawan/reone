@@ -438,6 +438,7 @@ void Game::initConsole() {
     registerConsoleCommand("showpopup", "show the confirmation popup with an optional icon", &Game::consoleShowPopup);
     registerConsoleCommand("showgallerymode", "open a deterministic gameplay-mode gallery fixture", &Game::consoleShowGalleryMode);
     registerConsoleCommand("graphics", "toggle 3D scene rendering: graphics on|off", &Game::consoleGraphics);
+    registerConsoleCommand("seed", "reseed the shared random generator: seed <number>", &Game::consoleSeed);
     registerConsoleCommand("showhud", "open the third-person gameplay HUD for a scripted capture", &Game::consoleShowHUD);
     registerConsoleCommand("selectdialogoption", "select a dialog option without activating it for a scripted capture", &Game::consoleSelectDialogOption);
     registerConsoleCommand("kill", "kill selected object", &Game::consoleKill);
@@ -3700,6 +3701,11 @@ void Game::consoleShowPopup(const ConsoleArgs &args) {
         icon = _services.resource.textures.get(std::string(iconResRef), TextureUsage::GUI);
     }
     _confirmPopup->show(joinConsoleArgs(args, 2), std::move(icon));
+}
+
+void Game::consoleSeed(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "number");
+    setRandomSeed(static_cast<uint32_t>(args.get<int>(1).value()));
 }
 
 void Game::consoleGraphics(const ConsoleArgs &args) {

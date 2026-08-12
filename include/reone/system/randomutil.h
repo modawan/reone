@@ -17,7 +17,12 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace reone {
+
+/** Reseeds the shared generator, for deterministic scripted runs. */
+void setRandomSeed(uint32_t seed);
 
 /**
  * @param min lower bound (inclusive)

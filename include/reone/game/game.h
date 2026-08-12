@@ -763,6 +763,7 @@ private:
     void consoleShowBark(const ConsoleArgs &tokens);
     void consoleShowPopup(const ConsoleArgs &tokens);
     void consoleShowGalleryMode(const ConsoleArgs &tokens);
+    void consoleSeed(const ConsoleArgs &tokens);
     void consoleGraphics(const ConsoleArgs &tokens);
     void consoleShowHUD(const ConsoleArgs &tokens);
     void consoleSelectDialogOption(const ConsoleArgs &tokens);
