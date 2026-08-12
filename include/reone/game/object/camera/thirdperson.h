@@ -32,7 +32,6 @@ public:
     ThirdPersonCamera(
         uint32_t id,
         CameraStyle style,
-        float aspect,
         std::string sceneName,
         Game &game,
         ServicesView &services) :
@@ -41,8 +40,7 @@ public:
             std::move(sceneName),
             game,
             services),
-        _style(std::move(style)),
-        _aspect(aspect) {
+        _style(std::move(style)) {
     }
 
     void load();
@@ -57,7 +55,6 @@ public:
 
 private:
     CameraStyle _style;
-    float _aspect;
 
     glm::vec3 _targetPosition {0.0f};
     bool _rotateCCW {false};
@@ -65,6 +62,7 @@ private:
     float _rotationSpeed {0.0f};
 
     void updateSceneNode();
+    void updateProjection() override;
 
     bool handleKeyDown(const input::KeyEvent &event);
     bool handleKeyUp(const input::KeyEvent &event);

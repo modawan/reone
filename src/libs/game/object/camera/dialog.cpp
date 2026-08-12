@@ -15,6 +15,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "reone/game/game.h"
+
 #include "reone/game/object/camera/dialog.h"
 
 #include <cmath>
@@ -109,7 +111,13 @@ static bool resolveEndpoints(glm::vec3 &listenerPosition, glm::vec3 &speakerPosi
 void DialogCamera::load() {
     auto &scene = _services.scene.graphs.get(_sceneName);
     _sceneNode = scene.newCamera();
-    cameraSceneNode()->setPerspectiveProjection(glm::radians(_style.viewAngle), _aspect, kDefaultClipPlaneNear, kDefaultClipPlaneFar);
+    rebuildProjection();
+}
+
+void DialogCamera::updateProjection() {
+    auto &opts = _game.options().graphics;
+    float aspect = opts.width / static_cast<float>(opts.height);
+    cameraSceneNode()->setPerspectiveProjection(glm::radians(_style.viewAngle), aspect, kDefaultClipPlaneNear, kDefaultClipPlaneFar);
 }
 
 void DialogCamera::setSpeakerPosition(glm::vec3 position) {

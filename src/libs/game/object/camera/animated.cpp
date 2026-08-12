@@ -15,6 +15,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "reone/game/game.h"
+
 #include "reone/game/object/camera/animated.h"
 
 #include "reone/game/di/services.h"
@@ -34,14 +36,18 @@ namespace game {
 void AnimatedCamera::load() {
     auto &scene = _services.scene.graphs.get(_sceneName);
     _sceneNode = scene.newCamera();
-    updateProjection();
+    rebuildProjection();
 }
 
 void AnimatedCamera::updateProjection() {
-    cameraSceneNode()->setPerspectiveProjection(glm::radians(_fovy), _aspect, kDefaultClipPlaneNear, kDefaultClipPlaneFar);
+    auto &opts = _game.options().graphics;
+    float aspect = opts.width / static_cast<float>(opts.height);
+    cameraSceneNode()->setPerspectiveProjection(glm::radians(_fovy), aspect, kDefaultClipPlaneNear, kDefaultClipPlaneFar);
 }
 
 void AnimatedCamera::update(float dt) {
+    Camera::update(dt);
+
     if (_model) {
         _model->update(dt);
     }
@@ -88,7 +94,7 @@ void AnimatedCamera::setFieldOfView(float fovy) {
         return;
     }
     _fovy = fovy;
-    updateProjection();
+    rebuildProjection();
 }
 
 } // namespace game

@@ -293,7 +293,7 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
         .field(Gff::Field::newFloat("MicRange", 8.0f))
         .field(Gff::Field::newCExoString("FutureCamera", "preserve-camera"))
         .build();
-    auto camera = game.newStaticCamera(4.0f / 3.0f);
+    auto camera = game.newStaticCamera();
     TestGameModule::configureSnapshotCamera(
         *camera, 7, {4.0f, 5.0f, 6.0f},
         glm::quat(1.0f, 0.0f, 0.0f, 0.0f), 12.0f, 1.5f, 55.0f, 8.0f);

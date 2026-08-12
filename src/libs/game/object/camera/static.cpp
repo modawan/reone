@@ -15,6 +15,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "reone/game/game.h"
+
 #include "reone/game/object/camera/static.h"
 
 #include "reone/game/di/services.h"
@@ -45,9 +47,15 @@ void StaticCamera::deserialize(const resource::Gff &gff) {
 
     auto &scene = _services.scene.graphs.get(_sceneName);
     _sceneNode = scene.newCamera();
-    cameraSceneNode()->setPerspectiveProjection(glm::radians(_fieldOfView), _aspect, kDefaultClipPlaneNear, kDefaultClipPlaneFar);
+    rebuildProjection();
 
     updateTransform();
+}
+
+void StaticCamera::updateProjection() {
+    auto &opts = _game.options().graphics;
+    float aspect = opts.width / static_cast<float>(opts.height);
+    cameraSceneNode()->setPerspectiveProjection(glm::radians(_fieldOfView), aspect, kDefaultClipPlaneNear, kDefaultClipPlaneFar);
 }
 
 } // namespace game

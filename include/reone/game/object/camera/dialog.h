@@ -38,7 +38,6 @@ public:
     DialogCamera(
         uint32_t id,
         CameraStyle style,
-        float aspect,
         std::string sceneName,
         Game &game,
         ServicesView &services) :
@@ -47,8 +46,7 @@ public:
             std::move(sceneName),
             game,
             services),
-        _style(std::move(style)),
-        _aspect(aspect) {
+        _style(std::move(style)) {
     }
 
     void load();
@@ -59,13 +57,13 @@ public:
 
 private:
     CameraStyle _style;
-    float _aspect;
 
     glm::vec3 _speakerPosition {0.0f};
     glm::vec3 _listenerPosition {0.0f};
     Variant _variant {Variant::Both};
 
     void updateSceneNode();
+    void updateProjection() override;
 };
 
 } // namespace game
