@@ -84,7 +84,7 @@ void AnimatedCamera::setModel(std::shared_ptr<Model> model) {
 }
 
 void AnimatedCamera::setFieldOfView(float fovy) {
-    if (_fovy != fovy) {
+    if (_fovy == fovy) {
         return;
     }
     _fovy = fovy;
