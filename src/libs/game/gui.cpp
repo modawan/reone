@@ -104,7 +104,7 @@ void GameGUI::loadBackground(BackgroundType type) {
             resRef = "pnl_computer_pc";
             break;
         default:
-            break;
+            return;
         }
     } else {
         auto &options = _game.options().graphics;
