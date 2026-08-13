@@ -35,10 +35,10 @@ AreaTransition::AreaTransition(Game &game, ServicesView &services) :
 void AreaTransition::preload(IGUI &gui) {
     GameGUI::preload(gui);
 
-    // Authored for 640x480 in both games. Keep the authored top coordinate,
-    // while centering the banner horizontally in the current viewport.
+    // Authored for 640x480 in both games. Scale every axis by the same
+    // limiting-axis factor while retaining the authored top anchor.
     gui.setResolution(640, 480);
-    gui.setScaling(GUI::ScalingMode::CenterHorizontal);
+    gui.setScaling(GUI::ScalingMode::ScaledTopCenter);
 }
 
 void AreaTransition::onGUILoaded() {

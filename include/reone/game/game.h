@@ -948,6 +948,7 @@ private:
     void consoleSeed(const ConsoleArgs &tokens);
     void consoleGraphics(const ConsoleArgs &tokens);
     void consoleShowHUD(const ConsoleArgs &tokens);
+    void consoleShowTransition(const ConsoleArgs &tokens);
     void consoleOpenContainer(const ConsoleArgs &tokens);
     void consoleSelectDialogOption(const ConsoleArgs &tokens);
     void consoleRunScript(const ConsoleArgs &tokens);
