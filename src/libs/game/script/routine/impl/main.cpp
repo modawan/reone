@@ -227,12 +227,7 @@ static Variable SwitchPlayerCharacter(const std::vector<Variable> &args, const R
         return Variable::ofInt(1);
     }
 
-    std::shared_ptr<Creature> creature;
-    if (nNPC == kNpcPlayer) {
-        creature = party.player();
-    } else {
-        creature = party.getAvailableMember(nNPC);
-    }
+    std::shared_ptr<Creature> creature = party.getAvailableMember(nNPC);
     if (!creature) {
         warn("Party: NPC not found: " + std::to_string(nNPC));
         return Variable::ofInt(0);
@@ -250,6 +245,7 @@ static Variable SwitchPlayerCharacter(const std::vector<Variable> &args, const R
 
     party.clear();
     party.addMember(nNPC, creature);
+    party.setPlayer(creature);
 
     if (area) {
         area->loadParty(position, facing);
@@ -5320,7 +5316,7 @@ static Variable AddPartyMember(const std::vector<Variable> &args, const RoutineC
     auto creature = checkCreature(oCreature);
 
     // Execute
-    bool added = ctx.game.party().addAvailableMember(nNPC, creature->blueprintResRef());
+    bool added = ctx.game.party().addMember(nNPC, creature);
     return Variable::ofInt(static_cast<int>(added));
 }
 

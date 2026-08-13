@@ -1023,6 +1023,7 @@ void Game::deserializeParty(resource::Gff &ifoGff) {
     player->deserialize(*players.front());
     player->setTag(kObjectTagPlayer);
     _party.addMember(kNpcPlayer, player);
+    _party.addAvailableMember(kNpcPlayer, player);
     _party.setPlayer(player);
 
     std::shared_ptr<Gff> ptGff(_services.resource.gffs.get("partytable", ResType::Res));
