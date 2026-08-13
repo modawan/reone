@@ -111,7 +111,6 @@ private:
     bool itemMatchesFilter(const Item &item) const;
     void updateItemDescription();
     void clearItemDescription();
-    std::shared_ptr<graphics::Texture> getItemFrameTexture(int stackSize) const;
 
     void bindControls() {
         _controls.BTN_ALL = findControl<gui::Button>("BTN_ALL");

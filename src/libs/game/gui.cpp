@@ -272,6 +272,17 @@ void GameGUI::centerRootInCanvas(int canvasWidth, int canvasHeight) {
     _gui->refreshLayout();
 }
 
+std::shared_ptr<Texture> GameGUI::itemFrameTexture(int stackSize) const {
+    // The wider plates exist to carry the stack count. Picking one for a
+    // stack that does not need it puts a three-digit plate behind a single
+    // digit.
+    static const char *kTSLFrames[] {"uibit_eqp_itm1", "uibit_eqp_itm2", "uibit_eqp_itm3"};
+    static const char *kK1Frames[] {"lbl_hex_3", "lbl_hex_6", "lbl_hex_7"};
+    int tier = stackSize >= 100 ? 2 : (stackSize > 1 ? 1 : 0);
+    auto resRef = _game.isTSL() ? kTSLFrames[tier] : kK1Frames[tier];
+    return _services.resource.textures.get(resRef, TextureUsage::GUI);
+}
+
 std::string GameGUI::guiResRef(const std::string &base) const {
     return _game.isTSL() ? base + "_p" : base;
 }

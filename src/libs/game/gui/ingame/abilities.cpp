@@ -103,20 +103,10 @@ void AbilitiesMenu::loadSkills() {
         ListBox::Item item;
         item.tag = std::to_string(static_cast<int>(skill.second.skill));
         item.text = skill.second.name;
-        item.iconFrame = getFrameTexture();
+        item.iconFrame = itemFrameTexture(1);
         item.iconTexture = skill.second.icon;
         _controls.LB_ABILITY->addItem(std::move(item));
     }
-}
-
-std::shared_ptr<Texture> AbilitiesMenu::getFrameTexture() const {
-    std::string resRef;
-    if (_game.isTSL()) {
-        resRef = "uibit_eqp_itm1";
-    } else {
-        resRef = "lbl_hex_3";
-    }
-    return _services.resource.textures.get(resRef, TextureUsage::GUI);
 }
 
 void AbilitiesMenu::refreshControls() {

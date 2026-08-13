@@ -179,11 +179,7 @@ void CharGenFeats::refreshSelectionControls() {
 
 void CharGenFeats::refreshIconChain() {
     _controls.ICONCHAIN_FEATS->clearItems();
-    bool showIconChain = _levelUp || _game.isTSL();
-    _controls.ICONCHAIN_FEATS->setVisible(showIconChain);
-    if (!showIconChain) {
-        return;
-    }
+    _controls.ICONCHAIN_FEATS->setVisible(true);
 
     _controls.ICONCHAIN_FEATS->setColumnCount(kIconSelectionColumnCount);
 
@@ -220,11 +216,6 @@ void CharGenFeats::refreshIconChain() {
 }
 
 void CharGenFeats::refreshIconChainSelection() {
-    bool showIconChain = _levelUp || _game.isTSL();
-    if (!showIconChain) {
-        return;
-    }
-
     for (auto &entry : _displayEntries) {
         _controls.ICONCHAIN_FEATS->setItemSelected(
             std::to_string(static_cast<int>(entry.type)),
@@ -285,7 +276,7 @@ void CharGenFeats::refreshIconChainLinks() {
 }
 
 void CharGenFeats::refreshListBox() {
-    _controls.LB_FEATS->setVisible(!_levelUp && !_game.isTSL());
+    _controls.LB_FEATS->setVisible(false);
     _controls.LB_FEATS->clearItems();
     for (auto &entry : _displayEntries) {
         std::shared_ptr<Feat> feat(_services.game.feats.get(entry.type));
