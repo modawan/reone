@@ -26,6 +26,17 @@ public:
     virtual void writeByte(uint8_t val) = 0;
     virtual void write(const char *buf, int len) = 0;
 
+    void writeAll(const char *buf, size_t len) {
+        while (len > 0) {
+            int chunk = static_cast<int>(std::min<size_t>(
+                len,
+                std::numeric_limits<int>::max()));
+            write(buf, chunk);
+            buf += chunk;
+            len -= chunk;
+        }
+    }
+
     virtual size_t position() = 0;
 };
 

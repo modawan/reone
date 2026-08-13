@@ -26,6 +26,19 @@ namespace resource {
 
 class Gff : boost::noncopyable {
 public:
+    /**
+     * One CExoLocString override. The wire ID encodes language and gender as
+     * (language << 1) | gender, where male is 0 and female is 1.
+     */
+    struct LocSubstring {
+        uint32_t id {0};
+        std::string text;
+
+        bool operator==(const LocSubstring &rhs) const {
+            return id == rhs.id && text == rhs.text;
+        }
+    };
+
     enum class FieldType : uint16_t {
         Byte = 0,
         Char = 1,
@@ -52,6 +65,7 @@ public:
         FieldType type {FieldType::Int};
         std::string label;
         std::string strValue; /**< covers CExoString and ResRef */
+        std::vector<LocSubstring> locSubstrings; /**< lossless CExoLocString overrides */
         glm::vec3 vecValue {0.0f};
         glm::quat quatValue {1.0f, 0.0f, 0.0f, 0.0f};
         ByteBuffer data;
@@ -77,6 +91,7 @@ public:
         Field deepCopy() const {
             Field copy {type, label};
             copy.strValue = strValue;
+            copy.locSubstrings = locSubstrings;
             copy.vecValue = vecValue;
             copy.quatValue = quatValue;
             copy.data = data;
@@ -123,7 +138,7 @@ public:
             case FieldType::ResRef:
                 return strValue == rhs.strValue;
             case FieldType::CExoLocString:
-                return intValue == rhs.intValue && strValue == rhs.strValue;
+                return intValue == rhs.intValue && locSubstrings == rhs.locSubstrings;
             case FieldType::Void:
                 return data == rhs.data;
             case FieldType::Struct:
@@ -153,6 +168,10 @@ public:
         static Field newCExoString(std::string label, std::string val);
         static Field newResRef(std::string label, std::string val);
         static Field newCExoLocString(std::string label, int32_t strRef, std::string val);
+        static Field newCExoLocString(
+            std::string label,
+            int32_t strRef,
+            std::vector<LocSubstring> substrings);
         static Field newVoid(std::string label, ByteBuffer val);
         static Field newStruct(std::string label, std::shared_ptr<Gff> val);
         static Field newList(std::string label, std::vector<std::shared_ptr<Gff>> val);

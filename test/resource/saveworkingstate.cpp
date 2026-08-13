@@ -14,7 +14,9 @@
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/extractresources.h"
 #include "reone/resource/format/erfwriter.h"
+#include "reone/resource/format/gffwriter.h"
 #include "reone/resource/format/rimwriter.h"
+#include "reone/resource/gff.h"
 #include "reone/resource/resources.h"
 #include "reone/system/exception/validation.h"
 #include "reone/system/stream/fileoutput.h"
@@ -175,6 +177,91 @@ TEST(SaveWorkingStateCandidateTest, empty_candidate_over_empty_base) {
 
     EXPECT_TRUE(candidate.deterministicResourceIds().empty());
     EXPECT_TRUE(candidate.validate());
+}
+
+TEST(SaveWorkingStateCandidateTest, accepts_exact_generated_gff_bytebuffer) {
+    TmpDir directory("reone_e3b_gff_candidate");
+    auto base = makeWorkingState(directory, {});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+    ResourceId id("globalvars", ResType::Res);
+    Gff root(0, {Gff::Field::newInt("Synthetic", 42)});
+    auto generated = GffWriter(GffFileFormat::v32("GVT "), root).toBytes();
+
+    candidate.put(id, generated);
+
+    auto view = candidate.find(id);
+    ASSERT_TRUE(view);
+    ASSERT_TRUE(view->read());
+    EXPECT_EQ(generated, view->read()->data);
+    EXPECT_EQ(SaveResourceOrigin::Owned, view->origin());
+}
+
+TEST(SaveWorkingStateCandidateTest, accepts_exact_generated_mod_bytebuffer) {
+    TmpDir directory("reone_e3b_mod_candidate");
+    auto base = makeWorkingState(directory, {});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+    ResourceId id("module", ResType::Sav);
+    ErfWriter writer;
+    writer.add({"module", ResType::Ifo, bytes("synthetic ifo")});
+    auto generated = writer.toBytes(ErfWriter::FileType::MOD);
+
+    candidate.put(id, generated);
+
+    auto view = candidate.find(id);
+    ASSERT_TRUE(view);
+    ASSERT_TRUE(view->read());
+    EXPECT_EQ(generated, view->read()->data);
+    EXPECT_EQ(SaveResourceOrigin::Owned, view->origin());
+}
+
+TEST(SaveWorkingStateCandidateTest, writer_failure_does_not_mutate_base_or_candidate) {
+    TmpDir directory("reone_e3b_failure_candidate");
+    ResourceId existing("globalvars", ResType::Res);
+    auto base = makeWorkingState(directory, {{"globalvars", ResType::Res, "committed"}});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+
+    ErfWriter invalid;
+    invalid.add({"same", ResType::Res, bytes("first")});
+    invalid.add({"SAME", ResType::Res, bytes("second")});
+    EXPECT_THROW(invalid.toBytes(ErfWriter::FileType::MOD), ValidationException);
+
+    auto view = candidate.find(existing);
+    ASSERT_TRUE(view);
+    EXPECT_EQ(SaveResourceOrigin::Borrowed, view->origin());
+    EXPECT_EQ("committed", dataOf(view));
+    EXPECT_EQ("committed", dataOf(base->find(existing)));
+    EXPECT_EQ(std::vector<ResourceId> {existing}, candidate.deterministicResourceIds());
+}
+
+TEST(SaveWorkingStateCandidateTest, erf_writer_consumes_a_borrowed_candidate_view_once) {
+    TmpDir directory("reone_e3b_lazy_candidate");
+    ResourceId sourceId("globalvars", ResType::Res);
+    auto base = makeWorkingState(directory, {{"globalvars", ResType::Res, "borrowed bytes"}});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+    auto source = candidate.find(sourceId);
+    ASSERT_TRUE(source);
+    ASSERT_EQ(SaveResourceOrigin::Borrowed, source->origin());
+    int reads = 0;
+    ErfWriter writer;
+    writer.add(ErfWriter::Resource::lazy(
+        sourceId,
+        [source = *source, &reads]() {
+            ++reads;
+            auto resource = source.read();
+            if (!resource) {
+                throw std::logic_error("candidate view disappeared");
+            }
+            return resource->data;
+        }));
+
+    auto archive = writer.toBytes(ErfWriter::FileType::MOD);
+
+    EXPECT_EQ(1, reads);
+    ErfResourceContainer container(Storage(std::move(archive)));
+    container.init();
+    auto packaged = container.findResourceData(sourceId);
+    ASSERT_TRUE(packaged);
+    EXPECT_EQ(bytes("borrowed bytes"), *packaged);
 }
 
 TEST(SaveWorkingStateCandidateTest, base_resource_lookup_is_borrowed_and_lazy) {

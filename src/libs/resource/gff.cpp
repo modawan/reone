@@ -375,6 +375,22 @@ Gff::Field Gff::Field::newCExoLocString(std::string label, int32_t strRef, std::
     Field tmp(FieldType::CExoLocString, std::move(label));
     tmp.intValue = strRef;
     tmp.strValue = std::move(val);
+    if (!tmp.strValue.empty()) {
+        tmp.locSubstrings.push_back(LocSubstring {0, tmp.strValue});
+    }
+    return tmp;
+}
+
+Gff::Field Gff::Field::newCExoLocString(
+    std::string label,
+    int32_t strRef,
+    std::vector<LocSubstring> substrings) {
+    Field tmp(FieldType::CExoLocString, std::move(label));
+    tmp.intValue = strRef;
+    tmp.locSubstrings = std::move(substrings);
+    if (!tmp.locSubstrings.empty()) {
+        tmp.strValue = tmp.locSubstrings.front().text;
+    }
     return tmp;
 }
 

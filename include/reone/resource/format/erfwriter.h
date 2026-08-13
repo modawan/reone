@@ -17,9 +17,11 @@
 
 #pragma once
 
+#include <functional>
+
 #include "reone/system/types.h"
 
-#include "../types.h"
+#include "../id.h"
 
 namespace reone {
 
@@ -35,15 +37,37 @@ public:
     };
 
     struct Resource {
+        using DataReader = std::function<ByteBuffer()>;
+
         std::string resRef;
         ResType resType {ResType::Invalid};
         ByteBuffer data;
+        DataReader dataReader;
+
+        Resource() = default;
+
+        Resource(std::string resRef, ResType resType, ByteBuffer data) :
+            resRef(std::move(resRef)),
+            resType(resType),
+            data(std::move(data)) {}
+
+        Resource(ResourceId id, ByteBuffer data) :
+            Resource(id.resRef.value(), id.type, std::move(data)) {}
+
+        static Resource lazy(ResourceId id, DataReader reader) {
+            Resource result;
+            result.resRef = id.resRef.value();
+            result.resType = id.type;
+            result.dataReader = std::move(reader);
+            return result;
+        }
     };
 
     void add(Resource &&res);
 
     void save(FileType type, const std::filesystem::path &path);
     void save(FileType type, IOutputStream &out);
+    ByteBuffer toBytes(FileType type) const;
 
 private:
     std::vector<Resource> _resources;

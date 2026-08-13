@@ -43,6 +43,7 @@ public:
 
     void load();
 
+    const std::string &signature() const { return _signature; }
     const std::vector<KeyEntry> &keys() const { return _keys; }
     const std::vector<ResourceEntry> &resources() const { return _resources; }
 
@@ -52,6 +53,7 @@ private:
     int _numEntries {0};
     uint32_t _offKeys {0};
     uint32_t _offResources {0};
+    std::string _signature;
 
     std::vector<KeyEntry> _keys;
     std::vector<ResourceEntry> _resources;

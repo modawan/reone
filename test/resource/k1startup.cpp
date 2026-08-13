@@ -506,7 +506,7 @@ TEST_P(K1StartupTest, k2_mounts_rims_and_global_image_but_not_k1_support_archive
              {{"from_global", ResType::Txt, "global"},
               {kProbe, ResType::Txt, "global rim"}});
     writeErf(game.mkdir("override") / "textures.erf", ErfWriter::FileType::ERF,
-             {{"from_override_textures", ResType::Txt, "textures"}});
+             {{"override_texture", ResType::Txt, "textures"}});
     reone::test::writeKeyBif(game.path, "data/sample.bif",
                              {{kProbe, ResType::Txt, "key bif"}});
 
@@ -517,7 +517,7 @@ TEST_P(K1StartupTest, k2_mounts_rims_and_global_image_but_not_k1_support_archive
     }
 
     EXPECT_FALSE(has("from_players")) << "the player archive is a K1 source";
-    EXPECT_FALSE(has("from_override_textures")) << "the override texture archive is a K1 source";
+    EXPECT_FALSE(has("override_texture")) << "the override texture archive is a K1 source";
     EXPECT_EQ("rims loose", find("loose")) << "RIMS is an active loose resource directory";
     EXPECT_EQ("global", find("from_global")) << "global.rim is an active resource image";
     EXPECT_EQ("global rim", find(kProbe)) << "the image bucket outranks KEY/BIF";

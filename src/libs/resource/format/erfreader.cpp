@@ -42,17 +42,17 @@ void ErfReader::checkSignature() {
     if (_erf.length() < 8) {
         throw ValidationException("Invalid binary resource size");
     }
-    auto signature = _erf.readString(8);
+    _signature = _erf.readString(8);
     // One container family with three type tags. The engine's opener probes an
     // exact basename across NWM, MOD, SAV, ERF and HAK and validates only the
     // four-character type, because everything after it is the same layout. HAK
     // is accepted here for that reason and no other: it carries no module
     // metadata behaviour of its own.
-    bool erf = signature == std::string("ERF V1.0", 8);
-    bool mod = signature == std::string("MOD V1.0", 8);
-    bool hak = signature == std::string("HAK V1.0", 8);
+    bool erf = _signature == std::string("ERF V1.0", 8);
+    bool mod = _signature == std::string("MOD V1.0", 8);
+    bool hak = _signature == std::string("HAK V1.0", 8);
     if (!erf && !mod && !hak) {
-        throw ValidationException("Invalid ERF/MOD/HAK signature: " + signature);
+        throw ValidationException("Invalid ERF/MOD/HAK signature: " + _signature);
     }
 }
 

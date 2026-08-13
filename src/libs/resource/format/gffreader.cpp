@@ -114,7 +114,10 @@ Gff::Field GffReader::readField(int idx) {
     case Gff::FieldType::CExoLocString: {
         LocString locString(readCExoLocStringFieldData(dataOrDataOffset));
         field.intValue = locString.strRef;
-        field.strValue = locString.subString;
+        field.locSubstrings = std::move(locString.substrings);
+        if (!field.locSubstrings.empty()) {
+            field.strValue = field.locSubstrings.front().text;
+        }
         break;
     }
     case Gff::FieldType::Void:
@@ -186,17 +189,39 @@ std::string GffReader::readResRefFieldData(uint32_t off) {
 GffReader::LocString GffReader::readCExoLocStringFieldData(uint32_t off) {
     return _gff.readAt<LocString>(_fieldDataOffset + off, [this]() {
         uint32_t size = _gff.readUint32();
+        if (size < 8) {
+            throw ValidationException("Invalid CExoLocString size");
+        }
+        auto end = static_cast<uint64_t>(_gff.position()) + size;
+        if (end > _gff.length()) {
+            throw ValidationException("CExoLocString extends beyond GFF data");
+        }
         int32_t ref = _gff.readInt32();
         uint32_t count = _gff.readUint32();
+        if (count > (size - 8) / 8) {
+            throw ValidationException("Invalid CExoLocString substring count");
+        }
 
         LocString loc;
         loc.strRef = ref;
-        if (count == 1) {
-            int32_t type = _gff.readInt32();
+        loc.substrings.reserve(count);
+        std::unordered_set<uint32_t> ids;
+        for (uint32_t i = 0; i < count; ++i) {
+            if (static_cast<uint64_t>(_gff.position()) + 8 > end) {
+                throw ValidationException("Invalid CExoLocString substring header");
+            }
+            uint32_t id = _gff.readUint32();
             uint32_t ssSize = _gff.readUint32();
-            loc.subString = _gff.readString(ssSize);
-        } else if (count > 1) {
-            warn("GFF: more than one substring in CExoLocString, ignoring");
+            if (ssSize > end - _gff.position()) {
+                throw ValidationException("Invalid CExoLocString substring length");
+            }
+            if (!ids.insert(id).second) {
+                throw ValidationException("Duplicate CExoLocString substring ID");
+            }
+            loc.substrings.push_back(Gff::LocSubstring {id, _gff.readString(ssSize)});
+        }
+        if (_gff.position() != end) {
+            throw ValidationException("CExoLocString size does not match its contents");
         }
         return loc;
     });
@@ -213,6 +238,9 @@ int32_t GffReader::readStrRefFieldData(uint32_t off) {
 ByteBuffer GffReader::readByteBufferFieldData(uint32_t off) {
     return _gff.readAt<ByteBuffer>(_fieldDataOffset + off, [this]() {
         uint32_t size = _gff.readUint32();
+        if (size == 0) {
+            return ByteBuffer();
+        }
         return _gff.readBytes(size);
     });
 }

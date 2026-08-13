@@ -30,17 +30,35 @@ namespace resource {
 
 class Gff;
 
+/** Semantic GFF header, independent of the resource extension. */
+class GffFileFormat {
+public:
+    GffFileFormat(std::string signature, std::string version);
+
+    static GffFileFormat v32(std::string signature) {
+        return GffFileFormat(std::move(signature), "V3.2");
+    }
+
+    const std::string &signature() const { return _signature; }
+    const std::string &version() const { return _version; }
+
+private:
+    std::string _signature;
+    std::string _version;
+};
+
 class GffWriter {
 public:
-    GffWriter(
-        ResType resType,
-        const Gff &root) :
-        _resType(resType),
-        _root(root) {
-    }
+    /** Compatibility constructor for ordinary extension-typed GFFs. */
+    GffWriter(ResType resType, const Gff &root);
+
+    GffWriter(GffFileFormat format, const Gff &root) :
+        _format(std::move(format)),
+        _root(root) {}
 
     void save(const std::filesystem::path &path);
     void save(IOutputStream &out);
+    ByteBuffer toBytes();
 
 private:
     struct WriteStruct {
@@ -64,7 +82,7 @@ private:
         std::vector<uint32_t> listIndices;
     };
 
-    ResType _resType;
+    GffFileFormat _format;
     const Gff &_root;
 
     WriteContext _context;
