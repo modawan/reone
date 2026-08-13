@@ -96,6 +96,9 @@ function New-GameStates([string]$module, [string]$swoop, [bool]$party, [string]$
         "showbark 30 Scaled bark bubble text must wrap without clipping at every gallery resolution, even when the message is deliberately long enough to span multiple lines") })
     $states.Add(@{ Id = "confirmation-popup"; Frame = 30; Commands = @("warp $module",
         "showpopup i_attack Confirmation popup icon and message must scale together at every gallery resolution") })
+    $states.Add(@{ Id = "combined-overlays"; Frame = 30; Commands = @("warp $module", "showhud combat",
+        "showbark 30 Simultaneous overlay compatibility check with combat controls, selected object presentation, message bubble, and modal confirmation popup visible together",
+        "showpopup i_attack Confirmation popup displayed over the complete simultaneous combat overlay state") })
     return $states
 }
 

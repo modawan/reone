@@ -22,9 +22,11 @@ The matrix covers both games at 1024x768 and 3440x1440: startup movie frames,
 main menu, every character-generation window, the gameplay HUD and populated
 combat action sequence, Swoop, the three Pazaak screens, every in-game tab, a
 wrapping bark bubble, an icon-bearing confirmation popup, dialogue and a
-computer terminal. Every capture uses the default GUI presentation scales,
-including the 75% list-row density. The matrix does not add alternate scale
-variants; use a focused manual run when testing a non-default option.
+computer terminal. A combined-overlay state intentionally presents the combat
+HUD, bark bubble and confirmation popup at once to catch layering or shared-state
+regressions. Every capture uses the default GUI presentation scales, including
+the 75% list-row density. The matrix does not add alternate scale variants; use
+a focused manual run when testing a non-default option.
 
 Captures are driven by console commands, so any of them can also be run by hand:
 `pause <frames>`, `capture <path> [frames]` and `quit` sequence a batch from a
