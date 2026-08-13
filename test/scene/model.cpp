@@ -222,6 +222,83 @@ TEST(ModelSceneNode, should_retarget_external_animation_root_to_live_model_root)
     EXPECT_NEAR(6.0f, rootPosition.z, 1e-5);
 }
 
+TEST(ModelSceneNode, should_apply_external_stunt_tracks_to_an_attached_appearance_head) {
+    // given: Game 5's cut003w proxy has no local clip on pmhb05, but carries
+    // matching facial nodes whose tracks close the player's eyes.
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+
+    auto scene = std::make_unique<SceneGraph>(
+        "test", pipelineFactory, graphicsOpt,
+        graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    auto bodyRoot = std::make_shared<ModelNode>(
+        0, "pmbbs", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto headHook = std::make_shared<ModelNode>(
+        1, "headhook", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, bodyRoot.get());
+    bodyRoot->addChild(headHook);
+
+    auto headRoot = std::make_shared<ModelNode>(
+        0, "pmhb05", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto eyelid = std::make_shared<ModelNode>(
+        1, "eyeLid", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, headRoot.get());
+    headRoot->addChild(eyelid);
+
+    auto proxyRoot = std::make_shared<ModelNode>(
+        0, "m12aa_c01_char01", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, nullptr);
+    proxyRoot->vectorTracks()[ControllerTypes::position].add(1.0f, glm::vec3(4.0f, 5.0f, 6.0f));
+    auto proxyEyelid = std::make_shared<ModelNode>(
+        1, "eyeLid", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, proxyRoot.get());
+    proxyEyelid->vectorTracks()[ControllerTypes::position].add(1.0f, glm::vec3(0.0f, 0.0f, -0.25f));
+    proxyRoot->addChild(proxyEyelid);
+
+    auto external = std::make_shared<Animation>(
+        "cut003w", 1.0f, 0.0f, "", proxyRoot,
+        std::vector<Animation::Event>());
+    auto bodyModel = Model(
+        "pmbbs", 0, bodyRoot,
+        std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    auto headModel = Model(
+        "pmhb05", 0, headRoot,
+        std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    auto body = std::make_shared<ModelSceneNode>(
+        bodyModel, ModelUsage::Creature, *scene,
+        graphicsModule.services(), audioModule.services(), resourceModule.services());
+    auto head = std::make_shared<ModelSceneNode>(
+        headModel, ModelUsage::Creature, *scene,
+        graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    // when
+    body->init();
+    head->init();
+    body->attach("headhook", *head);
+    body->playAnimation(
+        *external, nullptr,
+        AnimationProperties::fromFlags(AnimationFlags::propagate | AnimationFlags::retargetRoot));
+    body->update(1.0f);
+
+    // then
+    auto headRootNode = head->getNodeByName("pmhb05");
+    auto eyelidNode = head->getNodeByName("eyeLid");
+    ASSERT_TRUE(static_cast<bool>(headRootNode));
+    ASSERT_TRUE(static_cast<bool>(eyelidNode));
+    EXPECT_NEAR(0.0f, headRootNode->localTransform()[3].x, 1e-5);
+    EXPECT_NEAR(-0.25f, eyelidNode->localTransform()[3].z, 1e-5);
+}
+
 TEST(ModelSceneNode, should_play_single_looping_animation) {
     // given
     auto graphicsOpt = GraphicsOptions();

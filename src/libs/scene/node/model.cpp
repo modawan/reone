@@ -192,6 +192,20 @@ void ModelSceneNode::setEnvironmentMap(Texture *texture) {
     }
 }
 
+static bool animationIntersectsModel(
+    const Animation &anim,
+    const std::shared_ptr<ModelNode> &node) {
+    if (!node) {
+        return false;
+    }
+    if (anim.getNodeByName(node->name())) {
+        return true;
+    }
+    return std::any_of(node->children().begin(), node->children().end(), [&](const auto &child) {
+        return animationIntersectsModel(anim, child);
+    });
+}
+
 void ModelSceneNode::playAnimation(const std::string &name, std::shared_ptr<LipAnimation> lipAnim, AnimationProperties properties) {
     auto anim = _model->getAnimation(name);
     if (anim) {
@@ -258,10 +272,22 @@ void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation
     if (properties.flags & AnimationFlags::propagate) {
         for (auto &attachment : _attachments) {
             if (attachment.second->type() == SceneNodeType::Model) {
+                auto *attachedModel = static_cast<ModelSceneNode *>(attachment.second);
+                if ((properties.flags & AnimationFlags::retargetRoot) &&
+                    animationIntersectsModel(anim, attachedModel->model().rootNode())) {
+                    // External stunt models include facial tracks for the live
+                    // appearance head, but that head has no local stunt clip.
+                    // Reuse the proxy animation where node names intersect;
+                    // do not map its placement root onto the attachment.
+                    auto attachedProperties = properties;
+                    attachedProperties.flags &= ~AnimationFlags::retargetRoot;
+                    attachedModel->playAnimation(anim, lipAnim, std::move(attachedProperties));
+                    continue;
+                }
                 // Attachments have their own animation sets. Resolve by name so
                 // an unrelated body animation cannot replace a weapon's local
                 // state animation (for example, a lightsaber's "off" pose).
-                static_cast<ModelSceneNode *>(attachment.second)->playAnimation(anim.name(), lipAnim, properties);
+                attachedModel->playAnimation(anim.name(), lipAnim, properties);
             }
         }
     }
