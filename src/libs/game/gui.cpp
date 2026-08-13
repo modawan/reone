@@ -284,6 +284,18 @@ std::shared_ptr<Texture> GameGUI::itemFrameTexture(int stackSize) const {
     return _services.resource.textures.get(resRef, TextureUsage::GUI);
 }
 
+void GameGUI::tintK2InGameFooter() {
+    if (!_game.isTSL()) {
+        return;
+    }
+
+    for (auto tag : {"LBL_BAR3", "LBL_BAR4", "LBL_BAR5"}) {
+        if (auto control = _gui->findControl(tag)) {
+            control->setTintBorderFill(true);
+        }
+    }
+}
+
 void GameGUI::tintK2InGameHeader() {
     if (!_game.isTSL()) {
         return;
