@@ -2489,6 +2489,11 @@ TEST(SavedRuntimeState, restores_retail_player_death_threshold_without_clamping_
     EXPECT_TRUE(incapacitated->isPC());
     EXPECT_FALSE(incapacitated->isDead());
 
+    incapacitated->setMaxHitPoints(36);
+    incapacitated->restorePrimaryPlayerHitPoints();
+    EXPECT_EQ(36, incapacitated->currentHitPoints());
+    EXPECT_FALSE(incapacitated->isDead());
+
     auto deadState = makeSavedPlayer(-10, 0x7ffffffe);
     auto dead = game.newCreature(*deadState);
     dead->deserialize(*deadState);
@@ -2496,6 +2501,41 @@ TEST(SavedRuntimeState, restores_retail_player_death_threshold_without_clamping_
     EXPECT_TRUE(dead->isDead());
 }
 
+
+TEST(SavedRuntimeState, k1_zero_hp_pc_is_dead_until_primary_player_publication) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(engine.services().game.portraits), getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto saved = Gff::Builder()
+                     .field(Gff::Field::newDword("ObjectId", 0x7ffffffe))
+                     .field(Gff::Field::newByte("IsPC", 1))
+                     .field(Gff::Field::newShort("MaxHitPoints", 12))
+                     .field(Gff::Field::newShort("CurrentHitPoints", 0))
+                     .field(Gff::Field::newDword("Appearance_Type", 0))
+                     .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+                     .field(Gff::Field::newByte("BodyBag", 0xff))
+                     .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                     .build();
+    auto player = game.newCreature(*saved);
+    player->deserialize(*saved);
+
+    // K1 does not share K2's -10 incapacitation threshold. The saved creature
+    // remains exact until the coordinator identifies it as the primary player.
+    EXPECT_EQ(0, player->currentHitPoints());
+    EXPECT_TRUE(player->isDead());
+
+    player->restorePrimaryPlayerHitPoints();
+
+    EXPECT_EQ(12, player->currentHitPoints());
+    EXPECT_FALSE(player->isDead());
+}
 TEST(SavedRuntimeState, keeps_min_one_hp_creature_alive_when_saved_at_zero) {
     TestEngine engine;
     engine.init();
@@ -2566,6 +2606,49 @@ TEST(SavedRuntimeState, detached_creatures_keep_nested_item_ids_owner_scoped) {
     EXPECT_FALSE(game.getObjectById(218));
 }
 
+
+TEST(SavedRuntimeState, primary_health_publication_does_not_recover_unrelated_pc) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(engine.services().game.portraits), getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto makePlayer = [](uint32_t id, int16_t maxHitPoints, bool primary) {
+        return Gff::Builder()
+            .field(Gff::Field::newDword("ObjectId", id))
+            .field(Gff::Field::newByte("IsPC", 1))
+            .field(Gff::Field::newByte("Mod_IsPrimaryPlr", primary))
+            .field(Gff::Field::newShort("MaxHitPoints", maxHitPoints))
+            .field(Gff::Field::newShort("CurrentHitPoints", 0))
+            .field(Gff::Field::newDword("Appearance_Type", 0))
+            .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+            .field(Gff::Field::newByte("BodyBag", 0xff))
+            .field(Gff::Field::newByte("PerceptionRange", 0xff))
+            .build();
+    };
+
+    auto modulePlayer = makePlayer(0x7ffffffe, 20, false);
+    auto ifo = Gff::Builder()
+                   .field(Gff::Field::newList("Mod_PlayerList", {modulePlayer}))
+                   .build();
+    auto pc = makePlayer(0x7fffffff, 36, true);
+
+    TestGameModule::publishPartyRuntimeState(game, *ifo, nullptr, pc);
+
+    auto moduleRuntime = game.party().player();
+    auto actual = game.party().actualPlayer();
+    ASSERT_TRUE(moduleRuntime);
+    ASSERT_TRUE(actual);
+    EXPECT_NE(moduleRuntime, actual);
+    EXPECT_EQ(0, moduleRuntime->currentHitPoints());
+    EXPECT_EQ(36, actual->currentHitPoints());
+    EXPECT_FALSE(actual->isDead());
+}
 TEST(SavedRuntimeState, keeps_authoritative_owner_items_local_to_their_owner_namespace) {
     TestEngine engine;
     engine.init();

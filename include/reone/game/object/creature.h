@@ -149,6 +149,13 @@ public:
     void setAppearance(int appearance) { _appearance = appearance; }
     void setMovementType(MovementType type);
     void setFaction(Faction faction) { _faction = faction; }
+    /**
+     * Complete retail primary-player publication after saved creature data has
+     * been read. Both Odyssey titles refill the authoritative primary player
+     * to the derived maximum here; ordinary creatures and detached PCs never
+     * pass through this operation.
+     */
+    void restorePrimaryPlayerHitPoints();
     void setMovementRestricted(bool restricted) { _movementRestricted = restricted; }
     void setImmortal(bool immortal) { _immortal = immortal; }
     void setAIStyle(NPCAIStyle style) { _aiStyle = style; }

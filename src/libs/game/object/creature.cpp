@@ -273,6 +273,11 @@ void Creature::updateModelAnimation() {
     _animDirty = false;
 }
 
+void Creature::restorePrimaryPlayerHitPoints() {
+    _currentHitPoints = maxHitPoints();
+    _dead = false;
+}
+
 void Creature::damage(int amount, uint32_t damager) {
     if (_dead) {
         return;
@@ -1531,7 +1536,7 @@ void Creature::deserializeAll(const resource::Gff &gff) {
         if (_minOneHP && _currentHitPoints < 1) {
             _currentHitPoints = 1;
         }
-        _dead = _currentHitPoints <= (_isPC ? -10 : 0);
+        _dead = _currentHitPoints <= (_game.isTSL() && _isPC ? -10 : 0);
     }
 
 

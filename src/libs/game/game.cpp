@@ -1221,6 +1221,12 @@ void Game::publishPartyRuntimeState(
         actualPlayer->deserialize(*pcGff);
     }
 
+    // Retail K1 and K2 complete primary-player BIC publication by assigning
+    // the derived maximum HP after creature load. Keep this explicit and
+    // separate from generic creature deserialization: corpses, party NPCs and
+    // unrelated serialized PCs must retain their archived health state.
+    actualPlayer->restorePrimaryPlayerHitPoints();
+
     _party.setPlayer(modulePlayer);
     _party.setActualPlayer(actualPlayer);
 
