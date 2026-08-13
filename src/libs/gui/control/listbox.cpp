@@ -289,6 +289,16 @@ void ListBox::stretch(float x, float y, int mask) {
         } else {
             _scrollBar->stretch(x, y, mask & ~kStretchWidth);
         }
+        if (_border && _border->dimension > 0) {
+            // Keep the bar inside the panel frame: a couple of authored
+            // pixels off the right edge, clear of the border slices.
+            auto barExtent = _scrollBar->extent();
+            int gap = std::max(1, static_cast<int>(std::lround(2.0f * x)));
+            barExtent.left = _extent.left + _extent.width - gap - barExtent.width;
+            barExtent.top = _extent.top + _border->dimension;
+            barExtent.height = _extent.height - 2 * _border->dimension;
+            _scrollBar->setExtent(std::move(barExtent));
+        }
     }
     updateItemsLayout();
 }
