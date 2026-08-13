@@ -19,6 +19,7 @@
 
 #include "reone/extract/chitin.h"
 #include "reone/resource/format/pereader.h"
+#include "reone/resource/modulemount.h"
 #include "reone/system/fileutil.h"
 #include "reone/system/stream/gameinput.h"
 
@@ -35,8 +36,6 @@ static constexpr char kMusicDirectoryName[] = "streammusic";
 static constexpr char kSoundsDirectoryName[] = "streamsounds";
 static constexpr char kWavesDirectoryName[] = "streamwaves";
 static constexpr char kVoiceDirectoryName[] = "streamvoice";
-static constexpr char kLipsDirectoryName[] = "lips";
-static constexpr char kOverrideDirectoryName[] = "override";
 static constexpr char kRimsDirectoryName[] = "rims";
 static constexpr char kMoviesDirectoryName[] = "movies";
 static constexpr char kExeFilenameKotor[] = "swkotor.exe";
@@ -82,9 +81,15 @@ static std::vector<std::string> sortedKeys(const std::unordered_map<std::string,
     return keys;
 }
 
-Installation::Installation(resource::GameID game, std::filesystem::path root) :
+Installation::Installation(resource::GameID game,
+                           std::filesystem::path root,
+                           resource::OdysseyResourceRoots odysseyRoots) :
     _game(game),
-    _root(std::move(root)) {
+    _root(std::move(root)),
+    _odysseyRoots(std::move(odysseyRoots)) {
+    if (!_odysseyRoots.nwmFiles) {
+        _odysseyRoots.nwmFiles = resource::defaultOdysseyResourceRoots(_root).nwmFiles;
+    }
 }
 
 void Installation::clearLocationCaches() {
@@ -104,22 +109,141 @@ void Installation::loadChitin() {
     clearLocationCaches();
 }
 
+std::vector<resource::ModuleSearchRoot> Installation::moduleSearchRoots() const {
+    return resource::moduleSearchRoots(_game, _root, _odysseyRoots);
+}
+
+/// Position of a bucket in the raw lookup order. A family the policy assigns no
+/// bucket has no position in that order, and is ranked after every source that
+/// does rather than being given an invented one.
+static std::size_t bucketRank(const std::optional<resource::ResourceSourceBucket> &bucket) {
+    if (!bucket) {
+        return resource::kRawResourceLookupOrder.size();
+    }
+    for (std::size_t i = 0; i < resource::kRawResourceLookupOrder.size(); ++i) {
+        if (resource::kRawResourceLookupOrder[i] == *bucket) {
+            return i;
+        }
+    }
+    return resource::kRawResourceLookupOrder.size();
+}
+
+/**
+ * Index the current module root's archives, in canonical raw lookup order.
+ *
+ * The set comes from shared discovery, so which files belong to the module and
+ * what family each one has are answered exactly as the runtime answers them.
+ * The order comes from the raw lookup contract: bucket first, and within a
+ * bucket the source a running game would have mounted latest. Mount timing
+ * therefore orders sources inside a bucket and never across buckets, which is
+ * what stops the old ".mod beats _s.rim beats .rim" ladder from reappearing.
+ *
+ * Nothing is suppressed. A game whose policy would not mount a family still
+ * has the file on disk, and answering where a resource lives is not the same
+ * question as which source a running game would read it from; an unmounted
+ * archive simply ranks below every mounted one in its bucket.
+ */
 void Installation::loadModules() {
     if (_modulesLoaded) {
         return;
     }
     _modulesLoaded = true;
-    _moduleCapsulePaths.clear();
+    _moduleArchives.clear();
+    clearLocationCaches();
     if (!_moduleRoot) {
         return;
     }
-    for (auto &rel : moduleArchiveRelPaths(*_moduleRoot)) {
-        if (auto path = findFileIgnoreCase(_root, rel)) {
-            auto filename = boost::to_lower_copy(path->filename().string());
-            _moduleCapsulePaths.emplace(filename, *path);
+
+    auto discovered = resource::discoverModuleSources(*_moduleRoot, moduleSearchRoots());
+    if (discovered.nameRejection) {
+        return;
+    }
+    auto rimsAdjuncts = resource::discoverRimsModuleAdjuncts(discovered.moduleRoot, _root);
+    discovered.sources.insert(discovered.sources.end(),
+                              rimsAdjuncts.begin(),
+                              rimsAdjuncts.end());
+    auto inventory = resource::plannerInventory(discovered);
+
+    resource::ModulePolicyRequest request;
+    request.game = _game;
+    request.moduleName = discovered.moduleRoot;
+    // No module-save table is consulted. The gate excludes saved candidates
+    // only, and an installation's module locations offer none for it to
+    // exclude, so reading the table could not change the plan.
+    request.includeInSave = true;
+    auto selection = resource::selectModulePrimary(request, inventory);
+    request.savedMode = selection &&
+                        selection->candidate.kind == resource::ModulePrimaryKind::SavedArchive;
+    auto plan = resource::planModuleLoad(request, inventory);
+
+    std::unordered_map<std::string, std::uint32_t> mountSequence;
+    std::uint32_t nextSequence = 0;
+    for (const auto &family : plan.families) {
+        for (const auto &attempt : family.attempts) {
+            mountSequence[attempt.source.sourceId] = attempt.attemptOrder;
+            nextSequence = std::max(nextSequence, attempt.attemptOrder + 1);
         }
     }
-    clearLocationCaches();
+    // The selected primary is staged and mounted as the active table after
+    // every other phase, so it is the newest source of its bucket.
+    if (plan.primary) {
+        mountSequence[plan.primary->candidate.source.sourceId] = nextSequence;
+    }
+
+    struct Ranked {
+        ModuleArchive archive;
+        std::size_t bucket {0};
+        int unmounted {0};
+        std::uint32_t sequence {0};
+        std::size_t discovered {0};
+    };
+    std::vector<Ranked> ranked;
+    ranked.reserve(discovered.sources.size());
+    for (std::size_t i = 0; i < discovered.sources.size(); ++i) {
+        const auto &source = discovered.sources[i];
+        Ranked entry;
+        entry.archive.moduleRoot = source.moduleRoot;
+        entry.archive.family = source.candidate.family;
+        entry.archive.rootId = source.candidate.rootId;
+        entry.archive.path = source.path;
+        if (auto metadata = resource::mountMetadata(source.candidate.family)) {
+            entry.archive.bucket = metadata->bucket;
+        }
+        entry.archive.resourceImage = resource::isResourceImageFamily(source.candidate.family);
+        auto mounted = mountSequence.find(source.candidate.sourceId);
+        entry.bucket = bucketRank(entry.archive.bucket);
+        entry.unmounted = mounted == mountSequence.end() ? 1 : 0;
+        entry.sequence = mounted == mountSequence.end() ? 0 : mounted->second;
+        entry.discovered = i;
+        ranked.push_back(std::move(entry));
+    }
+    std::sort(ranked.begin(), ranked.end(), [](const Ranked &lhs, const Ranked &rhs) {
+        if (lhs.bucket != rhs.bucket) {
+            return lhs.bucket < rhs.bucket;
+        }
+        if (lhs.unmounted != rhs.unmounted) {
+            return lhs.unmounted < rhs.unmounted;
+        }
+        if (lhs.sequence != rhs.sequence) {
+            return lhs.sequence > rhs.sequence;
+        }
+        return lhs.discovered < rhs.discovered;
+    });
+
+    _moduleArchives.reserve(ranked.size());
+    for (auto &entry : ranked) {
+        _moduleArchives.push_back(std::move(entry.archive));
+    }
+}
+
+std::vector<std::string> Installation::moduleNames() {
+    return resource::discoverModuleRoots(
+        resource::primaryModuleSearchRoots(_game, _root, _odysseyRoots));
+}
+
+const std::vector<ModuleArchive> &Installation::moduleArchives() {
+    loadModules();
+    return _moduleArchives;
 }
 
 const std::vector<FileResource> &Installation::chitinResources() {
@@ -169,46 +293,24 @@ void Installation::loadOverride() {
     if (_overrideLoaded) {
         return;
     }
-    auto overridePath = findFileIgnoreCase(_root, kOverrideDirectoryName);
-    if (!overridePath) {
-        _overrideIndex.clear();
-        _overrideLoaded = true;
-        return;
-    }
-
-    std::vector<FileResource> loose;
-    for (auto &entry : std::filesystem::directory_iterator(*overridePath)) {
-        if (entry.is_regular_file()) {
-            auto id = resourceIdFromPath(entry.path());
-            if (id) {
-                loose.emplace_back(
-                    id->resRef.value(),
-                    id->type,
-                    static_cast<uint32_t>(entry.file_size()),
-                    0,
-                    entry.path());
-            }
-            continue;
-        }
-        if (!entry.is_directory()) {
-            continue;
-        }
-        auto relKey = entry.path().filename().string();
-        std::vector<FileResource> subdir;
-        indexLooseFiles(entry.path(), subdir);
-        if (!subdir.empty()) {
-            _override[relKey] = std::move(subdir);
-        }
-    }
-    if (!loose.empty()) {
-        sortResources(loose);
-        _override["."] = std::move(loose);
-    }
     _overrideIndex.clear();
-    for (const auto &key : sortedKeys(_override)) {
-        auto &list = _override.at(key);
-        for (auto &res : list) {
-            _overrideIndex.emplace(res.id(), res);
+    _override.clear();
+    auto roots = resource::looseOverrideRoots(_game, _root, _odysseyRoots);
+    for (std::size_t i = 0; i < roots.size(); ++i) {
+        std::vector<FileResource> files;
+        indexLooseFiles(roots[i], files);
+        auto key = "root" + std::to_string(i);
+        _override[key] = files;
+        std::unordered_map<resource::ResourceId, FileResource> rootIndex;
+        for (const auto &file : files) {
+            // Files are path-sorted, so first insertion preserves the existing
+            // deterministic winner among duplicate subdirectories in one root.
+            rootIndex.emplace(file.id(), file);
+        }
+        // Natural registration order is oldest to newest, so assignment makes
+        // the later configured root the lookup winner just as runtime does.
+        for (const auto &[id, file] : rootIndex) {
+            _overrideIndex.insert_or_assign(id, file);
         }
     }
     _overrideLoaded = true;
@@ -267,9 +369,13 @@ void Installation::loadLips() {
     if (_lipsLoaded) {
         return;
     }
-    auto lipsPath = findFileIgnoreCase(_root, kLipsDirectoryName);
-    if (lipsPath) {
-        indexCapsuleDict(*lipsPath, isCapsuleFile, _lips);
+    auto roots = resource::lipsRoots(_game, _root, _odysseyRoots);
+    for (std::size_t i = 0; i < roots.size(); ++i) {
+        std::unordered_map<std::string, std::vector<FileResource>> indexed;
+        indexCapsuleDict(roots[i], isCapsuleFile, indexed);
+        for (auto &[name, files] : indexed) {
+            _lips["root" + std::to_string(i) + ":" + name] = std::move(files);
+        }
     }
     _lipsLoaded = true;
     clearLocationCaches();
@@ -385,13 +491,25 @@ void Installation::loadExecutable() {
     clearLocationCaches();
 }
 
+/**
+ * Scope module lookups to one module.
+ *
+ * The name is normalized by the shared rule, which removes a supported archive
+ * extension and nothing else. A root that ends in something resembling a family
+ * suffix stays whole: the caller has said which module it wants, so "foo_adxx"
+ * is that module and "foo_adxx.rim" is its own primary. Only enumeration, which
+ * has to infer ownership from a name alone, reads a trailing suffix at all.
+ *
+ * A name no supported archive could carry leaves the scope unset rather than
+ * being reduced to something that is.
+ */
 void Installation::setModuleRoot(std::optional<std::string> root) {
+    _moduleRoot.reset();
     if (root) {
-        boost::to_lower(*root);
+        _moduleRoot = resource::normalizeModuleName(*root).root;
     }
-    _moduleRoot = std::move(root);
     _modulesLoaded = false;
-    _moduleCapsulePaths.clear();
+    _moduleArchives.clear();
     clearLocationCaches();
 }
 
@@ -429,7 +547,7 @@ void Installation::appendSaveScope(std::filesystem::path saveDir, std::filesyste
 void Installation::clearModuleScope() {
     _moduleRoot.reset();
     _modulesLoaded = false;
-    _moduleCapsulePaths.clear();
+    _moduleArchives.clear();
     clearLocationCaches();
 }
 
@@ -438,37 +556,6 @@ void Installation::clearSaveScope() {
     _customCapsules = _globalCustomCapsules;
     _capsuleCache.clear();
     clearLocationCaches();
-}
-
-std::string Installation::getModuleRoot(std::string_view capsuleFilename) {
-    auto stem = std::filesystem::path(capsuleFilename).stem().string();
-    boost::to_lower(stem);
-    if (boost::ends_with(stem, "_s")) {
-        stem.resize(stem.size() - 2);
-    }
-    if (boost::ends_with(stem, "_dlg")) {
-        stem.resize(stem.size() - 4);
-    }
-    if (boost::ends_with(stem, "_loc")) {
-        stem.resize(stem.size() - 4);
-    }
-    return stem;
-}
-
-std::vector<std::string> Installation::moduleArchiveRelPaths(std::string_view moduleRoot) {
-    auto low = boost::to_lower_copy(std::string(moduleRoot));
-    return {
-        "modules/" + low + ".mod",
-        "modules/" + low + "_s.rim",
-        "modules/" + low + ".rim",
-        "modules/" + low + ".erf",
-        "modules/" + low + "_loc.mod",
-        "modules/" + low + "_loc.erf",
-        "modules/" + low + "_dlg.mod",
-        "modules/" + low + "_dlg.erf",
-        "lips/" + low + "_loc.mod",
-        "lips/" + low + "_loc.erf",
-    };
 }
 
 static std::string normalizeRelativePath(std::string_view relativePath) {
@@ -628,14 +715,9 @@ void Installation::checkModules(const resource::ResourceId &id, std::vector<Loca
         return;
     }
     loadModules();
-    for (const auto &rel : moduleArchiveRelPaths(*_moduleRoot)) {
-        auto filename = boost::to_lower_copy(std::filesystem::path(rel).filename().string());
-        auto it = _moduleCapsulePaths.find(filename);
-        if (it != _moduleCapsulePaths.end()) {
-            auto res = cachedCapsule(it->second).find(id);
-            if (res) {
-                appendLocation(*res, out);
-            }
+    for (const auto &archive : _moduleArchives) {
+        if (auto res = cachedCapsule(archive.path).find(id)) {
+            appendLocation(*res, out);
         }
     }
 }

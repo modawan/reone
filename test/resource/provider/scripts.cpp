@@ -62,7 +62,7 @@ ByteBuffer erfBytes(std::string resRef, ByteBuffer data) {
 class ScriptsReplacementTest : public testing::Test {
 protected:
     void SetUp() override {
-        _resources.addMemERF(erfBytes("script", ncsBytes(1)), ContainerKind::Global);
+        _resources.addMemERF(erfBytes("script", ncsBytes(1)), ResourceOwner::Global);
     }
 
     ResourceId id() const {

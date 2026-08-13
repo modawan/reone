@@ -25,6 +25,37 @@ namespace resource {
 
 static constexpr char kCellValueDeleted[] = "****";
 
+/**
+ * ASCII case folding.
+ *
+ * Table keys are ASCII, and the original lookup folds case. A locale-aware
+ * conversion is deliberately avoided: it would make which row a table resolves
+ * to depend on the environment the game happens to run in.
+ */
+static char asciiLower(char ch) {
+    return ch >= 'A' && ch <= 'Z' ? static_cast<char>(ch - 'A' + 'a') : ch;
+}
+
+static bool asciiEqualsIgnoreCase(const std::string &lhs, const std::string &rhs) {
+    if (lhs.size() != rhs.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < lhs.size(); ++i) {
+        if (asciiLower(lhs[i]) != asciiLower(rhs[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int TwoDA::indexByLabel(const std::string &label) const {
+    for (size_t i = 0; i < _rows.size(); ++i) {
+        if (asciiEqualsIgnoreCase(_rows[i].label, label))
+            return static_cast<int>(i);
+    }
+    return -1;
+}
+
 int TwoDA::indexByCellValue(const std::string &column, const std::string &value) const {
     int columnIdx = getColumnIndex(column);
     if (columnIdx == -1) {

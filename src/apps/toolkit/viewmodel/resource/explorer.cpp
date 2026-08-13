@@ -435,7 +435,14 @@ void ResourceExplorerViewModel::loadEngine() {
 
     auto keyPath = findFileIgnoreCase(_resourcesPath, "chitin.key");
     if (!keyPath) {
-        _resourceModule->resources().addFolder(_resourcesPath);
+        // This mounts into the same list the director just filled, so it has to
+        // place the source exactly as the director would. Leaving it unplaced
+        // for a game whose sources are bucketed would be rejected outright.
+        std::optional<ResourceSourceBucket> bucket;
+        if (usesBucketedLookup(_gameId)) {
+            bucket = ResourceSourceBucket::LooseDirectory;
+        }
+        _resourceModule->resources().addFolder(_resourcesPath, ResourceOwner::Global, bucket);
     }
 
     _modelResViewModel->initScene();
@@ -718,7 +725,9 @@ void ResourceExplorerViewModel::saveFile(Page &page, const std::filesystem::path
                 columns.emplace_back(column.name);
             }
             for (const auto &row : table.rows) {
-                rows.push_back({row});
+                // The table view does not carry row labels, so rows are
+                // relabelled by ordinal, which is what was written before.
+                rows.push_back(TwoDA::newRow(std::to_string(rows.size()), row));
             }
             TwoDA twoDa {std::move(columns), std::move(rows)};
             TwoDAWriter writer {twoDa};

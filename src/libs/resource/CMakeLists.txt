@@ -17,6 +17,7 @@ set(RESOURCE_INCLUDE_DIR ${REONE_INCLUDE_DIR}/reone/resource)
 set(RESOURCE_SOURCE_DIR ${CMAKE_SOURCE_DIR}/src/libs/resource)
 
 set(RESOURCE_HEADERS
+    ${RESOURCE_INCLUDE_DIR}/odysseyroots.h
     ${RESOURCE_INCLUDE_DIR}/2da.h
     ${RESOURCE_INCLUDE_DIR}/container.h
     ${RESOURCE_INCLUDE_DIR}/container/erf.h
@@ -63,7 +64,10 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/id.h
     ${RESOURCE_INCLUDE_DIR}/layout.h
     ${RESOURCE_INCLUDE_DIR}/ltr.h
+    ${RESOURCE_INCLUDE_DIR}/modulediscovery.h
+    ${RESOURCE_INCLUDE_DIR}/modulemount.h
     ${RESOURCE_INCLUDE_DIR}/modulepolicy.h
+    ${RESOURCE_INCLUDE_DIR}/mounttransaction.h
     ${RESOURCE_INCLUDE_DIR}/parser/2da/appearance.h
     ${RESOURCE_INCLUDE_DIR}/parser/2da/genericdoors.h
     ${RESOURCE_INCLUDE_DIR}/parser/2da/heads.h
@@ -100,12 +104,14 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/resource.h
     ${RESOURCE_INCLUDE_DIR}/resources.h
     ${RESOURCE_INCLUDE_DIR}/resref.h
+    ${RESOURCE_INCLUDE_DIR}/sourcelist.h
     ${RESOURCE_INCLUDE_DIR}/strings.h
     ${RESOURCE_INCLUDE_DIR}/talktable.h
     ${RESOURCE_INCLUDE_DIR}/types.h
     ${RESOURCE_INCLUDE_DIR}/typeutil.h)
 
 set(RESOURCE_SOURCES
+    ${RESOURCE_SOURCE_DIR}/odysseyroots.cpp
     ${RESOURCE_SOURCE_DIR}/2da.cpp
     ${RESOURCE_SOURCE_DIR}/extract/capsule.cpp
     ${RESOURCE_SOURCE_DIR}/extract/chitin.cpp
@@ -143,6 +149,8 @@ set(RESOURCE_SOURCES
     ${RESOURCE_SOURCE_DIR}/gameprobe.cpp
     ${RESOURCE_SOURCE_DIR}/gff.cpp
     ${RESOURCE_SOURCE_DIR}/ltr.cpp
+    ${RESOURCE_SOURCE_DIR}/modulediscovery.cpp
+    ${RESOURCE_SOURCE_DIR}/modulemount.cpp
     ${RESOURCE_SOURCE_DIR}/modulepolicy.cpp
     ${RESOURCE_SOURCE_DIR}/parser/2da/appearance.cpp
     ${RESOURCE_SOURCE_DIR}/parser/2da/genericdoors.cpp

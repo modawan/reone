@@ -29,6 +29,17 @@ public:
     explicit LazyCapsule(std::filesystem::path path);
 
     const std::filesystem::path &path() const { return _path; }
+
+    /**
+     * Read the container's index now rather than on the first lookup.
+     *
+     * Only the signature and the table of what the container holds are read;
+     * payloads stay on disk until a resource is asked for. A caller that has to
+     * know whether an archive is usable at the moment it takes it on uses this.
+     * A caller that only ever reads through it need not.
+     */
+    void load() const { ensureLoaded(); }
+
     const std::vector<FileResource> &resources() const;
 
     std::optional<FileResource> find(const resource::ResourceId &id) const;

@@ -1,0 +1,1162 @@
+/*
+ * Copyright (c) 2026 The reone project contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * Activated K2 module loading, against real backends.
+ *
+ * These tests observe returned bytes rather than mount calls: a mount sequence
+ * can look right and still resolve wrongly, because a source's priority comes
+ * from its bucket and not from when it was mounted. Both backends must agree.
+ *
+ * The K1 characterization suites in lookup.cpp and extractresources.cpp
+ * continue to describe the shared activated path, which this does not change.
+ */
+
+#include "reone/audio/di/module.h"
+#include "reone/audio/options.h"
+#include "reone/graphics/di/module.h"
+#include "reone/script/di/module.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
+#include "reone/resource/di/module.h"
+#include "reone/extract/installation.h"
+#include "reone/graphics/options.h"
+#include "reone/resource/director.h"
+#include "reone/resource/exception/notfound.h"
+#include "reone/resource/extractresources.h"
+#include "reone/resource/format/erfwriter.h"
+#include "reone/resource/format/rimwriter.h"
+#include "reone/resource/resources.h"
+#include "reone/system/stream/fileoutput.h"
+#include "reone/system/stream/memoryoutput.h"
+
+#include "../fixtures/archive.h"
+#include "../fixtures/graphics.h"
+#include "../fixtures/resource.h"
+#include "../fixtures/script.h"
+
+using namespace reone;
+using namespace reone::resource;
+
+using testing::NiceMock;
+using testing::Return;
+
+namespace {
+
+ByteBuffer bytes(std::string_view value) {
+    return ByteBuffer(value.begin(), value.end());
+}
+
+struct NamedRes {
+    std::string resRef;
+    ResType type;
+    std::string data;
+};
+
+ByteBuffer erfBytes(ErfWriter::FileType fileType, const std::vector<NamedRes> &resources) {
+    ErfWriter writer;
+    for (const auto &res : resources) {
+        writer.add(ErfWriter::Resource {res.resRef, res.type, bytes(res.data)});
+    }
+    ByteBuffer buffer;
+    MemoryOutputStream stream(buffer);
+    writer.save(fileType, stream);
+    return buffer;
+}
+
+ByteBuffer rimBytes(const std::vector<NamedRes> &resources) {
+    RimWriter writer;
+    for (const auto &res : resources) {
+        writer.add(RimWriter::Resource {res.resRef, res.type, bytes(res.data)});
+    }
+    ByteBuffer buffer;
+    MemoryOutputStream stream(buffer);
+    writer.save(stream);
+    return buffer;
+}
+
+void writeBuffer(const std::filesystem::path &path, const ByteBuffer &buffer) {
+    FileOutputStream stream(path);
+    if (!buffer.empty()) {
+        stream.write(buffer.data(), buffer.size());
+    }
+}
+
+void writeErf(const std::filesystem::path &path,
+              ErfWriter::FileType fileType,
+              const std::vector<NamedRes> &resources) {
+    writeBuffer(path, erfBytes(fileType, resources));
+}
+
+void writeRim(const std::filesystem::path &path, const std::vector<NamedRes> &resources) {
+    writeBuffer(path, rimBytes(resources));
+}
+
+void writeFile(const std::filesystem::path &path, const std::string &data) {
+    FileOutputStream stream(path);
+    stream.write(data.data(), data.size());
+}
+
+/// An archive as a resource payload, for nesting one inside another.
+std::string blob(const ByteBuffer &buffer) {
+    return std::string(buffer.begin(), buffer.end());
+}
+
+/// A module-save table listing one module and whether it may be saved.
+std::shared_ptr<TwoDA> moduleSaveTable(const std::string &moduleRoot, const std::string &includeInSave) {
+    return TwoDA::Builder()
+        .columns({"modulename", "includeinsave"})
+        .row(moduleRoot, {moduleRoot, includeInSave})
+        .build();
+}
+
+std::string dataOf(const std::optional<Resource> &res) {
+    if (!res) {
+        return "<not found>";
+    }
+    return std::string(res->data.begin(), res->data.end());
+}
+
+struct TmpDir {
+    std::filesystem::path path;
+
+    explicit TmpDir(const std::string &name) {
+        path = std::filesystem::temp_directory_path() / name;
+        std::filesystem::remove_all(path);
+        std::filesystem::create_directories(path);
+    }
+
+    ~TmpDir() {
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+    }
+
+    std::filesystem::path mkdir(const std::string &name) {
+        auto dir = path / name;
+        std::filesystem::create_directories(dir);
+        return dir;
+    }
+};
+
+/// ResourceDirector::init loads shaderpack.erf from the working directory.
+struct CwdGuard {
+    std::filesystem::path previous;
+
+    explicit CwdGuard(const std::filesystem::path &path) {
+        previous = std::filesystem::current_path();
+        std::filesystem::current_path(path);
+    }
+
+    ~CwdGuard() {
+        std::error_code ec;
+        std::filesystem::current_path(previous, ec);
+    }
+};
+
+enum class Backend {
+    Legacy,
+    Extract,
+};
+
+std::string backendName(const testing::TestParamInfo<Backend> &info) {
+    return info.param == Backend::Legacy ? "Legacy" : "Extract";
+}
+
+} // namespace
+
+class K2ModuleLoadingTest : public testing::TestWithParam<Backend> {
+protected:
+    void SetUp() override {
+        _graphics.init();
+        _script.init();
+        if (GetParam() == Backend::Legacy) {
+            _resources = std::make_unique<Resources>();
+            _auxResources = std::make_unique<Resources>();
+        } else {
+            _resources = std::make_unique<ExtractResources>();
+            _auxResources = std::make_unique<ExtractResources>();
+        }
+    }
+
+    /// A minimal installation. Every test needs a modules directory and a
+    /// shader pack, because the director mounts both unconditionally.
+    void makeInstallation(TmpDir &game, TmpDir &cwd) {
+        writeErf(cwd.path / "shaderpack.erf", ErfWriter::FileType::ERF, {});
+        game.mkdir("modules");
+    }
+
+    std::unique_ptr<ResourceDirector> makeDirector(
+        const std::filesystem::path &gamePath,
+        OdysseyResourceRoots roots = {},
+        GameID game = GameID::TSL) {
+        return std::make_unique<ResourceDirector>(
+            game,
+            gamePath,
+            _graphicsOpt,
+            _graphics.services(),
+            _script.services(),
+            _dialogs,
+            _gffs,
+            _lips,
+            _paths,
+            *_resources,
+            *_auxResources,
+            _scripts,
+            _twoDas,
+            std::move(roots));
+    }
+
+    std::string find(const std::string &resRef, ResType type = ResType::Txt) {
+        return dataOf(_resources->find(ResourceId(resRef, type)));
+    }
+
+    bool has(const std::string &resRef, ResType type = ResType::Txt) {
+        return static_cast<bool>(_resources->find(ResourceId(resRef, type)));
+    }
+
+    graphics::GraphicsOptions _graphicsOpt;
+    graphics::TestGraphicsModule _graphics;
+    script::TestScriptModule _script;
+
+    NiceMock<MockDialogs> _dialogs;
+    NiceMock<MockGffs> _gffs;
+    NiceMock<MockLips> _lips;
+    NiceMock<MockPaths> _paths;
+    NiceMock<MockScripts> _scripts;
+    NiceMock<MockTwoDAs> _twoDas;
+
+    std::unique_ptr<IResources> _resources;
+    std::unique_ptr<IResources> _auxResources;
+};
+
+// Buckets, not mount order, decide the winner.
+
+TEST_P(K2ModuleLoadingTest, resolves_global_and_module_sources_in_raw_lookup_order) {
+    TmpDir game("reone_test_k2_order");
+    TmpDir cwd("reone_test_k2_order_cwd");
+    makeInstallation(game, cwd);
+
+    auto override_ = game.mkdir("override");
+    writeFile(override_ / "loose.txt", "override");
+    writeErf(game.path / "patch.erf", ErfWriter::FileType::ERF,
+             {{"loose", ResType::Txt, "patch"},
+              {"class1", ResType::Txt, "patch"}});
+
+    auto modules = game.path / "modules";
+    writeRim(modules / "foo.rim",
+             {{"loose", ResType::Txt, "module image"},
+              {"class1", ResType::Txt, "module image"},
+              {"image", ResType::Txt, "module image"}});
+    writeErf(modules / "foo_dlg.erf", ErfWriter::FileType::ERF,
+             {{"image", ResType::Txt, "module class 2"},
+              {"class2", ResType::Txt, "module class 2"}});
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onModuleLoad("foo");
+
+    EXPECT_EQ("override", find("loose")) << "a loose directory outranks every archive";
+    EXPECT_EQ("patch", find("class1")) << "class 1 outranks a module resource image";
+    EXPECT_EQ("module image", find("image")) << "a resource image outranks class 2";
+    EXPECT_EQ("module class 2", find("class2"));
+}
+
+TEST_P(K2ModuleLoadingTest, prefers_the_adx_image_then_the_area_image_over_the_module_archive) {
+    TmpDir game("reone_test_k2_adjunct");
+    TmpDir cwd("reone_test_k2_adjunct_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeErf(modules / "foo.mod", ErfWriter::FileType::MOD,
+             {{"shared", ResType::Txt, "mod"},
+              {"a_vs_mod", ResType::Txt, "mod"}});
+    auto rims = game.mkdir("rims");
+    writeRim(rims / "foo_a.rim",
+             {{"shared", ResType::Txt, "area image"},
+              {"a_vs_mod", ResType::Txt, "area image"}});
+    writeRim(rims / "foo_adx.rim", {{"shared", ResType::Txt, "adx image"}});
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onModuleLoad("foo");
+
+    EXPECT_EQ("adx image", find("shared")) << "_adx is mounted after _a inside the image bucket";
+    EXPECT_EQ("area image", find("a_vs_mod")) << "an adjunct image outranks the class-2 module archive";
+}
+
+TEST_P(K2ModuleLoadingTest, suppresses_the_static_and_dialogue_sources_when_a_module_archive_exists) {
+    TmpDir game("reone_test_k2_mod_branch");
+    TmpDir cwd("reone_test_k2_mod_branch_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeErf(modules / "foo.mod", ErfWriter::FileType::MOD, {{"from_mod", ResType::Txt, "mod"}});
+    writeRim(modules / "foo_s.rim", {{"from_static", ResType::Txt, "static"}});
+    writeErf(modules / "foo_dlg.erf", ErfWriter::FileType::ERF, {{"from_dlg", ResType::Txt, "dialogue"}});
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onModuleLoad("foo");
+
+    EXPECT_EQ("mod", find("from_mod"));
+    EXPECT_FALSE(has("from_static")) << "the MOD branch suppresses _s";
+    EXPECT_FALSE(has("from_dlg")) << "the MOD branch suppresses _dlg";
+}
+
+TEST_P(K2ModuleLoadingTest, mounts_the_static_and_dialogue_sources_in_the_split_branch) {
+    TmpDir game("reone_test_k2_split");
+    TmpDir cwd("reone_test_k2_split_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeRim(modules / "foo.rim", {{"from_rim", ResType::Txt, "rim"}});
+    writeRim(modules / "foo_s.rim",
+             {{"from_static", ResType::Txt, "static"},
+              {"shared", ResType::Txt, "static"}});
+    writeErf(modules / "foo_dlg.erf", ErfWriter::FileType::ERF,
+             {{"from_dlg", ResType::Txt, "dialogue"},
+              {"shared", ResType::Txt, "dialogue"}});
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onModuleLoad("foo");
+
+    EXPECT_EQ("rim", find("from_rim"));
+    EXPECT_EQ("static", find("from_static"));
+    EXPECT_EQ("dialogue", find("from_dlg"));
+    EXPECT_EQ("static", find("shared")) << "every image source outranks the dialogue archive";
+}
+
+TEST_P(K2ModuleLoadingTest, mounts_localization_from_the_module_and_lips_locations) {
+    TmpDir game("reone_test_k2_loc");
+    TmpDir cwd("reone_test_k2_loc_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeRim(modules / "foo.rim", {{"anything", ResType::Txt, "rim"}});
+    writeErf(modules / "foo_loc.mod", ErfWriter::FileType::MOD,
+             {{"from_module_loc", ResType::Txt, "module loc"},
+              {"shared_loc", ResType::Txt, "module loc"}});
+    auto lips = game.mkdir("lips");
+    writeErf(lips / "foo_loc.mod", ErfWriter::FileType::MOD,
+             {{"from_lips_loc", ResType::Txt, "lips loc"},
+              {"shared_loc", ResType::Txt, "lips loc"}});
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onModuleLoad("foo");
+
+    EXPECT_EQ("module loc", find("from_module_loc"));
+    EXPECT_EQ("lips loc", find("from_lips_loc"));
+    EXPECT_EQ("lips loc", find("shared_loc")) << "the lips location is consulted after the module location";
+}
+
+// Saved state staged inside an archive already in scope.
+
+TEST_P(K2ModuleLoadingTest, prefers_the_staged_image_over_the_staged_archive) {
+    TmpDir game("reone_test_k2_staged");
+    TmpDir cwd("reone_test_k2_staged_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeRim(modules / "foo.rim", {{"state", ResType::Txt, "disk rim"}});
+
+    auto slot = game.mkdir("saves/000001");
+    writeErf(slot / "savegame.sav", ErfWriter::FileType::ERF,
+             {{"foo", ResType::Rsv, blob(rimBytes({{"state", ResType::Txt, "staged image"}}))},
+              {"foo", ResType::Sav, blob(erfBytes(ErfWriter::FileType::MOD, {{"state", ResType::Txt, "staged archive"}}))}});
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onGameLoad("000001");
+    director->onModuleLoad("foo");
+
+    // The image wins selection, so the active table takes its image form. The
+    // archive existing alongside it must not turn the active table into class 2.
+    EXPECT_EQ("staged image", find("state"));
+}
+
+TEST_P(K2ModuleLoadingTest, mounts_the_staged_archive_when_no_staged_image_exists) {
+    TmpDir game("reone_test_k2_staged_archive");
+    TmpDir cwd("reone_test_k2_staged_archive_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeErf(modules / "foo.mod", ErfWriter::FileType::MOD, {{"state", ResType::Txt, "disk mod"}});
+
+    auto nested = erfBytes(ErfWriter::FileType::MOD, {{"state", ResType::Txt, "staged archive"}});
+    auto slot = game.mkdir("saves/000001");
+    writeErf(slot / "savegame.sav", ErfWriter::FileType::ERF,
+             {{"foo", ResType::Sav, blob(nested)}});
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onGameLoad("000001");
+    director->onModuleLoad("foo");
+
+    EXPECT_EQ("staged archive", find("state"))
+        << "the active table is mounted last, so it wins its bucket against the disk archive";
+}
+
+TEST_P(K2ModuleLoadingTest, resolves_the_save_folder_above_the_outer_save_archive) {
+    TmpDir game("reone_test_k2_save_scope");
+    TmpDir cwd("reone_test_k2_save_scope_cwd");
+    makeInstallation(game, cwd);
+
+    auto slot = game.mkdir("saves/000001");
+    writeFile(slot / "loose.txt", "save folder");
+    writeErf(slot / "savegame.sav", ErfWriter::FileType::ERF,
+             {{"loose", ResType::Txt, "save archive"},
+              {"archive_only", ResType::Txt, "save archive"}});
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onGameLoad("000001");
+
+    // The save folder is a loose directory and the outer archive is not. This
+    // reverses the former insertion order, where whichever was mounted last won.
+    EXPECT_EQ("save folder", find("loose"));
+    EXPECT_EQ("save archive", find("archive_only"))
+        << "the outer archive must still supply what nothing else holds";
+}
+
+// Saved-state eligibility.
+
+TEST_P(K2ModuleLoadingTest, ignores_staged_state_for_a_module_the_save_table_excludes) {
+    TmpDir game("reone_test_k2_excluded");
+    TmpDir cwd("reone_test_k2_excluded_cwd");
+    makeInstallation(game, cwd);
+
+    writeRim(game.path / "modules" / "foo.rim", {{"state", ResType::Txt, "disk rim"}});
+
+    auto nested = erfBytes(ErfWriter::FileType::MOD, {{"state", ResType::Txt, "staged archive"}});
+    auto slot = game.mkdir("saves/000001");
+    writeErf(slot / "savegame.sav", ErfWriter::FileType::ERF,
+             {{"foo", ResType::Sav, blob(nested)}});
+
+    EXPECT_CALL(_twoDas, get("modulesave")).WillRepeatedly(Return(moduleSaveTable("foo", "0")));
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onGameLoad("000001");
+    director->onModuleLoad("foo");
+
+    EXPECT_EQ("disk rim", find("state")) << "an excluded module may not be entered from saved state";
+}
+
+TEST_P(K2ModuleLoadingTest, includes_a_module_the_save_table_does_not_mention) {
+    TmpDir game("reone_test_k2_absent_row");
+    TmpDir cwd("reone_test_k2_absent_row_cwd");
+    makeInstallation(game, cwd);
+
+    writeRim(game.path / "modules" / "foo.rim", {{"state", ResType::Txt, "disk rim"}});
+
+    auto nested = erfBytes(ErfWriter::FileType::MOD, {{"state", ResType::Txt, "staged archive"}});
+    auto slot = game.mkdir("saves/000001");
+    writeErf(slot / "savegame.sav", ErfWriter::FileType::ERF,
+             {{"foo", ResType::Sav, blob(nested)}});
+
+    // A table that lists other modules supplies no exclusion for this one.
+    EXPECT_CALL(_twoDas, get("modulesave")).WillRepeatedly(Return(moduleSaveTable("bar", "0")));
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onGameLoad("000001");
+    director->onModuleLoad("foo");
+
+    EXPECT_EQ("staged archive", find("state"));
+}
+
+// Module names.
+
+TEST_P(K2ModuleLoadingTest, never_reports_a_sidecar_as_a_module) {
+    TmpDir game("reone_test_k2_names");
+    TmpDir cwd("reone_test_k2_names_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeRim(modules / "foo.rim", {});
+    writeRim(modules / "foo_s.rim", {});
+    writeErf(modules / "foo_dlg.erf", ErfWriter::FileType::ERF, {});
+    writeErf(modules / "bar.mod", ErfWriter::FileType::MOD, {});
+
+    // The lips location holds global archives that are not modules, and is
+    // searched for a known module's support archives only.
+    auto lips = game.mkdir("lips");
+    writeErf(lips / "global.mod", ErfWriter::FileType::MOD, {});
+    writeErf(lips / "localization.mod", ErfWriter::FileType::MOD, {});
+    writeErf(lips / "foo_loc.mod", ErfWriter::FileType::MOD, {});
+
+    auto director = makeDirector(game.path);
+
+    EXPECT_EQ((std::set<std::string> {"bar", "foo"}), director->moduleNames());
+
+    // The installation indexer answers the same question over the same
+    // inventory, and must answer it identically.
+    auto tooling = extract::Installation(GameID::TSL, game.path).moduleNames();
+    EXPECT_EQ(director->moduleNames(), (std::set<std::string> {tooling.begin(), tooling.end()}));
+}
+
+/// The runtime mounts what the policy plans; the indexer reports everything
+/// that exists. Both must agree on which files belong to the module and on
+/// what each one is, which is the only part the two share.
+TEST_P(K2ModuleLoadingTest, agrees_with_the_installation_indexer_on_module_archives) {
+    TmpDir game("reone_test_k2_indexer");
+    TmpDir cwd("reone_test_k2_indexer_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeRim(modules / "foo.rim", {{"from_rim", ResType::Txt, "rim"}});
+    writeRim(modules / "foo_s.rim", {{"from_static", ResType::Txt, "static"}});
+    auto rims = game.mkdir("rims");
+    writeRim(rims / "foo_a.rim", {{"from_area", ResType::Txt, "area"}});
+    writeRim(rims / "foo_adx.rim", {{"from_adx", ResType::Txt, "adx"}});
+    writeErf(modules / "foo_dlg.erf", ErfWriter::FileType::ERF, {{"from_dlg", ResType::Txt, "dlg"}});
+    auto lips = game.mkdir("lips");
+    writeErf(lips / "foo_loc.mod", ErfWriter::FileType::MOD, {{"from_loc", ResType::Txt, "loc"}});
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onModuleLoad("foo");
+
+    extract::Installation installation(GameID::TSL, game.path);
+    installation.setModuleRoot("foo");
+
+    std::map<std::string, ModuleArchiveFamily> indexed;
+    for (const auto &archive : installation.moduleArchives()) {
+        indexed.emplace(boost::to_lower_copy(archive.path.filename().string()), archive.family);
+    }
+    EXPECT_EQ((std::map<std::string, ModuleArchiveFamily> {
+                  {"foo.rim", ModuleArchiveFamily::PrimaryRim},
+                  {"foo_a.rim", ModuleArchiveFamily::AreaRim},
+                  {"foo_adx.rim", ModuleArchiveFamily::AdxRim},
+                  {"foo_dlg.erf", ModuleArchiveFamily::Dialogue},
+                  {"foo_loc.mod", ModuleArchiveFamily::Localization},
+                  {"foo_s.rim", ModuleArchiveFamily::StaticRim},
+              }),
+              indexed);
+
+    // Every archive the indexer resolved really is reachable through the
+    // module the runtime just loaded.
+    for (const auto &resRef : {"from_rim", "from_static", "from_area", "from_adx", "from_dlg", "from_loc"}) {
+        EXPECT_TRUE(has(resRef)) << resRef;
+    }
+}
+
+// Transitions.
+
+TEST_P(K2ModuleLoadingTest, drops_the_previous_module_sources_on_a_transition) {
+    TmpDir game("reone_test_k2_transition");
+    TmpDir cwd("reone_test_k2_transition_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeRim(modules / "foo.rim", {{"shared", ResType::Txt, "foo"}, {"foo_only", ResType::Txt, "foo"}});
+    writeRim(modules / "bar.rim", {{"shared", ResType::Txt, "bar"}});
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+
+    director->onModuleLoad("foo");
+    EXPECT_EQ("foo", find("shared"));
+
+    director->onModuleLoad("bar");
+    EXPECT_EQ("bar", find("shared"));
+    EXPECT_FALSE(has("foo_only")) << "sources of the previous module must not survive a transition";
+
+    // A module already visited must load identically the second time.
+    director->onModuleLoad("foo");
+    EXPECT_EQ("foo", find("shared"));
+    EXPECT_TRUE(has("foo_only"));
+}
+
+// Sources that are not Odyssey game data.
+
+TEST_P(K2ModuleLoadingTest, keeps_streamed_audio_out_of_the_odyssey_resource_list) {
+    TmpDir game("reone_test_k2_streams");
+    TmpDir cwd("reone_test_k2_streams_cwd");
+    makeInstallation(game, cwd);
+
+    auto music = game.mkdir("streammusic");
+    writeFile(music / "track.wav", "streamed");
+    auto override_ = game.mkdir("override");
+    writeFile(override_ / "track.wav", "override");
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+
+    // Streamed audio has no bucket, so it cannot be ranked against Odyssey
+    // sources at all and does not appear in the game's resource list. Which of
+    // the two a clip is read from is the streaming subsystem's decision, and is
+    // covered by the AudioClips tests.
+    EXPECT_EQ("override", find("track", ResType::Wav));
+    EXPECT_EQ("streamed", dataOf(_auxResources->find(ResourceId("track", ResType::Wav))));
+}
+
+TEST_P(K2ModuleLoadingTest, mounts_every_odyssey_source_into_one_placed_order) {
+    // A list is homogeneous: it rejects a mount that does not match the mode it
+    // is in. A load that completes therefore proves no Odyssey source was left
+    // unplaced, which no assertion about individual mount calls could show.
+    TmpDir game("reone_test_k2_homogeneous");
+    TmpDir cwd("reone_test_k2_homogeneous_cwd");
+    makeInstallation(game, cwd);
+
+    writeErf(game.path / "patch.erf", ErfWriter::FileType::ERF, {{"p", ResType::Txt, "patch"}});
+    game.mkdir("override");
+    game.mkdir("texturepacks");
+    game.mkdir("streammusic");
+    auto lips = game.mkdir("lips");
+    writeErf(lips / "global.mod", ErfWriter::FileType::MOD, {{"g", ResType::Txt, "global lips"}});
+    writeRim(game.path / "modules" / "foo.rim", {{"m", ResType::Txt, "module"}});
+
+    auto slot = game.mkdir("saves/000001");
+    writeErf(slot / "savegame.sav", ErfWriter::FileType::ERF, {{"s", ResType::Txt, "save"}});
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        EXPECT_NO_THROW(director->init());
+    }
+    EXPECT_NO_THROW(director->onGameLoad("000001"));
+    EXPECT_NO_THROW(director->onModuleLoad("foo"));
+
+    EXPECT_EQ("patch", find("p"));
+    EXPECT_EQ("global lips", find("g"));
+    EXPECT_EQ("module", find("m"));
+    EXPECT_EQ("save", find("s"));
+}
+
+TEST_P(K2ModuleLoadingTest, admits_a_later_loose_directory_mounted_by_another_caller) {
+    // The toolkit mounts the resources directory itself when there is no key
+    // table. That lands in the same list the director just filled, so it has to
+    // be placed the same way; leaving it unplaced would be rejected.
+    TmpDir game("reone_test_k2_late_folder");
+    TmpDir cwd("reone_test_k2_late_folder_cwd");
+    makeInstallation(game, cwd);
+
+    auto override_ = game.mkdir("override");
+    writeFile(override_ / "shared.txt", "override");
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+
+    auto loose = game.mkdir("loose");
+    writeFile(loose / "shared.txt", "late folder");
+
+    std::optional<ResourceSourceBucket> bucket;
+    if (usesBucketedLookup(GameID::TSL)) {
+        bucket = ResourceSourceBucket::LooseDirectory;
+    }
+    ASSERT_NO_THROW(_resources->addFolder(loose, ResourceOwner::Global, bucket));
+
+    EXPECT_EQ("late folder", find("shared")) << "the source added last wins inside its own bucket";
+}
+
+TEST_P(K2ModuleLoadingTest, mounts_bound_live_packages_in_fixed_global_order) {
+    TmpDir game("reone_test_live_global");
+    TmpDir cwd("reone_test_live_global_cwd");
+    TmpDir live1("reone_test_live_global_1");
+    TmpDir live2("reone_test_live_global_2");
+    makeInstallation(game, cwd);
+
+    reone::test::writeKeyBif(live1.path, "data/live1.bif",
+                             {{"key_shared", ResType::Txt, "live1 key"}});
+    std::filesystem::rename(live1.path / "chitin.key", live1.path / "live1.key");
+    reone::test::writeKeyBif(live2.path, "data/live2.bif",
+                             {{"key_shared", ResType::Txt, "live2 key"}});
+    std::filesystem::rename(live2.path / "chitin.key", live2.path / "live2.key");
+
+    auto rims1 = live1.mkdir("RIMSXBOX");
+    auto rims2 = live2.mkdir("RIMSXBOX");
+    // A malformed member is independent: the later MOD and DX image still mount.
+    writeFile(rims1 / "live1.rim", "broken");
+    writeRim(rims1 / "live1dx.rim",
+             {{"image_shared", ResType::Txt, "live1 dx"},
+              {"after_broken", ResType::Txt, "live1 dx"}});
+    writeRim(rims2 / "live2.rim", {{"image_shared", ResType::Txt, "live2 base"}});
+    writeRim(rims2 / "live2dx.rim", {{"image_shared", ResType::Txt, "live2 dx"}});
+
+    writeErf(live1.path / "live1.mod", ErfWriter::FileType::MOD,
+             {{"class2_shared", ResType::Txt, "live1 mod"},
+              {"after_broken_mod", ResType::Txt, "live1 mod"}});
+    writeErf(live2.path / "live2.mod", ErfWriter::FileType::MOD,
+             {{"class2_shared", ResType::Txt, "live2 mod"}});
+
+    auto override1 = live1.mkdir("OVERRIDE");
+    auto override2 = live2.mkdir("OVERRIDE");
+    writeErf(override1 / "textures.erf", ErfWriter::FileType::ERF,
+             {{"class1_shared", ResType::Txt, "live1 textures"}});
+    writeErf(override2 / "textures.mod", ErfWriter::FileType::MOD,
+             {{"class1_shared", ResType::Txt, "live2 textures"}});
+    writeErf(live2.path / "unlisted.erf", ErfWriter::FileType::ERF,
+             {{"unlisted", ResType::Txt, "must stay absent"}});
+    auto implicit = game.mkdir("LIVE3");
+    writeErf(implicit / "live3.mod", ErfWriter::FileType::MOD,
+             {{"implicit_live", ResType::Txt, "must stay absent"}});
+
+    OdysseyResourceRoots roots;
+    roots.livePackages[0] = live1.path;
+    roots.livePackages[1] = live2.path;
+    auto director = makeDirector(game.path, roots);
+    {
+        CwdGuard guard(cwd.path);
+        ASSERT_NO_THROW(director->init());
+    }
+
+    EXPECT_EQ("live2 key", find("key_shared"));
+    EXPECT_EQ("live2 dx", find("image_shared"));
+    EXPECT_EQ("live2 mod", find("class2_shared"));
+    EXPECT_EQ("live2 textures", find("class1_shared"));
+    EXPECT_EQ("live1 dx", find("after_broken"));
+    EXPECT_EQ("live1 mod", find("after_broken_mod"));
+    EXPECT_FALSE(has("unlisted"));
+    EXPECT_FALSE(has("implicit_live"));
+}
+
+TEST_P(K2ModuleLoadingTest, configured_k2_override_roots_mount_in_natural_order) {
+    TmpDir game("reone_test_configured_override");
+    TmpDir cwd("reone_test_configured_override_cwd");
+    TmpDir localized("reone_test_configured_override_localized");
+    TmpDir subscribed("reone_test_configured_override_subscribed");
+    makeInstallation(game, cwd);
+
+    auto base = game.mkdir("override");
+    auto first = localized.mkdir("override");
+    auto second = subscribed.mkdir("override");
+    writeFile(base / "shared.txt", "base");
+    writeFile(first / "shared.txt", "localized");
+    writeFile(second / "shared.txt", "subscribed");
+
+    OdysseyResourceRoots roots;
+    roots.k2OverrideRoots = {localized.path, subscribed.path};
+    auto director = makeDirector(game.path, roots);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+
+    EXPECT_EQ("subscribed", find("shared"));
+
+    extract::Installation tooling(GameID::TSL, game.path, roots);
+    auto location = tooling.resource(
+        ResourceId("shared", ResType::Txt), extract::SearchScope {extract::SearchLocation::Override});
+    ASSERT_TRUE(location.has_value());
+    auto data = location->readData();
+    EXPECT_EQ("subscribed", std::string(data.begin(), data.end()));
+}
+
+TEST_P(K2ModuleLoadingTest, live_primary_selection_uses_package_order_not_global_recency) {
+    TmpDir game("reone_test_live_primary");
+    TmpDir cwd("reone_test_live_primary_cwd");
+    TmpDir live1("reone_test_live_primary_1");
+    TmpDir live2("reone_test_live_primary_2");
+    makeInstallation(game, cwd);
+
+    writeErf(live1.mkdir("MODULES") / "foo.mod", ErfWriter::FileType::MOD,
+             {{"primary", ResType::Txt, "live1"}});
+    writeErf(live2.mkdir("MODULES") / "foo.mod", ErfWriter::FileType::MOD,
+             {{"primary", ResType::Txt, "live2"}});
+
+    OdysseyResourceRoots roots;
+    roots.livePackages[0] = live1.path;
+    roots.livePackages[1] = live2.path;
+    auto director = makeDirector(game.path, roots);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onModuleLoad("foo");
+
+    EXPECT_EQ("live1", find("primary"));
+}
+
+TEST_P(K2ModuleLoadingTest, preserves_the_game_specific_modules_versus_live_primary_order) {
+    for (auto gameId : {GameID::KotOR, GameID::TSL}) {
+        _resources->clear();
+        _auxResources->clear();
+        TmpDir game(gameId == GameID::KotOR ? "reone_test_k1_live_primary"
+                                            : "reone_test_k2_live_primary");
+        TmpDir cwd(gameId == GameID::KotOR ? "reone_test_k1_live_primary_cwd"
+                                          : "reone_test_k2_live_primary_cwd");
+        TmpDir live(gameId == GameID::KotOR ? "reone_test_k1_live_root"
+                                            : "reone_test_k2_live_root");
+        makeInstallation(game, cwd);
+        writeErf(game.path / "modules" / "foo.mod", ErfWriter::FileType::MOD,
+                 {{"primary", ResType::Txt, "ordinary"}});
+        writeErf(live.mkdir("MODULES") / "foo.mod", ErfWriter::FileType::MOD,
+                 {{"primary", ResType::Txt, "live"}});
+
+        OdysseyResourceRoots roots;
+        roots.livePackages[0] = live.path;
+        auto director = makeDirector(game.path, roots, gameId);
+        {
+            CwdGuard guard(cwd.path);
+            director->init();
+        }
+        director->onModuleLoad("foo");
+
+        EXPECT_EQ(gameId == GameID::KotOR ? "ordinary" : "live", find("primary"));
+    }
+}
+
+TEST_P(K2ModuleLoadingTest, activates_the_default_nwm_root_directly_for_both_games) {
+    for (auto gameId : {GameID::KotOR, GameID::TSL}) {
+        _resources->clear();
+        _auxResources->clear();
+        TmpDir game(gameId == GameID::KotOR ? "reone_test_k1_nwm" : "reone_test_k2_nwm");
+        TmpDir cwd(gameId == GameID::KotOR ? "reone_test_k1_nwm_cwd" : "reone_test_k2_nwm_cwd");
+        makeInstallation(game, cwd);
+        writeErf(game.mkdir("nwm") / "foo.nwm", ErfWriter::FileType::MOD,
+                 {{"nwm_only", ResType::Txt, "nwm"}});
+        auto director = makeDirector(game.path, {}, gameId);
+        { CwdGuard guard(cwd.path); director->init(); }
+        director->onModuleLoad("foo");
+        EXPECT_EQ("nwm", find("nwm_only"));
+        _resources->clearOwner(ResourceOwner::ActiveModuleState);
+        EXPECT_FALSE(has("nwm_only")) << "NWM must use the active-state owner";
+        auto runtimeNames = director->moduleNames();
+        auto toolingNames = extract::Installation(gameId, game.path).moduleNames();
+        EXPECT_THAT(toolingNames, testing::UnorderedElementsAreArray(runtimeNames));
+        EXPECT_THAT(toolingNames, testing::Contains("foo"));
+    }
+}
+
+TEST_P(K2ModuleLoadingTest, nwm_precedes_every_unsaved_disk_primary) {
+    for (auto gameId : {GameID::KotOR, GameID::TSL}) {
+        _resources->clear();
+        _auxResources->clear();
+        TmpDir game(gameId == GameID::KotOR ? "reone_test_k1_nwm_order" : "reone_test_k2_nwm_order");
+        TmpDir cwd(gameId == GameID::KotOR ? "reone_test_k1_nwm_order_cwd" : "reone_test_k2_nwm_order_cwd");
+        TmpDir live(gameId == GameID::KotOR ? "reone_test_k1_nwm_live" : "reone_test_k2_nwm_live");
+        makeInstallation(game, cwd);
+        writeErf(game.mkdir("nwm") / "foo.nwm", ErfWriter::FileType::MOD,
+                 {{"primary", ResType::Txt, "nwm"}});
+        writeErf(game.path / "modules" / "foo.mod", ErfWriter::FileType::MOD,
+                 {{"primary", ResType::Txt, "ordinary"}});
+        writeErf(live.mkdir("MODULES") / "foo.mod", ErfWriter::FileType::MOD,
+                 {{"primary", ResType::Txt, "live"}});
+        OdysseyResourceRoots roots;
+        roots.livePackages[0] = live.path;
+        auto director = makeDirector(game.path, roots, gameId);
+        { CwdGuard guard(cwd.path); director->init(); }
+        director->onModuleLoad("foo");
+        EXPECT_EQ("nwm", find("primary"));
+    }
+}
+
+TEST_P(K2ModuleLoadingTest, nwm_sidecars_without_a_nwm_primary_do_not_activate) {
+    TmpDir game("reone_test_nwm_no_primary");
+    TmpDir cwd("reone_test_nwm_no_primary_cwd");
+    makeInstallation(game, cwd);
+    auto nwm = game.mkdir("nwm");
+    writeErf(nwm / "foo_loc.mod", ErfWriter::FileType::MOD,
+             {{"sidecar", ResType::Txt, "localization"}});
+    writeRim(nwm / "foo_s.rim", {{"static_sidecar", ResType::Txt, "static"}});
+    auto director = makeDirector(game.path);
+    { CwdGuard guard(cwd.path); director->init(); }
+    EXPECT_NO_THROW(director->onModuleLoad("foo"));
+    EXPECT_FALSE(has("sidecar"));
+    EXPECT_FALSE(has("static_sidecar"));
+}
+
+TEST_P(K2ModuleLoadingTest, module_and_nwm_roots_cannot_supply_rims_adjuncts) {
+    {
+        TmpDir game("reone_test_adjunct_modules_negative");
+        TmpDir cwd("reone_test_adjunct_modules_negative_cwd");
+        makeInstallation(game, cwd);
+        auto modules = game.path / "modules";
+        writeErf(modules / "foo.mod", ErfWriter::FileType::MOD,
+                 {{"primary", ResType::Txt, "modules"}});
+        writeRim(modules / "foo_a.rim", {{"stray_area", ResType::Txt, "modules"}});
+        writeRim(modules / "foo_adx.rim", {{"stray_adx", ResType::Txt, "modules"}});
+        auto director = makeDirector(game.path);
+        { CwdGuard guard(cwd.path); director->init(); }
+        director->onModuleLoad("foo");
+        EXPECT_EQ("modules", find("primary"));
+        EXPECT_FALSE(has("stray_area"));
+        EXPECT_FALSE(has("stray_adx"));
+    }
+
+    _resources->clear();
+    _auxResources->clear();
+    {
+        TmpDir game("reone_test_adjunct_nwm_negative");
+        TmpDir cwd("reone_test_adjunct_nwm_negative_cwd");
+        makeInstallation(game, cwd);
+        auto nwm = game.mkdir("nwm");
+        writeErf(nwm / "foo.nwm", ErfWriter::FileType::MOD,
+                 {{"primary", ResType::Txt, "nwm"}});
+        writeRim(nwm / "foo_a.rim", {{"stray_area", ResType::Txt, "nwm"}});
+        writeRim(nwm / "foo_adx.rim", {{"stray_adx", ResType::Txt, "nwm"}});
+        auto director = makeDirector(game.path);
+        { CwdGuard guard(cwd.path); director->init(); }
+        director->onModuleLoad("foo");
+        EXPECT_EQ("nwm", find("primary"));
+        EXPECT_FALSE(has("stray_area"));
+        EXPECT_FALSE(has("stray_adx"));
+    }
+}
+
+TEST_P(K2ModuleLoadingTest, live_module_roots_cannot_supply_rims_adjuncts) {
+    TmpDir game("reone_test_adjunct_live_negative");
+    TmpDir cwd("reone_test_adjunct_live_negative_cwd");
+    TmpDir live("reone_test_adjunct_live_root");
+    makeInstallation(game, cwd);
+    auto modules = live.mkdir("MODULES");
+    writeErf(modules / "foo.mod", ErfWriter::FileType::MOD,
+             {{"primary", ResType::Txt, "live"}});
+    writeRim(modules / "foo_a.rim", {{"stray_area", ResType::Txt, "live"}});
+    writeRim(modules / "foo_adx.rim", {{"stray_adx", ResType::Txt, "live"}});
+    OdysseyResourceRoots roots;
+    roots.livePackages[0] = live.path;
+    auto director = makeDirector(game.path, roots);
+    { CwdGuard guard(cwd.path); director->init(); }
+    director->onModuleLoad("foo");
+    EXPECT_EQ("live", find("primary"));
+    EXPECT_FALSE(has("stray_area"));
+    EXPECT_FALSE(has("stray_adx"));
+}
+
+TEST_P(K2ModuleLoadingTest, configured_module_roots_cannot_supply_rims_adjuncts) {
+    TmpDir game("reone_test_adjunct_configured_negative");
+    TmpDir cwd("reone_test_adjunct_configured_negative_cwd");
+    TmpDir configured("reone_test_adjunct_configured_root");
+    makeInstallation(game, cwd);
+    writeRim(game.path / "modules" / "foo.rim",
+             {{"primary", ResType::Txt, "base"}});
+    auto modules = configured.mkdir("modules");
+    writeRim(modules / "foo_a.rim", {{"stray_area", ResType::Txt, "configured"}});
+    writeRim(modules / "foo_adx.rim", {{"stray_adx", ResType::Txt, "configured"}});
+    OdysseyResourceRoots roots;
+    roots.k2OverrideRoots = {configured.path};
+    auto director = makeDirector(game.path, roots);
+    { CwdGuard guard(cwd.path); director->init(); }
+    director->onModuleLoad("foo");
+    EXPECT_EQ("base", find("primary"));
+    EXPECT_FALSE(has("stray_area"));
+    EXPECT_FALSE(has("stray_adx"));
+}
+
+TEST_P(K2ModuleLoadingTest, configured_module_families_follow_the_established_true_false_order) {
+    TmpDir game("reone_test_configured_modules");
+    TmpDir cwd("reone_test_configured_modules_cwd");
+    TmpDir localized("reone_test_configured_modules_localized");
+    TmpDir subscribed("reone_test_configured_modules_subscribed");
+    makeInstallation(game, cwd);
+
+    auto base = game.path / "modules";
+    auto first = localized.mkdir("modules");
+    auto second = subscribed.mkdir("modules");
+    writeRim(base / "foo.rim", {{"primary", ResType::Txt, "base rim"}});
+    writeRim(first / "foo_s.rim", {{"static", ResType::Txt, "localized static"}});
+    writeRim(second / "foo_s.rim", {{"static", ResType::Txt, "subscribed static"}});
+    writeErf(base / "foo_dlg.erf", ErfWriter::FileType::ERF,
+             {{"dialogue", ResType::Txt, "base dialogue"}});
+    writeErf(first / "foo_dlg.erf", ErfWriter::FileType::ERF,
+             {{"dialogue", ResType::Txt, "localized dialogue"}});
+    writeErf(second / "foo_dlg.erf", ErfWriter::FileType::ERF,
+             {{"dialogue", ResType::Txt, "subscribed dialogue"}});
+    writeErf(base / "bar.mod", ErfWriter::FileType::MOD,
+             {{"base_mod", ResType::Txt, "base"},
+              {"mod_collision", ResType::Txt, "base"}});
+    writeErf(first / "bar.mod", ErfWriter::FileType::MOD,
+             {{"localized_mod", ResType::Txt, "localized"},
+              {"mod_collision", ResType::Txt, "localized"}});
+    writeErf(second / "bar.mod", ErfWriter::FileType::MOD,
+             {{"subscribed_mod", ResType::Txt, "subscribed"},
+              {"mod_collision", ResType::Txt, "subscribed"}});
+    auto baseLips = game.mkdir("lips");
+    auto firstLips = localized.mkdir("lips");
+    auto secondLips = subscribed.mkdir("lips");
+    writeErf(baseLips / "baz_loc.mod", ErfWriter::FileType::MOD,
+             {{"base_lips", ResType::Txt, "base"}});
+    writeErf(firstLips / "baz_loc.mod", ErfWriter::FileType::MOD,
+             {{"localized_lips", ResType::Txt, "localized"}});
+    writeErf(secondLips / "baz_loc.mod", ErfWriter::FileType::MOD,
+             {{"subscribed_lips", ResType::Txt, "subscribed"}});
+    writeRim(base / "baz.rim", {{"baz_primary", ResType::Txt, "base"}});
+
+    OdysseyResourceRoots roots;
+    roots.k2OverrideRoots = {localized.path, subscribed.path};
+    auto director = makeDirector(game.path, roots);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onModuleLoad("foo");
+
+    EXPECT_EQ("localized static", find("static"));
+    EXPECT_EQ("subscribed dialogue", find("dialogue"));
+
+    director->onModuleLoad("bar");
+    EXPECT_EQ("base", find("base_mod"));
+    EXPECT_EQ("localized", find("localized_mod"));
+    EXPECT_EQ("subscribed", find("subscribed_mod"));
+    EXPECT_EQ("subscribed", find("mod_collision"));
+
+    director->onModuleLoad("baz");
+    EXPECT_EQ("base", find("base_lips"));
+    EXPECT_EQ("localized", find("localized_lips"));
+    EXPECT_EQ("subscribed", find("subscribed_lips"));
+}
+
+TEST(OdysseyResourceRoots, tooling_and_runtime_expand_the_same_bound_module_locations) {
+    TmpDir game("reone_test_roots_tooling");
+    TmpDir live("reone_test_roots_tooling_live");
+    TmpDir configured("reone_test_roots_tooling_configured");
+    std::filesystem::create_directories(game.path / "modules");
+    writeErf(live.mkdir("MODULES") / "liveonly.mod", ErfWriter::FileType::MOD, {});
+    writeErf(configured.mkdir("modules") / "configuredonly.mod", ErfWriter::FileType::MOD, {});
+    writeErf(game.mkdir("nwm") / "nwmonly.nwm", ErfWriter::FileType::MOD, {});
+
+    OdysseyResourceRoots roots = defaultOdysseyResourceRoots(game.path);
+    roots.livePackages[0] = live.path;
+    roots.k2OverrideRoots = {configured.path};
+    auto runtimeRoots = primaryModuleSearchRoots(GameID::TSL, game.path, roots);
+    auto runtimeNames = discoverModuleRoots(runtimeRoots);
+    auto toolingNames = extract::Installation(GameID::TSL, game.path, roots).moduleNames();
+
+    EXPECT_EQ(runtimeNames, toolingNames);
+    EXPECT_THAT(toolingNames, testing::ElementsAre("configuredonly", "liveonly", "nwmonly"));
+}
+
+TEST(OdysseyResourceRoots, keeps_unbound_live_slots_absent_and_deduplicates_lips_by_identity) {
+    TmpDir game("reone_test_roots_absent");
+    TmpDir configured("reone_test_roots_dedup");
+    std::filesystem::create_directories(game.path / "modules");
+    auto lips = configured.mkdir("lips");
+
+    OdysseyResourceRoots roots;
+    roots.livePackages[1] = std::nullopt;
+    roots.k2OverrideRoots = {configured.path, configured.path};
+
+    auto primary = primaryModuleSearchRoots(GameID::TSL, game.path, roots);
+    auto support = lipsRoots(GameID::TSL, game.path, roots);
+    auto moduleRoots = moduleSearchRoots(GameID::TSL, game.path, roots);
+
+    ASSERT_EQ(1, primary.size());
+    EXPECT_EQ(ModulePrimaryOrigin::Modules, primary[0].origin);
+    ASSERT_EQ(1, support.size());
+    EXPECT_EQ(lips.lexically_normal(), support[0].lexically_normal());
+    ASSERT_EQ(2, moduleRoots.size());
+    EXPECT_EQ(ModulePrimaryOrigin::ConfiguredModuleRoot, moduleRoots[1].origin);
+    EXPECT_EQ(0, moduleRoots[1].rootOrder);
+    EXPECT_TRUE(defaultOdysseyResourceRoots(game.path).nwmFiles.has_value());
+    EXPECT_EQ((game.path / "nwm").lexically_normal(),
+              defaultOdysseyResourceRoots(game.path).nwmFiles->lexically_normal());
+}
+
+TEST(OdysseyResourceRoots, resource_module_refreshes_only_a_derived_nwm_root) {
+    TmpDir newGame("reone_test_roots_set_game_path_new");
+    TmpDir custom("reone_test_roots_set_game_path_custom");
+    TmpDir cwd("reone_test_roots_set_game_path_cwd");
+    std::filesystem::create_directories(newGame.path / "nwm");
+    std::filesystem::create_directories(custom.path);
+    std::filesystem::create_directories(cwd.path / "nwm");
+    writeErf(newGame.path / "nwm" / "newonly.nwm", ErfWriter::FileType::MOD, {});
+    writeErf(custom.path / "customonly.nwm", ErfWriter::FileType::MOD, {});
+    writeErf(cwd.path / "nwm" / "cwdonly.nwm", ErfWriter::FileType::MOD, {});
+    graphics::GraphicsOptions graphicsOpt;
+    audio::AudioOptions audioOpt;
+    graphics::GraphicsModule graphics(graphicsOpt);
+    audio::AudioModule audio(audioOpt);
+    script::ScriptModule script;
+    ResourceModule derived(
+        GameID::TSL, {}, graphicsOpt, audioOpt, graphics, audio, script);
+    ASSERT_EQ(std::filesystem::path("nwm"), *derived.odysseyRoots().nwmFiles);
+    derived.setGamePath(newGame.path);
+    EXPECT_EQ((newGame.path / "nwm").lexically_normal(),
+              derived.odysseyRoots().nwmFiles->lexically_normal());
+    {
+        CwdGuard guard(cwd.path);
+        auto runtime = discoverModuleRoots(
+            primaryModuleSearchRoots(GameID::TSL, newGame.path, derived.odysseyRoots()));
+        auto tooling = extract::Installation(
+            GameID::TSL, newGame.path, derived.odysseyRoots()).moduleNames();
+        EXPECT_EQ((std::vector<std::string> {"newonly"}), runtime);
+        EXPECT_THAT(tooling, testing::ElementsAre("newonly"));
+    }
+    OdysseyResourceRoots explicitRoots;
+    explicitRoots.nwmFiles = custom.path;
+    ResourceModule explicitModule(GameID::TSL,
+                                  {},
+                                  graphicsOpt,
+                                  audioOpt,
+                                  graphics,
+                                  audio,
+                                  script,
+                                  ResourcesBackend::Legacy,
+                                  explicitRoots);
+    explicitModule.setGamePath(newGame.path);
+    EXPECT_EQ(custom.path.lexically_normal(),
+              explicitModule.odysseyRoots().nwmFiles->lexically_normal());
+}
+
+TEST(ResourceDirectorActivation, places_both_games_in_the_raw_lookup_order) {
+    // Both games are activated. K1's own startup and module registration are
+    // now evidenced, so neither game keeps the insertion-ordered stack.
+    EXPECT_TRUE(usesBucketedLookup(GameID::TSL));
+    EXPECT_TRUE(usesBucketedLookup(GameID::KotOR));
+}
+
+INSTANTIATE_TEST_SUITE_P(Backends,
+                         K2ModuleLoadingTest,
+                         testing::Values(Backend::Legacy, Backend::Extract),
+                         backendName);

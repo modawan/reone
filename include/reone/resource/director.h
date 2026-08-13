@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include "modulediscovery.h"
+#include "odysseyroots.h"
+#include "modulemount.h"
 #include "resources.h"
 #include "types.h"
 
@@ -43,6 +46,17 @@ class ILips;
 class IPaths;
 class IResources;
 class IScripts;
+class ITwoDAs;
+
+/**
+ * Whether a game's Odyssey sources are placed in the raw lookup order.
+ *
+ * A source list is homogeneous, so anything mounting into the game's resource
+ * list has to agree with the director about this. K2 is activated; K1 keeps the
+ * shared bucketed stack established by its global startup
+ * precedence is established.
+ */
+bool usesBucketedLookup(GameID game);
 
 class IResourceDirector {
 public:
@@ -68,9 +82,13 @@ public:
                      ILips &lips,
                      IPaths &paths,
                      IResources &resources,
-                     IScripts &scripts) :
+                     IResources &auxResources,
+                     IScripts &scripts,
+                     ITwoDAs &twoDas,
+                     OdysseyResourceRoots odysseyRoots = {}) :
         _gameId(gameId),
         _gamePath(gamePath),
+        _odysseyRoots(std::move(odysseyRoots)),
         _graphicsOpt(graphicsOpt),
         _graphicsSvc(graphicsSvc),
         _scriptSvc(scriptSvc),
@@ -79,7 +97,12 @@ public:
         _lips(lips),
         _paths(paths),
         _resources(resources),
-        _scripts(scripts) {
+        _auxResources(auxResources),
+        _scripts(scripts),
+        _twoDas(twoDas) {
+        if (!_odysseyRoots.nwmFiles) {
+            _odysseyRoots.nwmFiles = defaultOdysseyResourceRoots(_gamePath).nwmFiles;
+        }
     }
 
     void init() override;
@@ -92,6 +115,7 @@ public:
 private:
     GameID _gameId;
     const std::filesystem::path &_gamePath;
+    OdysseyResourceRoots _odysseyRoots;
     const graphics::GraphicsOptions &_graphicsOpt;
     graphics::GraphicsServices &_graphicsSvc;
     script::ScriptServices &_scriptSvc;
@@ -100,17 +124,39 @@ private:
     ILips &_lips;
     IPaths &_paths;
     IResources &_resources;
+    IResources &_auxResources;
     IScripts &_scripts;
+    ITwoDAs &_twoDas;
 
     // Set when a savegame is loaded.
     std::optional<std::filesystem::path> _savegamePath;
 
+    bool bucketed() const { return usesBucketedLookup(_gameId); }
+
+    /// The given bucket, or nothing when this game is not activated. A list is
+    /// homogeneous, so a game either places every source or places none.
+    std::optional<ResourceSourceBucket> bucketOf(ResourceSourceBucket bucket) const;
+
     void loadGlobalResources();
-    void loadModuleResources(const std::string &name);
+    void loadAuxiliaryResources();
+    void loadStreamResources();
+    void loadK1StreamResources();
+    void loadRimsDirectory();
+    void loadGlobalRimResource();
+    void loadOverrideTexturesResource();
+    void loadTexturePackResources();
+    void loadPlayerSupportResource();
+    void loadK1GlobalResources();
+    void loadLiveResources();
     void loadSaveGameResources(std::string_view name);
 
-    void loadRIM(const std::filesystem::path &path, const std::string &name, ContainerKind kind);
-    void loadERF(const std::filesystem::path &path, const std::string &name, ContainerKind kind);
+    void loadModuleResources(const std::string &name);
+    void loadModuleResourcesFromPolicy(const std::string &name);
+
+    std::vector<ModuleSearchRoot> moduleSearchRoots();
+    void addStagedModuleSources(const std::string &moduleRoot, RuntimeModuleSourceIndex &index);
+    bool includeModuleInSave(const std::string &moduleRoot);
+
 };
 
 } // namespace resource

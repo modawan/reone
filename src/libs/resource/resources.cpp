@@ -28,46 +28,46 @@ namespace reone {
 
 namespace resource {
 
-void Resources::addKEY(const std::filesystem::path &path) {
+void Resources::addKEY(const std::filesystem::path &path, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<KeyBifResourceContainer>(path);
     provider->init();
-    _containers.push_front(ResourceContainerPair {std::move(provider), ContainerKind::Global});
+    add(std::move(provider), ResourceOwner::Global, bucket);
 }
 
-void Resources::addERF(const std::filesystem::path &path, ContainerKind kind) {
+void Resources::addERF(const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<ErfResourceContainer>(path);
     provider->init();
-    _containers.push_front(ResourceContainerPair {std::move(provider), kind});
+    add(std::move(provider), owner, bucket);
 }
 
-void Resources::addMemERF(ByteBuffer buffer, ContainerKind kind) {
+void Resources::addMemERF(ByteBuffer buffer, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<ErfResourceContainer>(std::move(buffer));
     provider->init();
-    _containers.push_front(ResourceContainerPair {std::move(provider), kind});
+    add(std::move(provider), owner, bucket);
 }
 
-void Resources::addRIM(const std::filesystem::path &path, ContainerKind kind) {
+void Resources::addRIM(const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<RimResourceContainer>(path);
     provider->init();
-    _containers.push_front(ResourceContainerPair {std::move(provider), kind});
+    add(std::move(provider), owner, bucket);
 }
 
-void Resources::addMemRIM(ByteBuffer buffer, ContainerKind kind) {
+void Resources::addMemRIM(ByteBuffer buffer, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<RimResourceContainer>(buffer);
     provider->init();
-    _containers.push_front(ResourceContainerPair {std::move(provider), kind});
+    add(std::move(provider), owner, bucket);
 }
 
-void Resources::addEXE(const std::filesystem::path &path) {
+void Resources::addEXE(const std::filesystem::path &path, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<ExeResourceContainer>(path);
     provider->init();
-    _containers.push_front(ResourceContainerPair {std::move(provider), ContainerKind::Global});
+    add(std::move(provider), ResourceOwner::Global, bucket);
 }
 
-void Resources::addFolder(const std::filesystem::path &path, ContainerKind kind) {
+void Resources::addFolder(const std::filesystem::path &path, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket) {
     auto provider = std::make_unique<FolderResourceContainer>(path);
     provider->init();
-    _containers.push_front(ResourceContainerPair {std::move(provider), kind});
+    add(std::move(provider), owner, bucket);
 }
 
 Resource Resources::get(const ResourceId &id) {
@@ -79,8 +79,8 @@ Resource Resources::get(const ResourceId &id) {
 }
 
 std::optional<Resource> Resources::find(const ResourceId &id) {
-    for (auto &[provider, kind] : _containers) {
-        auto data = provider->findResourceData(id);
+    for (auto &container : _containers) {
+        auto data = container.provider->findResourceData(id);
         if (data) {
             return Resource {*data};
         }

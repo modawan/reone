@@ -82,7 +82,8 @@ public:
                    graphics::GraphicsModule &graphics,
                    audio::AudioModule &audio,
                    script::ScriptModule &script,
-                   ResourcesBackend resourcesBackend = ResourcesBackend::Legacy) :
+                   ResourcesBackend resourcesBackend = ResourcesBackend::Legacy,
+                   OdysseyResourceRoots odysseyRoots = {}) :
         _gameId(gameId),
         _gamePath(std::move(gamePath)),
         _graphicsOpt(graphicsOpt),
@@ -90,7 +91,12 @@ public:
         _graphics(graphics),
         _audio(audio),
         _script(script),
-        _resourcesBackend(resourcesBackend) {
+        _resourcesBackend(resourcesBackend),
+        _nwmFilesDerived(!odysseyRoots.nwmFiles),
+        _odysseyRoots(std::move(odysseyRoots)) {
+        if (!_odysseyRoots.nwmFiles) {
+            _odysseyRoots.nwmFiles = defaultOdysseyResourceRoots(_gamePath).nwmFiles;
+        }
     }
 
     ~ResourceModule() { deinit(); }
@@ -117,6 +123,7 @@ public:
     ResourceDirector &director() { return *_director; }
 
     ResourceServices &services() { return *_services; }
+    const OdysseyResourceRoots &odysseyRoots() const { return _odysseyRoots; }
 
     void setGameID(GameID id) {
         _gameId = id;
@@ -124,6 +131,9 @@ public:
 
     void setGamePath(std::filesystem::path path) {
         _gamePath = std::move(path);
+        if (_nwmFilesDerived) {
+            _odysseyRoots.nwmFiles = defaultOdysseyResourceRoots(_gamePath).nwmFiles;
+        }
     }
 
 private:
@@ -136,9 +146,14 @@ private:
     script::ScriptModule &_script;
     ResourcesBackend _resourcesBackend {ResourcesBackend::Legacy};
 
+    bool _nwmFilesDerived {false};
+    OdysseyResourceRoots _odysseyRoots;
     std::unique_ptr<Gffs> _gffs;
     std::unique_ptr<IResourceReplacements> _replacements;
     std::unique_ptr<IResources> _resources;
+    /// Sources outside the Odyssey raw lookup model: the shader pack, the
+    /// executable, and streamed audio for an activated game.
+    std::unique_ptr<IResources> _auxResources;
     std::unique_ptr<Strings> _strings;
     std::unique_ptr<TwoDAs> _twoDas;
     std::unique_ptr<Scripts> _scripts;

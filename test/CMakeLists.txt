@@ -43,6 +43,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/extract/fileresource.cpp
     ${TESTS_SOURCE_DIR}/extract/finder.cpp
     ${TESTS_SOURCE_DIR}/extract/installation.cpp
+    ${TESTS_SOURCE_DIR}/extract/modulealignment.cpp
     ${TESTS_SOURCE_DIR}/fixtures/engine.cpp
     ${TESTS_SOURCE_DIR}/game/action.cpp
     ${TESTS_SOURCE_DIR}/game/assigncommand.cpp
@@ -72,7 +73,11 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/graphics/keyframetrack.cpp
     ${TESTS_SOURCE_DIR}/graphics/walkmesh.cpp
     ${TESTS_SOURCE_DIR}/json/gff.cpp
+    ${TESTS_SOURCE_DIR}/resource/archivevalidation.cpp
     ${TESTS_SOURCE_DIR}/resource/extractresources.cpp
+    ${TESTS_SOURCE_DIR}/resource/modulediscovery.cpp
+    ${TESTS_SOURCE_DIR}/resource/moduleloading.cpp
+    ${TESTS_SOURCE_DIR}/resource/modulemount.cpp
     ${TESTS_SOURCE_DIR}/resource/modulepolicy.cpp
     ${TESTS_SOURCE_DIR}/resource/replacements.cpp
     ${TESTS_SOURCE_DIR}/resource/format/2dareader.cpp
@@ -88,13 +93,18 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/resource/format/tlkreader.cpp
     ${TESTS_SOURCE_DIR}/resource/format/tlkwriter.cpp
     ${TESTS_SOURCE_DIR}/resource/parser/jrl.cpp
+    ${TESTS_SOURCE_DIR}/resource/k1startup.cpp
     ${TESTS_SOURCE_DIR}/resource/lookup.cpp
     ${TESTS_SOURCE_DIR}/resource/provider/2das.cpp
+    ${TESTS_SOURCE_DIR}/resource/provider/audioclips.cpp
     ${TESTS_SOURCE_DIR}/resource/provider/dialogs.cpp
     ${TESTS_SOURCE_DIR}/resource/provider/gffs.cpp
     ${TESTS_SOURCE_DIR}/resource/provider/scripts.cpp
+    ${TESTS_SOURCE_DIR}/resource/2da.cpp
     ${TESTS_SOURCE_DIR}/resource/resources.cpp
     ${TESTS_SOURCE_DIR}/resource/resref.cpp
+    ${TESTS_SOURCE_DIR}/resource/sourcebuckets.cpp
+    ${TESTS_SOURCE_DIR}/resource/sourcelifetimes.cpp
     ${TESTS_SOURCE_DIR}/resource/strings.cpp
     ${TESTS_SOURCE_DIR}/scene/emitter.cpp
     ${TESTS_SOURCE_DIR}/scene/model.cpp

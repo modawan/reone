@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include "../resource.h"
+#include "../types.h"
+
 namespace reone {
 
 namespace audio {
@@ -38,10 +41,20 @@ public:
     virtual std::shared_ptr<audio::AudioClip> get(const std::string &key) = 0;
 };
 
+/**
+ * Audio clips, read from the streamed audio directories first and from
+ * ordinary resources second.
+ *
+ * The streaming directories are not part of the Odyssey raw lookup order, so
+ * they are held separately and consulted explicitly rather than being given a
+ * bucket they have no evidence for. Format preference is unchanged: MP3 is
+ * still preferred over WAV across both, not within each.
+ */
 class AudioClips : public IAudioClips {
 public:
-    AudioClips(IResources &resources) :
-        _resources(resources) {
+    AudioClips(IResources &resources, IResources &streamResources) :
+        _resources(resources),
+        _streamResources(streamResources) {
     }
 
     void clear() override {
@@ -59,10 +72,12 @@ public:
 
 private:
     IResources &_resources;
+    IResources &_streamResources;
 
     std::unordered_map<std::string, std::shared_ptr<audio::AudioClip>> _objects;
 
     std::shared_ptr<audio::AudioClip> doGet(std::string resRef);
+    std::optional<Resource> findClipData(const std::string &resRef, ResType type);
 };
 
 } // namespace resource

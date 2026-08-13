@@ -39,21 +39,37 @@ public:
         _sources.clear();
     }
 
-    void clearLocal() override {
-        clearSome(ContainerKind::Local);
+    void clearOwner(ResourceOwner owner) override {
+        _sources.clearOwner(owner);
     }
 
-    void clearSave() override {
-        clearSome(ContainerKind::Save);
+    ResourceMountToken mountToken() const override {
+        return _sources.mountToken();
     }
 
-    void addEXE(const std::filesystem::path &path) override;
-    void addKEY(const std::filesystem::path &path) override;
-    void addERF(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
-    void addMemERF(ByteBuffer buffer, ContainerKind kind) override;
-    void addRIM(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
-    void addMemRIM(ByteBuffer buffer, ContainerKind kind = ContainerKind::Global) override;
-    void addFolder(const std::filesystem::path &path, ContainerKind kind = ContainerKind::Global) override;
+    void rollbackTo(ResourceMountToken token) override {
+        _sources.rollbackTo(token);
+    }
+
+    void addEXE(const std::filesystem::path &path,
+                std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addKEY(const std::filesystem::path &path,
+                std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addERF(const std::filesystem::path &path,
+                ResourceOwner owner = ResourceOwner::Global,
+                std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addMemERF(ByteBuffer buffer,
+                   ResourceOwner owner,
+                   std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addRIM(const std::filesystem::path &path,
+                ResourceOwner owner = ResourceOwner::Global,
+                std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addMemRIM(ByteBuffer buffer,
+                   ResourceOwner owner = ResourceOwner::Global,
+                   std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
+    void addFolder(const std::filesystem::path &path,
+                   ResourceOwner owner = ResourceOwner::Global,
+                   std::optional<ResourceSourceBucket> bucket = std::nullopt) override;
 
     Resource get(const ResourceId &id) override;
     std::optional<Resource> find(const ResourceId &id) override;
@@ -62,24 +78,21 @@ public:
 
 private:
     struct Source {
-        ContainerKind kind;
+        ResourceOwner owner;
+        std::optional<ResourceSourceBucket> bucket;
+        ResourceMountToken sequence {0};
         std::function<std::optional<ByteBuffer>(const ResourceId &)> find;
     };
 
-    std::list<Source> _sources;
+    ResourceSourceList<Source> _sources;
 
-    void clearSome(ContainerKind kind) {
-        auto toErase = std::remove_if(_sources.begin(), _sources.end(), [kind](auto &source) {
-            return source.kind == kind;
-        });
-        _sources.erase(toErase, _sources.end());
+    void addSource(ResourceOwner owner,
+                   std::optional<ResourceSourceBucket> bucket,
+                   std::function<std::optional<ByteBuffer>(const ResourceId &)> find) {
+        _sources.add(Source {owner, bucket, 0, std::move(find)});
     }
 
-    void addSource(ContainerKind kind, std::function<std::optional<ByteBuffer>(const ResourceId &)> find) {
-        _sources.push_front(Source {kind, std::move(find)});
-    }
-
-    void addMemArchive(ByteBuffer buffer, ContainerKind kind, bool rim);
+    void addMemArchive(ByteBuffer buffer, ResourceOwner owner, std::optional<ResourceSourceBucket> bucket, bool rim);
 };
 
 } // namespace resource

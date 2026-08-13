@@ -29,9 +29,28 @@ namespace reone {
 
 namespace resource {
 
+std::optional<Resource> AudioClips::findClipData(const std::string &resRef, ResType type) {
+    auto id = ResourceId(resRef, type);
+    // The streaming directories answer for a streamed asset before the ordinary
+    // sources do. The traced engine reaches them by path rather than through
+    // raw lookup, so the streaming location is authoritative for what it holds,
+    // and retail relies on it: a K2 installation ships hundreds of voice lines
+    // in both StreamVoice and the key tables, and the streamed copy is the one
+    // that must play.
+    //
+    // This is the streaming subsystem's own rule, not a bucket. It does mean an
+    // ordinary source cannot shadow a streamed asset of the same name, which
+    // should be revisited if audio moves onto a path provider.
+    auto res = _streamResources.find(id);
+    if (res) {
+        return res;
+    }
+    return _resources.find(id);
+}
+
 std::shared_ptr<AudioClip> AudioClips::doGet(std::string resRef) {
     std::shared_ptr<AudioClip> clip;
-    auto m3pRes = _resources.find(ResourceId(resRef, ResType::Mp3));
+    auto m3pRes = findClipData(resRef, ResType::Mp3);
     if (m3pRes) {
         auto stream = MemoryInputStream(m3pRes->data);
         auto reader = Mp3Reader();
@@ -39,7 +58,7 @@ std::shared_ptr<AudioClip> AudioClips::doGet(std::string resRef) {
         clip = reader.stream();
     }
     if (!clip) {
-        auto wavRes = _resources.find(ResourceId(resRef, ResType::Wav));
+        auto wavRes = findClipData(resRef, ResType::Wav);
         if (wavRes) {
             auto stream = MemoryInputStream(wavRes->data);
             auto mp3ReaderFactory = Mp3ReaderFactory();

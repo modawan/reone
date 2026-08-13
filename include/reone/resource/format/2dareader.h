@@ -43,6 +43,7 @@ private:
     int _dataSize {0};
 
     std::vector<std::string> _columns;
+    std::vector<std::string> _labels;
     std::vector<TwoDA::Row> _rows;
 
     std::shared_ptr<TwoDA> _twoDa;

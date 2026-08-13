@@ -43,10 +43,10 @@ constexpr Faction kGamma = static_cast<Faction>(2);
 std::shared_ptr<TwoDA> makeReputeTable() {
     std::vector<std::string> columns {"label", "alpha", "beta", "gamma", "delta"};
     std::vector<TwoDA::Row> rows {
-        TwoDA::Row {{"alpha", "50", "50", "50", "50"}},
-        TwoDA::Row {{"beta", "50", "100", "0", "50"}},
-        TwoDA::Row {{"gamma", "50", "100", "100", "50"}},
-        TwoDA::Row {{"delta", "50", "50", "50", "50"}}};
+        TwoDA::newRow("0", {"alpha", "50", "50", "50", "50"}),
+        TwoDA::newRow("1", {"beta", "50", "100", "0", "50"}),
+        TwoDA::newRow("2", {"gamma", "50", "100", "100", "50"}),
+        TwoDA::newRow("3", {"delta", "50", "50", "50", "50"})};
     return std::make_shared<TwoDA>(std::move(columns), std::move(rows));
 }
 

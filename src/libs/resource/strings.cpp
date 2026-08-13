@@ -18,6 +18,7 @@
 #include "reone/resource/strings.h"
 
 #include "reone/resource/exception/notfound.h"
+#include "reone/resource/format/tlkreader.h"
 #include "reone/resource/talktable.h"
 #include "reone/system/fileutil.h"
 #include "reone/system/stream/fileinput.h"
@@ -34,24 +35,63 @@ void Strings::init(const std::filesystem::path &gameDir) {
     auto tlk = FileInputStream(*tlkPath);
     auto tlkReader = TlkReader(tlk);
     tlkReader.load();
-    _table = tlkReader.table();
+    setTalkTable(0, tlkReader.table());
+}
+
+void Strings::setTalkTable(std::size_t slot, std::shared_ptr<TalkTable> table) {
+    if (slot >= _tables.size()) {
+        throw std::out_of_range("talk table slot is out of range");
+    }
+    _tables[slot] = std::move(table);
+}
+
+bool Strings::loadTalkTable(std::size_t slot, const std::filesystem::path &path) {
+    setTalkTable(slot, nullptr);
+    try {
+        auto tlk = FileInputStream(path);
+        auto tlkReader = TlkReader(tlk);
+        tlkReader.load();
+        setTalkTable(slot, tlkReader.table());
+        return true;
+    } catch (const std::exception &) {
+        return false;
+    }
+}
+
+const TalkTable::String *Strings::findString(int strRef) const {
+    if (strRef == -1) {
+        return nullptr;
+    }
+
+    auto row = static_cast<std::uint32_t>(strRef) & 0x00ffffff;
+    for (const auto &table : _tables) {
+        if (!table || row >= static_cast<std::uint32_t>(table->getStringCount())) {
+            continue;
+        }
+        return &table->getString(static_cast<int>(row));
+    }
+    return nullptr;
 }
 
 std::string Strings::getText(int strRef) {
-    if (!_table || strRef < 0 || strRef >= _table->getStringCount())
+    auto string = findString(strRef);
+    if (!string) {
         return "";
+    }
 
-    std::string text(_table->getString(strRef).text);
+    std::string text(string->text);
     process(text);
 
     return text;
 }
 
 std::string Strings::getSound(int strRef) {
-    if (!_table || strRef < 0 || strRef >= _table->getStringCount())
+    auto string = findString(strRef);
+    if (!string) {
         return "";
+    }
 
-    return _table->getString(strRef).soundResRef;
+    return string->soundResRef;
 }
 
 void Strings::process(std::string &str) {

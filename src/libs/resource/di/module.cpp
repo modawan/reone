@@ -31,17 +31,26 @@ namespace resource {
 
 void ResourceModule::init() {
     std::unique_ptr<IResources> backend;
+    std::unique_ptr<IResources> auxBackend;
     if (_resourcesBackend == ResourcesBackend::Extract) {
         backend = std::make_unique<ExtractResources>();
+        auxBackend = std::make_unique<ExtractResources>();
     } else {
         backend = std::make_unique<Resources>();
+        auxBackend = std::make_unique<Resources>();
     }
     _replacements = std::make_unique<ResourceReplacements>();
     _resources = std::make_unique<ReplacementResources>(std::move(backend), *_replacements);
+    // Auxiliary sources are read through the same replacement store, so a
+    // replacement still sits above them. A second store would silently make
+    // shader and cursor resources unreplaceable. The backend mirrors the
+    // selected one because the two index folders differently, and streamed
+    // audio lives here for an activated game.
+    _auxResources = std::make_unique<ReplacementResources>(std::move(auxBackend), *_replacements);
     _strings = std::make_unique<Strings>();
     _twoDas = std::make_unique<TwoDAs>(*_resources);
     _gffs = std::make_unique<Gffs>(*_resources);
-    _shaders = std::make_unique<Shaders>(_graphicsOpt, _graphics.shaderRegistry(), *_resources);
+    _shaders = std::make_unique<Shaders>(_graphicsOpt, _graphics.shaderRegistry(), *_auxResources);
     _textures = std::make_unique<Textures>(_graphicsOpt, *_resources);
     _models = std::make_unique<Models>(*_textures, *_resources, _graphics.statistic());
     _walkmeshes = std::make_unique<Walkmeshes>(*_resources);
@@ -60,8 +69,8 @@ void ResourceModule::init() {
         *_textures,
         _graphics.uniforms(),
         _graphics.statistic(),
-        *_resources);
-    _audioClips = std::make_unique<AudioClips>(*_resources);
+        *_auxResources);
+    _audioClips = std::make_unique<AudioClips>(*_resources, *_auxResources);
     _movies = std::make_unique<Movies>(_gamePath, _graphics.services(), _audio.mixer());
     _scripts = std::make_unique<Scripts>(*_resources, *_replacements);
     _dialogs = std::make_unique<Dialogs>(*_gffs, *_strings);
@@ -81,10 +90,14 @@ void ResourceModule::init() {
         *_lips,
         *_paths,
         *_resources,
-        *_scripts);
+        *_auxResources,
+        *_scripts,
+        *_twoDas,
+        _odysseyRoots);
 
-    _director->init();
     _strings->init(_gamePath);
+    loadLiveTalkTables(*_strings, _odysseyRoots);
+    _director->init();
     _shaders->init();
     _textures->init();
 
@@ -136,6 +149,7 @@ void ResourceModule::deinit() {
     _gffs.reset();
     _twoDas.reset();
     _strings.reset();
+    _auxResources.reset();
     _resources.reset();
     _replacements.reset();
 }
