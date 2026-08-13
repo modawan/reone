@@ -206,6 +206,19 @@ static bool animationIntersectsModel(
     });
 }
 
+static bool shouldReuseExternalAnimationForAttachment(
+    const Animation &anim,
+    const ModelSceneNode &attachedModel,
+    const AnimationProperties &properties) {
+    // External stunt tracks may drive a live creature head when their node
+    // names intersect. Do not broaden that proxy animation to every creature
+    // attachment: unrelated composite parts must retain their own local
+    // animation channels, including overlays.
+    return attachedModel.usage() == ModelUsage::Creature &&
+           (properties.flags & AnimationFlags::retargetRoot) &&
+           animationIntersectsModel(anim, attachedModel.model().rootNode());
+}
+
 void ModelSceneNode::playAnimation(const std::string &name, std::shared_ptr<LipAnimation> lipAnim, AnimationProperties properties) {
     auto anim = _model->getAnimation(name);
     if (anim) {
@@ -273,8 +286,8 @@ void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation
         for (auto &attachment : _attachments) {
             if (attachment.second->type() == SceneNodeType::Model) {
                 auto *attachedModel = static_cast<ModelSceneNode *>(attachment.second);
-                if ((properties.flags & AnimationFlags::retargetRoot) &&
-                    animationIntersectsModel(anim, attachedModel->model().rootNode())) {
+                if (shouldReuseExternalAnimationForAttachment(
+                        anim, *attachedModel, properties)) {
                     // External stunt models include facial tracks for the live
                     // appearance head, but that head has no local stunt clip.
                     // Reuse the proxy animation where node names intersect;

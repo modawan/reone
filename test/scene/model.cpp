@@ -246,6 +246,10 @@ TEST(ModelSceneNode, should_apply_external_stunt_tracks_to_an_attached_appearanc
         1, "headhook", glm::vec3(0.0f),
         glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, bodyRoot.get());
     bodyRoot->addChild(headHook);
+    auto accessoryHook = std::make_shared<ModelNode>(
+        2, "accessoryhook", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, bodyRoot.get());
+    bodyRoot->addChild(accessoryHook);
 
     auto headRoot = std::make_shared<ModelNode>(
         0, "pmhb05", glm::vec3(0.0f),
@@ -274,29 +278,56 @@ TEST(ModelSceneNode, should_apply_external_stunt_tracks_to_an_attached_appearanc
     auto headModel = Model(
         "pmhb05", 0, headRoot,
         std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    auto accessoryRoot = std::make_shared<ModelNode>(
+        0, "unrelated_root", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto accessoryAnimRoot = std::make_shared<ModelNode>(
+        0, "unrelated_root", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, nullptr);
+    auto accessoryOverlay = std::make_shared<Animation>(
+        "local_overlay", 1.0f, 0.0f, "", accessoryAnimRoot,
+        std::vector<Animation::Event>());
+    auto accessoryModel = Model(
+        "unrelated_creature_attachment", 0, accessoryRoot,
+        std::vector<std::shared_ptr<Animation>> {accessoryOverlay}, "", 1.0f);
     auto body = std::make_shared<ModelSceneNode>(
         bodyModel, ModelUsage::Creature, *scene,
         graphicsModule.services(), audioModule.services(), resourceModule.services());
     auto head = std::make_shared<ModelSceneNode>(
         headModel, ModelUsage::Creature, *scene,
         graphicsModule.services(), audioModule.services(), resourceModule.services());
+    auto accessory = std::make_shared<ModelSceneNode>(
+        accessoryModel, ModelUsage::Creature, *scene,
+        graphicsModule.services(), audioModule.services(), resourceModule.services());
 
     // when
     body->init();
     head->init();
+    accessory->init();
     body->attach("headhook", *head);
+    body->attach("accessoryhook", *accessory);
+    accessory->playAnimation(
+        "local_overlay", nullptr,
+        AnimationProperties::fromFlags(AnimationFlags::loopOverlay));
     body->playAnimation(
         *external, nullptr,
         AnimationProperties::fromFlags(AnimationFlags::propagate | AnimationFlags::retargetRoot));
     body->update(1.0f);
 
     // then
+    auto bodyRootNode = body->getNodeByName("pmbbs");
     auto headRootNode = head->getNodeByName("pmhb05");
     auto eyelidNode = head->getNodeByName("eyeLid");
+    ASSERT_TRUE(static_cast<bool>(bodyRootNode));
     ASSERT_TRUE(static_cast<bool>(headRootNode));
     ASSERT_TRUE(static_cast<bool>(eyelidNode));
+    EXPECT_NEAR(4.0f, bodyRootNode->localTransform()[3].x, 1e-5);
+    EXPECT_NEAR(5.0f, bodyRootNode->localTransform()[3].y, 1e-5);
+    EXPECT_NEAR(6.0f, bodyRootNode->localTransform()[3].z, 1e-5);
     EXPECT_NEAR(0.0f, headRootNode->localTransform()[3].x, 1e-5);
     EXPECT_NEAR(-0.25f, eyelidNode->localTransform()[3].z, 1e-5);
+    EXPECT_EQ("local_overlay", accessory->activeAnimationName());
+    EXPECT_EQ(1u, accessory->animationChannels().size());
 }
 
 TEST(ModelSceneNode, should_play_single_looping_animation) {
