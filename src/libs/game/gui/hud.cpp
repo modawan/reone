@@ -67,17 +67,32 @@ void HUD::preload(IGUI &gui) {
     gui.setResolution(800, 600);
     gui.setScaling(GUI::ScalingMode::PositionRelativeToCenter);
 
-    static std::string combatControlTags[] = {
+    static constexpr const char *kCentredCombatControls[] = {
         "BTN_CLEARALL", "BTN_CLEARONE", "BTN_CLEARONE2",
         "LBL_CMBTMODEMSG", "LBL_CMBTMSGBG", "LBL_COMBATBG1", "LBL_COMBATBG2", "LBL_COMBATBG3",
         "LBL_QUEUE0", "LBL_QUEUE1", "LBL_QUEUE2", "LBL_QUEUE3"};
-    for (auto &tag : combatControlTags) {
-        gui.setControlScaling(tag, GUI::ScalingMode::Stretch);
+    for (auto tag : kCentredCombatControls) {
+        gui.setControlScaling(tag, GUI::ScalingMode::ScaledRelativeToCenter);
     }
 }
 
 void HUD::onGUILoaded() {
     bindControls();
+
+    if (!_game.isTSL()) {
+        for (Control *control : {
+                 static_cast<Control *>(_controls.LBL_CMBTMODEMSG.get()),
+                 static_cast<Control *>(_controls.BTN_CLEARALL.get()),
+                 static_cast<Control *>(_controls.BTN_CLEARONE.get()),
+                 static_cast<Control *>(_controls.BTN_CLEARONE2.get())}) {
+            if (control) {
+                control->setScale(control->scale() * kK1CombatTextScale);
+            }
+        }
+        if (auto actionDescription = findControl<gui::Label>("LBL_ACTIONDESC")) {
+            actionDescription->setScale(actionDescription->scale() * kK1CombatTextScale);
+        }
+    }
 
     // The menu strip and the action queue are icon artwork, magnified on any
     // modern screen, so they get their alpha edge reconstructed.
@@ -135,9 +150,6 @@ void HUD::onGUILoaded() {
     _controls.LBL_CMBTEFCTRED2->setVisible(false);
     _controls.LBL_CMBTEFCTRED3->setVisible(false);
     _controls.LBL_CMBTMODEMSG->setVisible(false);
-    // Stretch-gated combat controls keep authored rectangles, but the mode
-    // message is text and follows the HUD's uniform text scale.
-    _controls.LBL_CMBTMODEMSG->setScale(_gui->scale() * _gui->textScale());
     _controls.LBL_CMBTMSGBG->setVisible(false);
     _controls.LBL_COMBATBG3->setVisible(false);
     _controls.LBL_DARKSHIFT->setVisible(false);
@@ -415,12 +427,28 @@ void HUD::update(float dt) {
         _controls.PB_VIT1->setValue(65);
         _controls.PB_FORCE1->setVisible(true);
         _controls.PB_FORCE1->setValue(45);
+        if (_captureCombatPresentation) {
+            toggleCombat(true);
+            for (auto &queue : {_controls.LBL_QUEUE0, _controls.LBL_QUEUE1,
+                                _controls.LBL_QUEUE2, _controls.LBL_QUEUE3}) {
+                queue->setBorderFill(g_attackIcon);
+            }
+        }
     }
 }
 
-void HUD::showCapturePresentation() {
+void HUD::showCapturePresentation(bool combat) {
     _capturePresentation = true;
+    _captureCombatPresentation = combat;
     _gui->rootControl().setVisible(true);
+}
+
+void HUD::clearCapturePresentation() {
+    _capturePresentation = false;
+    _captureCombatPresentation = false;
+    if (_barkBubble) {
+        _barkBubble->setBarkText("", 0.0f);
+    }
 }
 
 void HUD::updateTransitionPresentation() {
@@ -506,7 +534,11 @@ void HUD::toggleCombat(bool enabled) {
     _controls.LBL_QUEUE2->setVisible(enabled);
     _controls.LBL_QUEUE3->setVisible(enabled);
 
-    if (!_game.isTSL()) {
+    if (_game.isTSL()) {
+        // The first two TSL backings are persistent HUD art. The third is the
+        // combat-sequence extension and follows combat visibility.
+        _controls.LBL_COMBATBG3->setVisible(enabled);
+    } else {
         _controls.LBL_COMBATBG1->setVisible(enabled);
         _controls.LBL_COMBATBG2->setVisible(enabled);
         _controls.LBL_COMBATBG3->setVisible(enabled);

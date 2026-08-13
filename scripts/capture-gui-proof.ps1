@@ -62,12 +62,19 @@ function New-GameStates([string]$module, [string]$swoop, [bool]$party, [string]$
     $startupStates | ForEach-Object { $states.Add($_) }
     $states.AddRange([object[]]@(
         @{ Id = "character-generation"; Frame = 60; Commands = @("openchargen class") },
-        @{ Id = "character-feats"; Frame = 60; Commands = @("warp $module", "openchargen feats") },
-        @{ Id = "character-powers"; Frame = 60; Commands = @("warp $module", "openchargen powers") },
-        @{ Id = "character-feats-dense"; Frame = 60; ListScale = 0.75; Commands = @("warp $module", "openchargen feats select") },
-        @{ Id = "character-powers-dense"; Frame = 60; ListScale = 0.75; Commands = @("warp $module", "openchargen powers select") },
+        @{ Id = "character-quick-or-custom"; Frame = 60; Commands = @("warp $module", "openchargen quick-or-custom") },
+        @{ Id = "character-quick"; Frame = 60; Commands = @("warp $module", "openchargen quick") },
+        @{ Id = "character-portrait"; Frame = 60; Commands = @("warp $module", "openchargen portrait") },
+        @{ Id = "character-name"; Frame = 60; Commands = @("warp $module", "openchargen name") },
+        @{ Id = "character-custom"; Frame = 60; Commands = @("warp $module", "openchargen custom") },
+        @{ Id = "character-abilities"; Frame = 60; Commands = @("warp $module", "openchargen abilities") },
+        @{ Id = "character-skills"; Frame = 60; Commands = @("warp $module", "openchargen skills select") },
+        @{ Id = "character-feats"; Frame = 60; Commands = @("warp $module", "openchargen feats select") },
+        @{ Id = "character-powers"; Frame = 60; Commands = @("warp $module", "openchargen powers select") },
+        @{ Id = "character-level-up"; Frame = 60; Commands = @("warp $module", "openchargen level-up") },
         @{ Id = "container"; Frame = 30; Commands = (@("warp $module") + $fixture + @("opencontainer")) },
         @{ Id = "gameplay"; Frame = $readyFrame; Commands = @("warp $module", "showhud") },
+        @{ Id = "combat-action-sequence"; Frame = $readyFrame; Commands = @("warp $module", "showhud combat") },
         @{ Id = "swoop"; Frame = 30; Commands = @("warp $swoop", "showgallerymode swoop") },
         @{ Id = "pazaak-wager"; Frame = 30; Commands = @("warp $module", "givegold 100", "showgallerymode pazaak wager") },
         @{ Id = "pazaak-setup"; Frame = 30; Commands = @("warp $module", "showgallerymode pazaak setup") },
@@ -77,16 +84,12 @@ function New-GameStates([string]$module, [string]$swoop, [bool]$party, [string]$
         @{ Id = "computer"; Frame = $readyFrame; Commands = @("warp $computerModule", "startconversation $computerDialog") }
     ))
 
-    # Lists are captured at the 75% default and again at 100% as a regression.
     $tabs = @("equipment", "equipment-items", "inventory", "character", "abilities", "messages", "journal", "map", "options")
     if ($party) { $tabs += "party" }
     foreach ($tab in $tabs) {
         $needsItems = $tab -eq "inventory" -or $tab -eq "equipment-items"
         $commands = @("warp $module") + $(if ($needsItems) { $fixture } else { @() }) + @("openmenu $tab")
-        $states.Add(@{ Id = $tab; Frame = $readyFrame; Commands = $commands; ListScale = 0.75 })
-        if ($needsItems) {
-            $states.Add(@{ Id = "$tab-full"; Frame = $readyFrame; Commands = $commands; ListScale = 1.0 })
-        }
+        $states.Add(@{ Id = $tab; Frame = $readyFrame; Commands = $commands })
     }
 
     $states.Add(@{ Id = "bark-bubble"; Frame = 30; Commands = @("warp $module",
@@ -105,55 +108,57 @@ $count = 0
 foreach ($game in $games) {
     foreach ($res in $resolutions) {
         $selected = @($game.States | Where-Object { $States.Count -eq 0 -or $States -contains $_.Id })
-        foreach ($group in ($selected | Group-Object { if ($_.ListScale) { $_.ListScale } else { 1.0 } })) {
-            $listScale = if ($group.Group[0].ListScale) { $group.Group[0].ListScale } else { 1.0 }
 
-            # One engine process per (game, resolution, list scale): the states
-            # are sequenced through a command file instead of restarting.
-            $lines = [System.Collections.Generic.List[string]]::new()
-            if ($NoWorld) { $lines.Add("graphics off"); $lines.Add("seed 1337") }
-            $frame = 0
-            foreach ($state in $group.Group) {
-                $isStartup = -not $state.Commands
-                if (-not $isStartup -and $frame -lt $readyFrame) {
-                    $lines.Add($(if ($frame -eq 0) { "skipmovie" } else { "pause $($readyFrame - $frame)" }))
-                    $frame = $readyFrame
-                }
-                if ($state.Commands) { $state.Commands | ForEach-Object { $lines.Add($_) } }
-                $delay = if ($isStartup) { $state.Frame - $frame } else { $state.Frame }
-                if ($isStartup) { $frame = $state.Frame }
-                if ($delay -gt 0) { $lines.Add("pause $delay") }
-                if ($state.BeforeCaptureCommands) { $state.BeforeCaptureCommands | ForEach-Object { $lines.Add($_) } }
-                $lines.Add("capture $((Join-Path $runDir "$($state.Id).tga").Replace('\', '/'))")
-                if ($state.AfterCommands) { $state.AfterCommands | ForEach-Object { $lines.Add($_) } }
+        # One engine process per game and resolution. Every state uses the
+        # game's default presentation scales, including the 75% list density.
+        $lines = [System.Collections.Generic.List[string]]::new()
+        if ($NoWorld) {
+            $lines.Add("graphics off")
+            $lines.Add("seed 1337")
+        } else {
+            $lines.Add("graphics on")
+        }
+        $frame = 0
+        foreach ($state in $selected) {
+            $isStartup = -not $state.Commands
+            if (-not $isStartup -and $frame -lt $readyFrame) {
+                $lines.Add($(if ($frame -eq 0) { "skipmovie" } else { "pause $($readyFrame - $frame)" }))
+                $frame = $readyFrame
             }
-            $lines.Add("quit")
-            $commandPath = Join-Path $runDir "commands.txt"
-            Set-Content -LiteralPath $commandPath -Value $lines -Encoding utf8
+            if ($state.Commands) { $state.Commands | ForEach-Object { $lines.Add($_) } }
+            $delay = if ($isStartup) { $state.Frame - $frame } else { $state.Frame }
+            if ($isStartup) { $frame = $state.Frame }
+            if ($delay -gt 0) { $lines.Add("pause $delay") }
+            if ($state.BeforeCaptureCommands) { $state.BeforeCaptureCommands | ForEach-Object { $lines.Add($_) } }
+            $lines.Add("capture $((Join-Path $runDir "$($state.Id).tga").Replace('\', '/'))")
+            if ($state.AfterCommands) { $state.AfterCommands | ForEach-Object { $lines.Add($_) } }
+        }
+        $lines.Add("quit")
+        $commandPath = Join-Path $runDir "commands.txt"
+        Set-Content -LiteralPath $commandPath -Value $lines -Encoding utf8
 
-            Write-Host "$($game.Id) $($res.W)x$($res.H) listscale=$listScale ($($group.Count) captures)"
-            Push-Location $runDir
-            try {
-                & $enginePath --game $game.Dir --commands-file $commandPath `
-                    --width $res.W --height $res.H --winscale 100 --fullscreen 0 `
-                    --headless 1 --dev 0 --vsync 0 --pbr 0 `
-                    --guiscale 1 --guiborderscale 1 --guilistscale $listScale
-                if ($LASTEXITCODE -ne 0) { throw "Engine exited with ${LASTEXITCODE}" }
-            } finally {
-                Pop-Location
-            }
+        Write-Host "$($game.Id) $($res.W)x$($res.H) default scales ($($selected.Count) captures)"
+        Push-Location $runDir
+        try {
+            & $enginePath --game $game.Dir --commands-file $commandPath `
+                --width $res.W --height $res.H --winscale 100 --fullscreen 0 `
+                --headless 1 --dev 0 --vsync 0 --pbr 0 `
+                --guiscale 1 --guiborderscale 1 --guilistscale 0.75
+            if ($LASTEXITCODE -ne 0) { throw "Engine exited with ${LASTEXITCODE}" }
+        } finally {
+            Pop-Location
+        }
 
-            foreach ($state in $group.Group) {
-                $tga = Join-Path $runDir "$($state.Id).tga"
-                if (-not (Test-Path -LiteralPath $tga -PathType Leaf)) {
-                    throw "Capture produced no image: $($game.Id)/$($state.Id)"
-                }
-                $png = Join-Path $OutputDir "$($game.Id)-$($state.Id)-$($res.W)x$($res.H).png"
-                & $ffmpeg -y -loglevel error -i $tga $png
-                if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed for $($state.Id)" }
-                Remove-Item -LiteralPath $tga -Force
-                $count++
+        foreach ($state in $selected) {
+            $tga = Join-Path $runDir "$($state.Id).tga"
+            if (-not (Test-Path -LiteralPath $tga -PathType Leaf)) {
+                throw "Capture produced no image: $($game.Id)/$($state.Id)"
             }
+            $png = Join-Path $OutputDir "$($game.Id)-$($state.Id)-$($res.W)x$($res.H).png"
+            & $ffmpeg -y -loglevel error -i $tga $png
+            if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed for $($state.Id)" }
+            Remove-Item -LiteralPath $tga -Force
+            $count++
         }
     }
 }
