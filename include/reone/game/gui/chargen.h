@@ -85,6 +85,7 @@ public:
     void openNameEntry();
     void openAbilities();
     void openSkills();
+    CharGenSkills &skills() { return *_charGenSkills; }
     CharGenFeats &feats() { return *_charGenFeats; }
     CharGenPowers &powers() { return *_charGenPowers; }
 

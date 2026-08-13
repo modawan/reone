@@ -3579,6 +3579,12 @@ void Game::consoleGiveGold(const ConsoleArgs &args) {
 
 void Game::consoleWarp(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "module");
+    // Gallery states share an engine process for speed. A warp is their scene
+    // boundary, so fixture-only HUD state must not bleed into the next image.
+    _captureHUDPresentation = false;
+    if (_hud) {
+        _hud->clearCapturePresentation();
+    }
     loadModule(std::string(args[1].value()));
 }
 
@@ -3625,7 +3631,7 @@ static std::string joinConsoleArgs(const ConsoleArgs &args, size_t first) {
 }
 
 void Game::consoleOpenCharacterGeneration(const ConsoleArgs &args) {
-    consoleCheckUsage(args, 1, 2, "class|feats|powers [select]");
+    consoleCheckUsage(args, 1, 2, "class|quick-or-custom|quick|portrait|name|custom|abilities|skills|feats|powers|level-up [select]");
 
     std::string_view screen(args[1].value());
     bool selectFirst = args.size() > 2 && boost::iequals(std::string(args[2].value()), "select");
@@ -3638,25 +3644,61 @@ void Game::consoleOpenCharacterGeneration(const ConsoleArgs &args) {
     }
 
     if (!_module || !_party.getLeader()) {
-        throw std::runtime_error("Character feat and power screens require a loaded party");
+        throw std::runtime_error("Character-generation capture screens require a loaded party");
     }
     openLevelUp();
     if (!_charGen) {
         throw std::runtime_error("Character generation GUI is unavailable");
     }
-    if (boost::iequals(screen, "feats")) {
-        if (isTSL()) {
-            // TSL's new-character screen uses the icon grid. Give the capture
-            // fixture the same first-level state as the manual custom flow.
-            std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(ClassType::JediGuardian));
-            if (!clazz) {
-                throw std::runtime_error("Starting class is unavailable");
-            }
-            Character character(_charGen->character());
-            character.attributes = clazz->defaultAttributes();
-            _charGen->setCharacter(std::move(character));
-            _charGen->startCustom();
+    if (boost::iequals(screen, "level-up")) {
+        _charGen->openLevelUp();
+        return;
+    }
+
+    Character character(_charGen->character());
+    ClassType captureClass = boost::iequals(screen, "powers")
+                                 ? ClassType::JediConsular
+                                 : (isTSL() ? ClassType::JediGuardian : ClassType::Soldier);
+    std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(captureClass));
+    if (!clazz) {
+        throw std::runtime_error("Starting class is unavailable");
+    }
+    character.attributes = clazz->defaultAttributes();
+    _charGen->setCharacter(std::move(character));
+
+    if (boost::iequals(screen, "quick")) {
+        _charGen->startQuick();
+        return;
+    }
+    _charGen->startCustom();
+    if (boost::iequals(screen, "quick-or-custom")) {
+        _charGen->openQuickOrCustom();
+        return;
+    }
+    if (boost::iequals(screen, "portrait")) {
+        _charGen->openPortraitSelection();
+        return;
+    }
+    if (boost::iequals(screen, "name")) {
+        _charGen->openNameEntry();
+        return;
+    }
+    if (boost::iequals(screen, "custom")) {
+        _charGen->openCustom();
+        return;
+    }
+    if (boost::iequals(screen, "abilities")) {
+        _charGen->openAbilities();
+        return;
+    }
+    if (boost::iequals(screen, "skills")) {
+        _charGen->openSkills();
+        if (selectFirst) {
+            _charGen->skills().selectFirstEntryForCapture();
         }
+        return;
+    }
+    if (boost::iequals(screen, "feats")) {
         _charGen->openFeats();
         if (selectFirst) {
             _charGen->feats().selectFirstEntryForCapture();
@@ -3664,15 +3706,6 @@ void Game::consoleOpenCharacterGeneration(const ConsoleArgs &args) {
         return;
     }
     if (boost::iequals(screen, "powers")) {
-        // The early-game gallery modules have non-Force party leaders, which
-        // would make this dynamic grid fixture empty and prove no layout.
-        Character character(_charGen->character());
-        std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(ClassType::JediConsular));
-        if (!clazz) {
-            throw std::runtime_error("Jedi Consular class is unavailable");
-        }
-        character.attributes.addClassLevels(clazz.get(), 1);
-        _charGen->setCharacter(std::move(character));
         _charGen->openPowers();
         if (selectFirst) {
             _charGen->powers().selectFirstEntryForCapture();
@@ -3743,14 +3776,18 @@ void Game::consoleOpenContainer(const ConsoleArgs &args) {
 }
 
 void Game::consoleShowHUD(const ConsoleArgs &args) {
-    consoleCheckUsage(args, 0, 0, "");
+    consoleCheckUsage(args, 0, 1, "[combat]");
     if (!_module || !_hud) {
         throw std::runtime_error("HUD capture fixture requires a loaded module");
+    }
+    bool combat = args.size() > 1 && boost::iequals(std::string(args[1].value()), "combat");
+    if (args.size() > 1 && !combat) {
+        throw std::runtime_error("Unknown HUD capture presentation: " + std::string(args[1].value()));
     }
     _captureHUDPresentation = true;
     _cameraType = CameraType::ThirdPerson;
     openInGame();
-    _hud->showCapturePresentation();
+    _hud->showCapturePresentation(combat);
 }
 
 void Game::consoleSelectDialogOption(const ConsoleArgs &args) {

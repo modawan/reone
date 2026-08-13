@@ -29,6 +29,7 @@
 #include "reone/game/game.h"
 #include "reone/game/gui/areatransition.h"
 #include "reone/game/gui/actionbar.h"
+#include "reone/game/gui/chargen/iconselection.h"
 #include "reone/game/gui/ingame.h"
 #include "reone/game/gui/loadscreen.h"
 #include "reone/game/gui/mainmenu.h"
@@ -57,7 +58,9 @@
 #include "reone/graphics/model.h"
 #include "reone/graphics/modelnode.h"
 #include "reone/graphics/walkmesh.h"
+#include "reone/gui/control/button.h"
 #include "reone/gui/control/listbox.h"
+#include "reone/gui/control/label.h"
 #include "reone/gui/gui.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/gff.h"
@@ -204,6 +207,15 @@ public:
                                  std::shared_ptr<gui::Label> control) {
         hud._gui = std::move(gui);
         hud._controls.LBL_BACK1 = std::move(control);
+    }
+
+    static void setCapturePresentation(HUD &hud, bool presentation, bool combat) {
+        hud._capturePresentation = presentation;
+        hud._captureCombatPresentation = combat;
+    }
+
+    static std::pair<bool, bool> capturePresentation(const HUD &hud) {
+        return {hud._capturePresentation, hud._captureCombatPresentation};
     }
 
 };
@@ -1808,7 +1820,7 @@ TEST(GameGUIScalingDefault, should_apply_default_scaling_to_main_menu) {
     menu.preload(gui);
 }
 
-TEST(GUIStretchLayout, should_keep_text_at_the_configured_scale_on_a_non_4_3_screen) {
+TEST(GUIControlLayout, should_scale_text_uniformly_when_geometry_uses_different_axis_factors) {
     TestEngine &engine = testEngine();
     graphics::GraphicsOptions options;
     options.width = 1920;
@@ -1816,7 +1828,6 @@ TEST(GUIStretchLayout, should_keep_text_at_the_configured_scale_on_a_non_4_3_scr
     options.guiTextScale = 1.25f;
     gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
     guiInstance.setResolution(640, 480);
-    guiInstance.setScaling(gui::GUI::ScalingMode::Stretch);
     TestScaledControl control(guiInstance, engine);
     control.setAuthoredGeometry({20, 30, 200, 80}, 8, 8);
 
@@ -1826,7 +1837,94 @@ TEST(GUIStretchLayout, should_keep_text_at_the_configured_scale_on_a_non_4_3_scr
     EXPECT_EQ(control.extent().top, 67);
     EXPECT_EQ(control.extent().width, 600);
     EXPECT_EQ(control.extent().height, 180);
-    EXPECT_FLOAT_EQ(control.scale(), 1.25f);
+    EXPECT_FLOAT_EQ(control.scale(), 2.8125f);
+}
+
+TEST(GalleryHUDPresentation, should_clear_capture_flags_without_a_loaded_gui) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    HUD hud(game, engine.services());
+    HUDTestAccess::setCapturePresentation(hud, true, true);
+
+    hud.clearCapturePresentation();
+
+    EXPECT_EQ(HUDTestAccess::capturePresentation(hud), std::make_pair(false, false));
+}
+
+TEST(GUIInputCoordinates, should_hit_screen_positioned_controls_without_authored_root_offset) {
+    TestEngine &engine = testEngine();
+    graphics::GraphicsOptions options;
+    options.width = 1920;
+    options.height = 1080;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    guiInstance.setResolution(640, 480);
+    guiInstance.setScaling(gui::GUI::ScalingMode::PositionRelativeToCenter);
+
+    auto rootExtent = Gff::Builder()
+                          .field(Gff::Field::newInt("LEFT", -320))
+                          .field(Gff::Field::newInt("TOP", -240))
+                          .field(Gff::Field::newInt("WIDTH", 640))
+                          .field(Gff::Field::newInt("HEIGHT", 480))
+                          .build();
+    auto root = Gff::Builder()
+                    .field(Gff::Field::newInt("CONTROLTYPE", static_cast<int>(gui::ControlType::Panel)))
+                    .field(Gff::Field::newCExoString("TAG", "ROOT"))
+                    .field(Gff::Field::newStruct("EXTENT", std::move(rootExtent)))
+                    .field(Gff::Field::newList("CONTROLS", {}))
+                    .build();
+    guiInstance.load(*root);
+
+    bool clicked = false;
+    auto button = std::make_shared<gui::Button>(
+        guiInstance,
+        engine.services().scene.graphs,
+        engine.services().graphics,
+        engine.services().resource);
+    button->setTag("REPLY");
+    button->setExtent({400, 800, 400, 100});
+    button->setOnClick([&clicked]() { clicked = true; });
+    guiInstance.addControlToFront(button, gui::IGUI::ControlCoordinates::Screen);
+
+    guiInstance.handle(input::Event::newMouseMotion({500, 850, 0.0f, 0.0f}));
+    EXPECT_TRUE(button->isSelected());
+    guiInstance.handle(input::Event::newMouseButtonDown(
+        {input::MouseButton::Left, true, 1, 500, 850}));
+    EXPECT_TRUE(guiInstance.handle(input::Event::newMouseButtonUp(
+        {input::MouseButton::Left, false, 1, 500, 850})));
+    EXPECT_TRUE(clicked);
+}
+
+TEST(CharGenDescriptionLayout, should_preserve_k1_authored_description_width) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    NiceMock<gui::MockGUI> gui;
+    gui::Label remaining(gui, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    gui::ListBox description(gui, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    remaining.setExtent({20, 20, 200, 40});
+    description.setExtent({300, 80, 260, 300});
+
+    styleChargenTitles(game, remaining, description);
+
+    EXPECT_EQ(description.extent().left, 300);
+    EXPECT_EQ(description.extent().width, 260);
+}
+
+TEST(CharGenDescriptionLayout, should_align_tsl_description_with_remaining_panel) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    NiceMock<gui::MockGUI> gui;
+    gui::Label remaining(gui, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    gui::ListBox description(gui, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    remaining.setExtent({300, 20, 320, 40});
+    description.setExtent({340, 80, 240, 300});
+
+    styleChargenTitles(game, remaining, description);
+
+    EXPECT_EQ(description.extent().left, 340);
+    EXPECT_EQ(description.extent().width, 280);
 }
 
 TEST(GUIScaledBorders, should_scale_border_and_hilight_dimensions_equally) {

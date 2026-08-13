@@ -56,7 +56,9 @@ public:
     void resetStatusSummaryPresentation();
 
     /** Exposes representative HUD state for the scripted gallery fixture. */
-    void showCapturePresentation();
+    void showCapturePresentation(bool combat);
+    /** Clears capture-only HUD and bark state before the next gallery scene. */
+    void clearCapturePresentation();
 
 private:
     friend class HUDTestAccess;
@@ -165,6 +167,7 @@ private:
     StatusSummaryIndicator _journalIndicator;
     StatusSummaryIndicator _plotXPIndicator;
     bool _capturePresentation {false};
+    bool _captureCombatPresentation {false};
 
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;

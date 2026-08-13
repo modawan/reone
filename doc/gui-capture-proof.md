@@ -19,15 +19,18 @@ Output goes to `build/gui-proof/` as `<game>-<state>-<width>x<height>.png`.
 iterating.
 
 The matrix covers both games at 1024x768 and 3440x1440: startup movie frames,
-main menu, character generation, gameplay HUD, Swoop, the three Pazaak screens,
-every in-game tab, a wrapping bark bubble, an icon-bearing confirmation popup,
-dialogue and a computer terminal. Item lists are captured at the 75% row default
-and again at 100% as a regression.
+main menu, every character-generation window, the gameplay HUD and populated
+combat action sequence, Swoop, the three Pazaak screens, every in-game tab, a
+wrapping bark bubble, an icon-bearing confirmation popup, dialogue and a
+computer terminal. Every capture uses the default GUI presentation scales,
+including the 75% list-row density. The matrix does not add alternate scale
+variants; use a focused manual run when testing a non-default option.
 
 Captures are driven by console commands, so any of them can also be run by hand:
 `pause <frames>`, `capture <path> [frames]` and `quit` sequence a batch from a
-`--commands-file`, while `skipmovie`, `openchargen`, `showbark`, `showpopup` and
-`showgallerymode` set up states that are otherwise hard to reach deterministically.
+`--commands-file`, while `skipmovie`, `openchargen`, `showhud`, `showbark`,
+`showpopup` and `showgallerymode` set up states that are otherwise hard to reach
+deterministically.
 
 When reviewing, zoom in rather than trusting a fitted thumbnail, and check that
 movies stay inside the shorter viewport axis, menu and gameplay plates cover the
