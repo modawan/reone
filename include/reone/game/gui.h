@@ -36,6 +36,9 @@ namespace game {
 
 class Game;
 
+/** K1's combat font is substantially smaller than TSL's at the same GUI scale. */
+constexpr float kK1CombatTextScale = 2.0f;
+
 class GameGUI : public gui::IGUIEventListener, boost::noncopyable {
 public:
     virtual void init();
