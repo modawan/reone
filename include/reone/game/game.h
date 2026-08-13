@@ -303,7 +303,9 @@ public:
         return newObject<Module>(*this, _services);
     }
     inline std::shared_ptr<Module> newSavedModule() {
-        return newObjectAtId<Module>(0, true, *this, _services);
+        // Module is the structural owner of the saved graph, not an entry in
+        // its ObjectId namespace. Retail saves can assign 0 to the Area.
+        return std::make_shared<Module>(0, *this, _services);
     }
     inline std::shared_ptr<Item> newItem() {
         return newObject<Item>(*this, _services);
@@ -385,6 +387,7 @@ public:
     std::shared_ptr<Store> newStore(const resource::Gff &gff, std::string sceneName = kSceneMain);
 
     void prepareSavedRuntimeNamespace(const resource::Gff &ifo);
+    void reserveSavedObjectIds(const resource::Gff &gff);
     void resolveSavedObjectReferences();
     void bindSavedRuntimeState();
     void publishSavedRuntimeState();
@@ -401,7 +404,8 @@ public:
 
     template <class T, class... Args>
     inline std::shared_ptr<T> newObject(Args &&...args) {
-        while (_objectById.count(_nextObjectId)) {
+        while (_objectById.count(_nextObjectId) ||
+               _reservedSavedObjectIds.count(_nextObjectId)) {
             ++_nextObjectId;
         }
         return newObjectAtId<T>(_nextObjectId++, false, std::forward<Args>(args)...);
@@ -541,6 +545,7 @@ private:
     static constexpr uint32_t kFirstRuntimeObjectId = 2; // ids 0 and 1 are reserved
     uint32_t _nextObjectId {kFirstRuntimeObjectId};
     std::map<uint32_t, std::shared_ptr<Object>> _objectById;
+    std::set<uint32_t> _reservedSavedObjectIds;
     EffectIdNamespace _effectIds;
     bool _runtimeSessionPlayable {false};
     uint64_t _runtimeSessionGeneration {1};
@@ -659,7 +664,7 @@ private:
         Args &&...args) {
         return newObjectAtId<T>(
             savedObjectId(gff),
-            false,
+            true,
             std::forward<Args>(args)...);
     }
     void loadDefaultParty();

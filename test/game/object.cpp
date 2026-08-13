@@ -2187,7 +2187,7 @@ TEST(SavedRuntimeState, accepts_retail_zero_object_cursor_but_rejects_reserved_n
     EXPECT_THROW(game.prepareSavedRuntimeNamespace(*reservedCursor), ValidationException);
 }
 
-TEST(SavedRuntimeState, rejects_reserved_invalid_and_duplicate_object_ids) {
+TEST(SavedRuntimeState, accepts_retail_low_ids_but_rejects_invalid_and_duplicate_object_ids) {
     TestEngine engine;
     engine.init();
     StubConsole console;
@@ -2203,24 +2203,70 @@ TEST(SavedRuntimeState, rejects_reserved_invalid_and_duplicate_object_ids) {
                      .field(Gff::Field::newDword("ObjectId", 42))
                      .build();
 
+    EXPECT_NO_THROW(game.newItem(*reserved));
     EXPECT_THROW(game.newItem(*reserved), ValidationException);
     EXPECT_THROW(game.newItem(*invalid), ValidationException);
     EXPECT_NO_THROW(game.newItem(*saved));
     EXPECT_THROW(game.newItem(*saved), ValidationException);
 }
 
-TEST(SavedRuntimeState, reserves_module_and_area_structural_ids) {
+TEST(SavedRuntimeState, keeps_structural_module_outside_the_saved_object_registry) {
     TestEngine engine;
     engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
 
     auto module = game.newSavedModule();
-    auto area = game.newSavedArea(1);
+    auto area = game.newSavedArea(0);
 
     EXPECT_EQ(0u, module->id());
-    EXPECT_EQ(1u, area->id());
-    EXPECT_EQ(2u, engine.gameModule().objectRegistrySize(game));
+    EXPECT_EQ(0u, area->id());
+    EXPECT_EQ(1u, engine.gameModule().objectRegistrySize(game));
+}
+
+TEST(SavedRuntimeState, reserves_the_actual_retail_graph_before_owner_local_allocations) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto area = Gff::Builder()
+                    .field(Gff::Field::newDword("ObjectId", 0))
+                    .build();
+    auto ifo = Gff::Builder()
+                   .field(Gff::Field::newDword("Mod_NextObjId0", 0))
+                   .field(Gff::Field::newList("Mod_Area_list", {area}))
+                   .build();
+    auto trigger = Gff::Builder()
+                       .field(Gff::Field::newDword("ObjectId", 1))
+                       .build();
+    auto placeable = Gff::Builder()
+                         .field(Gff::Field::newDword("ObjectId", 50))
+                         .build();
+    auto git = Gff::Builder()
+                   .field(Gff::Field::newList("Trigger List", {trigger}))
+                   .field(Gff::Field::newList("Placeable List", {placeable}))
+                   .build();
+
+    game.prepareSavedRuntimeNamespace(*ifo);
+    game.reserveSavedObjectIds(*git);
+
+    for (uint32_t expected = 2; expected < 50; ++expected) {
+        EXPECT_EQ(expected, game.newItem()->id());
+    }
+    EXPECT_EQ(51u, game.newItem()->id());
+
+    auto module = game.newSavedModule();
+    auto savedArea = game.newSavedArea(0);
+    auto savedTrigger = game.newTrigger(*trigger);
+    auto savedPlaceable = game.newPlaceable(*placeable);
+
+    EXPECT_EQ(0u, module->id());
+    EXPECT_EQ(0u, savedArea->id());
+    EXPECT_EQ(1u, savedTrigger->id());
+    EXPECT_EQ(50u, savedPlaceable->id());
+    EXPECT_EQ(52u, engine.gameModule().objectRegistrySize(game));
+    EXPECT_THROW(game.newPlaceable(*placeable), ValidationException);
 }
 
 TEST(SavedRuntimeState, restores_swvar_boolean_and_numeric_locals) {

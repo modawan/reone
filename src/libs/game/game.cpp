@@ -1010,6 +1010,7 @@ void Game::retireRuntimeSession() {
     _loadedModules.clear();
 
     _objectById.clear();
+    _reservedSavedObjectIds.clear();
     _nextObjectId = kFirstRuntimeObjectId;
     _effectIds.reset();
     _worldTimeDay = 0;
@@ -1088,6 +1089,30 @@ void Game::loadGame(std::string_view name) {
         throw ResourceNotFoundException("Module IFO not found");
     }
     prepareSavedRuntimeNamespace(*ifo);
+
+    // Reserve serialized identities before party/inventory reconstruction can
+    // allocate owner-local support objects. The active GIT is mounted as
+    // module state rather than as a top-level working-state resource.
+    for (const auto &id : _services.resource.director.saveWorkingResourceIds()) {
+        if (!resource::isGFFCompatibleResType(id.type)) {
+            continue;
+        }
+        try {
+            if (auto gff = decodeSaveGff(
+                    _services.resource.director.findSaveWorking(id))) {
+                reserveSavedObjectIds(*gff);
+            }
+        } catch (const std::exception &) {
+            // A generic .res is not necessarily GFF. Required structured
+            // resources retain their normal validation path below.
+        }
+    }
+    const std::string entryArea = ifo->getString("Mod_Entry_Area");
+    if (!entryArea.empty()) {
+        if (auto git = _services.resource.gffs.get(entryArea, ResType::Git)) {
+            reserveSavedObjectIds(*git);
+        }
+    }
     deserializeParty(*ifo);
 
     // Once the player is loaded, deserialize player's inventory.
@@ -1652,6 +1677,7 @@ void Game::registerObject(
     if (!_objectById.emplace(id, object).second) {
         throw ValidationException("Duplicate saved ObjectId: " + std::to_string(id));
     }
+    _reservedSavedObjectIds.erase(id);
 }
 
 std::shared_ptr<Item> Game::newItem(const resource::Gff &gff) {
@@ -1717,6 +1743,8 @@ std::shared_ptr<Store> Game::newStore(
 }
 
 void Game::prepareSavedRuntimeNamespace(const resource::Gff &ifo) {
+    reserveSavedObjectIds(ifo);
+
     uint32_t nextObjectId = kFirstRuntimeObjectId;
     if (ifo.readDword(nextObjectId, "Mod_NextObjId0") &&
         nextObjectId != 0 &&
@@ -1745,6 +1773,18 @@ void Game::prepareSavedRuntimeNamespace(const resource::Gff &ifo) {
                           ? 5
                           : static_cast<uint8_t>(minutesPerHour);
     _worldTimeFraction = 0.0;
+}
+
+void Game::reserveSavedObjectIds(const resource::Gff &gff) {
+    for (const auto &field : gff.fields()) {
+        if (field.label == "ObjectId" &&
+            field.type == resource::Gff::FieldType::Dword) {
+            _reservedSavedObjectIds.insert(field.uintValue);
+        }
+        for (const auto &child : field.children) {
+            reserveSavedObjectIds(*child);
+        }
+    }
 }
 
 void Game::resolveSavedObjectReferences() {
