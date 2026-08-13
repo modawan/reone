@@ -47,12 +47,10 @@ void ContainerGUI::onGUILoaded() {
     bindControls();
     centerRootInCanvas(_game.isTSL() ? 800 : 640, _game.isTSL() ? 600 : 480);
 
-    // The row label is authored top-aligned on the assumption the retail
-    // font filled the row; centre it on the actual scaled text.
-    _controls.LB_ITEMS->protoItem().setTextAlignment(Control::TextAlign::LeftCenter);
-
     _giveItemMsg = _services.resource.strings.getText(kSwitchToResRef) + " " + _services.resource.strings.getText(kGiveItemResRef);
     _getItemsMsg = _services.resource.strings.getText(kSwitchToResRef) + " " + _services.resource.strings.getText(kGetItemsResRef);
+
+    _controls.BTN_GIVEITEMS->setTextMessage(_giveItemMsg);
 
     std::string LBL_MESSAGE(_services.resource.strings.getText(kInventoryResRef));
     _controls.LBL_MESSAGE->setTextMessage(LBL_MESSAGE);
@@ -75,7 +73,9 @@ void ContainerGUI::configureItemsListBox() {
     ImageButton &protoItem = static_cast<ImageButton &>(_controls.LB_ITEMS->protoItem());
 
     Control::Text text(protoItem.text());
-    text.align = Control::TextAlign::LeftTop;
+    // Centre the name on the scaled glyphs; authored top alignment assumed
+    // the retail font filled the row.
+    text.align = Control::TextAlign::LeftCenter;
 
     protoItem.setText(text);
 
