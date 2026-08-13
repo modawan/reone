@@ -17,6 +17,7 @@
 
 #include "reone/game/game.h"
 
+#include <algorithm>
 #include <cctype>
 #include <exception>
 #include <numeric>
@@ -113,6 +114,7 @@ static constexpr char kDeveloperActorToggleHelp[] = "Ctrl+Shift+A";
 static constexpr char kDeveloperActorLongToggleHelp[] = "Ctrl+Shift+L";
 static constexpr char kDeveloperWatchToggleHelp[] = "Ctrl+Shift+W";
 static constexpr float kDeveloperActorLabelDistance = 32.0f;
+static constexpr float kCursorSizeScale = 0.5f;
 
 static const char *screenName(Game::Screen screen) {
     switch (screen) {
@@ -1356,7 +1358,10 @@ void Game::renderGUI() {
         _confirmPopup->render();
     }
     if (_cursor && !_relativeMouseMode) {
-        _cursor->render();
+        const auto &graphics = _options.graphics;
+        float cursorScale = std::min(graphics.width / 800.0f, graphics.height / 600.0f) *
+                            graphics.guiScale * kCursorSizeScale;
+        _cursor->render(cursorScale);
     }
     renderDeveloperOverlay();
 }

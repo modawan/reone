@@ -80,12 +80,6 @@ void GUI::load(const Gff &gui) {
     applyLayout();
 }
 
-void GUI::stretchControl(Control &control) {
-    float aspectX = _options.width / static_cast<float>(_resolutionX);
-    float aspectY = _options.height / static_cast<float>(_resolutionY);
-    control.stretch(aspectX, aspectY);
-}
-
 float GUI::scaledFactor() const {
     // KVP's retail draw-stream scaler uses the limiting axis: content is as
     // large as possible without cropping or changing its authored aspect.
@@ -143,7 +137,18 @@ void GUI::positionRelativeToCenter(Control &control) {
     extent.top = top;
     extent.width = static_cast<int>(extent.width * s);
     extent.height = static_cast<int>(extent.height * s);
-    control.setScale(s * _options.guiTextScale);
+    control.setScale(s * textScale());
+    control.setExtent(std::move(extent));
+}
+
+void GUI::scaleRelativeToCenter(Control &control) {
+    float s = scaledFactor();
+    Control::Extent extent(control.authoredExtent());
+    extent.left = screenCenter().x + static_cast<int>((extent.left - _resolutionX / 2) * s);
+    extent.top = screenCenter().y + static_cast<int>((extent.top - _resolutionY / 2) * s);
+    extent.width = static_cast<int>(extent.width * s);
+    extent.height = static_cast<int>(extent.height * s);
+    control.setPresentationScale(s);
     control.setExtent(std::move(extent));
 }
 
@@ -154,8 +159,10 @@ void GUI::applyControlLayout(Control &control) {
             positionRelativeToCenter(control);
         }
         break;
-    case ScalingMode::Stretch:
-        stretchControl(control);
+    case ScalingMode::ScaledRelativeToCenter:
+        if (&control != &_rootControl->get()) {
+            scaleRelativeToCenter(control);
+        }
         break;
     case ScalingMode::Scaled: {
         float factor = scaledFactor();
@@ -193,9 +200,7 @@ void GUI::applyLayout() {
     }
 
     const Control::Extent &rootExtent = _rootControl->get().extent();
-    _controlOffset = _scaling == ScalingMode::Stretch
-                         ? glm::ivec2(0)
-                         : _rootOffset + glm::ivec2(rootExtent.left, rootExtent.top);
+    _controlOffset = _rootOffset + glm::ivec2(rootExtent.left, rootExtent.top);
 }
 
 GUI::ScalingMode GUI::controlScaling(const Control &control) const {
@@ -205,12 +210,17 @@ GUI::ScalingMode GUI::controlScaling(const Control &control) const {
 
 glm::ivec2 GUI::renderOffset(const Control &control) const {
     switch (controlScaling(control)) {
-    case ScalingMode::Stretch:
     case ScalingMode::PositionRelativeToCenter:
+    case ScalingMode::ScaledRelativeToCenter:
         return {0, 0};
     default:
         return &control == &_rootControl->get() ? _rootOffset : _controlOffset;
     }
+}
+
+glm::ivec2 GUI::controlCoordinates(const Control &control, int screenX, int screenY) const {
+    auto offset = renderOffset(control);
+    return {screenX - offset.x, screenY - offset.y};
 }
 
 void GUI::setBackground(std::shared_ptr<graphics::Texture> texture) {
@@ -226,9 +236,9 @@ bool GUI::handle(const input::Event &event) {
         return handleKeyUp(event.key.code);
 
     case input::EventType::MouseMotion: {
-        glm::ivec2 ctrlCoords(event.motion.x - _controlOffset.x, event.motion.y - _controlOffset.y);
-        updateSelection(ctrlCoords.x, ctrlCoords.y);
+        updateSelection(event.motion.x, event.motion.y);
         if (_selection) {
+            auto ctrlCoords = controlCoordinates(_selection->get(), event.motion.x, event.motion.y);
             _selection->get().handleMouseMotion(ctrlCoords.x, ctrlCoords.y);
         }
         break;
@@ -241,13 +251,13 @@ bool GUI::handle(const input::Event &event) {
     case input::EventType::MouseButtonUp:
         if (_leftMouseDown && event.button.button == input::MouseButton::Left) {
             _leftMouseDown = false;
-            glm::ivec2 ctrlCoords(event.button.x - _controlOffset.x, event.button.y - _controlOffset.y);
             auto control = findControlAt(
-                ctrlCoords.x, ctrlCoords.y,
+                event.button.x, event.button.y,
                 [](const auto &control) { return control.isSelectable(); });
             if (control) {
                 debug("Control clicked: " + control->get().tag(), LogChannel::GUI);
                 onClick(control->get().tag());
+                auto ctrlCoords = controlCoordinates(control->get(), event.button.x, event.button.y);
                 return control->get().handleClick(ctrlCoords.x, ctrlCoords.y, event.button.clicks);
             }
         }
@@ -270,9 +280,9 @@ bool GUI::handleKeyUp(input::KeyCode key) {
     return false;
 }
 
-void GUI::updateSelection(int x, int y) {
+void GUI::updateSelection(int screenX, int screenY) {
     auto control = findControlAt(
-        x, y,
+        screenX, screenY,
         [](const auto &control) { return control.isSelectable(); });
     if ((!_selection && !control) ||
         (_selection && control && _selection->get().id() == control->get().id())) {
@@ -299,8 +309,9 @@ std::optional<std::reference_wrapper<Control>> GUI::findControlAt(int x, int y,
     while (!controls.empty()) {
         auto &control = controls.top().get();
         controls.pop();
+        auto ctrlCoords = controlCoordinates(control, x, y);
         if (control.isVisible() && !control.isDisabled() &&
-            control.extent().contains(x, y) &&
+            control.extent().contains(ctrlCoords.x, ctrlCoords.y) &&
             test(control)) {
             return control;
         }
