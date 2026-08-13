@@ -48,7 +48,7 @@ public:
         _statistic(statistic) {
     }
 
-    void render();
+    void render(float scale);
 
     void setPosition(glm::ivec2 position) { _position = std::move(position); }
     void setPressed(bool pressed) { _pressed = pressed; }

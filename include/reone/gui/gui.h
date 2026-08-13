@@ -54,7 +54,8 @@ public:
         Center,
         CenterHorizontal,
         PositionRelativeToCenter,
-        Stretch,
+        /** Uniformly scales a control around the authored and screen centres. */
+        ScaledRelativeToCenter,
         /** Uniformly fits the authored layout in the screen. The game-GUI default. */
         Scaled
     };
@@ -92,7 +93,10 @@ public:
     /** Independent presentation dials owned by the live graphics options. */
     virtual float textScale() const = 0;
     virtual float textLayoutScale(float horizontalScale, float verticalScale) const {
-        return horizontalScale == verticalScale ? horizontalScale : 1.0f;
+        // Glyphs always follow the limiting resolution axis. Text may move
+        // with viewport-relative controls, but it must never inherit their
+        // non-uniform geometry or fall back to its authored pixel size.
+        return std::min(horizontalScale, verticalScale);
     }
     virtual float borderScale() const = 0;
     virtual float listScale() const { return 1.0f; }
@@ -163,6 +167,7 @@ public:
         switch (_scaling) {
         case ScalingMode::Scaled:
         case ScalingMode::PositionRelativeToCenter:
+        case ScalingMode::ScaledRelativeToCenter:
             return scaledFactor();
         default:
             return 1.0f;
@@ -195,10 +200,7 @@ public:
     }
 
     float textLayoutScale(float horizontalScale, float verticalScale) const override {
-        // Per-GUI text keeps the global uniform presentation rule even when
-        // its multiplier differs from the default text scale.
-        return _textScale ? std::min(horizontalScale, verticalScale)
-                          : IGUI::textLayoutScale(horizontalScale, verticalScale);
+        return IGUI::textLayoutScale(horizontalScale, verticalScale);
     }
 
     float borderScale() const override {
@@ -296,13 +298,14 @@ private:
     }
 
     void positionRelativeToCenter(Control &control);
-    void stretchControl(Control &control);
+    void scaleRelativeToCenter(Control &control);
     void applyControlLayout(Control &control);
     void applyLayout();
     ScalingMode controlScaling(const Control &control) const;
     glm::ivec2 renderOffset(const Control &control) const;
+    glm::ivec2 controlCoordinates(const Control &control, int screenX, int screenY) const;
     float scaledFactor() const;
-    void updateSelection(int x, int y);
+    void updateSelection(int screenX, int screenY);
 
     void renderBackground(scene::IRenderPass &pass);
 

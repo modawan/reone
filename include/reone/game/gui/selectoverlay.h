@@ -95,6 +95,7 @@ private:
     void renderActionIcon(int index);
 
     bool getActionScreenCoords(int index, float &x, float &y) const;
+    float layoutScale() const;
     glm::vec3 getColorFromSelectedObject() const;
 };
 

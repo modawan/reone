@@ -63,9 +63,9 @@ static const char kObjectTagOwner[] = "owner";
 static constexpr int kDialogAnimationBase = 10000;
 
 // The conversation bands are viewport-relative, not authored plate art:
-// the subtitle sits in the top quarter and the reply list in the bottom
-// quarter of whatever viewport the game is running at.
-static constexpr int kBandDivisor = 4;
+// the subtitle sits in the top sixth and the reply list in the bottom sixth
+// of whatever viewport the game is running at.
+static constexpr int kBandDivisor = 6;
 static constexpr int kCutAnimationBandSize = 200;
 
 static const struct CutAnimationBand {
@@ -116,7 +116,7 @@ void DialogGUI::preload(IGUI &gui) {
     // Conversation bands and reply boxes are viewport-relative rather than
     // authored plate art. Their dialog-specific font scale follows the
     // uniform limiting axis without inheriting the global text multiplier.
-    gui.setScaling(GUI::ScalingMode::Stretch);
+    gui.setScaling(GUI::ScalingMode::PositionRelativeToCenter);
     gui.setTextScale(_game.options().graphics.guiDialogTextScale);
 }
 
@@ -592,17 +592,15 @@ void DialogGUI::setReplyLines(std::vector<std::string> lines) {
         item.text = lines[i];
         _controls.LB_REPLIES->addItem(std::move(item));
     }
-    // The bottom black band belongs to the replies as a group. The authored
-    // list is top-anchored, so move its row prototype to centre the group.
-    // The first visible row sits exactly at the prototype's top.
+    // Replies start at the top-left of the centred 4:3 safe area within the
+    // bottom band. The list root stays full-width so the offset is applied
+    // exactly once to its row prototype.
     auto extent = _controls.LB_REPLIES->protoItem().extent();
-    auto lastRow = _controls.LB_REPLIES->visibleItemExtent(static_cast<int>(lines.size()) - 1);
-    int listHeight = lastRow.top + lastRow.height - extent.top;
     const auto &band = _controls.LB_REPLIES->extent();
     int safeWidth = std::min(_game.options().graphics.width, _game.options().graphics.height * 4 / 3);
     extent.left = (_game.options().graphics.width - safeWidth) / 2;
     extent.width = safeWidth;
-    extent.top = band.top + (band.height - listHeight) / 2;
+    extent.top = band.top;
     _controls.LB_REPLIES->protoItem().setExtent(std::move(extent));
 }
 
