@@ -267,6 +267,9 @@ public:
     bool isTwoWeaponFighting() const;
     std::shared_ptr<Item> getOffhandAttackWeapon() const;
 
+    int forcePoints() const { return _forcePoints; }
+    int currentForce() const { return _currentForce; }
+
     uint32_t getAttemptedAttackTarget() const { return _combatState.attemptedAttackTarget; }
     std::shared_ptr<Object> getAttackTarget() const { return _combatState.attackTarget; }
     uint32_t getLastHostileTarget() const { return _lastHostileTarget; }

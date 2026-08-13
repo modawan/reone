@@ -135,6 +135,19 @@ public:
     int id() const { return _id; }
     int padding() const { return _padding; }
     Border &border() const { return *_border; }
+    const Extent &authoredExtent() const { return _authoredExtent; }
+    void setAuthoredExtent(Extent extent) { _authoredExtent = std::move(extent); }
+
+    /** The combined layout and text factor used to render this control's text. */
+    float scale() const { return _scale; }
+    void setScale(float scale) {
+        _scale = scale;
+        updateTextLines();
+    }
+    /** Applies text and frame scale without changing the control's rectangle. */
+    void setPresentationScale(float layoutScale);
+    /** Applies independent frame and text layout scales without changing the control's rectangle. */
+    void setPresentationScale(float frameLayoutScale, float textLayoutScale);
     const Extent &extent() const { return _extent; }
     const Border &hilight() const { return *_hilight; }
     const std::string &borderFillResRef() const { return _borderFillResRef; }
@@ -168,10 +181,14 @@ public:
     void setPadding(int padding);
     void setSceneName(std::string name);
     void setText(Text text);
+    void setTextAlignment(TextAlign align);
     void setTextColor(glm::vec3 color);
     void setTextMessage(std::string text);
     void setTextFont(std::shared_ptr<graphics::Font> font);
+    void setTextPaddingLeft(int padding) { _textPaddingLeft = padding; }
+    int textPaddingLeft() const;
     void setTintBorderFill(bool tint) { _tintBorderFill = tint; }
+    void setSharpenBorderFillAlpha(bool sharpen) { _sharpenBorderFillAlpha = sharpen; }
     void setUseBorderColorOverride(bool use);
     void setVisible(bool visible);
 
@@ -219,12 +236,17 @@ protected:
     std::string _tag;
     std::string _borderFillResRef;
     std::string _hilightFillResRef;
+    Extent _authoredExtent;
+    int _authoredBorderDimension {0};
+    int _authoredHilightDimension {0};
+    float _scale {1.0f};
     Extent _extent;
     std::shared_ptr<Border> _border;
     std::shared_ptr<Border> _hilight;
     Text _text;
     std::string _sceneName;
     int _padding {0};
+    int _textPaddingLeft {0};
     glm::mat4 _transform {1.0f};
     bool _visible {true};
     bool _disabled {false};
@@ -232,6 +254,7 @@ protected:
     bool _hilightOverBorder {false};
     bool _selectable {false};
     bool _tintBorderFill {false};
+    bool _sharpenBorderFillAlpha {false};
     glm::vec3 _borderColorOverride {1.0f};
     bool _useBorderColorOverride {false};
     std::vector<std::string> _textLines;

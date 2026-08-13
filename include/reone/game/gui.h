@@ -26,9 +26,19 @@
 
 namespace reone {
 
+namespace gui {
+
+class Control;
+class ListBox;
+
+} // namespace gui
+
 namespace game {
 
 class Game;
+
+/** K1's combat font is substantially smaller than TSL's at the same GUI scale. */
+constexpr float kK1CombatTextScale = 2.0f;
 
 class GameGUI : public gui::IGUIEventListener, boost::noncopyable {
 public:
@@ -42,13 +52,18 @@ public:
         _gui->clearSelection();
     }
 
+    std::shared_ptr<gui::Control> k2InGameTitleControl() const { return _k2InGameTitleControl; }
+
 protected:
+    friend class HUDTestAccess;
+
     Game &_game;
     ServicesView &_services;
     std::string _resRef;
 
     std::shared_ptr<gui::IGUI> _gui;
     std::shared_ptr<audio::AudioSource> _audioSource;
+    std::shared_ptr<gui::Control> _k2InGameTitleControl;
 
     glm::vec3 _baseColor {0.0f};
     glm::vec3 _disabledColor {0.0f};
@@ -60,6 +75,33 @@ protected:
     virtual void onGUILoaded() {}
 
     void loadBackground(BackgroundType type);
+
+    /** Centers the root panel in its authored canvas and reapplies layout. */
+    void centerRootInCanvas(int canvasWidth, int canvasHeight);
+
+    /**
+     * Slot art for an item stack. Both games author three frames: a plain
+     * slot, one carrying a two-digit count plate, and one carrying a
+     * three-digit plate.
+     */
+    std::shared_ptr<graphics::Texture> itemFrameTexture(int stackSize) const;
+
+    /**
+     * Points an item list at the slot silhouettes baked into this GUI's own
+     * panel art, so the list can repaint them under its actual rows.
+     *
+     * K1's inventory and equipment panels share one authored slot strip and
+     * the same measured slot geometry. K2 bakes no slots and needs none of
+     * this; calling it there is a no-op.
+     */
+    void useBakedItemSlotArt(gui::ListBox &listBox);
+    void tintK2InGameFooter();
+    void tintK2InGameHeader();
+    void enableK2ButtonBodyFill(gui::Control &control);
+    void enableK2ButtonBodyFill(const std::shared_ptr<gui::Control> &control);
+    void fillK2SectionStrip(const std::shared_ptr<gui::Control> &topBar, const std::shared_ptr<gui::Control> &bottomBar);
+    void useK2ShellTitle(const std::shared_ptr<gui::Control> &control);
+    void updateK2FilterButton(const std::shared_ptr<gui::Control> &button, bool selected);
 
     virtual void configureControls() {}
     void onClick(const std::string &control) override;

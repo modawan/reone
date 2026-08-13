@@ -40,17 +40,23 @@ public:
 
     MOCK_METHOD(const glm::ivec2 &, rootOffset, (), (const override));
     MOCK_METHOD(const glm::ivec2 &, controlOffset, (), (const override));
+    MOCK_METHOD(float, scale, (), (const override));
+    MOCK_METHOD(float, textScale, (), (const override));
+    MOCK_METHOD(float, borderScale, (), (const override));
+    MOCK_METHOD(bool, tintBorderFills, (), (const override));
 
     MOCK_METHOD(void, setEventListener, (IGUIEventListener & listener), (override));
     MOCK_METHOD(void, setResolution, (int, int), (override));
     MOCK_METHOD(void, setScaling, (ScalingMode), (override));
+    MOCK_METHOD(void, setTextScale, (float), (override));
+    MOCK_METHOD(void, setTintBorderFills, (bool), (override));
     MOCK_METHOD(void, setControlScaling, (const std::string &, ScalingMode), (override));
     MOCK_METHOD(void, setDefaultHilightColor, (glm::vec3), (override));
     MOCK_METHOD(void, setBackground, (std::shared_ptr<graphics::Texture>), (override));
 
     MOCK_METHOD(std::unique_ptr<Control>, newControl, (ControlType, std::string), (override));
-    MOCK_METHOD(void, addControlToFront, (std::shared_ptr<Control>), (override));
-    MOCK_METHOD(void, addControlToBack, (std::shared_ptr<Control>), (override));
+    MOCK_METHOD(void, addControlToFront, (std::shared_ptr<Control>, ControlCoordinates), (override));
+    MOCK_METHOD(void, addControlToBack, (std::shared_ptr<Control>, ControlCoordinates), (override));
 
     MOCK_METHOD(std::shared_ptr<Control>, findControl, (const std::string &), (const override));
 };

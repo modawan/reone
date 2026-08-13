@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "../gui.h"
 
 #include "reone/gui/control/label.h"
@@ -35,9 +37,12 @@ public:
 
     void update(float dt) override;
 
+    /** Overrides the authored top edge, in the GUI's authored canvas units. */
+    void setAuthoredTop(int top) { _authoredTopOverride = top; }
     void setBarkText(const std::string &text, float duration);
 
 private:
+    std::optional<int> _authoredTopOverride;
     struct Controls {
         std::shared_ptr<gui::Label> LBL_BARKTEXT;
     };

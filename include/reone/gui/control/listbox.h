@@ -82,9 +82,47 @@ public:
     void setSelectionMode(SelectionMode mode);
     void setSelectedItemIndex(int index);
     void setItemsInteractive(bool interactive);
+    void setScrollBarEnabled(bool enabled);
     void setProtoMatchContent(bool match);
     void setRenderItemIconsForButtonProto(bool render);
     void scrollToBottom();
+
+    /**
+     * Draws underneath the list's own frame and rows. Lets a GUI repaint
+     * artwork that its panel bakes in at the authored row pitch, which no
+     * longer registers with the rows once they are laid out at a different
+     * density.
+     */
+    using BackgroundRenderer = std::function<void(const ListBox &, const glm::ivec2 &offset, scene::IRenderPass &)>;
+    void setBackgroundRenderer(BackgroundRenderer renderer) { _backgroundRenderer = std::move(renderer); }
+
+    /**
+     * Places a scroll bar inside a framed panel, against the edge it was
+     * authored on. The frame art draws its line inside the extent rather than
+     * on its boundary, so the bar is inset past the line by
+     * kScrollBarEdgeInset authored pixels and held clear of the corner slices
+     * vertically.
+     */
+    static void insetScrollBar(Control &scrollBar,
+                               const Extent &panel,
+                               int borderDimension,
+                               bool leftSide,
+                               float layoutScale);
+
+    /**
+     * Measured at 1024x768 against the 16-pixel TSL panel art: the frame line
+     * occupies the outermost authored pixels of the extent, and this inset
+     * leaves roughly two authored pixels of background between it and the bar.
+     */
+    static constexpr int kScrollBarEdgeInset = 5;
+
+    /** The area the rows occupy, inside the frame. Control-space. */
+    Extent itemsViewport() const;
+    int visibleItemCount() const;
+    /** Control-space rectangle of the n-th currently visible row. */
+    Extent visibleItemExtent(int index) const;
+    /** Row density relative to the authored layout. */
+    float layoutScale() const { return _layoutScale; }
 
     int getItemCount() const;
     const Item &getItemAt(int index) const;
@@ -92,6 +130,7 @@ public:
     Control &protoItem() const { return *_protoItem; }
     Control *protoItemOrNull() const { return _protoItem.get(); }
     Control &scrollBar() const { return *_scrollBar; }
+    std::shared_ptr<Control> scrollBarOrNull() const { return _scrollBar; }
     int selectedItemIndex() const { return _selectedItemIndex; }
 
     // Event listeners
@@ -110,8 +149,12 @@ private:
     int _itemOffset {0};
     int _selectedItemIndex {-1};
     bool _itemsInteractive {true};
+    bool _scrollBarEnabled {true};
+    bool _leftScrollBar {false}; /**< authored side for the scroll bar */
     bool _protoMatchContent {false}; /**< proto item height must match its content */
     bool _renderItemIconsForButtonProto {false};
+    float _layoutScale {1.0f};
+    BackgroundRenderer _backgroundRenderer;
 
     // Event listeners
 
@@ -122,8 +165,8 @@ private:
 
     void updateItemSlots();
     void updateItemsLayout();
-
     int getInnerHeight() const;
+    float getItemPitch(const Item &item) const;
     int getItemWidth() const;
     int getItemHeight(const Item &item) const;
     int getItemTextWidth() const;

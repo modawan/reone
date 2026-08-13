@@ -106,6 +106,9 @@ void Equipment::onGUILoaded() {
         if ((slotName.first == Slot::WeapL2 || slotName.first == Slot::WeapR2) && !_game.isTSL())
             continue;
         _lblInv[slotName.first] = findControl<Label>("LBL_INV_" + slotName.second);
+        if (_lblInv[slotName.first]) {
+            _lblInv[slotName.first]->setSharpenBorderFillAlpha(true);
+        }
         _btnInv[slotName.first] = findControl<Button>("BTN_INV_" + slotName.second);
     }
 
@@ -114,6 +117,13 @@ void Equipment::onGUILoaded() {
     }
     if (_controls.BTN_CHANGE2) {
         _controls.BTN_CHANGE2->setSelectable(false);
+    }
+    if (_game.isTSL()) {
+        useK2ShellTitle(_controls.LBL_TITLE);
+        fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
+        for (auto &button : {_controls.BTN_BACK, _controls.BTN_EQUIP, _controls.BTN_SWAPWEAPONS}) {
+            enableK2ButtonBodyFill(button);
+        }
     }
     // _controls.btnCharLeft->setVisible(false);
     // _controls.btnCharRight->setVisible(false);
@@ -175,7 +185,11 @@ void Equipment::configureItemsListBox() {
     _controls.LB_ITEMS->setItemsInteractive(false);
     _controls.LB_ITEMS->setSelectionMode(ListBox::SelectionMode::OnClick);
     _controls.LB_ITEMS->setRenderItemIconsForButtonProto(true);
-    _controls.LB_ITEMS->setPadding(5);
+    // See InventoryMenu: K1's baked slot strip has a fractional period in
+    // authored pixels, so the rows are repainted over it and this is a free
+    // density knob. K2's equipment list uses its tighter two-pixel gap.
+    _controls.LB_ITEMS->setPadding(_game.isTSL() ? 2 : 8);
+    useBakedItemSlotArt(*_controls.LB_ITEMS);
     _controls.LB_ITEMS->setOnItemClick([this](const std::string &item) {
         onItemsListBoxItemClick(item);
     });
@@ -184,12 +198,17 @@ void Equipment::configureItemsListBox() {
     });
 
     auto &protoItem = _controls.LB_ITEMS->protoItem();
-    protoItem.setBorderColor(_baseColor);
-    protoItem.setHilightColor(_hilightColor);
 
     if (_game.isTSL()) {
+        enableK2ButtonBodyFill(protoItem);
+        protoItem.setBorderFill("uibit_fill_2wt");
+        protoItem.setHilightFill("uibit_fill_2wt");
+        protoItem.setTintBorderFill(true);
         tintK2PanelFill(_controls.LB_ITEMS, _baseColor);
         tintK2PanelFill(_controls.LB_DESC, _baseColor);
+    } else {
+        protoItem.setBorderColor(_baseColor);
+        protoItem.setHilightColor(_hilightColor);
     }
 }
 
@@ -362,6 +381,11 @@ void Equipment::update(float dt) {
     updateCandidateDescription();
 }
 
+void Equipment::openItems() {
+    update();
+    selectSlot(Slot::Body);
+}
+
 void Equipment::updatePortraits() {
     if (_game.isTSL())
         return;
@@ -410,11 +434,6 @@ void Equipment::tintK2LoadoutOverlay() {
     // Preserve the muted K2 panel colours authored in equip_p.gui.
     enableBorderFillTint(_controls.LBL_BACK1);
     enableBorderFillTint(_controls.LBL_DEF_BACK);
-    enableBorderFillTint(_controls.LBL_BAR1);
-    enableBorderFillTint(_controls.LBL_BAR2);
-    enableBorderFillTint(_controls.LBL_BAR3);
-    enableBorderFillTint(_controls.LBL_BAR4);
-    enableBorderFillTint(_controls.LBL_BAR5);
 }
 
 void Equipment::updateK2LoadoutOverlayVisibility(bool visible) {
@@ -556,7 +575,7 @@ void Equipment::updateItems() {
         lbItem.tag = kNoneItemTag;
         lbItem.text = _services.resource.strings.getText(kStrRefNone);
         lbItem.iconTexture = _services.resource.textures.get("inone", TextureUsage::GUI);
-        lbItem.iconFrame = getItemFrameTexture(1);
+        lbItem.iconFrame = itemFrameTexture(1);
 
         _controls.LB_ITEMS->addItem(std::move(lbItem));
 
@@ -570,7 +589,7 @@ void Equipment::updateItems() {
             equippedItem.tag = kEquippedItemTag;
             equippedItem.text = equipped->localizedName() + kEquippedItemSuffix;
             equippedItem.iconTexture = equipped->icon();
-            equippedItem.iconFrame = getItemFrameTexture(equipped->stackSize());
+            equippedItem.iconFrame = itemFrameTexture(equipped->stackSize());
 
             if (equipped->stackSize() > 1) {
                 equippedItem.iconText = std::to_string(equipped->stackSize());
@@ -599,7 +618,7 @@ void Equipment::updateItems() {
         lbItem.tag = item->tag();
         lbItem.text = item->localizedName();
         lbItem.iconTexture = item->icon();
-        lbItem.iconFrame = getItemFrameTexture(item->stackSize());
+        lbItem.iconFrame = itemFrameTexture(item->stackSize());
         if (hasDecision) {
             lbItem.invalid = !decision.valid;
         }
@@ -612,28 +631,6 @@ void Equipment::updateItems() {
     if (_selectedSlot != Slot::None) {
         _controls.LB_ITEMS->setSelectedItemIndex(equipped ? 1 : 0);
     }
-}
-
-std::shared_ptr<Texture> Equipment::getItemFrameTexture(int stackSize) const {
-    std::string resRef;
-    if (_game.isTSL()) {
-        if (stackSize >= 100) {
-            resRef = "uibit_eqp_itm3";
-        } else if (stackSize > 1) {
-            resRef = "uibit_eqp_itm2";
-        } else {
-            resRef = "uibit_eqp_itm1";
-        }
-    } else {
-        if (stackSize >= 100) {
-            resRef = "lbl_hex_7";
-        } else if (stackSize > 1) {
-            resRef = "lbl_hex_6";
-        } else {
-            resRef = "lbl_hex_3";
-        }
-    }
-    return _services.resource.textures.get(resRef, TextureUsage::GUI);
 }
 
 } // namespace game

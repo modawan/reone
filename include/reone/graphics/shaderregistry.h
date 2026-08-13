@@ -39,6 +39,7 @@ struct ShaderProgramId {
     static constexpr char pbrWalkmesh[] = "pbr_walkmesh";
     static constexpr char dirLightShadows[] = "dir_light_shadows";
     static constexpr char mvpColor[] = "mvp_color";
+    static constexpr char mvpIcon[] = "mvp_icon";
     static constexpr char aabbColor[] = "aabb_color";
     static constexpr char mvpTexture[] = "mvp_texture";
     static constexpr char ndcTexture[] = "ndc_texture";

@@ -34,6 +34,7 @@
 #include "floatingtext.h"
 #include "gui/chargen.h"
 #include "gui/computer.h"
+#include "gui/confirmpopup.h"
 #include "gui/container.h"
 #include "gui/conversation.h"
 #include "gui/dialog.h"
@@ -338,24 +339,24 @@ public:
         return newObject<Sound>(std::move(sceneName), *this, _services);
     }
 
-    inline std::shared_ptr<AnimatedCamera> newAnimatedCamera(float aspect, std::string sceneName = kSceneMain) {
-        return newObject<AnimatedCamera>(aspect, std::move(sceneName), *this, _services);
+    inline std::shared_ptr<AnimatedCamera> newAnimatedCamera(std::string sceneName = kSceneMain) {
+        return newObject<AnimatedCamera>(std::move(sceneName), *this, _services);
     }
 
-    inline std::shared_ptr<DialogCamera> newDialogCamera(CameraStyle style, float aspect, std::string sceneName = kSceneMain) {
-        return newObject<DialogCamera>(std::move(style), aspect, std::move(sceneName), *this, _services);
+    inline std::shared_ptr<DialogCamera> newDialogCamera(CameraStyle style, std::string sceneName = kSceneMain) {
+        return newObject<DialogCamera>(std::move(style), std::move(sceneName), *this, _services);
     }
 
-    inline std::shared_ptr<FirstPersonCamera> newFirstPersonCamera(float fovy, float aspect, std::string sceneName = kSceneMain) {
-        return newObject<FirstPersonCamera>(fovy, aspect, std::move(sceneName), *this, _services);
+    inline std::shared_ptr<FirstPersonCamera> newFirstPersonCamera(float fovy, std::string sceneName = kSceneMain) {
+        return newObject<FirstPersonCamera>(fovy, std::move(sceneName), *this, _services);
     }
 
-    inline std::shared_ptr<StaticCamera> newStaticCamera(float aspect, std::string sceneName = kSceneMain) {
-        return newObject<StaticCamera>(aspect, std::move(sceneName), *this, _services);
+    inline std::shared_ptr<StaticCamera> newStaticCamera(std::string sceneName = kSceneMain) {
+        return newObject<StaticCamera>(std::move(sceneName), *this, _services);
     }
 
-    inline std::shared_ptr<ThirdPersonCamera> newThirdPersonCamera(CameraStyle style, float aspect, std::string sceneName = kSceneMain) {
-        return newObject<ThirdPersonCamera>(std::move(style), aspect, std::move(sceneName), *this, _services);
+    inline std::shared_ptr<ThirdPersonCamera> newThirdPersonCamera(CameraStyle style, std::string sceneName = kSceneMain) {
+        return newObject<ThirdPersonCamera>(std::move(style), std::move(sceneName), *this, _services);
     }
 
     inline std::shared_ptr<Encounter> newEncounter(std::string sceneName = kSceneMain) {
@@ -533,9 +534,11 @@ private:
     std::unique_ptr<MainMenu> _mainMenu;
     std::unique_ptr<CharacterGeneration> _charGen;
     std::unique_ptr<HUD> _hud;
+    bool _captureHUDPresentation {false};
     std::unique_ptr<InGameMenu> _inGame;
     std::unique_ptr<DialogGUI> _dialog;
     std::unique_ptr<ComputerGUI> _computer;
+    std::unique_ptr<ConfirmPopup> _confirmPopup;
     std::unique_ptr<ContainerGUI> _container;
     std::unique_ptr<PartySelection> _partySelect;
     std::unique_ptr<SaveLoad> _saveLoad;
@@ -692,7 +695,7 @@ private:
         PazaakSessionParams params,
         const std::shared_ptr<Object> &continuationCaller,
         bool developmentLaunch);
-    bool startDevelopmentPazaak(std::string opponentName);
+    bool startDevelopmentPazaak(std::string opponentName, int maximumWager = 0);
     void finishPazaak(PazaakCompletedResult result);
     void releasePazaakFlow(bool restoreOrigin);
     Screen safePazaakOriginScreen() const;
@@ -754,6 +757,18 @@ private:
     void consoleGiveXP(const ConsoleArgs &tokens);
     void consoleGiveGold(const ConsoleArgs &tokens);
     void consoleWarp(const ConsoleArgs &tokens);
+    void consoleOpenMenu(const ConsoleArgs &tokens);
+    void consoleOpenCharacterGeneration(const ConsoleArgs &tokens);
+    void consoleSkipMovie(const ConsoleArgs &tokens);
+    void consoleShowBark(const ConsoleArgs &tokens);
+    void consoleShowPopup(const ConsoleArgs &tokens);
+    void consoleShowGalleryMode(const ConsoleArgs &tokens);
+    void consoleSeed(const ConsoleArgs &tokens);
+    void consoleGraphics(const ConsoleArgs &tokens);
+    void consoleShowHUD(const ConsoleArgs &tokens);
+    void consoleShowTransition(const ConsoleArgs &tokens);
+    void consoleOpenContainer(const ConsoleArgs &tokens);
+    void consoleSelectDialogOption(const ConsoleArgs &tokens);
     void consoleRunScript(const ConsoleArgs &tokens);
     void consoleShowAABB(const ConsoleArgs &tokens);
     void consoleShowWalkmesh(const ConsoleArgs &tokens);

@@ -32,13 +32,32 @@ namespace game {
 void JournalMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
+    tintK2InGameFooter();
+    tintK2InGameHeader();
 
     if (_game.isTSL()) {
+        fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
         _controls.LB_ITEMS->setTintBorderFill(true);
         _controls.LBL_ITEM_DESCRIPTION->setTintBorderFill(true);
+        useK2ShellTitle(_controls.LBL_TITLE);
+        enableK2ButtonBodyFill(_controls.BTN_EXIT);
+        enableK2ButtonBodyFill(_controls.BTN_MESSAGES);
         _controls.BTN_MESSAGES->setOnClick([this]() {
             _game.openInGameMenu(InGameMenuTab::Messages);
         });
+        _controls.BTN_FILTER_PRIORITY->setOnClick([this]() {
+            setFilter(Filter::Priority);
+        });
+        _controls.BTN_FILTER_PLANET->setOnClick([this]() {
+            setFilter(Filter::Planet);
+        });
+        _controls.BTN_FILTER_NAME->setOnClick([this]() {
+            setFilter(Filter::Name);
+        });
+        _controls.BTN_FILTER_TIME->setOnClick([this]() {
+            setFilter(Filter::Time);
+        });
+        updateFilterControls();
     }
     _controls.BTN_EXIT->setOnClick([this]() {
         _game.openInGame();
@@ -82,6 +101,18 @@ void JournalMenu::refreshEntryText(const std::string &plotId) {
     if (!text.empty()) {
         _controls.LBL_ITEM_DESCRIPTION->addTextLinesAsItems(text);
     }
+}
+
+void JournalMenu::setFilter(Filter filter) {
+    _filter = filter;
+    updateFilterControls();
+}
+
+void JournalMenu::updateFilterControls() {
+    updateK2FilterButton(_controls.BTN_FILTER_PRIORITY, _filter == Filter::Priority);
+    updateK2FilterButton(_controls.BTN_FILTER_PLANET, _filter == Filter::Planet);
+    updateK2FilterButton(_controls.BTN_FILTER_NAME, _filter == Filter::Name);
+    updateK2FilterButton(_controls.BTN_FILTER_TIME, _filter == Filter::Time);
 }
 
 } // namespace game

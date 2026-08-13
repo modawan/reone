@@ -44,9 +44,13 @@ void StaticCamera::deserialize(const resource::Gff &gff) {
 
     auto &scene = _services.scene.graphs.get(_sceneName);
     _sceneNode = scene.newCamera();
-    cameraSceneNode()->setPerspectiveProjection(glm::radians(_fieldOfView), _aspect, kDefaultClipPlaneNear, kDefaultClipPlaneFar);
+    rebuildProjection();
 
     updateTransform();
+}
+
+float StaticCamera::projectionFovy() const {
+    return glm::radians(_fieldOfView);
 }
 
 } // namespace game

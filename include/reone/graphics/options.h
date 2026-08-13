@@ -28,6 +28,10 @@ struct GraphicsOptions {
     int height {768};
     int winScale {100};
     bool fullscreen {false};
+    /** Hide the presentation window while retaining a renderable surface. */
+    bool headless {false};
+    /** Draw 3D scene content: the world and scene-backed GUI panels. */
+    bool sceneRender {true};
     bool vsync {true};
     bool grass {true};
     bool pbr {false};
@@ -39,6 +43,11 @@ struct GraphicsOptions {
     int shadowResolution {2048};
     int anisotropicFiltering {2};
     float drawDistance {kDefaultObjectDrawDistance};
+    float guiScale {1.0f};
+    float guiTextScale {0.5f};
+    float guiDialogTextScale {0.6f};
+    float guiBorderScale {1.0f};
+    float guiListScale {0.5f};
 };
 
 } // namespace graphics

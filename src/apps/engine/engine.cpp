@@ -22,10 +22,14 @@
 #include "backends/imgui_impl_sdl3.h"
 #include "imgui.h"
 
+#include "reone/graphics/format/tgawriter.h"
 #include "reone/graphics/window.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/gameprobe.h"
+#include "reone/system/stream/fileoutput.h"
 #include "reone/system/stringutil.h"
+
+#include <iomanip>
 
 using namespace reone::audio;
 using namespace reone::game;
@@ -94,6 +98,10 @@ void Engine::init() {
         throw std::runtime_error("SDL_Init failed: " + std::string(SDL_GetError()));
     }
 
+    if (_options.graphics.headless) {
+        _options.graphics.winScale = 100;
+        _options.audio.muted = true;
+    }
     _window = std::make_unique<Window>(_options.graphics);
     _window->init();
 
@@ -177,6 +185,7 @@ void Engine::init() {
         _services->graphics,
         _services->resource);
     _console->init();
+    initAutomationCommands();
 
     _game = std::make_unique<Game>(
         gameId,
@@ -185,24 +194,6 @@ void Engine::init() {
         *_services,
         *_console);
     _game->init();
-
-    if (!_options.commandsFile.empty()) {
-        std::ifstream file(_options.commandsFile);
-        if (!file.good()) {
-            throw std::runtime_error("Failed to open commands file: " + _options.commandsFile);
-        }
-        for (std::string line; std::getline(file, line);) {
-            // getline keeps the carriage return of a CRLF file, which would end
-            // up inside the last argument of every command.
-            //
-            // Remove trailing and leading spaces as well.
-
-            std::string_view command = string_strip(line);
-            if (!command.empty()) {
-                _console->execute(command);
-            }
-        }
-    }
 }
 
 void Engine::deinit() {
@@ -242,8 +233,7 @@ int Engine::run() {
         if (quit) {
             break;
         }
-        bool focus = _window->isInFocus();
-        if (!focus) {
+        if (!_window->isInFocus() && !_options.graphics.headless) {
             std::this_thread::sleep_for(std::chrono::milliseconds {100});
             continue;
         }
@@ -256,6 +246,13 @@ int Engine::run() {
         }
         auto frameTime = (ticks - _ticks) / 10e5f;
         _ticks = ticks;
+        if (_options.graphics.headless) {
+            frameTime = 1.0f / 60.0f;
+        }
+        processScriptedCommands(quit);
+        if (quit) {
+            break;
+        }
         _profiler->measure(kMainThreadName, kProfilerInputTimeIndex, [this, &quit]() {
             while (!_events.empty()) {
                 auto event = _events.front();
@@ -287,7 +284,7 @@ int Engine::run() {
             setRelativeMouseMode(relmouse);
             _profiler->update(frameTime);
         });
-        _profiler->measure(kMainThreadName, kProfilerRenderGraphicsTimeIndex, [this]() {
+        _profiler->measure(kMainThreadName, kProfilerRenderGraphicsTimeIndex, [this, &quit]() {
             _services->graphics.statistic.resetDrawCalls();
             if (_options.graphics.pbr) {
                 _services->graphics.pbrTextures.refresh();
@@ -297,6 +294,7 @@ int Engine::run() {
             _profiler->render();
             _console->render();
             imguiRender();
+            captureIfRequested(quit);
             _window->swap();
         });
         _profiler->measure(kMainThreadName, kProfilerRenderAudioTimeIndex, [this]() {
@@ -308,6 +306,102 @@ int Engine::run() {
     return 0;
 }
 
+void Engine::initAutomationCommands() {
+    _console->registerCommand("pause", "pause command-file execution for a number of rendered frames", [this](const auto &args) {
+        auto frames = args.template get<int>(1);
+        if (!frames || *frames < 1) {
+            throw std::invalid_argument("usage: pause <frames>, where frames is positive");
+        }
+        _scriptPauseFrames = *frames;
+    });
+    _console->registerCommand("capture", "capture one or more rendered frames", [this](const auto &args) {
+        auto path = args[1];
+        auto count = args.template get<int>(2).value_or(1);
+        if (!path || count < 1) {
+            throw std::invalid_argument("usage: capture <path> [frames], where frames is positive");
+        }
+        _captureRequest = CaptureRequest {std::filesystem::path(std::string(*path)), count, 0};
+    });
+    _console->registerCommand("quit", "end the engine run", [this](const auto &) {
+        _scriptQuitRequested = true;
+    });
+
+    if (_options.commandsFile.empty()) {
+        return;
+    }
+    std::ifstream file(_options.commandsFile);
+    if (!file.good()) {
+        throw std::runtime_error("Failed to open commands file: " + _options.commandsFile);
+    }
+    for (std::string line; std::getline(file, line);) {
+        std::string_view command = string_strip(line);
+        if (!command.empty()) {
+            _scriptedCommands.emplace_back(command);
+        }
+    }
+}
+
+void Engine::processScriptedCommands(bool &quit) {
+    if (_scriptQuitRequested) {
+        quit = true;
+        return;
+    }
+    if (_captureRequest) {
+        return;
+    }
+    if (_scriptPauseFrames > 0) {
+        --_scriptPauseFrames;
+        if (_scriptPauseFrames > 0) {
+            return;
+        }
+    }
+
+    while (!_scriptedCommands.empty()) {
+        std::string command(std::move(_scriptedCommands.front()));
+        _scriptedCommands.pop_front();
+        _console->execute(command);
+
+        if (_scriptQuitRequested) {
+            quit = true;
+            return;
+        }
+        if (_captureRequest) {
+            return;
+        }
+        if (_scriptPauseFrames > 0) {
+            return;
+        }
+    }
+}
+
+void Engine::captureIfRequested(bool &quit) {
+    if (_captureRequest) {
+        captureFrame(numberedCapturePath(*_captureRequest));
+        ++_captureRequest->index;
+        if (_captureRequest->index >= _captureRequest->count) {
+            _captureRequest.reset();
+        }
+    }
+}
+
+void Engine::captureFrame(const std::filesystem::path &path) {
+    auto screenshot = _services->graphics.context.captureScreen(
+        _options.graphics.width, _options.graphics.height);
+    auto stream = FileOutputStream(path);
+    TgaWriter(screenshot).save(stream);
+    info("Wrote screenshot: " + path.string());
+}
+
+std::filesystem::path Engine::numberedCapturePath(const CaptureRequest &request) const {
+    if (request.count == 1) {
+        return request.path;
+    }
+    std::ostringstream suffix;
+    suffix << '-' << std::setfill('0') << std::setw(4) << (request.index + 1);
+    return request.path.parent_path() /
+           (request.path.stem().string() + suffix.str() + request.path.extension().string());
+}
+
 void Engine::processEvents(bool &quit) {
     std::queue<input::Event> unhandled;
     SDL_Event sdlEvent;
@@ -315,6 +409,13 @@ void Engine::processEvents(bool &quit) {
         if (sdlEvent.type == SDL_EVENT_QUIT) {
             quit = true;
             break;
+        }
+        if (_options.graphics.headless) {
+            if (_window->isAssociatedWith(sdlEvent) && _window->handle(sdlEvent) && _window->isCloseRequested()) {
+                quit = true;
+                break;
+            }
+            continue;
         }
         if (imguiHandle(sdlEvent)) {
             continue;

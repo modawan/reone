@@ -109,7 +109,11 @@ static bool resolveEndpoints(glm::vec3 &listenerPosition, glm::vec3 &speakerPosi
 void DialogCamera::load() {
     auto &scene = _services.scene.graphs.get(_sceneName);
     _sceneNode = scene.newCamera();
-    cameraSceneNode()->setPerspectiveProjection(glm::radians(_style.viewAngle), _aspect, kDefaultClipPlaneNear, kDefaultClipPlaneFar);
+    rebuildProjection();
+}
+
+float DialogCamera::projectionFovy() const {
+    return glm::radians(_style.viewAngle);
 }
 
 void DialogCamera::setSpeakerPosition(glm::vec3 position) {

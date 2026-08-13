@@ -25,6 +25,7 @@
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/party.h"
+#include "reone/resource/provider/textures.h"
 #include "reone/game/types.h"
 
 using namespace reone::audio;
@@ -50,9 +51,14 @@ static void configureTopNavigationIcon(const std::shared_ptr<ImageButton> &butto
         return;
     }
     button->setSelectable(false);
+    button->setSharpenBorderFillAlpha(true);
 }
 
 void InGameMenu::preload(IGUI &gui) {
+    // Chain the base: without it this GUI - the top navigation icon strip
+    // among it - missed the game-wide scaled mode and floated unscaled over
+    // the scaled subscreens.
+    GameGUI::preload(gui);
     if (_game.isTSL()) {
         gui.setResolution(800, 600);
     }
@@ -79,6 +85,9 @@ void InGameMenu::onGUILoaded() {
         tintK2TopNavigationIcon(_controls.LBLH_JOU, _baseColor);
         tintK2TopNavigationIcon(_controls.LBLH_MAP, _baseColor);
         tintK2TopNavigationIcon(_controls.LBLH_OPT, _baseColor);
+        _controls.LBL_SECTITLE->setBorderFill(std::string());
+        updateK2SectionTitle();
+        _controls.LBL_BACK1->setTintBorderFill(true);
         refreshK2Footer();
     }
 
@@ -239,14 +248,40 @@ void InGameMenu::openEquipment() {
     changeTab(InGameMenuTab::Equipment);
 }
 
+void InGameMenu::openEquipmentItems() {
+    _equip->openItems();
+    changeTab(InGameMenuTab::Equipment);
+}
+
 void InGameMenu::changeTab(InGameMenuTab tab) {
     auto gui = getActiveTabGUI();
     if (gui) {
         gui->clearSelection();
     }
     _tab = tab;
+    updateK2SectionTitle();
     updateTabButtons();
     refreshK2Footer();
+}
+
+void InGameMenu::updateK2SectionTitle() {
+    if (!_game.isTSL() || !_controls.LBL_SECTITLE) {
+        return;
+    }
+
+    auto border = _controls.LBL_SECTITLE->border();
+    border.edge = _services.resource.textures.get("uibit_brdr_16bet", TextureUsage::GUI);
+    border.corner = _services.resource.textures.get("uibit_brdr_16bct", TextureUsage::GUI);
+    border.fill.reset();
+    _controls.LBL_SECTITLE->setBorder(std::move(border));
+
+    auto activeTab = getActiveTabGUI();
+    auto titleControl = activeTab ? activeTab->k2InGameTitleControl() : nullptr;
+    if (titleControl) {
+        _controls.LBL_SECTITLE->setText(titleControl->text());
+    } else {
+        _controls.LBL_SECTITLE->setTextMessage(std::string());
+    }
 }
 
 void InGameMenu::refreshK2Footer() {
@@ -380,6 +415,7 @@ void InGameMenu::openPartySelection() {
 
 void InGameMenu::openMessages() {
     _messages->refresh();
+    _messages->resetFilter();
     changeTab(InGameMenuTab::Messages);
 }
 

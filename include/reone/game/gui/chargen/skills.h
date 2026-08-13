@@ -51,6 +51,8 @@ public:
 
     void reset(bool newGame);
 
+    void selectFirstEntryForCapture();
+
 private:
     struct Controls {
         std::shared_ptr<gui::Label> AWARENESS_LBL;

@@ -17,6 +17,8 @@
 
 #include "reone/game/gui/chargen/abilities.h"
 
+#include "reone/game/gui/chargen/iconselection.h"
+
 #include "reone/gui/control/button.h"
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
@@ -60,6 +62,7 @@ static const std::unordered_map<Ability, int> g_descStrRefByAbility {
 void CharGenAbilities::onGUILoaded() {
     bindControls();
 
+    styleChargenTitles(_game, *_controls.SELECTIONS_REMAINING_LBL, *_controls.LB_DESC);
     _controls.LB_DESC->setProtoMatchContent(true);
 
     std::vector<Label *> labels {

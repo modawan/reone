@@ -44,6 +44,8 @@ static const glm::vec3 kCombatColor(0.74f, 0.11f, 0.0f);
 void MessagesMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
+    tintK2InGameFooter();
+    tintK2InGameHeader();
 
     _controls.BTN_EXIT->setOnClick([this]() {
         if (_game.isTSL()) {
@@ -58,7 +60,33 @@ void MessagesMenu::onGUILoaded() {
         });
         _controls.LB_MESSAGES->setItemsInteractive(false);
         _controls.LB_MESSAGES->setProtoMatchContent(true);
+        return;
     }
+
+    useK2ShellTitle(_controls.LBL_MESSAGES);
+    enableK2ButtonBodyFill(_controls.BTN_EXIT);
+    _controls.LB_DIALOG->setTintBorderFill(true);
+    _controls.LB_MESSAGES->setTintBorderFill(true);
+    _controls.LB_COMBAT->setTintBorderFill(true);
+    _controls.LB_EFFECTS_GOOD->setTintBorderFill(true);
+    _controls.LB_EFFECTS_BAD->setTintBorderFill(true);
+    _controls.LBL_EFFECTS_GOOD->setTintBorderFill(true);
+    _controls.LBL_EFFECTS_BAD->setTintBorderFill(true);
+
+    _controls.BTN_DIALOG->setOnClick([this]() {
+        setFilter(Filter::Dialog);
+    });
+    _controls.BTN_FEEDBACK->setOnClick([this]() {
+        setFilter(Filter::Feedback);
+    });
+    _controls.BTN_COMBAT->setOnClick([this]() {
+        setFilter(Filter::Combat);
+    });
+    _controls.BTN_EFFECTS->setOnClick([this]() {
+        setFilter(Filter::Effects);
+    });
+
+    resetFilter();
 }
 
 void MessagesMenu::refresh() {
@@ -117,6 +145,39 @@ void MessagesMenu::toggleMessages() {
     } else {
         showFeedbackMessages();
     }
+}
+
+void MessagesMenu::resetFilter() {
+    if (!_game.isTSL()) {
+        return;
+    }
+
+    setFilter(Filter::Dialog);
+}
+
+void MessagesMenu::setFilter(Filter filter) {
+    _filter = filter;
+    refreshFilterVisibility();
+}
+
+void MessagesMenu::refreshFilterVisibility() {
+    bool dialog = _filter == Filter::Dialog;
+    bool feedback = _filter == Filter::Feedback;
+    bool combat = _filter == Filter::Combat;
+    bool effects = _filter == Filter::Effects;
+
+    updateK2FilterButton(_controls.BTN_DIALOG, dialog);
+    updateK2FilterButton(_controls.BTN_FEEDBACK, feedback);
+    updateK2FilterButton(_controls.BTN_COMBAT, combat);
+    updateK2FilterButton(_controls.BTN_EFFECTS, effects);
+
+    _controls.LB_DIALOG->setVisible(dialog);
+    _controls.LB_MESSAGES->setVisible(feedback);
+    _controls.LB_COMBAT->setVisible(combat);
+    _controls.LBL_EFFECTS_GOOD->setVisible(effects);
+    _controls.LBL_EFFECTS_BAD->setVisible(effects);
+    _controls.LB_EFFECTS_GOOD->setVisible(effects);
+    _controls.LB_EFFECTS_BAD->setVisible(effects);
 }
 
 } // namespace game

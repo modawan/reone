@@ -51,6 +51,8 @@ void ActionBar::addSlot(std::shared_ptr<gui::Button> button,
                         std::shared_ptr<gui::Button> down) {
     rotateActionBarArrow(down);
     button->setSelectable(false);
+    up->setSharpenBorderFillAlpha(true);
+    down->setSharpenBorderFillAlpha(true);
 
     size_t slotIndex = _slots.size();
     _slots.push_back({
@@ -215,7 +217,7 @@ void ActionBar::update() {
     _descBg->setVisible(showDesc);
 }
 
-void ActionBar::render() {
+void ActionBar::render(float layoutScale) {
     for (const Slot &slot : _slots) {
         const std::vector<ContextAction> &actions = slot.slot.actions;
         if (actions.empty()) {
@@ -223,14 +225,16 @@ void ActionBar::render() {
         }
 
         gui::Control::Extent slotExtent = slot.button->extent();
-        int x, y;
-        slotExtent.getCenter(x, y);
-        x -= kActionWidth / 2;
-        y -= kActionWidth / 2;
+        // Icons are artwork in the button's layout space, not text.
+        float iconSize = kActionWidth * layoutScale;
+        int centerX, centerY;
+        slotExtent.getCenter(centerX, centerY);
+        float x = centerX - iconSize / 2;
+        float y = centerY - iconSize / 2;
 
         glm::mat4 transform(1.0f);
         transform = glm::translate(transform, glm::vec3(x, y, 0.0f));
-        transform = glm::scale(transform, glm::vec3(kActionWidth, kActionWidth, 1.0f));
+        transform = glm::scale(transform, glm::vec3(iconSize, iconSize, 1.0f));
         renderContextActionIcon(actions[slot.slot.indexSelected], transform, _services);
     }
 }

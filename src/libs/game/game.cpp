@@ -17,6 +17,7 @@
 
 #include "reone/game/game.h"
 
+#include <algorithm>
 #include <cctype>
 #include <exception>
 #include <numeric>
@@ -30,6 +31,7 @@
 #include "reone/game/action/cutsceneattack.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/combat.h"
+#include "reone/game/d20/classes.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/debug.h"
 #include "reone/game/di/services.h"
@@ -112,6 +114,7 @@ static constexpr char kDeveloperActorToggleHelp[] = "Ctrl+Shift+A";
 static constexpr char kDeveloperActorLongToggleHelp[] = "Ctrl+Shift+L";
 static constexpr char kDeveloperWatchToggleHelp[] = "Ctrl+Shift+W";
 static constexpr float kDeveloperActorLabelDistance = 32.0f;
+static constexpr float kCursorSizeScale = 0.5f;
 
 static const char *screenName(Game::Screen screen) {
     switch (screen) {
@@ -430,6 +433,18 @@ void Game::initConsole() {
     registerConsoleCommand("listanim", "list animations of selected object", &Game::consoleListAnim);
     registerConsoleCommand("playanim", "play animation on selected object", &Game::consolePlayAnim);
     registerConsoleCommand("warp", "warp to a module", &Game::consoleWarp);
+    registerConsoleCommand("openmenu", "open an in-game menu tab", &Game::consoleOpenMenu);
+    registerConsoleCommand("openchargen", "open a character-generation screen", &Game::consoleOpenCharacterGeneration);
+    registerConsoleCommand("skipmovie", "skip the active movie", &Game::consoleSkipMovie);
+    registerConsoleCommand("showbark", "show a timed HUD bark message", &Game::consoleShowBark);
+    registerConsoleCommand("showpopup", "show the confirmation popup with an optional icon", &Game::consoleShowPopup);
+    registerConsoleCommand("showgallerymode", "open a deterministic gameplay-mode gallery fixture", &Game::consoleShowGalleryMode);
+    registerConsoleCommand("graphics", "toggle 3D scene rendering: graphics on|off", &Game::consoleGraphics);
+    registerConsoleCommand("seed", "reseed the shared random generator: seed <number>", &Game::consoleSeed);
+    registerConsoleCommand("showhud", "open the third-person gameplay HUD for a scripted capture", &Game::consoleShowHUD);
+    registerConsoleCommand("showtransition", "show an area-transition banner for a scripted capture", &Game::consoleShowTransition);
+    registerConsoleCommand("opencontainer", "open the container screen on the party leader for a scripted capture", &Game::consoleOpenContainer);
+    registerConsoleCommand("selectdialogoption", "select a dialog option without activating it for a scripted capture", &Game::consoleSelectDialogOption);
     registerConsoleCommand("kill", "kill selected object", &Game::consoleKill);
     registerConsoleCommand("additem", "add item to selected object", &Game::consoleAddItem);
     registerConsoleCommand("givexp", "give experience to selected creature", &Game::consoleGiveXP);
@@ -449,7 +464,7 @@ void Game::initConsole() {
     registerConsoleCommand("autoskipenable", "enable auto-skip for conversations", &Game::consoleAutoSkipEnable);
     registerConsoleCommand("autoskipentries", "add a sequence of entries to skip", &Game::consoleAutoSkipEntries);
     registerConsoleCommand("autoskipreplies", "add a sequence of replies to pick", &Game::consoleAutoSkipReplies);
-    registerConsoleCommand("startconversation", "starts a conversation with the selected object", &Game::consoleStartConversation);
+    registerConsoleCommand("startconversation", "start a conversation with the selected object or a DLG resref", &Game::consoleStartConversation);
     registerConsoleCommand("cutsceneattack", "attack an object by id with a pre-determined animation and result", &Game::consoleCutsceneAttack);
     registerConsoleCommand("setability", "set ability value (strength, dexterity, etc.)", &Game::consoleSetAbility);
     registerConsoleCommand("setskill", "set skill value (computer use, repair, etc.)", &Game::consoleSetSkill);
@@ -501,6 +516,11 @@ void Game::setSceneSurfaces() {
 }
 
 bool Game::handle(const input::Event &event) {
+    if (_confirmPopup && _confirmPopup->isVisible()) {
+        _confirmPopup->handle(event);
+        return true;
+    }
+
     switch (event.type) {
     case input::EventType::KeyDown:
         if (handleKeyDown(event.key)) {
@@ -645,6 +665,9 @@ void Game::update(float frameTime) {
     auto gui = getScreenGUI();
     if (gui) {
         gui->update(dt);
+    }
+    if (_confirmPopup && _confirmPopup->isVisible()) {
+        _confirmPopup->update(dt);
     }
     updateSceneGraph(dt);
     if (!_paused) {
@@ -1246,7 +1269,7 @@ void Game::playMusic(const std::string &resRef) {
 }
 
 void Game::renderScene() {
-    if (!_module) {
+    if (!_module || !_options.graphics.sceneRender) {
         return;
     }
     auto &scene = _services.scene.graphs.get(kSceneMain);
@@ -1332,8 +1355,14 @@ void Game::renderGUI() {
         break;
     }
     }
+    if (_confirmPopup && _confirmPopup->isVisible()) {
+        _confirmPopup->render();
+    }
     if (_cursor && !_relativeMouseMode) {
-        _cursor->render();
+        const auto &graphics = _options.graphics;
+        float cursorScale = std::min(graphics.width / 800.0f, graphics.height / 600.0f) *
+                            graphics.guiScale * kCursorSizeScale;
+        _cursor->render(cursorScale);
     }
     renderDeveloperOverlay();
 }
@@ -2878,10 +2907,10 @@ bool Game::playPazaak(
     return startPazaakFlow(std::move(params), opponent, false);
 }
 
-bool Game::startDevelopmentPazaak(std::string opponentName) {
+bool Game::startDevelopmentPazaak(std::string opponentName, int maximumWager) {
     PazaakSessionParams params;
     params.opponentDeck = 0;
-    params.maximumWager = 0;
+    params.maximumWager = maximumWager;
     params.opponentName = opponentName.empty() ? "Pazaak Opponent" : std::move(opponentName);
     // The developer route never touches save-owned cards or credits: it uses a
     // temporary, title-appropriate collection and opponent deck only.
@@ -3198,6 +3227,9 @@ void Game::startCharacterGeneration() {
 }
 
 void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef) {
+    if (_captureHUDPresentation) {
+        return;
+    }
     std::shared_ptr<Gff> dlg(_services.resource.gffs.get(resRef, ResType::Dlg));
     if (!dlg) {
         warn("Game: conversation not found: " + resRef);
@@ -3249,6 +3281,9 @@ void Game::changeScreen(Screen screen) {
     auto gui = getScreenGUI();
     if (gui) {
         gui->clearSelection();
+    }
+    if (_confirmPopup) {
+        _confirmPopup->hide();
     }
     _screen = screen;
 }
@@ -3545,7 +3580,287 @@ void Game::consoleGiveGold(const ConsoleArgs &args) {
 
 void Game::consoleWarp(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "module");
+    // Gallery states share an engine process for speed. A warp is their scene
+    // boundary, so fixture-only HUD state must not bleed into the next image.
+    _captureHUDPresentation = false;
+    if (_hud) {
+        _hud->clearCapturePresentation();
+    }
     loadModule(std::string(args[1].value()));
+}
+
+void Game::consoleOpenMenu(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "equipment|equipment-items|inventory|character|abilities|party|messages|journal|map|options");
+
+    std::string_view name(args[1].value());
+    if (boost::iequals(name, "equipment-items")) {
+        setCursorType(CursorType::Default);
+        _inGame->openEquipmentItems();
+        changeScreen(Screen::InGameMenu);
+        return;
+    }
+
+    static const std::array<std::pair<std::string_view, InGameMenuTab>, 9> kTabs {{
+        {"equipment", InGameMenuTab::Equipment},
+        {"inventory", InGameMenuTab::Inventory},
+        {"character", InGameMenuTab::Character},
+        {"abilities", InGameMenuTab::Abilities},
+        {"party", InGameMenuTab::Party},
+        {"messages", InGameMenuTab::Messages},
+        {"journal", InGameMenuTab::Journal},
+        {"map", InGameMenuTab::Map},
+        {"options", InGameMenuTab::Options},
+    }};
+    for (const auto &[tabName, tab] : kTabs) {
+        if (boost::iequals(name, tabName)) {
+            openInGameMenu(tab);
+            return;
+        }
+    }
+    throw std::runtime_error("Unknown in-game menu tab: " + std::string(name));
+}
+
+static std::string joinConsoleArgs(const ConsoleArgs &args, size_t first) {
+    std::string result;
+    for (size_t i = first; i < args.size(); ++i) {
+        if (!result.empty()) {
+            result += ' ';
+        }
+        result += args[i].value();
+    }
+    return result;
+}
+
+void Game::consoleOpenCharacterGeneration(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 2, "class|quick-or-custom|quick|portrait|name|custom|abilities|skills|feats|powers|level-up [select]");
+
+    std::string_view screen(args[1].value());
+    bool selectFirst = args.size() > 2 && boost::iequals(std::string(args[2].value()), "select");
+    if (boost::iequals(screen, "class")) {
+        startCharacterGeneration();
+        if (_charGen) {
+            _charGen->openClassSelection();
+        }
+        return;
+    }
+
+    if (!_module || !_party.getLeader()) {
+        throw std::runtime_error("Character-generation capture screens require a loaded party");
+    }
+    openLevelUp();
+    if (!_charGen) {
+        throw std::runtime_error("Character generation GUI is unavailable");
+    }
+    if (boost::iequals(screen, "level-up")) {
+        _charGen->openLevelUp();
+        return;
+    }
+
+    Character character(_charGen->character());
+    ClassType captureClass = boost::iequals(screen, "powers")
+                                 ? ClassType::JediConsular
+                                 : (isTSL() ? ClassType::JediGuardian : ClassType::Soldier);
+    std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(captureClass));
+    if (!clazz) {
+        throw std::runtime_error("Starting class is unavailable");
+    }
+    character.attributes = clazz->defaultAttributes();
+    _charGen->setCharacter(std::move(character));
+
+    if (boost::iequals(screen, "quick")) {
+        _charGen->startQuick();
+        return;
+    }
+    _charGen->startCustom();
+    if (boost::iequals(screen, "quick-or-custom")) {
+        _charGen->openQuickOrCustom();
+        return;
+    }
+    if (boost::iequals(screen, "portrait")) {
+        _charGen->openPortraitSelection();
+        return;
+    }
+    if (boost::iequals(screen, "name")) {
+        _charGen->openNameEntry();
+        return;
+    }
+    if (boost::iequals(screen, "custom")) {
+        _charGen->openCustom();
+        return;
+    }
+    if (boost::iequals(screen, "abilities")) {
+        _charGen->openAbilities();
+        return;
+    }
+    if (boost::iequals(screen, "skills")) {
+        _charGen->openSkills();
+        if (selectFirst) {
+            _charGen->skills().selectFirstEntryForCapture();
+        }
+        return;
+    }
+    if (boost::iequals(screen, "feats")) {
+        _charGen->openFeats();
+        if (selectFirst) {
+            _charGen->feats().selectFirstEntryForCapture();
+        }
+        return;
+    }
+    if (boost::iequals(screen, "powers")) {
+        _charGen->openPowers();
+        if (selectFirst) {
+            _charGen->powers().selectFirstEntryForCapture();
+        }
+        return;
+    }
+    throw std::runtime_error("Unknown character-generation screen: " + std::string(screen));
+}
+
+void Game::consoleShowBark(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 2, 1024, "seconds message ...");
+    auto duration = args.get<float>(1);
+    if (!duration || *duration <= 0.0f) {
+        throw std::invalid_argument("showbark duration must be positive");
+    }
+    if (!_hud) {
+        throw std::runtime_error("HUD is unavailable; load a module first");
+    }
+    setBarkBubbleText(joinConsoleArgs(args, 2), *duration);
+}
+
+void Game::consoleSkipMovie(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    _movie.reset();
+}
+
+void Game::consoleShowPopup(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 2, 1024, "icon|none message ...");
+    if (!_confirmPopup) {
+        _confirmPopup = tryLoadGUI<ConfirmPopup>();
+    }
+    if (!_confirmPopup) {
+        throw std::runtime_error("Confirmation popup GUI is unavailable");
+    }
+
+    std::shared_ptr<Texture> icon;
+    std::string_view iconResRef(args[1].value());
+    if (!boost::iequals(iconResRef, "none")) {
+        icon = _services.resource.textures.get(std::string(iconResRef), TextureUsage::GUI);
+    }
+    _confirmPopup->show(joinConsoleArgs(args, 2), std::move(icon));
+}
+
+void Game::consoleSeed(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "number");
+    setRandomSeed(static_cast<uint32_t>(args.get<int>(1).value()));
+}
+
+void Game::consoleGraphics(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "on|off");
+    auto mode = std::string(args[1].value());
+    if (boost::iequals(mode, "on")) {
+        _options.graphics.sceneRender = true;
+    } else if (boost::iequals(mode, "off")) {
+        _options.graphics.sceneRender = false;
+    } else {
+        throw std::runtime_error("Expected on or off");
+    }
+}
+
+void Game::consoleOpenContainer(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    auto leader = getConsoleLeader();
+    if (!leader || !_container) {
+        throw std::runtime_error("Container fixture requires a loaded module");
+    }
+    openContainer(leader);
+}
+
+void Game::consoleShowHUD(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 1, "[combat]");
+    if (!_module || !_hud) {
+        throw std::runtime_error("HUD capture fixture requires a loaded module");
+    }
+    bool combat = args.size() > 1 && boost::iequals(std::string(args[1].value()), "combat");
+    if (args.size() > 1 && !combat) {
+        throw std::runtime_error("Unknown HUD capture presentation: " + std::string(args[1].value()));
+    }
+    _captureHUDPresentation = true;
+    _cameraType = CameraType::ThirdPerson;
+    openInGame();
+    _hud->showCapturePresentation(combat);
+}
+
+void Game::consoleShowTransition(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1024, "destination ...");
+    if (!_module || !_hud) {
+        throw std::runtime_error("Area-transition capture fixture requires a loaded module");
+    }
+    _captureHUDPresentation = true;
+    _cameraType = CameraType::ThirdPerson;
+    openInGame();
+    _hud->showCapturePresentation(false);
+    _hud->showTransitionCapturePresentation(joinConsoleArgs(args, 1));
+}
+
+void Game::consoleSelectDialogOption(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "index");
+    if (_screen != Screen::Conversation || _conversation != _dialog.get()) {
+        throw std::runtime_error("Dialog selection fixture requires an active character conversation");
+    }
+    _dialog->selectReplyForCapture(args.get<int>(1).value());
+}
+
+void Game::consoleShowGalleryMode(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 2, "swoop|pazaak wager|setup|board");
+
+    std::string_view mode(args[1].value());
+    if (boost::iequals(mode, "swoop")) {
+        if (!_swoopRace.isActive()) {
+            openSwoopRace();
+        }
+        if (!_swoopRace.isActive()) {
+            throw std::runtime_error("Swoop gallery fixture requires a loaded swoop minigame module");
+        }
+        return;
+    }
+
+    if (!boost::iequals(mode, "pazaak") || args.size() != 3) {
+        throw std::runtime_error("Unknown gallery mode; expected swoop or pazaak wager|setup|board");
+    }
+    if (!_module) {
+        throw std::runtime_error("Pazaak gallery fixture requires a loaded module");
+    }
+
+    std::string_view screen(args[2].value());
+    bool showWager = boost::iequals(screen, "wager");
+    bool showSetup = boost::iequals(screen, "setup");
+    bool showBoard = boost::iequals(screen, "board");
+    if (!showWager && !showSetup && !showBoard) {
+        throw std::runtime_error("Unknown Pazaak gallery screen: " + std::string(screen));
+    }
+
+    abortPazaak();
+    if (!startDevelopmentPazaak("Gallery Opponent", showWager ? 100 : 0)) {
+        throw std::runtime_error("Unable to start Pazaak gallery fixture");
+    }
+    if (showWager || showSetup) {
+        return;
+    }
+
+    for (size_t collectionIndex = 0;
+         collectionIndex < _pazaakSession->collection().size() &&
+         _pazaakSession->chosenCards().size() < pazaak::kSideDeckSize;
+         ++collectionIndex) {
+        while (_pazaakSession->remainingCopies(collectionIndex) > 0 &&
+               _pazaakSession->chosenCards().size() < pazaak::kSideDeckSize) {
+            _pazaakSession->selectCard(collectionIndex);
+        }
+    }
+    if (!_pazaakSession->confirmSetup()) {
+        throw std::runtime_error("Unable to prepare Pazaak board gallery fixture");
+    }
+    showPazaakBoard();
 }
 
 void Game::consoleRunScript(const ConsoleArgs &args) {
@@ -3837,9 +4152,16 @@ void Game::consoleAutoSkipReplies(const ConsoleArgs &args) {
 }
 
 void Game::consoleStartConversation(const ConsoleArgs &args) {
-    consoleCheckUsage(args, 0, 0, "");
+    consoleCheckUsage(args, 0, 1, "[dlg_resref]");
 
     auto leader = getConsoleLeader();
+    _captureHUDPresentation = false;
+    auto resRef = args[1];
+    if (resRef) {
+        startDialog(leader, std::string(resRef.value()));
+        return;
+    }
+
     auto target = getConsoleTargetObject();
 
     auto action = newAction<StartConversationAction>(target, "");

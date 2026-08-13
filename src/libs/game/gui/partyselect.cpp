@@ -75,11 +75,23 @@ PartySelection::PartySelection(Game &game, ServicesView &services) :
 }
 
 void PartySelection::onGUILoaded() {
-    if (!_game.isTSL()) {
-        loadBackground(BackgroundType::Menu);
-    }
+    loadBackground(BackgroundType::Menu);
 
     bindControls();
+
+    if (_game.isTSL()) {
+        fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
+        for (auto &control : {
+                 _controls.LBL_NA0, _controls.LBL_NA1, _controls.LBL_NA2, _controls.LBL_NA3,
+                 _controls.LBL_NA4, _controls.LBL_NA5, _controls.LBL_NA6, _controls.LBL_NA7,
+                 _controls.LBL_NA8, _controls.LBL_NA9, _controls.LBL_NA10, _controls.LBL_NA11}) {
+            control->setTintBorderFill(true);
+        }
+        useK2ShellTitle(_controls.LBL_TITLE);
+        for (auto &button : {_controls.BTN_ACCEPT, _controls.BTN_DONE, _controls.BTN_BACK}) {
+            enableK2ButtonBodyFill(button);
+        }
+    }
 
     for (int i = 0; i < npcCount(); ++i) {
         ToggleButton &button = getNpcButton(i);

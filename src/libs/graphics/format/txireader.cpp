@@ -77,6 +77,8 @@ void TxiReader::processLine(const std::vector<std::string> &tokens) {
             _features.numChars = stoi(tokens[1]);
         } else if (key == "fontheight") {
             _features.fontHeight = stof(tokens[1]);
+        } else if (key == "spacingr") {
+            _features.spacingR = stof(tokens[1]);
         } else if (key == "upperleftcoords") {
             _upperLeftCoordCount = stoi(tokens[1]);
             _features.upperLeftCoords.reserve(_upperLeftCoordCount);

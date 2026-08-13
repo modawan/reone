@@ -17,6 +17,8 @@
 
 #include "optionsparser.h"
 
+#include <cmath>
+
 #include "reone/system/types.h"
 
 using namespace boost::program_options;
@@ -27,6 +29,14 @@ using namespace reone::graphics;
 namespace reone {
 
 static constexpr char kConfigFilename[] = "reone.cfg";
+
+static float positiveFiniteScale(const variables_map &vars, const char *name) {
+    float value = vars[name].as<float>();
+    if (!std::isfinite(value) || value <= 0.0f) {
+        throw std::invalid_argument(std::string("--") + name + " must be finite and greater than zero");
+    }
+    return value;
+}
 
 std::unique_ptr<Options> OptionsParser::parse() {
     auto options = std::make_unique<Options>();
@@ -47,6 +57,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("height", value<int>()->default_value(options->graphics.height), "render height")                                      //
         ("winscale", value<int>()->default_value(options->graphics.winScale), "window scale")                                   //
         ("fullscreen", value<bool>()->default_value(options->graphics.fullscreen), "enable fullscreen")                         //
+        ("headless", value<bool>()->default_value(false), "never show the window; for scripted batch runs")                     //
         ("vsync", value<bool>()->default_value(options->graphics.vsync), "enable v-sync")                                       //
         ("grass", value<bool>()->default_value(options->graphics.grass), "enable grass")                                        //
         ("pbr", value<bool>()->default_value(options->graphics.pbr), "enable physically-based rendering")                       //
@@ -58,6 +69,11 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("shadowres", value<int>()->default_value(glm::log2(options->graphics.shadowResolution) - 10), "shadow map resolution") //
         ("anisofilter", value<int>()->default_value(options->graphics.anisotropicFiltering), "anisotropic filtering")           //
         ("drawdist", value<int>()->default_value(static_cast<int>(kDefaultObjectDrawDistance)), "draw distance")                //
+        ("guiscale", value<float>()->default_value(options->graphics.guiScale), "GUI layout scale")                              //
+        ("guitextscale", value<float>()->default_value(options->graphics.guiTextScale), "GUI text scale")                       //
+        ("guidialogtextscale", value<float>()->default_value(options->graphics.guiDialogTextScale), "dialog text scale")       //
+        ("guiborderscale", value<float>()->default_value(options->graphics.guiBorderScale), "GUI border scale")                 //
+        ("guilistscale", value<float>()->default_value(options->graphics.guiListScale), "GUI list row scale")                    //
         ("musicvol", value<int>()->default_value(options->audio.musicVolume), "music volume in percents")                       //
         ("voicevol", value<int>()->default_value(options->audio.voiceVolume), "voice volume in percents")                       //
         ("soundvol", value<int>()->default_value(options->audio.soundVolume), "sound volume in percents")                       //
@@ -85,6 +101,7 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options->graphics.height = vars["height"].as<int>();
     options->graphics.winScale = vars["winscale"].as<int>();
     options->graphics.fullscreen = vars["fullscreen"].as<bool>();
+    options->graphics.headless = vars["headless"].as<bool>();
     options->graphics.vsync = vars["vsync"].as<bool>();
     options->graphics.grass = vars["grass"].as<bool>();
     options->graphics.pbr = vars["pbr"].as<bool>();
@@ -96,6 +113,11 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options->graphics.shadowResolution = 1 << (10 + vars["shadowres"].as<int>());
     options->graphics.anisotropicFiltering = vars["anisofilter"].as<int>();
     options->graphics.drawDistance = static_cast<float>(vars["drawdist"].as<int>());
+    options->graphics.guiScale = positiveFiniteScale(vars, "guiscale");
+    options->graphics.guiTextScale = positiveFiniteScale(vars, "guitextscale");
+    options->graphics.guiDialogTextScale = positiveFiniteScale(vars, "guidialogtextscale");
+    options->graphics.guiBorderScale = positiveFiniteScale(vars, "guiborderscale");
+    options->graphics.guiListScale = positiveFiniteScale(vars, "guilistscale");
     options->audio.musicVolume = vars["musicvol"].as<int>();
     options->audio.voiceVolume = vars["voicevol"].as<int>();
     options->audio.soundVolume = vars["soundvol"].as<int>();

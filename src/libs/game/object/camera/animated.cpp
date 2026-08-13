@@ -34,14 +34,16 @@ namespace game {
 void AnimatedCamera::load() {
     auto &scene = _services.scene.graphs.get(_sceneName);
     _sceneNode = scene.newCamera();
-    updateProjection();
+    rebuildProjection();
 }
 
-void AnimatedCamera::updateProjection() {
-    cameraSceneNode()->setPerspectiveProjection(glm::radians(_fovy), _aspect, kDefaultClipPlaneNear, kDefaultClipPlaneFar);
+float AnimatedCamera::projectionFovy() const {
+    return glm::radians(_fovy);
 }
 
 void AnimatedCamera::update(float dt) {
+    Camera::update(dt);
+
     if (_model) {
         _model->update(dt);
     }
@@ -84,11 +86,11 @@ void AnimatedCamera::setModel(std::shared_ptr<Model> model) {
 }
 
 void AnimatedCamera::setFieldOfView(float fovy) {
-    if (_fovy != fovy) {
+    if (_fovy == fovy) {
         return;
     }
     _fovy = fovy;
-    updateProjection();
+    rebuildProjection();
 }
 
 } // namespace game

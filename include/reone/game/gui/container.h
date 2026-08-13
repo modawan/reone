@@ -66,7 +66,6 @@ private:
     void configureItemsListBox();
     void transferItemsToPlayer();
 
-    std::shared_ptr<graphics::Texture> getItemFrameTexture(int stackSize) const;
 };
 
 } // namespace game

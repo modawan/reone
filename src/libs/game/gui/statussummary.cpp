@@ -63,12 +63,15 @@ StatusSummary::StatusSummary(
 }
 
 void StatusSummary::onGUILoaded() {
+    centerRootInCanvas(_game.isTSL() ? 800 : 640, _game.isTSL() ? 600 : 480);
+
     _ok = findControl<Button>("BTN_OK");
     for (size_t i = 0; i < _rows.size(); ++i) {
         auto &row = _rows[i];
         row.icon = findControl<Label>(kIconTags[i]);
         row.description = findControl<Label>(kDescriptionTags[i]);
         if (row.icon) {
+            row.icon->setSharpenBorderFillAlpha(true);
             row.iconExtent = row.icon->extent();
         }
         if (row.description) {

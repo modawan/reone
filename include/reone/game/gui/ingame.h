@@ -50,6 +50,7 @@ public:
     void render() override;
 
     void openEquipment();
+    void openEquipmentItems();
     void openInventory();
     void openCharacter();
     void openAbilities();
@@ -129,7 +130,10 @@ private:
     std::unique_ptr<MapMenu> _map;
     std::unique_ptr<OptionsMenu> _options;
 
+protected:
     void preload(gui::IGUI &gui) override;
+
+private:
     void onGUILoaded() override;
 
     void bindControls() {
@@ -186,6 +190,7 @@ private:
 
     void updateTabButtons();
     void changeTab(InGameMenuTab tab);
+    void updateK2SectionTitle();
     void refreshK2Footer();
 
     void loadCharacter();

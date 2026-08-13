@@ -47,6 +47,8 @@ static constexpr int kStrRefTotalRank = 41904;
 void AbilitiesMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
+    tintK2InGameFooter();
+    tintK2InGameHeader();
 
     _controls.BTN_SKILLS->setDisabled(true);
     _controls.BTN_POWERS->setDisabled(true);
@@ -61,6 +63,26 @@ void AbilitiesMenu::onGUILoaded() {
     _controls.LBL_NAME->setTextMessage("");
 
     _controls.LB_DESC->setProtoMatchContent(true);
+    if (_game.isTSL()) {
+        fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
+        _controls.BTN_SKILLS->setDisabled(false);
+        updateK2FilterButton(_controls.BTN_SKILLS, true);
+        updateK2FilterButton(_controls.BTN_POWERS, false);
+        updateK2FilterButton(_controls.BTN_FEATS, false);
+        _controls.LB_ABILITY->setTintBorderFill(true);
+        _controls.LB_DESC->setTintBorderFill(true);
+        _controls.LB_DESC_FEATS->setTintBorderFill(true);
+        _controls.LBL_INFOBG->setTintBorderFill(true);
+        _controls.LBL_NAME->setTintBorderFill(true);
+        useK2ShellTitle(_controls.LBL_ABILITIES);
+        enableK2ButtonBodyFill(_controls.BTN_EXIT);
+        if (auto protoItem = _controls.LB_ABILITY->protoItemOrNull()) {
+            enableK2ButtonBodyFill(*protoItem);
+            protoItem->setBorderFill("uibit_fill_2wt");
+            protoItem->setHilightFill("uibit_fill_2wt");
+            protoItem->setTintBorderFill(true);
+        }
+    }
     _controls.LB_ABILITY->setOnItemClick([this](const std::string &item) {
         auto skill = static_cast<SkillType>(stoi(item));
         auto maybeSkillInfo = _skills.find(skill);
@@ -103,20 +125,10 @@ void AbilitiesMenu::loadSkills() {
         ListBox::Item item;
         item.tag = std::to_string(static_cast<int>(skill.second.skill));
         item.text = skill.second.name;
-        item.iconFrame = getFrameTexture();
+        item.iconFrame = itemFrameTexture(1);
         item.iconTexture = skill.second.icon;
         _controls.LB_ABILITY->addItem(std::move(item));
     }
-}
-
-std::shared_ptr<Texture> AbilitiesMenu::getFrameTexture() const {
-    std::string resRef;
-    if (_game.isTSL()) {
-        resRef = "uibit_eqp_itm1";
-    } else {
-        resRef = "lbl_hex_3";
-    }
-    return _services.resource.textures.get(resRef, TextureUsage::GUI);
 }
 
 void AbilitiesMenu::refreshControls() {

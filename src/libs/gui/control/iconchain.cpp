@@ -17,6 +17,8 @@
 
 #include "reone/gui/control/iconchain.h"
 
+#include "reone/gui/control/scrollbar.h"
+
 #include "reone/scene/render/pass.h"
 
 using namespace reone::scene;
@@ -173,18 +175,42 @@ void IconChain::render(const glm::ivec2 &screenSize,
         }
 
         bool focused = static_cast<int>(i) == _focusedItemIndex;
+        if (_cellStyle.drawItemBorderBeforeIcon) {
+            renderItemBorder(item, focused, itemExtent, offset, pass);
+            renderFocusedBorder(item, focused, itemExtent, offset, pass);
+        }
         if (item.iconTexture) {
             Extent iconExtent(getItemIconExtent(itemExtent));
-            pass.drawImage(
+            pass.drawIcon(
                 *item.iconTexture,
                 {offset.x + iconExtent.left, offset.y + iconExtent.top},
                 {iconExtent.width, iconExtent.height},
                 getItemIconColor(item));
         }
 
-        renderItemBorder(item, focused, itemExtent, offset, pass);
-        renderFocusedBorder(item, focused, itemExtent, offset, pass);
+        if (!_cellStyle.drawItemBorderBeforeIcon) {
+            renderItemBorder(item, focused, itemExtent, offset, pass);
+            renderFocusedBorder(item, focused, itemExtent, offset, pass);
+        }
     }
+
+    if (_scrollBar) {
+        int rowCount = getMaxRow() + 1;
+        int visibleRows = getVisibleRowCount();
+        if (rowCount > visibleRows) {
+            ScrollBar::ScrollState state;
+            state.count = rowCount;
+            state.numVisible = visibleRows;
+            state.offset = _rowOffset;
+            auto &scrollBar = static_cast<ScrollBar &>(*_scrollBar);
+            scrollBar.setScrollState(std::move(state));
+            scrollBar.render(screenSize, offset, pass);
+        }
+    }
+}
+
+void IconChain::setScrollBar(std::shared_ptr<Control> scrollBar) {
+    _scrollBar = std::move(scrollBar);
 }
 
 void IconChain::setSelected(bool selected) {

@@ -23,7 +23,7 @@ namespace graphics {
 
 class Font;
 
-std::vector<std::string> breakText(const std::string &text, Font &font, int maxWidth);
+std::vector<std::string> breakText(const std::string &text, Font &font, int maxWidth, float scale = 1.0f);
 
 } // namespace graphics
 

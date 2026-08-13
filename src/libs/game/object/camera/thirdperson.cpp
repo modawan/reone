@@ -40,7 +40,11 @@ static constexpr float kTargetPadding = 0.05f;
 void ThirdPersonCamera::load() {
     auto &scene = _services.scene.graphs.get(_sceneName);
     _sceneNode = scene.newCamera();
-    cameraSceneNode()->setPerspectiveProjection(glm::radians(_style.viewAngle), _aspect, kDefaultClipPlaneNear, kDefaultClipPlaneFar);
+    rebuildProjection();
+}
+
+float ThirdPersonCamera::projectionFovy() const {
+    return glm::radians(_style.viewAngle);
 }
 
 bool ThirdPersonCamera::handle(const input::Event &event) {
@@ -136,6 +140,8 @@ bool ThirdPersonCamera::handleMouseButtonUp(const input::MouseButtonEvent &event
 }
 
 void ThirdPersonCamera::update(float dt) {
+    Camera::update(dt);
+
     if (!_rotateCW && !_rotateCCW)
         return;
 

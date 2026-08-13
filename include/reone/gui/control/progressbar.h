@@ -46,10 +46,13 @@ public:
 private:
     struct Progress {
         std::shared_ptr<graphics::Texture> fill;
+        /** Multiplies the fill. TSL authors greyscale bars and colours them here. */
+        glm::vec3 color {1.0f};
     };
 
     Progress _progress;
     int _value {0};
+    bool _startFromLeft {true};
 };
 
 } // namespace gui

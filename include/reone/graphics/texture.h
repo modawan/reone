@@ -92,6 +92,7 @@ public:
 
         int numChars {0};
         float fontHeight {0.0f};
+        float spacingR {0.0f};
         std::vector<glm::vec3> upperLeftCoords;
         std::vector<glm::vec3> lowerRightCoords;
 

@@ -32,7 +32,6 @@ class AnimatedCamera : public Camera {
 public:
     AnimatedCamera(
         uint32_t id,
-        float aspect,
         std::string sceneName,
         Game &game,
         ServicesView &services) :
@@ -40,8 +39,7 @@ public:
             id,
             std::move(sceneName),
             game,
-            services),
-        _aspect(aspect) {
+            services) {
     }
 
     void load();
@@ -56,12 +54,10 @@ public:
     void setFieldOfView(float fovy);
 
 private:
-    float _aspect;
-
     std::shared_ptr<scene::ModelSceneNode> _model;
     float _fovy {kDefaultAnimCamFOV};
 
-    void updateProjection();
+    float projectionFovy() const override;
 };
 
 } // namespace game

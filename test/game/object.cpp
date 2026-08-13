@@ -28,11 +28,21 @@
 #include "reone/game/action/unlockobject.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/areatransition.h"
+#include "reone/game/gui/actionbar.h"
+#include "reone/game/gui/chargen/iconselection.h"
+#include "reone/game/gui/ingame.h"
+#include "reone/game/gui/loadscreen.h"
+#include "reone/game/gui/mainmenu.h"
 #include "reone/game/gui/conversation.h"
 #include "reone/game/gui/dialog.h"
 #include "reone/game/gui/hud.h"
 #include "reone/game/gui/statussummary.h"
 #include "reone/game/object/area.h"
+#include "reone/game/object/camera/animated.h"
+#include "reone/game/object/camera/dialog.h"
+#include "reone/game/object/camera/firstperson.h"
+#include "reone/game/object/camera/static.h"
+#include "reone/game/object/camera/thirdperson.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/item.h"
@@ -43,12 +53,19 @@
 #include "reone/game/room.h"
 #include "reone/game/script/routines.h"
 #include "reone/graphics/animation.h"
+#include "reone/graphics/camera/perspective.h"
+#include "reone/graphics/font.h"
 #include "reone/graphics/model.h"
 #include "reone/graphics/modelnode.h"
 #include "reone/graphics/walkmesh.h"
+#include "reone/gui/control/button.h"
+#include "reone/gui/control/listbox.h"
+#include "reone/gui/control/label.h"
+#include "reone/gui/gui.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/gff.h"
 #include "reone/scene/collision.h"
+#include "reone/scene/node/camera.h"
 #include "reone/scene/node/dummy.h"
 #include "reone/scene/node/model.h"
 #include "reone/scene/node/trigger.h"
@@ -89,6 +106,29 @@ public:
 private:
     void setReplyLines(std::vector<std::string>) override {}
     void setMessage(std::string) override {}
+};
+
+class TestScaledControl : public gui::Control {
+public:
+    TestScaledControl(gui::IGUI &gui, TestEngine &engine) :
+        Control(
+            gui,
+            gui::ControlType::Panel,
+            engine.services().scene.graphs,
+            engine.services().graphics,
+            engine.services().resource) {
+    }
+
+    void setAuthoredGeometry(Extent extent, int borderDimension, int hilightDimension) {
+        _authoredExtent = extent;
+        _extent = extent;
+        _authoredBorderDimension = borderDimension;
+        _authoredHilightDimension = hilightDimension;
+        _border = std::make_shared<Border>();
+        _border->dimension = borderDimension;
+        _hilight = std::make_shared<Border>();
+        _hilight->dimension = hilightDimension;
+    }
 };
 
 class MixedStuntTestAccess {
@@ -148,6 +188,41 @@ public:
 
 } // namespace reone::game
 
+namespace reone::game {
+
+class ActionBarTestAccess {
+public:
+    static void addAttackAction(ActionBar &bar, const std::shared_ptr<gui::Button> &button) {
+        ActionBar::Slot slot;
+        slot.slot.actions.emplace_back(ActionType::AttackObject);
+        slot.button = button;
+        bar._slots.push_back(std::move(slot));
+    }
+};
+
+class HUDTestAccess {
+public:
+    static void setHealthControl(HUD &hud,
+                                 std::shared_ptr<gui::IGUI> gui,
+                                 std::shared_ptr<gui::Label> control) {
+        hud._gui = std::move(gui);
+        hud._controls.LBL_BACK1 = std::move(control);
+    }
+
+    static void setCapturePresentation(HUD &hud, bool presentation, bool combat, bool transition) {
+        hud._capturePresentation = presentation;
+        hud._captureCombatPresentation = combat;
+        hud._captureTransitionPresentation = transition;
+    }
+
+    static std::tuple<bool, bool, bool> capturePresentation(const HUD &hud) {
+        return {hud._capturePresentation, hud._captureCombatPresentation, hud._captureTransitionPresentation};
+    }
+
+};
+
+} // namespace reone::game
+
 std::pair<std::string, std::string> reone::game::TestGameModule::scheduledTransition(const Game &game) {
     return {game._nextModule, game._nextEntry};
 }
@@ -163,6 +238,24 @@ class TestAreaTransition : public AreaTransition {
 public:
     using AreaTransition::AreaTransition;
     using AreaTransition::preload;
+};
+
+class TestInGameMenu : public InGameMenu {
+public:
+    using InGameMenu::InGameMenu;
+    using InGameMenu::preload;
+};
+
+class TestLoadingScreen : public LoadingScreen {
+public:
+    using LoadingScreen::LoadingScreen;
+    using LoadingScreen::preload;
+};
+
+class TestMainMenu : public MainMenu {
+public:
+    using MainMenu::MainMenu;
+    using MainMenu::preload;
 };
 
 class PresentationLifecycleConversation : public Conversation {
@@ -201,7 +294,14 @@ public:
     void setSceneNode(std::shared_ptr<scene::SceneNode> node) {
         _sceneNode = std::move(node);
     }
+
+    void setHitPointsForTest(int hitPoints) {
+        _hitPoints = hitPoints;
+        _maxHitPoints = hitPoints;
+        _currentHitPoints = hitPoints;
+    }
 };
+
 std::pair<std::string, std::string> scheduledTransition(TestEngine &engine, const Game &game) {
     return engine.gameModule().scheduledTransition(game);
 }
@@ -1670,10 +1770,336 @@ TEST(TransitionPresentationLayout, should_top_anchor_and_horizontally_center_aut
     TestAreaTransition presentation(game, engine.services());
     NiceMock<gui::MockGUI> gui;
 
+    // The game-GUI base applies the scaled-mode default first; the
+    // transition presentation then overrides it with its own anchoring.
+    EXPECT_CALL(gui, setScaling(gui::GUI::ScalingMode::Scaled));
     EXPECT_CALL(gui, setResolution(640, 480));
-    EXPECT_CALL(gui, setScaling(gui::GUI::ScalingMode::CenterHorizontal));
+    EXPECT_CALL(gui, setScaling(gui::GUI::ScalingMode::ScaledTopCenter));
 
     presentation.preload(gui);
+}
+
+TEST(TransitionPresentationLayout, should_uniformly_scale_and_top_anchor_the_authored_canvas) {
+    TestEngine &engine = testEngine();
+    graphics::GraphicsOptions options;
+    options.width = 3440;
+    options.height = 1440;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    guiInstance.setResolution(640, 480);
+    guiInstance.setScaling(gui::GUI::ScalingMode::ScaledTopCenter);
+
+    auto rootExtent = Gff::Builder()
+                          .field(Gff::Field::newInt("LEFT", 0))
+                          .field(Gff::Field::newInt("TOP", 0))
+                          .field(Gff::Field::newInt("WIDTH", 640))
+                          .field(Gff::Field::newInt("HEIGHT", 480))
+                          .build();
+    auto root = Gff::Builder()
+                    .field(Gff::Field::newInt("CONTROLTYPE", static_cast<int>(gui::ControlType::Panel)))
+                    .field(Gff::Field::newCExoString("TAG", "ROOT"))
+                    .field(Gff::Field::newStruct("EXTENT", std::move(rootExtent)))
+                    .field(Gff::Field::newList("CONTROLS", {}))
+                    .build();
+
+    guiInstance.load(*root);
+
+    EXPECT_FLOAT_EQ(guiInstance.scale(), 3.0f);
+    EXPECT_EQ(guiInstance.rootOffset(), glm::ivec2(760, 0));
+    EXPECT_EQ(guiInstance.rootControl().extent().width, 1920);
+    EXPECT_EQ(guiInstance.rootControl().extent().height, 1440);
+}
+
+// Every game GUI must receive the scaling default from the base preload. The
+// in-game menu forgot to chain it, which left its top navigation icon strip
+// unscaled and floating over the correctly scaled subscreens - the regression
+// these lock out. They assert the chaining, not which mode the default is.
+
+TEST(GameGUIScalingDefault, should_apply_default_scaling_to_in_game_menu) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    TestInGameMenu menu(game, engine.services());
+    NiceMock<gui::MockGUI> gui;
+
+    EXPECT_CALL(gui, setScaling(gui::GUI::ScalingMode::Scaled));
+
+    menu.preload(gui);
+}
+
+TEST(GameGUIScalingDefault, should_apply_default_scaling_to_loading_screen) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    TestLoadingScreen screen(game, engine.services());
+    NiceMock<gui::MockGUI> gui;
+
+    EXPECT_CALL(gui, setScaling(gui::GUI::ScalingMode::Scaled));
+
+    screen.preload(gui);
+}
+
+TEST(GameGUIScalingDefault, should_apply_default_scaling_to_main_menu) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    TestMainMenu menu(game, engine.services());
+    NiceMock<gui::MockGUI> gui;
+
+    EXPECT_CALL(gui, setScaling(gui::GUI::ScalingMode::Scaled));
+    EXPECT_CALL(gui, setResolution(800, 600));
+
+    menu.preload(gui);
+}
+
+TEST(GUIControlLayout, should_scale_text_uniformly_when_geometry_uses_different_axis_factors) {
+    TestEngine &engine = testEngine();
+    graphics::GraphicsOptions options;
+    options.width = 1920;
+    options.height = 1080;
+    options.guiTextScale = 1.25f;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    guiInstance.setResolution(640, 480);
+    TestScaledControl control(guiInstance, engine);
+    control.setAuthoredGeometry({20, 30, 200, 80}, 8, 8);
+
+    control.stretch(3.0f, 2.25f);
+
+    EXPECT_EQ(control.extent().left, 60);
+    EXPECT_EQ(control.extent().top, 67);
+    EXPECT_EQ(control.extent().width, 600);
+    EXPECT_EQ(control.extent().height, 180);
+    EXPECT_FLOAT_EQ(control.scale(), 2.8125f);
+}
+
+TEST(GalleryHUDPresentation, should_clear_capture_flags_without_a_loaded_gui) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    HUD hud(game, engine.services());
+    HUDTestAccess::setCapturePresentation(hud, true, true, true);
+
+    hud.clearCapturePresentation();
+
+    EXPECT_EQ(HUDTestAccess::capturePresentation(hud), std::make_tuple(false, false, false));
+}
+
+TEST(GUIInputCoordinates, should_hit_screen_positioned_controls_without_authored_root_offset) {
+    TestEngine &engine = testEngine();
+    graphics::GraphicsOptions options;
+    options.width = 1920;
+    options.height = 1080;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    guiInstance.setResolution(640, 480);
+    guiInstance.setScaling(gui::GUI::ScalingMode::PositionRelativeToCenter);
+
+    auto rootExtent = Gff::Builder()
+                          .field(Gff::Field::newInt("LEFT", -320))
+                          .field(Gff::Field::newInt("TOP", -240))
+                          .field(Gff::Field::newInt("WIDTH", 640))
+                          .field(Gff::Field::newInt("HEIGHT", 480))
+                          .build();
+    auto root = Gff::Builder()
+                    .field(Gff::Field::newInt("CONTROLTYPE", static_cast<int>(gui::ControlType::Panel)))
+                    .field(Gff::Field::newCExoString("TAG", "ROOT"))
+                    .field(Gff::Field::newStruct("EXTENT", std::move(rootExtent)))
+                    .field(Gff::Field::newList("CONTROLS", {}))
+                    .build();
+    guiInstance.load(*root);
+
+    bool clicked = false;
+    auto button = std::make_shared<gui::Button>(
+        guiInstance,
+        engine.services().scene.graphs,
+        engine.services().graphics,
+        engine.services().resource);
+    button->setTag("REPLY");
+    button->setExtent({400, 800, 400, 100});
+    button->setOnClick([&clicked]() { clicked = true; });
+    guiInstance.addControlToFront(button, gui::IGUI::ControlCoordinates::Screen);
+
+    guiInstance.handle(input::Event::newMouseMotion({500, 850, 0.0f, 0.0f}));
+    EXPECT_TRUE(button->isSelected());
+    guiInstance.handle(input::Event::newMouseButtonDown(
+        {input::MouseButton::Left, true, 1, 500, 850}));
+    EXPECT_TRUE(guiInstance.handle(input::Event::newMouseButtonUp(
+        {input::MouseButton::Left, false, 1, 500, 850})));
+    EXPECT_TRUE(clicked);
+}
+
+TEST(CharGenDescriptionLayout, should_preserve_k1_authored_description_width) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    NiceMock<gui::MockGUI> gui;
+    gui::Label remaining(gui, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    gui::ListBox description(gui, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    remaining.setExtent({20, 20, 200, 40});
+    description.setExtent({300, 80, 260, 300});
+
+    styleChargenTitles(game, remaining, description);
+
+    EXPECT_EQ(description.extent().left, 300);
+    EXPECT_EQ(description.extent().width, 260);
+}
+
+TEST(CharGenDescriptionLayout, should_align_tsl_description_with_remaining_panel) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    NiceMock<gui::MockGUI> gui;
+    gui::Label remaining(gui, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    gui::ListBox description(gui, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    remaining.setExtent({300, 20, 320, 40});
+    description.setExtent({340, 80, 240, 300});
+
+    styleChargenTitles(game, remaining, description);
+
+    EXPECT_EQ(description.extent().left, 340);
+    EXPECT_EQ(description.extent().width, 280);
+}
+
+TEST(GUIScaledBorders, should_scale_border_and_hilight_dimensions_equally) {
+    TestEngine &engine = testEngine();
+    graphics::GraphicsOptions options;
+    options.width = 1920;
+    options.height = 1080;
+    options.guiBorderScale = 1.25f;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    guiInstance.setResolution(800, 600);
+    guiInstance.setScaling(gui::GUI::ScalingMode::Scaled);
+    TestScaledControl protoRow(guiInstance, engine);
+    protoRow.setAuthoredGeometry({100, 100, 200, 40}, 8, 8);
+
+    protoRow.stretch(guiInstance.scale(), guiInstance.scale());
+
+    EXPECT_EQ(protoRow.extent().width, 360);
+    EXPECT_EQ(protoRow.extent().height, 72);
+    EXPECT_EQ(protoRow.border().dimension, 18);
+    EXPECT_EQ(protoRow.hilight().dimension, 18);
+}
+
+TEST(GUIListScale, should_change_row_density_without_changing_the_list_viewport) {
+    TestEngine &engine = testEngine();
+    graphics::GraphicsOptions options;
+    options.guiListScale = 0.5f;
+    options.guiTextScale = 0.75f;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+
+    resource::generated::GUI_CONTROLS definition;
+    definition.CONTROLTYPE = static_cast<int>(gui::ControlType::ListBox);
+    definition.EXTENT = {120, 20, 30, 100};
+    definition.PADDING = 4;
+    resource::generated::GUI_CONTROLS_PROTOITEM proto;
+    proto.CONTROLTYPE = static_cast<int>(gui::ControlType::Button);
+    proto.EXTENT = {20, 0, 0, 80};
+    proto.BORDER.DIMENSION = 2;
+    proto.HILIGHT = resource::generated::GUI_BORDER {};
+    proto.HILIGHT->DIMENSION = 2;
+    definition.PROTOITEM = std::move(proto);
+
+    gui::ListBox listBox(guiInstance, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    listBox.load(definition, false);
+    for (int i = 0; i < 10; ++i) {
+        gui::ListBox::Item item;
+        item.tag = std::to_string(i);
+        listBox.addItem(std::move(item));
+    }
+
+    listBox.stretch(2.0f, 2.0f, gui::Control::kStretchAll);
+
+    EXPECT_EQ(listBox.extent().width, 200);
+    EXPECT_EQ(listBox.extent().height, 240);
+    EXPECT_EQ(listBox.protoItem().extent().width, 160);
+    EXPECT_EQ(listBox.protoItem().extent().height, 20);
+    // The 50% row density changes row art and pitch, but text follows the
+    // regular GUI layout scale and its own text setting.
+    EXPECT_FLOAT_EQ(listBox.protoItem().scale(), 1.5f);
+    EXPECT_EQ(listBox.protoItem().border().dimension, 2);
+    listBox.handleMouseMotion(0, 119);
+    EXPECT_EQ(listBox.selectedItemIndex(), 4);
+}
+
+TEST(GUIExternalRendererGeometry, should_scale_action_icons_to_their_button_rect) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto gui = std::make_shared<NiceMock<gui::MockGUI>>();
+    auto button = std::make_shared<gui::Button>(
+        *gui,
+        engine.services().scene.graphs,
+        engine.services().graphics,
+        engine.services().resource);
+    button->setExtent({900, 360, 72, 72});
+    ActionBar actionBar(game, engine.services());
+    ActionBarTestAccess::addAttackAction(actionBar, button);
+    auto icon = std::make_shared<graphics::Texture>("action", graphics::TextureType::TwoDim, graphics::Texture::Properties {});
+    ON_CALL(engine.resourceModule().textures(), get(_, _)).WillByDefault(Return(icon));
+
+    glm::mat4 model;
+    ON_CALL(engine.graphicsModule().uniforms(), setLocals(_))
+        .WillByDefault(Invoke([&](const std::function<void(graphics::LocalUniforms &)> &setter) {
+            graphics::LocalUniforms locals;
+            setter(locals);
+            model = locals.model;
+            throw std::runtime_error("captured action icon geometry");
+        }));
+
+    EXPECT_THROW(actionBar.render(1.8f), std::runtime_error);
+    EXPECT_FLOAT_EQ(model[0][0], 46.8f);
+    EXPECT_FLOAT_EQ(model[1][1], 46.8f);
+    EXPECT_FLOAT_EQ(model[3][0], 912.6f);
+    EXPECT_FLOAT_EQ(model[3][1], 372.6f);
+}
+
+TEST(CameraProjection, should_follow_a_resolution_change_after_all_camera_types_load) {
+    TestEngine &engine = testEngine();
+    auto originalGraphicsOptions = engine.options().graphics;
+    engine.options().graphics.width = 800;
+    engine.options().graphics.height = 600;
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto &graph = testSceneGraph(engine);
+    ON_CALL(graph, newCamera())
+        .WillByDefault(Invoke([&]() {
+            return std::make_shared<scene::CameraSceneNode>(
+                graph,
+                engine.services().graphics,
+                engine.services().audio,
+                engine.services().resource);
+        }));
+
+    auto firstPerson = game.newFirstPersonCamera(glm::radians(75.0f));
+    auto thirdPerson = game.newThirdPersonCamera({"", 3.2f, 83.0f, 0.45f, 55.0f});
+    auto dialog = game.newDialogCamera({"", 3.2f, 83.0f, 0.45f, 55.0f});
+    auto animated = game.newAnimatedCamera();
+    auto stationary = game.newStaticCamera();
+
+    firstPerson->load();
+    thirdPerson->load();
+    dialog->load();
+    animated->load();
+    auto staticCameraGff = Gff::Builder()
+                               .field(Gff::Field::newInt("CameraID", 1))
+                               .field(Gff::Field::newFloat("FieldOfView", 55.0f))
+                               .field(Gff::Field::newFloat("Height", 0.0f))
+                               .field(Gff::Field::newVector("Position", glm::vec3(0.0f)))
+                               .field(Gff::Field::newOrientation("Orientation", glm::quat(1.0f, 0.0f, 0.0f, 0.0f)))
+                               .field(Gff::Field::newFloat("Pitch", 0.0f))
+                               .build();
+    stationary->deserialize(*staticCameraGff);
+
+    engine.options().graphics.width = 1920;
+    engine.options().graphics.height = 1080;
+
+    std::array<Camera *, 5> cameras {firstPerson.get(), thirdPerson.get(), dialog.get(), animated.get(), stationary.get()};
+    for (Camera *camera : cameras) {
+        camera->update(0.0f);
+        auto projection = std::dynamic_pointer_cast<graphics::PerspectiveCamera>(camera->cameraSceneNode()->camera());
+        ASSERT_TRUE(projection);
+        EXPECT_FLOAT_EQ(projection->aspect(), 16.0f / 9.0f);
+    }
+
+    engine.options().graphics = originalGraphicsOptions;
 }
 
 TEST(TransitionPresentationPortals, should_expose_authored_transitions_without_touching_state) {

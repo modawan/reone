@@ -59,6 +59,11 @@ static const char kObjectTagOwner[] = "owner";
 // the clip name suffix and whether the clip is held, while the offset within the
 // band selects the clip number. Both namespaces are independent of AnimatedCut
 // and of whether the participant is driven by a stunt model.
+// The conversation bands are viewport-relative, not authored plate art:
+// the subtitle sits in the top sixth and the reply list in the bottom sixth
+// of whatever viewport the game is running at.
+static constexpr int kBandDivisor = 6;
+
 static constexpr int kDialogAnimationBase = 10000;
 static constexpr int kCutAnimationBandSize = 200;
 
@@ -106,7 +111,12 @@ static const std::unordered_map<std::string, AnimationType> g_animTypeByName {
     {"kneel_talk_sad", AnimationType::LoopingKneelTalkSad}};
 
 void DialogGUI::preload(IGUI &gui) {
-    gui.setScaling(GUI::ScalingMode::Stretch);
+    GameGUI::preload(gui);
+    // Conversation bands and reply boxes are viewport-relative rather than
+    // authored plate art. Their dialog-specific font scale follows the
+    // uniform limiting axis without inheriting the global text multiplier.
+    gui.setScaling(GUI::ScalingMode::PositionRelativeToCenter);
+    gui.setTextScale(_game.options().graphics.guiDialogTextScale);
 }
 
 void DialogGUI::onGUILoaded() {
@@ -121,36 +131,48 @@ void DialogGUI::onGUILoaded() {
     });
 }
 
-void DialogGUI::loadFrames() {
-    int rootTop = _gui->rootControl().extent().top;
-    int messageHeight = _controls.LBL_MESSAGE->extent().height;
-
-    addFrame(kControlTagTopFrame, -rootTop, messageHeight);
-    addFrame(kControlTagBottomFrame, 0, _game.options().graphics.height - rootTop);
+void DialogGUI::selectReplyForCapture(int index) {
+    _controls.LB_REPLIES->setSelectedItemIndex(index);
 }
 
-void DialogGUI::addFrame(std::string tag, int top, int height) {
+int DialogGUI::bandHeight() const {
+    return _game.options().graphics.height / kBandDivisor;
+}
+
+Control::Extent DialogGUI::bandExtent(int top) const {
+    return {0, top, _game.options().graphics.width, bandHeight()};
+}
+
+void DialogGUI::loadFrames() {
+    addFrame(kControlTagTopFrame, 0);
+    addFrame(kControlTagBottomFrame, _game.options().graphics.height - bandHeight());
+}
+
+void DialogGUI::addFrame(std::string tag, int top) {
     auto frame = _gui->newControl(ControlType::Panel, tag);
-
-    Control::Extent extent;
-    extent.left = -_gui->rootControl().extent().left;
-    extent.top = top;
-    extent.width = _game.options().graphics.width;
-    extent.height = height;
-
-    frame->setExtent(std::move(extent));
+    frame->setExtent(bandExtent(top));
     frame->setBorderFill("blackfill");
 
-    _gui->addControlToFront(std::move(frame));
+    _gui->addControlToFront(std::move(frame), IGUI::ControlCoordinates::Screen);
 }
 
 void DialogGUI::configureMessage() {
-    _controls.LBL_MESSAGE->setExtentTop(-_gui->rootControl().extent().top);
+    _controls.LBL_MESSAGE->setExtent(bandExtent(0));
     _controls.LBL_MESSAGE->setTextColor(_baseColor);
 }
 
 void DialogGUI::configureReplies() {
+    // Reply prose is authored for a 4:3 dialogue safe area. Keep that area
+    // centred on wider displays, but preserve the original left alignment
+    // inside it so choices scan as a conventional vertical list.
+    // The list's root remains full-width so its authored child coordinates
+    // do not receive the safe-area offset twice. The row prototype below is
+    // positioned in the 4:3 rectangle itself.
+    _controls.LB_REPLIES->setExtent(bandExtent(_game.options().graphics.height - bandHeight()));
     _controls.LB_REPLIES->setProtoMatchContent(true);
+    _controls.LB_REPLIES->protoItem().setTextFont(_controls.LBL_MESSAGE->text().font);
+    _controls.LB_REPLIES->protoItem().setScale(_controls.LBL_MESSAGE->scale());
+    _controls.LB_REPLIES->protoItem().setTextAlignment(Control::TextAlign::LeftCenter);
     _controls.LB_REPLIES->protoItem().setHilightColor(_hilightColor);
     _controls.LB_REPLIES->protoItem().setTextColor(_baseColor);
 }
@@ -488,7 +510,7 @@ void DialogGUI::repositionMessage() {
 
     if (_entryEnded) {
         text.align = Control::TextAlign::CenterBottom;
-        top = -_gui->rootControl().extent().top;
+        top = 0;
     } else {
         text.align = Control::TextAlign::CenterTop;
         top = _controls.LB_REPLIES->extent().top;
@@ -561,6 +583,16 @@ void DialogGUI::setReplyLines(std::vector<std::string> lines) {
         item.text = lines[i];
         _controls.LB_REPLIES->addItem(std::move(item));
     }
+    // Replies start at the top-left of the centred 4:3 safe area within the
+    // bottom band. The list root stays full-width so the offset is applied
+    // exactly once to its row prototype.
+    auto extent = _controls.LB_REPLIES->protoItem().extent();
+    const auto &band = _controls.LB_REPLIES->extent();
+    int safeWidth = std::min(_game.options().graphics.width, _game.options().graphics.height * 4 / 3);
+    extent.left = (_game.options().graphics.width - safeWidth) / 2;
+    extent.width = safeWidth;
+    extent.top = band.top;
+    _controls.LB_REPLIES->protoItem().setExtent(std::move(extent));
 }
 
 void DialogGUI::update(float dt) {

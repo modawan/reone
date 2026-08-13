@@ -45,7 +45,6 @@ namespace game {
 
 static constexpr char kEquippedItemSuffix[] = " (equipped)";
 static constexpr char kK1InventoryTitlePrefix[] = "Party Inventory - ";
-static constexpr glm::vec3 kK2InventoryFilterSelectedColor {1.0f, 1.0f, 1.0f};
 
 static bool isInventoryListedEquipmentSlot(int slot) {
     switch (slot) {
@@ -251,15 +250,6 @@ static std::string k1NextFilterAction(InventoryFilter filter) {
     }
 }
 
-static void updateK2FilterButton(const std::shared_ptr<Button> &button, bool selected, const glm::vec3 &baseColor) {
-    if (!button) {
-        return;
-    }
-
-    button->setSelected(selected);
-    button->setTextColor(selected ? kK2InventoryFilterSelectedColor : baseColor);
-}
-
 void InventoryMenu::onGUILoaded() {
     loadBackground(BackgroundType::Menu);
     bindControls();
@@ -282,9 +272,13 @@ void InventoryMenu::onGUILoaded() {
     configureItemsListBox();
     configureFilterControls();
     if (_game.isTSL()) {
+        fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
         enableBorderFillTint(_controls.LBL_BAR1);
         enableBorderFillTint(_controls.LBL_BAR2);
         enableBorderFillTint(_controls.LBL_BAR6);
+        useK2ShellTitle(_controls.LBL_INV);
+        enableK2ButtonBodyFill(_controls.BTN_USEITEM);
+        enableK2ButtonBodyFill(_controls.BTN_EXIT);
     }
     if (_controls.LB_DESCRIPTION) {
         _controls.LB_DESCRIPTION->setProtoMatchContent(true);
@@ -312,14 +306,27 @@ void InventoryMenu::configureItemsListBox() {
 
     _controls.LB_ITEMS->setSelectionMode(ListBox::SelectionMode::OnClick);
     _controls.LB_ITEMS->setRenderItemIconsForButtonProto(true);
-    _controls.LB_ITEMS->setPadding(5);
+    // K1's panel art is a 512x512 texture stretched onto the 640x480 canvas,
+    // so its baked slot strip repeats every 61 texels - 57.19 authored pixels,
+    // which no integer proto height plus padding can match. The rows are
+    // repainted over that strip instead, which leaves this a free density
+    // knob. K2 uses the five-pixel gap established by its menu layout.
+    _controls.LB_ITEMS->setPadding(_game.isTSL() ? 5 : 8);
+    useBakedItemSlotArt(*_controls.LB_ITEMS);
     _controls.LB_ITEMS->setOnItemClick([this](const std::string &) {
         updateItemDescription();
     });
 
     if (auto protoItem = _controls.LB_ITEMS->protoItemOrNull()) {
-        protoItem->setBorderColor(_baseColor);
-        protoItem->setHilightColor(_hilightColor);
+        if (_game.isTSL()) {
+            enableK2ButtonBodyFill(*protoItem);
+            protoItem->setBorderFill("uibit_fill_2wt");
+            protoItem->setHilightFill("uibit_fill_2wt");
+            protoItem->setTintBorderFill(true);
+        } else {
+            protoItem->setBorderColor(_baseColor);
+            protoItem->setHilightColor(_hilightColor);
+        }
     }
 }
 
@@ -451,13 +458,13 @@ void InventoryMenu::setFilter(InventoryFilter filter) {
 
 void InventoryMenu::updateFilterControls() {
     if (_game.isTSL()) {
-        updateK2FilterButton(_controls.BTN_ALL, _filter == InventoryFilter::All, _baseColor);
-        updateK2FilterButton(_controls.BTN_DATAPADS, _filter == InventoryFilter::Datapad, _baseColor);
-        updateK2FilterButton(_controls.BTN_WEAPONS, _filter == InventoryFilter::Weapon, _baseColor);
-        updateK2FilterButton(_controls.BTN_ARMOR, _filter == InventoryFilter::Armor, _baseColor);
-        updateK2FilterButton(_controls.BTN_USEABLE, _filter == InventoryFilter::Useable, _baseColor);
-        updateK2FilterButton(_controls.BTN_QUESTS, _filter == InventoryFilter::Quest, _baseColor);
-        updateK2FilterButton(_controls.BTN_MISC, _filter == InventoryFilter::Misc, _baseColor);
+        updateK2FilterButton(_controls.BTN_ALL, _filter == InventoryFilter::All);
+        updateK2FilterButton(_controls.BTN_DATAPADS, _filter == InventoryFilter::Datapad);
+        updateK2FilterButton(_controls.BTN_WEAPONS, _filter == InventoryFilter::Weapon);
+        updateK2FilterButton(_controls.BTN_ARMOR, _filter == InventoryFilter::Armor);
+        updateK2FilterButton(_controls.BTN_USEABLE, _filter == InventoryFilter::Useable);
+        updateK2FilterButton(_controls.BTN_QUESTS, _filter == InventoryFilter::Quest);
+        updateK2FilterButton(_controls.BTN_MISC, _filter == InventoryFilter::Misc);
         return;
     }
 
@@ -532,7 +539,7 @@ void InventoryMenu::refreshItems() {
             equippedItem.tag = equipped->tag();
             equippedItem.text = equipped->localizedName() + kEquippedItemSuffix;
             equippedItem.iconTexture = equipped->icon();
-            equippedItem.iconFrame = getItemFrameTexture(equipped->stackSize());
+            equippedItem.iconFrame = itemFrameTexture(equipped->stackSize());
 
             if (equipped->stackSize() > 1) {
                 equippedItem.iconText = std::to_string(equipped->stackSize());
@@ -554,7 +561,7 @@ void InventoryMenu::refreshItems() {
         lbItem.tag = item->tag();
         lbItem.text = item->localizedName();
         lbItem.iconTexture = item->icon();
-        lbItem.iconFrame = getItemFrameTexture(item->stackSize());
+        lbItem.iconFrame = itemFrameTexture(item->stackSize());
 
         if (item->stackSize() > 1) {
             lbItem.iconText = std::to_string(item->stackSize());
@@ -602,28 +609,6 @@ void InventoryMenu::updateItemDescription() {
     if (_controls.LB_DESCRIPTION) {
         _controls.LB_DESCRIPTION->addTextLinesAsItems(joinItemDescriptionLines(buildItemDescriptionLines(*itemObj, _services)));
     }
-}
-
-std::shared_ptr<Texture> InventoryMenu::getItemFrameTexture(int stackSize) const {
-    std::string resRef;
-    if (_game.isTSL()) {
-        if (stackSize >= 100) {
-            resRef = "uibit_eqp_itm3";
-        } else if (stackSize > 1) {
-            resRef = "uibit_eqp_itm2";
-        } else {
-            resRef = "uibit_eqp_itm1";
-        }
-    } else {
-        if (stackSize >= 100) {
-            resRef = "lbl_hex_7";
-        } else if (stackSize > 1) {
-            resRef = "lbl_hex_6";
-        } else {
-            resRef = "lbl_hex_3";
-        }
-    }
-    return _services.resource.textures.get(resRef, TextureUsage::GUI);
 }
 
 } // namespace game

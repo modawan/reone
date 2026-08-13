@@ -36,7 +36,11 @@ static constexpr float kMouseMultiplier = glm::pi<float>() / 4000.0f;
 void FirstPersonCamera::load() {
     auto &scene = _services.scene.graphs.get(_sceneName);
     _sceneNode = scene.newCamera();
-    cameraSceneNode()->setPerspectiveProjection(_fovy, _aspect, kDefaultClipPlaneNear, kDefaultClipPlaneFar);
+    rebuildProjection();
+}
+
+float FirstPersonCamera::projectionFovy() const {
+    return _fovy;
 }
 
 bool FirstPersonCamera::handle(const input::Event &event) {
@@ -161,6 +165,8 @@ bool FirstPersonCamera::handleKeyUp(const input::KeyEvent &event) {
 }
 
 void FirstPersonCamera::update(float dt) {
+    Camera::update(dt);
+
     float facingSin = glm::sin(_facing) * _multiplier * kMovementSpeed * dt;
     float facingCos = glm::cos(_facing) * _multiplier * kMovementSpeed * dt;
     float pitchSin = glm::sin(_pitch) * _multiplier * kMovementSpeed * dt;

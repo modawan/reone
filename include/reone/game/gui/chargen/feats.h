@@ -51,6 +51,9 @@ public:
 
     void reset(bool levelUp);
 
+    /** Selects the first selectable grid entry, for scripted captures. */
+    void selectFirstEntryForCapture();
+
 private:
     struct Controls {
         std::shared_ptr<gui::Button> BTN_ACCEPT;
@@ -98,7 +101,7 @@ private:
         _controls.SUB_TITLE_LBL = findControl<gui::Label>("SUB_TITLE_LBL");
     }
 
-    void loadLevelUpDisplayEntries();
+    void loadDisplayEntries();
     void refreshControls();
     void refreshSelectionControls();
     void refreshIconChain();
