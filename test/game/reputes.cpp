@@ -626,6 +626,13 @@ void reone::game::TestGameModule::publishPartyRuntimeState(
     game.publishPartyRuntimeState(ifoGff, ptGff, pcGff);
 }
 
+void reone::game::TestGameModule::deserializeCustomTokens(
+    Game &game,
+    const Gff &gff) {
+
+    game.replaceCustomTokens(game.parseCustomTokens(gff));
+}
+
 void reone::game::TestGameModule::deserializeGlobalVariables(Game &game, Gff &gff) {
     game.deserializeGlobalVariables(gff);
 }
@@ -699,6 +706,24 @@ std::shared_ptr<Gff> gvtWithLocation(
         .field(Gff::Field::newVoid("ValNumber", {static_cast<char>(numberValue)}))
         .field(Gff::Field::newList("CatLocation", {name(std::move(locationName))}))
         .field(Gff::Field::newVoid("ValLocation", std::move(values)))
+        .build();
+}
+
+std::shared_ptr<Gff> moduleTokens(
+    std::initializer_list<std::pair<uint32_t, std::string>> values) {
+
+    std::vector<std::shared_ptr<Gff>> entries;
+    entries.reserve(values.size());
+    for (const auto &[token, value] : values) {
+        entries.push_back(
+            Gff::Builder()
+                .type(7)
+                .field(Gff::Field::newDword("Mod_TokensNumber", token))
+                .field(Gff::Field::newCExoString("Mod_TokensValue", value))
+                .build());
+    }
+    return Gff::Builder()
+        .field(Gff::Field::newList("Mod_Tokens", std::move(entries)))
         .build();
 }
 
@@ -844,6 +869,57 @@ TEST(SaveWideGlobals, locations_replace_stale_state_and_preserve_other_categorie
     EXPECT_FALSE(fixture.game.getGlobalLocation("b_location"));
     EXPECT_TRUE(fixture.game.getGlobalBoolean("c_bool"));
     EXPECT_EQ(12, fixture.game.getGlobalNumber("c_num"));
+}
+
+TEST(SavedCustomTokens, k1_restores_ids_values_before_authored_substitution) {
+    Fixture fixture(GameID::KotOR);
+    auto saved = moduleTokens({{31, "three"}, {45, "six"}});
+
+    TestGameModule::deserializeCustomTokens(fixture.game, *saved);
+
+    EXPECT_EQ(
+        "Values: three and six",
+        fixture.game.substituteCustomTokens("Values: <CUSTOM31> and <CUSTOM45>"));
+}
+
+TEST(SavedCustomTokens, k2_uses_last_value_for_a_duplicate_saved_id) {
+    Fixture fixture(GameID::TSL);
+    auto saved = moduleTokens({
+        {31, "first"},
+        {32, "middle"},
+        {31, "last"}});
+
+    TestGameModule::deserializeCustomTokens(fixture.game, *saved);
+
+    EXPECT_EQ("last", fixture.game.substituteCustomTokens("<CUSTOM31>"));
+    EXPECT_EQ("middle", fixture.game.substituteCustomTokens("<CUSTOM32>"));
+}
+
+TEST(SavedCustomTokens, a_b_a_and_missing_lists_replace_without_contamination) {
+    Fixture fixture(GameID::KotOR);
+    auto a = moduleTokens({{31, "a"}, {32, "a-only"}});
+    auto b = moduleTokens({{31, "b"}});
+    auto missing = Gff::Builder().build();
+
+    TestGameModule::deserializeCustomTokens(fixture.game, *a);
+    EXPECT_EQ("a/a-only", fixture.game.substituteCustomTokens("<CUSTOM31>/<CUSTOM32>"));
+
+    TestGameModule::deserializeCustomTokens(fixture.game, *b);
+    EXPECT_EQ("b/<CUSTOM32>", fixture.game.substituteCustomTokens("<CUSTOM31>/<CUSTOM32>"));
+
+    TestGameModule::deserializeCustomTokens(fixture.game, *a);
+    EXPECT_EQ("a/a-only", fixture.game.substituteCustomTokens("<CUSTOM31>/<CUSTOM32>"));
+
+    TestGameModule::deserializeCustomTokens(fixture.game, *missing);
+    EXPECT_EQ("<CUSTOM31>/<CUSTOM32>", fixture.game.substituteCustomTokens("<CUSTOM31>/<CUSTOM32>"));
+}
+
+TEST(SavedCustomTokens, direct_script_style_assignment_remains_available) {
+    Fixture fixture(GameID::KotOR);
+
+    fixture.game.setCustomToken(31, "direct");
+
+    EXPECT_EQ("direct", fixture.game.substituteCustomTokens("<CUSTOM31>"));
 }
 
 TEST(SaveWideJournal, a_b_a_replaces_entries_and_states) {

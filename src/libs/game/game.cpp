@@ -1088,6 +1088,7 @@ void Game::loadGame(std::string_view name) {
     if (!ifo) {
         throw ResourceNotFoundException("Module IFO not found");
     }
+    replaceCustomTokens(parseCustomTokens(*ifo));
     prepareSavedRuntimeNamespace(*ifo);
 
     // Reserve serialized identities before party/inventory reconstruction can
@@ -1125,13 +1126,31 @@ void Game::loadGame(std::string_view name) {
     loadModule(nfo.lastModule, /*entry=*/"", /*fromSave=*/true);
 }
 
+std::map<int, std::string> Game::parseCustomTokens(
+    const resource::Gff &ifoGff) const {
+
+    std::map<int, std::string> result;
+    for (const auto &entry : ifoGff.getList("Mod_Tokens")) {
+        uint32_t token = 0;
+        if (!entry->readDword(token, "Mod_TokensNumber") ||
+            token > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+            continue;
+        }
+        result[static_cast<int>(token)] = entry->getString("Mod_TokensValue");
+    }
+    return result;
+}
+
+void Game::replaceCustomTokens(std::map<int, std::string> tokens) {
+    _customTokens = std::move(tokens);
+}
+
 void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
     GVT gvt = resource::parseGVT(gvtGff);
     _globalStrings.clear();
     _globalBooleans.clear();
     _globalNumbers.clear();
     _globalLocations.clear();
-    _customTokens.clear();
 
     for (auto &[name, value] : gvt.strings) {
         setGlobalString(name, value);

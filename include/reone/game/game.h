@@ -476,6 +476,9 @@ public:
 
     // END Global variables
 
+    std::map<int, std::string> parseCustomTokens(
+        const resource::Gff &ifoGff) const;
+    void replaceCustomTokens(std::map<int, std::string> tokens);
     void deserializeGlobalVariables(resource::Gff &gvtGff);
     void deserializeParty(resource::Gff &ifoGff);
     void publishPartyRuntimeState(

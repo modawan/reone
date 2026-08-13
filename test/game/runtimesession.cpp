@@ -206,6 +206,7 @@ TEST(RuntimeSession, retirement_preserves_save_wide_logical_and_resource_state) 
     game.setGlobalBoolean("BOOL", true);
     game.setGlobalNumber("NUMBER", 42);
     game.setGlobalString("STRING", "committed");
+    game.setCustomToken(31, "persist");
     Party::PersistedState partyState;
     partyState.pcName = "B Player";
     partyState.selectedPlanet = 7;
@@ -227,6 +228,7 @@ TEST(RuntimeSession, retirement_preserves_save_wide_logical_and_resource_state) 
     EXPECT_TRUE(game.getGlobalBoolean("BOOL"));
     EXPECT_EQ(42, game.getGlobalNumber("NUMBER"));
     EXPECT_EQ("committed", game.getGlobalString("STRING"));
+    EXPECT_EQ("persist", game.substituteCustomTokens("<CUSTOM31>"));
     EXPECT_EQ("B Player", game.party().persistedState().pcName);
     EXPECT_EQ(7, game.party().persistedState().selectedPlanet);
     EXPECT_EQ(123, game.party().gold());
@@ -313,6 +315,7 @@ TEST(RuntimeSession, scheduling_an_ordinary_module_transition_preserves_session_
     TestGameModule::setActiveModule(game, true);
     auto object = game.newCreature();
     game.setGlobalNumber("SESSION", 9);
+    game.setCustomToken(31, "transition");
     game.openInGame();
 
     game.scheduleModuleTransition("module_b", "entry_b");
@@ -320,6 +323,7 @@ TEST(RuntimeSession, scheduling_an_ordinary_module_transition_preserves_session_
     EXPECT_TRUE(game.hasPlayableRuntimeSession());
     EXPECT_EQ(object, game.getObjectById(object->id()));
     EXPECT_EQ(9, game.getGlobalNumber("SESSION"));
+    EXPECT_EQ("transition", game.substituteCustomTokens("<CUSTOM31>"));
     EXPECT_TRUE(game.module());
 }
 
@@ -332,6 +336,7 @@ TEST(RuntimeSession, full_game_reset_still_clears_logical_state) {
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
 
     game.setGlobalBoolean("BOOL", true);
+    game.setCustomToken(31, "old");
     Party::PersistedState partyState;
     partyState.pcName = "old";
     game.party().setPersistedState(partyState);
@@ -343,6 +348,7 @@ TEST(RuntimeSession, full_game_reset_still_clears_logical_state) {
     game.resetGame();
 
     EXPECT_FALSE(game.getGlobalBoolean("BOOL"));
+    EXPECT_EQ("<CUSTOM31>", game.substituteCustomTokens("<CUSTOM31>"));
     EXPECT_TRUE(game.party().persistedState().pcName.empty());
     EXPECT_EQ(0, game.journal().getEntryState("old_plot"));
     EXPECT_EQ(0, TestGameModule::objectRegistrySize(game));
