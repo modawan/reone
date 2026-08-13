@@ -79,7 +79,6 @@ private:
     void onItemDoubleClick(const std::string &tag);
     void close();
 
-    std::shared_ptr<graphics::Texture> getItemFrameTexture(int stackSize) const;
 };
 
 } // namespace game

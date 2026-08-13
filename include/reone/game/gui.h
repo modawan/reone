@@ -76,6 +76,13 @@ protected:
     void centerRootInCanvas(int canvasWidth, int canvasHeight);
 
     /**
+     * Slot art for an item stack. Both games author three frames: a plain
+     * slot, one carrying a two-digit count plate, and one carrying a
+     * three-digit plate.
+     */
+    std::shared_ptr<graphics::Texture> itemFrameTexture(int stackSize) const;
+
+    /**
      * Points an item list at the slot silhouettes baked into this GUI's own
      * panel art, so the list can repaint them under its actual rows.
      *

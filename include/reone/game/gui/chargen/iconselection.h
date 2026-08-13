@@ -52,9 +52,9 @@ std::shared_ptr<gui::IconChain> addIconSelectionChain(
     IconSelectionCallbacks callbacks);
 
 /**
- * Applies the caption and description treatment shared by the chargen
- * selection screens: caption text inset by its border slice on TSL, and the
- * description box's right edge aligned with the remaining-selections bar's.
+ * Applies TSL's shared chargen description treatment: the description box's
+ * right edge aligns with the remaining-selections bar's. K1 authors these
+ * panels in separate columns and keeps its original description width.
  */
 void styleChargenTitles(
     Game &game,
