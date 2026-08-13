@@ -354,7 +354,7 @@ void GameGUI::fillK2SectionStrip(const std::shared_ptr<Control> &topBar, const s
     fill->setBorderFill("uibit_fill_2wt");
     fill->setBorderColor(topBar->border().color);
     fill->setTintBorderFill(true);
-    _gui->addControlToFront(std::move(fill));
+    _gui->addControlToFront(std::move(fill), IGUI::ControlCoordinates::Authored);
 }
 
 void GameGUI::useK2ShellTitle(const std::shared_ptr<Control> &control) {
