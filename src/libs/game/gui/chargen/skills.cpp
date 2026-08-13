@@ -271,6 +271,10 @@ void CharGenSkills::onSkillLabelSelectionChanged(SkillType skill, bool selected)
     _controls.LB_DESC->addTextLinesAsItems(description);
 }
 
+void CharGenSkills::selectFirstEntryForCapture() {
+    _controls.COMPUTER_USE_LBL->setSelected(true);
+}
+
 } // namespace game
 
 } // namespace reone
