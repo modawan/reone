@@ -380,6 +380,7 @@ bool Creature::playAnimation(const std::shared_ptr<Animation> &anim, AnimationPr
 }
 
 bool Creature::playExternalAnimation(const std::shared_ptr<Animation> &anim, AnimationProperties properties) {
+    properties.flags |= AnimationFlags::retargetRoot;
     return doPlayAnimation(false, [&]() {
         auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
         if (model) {

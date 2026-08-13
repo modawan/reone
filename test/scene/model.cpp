@@ -165,6 +165,63 @@ TEST(ModelSceneNode, should_play_single_fire_forget_animation) {
     EXPECT_NEAR(3.0f, rootPosition.z, 1e-5);
 }
 
+
+TEST(ModelSceneNode, should_retarget_external_animation_root_to_live_model_root) {
+    // given: retail stunt animations carry placement on a proxy model root,
+    // while the live participant uses its appearance model's root name.
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+
+    auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    auto liveRoot = std::make_shared<ModelNode>(
+        0, "pmbbs", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto proxyRoot = std::make_shared<ModelNode>(
+        0, "m12aa_c01_char01", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), false, nullptr);
+    proxyRoot->vectorTracks()[ControllerTypes::position].add(0.0f, glm::vec3(0.0f));
+    proxyRoot->vectorTracks()[ControllerTypes::position].add(1.0f, glm::vec3(4.0f, 5.0f, 6.0f));
+
+    auto external = std::make_shared<Animation>(
+        "cut003w", 1.0f, 0.0f, "", proxyRoot,
+        std::vector<Animation::Event>());
+    auto model = Model(
+        "pmbbs", 0, liveRoot,
+        std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    auto modelSceneNode = std::make_shared<ModelSceneNode>(
+        model,
+        ModelUsage::Creature,
+        *scene,
+        graphicsModule.services(),
+        audioModule.services(),
+        resourceModule.services());
+
+    // when
+    modelSceneNode->init();
+    modelSceneNode->playAnimation(
+        *external, nullptr,
+        AnimationProperties::fromFlags(AnimationFlags::retargetRoot));
+    modelSceneNode->update(1.0f);
+
+    // then
+    auto rootSceneNode = modelSceneNode->getNodeByName("pmbbs");
+    ASSERT_TRUE(static_cast<bool>(rootSceneNode));
+    const auto &rootPosition = rootSceneNode->localTransform()[3];
+    EXPECT_NEAR(4.0f, rootPosition.x, 1e-5);
+    EXPECT_NEAR(5.0f, rootPosition.y, 1e-5);
+    EXPECT_NEAR(6.0f, rootPosition.z, 1e-5);
+}
+
 TEST(ModelSceneNode, should_play_single_looping_animation) {
     // given
     auto graphicsOpt = GraphicsOptions();

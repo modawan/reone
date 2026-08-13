@@ -366,6 +366,11 @@ static bool doesNodeHaveAncestor(const ModelNode &node, const std::string &name)
 
 void ModelSceneNode::computeAnimationStates(AnimationChannel &channel, float time, const ModelNode &modelNode) {
     std::shared_ptr<ModelNode> animNode(channel.anim->getNodeByName(modelNode.name()));
+    if (!animNode && !modelNode.parent() && (channel.properties.flags & AnimationFlags::retargetRoot)) {
+        // External stunt animations are authored on proxy models. Retarget
+        // their root placement track to the live creature model's root.
+        animNode = channel.anim->rootNode();
+    }
     if (animNode && modelNode.isAnimated() && doesNodeHaveAncestor(modelNode, channel.anim->root())) {
         AnimationState state;
         state.flags = 0;
