@@ -2701,9 +2701,23 @@ static Variable GiveItem(const std::vector<Variable> &args, const RoutineContext
     auto oGiveTo = getObject(args, 1, ctx);
 
     // Transform
+    auto item = checkItem(oItem);
 
     // Execute
-    throw RoutineNotImplementedException("GiveItem");
+    uint32_t owner = item->owner();
+    if (owner && owner != kObjectInvalid) {
+        auto object = ctx.game.getObjectById(owner);
+        if (object) {
+            if (auto creature = dyn_cast<Creature>(object)) {
+                if (item->isEquipped()) {
+                    creature->unequip(item);
+                }
+            }
+            object->removeItemStack(item);
+        }
+    }
+    oGiveTo->addItem(item);
+    return Variable::ofNull();
 }
 
 static Variable ObjectToString(const std::vector<Variable> &args, const RoutineContext &ctx) {

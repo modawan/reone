@@ -237,6 +237,7 @@ std::shared_ptr<Item> Object::addItem(const std::string &resRef, int stackSize, 
         result->loadFromBlueprint(resRef);
         result->setStackSize(stackSize);
         result->setDropable(dropable);
+        result->setOwner(_id);
 
         _items.push_back(result);
 
@@ -256,6 +257,7 @@ void Object::addItem(const std::shared_ptr<Item> &item) {
         (*maybeItem)->setStackSize((*maybeItem)->stackSize() + stackSize);
     } else {
         _items.push_back(item);
+        item->setOwner(_id);
         if (Creature *creature = dyn_cast<Creature>(this)) {
             creature->itemAttributes().addItem(item, _services.game);
         }
@@ -275,10 +277,26 @@ bool Object::removeItem(const std::shared_ptr<Item> &item, bool &last) {
     } else {
         last = true;
         _items.erase(maybeItem);
+        item->setOwner(0);
         if (Creature *creature = dyn_cast<Creature>(this)) {
             creature->itemAttributes().removeItem(item);
         }
     }
+
+    return true;
+}
+
+bool Object::removeItemStack(const std::shared_ptr<Item> &item) {
+    auto maybeItem = find(_items.begin(), _items.end(), item);
+    if (maybeItem == _items.end()) {
+        return false;
+    }
+
+    _items.erase(maybeItem);
+    if (Creature *creature = dyn_cast<Creature>(this)) {
+        creature->itemAttributes().removeItem(item);
+    }
+    item->setOwner(0);
 
     return true;
 }

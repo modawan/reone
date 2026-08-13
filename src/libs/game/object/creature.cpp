@@ -934,6 +934,7 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
     }
     _equipment[slot] = item;
     item->setEquipped(true);
+    item->setOwner(_id);
 
     uint32_t prevAppearance = _appearance;
     updateDisguise();
