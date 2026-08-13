@@ -85,7 +85,7 @@ void ContainerGUI::open(std::shared_ptr<Object> container) {
         lbItem.tag = item->tag();
         lbItem.text = item->localizedName();
         lbItem.iconTexture = item->icon();
-        lbItem.iconFrame = getItemFrameTexture(item->stackSize());
+        lbItem.iconFrame = itemFrameTexture(item->stackSize());
 
         if (item->stackSize() > 1) {
             lbItem.iconText = std::to_string(item->stackSize());
@@ -94,16 +94,6 @@ void ContainerGUI::open(std::shared_ptr<Object> container) {
     }
 
     _container = std::move(container);
-}
-
-std::shared_ptr<Texture> ContainerGUI::getItemFrameTexture(int stackSize) const {
-    std::string resRef;
-    if (_game.isTSL()) {
-        resRef = stackSize > 1 ? "uibit_eqp_itm3" : "uibit_eqp_itm1";
-    } else {
-        resRef = stackSize > 1 ? "lbl_hex_7" : "lbl_hex_3";
-    }
-    return _services.resource.textures.get(resRef, TextureUsage::GUI);
 }
 
 void ContainerGUI::transferItemsToPlayer() {

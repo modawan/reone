@@ -538,7 +538,7 @@ void InventoryMenu::refreshItems() {
             equippedItem.tag = equipped->tag();
             equippedItem.text = equipped->localizedName() + kEquippedItemSuffix;
             equippedItem.iconTexture = equipped->icon();
-            equippedItem.iconFrame = getItemFrameTexture(equipped->stackSize());
+            equippedItem.iconFrame = itemFrameTexture(equipped->stackSize());
 
             if (equipped->stackSize() > 1) {
                 equippedItem.iconText = std::to_string(equipped->stackSize());
@@ -560,7 +560,7 @@ void InventoryMenu::refreshItems() {
         lbItem.tag = item->tag();
         lbItem.text = item->localizedName();
         lbItem.iconTexture = item->icon();
-        lbItem.iconFrame = getItemFrameTexture(item->stackSize());
+        lbItem.iconFrame = itemFrameTexture(item->stackSize());
 
         if (item->stackSize() > 1) {
             lbItem.iconText = std::to_string(item->stackSize());
@@ -608,28 +608,6 @@ void InventoryMenu::updateItemDescription() {
     if (_controls.LB_DESCRIPTION) {
         _controls.LB_DESCRIPTION->addTextLinesAsItems(joinItemDescriptionLines(buildItemDescriptionLines(*itemObj, _services)));
     }
-}
-
-std::shared_ptr<Texture> InventoryMenu::getItemFrameTexture(int stackSize) const {
-    std::string resRef;
-    if (_game.isTSL()) {
-        if (stackSize >= 100) {
-            resRef = "uibit_eqp_itm3";
-        } else if (stackSize > 1) {
-            resRef = "uibit_eqp_itm2";
-        } else {
-            resRef = "uibit_eqp_itm1";
-        }
-    } else {
-        if (stackSize >= 100) {
-            resRef = "lbl_hex_7";
-        } else if (stackSize > 1) {
-            resRef = "lbl_hex_6";
-        } else {
-            resRef = "lbl_hex_3";
-        }
-    }
-    return _services.resource.textures.get(resRef, TextureUsage::GUI);
 }
 
 } // namespace game

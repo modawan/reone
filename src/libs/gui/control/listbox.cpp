@@ -108,7 +108,7 @@ void ListBox::load(const resource::generated::GUI_BASECONTROL &gui, bool protoIt
         _scrollBar = _gui.newControl(getType(*controlStruct.SCROLLBAR), getTag(*controlStruct.SCROLLBAR));
         _scrollBar->load(*controlStruct.SCROLLBAR);
     }
-
+    _leftScrollBar = controlStruct.LEFTSCROLLBAR != 0;
 }
 
 bool ListBox::handleMouseMotion(int x, int y) {
@@ -290,17 +290,25 @@ void ListBox::stretch(float x, float y, int mask) {
             _scrollBar->stretch(x, y, mask & ~kStretchWidth);
         }
         if (_border && _border->dimension > 0) {
-            // Keep the bar inside the panel frame: a couple of authored
-            // pixels off the right edge, clear of the border slices.
-            auto barExtent = _scrollBar->extent();
-            int gap = std::max(1, static_cast<int>(std::lround(2.0f * x)));
-            barExtent.left = _extent.left + _extent.width - gap - barExtent.width;
-            barExtent.top = _extent.top + _border->dimension;
-            barExtent.height = _extent.height - 2 * _border->dimension;
-            _scrollBar->setExtent(std::move(barExtent));
+            insetScrollBar(*_scrollBar, _extent, _border->dimension, _leftScrollBar, x);
         }
     }
     updateItemsLayout();
+}
+
+void ListBox::insetScrollBar(Control &scrollBar,
+                             const Extent &panel,
+                             int borderDimension,
+                             bool leftSide,
+                             float layoutScale) {
+    auto extent = scrollBar.extent();
+    int inset = std::max(1, static_cast<int>(std::lround(kScrollBarEdgeInset * layoutScale)));
+    extent.left = leftSide
+                      ? panel.left + inset
+                      : panel.left + panel.width - inset - extent.width;
+    extent.top = panel.top + borderDimension;
+    extent.height = panel.height - 2 * borderDimension;
+    scrollBar.setExtent(std::move(extent));
 }
 
 void ListBox::setSelected(bool selected) {

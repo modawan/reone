@@ -568,7 +568,7 @@ void Equipment::updateItems() {
         lbItem.tag = kNoneItemTag;
         lbItem.text = _services.resource.strings.getText(kStrRefNone);
         lbItem.iconTexture = _services.resource.textures.get("inone", TextureUsage::GUI);
-        lbItem.iconFrame = getItemFrameTexture(1);
+        lbItem.iconFrame = itemFrameTexture(1);
 
         _controls.LB_ITEMS->addItem(std::move(lbItem));
 
@@ -582,7 +582,7 @@ void Equipment::updateItems() {
             equippedItem.tag = kEquippedItemTag;
             equippedItem.text = equipped->localizedName() + kEquippedItemSuffix;
             equippedItem.iconTexture = equipped->icon();
-            equippedItem.iconFrame = getItemFrameTexture(equipped->stackSize());
+            equippedItem.iconFrame = itemFrameTexture(equipped->stackSize());
 
             if (equipped->stackSize() > 1) {
                 equippedItem.iconText = std::to_string(equipped->stackSize());
@@ -611,7 +611,7 @@ void Equipment::updateItems() {
         lbItem.tag = item->tag();
         lbItem.text = item->localizedName();
         lbItem.iconTexture = item->icon();
-        lbItem.iconFrame = getItemFrameTexture(item->stackSize());
+        lbItem.iconFrame = itemFrameTexture(item->stackSize());
         if (hasDecision) {
             lbItem.invalid = !decision.valid;
         }
@@ -624,28 +624,6 @@ void Equipment::updateItems() {
     if (_selectedSlot != Slot::None) {
         _controls.LB_ITEMS->setSelectedItemIndex(equipped ? 1 : 0);
     }
-}
-
-std::shared_ptr<Texture> Equipment::getItemFrameTexture(int stackSize) const {
-    std::string resRef;
-    if (_game.isTSL()) {
-        if (stackSize >= 100) {
-            resRef = "uibit_eqp_itm3";
-        } else if (stackSize > 1) {
-            resRef = "uibit_eqp_itm2";
-        } else {
-            resRef = "uibit_eqp_itm1";
-        }
-    } else {
-        if (stackSize >= 100) {
-            resRef = "lbl_hex_7";
-        } else if (stackSize > 1) {
-            resRef = "lbl_hex_6";
-        } else {
-            resRef = "lbl_hex_3";
-        }
-    }
-    return _services.resource.textures.get(resRef, TextureUsage::GUI);
 }
 
 } // namespace game

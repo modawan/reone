@@ -480,9 +480,11 @@ int Control::textPaddingLeft() const {
     if (_textPaddingLeft > 0) {
         return _textPaddingLeft;
     }
-    // Left-aligned label text starts inside the authored frame art, not
-    // under its border slice.
-    if (_type == ControlType::Label && _border && (_border->corner || _border->edge)) {
+    // Left-aligned text starts inside the authored frame art, not under its
+    // border slice. Image buttons use the same frame for the name plate next
+    // to their icon, so their item names need the same inset as labels.
+    if ((_type == ControlType::Label || _type == ControlType::ImageButton) &&
+        _border && (_border->corner || _border->edge)) {
         return _border->dimension;
     }
     return 0;

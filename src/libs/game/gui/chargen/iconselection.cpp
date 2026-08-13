@@ -36,6 +36,7 @@ static constexpr int kIconCellSize = 40;
 static constexpr int kIconSize = 32;
 static constexpr int kArrowSize = 32;
 static constexpr int kK1VisibleRows = 5;
+static constexpr int kK1ScrollBarGap = 4;
 static constexpr int kTSLVisibleRows = 7;
 static constexpr char kK1CellFill[] = "lbl_indent";
 static constexpr char kK1Arrow[] = "lbl_skarr";
@@ -76,6 +77,19 @@ std::shared_ptr<IconChain> addIconSelectionChain(
     }
     chain->setTintBorderFill(game.isTSL());
     float layoutScale = gui.scale();
+    auto scrollBar = sourceList.scrollBarOrNull();
+    if (scrollBar) {
+        // The list scales its scroll bar with the row-density factor; the grid
+        // panel is laid out at plain GUI scale, so restretch it to match
+        // before placing it against the panel edge.
+        scrollBar->stretch(layoutScale, layoutScale);
+        ListBox::insetScrollBar(
+            *scrollBar,
+            chain->extent(),
+            chain->border().dimension,
+            /* leftSide = */ false,
+            layoutScale);
+    }
     int cellSize = scalePixels(kIconCellSize, layoutScale);
     chain->setCellSize(cellSize);
     auto &listExtent = sourceList.extent();
@@ -103,9 +117,19 @@ std::shared_ptr<IconChain> addIconSelectionChain(
         }
         chain->setRowOffsets(std::move(rowOffsets));
     }
-    chain->setCellOrigin(protoExtent.left - listExtent.left, originY);
+    int cellOriginX = protoExtent.left - listExtent.left;
+    int cellRangeX = protoExtent.width - cellSize;
+    if (!game.isTSL() && scrollBar) {
+        // K1 authors the proto row beneath the scroll bar. Keep the square
+        // cells and their icons intact, but distribute the columns only over
+        // the unobstructed part of the panel.
+        int scrollBarLeft = scrollBar->extent().left - listExtent.left;
+        int contentRight = scrollBarLeft - scalePixels(kK1ScrollBarGap, layoutScale);
+        cellRangeX = std::max(0, contentRight - cellOriginX - cellSize);
+    }
+    chain->setCellOrigin(cellOriginX, originY);
     chain->setCellStep(
-        (protoExtent.width - cellSize) / (kIconSelectionColumnCount - 1),
+        cellRangeX / (kIconSelectionColumnCount - 1),
         rowStep);
 
     IconChain::CellStyle cellStyle;
@@ -147,19 +171,6 @@ std::shared_ptr<IconChain> addIconSelectionChain(
     cellStyle.drawItemBorderFill = true;
     cellStyle.drawItemBorderBeforeIcon = game.isTSL();
     chain->setCellStyle(std::move(cellStyle));
-    auto scrollBar = sourceList.scrollBarOrNull();
-    if (scrollBar) {
-        // The list scales its scroll bar with the row-density factor; the grid
-        // panel is laid out at plain GUI scale, so restretch it to match, then
-        // inset it into the panel's fill area so it clears the frame slices.
-        scrollBar->stretch(layoutScale, layoutScale);
-        auto barExtent = scrollBar->extent();
-        int inset = chain->border().dimension;
-        barExtent.left = chain->extent().left + chain->extent().width - std::max(1, static_cast<int>(std::lround(2.0f * layoutScale))) - barExtent.width;
-        barExtent.top = chain->extent().top + inset;
-        barExtent.height = chain->extent().height - 2 * inset;
-        scrollBar->setExtent(std::move(barExtent));
-    }
     chain->setScrollBar(std::move(scrollBar));
     chain->setOnItemFocus(std::move(callbacks.onItemFocus));
     chain->setOnItemFocusCleared(std::move(callbacks.onItemFocusCleared));
@@ -172,6 +183,14 @@ void styleChargenTitles(
     Game &game,
     Label &remainingLabel,
     ListBox &descriptionBox) {
+
+    // K1 places the remaining-points panel to the left of the description.
+    // Treating its right edge as the description's boundary collapses the
+    // description width to zero. Only TSL authors these controls as aligned
+    // right-column panels.
+    if (!game.isTSL()) {
+        return;
+    }
 
     // Align the description box's right edge with the remaining-selections
     // bar's, keeping the left edge.
