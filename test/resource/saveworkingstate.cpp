@@ -151,7 +151,334 @@ void writeSlot(TmpDir &game,
     writeErf(slot / "savegame.sav", ErfWriter::FileType::MOD, working);
 }
 
+std::shared_ptr<SaveWorkingState> makeWorkingState(
+    TmpDir &directory,
+    const std::vector<NamedRes> &resources) {
+    auto path = directory.path / "savegame.sav";
+    writeErf(path, ErfWriter::FileType::MOD, resources);
+    return std::make_shared<SaveWorkingState>(path);
+}
+
+std::string dataOf(const std::optional<SaveResourceView> &view) {
+    if (!view) {
+        return "<not found>";
+    }
+    return dataOf(view->read());
+}
+
 } // namespace
+
+TEST(SaveWorkingStateCandidateTest, empty_candidate_over_empty_base) {
+    TmpDir directory("reone_e3a_empty");
+    auto base = makeWorkingState(directory, {});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+
+    EXPECT_TRUE(candidate.deterministicResourceIds().empty());
+    EXPECT_TRUE(candidate.validate());
+}
+
+TEST(SaveWorkingStateCandidateTest, base_resource_lookup_is_borrowed_and_lazy) {
+    TmpDir directory("reone_e3a_base_lookup");
+    ResourceId id("base", ResType::Txt);
+    auto base = makeWorkingState(directory, {{"base", ResType::Txt, "original"}});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+
+    auto view = candidate.find(id);
+    ASSERT_TRUE(view);
+    EXPECT_EQ(SaveResourceOrigin::Borrowed, view->origin());
+    EXPECT_EQ("original", dataOf(view));
+}
+
+TEST(SaveWorkingStateCandidateTest, owned_replacement_wins_without_mutating_base) {
+    TmpDir directory("reone_e3a_replace");
+    ResourceId id("state", ResType::Res);
+    auto base = makeWorkingState(directory, {{"state", ResType::Res, "old"}});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+
+    candidate.put(id, bytes("new"));
+
+    auto view = candidate.find(id);
+    ASSERT_TRUE(view);
+    EXPECT_EQ(SaveResourceOrigin::Owned, view->origin());
+    EXPECT_EQ("new", dataOf(view));
+    EXPECT_EQ("old", dataOf(base->find(id)));
+}
+
+TEST(SaveWorkingStateCandidateTest, exact_deletion_tombstone_hides_only_candidate_entry) {
+    TmpDir directory("reone_e3a_tombstone");
+    ResourceId deleted("same", ResType::Txt);
+    ResourceId retained("same", ResType::Res);
+    auto base = makeWorkingState(
+        directory,
+        {{"same", ResType::Txt, "delete"}, {"same", ResType::Res, "retain"}});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+
+    candidate.erase(deleted);
+
+    EXPECT_FALSE(candidate.find(deleted));
+    EXPECT_FALSE(candidate.contains(deleted));
+    EXPECT_EQ("retain", dataOf(candidate.find(retained)));
+    EXPECT_EQ("delete", dataOf(base->find(deleted)));
+    auto ids = candidate.deterministicResourceIds();
+    EXPECT_EQ(ids.end(), std::find(ids.begin(), ids.end(), deleted));
+}
+
+TEST(SaveWorkingStateCandidateTest, replacement_after_tombstone_restores_resource) {
+    TmpDir directory("reone_e3a_replace_after_tombstone");
+    ResourceId id("state", ResType::Txt);
+    auto base = makeWorkingState(directory, {{"state", ResType::Txt, "old"}});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+
+    candidate.erase(id);
+    candidate.put(id, bytes("new"));
+
+    EXPECT_TRUE(candidate.contains(id));
+    EXPECT_EQ("new", dataOf(candidate.find(id)));
+}
+
+TEST(SaveWorkingStateCandidateTest, tombstone_after_replacement_removes_resource) {
+    TmpDir directory("reone_e3a_tombstone_after_replace");
+    ResourceId id("state", ResType::Txt);
+    auto base = makeWorkingState(directory, {{"state", ResType::Txt, "old"}});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+
+    candidate.put(id, bytes("new"));
+    candidate.erase(id);
+
+    EXPECT_FALSE(candidate.contains(id));
+    EXPECT_FALSE(candidate.find(id));
+    EXPECT_EQ("old", dataOf(base->find(id)));
+}
+
+TEST(SaveWorkingStateCandidateTest, deterministic_enumeration_ignores_mutation_order) {
+    TmpDir directory("reone_e3a_deterministic");
+    auto base = makeWorkingState(directory, {{"middle", ResType::Txt, "m"}});
+    auto first = SaveWorkingStateCandidate::fromCommitted(base);
+    auto second = SaveWorkingStateCandidate::fromCommitted(base);
+
+    first.put(ResourceId("zulu", ResType::Res), bytes("z"));
+    first.put(ResourceId("alpha", ResType::Txt), bytes("a"));
+    second.put(ResourceId("alpha", ResType::Txt), bytes("a"));
+    second.put(ResourceId("zulu", ResType::Res), bytes("z"));
+
+    auto firstIds = first.deterministicResourceIds();
+    auto secondIds = second.deterministicResourceIds();
+    EXPECT_EQ(firstIds, secondIds);
+    EXPECT_TRUE(std::is_sorted(firstIds.begin(), firstIds.end()));
+}
+
+TEST(SaveWorkingStateCandidateTest, repeated_put_is_last_write_wins_without_duplicate_id) {
+    TmpDir directory("reone_e3a_repeated_put");
+    ResourceId id("state", ResType::Txt);
+    auto base = makeWorkingState(directory, {});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+
+    candidate.put(id, bytes("first"));
+    candidate.put(id, bytes("second"));
+
+    EXPECT_EQ("second", dataOf(candidate.find(id)));
+    EXPECT_EQ(1u, candidate.deterministicResourceIds().size());
+    EXPECT_TRUE(candidate.validate());
+}
+
+TEST(SaveWorkingStateCandidateTest, owned_replacement_outlives_input_and_candidate) {
+    TmpDir directory("reone_e3a_owned_lifetime");
+    ResourceId id("state", ResType::Txt);
+    auto base = makeWorkingState(directory, {});
+    std::optional<SaveResourceView> retainedView;
+    {
+        auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+        auto payload = bytes("owned");
+        candidate.put(id, std::move(payload));
+        retainedView = candidate.find(id);
+    }
+
+    ASSERT_TRUE(retainedView);
+    EXPECT_EQ(SaveResourceOrigin::Owned, retainedView->origin());
+    EXPECT_EQ("owned", dataOf(retainedView));
+}
+
+TEST(SaveWorkingStateCandidateTest, candidate_retains_file_backed_base_lifetime) {
+    TmpDir directory("reone_e3a_base_lifetime");
+    ResourceId id("state", ResType::Txt);
+    auto base = makeWorkingState(directory, {{"state", ResType::Txt, "lazy"}});
+    std::weak_ptr<const SaveWorkingState> lifetime = base;
+    {
+        auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+        base.reset();
+
+        EXPECT_FALSE(lifetime.expired());
+        auto view = candidate.find(id);
+        ASSERT_TRUE(view);
+        EXPECT_EQ(SaveResourceOrigin::Borrowed, view->origin());
+        EXPECT_EQ("lazy", dataOf(view));
+    }
+    EXPECT_TRUE(lifetime.expired());
+}
+
+TEST(SaveWorkingStateCandidateTest, borrowed_view_retains_backing_after_candidate_destruction) {
+    TmpDir directory("reone_e3a_borrowed_view_lifetime");
+    ResourceId id("state", ResType::Txt);
+    auto base = makeWorkingState(directory, {{"state", ResType::Txt, "lazy"}});
+    std::weak_ptr<const SaveWorkingState> lifetime = base;
+    std::optional<SaveResourceView> retainedView;
+    {
+        auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+        retainedView = candidate.find(id);
+        base.reset();
+    }
+
+    EXPECT_FALSE(lifetime.expired());
+    ASSERT_TRUE(retainedView);
+    EXPECT_EQ(SaveResourceOrigin::Borrowed, retainedView->origin());
+    EXPECT_EQ("lazy", dataOf(retainedView));
+    retainedView.reset();
+    EXPECT_TRUE(lifetime.expired());
+}
+
+TEST(SaveWorkingStateCandidateTest, failed_discarded_candidate_needs_no_base_rollback) {
+    TmpDir directory("reone_e3a_failed_candidate");
+    ResourceId id("state", ResType::Txt);
+    auto base = makeWorkingState(directory, {{"state", ResType::Txt, "old"}});
+    {
+        auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+        candidate.put(id, bytes("uncommitted"));
+        auto validation = candidate.validate([](
+                                                 const SaveWorkingStateCandidate &,
+                                                 SaveWorkingStateCandidateValidation &result) {
+            result.addError("forced later-stage validation failure");
+        });
+        EXPECT_FALSE(validation);
+    }
+
+    EXPECT_EQ("old", dataOf(base->find(id)));
+    EXPECT_TRUE(base->contains(id));
+}
+
+TEST(SaveWorkingStateCandidateTest, frozen_overlay_isolated_from_later_candidates) {
+    TmpDir directory("reone_e3a_freeze_isolation");
+    ResourceId id("state", ResType::Txt);
+    auto base = makeWorkingState(directory, {{"state", ResType::Txt, "base"}});
+    auto first = SaveWorkingStateCandidate::fromCommitted(base);
+    first.put(id, bytes("frozen"));
+    auto frozen = first.freeze();
+
+    first.put(id, bytes("mutated"));
+    auto second = SaveWorkingStateCandidate::fromCommitted(base);
+    second.put(id, bytes("other"));
+    base.reset();
+
+    EXPECT_EQ("frozen", dataOf(frozen->find(id)));
+    EXPECT_EQ("mutated", dataOf(first.find(id)));
+    EXPECT_EQ("other", dataOf(second.find(id)));
+}
+
+TEST(SaveWorkingStateCandidateTest, frozen_overlay_retains_unchanged_base_backing) {
+    TmpDir directory("reone_e3a_frozen_backing");
+    ResourceId unchanged("unchanged", ResType::Txt);
+    ResourceId added("added", ResType::Res);
+    auto base = makeWorkingState(directory, {{"unchanged", ResType::Txt, "lazy"}});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+    candidate.put(added, bytes("owned"));
+    auto frozen = candidate.freeze();
+    base.reset();
+
+    EXPECT_EQ("lazy", dataOf(frozen->find(unchanged)));
+    EXPECT_EQ("owned", dataOf(frozen->find(added)));
+}
+
+TEST(SaveWorkingStateCandidateTest, module_replacement_retains_inactive_neighbors_lazily) {
+    TmpDir directory("reone_e3a_module_retention");
+    ResourceId aSav("module_a", ResType::Sav);
+    ResourceId bSav("module_b", ResType::Sav);
+    ResourceId bRsv("module_b", ResType::Rsv);
+    ResourceId cSav("module_c", ResType::Sav);
+    ResourceId otherRsv("other", ResType::Rsv);
+    auto base = makeWorkingState(
+        directory,
+        {{"module_a", ResType::Sav, "A"},
+         {"module_b", ResType::Sav, "old B"},
+         {"module_b", ResType::Rsv, "stale B image"},
+         {"module_c", ResType::Sav, "C"},
+         {"other", ResType::Rsv, "other image"}});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+
+    candidate.replaceModule(bSav, bytes("new B"), bRsv);
+
+    auto a = candidate.find(aSav);
+    auto b = candidate.find(bSav);
+    auto c = candidate.find(cSav);
+    auto other = candidate.find(otherRsv);
+    ASSERT_TRUE(a);
+    ASSERT_TRUE(b);
+    ASSERT_TRUE(c);
+    ASSERT_TRUE(other);
+    EXPECT_EQ(SaveResourceOrigin::Borrowed, a->origin());
+    EXPECT_EQ(SaveResourceOrigin::Owned, b->origin());
+    EXPECT_EQ(SaveResourceOrigin::Borrowed, c->origin());
+    EXPECT_EQ(SaveResourceOrigin::Borrowed, other->origin());
+    EXPECT_EQ("A", dataOf(a));
+    EXPECT_EQ("new B", dataOf(b));
+    EXPECT_EQ("C", dataOf(c));
+    EXPECT_FALSE(candidate.find(bRsv));
+    EXPECT_EQ("other image", dataOf(other));
+    EXPECT_EQ("old B", dataOf(base->find(bSav)));
+    EXPECT_EQ("stale B image", dataOf(base->find(bRsv)));
+    EXPECT_TRUE(candidate.validate());
+}
+
+TEST(SaveWorkingStateCandidateTest, module_replacement_requires_explicit_matching_ids) {
+    TmpDir directory("reone_e3a_module_identity");
+    auto base = makeWorkingState(directory, {});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+
+    EXPECT_THROW(
+        candidate.replaceModule(
+            ResourceId("module", ResType::Txt),
+            bytes("bad")),
+        std::invalid_argument);
+    EXPECT_THROW(
+        candidate.replaceModule(
+            ResourceId("module", ResType::Sav),
+            bytes("bad"),
+            ResourceId("different", ResType::Rsv)),
+        std::invalid_argument);
+    EXPECT_TRUE(candidate.deterministicResourceIds().empty());
+}
+
+TEST(SaveWorkingStateCandidateTest, validation_detects_broken_recorded_module_replacement) {
+    TmpDir directory("reone_e3a_module_validation");
+    ResourceId sav("module", ResType::Sav);
+    ResourceId rsv("module", ResType::Rsv);
+    auto base = makeWorkingState(
+        directory,
+        {{"module", ResType::Sav, "old"}, {"module", ResType::Rsv, "image"}});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+    candidate.replaceModule(sav, bytes("new"), rsv);
+    candidate.erase(sav);
+
+    EXPECT_FALSE(candidate.validate());
+    EXPECT_THROW(candidate.freeze(), ValidationException);
+}
+
+TEST(SaveWorkingStateCandidateTest, base_and_candidate_support_alternating_synchronous_reads) {
+    TmpDir directory("reone_e3a_synchronous_reads");
+    ResourceId unchanged("unchanged", ResType::Txt);
+    ResourceId replaced("replaced", ResType::Txt);
+    auto base = makeWorkingState(
+        directory,
+        {{"unchanged", ResType::Txt, "base U"},
+         {"replaced", ResType::Txt, "base R"}});
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+    candidate.put(replaced, bytes("candidate R"));
+
+    for (int i = 0; i < 4; ++i) {
+        EXPECT_EQ("base U", dataOf(base->find(unchanged)));
+        EXPECT_EQ("candidate R", dataOf(candidate.find(replaced)));
+        EXPECT_EQ("base R", dataOf(base->find(replaced)));
+        EXPECT_EQ("base U", dataOf(candidate.find(unchanged)));
+    }
+}
 
 class SaveWorkingStateDirectorTest : public testing::TestWithParam<SaveCase> {
 protected:

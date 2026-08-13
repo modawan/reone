@@ -17,6 +17,14 @@
 
 #pragma once
 
+#include <functional>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <unordered_set>
+#include <vector>
+
 #include "container/erf.h"
 #include "container/folder.h"
 #include "resource.h"
@@ -24,6 +32,8 @@
 namespace reone {
 
 namespace resource {
+
+class SaveWorkingStateCandidate;
 
 /**
  * Durable identity of one save slot.
@@ -38,25 +48,139 @@ struct SaveSlotDescriptor {
 };
 
 /**
- * Complete logical contents represented by SAVEGAME.sav.
+ * Complete immutable logical save working state.
  *
- * The archive is indexed at construction and payloads are read lazily by exact
- * identity. Later mutation/writer work can extend this boundary with an
- * overlay and tombstones without making the durable archive the live registry.
+ * A durable state indexes SAVEGAME.sav at construction and reads payloads
+ * lazily by exact identity. A candidate may also freeze a transition-time
+ * immutable overlay while retaining the durable state that backs unchanged
+ * payloads; that form has the publication caveat documented below.
  */
 class SaveWorkingState : boost::noncopyable {
 public:
     explicit SaveWorkingState(const std::filesystem::path &archivePath);
 
-    std::optional<Resource> find(const ResourceId &id);
+    std::optional<Resource> find(const ResourceId &id) const;
     bool contains(const ResourceId &id) const;
 
     const std::unordered_set<ResourceId> &resourceIds() const {
-        return _archive.resourceIds();
+        return _resourceIds;
     }
 
 private:
-    ErfResourceContainer _archive;
+    SaveWorkingState(
+        std::shared_ptr<const SaveWorkingState> base,
+        std::map<ResourceId, std::shared_ptr<const ByteBuffer>> replacements,
+        std::unordered_set<ResourceId> tombstones);
+
+    mutable std::unique_ptr<ErfResourceContainer> _archive;
+    std::shared_ptr<const SaveWorkingState> _base;
+    std::map<ResourceId, std::shared_ptr<const ByteBuffer>> _replacements;
+    std::unordered_set<ResourceId> _tombstones;
+    std::unordered_set<ResourceId> _resourceIds;
+
+    friend class SaveWorkingStateCandidate;
+};
+
+enum class SaveResourceOrigin {
+    Borrowed,
+    Owned,
+};
+
+/**
+ * Deferred access to one candidate payload.
+ *
+ * A borrowed view retains the immutable base but does not read its file-backed
+ * payload until read() is called. An owned view retains candidate-generated
+ * bytes independently of the caller's input buffer.
+ */
+class SaveResourceView {
+public:
+    SaveResourceOrigin origin() const { return _origin; }
+    std::optional<Resource> read() const;
+
+private:
+    SaveResourceView(
+        std::shared_ptr<const SaveWorkingState> base,
+        ResourceId id);
+    explicit SaveResourceView(std::shared_ptr<const ByteBuffer> data);
+
+    SaveResourceOrigin _origin;
+    std::shared_ptr<const SaveWorkingState> _base;
+    ResourceId _id;
+    std::shared_ptr<const ByteBuffer> _data;
+
+    friend class SaveWorkingStateCandidate;
+};
+
+struct SaveWorkingStateCandidateValidation {
+    std::vector<std::string> errors;
+
+    bool valid() const { return errors.empty(); }
+    explicit operator bool() const { return valid(); }
+    void addError(std::string error) { errors.push_back(std::move(error)); }
+};
+
+/**
+ * Transactional mutable overlay over a committed SaveWorkingState.
+ *
+ * Repeated put() calls have deterministic last-write-wins semantics. erase()
+ * installs an exact-ID tombstone. Candidate construction and enumeration do
+ * not read unchanged payloads from the base archive.
+ *
+ * freeze() creates an immutable in-memory overlay which retains shared
+ * ownership of its old backing. It is suitable for transition-time state, but
+ * it is deliberately not a durable-slot-independent commit: after replacing a
+ * save slot, the publication layer must reopen/re-index the newly durable
+ * SAVEGAME.sav (preferred), or explicitly materialize/rebase all borrowed
+ * payloads before deleting the old backing.
+ */
+class SaveWorkingStateCandidate {
+public:
+    using Validator = std::function<void(
+        const SaveWorkingStateCandidate &,
+        SaveWorkingStateCandidateValidation &)>;
+
+    static SaveWorkingStateCandidate fromCommitted(
+        std::shared_ptr<const SaveWorkingState> base);
+
+    SaveWorkingStateCandidate(const SaveWorkingStateCandidate &) = delete;
+    SaveWorkingStateCandidate &operator=(const SaveWorkingStateCandidate &) = delete;
+    SaveWorkingStateCandidate(SaveWorkingStateCandidate &&) = default;
+    SaveWorkingStateCandidate &operator=(SaveWorkingStateCandidate &&) = default;
+
+    void put(ResourceId id, ByteBuffer payload);
+    void erase(const ResourceId &id);
+
+    std::optional<SaveResourceView> find(const ResourceId &id) const;
+    bool contains(const ResourceId &id) const;
+    std::vector<ResourceId> deterministicResourceIds() const;
+
+    /**
+     * Replaces an explicitly supplied module .sav and suppresses only the
+     * explicitly corresponding .rsv, if supplied. No module name is inferred.
+     */
+    void replaceModule(
+        ResourceId savedArchiveId,
+        ByteBuffer payload,
+        std::optional<ResourceId> savedResourceImageId = std::nullopt);
+
+    SaveWorkingStateCandidateValidation validate(
+        const Validator &additionalValidator = {}) const;
+
+    std::shared_ptr<const SaveWorkingState> freeze() const;
+
+private:
+    struct ModuleReplacement {
+        ResourceId savedArchiveId;
+        std::optional<ResourceId> savedResourceImageId;
+    };
+
+    explicit SaveWorkingStateCandidate(std::shared_ptr<const SaveWorkingState> base);
+
+    std::shared_ptr<const SaveWorkingState> _base;
+    std::map<ResourceId, std::shared_ptr<const ByteBuffer>> _replacements;
+    std::unordered_set<ResourceId> _tombstones;
+    std::vector<ModuleReplacement> _moduleReplacements;
 };
 
 /**
