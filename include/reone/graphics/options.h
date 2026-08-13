@@ -47,7 +47,7 @@ struct GraphicsOptions {
     float guiTextScale {0.5f};
     float guiDialogTextScale {0.6f};
     float guiBorderScale {1.0f};
-    float guiListScale {0.75f};
+    float guiListScale {0.5f};
 };
 
 } // namespace graphics
