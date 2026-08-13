@@ -442,6 +442,7 @@ void Game::initConsole() {
     registerConsoleCommand("graphics", "toggle 3D scene rendering: graphics on|off", &Game::consoleGraphics);
     registerConsoleCommand("seed", "reseed the shared random generator: seed <number>", &Game::consoleSeed);
     registerConsoleCommand("showhud", "open the third-person gameplay HUD for a scripted capture", &Game::consoleShowHUD);
+    registerConsoleCommand("showtransition", "show an area-transition banner for a scripted capture", &Game::consoleShowTransition);
     registerConsoleCommand("opencontainer", "open the container screen on the party leader for a scripted capture", &Game::consoleOpenContainer);
     registerConsoleCommand("selectdialogoption", "select a dialog option without activating it for a scripted capture", &Game::consoleSelectDialogOption);
     registerConsoleCommand("kill", "kill selected object", &Game::consoleKill);
@@ -3788,6 +3789,18 @@ void Game::consoleShowHUD(const ConsoleArgs &args) {
     _cameraType = CameraType::ThirdPerson;
     openInGame();
     _hud->showCapturePresentation(combat);
+}
+
+void Game::consoleShowTransition(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1024, "destination ...");
+    if (!_module || !_hud) {
+        throw std::runtime_error("Area-transition capture fixture requires a loaded module");
+    }
+    _captureHUDPresentation = true;
+    _cameraType = CameraType::ThirdPerson;
+    openInGame();
+    _hud->showCapturePresentation(false);
+    _hud->showTransitionCapturePresentation(joinConsoleArgs(args, 1));
 }
 
 void Game::consoleSelectDialogOption(const ConsoleArgs &args) {

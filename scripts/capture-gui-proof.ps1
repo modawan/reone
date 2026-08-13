@@ -75,6 +75,7 @@ function New-GameStates([string]$module, [string]$swoop, [bool]$party, [string]$
         @{ Id = "container"; Frame = 30; Commands = (@("warp $module") + $fixture + @("opencontainer")) },
         @{ Id = "gameplay"; Frame = $readyFrame; Commands = @("warp $module", "showhud") },
         @{ Id = "combat-action-sequence"; Frame = $readyFrame; Commands = @("warp $module", "showhud combat") },
+        @{ Id = "area-transition"; Frame = 30; Commands = @("warp $module", "showtransition Scaled Area Transition") },
         @{ Id = "swoop"; Frame = 30; Commands = @("warp $swoop", "showgallerymode swoop") },
         @{ Id = "pazaak-wager"; Frame = 30; Commands = @("warp $module", "givegold 100", "showgallerymode pazaak wager") },
         @{ Id = "pazaak-setup"; Frame = 30; Commands = @("warp $module", "showgallerymode pazaak setup") },
@@ -113,7 +114,7 @@ foreach ($game in $games) {
         $selected = @($game.States | Where-Object { $States.Count -eq 0 -or $States -contains $_.Id })
 
         # One engine process per game and resolution. Every state uses the
-        # game's default presentation scales, including the 75% list density.
+        # game's default presentation scales, including the 50% list density.
         $lines = [System.Collections.Generic.List[string]]::new()
         if ($NoWorld) {
             $lines.Add("graphics off")
@@ -146,7 +147,7 @@ foreach ($game in $games) {
             & $enginePath --game $game.Dir --commands-file $commandPath `
                 --width $res.W --height $res.H --winscale 100 --fullscreen 0 `
                 --headless 1 --dev 0 --vsync 0 --pbr 0 `
-                --guiscale 1 --guiborderscale 1 --guilistscale 0.75
+                --guiscale 1 --guiborderscale 1 --guilistscale 0.5
             if ($LASTEXITCODE -ne 0) { throw "Engine exited with ${LASTEXITCODE}" }
         } finally {
             Pop-Location

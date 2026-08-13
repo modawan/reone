@@ -209,13 +209,14 @@ public:
         hud._controls.LBL_BACK1 = std::move(control);
     }
 
-    static void setCapturePresentation(HUD &hud, bool presentation, bool combat) {
+    static void setCapturePresentation(HUD &hud, bool presentation, bool combat, bool transition) {
         hud._capturePresentation = presentation;
         hud._captureCombatPresentation = combat;
+        hud._captureTransitionPresentation = transition;
     }
 
-    static std::pair<bool, bool> capturePresentation(const HUD &hud) {
-        return {hud._capturePresentation, hud._captureCombatPresentation};
+    static std::tuple<bool, bool, bool> capturePresentation(const HUD &hud) {
+        return {hud._capturePresentation, hud._captureCombatPresentation, hud._captureTransitionPresentation};
     }
 
 };
@@ -1773,9 +1774,39 @@ TEST(TransitionPresentationLayout, should_top_anchor_and_horizontally_center_aut
     // transition presentation then overrides it with its own anchoring.
     EXPECT_CALL(gui, setScaling(gui::GUI::ScalingMode::Scaled));
     EXPECT_CALL(gui, setResolution(640, 480));
-    EXPECT_CALL(gui, setScaling(gui::GUI::ScalingMode::CenterHorizontal));
+    EXPECT_CALL(gui, setScaling(gui::GUI::ScalingMode::ScaledTopCenter));
 
     presentation.preload(gui);
+}
+
+TEST(TransitionPresentationLayout, should_uniformly_scale_and_top_anchor_the_authored_canvas) {
+    TestEngine &engine = testEngine();
+    graphics::GraphicsOptions options;
+    options.width = 3440;
+    options.height = 1440;
+    gui::GUI guiInstance(options, engine.services().scene.graphs, engine.services().graphics, engine.services().resource);
+    guiInstance.setResolution(640, 480);
+    guiInstance.setScaling(gui::GUI::ScalingMode::ScaledTopCenter);
+
+    auto rootExtent = Gff::Builder()
+                          .field(Gff::Field::newInt("LEFT", 0))
+                          .field(Gff::Field::newInt("TOP", 0))
+                          .field(Gff::Field::newInt("WIDTH", 640))
+                          .field(Gff::Field::newInt("HEIGHT", 480))
+                          .build();
+    auto root = Gff::Builder()
+                    .field(Gff::Field::newInt("CONTROLTYPE", static_cast<int>(gui::ControlType::Panel)))
+                    .field(Gff::Field::newCExoString("TAG", "ROOT"))
+                    .field(Gff::Field::newStruct("EXTENT", std::move(rootExtent)))
+                    .field(Gff::Field::newList("CONTROLS", {}))
+                    .build();
+
+    guiInstance.load(*root);
+
+    EXPECT_FLOAT_EQ(guiInstance.scale(), 3.0f);
+    EXPECT_EQ(guiInstance.rootOffset(), glm::ivec2(760, 0));
+    EXPECT_EQ(guiInstance.rootControl().extent().width, 1920);
+    EXPECT_EQ(guiInstance.rootControl().extent().height, 1440);
 }
 
 // Every game GUI must receive the scaling default from the base preload. The
@@ -1845,11 +1876,11 @@ TEST(GalleryHUDPresentation, should_clear_capture_flags_without_a_loaded_gui) {
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     HUD hud(game, engine.services());
-    HUDTestAccess::setCapturePresentation(hud, true, true);
+    HUDTestAccess::setCapturePresentation(hud, true, true, true);
 
     hud.clearCapturePresentation();
 
-    EXPECT_EQ(HUDTestAccess::capturePresentation(hud), std::make_pair(false, false));
+    EXPECT_EQ(HUDTestAccess::capturePresentation(hud), std::make_tuple(false, false, false));
 }
 
 TEST(GUIInputCoordinates, should_hit_screen_positioned_controls_without_authored_root_offset) {

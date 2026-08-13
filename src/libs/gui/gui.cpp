@@ -164,7 +164,8 @@ void GUI::applyControlLayout(Control &control) {
             scaleRelativeToCenter(control);
         }
         break;
-    case ScalingMode::Scaled: {
+    case ScalingMode::Scaled:
+    case ScalingMode::ScaledTopCenter: {
         float factor = scaledFactor();
         control.stretch(factor, factor);
         break;
@@ -187,12 +188,14 @@ void GUI::applyLayout() {
             screenCenter().y - _resolutionY / 2};
     } else if (_scaling == ScalingMode::CenterHorizontal) {
         _rootOffset.x = screenCenter().x - _resolutionX / 2;
-    } else if (_scaling == ScalingMode::Scaled) {
+    } else if (_scaling == ScalingMode::Scaled || _scaling == ScalingMode::ScaledTopCenter) {
         float factor = scaledFactor();
         int scaledWidth = static_cast<int>(_resolutionX * factor);
         int scaledHeight = static_cast<int>(_resolutionY * factor);
         _rootOffset.x = (_options.width - scaledWidth) / 2;
-        _rootOffset.y = (_options.height - scaledHeight) / 2;
+        if (_scaling == ScalingMode::Scaled) {
+            _rootOffset.y = (_options.height - scaledHeight) / 2;
+        }
     }
 
     for (auto &control : _controls) {

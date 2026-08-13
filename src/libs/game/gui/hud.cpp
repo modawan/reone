@@ -443,16 +443,31 @@ void HUD::showCapturePresentation(bool combat) {
     _gui->rootControl().setVisible(true);
 }
 
+void HUD::showTransitionCapturePresentation(const std::string &destination) {
+    if (!_areaTransition) {
+        throw std::runtime_error("Area-transition GUI is unavailable");
+    }
+    _captureTransitionPresentation = true;
+    _areaTransition->show(destination);
+}
+
 void HUD::clearCapturePresentation() {
     _capturePresentation = false;
     _captureCombatPresentation = false;
+    _captureTransitionPresentation = false;
     if (_barkBubble) {
         _barkBubble->setBarkText("", 0.0f);
+    }
+    if (_areaTransition) {
+        _areaTransition->hide();
     }
 }
 
 void HUD::updateTransitionPresentation() {
     if (!_areaTransition) {
+        return;
+    }
+    if (_captureTransitionPresentation) {
         return;
     }
     auto candidate = currentTransitionCandidate();

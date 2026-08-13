@@ -56,6 +56,8 @@ public:
         PositionRelativeToCenter,
         /** Uniformly scales a control around the authored and screen centres. */
         ScaledRelativeToCenter,
+        /** Uniformly fits the authored layout, centred horizontally and anchored to the top. */
+        ScaledTopCenter,
         /** Uniformly fits the authored layout in the screen. The game-GUI default. */
         Scaled
     };
@@ -166,6 +168,7 @@ public:
     float scale() const override {
         switch (_scaling) {
         case ScalingMode::Scaled:
+        case ScalingMode::ScaledTopCenter:
         case ScalingMode::PositionRelativeToCenter:
         case ScalingMode::ScaledRelativeToCenter:
             return scaledFactor();

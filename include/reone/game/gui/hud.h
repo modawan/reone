@@ -57,6 +57,8 @@ public:
 
     /** Exposes representative HUD state for the scripted gallery fixture. */
     void showCapturePresentation(bool combat);
+    /** Exposes the area-transition banner for the scripted gallery fixture. */
+    void showTransitionCapturePresentation(const std::string &destination);
     /** Clears capture-only HUD and bark state before the next gallery scene. */
     void clearCapturePresentation();
 
@@ -168,6 +170,7 @@ private:
     StatusSummaryIndicator _plotXPIndicator;
     bool _capturePresentation {false};
     bool _captureCombatPresentation {false};
+    bool _captureTransitionPresentation {false};
 
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;
