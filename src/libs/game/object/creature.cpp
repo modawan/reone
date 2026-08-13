@@ -1514,11 +1514,17 @@ void Creature::deserialize(const resource::Gff &gff) {
 
 void Creature::deserializeAll(const resource::Gff &gff) {
     Object::deserialize(gff);
+
+    // Retail reads IsPC before post-processing hit points. A player character
+    // remains an incapacitated, resumable runtime object through 0..-9 HP and
+    // becomes truly dead only at -10 HP. Preserve the saved HP verbatim; this
+    // distinction is runtime state, not a load-time recovery/clamp.
+    gff.readBool(_isPC, "IsPC");
     if (gff.has("ObjectId") && gff.has("CurrentHitPoints")) {
         if (_minOneHP && _currentHitPoints < 1) {
             _currentHitPoints = 1;
         }
-        _dead = _currentHitPoints <= 0;
+        _dead = _currentHitPoints <= (_isPC ? -10 : 0);
     }
 
 
@@ -1550,8 +1556,6 @@ void Creature::deserializeAll(const resource::Gff &gff) {
 
     // index into portrait.2da
     gff.readWord(_portraitId, "PortraitId");
-
-    gff.readBool(_isPC, "IsPC");
 
     // index into repute.2da
     gff.readEnum(_faction, "FactionID");

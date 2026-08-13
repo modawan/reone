@@ -2414,6 +2414,43 @@ TEST(SavedRuntimeState, restores_saved_creature_death_from_current_hit_points) {
     EXPECT_TRUE(creature->isDead());
 }
 
+TEST(SavedRuntimeState, restores_retail_player_death_threshold_without_clamping_saved_hp) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(engine.services().game.portraits), getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto makeSavedPlayer = [](int16_t hitPoints, uint32_t objectId) {
+        return Gff::Builder()
+            .field(Gff::Field::newDword("ObjectId", objectId))
+            .field(Gff::Field::newByte("IsPC", 1))
+            .field(Gff::Field::newShort("CurrentHitPoints", hitPoints))
+            .field(Gff::Field::newDword("Appearance_Type", 0))
+            .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+            .field(Gff::Field::newByte("BodyBag", 0xff))
+            .field(Gff::Field::newByte("PerceptionRange", 0xff))
+            .build();
+    };
+
+    auto incapacitatedState = makeSavedPlayer(0, 0x7fffffff);
+    auto incapacitated = game.newCreature(*incapacitatedState);
+    incapacitated->deserialize(*incapacitatedState);
+    EXPECT_EQ(0, incapacitated->currentHitPoints());
+    EXPECT_TRUE(incapacitated->isPC());
+    EXPECT_FALSE(incapacitated->isDead());
+
+    auto deadState = makeSavedPlayer(-10, 0x7ffffffe);
+    auto dead = game.newCreature(*deadState);
+    dead->deserialize(*deadState);
+    EXPECT_EQ(-10, dead->currentHitPoints());
+    EXPECT_TRUE(dead->isDead());
+}
+
 TEST(SavedRuntimeState, keeps_min_one_hp_creature_alive_when_saved_at_zero) {
     TestEngine engine;
     engine.init();
