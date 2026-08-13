@@ -91,6 +91,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/resource/format/rimwriter.cpp
     ${TESTS_SOURCE_DIR}/resource/format/tlkreader.cpp
     ${TESTS_SOURCE_DIR}/resource/format/tlkwriter.cpp
+    ${TESTS_SOURCE_DIR}/resource/parser/gvt.cpp
     ${TESTS_SOURCE_DIR}/resource/parser/jrl.cpp
     ${TESTS_SOURCE_DIR}/resource/k1startup.cpp
     ${TESTS_SOURCE_DIR}/resource/lookup.cpp

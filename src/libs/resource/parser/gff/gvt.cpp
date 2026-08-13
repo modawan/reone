@@ -82,11 +82,12 @@ static bool parseStrings(const Gff &gff, std::vector<GVT::String> &result) {
 
 static bool parseLocations(const Gff &gff, std::vector<GVT::Location> &result) {
     auto names = gff.getList("CatLocation");
-    ByteBuffer values = gff.getData("ValString");
+    ByteBuffer values = gff.getData("ValLocation");
     MemoryInputStream stream(values);
     BinaryReader reader(stream);
 
-    result.reserve(names.size());
+    std::vector<GVT::Location> parsed;
+    parsed.reserve(names.size());
 
     for (const std::shared_ptr<Gff> &name : names) {
         float fv[6];
@@ -99,8 +100,9 @@ static bool parseLocations(const Gff &gff, std::vector<GVT::Location> &result) {
         }
         glm::vec3 pos(fv[0], fv[1], fv[2]);
         glm::vec3 rot(fv[3], fv[4], fv[5]);
-        result.push_back({name->getString("Name"), {pos, rot}});
+        parsed.push_back({name->getString("Name"), {pos, rot}});
     }
+    result = std::move(parsed);
     return true;
 }
 

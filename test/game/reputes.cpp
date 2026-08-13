@@ -21,6 +21,7 @@
 #include "../fixtures/engine.h"
 
 #include "reone/game/game.h"
+#include "reone/game/location.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
 #include "reone/game/reputes.h"
@@ -29,6 +30,7 @@
 #include "reone/resource/format/gffwriter.h"
 #include "reone/resource/gff.h"
 #include "reone/script/executioncontext.h"
+#include "reone/system/binarywriter.h"
 #include "reone/system/stream/memoryoutput.h"
 
 using namespace reone;
@@ -662,6 +664,44 @@ std::shared_ptr<Gff> gvt(
         .build();
 }
 
+std::shared_ptr<Gff> gvtWithLocation(
+    std::string booleanName,
+    bool booleanValue,
+    std::string numberName,
+    uint8_t numberValue,
+    std::string locationName,
+    const glm::vec3 &position,
+    const glm::vec3 &orientation) {
+
+    ByteBuffer values;
+    MemoryOutputStream output(values);
+    BinaryWriter writer(output, boost::endian::order::little);
+    for (float component : {
+             position.x,
+             position.y,
+             position.z,
+             orientation.x,
+             orientation.y,
+             orientation.z}) {
+        writer.writeFloat(component);
+    }
+    values.resize(100 * 6 * sizeof(float));
+
+    auto name = [](std::string value) {
+        return Gff::Builder()
+            .field(Gff::Field::newCExoString("Name", std::move(value)))
+            .build();
+    };
+    return Gff::Builder()
+        .field(Gff::Field::newList("CatBoolean", {name(std::move(booleanName))}))
+        .field(Gff::Field::newVoid("ValBoolean", {static_cast<char>(booleanValue ? 0x80 : 0)}))
+        .field(Gff::Field::newList("CatNumber", {name(std::move(numberName))}))
+        .field(Gff::Field::newVoid("ValNumber", {static_cast<char>(numberValue)}))
+        .field(Gff::Field::newList("CatLocation", {name(std::move(locationName))}))
+        .field(Gff::Field::newVoid("ValLocation", std::move(values)))
+        .build();
+}
+
 std::shared_ptr<Gff> journalTable(std::string plot, int state, uint32_t date) {
     auto entry = Gff::Builder()
         .field(Gff::Field::newCExoString("JNL_PlotID", std::move(plot)))
@@ -764,6 +804,46 @@ TEST(SaveWideGlobals, a_b_a_replaces_changed_and_removed_values) {
     EXPECT_TRUE(fixture.game.getGlobalBoolean("a_bool"));
     EXPECT_EQ(7, fixture.game.getGlobalNumber("a_num"));
     EXPECT_EQ(0, fixture.game.getGlobalNumber("b_num"));
+}
+
+TEST(SaveWideGlobals, locations_replace_stale_state_and_preserve_other_categories) {
+    Fixture fixture(GameID::KotOR);
+    auto a = gvtWithLocation(
+        "a_bool",
+        true,
+        "a_num",
+        7,
+        "a_location",
+        glm::vec3(1.0f, 2.0f, 3.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f));
+    auto b = gvtWithLocation(
+        "b_bool",
+        true,
+        "b_num",
+        9,
+        "b_location",
+        glm::vec3(11.5f, -22.25f, 3.75f),
+        glm::vec3(1.0f, 0.0f, 0.0f));
+
+    TestGameModule::deserializeGlobalVariables(fixture.game, *a);
+    ASSERT_TRUE(fixture.game.getGlobalLocation("a_location"));
+
+    TestGameModule::deserializeGlobalVariables(fixture.game, *b);
+
+    EXPECT_FALSE(fixture.game.getGlobalLocation("a_location"));
+    auto restored = fixture.game.getGlobalLocation("b_location");
+    ASSERT_TRUE(restored);
+    EXPECT_EQ(glm::vec3(11.5f, -22.25f, 3.75f), restored->position());
+    EXPECT_FLOAT_EQ(0.0f, restored->facing());
+    EXPECT_TRUE(fixture.game.getGlobalBoolean("b_bool"));
+    EXPECT_EQ(9, fixture.game.getGlobalNumber("b_num"));
+
+    auto withoutLocations = gvt("c_bool", true, "c_num", 12);
+    TestGameModule::deserializeGlobalVariables(fixture.game, *withoutLocations);
+
+    EXPECT_FALSE(fixture.game.getGlobalLocation("b_location"));
+    EXPECT_TRUE(fixture.game.getGlobalBoolean("c_bool"));
+    EXPECT_EQ(12, fixture.game.getGlobalNumber("c_num"));
 }
 
 TEST(SaveWideJournal, a_b_a_replaces_entries_and_states) {
