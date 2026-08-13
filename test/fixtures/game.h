@@ -54,6 +54,7 @@ namespace game {
 class Area;
 class Game;
 class Module;
+class Conversation;
 class Object;
 
 class MockCameraStyles : public ICameraStyles, boost::noncopyable {
@@ -100,6 +101,9 @@ public:
 
 class MockReputes : public IReputes, boost::noncopyable {
 public:
+    MOCK_METHOD(State, baseState, (), (const override));
+    MOCK_METHOD(std::optional<State>, parse, (const resource::Gff &gff), (const override));
+    MOCK_METHOD(void, replace, (State state), (override));
     MOCK_METHOD(int, getReputation, (Faction sourceFaction, Faction targetFaction), (const override));
     MOCK_METHOD(void, adjustReputation, (Faction sourceFaction, Faction targetFaction, int adjustment), (override));
     MOCK_METHOD(bool, getIsEnemy, (const Creature &source, const Creature &target), (const override));
@@ -165,6 +169,15 @@ public:
     static void initConsole(Game &game);
     static void setActiveModule(Game &game, bool active);
     static void setActiveModuleArea(Game &game, std::shared_ptr<Area> area);
+    static void cacheActiveModule(Game &game, std::string name);
+    static size_t objectRegistrySize(const Game &game);
+    static size_t loadedModuleCount(const Game &game);
+    static uint32_t nextObjectId(const Game &game);
+    static uint64_t runtimeSessionGeneration(const Game &game);
+    static void bindConversation(Game &game, Conversation &conversation);
+    static bool hasConversation(const Game &game);
+    static void bindHUDSelection(Game &game, std::shared_ptr<Object> object);
+    static bool hasHUDSelection(const Game &game);
     static void setPazaakDevelopmentSelectedObject(
         Game &game,
         std::shared_ptr<Object> object);
@@ -175,6 +188,17 @@ public:
     static void serializePazaakPartyTable(const Game &game, resource::Gff &gff);
     static void deserializePartyTable(Game &game, resource::Gff &gff);
     static void clickCreature(Module &module, const std::shared_ptr<Creature> &creature);
+    static void publishPartyRuntimeState(
+        Game &game,
+        resource::Gff &ifoGff,
+        const std::shared_ptr<resource::Gff> &ptGff,
+        const std::shared_ptr<resource::Gff> &pcGff);
+    static void deserializeAvailableNpcs(Game &game);
+    static void deserializeInventory(Game &game, resource::Gff &gff);
+    static void deserializeCustomTokens(Game &game, const resource::Gff &gff);
+    static void deserializeGlobalVariables(Game &game, resource::Gff &gff);
+    static void replaceJournal(Game &game, const resource::Gff &gff);
+    static void replaceInventory(Game &game, resource::Gff &gff);
 
     void init() {
         _cameraStyles = std::make_unique<MockCameraStyles>();

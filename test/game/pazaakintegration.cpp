@@ -105,7 +105,9 @@ void reone::game::TestGameModule::deserializePartyTable(
     Game &game,
     resource::Gff &gff) {
 
-    game.deserializePartyTable(gff);
+    auto state = game.parsePartyTable(gff);
+    game.replacePartyTable(std::move(state));
+    game.deserializePazaakPartyTable(gff);
 }
 
 namespace {

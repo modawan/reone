@@ -46,6 +46,58 @@ public:
     static constexpr size_t kK1PazaakSideDeckSize = 10;
     using PazaakCardCounts = std::array<int, kMaxPazaakCardCount>;
     using PazaakSideDeck = std::array<int, kK1PazaakSideDeckSize>;
+    static constexpr size_t kK1NpcCount = 9;
+    static constexpr size_t kK2NpcCount = 12;
+    static constexpr size_t kMaxNpcCount = kK2NpcCount;
+    static constexpr size_t kMaxPuppetCount = 3;
+    static constexpr size_t kGalaxyPlanetCount = 16;
+
+    struct SavedDialogMessage {
+        std::string speaker;
+        std::string text;
+    };
+
+    struct SavedLogMessage {
+        uint8_t color {0};
+        uint32_t type {0};
+        std::string text;
+    };
+
+    struct PersistedState {
+        std::string pcName;
+        uint32_t itemComponent {0};
+        uint32_t itemChemical {0};
+        std::array<uint32_t, 3> swoopUpgrades {};
+        uint32_t playedSeconds {0};
+        int controlledNpc {-1};
+        bool soloMode {false};
+        std::vector<int> memberIds;
+        int leader {-1};
+        std::vector<int> puppetIds;
+        std::array<bool, kMaxNpcCount> npcAvailable {};
+        std::array<bool, kMaxNpcCount> npcSelectable {};
+        std::array<int, kMaxNpcCount> influence {};
+        std::array<bool, kMaxPuppetCount> puppetAvailable {};
+        std::array<bool, kMaxPuppetCount> puppetSelectable {};
+        int aiState {0};
+        int followState {0};
+        uint32_t galaxyPointCount {0};
+        std::array<bool, kGalaxyPlanetCount> planetAvailable {};
+        std::array<bool, kGalaxyPlanetCount> planetSelectable {};
+        int selectedPlanet {-1};
+        bool mapDisabled {false};
+        bool regenerationDisabled {false};
+        std::vector<SavedDialogMessage> dialogMessages;
+        std::vector<SavedLogMessage> feedbackMessages;
+        std::vector<SavedLogMessage> combatMessages;
+
+        PersistedState() {
+            npcSelectable.fill(true);
+            influence.fill(-1);
+            puppetSelectable.fill(true);
+        }
+    };
+
     struct Member {
         int npc {0};
         std::shared_ptr<Creature> creature;
@@ -61,6 +113,11 @@ public:
     // to their default values.
     void reset();
 
+    // Retire instantiated creature bindings while preserving save-wide logical
+    // state. A later runtime reconstruction phase can materialize those
+    // bindings again from the committed working state.
+    void retireRuntimeSession();
+
     void clear();
     void switchLeader();
 
@@ -71,11 +128,16 @@ public:
     std::shared_ptr<Creature> getLeader() const;
 
     std::shared_ptr<Creature> player() const { return _player; }
+    std::shared_ptr<Creature> actualPlayer() const { return _actualPlayer ? _actualPlayer : _player; }
     const std::vector<Member> &members() const { return _members; }
+
+    const PersistedState &persistedState() const { return _persistedState; }
+    void setPersistedState(PersistedState state);
 
     void setPartyLeader(int npc);
     void setPartyLeaderByIndex(int index);
     void setPlayer(const std::shared_ptr<Creature> &player);
+    void setActualPlayer(const std::shared_ptr<Creature> &player) { _actualPlayer = player; }
     void setSoloMode(bool value) { _solo = value; }
 
     // Members
@@ -103,10 +165,16 @@ public:
     bool removeAvailableMember(int npc);
 
     bool isMemberAvailable(int npc) const;
-
     std::shared_ptr<Creature> getAvailableMember(int npc) const;
 
     // END Available members
+
+    // Available puppets
+
+    bool addAvailablePuppet(int puppet, std::shared_ptr<Creature> creature);
+    std::shared_ptr<Creature> getAvailablePuppet(int puppet) const;
+
+    // END Available puppets
 
     // Default party
 
@@ -172,6 +240,7 @@ private:
     Game &_game;
 
     std::shared_ptr<Creature> _player;
+    std::shared_ptr<Creature> _actualPlayer;
     std::map<int, std::shared_ptr<Creature>> _availableMembers;
     std::vector<Member> _members;
     bool _solo {false};
@@ -181,6 +250,8 @@ private:
     size_t _pazaakCardCount {kK1PazaakCardCount};
     PazaakCardCounts _pazaakCardCounts {};
     PazaakSideDeck _pazaakSideDeck {};
+    PersistedState _persistedState;
+    std::map<int, std::shared_ptr<Creature>> _availablePuppets;
 
     bool handleKeyDown(const input::KeyEvent &event);
 

@@ -56,7 +56,7 @@ void Placeable::loadFromBlueprint(const std::string &resRef) {
 
 void Placeable::deserialize(const resource::Gff &gff) {
     std::string templateRes;
-    if (gff.readResRef(templateRes, "TemplateResRef")) {
+    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto utp = _services.resource.gffs.get(templateRes, ResType::Utp)) {
             deserializeAll(*utp);
         }
@@ -67,6 +67,7 @@ void Placeable::deserialize(const resource::Gff &gff) {
 }
 
 void Placeable::deserializeAll(const resource::Gff &gff) {
+    deserializeRuntimeState(gff);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
     }
@@ -96,6 +97,9 @@ void Placeable::deserializeAll(const resource::Gff &gff) {
     }
     gff.readShort(_currentHitPoints, "CurrentHP");
     gff.readByte(_hardness, "Hardness");
+    if (gff.has("ObjectId") && gff.has("CurrentHP")) {
+        _dead = _currentHitPoints <= 0;
+    }
     gff.readByte(_fort, "Fort");
     gff.readByte(_will, "Will");
     gff.readByte(_ref, "Ref");
@@ -143,8 +147,11 @@ void Placeable::deserializeAll(const resource::Gff &gff) {
     gff.readBool(_isCorpse, "IsCorpse");
     gff.readBool(_commandable, "Commandable");
 
+    if (gff.has("ObjectId")) {
+        _items.clear();
+    }
     for (const auto &itemGff : gff.getList("ItemList")) {
-        std::shared_ptr<Item> item = _game.newItem();
+        std::shared_ptr<Item> item = _game.newOwnedItem();
         item->deserialize(*itemGff);
         item->setDropable(true);
         addItem(item);

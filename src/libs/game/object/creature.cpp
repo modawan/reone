@@ -719,6 +719,11 @@ void Creature::updateModelAnimation() {
     _animDirty = false;
 }
 
+void Creature::restorePrimaryPlayerHitPoints() {
+    _currentHitPoints = maxHitPoints();
+    _dead = false;
+}
+
 void Creature::damage(int amount, uint32_t damager) {
     if (_dead) {
         return;
@@ -842,12 +847,20 @@ bool Creature::playAnimation(const std::shared_ptr<Animation> &anim, AnimationPr
 }
 
 bool Creature::playExternalAnimation(const std::shared_ptr<Animation> &anim, AnimationProperties properties) {
-    return doPlayAnimation(false, [&]() {
+    properties.flags |= AnimationFlags::retargetRoot;
+    bool started = doPlayAnimation(false, [&]() {
         auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
         if (model) {
             model->playAnimation(*anim, nullptr, properties);
         }
     });
+    if (started) {
+        // Dialogue owns the external clip until it explicitly releases the
+        // participant. A pending state-driven refresh must not install an idle
+        // or locomotion channel before the first stunt render update.
+        _animDirty = false;
+    }
+    return started;
 }
 
 void Creature::playOverlayAnimation(AnimationType type) {
@@ -2914,7 +2927,7 @@ std::string Creature::getWeaponModelName(int slot) const {
 
 void Creature::deserialize(const resource::Gff &gff) {
     std::string templateRes;
-    if (gff.readResRef(templateRes, "TemplateResRef")) {
+    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto utc = _services.resource.gffs.get(templateRes, ResType::Utc)) {
             deserializeAll(*utc);
         }
@@ -2927,6 +2940,19 @@ void Creature::deserialize(const resource::Gff &gff) {
 
 void Creature::deserializeAll(const resource::Gff &gff) {
     Object::deserialize(gff);
+
+    // Retail reads IsPC before post-processing hit points. A player character
+    // remains an incapacitated, resumable runtime object through 0..-9 HP and
+    // becomes truly dead only at -10 HP. Preserve the saved HP verbatim; this
+    // distinction is runtime state, not a load-time recovery/clamp.
+    gff.readBool(_isPC, "IsPC");
+    if (gff.has("ObjectId") && gff.has("CurrentHitPoints")) {
+        if (_minOneHP && _currentHitPoints < 1) {
+            _currentHitPoints = 1;
+        }
+        _dead = _currentHitPoints <= (_game.isTSL() && _isPC ? -10 : 0);
+    }
+
 
     // index into racialtypes.2da
     gff.readEnum(_race, "Race");
@@ -2957,8 +2983,6 @@ void Creature::deserializeAll(const resource::Gff &gff) {
     // index into portrait.2da
     gff.readWord(_portraitId, "PortraitId");
 
-    gff.readBool(_isPC, "IsPC");
-
     // index into repute.2da
     gff.readEnum(_faction, "FactionID");
 
@@ -2971,6 +2995,11 @@ void Creature::deserializeAll(const resource::Gff &gff) {
 
     // index into creaturespeed.2da
     gff.readInt(_walkRate, "WalkRate");
+    uint8_t movementRate;
+    if (gff.readByte(movementRate, "MovementRate")) {
+        _walkRate = movementRate;
+    }
+    gff.readBool(_isListening, "Listening");
 
     gff.readByte(_naturalAC, "NaturalAC");
     gff.readShort(_forcePoints, "ForcePoints");
@@ -3120,9 +3149,26 @@ void Creature::deserializePerception(const resource::Gff &gff) {
 }
 
 void Creature::deserializeEquipItems(const resource::Gff &gff) {
+    if (gff.has("ObjectId")) {
+        _equipment.clear();
+    }
     for (const auto &itemGff : gff.getList("Equip_ItemList")) {
-        std::shared_ptr<Item> item = _game.newItem();
+        std::shared_ptr<Item> item = _game.newOwnedItem();
         item->deserialize(*itemGff);
+        if (gff.has("ObjectId")) {
+            uint32_t slotMask = itemGff->type();
+            if (slotMask != 0 && (slotMask & (slotMask - 1)) == 0) {
+                int slot = 0;
+                while ((slotMask >>= 1) != 0) {
+                    ++slot;
+                }
+                if (equip(slot, item)) {
+                    continue;
+                }
+                warn(str(boost::format("saved item is not equippable in slot %d: %s") % slot % item->tag()));
+            }
+        }
+
         if (item->isEquippable(InventorySlots::body)) {
             equip(InventorySlots::body, item);
         } else if (item->isEquippable(InventorySlots::rightWeapon)) {

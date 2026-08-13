@@ -17,6 +17,7 @@
 
 #include "reone/game/script/runner.h"
 
+#include "reone/game/script/savedsituation.h"
 #include "reone/game/game.h"
 #include "reone/resource/provider/scripts.h"
 #include "reone/script/executioncontext.h"
@@ -48,6 +49,32 @@ int ScriptRunner::run(const std::string &resRef, uint32_t callerId) {
         args.emplace_back(script::ArgKind::Caller, Variable::ofObject(callerId));
     }
     return run(resRef, args);
+}
+
+int ScriptRunner::run(
+    const SavedScriptContinuation &continuation,
+    const Game &game,
+    const std::vector<Argument> &args) {
+    if (!game.hasPlayableRuntimeSession() || !continuation.isCurrent(game)) {
+        return -1;
+    }
+
+    auto ctx = std::make_unique<ExecutionContext>();
+    ctx->routines = &_routines;
+    ctx->args = args;
+    ctx->savedState = std::make_shared<ExecutionState>(*continuation._state);
+    return VirtualMachine(continuation._state->program, std::move(ctx)).run();
+}
+
+int ScriptRunner::run(
+    const SavedScriptContinuation &continuation,
+    const Game &game,
+    uint32_t callerId) {
+    std::vector<Argument> args;
+    if (callerId) {
+        args.emplace_back(script::ArgKind::Caller, Variable::ofObject(callerId));
+    }
+    return run(continuation, game, args);
 }
 
 } // namespace game

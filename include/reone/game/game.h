@@ -91,6 +91,23 @@ class Font;
 
 namespace game {
 
+enum class ModuleLoadContext {
+    FreshModule,
+    InitialSaveRestore,
+    SavedModuleTransition,
+};
+
+ModuleLoadContext resolveModuleLoadContext(
+    bool initialSaveRestore,
+    bool savedModuleSnapshot);
+
+bool restoresSavedWorld(ModuleLoadContext context);
+bool restoresSavedSession(ModuleLoadContext context);
+
+struct SavedObjectReference;
+struct SerializedScriptSituation;
+class SavedScriptContinuation;
+
 class Game : boost::noncopyable {
 public:
     enum class Screen {
@@ -180,6 +197,8 @@ public:
 
     void openMainMenu();
     void openInGame();
+
+    bool hasPlayableRuntimeSession() const { return _runtimeSessionPlayable; }
 
     // Swoop race (developer skeleton)
 
@@ -285,7 +304,10 @@ public:
     /**
      * @param entry waypoint tag to spawn at, or empty string to spawn at default location
      */
-    void loadModule(const std::string &name, std::string entry = "", bool fromSave = false);
+    void loadModule(
+        const std::string &name,
+        std::string entry = "",
+        bool initialSaveRestore = false);
 
     void scheduleModuleTransition(const std::string &moduleName, const std::string &entry);
     void scheduleModuleTransitionWithMovies(const std::string &moduleName, const std::string &entry, std::vector<std::string> movies);
@@ -297,6 +319,16 @@ public:
     // Clear state of the current game before loading a new game.
     void resetGame();
 
+    // Retire only active-module runtime objects. Party/session objects and
+    // committed save-wide state survive so an ordinary transition can build
+    // and publish its destination without becoming a full-session load.
+    void retireActiveModuleRuntime();
+
+    // Retire instantiated gameplay state without changing committed resource or
+    // save-wide logical state. Runtime reconstruction must explicitly publish a
+    // new playable session afterwards.
+    void retireRuntimeSession();
+
     // END Module loading
 
     // Objects
@@ -306,37 +338,59 @@ public:
     inline std::shared_ptr<Module> newModule() {
         return newObject<Module>(*this, _services);
     }
+    inline std::shared_ptr<Module> newSavedModule() {
+        // Module is the structural owner of the saved graph, not an entry in
+        // its ObjectId namespace. Retail saves can assign 0 to the Area.
+        return std::make_shared<Module>(0, *this, _services);
+    }
     inline std::shared_ptr<Item> newItem() {
         return newObject<Item>(*this, _services);
     }
+    // Items serialized inside an owning inventory/equipment record use an
+    // owner-local identity scope. Their saved ObjectId can legitimately match
+    // another owned item or an independently registered world object, so the
+    // runtime registry must assign them a fresh unambiguous identity.
+    inline std::shared_ptr<Item> newOwnedItem() {
+        return newItem();
+    }
+    std::shared_ptr<Item> newItem(const resource::Gff &gff);
 
     inline std::shared_ptr<Area> newArea(std::string sceneName = kSceneMain) {
         return newObject<Area>(std::move(sceneName), *this, _services);
+    }
+    inline std::shared_ptr<Area> newSavedArea(uint32_t id, std::string sceneName = kSceneMain) {
+        return newObjectAtId<Area>(id, true, std::move(sceneName), *this, _services);
     }
 
     inline std::shared_ptr<Creature> newCreature(std::string sceneName = kSceneMain) {
         return newObject<Creature>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Creature> newCreature(const resource::Gff &gff, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Placeable> newPlaceable(std::string sceneName = kSceneMain) {
         return newObject<Placeable>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Placeable> newPlaceable(const resource::Gff &gff, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Door> newDoor(std::string sceneName = kSceneMain) {
         return newObject<Door>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Door> newDoor(const resource::Gff &gff, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Waypoint> newWaypoint(std::string sceneName = kSceneMain) {
         return newObject<Waypoint>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Waypoint> newWaypoint(const resource::Gff &gff, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Trigger> newTrigger(std::string sceneName = kSceneMain) {
         return newObject<Trigger>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Trigger> newTrigger(const resource::Gff &gff, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Sound> newSound(std::string sceneName = kSceneMain) {
         return newObject<Sound>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Sound> newSound(const resource::Gff &gff, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<AnimatedCamera> newAnimatedCamera(float aspect, std::string sceneName = kSceneMain) {
         return newObject<AnimatedCamera>(aspect, std::move(sceneName), *this, _services);
@@ -361,10 +415,23 @@ public:
     inline std::shared_ptr<Encounter> newEncounter(std::string sceneName = kSceneMain) {
         return newObject<Encounter>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Encounter> newEncounter(const resource::Gff &gff, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Store> newStore(std::string sceneName = kSceneMain) {
         return newObject<Store>(std::move(sceneName), *this, _services);
     }
+    std::shared_ptr<Store> newStore(const resource::Gff &gff, std::string sceneName = kSceneMain);
+
+    void prepareSavedRuntimeNamespace(const resource::Gff &ifo);
+    void reserveSavedObjectIds(const resource::Gff &gff);
+    void resolveSavedObjectReferences();
+    void bindSavedRuntimeState();
+    void publishSavedRuntimeState();
+
+    uint32_t worldTimeDay() const { return _worldTimeDay; }
+    uint32_t worldTimeOfDay() const { return _worldTimeOfDay; }
+    uint8_t minutesPerHour() const { return _minutesPerHour; }
+    std::optional<float> remainingEffectDuration(const EffectInstance &effect) const;
 
     template <class T>
     inline std::shared_ptr<T> getObjectById(uint32_t id) const {
@@ -373,9 +440,11 @@ public:
 
     template <class T, class... Args>
     inline std::shared_ptr<T> newObject(Args &&...args) {
-        auto object = std::make_shared<T>(_nextObjectId++, std::forward<Args>(args)...);
-        auto [inserted, _] = _objectById.insert(std::make_pair(object->id(), std::move(object)));
-        return std::static_pointer_cast<T>(inserted->second);
+        while (_objectById.count(_nextObjectId) ||
+               _reservedSavedObjectIds.count(_nextObjectId)) {
+            ++_nextObjectId;
+        }
+        return newObjectAtId<T>(_nextObjectId++, false, std::forward<Args>(args)...);
     }
 
     template <class T, class... Args>
@@ -387,6 +456,15 @@ public:
     inline std::shared_ptr<T> newEffect(Args &&...args) {
         return std::make_shared<T>(std::forward<Args>(args)...);
     }
+
+    EffectId allocateEffectId() { return _effectIds.allocate(); }
+    EffectIdImportResult importEffectId(EffectId id) { return _effectIds.importId(id); }
+    bool setNextEffectId(EffectId id) { return _effectIds.setNextId(id); }
+    EffectId nextEffectId() const { return _effectIds.nextId(); }
+    bool hasEffectId(EffectId id) const { return _effectIds.contains(id); }
+    size_t effectIdCount() const { return _effectIds.size(); }
+    bool bindEffectCreator(EffectInstance &effect) const;
+    bool bindSavedObjectReference(SavedObjectReference &reference) const;
 
     template <class... Args>
     inline std::shared_ptr<Event> newEvent(Args &&...args) {
@@ -434,9 +512,19 @@ public:
 
     // END Global variables
 
+    std::map<int, std::string> parseCustomTokens(
+        const resource::Gff &ifoGff) const;
+    void replaceCustomTokens(std::map<int, std::string> tokens);
     void deserializeGlobalVariables(resource::Gff &gvtGff);
     void deserializeParty(resource::Gff &ifoGff);
-    void deserializePartyTable(resource::Gff &ptGff);
+    void publishPartyRuntimeState(
+        resource::Gff &ifoGff,
+        const std::shared_ptr<resource::Gff> &ptGff,
+        const std::shared_ptr<resource::Gff> &pcGff);
+    Party::PersistedState parsePartyTable(const resource::Gff &ptGff) const;
+    void replacePartyTable(Party::PersistedState state);
+    void deserializePazaakPartyTable(resource::Gff &ptGff);
+    void deserializeAvailableNpcs();
     void serializePazaakPartyTable(resource::Gff &ptGff) const;
     void deserializePartyMembers(resource::Gff &ptGff);
     void deserializeJournal(const resource::Gff &ptGff);
@@ -444,6 +532,8 @@ public:
 
 private:
     friend class TestGameModule;
+    friend struct SerializedScriptSituation;
+    friend class SavedScriptContinuation;
 
     resource::GameID _gameId;
     std::filesystem::path _path;
@@ -509,8 +599,18 @@ private:
     bool _relativeMouseMode {false};
     bool _showImGui {false};
 
-    uint32_t _nextObjectId {2}; // ids 0 and 1 are reserved
+    static constexpr uint32_t kFirstRuntimeObjectId = 2; // ids 0 and 1 are reserved
+    uint32_t _nextObjectId {kFirstRuntimeObjectId};
     std::map<uint32_t, std::shared_ptr<Object>> _objectById;
+    std::set<uint32_t> _reservedSavedObjectIds;
+    EffectIdNamespace _effectIds;
+    bool _runtimeSessionPlayable {false};
+    uint64_t _runtimeSessionGeneration {1};
+    static constexpr uint32_t kMillisecondsPerDay = 24u * 60u * 60u * 1000u;
+    uint32_t _worldTimeDay {0};
+    uint32_t _worldTimeOfDay {0};
+    uint8_t _minutesPerHour {5};
+    double _worldTimeFraction {0.0};
 
     // Services
 
@@ -601,6 +701,32 @@ private:
 
     void stopMovement();
 
+    void advanceWorldTime(float dt);
+
+    uint32_t savedObjectId(const resource::Gff &gff) const;
+    void registerObject(
+        const std::shared_ptr<Object> &object,
+        bool allowReserved);
+
+    template <class T, class... Args>
+    inline std::shared_ptr<T> newObjectAtId(
+        uint32_t id,
+        bool allowReserved,
+        Args &&...args) {
+        auto object = std::make_shared<T>(id, std::forward<Args>(args)...);
+        registerObject(object, allowReserved);
+        return object;
+    }
+
+    template <class T, class... Args>
+    inline std::shared_ptr<T> newObjectFromGff(
+        const resource::Gff &gff,
+        Args &&...args) {
+        return newObjectAtId<T>(
+            savedObjectId(gff),
+            true,
+            std::forward<Args>(args)...);
+    }
     void loadDefaultParty();
     bool loadParty();
     void loadNextModule();

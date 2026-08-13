@@ -347,6 +347,10 @@ void CharacterGeneration::finish() {
         partyLeader->attributes() = _character.attributes;
         _game.openInGame();
     } else {
+        // Character preview objects belong to the pre-playable character-
+        // generation runtime. Retire them before publishing the new game.
+        _game.retireRuntimeSession();
+
         std::shared_ptr<Creature> player = _game.newCreature();
         player->setTag(kObjectTagPlayer);
         player->setName(_character.name);

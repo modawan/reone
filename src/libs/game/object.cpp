@@ -20,6 +20,8 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/item.h"
+#include "reone/game/script/savedsituation.h"
+#include "reone/resource/provider/scripts.h"
 #include "reone/game/room.h"
 #include "reone/resource/gff.h"
 #include "reone/system/logutil.h"
@@ -73,11 +75,17 @@ void Object::deserialize(const resource::Gff &gff) {
         }
     }
 
-    for (const auto &itemGff : gff.getList("ItemList")) {
-        std::shared_ptr<Item> item = _game.newItem();
-        item->deserialize(*itemGff);
-        addItem(item);
+    if (gff.has("ObjectId")) {
+        _items.clear();
     }
+    if (_type != ObjectType::Placeable && _type != ObjectType::Store) {
+        for (const auto &itemGff : gff.getList("ItemList")) {
+            std::shared_ptr<Item> item = _game.newOwnedItem();
+            item->deserialize(*itemGff);
+            addItem(item);
+        }
+    }
+    deserializeRuntimeState(gff);
 }
 
 void Object::update(float dt) {
@@ -107,6 +115,137 @@ void Object::setLocalBoolean(int index, bool value) {
 
 void Object::setLocalNumber(int index, int value) {
     _localNumbers[index] = value;
+}
+void Object::deserializeRuntimeState(const resource::Gff &gff) {
+
+    _localBooleans.clear();
+    _localNumbers.clear();
+    if (auto variables = gff.findStruct("SWVarTable")) {
+        const auto bits = variables->getList("BitArray");
+        for (size_t word = 0; word < std::min<size_t>(bits.size(), 5); ++word) {
+            uint32_t value = bits[word]->getUint("Variable");
+            for (int bit = 0; bit < 32; ++bit) {
+                if ((value & (1u << bit)) != 0) {
+                    _localBooleans[static_cast<int>(word * 32 + bit)] = true;
+                }
+            }
+        }
+
+        const auto bytes = variables->getList("ByteArray");
+        for (size_t index = 0; index < std::min<size_t>(bytes.size(), 32); ++index) {
+            uint8_t value = 0;
+            if (bytes[index]->readByte(value, "Variable") && value != 0) {
+                _localNumbers[static_cast<int>(index)] = value;
+            }
+        }
+    }
+
+    _savedEffects.clear();
+    _savedActionQueue = SavedActionQueue {};
+    _savedRuntimeParsed = gff.has("EffectList") || gff.has("ActionList");
+    _savedRuntimePublished = false;
+    if (_savedRuntimeParsed) {
+        for (const auto &effect : gff.getList("EffectList")) {
+            _savedEffects.push_back(EffectInstance::fromGff(*effect));
+        }
+        _savedActionQueue = SavedActionQueue::fromGff(gff);
+        _effects.clear();
+        _actions.clear();
+        _delayed.clear();
+        _executingAction.reset();
+    }
+
+    _savedReferenceIds.clear();
+    _savedReferences.clear();
+    static const std::array<std::string_view, 9> referenceFields {
+        "AreaId",
+        "CreatorId",
+        "LastAttacker",
+        "LastDamager",
+        "LastHostileActor",
+        "LastPerceived",
+        "MasterID",
+        "OwnerId",
+        "TargetId",
+    };
+    for (auto field : referenceFields) {
+        uint32_t id = 0;
+        if (gff.readDword(id, field)) {
+            _savedReferenceIds.emplace(std::string(field), id);
+        }
+    }
+
+    size_t perceptionIndex = 0;
+    for (const auto &perception : gff.getList("PerceptionList")) {
+        uint32_t id = 0;
+        if (perception->readDword(id, "ObjectId")) {
+            _savedReferenceIds.emplace(
+                "Perception/" + std::to_string(perceptionIndex), id);
+        }
+        ++perceptionIndex;
+    }
+}
+
+void Object::bindSavedRuntimeState() {
+    if (!_savedRuntimeParsed) {
+        return;
+    }
+    for (auto &effect : _savedEffects) {
+        if (effect.creatorId != kSavedEffectInvalidObjectId) {
+            _game.bindEffectCreator(effect);
+        }
+    }
+    for (auto &action : _savedActionQueue.actions) {
+        action.bindObjectReferences(_game);
+    }
+}
+
+void Object::publishSavedRuntimeState() {
+    if (!_savedRuntimeParsed || _savedRuntimePublished) {
+        return;
+    }
+    SavedScriptSituationImporter importer(
+        _game, _services.resource.scripts);
+
+    for (const auto &savedEffect : _savedEffects) {
+        EffectInstance effect(savedEffect);
+        if (effect.durationType() == DurationType::Temporary) {
+            auto remaining = _game.remainingEffectDuration(effect);
+            if (!remaining || *remaining <= 0.0f) {
+                continue;
+            }
+            effect.remainingDuration = *remaining;
+        }
+        if (effect.hasStableId()) {
+            _game.importEffectId(effect.id);
+        } else {
+            effect.id = _game.allocateEffectId();
+        }
+        restoreEffect(std::move(effect));
+    }
+
+    for (const auto &savedAction : _savedActionQueue.actions) {
+        auto action = savedAction.toRuntimeAction(_game, &importer);
+        if (action) {
+            addAction(std::move(action));
+        }
+    }
+    _savedRuntimePublished = true;
+}
+
+void Object::resolveSavedReferences(
+    const std::function<std::shared_ptr<Object>(uint32_t)> &resolver) {
+    _savedReferences.clear();
+    for (const auto &[field, id] : _savedReferenceIds) {
+        if (auto object = resolver(id)) {
+            _savedReferences.emplace(field, object);
+        }
+    }
+}
+
+std::shared_ptr<Object> Object::savedReference(std::string_view field) const {
+    auto found = _savedReferences.find(std::string(field));
+    return found == _savedReferences.end() ? nullptr : found->second.lock();
 }
 
 void Object::clearAllActions(bool force) {
@@ -363,33 +502,91 @@ void Object::moveDropableItemsTo(Object &other) {
 }
 
 void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration) {
-    if (durationType == DurationType::Instant) {
-        if (effect->onApply(*this)) {
-            effect->onRemove(*this);
+    if (auto saved = std::dynamic_pointer_cast<SavedEffectValue>(effect)) {
+        EffectInstance instance(saved->instance());
+        if (instance.hasStableId()) {
+            _game.importEffectId(instance.id);
+        } else {
+            instance.id = _game.allocateEffectId();
         }
-    } else {
-        AppliedEffect appliedEffect;
-        appliedEffect.effect = effect;
-        appliedEffect.durationType = durationType;
-        appliedEffect.duration = duration;
-        _effects.push_back(std::move(appliedEffect));
-        if (!_effects.back().effect->onApply(*this)) {
-            _effects.pop_back();
+
+        instance.subType = static_cast<uint16_t>(
+            (instance.subType & ~static_cast<uint16_t>(0x7)) |
+            static_cast<uint16_t>(durationType));
+        instance.duration = duration;
+        instance.remainingDuration = durationType == DurationType::Temporary
+                                         ? std::optional<float>(duration)
+                                         : std::nullopt;
+        instance.skipOnLoad = false;
+
+        // The save-facing instance remains authoritative. Unsupported retail
+        // effects stay typed and queryable rather than pretending that the
+        // SavedEffectValue wrapper implements their gameplay behavior.
+        instance.effect.reset();
+        restoreEffect(std::move(instance));
+        return;
+    }
+
+    EffectInstance instance;
+    instance.effect = effect;
+    instance.id = _game.allocateEffectId();
+    instance.subType = static_cast<uint16_t>(durationType);
+    instance.duration = duration;
+    if (durationType == DurationType::Temporary) {
+        instance.remainingDuration = duration;
+    }
+    instance.exposed = 1;
+    restoreEffect(std::move(instance));
+}
+
+bool Object::restoreEffect(EffectInstance effect) {
+    if (!effect.shouldRestoreOnLoad()) {
+        return false;
+    }
+    if (effect.durationType() == DurationType::Instant && effect.effect) {
+        if (effect.effect->onApply(*this)) {
+            effect.effect->onRemove(*this);
+        }
+        return true;
+    }
+    _effects.push_back(std::move(effect));
+    if (_effects.back().effect && !_effects.back().effect->onApply(*this)) {
+        _effects.pop_back();
+        return false;
+    }
+    return true;
+}
+
+size_t Object::removeEffectsById(EffectId id) {
+    size_t removed = 0;
+    for (auto it = _effects.begin(); it != _effects.end();) {
+        if (it->id == id) {
+            std::shared_ptr<Effect> removedEffect = it->effect;
+            it = _effects.erase(it);
+            if (removedEffect) {
+                removedEffect->onRemove(*this);
+            }
+            ++removed;
+        } else {
+            ++it;
         }
     }
+    return removed;
 }
 
 void Object::updateEffects(float dt) {
     for (auto it = _effects.begin(); it != _effects.end();) {
-        AppliedEffect &effect = *it;
-        bool temporary = effect.durationType == DurationType::Temporary;
+        EffectInstance &effect = *it;
+        bool temporary = effect.durationType() == DurationType::Temporary && effect.remainingDuration;
         if (temporary) {
-            effect.duration = glm::max(0.0f, effect.duration - dt);
+            *effect.remainingDuration = glm::max(0.0f, *effect.remainingDuration - dt);
         }
-        if (temporary && effect.duration == 0.0f) {
-            std::shared_ptr<Effect> removed = effect.effect;
+        if (temporary && *effect.remainingDuration == 0.0f) {
+            std::shared_ptr<Effect> removedEffect = effect.effect;
             it = _effects.erase(it);
-            removed->onRemove(*this);
+            if (removedEffect) {
+                removedEffect->onRemove(*this);
+            }
         } else {
             ++it;
         }
@@ -473,8 +670,10 @@ std::shared_ptr<Item> Object::getItemByTag(const std::string &tag) {
 void Object::clearAllEffects() {
     std::vector<std::shared_ptr<Effect>> removed;
     removed.reserve(_effects.size());
-    for (AppliedEffect &effect : _effects) {
-        removed.push_back(std::move(effect.effect));
+    for (EffectInstance &effect : _effects) {
+        if (effect.effect) {
+            removed.push_back(std::move(effect.effect));
+        }
     }
     _effects.clear();
 
@@ -499,8 +698,8 @@ bool Object::hasEffect(EffectType type) const {
     return std::any_of(
         _effects.begin(),
         _effects.end(),
-        [type](const AppliedEffect &applied) {
-            return applied.effect->type() == type;
+        [type](const EffectInstance &applied) {
+            return applied.effect && applied.effect->type() == type;
         });
 }
 

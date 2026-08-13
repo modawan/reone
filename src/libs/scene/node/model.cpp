@@ -191,6 +191,33 @@ void ModelSceneNode::setEnvironmentMap(Texture *texture) {
         }
     }
 }
+static bool animationIntersectsModel(
+    const Animation &anim,
+    const std::shared_ptr<ModelNode> &node) {
+    if (!node) {
+        return false;
+    }
+    if (anim.getNodeByName(node->name())) {
+        return true;
+    }
+    return std::any_of(node->children().begin(), node->children().end(), [&](const auto &child) {
+        return animationIntersectsModel(anim, child);
+    });
+}
+
+static bool shouldReuseExternalAnimationForAttachment(
+    const Animation &anim,
+    const ModelSceneNode &attachedModel,
+    const AnimationProperties &properties) {
+    if (attachedModel.usage() != ModelUsage::Creature) {
+        return false;
+    }
+    // Upstream drives ordinary body animations into every composite creature
+    // attachment. External stunt clips are different: only matching authored
+    // tracks may replace an attachment's local animation or overlay channels.
+    return !(properties.flags & AnimationFlags::retargetRoot) ||
+           animationIntersectsModel(anim, attachedModel.model().rootNode());
+}
 
 void ModelSceneNode::playAnimation(const std::string &name, std::shared_ptr<LipAnimation> lipAnim, AnimationProperties properties) {
     auto anim = _model->getAnimation(name);
@@ -265,16 +292,22 @@ void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation
                 continue;
             }
             auto &attachedModel = *static_cast<ModelSceneNode *>(attachment.second);
-            if (attachedModel.usage() == ModelUsage::Creature) {
-                // Creature attachments, such as heads, are parts of a composite
-                // model driven by the animations of the body they belong to.
-                attachedModel.playAnimation(anim, lipAnim, properties);
-            } else {
-                // Other attachments have their own animation sets. Resolve by name so
-                // an unrelated body animation cannot replace a weapon's local
-                // state animation (for example, a lightsaber's "off" pose).
-                attachedModel.playAnimation(anim.name(), lipAnim, properties);
+            if (shouldReuseExternalAnimationForAttachment(
+                    anim, attachedModel, properties)) {
+                // External stunt models include facial tracks for the live
+                // appearance head, but that head has no local stunt clip.
+                // Reuse the proxy animation where node names intersect;
+                // do not map its placement root onto the attachment.
+                auto attachedProperties = properties;
+                attachedProperties.flags &= ~AnimationFlags::retargetRoot;
+                attachedModel.playAnimation(
+                    anim, lipAnim, std::move(attachedProperties));
+                continue;
             }
+            // Attachments have their own animation sets. Resolve by name so
+            // an unrelated body animation cannot replace a weapon's local
+            // state animation (for example, a lightsaber's "off" pose).
+            attachedModel.playAnimation(anim.name(), lipAnim, properties);
         }
     }
 }
@@ -434,6 +467,11 @@ void ModelSceneNode::rearmSingleEmitters(const std::string &animationRoot) {
 
 void ModelSceneNode::computeAnimationStates(AnimationChannel &channel, float time, const ModelNode &modelNode) {
     std::shared_ptr<ModelNode> animNode(channel.anim->getNodeByName(modelNode.name()));
+    if (!animNode && !modelNode.parent() && (channel.properties.flags & AnimationFlags::retargetRoot)) {
+        // External stunt animations are authored on proxy models. Retarget
+        // their root placement track to the live creature model's root.
+        animNode = channel.anim->rootNode();
+    }
     if (animNode && modelNode.isAnimated() && doesNodeHaveAncestor(modelNode, channel.anim->root())) {
         AnimationState state;
         state.flags = 0;

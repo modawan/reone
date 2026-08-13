@@ -51,10 +51,14 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/d20/spells.cpp
     ${TESTS_SOURCE_DIR}/game/conversation.cpp
     ${TESTS_SOURCE_DIR}/game/interaction.cpp
+    ${TESTS_SOURCE_DIR}/game/effect.cpp
+    ${TESTS_SOURCE_DIR}/game/savedruntime.cpp
+    ${TESTS_SOURCE_DIR}/game/savedsituation.cpp
     ${TESTS_SOURCE_DIR}/game/journal.cpp
     ${TESTS_SOURCE_DIR}/game/messagebus.cpp
     ${TESTS_SOURCE_DIR}/game/minigame.cpp
     ${TESTS_SOURCE_DIR}/game/object.cpp
+    ${TESTS_SOURCE_DIR}/game/runtimesession.cpp
     ${TESTS_SOURCE_DIR}/game/pazaak.cpp
     ${TESTS_SOURCE_DIR}/game/pazaakintegration.cpp
     ${TESTS_SOURCE_DIR}/game/pazaaksession.cpp
@@ -92,6 +96,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/resource/format/rimwriter.cpp
     ${TESTS_SOURCE_DIR}/resource/format/tlkreader.cpp
     ${TESTS_SOURCE_DIR}/resource/format/tlkwriter.cpp
+    ${TESTS_SOURCE_DIR}/resource/parser/gvt.cpp
     ${TESTS_SOURCE_DIR}/resource/parser/jrl.cpp
     ${TESTS_SOURCE_DIR}/resource/k1startup.cpp
     ${TESTS_SOURCE_DIR}/resource/lookup.cpp
@@ -103,6 +108,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/resource/2da.cpp
     ${TESTS_SOURCE_DIR}/resource/resources.cpp
     ${TESTS_SOURCE_DIR}/resource/resref.cpp
+    ${TESTS_SOURCE_DIR}/resource/saveworkingstate.cpp
     ${TESTS_SOURCE_DIR}/resource/sourcebuckets.cpp
     ${TESTS_SOURCE_DIR}/resource/sourcelifetimes.cpp
     ${TESTS_SOURCE_DIR}/resource/strings.cpp

@@ -44,7 +44,7 @@ void Sound::loadFromBlueprint(const std::string &resRef) {
 
 void Sound::deserialize(const resource::Gff &gff) {
     std::string templateRes;
-    if (gff.readResRef(templateRes, "TemplateResRef")) {
+    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto uts = _services.resource.gffs.get(templateRes, ResType::Uts)) {
             deserializeAll(*uts);
         }
@@ -55,6 +55,7 @@ void Sound::deserialize(const resource::Gff &gff) {
 }
 
 void Sound::deserializeAll(const resource::Gff &gff) {
+    deserializeRuntimeState(gff);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
     }

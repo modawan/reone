@@ -28,6 +28,7 @@
 #include "action.h"
 #include "action/playanimation.h"
 #include "effect.h"
+#include "savedruntime.h"
 #include "types.h"
 
 namespace reone {
@@ -135,17 +136,15 @@ public:
 
     // Effects
 
+    using AppliedEffect = EffectInstance;
+
     void clearAllEffects();
     void removeEffect(const std::shared_ptr<Effect> &effect);
     void applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration = 0.0f);
+    bool restoreEffect(EffectInstance effect);
+    size_t removeEffectsById(EffectId id);
 
-    struct AppliedEffect {
-        std::shared_ptr<Effect> effect;
-        DurationType durationType {DurationType::Instant};
-        float duration {0.0f};
-    };
-
-    const std::deque<AppliedEffect> &effects() const { return _effects; }
+    const std::deque<EffectInstance> &effects() const { return _effects; }
     bool hasEffect(EffectType type) const;
     std::shared_ptr<Effect> getFirstEffect();
     std::shared_ptr<Effect> getNextEffect();
@@ -216,6 +215,19 @@ public:
 
     const std::map<int, bool> &localBooleans() const { return _localBooleans; }
     const std::map<int, int> &localNumbers() const { return _localNumbers; }
+    void deserializeRuntimeState(const resource::Gff &gff);
+    void bindSavedRuntimeState();
+    void publishSavedRuntimeState();
+    const std::vector<EffectInstance> &savedEffects() const { return _savedEffects; }
+    const SavedActionQueue &savedActionQueue() const { return _savedActionQueue; }
+    bool hasPublishedSavedRuntimeState() const { return _savedRuntimePublished; }
+
+
+    void resolveSavedReferences(
+        const std::function<std::shared_ptr<Object>(uint32_t)> &resolver);
+    std::shared_ptr<Object> savedReference(std::string_view field) const;
+
+
 
     void setLocalBoolean(int index, bool value);
     void setLocalNumber(int index, int value);
@@ -265,7 +277,7 @@ protected:
     glm::mat4 _transform {1.0f};
     bool _visible {true};
     Room *_room {nullptr};
-    std::deque<AppliedEffect> _effects;
+    std::deque<EffectInstance> _effects;
     bool _open {false};
     bool _stunt {false};
     std::string _activeAnimName;
@@ -286,6 +298,13 @@ protected:
     uint32_t _lastHostileActor {script::kObjectInvalid};
 
     // Local variables
+    std::map<std::string, uint32_t> _savedReferenceIds;
+    std::map<std::string, std::weak_ptr<Object>> _savedReferences;
+    std::vector<EffectInstance> _savedEffects;
+    SavedActionQueue _savedActionQueue;
+    bool _savedRuntimeParsed {false};
+    bool _savedRuntimePublished {false};
+
 
     std::map<int, bool> _localBooleans;
     std::map<int, int> _localNumbers;

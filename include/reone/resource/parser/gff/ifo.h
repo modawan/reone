@@ -27,6 +27,7 @@ namespace generated {
 
 struct IFO_Mod_Area_list {
     std::string Area_Name;
+    uint32_t ObjectId {1};
 };
 
 struct IFO {
@@ -47,6 +48,8 @@ struct IFO {
     std::vector<void *> Mod_GVar_List;
     std::string Mod_Hak;
     std::vector<char> Mod_ID;
+    uint64_t Mod_Effect_NxtId {0};
+    uint32_t Mod_NextObjId0 {2};
     uint8_t Mod_IsSaveGame {0};
     uint8_t Mod_MinPerHour {0};
     std::pair<int, std::string> Mod_Name;

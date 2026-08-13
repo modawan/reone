@@ -17,6 +17,8 @@
 
 #include "reone/resource/format/gffreader.h"
 
+#include <limits>
+
 #include "reone/system/exception/validation.h"
 #include "reone/system/logutil.h"
 
@@ -122,6 +124,9 @@ Gff::Field GffReader::readField(int idx) {
         field.children.push_back(readStruct(dataOrDataOffset));
         break;
     case Gff::FieldType::List: {
+        if (dataOrDataOffset == std::numeric_limits<uint32_t>::max()) {
+            break;
+        }
         std::vector<uint32_t> list(readList(dataOrDataOffset));
         for (auto &item : list) {
             field.children.push_back(readStruct(item));
