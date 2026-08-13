@@ -743,6 +743,51 @@ TEST(Creature, should_hold_completed_external_animation_until_assignment_is_rele
     EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
 }
 
+TEST(Creature, should_publish_external_animation_before_pending_state_refresh) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto modelRoot = std::make_shared<graphics::ModelNode>(
+        0,
+        "root_node",
+        glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+        true,
+        nullptr);
+    auto idle = makeAnimation("cpause1");
+    auto cut = makeAnimation("cut003w");
+    graphics::Model model(
+        "creature", 0, modelRoot,
+        std::vector<std::shared_ptr<graphics::Animation>> {idle}, "", 1.0f);
+    graphics::GraphicsOptions graphicsOptions;
+    scene::SceneGraph graph(
+        "test",
+        engine.sceneModule().renderPipelineFactory(),
+        graphicsOptions,
+        engine.services().graphics,
+        engine.services().audio,
+        engine.services().resource);
+    auto modelNode = graph.newModel(model, scene::ModelUsage::Creature);
+    TestCreature creature(1, "test", game, engine.services());
+    creature.setSceneNode(modelNode);
+
+    // New/reconstructed models still owe their ordinary state refresh here.
+    // The real Game 5 path assigns the external stunt clip before that refresh
+    // receives a creature update on current upstream.
+    scene::AnimationProperties properties;
+    properties.flags = scene::AnimationFlags::propagate;
+    properties.scale = 1.0f;
+    ASSERT_TRUE(creature.playExternalAnimation(cut, properties));
+
+    creature.update(0.0f);
+    modelNode->update(0.25f);
+
+    ASSERT_EQ(modelNode->animationChannels().size(), 1);
+    EXPECT_EQ(modelNode->activeAnimationName(), "cut003w");
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.25f);
+}
+
 TEST(DialogGUI, should_prepare_the_real_player_from_a_stunt_model_without_creating_a_duplicate) {
     TestEngine &engine = testEngine();
     StubConsole console;

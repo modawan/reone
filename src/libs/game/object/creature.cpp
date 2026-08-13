@@ -381,12 +381,19 @@ bool Creature::playAnimation(const std::shared_ptr<Animation> &anim, AnimationPr
 
 bool Creature::playExternalAnimation(const std::shared_ptr<Animation> &anim, AnimationProperties properties) {
     properties.flags |= AnimationFlags::retargetRoot;
-    return doPlayAnimation(false, [&]() {
+    bool started = doPlayAnimation(false, [&]() {
         auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
         if (model) {
             model->playAnimation(*anim, nullptr, properties);
         }
     });
+    if (started) {
+        // Dialogue owns the external clip until it explicitly releases the
+        // participant. A pending state-driven refresh must not install an idle
+        // or locomotion channel before the first stunt render update.
+        _animDirty = false;
+    }
+    return started;
 }
 
 void Creature::resumeStateDrivenAnimation() {
