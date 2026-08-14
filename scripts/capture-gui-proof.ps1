@@ -133,7 +133,6 @@ foreach ($game in $games) {
         $lines = [System.Collections.Generic.List[string]]::new()
         if ($NoWorld) {
             $lines.Add("graphics off")
-            $lines.Add("seed 1337")
         } else {
             $lines.Add("graphics on")
         }
@@ -144,6 +143,14 @@ foreach ($game in $games) {
                 $lines.Add($(if ($frame -eq 0) { "skipmovie" } else { "pause $($readyFrame - $frame)" }))
                 $frame = $readyFrame
             }
+            # A batch is one process and one generator, so seeding only once per run lets drift
+            # accumulate. Two builds then disagree on list contents while every frame and baseline
+            # still matches to the pixel.
+            #
+            # Seeded after the wait above rather than at the top of the loop, so that the frames
+            # rendered to reach the ready point cannot move the generator before a state runs its
+            # own commands. Two builds need not consume at the same rate across those frames.
+            if ($NoWorld) { $lines.Add("seed 1337") }
             if ($state.Commands) { $state.Commands | ForEach-Object { $lines.Add($_) } }
             $delay = if ($isStartup) { $state.Frame - $frame } else { $state.Frame }
             if ($isStartup) { $frame = $state.Frame }

@@ -18,6 +18,16 @@ Output goes to `build/gui-proof/` as `<game>-<state>-<width>x<height>.png`.
 `-States inventory,equipment-items` and `-Widths 3440` narrow a rerun while
 iterating.
 
+By default the scene is on. Pass `-NoWorld` when comparing captures between
+builds: it emits `graphics off` so world rendering does not enter the
+comparison. In that mode the harness also emits `seed 1337` before every state.
+Each game-and-resolution batch runs in one engine process with one random
+generator, so seeding only once per run lets drift accumulate from earlier
+states. The visible symptom can be two builds disagreeing on the contents of a
+list while every frame, baseline, margin and alignment axis still matches to
+the pixel. Reseeding per state prevents that earlier-state exposure; it does not
+identify the ultimate source of any irreproducibility.
+
 The matrix covers both games at 1024x768 and 3440x1440: startup movie frames,
 main menu, every character-generation window, the gameplay HUD and populated
 combat action sequence, an area-transition banner, Swoop, the three Pazaak
