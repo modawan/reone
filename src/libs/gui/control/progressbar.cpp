@@ -64,28 +64,36 @@ void ProgressBar::render(const glm::ivec2 &screenSize,
     // authored size on the cross axis, and crops the art to the visible
     // fraction instead of squashing it. Tall bars - the party vitality and
     // Force columns - grow from the bottom; wide bars anchor to their
-    // authored start edge.
+    // authored start edge. Each pixel edge is rounded once and the size is
+    // their difference, keeping the anchored edge aligned with the backing.
     float fraction = _value / 100.0f;
     glm::mat3x4 uv(1.0f);
     if (_extent.height > _extent.width) {
-        float h = _extent.height * fraction;
+        int bottom = _extent.top + _extent.height + offset.y;
+        int top = static_cast<int>(std::lround(bottom - _extent.height * fraction));
         uv[1][1] = fraction;
         uv[2][1] = 0.0f;
         pass.drawImage(
             *_progress.fill,
-            {_extent.left + offset.x, _extent.top + _extent.height - h + offset.y},
-            {_extent.width, h},
+            {_extent.left + offset.x, top},
+            {_extent.width, bottom - top},
             glm::vec4(_progress.color, 1.0f),
             uv);
     } else {
-        float w = _extent.width * fraction;
-        float left = _startFromLeft ? _extent.left : _extent.left + _extent.width - w;
+        int left = _extent.left + offset.x;
+        int right = left + _extent.width;
+        int fillLeft = _startFromLeft
+                           ? left
+                           : static_cast<int>(std::lround(right - _extent.width * fraction));
+        int fillRight = _startFromLeft
+                            ? static_cast<int>(std::lround(left + _extent.width * fraction))
+                            : right;
         uv[0][0] = fraction;
         uv[2][0] = _startFromLeft ? 0.0f : 1.0f - fraction;
         pass.drawImage(
             *_progress.fill,
-            {left + offset.x, _extent.top + offset.y},
-            {w, _extent.height},
+            {fillLeft, _extent.top + offset.y},
+            {fillRight - fillLeft, _extent.height},
             glm::vec4(_progress.color, 1.0f),
             uv);
     }
