@@ -18,6 +18,25 @@ Output goes to `build/gui-proof/` as `<game>-<state>-<width>x<height>.png`.
 `-States inventory,equipment-items` and `-Widths 3440` narrow a rerun while
 iterating.
 
+Before trusting a comparison between two builds, first prove that the selected
+matrix reproduces against the same build:
+
+```powershell
+.\scripts\capture-gui-proof.ps1 `
+    -Kotor1Dir "<kotor install>" `
+    -Kotor2Dir "<kotor 2 install>" `
+    -NoWorld `
+    -VerifyReproducibility
+```
+
+`-VerifyReproducibility` captures each selected game-and-resolution batch twice
+with identical commands and compares corresponding decoded RGBA pixels exactly.
+It has no effect when omitted. If any captures differ, the harness checks the
+entire selected matrix and then fails with every affected game, state and
+resolution, including the maximum channel delta and the numbers of differing
+pixels and channels. The ordinary output folder receives the second pass; the
+first pass exists only under the temporary runtime folder used for comparison.
+
 By default the scene is on. Pass `-NoWorld` when comparing captures between
 builds: it emits `graphics off` so world rendering does not enter the
 comparison. In that mode the harness also emits `seed 1337` before every state.
