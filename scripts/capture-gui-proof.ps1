@@ -20,7 +20,8 @@ param(
     [string]$OutputDir = "",
     [string[]]$States = @(),
     [int[]]$Widths = @(),
-    [switch]$NoWorld
+    [switch]$NoWorld,
+    [switch]$VerifyReproducibility
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,6 +49,84 @@ $runDir = Join-Path $OutputDir ".runtime"
 Remove-Item -LiteralPath $runDir -Recurse -Force -ErrorAction Ignore
 New-Item -ItemType Directory -Force -Path $OutputDir, $runDir | Out-Null
 Copy-Item -LiteralPath $shaderPackPath -Destination (Join-Path $runDir "shaderpack.erf") -Force
+
+if ($VerifyReproducibility) {
+    $baselineDir = Join-Path $runDir "reproducibility-baseline"
+    New-Item -ItemType Directory -Force -Path $baselineDir | Out-Null
+
+    if (-not ("Reone.GuiCaptureProof.PixelComparer" -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+
+namespace Reone.GuiCaptureProof
+{
+    public sealed class PixelDifference
+    {
+        public bool Identical { get; set; }
+        public int MaxChannelDelta { get; set; }
+        public long DifferentChannels { get; set; }
+        public long DifferentPixels { get; set; }
+    }
+
+    public static class PixelComparer
+    {
+        public static PixelDifference Compare(string firstPath, string secondPath, long expectedLength)
+        {
+            byte[] first = File.ReadAllBytes(firstPath);
+            byte[] second = File.ReadAllBytes(secondPath);
+            if (first.LongLength != expectedLength || second.LongLength != expectedLength)
+            {
+                throw new InvalidDataException(String.Format(
+                    "Expected {0} decoded RGBA bytes, got {1} and {2}",
+                    expectedLength, first.LongLength, second.LongLength));
+            }
+
+            var result = new PixelDifference { Identical = true };
+            for (int offset = 0; offset < first.Length; offset += 4)
+            {
+                bool pixelDiffers = false;
+                for (int channel = 0; channel < 4; ++channel)
+                {
+                    int delta = Math.Abs(first[offset + channel] - second[offset + channel]);
+                    if (delta == 0)
+                    {
+                        continue;
+                    }
+                    result.Identical = false;
+                    pixelDiffers = true;
+                    ++result.DifferentChannels;
+                    result.MaxChannelDelta = Math.Max(result.MaxChannelDelta, delta);
+                }
+                if (pixelDiffers)
+                {
+                    ++result.DifferentPixels;
+                }
+            }
+            return result;
+        }
+    }
+}
+'@
+    }
+}
+
+function Compare-CapturePixels([string]$firstPng, [string]$secondPng, [int]$width, [int]$height) {
+    $firstRaw = Join-Path $runDir "reproducibility-first.rgba"
+    $secondRaw = Join-Path $runDir "reproducibility-second.rgba"
+    Remove-Item -LiteralPath $firstRaw, $secondRaw -Force -ErrorAction Ignore
+    try {
+        & $ffmpeg -y -loglevel error -i $firstPng -map 0:v:0 -frames:v 1 -f rawvideo -pix_fmt rgba $firstRaw
+        if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed to decode capture for reproducibility comparison: $firstPng" }
+        & $ffmpeg -y -loglevel error -i $secondPng -map 0:v:0 -frames:v 1 -f rawvideo -pix_fmt rgba $secondRaw
+        if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed to decode capture for reproducibility comparison: $secondPng" }
+
+        $expectedLength = [long]$width * [long]$height * 4L
+        return [Reone.GuiCaptureProof.PixelComparer]::Compare($firstRaw, $secondRaw, $expectedLength)
+    } finally {
+        Remove-Item -LiteralPath $firstRaw, $secondRaw -Force -ErrorAction Ignore
+    }
+}
 
 $resolutions = @(
     @{ W = 1024; H = 768 },
@@ -124,6 +203,7 @@ $games = @(
 )
 
 $count = 0
+$reproducibilityFailures = [System.Collections.Generic.List[object]]::new()
 foreach ($game in $games) {
     foreach ($res in $resolutions) {
         $selected = @($game.States | Where-Object { $States.Count -eq 0 -or $States -contains $_.Id })
@@ -163,31 +243,66 @@ foreach ($game in $games) {
         $commandPath = Join-Path $runDir "commands.txt"
         Set-Content -LiteralPath $commandPath -Value $lines -Encoding utf8
 
-        Write-Host "$($game.Id) $($res.W)x$($res.H) default scales ($($selected.Count) captures)"
-        Push-Location $runDir
-        try {
-            & $enginePath --game $game.Dir --commands-file $commandPath `
-                --width $res.W --height $res.H --winscale 100 --fullscreen 0 `
-                --headless 1 --dev 0 --vsync 0 --pbr 0 `
-                --guiscale 1 --guiborderscale 1 --guilistscale 0.5
-            if ($LASTEXITCODE -ne 0) { throw "Engine exited with ${LASTEXITCODE}" }
-        } finally {
-            Pop-Location
-        }
-
-        foreach ($state in $selected) {
-            $tga = Join-Path $runDir "$($state.Id).tga"
-            if (-not (Test-Path -LiteralPath $tga -PathType Leaf)) {
-                throw "Capture produced no image: $($game.Id)/$($state.Id)"
+        $capturePasses = if ($VerifyReproducibility) { 2 } else { 1 }
+        for ($capturePass = 1; $capturePass -le $capturePasses; ++$capturePass) {
+            $passSuffix = if ($VerifyReproducibility) { " (reproducibility pass $capturePass of 2)" } else { "" }
+            Write-Host "$($game.Id) $($res.W)x$($res.H) default scales ($($selected.Count) captures)$passSuffix"
+            Push-Location $runDir
+            try {
+                & $enginePath --game $game.Dir --commands-file $commandPath `
+                    --width $res.W --height $res.H --winscale 100 --fullscreen 0 `
+                    --headless 1 --dev 0 --vsync 0 --pbr 0 `
+                    --guiscale 1 --guiborderscale 1 --guilistscale 0.5
+                if ($LASTEXITCODE -ne 0) { throw "Engine exited with ${LASTEXITCODE}" }
+            } finally {
+                Pop-Location
             }
-            $png = Join-Path $OutputDir "$($game.Id)-$($state.Id)-$($res.W)x$($res.H).png"
-            & $ffmpeg -y -loglevel error -i $tga $png
-            if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed for $($state.Id)" }
-            Remove-Item -LiteralPath $tga -Force
-            $count++
+
+            foreach ($state in $selected) {
+                $tga = Join-Path $runDir "$($state.Id).tga"
+                if (-not (Test-Path -LiteralPath $tga -PathType Leaf)) {
+                    throw "Capture produced no image: $($game.Id)/$($state.Id)"
+                }
+                $fileName = "$($game.Id)-$($state.Id)-$($res.W)x$($res.H).png"
+                $isBaseline = $VerifyReproducibility -and $capturePass -eq 1
+                $png = Join-Path $(if ($isBaseline) { $baselineDir } else { $OutputDir }) $fileName
+                & $ffmpeg -y -loglevel error -i $tga $png
+                if ($LASTEXITCODE -ne 0) { throw "ffmpeg failed for $($state.Id)" }
+                Remove-Item -LiteralPath $tga -Force
+
+                if ($isBaseline) {
+                    continue
+                }
+                $count++
+                if ($VerifyReproducibility) {
+                    $baselinePng = Join-Path $baselineDir $fileName
+                    $difference = Compare-CapturePixels $baselinePng $png $res.W $res.H
+                    if (-not $difference.Identical) {
+                        $reproducibilityFailures.Add(@{
+                            Game = $game.Id
+                            State = $state.Id
+                            Width = $res.W
+                            Height = $res.H
+                            MaxChannelDelta = $difference.MaxChannelDelta
+                            DifferentChannels = $difference.DifferentChannels
+                            DifferentPixels = $difference.DifferentPixels
+                        })
+                    }
+                }
+            }
         }
     }
 }
 
+if ($reproducibilityFailures.Count -gt 0) {
+    $failureFormat = "Capture failed to reproduce: {0}/{1} at {2}x{3} (maximum RGBA channel difference: {4}; differing pixels: {5}; differing channels: {6})"
+    $failureLines = $reproducibilityFailures | ForEach-Object {
+        $failureFormat -f $_.Game, $_.State, $_.Width, $_.Height, $_.MaxChannelDelta,
+            $_.DifferentPixels, $_.DifferentChannels
+    }
+    throw ($failureLines -join [Environment]::NewLine)
+}
+
 Remove-Item -LiteralPath $runDir -Recurse -Force -ErrorAction Ignore
+if ($VerifyReproducibility) { Write-Host "Reproducibility verified for $count captures" }
 Write-Host "$count captures written to $OutputDir"
