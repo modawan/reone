@@ -299,6 +299,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/messagelog.h
     ${GAME_INCLUDE_DIR}/minigame.h
     ${GAME_INCLUDE_DIR}/modulesnapshot.h
+    ${GAME_INCLUDE_DIR}/savewidesnapshot.h
     ${GAME_INCLUDE_DIR}/object.h
     ${GAME_INCLUDE_DIR}/object/area.h
     ${GAME_INCLUDE_DIR}/object/camera.h
@@ -523,6 +524,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/messagelog.cpp
     ${GAME_SOURCE_DIR}/minigame.cpp
     ${GAME_SOURCE_DIR}/modulesnapshot.cpp
+    ${GAME_SOURCE_DIR}/savewidesnapshot.cpp
     ${GAME_SOURCE_DIR}/object.cpp
     ${GAME_SOURCE_DIR}/object/area.cpp
     ${GAME_SOURCE_DIR}/object/camera/animated.cpp

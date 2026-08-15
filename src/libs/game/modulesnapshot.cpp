@@ -642,7 +642,11 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeItem(
     std::optional<uint32_t> serializedId) const {
     auto result = objectBase(item, ResType::Uti, structType);
     writeObjectState(*result, item);
-    if (serializedId) put(*result, Gff::Field::newDword("ObjectId", *serializedId));
+    if (serializedId) {
+        put(*result, Gff::Field::newDword("ObjectId", *serializedId));
+    } else {
+        removeSaveField(*result, "ObjectId");
+    }
     put(*result, Gff::Field::newInt("BaseItem", item._baseItem));
     put(*result, Gff::Field::newByte("Charges", item._charges));
     put(*result, Gff::Field::newDword("Cost", item._cost));
@@ -671,9 +675,15 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeItem(
 }
 
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
-    const Creature &creature, uint32_t structType) const {
+    const Creature &creature, uint32_t structType,
+    std::optional<uint32_t> serializedId) const {
     auto result = objectBase(creature, ResType::Utc, structType);
     writeObjectState(*result, creature);
+    if (serializedId) {
+        put(*result, Gff::Field::newDword("ObjectId", *serializedId));
+    } else {
+        removeSaveField(*result, "ObjectId");
+    }
     putTransform(*result, creature);
     const auto direction = glm::vec3(
         -std::sin(creature.getFacing()), std::cos(creature.getFacing()), 0.0f);
@@ -1096,7 +1106,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
         if (object->type() == ObjectType::Creature && _game._party.isMember(*object)) continue;
         switch (object->type()) {
         case ObjectType::Creature:
-            lists["Creature List"].push_back(writeCreature(*static_cast<Creature *>(object.get()), 4));
+            lists["Creature List"].push_back(writeCreature(
+                *static_cast<Creature *>(object.get()), 4, object->id()));
             break;
         case ObjectType::Door:
             lists["Door List"].push_back(writeDoor(*static_cast<Door *>(object.get())));
@@ -1216,14 +1227,16 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
 
     auto modulePlayer = _game._party.player();
     if (!modulePlayer) throw ValidationException("module has no controlled player creature");
-    auto player = writeCreature(*modulePlayer, 4);
+    auto player = writeCreature(*modulePlayer, 4, modulePlayer->id());
     put(*player, Gff::Field::newByte(
         "Mod_IsPrimaryPlr", modulePlayer == _game._party.actualPlayer()));
     put(*result, Gff::Field::newList("Mod_PlayerList", {player}));
 
     std::vector<std::shared_ptr<Gff>> limbo;
     for (const auto &creature : module._limboCreatures) {
-        if (creature) limbo.push_back(writeCreature(*creature, 4));
+        if (creature) {
+            limbo.push_back(writeCreature(*creature, 4, creature->id()));
+        }
     }
     put(*result, Gff::Field::newList("Creature List", std::move(limbo)));
     return result;

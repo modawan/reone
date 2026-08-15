@@ -104,6 +104,7 @@ public:
 class MockReputes : public IReputes, boost::noncopyable {
 public:
     MOCK_METHOD(State, baseState, (), (const override));
+    MOCK_METHOD(State, state, (), (const override));
     MOCK_METHOD(std::optional<State>, parse, (const resource::Gff &gff), (const override));
     MOCK_METHOD(void, replace, (State state), (override));
     MOCK_METHOD(int, getReputation, (Faction sourceFaction, Faction targetFaction), (const override));

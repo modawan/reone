@@ -89,6 +89,8 @@ public:
     ModuleSnapshotResult build() const noexcept;
 
 private:
+    friend class SaveWideSnapshotBuilder;
+
     const Game &_game;
     std::string _saveGroup;
 
@@ -99,7 +101,8 @@ private:
         const Object &object, resource::ResType templateType, uint32_t structType) const;
     void writeObjectState(resource::Gff &record, const Object &object) const;
     std::shared_ptr<resource::Gff> writeCreature(
-        const Creature &creature, uint32_t structType) const;
+        const Creature &creature, uint32_t structType,
+        std::optional<uint32_t> serializedId) const;
     std::shared_ptr<resource::Gff> writeDoor(const Door &door) const;
     std::shared_ptr<resource::Gff> writePlaceable(const Placeable &placeable) const;
     std::shared_ptr<resource::Gff> writeItem(

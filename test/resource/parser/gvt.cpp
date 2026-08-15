@@ -63,6 +63,21 @@ std::shared_ptr<Gff> locations(
 
 } // namespace
 
+TEST(GVT, should_decode_numeric_values_as_unsigned_retail_bytes) {
+    auto gff = Gff::Builder()
+        .field(Gff::Field::newList(
+            "CatNumber", {locationName("zero"), locationName("maximum")}))
+        .field(Gff::Field::newVoid(
+            "ValNumber", {0, static_cast<char>(0xff)}))
+        .build();
+
+    auto parsed = parseGVT(*gff);
+
+    ASSERT_EQ(parsed.numbers.size(), 2);
+    EXPECT_EQ(parsed.numbers[0], GVT::Number("zero", 0));
+    EXPECT_EQ(parsed.numbers[1], GVT::Number("maximum", 255));
+}
+
 TEST(GVT, should_decode_k1_saved_locations_from_the_retail_void_payload) {
     auto gff = locations(
         {locationName("first"), locationName("second")},

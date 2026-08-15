@@ -50,6 +50,7 @@ public:
     virtual ~IReputes() = default;
 
     virtual State baseState() const = 0;
+    virtual State state() const = 0;
     virtual std::optional<State> parse(const resource::Gff &gff) const = 0;
     virtual void replace(State state) = 0;
 
@@ -73,6 +74,7 @@ public:
     void init();
 
     State baseState() const override;
+    State state() const override;
     std::optional<State> parse(const resource::Gff &gff) const override;
     void replace(State state) override;
 

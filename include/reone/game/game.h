@@ -544,6 +544,7 @@ public:
 private:
     friend class TestGameModule;
     friend class ModuleSnapshotBuilder;
+    friend class SaveWideSnapshotBuilder;
     friend struct SerializedScriptSituation;
     friend class SavedScriptContinuation;
 

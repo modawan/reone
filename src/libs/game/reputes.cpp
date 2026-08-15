@@ -61,6 +61,10 @@ IReputes::State Reputes::baseState() const {
     return {std::move(factions), std::move(labels), std::move(values)};
 }
 
+IReputes::State Reputes::state() const {
+    return {_factions, _factionLabels, _factionValues};
+}
+
 std::optional<IReputes::State> Reputes::parse(const resource::Gff &gff) const {
     std::shared_ptr<TwoDA> repute(_twoDas.get("repute"));
     if (!repute) {

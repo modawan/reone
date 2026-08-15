@@ -58,7 +58,10 @@ static bool parseNumbers(const Gff &gff, std::vector<GVT::Number> &result) {
         if (i >= bytes.size()) {
             return false;
         }
-        int value = bytes[i++];
+        // ValNumber is a retail byte array. ByteBuffer stores char for binary
+        // transport, so make the unsigned wire semantics explicit rather than
+        // sign-extending values above 127 on platforms with signed char.
+        int value = static_cast<uint8_t>(bytes[i++]);
         result.push_back({name->getString("Name"), value});
     }
     return true;
