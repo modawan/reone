@@ -58,6 +58,8 @@ class Game;
 class Module;
 class Conversation;
 class Object;
+class StaticCamera;
+struct SaveOrchestrationSeams;
 
 class MockCameraStyles : public ICameraStyles, boost::noncopyable {
 public:
@@ -219,6 +221,22 @@ public:
         Object &object, const resource::Gff &gff);
     static void setSnapshotObjectId(Object &object, uint32_t objectId);
     static void setSnapshotDoorState(Door &door, DoorState state);
+    static void configureSnapshotCamera(
+        StaticCamera &camera, int cameraId, glm::vec3 position,
+        glm::quat orientation, float pitch, float height,
+        float fieldOfView, float micRange);
+    static void configureSaveOrchestration(
+        Game &game, SaveOrchestrationSeams seams);
+    static void processPendingSave(Game &game);
+    static bool storeCurrentModuleForTransition(Game &game);
+    static void setSnapshotModuleName(Game &game, std::string name);
+    static bool hasPendingSave(const Game &game);
+    static void setRuntimeSessionPlayable(Game &game, bool playable);
+    static void clearSnapshotModule(Game &game);
+    static void clearSnapshotArea(Game &game);
+    static void clearSnapshotPlayers(Game &game);
+    static void setTransitionInProgress(Game &game, bool inProgress);
+    static void setSaveInProgress(Game &game, bool inProgress);
 
     void init() {
         _cameraStyles = std::make_unique<MockCameraStyles>();
@@ -256,6 +274,7 @@ public:
     }
 
     MockSpells &spells() { return *_spells; }
+    MockPortraits &portraits() { return *_portraits; }
 
 private:
     std::unique_ptr<MockCameraStyles> _cameraStyles;

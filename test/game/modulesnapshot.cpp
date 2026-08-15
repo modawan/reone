@@ -17,6 +17,7 @@
 #include "reone/game/game.h"
 #include "reone/game/modulesnapshot.h"
 #include "reone/game/object/area.h"
+#include "reone/game/object/camera/static.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/encounter.h"
@@ -93,6 +94,20 @@ void reone::game::TestGameModule::setSnapshotObjectId(
 void reone::game::TestGameModule::setSnapshotDoorState(
     Door &door, DoorState state) {
     door._state = state;
+}
+
+void reone::game::TestGameModule::configureSnapshotCamera(
+    StaticCamera &camera, int cameraId, glm::vec3 position,
+    glm::quat orientation, float pitch, float height,
+    float fieldOfView, float micRange) {
+    camera._cameraId = cameraId;
+    camera._position = std::move(position);
+    camera._position.z += height;
+    camera._staticOrientation = std::move(orientation);
+    camera._staticPitch = pitch;
+    camera._height = height;
+    camera._fieldOfView = fieldOfView;
+    camera._micRange = micRange;
 }
 
 namespace {
@@ -224,8 +239,26 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     auto waypoint = game.newWaypoint();
     auto sound = game.newSound();
     sound->setActive(true);
+    auto cameraSource = Gff::Builder().type(14)
+        .field(Gff::Field::newInt("CameraID", 7))
+        .field(Gff::Field::newVector("Position", {4.0f, 5.0f, 6.0f}))
+        .field(Gff::Field::newOrientation(
+            "Orientation", glm::quat(1.0f, 0.0f, 0.0f, 0.0f)))
+        .field(Gff::Field::newFloat("Pitch", 12.0f))
+        .field(Gff::Field::newFloat("Height", 1.5f))
+        .field(Gff::Field::newFloat("FieldOfView", 55.0f))
+        .field(Gff::Field::newFloat("MicRange", 8.0f))
+        .field(Gff::Field::newCExoString("FutureCamera", "preserve-camera"))
+        .build();
+    auto camera = game.newStaticCamera(4.0f / 3.0f);
+    TestGameModule::configureSnapshotCamera(
+        *camera, 7, {4.0f, 5.0f, 6.0f},
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), 12.0f, 1.5f, 55.0f, 8.0f);
+    camera->captureSaveRecord(
+        *cameraSource, {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
     for (const auto &object : std::vector<std::shared_ptr<Object>> {
-             placeable, worldItem, trigger, encounter, store, waypoint, sound}) {
+             placeable, worldItem, trigger, encounter, store, waypoint, sound,
+             camera}) {
         TestGameModule::addSnapshotObject(*area, object);
     }
 
@@ -324,6 +357,7 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     EXPECT_EQ(git->getList("StoreList").size(), 1);
     EXPECT_EQ(git->getList("WaypointList").size(), 1);
     EXPECT_EQ(git->getList("SoundList").size(), 1);
+    ASSERT_EQ(git->getList("CameraList").size(), 1);
     EXPECT_EQ(git->getList("List").size(), 1);
     EXPECT_EQ(git->getList("List").front()->getUint("ObjectId"), worldItem->id());
     auto doorRecord = recordById(*git, "Door List", door->id());
@@ -339,6 +373,15 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     EXPECT_TRUE(recordById(*git, "WaypointList", waypoint->id()));
     EXPECT_TRUE(recordById(*git, "StoreList", store->id())->getList("ItemList").empty());
     EXPECT_TRUE(recordById(*git, "SoundList", sound->id())->getBool("Active"));
+    const auto &cameraRecord = *git->getList("CameraList").front();
+    EXPECT_EQ(cameraRecord.type(), 14u);
+    EXPECT_EQ(cameraRecord.getInt("CameraID"), 7);
+    EXPECT_FLOAT_EQ(cameraRecord.getVector("Position").z, 6.0f);
+    EXPECT_FLOAT_EQ(cameraRecord.getFloat("Pitch"), 12.0f);
+    EXPECT_FLOAT_EQ(cameraRecord.getFloat("Height"), 1.5f);
+    EXPECT_FLOAT_EQ(cameraRecord.getFloat("FieldOfView"), 55.0f);
+    EXPECT_FLOAT_EQ(cameraRecord.getFloat("MicRange"), 8.0f);
+    EXPECT_EQ(cameraRecord.getString("FutureCamera"), "preserve-camera");
     EXPECT_EQ(recordById(*git, "Placeable List", placeable->id())->getList("ItemList").size(), 0);
 
     ByteBuffer archiveBytes(first.snapshot->archiveBytes);

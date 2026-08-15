@@ -525,6 +525,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/messagelog.cpp
     ${GAME_SOURCE_DIR}/minigame.cpp
     ${GAME_SOURCE_DIR}/modulesnapshot.cpp
+    ${GAME_SOURCE_DIR}/savegame.cpp
     ${GAME_SOURCE_DIR}/saveslotpublisher.cpp
     ${GAME_SOURCE_DIR}/savewidesnapshot.cpp
     ${GAME_SOURCE_DIR}/object.cpp

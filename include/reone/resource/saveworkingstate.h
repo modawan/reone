@@ -202,19 +202,28 @@ private:
  */
 class SaveSessionState : boost::noncopyable {
 public:
+    SaveSessionState();
     explicit SaveSessionState(SaveSlotDescriptor descriptor);
+    SaveSessionState(
+        SaveSlotDescriptor descriptor,
+        std::shared_ptr<const SaveWorkingState> workingState);
 
-    const SaveSlotDescriptor &slot() const { return _slot; }
-    SaveWorkingState &workingState() { return _workingState; }
-    const SaveWorkingState &workingState() const { return _workingState; }
+    const SaveSlotDescriptor &slot() const { return _slot.value(); }
+    const std::optional<SaveSlotDescriptor> &slotDescriptor() const {
+        return _slot;
+    }
+    const std::shared_ptr<const SaveWorkingState> &workingState() const {
+        return _workingState;
+    }
+    void replaceWorkingState(std::shared_ptr<const SaveWorkingState> state);
 
     std::optional<Resource> findMetadata(const ResourceId &id);
     std::optional<Resource> findWorking(const ResourceId &id);
 
 private:
-    SaveSlotDescriptor _slot;
-    FolderResourceContainer _metadata;
-    SaveWorkingState _workingState;
+    std::optional<SaveSlotDescriptor> _slot;
+    std::unique_ptr<FolderResourceContainer> _metadata;
+    std::shared_ptr<const SaveWorkingState> _workingState;
 };
 
 } // namespace resource

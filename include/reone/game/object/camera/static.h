@@ -23,6 +23,8 @@ namespace reone {
 
 namespace game {
 
+class TestGameModule;
+
 class StaticCamera : public Camera {
 public:
     StaticCamera(
@@ -41,7 +43,14 @@ public:
 
     void deserialize(const resource::Gff &gff);
 
+    const glm::quat &staticOrientation() const { return _staticOrientation; }
+    float staticPitch() const { return _staticPitch; }
+    float height() const { return _height; }
+    float micRange() const { return _micRange; }
+
 private:
+    friend class TestGameModule;
+
     // Serializable
 
     // Separate orientation and pitch, as opposed to Object::_orientation where
@@ -49,6 +58,7 @@ private:
     glm::quat _staticOrientation;
     float _staticPitch {0.0f};
     float _height {0.0f};
+    float _micRange {0.0f};
 
     // END Serializable
 

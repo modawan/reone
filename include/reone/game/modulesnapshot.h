@@ -29,6 +29,7 @@ class Encounter;
 class Store;
 class Waypoint;
 class Sound;
+class StaticCamera;
 class SavedScriptContinuation;
 struct EffectInstance;
 struct SavedActionRecord;
@@ -112,6 +113,7 @@ private:
     std::shared_ptr<resource::Gff> writeStore(const Store &store) const;
     std::shared_ptr<resource::Gff> writeWaypoint(const Waypoint &waypoint) const;
     std::shared_ptr<resource::Gff> writeSound(const Sound &sound) const;
+    std::shared_ptr<resource::Gff> writeCamera(const StaticCamera &camera) const;
     bool isSerializedWorldObject(const Object &object) const;
     uint32_t serializedReferenceId(const SavedObjectReference &reference) const;
     EffectInstance normalizeEffectReferences(EffectInstance effect) const;

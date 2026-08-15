@@ -33,6 +33,7 @@ void StaticCamera::deserialize(const resource::Gff &gff) {
     gff.readInt(_cameraId, "CameraID");
     gff.readFloat(_fieldOfView, "FieldOfView");
     gff.readFloat(_height, "Height");
+    gff.readFloat(_micRange, "MicRange");
     if (gff.readVector(_position, "Position")) {
         _position.z += _height;
     }

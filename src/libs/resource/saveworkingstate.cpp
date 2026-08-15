@@ -333,15 +333,42 @@ std::shared_ptr<const SaveWorkingState> SaveWorkingStateCandidate::freeze() cons
         std::move(tombstones)));
 }
 
+SaveSessionState::SaveSessionState() :
+    _workingState(std::make_shared<const SaveWorkingState>()) {
+}
+
 SaveSessionState::SaveSessionState(SaveSlotDescriptor descriptor) :
     _slot(std::move(descriptor)),
-    _metadata(_slot.directory),
-    _workingState(_slot.archive) {
-    _metadata.init();
+    _metadata(std::make_unique<FolderResourceContainer>(_slot->directory)),
+    _workingState(std::make_shared<const SaveWorkingState>(_slot->archive)) {
+    _metadata->init();
+}
+
+SaveSessionState::SaveSessionState(
+    SaveSlotDescriptor descriptor,
+    std::shared_ptr<const SaveWorkingState> workingState) :
+    _slot(std::move(descriptor)),
+    _metadata(std::make_unique<FolderResourceContainer>(_slot->directory)),
+    _workingState(std::move(workingState)) {
+    if (!_workingState) {
+        throw std::invalid_argument("Save working state is required");
+    }
+    _metadata->init();
+}
+
+void SaveSessionState::replaceWorkingState(
+    std::shared_ptr<const SaveWorkingState> state) {
+    if (!state) {
+        throw std::invalid_argument("Save working state is required");
+    }
+    _workingState = std::move(state);
 }
 
 std::optional<Resource> SaveSessionState::findMetadata(const ResourceId &id) {
-    auto data = _metadata.findResourceData(id);
+    if (!_metadata) {
+        return std::nullopt;
+    }
+    auto data = _metadata->findResourceData(id);
     if (!data) {
         return std::nullopt;
     }
@@ -349,7 +376,7 @@ std::optional<Resource> SaveSessionState::findMetadata(const ResourceId &id) {
 }
 
 std::optional<Resource> SaveSessionState::findWorking(const ResourceId &id) {
-    return _workingState.find(id);
+    return _workingState->find(id);
 }
 
 } // namespace resource

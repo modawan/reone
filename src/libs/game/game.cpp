@@ -480,7 +480,21 @@ void Game::initJournalNotifications() {
 }
 
 void Game::registerConsoleCommand(std::string name, std::string description, ConsoleCommandHandler handler) {
-    _console.registerCommand(name, description, std::bind(handler, this, std::placeholders::_1));
+    static const std::set<std::string> cheatCommands {
+        "playanim", "warp", "kill", "additem", "givexp", "givegold",
+        "spawncreature", "spawncompanion", "setfaction", "setposition",
+        "professionaltools", "killroom", "setability", "setskill",
+        "addfeat", "removefeat", "addspell", "removespell",
+        "castspellatobject", "opendoor", "closedoor"};
+    bool marksCheatUsed = cheatCommands.count(name) != 0;
+    _console.registerCommand(
+        name, description,
+        [this, handler, marksCheatUsed](const ConsoleArgs &args) {
+            (this->*handler)(args);
+            if (marksCheatUsed) {
+                _cheatUsed = true;
+            }
+        });
 }
 
 void Game::initConsole() {
@@ -523,6 +537,7 @@ void Game::initConsole() {
     registerConsoleCommand("closedoor", "close a selected door object", &Game::consoleOpenCloseDoor);
     registerConsoleCommand("listgames", "list savegames", &Game::consoleListGames);
     registerConsoleCommand("loadgame", "load a savegame", &Game::consoleLoadGame);
+    registerConsoleCommand("savegame", "save to a semantic slot", &Game::consoleSaveGame);
     registerConsoleCommand("startpazaak", "start a development Pazaak match", &Game::consoleStartPazaak);
     if (_options.game.developer) {
         registerConsoleCommand("minigameinfo", "print minigame metadata for current area", &Game::consoleMiniGameInfo);
@@ -638,6 +653,12 @@ void Game::update(float frameTime) {
     }
     updateMusic();
 
+    // Requests made by scripts, console handlers or UI code in the previous
+    // update execute only after those call stacks have unwound. This precedes
+    // deferred module transition handling, so save+transition in one script
+    // deterministically captures the source module first.
+    processPendingSave();
+
     if (_screen == Screen::PazaakBoard && _pazaakSession) {
         static constexpr float kPazaakOpponentEventDelay = 0.45f;
         if (_pazaakSession->advanceResultPresentation(dt)) {
@@ -700,6 +721,7 @@ void Game::update(float frameTime) {
     if (updModule && !_paused) {
         _floatingText.update(dt);
         advanceWorldTime(dt);
+        advancePlayedTime(dt);
         _module->update(dt);
         _combat.update(dt);
     }
@@ -841,8 +863,13 @@ bool Game::handleMouseButtonUp(const input::MouseButtonEvent &event) {
     return false;
 }
 
-void Game::loadModule(const std::string &name, std::string entry, bool initialSaveRestore) {
+bool Game::loadModule(const std::string &name, std::string entry, bool initialSaveRestore) {
     info("Loading module '" + name + "'");
+    _transitionInProgress = true;
+    struct TransitionGuard {
+        bool &value;
+        ~TransitionGuard() { value = false; }
+    } transitionGuard {_transitionInProgress};
 
     // A module transition is a technical Pazaak abort. It must not manufacture
     // a result or invoke the pending continuation.
@@ -881,12 +908,28 @@ void Game::loadModule(const std::string &name, std::string entry, bool initialSa
         _conversation->cleanupForModuleTransition();
     }
 
-    withLoadingScreen("load_" + name, [this, &name, &entry, initialSaveRestore]() {
+    // Exit scripts are part of the source module's last observable state.
+    // Freeze that state before party/object teardown or destination mounting.
+    // A capture failure aborts with the source runtime graph still alive.
+    if (_module) {
+        try {
+            _module->area()->runOnExitScript();
+        } catch (const std::exception &e) {
+            error("Source module exit script failed: " + std::string(e.what()));
+            return false;
+        }
+        if (!storeCurrentModuleForTransition()) {
+            return false;
+        }
+    }
+
+    bool loaded = false;
+
+    withLoadingScreen("load_" + name, [this, &name, &entry, initialSaveRestore, &loaded]() {
         loadInGameMenus();
 
         try {
             if (_module) {
-                _module->area()->runOnExitScript();
                 _module->area()->unloadParty();
                 retireActiveModuleRuntime();
             }
@@ -949,6 +992,7 @@ void Game::loadModule(const std::string &name, std::string entry, bool initialSa
             playMusic(musicName);
 
             openInGame();
+            loaded = true;
         } catch (const std::exception &e) {
             error("Failed loading module '" + name + "': " + std::string(e.what()));
             if (initialSaveRestore) {
@@ -965,6 +1009,7 @@ void Game::loadModule(const std::string &name, std::string entry, bool initialSa
     // the next update, or the whole load lands on the world as one enormous
     // step.
     _timingDiscontinuity = true;
+    return loaded;
 }
 
 void Game::retireActiveModuleRuntime() {
@@ -1085,6 +1130,9 @@ void Game::retireRuntimeSession() {
 
     _nextModule.clear();
     _nextEntry.clear();
+    _pendingSave.reset();
+    _saveInProgress = false;
+    _atStableSavePoint = false;
 }
 
 void Game::resetGame() {
@@ -1102,6 +1150,10 @@ void Game::resetGame() {
     _journal.reset();
     _messageLog.reset();
     _floatingText.reset();
+    _cheatUsed = false;
+    _playedTimeFraction = 0.0;
+    _lastSaveResult.reset();
+    _services.resource.director.onNewGame();
 }
 
 void Game::loadGame(std::string_view name) {
@@ -1119,6 +1171,7 @@ void Game::loadGame(std::string_view name) {
         throw ResourceNotFoundException("saveinfo.res not found");
     }
     NFO nfo = resource::parseNFO(*saveInfo);
+    _cheatUsed = nfo.cheatUsed;
     captureSaveResourceShadow({SaveResourceKind::Nfo, {}}, *saveInfo);
 
     // Add module files to resource resolution. Since all savegame files are
@@ -2322,10 +2375,13 @@ void Game::loadNextModule() {
     }
     bool wasLifecycleActive = _swoopLifecycle.active || _turretLifecycle.active;
 
-    loadModule(_nextModule, _nextEntry);
+    bool loaded = loadModule(_nextModule, _nextEntry);
 
     _nextModule.clear();
     _nextEntry.clear();
+    if (!loaded) {
+        return;
+    }
 
     // Vanilla K1 minigame entry: a dialogue node or cutscene script calls
     // StartNewModule("<*mg>"); the engine auto-enters the minigame on load (no
@@ -4687,6 +4743,24 @@ void Game::consoleLoadGame(const ConsoleArgs &args) {
     auto name = _saveNames.begin();
     std::advance(name, id);
     loadGame(*name);
+}
+
+void Game::consoleSaveGame(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, std::numeric_limits<size_t>::max(), "slot [name]");
+    auto slot = args.get<uint32_t>(1);
+    if (!slot) {
+        throw std::runtime_error("Invalid save slot");
+    }
+    std::string name;
+    for (size_t i = 2; i < args.size(); ++i) {
+        if (!name.empty()) {
+            name += " ";
+        }
+        name += std::string(*args[i]);
+    }
+    auto result = requestSave(
+        {SaveKind::Developer, *slot, std::move(name), true});
+    _console.printLine(result.message);
 }
 
 void Game::consoleStartPazaak(const ConsoleArgs &args) {

@@ -221,6 +221,9 @@ RichState configureRich(Game &game, bool tsl) {
 
 void configureReputes(TestEngine &engine) {
     auto &reputes = static_cast<MockReputes &>(engine.services().game.reputes);
+    EXPECT_CALL(reputes, baseState())
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(factionState()));
     EXPECT_CALL(reputes, state())
         .Times(AnyNumber())
         .WillRepeatedly(Return(factionState()));
@@ -477,4 +480,29 @@ TEST(SaveWideSnapshot, failed_build_exposes_no_partial_result_or_mutation) {
     EXPECT_EQ(game.globalNumbers(), beforeGlobals);
     EXPECT_EQ(game.party().gold(), 1234);
     EXPECT_EQ(game.party().actualPlayer()->currentHitPoints(), 17);
+}
+
+TEST(SaveWideSnapshot, authored_player_source_reputation_is_derived_but_mutation_is_rejected) {
+    auto &engine = testEngine();
+    auto &reputes = static_cast<MockReputes &>(engine.services().game.reputes);
+    auto base = factionState();
+    base.values[0][1] = 55;
+    auto live = base;
+    EXPECT_CALL(reputes, baseState())
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(base));
+    EXPECT_CALL(reputes, state()).WillOnce(Return(live));
+
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    configureRich(game, false);
+    auto preserved = SaveWideSnapshotBuilder(game, metadata(false)).build();
+    ASSERT_TRUE(preserved) << preserved.message;
+
+    live.values[0][1] = 54;
+    EXPECT_CALL(reputes, state()).WillOnce(Return(live));
+    auto rejected = SaveWideSnapshotBuilder(game, metadata(false)).build();
+    EXPECT_FALSE(rejected);
+    EXPECT_EQ(SaveWideSnapshotError::UnsupportedLiveState, rejected.error);
+    EXPECT_THAT(rejected.message, HasSubstr("modified player-source reputation"));
 }

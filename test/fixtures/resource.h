@@ -187,10 +187,15 @@ class MockResourceDirector : public IResourceDirector, boost::noncopyable {
 public:
     MOCK_METHOD(void, init, (), (override));
     MOCK_METHOD(void, onModuleLoad, (const std::string &name), (override));
+    MOCK_METHOD(void, onNewGame, (), (override));
     MOCK_METHOD(void, onGameLoad, (std::string_view name), (override));
     MOCK_METHOD(std::optional<Resource>, findSaveMetadata, (const ResourceId &id), (override));
     MOCK_METHOD(std::optional<Resource>, findSaveWorking, (const ResourceId &id), (override));
     MOCK_METHOD(std::unordered_set<ResourceId>, saveWorkingResourceIds, (), (const, override));
+    MOCK_METHOD(std::shared_ptr<const SaveWorkingState>, committedSaveWorkingState, (), (const, override));
+    MOCK_METHOD(std::optional<SaveSlotDescriptor>, saveSlotDescriptor, (), (const, override));
+    MOCK_METHOD(void, adoptSaveWorkingState, (std::shared_ptr<const SaveWorkingState> state), (override));
+    MOCK_METHOD(void, adoptPublishedSave, (SaveSlotDescriptor descriptor, std::shared_ptr<const SaveWorkingState> state), (override));
     MOCK_METHOD(std::set<std::string>, moduleNames, (), (override));
     MOCK_METHOD(std::set<std::string>, saveNames, (), (override));
 };

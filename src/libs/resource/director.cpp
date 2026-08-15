@@ -128,6 +128,13 @@ void ResourceDirector::onGameLoad(std::string_view name) {
     _gffs.clear();
 }
 
+void ResourceDirector::onNewGame() {
+    _resources.clearOwner(ResourceOwner::SaveSlot);
+    _resources.clearOwner(ResourceOwner::ActiveModuleState);
+    _saveSession = std::make_unique<SaveSessionState>();
+    _gffs.clear();
+}
+
 std::optional<Resource> ResourceDirector::findSaveMetadata(const ResourceId &id) {
     if (!_saveSession) {
         return std::nullopt;
@@ -146,7 +153,32 @@ std::unordered_set<ResourceId> ResourceDirector::saveWorkingResourceIds() const 
     if (!_saveSession) {
         return {};
     }
-    return _saveSession->workingState().resourceIds();
+    return _saveSession->workingState()->resourceIds();
+}
+
+std::shared_ptr<const SaveWorkingState>
+ResourceDirector::committedSaveWorkingState() const {
+    return _saveSession ? _saveSession->workingState() : nullptr;
+}
+
+std::optional<SaveSlotDescriptor> ResourceDirector::saveSlotDescriptor() const {
+    return _saveSession ? _saveSession->slotDescriptor() : std::nullopt;
+}
+
+void ResourceDirector::adoptSaveWorkingState(
+    std::shared_ptr<const SaveWorkingState> state) {
+    if (!_saveSession) {
+        _saveSession = std::make_unique<SaveSessionState>();
+    }
+    _saveSession->replaceWorkingState(std::move(state));
+}
+
+void ResourceDirector::adoptPublishedSave(
+    SaveSlotDescriptor descriptor,
+    std::shared_ptr<const SaveWorkingState> state) {
+    auto candidate = std::make_unique<SaveSessionState>(
+        std::move(descriptor), std::move(state));
+    _saveSession = std::move(candidate);
 }
 
 std::set<std::string> ResourceDirector::moduleNames() {
@@ -578,7 +610,7 @@ void ResourceDirector::addStagedModuleSources(const std::string &moduleRoot,
     if (!_saveSession) {
         return;
     }
-    auto *workingState = &_saveSession->workingState();
+    auto workingState = _saveSession->workingState();
     for (const auto &probe : kProbes) {
         auto id = ResourceId(moduleRoot, probe.type);
         if (!workingState->contains(id)) {

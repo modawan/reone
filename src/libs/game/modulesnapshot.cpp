@@ -23,6 +23,7 @@
 #include "reone/game/game.h"
 #include "reone/game/location.h"
 #include "reone/game/object/area.h"
+#include "reone/game/object/camera/static.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
 #include "reone/game/object/encounter.h"
@@ -1063,6 +1064,22 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeSound(
     return result;
 }
 
+std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCamera(
+    const StaticCamera &camera) const {
+    auto result = objectBase(camera, ResType::Invalid, 14);
+    auto position = camera.position();
+    position.z -= camera.height();
+    put(*result, Gff::Field::newInt("CameraID", camera.cameraId()));
+    put(*result, Gff::Field::newVector("Position", position));
+    put(*result, Gff::Field::newOrientation(
+                     "Orientation", camera.staticOrientation()));
+    put(*result, Gff::Field::newFloat("Pitch", camera.staticPitch()));
+    put(*result, Gff::Field::newFloat("Height", camera.height()));
+    put(*result, Gff::Field::newFloat("FieldOfView", camera.fieldOfView()));
+    put(*result, Gff::Field::newFloat("MicRange", camera.micRange()));
+    return result;
+}
+
 std::shared_ptr<Gff> ModuleSnapshotBuilder::buildAre(const Area &area) const {
     std::shared_ptr<Gff> result;
     if (auto shadow = _game._saveResourceShadows.find(
@@ -1101,6 +1118,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
         {"Creature List", {}}, {"Door List", {}}, {"Placeable List", {}},
         {"TriggerList", {}}, {"Encounter List", {}}, {"StoreList", {}},
         {"WaypointList", {}}, {"SoundList", {}}, {"List", {}}};
+    lists["CameraList"] = {};
     for (const auto &object : area._objects) {
         if (!object || area._objectsToDestroy.count(object->id()) != 0) continue;
         if (object->type() == ObjectType::Creature && _game._party.isMember(*object)) continue;
@@ -1129,6 +1147,10 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
             break;
         case ObjectType::Sound:
             lists["SoundList"].push_back(writeSound(*static_cast<Sound *>(object.get())));
+            break;
+        case ObjectType::Camera:
+            lists["CameraList"].push_back(writeCamera(
+                *static_cast<StaticCamera *>(object.get())));
             break;
         case ObjectType::Item: {
             auto item = writeItem(*static_cast<Item *>(object.get()), 0, object->id());

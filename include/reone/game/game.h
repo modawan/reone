@@ -67,6 +67,7 @@
 #include "party.h"
 #include "pazaaksession.h"
 #include "saveprovenance.h"
+#include "savegame.h"
 #include "script/runner.h"
 #include "statussummary.h"
 #include "swooprace.h"
@@ -306,7 +307,7 @@ public:
     /**
      * @param entry waypoint tag to spawn at, or empty string to spawn at default location
      */
-    void loadModule(
+    bool loadModule(
         const std::string &name,
         std::string entry = "",
         bool initialSaveRestore = false);
@@ -317,6 +318,15 @@ public:
     // Load a savegame. Name must be one of savegame directores returned by
     // ResourceDirector::saveNames().
     void loadGame(std::string_view name);
+
+    SaveResult requestSave(SaveRequest request);
+    SaveResult requestManualSave(uint32_t slot, std::string displayName);
+    SaveResult requestQuickSave();
+    SaveResult requestAutoSave();
+    const std::optional<SaveResult> &lastSaveResult() const {
+        return _lastSaveResult;
+    }
+    SaveEligibilityReason saveEligibility(bool requireStablePoint = false) const;
 
     // Clear state of the current game before loading a new game.
     void resetGame();
@@ -618,12 +628,21 @@ private:
     std::set<uint32_t> _reservedSavedObjectIds;
     EffectIdNamespace _effectIds;
     bool _runtimeSessionPlayable {false};
+    bool _cheatUsed {false};
     uint64_t _runtimeSessionGeneration {1};
     static constexpr uint32_t kMillisecondsPerDay = 24u * 60u * 60u * 1000u;
     uint32_t _worldTimeDay {0};
     uint32_t _worldTimeOfDay {0};
     uint8_t _minutesPerHour {5};
     double _worldTimeFraction {0.0};
+    double _playedTimeFraction {0.0};
+
+    std::optional<SaveRequest> _pendingSave;
+    std::optional<SaveResult> _lastSaveResult;
+    bool _saveInProgress {false};
+    bool _transitionInProgress {false};
+    bool _atStableSavePoint {false};
+    SaveOrchestrationSeams _saveSeams;
 
     // Services
 
@@ -716,6 +735,13 @@ private:
     void stopMovement();
 
     void advanceWorldTime(float dt);
+    void advancePlayedTime(float dt);
+    bool storeCurrentModuleForTransition();
+    void processPendingSave();
+    SaveResult executeSave(SaveRequest request);
+    SaveMetadataInput buildSaveMetadata(const SaveRequest &request) const;
+    resource::SaveSlotDescriptor saveTarget(const SaveRequest &request) const;
+    std::map<std::string, ByteBuffer> currentLooseSavePassthrough() const;
 
     uint32_t savedObjectId(const resource::Gff &gff) const;
     void registerObject(
@@ -920,6 +946,7 @@ private:
     void consoleOpenCloseDoor(const ConsoleArgs &tokens);
     void consoleListGames(const ConsoleArgs &tokens);
     void consoleLoadGame(const ConsoleArgs &tokens);
+    void consoleSaveGame(const ConsoleArgs &tokens);
     void consoleStartPazaak(const ConsoleArgs &tokens);
     void consoleMiniGameInfo(const ConsoleArgs &tokens);
     void consoleStartSwoop(const ConsoleArgs &tokens);

@@ -449,11 +449,23 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildFactions() const {
             throw ValidationException("faction reputation matrix is not square");
         }
     }
-    if (!state.values.empty() && std::any_of(
-            state.values.front().begin(), state.values.front().end(),
-            [](int reputation) { return reputation != 100; })) {
-        throw ValidationException(
-            "player-source reputation cannot be represented by retail FAC");
+    // Retail FAC cannot apply records whose source faction is player (ID2=0),
+    // but the authored base table can legitimately give that runtime row
+    // non-100 values. Omit the derived base row; reject only an actual runtime
+    // mutation that a retail reload would lose.
+    auto baseState = _game._services.game.reputes.baseState();
+    if (!state.values.empty()) {
+        for (size_t target = 0; target < state.values.front().size(); ++target) {
+            int baseReputation = 100;
+            if (!baseState.values.empty() &&
+                target < baseState.values.front().size()) {
+                baseReputation = baseState.values.front()[target];
+            }
+            if (state.values.front()[target] != baseReputation) {
+                throw ValidationException(
+                    "modified player-source reputation cannot be represented by retail FAC");
+            }
+        }
     }
 
     auto result = rootFromShadow(_game, SaveResourceKind::FactionTable);

@@ -65,10 +65,18 @@ public:
 
     virtual void init() = 0;
     virtual void onModuleLoad(const std::string &name) = 0;
+    virtual void onNewGame() = 0;
     virtual void onGameLoad(std::string_view name) = 0;
     virtual std::optional<Resource> findSaveMetadata(const ResourceId &id) = 0;
     virtual std::optional<Resource> findSaveWorking(const ResourceId &id) = 0;
     virtual std::unordered_set<ResourceId> saveWorkingResourceIds() const = 0;
+    virtual std::shared_ptr<const SaveWorkingState> committedSaveWorkingState() const = 0;
+    virtual std::optional<SaveSlotDescriptor> saveSlotDescriptor() const = 0;
+    virtual void adoptSaveWorkingState(
+        std::shared_ptr<const SaveWorkingState> state) = 0;
+    virtual void adoptPublishedSave(
+        SaveSlotDescriptor descriptor,
+        std::shared_ptr<const SaveWorkingState> state) = 0;
 
     virtual std::set<std::string> moduleNames() = 0;
     virtual std::set<std::string> saveNames() = 0;
@@ -111,10 +119,18 @@ public:
 
     void init() override;
     void onModuleLoad(const std::string &name) override;
+    void onNewGame() override;
     void onGameLoad(std::string_view name) override;
     std::optional<Resource> findSaveMetadata(const ResourceId &id) override;
     std::optional<Resource> findSaveWorking(const ResourceId &id) override;
     std::unordered_set<ResourceId> saveWorkingResourceIds() const override;
+    std::shared_ptr<const SaveWorkingState> committedSaveWorkingState() const override;
+    std::optional<SaveSlotDescriptor> saveSlotDescriptor() const override;
+    void adoptSaveWorkingState(
+        std::shared_ptr<const SaveWorkingState> state) override;
+    void adoptPublishedSave(
+        SaveSlotDescriptor descriptor,
+        std::shared_ptr<const SaveWorkingState> state) override;
 
     std::set<std::string> moduleNames() override;
     std::set<std::string> saveNames() override;
