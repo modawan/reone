@@ -1096,6 +1096,7 @@ void Game::resetGame() {
     _globalNumbers.clear();
     _globalLocations.clear();
     _customTokens.clear();
+    _saveResourceShadows.clear();
 
     _party.reset();
     _journal.reset();
@@ -1118,6 +1119,7 @@ void Game::loadGame(std::string_view name) {
         throw ResourceNotFoundException("saveinfo.res not found");
     }
     NFO nfo = resource::parseNFO(*saveInfo);
+    captureSaveResourceShadow({SaveResourceKind::Nfo, {}}, *saveInfo);
 
     // Add module files to resource resolution. Since all savegame files are
     // already in scope, this is going to resolve to the last module from the
@@ -1132,6 +1134,8 @@ void Game::loadGame(std::string_view name) {
         if (auto reputesGff = decodeSaveGff(
                 _services.resource.director.findSaveWorking(
                     ResourceId("repute", ResType::Fac)))) {
+            captureSaveResourceShadow(
+                {SaveResourceKind::FactionTable, {}}, *reputesGff);
             reputesState = _services.game.reputes.parse(*reputesGff);
         }
     } catch (const std::exception &e) {
@@ -1155,6 +1159,7 @@ void Game::loadGame(std::string_view name) {
     if (!ifo) {
         throw ResourceNotFoundException("Module IFO not found");
     }
+    captureSaveResourceShadow({SaveResourceKind::ModuleIfo, nfo.lastModule}, *ifo);
     replaceCustomTokens(parseCustomTokens(*ifo));
     prepareSavedRuntimeNamespace(*ifo);
 
@@ -1186,6 +1191,8 @@ void Game::loadGame(std::string_view name) {
     // Once the player is loaded, deserialize player's inventory.
     if (auto inventoryGff = decodeSaveGff(
             _services.resource.director.findSaveWorking(ResourceId("inventory", ResType::Res)))) {
+        captureSaveResourceShadow(
+            {SaveResourceKind::Inventory, {}}, *inventoryGff);
         deserializeInventory(*inventoryGff);
     }
 
@@ -1213,6 +1220,7 @@ void Game::replaceCustomTokens(std::map<int, std::string> tokens) {
 }
 
 void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
+    captureSaveResourceShadow({SaveResourceKind::GlobalVars, {}}, gvtGff);
     GVT gvt = resource::parseGVT(gvtGff);
     _globalStrings.clear();
     _globalBooleans.clear();
@@ -1233,8 +1241,7 @@ void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
 
     for (auto &[name, value] : gvt.locations) {
         auto &[pos, rot] = value;
-        float facing = glm::half_pi<float>() - glm::atan(rot.x, rot.y);
-        setGlobalLocation(name, std::make_shared<Location>(pos, facing));
+        setGlobalLocation(name, std::make_shared<Location>(pos, rot));
     }
 }
 
@@ -1266,6 +1273,7 @@ void Game::publishPartyRuntimeState(
     const std::shared_ptr<resource::Gff> &ptGff,
     const std::shared_ptr<resource::Gff> &pcGff) {
     if (ptGff) {
+        captureSaveResourceShadow({SaveResourceKind::PartyTable, {}}, *ptGff);
         uint32_t gold = 0;
         if (ptGff->readDword(gold, "PT_GOLD")) {
             _party.takeGold(_party.gold());
@@ -1294,6 +1302,8 @@ void Game::publishPartyRuntimeState(
 
     auto modulePlayer = newCreature(*players.front());
     modulePlayer->deserialize(*players.front());
+    modulePlayer->captureSaveRecord(
+        *players.front(), {SaveRecordOriginKind::ModulePlayer, {}});
     modulePlayer->setTag(kObjectTagPlayer);
 
     auto actualPlayer = modulePlayer;
@@ -1305,6 +1315,8 @@ void Game::publishPartyRuntimeState(
                            ? newCreature(*pcGff)
                            : newCreature();
         actualPlayer->deserialize(*pcGff);
+        actualPlayer->captureSaveRecord(
+            *pcGff, {SaveRecordOriginKind::PrimaryPlayerUtc, {}});
     }
 
     // Retail K1 and K2 complete primary-player BIC publication by assigning
@@ -1500,6 +1512,9 @@ void Game::deserializeAvailableNpcs() {
                                                  ? newCreature(*utcGff)
                                                  : newCreature();
         creature->deserialize(*utcGff);
+        creature->captureSaveRecord(
+            *utcGff,
+            {SaveRecordOriginKind::AvailableNpc, std::to_string(npc)});
 
         _party.addAvailableMember(static_cast<int>(npc), creature);
     }
@@ -1530,6 +1545,9 @@ void Game::deserializeAvailableNpcs() {
                             ? newCreature(*utcGff)
                             : newCreature();
         creature->deserialize(*utcGff);
+        creature->captureSaveRecord(
+            *utcGff,
+            {SaveRecordOriginKind::AvailablePuppet, std::to_string(puppet)});
         _party.addAvailablePuppet(static_cast<int>(puppet), std::move(creature));
     }
 }
@@ -1612,6 +1630,9 @@ void Game::deserializeInventory(resource::Gff &inventoryGff) {
     for (const auto &itemGff : inventoryGff.getList("ItemList")) {
         std::shared_ptr<Item> item = newOwnedItem();
         item->deserialize(*itemGff);
+        item->captureOwnerLocalSaveRecord(
+            *itemGff,
+            {SaveRecordOriginKind::PartyInventoryItem, "inventory"});
         player->addItem(item);
     }
 }

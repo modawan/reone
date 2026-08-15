@@ -28,6 +28,7 @@
 #include "action.h"
 #include "action/playanimation.h"
 #include "effect.h"
+#include "saveprovenance.h"
 #include "savedruntime.h"
 #include "types.h"
 
@@ -145,6 +146,7 @@ public:
     size_t removeEffectsById(EffectId id);
 
     const std::deque<EffectInstance> &effects() const { return _effects; }
+    std::vector<EffectInstance> saveEffectSnapshot() const;
     bool hasEffect(EffectType type) const;
     std::shared_ptr<Effect> getFirstEffect();
     std::shared_ptr<Effect> getNextEffect();
@@ -197,6 +199,7 @@ public:
     std::shared_ptr<Action> getCurrentAction() const;
 
     const std::deque<std::shared_ptr<Action>> &actions() const { return _actions; }
+    std::vector<SavedActionRecord> saveActionSnapshot() const;
 
     // END Actions
 
@@ -221,6 +224,13 @@ public:
     const std::vector<EffectInstance> &savedEffects() const { return _savedEffects; }
     const SavedActionQueue &savedActionQueue() const { return _savedActionQueue; }
     bool hasPublishedSavedRuntimeState() const { return _savedRuntimePublished; }
+
+    void captureSaveRecord(
+        const resource::Gff &gff,
+        SaveRecordOrigin origin = {});
+    const std::optional<SaveRecordProvenance> &saveRecordProvenance() const {
+        return _saveRecordProvenance;
+    }
 
 
     void resolveSavedReferences(
@@ -293,6 +303,13 @@ protected:
     std::vector<DelayedAction> _delayed;
     std::weak_ptr<Action> _executingAction;
 
+    struct LoadedSaveActionSlot {
+        SavedActionRecord original;
+        std::weak_ptr<Action> runtimeAction;
+        bool unsupportedPending {false};
+    };
+    std::vector<LoadedSaveActionSlot> _loadedSaveActionSlots;
+
     // END Actions
 
     uint32_t _lastHostileActor {script::kObjectInvalid};
@@ -304,6 +321,7 @@ protected:
     SavedActionQueue _savedActionQueue;
     bool _savedRuntimeParsed {false};
     bool _savedRuntimePublished {false};
+    std::optional<SaveRecordProvenance> _saveRecordProvenance;
 
 
     std::map<int, bool> _localBooleans;

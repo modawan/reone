@@ -391,7 +391,7 @@ private:
     void loadWaypoints(const resource::Gff &gff, bool fromSave);
     void loadTriggers(const resource::Gff &gff, bool fromSave);
     void loadSounds(const resource::Gff &gff, bool fromSave);
-    void loadCameras(const resource::Gff &gff);
+    void loadCameras(const resource::Gff &gff, bool fromSave);
     void loadEncounters(const resource::Gff &gff, bool fromSave);
     void loadStores(const resource::Gff &gff, bool fromSave);
     void loadItems(const resource::Gff &gff, bool fromSave);

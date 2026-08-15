@@ -338,7 +338,9 @@ std::shared_ptr<Action> SavedActionRecord::toRuntimeAction(
         return nullptr;
     }
     if (actionId == 30) {
-        return game.newAction<WaitAction>(std::get<float>(parameters.front().payload));
+        auto action = game.newAction<WaitAction>(std::get<float>(parameters.front().payload));
+        action->attachSavedAction(*this);
+        return action;
     }
     if (!importer) {
         return nullptr;
@@ -348,7 +350,9 @@ std::shared_ptr<Action> SavedActionRecord::toRuntimeAction(
     if (!result) {
         return nullptr;
     }
-    return game.newAction<SavedDoCommandAction>(std::move(result.continuation));
+    auto action = game.newAction<SavedDoCommandAction>(std::move(result.continuation));
+    action->attachSavedAction(*this);
+    return action;
 }
 
 bool SavedActionRecord::bindObjectReferences(const Game &game) {

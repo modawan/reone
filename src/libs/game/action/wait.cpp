@@ -28,6 +28,16 @@ void WaitAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) 
     }
 }
 
+std::optional<SavedActionRecord> WaitAction::saveFacingState() const {
+    SavedActionRecord result = originalSavedAction().value_or(SavedActionRecord {});
+    result.actionId = 30;
+    result.declaredParameterCount = 1;
+    result.parameters = {SavedActionParameter {
+        static_cast<uint32_t>(SavedActionParameterType::Float),
+        _timer.remaining()}};
+    return result;
+}
+
 } // namespace game
 
 } // namespace reone

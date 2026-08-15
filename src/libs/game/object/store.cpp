@@ -75,6 +75,11 @@ void Store::deserializeItems(const resource::Gff &gff) {
     for (const auto &itemGff : gff.getList("ItemList")) {
         std::shared_ptr<Item> item = _game.newOwnedItem();
         item->deserialize(*itemGff);
+        if (gff.has("ObjectId")) {
+            item->captureOwnerLocalSaveRecord(
+                *itemGff,
+                {SaveRecordOriginKind::StoreItem, std::to_string(_id)});
+        }
         addItem(item);
     }
 }

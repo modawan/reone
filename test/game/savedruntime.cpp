@@ -260,14 +260,14 @@ TEST(SavedRuntimePublication, should_publish_supported_events_without_dispatchin
     module->publishSavedEventQueue();
 
     ASSERT_EQ(module->savedEventQueue().events.size(), 3);
-    EXPECT_EQ(module->pendingSavedEventCount(), 1);
+    EXPECT_EQ(module->pendingSavedEventCount(), 2);
     EXPECT_TRUE(module->effects().empty());
 
     module->publishSavedEventQueue();
-    EXPECT_EQ(module->pendingSavedEventCount(), 1);
+    EXPECT_EQ(module->pendingSavedEventCount(), 2);
     module->dispatchDueSavedEvents();
 
-    EXPECT_EQ(module->pendingSavedEventCount(), 0);
+    EXPECT_EQ(module->pendingSavedEventCount(), 1);
     ASSERT_EQ(module->effects().size(), 1);
     EXPECT_EQ(module->effects().front().id, 10);
     EXPECT_EQ(

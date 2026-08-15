@@ -152,10 +152,28 @@ TEST_F(SavedSituationTest, reconstructs_ordered_globals_locals_and_resumes_at_sa
     EXPECT_EQ(state.locals[0].intValue, 30);
     EXPECT_EQ(state.insOffset, fixture.resumeOffset);
     EXPECT_EQ(state.program->name(), "saved_resume");
+    ASSERT_TRUE(imported.continuation->originalSavedSituation());
+    EXPECT_FALSE(imported.continuation->requiresRuntimeExport());
 
     // The 999 instruction before the saved pointer must not execute. The
     // result is derived only from the preserved global/local values.
     EXPECT_EQ(runner.run(*imported.continuation, game, uint32_t {0}), 42);
+    EXPECT_FALSE(imported.continuation->originalSavedSituation());
+    EXPECT_TRUE(imported.continuation->requiresRuntimeExport());
+}
+
+TEST_F(SavedSituationTest, new_runtime_continuation_exposes_future_export_seam) {
+    auto fixture = continuationProgram();
+    auto state = std::make_shared<ExecutionState>();
+    state->program = fixture.program;
+    state->insOffset = fixture.resumeOffset;
+    auto continuation = SavedScriptContinuation::fromRuntime(
+        state, "runtime_continuation", game);
+
+    ASSERT_TRUE(continuation);
+    EXPECT_TRUE(continuation->isCurrent(game));
+    EXPECT_FALSE(continuation->originalSavedSituation());
+    EXPECT_TRUE(continuation->requiresRuntimeExport());
 }
 
 TEST_F(SavedSituationTest, translates_every_supported_stack_value_without_losing_engine_payloads) {

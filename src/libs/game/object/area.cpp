@@ -173,6 +173,12 @@ void Area::init() {
 
 void Area::load(std::string name, const Gff &are, const Gff &git, bool fromSave) {
     _name = std::move(name);
+    if (fromSave) {
+        _game.captureSaveResourceShadow(
+            {SaveResourceKind::AreaAre, _name}, are);
+        _game.captureSaveResourceShadow(
+            {SaveResourceKind::AreaGit, _name}, git);
+    }
 
     auto areParsed = resource::generated::parseARE(are);
     auto gitParsed = resource::generated::parseGIT(git);
@@ -301,7 +307,7 @@ void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff
     loadWaypoints(gff, fromSave);
     loadTriggers(gff, fromSave);
     loadSounds(gff, fromSave);
-    loadCameras(gff);
+    loadCameras(gff, fromSave);
     loadEncounters(gff, fromSave);
     loadStores(gff, fromSave);
     loadItems(gff, fromSave);
@@ -320,6 +326,7 @@ void Area::loadCreatures(const resource::Gff &gff, bool fromSave) {
         std::shared_ptr<Creature> creature = fromSave ? _game.newCreature(*creatureGff, _sceneName)
                                                      : _game.newCreature(_sceneName);
         creature->deserialize(*creatureGff);
+        if (fromSave) creature->captureSaveRecord(*creatureGff, {SaveRecordOriginKind::ActiveGitObject, _name});
         landObject(*creature);
         add(creature);
     }
@@ -330,6 +337,7 @@ void Area::loadDoors(const resource::Gff &gff, bool fromSave) {
         std::shared_ptr<Door> door = fromSave ? _game.newDoor(*doorGff, _sceneName)
                                              : _game.newDoor(_sceneName);
         door->deserialize(*doorGff);
+        if (fromSave) door->captureSaveRecord(*doorGff, {SaveRecordOriginKind::ActiveGitObject, _name});
         add(door);
     }
 }
@@ -339,6 +347,7 @@ void Area::loadPlaceables(const resource::Gff &gff, bool fromSave) {
         std::shared_ptr<Placeable> placeable = fromSave ? _game.newPlaceable(*placeableGff, _sceneName)
                                                        : _game.newPlaceable(_sceneName);
         placeable->deserialize(*placeableGff);
+        if (fromSave) placeable->captureSaveRecord(*placeableGff, {SaveRecordOriginKind::ActiveGitObject, _name});
         add(placeable);
     }
 }
@@ -348,6 +357,7 @@ void Area::loadWaypoints(const resource::Gff &gff, bool fromSave) {
         std::shared_ptr<Waypoint> waypoint = fromSave ? _game.newWaypoint(*waypointGff, _sceneName)
                                                      : _game.newWaypoint(_sceneName);
         waypoint->deserialize(*waypointGff);
+        if (fromSave) waypoint->captureSaveRecord(*waypointGff, {SaveRecordOriginKind::ActiveGitObject, _name});
         add(waypoint);
     }
 }
@@ -357,6 +367,7 @@ void Area::loadTriggers(const resource::Gff &gff, bool fromSave) {
         std::shared_ptr<Trigger> trigger = fromSave ? _game.newTrigger(*triggerGff, _sceneName)
                                                    : _game.newTrigger(_sceneName);
         trigger->deserialize(*triggerGff);
+        if (fromSave) trigger->captureSaveRecord(*triggerGff, {SaveRecordOriginKind::ActiveGitObject, _name});
         add(trigger);
     }
 }
@@ -366,14 +377,16 @@ void Area::loadSounds(const resource::Gff &gff, bool fromSave) {
         std::shared_ptr<Sound> sound = fromSave ? _game.newSound(*soundGff, _sceneName)
                                                : _game.newSound(_sceneName);
         sound->deserialize(*soundGff);
+        if (fromSave) sound->captureSaveRecord(*soundGff, {SaveRecordOriginKind::ActiveGitObject, _name});
         add(sound);
     }
 }
 
-void Area::loadCameras(const resource::Gff &gff) {
+void Area::loadCameras(const resource::Gff &gff, bool fromSave) {
     for (auto &cameraGff : gff.getList("CameraList")) {
         std::shared_ptr<StaticCamera> camera = _game.newStaticCamera(_cameraAspect, _sceneName);
         camera->deserialize(*cameraGff);
+        if (fromSave) camera->captureSaveRecord(*cameraGff, {SaveRecordOriginKind::ActiveGitObject, _name});
         add(camera);
     }
 }
@@ -383,6 +396,7 @@ void Area::loadEncounters(const resource::Gff &gff, bool fromSave) {
         std::shared_ptr<Encounter> encounter = fromSave ? _game.newEncounter(*encounterGff, _sceneName)
                                                        : _game.newEncounter(_sceneName);
         encounter->deserialize(*encounterGff);
+        if (fromSave) encounter->captureSaveRecord(*encounterGff, {SaveRecordOriginKind::ActiveGitObject, _name});
         add(encounter);
     }
 }
@@ -392,6 +406,7 @@ void Area::loadStores(const resource::Gff &gff, bool fromSave) {
         std::shared_ptr<Store> store = fromSave ? _game.newStore(*storeGff, _sceneName)
                                                : _game.newStore(_sceneName);
         store->deserialize(*storeGff);
+        if (fromSave) store->captureSaveRecord(*storeGff, {SaveRecordOriginKind::ActiveGitObject, _name});
         add(store);
     }
 }
@@ -402,6 +417,7 @@ void Area::loadItems(const resource::Gff &gff, bool fromSave) {
         std::shared_ptr<Item> item = fromSave ? _game.newItem(*itemGff)
                                              : _game.newItem();
         item->deserialize(*itemGff);
+        if (fromSave) item->captureSaveRecord(*itemGff, {SaveRecordOriginKind::ActiveGitObject, _name});
         add(item);
     }
 }

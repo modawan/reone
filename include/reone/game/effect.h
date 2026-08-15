@@ -49,6 +49,12 @@ enum class EffectIdImportResult {
     Existing,
 };
 
+enum class EffectExpiryOrigin {
+    None,
+    LoadedAbsoluteGameTime,
+    RuntimeCountdown,
+};
+
 /** Runtime-session owner for the global exposed-effect identity namespace. */
 class EffectIdNamespace {
 public:
@@ -106,6 +112,7 @@ struct EffectInstance {
     std::optional<float> remainingDuration;
     uint32_t expiryDay {0};
     uint32_t expiryTime {0};
+    EffectExpiryOrigin expiryOrigin {EffectExpiryOrigin::None};
     uint32_t creatorId {0};
     uint32_t spellId {std::numeric_limits<uint32_t>::max()};
     int32_t exposed {0};
@@ -128,6 +135,10 @@ struct EffectInstance {
     bool hasStableId() const { return id != kUnassignedEffectId; }
     bool shouldRestoreOnLoad() const {
         return !skipOnLoad && durationType() != DurationType::Equipped;
+    }
+    bool hasSerializableTemporalProvenance() const {
+        return durationType() != DurationType::Temporary ||
+               expiryOrigin != EffectExpiryOrigin::None;
     }
 
     std::shared_ptr<Object> boundCreator() const { return creator.lock(); }

@@ -66,6 +66,7 @@
 #include "options.h"
 #include "party.h"
 #include "pazaaksession.h"
+#include "saveprovenance.h"
 #include "script/runner.h"
 #include "statussummary.h"
 #include "swooprace.h"
@@ -466,6 +467,15 @@ public:
     bool bindEffectCreator(EffectInstance &effect) const;
     bool bindSavedObjectReference(SavedObjectReference &reference) const;
 
+    const SaveResourceShadows &saveResourceShadows() const {
+        return _saveResourceShadows;
+    }
+    void captureSaveResourceShadow(
+        SaveResourceKey key,
+        const resource::Gff &source) {
+        _saveResourceShadows.capture(std::move(key), source);
+    }
+
     template <class... Args>
     inline std::shared_ptr<Event> newEvent(Args &&...args) {
         return std::make_shared<Event>(std::forward<Args>(args)...);
@@ -696,6 +706,7 @@ private:
     std::map<std::string, int, GVCompare> _globalNumbers;
     std::map<std::string, std::shared_ptr<Location>, GVCompare> _globalLocations;
     std::map<int, std::string> _customTokens;
+    SaveResourceShadows _saveResourceShadows;
 
     // END Global variables
 

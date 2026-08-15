@@ -96,6 +96,9 @@ public:
     const std::vector<std::shared_ptr<Creature>> &limboCreatures() const { return _limboCreatures; }
     const SavedEventQueue &savedEventQueue() const { return _savedEventQueue; }
     size_t pendingSavedEventCount() const;
+    std::vector<SavedEventRecord> saveEventSnapshot() const;
+    size_t enqueueSaveEvent(SavedEventRecord event);
+    bool cancelSaveEvent(size_t index);
 
     void deserializeSavedEventQueue(const resource::Gff &ifo);
     void bindSavedEventQueue();
@@ -112,6 +115,7 @@ private:
     bool _isSaveGame {false};
     std::vector<std::shared_ptr<Creature>> _limboCreatures;
     SavedEventQueue _savedEventQueue;
+    std::vector<bool> _savedEventLive;
 
     struct PublishedSavedEvent {
         size_t savedIndex {0};

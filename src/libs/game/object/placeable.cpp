@@ -153,6 +153,11 @@ void Placeable::deserializeAll(const resource::Gff &gff) {
     for (const auto &itemGff : gff.getList("ItemList")) {
         std::shared_ptr<Item> item = _game.newOwnedItem();
         item->deserialize(*itemGff);
+        if (gff.has("ObjectId")) {
+            item->captureOwnerLocalSaveRecord(
+                *itemGff,
+                {SaveRecordOriginKind::PlaceableItem, std::to_string(_id)});
+        }
         item->setDropable(true);
         addItem(item);
     }

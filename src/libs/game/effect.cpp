@@ -82,6 +82,9 @@ EffectInstance EffectInstance::fromGff(const resource::Gff &gff) {
     result.skipOnLoad = gff.getBool("SkipOnLoad");
     result.expiryDay = gff.getUint("ExpireDay");
     result.expiryTime = gff.getUint("ExpireTime");
+    if (result.durationType() == DurationType::Temporary) {
+        result.expiryOrigin = EffectExpiryOrigin::LoadedAbsoluteGameTime;
+    }
     result.creatorId = gff.getUint("CreatorId");
     result.spellId = gff.getUint("SpellId", std::numeric_limits<uint32_t>::max());
     result.exposed = gff.getInt("IsExposed");

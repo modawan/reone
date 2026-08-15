@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "savedruntime.h"
 #include "types.h"
 
 namespace reone {
@@ -76,6 +77,17 @@ public:
     void setUserAction(bool val) { _userAction = val; }
     void markCancelled() { _cancelled = true; }
 
+    void attachSavedAction(SavedActionRecord record) {
+        _savedAction = std::move(record);
+    }
+    const std::optional<SavedActionRecord> &originalSavedAction() const {
+        return _savedAction;
+    }
+    /** Semantic snapshot only; GFF encoding belongs to later E3. */
+    virtual std::optional<SavedActionRecord> saveFacingState() const {
+        return _savedAction;
+    }
+
 protected:
     const float kDefaultMaxObjectDistance = 2.0f;
     const float kDistanceWalk = 4.0f;
@@ -88,6 +100,7 @@ protected:
     bool _completed {false};
     bool _cancelled {false};
     bool _locked {false};
+    std::optional<SavedActionRecord> _savedAction;
 
     Action(
         Game &game,

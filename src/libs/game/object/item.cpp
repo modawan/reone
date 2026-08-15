@@ -72,6 +72,15 @@ void Item::deserialize(const resource::Gff &gff) {
     deserializeAll(gff);
 }
 
+void Item::captureOwnerLocalSaveRecord(
+    const resource::Gff &gff, SaveRecordOrigin origin) {
+    uint32_t savedId = 0;
+    _originalOwnerLocalObjectId = gff.readDword(savedId, "ObjectId")
+                                      ? std::optional<uint32_t>(savedId)
+                                      : std::nullopt;
+    captureSaveRecord(gff, std::move(origin));
+}
+
 void Item::deserializeAll(const resource::Gff &gff) {
     Object::deserialize(gff);
 

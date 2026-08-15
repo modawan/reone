@@ -3156,6 +3156,11 @@ void Creature::deserializeEquipItems(const resource::Gff &gff) {
         std::shared_ptr<Item> item = _game.newOwnedItem();
         item->deserialize(*itemGff);
         if (gff.has("ObjectId")) {
+            item->captureOwnerLocalSaveRecord(
+                *itemGff,
+                {SaveRecordOriginKind::EquippedItem, std::to_string(_id)});
+        }
+        if (gff.has("ObjectId")) {
             uint32_t slotMask = itemGff->type();
             if (slotMask != 0 && (slotMask & (slotMask - 1)) == 0) {
                 int slot = 0;

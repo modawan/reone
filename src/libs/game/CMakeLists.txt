@@ -328,6 +328,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/reputes.h
     ${GAME_INCLUDE_DIR}/room.h
     ${GAME_INCLUDE_DIR}/savedgame.h
+    ${GAME_INCLUDE_DIR}/saveprovenance.h
     ${GAME_INCLUDE_DIR}/savedruntime.h
     ${GAME_INCLUDE_DIR}/script/routine/argutil.h
     ${GAME_INCLUDE_DIR}/script/routine/context.h
@@ -545,6 +546,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/portraits.cpp
     ${GAME_SOURCE_DIR}/projectiles.cpp
     ${GAME_SOURCE_DIR}/reputes.cpp
+    ${GAME_SOURCE_DIR}/saveprovenance.cpp
     ${GAME_SOURCE_DIR}/savedruntime.cpp
     ${GAME_SOURCE_DIR}/room.cpp
     ${GAME_SOURCE_DIR}/script/routine/argutil.cpp

@@ -53,6 +53,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/interaction.cpp
     ${TESTS_SOURCE_DIR}/game/effect.cpp
     ${TESTS_SOURCE_DIR}/game/savedruntime.cpp
+    ${TESTS_SOURCE_DIR}/game/saveprovenance.cpp
     ${TESTS_SOURCE_DIR}/game/savedsituation.cpp
     ${TESTS_SOURCE_DIR}/game/journal.cpp
     ${TESTS_SOURCE_DIR}/game/messagebus.cpp

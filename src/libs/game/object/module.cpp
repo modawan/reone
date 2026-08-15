@@ -67,6 +67,10 @@ static bool canBashPlaceable(const Placeable &placeable, const Creature &actor, 
 
 void Module::load(std::string name, const Gff &ifo, bool restoreSavedWorld) {
     _name = std::move(name);
+    if (restoreSavedWorld) {
+        _game.captureSaveResourceShadow(
+            {SaveResourceKind::ModuleIfo, _name}, ifo);
+    }
     _publishedSavedEvents.clear();
     _savedEventsPublished = false;
 
@@ -78,6 +82,7 @@ void Module::load(std::string name, const Gff &ifo, bool restoreSavedWorld) {
         loadLimboCreatures(ifo);
     } else {
         _savedEventQueue = SavedEventQueue {};
+        _savedEventLive.clear();
     }
     loadInfo(ifoParsed);
     loadArea(ifoParsed, restoreSavedWorld);
@@ -147,6 +152,9 @@ void Module::loadLimboCreatures(const resource::Gff &ifo) {
     for (const auto &creatureGff : ifo.getList("Creature List")) {
         auto creature = _game.newCreature(*creatureGff);
         creature->deserialize(*creatureGff);
+        creature->captureSaveRecord(
+            *creatureGff,
+            {SaveRecordOriginKind::ModuleLimboCreature, _name});
         _limboCreatures.push_back(std::move(creature));
     }
 }
@@ -360,16 +368,52 @@ void Module::onPlaceableClick(const std::shared_ptr<Placeable> &placeable) {
 }
 
 size_t Module::pendingSavedEventCount() const {
-    return std::count_if(
-        _publishedSavedEvents.begin(),
-        _publishedSavedEvents.end(),
-        [](const auto &event) { return !event.delivered; });
+    return static_cast<size_t>(std::count(
+        _savedEventLive.begin(), _savedEventLive.end(), true));
 }
 
 void Module::deserializeSavedEventQueue(const resource::Gff &ifo) {
     _savedEventQueue = SavedEventQueue::fromGff(ifo);
+    _savedEventLive.clear();
+    _savedEventLive.reserve(_savedEventQueue.events.size());
+    for (const auto &event : _savedEventQueue.events) {
+        _savedEventLive.push_back(event.shouldRestore());
+    }
     _publishedSavedEvents.clear();
     _savedEventsPublished = false;
+}
+
+std::vector<SavedEventRecord> Module::saveEventSnapshot() const {
+    // Stable-frame semantic snapshot; byte encoding is deliberately later E3.
+    std::vector<SavedEventRecord> result;
+    for (size_t index = 0; index < _savedEventQueue.events.size(); ++index) {
+        if (index < _savedEventLive.size() && _savedEventLive[index]) {
+            result.push_back(_savedEventQueue.events[index]);
+        }
+    }
+    return result;
+}
+
+size_t Module::enqueueSaveEvent(SavedEventRecord event) {
+    // New events bind through the current B registry before becoming visible to
+    // a save snapshot; raw IDs never gain cross-session authority.
+    event.bindObjectReferences(_game);
+    _savedEventQueue.events.push_back(std::move(event));
+    _savedEventLive.push_back(true);
+    return _savedEventQueue.events.size() - 1;
+}
+
+bool Module::cancelSaveEvent(size_t index) {
+    if (index >= _savedEventLive.size() || !_savedEventLive[index]) {
+        return false;
+    }
+    _savedEventLive[index] = false;
+    for (auto &published : _publishedSavedEvents) {
+        if (published.savedIndex == index) {
+            published.delivered = true;
+        }
+    }
+    return true;
 }
 
 void Module::bindSavedEventQueue() {
@@ -432,6 +476,9 @@ void Module::dispatchDueSavedEvents() {
 
 void Module::deliverSavedEvent(PublishedSavedEvent &published) {
     published.delivered = true;
+    if (published.savedIndex < _savedEventLive.size()) {
+        _savedEventLive[published.savedIndex] = false;
+    }
     const auto &savedEvent = _savedEventQueue.events[published.savedIndex];
     auto target = savedEvent.object.boundObject();
     if (!target) {

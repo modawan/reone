@@ -150,6 +150,17 @@ bool SavedScriptContinuation::isCurrent(const Game &game) const {
     return _runtimeSession == game._runtimeSessionGeneration;
 }
 
+std::shared_ptr<SavedScriptContinuation> SavedScriptContinuation::fromRuntime(
+    std::shared_ptr<script::ExecutionState> state,
+    std::string scriptName,
+    const Game &game) {
+    return std::shared_ptr<SavedScriptContinuation>(
+        new SavedScriptContinuation(
+            std::move(state),
+            std::move(scriptName),
+            game._runtimeSessionGeneration));
+}
+
 SavedScriptSituationImportResult SavedScriptSituationImporter::import(
     const SerializedScriptSituation &situation) const {
     if (!situation.isBoundToCurrentRuntimeSession(_game)) {
@@ -256,7 +267,8 @@ SavedScriptSituationImportResult SavedScriptSituationImporter::import(
         new SavedScriptContinuation(
             std::move(state),
             situation.scriptName,
-            *situation._runtimeSession));
+            *situation._runtimeSession,
+            std::make_shared<const SerializedScriptSituation>(situation)));
     return result;
 }
 

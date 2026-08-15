@@ -82,6 +82,11 @@ void Object::deserialize(const resource::Gff &gff) {
         for (const auto &itemGff : gff.getList("ItemList")) {
             std::shared_ptr<Item> item = _game.newOwnedItem();
             item->deserialize(*itemGff);
+            if (gff.has("ObjectId")) {
+                item->captureOwnerLocalSaveRecord(
+                    *itemGff,
+                    {SaveRecordOriginKind::ContainedItem, std::to_string(_id)});
+            }
             addItem(item);
         }
     }
@@ -144,6 +149,7 @@ void Object::deserializeRuntimeState(const resource::Gff &gff) {
     _savedActionQueue = SavedActionQueue {};
     _savedRuntimeParsed = gff.has("EffectList") || gff.has("ActionList");
     _savedRuntimePublished = false;
+    _loadedSaveActionSlots.clear();
     if (_savedRuntimeParsed) {
         for (const auto &effect : gff.getList("EffectList")) {
             _savedEffects.push_back(EffectInstance::fromGff(*effect));
@@ -227,10 +233,61 @@ void Object::publishSavedRuntimeState() {
     for (const auto &savedAction : _savedActionQueue.actions) {
         auto action = savedAction.toRuntimeAction(_game, &importer);
         if (action) {
-            addAction(std::move(action));
+            action->attachSavedAction(savedAction);
+            addAction(action);
+            _loadedSaveActionSlots.push_back(
+                LoadedSaveActionSlot {savedAction, action, false});
+        } else if (savedAction.executionSupport() ==
+                   SavedExecutionSupport::RepresentableButUnsupported) {
+            _loadedSaveActionSlots.push_back(
+                LoadedSaveActionSlot {savedAction, {}, true});
         }
     }
     _savedRuntimePublished = true;
+}
+
+void Object::captureSaveRecord(
+    const resource::Gff &gff, SaveRecordOrigin origin) {
+    _saveRecordProvenance = SaveRecordProvenance {
+        SaveGffShadow::capture(gff), std::move(origin)};
+}
+
+std::vector<EffectInstance> Object::saveEffectSnapshot() const {
+    // Later orchestration calls this at a stable synchronous frame boundary.
+    return {_effects.begin(), _effects.end()};
+}
+
+std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
+    // Loaded slots retain original order. Executed/cancelled actions cease to
+    // be live as soon as they leave (or complete within) the runtime queue.
+    std::vector<SavedActionRecord> result;
+    std::set<const Action *> represented;
+    for (const auto &slot : _loadedSaveActionSlots) {
+        if (slot.unsupportedPending) {
+            result.push_back(slot.original);
+            continue;
+        }
+        auto action = slot.runtimeAction.lock();
+        bool queued = action &&
+                      std::find(_actions.begin(), _actions.end(), action) != _actions.end();
+        if (!queued || action->isCompleted() || action->isCancelled()) {
+            continue;
+        }
+        represented.insert(action.get());
+        if (auto saved = action->saveFacingState()) {
+            result.push_back(std::move(*saved));
+        }
+    }
+    for (const auto &action : _actions) {
+        if (represented.count(action.get()) != 0 ||
+            action->isCompleted() || action->isCancelled()) {
+            continue;
+        }
+        if (auto saved = action->saveFacingState()) {
+            result.push_back(std::move(*saved));
+        }
+    }
+    return result;
 }
 
 void Object::resolveSavedReferences(
@@ -249,6 +306,9 @@ std::shared_ptr<Object> Object::savedReference(std::string_view field) const {
 }
 
 void Object::clearAllActions(bool force) {
+    for (auto &slot : _loadedSaveActionSlots) {
+        slot.unsupportedPending = false;
+    }
     // If the current front action clears the queue while it is executing, keep
     // that action and its queued continuation alive instead of trimming from the
     // back and deleting the follow-up it is about to hand off to.
@@ -517,6 +577,11 @@ void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType dur
         instance.remainingDuration = durationType == DurationType::Temporary
                                          ? std::optional<float>(duration)
                                          : std::nullopt;
+        instance.expiryOrigin = durationType == DurationType::Temporary
+                                    ? EffectExpiryOrigin::RuntimeCountdown
+                                    : EffectExpiryOrigin::None;
+        instance.expiryDay = 0;
+        instance.expiryTime = 0;
         instance.skipOnLoad = false;
 
         // The save-facing instance remains authoritative. Unsupported retail
@@ -534,6 +599,7 @@ void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType dur
     instance.duration = duration;
     if (durationType == DurationType::Temporary) {
         instance.remainingDuration = duration;
+        instance.expiryOrigin = EffectExpiryOrigin::RuntimeCountdown;
     }
     instance.exposed = 1;
     restoreEffect(std::move(instance));

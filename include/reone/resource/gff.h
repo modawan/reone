@@ -273,7 +273,9 @@ public:
         for (const auto &field : _fields) {
             copyFields.push_back(std::move(field.deepCopy()));
         }
-        return std::make_shared<Gff>(_type, std::move(copyFields));
+        auto copy = std::make_shared<Gff>(_type, std::move(copyFields));
+        copy->_signature = _signature;
+        return copy;
     }
 
     static inline glm::vec3 colorFromUint32(uint32_t value) {

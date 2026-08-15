@@ -48,6 +48,16 @@ public:
     const script::ExecutionState &executionState() const { return *_state; }
     const std::string &scriptName() const { return _scriptName; }
     bool isCurrent(const Game &game) const;
+    const SerializedScriptSituation *originalSavedSituation() const {
+        return _originalReusable ? _original.get() : nullptr;
+    }
+    bool requiresRuntimeExport() const { return !originalSavedSituation(); }
+    void markAdvanced() const { _originalReusable = false; }
+
+    static std::shared_ptr<SavedScriptContinuation> fromRuntime(
+        std::shared_ptr<script::ExecutionState> state,
+        std::string scriptName,
+        const Game &game);
 
 private:
     friend class SavedScriptSituationImporter;
@@ -56,15 +66,19 @@ private:
     SavedScriptContinuation(
         std::shared_ptr<script::ExecutionState> state,
         std::string scriptName,
-        uint64_t runtimeSession) :
+        uint64_t runtimeSession,
+        std::shared_ptr<const SerializedScriptSituation> original = nullptr) :
         _state(std::move(state)),
         _scriptName(std::move(scriptName)),
-        _runtimeSession(runtimeSession) {
+        _runtimeSession(runtimeSession),
+        _original(std::move(original)) {
     }
 
     std::shared_ptr<script::ExecutionState> _state;
     std::string _scriptName;
     uint64_t _runtimeSession {0};
+    std::shared_ptr<const SerializedScriptSituation> _original;
+    mutable bool _originalReusable {true};
 };
 
 struct SavedScriptSituationImportResult {
