@@ -45,6 +45,7 @@ struct ServicesView;
 class Action;
 class Game;
 class Item;
+class ModuleSnapshotBuilder;
 class Room;
 
 class Object : public scene::IUser, boost::noncopyable {
@@ -252,6 +253,8 @@ public:
     // END Scripts
 
 protected:
+    friend class ModuleSnapshotBuilder;
+    friend class TestGameModule;
     struct DelayedAction {
         std::shared_ptr<Action> action;
         std::unique_ptr<Timer> timer;

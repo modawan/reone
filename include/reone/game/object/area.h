@@ -49,6 +49,7 @@ class Location;
 class Object;
 class Room;
 class Trigger;
+class ModuleSnapshotBuilder;
 
 using RoomMap = std::unordered_map<std::string, std::shared_ptr<Room>>;
 using ObjectList = std::vector<std::shared_ptr<Object>>;
@@ -243,6 +244,8 @@ public:
     // END Scene
 
 private:
+    friend class ModuleSnapshotBuilder;
+    friend class TestGameModule;
     std::string _sceneName;
 
     Pathfinder _pathfinder;

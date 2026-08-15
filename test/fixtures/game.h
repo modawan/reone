@@ -52,6 +52,8 @@ class Gff;
 namespace game {
 
 class Area;
+class Creature;
+class Door;
 class Game;
 class Module;
 class Conversation;
@@ -199,6 +201,23 @@ public:
     static void deserializeGlobalVariables(Game &game, resource::Gff &gff);
     static void replaceJournal(Game &game, const resource::Gff &gff);
     static void replaceInventory(Game &game, resource::Gff &gff);
+    static void configureModuleSnapshot(
+        Game &game,
+        std::shared_ptr<Area> area,
+        std::shared_ptr<Creature> player,
+        std::string moduleName,
+        std::string areaName);
+    static void addSnapshotObject(
+        Area &area, std::shared_ptr<Object> object);
+    static void markSnapshotObjectDeleted(Area &area, uint32_t objectId);
+    static void addSnapshotLimboCreature(
+        Module &module, std::shared_ptr<Creature> creature);
+    static void setSnapshotWorldTime(
+        Game &game, uint32_t day, uint32_t time, uint8_t minutesPerHour);
+    static void deserializeSnapshotRuntimeState(
+        Object &object, const resource::Gff &gff);
+    static void setSnapshotObjectId(Object &object, uint32_t objectId);
+    static void setSnapshotDoorState(Door &door, DoorState state);
 
     void init() {
         _cameraStyles = std::make_unique<MockCameraStyles>();

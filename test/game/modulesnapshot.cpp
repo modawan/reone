@@ -1,0 +1,545 @@
+/*
+ * Copyright (c) 2026 The reone project contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ */
+
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
+#include "../fixtures/engine.h"
+#include "../fixtures/game.h"
+
+#include "reone/game/action/wait.h"
+#include "reone/game/game.h"
+#include "reone/game/modulesnapshot.h"
+#include "reone/game/object/area.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/object/door.h"
+#include "reone/game/object/encounter.h"
+#include "reone/game/object/item.h"
+#include "reone/game/object/module.h"
+#include "reone/game/object/placeable.h"
+#include "reone/game/object/sound.h"
+#include "reone/game/object/store.h"
+#include "reone/game/object/trigger.h"
+#include "reone/game/object/waypoint.h"
+#include "reone/game/script/savedsituation.h"
+#include "reone/resource/format/erfreader.h"
+#include "reone/resource/format/gffreader.h"
+#include "reone/script/program.h"
+#include "reone/system/stream/memoryinput.h"
+
+using namespace reone;
+using namespace reone::game;
+using namespace reone::resource;
+using namespace reone::script;
+using namespace testing;
+
+void reone::game::TestGameModule::configureModuleSnapshot(
+    Game &game,
+    std::shared_ptr<Area> area,
+    std::shared_ptr<Creature> player,
+    std::string moduleName,
+    std::string areaName) {
+    game._module = game.newModule();
+    game._module->_name = std::move(moduleName);
+    game._module->_tag = game._module->_name;
+    game._module->_area = std::move(area);
+    game._module->_info.entryArea = areaName;
+    game._module->_area->_name = std::move(areaName);
+    game._module->_area->_tag = game._module->_area->_name;
+    game._party.addMember(kNpcPlayer, player);
+    game._party.setPlayer(player);
+    game._party.setActualPlayer(std::move(player));
+    game._runtimeSessionPlayable = true;
+}
+
+void reone::game::TestGameModule::addSnapshotObject(
+    Area &area, std::shared_ptr<Object> object) {
+    area._objects.push_back(std::move(object));
+}
+
+void reone::game::TestGameModule::markSnapshotObjectDeleted(
+    Area &area, uint32_t objectId) {
+    area._objectsToDestroy.insert(objectId);
+}
+
+void reone::game::TestGameModule::addSnapshotLimboCreature(
+    Module &module, std::shared_ptr<Creature> creature) {
+    module._limboCreatures.push_back(std::move(creature));
+}
+
+void reone::game::TestGameModule::setSnapshotWorldTime(
+    Game &game, uint32_t day, uint32_t time, uint8_t minutesPerHour) {
+    game._worldTimeDay = day;
+    game._worldTimeOfDay = time;
+    game._minutesPerHour = minutesPerHour;
+}
+
+void reone::game::TestGameModule::deserializeSnapshotRuntimeState(
+    Object &object, const Gff &gff) {
+    object.deserializeRuntimeState(gff);
+}
+
+void reone::game::TestGameModule::setSnapshotObjectId(
+    Object &object, uint32_t objectId) {
+    object._id = objectId;
+}
+
+void reone::game::TestGameModule::setSnapshotDoorState(
+    Door &door, DoorState state) {
+    door._state = state;
+}
+
+namespace {
+
+class UnserializableAction : public reone::game::Action {
+public:
+    UnserializableAction(Game &game, ServicesView &services) :
+        reone::game::Action(game, services, ActionType::MoveToPoint) {
+    }
+};
+
+std::shared_ptr<Gff> readGff(ByteBuffer bytes) {
+    MemoryInputStream stream(bytes);
+    GffReader reader(stream);
+    reader.load();
+    return reader.root();
+}
+
+std::shared_ptr<Gff> recordById(
+    const Gff &root, const std::string &list, uint32_t id) {
+    for (const auto &record : root.getList(list)) {
+        if (record->getUint("ObjectId", kSavedRuntimeInvalidObjectId) == id) {
+            return record;
+        }
+    }
+    return nullptr;
+}
+
+struct SnapshotFixture : Test {
+    SnapshotFixture() :
+        game(GameID::KotOR, "", engine.options(), engine.services(), console) {
+    }
+
+    void SetUp() override {
+        area = game.newArea();
+        player = game.newCreature();
+        TestGameModule::configureModuleSnapshot(
+            game, area, player, "tat_m17ab", "tat_m17ab");
+        TestGameModule::addSnapshotObject(*area, player);
+        captureResourceShadows();
+    }
+
+    void captureResourceShadows() {
+        auto ifo = Gff::Builder().type(0xffffffff)
+            .field(Gff::Field::newDword("Mod_NextObjId0", 50))
+            .field(Gff::Field::newCExoString("FutureIfo", "preserve-ifo"))
+            .build();
+        auto are = Gff::Builder().type(0xffffffff)
+            .field(Gff::Field::newCExoString("FutureArea", "preserve-area"))
+            .build();
+        auto staleDoor = Gff::Builder().type(8)
+            .field(Gff::Field::newDword("ObjectId", 999)).build();
+        auto git = Gff::Builder().type(0xffffffff)
+            .field(Gff::Field::newCExoString("FutureGit", "preserve-git"))
+            .field(Gff::Field::newList("Door List", {staleDoor})).build();
+        game.captureSaveResourceShadow(
+            {SaveResourceKind::ModuleIfo, "tat_m17ab"}, *ifo);
+        game.captureSaveResourceShadow(
+            {SaveResourceKind::AreaAre, "tat_m17ab"}, *are);
+        game.captureSaveResourceShadow(
+            {SaveResourceKind::AreaGit, "tat_m17ab"}, *git);
+    }
+
+    std::shared_ptr<Door> addDoorWithShadow() {
+        auto door = game.newDoor();
+        door->setTag("test_door");
+        door->setPosition({2.0f, 3.0f, 4.0f});
+        auto source = Gff::Builder().type(8)
+            .field(Gff::Field::newDword("ObjectId", door->id()))
+            .field(Gff::Field::newByte("OpenState", 0))
+            .field(Gff::Field::newByte("Locked", 0))
+            .field(Gff::Field::newCExoString("FutureDoor", "preserve-door"))
+            .build();
+        door->captureSaveRecord(
+            *source, {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
+        door->open();
+        door->setLocked(true);
+        TestGameModule::addSnapshotObject(*area, door);
+        return door;
+    }
+
+    TestEngine &engine {testEngine()};
+    StubConsole console;
+    Game game;
+    std::shared_ptr<Area> area;
+    std::shared_ptr<Creature> player;
+};
+
+TEST(ModuleSnapshot, reports_no_playable_module_without_exposing_partial_bytes) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto before = TestGameModule::nextObjectId(game);
+
+    auto result = ModuleSnapshotBuilder(game, "module000").build();
+
+    EXPECT_FALSE(result);
+    EXPECT_EQ(result.error, ModuleSnapshotError::NoPlayableModule);
+    EXPECT_FALSE(result.snapshot);
+    EXPECT_EQ(TestGameModule::nextObjectId(game), before);
+}
+
+TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) {
+    game.setCustomToken(9, "nine");
+    game.setCustomToken(2, "two");
+    game.module()->setLocalBoolean(7, true);
+    game.module()->setLocalNumber(3, 44);
+    area->setUnescapable(true);
+    area->setStealthXPEnabled(true);
+    area->setMaxStealthXP(80);
+    area->setCurrentStealthXP(30);
+    area->setStealthXPDecrement(5);
+    TestGameModule::setSnapshotWorldTime(game, 3, 1000, 5);
+
+    player->setCurrentHitPoints(17);
+    player->setMaxHitPoints(35);
+    player->setLocalBoolean(31, true);
+    player->setLocalNumber(4, 23);
+    player->applyEffect(game.newEffect<Effect>(EffectType::Haste), DurationType::Temporary, 30.0f);
+    player->addAction(game.newAction<WaitAction>(30.0f));
+    player->update(10.0f);
+
+    auto door = addDoorWithShadow();
+    auto placeable = game.newPlaceable();
+    auto worldItem = game.newItem();
+    auto trigger = game.newTrigger();
+    auto encounter = game.newEncounter();
+    auto store = game.newStore();
+    auto waypoint = game.newWaypoint();
+    auto sound = game.newSound();
+    sound->setActive(true);
+    for (const auto &object : std::vector<std::shared_ptr<Object>> {
+             placeable, worldItem, trigger, encounter, store, waypoint, sound}) {
+        TestGameModule::addSnapshotObject(*area, object);
+    }
+
+    auto triggerShadow = Gff::Builder().type(1)
+        .field(Gff::Field::newDword("ObjectId", trigger->id()))
+        .field(Gff::Field::newDword("CreatorId", player->id()))
+        .field(Gff::Field::newCExoString("FutureTrigger", "preserve-trigger"))
+        .build();
+    trigger->captureSaveRecord(
+        *triggerShadow, {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
+    TestGameModule::deserializeSnapshotRuntimeState(*trigger, *triggerShadow);
+    game.resolveSavedObjectReferences();
+
+    auto limbo = game.newCreature();
+    limbo->setCurrentHitPoints(8);
+    TestGameModule::addSnapshotLimboCreature(*game.module(), limbo);
+    SavedEventRecord event;
+    event.day = 8;
+    event.time = 9123;
+    event.object = SavedObjectReference(player->id());
+    event.caller = SavedObjectReference(door->id());
+    event.eventId = static_cast<uint32_t>(SavedEventType::CloseObject);
+    event.bindObjectReferences(game);
+    game.module()->enqueueSaveEvent(event);
+
+    auto first = ModuleSnapshotBuilder(game, "module003").build();
+    ASSERT_TRUE(first) << first.message;
+    auto second = ModuleSnapshotBuilder(game, "module003").build();
+    ASSERT_TRUE(second) << second.message;
+    EXPECT_EQ(first.snapshot->archiveBytes, second.snapshot->archiveBytes);
+    EXPECT_EQ(first.snapshot->target, ResourceId("module003", ResType::Sav));
+
+    auto ifo = readGff(first.snapshot->ifoBytes);
+    auto are = readGff(first.snapshot->areBytes);
+    auto git = readGff(first.snapshot->gitBytes);
+    ASSERT_EQ(ifo->signature(), std::optional<std::string>("IFO V3.2"));
+    ASSERT_EQ(are->signature(), std::optional<std::string>("ARE V3.2"));
+    ASSERT_EQ(git->signature(), std::optional<std::string>("GIT V3.2"));
+    EXPECT_TRUE(ifo->getBool("Mod_IsSaveGame"));
+    EXPECT_EQ(ifo->getString("Mod_Entry_Area"), "tat_m17ab");
+    EXPECT_EQ(ifo->getUint("Mod_Area"), area->id());
+    EXPECT_EQ(ifo->getUint("Mod_NextObjId0"), 50u);
+    EXPECT_EQ(ifo->getUint64("Mod_Effect_NxtId"), game.nextEffectId());
+    EXPECT_EQ(ifo->getString("FutureIfo"), "preserve-ifo");
+    ASSERT_EQ(ifo->getList("Mod_Tokens").size(), 2);
+    EXPECT_EQ(ifo->getList("Mod_Tokens")[0]->type(), 7u);
+    EXPECT_EQ(ifo->getList("Mod_Tokens")[0]->getUint("Mod_TokensNumber"), 2u);
+    EXPECT_EQ(ifo->getList("Mod_Tokens")[1]->getUint("Mod_TokensNumber"), 9u);
+    const auto reparsedTokens = game.parseCustomTokens(*ifo);
+    EXPECT_EQ(reparsedTokens.at(2), "two");
+    EXPECT_EQ(reparsedTokens.at(9), "nine");
+    Module e2Module(1000, game, engine.services());
+    TestGameModule::deserializeSnapshotRuntimeState(e2Module, *ifo);
+    EXPECT_TRUE(e2Module.getLocalBoolean(7));
+    EXPECT_EQ(e2Module.getLocalNumber(3), 44);
+    ASSERT_EQ(ifo->getList("EventQueue").size(), 1);
+    EXPECT_EQ(ifo->getList("EventQueue")[0]->getUint("Day"), 8u);
+    EXPECT_EQ(ifo->getList("EventQueue")[0]->getUint("Time"), 9123u);
+    const auto e2Events = SavedEventQueue::fromGff(*ifo);
+    ASSERT_EQ(e2Events.events.size(), 1);
+    EXPECT_EQ(e2Events.events.front().day, 8u);
+    EXPECT_EQ(e2Events.events.front().time, 9123u);
+    ASSERT_EQ(ifo->getList("Mod_PlayerList").size(), 1);
+    ASSERT_EQ(ifo->getList("Creature List").size(), 1);
+
+    auto playerRecord = ifo->getList("Mod_PlayerList").front();
+    EXPECT_EQ(playerRecord->getInt("CurrentHitPoints"), 17);
+    ASSERT_EQ(playerRecord->getList("EffectList").size(), 1);
+    ASSERT_EQ(playerRecord->getList("ActionList").size(), 1);
+    EXPECT_FLOAT_EQ(
+        std::get<float>(SavedActionRecord::fromGff(
+            *playerRecord->getList("ActionList").front()).parameters.front().payload),
+        20.0f);
+    auto effect = EffectInstance::fromGff(
+        *playerRecord->getList("EffectList").front());
+    EXPECT_EQ(effect.expiryDay, 3u);
+    EXPECT_EQ(effect.expiryTime, 241000u);
+    ASSERT_TRUE(game.remainingEffectDuration(effect));
+    EXPECT_FLOAT_EQ(*game.remainingEffectDuration(effect), 20.0f);
+    Creature e2Creature(player->id() + 1000, "", game, engine.services());
+    TestGameModule::deserializeSnapshotRuntimeState(e2Creature, *playerRecord);
+    EXPECT_TRUE(e2Creature.getLocalBoolean(31));
+    EXPECT_EQ(e2Creature.getLocalNumber(4), 23);
+    ASSERT_EQ(e2Creature.savedEffects().size(), 1);
+    ASSERT_EQ(e2Creature.savedActionQueue().actions.size(), 1);
+
+    EXPECT_TRUE(are->getBool("Unescapable"));
+    EXPECT_EQ(are->getUint("StealthXPCurrent"), 30u);
+    EXPECT_EQ(are->getString("FutureArea"), "preserve-area");
+    EXPECT_EQ(git->getString("FutureGit"), "preserve-git");
+    EXPECT_EQ(git->getList("Creature List").size(), 0);
+    EXPECT_EQ(git->getList("Door List").size(), 1);
+    EXPECT_EQ(git->getList("Placeable List").size(), 1);
+    EXPECT_EQ(git->getList("TriggerList").size(), 1);
+    EXPECT_EQ(git->getList("Encounter List").size(), 1);
+    EXPECT_EQ(git->getList("StoreList").size(), 1);
+    EXPECT_EQ(git->getList("WaypointList").size(), 1);
+    EXPECT_EQ(git->getList("SoundList").size(), 1);
+    EXPECT_EQ(git->getList("List").size(), 1);
+    EXPECT_EQ(git->getList("List").front()->getUint("ObjectId"), worldItem->id());
+    auto doorRecord = recordById(*git, "Door List", door->id());
+    ASSERT_TRUE(doorRecord);
+    EXPECT_EQ(doorRecord->getUint("OpenState"), 1u);
+    EXPECT_TRUE(doorRecord->getBool("Locked"));
+    EXPECT_EQ(doorRecord->getString("FutureDoor"), "preserve-door");
+    auto triggerRecord = recordById(*git, "TriggerList", trigger->id());
+    ASSERT_TRUE(triggerRecord);
+    EXPECT_EQ(triggerRecord->getUint("CreatorId"), player->id());
+    EXPECT_EQ(triggerRecord->getString("FutureTrigger"), "preserve-trigger");
+    EXPECT_TRUE(recordById(*git, "Encounter List", encounter->id()));
+    EXPECT_TRUE(recordById(*git, "WaypointList", waypoint->id()));
+    EXPECT_TRUE(recordById(*git, "StoreList", store->id())->getList("ItemList").empty());
+    EXPECT_TRUE(recordById(*git, "SoundList", sound->id())->getBool("Active"));
+    EXPECT_EQ(recordById(*git, "Placeable List", placeable->id())->getList("ItemList").size(), 0);
+
+    ByteBuffer archiveBytes(first.snapshot->archiveBytes);
+    MemoryInputStream archiveStream(archiveBytes);
+    ErfReader archive(archiveStream);
+    archive.load();
+    EXPECT_EQ(archive.signature(), "MOD V1.0");
+    EXPECT_EQ(archive.keys().size(), 3);
+}
+
+TEST_F(SnapshotFixture, authoritative_membership_omits_deleted_shadow_records) {
+    auto door = addDoorWithShadow();
+    auto present = ModuleSnapshotBuilder(game, "module004").build();
+    ASSERT_TRUE(present) << present.message;
+    ASSERT_EQ(present.snapshot->git->getList("Door List").size(), 1);
+
+    TestGameModule::markSnapshotObjectDeleted(*area, door->id());
+    auto deleted = ModuleSnapshotBuilder(game, "module004").build();
+    ASSERT_TRUE(deleted) << deleted.message;
+    EXPECT_TRUE(deleted.snapshot->git->getList("Door List").empty());
+}
+
+TEST_F(SnapshotFixture, owner_local_item_ids_are_deterministic_and_do_not_drive_world_cursor) {
+    auto ownerA = game.newPlaceable();
+    auto ownerB = game.newStore();
+    auto first = game.newOwnedItem();
+    auto second = game.newOwnedItem();
+    auto third = game.newOwnedItem();
+    first->setTag("first"); second->setTag("second"); third->setTag("third");
+    auto id7 = Gff::Builder().type(0)
+        .field(Gff::Field::newDword("ObjectId", 7)).build();
+    first->captureOwnerLocalSaveRecord(*id7, {SaveRecordOriginKind::PlaceableItem, "a"});
+    second->captureOwnerLocalSaveRecord(*id7, {SaveRecordOriginKind::PlaceableItem, "a"});
+    third->captureOwnerLocalSaveRecord(*id7, {SaveRecordOriginKind::StoreItem, "b"});
+    ownerA->addItem(first); ownerA->addItem(second); ownerB->addItem(third);
+    TestGameModule::addSnapshotObject(*area, ownerA);
+    TestGameModule::addSnapshotObject(*area, ownerB);
+    uint32_t highestWorld = std::max({area->id(), player->id(), ownerA->id(), ownerB->id()});
+
+    auto saved = ModuleSnapshotBuilder(game, "module005").build();
+    ASSERT_TRUE(saved) << saved.message;
+    auto placeable = recordById(*saved.snapshot->git, "Placeable List", ownerA->id());
+    auto store = recordById(*saved.snapshot->git, "StoreList", ownerB->id());
+    ASSERT_TRUE(placeable);
+    ASSERT_TRUE(store);
+    ASSERT_EQ(placeable->getList("ItemList").size(), 2);
+    EXPECT_EQ(placeable->getList("ItemList")[0]->getUint("ObjectId"), 7u);
+    EXPECT_EQ(placeable->getList("ItemList")[1]->getUint("ObjectId"), 0u);
+    ASSERT_EQ(store->getList("ItemList").size(), 1);
+    EXPECT_EQ(store->getList("ItemList")[0]->getUint("ObjectId"), 7u);
+    EXPECT_EQ(saved.snapshot->ifo->getUint("Mod_NextObjId0"), std::max(50u, highestWorld + 1));
+
+    bool last = false;
+    ASSERT_TRUE(ownerA->removeItem(second, last));
+    ownerB->addItem(second);
+    auto moved = ModuleSnapshotBuilder(game, "module005").build();
+    ASSERT_TRUE(moved) << moved.message;
+    placeable = recordById(*moved.snapshot->git, "Placeable List", ownerA->id());
+    store = recordById(*moved.snapshot->git, "StoreList", ownerB->id());
+    ASSERT_EQ(placeable->getList("ItemList").size(), 1);
+    EXPECT_EQ(placeable->getList("ItemList")[0]->getUint("ObjectId"), 7u);
+    ASSERT_EQ(store->getList("ItemList").size(), 2);
+    EXPECT_EQ(store->getList("ItemList")[0]->getUint("ObjectId"), 7u);
+    EXPECT_EQ(store->getList("ItemList")[1]->getUint("ObjectId"), 0u);
+    EXPECT_EQ(moved.snapshot->ifo->getUint("Mod_NextObjId0"), std::max(50u, highestWorld + 1));
+}
+
+TEST_F(SnapshotFixture, preserves_open2_and_accepts_retail_world_ids_zero_and_one) {
+    auto door = game.newDoor();
+    auto placeable = game.newPlaceable();
+    TestGameModule::setSnapshotObjectId(*door, 0);
+    TestGameModule::setSnapshotObjectId(*placeable, 1);
+    TestGameModule::setSnapshotDoorState(*door, DoorState::Opened2);
+    TestGameModule::addSnapshotObject(*area, door);
+    TestGameModule::addSnapshotObject(*area, placeable);
+
+    auto saved = ModuleSnapshotBuilder(game, "module007").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto doorRecord = recordById(*saved.snapshot->git, "Door List", 0);
+    ASSERT_TRUE(doorRecord);
+    EXPECT_EQ(doorRecord->getUint("OpenState"), 2u);
+    EXPECT_TRUE(recordById(*saved.snapshot->git, "Placeable List", 1));
+}
+
+TEST_F(SnapshotFixture, rejects_duplicate_authoritative_world_ids) {
+    auto first = game.newDoor();
+    auto second = game.newPlaceable();
+    TestGameModule::setSnapshotObjectId(*first, 77);
+    TestGameModule::setSnapshotObjectId(*second, 77);
+    TestGameModule::addSnapshotObject(*area, first);
+    TestGameModule::addSnapshotObject(*area, second);
+
+    auto saved = ModuleSnapshotBuilder(game, "module008").build();
+
+    EXPECT_FALSE(saved);
+    EXPECT_EQ(saved.error, ModuleSnapshotError::ValidationFailure);
+    EXPECT_THAT(saved.message, HasSubstr("duplicate world object ID"));
+}
+
+TEST_F(SnapshotFixture, rejects_world_id_collision_with_structural_area) {
+    auto door = game.newDoor();
+    TestGameModule::setSnapshotObjectId(*door, area->id());
+    TestGameModule::addSnapshotObject(*area, door);
+
+    auto saved = ModuleSnapshotBuilder(game, "module008").build();
+
+    EXPECT_FALSE(saved);
+    EXPECT_EQ(saved.error, ModuleSnapshotError::ValidationFailure);
+    EXPECT_THAT(saved.message, HasSubstr("duplicate world object ID"));
+}
+
+TEST_F(SnapshotFixture, deleted_reference_targets_are_written_as_retail_invalid) {
+    auto door = game.newDoor();
+    auto trigger = game.newTrigger();
+    TestGameModule::addSnapshotObject(*area, door);
+    TestGameModule::addSnapshotObject(*area, trigger);
+    auto source = Gff::Builder().type(1)
+        .field(Gff::Field::newDword("ObjectId", trigger->id()))
+        .field(Gff::Field::newDword("CreatorId", door->id())).build();
+    trigger->captureSaveRecord(
+        *source, {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
+    TestGameModule::deserializeSnapshotRuntimeState(*trigger, *source);
+    game.resolveSavedObjectReferences();
+
+    EffectInstance effect;
+    effect.creatorId = door->id();
+    effect.subType = static_cast<uint16_t>(DurationType::Permanent);
+    ASSERT_TRUE(game.bindEffectCreator(effect));
+    player->applyEffect(
+        std::make_shared<SavedEffectValue>(effect),
+        DurationType::Permanent);
+    TestGameModule::markSnapshotObjectDeleted(*area, door->id());
+
+    auto saved = ModuleSnapshotBuilder(game, "module009").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto triggerRecord = recordById(
+        *saved.snapshot->git, "TriggerList", trigger->id());
+    ASSERT_TRUE(triggerRecord);
+    EXPECT_EQ(
+        triggerRecord->getUint("CreatorId"),
+        kSavedRuntimeInvalidObjectId);
+    const auto &effects = saved.snapshot->ifo
+                              ->getList("Mod_PlayerList")
+                              .front()
+                              ->getList("EffectList");
+    ASSERT_EQ(effects.size(), 1);
+    EXPECT_EQ(effects.front()->getUint("CreatorId"), kSavedRuntimeInvalidObjectId);
+    EXPECT_TRUE(saved.snapshot->git->getList("Door List").empty());
+}
+
+TEST_F(SnapshotFixture, unsupported_live_action_fails_without_mutating_runtime_or_shadows) {
+    player->addAction(game.newAction<UnserializableAction>());
+    auto actionCount = player->actions().size();
+    auto cursor = TestGameModule::nextObjectId(game);
+    auto shadowCount = game.saveResourceShadows().size();
+
+    auto result = ModuleSnapshotBuilder(game, "module006").build();
+
+    EXPECT_FALSE(result);
+    EXPECT_EQ(result.error, ModuleSnapshotError::UnsupportedLiveState);
+    EXPECT_FALSE(result.snapshot);
+    EXPECT_EQ(player->actions().size(), actionCount);
+    EXPECT_EQ(TestGameModule::nextObjectId(game), cursor);
+    EXPECT_EQ(game.saveResourceShadows().size(), shadowCount);
+}
+
+TEST(ModuleSnapshot, exports_advanced_runtime_script_situations_and_rejects_unsupported_values) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto program = std::make_shared<ScriptProgram>("runtime_save");
+    program->add(Instruction::newCONSTI(1));
+    uint32_t resume = program->length();
+    program->add(Instruction(InstructionType::RETN));
+    auto state = std::make_shared<ExecutionState>();
+    state->program = program;
+    state->insOffset = resume;
+    state->globals = {Variable::ofInt(12)};
+    state->locals = {
+        Variable::ofString("local"),
+        Variable::ofLocation(std::make_shared<Location>(
+            glm::vec3(1.0f, 2.0f, 3.0f), glm::vec3(0.0f, 1.0f, 0.0f)))};
+    auto continuation = SavedScriptContinuation::fromRuntime(
+        state, "runtime_save", game);
+    std::string error;
+
+    auto exported = exportScriptSituation(*continuation, error);
+
+    ASSERT_TRUE(exported) << error;
+    EXPECT_EQ(exported->instructionPointer, static_cast<int32_t>(resume - 13));
+    EXPECT_EQ(exported->basePointer, 1);
+    EXPECT_EQ(exported->stackPointer, 3);
+    EXPECT_EQ(exported->codeSize, static_cast<int32_t>(exported->code.size()));
+    EXPECT_EQ(exported->stack[2].type, static_cast<int8_t>(SavedVmStackType::Location));
+
+    state->locals.push_back(Variable::ofVector({1.0f, 2.0f, 3.0f}));
+    error.clear();
+    EXPECT_FALSE(exportScriptSituation(*continuation, error));
+    EXPECT_THAT(error, HasSubstr("without a retail save representation"));
+}
+
+} // namespace

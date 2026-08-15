@@ -144,6 +144,7 @@ public:
     void setEquipped(bool equipped);
 
 private:
+    friend class ModuleSnapshotBuilder;
     // Serializable
     int32_t _baseItem {0};
     resource::LocString _localizedName;

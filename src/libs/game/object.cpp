@@ -24,6 +24,7 @@
 #include "reone/resource/provider/scripts.h"
 #include "reone/game/room.h"
 #include "reone/resource/gff.h"
+#include "reone/system/exception/validation.h"
 #include "reone/system/logutil.h"
 
 using namespace reone::graphics;
@@ -276,6 +277,8 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
         represented.insert(action.get());
         if (auto saved = action->saveFacingState()) {
             result.push_back(std::move(*saved));
+        } else {
+            throw ValidationException("live queued action has no save-facing representation");
         }
     }
     for (const auto &action : _actions) {
@@ -285,6 +288,8 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
         }
         if (auto saved = action->saveFacingState()) {
             result.push_back(std::move(*saved));
+        } else {
+            throw ValidationException("live queued action has no save-facing representation");
         }
     }
     return result;

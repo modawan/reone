@@ -67,6 +67,7 @@ public:
     std::shared_ptr<Object> savedAreaObject(size_t index) const;
 
 private:
+    friend class ModuleSnapshotBuilder;
     struct SpawnPoint {
         glm::vec3 position {0.0f};
         float orientation {0.0f};

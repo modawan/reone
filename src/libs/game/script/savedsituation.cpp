@@ -17,11 +17,13 @@
 #include "reone/game/object.h"
 #include "reone/game/script/runner.h"
 #include "reone/game/location.h"
+#include "reone/game/modulesnapshot.h"
 #include "reone/resource/provider/scripts.h"
 #include "reone/script/format/ncsreader.h"
 #include "reone/script/program.h"
 #include "reone/script/variable.h"
 #include "reone/system/stream/memoryinput.h"
+#include "reone/system/exception/validation.h"
 
 namespace reone {
 
@@ -278,6 +280,24 @@ void SavedDoCommandAction::execute(
         _game.scriptRunner().run(*_continuation, _game, actor.id());
     }
     complete();
+}
+
+std::optional<SavedActionRecord> SavedDoCommandAction::saveFacingState() const {
+    if (!_continuation) {
+        throw ValidationException("DoCommand action has no continuation");
+    }
+    std::string error;
+    auto situation = exportScriptSituation(*_continuation, error);
+    if (!situation) {
+        throw ValidationException("DoCommand continuation is not serializable: " + error);
+    }
+    SavedActionRecord result = originalSavedAction().value_or(SavedActionRecord {});
+    result.actionId = 37;
+    result.declaredParameterCount = 1;
+    result.parameters = {SavedActionParameter {
+        static_cast<uint32_t>(SavedActionParameterType::ScriptSituation),
+        std::move(*situation)}};
+    return result;
 }
 
 } // namespace game

@@ -69,6 +69,7 @@ public:
     void setActive(bool active);
 
 private:
+    friend class ModuleSnapshotBuilder;
     // Serializable
     resource::LocString _locName;
     bool _active {false};

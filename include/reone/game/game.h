@@ -108,6 +108,7 @@ bool restoresSavedSession(ModuleLoadContext context);
 struct SavedObjectReference;
 struct SerializedScriptSituation;
 class SavedScriptContinuation;
+class ModuleSnapshotBuilder;
 
 class Game : boost::noncopyable {
 public:
@@ -542,6 +543,7 @@ public:
 
 private:
     friend class TestGameModule;
+    friend class ModuleSnapshotBuilder;
     friend struct SerializedScriptSituation;
     friend class SavedScriptContinuation;
 

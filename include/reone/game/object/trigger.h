@@ -90,6 +90,7 @@ public:
     const std::string &transitionDestin() const { return _transitionDestin.str(); }
 
 private:
+    friend class ModuleSnapshotBuilder;
     // Serializable
     std::string _onEnter;
     std::string _onExit;

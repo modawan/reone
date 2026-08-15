@@ -47,6 +47,7 @@ namespace game {
 constexpr float kDefaultAttackRange = 2.0f;
 
 class DamagePacket;
+class ModuleSnapshotBuilder;
 struct AttackBonusBreakdown;
 
 class Creature : public Object, public scene::IAnimationEventListener {
@@ -369,6 +370,7 @@ protected:
     bool canExecuteActions() const override;
 
 private:
+    friend class ModuleSnapshotBuilder;
     // Serializable
     RacialType _race {RacialType::Unknown};
     Subrace _subrace {Subrace::None};

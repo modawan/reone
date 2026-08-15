@@ -64,6 +64,9 @@ public:
     int getAggregateAttackBonus() const;
     int getAggregateDefenseBonus() const;
     SavingThrows getAggregateSavingThrows() const;
+    const std::vector<std::pair<CreatureClass *, int>> &classLevels() const {
+        return _classLevels;
+    }
 
     // END Class Levels
 
@@ -110,6 +113,7 @@ public:
 
     void addFeat(FeatType type) { _feats.insert(type); }
     void removeFeat(FeatType type) { _feats.erase(type); }
+    const std::set<FeatType> &feats() const { return _feats; }
 
     // END Feats
 
@@ -119,6 +123,7 @@ public:
 
     void addSpell(SpellType type) { _spells.insert(type); }
     void removeSpell(SpellType type) { _spells.erase(type); }
+    const std::set<SpellType> &spells() const { return _spells; }
 
     // END Force Powers
 

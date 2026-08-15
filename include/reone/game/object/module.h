@@ -50,6 +50,7 @@ struct ModuleInfo {
 class Door;
 class Placeable;
 class SavedScriptContinuation;
+class ModuleSnapshotBuilder;
 
 class Module : public Object {
 public:
@@ -106,6 +107,7 @@ public:
     void dispatchDueSavedEvents();
 
 private:
+    friend class ModuleSnapshotBuilder;
     friend class TestGameModule;
 
     std::string _name;

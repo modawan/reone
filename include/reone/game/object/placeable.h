@@ -72,6 +72,7 @@ public:
     // END Scripts
 
 private:
+    friend class ModuleSnapshotBuilder;
     // Serializable
     resource::LocString _locName;
     bool _autoRemoveKey {false};
