@@ -195,7 +195,10 @@ bool MeshSceneNode::shouldRender() const {
     if (!mesh || !mesh->render || _alpha == 0.0f) {
         return false;
     }
-    return !_modelNode.isAABBMesh() && !mesh->diffuseMap.empty();
+    // Renderability depends on the diffuse texture effectively bound to this node,
+    // not on whether the model itself authored one. Creature bodies routinely defer
+    // their skin to a runtime override applied through setMainTexture.
+    return !_modelNode.isAABBMesh() && _nodeTextures.diffuse != nullptr;
 }
 
 bool MeshSceneNode::shouldCastShadows() const {
