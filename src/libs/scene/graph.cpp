@@ -402,6 +402,10 @@ void SceneGraph::prepareOpaqueLeafs() {
     }
 }
 
+bool SceneGraph::hasShadowLight() const {
+    return _graphicsOpt.shadows && _shadowLight;
+}
+
 void SceneGraph::prepareTransparentLeafs() {
     _transparentLeafs.clear();
 
@@ -412,16 +416,22 @@ void SceneGraph::prepareTransparentLeafs() {
     for (auto &mesh : _transparentMeshes) {
         leafs.push_back(mesh);
     }
-    for (auto &emitter : _emitters) {
-        for (auto &child : emitter->children()) {
-            if (child->type() != SceneNodeType::Particle) {
-                continue;
+    // Particles are dropped here rather than at the emitter, so the emitters
+    // still simulate and still advance the shared random sequence. A switch
+    // that also stopped the simulation would move every later draw's noise and
+    // make two builds disagree for a reason that is not what is being compared.
+    if (_graphicsOpt.particles) {
+        for (auto &emitter : _emitters) {
+            for (auto &child : emitter->children()) {
+                if (child->type() != SceneNodeType::Particle) {
+                    continue;
+                }
+                auto particle = static_cast<ParticleSceneNode *>(child);
+                if (!camera->isInFrustum(particle->origin())) {
+                    continue;
+                }
+                leafs.push_back(particle);
             }
-            auto particle = static_cast<ParticleSceneNode *>(child);
-            if (!camera->isInFrustum(particle->origin())) {
-                continue;
-            }
-            leafs.push_back(particle);
         }
     }
 
