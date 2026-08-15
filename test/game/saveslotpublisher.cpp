@@ -339,18 +339,32 @@ TEST(SaveSlotPublisher, same_slot_overwrite_keeps_old_detached_state_alive) {
     PreparedSave prepared;
     auto target = descriptor(prepared.rootDirectory.path / "same-slot");
     auto oldActive = moduleBytes("area_b", 20, 30, "same-slot-old");
+    ByteBuffer transitionBytes {'t', 'r', 'a', 'n', 's', 'i', 't', 'i', 'o', 'n'};
     makeSlot(target, outerBytes(oldActive, "old-target"), true);
     auto oldState = std::make_shared<const SaveWorkingState>(target.archive);
+    std::shared_ptr<const SaveWorkingState> normalizedState;
+    {
+        auto transition = SaveWorkingStateCandidate::fromCommitted(oldState);
+        transition.put({"transition-only", ResType::Txt}, transitionBytes);
+        transition.erase({"extension", ResType::Txt});
+        normalizedState = transition.freeze();
+    }
+    std::weak_ptr<const SaveWorkingState> normalizedLifetime = normalizedState;
     auto input = prepared.input(target);
-    input.committedWorkingState = oldState;
+    input.committedWorkingState = normalizedState;
 
     auto result = SaveSlotPublisher().publish(std::move(input));
 
     ASSERT_TRUE(result) << result.message;
+    normalizedState.reset();
+    EXPECT_TRUE(normalizedLifetime.expired());
     ASSERT_TRUE(oldState->find({"module_b", ResType::Sav}));
     EXPECT_EQ(oldState->find({"module_b", ResType::Sav})->data, oldActive);
     EXPECT_EQ(result.committedWorkingState->find({"module_b", ResType::Sav})->data,
               prepared.module.archiveBytes);
+    EXPECT_EQ(result.committedWorkingState->find({"transition-only", ResType::Txt})->data,
+              transitionBytes);
+    EXPECT_FALSE(result.committedWorkingState->contains({"extension", ResType::Txt}));
     auto oldInventory = oldState->find({"inventory", ResType::Res})->data;
     auto newInventory = result.committedWorkingState
                             ->find({"inventory", ResType::Res})->data;

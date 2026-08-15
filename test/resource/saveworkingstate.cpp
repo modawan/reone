@@ -30,6 +30,46 @@ using namespace reone;
 using namespace reone::resource;
 using testing::NiceMock;
 
+namespace reone::resource {
+
+class SaveWorkingStateTestAccess {
+public:
+    static const SaveWorkingStateBacking *backingIdentity(
+        const SaveWorkingState &state) {
+        return state._backing.get();
+    }
+
+    static std::weak_ptr<const SaveWorkingStateBacking> backingLifetime(
+        const SaveWorkingState &state) {
+        return state._backing;
+    }
+
+    static std::shared_ptr<const ByteBuffer> replacement(
+        const SaveWorkingState &state,
+        const ResourceId &id) {
+        auto entry = state._replacements.find(id);
+        return entry == state._replacements.end() ? nullptr : entry->second;
+    }
+
+    static size_t replacementCount(const SaveWorkingState &state) {
+        return state._replacements.size();
+    }
+
+    static size_t tombstoneCount(const SaveWorkingState &state) {
+        return state._tombstones.size();
+    }
+
+    static size_t replacementBytes(const SaveWorkingState &state) {
+        size_t result = 0;
+        for (const auto &[id, payload] : state._replacements) {
+            result += payload->size();
+        }
+        return result;
+    }
+};
+
+} // namespace reone::resource
+
 namespace {
 
 ByteBuffer bytes(std::string_view value) {
@@ -692,6 +732,290 @@ TEST(SaveWorkingStateCandidateTest, base_and_candidate_support_alternating_synch
         EXPECT_EQ("base R", dataOf(base->find(replaced)));
         EXPECT_EQ("base U", dataOf(candidate.find(unchanged)));
     }
+}
+
+TEST(SaveWorkingStateNormalizationTest, empty_backing_freezes_without_a_fake_archive) {
+    auto base = std::make_shared<SaveWorkingState>();
+    ResourceId a("module_a", ResType::Sav);
+    ResourceId b("module_b", ResType::Sav);
+    EXPECT_TRUE(base->resourceIds().empty());
+
+    std::weak_ptr<const SaveWorkingState> firstLifetime;
+    std::shared_ptr<const SaveWorkingState> latest;
+    {
+        auto firstCandidate = SaveWorkingStateCandidate::fromCommitted(base);
+        firstCandidate.put(a, bytes("A"));
+        auto first = firstCandidate.freeze();
+        firstLifetime = first;
+
+        auto secondCandidate = SaveWorkingStateCandidate::fromCommitted(first);
+        secondCandidate.put(b, bytes("B"));
+        latest = secondCandidate.freeze();
+    }
+
+    EXPECT_TRUE(firstLifetime.expired());
+    EXPECT_EQ("A", dataOf(latest->find(a)));
+    EXPECT_EQ("B", dataOf(latest->find(b)));
+    EXPECT_EQ(2u, latest->resourceIds().size());
+    EXPECT_EQ(2u, SaveWorkingStateTestAccess::replacementCount(*latest));
+    EXPECT_EQ(0u, SaveWorkingStateTestAccess::tombstoneCount(*latest));
+}
+
+TEST(SaveWorkingStateNormalizationTest, normalized_freeze_releases_predecessors) {
+    TmpDir directory("reone_e3g0_predecessor_lifetime");
+    ResourceId untouched("untouched", ResType::Txt);
+    ResourceId a("module_a", ResType::Sav);
+    ResourceId b("module_b", ResType::Sav);
+    auto original = makeWorkingState(directory, {{"untouched", ResType::Txt, "base"}});
+    auto backingIdentity = SaveWorkingStateTestAccess::backingIdentity(*original);
+    auto backingLifetime = SaveWorkingStateTestAccess::backingLifetime(*original);
+    std::weak_ptr<const SaveWorkingState> originalLifetime = original;
+    std::weak_ptr<const SaveWorkingState> firstLifetime;
+    const ByteBuffer *carriedPayload = nullptr;
+    std::shared_ptr<const SaveWorkingState> latest;
+
+    {
+        auto firstCandidate = SaveWorkingStateCandidate::fromCommitted(original);
+        firstCandidate.put(a, bytes("A1"));
+        auto first = firstCandidate.freeze();
+        firstLifetime = first;
+        carriedPayload = SaveWorkingStateTestAccess::replacement(*first, a).get();
+
+        auto secondCandidate = SaveWorkingStateCandidate::fromCommitted(first);
+        secondCandidate.put(b, bytes("B1"));
+        latest = secondCandidate.freeze();
+        EXPECT_EQ(
+            carriedPayload,
+            SaveWorkingStateTestAccess::replacement(*latest, a).get());
+    }
+    original.reset();
+
+    EXPECT_TRUE(originalLifetime.expired());
+    EXPECT_TRUE(firstLifetime.expired());
+    EXPECT_FALSE(backingLifetime.expired());
+    EXPECT_EQ(backingIdentity, SaveWorkingStateTestAccess::backingIdentity(*latest));
+    EXPECT_EQ("base", dataOf(latest->find(untouched)));
+    EXPECT_EQ("A1", dataOf(latest->find(a)));
+    EXPECT_EQ("B1", dataOf(latest->find(b)));
+
+    std::filesystem::remove_all(directory.path);
+    EXPECT_EQ("base", dataOf(latest->find(untouched)));
+}
+
+TEST(SaveWorkingStateNormalizationTest, tombstones_carry_without_predecessor_state) {
+    TmpDir directory("reone_e3g0_tombstone_carry");
+    ResourceId removed("removed", ResType::Txt);
+    ResourceId changed("changed", ResType::Txt);
+    auto base = makeWorkingState(
+        directory,
+        {{"removed", ResType::Txt, "present"}, {"changed", ResType::Txt, "old"}});
+    std::weak_ptr<const SaveWorkingState> firstLifetime;
+    std::shared_ptr<const SaveWorkingState> latest;
+    {
+        auto firstCandidate = SaveWorkingStateCandidate::fromCommitted(base);
+        firstCandidate.erase(removed);
+        auto first = firstCandidate.freeze();
+        firstLifetime = first;
+
+        auto secondCandidate = SaveWorkingStateCandidate::fromCommitted(first);
+        secondCandidate.put(changed, bytes("new"));
+        latest = secondCandidate.freeze();
+    }
+
+    EXPECT_TRUE(firstLifetime.expired());
+    EXPECT_FALSE(latest->find(removed));
+    EXPECT_EQ("new", dataOf(latest->find(changed)));
+    EXPECT_EQ(1u, SaveWorkingStateTestAccess::tombstoneCount(*latest));
+}
+
+TEST(SaveWorkingStateNormalizationTest, replacement_and_tombstone_precedence_crosses_freezes) {
+    TmpDir directory("reone_e3g0_cross_freeze_precedence");
+    ResourceId id("state", ResType::Txt);
+    auto base = makeWorkingState(directory, {{"state", ResType::Txt, "backing"}});
+
+    auto eraseCandidate = SaveWorkingStateCandidate::fromCommitted(base);
+    eraseCandidate.erase(id);
+    auto erased = eraseCandidate.freeze();
+    EXPECT_FALSE(erased->find(id));
+
+    auto replaceCandidate = SaveWorkingStateCandidate::fromCommitted(erased);
+    replaceCandidate.put(id, bytes("replacement"));
+    auto replaced = replaceCandidate.freeze();
+    EXPECT_EQ("replacement", dataOf(replaced->find(id)));
+    EXPECT_EQ(1u, SaveWorkingStateTestAccess::replacementCount(*replaced));
+    EXPECT_EQ(0u, SaveWorkingStateTestAccess::tombstoneCount(*replaced));
+
+    auto reeraseCandidate = SaveWorkingStateCandidate::fromCommitted(replaced);
+    reeraseCandidate.erase(id);
+    auto reerased = reeraseCandidate.freeze();
+    EXPECT_FALSE(reerased->find(id));
+    EXPECT_EQ(0u, SaveWorkingStateTestAccess::replacementCount(*reerased));
+    EXPECT_EQ(1u, SaveWorkingStateTestAccess::tombstoneCount(*reerased));
+}
+
+TEST(SaveWorkingStateNormalizationTest, overlay_only_deletion_is_canonicalized) {
+    ResourceId id("transient", ResType::Txt);
+    auto base = std::make_shared<SaveWorkingState>();
+    std::weak_ptr<const ByteBuffer> obsoletePayload;
+    std::weak_ptr<const SaveWorkingState> firstLifetime;
+    std::shared_ptr<const SaveWorkingState> latest;
+    {
+        auto firstCandidate = SaveWorkingStateCandidate::fromCommitted(base);
+        firstCandidate.put(id, bytes("temporary"));
+        auto first = firstCandidate.freeze();
+        firstLifetime = first;
+        obsoletePayload = SaveWorkingStateTestAccess::replacement(*first, id);
+
+        auto secondCandidate = SaveWorkingStateCandidate::fromCommitted(first);
+        secondCandidate.erase(id);
+        latest = secondCandidate.freeze();
+    }
+
+    EXPECT_TRUE(firstLifetime.expired());
+    EXPECT_TRUE(obsoletePayload.expired());
+    EXPECT_FALSE(latest->contains(id));
+    EXPECT_EQ(0u, SaveWorkingStateTestAccess::replacementCount(*latest));
+    EXPECT_EQ(0u, SaveWorkingStateTestAccess::tombstoneCount(*latest));
+}
+
+TEST(SaveWorkingStateNormalizationTest, shadowed_replacement_payload_is_released) {
+    ResourceId id("module", ResType::Sav);
+    auto base = std::make_shared<SaveWorkingState>();
+    std::weak_ptr<const ByteBuffer> oldPayload;
+    std::shared_ptr<const SaveWorkingState> latest;
+    {
+        auto firstCandidate = SaveWorkingStateCandidate::fromCommitted(base);
+        firstCandidate.put(id, bytes("old"));
+        auto first = firstCandidate.freeze();
+        oldPayload = SaveWorkingStateTestAccess::replacement(*first, id);
+
+        auto secondCandidate = SaveWorkingStateCandidate::fromCommitted(first);
+        secondCandidate.put(id, bytes("new"));
+        latest = secondCandidate.freeze();
+    }
+
+    EXPECT_TRUE(oldPayload.expired());
+    EXPECT_EQ("new", dataOf(latest->find(id)));
+    auto latestPayload = SaveWorkingStateTestAccess::replacement(*latest, id);
+    static_assert(std::is_const_v<std::remove_reference_t<decltype(*latestPayload)>>);
+}
+
+TEST(SaveWorkingStateNormalizationTest, module_replacement_and_rsv_tombstone_stay_flat) {
+    TmpDir directory("reone_e3g0_module_semantics");
+    ResourceId bSav("module_b", ResType::Sav);
+    ResourceId bRsv("module_b", ResType::Rsv);
+    ResourceId otherRsv("other", ResType::Rsv);
+    auto base = makeWorkingState(
+        directory,
+        {{"module_b", ResType::Sav, "old B"},
+         {"module_b", ResType::Rsv, "stale B"},
+         {"other", ResType::Rsv, "other"}});
+    std::weak_ptr<const SaveWorkingState> firstLifetime;
+    std::shared_ptr<const SaveWorkingState> latest;
+    {
+        auto firstCandidate = SaveWorkingStateCandidate::fromCommitted(base);
+        firstCandidate.replaceModule(bSav, bytes("new B"), bRsv);
+        auto first = firstCandidate.freeze();
+        firstLifetime = first;
+
+        auto secondCandidate = SaveWorkingStateCandidate::fromCommitted(first);
+        secondCandidate.put(ResourceId("module_a", ResType::Sav), bytes("A"));
+        latest = secondCandidate.freeze();
+    }
+
+    EXPECT_TRUE(firstLifetime.expired());
+    EXPECT_EQ("new B", dataOf(latest->find(bSav)));
+    EXPECT_FALSE(latest->find(bRsv));
+    EXPECT_EQ("other", dataOf(latest->find(otherRsv)));
+}
+
+TEST(SaveWorkingStateNormalizationTest, failed_freeze_leaves_normalized_base_unchanged) {
+    ResourceId saved("module", ResType::Sav);
+    ResourceId image("module", ResType::Rsv);
+    auto empty = std::make_shared<SaveWorkingState>();
+    auto firstCandidate = SaveWorkingStateCandidate::fromCommitted(empty);
+    firstCandidate.put(ResourceId("stable", ResType::Txt), bytes("stable"));
+    auto normalized = firstCandidate.freeze();
+
+    auto failing = SaveWorkingStateCandidate::fromCommitted(normalized);
+    failing.replaceModule(saved, bytes("new"), image);
+    failing.erase(saved);
+    EXPECT_THROW(failing.freeze(), ValidationException);
+
+    EXPECT_EQ("stable", dataOf(normalized->find(ResourceId("stable", ResType::Txt))));
+    EXPECT_FALSE(normalized->contains(saved));
+    EXPECT_FALSE(normalized->contains(image));
+    EXPECT_EQ(1u, SaveWorkingStateTestAccess::replacementCount(*normalized));
+}
+
+TEST(SaveWorkingStateNormalizationTest, one_thousand_freezes_remain_structurally_bounded) {
+    TmpDir directory("reone_e3g0_stress");
+    ResourceId removed("removed", ResType::Txt);
+    ResourceId untouched("untouched", ResType::Txt);
+    std::array<ResourceId, 4> ids {
+        ResourceId("module_a", ResType::Sav),
+        ResourceId("module_b", ResType::Sav),
+        ResourceId("module_c", ResType::Sav),
+        ResourceId("module_d", ResType::Sav)};
+    std::array<std::string, 4> expected;
+    std::shared_ptr<const SaveWorkingState> current = makeWorkingState(
+        directory,
+        {{"removed", ResType::Txt, "remove"}, {"untouched", ResType::Txt, "base"}});
+    auto backingBytes = std::filesystem::file_size(directory.path / "savegame.sav");
+    auto backingIdentity = SaveWorkingStateTestAccess::backingIdentity(*current);
+    std::array<size_t, 4> checkpointCounts {};
+    std::array<size_t, 4> checkpointBytes {};
+    size_t checkpoint = 0;
+
+    for (size_t i = 0; i < 1000; ++i) {
+        auto index = i % ids.size();
+        std::string payload(64, static_cast<char>('A' + index));
+        payload.replace(0, std::to_string(i).size(), std::to_string(i));
+        auto oldPayload = SaveWorkingStateTestAccess::replacement(*current, ids[index]);
+        std::weak_ptr<const ByteBuffer> oldPayloadLifetime = oldPayload;
+        oldPayload.reset();
+        std::weak_ptr<const SaveWorkingState> predecessor = current;
+        std::shared_ptr<const SaveWorkingState> next;
+        {
+            auto candidate = SaveWorkingStateCandidate::fromCommitted(current);
+            if (i == 0) {
+                candidate.erase(removed);
+            }
+            candidate.put(ids[index], bytes(payload));
+            next = candidate.freeze();
+        }
+        current = std::move(next);
+        expected[index] = std::move(payload);
+
+        EXPECT_TRUE(predecessor.expired()) << "freeze " << i + 1;
+        EXPECT_TRUE(oldPayloadLifetime.expired()) << "freeze " << i + 1;
+        EXPECT_EQ(backingIdentity, SaveWorkingStateTestAccess::backingIdentity(*current));
+
+        if (i == 0 || i == 9 || i == 99 || i == 999) {
+            checkpointCounts[checkpoint] =
+                SaveWorkingStateTestAccess::replacementCount(*current);
+            checkpointBytes[checkpoint] =
+                SaveWorkingStateTestAccess::replacementBytes(*current);
+            ++checkpoint;
+        }
+    }
+
+    EXPECT_EQ((std::array<size_t, 4> {1, 4, 4, 4}), checkpointCounts);
+    EXPECT_EQ((std::array<size_t, 4> {64, 256, 256, 256}), checkpointBytes);
+    testing::Test::RecordProperty("backing_bytes", std::to_string(backingBytes));
+    testing::Test::RecordProperty("replacement_counts", "1,4,4,4");
+    testing::Test::RecordProperty("replacement_bytes", "64,256,256,256");
+    EXPECT_EQ(5u, current->resourceIds().size());
+    EXPECT_EQ(1u, SaveWorkingStateTestAccess::tombstoneCount(*current));
+    EXPECT_FALSE(current->find(removed));
+    EXPECT_EQ("base", dataOf(current->find(untouched)));
+    for (size_t i = 0; i < ids.size(); ++i) {
+        EXPECT_EQ(expected[i], dataOf(current->find(ids[i])));
+    }
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(current);
+    auto finalIds = candidate.deterministicResourceIds();
+    EXPECT_TRUE(std::is_sorted(finalIds.begin(), finalIds.end()));
+    EXPECT_EQ(5u, finalIds.size());
 }
 
 class SaveWorkingStateDirectorTest : public testing::TestWithParam<SaveCase> {

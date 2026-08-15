@@ -76,19 +76,56 @@ static std::unique_ptr<ErfResourceContainer> openDetachedArchive(
     return archive;
 }
 
+class SaveWorkingStateBacking : boost::noncopyable {
+public:
+    SaveWorkingStateBacking() = default;
+
+    explicit SaveWorkingStateBacking(const std::filesystem::path &archivePath) :
+        _archive(openDetachedArchive(archivePath)),
+        _resourceIds(_archive->resourceIds()) {
+    }
+
+    std::optional<Resource> find(const ResourceId &id) const {
+        if (!_archive) {
+            return std::nullopt;
+        }
+        auto data = _archive->findResourceData(id);
+        if (!data) {
+            return std::nullopt;
+        }
+        return Resource {std::move(*data)};
+    }
+
+    bool contains(const ResourceId &id) const {
+        return _resourceIds.find(id) != _resourceIds.end();
+    }
+
+    const std::unordered_set<ResourceId> &resourceIds() const {
+        return _resourceIds;
+    }
+
+private:
+    mutable std::unique_ptr<ErfResourceContainer> _archive;
+    std::unordered_set<ResourceId> _resourceIds;
+};
+
+SaveWorkingState::SaveWorkingState() :
+    _backing(std::make_shared<const SaveWorkingStateBacking>()) {
+}
+
 SaveWorkingState::SaveWorkingState(const std::filesystem::path &archivePath) :
-    _archive(openDetachedArchive(archivePath)) {
-    _resourceIds = _archive->resourceIds();
+    _backing(std::make_shared<const SaveWorkingStateBacking>(archivePath)),
+    _resourceIds(_backing->resourceIds()) {
 }
 
 SaveWorkingState::SaveWorkingState(
-    std::shared_ptr<const SaveWorkingState> base,
+    std::shared_ptr<const SaveWorkingStateBacking> backing,
     std::map<ResourceId, std::shared_ptr<const ByteBuffer>> replacements,
     std::unordered_set<ResourceId> tombstones) :
-    _base(std::move(base)),
+    _backing(std::move(backing)),
     _replacements(std::move(replacements)),
     _tombstones(std::move(tombstones)) {
-    _resourceIds = _base->resourceIds();
+    _resourceIds = _backing->resourceIds();
     for (const auto &id : _tombstones) {
         _resourceIds.erase(id);
     }
@@ -105,15 +142,7 @@ std::optional<Resource> SaveWorkingState::find(const ResourceId &id) const {
     if (_tombstones.find(id) != _tombstones.end()) {
         return std::nullopt;
     }
-    if (_base) {
-        return _base->find(id);
-    }
-
-    auto data = _archive->findResourceData(id);
-    if (!data) {
-        return std::nullopt;
-    }
-    return Resource {std::move(*data)};
+    return _backing->find(id);
 }
 
 bool SaveWorkingState::contains(const ResourceId &id) const {
@@ -282,10 +311,26 @@ std::shared_ptr<const SaveWorkingState> SaveWorkingStateCandidate::freeze() cons
     if (!validation) {
         throw ValidationException(validation.errors.front());
     }
+    auto replacements = _base->_replacements;
+    auto tombstones = _base->_tombstones;
+
+    for (const auto &id : _tombstones) {
+        replacements.erase(id);
+        if (_base->_backing->contains(id)) {
+            tombstones.insert(id);
+        } else {
+            tombstones.erase(id);
+        }
+    }
+    for (const auto &[id, payload] : _replacements) {
+        tombstones.erase(id);
+        replacements.insert_or_assign(id, payload);
+    }
+
     return std::shared_ptr<const SaveWorkingState>(new SaveWorkingState(
-        _base,
-        _replacements,
-        _tombstones));
+        _base->_backing,
+        std::move(replacements),
+        std::move(tombstones)));
 }
 
 SaveSessionState::SaveSessionState(SaveSlotDescriptor descriptor) :

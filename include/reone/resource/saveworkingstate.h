@@ -34,6 +34,8 @@ namespace reone {
 namespace resource {
 
 class SaveWorkingStateCandidate;
+class SaveWorkingStateBacking;
+class SaveWorkingStateTestAccess;
 
 /**
  * Durable identity of one save slot.
@@ -57,11 +59,15 @@ struct SaveSlotDescriptor {
  *
  * A durable publisher must still reopen the newly published SAVEGAME.sav: an
  * old detached state is lifetime-safe, but does not represent new resources.
- * A candidate may also freeze a transition-time immutable overlay while
- * retaining the durable state that backs unchanged payloads.
+ * A candidate may also freeze a transition-time immutable state. Every frozen
+ * state owns one normalized effective overlay and shares only the stable
+ * archive backing used for unchanged payloads; it never retains a predecessor
+ * SaveWorkingState.
  */
 class SaveWorkingState : boost::noncopyable {
 public:
+    /** Creates an unsaved logical state over an empty stable backing. */
+    SaveWorkingState();
     explicit SaveWorkingState(const std::filesystem::path &archivePath);
 
     std::optional<Resource> find(const ResourceId &id) const;
@@ -73,17 +79,17 @@ public:
 
 private:
     SaveWorkingState(
-        std::shared_ptr<const SaveWorkingState> base,
+        std::shared_ptr<const SaveWorkingStateBacking> backing,
         std::map<ResourceId, std::shared_ptr<const ByteBuffer>> replacements,
         std::unordered_set<ResourceId> tombstones);
 
-    mutable std::unique_ptr<ErfResourceContainer> _archive;
-    std::shared_ptr<const SaveWorkingState> _base;
+    std::shared_ptr<const SaveWorkingStateBacking> _backing;
     std::map<ResourceId, std::shared_ptr<const ByteBuffer>> _replacements;
     std::unordered_set<ResourceId> _tombstones;
     std::unordered_set<ResourceId> _resourceIds;
 
     friend class SaveWorkingStateCandidate;
+    friend class SaveWorkingStateTestAccess;
 };
 
 enum class SaveResourceOrigin {
@@ -132,11 +138,12 @@ struct SaveWorkingStateCandidateValidation {
  * installs an exact-ID tombstone. Candidate construction and enumeration do
  * not read unchanged payloads from the base archive.
  *
- * freeze() creates an immutable in-memory overlay which retains shared
- * ownership of its detached old backing. It is suitable for transition-time
- * state, but it is deliberately not a commit of newly published bytes: after
- * replacing a save slot, the publication layer must reopen/re-index the new
- * durable SAVEGAME.sav.
+ * freeze() creates an immutable normalized in-memory overlay anchored directly
+ * to the base state's stable backing. The candidate may temporarily retain its
+ * immediate logical base, but the frozen result does not. A freeze is suitable
+ * for transition-time state, but it is deliberately not a commit of newly
+ * published bytes: after replacing a save slot, the publication layer must
+ * reopen/re-index the new durable SAVEGAME.sav.
  */
 class SaveWorkingStateCandidate {
 public:
