@@ -50,10 +50,15 @@ struct SaveSlotDescriptor {
 /**
  * Complete immutable logical save working state.
  *
- * A durable state indexes SAVEGAME.sav at construction and reads payloads
- * lazily by exact identity. A candidate may also freeze a transition-time
- * immutable overlay while retaining the durable state that backs unchanged
- * payloads; that form has the publication caveat documented below.
+ * A durable state reads SAVEGAME.sav once at construction, closes the source
+ * file, and indexes one owned immutable archive backing. Contained payloads
+ * remain lazy by exact identity. Slot identity stays in SaveSlotDescriptor and
+ * is deliberately independent of this resource backing.
+ *
+ * A durable publisher must still reopen the newly published SAVEGAME.sav: an
+ * old detached state is lifetime-safe, but does not represent new resources.
+ * A candidate may also freeze a transition-time immutable overlay while
+ * retaining the durable state that backs unchanged payloads.
  */
 class SaveWorkingState : boost::noncopyable {
 public:
@@ -128,11 +133,10 @@ struct SaveWorkingStateCandidateValidation {
  * not read unchanged payloads from the base archive.
  *
  * freeze() creates an immutable in-memory overlay which retains shared
- * ownership of its old backing. It is suitable for transition-time state, but
- * it is deliberately not a durable-slot-independent commit: after replacing a
- * save slot, the publication layer must reopen/re-index the newly durable
- * SAVEGAME.sav (preferred), or explicitly materialize/rebase all borrowed
- * payloads before deleting the old backing.
+ * ownership of its detached old backing. It is suitable for transition-time
+ * state, but it is deliberately not a commit of newly published bytes: after
+ * replacing a save slot, the publication layer must reopen/re-index the new
+ * durable SAVEGAME.sav.
  */
 class SaveWorkingStateCandidate {
 public:

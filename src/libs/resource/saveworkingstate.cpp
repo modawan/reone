@@ -17,15 +17,67 @@
 
 #include "reone/resource/saveworkingstate.h"
 
+#include <fstream>
+
 #include "reone/system/exception/validation.h"
 
 namespace reone {
 
 namespace resource {
 
+static ByteBuffer readDetachedArchive(const std::filesystem::path &archivePath) {
+    std::ifstream stream(archivePath, std::ios::binary | std::ios::ate);
+    if (!stream.is_open()) {
+        throw ValidationException(
+            "Unable to open save working-state archive: " + archivePath.string());
+    }
+
+    auto end = stream.tellg();
+    if (end < 0) {
+        throw ValidationException(
+            "Unable to determine save working-state archive size: " +
+            archivePath.string());
+    }
+    auto size = static_cast<uintmax_t>(end);
+    ByteBuffer result;
+    if (size > result.max_size()) {
+        throw ValidationException(
+            "Save working-state archive exceeds memory representation: " +
+            archivePath.string());
+    }
+    result.resize(static_cast<size_t>(size));
+
+    stream.seekg(0, std::ios::beg);
+    if (!stream) {
+        throw ValidationException(
+            "Unable to seek save working-state archive: " + archivePath.string());
+    }
+    size_t offset = 0;
+    while (offset < result.size()) {
+        auto chunk = static_cast<std::streamsize>(std::min<size_t>(
+            result.size() - offset,
+            static_cast<size_t>(std::numeric_limits<std::streamsize>::max())));
+        stream.read(result.data() + offset, chunk);
+        if (stream.gcount() != chunk) {
+            throw ValidationException(
+                "Short read from save working-state archive: " +
+                archivePath.string());
+        }
+        offset += static_cast<size_t>(chunk);
+    }
+    return result;
+}
+
+static std::unique_ptr<ErfResourceContainer> openDetachedArchive(
+    const std::filesystem::path &archivePath) {
+    auto bytes = readDetachedArchive(archivePath);
+    auto archive = std::make_unique<ErfResourceContainer>(Storage(std::move(bytes)));
+    archive->init();
+    return archive;
+}
+
 SaveWorkingState::SaveWorkingState(const std::filesystem::path &archivePath) :
-    _archive(std::make_unique<ErfResourceContainer>(archivePath)) {
-    _archive->init();
+    _archive(openDetachedArchive(archivePath)) {
     _resourceIds = _archive->resourceIds();
 }
 

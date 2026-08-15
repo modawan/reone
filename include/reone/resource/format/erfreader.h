@@ -50,7 +50,7 @@ public:
 private:
     BinaryReader _erf;
 
-    int _numEntries {0};
+    uint32_t _numEntries {0};
     uint32_t _offKeys {0};
     uint32_t _offResources {0};
     std::string _signature;
@@ -59,6 +59,7 @@ private:
     std::vector<ResourceEntry> _resources;
 
     void checkSignature();
+    void checkTableBounds();
     void loadKeys();
     void loadResources();
 

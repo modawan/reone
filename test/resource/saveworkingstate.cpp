@@ -168,7 +168,134 @@ std::string dataOf(const std::optional<SaveResourceView> &view) {
     return dataOf(view->read());
 }
 
+void writeUint32At(ByteBuffer &buffer, size_t offset, uint32_t value) {
+    ASSERT_LE(offset + sizeof(value), buffer.size());
+    for (size_t i = 0; i < sizeof(value); ++i) {
+        buffer[offset + i] = static_cast<char>((value >> (i * 8)) & 0xff);
+    }
+}
+
 } // namespace
+
+TEST(SaveWorkingStateBackingTest, source_archive_can_move_and_delete_while_reads_stay_lazy) {
+    TmpDir directory("reone_e3f0_detached_archive");
+    auto source = directory.path / "SAVEGAME.sav";
+    auto moved = directory.path / "old-savegame.sav";
+    auto module = erfBytes(
+        ErfWriter::FileType::MOD,
+        {{"module", ResType::Ifo, "ifo"},
+         {"area", ResType::Are, "are"},
+         {"area", ResType::Git, "git"}});
+    writeErf(
+        source,
+        ErfWriter::FileType::MOD,
+        {{"inventory", ResType::Res, "inventory bytes"},
+         {"module_a", ResType::Sav, blob(module)},
+         {"pc", ResType::Utc, "player bytes"}});
+    auto sourceSize = std::filesystem::file_size(source);
+
+    SaveWorkingState state(source);
+    EXPECT_EQ(sourceSize, std::filesystem::file_size(source));
+    std::filesystem::rename(source, moved);
+
+    EXPECT_EQ("inventory bytes", dataOf(state.find(ResourceId("inventory", ResType::Res))));
+    EXPECT_EQ(blob(module), dataOf(state.find(ResourceId("module_a", ResType::Sav))));
+    EXPECT_EQ("player bytes", dataOf(state.find(ResourceId("pc", ResType::Utc))));
+
+    std::filesystem::remove(moved);
+    EXPECT_EQ("inventory bytes", dataOf(state.find(ResourceId("inventory", ResType::Res))));
+    EXPECT_EQ(blob(module), dataOf(state.find(ResourceId("module_a", ResType::Sav))));
+    EXPECT_EQ("player bytes", dataOf(state.find(ResourceId("pc", ResType::Utc))));
+}
+
+TEST(SaveWorkingStateBackingTest, entire_loaded_slot_can_move_and_delete_while_session_stays_alive) {
+    TmpDir directory("reone_e3f0_detached_slot");
+    auto target = directory.mkdir("slot");
+    auto backup = directory.path / "backup";
+    writeFile(target / "GLOBALVARS.res", "globals");
+    writeFile(target / "PARTYTABLE.res", "party");
+    writeFile(target / "savenfo.res", "nfo");
+    writeErf(
+        target / "SAVEGAME.sav",
+        ErfWriter::FileType::MOD,
+        {{"inventory", ResType::Res, "inventory"},
+         {"module_a", ResType::Sav, "module"},
+         {"availnpc0", ResType::Utc, "npc"}});
+    SaveSlotDescriptor descriptor {target, target / "SAVEGAME.sav"};
+    SaveSessionState session(descriptor);
+    EXPECT_EQ("globals", dataOf(session.findMetadata(ResourceId("globalvars", ResType::Res))));
+
+    std::filesystem::rename(target, backup);
+    EXPECT_EQ("inventory", dataOf(session.findWorking(ResourceId("inventory", ResType::Res))));
+    EXPECT_EQ("module", dataOf(session.findWorking(ResourceId("module_a", ResType::Sav))));
+    EXPECT_EQ("npc", dataOf(session.findWorking(ResourceId("availnpc0", ResType::Utc))));
+    EXPECT_EQ(descriptor.directory, session.slot().directory);
+    EXPECT_EQ(descriptor.archive, session.slot().archive);
+
+    std::filesystem::remove_all(backup);
+    EXPECT_EQ("inventory", dataOf(session.findWorking(ResourceId("inventory", ResType::Res))));
+    EXPECT_EQ("module", dataOf(session.findWorking(ResourceId("module_a", ResType::Sav))));
+    EXPECT_EQ("npc", dataOf(session.findWorking(ResourceId("availnpc0", ResType::Utc))));
+}
+
+TEST(SaveWorkingStateBackingTest, candidate_and_frozen_overlay_share_detached_base_after_slot_deletion) {
+    TmpDir directory("reone_e3f0_detached_candidate");
+    auto target = directory.mkdir("slot");
+    auto backup = directory.path / "backup";
+    writeErf(
+        target / "SAVEGAME.sav",
+        ErfWriter::FileType::MOD,
+        {{"unchanged", ResType::Txt, "base"},
+         {"replaced", ResType::Txt, "old"},
+         {"deleted", ResType::Txt, "delete"}});
+    auto base = std::make_shared<SaveWorkingState>(target / "SAVEGAME.sav");
+    auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
+    auto borrowed = candidate.find(ResourceId("unchanged", ResType::Txt));
+    ASSERT_TRUE(borrowed);
+    EXPECT_EQ(SaveResourceOrigin::Borrowed, borrowed->origin());
+    candidate.put(ResourceId("replaced", ResType::Txt), bytes("new"));
+    candidate.erase(ResourceId("deleted", ResType::Txt));
+    auto frozen = candidate.freeze();
+
+    std::filesystem::rename(target, backup);
+    std::filesystem::remove_all(backup);
+    base.reset();
+
+    EXPECT_EQ("base", dataOf(borrowed));
+    EXPECT_EQ("base", dataOf(candidate.find(ResourceId("unchanged", ResType::Txt))));
+    EXPECT_EQ("new", dataOf(candidate.find(ResourceId("replaced", ResType::Txt))));
+    EXPECT_FALSE(candidate.find(ResourceId("deleted", ResType::Txt)));
+    EXPECT_EQ("base", dataOf(frozen->find(ResourceId("unchanged", ResType::Txt))));
+    EXPECT_EQ("new", dataOf(frozen->find(ResourceId("replaced", ResType::Txt))));
+    EXPECT_FALSE(frozen->find(ResourceId("deleted", ResType::Txt)));
+}
+
+TEST(SaveWorkingStateBackingTest, malformed_archives_fail_without_retaining_slot_handles) {
+    TmpDir directory("reone_e3f0_detached_failure");
+    std::vector<ByteBuffer> malformed;
+    malformed.push_back(bytes("not an archive"));
+
+    auto impossibleTable = erfBytes(
+        ErfWriter::FileType::MOD,
+        {{"inventory", ResType::Res, "inventory"}});
+    writeUint32At(impossibleTable, 24, 0xfffffff0);
+    malformed.push_back(std::move(impossibleTable));
+
+    auto truncated = erfBytes(
+        ErfWriter::FileType::MOD,
+        {{"inventory", ResType::Res, "inventory"}});
+    truncated.pop_back();
+    malformed.push_back(std::move(truncated));
+
+    for (size_t i = 0; i < malformed.size(); ++i) {
+        auto slot = directory.mkdir("slot" + std::to_string(i));
+        auto backup = directory.path / ("backup" + std::to_string(i));
+        writeBuffer(slot / "SAVEGAME.sav", malformed[i]);
+        EXPECT_THROW(SaveWorkingState(slot / "SAVEGAME.sav"), ValidationException);
+        EXPECT_NO_THROW(std::filesystem::rename(slot, backup));
+        EXPECT_NO_THROW(std::filesystem::remove_all(backup));
+    }
+}
 
 TEST(SaveWorkingStateCandidateTest, empty_candidate_over_empty_base) {
     TmpDir directory("reone_e3a_empty");
@@ -385,7 +512,7 @@ TEST(SaveWorkingStateCandidateTest, owned_replacement_outlives_input_and_candida
     EXPECT_EQ("owned", dataOf(retainedView));
 }
 
-TEST(SaveWorkingStateCandidateTest, candidate_retains_file_backed_base_lifetime) {
+TEST(SaveWorkingStateCandidateTest, candidate_retains_detached_base_lifetime) {
     TmpDir directory("reone_e3a_base_lifetime");
     ResourceId id("state", ResType::Txt);
     auto base = makeWorkingState(directory, {{"state", ResType::Txt, "lazy"}});
@@ -924,6 +1051,37 @@ TEST_P(SaveWorkingStateDirectorTest, enumeration_contains_working_state_not_loos
     EXPECT_NE(ids.end(), ids.find(ResourceId("inventory", ResType::Res)));
     EXPECT_NE(ids.end(), ids.find(ResourceId("foo", ResType::Sav)));
     EXPECT_EQ(ids.end(), ids.find(ResourceId("savenfo", ResType::Res)));
+}
+
+TEST_P(SaveWorkingStateDirectorTest, loaded_session_keeps_no_rename_blocking_slot_handle) {
+    TmpDir game("reone_e3f0_director_detached");
+    TmpDir cwd("reone_e3f0_director_detached_cwd");
+    makeInstallation(game, cwd);
+    auto slot = game.mkdir("saves/slot_a");
+    auto backup = game.path / "saves" / "slot_a_backup";
+    writeFile(slot / "GLOBALVARS.res", "globals");
+    writeFile(slot / "PARTYTABLE.res", "party");
+    writeFile(slot / "savenfo.res", "nfo");
+    writeSlot(
+        game,
+        "slot_a",
+        {{"inventory", ResType::Res, "inventory"},
+         {"module_a", ResType::Sav, "module"},
+         {"availnpc0", ResType::Utc, "npc"}});
+    auto director = makeDirector(game.path);
+    init(*director, cwd);
+    director->onGameLoad("slot_a");
+    EXPECT_EQ("globals", metadata(*director, "globalvars", ResType::Res));
+
+    std::filesystem::rename(slot, backup);
+    EXPECT_EQ("inventory", working(*director, "inventory", ResType::Res));
+    EXPECT_EQ("module", working(*director, "module_a", ResType::Sav));
+    EXPECT_EQ("npc", working(*director, "availnpc0", ResType::Utc));
+
+    std::filesystem::remove_all(backup);
+    EXPECT_EQ("inventory", working(*director, "inventory", ResType::Res));
+    EXPECT_EQ("module", working(*director, "module_a", ResType::Sav));
+    EXPECT_EQ("npc", working(*director, "availnpc0", ResType::Utc));
 }
 
 INSTANTIATE_TEST_SUITE_P(

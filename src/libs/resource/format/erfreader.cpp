@@ -34,12 +34,15 @@ void ErfReader::load() {
     _offKeys = _erf.readUint32();
     _offResources = _erf.readUint32();
 
+    checkTableBounds();
+
     loadKeys();
     loadResources();
 }
 
 void ErfReader::checkSignature() {
-    if (_erf.length() < 8) {
+    constexpr size_t kFixedHeaderFieldsSize = 32;
+    if (_erf.length() < kFixedHeaderFieldsSize) {
         throw ValidationException("Invalid binary resource size");
     }
     _signature = _erf.readString(8);
@@ -56,11 +59,31 @@ void ErfReader::checkSignature() {
     }
 }
 
+void ErfReader::checkTableBounds() {
+    constexpr uint64_t kKeyEntrySize = 24;
+    constexpr uint64_t kResourceEntrySize = 8;
+    auto archiveSize = static_cast<uint64_t>(_erf.length());
+
+    auto checkTable = [archiveSize](
+                          uint32_t offset,
+                          uint64_t entrySize,
+                          uint32_t count,
+                          const char *name) {
+        auto begin = static_cast<uint64_t>(offset);
+        auto size = entrySize * static_cast<uint64_t>(count);
+        if (begin > archiveSize || size > archiveSize - begin) {
+            throw ValidationException(std::string("ERF ") + name + " extends beyond the archive");
+        }
+    };
+    checkTable(_offKeys, kKeyEntrySize, _numEntries, "key table");
+    checkTable(_offResources, kResourceEntrySize, _numEntries, "resource table");
+}
+
 void ErfReader::loadKeys() {
     _keys.reserve(_numEntries);
     _erf.seek(_offKeys);
 
-    for (int i = 0; i < _numEntries; ++i) {
+    for (uint32_t i = 0; i < _numEntries; ++i) {
         _keys.push_back(readKeyEntry());
     }
 }
@@ -81,7 +104,7 @@ void ErfReader::loadResources() {
     _resources.reserve(_numEntries);
     _erf.seek(_offResources);
 
-    for (int i = 0; i < _numEntries; ++i) {
+    for (uint32_t i = 0; i < _numEntries; ++i) {
         _resources.push_back(readResourceEntry());
     }
 }
