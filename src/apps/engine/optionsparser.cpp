@@ -60,6 +60,8 @@ std::unique_ptr<Options> OptionsParser::parse() {
         ("headless", value<bool>()->default_value(false), "never show the window; for scripted batch runs")                     //
         ("vsync", value<bool>()->default_value(options->graphics.vsync), "enable v-sync")                                       //
         ("grass", value<bool>()->default_value(options->graphics.grass), "enable grass")                                        //
+        ("shadows", value<bool>()->default_value(options->graphics.shadows), "enable shadows")                                  //
+        ("particles", value<bool>()->default_value(options->graphics.particles), "enable emitter particles")                    //
         ("pbr", value<bool>()->default_value(options->graphics.pbr), "enable physically-based rendering")                       //
         ("ssao", value<bool>()->default_value(options->graphics.ssao), "enable screen-space ambient occlusion")                 //
         ("ssr", value<bool>()->default_value(options->graphics.ssr), "enable screen-space reflections")                         //
@@ -104,6 +106,8 @@ std::unique_ptr<Options> OptionsParser::parse() {
     options->graphics.headless = vars["headless"].as<bool>();
     options->graphics.vsync = vars["vsync"].as<bool>();
     options->graphics.grass = vars["grass"].as<bool>();
+    options->graphics.shadows = vars["shadows"].as<bool>();
+    options->graphics.particles = vars["particles"].as<bool>();
     options->graphics.pbr = vars["pbr"].as<bool>();
     options->graphics.ssao = vars["ssao"].as<bool>();
     options->graphics.ssr = vars["ssr"].as<bool>();

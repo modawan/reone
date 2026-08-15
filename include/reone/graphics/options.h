@@ -34,6 +34,20 @@ struct GraphicsOptions {
     bool sceneRender {true};
     bool vsync {true};
     bool grass {true};
+    /**
+     * Draw the shadow of the selected shadow light, or none at all.
+     *
+     * Off means the scene has no shadow light for the frame: no shadow pass
+     * runs and no shadow term reaches the uniforms, rather than a pass that
+     * renders and resolves to nothing. It exists so a comparison against
+     * another build can exclude a subsystem whose two implementations are
+     * known to differ, and it must therefore mean the same thing in both
+     * builds - a switch that disables slightly different work on each side
+     * measures itself.
+     */
+    bool shadows {true};
+    /** Admit emitter particles, or leave them out of the frame entirely. */
+    bool particles {true};
     bool pbr {false};
     bool ssao {false};
     bool ssr {false};
