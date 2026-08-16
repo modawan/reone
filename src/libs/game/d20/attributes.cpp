@@ -19,6 +19,9 @@
 
 #include "reone/game/d20/class.h"
 
+#include "reone/game/game.h"
+#include "reone/game/object/creature.h"
+
 namespace reone {
 
 namespace game {
@@ -26,15 +29,48 @@ namespace game {
 static constexpr int kDefaultAbilityScore = 8;
 static constexpr int kDefaultSkillRank = 0;
 
+CreatureAttributes::CreatureAttributes(
+    const CreatureAttributes &other) :
+    _classLevels(other._classLevels),
+    _abilityScores(other._abilityScores),
+    _skillRanks(other._skillRanks),
+    _feats(other._feats),
+    _spells(other._spells) {
+}
+
+CreatureAttributes &CreatureAttributes::operator=(
+    const CreatureAttributes &other) {
+
+    if (this == &other) {
+        return *this;
+    }
+    _classLevels = other._classLevels;
+    _abilityScores = other._abilityScores;
+    _skillRanks = other._skillRanks;
+    _feats = other._feats;
+    _spells = other._spells;
+    return *this;
+}
+
 int CreatureAttributes::getDefense() const {
     return 10 +
            getAggregateDefenseBonus() +
            getAbilityModifier(Ability::Dexterity);
 }
 
-int CreatureAttributes::getAbilityScore(Ability ability) const {
+int CreatureAttributes::getBaseAbilityScore(Ability ability) const {
     auto it = _abilityScores.find(ability);
     return it != _abilityScores.end() ? it->second : kDefaultAbilityScore;
+}
+
+int CreatureAttributes::getAbilityScore(Ability ability) const {
+    int result = getBaseAbilityScore(ability);
+    if (!_owner) {
+        return result;
+    }
+
+    result += _owner->getAbilityEffectModifier(ability);
+    return std::max(3, result);
 }
 
 int CreatureAttributes::getAbilityModifier(Ability ability) const {
@@ -68,6 +104,11 @@ int CreatureAttributes::charisma() const {
 
 void CreatureAttributes::setAbilityScore(Ability ability, int score) {
     _abilityScores[ability] = score;
+}
+
+bool CreatureAttributes::hasFeat(FeatType type) const {
+    return _feats.count(type) > 0 ||
+           (_owner && _owner->hasBonusFeat(type));
 }
 
 void CreatureAttributes::addClassLevels(CreatureClass *clazz, int levels) {

@@ -181,6 +181,7 @@ public:
     // Perception
 
     void updatePerception(float dt);
+    void refreshEffectInvisibility(Creature &creature);
 
     // END Perception
 

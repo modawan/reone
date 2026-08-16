@@ -47,6 +47,7 @@ public:
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     void cancel(std::shared_ptr<Action> self, Object &actor) override;
+    const Object *userActionPrimaryTarget() const override { return _target.get(); }
     const std::shared_ptr<Object> &target() const { return _target; }
 
     AttackResultType result() const { return _attacks.result(); }

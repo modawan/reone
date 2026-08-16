@@ -18,6 +18,7 @@
 #pragma once
 
 #include <algorithm>
+#include <optional>
 
 namespace reone {
 
@@ -47,6 +48,12 @@ public:
     }
 
     bool exhausted() const { return _limited && _limit == 0; }
+    std::optional<int> remainingLimit() const {
+        if (!_limited) {
+            return std::nullopt;
+        }
+        return _limit;
+    }
 
 private:
     int _amount;

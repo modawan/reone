@@ -48,6 +48,9 @@ constexpr float kDefaultAttackRange = 2.0f;
 
 class DamagePacket;
 struct AttackBonusBreakdown;
+struct DamageBreakdown;
+struct DefenseBreakdown;
+struct PhysicalDamageBonus;
 
 class Creature : public Object, public scene::IAnimationEventListener {
 public:
@@ -83,6 +86,7 @@ public:
         float hearingRange {0.0f};
         std::set<uint32_t> seen;
         std::set<uint32_t> heard;
+        std::set<uint32_t> effectInvisible;
     };
 
     struct CombatState {
@@ -115,6 +119,10 @@ public:
 
     void clearAllActions(bool force = false) override;
     void damage(int amount, uint32_t damager) override;
+    void applyDamageEffect(
+        int amount,
+        uint32_t damager,
+        const std::array<int16_t, 15> &damageAmounts) override;
 
     void giveXP(int amount);
     void setXP(int xp);
@@ -142,6 +150,9 @@ public:
     CreatureSize size() const { return _size; }
     CreatureAttributes &attributes() { return _attributes; }
     const CreatureAttributes &attributes() const { return _attributes; }
+    void addBonusFeat(FeatType feat);
+    void removeBonusFeat(FeatType feat);
+    bool hasBonusFeat(FeatType feat) const;
     ItemAttributes &itemAttributes() { return _itemAttributes; }
     const ItemAttributes &itemAttributes() const { return _itemAttributes; }
     Faction faction() const { return _faction; }
@@ -169,6 +180,7 @@ public:
     void playAnimation(CombatAnimation anim, CreatureWieldType wield, int variant = 1);
     void playAnimation(const std::string &name, scene::AnimationProperties properties = scene::AnimationProperties());
     bool playAnimation(const std::shared_ptr<graphics::Animation> &anim, scene::AnimationProperties properties = scene::AnimationProperties());
+    int selectMeleeAttackVariant(bool cinematic);
     // Holds an externally sourced animation until resumeStateDrivenAnimation is called.
     bool playExternalAnimation(const std::shared_ptr<graphics::Animation> &anim, scene::AnimationProperties properties = scene::AnimationProperties());
     void resumeStateDrivenAnimation();
@@ -250,6 +262,10 @@ public:
 
     void setObjectSeen(const std::shared_ptr<Object> &object, bool seen);
     void setObjectHeard(const std::shared_ptr<Object> &object, bool heard);
+    void setObjectEffectInvisible(
+        const std::shared_ptr<Object> &object,
+        bool invisible);
+    void removePerceptionObject(uint32_t objectId);
     void runOnNotice(const Object &object, bool heard, bool seen);
 
     const Perception &perception() const { return _perception; }
@@ -264,6 +280,12 @@ public:
     bool isInCombat() const { return _combatState.active; }
     bool isDebilitated() const;
     bool isTemporarilyDead() const;
+    bool isPartyMember() const;
+    bool isInvisibleTo(const Creature &observer) const;
+    bool hasEffectImmunity(
+        ImmunityType immunityType,
+        const Creature *creator = nullptr) const;
+    int getAbilityEffectModifier(Ability ability) const;
     bool isTwoWeaponFighting() const;
     std::shared_ptr<Item> getOffhandAttackWeapon() const;
 
@@ -280,20 +302,26 @@ public:
         const Item *weapon,
         bool offHand) const;
     int getAttackBonus(bool offHand = false) const;
+    DefenseBreakdown getDefenseBreakdown(
+        const Creature *attacker,
+        int damageFlags) const;
     int getDefense(const Creature *attacker, int damageFlags) const;
     int getDefense() const;
-    int getFortitudeSave(SavingThrowType savingThrowType = SavingThrowType::All) const;
-    bool rollFortitudeSave(
-        int difficultyClass,
-        SavingThrowType savingThrowType = SavingThrowType::All) const;
-    int getPhysicalDamageBonus(const Item *weapon, bool offHand) const;
+    PhysicalDamageBonus getPhysicalDamageBonus(
+        const Item *weapon,
+        bool offHand) const;
     int getMassiveCriticalDamage(const Item *weapon, bool criticalHit) const;
     int getItemDamageImmunity(DamageType type) const;
-    int getItemDamageResistance(DamageType type) const;
-    void getItemDamageReduction(int &amount, DamagePower &power) const;
-    int getDamageResistanceFeatBonus() const;
+    void getDamageResistanceFeatBonuses(
+        int &improvedToughness,
+        int &wookieeEndurance) const;
+    DamagePower calculateDamagePower(
+        const Creature *target,
+        const Item *weapon,
+        bool offHand) const;
     void addPhysicalDamageModifiers(
         DamagePacket &damage,
+        DamageBreakdown &breakdown,
         const Creature *target,
         const Item *weapon,
         bool offHand,
@@ -310,6 +338,21 @@ public:
     void adjustModifiedAttacks(int amount);
     bool applyAssuredHit();
     void removeAssuredHit() { _assuredHit = false; }
+
+    static constexpr uint8_t kSeeInvisibleCounter = 0x01;
+    static constexpr uint8_t kUltravisionCounter = 0x02;
+    static constexpr uint8_t kTrueSeeingCounter = 0x04;
+
+    void setVisibilityCounter(uint8_t bit, bool enabled);
+    bool hasAnyVisibilityCounter(uint8_t bits) const {
+        return (_visibilityCounterBits & bits) != 0;
+    }
+    void restoreVisibilityCounter(
+        EffectType type,
+        uint8_t bit,
+        bool trueSeeingRemovalQuirk);
+    void refreshEffectInvisibility();
+    void clearHostileActionsAgainst(uint32_t objectId);
 
     // END Combat
 
@@ -362,6 +405,13 @@ protected:
     bool canExecuteActions() const override;
 
 private:
+    void applyEquippedItemProperties(
+        int slot,
+        const std::shared_ptr<Item> &item);
+    void removeEquippedItemProperties(
+        int slot,
+        const std::shared_ptr<Item> &item);
+
     // Serializable
     RacialType _race {RacialType::Unknown};
     Subrace _subrace {Subrace::None};
@@ -415,6 +465,7 @@ private:
     uint8_t _perceptionId {0xFF};
 
     CreatureAttributes _attributes;
+    std::vector<FeatType> _bonusFeats;
     std::map<int, std::shared_ptr<Item>> _equipment;
     // END Serializable
 
@@ -439,6 +490,7 @@ private:
     AttackResultType _lastAttackResult {AttackResultType::Invalid};
     int _modifiedAttacks {0};
     bool _assuredHit {false};
+    uint8_t _visibilityCounterBits {0};
     bool _immortal {false};
     std::shared_ptr<resource::SoundSet> _soundSet;
     BodyBag _bodyBag;
@@ -460,6 +512,7 @@ private:
 
     bool _animDirty {true};
     bool _animFireForget {false};
+    int _lastMeleeAttackVariant {-1};
     std::shared_ptr<graphics::LipAnimation> _lipAnimation;
 
     // END Animation

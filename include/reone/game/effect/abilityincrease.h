@@ -25,13 +25,19 @@ namespace game {
 
 class AbilityIncreaseEffect : public Effect {
 public:
-    AbilityIncreaseEffect(Ability abilityToIncrease, int modifyBy) :
-        Effect(EffectType::AbilityIncrease),
+    AbilityIncreaseEffect(
+        Ability abilityToIncrease,
+        int modifyBy,
+        EffectProvenance provenance = {}) :
+        Effect(EffectType::AbilityIncrease, std::move(provenance)),
         _abilityToIncrease(abilityToIncrease),
         _modifyBy(modifyBy) {
     }
 
     void applyTo(Object &object) override;
+
+    Ability ability() const { return _abilityToIncrease; }
+    int amount() const { return _modifyBy; }
 
 private:
     Ability _abilityToIncrease;

@@ -25,6 +25,7 @@ namespace reone {
 
 namespace game {
 
+class Creature;
 class CreatureClass;
 
 /**
@@ -33,6 +34,13 @@ class CreatureClass;
  */
 class CreatureAttributes {
 public:
+    explicit CreatureAttributes(Creature *owner = nullptr) :
+        _owner(owner) {
+    }
+
+    CreatureAttributes(const CreatureAttributes &other);
+    CreatureAttributes &operator=(const CreatureAttributes &other);
+
     int getDefense() const;
 
     // Class Levels
@@ -70,6 +78,7 @@ public:
     // Abilities
 
     int getAbilityScore(Ability ability) const;
+    int getBaseAbilityScore(Ability ability) const;
     int getAbilityModifier(Ability ability) const;
 
     const std::map<Ability, int> &abilityScores() const { return _abilityScores; }
@@ -106,7 +115,7 @@ public:
 
     // Feats
 
-    bool hasFeat(FeatType type) const { return _feats.count(type) > 0; }
+    bool hasFeat(FeatType type) const;
 
     void addFeat(FeatType type) { _feats.insert(type); }
     void removeFeat(FeatType type) { _feats.erase(type); }
@@ -123,6 +132,7 @@ public:
     // END Force Powers
 
 private:
+    Creature *_owner {nullptr};
     std::vector<std::pair<CreatureClass *, int>> _classLevels;
     std::map<Ability, int> _abilityScores;
     std::map<SkillType, int> _skillRanks;

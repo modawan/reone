@@ -158,6 +158,7 @@ public:
     OptionsView &options() { return _options; }
     const OptionsView &options() const { return _options; }
     Party &party() { return _party; }
+    const Party &party() const { return _party; }
     Combat &combat() { return _combat; }
     Journal &journal() { return _journal; }
     MessageLog &messageLog() { return _messageLog; }
@@ -302,6 +303,13 @@ public:
     // Objects
 
     std::shared_ptr<Object> getObjectById(uint32_t id) const;
+
+    uint32_t lastTarget() const { return _lastTarget; }
+    void setLastTarget(uint32_t objectId) { _lastTarget = objectId; }
+    bool floatingTextEnabled() const {
+        return (_options.game.feedbackOptions & 0x10) != 0;
+    }
+    int scaleDamageForDifficulty(int damage, const Object &target) const;
 
     inline std::shared_ptr<Module> newModule() {
         return newObject<Module>(*this, _services);
@@ -511,6 +519,7 @@ private:
 
     uint32_t _nextObjectId {2}; // ids 0 and 1 are reserved
     std::map<uint32_t, std::shared_ptr<Object>> _objectById;
+    uint32_t _lastTarget {script::kObjectInvalid};
 
     // Services
 

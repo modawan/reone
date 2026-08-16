@@ -25,9 +25,22 @@ namespace game {
 
 class ImmunityEffect : public Effect {
 public:
-    ImmunityEffect(ImmunityType immunityType) :
-        Effect(EffectType::Immunity),
+    ImmunityEffect(
+        ImmunityType immunityType,
+        RacialType versusRace = RacialType::All,
+        Alignment versusAlignment = Alignment::All,
+        EffectProvenance provenance = {}) :
+        Effect(EffectType::Immunity, std::move(provenance)),
         _immunityType(immunityType) {
+
+        if (versusRace != RacialType::All) {
+            setVersusRacialType(static_cast<int>(versusRace));
+        }
+        if (versusAlignment != Alignment::All) {
+            setVersusAlignment(
+                static_cast<int>(Alignment::All),
+                static_cast<int>(versusAlignment));
+        }
     }
 
     void applyTo(Object &object) override;

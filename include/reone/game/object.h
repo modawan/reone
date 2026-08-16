@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <array>
+
 #include "reone/scene/animproperties.h"
 #include "reone/scene/graph.h"
 #include "reone/scene/node.h"
@@ -57,6 +59,10 @@ public:
 
     virtual void update(float dt);
     virtual void damage(int amount, uint32_t damager);
+    virtual void applyDamageEffect(
+        int amount,
+        uint32_t damager,
+        const std::array<int16_t, 15> &damageAmounts);
     void heal(int amount) { damage(-amount, 0); }
 
     void face(const Object &other);
@@ -84,6 +90,7 @@ public:
     float getFacing() const { return glm::eulerAngles(_orientation).z; }
 
     uint32_t id() const { return _id; }
+    Game &game() const { return _game; }
     const std::string &tag() const { return _tag; }
     ObjectType type() const { return _type; }
     const std::string &blueprintResRef() const { return _blueprintResRef; }
@@ -138,12 +145,17 @@ public:
 
     void clearAllEffects();
     void removeEffect(const std::shared_ptr<Effect> &effect);
-    void applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration = 0.0f);
+    void applyEffect(
+        const std::shared_ptr<Effect> &effect,
+        DurationType durationType,
+        float duration = 0.0f,
+        uint32_t creatorId = script::kObjectInvalid);
 
     struct AppliedEffect {
         std::shared_ptr<Effect> effect;
         DurationType durationType {DurationType::Instant};
         float duration {0.0f};
+        uint64_t applicationOrder {0};
     };
 
     const std::deque<AppliedEffect> &effects() const { return _effects; }
@@ -205,8 +217,16 @@ public:
     // Combat
 
     uint32_t getLastHostileActor() const { return _lastHostileActor; }
+    uint32_t getLastDamager() const { return _lastDamager; }
+    int getLastDamageAmount(int damageFlags) const;
+    int getTotalDamageDealt() const;
 
     void setLastHostileActor(uint32_t actor) { _lastHostileActor = actor; }
+    void setLastDamager(uint32_t damager) { _lastDamager = damager; }
+    void setLastDamageAmounts(
+        const std::array<int16_t, 15> &amounts) {
+        _lastDamageAmounts = amounts;
+    }
 
     // END Combat
 
@@ -267,6 +287,7 @@ protected:
     bool _visible {true};
     Room *_room {nullptr};
     std::deque<AppliedEffect> _effects;
+    uint64_t _nextEffectApplicationOrder {1};
     bool _open {false};
     bool _stunt {false};
     std::string _activeAnimName;
@@ -285,6 +306,8 @@ protected:
     // END Actions
 
     uint32_t _lastHostileActor {script::kObjectInvalid};
+    uint32_t _lastDamager {script::kObjectInvalid};
+    std::array<int16_t, 15> _lastDamageAmounts;
 
     // Local variables
 
@@ -304,6 +327,7 @@ protected:
         _sceneName(std::move(sceneName)),
         _game(game),
         _services(services) {
+        _lastDamageAmounts.fill(-1);
     }
 
     virtual void updateTransform();

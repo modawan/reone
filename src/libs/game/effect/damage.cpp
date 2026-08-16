@@ -24,6 +24,7 @@
 #include "reone/game/effect/damagereduction.h"
 #include "reone/game/effect/damageresistance.h"
 #include "reone/game/object.h"
+#include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 
 namespace reone {
@@ -31,6 +32,19 @@ namespace reone {
 namespace game {
 
 static constexpr int kDamageTypeCount = 15;
+
+static int applyNativeDamageImmunityDelta(int current, long long delta) {
+    // Native processing performs each immunity adjustment with addb/subb, sign-extends the
+    // resulting byte, and only then applies the setter's [-100, 100] clamp.
+    // Preserve that per-effect truncation instead of accumulating in an int.
+    long long raw = static_cast<long long>(current) + delta;
+    int byte = static_cast<int>(raw % 0x100);
+    if (byte < 0) {
+        byte += 0x100;
+    }
+    int signedByte = byte < 0x80 ? byte : byte - 0x100;
+    return std::clamp(signedByte, -100, 100);
+}
 
 DamageType getPrimaryDamageType(int damageFlags) {
     assert(damageFlags > 0);
@@ -75,31 +89,44 @@ static int getDamageImmunity(const Object &object, DamageType damageType) {
                 100);
         }
 
+        std::vector<const Object::AppliedEffect *> modifiers;
         for (const Object::AppliedEffect &applied : object.effects()) {
-            switch (applied.effect->type()) {
+            if (applied.effect->type() == EffectType::DamageImmunityIncrease ||
+                applied.effect->type() == EffectType::DamageImmunityDecrease) {
+                modifiers.push_back(&applied);
+            }
+        }
+        std::sort(
+            modifiers.begin(),
+            modifiers.end(),
+            [](const Object::AppliedEffect *left,
+               const Object::AppliedEffect *right) {
+                return left->applicationOrder < right->applicationOrder;
+            });
+
+        for (const Object::AppliedEffect *applied : modifiers) {
+            switch (applied->effect->type()) {
             case EffectType::DamageImmunityIncrease: {
                 const auto &effect =
-                    static_cast<const DamageImmunityIncreaseEffect &>(*applied.effect);
+                    static_cast<const DamageImmunityIncreaseEffect &>(*applied->effect);
                 if (damageTypeMatches(
                         static_cast<int>(effect.damageType()),
                         static_cast<int>(type))) {
-                    immunity = std::clamp(
-                        immunity + effect.percentImmunity(),
-                        -100,
-                        100);
+                    immunity = applyNativeDamageImmunityDelta(
+                        immunity,
+                        static_cast<long long>(effect.percentImmunity()));
                 }
                 break;
             }
             case EffectType::DamageImmunityDecrease: {
                 const auto &effect =
-                    static_cast<const DamageImmunityDecreaseEffect &>(*applied.effect);
+                    static_cast<const DamageImmunityDecreaseEffect &>(*applied->effect);
                 if (damageTypeMatches(
                         static_cast<int>(effect.damageType()),
                         static_cast<int>(type))) {
-                    immunity = std::clamp(
-                        immunity - effect.percentImmunity(),
-                        -100,
-                        100);
+                    immunity = applyNativeDamageImmunityDelta(
+                        immunity,
+                        -static_cast<long long>(effect.percentImmunity()));
                 }
                 break;
             }
@@ -119,36 +146,54 @@ static int getDamageImmunity(const Object &object, DamageType damageType) {
 static int applyDamageImmunity(
     const Object &object,
     DamageType damageType,
-    int damage) {
+    int damage,
+    DamageResolution &resolution) {
 
     if (damage <= 0) {
+        resolution.damageAfterImmunity = 0;
         return 0;
     }
 
     int immunity = getDamageImmunity(object, damageType);
+    resolution.immunityPercent = immunity;
+
+    int result;
     if (immunity > 0) {
         int prevented = std::max(1, damage * immunity / 100);
-        return std::max(0, damage - prevented);
+        result = std::max(0, damage - prevented);
+        resolution.immunityPrevented = damage - result;
+        resolution.mitigationFeedback.push_back({
+            MitigationFeedbackType::DamageImmunity,
+            resolution.immunityPrevented,
+            std::nullopt,
+            static_cast<int>(damageType),
+        });
+    } else {
+        result = damage - damage * immunity / 100;
+        resolution.vulnerabilityAdded = result - damage;
     }
-    return damage - damage * immunity / 100;
+
+    resolution.damageAfterImmunity = result;
+    return result;
 }
 
 static int applyDamageResistance(
     Object &object,
     DamageType damageType,
-    int damage) {
-
-    if (damage <= 0) {
-        return 0;
-    }
+    int damage,
+    DamageResolution &resolution) {
 
     int resistance = 0;
     int featBonus = 0;
     if (const auto *creature = dyn_cast<Creature>(&object)) {
-        resistance = creature->getItemDamageResistance(damageType);
-        featBonus = creature->getDamageResistanceFeatBonus();
+        creature->getDamageResistanceFeatBonuses(
+            resolution.improvedToughnessBonus,
+            resolution.wookieeEnduranceBonus);
+        featBonus = resolution.improvedToughnessBonus +
+                    resolution.wookieeEnduranceBonus;
     }
 
+    bool secondaryQualifier = false;
     std::shared_ptr<DamageResistanceEffect> selectedEffect;
     for (const Object::AppliedEffect &applied : object.effects()) {
         if (applied.effect->type() != EffectType::DamageResistance) {
@@ -156,6 +201,11 @@ static int applyDamageResistance(
         }
 
         auto effect = std::static_pointer_cast<DamageResistanceEffect>(applied.effect);
+        if (damageTypeMatches(
+                effect->secondaryDamageFlags(),
+                static_cast<int>(damageType))) {
+            secondaryQualifier = true;
+        }
         if (!damageTypeMatches(
                 static_cast<int>(effect->damageType()),
                 static_cast<int>(damageType)) ||
@@ -167,25 +217,55 @@ static int applyDamageResistance(
         selectedEffect = std::move(effect);
     }
 
-    int prevented = selectedEffect
-                        ? selectedEffect->absorb(damage)
-                        : std::min(damage, resistance);
-    if (selectedEffect && selectedEffect->exhausted()) {
-        object.removeEffect(selectedEffect);
+    resolution.resistanceAmount = resistance;
+    int consumptionDamage = damage * (secondaryQualifier ? 2 : 1);
+    std::optional<int> preHitPool = selectedEffect
+                                        ? selectedEffect->remainingLimit()
+                                        : std::nullopt;
+    int effectiveResistance = resistance;
+    if (preHitPool && *preHitPool <= consumptionDamage) {
+        effectiveResistance = *preHitPool;
     }
 
-    return std::max(0, damage - prevented - featBonus);
+    int reportedAmount = selectedEffect
+                             ? selectedEffect->absorb(consumptionDamage)
+                             : std::min(consumptionDamage, resistance);
+    if (selectedEffect) {
+        resolution.resistancePoolRemaining = selectedEffect->remainingLimit();
+        if (selectedEffect->exhausted()) {
+            object.removeEffect(selectedEffect);
+        }
+    }
+
+    if (resistance > 0) {
+        resolution.mitigationFeedback.push_back({
+            preHitPool
+                ? MitigationFeedbackType::FiniteDamageResistance
+                : MitigationFeedbackType::DamageResistance,
+            reportedAmount,
+            preHitPool
+                ? std::optional<int>(*preHitPool - reportedAmount)
+                : std::nullopt,
+            0,
+        });
+    }
+
+    int prevented = std::min(std::max(damage, 0), effectiveResistance);
+    resolution.resistancePrevented = prevented;
+    int remaining = std::max(0, damage - prevented);
+    int result = std::max(0, damage - prevented - featBonus);
+    resolution.resistanceFeatPrevented = remaining - result;
+    resolution.damageAfterResistance = result;
+    return result;
 }
 
 static int applyDamageReduction(
     Object &object,
     DamageType damageType,
     DamagePower damagePower,
-    int damage) {
+    int damage,
+    DamageResolution &resolution) {
 
-    if (damage <= 0) {
-        return 0;
-    }
     if (!damageTypeMatches(
             kPhysicalDamageTypeFlags,
             static_cast<int>(damageType))) {
@@ -194,10 +274,6 @@ static int applyDamageReduction(
 
     int reduction = 0;
     DamagePower requiredPower = DamagePower::Normal;
-    if (const auto *creature = dyn_cast<Creature>(&object)) {
-        creature->getItemDamageReduction(reduction, requiredPower);
-    }
-
     std::shared_ptr<DamageReductionEffect> selectedEffect;
     for (const Object::AppliedEffect &applied : object.effects()) {
         if (applied.effect->type() != EffectType::DamageReduction) {
@@ -214,17 +290,44 @@ static int applyDamageReduction(
         selectedEffect = std::move(effect);
     }
 
-    int prevented = selectedEffect
-                        ? selectedEffect->absorb(damage)
-                        : std::min(damage, reduction);
-    if (selectedEffect && selectedEffect->exhausted()) {
-        object.removeEffect(selectedEffect);
+    resolution.reductionAmount = reduction;
+    resolution.reductionPower = requiredPower;
+    std::optional<int> preHitPool = selectedEffect
+                                        ? selectedEffect->remainingLimit()
+                                        : std::nullopt;
+    int reportedAmount = selectedEffect
+                             ? selectedEffect->absorb(damage)
+                             : std::min(damage, reduction);
+    if (selectedEffect) {
+        resolution.reductionPoolRemaining = selectedEffect->remainingLimit();
+        if (selectedEffect->exhausted()) {
+            object.removeEffect(selectedEffect);
+        }
     }
 
-    if (static_cast<int>(damagePower) >= static_cast<int>(requiredPower)) {
+    resolution.reductionBypassed =
+        reduction > 0 &&
+        static_cast<int>(damagePower) >= static_cast<int>(requiredPower);
+    if (resolution.reductionBypassed) {
         return damage;
     }
-    return std::max(0, damage - prevented);
+
+    if (reduction > 0) {
+        resolution.mitigationFeedback.push_back({
+            preHitPool
+                ? MitigationFeedbackType::FiniteDamageReduction
+                : MitigationFeedbackType::DamageReduction,
+            reportedAmount,
+            preHitPool
+                ? std::optional<int>(*preHitPool - reportedAmount)
+                : std::nullopt,
+            0,
+        });
+    }
+
+    int result = std::max(0, damage - reportedAmount);
+    resolution.reductionPrevented = damage - result;
+    return result;
 }
 
 void DamagePacket::requireUnresolved() const {
@@ -275,24 +378,46 @@ void DamagePacket::resolve(Object &object) {
         throw std::logic_error("Damage packet has no damage flags");
     }
 
-    int amount = total();
+    DamageResolution result;
+    result.damageFlags = _damageFlags;
+    result.damagePower = _power;
+    result.rawDamage = total();
     if (object.plotFlag()) {
-        _resolvedDamage = 0;
+        result.plotSuppressed = true;
+        _resolution.emplace(std::move(result));
         return;
     }
 
     auto damageType = static_cast<DamageType>(_damageFlags);
-    amount = applyDamageImmunity(object, damageType, amount);
-    amount = applyDamageResistance(object, damageType, amount);
-    amount = applyDamageReduction(object, damageType, _power, amount);
-    _resolvedDamage = amount;
+    int amount = applyDamageImmunity(
+        object,
+        damageType,
+        result.rawDamage,
+        result);
+    amount = applyDamageResistance(
+        object,
+        damageType,
+        amount,
+        result);
+    amount = applyDamageReduction(
+        object,
+        damageType,
+        _power,
+        amount,
+        result);
+    result.finalDamage = amount;
+    _resolution.emplace(std::move(result));
+}
+
+const DamageResolution &DamagePacket::resolution() const {
+    if (!_resolution) {
+        throw std::logic_error("Damage packet has not been resolved");
+    }
+    return *_resolution;
 }
 
 int DamagePacket::resolvedDamage() const {
-    if (!_resolvedDamage) {
-        throw std::logic_error("Damage packet has not been resolved");
-    }
-    return *_resolvedDamage;
+    return resolution().finalDamage;
 }
 
 int DamagePacket::total() const {
@@ -304,13 +429,35 @@ int DamagePacket::total() const {
 }
 
 void DamageEffect::applyTo(Object &object) {
+    // Native OnApplyDamage decides whether to enter the effect path from the
+    // raw fifteen-slot payload. A raw-positive attack that mitigation reduces
+    // to zero must still publish LastDamager/slot state and run OnDamaged.
+    int entryAmount = _damage.total();
+    if (entryAmount == 0 && !object.plotFlag()) {
+        return;
+    }
+
     if (!_damage.isResolved()) {
         _damage.resolve(object);
     }
 
-    int amount = _damage.resolvedDamage();
+    int amount = object.game().scaleDamageForDifficulty(
+        _damage.resolvedDamage(),
+        object);
+    std::array<int16_t, 15> damageAmounts = _context.damageAmounts;
+    if (_context.preResolved && damageAmounts.back() >= 0) {
+        damageAmounts.back() = static_cast<int16_t>(amount);
+    }
+    if (object.plotFlag() || (!_context.preResolved && amount == 0)) {
+        for (int16_t &value : damageAmounts) {
+            if (value >= 0) {
+                value = 0;
+            }
+        }
+    }
+
     debug(str(boost::format("Damage taken: %s %d") % object.tag() % amount));
-    object.damage(amount, _damager);
+    object.applyDamageEffect(amount, _damager, damageAmounts);
 }
 
 } // namespace game

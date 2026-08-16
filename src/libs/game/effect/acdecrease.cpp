@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2020-2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,12 +17,29 @@
 
 #include "reone/game/effect/acdecrease.h"
 
+#include "reone/game/game.h"
+#include "reone/game/object/creature.h"
+
 namespace reone {
 
 namespace game {
 
-void ACDecreaseEffect::applyTo(Object &object) {
-    // TODO: implement
+bool ACDecreaseEffect::onApply(Object &object) {
+    auto *creature = dyn_cast<Creature>(&object);
+    if (!creature) {
+        return false;
+    }
+    if (_value <= 0 || creature->plotFlag()) {
+        return false;
+    }
+
+    auto creatorObject = object.game().getObjectById(creatorId());
+    const auto *creator = creatorObject
+                              ? dyn_cast<Creature>(creatorObject.get())
+                              : nullptr;
+    return !creature->hasEffectImmunity(
+        ImmunityType::AcDecrease,
+        creator);
 }
 
 } // namespace game

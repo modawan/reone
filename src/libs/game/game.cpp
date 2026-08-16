@@ -41,6 +41,7 @@
 #include "reone/game/room.h"
 #include "reone/game/script/routines.h"
 #include "reone/game/surfaces.h"
+#include "reone/game/twodautil.h"
 #include "reone/graphics/context.h"
 #include "reone/graphics/di/services.h"
 #include "reone/graphics/font.h"
@@ -1306,6 +1307,31 @@ std::shared_ptr<Object> Game::getObjectById(uint32_t id) const {
         return it != _objectById.end() ? it->second : nullptr;
     }
     }
+}
+
+int Game::scaleDamageForDifficulty(int damage, const Object &target) const {
+    if (damage <= 0) {
+        return damage;
+    }
+
+    bool playerTarget = _party.isMember(target) ||
+                        (_party.player() && _party.player()->id() == target.id());
+    if (!playerTarget) {
+        return damage;
+    }
+
+    int row = static_cast<int>(_options.game.clientDifficulty);
+    auto table = getRequiredTwoDA(_services.resource.twoDas, "difficultyopt");
+    validateTwoDARow(*table, "difficultyopt", row);
+    auto multiplier = table->getFloatOpt(row, "multiplier");
+    if (!multiplier) {
+        if (row == 3) {
+            return damage;
+        }
+        throw ValidationException(str(boost::format(
+            "difficultyopt.2da multiplier missing at row %d") % row));
+    }
+    return static_cast<int>(static_cast<float>(damage) * *multiplier);
 }
 
 void Game::renderGUI() {
@@ -3671,7 +3697,7 @@ void Game::consoleSelectObjectByTag(const ConsoleArgs &args) {
 
 void Game::consoleSelectLeader(const ConsoleArgs &args) {
     consoleCheckUsage(args, 0, 0, "");
-    getConsoleArea()->selectObject(getConsoleLeader());
+    getConsoleArea()->selectObject(getConsoleLeader(), /*force=*/true);
 }
 
 void Game::consoleSetFaction(const ConsoleArgs &args) {

@@ -108,6 +108,7 @@
 #include "reone/game/script/routine/argutil.h"
 #include "reone/game/script/routine/context.h"
 #include "reone/game/script/routines.h"
+#include "reone/script/executioncontext.h"
 #include "reone/script/routine/exception/notimplemented.h"
 #include "reone/script/variable.h"
 
@@ -128,6 +129,17 @@ using namespace reone::script;
 namespace reone {
 
 namespace game {
+
+static EffectProvenance getScriptEffectProvenance(
+    const RoutineContext &ctx) {
+
+    EffectProvenance provenance;
+    provenance.creatorId = getCaller(ctx)->id();
+    if (const Variable *spell = ctx.execution.findArg(ArgKind::SpellId)) {
+        provenance.spellId = spell->intValue;
+    }
+    return provenance;
+}
 
 static Variable EffectAssuredHit(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
@@ -155,9 +167,14 @@ static Variable EffectDamage(const std::vector<Variable> &args, const RoutineCon
     // Transform
     auto damageType = static_cast<DamageType>(nDamageType);
     auto damagePower = static_cast<DamagePower>(nDamagePower);
+    uint32_t damager = getCaller(ctx)->id();
 
     // Execute
-    auto effect = ctx.game.newEffect<DamageEffect>(nDamageAmount, damageType, damagePower, 0);
+    auto effect = ctx.game.newEffect<DamageEffect>(
+        nDamageAmount,
+        damageType,
+        damagePower,
+        damager);
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -170,7 +187,10 @@ static Variable EffectAbilityIncrease(const std::vector<Variable> &args, const R
     auto abilityToIncrease = static_cast<Ability>(nAbilityToIncrease);
 
     // Execute
-    auto effect = ctx.game.newEffect<AbilityIncreaseEffect>(abilityToIncrease, nModifyBy);
+    auto effect = ctx.game.newEffect<AbilityIncreaseEffect>(
+        abilityToIncrease,
+        nModifyBy,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -184,7 +204,12 @@ static Variable EffectDamageResistance(const std::vector<Variable> &args, const 
     auto damageType = static_cast<DamageType>(nDamageType);
 
     // Execute
-    auto effect = ctx.game.newEffect<DamageResistanceEffect>(damageType, nAmount, nLimit);
+    auto effect = ctx.game.newEffect<DamageResistanceEffect>(
+        damageType,
+        nAmount,
+        nLimit,
+        0,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -217,7 +242,11 @@ static Variable EffectACIncrease(const std::vector<Variable> &args, const Routin
     auto modifyType = getACBonus(nModifyType);
 
     // Execute
-    auto effect = ctx.game.newEffect<ACIncreaseEffect>(nValue, modifyType, nDamageType);
+    auto effect = ctx.game.newEffect<ACIncreaseEffect>(
+        nValue,
+        modifyType,
+        nDamageType,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -231,7 +260,11 @@ static Variable EffectSavingThrowIncrease(const std::vector<Variable> &args, con
     auto saveType = static_cast<SavingThrowType>(nSaveType);
 
     // Execute
-    auto effect = ctx.game.newEffect<SavingThrowIncreaseEffect>(nSave, nValue, saveType);
+    auto effect = ctx.game.newEffect<SavingThrowIncreaseEffect>(
+        nSave,
+        nValue,
+        saveType,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -244,7 +277,10 @@ static Variable EffectAttackIncrease(const std::vector<Variable> &args, const Ro
     auto modifierType = static_cast<AttackBonus>(nModifierType);
 
     // Execute
-    auto effect = ctx.game.newEffect<AttackIncreaseEffect>(nBonus, modifierType);
+    auto effect = ctx.game.newEffect<AttackIncreaseEffect>(
+        nBonus,
+        modifierType,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -258,7 +294,11 @@ static Variable EffectDamageReduction(const std::vector<Variable> &args, const R
     auto damagePower = static_cast<DamagePower>(nDamagePower);
 
     // Execute
-    auto effect = ctx.game.newEffect<DamageReductionEffect>(nAmount, damagePower, nLimit);
+    auto effect = ctx.game.newEffect<DamageReductionEffect>(
+        nAmount,
+        damagePower,
+        nLimit,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -271,7 +311,10 @@ static Variable EffectDamageIncrease(const std::vector<Variable> &args, const Ro
     auto damageType = static_cast<DamageType>(nDamageType);
 
     // Execute
-    auto effect = ctx.game.newEffect<DamageIncreaseEffect>(nBonus, damageType);
+    auto effect = ctx.game.newEffect<DamageIncreaseEffect>(
+        nBonus,
+        damageType,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -519,7 +562,11 @@ static Variable EffectImmunity(const std::vector<Variable> &args, const RoutineC
     auto immunityType = static_cast<ImmunityType>(nImmunityType);
 
     // Execute
-    auto effect = ctx.game.newEffect<ImmunityEffect>(immunityType);
+    auto effect = ctx.game.newEffect<ImmunityEffect>(
+        immunityType,
+        RacialType::All,
+        Alignment::All,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -532,7 +579,10 @@ static Variable EffectDamageImmunityIncrease(const std::vector<Variable> &args, 
     auto damageType = static_cast<DamageType>(nDamageType);
 
     // Execute
-    auto effect = ctx.game.newEffect<DamageImmunityIncreaseEffect>(damageType, nPercentImmunity);
+    auto effect = ctx.game.newEffect<DamageImmunityIncreaseEffect>(
+        damageType,
+        nPercentImmunity,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -556,7 +606,10 @@ static Variable EffectSkillIncrease(const std::vector<Variable> &args, const Rou
     auto skill = static_cast<SkillType>(nSkill);
 
     // Execute
-    auto effect = ctx.game.newEffect<SkillIncreaseEffect>(skill, nValue);
+    auto effect = ctx.game.newEffect<SkillIncreaseEffect>(
+        skill,
+        nValue,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -631,7 +684,10 @@ static Variable EffectAbilityDecrease(const std::vector<Variable> &args, const R
     auto ability = static_cast<Ability>(nAbility);
 
     // Execute
-    auto effect = ctx.game.newEffect<AbilityDecreaseEffect>(ability, nModifyBy);
+    auto effect = ctx.game.newEffect<AbilityDecreaseEffect>(
+        ability,
+        nModifyBy,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -644,7 +700,10 @@ static Variable EffectAttackDecrease(const std::vector<Variable> &args, const Ro
     auto modifierType = static_cast<AttackBonus>(nModifierType);
 
     // Execute
-    auto effect = ctx.game.newEffect<AttackDecreaseEffect>(nPenalty, modifierType);
+    auto effect = ctx.game.newEffect<AttackDecreaseEffect>(
+        nPenalty,
+        modifierType,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -657,7 +716,10 @@ static Variable EffectDamageDecrease(const std::vector<Variable> &args, const Ro
     auto damageType = static_cast<DamageType>(nDamageType);
 
     // Execute
-    auto effect = ctx.game.newEffect<DamageDecreaseEffect>(nPenalty, damageType);
+    auto effect = ctx.game.newEffect<DamageDecreaseEffect>(
+        nPenalty,
+        damageType,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -670,7 +732,10 @@ static Variable EffectDamageImmunityDecrease(const std::vector<Variable> &args, 
     auto damageType = static_cast<DamageType>(nDamageType);
 
     // Execute
-    auto effect = ctx.game.newEffect<DamageImmunityDecreaseEffect>(damageType, nPercentImmunity);
+    auto effect = ctx.game.newEffect<DamageImmunityDecreaseEffect>(
+        damageType,
+        nPercentImmunity,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -684,7 +749,11 @@ static Variable EffectACDecrease(const std::vector<Variable> &args, const Routin
     auto modifyType = getACBonus(nModifyType);
 
     // Execute
-    auto effect = ctx.game.newEffect<ACDecreaseEffect>(nValue, modifyType, nDamageType);
+    auto effect = ctx.game.newEffect<ACDecreaseEffect>(
+        nValue,
+        modifyType,
+        nDamageType,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -709,7 +778,11 @@ static Variable EffectSavingThrowDecrease(const std::vector<Variable> &args, con
     auto saveType = static_cast<SavingThrowType>(nSaveType);
 
     // Execute
-    auto effect = ctx.game.newEffect<SavingThrowDecreaseEffect>(nSave, nValue, saveType);
+    auto effect = ctx.game.newEffect<SavingThrowDecreaseEffect>(
+        nSave,
+        nValue,
+        saveType,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -722,7 +795,10 @@ static Variable EffectSkillDecrease(const std::vector<Variable> &args, const Rou
     auto skill = static_cast<SkillType>(nSkill);
 
     // Execute
-    auto effect = ctx.game.newEffect<SkillDecreaseEffect>(skill, nValue);
+    auto effect = ctx.game.newEffect<SkillDecreaseEffect>(
+        skill,
+        nValue,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -741,11 +817,20 @@ static Variable EffectInvisibility(const std::vector<Variable> &args, const Rout
     // Load
     auto nInvisibilityType = getInt(args, 0);
 
-    // Transform
-    auto invisibilityType = static_cast<InvisibilityType>(nInvisibilityType);
+    if (nInvisibilityType != static_cast<int>(InvisibilityType::Normal) &&
+        nInvisibilityType != static_cast<int>(InvisibilityType::Darkness) &&
+        nInvisibilityType != static_cast<int>(InvisibilityType::Improved)) {
+        return Variable::ofEffect(ctx.game.newEffect<Effect>(EffectType::Invalid));
+    }
 
-    // Execute
-    auto effect = ctx.game.newEffect<InvisibilityEffect>(invisibilityType);
+    EffectProvenance provenance = getScriptEffectProvenance(ctx);
+    provenance.linkClass = EffectLinkClass::Creator;
+    provenance.nativeType = 47;
+    auto effect = ctx.game.newEffect<InvisibilityEffect>(
+        static_cast<InvisibilityType>(nInvisibilityType),
+        RacialType::All,
+        Alignment::All,
+        provenance);
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -756,7 +841,9 @@ static Variable EffectConcealment(const std::vector<Variable> &args, const Routi
     // Transform
 
     // Execute
-    auto effect = ctx.game.newEffect<ConcealmentEffect>(nPercentage);
+    auto effect = ctx.game.newEffect<ConcealmentEffect>(
+        nPercentage,
+        getScriptEffectProvenance(ctx));
     return Variable::ofEffect(std::move(effect));
 }
 
@@ -794,14 +881,18 @@ static Variable EffectDisguise(const std::vector<Variable> &args, const RoutineC
 }
 
 static Variable EffectTrueSeeing(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    auto effect = ctx.game.newEffect<TrueSeeingEffect>();
+    EffectProvenance provenance = getScriptEffectProvenance(ctx);
+    provenance.linkClass = EffectLinkClass::Creator;
+    provenance.nativeType = 72;
+    auto effect = ctx.game.newEffect<TrueSeeingEffect>(provenance);
     return Variable::ofEffect(std::move(effect));
 }
 
 static Variable EffectSeeInvisible(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    auto effect = ctx.game.newEffect<SeeInvisibleEffect>();
+    EffectProvenance provenance = getScriptEffectProvenance(ctx);
+    provenance.linkClass = EffectLinkClass::Creator;
+    provenance.nativeType = 70;
+    auto effect = ctx.game.newEffect<SeeInvisibleEffect>(provenance);
     return Variable::ofEffect(std::move(effect));
 }
 

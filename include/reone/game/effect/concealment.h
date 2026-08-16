@@ -25,8 +25,10 @@ namespace game {
 
 class ConcealmentEffect : public Effect {
 public:
-    ConcealmentEffect(int percentage) :
-        Effect(EffectType::Concealment),
+    explicit ConcealmentEffect(
+        int percentage,
+        EffectProvenance provenance = {}) :
+        Effect(EffectType::Concealment, std::move(provenance)),
         _percentage(percentage) {
     }
 

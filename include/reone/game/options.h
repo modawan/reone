@@ -29,6 +29,10 @@ struct GameOptions {
     std::filesystem::path path;
     bool developer {false};
     bool neo {false};
+
+    // Client options used by difficulty scaling and AddFloatyText.
+    uint8_t clientDifficulty {1}; // Easy=0, Normal=1, Difficult=2, Default=3
+    uint8_t feedbackOptions {0xBE};
 };
 
 struct OptionsView {

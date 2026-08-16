@@ -25,8 +25,11 @@ namespace game {
 
 class DamageIncreaseEffect : public Effect {
 public:
-    DamageIncreaseEffect(int bonus, DamageType damageType) :
-        Effect(EffectType::DamageIncrease),
+    DamageIncreaseEffect(
+        int bonus,
+        DamageType damageType,
+        EffectProvenance provenance = {}) :
+        Effect(EffectType::DamageIncrease, std::move(provenance)),
         _bonus(bonus),
         _damageType(damageType) {
     }

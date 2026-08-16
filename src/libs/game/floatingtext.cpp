@@ -64,10 +64,6 @@ static glm::vec2 projectToScreen(
 void FloatingText::addDamage(
     const Object &object, int amount, int adjustedAmount, uint32_t damager) {
 
-    if (_game.isTSL()) {
-        return;
-    }
-
     auto leader = _game.party().getLeader();
     if (!leader) {
         return;
@@ -81,7 +77,8 @@ void FloatingText::addDamage(
 }
 
 void FloatingText::addHeal(const Object &object, int amount) {
-    if (_game.isTSL() || !_game.party().isMember(object)) {
+    if (!_game.party().isMember(object) &&
+        _game.lastTarget() != object.id()) {
         return;
     }
 
@@ -89,10 +86,6 @@ void FloatingText::addHeal(const Object &object, int amount) {
 }
 
 void FloatingText::addMiss(const Creature &attacker, const Object &target) {
-    if (_game.isTSL()) {
-        return;
-    }
-
     auto leader = _game.party().getLeader();
     if (!leader || attacker.id() != leader->id()) {
         return;
@@ -105,6 +98,10 @@ void FloatingText::addMiss(const Creature &attacker, const Object &target) {
 }
 
 void FloatingText::add(const Object &object, std::string text, Style style) {
+    if (!_game.floatingTextEnabled()) {
+        return;
+    }
+
     for (Entry &entry : _entries) {
         if (entry.objectId == object.id()) {
             ++entry.stack;
@@ -160,7 +157,7 @@ void FloatingText::update(float dt) {
 }
 
 void FloatingText::render() {
-    if (_game.isTSL() || _entries.empty()) {
+    if (_entries.empty()) {
         return;
     }
     const auto &options = _game.options().graphics;

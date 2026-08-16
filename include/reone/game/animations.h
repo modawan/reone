@@ -37,6 +37,9 @@ public:
 
     virtual std::string getNameById(uint32_t id) const = 0;
     virtual std::string getAttackResult(std::string attackAnim, CreatureWieldType targetWield, AttackResultType result) const = 0;
+    virtual int getMeleeImpactTime(const std::string &attackAnim, size_t attackIndex) const {
+        throw std::logic_error("Melee impact timing is not implemented");
+    }
 };
 
 class Animations : public IAnimations {
@@ -49,6 +52,7 @@ public:
 
     std::string getNameById(uint32_t id) const override;
     std::string getAttackResult(std::string attackAnim, CreatureWieldType targetWield, AttackResultType result) const override;
+    int getMeleeImpactTime(const std::string &attackAnim, size_t attackIndex) const override;
 
 private:
     struct Anim {
@@ -72,6 +76,8 @@ private:
     resource::TwoDAs &_twoDas;
     std::vector<Anim> _anims;
     AttackResultMap _attackResults;
+    std::map<std::string, std::vector<int>> _meleeImpactTimes;
+    bool _combatAnimationsLoaded {false};
 };
 
 } // namespace game

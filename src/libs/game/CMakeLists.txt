@@ -103,6 +103,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/effect/blasterdeflectiondecrease.h
     ${GAME_INCLUDE_DIR}/effect/blasterdeflectionincrease.h
     ${GAME_INCLUDE_DIR}/effect/blind.h
+    ${GAME_INCLUDE_DIR}/effect/bonusfeat.h
     ${GAME_INCLUDE_DIR}/effect/bodyfuel.h
     ${GAME_INCLUDE_DIR}/effect/choke.h
     ${GAME_INCLUDE_DIR}/effect/concealment.h
@@ -170,6 +171,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/effect/skilldecrease.h
     ${GAME_INCLUDE_DIR}/effect/skillincrease.h
     ${GAME_INCLUDE_DIR}/effect/sleep.h
+    ${GAME_INCLUDE_DIR}/effect/source.h
     ${GAME_INCLUDE_DIR}/effect/spellimmunity.h
     ${GAME_INCLUDE_DIR}/effect/spelllevelabsorption.h
     ${GAME_INCLUDE_DIR}/effect/stunned.h
@@ -177,6 +179,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/effect/temporaryhitpoints.h
     ${GAME_INCLUDE_DIR}/effect/timestop.h
     ${GAME_INCLUDE_DIR}/effect/trueseeing.h
+    ${GAME_INCLUDE_DIR}/effect/ultravision.h
     ${GAME_INCLUDE_DIR}/effect/visual.h
     ${GAME_INCLUDE_DIR}/effect/vpregenmodifier.h
     ${GAME_INCLUDE_DIR}/effect/whirlwind.h
@@ -345,6 +348,7 @@ set(GAME_HEADERS
 
 set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/action.cpp
+    ${GAME_SOURCE_DIR}/action/attackanimations.cpp
     ${GAME_SOURCE_DIR}/action/attackobject.cpp
     ${GAME_SOURCE_DIR}/action/barkstring.cpp
     ${GAME_SOURCE_DIR}/action/castfakespellatlocation.cpp
@@ -412,6 +416,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/effect/beam.cpp
     ${GAME_SOURCE_DIR}/effect/blasterdeflectionincrease.cpp
     ${GAME_SOURCE_DIR}/effect/blind.cpp
+    ${GAME_SOURCE_DIR}/effect/bonusfeat.cpp
     ${GAME_SOURCE_DIR}/effect/bodyfuel.cpp
     ${GAME_SOURCE_DIR}/effect/choke.cpp
     ${GAME_SOURCE_DIR}/effect/crush.cpp
@@ -444,6 +449,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/effect/horrified.cpp
     ${GAME_SOURCE_DIR}/effect/immunity.cpp
     ${GAME_SOURCE_DIR}/effect/invisibility.cpp
+    ${GAME_SOURCE_DIR}/effect/seeinvisible.cpp
     ${GAME_SOURCE_DIR}/effect/lightsaberthrow.cpp
     ${GAME_SOURCE_DIR}/effect/linkeffects.cpp
     ${GAME_SOURCE_DIR}/effect/mindtrick.cpp
@@ -459,10 +465,12 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/effect/savingthrowincrease.cpp
     ${GAME_SOURCE_DIR}/effect/skillincrease.cpp
     ${GAME_SOURCE_DIR}/effect/sleep.cpp
+    ${GAME_SOURCE_DIR}/effect/source.cpp
     ${GAME_SOURCE_DIR}/effect/stunned.cpp
     ${GAME_SOURCE_DIR}/effect/temporaryforcepoints.cpp
     ${GAME_SOURCE_DIR}/effect/temporaryhitpoints.cpp
     ${GAME_SOURCE_DIR}/effect/trueseeing.cpp
+    ${GAME_SOURCE_DIR}/effect/ultravision.cpp
     ${GAME_SOURCE_DIR}/effect/visual.cpp
     ${GAME_SOURCE_DIR}/effect/vpregenmodifier.cpp
     ${GAME_SOURCE_DIR}/effect/whirlwind.cpp

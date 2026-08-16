@@ -204,6 +204,24 @@ void Placeable::damage(int amount, uint32_t damager) {
     runDeathScript(damager);
 }
 
+void Placeable::applyDamageEffect(
+    int amount,
+    uint32_t damager,
+    const std::array<int16_t, 15> &damageAmounts) {
+
+    damager = damager ? damager : script::kObjectInvalid;
+    setLastDamager(damager);
+    setLastDamageAmounts(damageAmounts);
+
+    if (amount == 0) {
+        _game.floatingText().addDamage(*this, 0, 0, damager);
+        runDamagedScript(damager);
+        return;
+    }
+
+    damage(amount, damager);
+}
+
 void Placeable::onOpen(uint32_t triggererId) {
     if (_onOpen.empty()) {
         return;

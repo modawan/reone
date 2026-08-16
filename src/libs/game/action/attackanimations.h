@@ -27,18 +27,30 @@ namespace game {
 // against another melee weapon use the cinematic variants, attacks on other
 // creatures use the monster variants, and everything else - doors, placeables -
 // uses the generic variants.
-std::string getMeleeAttackAnim(CreatureWieldType attackerWield,
-                               CreatureWieldType targetWield,
-                               int variant, bool duel);
+std::string getMeleeAttackAnim(
+    CreatureWieldType attackerWield,
+    CreatureWieldType targetWield,
+    int variant,
+    bool duel);
 
 // Name of the attack animation for an unarmed attacker.
-std::string getUnarmedAttackAnim(CreatureWieldType attackerWield,
-                                 CreatureWieldType targetWield,
-                                 int variant, bool duel);
+std::string getUnarmedAttackAnim(
+    CreatureWieldType attackerWield,
+    CreatureWieldType targetWield,
+    int variant,
+    bool duel);
 
 // Name of the attack animation for an attacker wielding a stun baton. The stun
 // baton has generic variants only.
 std::string getStunBatonAttackAnim(int variant);
+
+// Name selected by the physical-combat runtime after it has resolved the
+// animation family and variant.
+std::string formatPhysicalMeleeAttackAnimation(
+    CreatureWieldType wield,
+    int variant,
+    bool creatureModel,
+    bool cinematic);
 
 } // namespace game
 

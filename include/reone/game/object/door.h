@@ -54,6 +54,10 @@ public:
     bool isSelectable() const override;
     void damage(int amount, uint32_t damager) override;
     void update(float dt) override;
+    void applyDamageEffect(
+        int amount,
+        uint32_t damager,
+        const std::array<int16_t, 15> &damageAmounts) override;
 
     void open();
     void close();

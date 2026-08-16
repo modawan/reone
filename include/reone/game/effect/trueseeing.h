@@ -25,11 +25,12 @@ namespace game {
 
 class TrueSeeingEffect : public Effect {
 public:
-    TrueSeeingEffect() :
-        Effect(EffectType::TrueSeeing) {
+    explicit TrueSeeingEffect(EffectProvenance provenance = {}) :
+        Effect(EffectType::TrueSeeing, std::move(provenance)) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
+    void onRemove(Object &object) override;
 };
 
 } // namespace game

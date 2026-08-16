@@ -25,12 +25,12 @@ namespace game {
 
 class SeeInvisibleEffect : public Effect {
 public:
-    SeeInvisibleEffect() :
-        Effect(EffectType::SeeInvisible) {
+    explicit SeeInvisibleEffect(EffectProvenance provenance = {}) :
+        Effect(EffectType::SeeInvisible, std::move(provenance)) {
     }
 
-    void applyTo(Object &object) override {
-    }
+    bool onApply(Object &object) override;
+    void onRemove(Object &object) override;
 };
 
 } // namespace game

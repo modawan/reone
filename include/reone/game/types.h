@@ -122,7 +122,8 @@ enum class CameraStyleType {
 enum class DurationType {
     Instant = 0,
     Temporary = 1,
-    Permanent = 2
+    Permanent = 2,
+    Equipped = 3
 };
 
 enum class CameraType {
@@ -242,7 +243,8 @@ enum class EffectType {
     VPRegenModifier = 0x11f,
     Crush = 0x120,
     ForceSight = 0x121,
-    FactionModifier = 0x122
+    FactionModifier = 0x122,
+    BonusFeat = 0x123
 };
 
 enum class ObjectType {

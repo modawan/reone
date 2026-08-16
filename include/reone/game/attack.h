@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <array>
+#include <cstdint>
+
 #include "reone/game/effect/damage.h"
 #include "reone/game/types.h"
 #include "reone/system/smallvector.h"
@@ -35,6 +38,7 @@ class Action;
 class CombatRound;
 class Creature;
 class Game;
+class IAnimations;
 class Item;
 class Object;
 class ProjectileSpec;
@@ -108,6 +112,40 @@ struct AttackBonusBreakdown {
     }
 };
 
+struct DefenseBreakdown {
+    int total {0};
+    int armor {0};
+    int dexterity {0};
+    int classDefense {0};
+    int natural {0};
+    int dodgeAndDeflection {0};
+    int feat {0};
+    int debilitationPenalty {0};
+};
+
+struct PhysicalDamageBonus {
+    int damageAbilityModifier {0};
+    int strengthModifier {0};
+    int weaponSpecialization {0};
+
+    int total() const {
+        return damageAbilityModifier + weaponSpecialization;
+    }
+};
+
+struct DamageBreakdown {
+    DamageBreakdown();
+
+    void addRawDamage(int amount, DamageType type);
+
+    std::array<int16_t, 14> rawDamageSlots;
+    int strengthModifier {0};
+    int otherSpecialBonus {0};
+    int sneakAttack {0};
+    int weaponSpecialization {0};
+    int criticalMultiplier {0};
+};
+
 /**
  * Make and collect multiple attacks, but delay damage effects until later.
  */
@@ -131,7 +169,6 @@ public:
     void resolveMeleeSpecialAttack(
         FeatType feat,
         Creature &attacker,
-        Object &target,
         Game &game);
 
     void resolve(Creature &attacker, Object &target);
@@ -141,37 +178,55 @@ public:
         Creature &attacker,
         Object &target);
 
+    size_t attackCount() const { return _attacks.size(); }
+    void prepareMeleeSequence(
+        const IAnimations &animations,
+        const std::vector<std::string> &attackAnimations);
+    size_t signalReadyMelee(
+        int elapsedMilliseconds,
+        Game &game,
+        ServicesView &services,
+        Creature &attacker,
+        Object &target);
+    int latestMeleeImpactMilliseconds() const;
+    void discardPendingMelee();
+    bool hasPendingMelee() const;
+
     /**
      * Get the best result for a series of attacks collected in AttackBuffer.
      */
     AttackResultType result() const;
 
 private:
+    struct CriticalThreatBreakdown {
+        int threshold {0};
+        bool threatened {false};
+        int confirmationRoll {0};
+        bool confirmed {false};
+    };
+
     struct Attack {
         Attack(
             Source source,
             bool ranged,
-            AttackResultType result,
-            int roll,
-            AttackBonusBreakdown attackBonusBreakdown,
-            int defense,
-            bool assuredHit) :
+            AttackBonusBreakdown attackBonusBreakdown) :
             source(source),
             ranged(ranged),
-            result(result),
-            roll(roll),
-            attackBonusBreakdown(std::move(attackBonusBreakdown)),
-            defense(defense),
-            assuredHit(assuredHit) {}
+            attackBonusBreakdown(std::move(attackBonusBreakdown)) {}
 
         Source source;
         bool ranged;
-        AttackResultType result;
-        int roll;
+        AttackResultType result {AttackResultType::Invalid};
+        int roll {0};
         AttackBonusBreakdown attackBonusBreakdown;
-        int defense;
-        bool assuredHit;
-        bool stunTarget {false};
+        DefenseBreakdown defenseBreakdown;
+        bool naturalTwenty {false};
+        bool naturalOne {false};
+        bool coupDeGrace {false};
+        CriticalThreatBreakdown criticalThreat;
+        DamageBreakdown damageBreakdown;
+        int impactTimeMilliseconds {0};
+        bool meleeSignaled {false};
         DamagePacket damage;
     };
 
@@ -184,15 +239,28 @@ private:
         int attackThreatBonus,
         int damageBonus);
     void resolveDamage(Object &target);
-    void applyEffects(Creature &attacker, Object &target, Game &game);
+    void signalAttack(
+        Attack &attack,
+        Game &game,
+        ServicesView &services,
+        Creature &attacker,
+        Object &target);
+    void applyEffects(
+        Attack &attack,
+        Creature &attacker,
+        Object &target,
+        Game &game);
     void addCombatFeedback(
         Game &game,
         ServicesView &services,
         const Creature &attacker,
-        const Object &target) const;
+        const Object &target,
+        const Attack &attack) const;
 
     SmallVector<Attack, 8> _attacks;
     FeatType _feat {FeatType::Invalid};
+    size_t _pendingMeleeAttacks {0};
+    bool _meleeSequencePrepared {false};
 };
 
 /**
@@ -285,14 +353,29 @@ public:
     };
 
     State update(const CombatRound &round, Action &action, float dt);
+    void startMelee(int latestImpactMilliseconds);
+
+    bool isMelee() const { return _melee; }
+    int meleeElapsedMilliseconds() const { return _meleeElapsedMilliseconds; }
 
 private:
     State _state {WaitAttack};
     float _time {0.0f};
+    bool _melee {false};
+    int _meleeElapsedMilliseconds {0};
+    int _meleeCompletionMilliseconds {0};
+    float _meleeElapsedRemainderMilliseconds {0.0f};
 };
 
 bool navigateToAttackTarget(Creature &attacker, Object &actor, float dt, bool &reachedOnce);
 
+bool isCreatureCombat(
+    const Creature &attacker,
+    const Object &target);
+std::string selectPhysicalMeleeAttackAnimation(
+    Creature &attacker,
+    const Object &target,
+    CreatureWieldType wield);
 std::string getRangedAttackAnim(Creature &attacker, int kind);
 
 } // namespace game

@@ -56,7 +56,7 @@ public:
         uint8_t paramValue {0};
         uint16_t propertyName {0};
         uint16_t subtype {0};
-        uint8_t upgradeType {0};
+        uint8_t upgradeType {0xff};
     };
 
     Item(
@@ -128,6 +128,8 @@ public:
     ACBonus acBonusType() const { return _acBonusType; }
     std::optional<SpellType> activateSpell() const { return _activateSpell; }
     const std::vector<PropertyEntry> &properties() const { return _properties; }
+    uint32_t upgrades() const { return _upgrades; }
+    bool isPropertyActive(const PropertyEntry &property) const;
 
     bool hasDisguise() const { return _disguiseAppearance >= 0; }
     int disguiseAppearance() const { return _disguiseAppearance; }
@@ -156,6 +158,7 @@ private:
     uint8_t _bodyVariation {0};
     uint8_t _textureVariation {0};
     bool _dropable {false};
+    uint32_t _upgrades {0};
     // END Serializable
 
     uint32_t _ownerId {0};

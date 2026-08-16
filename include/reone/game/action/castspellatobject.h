@@ -45,6 +45,7 @@ public:
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     void finish(Creature &caster);
 
+    const Object *userActionPrimaryTarget() const override { return _target.get(); }
     const std::shared_ptr<Spell> &spell() const { return _spell; }
     const std::optional<std::shared_ptr<Item>> &item() const { return _item; }
 
