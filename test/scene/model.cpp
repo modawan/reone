@@ -19,9 +19,12 @@
 
 #include "reone/game/types.h"
 #include "reone/graphics/animation.h"
+#include "reone/graphics/camera/orthographic.h"
+#include "reone/graphics/camera/perspective.h"
 #include "reone/graphics/lipanimation.h"
 #include "reone/graphics/mesh.h"
 #include "reone/graphics/options.h"
+#include "reone/gui/sceneinitializer.h"
 #include "reone/scene/graphs.h"
 #include "reone/scene/node/model.h"
 #include "reone/scene/node/modelnode.h"
@@ -44,6 +47,142 @@ class MockUser : public IUser {
 public:
     ~MockUser() {}
 };
+
+TEST(SceneInitializer, defaults_to_orthographic_projection_and_default_depth) {
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+    auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    auto rootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto model = Model("gui_model", 0, rootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    model.init();
+
+    gui::SceneInitializer(*scene)
+        .aspect(2.5f)
+        .modelSupplier([&model](ISceneGraph &graph) {
+            return graph.newModel(model, ModelUsage::GUI);
+        })
+        .invoke();
+
+    auto maybeCameraNode = scene->camera();
+    ASSERT_TRUE(maybeCameraNode);
+    auto camera = maybeCameraNode->get().camera();
+    ASSERT_TRUE(camera);
+    EXPECT_EQ(CameraType::Orthographic, camera->type());
+    EXPECT_FLOAT_EQ(kDefaultClipPlaneNear, camera->zNear());
+    EXPECT_FLOAT_EQ(kDefaultClipPlaneFar, camera->zFar());
+}
+
+TEST(SceneInitializer, perspective_uses_requested_fov_aspect_and_depth) {
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+    auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    auto rootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto model = Model("gui_model", 0, rootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    model.init();
+    constexpr float kVerticalFov = glm::radians(35.0f);
+
+    gui::SceneInitializer(*scene)
+        .aspect(2.5f)
+        .depth(0.1f, 10000.0f)
+        .perspective(kVerticalFov)
+        .modelSupplier([&model](ISceneGraph &graph) {
+            return graph.newModel(model, ModelUsage::GUI);
+        })
+        .invoke();
+
+    auto maybeCameraNode = scene->camera();
+    ASSERT_TRUE(maybeCameraNode);
+    auto camera = std::dynamic_pointer_cast<PerspectiveCamera>(maybeCameraNode->get().camera());
+    ASSERT_TRUE(camera);
+    EXPECT_FLOAT_EQ(kVerticalFov, camera->fovy());
+    EXPECT_FLOAT_EQ(2.5f, camera->aspect());
+    EXPECT_FLOAT_EQ(0.1f, camera->zNear());
+    EXPECT_FLOAT_EQ(10000.0f, camera->zFar());
+}
+
+TEST(SceneInitializer, camera_tracks_authored_model_hook_after_initialization) {
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+    auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    auto rootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto cameraHook = std::make_shared<ModelNode>(1, "camerahook", glm::vec3(3.0f, 4.0f, 5.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, rootNode.get());
+    rootNode->addChild(cameraHook);
+    auto model = Model("gui_model", 0, rootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    model.init();
+    std::shared_ptr<ModelSceneNode> sceneModel;
+
+    gui::SceneInitializer(*scene)
+        .modelSupplier([&model, &sceneModel](ISceneGraph &graph) {
+            sceneModel = graph.newModel(model, ModelUsage::GUI);
+            return sceneModel;
+        })
+        .cameraFromModelNode("camerahook")
+        .invoke();
+
+    auto maybeCameraNode = scene->camera();
+    ASSERT_TRUE(maybeCameraNode);
+    auto camera = maybeCameraNode->get().camera();
+    ASSERT_TRUE(camera);
+    EXPECT_LT(glm::length(camera->position() - glm::vec3(3.0f, 4.0f, 5.0f)), 1e-5f);
+
+    auto hookNode = sceneModel->getNodeByName("camerahook");
+    ASSERT_TRUE(hookNode);
+    hookNode->setLocalTransform(glm::translate(glm::mat4(1.0f), glm::vec3(6.0f, 7.0f, 8.0f)));
+    EXPECT_LT(glm::length(camera->position() - glm::vec3(6.0f, 7.0f, 8.0f)), 1e-5f);
+}
+
+TEST(SceneInitializer, static_camera_hook_preserves_local_camera_transform) {
+    auto graphicsOpt = GraphicsOptions();
+    auto pipelineFactory = MockRenderPipelineFactory();
+    auto graphicsModule = TestGraphicsModule();
+    graphicsModule.init();
+    auto audioModule = TestAudioModule();
+    audioModule.init();
+    auto resourceModule = TestResourceModule();
+    resourceModule.init();
+    auto scene = std::make_unique<SceneGraph>("test", pipelineFactory, graphicsOpt, graphicsModule.services(), audioModule.services(), resourceModule.services());
+
+    auto rootNode = std::make_shared<ModelNode>(0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto cameraHook = std::make_shared<ModelNode>(1, "camerahook", glm::vec3(3.0f, 4.0f, 5.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, rootNode.get());
+    rootNode->addChild(cameraHook);
+    auto model = Model("gui_model", 0, rootNode, std::vector<std::shared_ptr<Animation>>(), "", 1.0f);
+    model.init();
+
+    gui::SceneInitializer(*scene)
+        .modelSupplier([&model](ISceneGraph &graph) {
+            return graph.newModel(model, ModelUsage::GUI);
+        })
+        .cameraFromModelNode("camerahook")
+        .cameraTransform(glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 2.0f, 3.0f)))
+        .invoke();
+
+    auto maybeCameraNode = scene->camera();
+    ASSERT_TRUE(maybeCameraNode);
+    auto camera = maybeCameraNode->get().camera();
+    ASSERT_TRUE(camera);
+    EXPECT_LT(glm::length(camera->position() - glm::vec3(4.0f, 6.0f, 8.0f)), 1e-5f);
+}
 
 TEST(ModelSceneNode, should_build_from_model) {
     // given

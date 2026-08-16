@@ -49,6 +49,7 @@ public:
 
     SceneInitializer &aspect(float aspect);
     SceneInitializer &depth(float zNear, float zFar);
+    SceneInitializer &perspective(float verticalFov);
     SceneInitializer &modelSupplier(const std::function<std::shared_ptr<scene::ModelSceneNode>(scene::ISceneGraph &)> &supplier);
     SceneInitializer &modelScale(float scale);
     SceneInitializer &modelOffset(glm::vec2 offset);
@@ -62,6 +63,7 @@ private:
     float _aspect {1.0f};
     float _zNear {graphics::kDefaultClipPlaneNear};
     float _zFar {graphics::kDefaultClipPlaneFar};
+    std::optional<float> _perspectiveVerticalFov;
     std::function<std::shared_ptr<scene::ModelSceneNode>(scene::ISceneGraph &)> _modelSupplier;
     float _modelScale {1.0f};
     glm::vec2 _modelOffset {0.0f};
