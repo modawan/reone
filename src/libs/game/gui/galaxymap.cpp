@@ -33,6 +33,7 @@
 #include "reone/scene/graph.h"
 #include "reone/scene/graphs.h"
 #include "reone/scene/node/model.h"
+#include "reone/script/types.h"
 #include "reone/system/logutil.h"
 
 namespace reone {
@@ -55,6 +56,36 @@ static constexpr float kDisplayClipPlaneFar = 10000.0f;
 static constexpr char kPreviewAnimation[] = "zoomin";
 
 static constexpr char kTravelScript[] = "k_sup_galaxymap";
+
+/** "You are already at that location." */
+static constexpr int kAlreadyAtLocationStrRef = 125629;
+
+namespace {
+
+/** Holds a flag raised for as long as the call it scopes is on the stack. */
+class ScopedFlag : boost::noncopyable {
+public:
+    ScopedFlag(bool &flag) :
+        _flag(flag) {
+        _flag = true;
+    }
+
+    ~ScopedFlag() {
+        _flag = false;
+    }
+
+private:
+    bool &_flag;
+};
+
+} // namespace
+
+GalaxyMap::GalaxyMap(Game &game, ServicesView &services) :
+    GameGUI(game, services) {
+
+    // The two titles author separate panels; K2 has no galaxymap.
+    _resRef = game.isTSL() ? "galaxymap_p" : "galaxymap";
+}
 
 void GalaxyMap::onGUILoaded() {
     _accept = findControl<gui::Button>("BTN_ACCEPT");
@@ -134,13 +165,22 @@ std::shared_ptr<scene::ModelSceneNode> GalaxyMap::getGalaxyModel(scene::ISceneGr
     return _galaxyModelNode;
 }
 
-void GalaxyMap::prepare() {
+void GalaxyMap::prepare(int initialPlanet) {
     _accepting = false;
     _hoveredPlanet = -1;
+    if (_popup) {
+        _popup->hide();
+    }
+    if (_game.isTSL()) {
+        // Current location checking and the opening fallback are K2 rules; K1
+        // opens on whatever the routine and the party state already say.
+        applyOpeningSelection(initialPlanet);
+    } else {
+        _game.party().galaxyMap().trySelectPlanet(initialPlanet);
+    }
     for (auto &[row, control] : _planetControls) {
-        bool available = _game.party().galaxyMap().available(row);
-        control->setVisible(available);
-        control->setDisabled(!available || !_game.party().galaxyMap().selectable(row));
+        control->setVisible(_game.party().galaxyMap().available(row));
+        control->setDisabled(!isSelectableOnMap(row));
     }
     refreshPresentation();
 }
@@ -229,9 +269,76 @@ void GalaxyMap::detachCameras(scene::ModelSceneNode &model) {
     }
 }
 
-void GalaxyMap::select(int row) {
+void GalaxyMap::applyOpeningSelection(int initialPlanet) {
     auto &galaxyMap = _game.party().galaxyMap();
-    if (!galaxyMap.selectable(row) || !galaxyMap.trySelectPlanet(row)) {
+    // The planet the routine opens on is where the party physically is. That
+    // is a different thing from the selection, which is the destination last
+    // chosen and may name somewhere the party has never been.
+    _locationAtOpen = initialPlanet;
+    if (galaxyMap.available(galaxyMap.selectedPlanet())) {
+        // A destination that is still on the map stands, whatever the routine
+        // opened on.
+        return;
+    }
+    // Nothing usable is selected. The party's own location is the first thing
+    // to fall back to, then somewhere it can actually go.
+    if (galaxyMap.available(initialPlanet) && galaxyMap.trySelectPlanet(initialPlanet)) {
+        return;
+    }
+    for (int row = 0; row < galaxyMap.rowCount(); ++row) {
+        if (galaxyMap.available(row) && galaxyMap.selectable(row)) {
+            galaxyMap.trySelectPlanet(row);
+            return;
+        }
+    }
+    for (int row = 0; row < galaxyMap.rowCount(); ++row) {
+        if (galaxyMap.available(row)) {
+            galaxyMap.trySelectPlanet(row);
+            return;
+        }
+    }
+    // With no planet available at all there is nothing to fall back to.
+}
+
+int GalaxyMap::adjacentDestination(int from, int step) const {
+    const auto &galaxyMap = _game.party().galaxyMap();
+    int rowCount = galaxyMap.rowCount();
+    if (rowCount <= 0) {
+        return from;
+    }
+    // Every planet on the map is a stop, including the ones travel is locked
+    // out of, and the walk wraps around the ends.
+    for (int offset = 1; offset <= rowCount; ++offset) {
+        int row = ((from + step * offset) % rowCount + rowCount) % rowCount;
+        if (galaxyMap.available(row)) {
+            return row;
+        }
+    }
+    return from;
+}
+
+void GalaxyMap::selectAdjacentDestination(int step) {
+    auto &galaxyMap = _game.party().galaxyMap();
+    int row = adjacentDestination(galaxyMap.selectedPlanet(), step);
+    if (row == galaxyMap.selectedPlanet() || !galaxyMap.trySelectPlanet(row)) {
+        return;
+    }
+    refreshPresentation();
+}
+
+bool GalaxyMap::isSelectableOnMap(int row) const {
+    const auto &galaxyMap = _game.party().galaxyMap();
+    if (!galaxyMap.available(row)) {
+        return false;
+    }
+    // Every planet on the K2 map can be picked, including the ones travel is
+    // locked out of: picking one is how the player is told why. K1 authors no
+    // reason to give, so there a planet it cannot travel to stays inert.
+    return _game.isTSL() || galaxyMap.selectable(row);
+}
+
+void GalaxyMap::select(int row) {
+    if (!isSelectableOnMap(row) || !_game.party().galaxyMap().trySelectPlanet(row)) {
         return;
     }
     refreshPresentation();
@@ -241,7 +348,10 @@ void GalaxyMap::refreshPresentation() {
     int row = _game.party().galaxyMap().selectedPlanet();
 
     if (_accept) {
-        _accept->setDisabled(!isTravelDestination(row));
+        // Accept is live whenever pressing it has something to say. On K2 that
+        // takes in a locked out planet and the party's own location, since the
+        // message each of those gives is the whole point of pressing it.
+        _accept->setDisabled(decideAccept().outcome == AcceptOutcome::Nothing);
     }
     updatePlanetControlPresentation();
     refreshPlanetModel(row);
@@ -268,6 +378,35 @@ void GalaxyMap::refreshPresentation() {
 bool GalaxyMap::isTravelDestination(int row) const {
     const auto &galaxyMap = _game.party().galaxyMap();
     return _planetControls.count(row) > 0 && galaxyMap.available(row) && galaxyMap.selectable(row);
+}
+
+int GalaxyMap::lockedOutReason(int row) const {
+    // K1 planetary.2da has no locked out column, so a row never carries one.
+    if (!_planetary || row < 0 || row >= _planetary->getRowCount()) {
+        return -1;
+    }
+    return _planetary->getInt(row, "lockedoutreason", -1);
+}
+
+void GalaxyMap::showMessage(int strRef) {
+    if (strRef < 0) {
+        return;
+    }
+    auto text = _services.resource.strings.getText(strRef);
+    if (text.empty()) {
+        return;
+    }
+    if (!_popup) {
+        auto popup = std::make_unique<ConfirmPopup>(_game, _services);
+        try {
+            popup->init();
+        } catch (const std::exception &e) {
+            error("Galaxy map: unable to load the message popup: " + std::string(e.what()));
+            return;
+        }
+        _popup = std::move(popup);
+    }
+    _popup->show(text);
 }
 
 void GalaxyMap::updatePlanetControlPresentation() {
@@ -298,6 +437,17 @@ void GalaxyMap::onSelectionChanged(const std::string &control, bool selected) {
 }
 
 bool GalaxyMap::handle(const input::Event &event) {
+    if (_popup && _popup->isVisible()) {
+        // The message sits over the map and takes every event until dismissed.
+        if (event.type == input::EventType::KeyDown &&
+            !event.key.repeat &&
+            event.key.code == input::KeyCode::Escape) {
+            _popup->hide();
+            return true;
+        }
+        _popup->handle(event);
+        return true;
+    }
     if (event.type == input::EventType::KeyDown &&
         !event.key.repeat &&
         event.key.code == input::KeyCode::Escape) {
@@ -307,26 +457,83 @@ bool GalaxyMap::handle(const input::Event &event) {
     return GameGUI::handle(event);
 }
 
+void GalaxyMap::update(float dt) {
+    GameGUI::update(dt);
+    if (_popup && _popup->isVisible()) {
+        _popup->update(dt);
+    }
+}
+
+void GalaxyMap::render() {
+    GameGUI::render();
+    if (_popup && _popup->isVisible()) {
+        _popup->render();
+    }
+}
+
 void GalaxyMap::close() {
     // Leaving the map keeps whatever destination was picked: the selection is
     // party state, not something this panel owns until it is accepted.
     _game.openInGame();
 }
 
-void GalaxyMap::accept() {
-    if (_accepting) {
-        return;
-    }
-    int row = _game.party().galaxyMap().selectedPlanet();
-    if (!isTravelDestination(row)) {
-        return;
-    }
-    _accepting = true;
-    close();
+uint32_t GalaxyMap::travelScriptCaller() const {
+    // K2 runs the travel script with an invalid caller; K1 runs it with none.
+    return _game.isTSL() ? script::kObjectInvalid : 0;
+}
+
+void GalaxyMap::runTravelScript() {
+    ScopedFlag running(_runningTravelScript);
     try {
-        _game.scriptRunner().run(kTravelScript);
+        // K2 hands the travel script no caller of its own.
+        _game.scriptRunner().run(kTravelScript, travelScriptCaller());
     } catch (const std::exception &e) {
         error(str(boost::format("Galaxy map: %s failed: %s") % kTravelScript % std::string(e.what())));
+    }
+}
+
+GalaxyMap::AcceptDecision GalaxyMap::decideAccept() const {
+    const auto &galaxyMap = _game.party().galaxyMap();
+    int row = galaxyMap.selectedPlanet();
+
+    if (!_game.isTSL()) {
+        return {isTravelDestination(row) ? AcceptOutcome::Travel : AcceptOutcome::Nothing, -1};
+    }
+    if (row >= 0 && row == _locationAtOpen) {
+        // The party is already there, so say so rather than travel.
+        return {AcceptOutcome::Message, kAlreadyAtLocationStrRef};
+    }
+    if (!galaxyMap.available(row)) {
+        return {AcceptOutcome::Nothing, -1};
+    }
+    if (!galaxyMap.selectable(row)) {
+        // On the map, but travel there is locked out for a reason content gives.
+        return {AcceptOutcome::Message, lockedOutReason(row)};
+    }
+    return {AcceptOutcome::Travel, -1};
+}
+
+void GalaxyMap::accept() {
+    if (_accepting || _runningTravelScript) {
+        return;
+    }
+    auto decision = decideAccept();
+    if (decision.outcome == AcceptOutcome::Nothing) {
+        return;
+    }
+    if (decision.outcome == AcceptOutcome::Message) {
+        showMessage(decision.strRef);
+        return;
+    }
+
+    _accepting = true;
+    if (_game.isTSL()) {
+        // K2 keeps the panel up until the travel script has been handed over.
+        runTravelScript();
+        close();
+    } else {
+        close();
+        runTravelScript();
     }
 }
 
