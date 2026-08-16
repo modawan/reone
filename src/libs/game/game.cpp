@@ -3586,8 +3586,26 @@ void Game::openSaveLoad(SaveLoadMode mode) {
     changeScreen(Screen::SaveLoad);
 }
 
+bool Game::canOpenGalaxyMapFrom(Screen screen) {
+    switch (screen) {
+    case Screen::None:
+    case Screen::InGame:
+    case Screen::InGameMenu:
+    case Screen::Conversation:
+        return true;
+    default:
+        // Every other screen owns the whole display and has somewhere of its
+        // own to return to. Taking it over would strand it.
+        return false;
+    }
+}
+
 void Game::openGalaxyMap(int initialPlanet) {
-    if (_screen == Screen::GalaxyMap) {
+    if (!canOpenGalaxyMapFrom(_screen)) {
+        return;
+    }
+    if (_galaxyMap && _galaxyMap->isRunningTravelScript()) {
+        // The travel script this panel dispatched must not reopen it.
         return;
     }
     if (!_galaxyMap) {
@@ -3598,11 +3616,12 @@ void Game::openGalaxyMap(int initialPlanet) {
         // whatever is on it.
         return;
     }
-    _party.galaxyMap().trySelectPlanet(initialPlanet);
     stopMovement();
     setRelativeMouseMode(false);
     setCursorType(CursorType::Default);
-    _galaxyMap->prepare();
+    // The panel decides what the routine's planet means: K2 has to record
+    // where the party already is before anything can move the selection.
+    _galaxyMap->prepare(initialPlanet);
     changeScreen(Screen::GalaxyMap);
 }
 
