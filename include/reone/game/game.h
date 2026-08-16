@@ -152,6 +152,7 @@ public:
 
     bool isPaused() const { return _paused; }
     bool isTSL() const { return _gameId == resource::GameID::TSL; }
+    resource::GameID gameId() const { return _gameId; }
 
     Camera *getActiveCamera() const;
 
@@ -437,6 +438,8 @@ public:
     void deserializeGlobalVariables(resource::Gff &gvtGff);
     void deserializeParty(resource::Gff &ifoGff);
     void deserializePartyTable(resource::Gff &ptGff);
+    void deserializeGalaxyMap(resource::Gff &ptGff);
+    void resetGalaxyMap();
     void serializePazaakPartyTable(resource::Gff &ptGff) const;
     void deserializePartyMembers(resource::Gff &ptGff);
     void deserializeJournal(const resource::Gff &ptGff);

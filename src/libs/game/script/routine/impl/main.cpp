@@ -6059,7 +6059,8 @@ static Variable SetPlanetSelectable(const std::vector<Variable> &args, const Rou
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SetPlanetSelectable");
+    ctx.game.party().galaxyMap().setSelectable(nPlanet, bSelectable != 0);
+    return {};
 }
 
 static Variable GetPlanetSelectable(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6069,7 +6070,7 @@ static Variable GetPlanetSelectable(const std::vector<Variable> &args, const Rou
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("GetPlanetSelectable");
+    return Variable::ofInt(ctx.game.party().galaxyMap().selectable(nPlanet) ? 1 : 0);
 }
 
 static Variable SetPlanetAvailable(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6080,7 +6081,8 @@ static Variable SetPlanetAvailable(const std::vector<Variable> &args, const Rout
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SetPlanetAvailable");
+    ctx.game.party().galaxyMap().setAvailable(nPlanet, bAvailable != 0);
+    return {};
 }
 
 static Variable GetPlanetAvailable(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6090,12 +6092,12 @@ static Variable GetPlanetAvailable(const std::vector<Variable> &args, const Rout
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("GetPlanetAvailable");
+    return Variable::ofInt(ctx.game.party().galaxyMap().available(nPlanet) ? 1 : 0);
 }
 
 static Variable GetSelectedPlanet(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetSelectedPlanet");
+    return Variable::ofInt(ctx.game.party().galaxyMap().selectedPlanet());
 }
 
 static Variable SoundObjectFadeAndStop(const std::vector<Variable> &args, const RoutineContext &ctx) {

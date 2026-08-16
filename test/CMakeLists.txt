@@ -51,6 +51,8 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/d20/spells.cpp
     ${TESTS_SOURCE_DIR}/game/conversation.cpp
     ${TESTS_SOURCE_DIR}/game/interaction.cpp
+    ${TESTS_SOURCE_DIR}/game/galaxymaproutines.cpp
+    ${TESTS_SOURCE_DIR}/game/galaxymapstate.cpp
     ${TESTS_SOURCE_DIR}/game/journal.cpp
     ${TESTS_SOURCE_DIR}/game/messagebus.cpp
     ${TESTS_SOURCE_DIR}/game/minigame.cpp
