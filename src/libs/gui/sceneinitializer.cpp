@@ -38,6 +38,9 @@ void SceneInitializer::invoke() {
     _sceneGraph.clear();
     _sceneGraph.addRoot(model);
     _sceneGraph.setAmbientLightColor(_ambientLightColor);
+    if (_prewarmEmitters) {
+        model->prewarmEmitters();
+    }
 
     std::shared_ptr<CameraSceneNode> cameraNode(_sceneGraph.newCamera());
     if (!cameraNode) {
@@ -76,6 +79,11 @@ SceneInitializer &SceneInitializer::depth(float zNear, float zFar) {
 
 SceneInitializer &SceneInitializer::perspective(float verticalFov) {
     _perspectiveVerticalFov = verticalFov;
+    return *this;
+}
+
+SceneInitializer &SceneInitializer::prewarmEmitters() {
+    _prewarmEmitters = true;
     return *this;
 }
 

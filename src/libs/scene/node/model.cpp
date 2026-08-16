@@ -144,6 +144,25 @@ void ModelSceneNode::signalEvent(const std::string &name) {
     }
 }
 
+void ModelSceneNode::prewarmEmitters() {
+    // Collect first: prewarming gives an emitter particle children, and the
+    // walk should not be reading a list it has just grown.
+    std::vector<EmitterSceneNode *> emitters;
+    std::function<void(SceneNode &)> collect = [&collect, &emitters](SceneNode &node) {
+        if (node.type() == SceneNodeType::Emitter) {
+            emitters.push_back(static_cast<EmitterSceneNode *>(&node));
+        }
+        for (auto &child : node.children()) {
+            collect(*child);
+        }
+    };
+    collect(*this);
+
+    for (auto *emitter : emitters) {
+        emitter->prewarmContinuousParticles();
+    }
+}
+
 void ModelSceneNode::attach(const std::string &parentName, SceneNode &node) {
     auto maybeParent = _nodeByName.find(parentName);
     if (maybeParent == _nodeByName.end()) {

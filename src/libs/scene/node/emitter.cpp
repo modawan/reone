@@ -155,10 +155,10 @@ void EmitterSceneNode::spawnParticles(float dt) {
     }
 }
 
-void EmitterSceneNode::doSpawnParticle() {
+ParticleSceneNode *EmitterSceneNode::doSpawnParticle() {
     // Take particle from the pool, if available
     if (_particlePool.empty()) {
-        return;
+        return nullptr;
     }
     auto particle = static_cast<ParticleSceneNode *>(_particlePool.front());
     particle->setLifetime(0.0f);
@@ -183,6 +183,41 @@ void EmitterSceneNode::doSpawnParticle() {
     // Remove particle from pool and append it to emitter
     _particlePool.pop_front();
     addChild(*particle);
+
+    return particle;
+}
+
+void EmitterSceneNode::prewarmContinuousParticles() {
+    auto emitter = _modelNode.emitter();
+    if (!emitter || emitter->updateMode != ModelNode::Emitter::UpdateMode::Fountain) {
+        return;
+    }
+    if (_birthrate <= 0.0f || _lifeExpectancy <= 0.0f) {
+        return;
+    }
+
+    // Take the phase where a particle is born exactly as the scene opens. The
+    // ones still alive behind it are then those emitted one, two, three birth
+    // intervals ago, up to the last whose age is still short of the life
+    // expectancy: ceil(birthrate * lifeExpectancy) of them. The pool init()
+    // allocated bounds that, in which case the youngest are the ones seeded.
+    int count = glm::min(kMaxParticles, static_cast<int>(glm::ceil(_birthrate * _lifeExpectancy)));
+    for (int i = 0; i < count; ++i) {
+        auto particle = doSpawnParticle();
+        if (!particle) {
+            break;
+        }
+        // Age by whole birth intervals, not by an even share of the lifetime:
+        // the two agree only when birthrate times life expectancy happens to be
+        // a whole number, and elsewhere an even share invents ages the authored
+        // cadence could never have produced. The oldest lands strictly short of
+        // the life expectancy, so nothing is seeded already expired.
+        particle->update(i * _birthInterval);
+    }
+
+    // The next birth is a full interval away, so the field this leaves behind
+    // is not immediately followed by an extra particle.
+    _birthTimer.reset(_birthInterval);
 }
 
 void EmitterSceneNode::spawnLightningParticles() {

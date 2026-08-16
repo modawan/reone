@@ -54,6 +54,16 @@ public:
     void detonate();
     void rearmSingle();
 
+    /**
+     * Fill a continuous emitter with the particle field it would be carrying
+     * had it already been running, so its first rendered frame shows an
+     * established effect rather than one starting from nothing.
+     *
+     * Only Fountain emitters are populated. Single, Lightning, Explosion and
+     * unsupported modes keep their ordinary lifecycle untouched.
+     */
+    void prewarmContinuousParticles();
+
     float getParticleSize(float time) const { return _particleSize.get(time); };
     glm::vec3 getColor(float time) const { return _color.get(time); };
     float getAlpha(float time) const { return _alpha.get(time); };
@@ -108,7 +118,7 @@ private:
 
     void spawnParticles(float dt);
     void removeExpiredParticles(float dt);
-    void doSpawnParticle();
+    ParticleSceneNode *doSpawnParticle();
     void spawnLightningParticles();
 };
 
