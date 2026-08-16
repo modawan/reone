@@ -639,6 +639,7 @@ private:
 
     std::optional<SaveRequest> _pendingSave;
     std::optional<SaveResult> _lastSaveResult;
+    uint64_t _nextSaveRequestId {1};
     bool _saveInProgress {false};
     bool _transitionInProgress {false};
     bool _atStableSavePoint {false};
@@ -738,6 +739,7 @@ private:
     void advancePlayedTime(float dt);
     bool storeCurrentModuleForTransition();
     void processPendingSave();
+    void finalizeSaveRequest(const SaveRequest &request, SaveResult result);
     SaveResult executeSave(SaveRequest request);
     SaveMetadataInput buildSaveMetadata(const SaveRequest &request) const;
     resource::SaveSlotDescriptor saveTarget(const SaveRequest &request) const;

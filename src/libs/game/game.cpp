@@ -1058,6 +1058,21 @@ void Game::retireActiveModuleRuntime() {
 }
 
 void Game::retireRuntimeSession() {
+    // Stable-frame save execution is synchronous and cannot ordinarily overlap
+    // retirement. A re-entrant retirement from an injected/service callback is
+    // an invariant violation; the local request owner in processPendingSave()
+    // still remains responsible for terminalization.
+    if (_saveInProgress) {
+        error("Runtime session retirement re-entered synchronous save execution");
+    }
+    if (_pendingSave) {
+        auto request = std::move(*_pendingSave);
+        _pendingSave.reset();
+        SaveResult cancelled;
+        cancelled.status = SaveStatus::Cancelled;
+        cancelled.message = "Runtime session retired before save execution";
+        finalizeSaveRequest(request, std::move(cancelled));
+    }
     ++_runtimeSessionGeneration;
     _runtimeSessionPlayable = false;
     _screen = Screen::None;
@@ -1130,8 +1145,6 @@ void Game::retireRuntimeSession() {
 
     _nextModule.clear();
     _nextEntry.clear();
-    _pendingSave.reset();
-    _saveInProgress = false;
     _atStableSavePoint = false;
 }
 
@@ -1152,7 +1165,6 @@ void Game::resetGame() {
     _floatingText.reset();
     _cheatUsed = false;
     _playedTimeFraction = 0.0;
-    _lastSaveResult.reset();
     _services.resource.director.onNewGame();
 }
 

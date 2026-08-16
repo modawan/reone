@@ -103,6 +103,19 @@ const char *saveStatusName(SaveStatus status) {
     case SaveStatus::DurableSuccess: return "DurableSuccess";
     case SaveStatus::DurableSuccessCleanupPending:
         return "DurableSuccessCleanupPending";
+    case SaveStatus::Cancelled: return "Cancelled";
+    case SaveStatus::InternalExecutionFailure:
+        return "InternalExecutionFailure";
+    }
+    return "Unknown";
+}
+
+const char *saveKindName(SaveKind kind) {
+    switch (kind) {
+    case SaveKind::Manual: return "Manual";
+    case SaveKind::Quick: return "Quick";
+    case SaveKind::Auto: return "Auto";
+    case SaveKind::Developer: return "Developer";
     }
     return "Unknown";
 }
@@ -149,11 +162,21 @@ SaveResult Game::requestSave(SaveRequest request) {
                 reason, SaveSlotPublishError::None,
                 "The runtime is not at an eligible playable save state"};
     }
+    request.requestId = _nextSaveRequestId++;
     _pendingSave = std::move(request);
     SaveResult result;
     result.status = SaveStatus::Accepted;
-    result.message = "Save request accepted for the next stable frame boundary";
+    result.requestId = _pendingSave->requestId;
+    result.kind = _pendingSave->kind;
+    result.slot = _pendingSave->slot;
+    result.displayName = _pendingSave->displayName;
+    result.message = "Save request #" + std::to_string(result.requestId) +
+                     " accepted for the next stable frame boundary";
     _lastSaveResult = result;
+    info("Save request #" + std::to_string(result.requestId) +
+         " accepted: kind=" + saveKindName(result.kind) +
+         " slot=" + std::to_string(result.slot) +
+         " name=\"" + result.displayName + "\"");
     return result;
 }
 
@@ -174,16 +197,73 @@ void Game::processPendingSave() {
     auto request = std::move(*_pendingSave);
     _pendingSave.reset();
     _atStableSavePoint = true;
-    info("Executing deferred save request at stable frame boundary");
-    _lastSaveResult = executeSave(std::move(request));
+    info("Save request #" + std::to_string(request.requestId) +
+         " executing at stable frame: slot=" + std::to_string(request.slot) +
+         " name=\"" + request.displayName + "\"");
+    SaveResult result;
+    try {
+        result = executeSave(request);
+    } catch (const std::exception &e) {
+        result.status = SaveStatus::InternalExecutionFailure;
+        result.message =
+            std::string("Unexpected save execution exception: ") + e.what();
+    } catch (...) {
+        result.status = SaveStatus::InternalExecutionFailure;
+        result.message = "Unknown save execution exception";
+    }
     _atStableSavePoint = false;
-    auto summary = std::string("Save request finished: status=") +
-                   saveStatusName(_lastSaveResult->status) +
-                   " message=" + _lastSaveResult->message;
+    finalizeSaveRequest(request, std::move(result));
+}
+
+void Game::finalizeSaveRequest(const SaveRequest &request, SaveResult result) {
+    result.requestId = request.requestId;
+    result.kind = request.kind;
+    result.slot = request.slot;
+    result.displayName = request.displayName;
+    _lastSaveResult = std::move(result);
+
+    auto summary = "Save request #" + std::to_string(request.requestId) +
+                   " terminal: status=" + saveStatusName(_lastSaveResult->status) +
+                   " slot=" + std::to_string(request.slot) +
+                   " name=\"" + request.displayName + "\" message=" +
+                   _lastSaveResult->message;
     if (_lastSaveResult->durable) {
         info(summary);
     } else {
         warn(summary);
+    }
+
+    if (request.kind == SaveKind::Developer) {
+        std::string consoleText = "Save #" + std::to_string(request.requestId);
+        if (_lastSaveResult->status == SaveStatus::DurableSuccess) {
+            consoleText += " completed";
+        } else if (_lastSaveResult->status ==
+                   SaveStatus::DurableSuccessCleanupPending) {
+            consoleText += " completed with cleanup warning";
+        } else if (_lastSaveResult->status == SaveStatus::Cancelled) {
+            consoleText += " cancelled";
+        } else {
+            consoleText += " failed (";
+            consoleText += saveStatusName(_lastSaveResult->status);
+            consoleText += ")";
+        }
+        consoleText += ": slot " + std::to_string(request.slot) + " \"" +
+                       request.displayName + "\"";
+        if (!_lastSaveResult->message.empty()) {
+            consoleText += " - " + _lastSaveResult->message;
+        }
+        try {
+            _console.printLine(consoleText);
+        } catch (const std::exception &e) {
+            warn("Unable to publish developer save result: " + std::string(e.what()));
+        }
+    }
+    if (_saveSeams.terminalResult) {
+        try {
+            _saveSeams.terminalResult(request, *_lastSaveResult);
+        } catch (const std::exception &e) {
+            warn("Save terminal observer failed: " + std::string(e.what()));
+        }
     }
     Logger::instance.flush();
 }
@@ -310,7 +390,8 @@ SaveResult Game::executeSave(SaveRequest request) {
         return {SaveStatus::SnapshotFailure, SaveEligibilityReason::None,
                 SaveSlotPublishError::None, moduleResult.message};
     }
-    info("Save module snapshot captured; serializing save-wide state");
+    info("Save request #" + std::to_string(request.requestId) +
+         " E3d complete; serializing save-wide state");
     auto wideResult = _saveSeams.captureSaveWide
                           ? _saveSeams.captureSaveWide(
                                 *this, buildSaveMetadata(request))
@@ -320,7 +401,8 @@ SaveResult Game::executeSave(SaveRequest request) {
         return {SaveStatus::SerializationFailure, SaveEligibilityReason::None,
                 SaveSlotPublishError::None, wideResult.message};
     }
-    info("Save-wide state serialized; preparing durable publication");
+    info("Save request #" + std::to_string(request.requestId) +
+         " E3e complete; preparing durable publication");
 
     SaveSlotPackageInput package;
     package.committedWorkingState = std::move(committed);
@@ -345,11 +427,13 @@ SaveResult Game::executeSave(SaveRequest request) {
                 published.durable, published.cleanupPending};
     }
 
-    info("Durable save published; adopting detached committed state");
+    info("Save request #" + std::to_string(request.requestId) +
+         " E3f complete; adopting detached committed state");
 
     _services.resource.director.adoptPublishedSave(
         *published.publishedSlot, published.committedWorkingState);
     _saveNames = _services.resource.director.saveNames();
+    info("Save request #" + std::to_string(request.requestId) + " adopted");
 
     SaveResult result;
     result.status = published.cleanupPending

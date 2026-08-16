@@ -6,6 +6,7 @@
 #include "../fixtures/archive.h"
 #include "../fixtures/engine.h"
 #include "../fixtures/game.h"
+#include "../fixtures/scene.h"
 
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
@@ -93,6 +94,8 @@ SaveWideSnapshotResult saveWideSnapshot(
 struct SaveFixture : Test {
     void SetUp() override {
         engine.init();
+        ON_CALL(engine.sceneModule().graphs(), get(_))
+            .WillByDefault(ReturnRef(sceneGraph));
         portraitRows.push_back({"po_live_player", 0, -1, -1, true, 0});
         EXPECT_CALL(engine.gameModule().portraits(), portraits())
             .Times(AnyNumber())
@@ -143,6 +146,11 @@ struct SaveFixture : Test {
             return ByteBuffer {9, 8, 7};
         };
         seams.timestamp = []() { return 130950622286030000ULL; };
+        seams.terminalResult = [this](const SaveRequest &request,
+                                      const SaveResult &result) {
+            terminalRequests.push_back(request);
+            terminalResults.push_back(result);
+        };
         seams.publish = [this](SaveSlotPackageInput input) {
             packageCommitted.push_back(input.committedWorkingState);
             packageTargets.push_back(input.target);
@@ -169,6 +177,7 @@ struct SaveFixture : Test {
 
     test::TmpDir root {"reone_e3g_save_orchestration"};
     TestEngine engine;
+    NiceMock<scene::MockSceneGraph> sceneGraph;
     StubConsole console;
     std::unique_ptr<Game> game;
     std::shared_ptr<Area> area;
@@ -182,6 +191,8 @@ struct SaveFixture : Test {
     std::vector<std::optional<ByteBuffer>> packageScreenshots;
     std::vector<std::map<std::string, ByteBuffer>> packageLoosePassthrough;
     std::vector<Portrait> portraitRows;
+    std::vector<SaveRequest> terminalRequests;
+    std::vector<SaveResult> terminalResults;
     int workingAdoptions {0};
     int publishedAdoptions {0};
     int screenshotCaptures {0};
@@ -217,6 +228,34 @@ TEST_F(SaveFixture, first_unsaved_manual_save_is_deferred_and_adopted_without_re
     EXPECT_EQ((ByteBuffer {9, 8, 7}), *packageScreenshots[0]);
     EXPECT_EQ(module, game->module());
     EXPECT_EQ(playerBefore, game->party().actualPlayer());
+    ASSERT_EQ(1, terminalResults.size());
+    EXPECT_EQ(accepted.requestId, terminalResults[0].requestId);
+    EXPECT_EQ(42u, terminalResults[0].slot);
+}
+
+TEST_F(SaveFixture, developer_request_reports_one_deferred_completion) {
+    TestGameModule::initConsole(*game);
+
+    console.execute("savegame", {"44", "Developer", "Result"});
+    ASSERT_EQ(1, console.lines.size());
+    EXPECT_THAT(console.lines[0], HasSubstr("accepted"));
+    TestGameModule::processPendingSave(*game);
+
+    ASSERT_EQ(2, console.lines.size());
+    EXPECT_THAT(console.lines[1], HasSubstr("completed"));
+    EXPECT_THAT(console.lines[1], HasSubstr("slot 44 \"Developer Result\""));
+    ASSERT_EQ(1, terminalResults.size());
+    EXPECT_EQ(SaveStatus::DurableSuccess, terminalResults[0].status);
+}
+
+TEST_F(SaveFixture, non_console_request_keeps_structured_result_without_console_output) {
+    auto accepted = game->requestManualSave(45, "No Console");
+    TestGameModule::processPendingSave(*game);
+
+    EXPECT_EQ(SaveStatus::Accepted, accepted.status);
+    EXPECT_TRUE(console.lines.empty());
+    ASSERT_EQ(1, terminalResults.size());
+    EXPECT_EQ(accepted.requestId, terminalResults[0].requestId);
 }
 
 TEST_F(SaveFixture, successful_cheat_command_is_reflected_in_live_metadata) {
@@ -261,13 +300,23 @@ TEST_F(SaveFixture, quick_auto_same_slot_overwrite_and_save_as_keep_source_coher
     TestGameModule::processPendingSave(*game);
     ASSERT_EQ(SaveStatus::Accepted, game->requestAutoSave().status);
     TestGameModule::processPendingSave(*game);
+    ASSERT_EQ(SaveStatus::Accepted,
+              game->requestManualSave(10, "Renamed").status);
+    TestGameModule::processPendingSave(*game);
 
-    ASSERT_EQ(4, packageTargets.size());
+    ASSERT_EQ(5, packageTargets.size());
     EXPECT_EQ("000010 - Manual", packageTargets[0].directory.filename());
     EXPECT_EQ(packageTargets[0].directory, packageTargets[1].directory);
     EXPECT_EQ("000000 - QUICKSAVE", packageTargets[2].directory.filename());
     EXPECT_EQ("000001 - AUTOSAVE", packageTargets[3].directory.filename());
-    EXPECT_EQ(4, publishedAdoptions);
+    EXPECT_EQ("000010 - Renamed", packageTargets[4].directory.filename());
+    EXPECT_NE(packageTargets[0].directory, packageTargets[4].directory);
+    EXPECT_EQ(5, publishedAdoptions);
+    EXPECT_EQ(5, terminalResults.size());
+    EXPECT_LT(terminalResults[0].requestId, terminalResults[1].requestId);
+    EXPECT_LT(terminalResults[1].requestId, terminalResults[2].requestId);
+    EXPECT_LT(terminalResults[2].requestId, terminalResults[3].requestId);
+    EXPECT_LT(terminalResults[3].requestId, terminalResults[4].requestId);
 }
 
 TEST_F(SaveFixture, loose_passthrough_comes_only_from_the_current_source_slot) {
@@ -304,6 +353,8 @@ TEST_F(SaveFixture, publication_failure_does_not_adopt_or_disturb_runtime) {
     EXPECT_EQ(0, publishedAdoptions);
     EXPECT_EQ(before, committed);
     EXPECT_EQ(module, game->module());
+    ASSERT_EQ(1, terminalResults.size());
+    EXPECT_EQ(SaveStatus::PublicationFailure, terminalResults[0].status);
 }
 
 TEST_F(SaveFixture, snapshot_failure_clears_request_without_adoption) {
@@ -316,10 +367,16 @@ TEST_F(SaveFixture, snapshot_failure_clears_request_without_adoption) {
         result.message = "injected E3d failure";
         return result;
     };
+    seams.terminalResult = [this](const SaveRequest &request,
+                                  const SaveResult &result) {
+        terminalRequests.push_back(request);
+        terminalResults.push_back(result);
+    };
     TestGameModule::configureSaveOrchestration(*game, std::move(seams));
 
     ASSERT_EQ(SaveStatus::Accepted,
-              game->requestManualSave(11, "Snapshot Failure").status);
+              game->requestSave(
+                  {SaveKind::Developer, 11, "Snapshot Failure", true}).status);
     TestGameModule::processPendingSave(*game);
 
     ASSERT_TRUE(game->lastSaveResult());
@@ -328,6 +385,10 @@ TEST_F(SaveFixture, snapshot_failure_clears_request_without_adoption) {
     EXPECT_EQ(0, publishedAdoptions);
     EXPECT_EQ(before, committed);
     EXPECT_EQ(module, game->module());
+    ASSERT_EQ(1, terminalResults.size());
+    EXPECT_EQ(SaveStatus::SnapshotFailure, terminalResults[0].status);
+    ASSERT_EQ(1, console.lines.size());
+    EXPECT_THAT(console.lines[0], HasSubstr("failed (SnapshotFailure)"));
 }
 
 TEST_F(SaveFixture, save_wide_failure_clears_request_without_adoption) {
@@ -343,6 +404,11 @@ TEST_F(SaveFixture, save_wide_failure_clears_request_without_adoption) {
         result.message = "injected E3e failure";
         return result;
     };
+    seams.terminalResult = [this](const SaveRequest &request,
+                                  const SaveResult &result) {
+        terminalRequests.push_back(request);
+        terminalResults.push_back(result);
+    };
     TestGameModule::configureSaveOrchestration(*game, std::move(seams));
 
     ASSERT_EQ(SaveStatus::Accepted,
@@ -355,6 +421,7 @@ TEST_F(SaveFixture, save_wide_failure_clears_request_without_adoption) {
     EXPECT_EQ(0, publishedAdoptions);
     EXPECT_EQ(before, committed);
     EXPECT_EQ(module, game->module());
+    ASSERT_EQ(1, terminalResults.size());
 }
 
 TEST_F(SaveFixture, durable_cleanup_pending_is_successfully_adopted) {
@@ -370,6 +437,83 @@ TEST_F(SaveFixture, durable_cleanup_pending_is_successfully_adopted) {
     EXPECT_TRUE(game->lastSaveResult()->durable);
     EXPECT_TRUE(game->lastSaveResult()->cleanupPending);
     EXPECT_EQ(1, publishedAdoptions);
+    ASSERT_EQ(1, terminalResults.size());
+}
+
+TEST_F(SaveFixture, retirement_terminalizes_pending_request_without_snapshot) {
+    auto accepted = game->requestSave(
+        {SaveKind::Developer, 46, "Retired", true});
+
+    game->retireRuntimeSession();
+
+    EXPECT_EQ(SaveStatus::Accepted, accepted.status);
+    EXPECT_FALSE(TestGameModule::hasPendingSave(*game));
+    ASSERT_TRUE(game->lastSaveResult());
+    EXPECT_EQ(SaveStatus::Cancelled, game->lastSaveResult()->status);
+    EXPECT_EQ(accepted.requestId, game->lastSaveResult()->requestId);
+    EXPECT_TRUE(capturedGroups.empty());
+    ASSERT_EQ(1, terminalResults.size());
+    ASSERT_EQ(1, console.lines.size());
+    EXPECT_THAT(console.lines[0], HasSubstr("cancelled"));
+}
+
+TEST_F(SaveFixture, execution_exception_terminalizes_and_next_request_succeeds) {
+    int attempts = 0;
+    SaveOrchestrationSeams seams;
+    seams.captureModule = [&attempts](const Game &, const std::string &group) {
+        if (++attempts == 1) {
+            throw std::runtime_error("injected execution exception");
+        }
+        return moduleSnapshot(group);
+    };
+    seams.captureSaveWide = [](const Game &, SaveMetadataInput) {
+        return saveWideSnapshot();
+    };
+    seams.publish = [](SaveSlotPackageInput input) {
+        SaveSlotPublishResult result;
+        result.publishedSlot = input.target;
+        result.committedWorkingState =
+            std::make_shared<const SaveWorkingState>();
+        result.durable = true;
+        result.message = "published";
+        return result;
+    };
+    seams.terminalResult = [this](const SaveRequest &request,
+                                  const SaveResult &result) {
+        terminalRequests.push_back(request);
+        terminalResults.push_back(result);
+    };
+    TestGameModule::configureSaveOrchestration(*game, std::move(seams));
+
+    auto first = game->requestManualSave(47, "Throws");
+    TestGameModule::processPendingSave(*game);
+    ASSERT_EQ(1, terminalResults.size());
+    EXPECT_EQ(SaveStatus::InternalExecutionFailure, terminalResults[0].status);
+    EXPECT_THAT(
+        terminalResults[0].message,
+        HasSubstr("injected execution exception"));
+    EXPECT_FALSE(TestGameModule::hasPendingSave(*game));
+    EXPECT_EQ(SaveEligibilityReason::None, game->saveEligibility());
+
+    auto second = game->requestManualSave(48, "Retry");
+    EXPECT_EQ(SaveStatus::Accepted, second.status);
+    EXPECT_GT(second.requestId, first.requestId);
+    TestGameModule::processPendingSave(*game);
+    ASSERT_EQ(2, terminalResults.size());
+    EXPECT_EQ(SaveStatus::DurableSuccess, terminalResults[1].status);
+}
+
+TEST_F(SaveFixture, deferred_eligibility_failure_is_one_terminal_result) {
+    auto accepted = game->requestManualSave(49, "Eligibility");
+    TestGameModule::setTransitionInProgress(*game, true);
+
+    TestGameModule::processPendingSave(*game);
+
+    ASSERT_EQ(1, terminalResults.size());
+    EXPECT_EQ(accepted.requestId, terminalResults[0].requestId);
+    EXPECT_EQ(SaveStatus::NotAllowed, terminalResults[0].status);
+    EXPECT_EQ(SaveEligibilityReason::TransitionInProgress,
+              terminalResults[0].reason);
 }
 
 TEST_F(SaveFixture, screenshot_capture_failure_is_nonfatal_and_never_reuses_stale_bytes) {

@@ -44,6 +44,8 @@ enum class SaveStatus {
     PublicationFailure,
     DurableSuccess,
     DurableSuccessCleanupPending,
+    Cancelled,
+    InternalExecutionFailure,
 };
 
 struct SaveRequest {
@@ -51,6 +53,7 @@ struct SaveRequest {
     uint32_t slot {0};
     std::string displayName;
     bool captureScreenshot {true};
+    uint64_t requestId {0};
 };
 
 struct SaveResult {
@@ -61,6 +64,10 @@ struct SaveResult {
     std::optional<resource::SaveSlotDescriptor> publishedSlot;
     bool durable {false};
     bool cleanupPending {false};
+    uint64_t requestId {0};
+    SaveKind kind {SaveKind::Manual};
+    uint32_t slot {0};
+    std::string displayName;
 };
 
 /** Narrow synchronous seams for deterministic orchestration tests. */
@@ -72,6 +79,8 @@ struct SaveOrchestrationSeams {
     std::function<SaveSlotPublishResult(SaveSlotPackageInput)> publish;
     std::function<std::optional<ByteBuffer>()> captureScreenshot;
     std::function<uint64_t()> timestamp;
+    /** Test/diagnostic observer called once for each accepted request. */
+    std::function<void(const SaveRequest &, const SaveResult &)> terminalResult;
 };
 
 } // namespace game

@@ -687,6 +687,12 @@ TEST_F(SnapshotFixture, unsupported_live_action_fails_without_mutating_runtime_o
     EXPECT_FALSE(result);
     EXPECT_EQ(result.error, ModuleSnapshotError::UnsupportedLiveState);
     EXPECT_FALSE(result.snapshot);
+    EXPECT_THAT(result.message, HasSubstr("ownerId="));
+    EXPECT_THAT(result.message, HasSubstr("ownerType=1"));
+    EXPECT_THAT(result.message, HasSubstr("queueIndex=0"));
+    EXPECT_THAT(result.message, HasSubstr("actionType=0"));
+    EXPECT_THAT(result.message, HasSubstr("runtimeClass="));
+    EXPECT_THAT(result.message, HasSubstr("provenance=runtime-created"));
     EXPECT_EQ(player->actions().size(), actionCount);
     EXPECT_EQ(TestGameModule::nextObjectId(game), cursor);
     EXPECT_EQ(game.saveResourceShadows().size(), shadowCount);

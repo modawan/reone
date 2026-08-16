@@ -17,6 +17,9 @@
 
 #include "reone/game/object.h"
 
+#include <sstream>
+#include <typeinfo>
+
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/item.h"
@@ -263,6 +266,25 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
     // be live as soon as they leave (or complete within) the runtime queue.
     std::vector<SavedActionRecord> result;
     std::set<const Action *> represented;
+    auto unsupportedAction = [this](const Action &action, size_t queueIndex) {
+        std::ostringstream message;
+        message << "live queued action has no save-facing representation"
+                << ": ownerId=" << id()
+                << " ownerType=" << static_cast<int>(type())
+                << " ownerTag=\"" << tag() << '"'
+                << " ownerBlueprint=\"" << blueprintResRef() << '"'
+                << " queueIndex=" << queueIndex
+                << " actionType=" << static_cast<int>(action.type())
+                << " runtimeClass=" << typeid(action).name()
+                << " provenance="
+                << (action.originalSavedAction() ? "loaded" : "runtime-created");
+        if (action.originalSavedAction()) {
+            message << " savedActionId=" << action.originalSavedAction()->actionId
+                    << " groupActionId="
+                    << action.originalSavedAction()->groupActionId;
+        }
+        return ValidationException(message.str());
+    };
     for (const auto &slot : _loadedSaveActionSlots) {
         if (slot.unsupportedPending) {
             result.push_back(slot.original);
@@ -278,10 +300,14 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
         if (auto saved = action->saveFacingState()) {
             result.push_back(std::move(*saved));
         } else {
-            throw ValidationException("live queued action has no save-facing representation");
+            auto position = std::find(_actions.begin(), _actions.end(), action);
+            throw unsupportedAction(
+                *action,
+                static_cast<size_t>(std::distance(_actions.begin(), position)));
         }
     }
-    for (const auto &action : _actions) {
+    for (size_t index = 0; index < _actions.size(); ++index) {
+        const auto &action = _actions[index];
         if (represented.count(action.get()) != 0 ||
             action->isCompleted() || action->isCancelled()) {
             continue;
@@ -289,7 +315,7 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
         if (auto saved = action->saveFacingState()) {
             result.push_back(std::move(*saved));
         } else {
-            throw ValidationException("live queued action has no save-facing representation");
+            throw unsupportedAction(*action, index);
         }
     }
     return result;
