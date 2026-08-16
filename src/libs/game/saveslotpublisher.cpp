@@ -749,30 +749,76 @@ ValidatedSlot validateSlot(
             ifo->getUint("Mod_NextObjId0") < 2) {
             throw std::runtime_error("Published active module cross-link is invalid");
         }
-        std::set<uint32_t> worldIds;
-        auto addWorldId = [&worldIds](const std::shared_ptr<Gff> &record) {
-            auto id = record->getUint("ObjectId", UINT32_MAX);
-            if (id == UINT32_MAX || !worldIds.insert(id).second) {
-                throw std::runtime_error(
-                    "Published active module has an invalid or duplicate world ID");
+        constexpr uint32_t invalidObjectId = 0x7f000000u;
+        uint32_t nextId = ifo->getUint("Mod_NextObjId0");
+        if (nextId < 2 || nextId >= invalidObjectId) {
+            throw std::runtime_error("Published Mod_NextObjId0 is outside the ordinary namespace");
+        }
+        std::set<uint32_t> ordinaryIds;
+        std::set<uint32_t> reservedPartyIds;
+        auto addOrdinaryId = [&ordinaryIds, invalidObjectId](const std::shared_ptr<Gff> &record,
+                                            const char *kind) {
+            auto id = record->getUint("ObjectId", invalidObjectId);
+            if (id >= invalidObjectId || !ordinaryIds.insert(id).second) {
+                throw std::runtime_error(std::string("Published ") + kind +
+                                         " has an invalid or duplicate object ID");
             }
         };
-        auto areaObjectId = ifo->getUint("Mod_Area", UINT32_MAX);
-        if (areaObjectId == UINT32_MAX || !worldIds.insert(areaObjectId).second) {
+        auto addPartyId = [&addOrdinaryId, &reservedPartyIds, invalidObjectId](
+                              const std::shared_ptr<Gff> &record, const char *kind) {
+            auto id = record->getUint("ObjectId", invalidObjectId);
+            if (id < invalidObjectId) {
+                addOrdinaryId(record, kind);
+            } else if (id == invalidObjectId || id > 0x7fffffffu ||
+                       !reservedPartyIds.insert(id).second) {
+                throw std::runtime_error(std::string("Published ") + kind +
+                                         " has an invalid or duplicate reserved ID");
+            }
+        };
+        auto addItems = [&addOrdinaryId](const std::shared_ptr<Gff> &owner,
+                                         bool includeInventory) {
+            for (const auto &item : owner->getList("Equip_ItemList")) {
+                addOrdinaryId(item, "equipped item");
+            }
+            if (!includeInventory) return;
+            for (const auto &item : owner->getList("ItemList")) {
+                addOrdinaryId(item, "contained item");
+            }
+        };
+        auto areaObjectId = ifo->getUint("Mod_Area", invalidObjectId);
+        if (areaObjectId >= invalidObjectId ||
+            !ordinaryIds.insert(areaObjectId).second) {
             throw std::runtime_error("Published active area has an invalid world ID");
         }
         static const std::array<const char *, 9> lists {
             "Creature List", "Door List", "Placeable List", "TriggerList",
             "Encounter List", "StoreList", "WaypointList", "SoundList", "List"};
         for (const char *label : lists) {
-            for (const auto &record : git->getList(label)) addWorldId(record);
+            for (const auto &record : git->getList(label)) {
+                addOrdinaryId(record, "GIT object");
+                if (std::string(label) == "Creature List") addItems(record, true);
+                if (std::string(label) == "Placeable List" ||
+                    std::string(label) == "StoreList") {
+                    for (const auto &item : record->getList("ItemList")) {
+                        addOrdinaryId(item, "contained item");
+                    }
+                }
+            }
         }
-        for (const auto &record : ifo->getList("Mod_PlayerList")) addWorldId(record);
-        for (const auto &record : ifo->getList("Creature List")) addWorldId(record);
-        if (!worldIds.empty() &&
-            ifo->getUint("Mod_NextObjId0") <= *worldIds.rbegin()) {
+        for (const auto &record : ifo->getList("Mod_PlayerList")) {
+            addPartyId(record, "module player");
+            if (!record->getList("ItemList").empty()) {
+                throw std::runtime_error("Published module player duplicates shared inventory");
+            }
+            addItems(record, false);
+        }
+        for (const auto &record : ifo->getList("Creature List")) {
+            addPartyId(record, "limbo creature");
+            addItems(record, true);
+        }
+        if (!ordinaryIds.empty() && nextId <= *ordinaryIds.rbegin()) {
             throw std::runtime_error(
-                "Published Mod_NextObjId0 does not advance beyond world IDs");
+                "Published Mod_NextObjId0 does not advance beyond ordinary object IDs");
         }
         auto screenshot = std::filesystem::exists(directory / kScreenshotName);
         if (screenshot != expected->screenshotPresent) {

@@ -37,6 +37,17 @@ std::shared_ptr<Gff> readGff(const ByteBuffer &bytes) {
     return reader.root();
 }
 
+std::shared_ptr<TwoDA> makeRoundTripBaseItemsTable() {
+    TwoDA::Builder builder;
+    builder.columns({"maxattackrange", "crithitmult", "critthreat", "damageflags",
+                     "dietoroll", "equipableslots", "itemclass", "numdice",
+                     "weapontype", "weaponwield", "ammunitiontype", "bodyvar"});
+    for (int i = 0; i <= 5; ++i) {
+        builder.row({"", "", "", "", "", "", "I_Test", "", "", "", "", ""});
+    }
+    return std::shared_ptr<TwoDA>(builder.build());
+}
+
 IReputes::State factionState() {
     IReputes::State state;
     state.factions = {
@@ -318,6 +329,28 @@ TEST(SaveWideSnapshot, rich_k1_round_trips_all_common_state_and_shadows) {
     EXPECT_EQ(inventory->getList("ItemList")[0]->getString("FutureItem"), "item-shadow");
     EXPECT_EQ(inventory->getString("FutureInventory"), "inventory-shadow");
 
+    Game reloaded(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto reloadedRich = configureRich(reloaded, false);
+    bool removedLast = false;
+    reloadedRich.item->setStackSize(1);
+    ASSERT_TRUE(reloadedRich.player->removeItem(reloadedRich.item, removedLast));
+    ASSERT_TRUE(removedLast);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeRoundTripBaseItemsTable()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    TestGameModule::deserializeInventory(reloaded, *inventory);
+    ASSERT_EQ(reloadedRich.player->items().size(), 1);
+    EXPECT_EQ(reloadedRich.player->items().front()->stackSize(), 3);
+
+    auto roundTripped = SaveWideSnapshotBuilder(reloaded, metadata(false)).build();
+    ASSERT_TRUE(roundTripped) << roundTripped.message;
+    auto roundTripInventory = readGff(
+        roundTripped.snapshot->outerWorkingResources.at({"inventory", ResType::Res}));
+    ASSERT_EQ(roundTripInventory->getList("ItemList").size(), 1);
+    EXPECT_FALSE(roundTripInventory->getList("ItemList").front()->has("ObjectId"));
+    EXPECT_EQ(roundTripInventory->getList("ItemList").front()->getUint("StackSize"), 3u);
+
     auto fac = readGff(first.snapshot->outerWorkingResources.at({"repute", ResType::Fac}));
     EXPECT_EQ(fac->signature(), std::optional<std::string>("FAC V3.2"));
     ASSERT_EQ(fac->getList("FactionList").size(), 3);
@@ -363,6 +396,68 @@ TEST(SaveWideSnapshot, rich_k1_round_trips_all_common_state_and_shadows) {
     EXPECT_NEAR(changedGlobals.locations[0].second.second.x, 0.0f, 0.00001f);
     EXPECT_NEAR(changedGlobals.locations[0].second.second.y, 1.0f, 0.00001f);
     EXPECT_FLOAT_EQ(changedGlobals.locations[0].second.second.z, 0.0f);
+}
+
+TEST(SaveWideSnapshot, thirteen_item_inventory_round_trip_is_singular_and_semantic) {
+    auto &engine = testEngine();
+    configureReputes(engine);
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto rich = configureRich(game, false);
+    std::vector<uint32_t> expectedStacks {3};
+    for (uint32_t index = 1; index < 13; ++index) {
+        auto item = game.newOwnedItem();
+        auto record = Gff::Builder().type(0)
+            .field(Gff::Field::newInt("BaseItem", 5))
+            .field(Gff::Field::newWord("StackSize", index + 1))
+            .field(Gff::Field::newCExoString("Tag", "roundtrip_" + std::to_string(index)))
+            .build();
+        item->deserializeRuntimeState(*record);
+        item->setTag("roundtrip_" + std::to_string(index));
+        item->setStackSize(index + 1);
+        item->captureOwnerLocalSaveRecord(
+            *record, {SaveRecordOriginKind::PartyInventoryItem, "inventory"});
+        rich.player->addItem(item);
+        expectedStacks.push_back(index + 1);
+    }
+
+    auto first = SaveWideSnapshotBuilder(game, metadata(false)).build();
+    ASSERT_TRUE(first) << first.message;
+    auto inventory = readGff(
+        first.snapshot->outerWorkingResources.at({"inventory", ResType::Res}));
+    ASSERT_EQ(inventory->getList("ItemList").size(), 13);
+    for (const auto &record : inventory->getList("ItemList")) {
+        EXPECT_FALSE(record->has("ObjectId"));
+    }
+
+    Game reloaded(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto reloadedRich = configureRich(reloaded, false);
+    bool removedLast = false;
+    reloadedRich.item->setStackSize(1);
+    ASSERT_TRUE(reloadedRich.player->removeItem(reloadedRich.item, removedLast));
+    ASSERT_TRUE(removedLast);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeRoundTripBaseItemsTable()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    TestGameModule::deserializeInventory(reloaded, *inventory);
+
+    std::vector<uint32_t> actualStacks;
+    for (const auto &item : reloadedRich.player->items()) {
+        actualStacks.push_back(item->stackSize());
+    }
+    std::sort(expectedStacks.begin(), expectedStacks.end());
+    std::sort(actualStacks.begin(), actualStacks.end());
+    EXPECT_EQ(actualStacks, expectedStacks);
+
+    auto second = SaveWideSnapshotBuilder(reloaded, metadata(false)).build();
+    ASSERT_TRUE(second) << second.message;
+    auto secondInventory = readGff(
+        second.snapshot->outerWorkingResources.at({"inventory", ResType::Res}));
+    ASSERT_EQ(secondInventory->getList("ItemList").size(), 13);
+    for (const auto &record : secondInventory->getList("ItemList")) {
+        EXPECT_FALSE(record->has("ObjectId"));
+    }
 }
 
 TEST(SaveWideSnapshot, k1_pc_utc_is_present_only_for_companion_control) {

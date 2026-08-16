@@ -372,6 +372,7 @@ protected:
 
 private:
     friend class ModuleSnapshotBuilder;
+    friend class TestGameModule;
     // Serializable
     RacialType _race {RacialType::Unknown};
     Subrace _subrace {Subrace::None};

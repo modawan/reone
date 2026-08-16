@@ -219,6 +219,9 @@ TEST(SavedRuntimePublication, should_separate_parse_bind_and_idempotent_publicat
 
     ASSERT_EQ(object->effects().size(), 1);
     EXPECT_EQ(object->effects().front().id, 10);
+    EXPECT_FALSE(object->effects().front().effect);
+    EXPECT_NO_THROW(object->getAttackBonus());
+    EXPECT_NO_THROW(object->getDefense());
     ASSERT_EQ(object->actions().size(), 1);
     EXPECT_EQ(object->actions().front()->type(), ActionType::Wait);
     EXPECT_FALSE(object->actions().front()->isCompleted());

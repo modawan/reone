@@ -76,6 +76,9 @@ static int getDamageImmunity(const Object &object, DamageType damageType) {
         }
 
         for (const Object::AppliedEffect &applied : object.effects()) {
+            if (!applied.effect) {
+                continue;
+            }
             switch (applied.effect->type()) {
             case EffectType::DamageImmunityIncrease: {
                 const auto &effect =
@@ -151,6 +154,9 @@ static int applyDamageResistance(
 
     std::shared_ptr<DamageResistanceEffect> selectedEffect;
     for (const Object::AppliedEffect &applied : object.effects()) {
+        if (!applied.effect) {
+            continue;
+        }
         if (applied.effect->type() != EffectType::DamageResistance) {
             continue;
         }
@@ -200,6 +206,9 @@ static int applyDamageReduction(
 
     std::shared_ptr<DamageReductionEffect> selectedEffect;
     for (const Object::AppliedEffect &applied : object.effects()) {
+        if (!applied.effect) {
+            continue;
+        }
         if (applied.effect->type() != EffectType::DamageReduction) {
             continue;
         }

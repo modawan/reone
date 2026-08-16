@@ -390,17 +390,129 @@ void putTransform(Gff &record, const Object &object, bool xyzLabels = false) {
 
 } // namespace
 
-uint32_t OwnerLocalItemIdAllocator::allocate(const Item &item) {
+void ModuleObjectIdContext::reserveWorldId(uint32_t id) {
+    if (id >= kSavedRuntimeInvalidObjectId) {
+        throw ValidationException("ordinary saved object uses a reserved ID");
+    }
+    if (!_used.insert(id).second) {
+        throw ValidationException("saved object ID collides in module namespace");
+    }
+}
+
+void ModuleObjectIdContext::reservePartyId(uint32_t id) {
+    if (id < kSavedRuntimeInvalidObjectId) {
+        reserveWorldId(id);
+        return;
+    }
+    if (id == kSavedRuntimeInvalidObjectId || id > 0x7fffffffu ||
+        !_reservedPartyIds.insert(id).second) {
+        throw ValidationException("saved party creature uses an invalid or duplicate reserved ID");
+    }
+}
+
+void ModuleObjectIdContext::retainItem(const Item &item) {
+    if (_itemIds.count(&item) != 0) return;
     constexpr uint32_t invalid = std::numeric_limits<uint32_t>::max();
     auto preferred = item.originalOwnerLocalObjectId();
-    if (preferred && *preferred != kSavedRuntimeInvalidObjectId && *preferred != invalid &&
-        _used.insert(*preferred).second) {
-        return *preferred;
+    if (!preferred || *preferred >= kSavedRuntimeInvalidObjectId ||
+        *preferred == invalid) {
+        return;
     }
-    for (uint32_t candidate = 0;; ++candidate) {
-        if (candidate == kSavedRuntimeInvalidObjectId || candidate == invalid) continue;
-        if (_used.insert(candidate).second) return candidate;
+    if (!_used.insert(*preferred).second) {
+        throw ValidationException("retained module item ID collides in saved object namespace");
     }
+    _itemIds.emplace(&item, *preferred);
+}
+
+void ModuleObjectIdContext::allocateItem(const Item &item) {
+    if (_itemIds.count(&item) != 0) return;
+    for (uint32_t candidate = 2; candidate < kSavedRuntimeInvalidObjectId; ++candidate) {
+        if (_used.insert(candidate).second) {
+            _itemIds.emplace(&item, candidate);
+            return;
+        }
+    }
+    throw ValidationException("saved object ID namespace is exhausted");
+}
+
+uint32_t ModuleObjectIdContext::itemId(const Item &item) const {
+    auto found = _itemIds.find(&item);
+    if (found == _itemIds.end()) {
+        throw ValidationException("module item has no serialized object ID");
+    }
+    return found->second;
+}
+
+uint32_t ModuleObjectIdContext::nextId(uint32_t retainedCursor) const {
+    uint32_t next = 2;
+    if (!_used.empty()) {
+        if (*_used.rbegin() >= kSavedRuntimeInvalidObjectId - 1) {
+            throw ValidationException("saved object ID namespace is exhausted");
+        }
+        next = std::max(next, *_used.rbegin() + 1);
+    }
+    if (retainedCursor >= 2 && retainedCursor < kSavedRuntimeInvalidObjectId) {
+        next = std::max(next, retainedCursor);
+    }
+    if (next >= kSavedRuntimeInvalidObjectId) {
+        throw ValidationException("saved object ID namespace is exhausted");
+    }
+    return next;
+}
+
+ModuleObjectIdContext ModuleSnapshotBuilder::buildObjectIdContext(
+    const Module &module, const Area &area) const {
+    ModuleObjectIdContext ids;
+    std::vector<const Item *> items;
+    std::set<const Item *> seenItems;
+    auto addItem = [&](const std::shared_ptr<Item> &item) {
+        if (item && seenItems.insert(item.get()).second) items.push_back(item.get());
+    };
+    auto addCreatureItems = [&](const Creature &creature, bool includeInventory) {
+        std::set<const Item *> equipped;
+        for (const auto &[slot, item] : creature._equipment) {
+            (void)slot;
+            if (!item) continue;
+            equipped.insert(item.get());
+            addItem(item);
+        }
+        if (!includeInventory) return;
+        for (const auto &item : creature._items) {
+            if (item && equipped.count(item.get()) == 0) addItem(item);
+        }
+    };
+
+    ids.reserveWorldId(area._id);
+    for (const auto &object : area._objects) {
+        if (!object || area._objectsToDestroy.count(object->id()) != 0 ||
+            _game._party.isMember(*object)) continue;
+        ids.reserveWorldId(object->id());
+        switch (object->type()) {
+        case ObjectType::Creature:
+            addCreatureItems(*static_cast<const Creature *>(object.get()), true);
+            break;
+        case ObjectType::Placeable:
+            for (const auto &item : static_cast<const Placeable *>(object.get())->_items) addItem(item);
+            break;
+        case ObjectType::Store:
+            for (const auto &item : static_cast<const Store *>(object.get())->_items) addItem(item);
+            break;
+        default:
+            break;
+        }
+    }
+    auto modulePlayer = _game._party.player();
+    if (!modulePlayer) throw ValidationException("module has no controlled player creature");
+    ids.reservePartyId(modulePlayer->id());
+    addCreatureItems(*modulePlayer, false);
+    for (const auto &creature : module._limboCreatures) {
+        if (!creature) continue;
+        ids.reservePartyId(creature->id());
+        addCreatureItems(*creature, true);
+    }
+    for (const Item *item : items) ids.retainItem(*item);
+    for (const Item *item : items) ids.allocateItem(*item);
+    return ids;
 }
 
 std::optional<SerializedScriptSituation> exportScriptSituation(
@@ -678,6 +790,26 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeItem(
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
     const Creature &creature, uint32_t structType,
     std::optional<uint32_t> serializedId) const {
+    ModuleObjectIdContext ids;
+    std::set<const Item *> seen;
+    std::vector<const Item *> items;
+    auto addItem = [&](const std::shared_ptr<Item> &item) {
+        if (item && seen.insert(item.get()).second) items.push_back(item.get());
+    };
+    for (const auto &[slot, item] : creature._equipment) {
+        (void)slot;
+        addItem(item);
+    }
+    for (const auto &item : creature._items) addItem(item);
+    for (const Item *item : items) ids.retainItem(*item);
+    for (const Item *item : items) ids.allocateItem(*item);
+    return writeCreature(creature, structType, serializedId, ids, true);
+}
+std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
+    const Creature &creature, uint32_t structType,
+    std::optional<uint32_t> serializedId,
+    const ModuleObjectIdContext &ids,
+    bool includeInventory) const {
     auto result = objectBase(creature, ResType::Utc, structType);
     writeObjectState(*result, creature);
     if (serializedId) {
@@ -800,20 +932,21 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
     put(*result, Gff::Field::newResRef("ScriptDeath", creature._onDeath));
     put(*result, Gff::Field::newResRef("ScriptOnBlocked", creature._onBlocked));
 
-    OwnerLocalItemIdAllocator ids;
     std::set<const Item *> equipped;
     std::vector<std::shared_ptr<Gff>> equipList;
     for (const auto &[slot, item] : creature._equipment) {
         if (!item) continue;
         equipped.insert(item.get());
-        auto saved = writeItem(*item, 1u << slot, ids.allocate(*item));
+        auto saved = writeItem(*item, 1u << slot, ids.itemId(*item));
         saved->setType(1u << slot);
         equipList.push_back(std::move(saved));
     }
     std::vector<std::shared_ptr<Gff>> inventory;
-    for (const auto &item : creature._items) {
-        if (!item || equipped.count(item.get()) != 0) continue;
-        inventory.push_back(writeItem(*item, 0, ids.allocate(*item)));
+    if (includeInventory) {
+        for (const auto &item : creature._items) {
+            if (!item || equipped.count(item.get()) != 0) continue;
+            inventory.push_back(writeItem(*item, 0, ids.itemId(*item)));
+        }
     }
     put(*result, Gff::Field::newList("Equip_ItemList", std::move(equipList)));
     put(*result, Gff::Field::newList("ItemList", std::move(inventory)));
@@ -873,7 +1006,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(const Door &door) const {
 }
 
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
-    const Placeable &placeable) const {
+    const Placeable &placeable, const ModuleObjectIdContext &ids) const {
     auto result = objectBase(placeable, ResType::Utp, 9);
     writeObjectState(*result, placeable);
     putTransform(*result, placeable, true);
@@ -892,9 +1025,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
     put(*result, Gff::Field::newByte("DisarmDC", placeable._disarmDC));
     put(*result, Gff::Field::newByte("TrapDetectDC", placeable._trapDetectDC));
     put(*result, Gff::Field::newByte("TrapOneShot", placeable._trapOneShot));
-    OwnerLocalItemIdAllocator ids;
     std::vector<std::shared_ptr<Gff>> items;
-    for (const auto &item : placeable._items) if (item) items.push_back(writeItem(*item, 0, ids.allocate(*item)));
+    for (const auto &item : placeable._items) if (item) items.push_back(writeItem(*item, 0, ids.itemId(*item)));
     put(*result, Gff::Field::newList("ItemList", std::move(items)));
     return result;
 }
@@ -1000,7 +1132,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeEncounter(
 }
 
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writeStore(
-    const Store &store) const {
+    const Store &store, const ModuleObjectIdContext &ids) const {
     auto result = objectBase(store, ResType::Utm, 11);
     writeObjectState(*result, store);
     putTransform(*result, store);
@@ -1011,9 +1143,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeStore(
     put(*result, Gff::Field::newInt("MarkUp", store._markUp));
     put(*result, Gff::Field::newResRef("OnOpenStore", store._onOpenStore));
     put(*result, Gff::Field::newByte("BuySellFlag", store._buySellFlag));
-    OwnerLocalItemIdAllocator ids;
     std::vector<std::shared_ptr<Gff>> items;
-    for (const auto &item : store._items) if (item) items.push_back(writeItem(*item, 0, ids.allocate(*item)));
+    for (const auto &item : store._items) if (item) items.push_back(writeItem(*item, 0, ids.itemId(*item)));
     put(*result, Gff::Field::newList("ItemList", std::move(items)));
     return result;
 }
@@ -1102,7 +1233,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildAre(const Area &area) const {
 }
 
 std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
-    const Module &, const Area &area) const {
+    const Module &, const Area &area,
+    const ModuleObjectIdContext &ids) const {
     std::shared_ptr<Gff> result;
     if (auto shadow = _game._saveResourceShadows.find(
             {SaveResourceKind::AreaGit, area._name})) {
@@ -1125,13 +1257,13 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
         switch (object->type()) {
         case ObjectType::Creature:
             lists["Creature List"].push_back(writeCreature(
-                *static_cast<Creature *>(object.get()), 4, object->id()));
+                *static_cast<Creature *>(object.get()), 4, object->id(), ids));
             break;
         case ObjectType::Door:
             lists["Door List"].push_back(writeDoor(*static_cast<Door *>(object.get())));
             break;
         case ObjectType::Placeable:
-            lists["Placeable List"].push_back(writePlaceable(*static_cast<Placeable *>(object.get())));
+            lists["Placeable List"].push_back(writePlaceable(*static_cast<Placeable *>(object.get()), ids));
             break;
         case ObjectType::Trigger:
             lists["TriggerList"].push_back(writeTrigger(*static_cast<Trigger *>(object.get())));
@@ -1140,7 +1272,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
             lists["Encounter List"].push_back(writeEncounter(*static_cast<Encounter *>(object.get())));
             break;
         case ObjectType::Store:
-            lists["StoreList"].push_back(writeStore(*static_cast<Store *>(object.get())));
+            lists["StoreList"].push_back(writeStore(*static_cast<Store *>(object.get()), ids));
             break;
         case ObjectType::Waypoint:
             lists["WaypointList"].push_back(writeWaypoint(*static_cast<Waypoint *>(object.get())));
@@ -1174,7 +1306,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
 }
 
 std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
-    const Module &module) const {
+    const Module &module, const ModuleObjectIdContext &ids) const {
     std::shared_ptr<Gff> result;
     if (auto shadow = _game._saveResourceShadows.find(
             {SaveResourceKind::ModuleIfo, module._name})) {
@@ -1208,28 +1340,9 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
         .field(Gff::Field::newDword("ObjectId", area._id)).build();
     put(*result, Gff::Field::newList("Mod_Area_list", {areaEntry}));
 
-    uint32_t maxWorldId = area._id;
-    for (const auto &object : area._objects) {
-        if (object && area._objectsToDestroy.count(object->id()) == 0) {
-            maxWorldId = std::max(maxWorldId, object->id());
-        }
-    }
-    for (const auto &creature : module._limboCreatures) {
-        if (creature) maxWorldId = std::max(maxWorldId, creature->id());
-    }
-    if (auto player = _game._party.player()) maxWorldId = std::max(maxWorldId, player->id());
-    if (auto player = _game._party.actualPlayer()) maxWorldId = std::max(maxWorldId, player->id());
-    uint32_t nextId = maxWorldId == std::numeric_limits<uint32_t>::max()
-                          ? 0 : maxWorldId + 1;
-    if (nextId < 2) nextId = 2;
     uint32_t shadowNext = result->getUint("Mod_NextObjId0", 2);
-    if (shadowNext != 0 && shadowNext != kSavedRuntimeInvalidObjectId) {
-        nextId = std::max(nextId, shadowNext);
-    }
-    if (nextId == 0 || nextId == kSavedRuntimeInvalidObjectId) {
-        throw ValidationException("world object ID namespace is exhausted");
-    }
-    put(*result, Gff::Field::newDword("Mod_NextObjId0", nextId));
+    put(*result, Gff::Field::newDword(
+        "Mod_NextObjId0", ids.nextId(shadowNext)));
 
     std::vector<std::shared_ptr<Gff>> tokens;
     for (const auto &[number, value] : _game._customTokens) {
@@ -1249,7 +1362,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
 
     auto modulePlayer = _game._party.player();
     if (!modulePlayer) throw ValidationException("module has no controlled player creature");
-    auto player = writeCreature(*modulePlayer, 4, modulePlayer->id());
+    auto player = writeCreature(*modulePlayer, 4, modulePlayer->id(), ids, false);
     put(*player, Gff::Field::newByte(
         "Mod_IsPrimaryPlr", modulePlayer == _game._party.actualPlayer()));
     put(*result, Gff::Field::newList("Mod_PlayerList", {player}));
@@ -1257,7 +1370,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
     std::vector<std::shared_ptr<Gff>> limbo;
     for (const auto &creature : module._limboCreatures) {
         if (creature) {
-            limbo.push_back(writeCreature(*creature, 4, creature->id()));
+            limbo.push_back(writeCreature(*creature, 4, creature->id(), ids));
         }
     }
     put(*result, Gff::Field::newList("Creature List", std::move(limbo)));
@@ -1279,9 +1392,10 @@ ModuleSnapshotResult ModuleSnapshotBuilder::build() const noexcept {
     try {
         SavedModuleSnapshot snapshot;
         snapshot.target = resource::ResourceId(_saveGroup, ResType::Sav);
-        snapshot.ifo = buildIfo(*_game._module);
+        auto ids = buildObjectIdContext(*_game._module, *_game._module->_area);
+        snapshot.ifo = buildIfo(*_game._module, ids);
         snapshot.are = buildAre(*_game._module->_area);
-        snapshot.git = buildGit(*_game._module, *_game._module->_area);
+        snapshot.git = buildGit(*_game._module, *_game._module->_area, ids);
         snapshot.ifoBytes = resource::GffWriter(
             resource::GffFileFormat::v32("IFO "), *snapshot.ifo).toBytes();
         snapshot.areBytes = resource::GffWriter(
@@ -1348,42 +1462,77 @@ void ModuleSnapshotBuilder::validate(const SavedModuleSnapshot &snapshot) const 
         ifo->getUint("Mod_Area") != _game._module->_area->_id) {
         throw ValidationException("IFO active-area identity is inconsistent");
     }
-    if (ifo->getUint("Mod_NextObjId0") < 2 ||
+    uint32_t nextId = ifo->getUint("Mod_NextObjId0");
+    if (nextId < 2 || nextId >= kSavedRuntimeInvalidObjectId ||
         ifo->getUint64("Mod_Effect_NxtId") == kUnassignedEffectId) {
         throw ValidationException("IFO runtime cursors are invalid");
     }
+    std::set<uint32_t> ordinaryIds;
+    std::set<uint32_t> reservedPartyIds;
+    auto addOrdinaryId = [&ordinaryIds](uint32_t id, const char *kind) {
+        if (id >= kSavedRuntimeInvalidObjectId || !ordinaryIds.insert(id).second) {
+            throw ValidationException(std::string(kind) +
+                                      " has an invalid or duplicate saved object ID");
+        }
+    };
+    auto addPartyId = [&addOrdinaryId, &reservedPartyIds](uint32_t id,
+                                                         const char *kind) {
+        if (id < kSavedRuntimeInvalidObjectId) {
+            addOrdinaryId(id, kind);
+        } else if (id == kSavedRuntimeInvalidObjectId || id > 0x7fffffffu ||
+                   !reservedPartyIds.insert(id).second) {
+            throw ValidationException(std::string(kind) +
+                                      " has an invalid or duplicate reserved ID");
+        }
+    };
+    auto addItems = [&addOrdinaryId](const std::shared_ptr<Gff> &owner,
+                                     bool includeInventory) {
+        for (const auto &item : owner->getList("Equip_ItemList")) {
+            addOrdinaryId(item->getUint("ObjectId", kSavedRuntimeInvalidObjectId),
+                          "equipped item");
+        }
+        if (!includeInventory) return;
+        for (const auto &item : owner->getList("ItemList")) {
+            addOrdinaryId(item->getUint("ObjectId", kSavedRuntimeInvalidObjectId),
+                          "contained item");
+        }
+    };
+
+    addOrdinaryId(ifo->getUint("Mod_Area", kSavedRuntimeInvalidObjectId),
+                  "saved area");
     static const std::array<const char *, 9> authoritativeLists {
         "Creature List", "Door List", "Placeable List", "TriggerList",
         "Encounter List", "StoreList", "WaypointList", "SoundList", "List"};
-    std::set<uint32_t> ids;
-    uint32_t areaId = ifo->getUint("Mod_Area", kSavedRuntimeInvalidObjectId);
-    if (areaId == kSavedRuntimeInvalidObjectId) {
-        throw ValidationException("saved area has an invalid world object ID");
-    }
-    ids.insert(areaId);
     for (const char *label : authoritativeLists) {
         for (const auto &object : git->getList(label)) {
-            uint32_t id = object->getUint("ObjectId", kSavedRuntimeInvalidObjectId);
-            if (id == kSavedRuntimeInvalidObjectId || !ids.insert(id).second) {
-                throw ValidationException("GIT contains an invalid or duplicate world object ID");
+            addOrdinaryId(object->getUint("ObjectId", kSavedRuntimeInvalidObjectId),
+                          "GIT object");
+            if (std::string(label) == "Creature List") addItems(object, true);
+            if (std::string(label) == "Placeable List" ||
+                std::string(label) == "StoreList") {
+                for (const auto &item : object->getList("ItemList")) {
+                    addOrdinaryId(item->getUint(
+                        "ObjectId", kSavedRuntimeInvalidObjectId), "contained item");
+                }
             }
         }
     }
     for (const auto &player : ifo->getList("Mod_PlayerList")) {
         uint32_t id = player->getUint("ObjectId", kSavedRuntimeInvalidObjectId);
-        if (id == kSavedRuntimeInvalidObjectId || !ids.insert(id).second) {
-            throw ValidationException("player identity collides with the saved world graph");
+        addPartyId(id, "module player");
+        if (!player->getList("ItemList").empty()) {
+            throw ValidationException("module player duplicates shared party inventory");
         }
+        addItems(player, false);
     }
     for (const auto &creature : ifo->getList("Creature List")) {
-        uint32_t id = creature->getUint("ObjectId", kSavedRuntimeInvalidObjectId);
-        if (id == kSavedRuntimeInvalidObjectId || !ids.insert(id).second) {
-            throw ValidationException("limbo identity collides with the saved world graph");
-        }
+        addPartyId(creature->getUint("ObjectId", kSavedRuntimeInvalidObjectId),
+                   "limbo creature");
+        addItems(creature, true);
     }
-    uint32_t nextId = ifo->getUint("Mod_NextObjId0");
-    if (!ids.empty() && nextId <= *ids.rbegin()) {
-        throw ValidationException("Mod_NextObjId0 does not advance beyond the saved world graph");
+    if (!ordinaryIds.empty() && nextId <= *ordinaryIds.rbegin()) {
+        throw ValidationException(
+            "Mod_NextObjId0 does not advance beyond the ordinary saved object graph");
     }
     (void)are;
 }

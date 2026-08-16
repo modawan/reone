@@ -1446,6 +1446,9 @@ AttackBonusBreakdown Creature::getAttackBonusBreakdown(
     int modifierPenalty = 0;
 
     for (const auto &applied : effects()) {
+        if (!applied.effect) {
+            continue;
+        }
         switch (applied.effect->type()) {
         case EffectType::AttackIncrease: {
             const auto &effect = static_cast<const AttackIncreaseEffect &>(*applied.effect);
@@ -1606,6 +1609,9 @@ int Creature::getDefense(const Creature *attacker, int damageFlags) const {
     std::array<int, kACBonusTypeCount> modifierPenalties {};
 
     for (const auto &applied : effects()) {
+        if (!applied.effect) {
+            continue;
+        }
         switch (applied.effect->type()) {
         case EffectType::ACIncrease: {
             const auto &effect = static_cast<const ACIncreaseEffect &>(*applied.effect);
@@ -1704,6 +1710,9 @@ int Creature::getDefense() const {
 int Creature::getFortitudeSave(SavingThrowType savingThrowType) const {
     int modifier = 0;
     for (const auto &applied : effects()) {
+        if (!applied.effect) {
+            continue;
+        }
         switch (applied.effect->type()) {
         case EffectType::SavingThrowIncrease: {
             const auto &effect =
@@ -2137,6 +2146,9 @@ void Creature::addPhysicalDamageModifiers(
     std::map<int, int> effectBonuses;
     std::map<int, int> effectPenalties;
     for (const auto &applied : effects()) {
+        if (!applied.effect) {
+            continue;
+        }
         switch (applied.effect->type()) {
         case EffectType::DamageIncrease: {
             const auto &effect = static_cast<const DamageIncreaseEffect &>(*applied.effect);

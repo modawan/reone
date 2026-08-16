@@ -55,6 +55,7 @@ class Area;
 class Creature;
 class Door;
 class Game;
+class Item;
 class Module;
 class Conversation;
 class Object;
@@ -220,6 +221,8 @@ public:
     static void deserializeSnapshotRuntimeState(
         Object &object, const resource::Gff &gff);
     static void setSnapshotObjectId(Object &object, uint32_t objectId);
+    static void setSnapshotEquipment(
+        Creature &creature, int slot, std::shared_ptr<Item> item);
     static void setSnapshotDoorState(Door &door, DoorState state);
     static void configureSnapshotCamera(
         StaticCamera &camera, int cameraId, glm::vec3 position,

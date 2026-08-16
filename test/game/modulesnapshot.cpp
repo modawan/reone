@@ -91,6 +91,11 @@ void reone::game::TestGameModule::setSnapshotObjectId(
     object._id = objectId;
 }
 
+void reone::game::TestGameModule::setSnapshotEquipment(
+    Creature &creature, int slot, std::shared_ptr<Item> item) {
+    creature._equipment[slot] = std::move(item);
+    creature._equipment[slot]->setEquipped(true);
+}
 void reone::game::TestGameModule::setSnapshotDoorState(
     Door &door, DoorState state) {
     door._state = state;
@@ -404,51 +409,188 @@ TEST_F(SnapshotFixture, authoritative_membership_omits_deleted_shadow_records) {
     EXPECT_TRUE(deleted.snapshot->git->getList("Door List").empty());
 }
 
-TEST_F(SnapshotFixture, owner_local_item_ids_are_deterministic_and_do_not_drive_world_cursor) {
+TEST_F(SnapshotFixture, module_item_ids_are_global_deterministic_and_retained) {
     auto ownerA = game.newPlaceable();
     auto ownerB = game.newStore();
+    auto creature = game.newCreature();
     auto first = game.newOwnedItem();
     auto second = game.newOwnedItem();
     auto third = game.newOwnedItem();
-    first->setTag("first"); second->setTag("second"); third->setTag("third");
-    auto id7 = Gff::Builder().type(0)
-        .field(Gff::Field::newDword("ObjectId", 7)).build();
-    first->captureOwnerLocalSaveRecord(*id7, {SaveRecordOriginKind::PlaceableItem, "a"});
-    second->captureOwnerLocalSaveRecord(*id7, {SaveRecordOriginKind::PlaceableItem, "a"});
-    third->captureOwnerLocalSaveRecord(*id7, {SaveRecordOriginKind::StoreItem, "b"});
-    ownerA->addItem(first); ownerA->addItem(second); ownerB->addItem(third);
+    auto carried = game.newOwnedItem();
+    auto equipped = game.newOwnedItem();
+    first->setTag("first");
+    second->setTag("second");
+    third->setTag("third");
+    carried->setTag("carried");
+    equipped->setTag("equipped");
+    auto retain = [](const std::shared_ptr<Item> &item, uint32_t id,
+                     SaveRecordOriginKind kind, const std::string &owner) {
+        auto record = Gff::Builder().type(0)
+            .field(Gff::Field::newDword("ObjectId", id)).build();
+        item->captureOwnerLocalSaveRecord(*record, {kind, owner});
+    };
+    retain(first, 70, SaveRecordOriginKind::PlaceableItem, "a");
+    retain(third, 71, SaveRecordOriginKind::StoreItem, "b");
+    retain(carried, 72, SaveRecordOriginKind::ContainedItem, "c");
+    retain(equipped, 73, SaveRecordOriginKind::EquippedItem, "c");
+    ownerA->addItem(first);
+    ownerA->addItem(second);
+    ownerB->addItem(third);
+    creature->addItem(carried);
+    TestGameModule::setSnapshotEquipment(*creature, InventorySlots::rightWeapon, equipped);
     TestGameModule::addSnapshotObject(*area, ownerA);
     TestGameModule::addSnapshotObject(*area, ownerB);
-    uint32_t highestWorld = std::max({area->id(), player->id(), ownerA->id(), ownerB->id()});
+    TestGameModule::addSnapshotObject(*area, creature);
 
     auto saved = ModuleSnapshotBuilder(game, "module005").build();
+
     ASSERT_TRUE(saved) << saved.message;
     auto placeable = recordById(*saved.snapshot->git, "Placeable List", ownerA->id());
     auto store = recordById(*saved.snapshot->git, "StoreList", ownerB->id());
+    auto savedCreature = recordById(*saved.snapshot->git, "Creature List", creature->id());
     ASSERT_TRUE(placeable);
     ASSERT_TRUE(store);
-    ASSERT_EQ(placeable->getList("ItemList").size(), 2);
-    EXPECT_EQ(placeable->getList("ItemList")[0]->getUint("ObjectId"), 7u);
-    EXPECT_EQ(placeable->getList("ItemList")[1]->getUint("ObjectId"), 0u);
-    ASSERT_EQ(store->getList("ItemList").size(), 1);
-    EXPECT_EQ(store->getList("ItemList")[0]->getUint("ObjectId"), 7u);
-    EXPECT_EQ(saved.snapshot->ifo->getUint("Mod_NextObjId0"), std::max(50u, highestWorld + 1));
+    ASSERT_TRUE(savedCreature);
+    EXPECT_EQ(placeable->getList("ItemList").size(), 2);
+    EXPECT_EQ(store->getList("ItemList").size(), 1);
+    EXPECT_EQ(savedCreature->getList("ItemList").size(), 1);
+    EXPECT_EQ(savedCreature->getList("Equip_ItemList").size(), 1);
+    std::set<uint32_t> ids;
+    for (const auto &item : placeable->getList("ItemList")) ids.insert(item->getUint("ObjectId"));
+    for (const auto &item : store->getList("ItemList")) ids.insert(item->getUint("ObjectId"));
+    for (const auto &item : savedCreature->getList("ItemList")) ids.insert(item->getUint("ObjectId"));
+    for (const auto &item : savedCreature->getList("Equip_ItemList")) ids.insert(item->getUint("ObjectId"));
+    EXPECT_EQ(ids.size(), 5);
+    EXPECT_TRUE(ids.count(70));
+    EXPECT_TRUE(ids.count(71));
+    EXPECT_TRUE(ids.count(72));
+    EXPECT_TRUE(ids.count(73));
+    EXPECT_LT(*ids.rbegin(), kSavedRuntimeInvalidObjectId);
+    EXPECT_EQ(saved.snapshot->ifo->getUint("Mod_NextObjId0"), 74u);
 
-    bool last = false;
-    ASSERT_TRUE(ownerA->removeItem(second, last));
-    ownerB->addItem(second);
-    auto moved = ModuleSnapshotBuilder(game, "module005").build();
-    ASSERT_TRUE(moved) << moved.message;
-    placeable = recordById(*moved.snapshot->git, "Placeable List", ownerA->id());
-    store = recordById(*moved.snapshot->git, "StoreList", ownerB->id());
-    ASSERT_EQ(placeable->getList("ItemList").size(), 1);
-    EXPECT_EQ(placeable->getList("ItemList")[0]->getUint("ObjectId"), 7u);
-    ASSERT_EQ(store->getList("ItemList").size(), 2);
-    EXPECT_EQ(store->getList("ItemList")[0]->getUint("ObjectId"), 7u);
-    EXPECT_EQ(store->getList("ItemList")[1]->getUint("ObjectId"), 0u);
-    EXPECT_EQ(moved.snapshot->ifo->getUint("Mod_NextObjId0"), std::max(50u, highestWorld + 1));
+    auto repeated = ModuleSnapshotBuilder(game, "module005").build();
+    ASSERT_TRUE(repeated) << repeated.message;
+    EXPECT_EQ(repeated.snapshot->archiveBytes, saved.snapshot->archiveBytes);
 }
 
+TEST_F(SnapshotFixture, retained_module_item_collision_is_rejected) {
+    auto owner = game.newPlaceable();
+    auto item = game.newOwnedItem();
+    auto record = Gff::Builder().type(0)
+        .field(Gff::Field::newDword("ObjectId", owner->id())).build();
+    item->captureOwnerLocalSaveRecord(
+        *record, {SaveRecordOriginKind::PlaceableItem, "owner"});
+    owner->addItem(item);
+    TestGameModule::addSnapshotObject(*area, owner);
+
+    auto saved = ModuleSnapshotBuilder(game, "module005").build();
+
+    EXPECT_FALSE(saved);
+    EXPECT_EQ(saved.error, ModuleSnapshotError::UnsupportedLiveState);
+    EXPECT_THAT(saved.message, HasSubstr("retained module item ID collides"));
+}
+
+TEST(ModuleSnapshot, k1_reserved_player_id_does_not_drive_cursor_or_duplicate_inventory) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    auto player = game.newCreature();
+    TestGameModule::setSnapshotObjectId(*player, 0x7fffffffu);
+    TestGameModule::configureModuleSnapshot(
+        game, area, player, "end_m01ab", "end_m01ab");
+    TestGameModule::addSnapshotObject(*area, player);
+    auto door = game.newDoor();
+    TestGameModule::setSnapshotObjectId(*door, 135);
+    TestGameModule::addSnapshotObject(*area, door);
+    auto shared = game.newOwnedItem();
+    shared->setTag("shared");
+    player->addItem(shared);
+
+    auto saved = ModuleSnapshotBuilder(game, "module005").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    ASSERT_EQ(saved.snapshot->ifo->getList("Mod_PlayerList").size(), 1);
+    auto modulePlayer = saved.snapshot->ifo->getList("Mod_PlayerList").front();
+    EXPECT_TRUE(modulePlayer->getList("ItemList").empty());
+    EXPECT_TRUE(modulePlayer->getList("Equip_ItemList").empty());
+    EXPECT_EQ(saved.snapshot->ifo->getUint("Mod_NextObjId0"), 136u);
+
+    Game reloaded(GameID::KotOR, "", engine.options(), engine.services(), console);
+    reloaded.prepareSavedRuntimeNamespace(*saved.snapshot->ifo);
+    auto postLoadItem = reloaded.newItem();
+    EXPECT_EQ(postLoadItem->id(), 136u);
+    EXPECT_EQ(reloaded.getObjectById(136), postLoadItem);
+}
+
+TEST(ModuleSnapshot, tsl_reserved_player_id_does_not_drive_cursor) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    auto player = game.newCreature();
+    TestGameModule::configureModuleSnapshot(
+        game, area, player, "301nar", "301nar");
+    TestGameModule::addSnapshotObject(*area, player);
+    TestGameModule::setSnapshotObjectId(*player, 0x7fffffffu);
+    auto door = game.newDoor();
+    TestGameModule::setSnapshotObjectId(*door, 135);
+    TestGameModule::addSnapshotObject(*area, door);
+
+    auto saved = ModuleSnapshotBuilder(game, "module005").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    EXPECT_EQ(saved.snapshot->ifo->getUint("Mod_NextObjId0"), 136u);
+    EXPECT_TRUE(saved.snapshot->ifo->getList("Mod_PlayerList").front()
+                    ->getList("ItemList").empty());
+}
+TEST_F(SnapshotFixture, reserved_limbo_party_id_does_not_drive_ordinary_cursor) {
+    TestGameModule::setSnapshotObjectId(*player, 0x7fffffffu);
+    auto companion = game.newCreature();
+    TestGameModule::setSnapshotObjectId(*companion, 0x7ffffffeu);
+    TestGameModule::addSnapshotLimboCreature(*game.module(), companion);
+
+    auto saved = ModuleSnapshotBuilder(game, "module006").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    EXPECT_EQ(saved.snapshot->ifo->getUint("Mod_NextObjId0"), 50u);
+    ASSERT_EQ(saved.snapshot->ifo->getList("Creature List").size(), 1);
+    EXPECT_EQ(saved.snapshot->ifo->getList("Creature List").front()->getUint("ObjectId"),
+              0x7ffffffeu);
+}
+
+TEST_F(SnapshotFixture, duplicate_reserved_party_ids_are_rejected) {
+    TestGameModule::setSnapshotObjectId(*player, 0x7fffffffu);
+    auto companion = game.newCreature();
+    TestGameModule::setSnapshotObjectId(*companion, 0x7fffffffu);
+    TestGameModule::addSnapshotLimboCreature(*game.module(), companion);
+
+    auto saved = ModuleSnapshotBuilder(game, "module006").build();
+
+    EXPECT_FALSE(saved);
+    EXPECT_EQ(saved.error, ModuleSnapshotError::UnsupportedLiveState);
+    EXPECT_THAT(saved.message, HasSubstr("duplicate reserved ID"));
+}
+TEST_F(SnapshotFixture, module_player_keeps_equipment_but_not_shared_inventory) {
+    auto shared = game.newOwnedItem();
+    auto equipped = game.newOwnedItem();
+    shared->setTag("shared");
+    equipped->setTag("equipped");
+    player->addItem(shared);
+    TestGameModule::setSnapshotEquipment(
+        *player, InventorySlots::rightWeapon, equipped);
+
+    auto saved = ModuleSnapshotBuilder(game, "module006").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto modulePlayer = saved.snapshot->ifo->getList("Mod_PlayerList").front();
+    EXPECT_TRUE(modulePlayer->getList("ItemList").empty());
+    ASSERT_EQ(modulePlayer->getList("Equip_ItemList").size(), 1);
+    EXPECT_LT(modulePlayer->getList("Equip_ItemList").front()->getUint("ObjectId"),
+              kSavedRuntimeInvalidObjectId);
+}
 TEST_F(SnapshotFixture, preserves_open2_and_accepts_retail_world_ids_zero_and_one) {
     auto door = game.newDoor();
     auto placeable = game.newPlaceable();
@@ -478,8 +620,8 @@ TEST_F(SnapshotFixture, rejects_duplicate_authoritative_world_ids) {
     auto saved = ModuleSnapshotBuilder(game, "module008").build();
 
     EXPECT_FALSE(saved);
-    EXPECT_EQ(saved.error, ModuleSnapshotError::ValidationFailure);
-    EXPECT_THAT(saved.message, HasSubstr("duplicate world object ID"));
+    EXPECT_EQ(saved.error, ModuleSnapshotError::UnsupportedLiveState);
+    EXPECT_THAT(saved.message, HasSubstr("collides in module namespace"));
 }
 
 TEST_F(SnapshotFixture, rejects_world_id_collision_with_structural_area) {
@@ -490,8 +632,8 @@ TEST_F(SnapshotFixture, rejects_world_id_collision_with_structural_area) {
     auto saved = ModuleSnapshotBuilder(game, "module008").build();
 
     EXPECT_FALSE(saved);
-    EXPECT_EQ(saved.error, ModuleSnapshotError::ValidationFailure);
-    EXPECT_THAT(saved.message, HasSubstr("duplicate world object ID"));
+    EXPECT_EQ(saved.error, ModuleSnapshotError::UnsupportedLiveState);
+    EXPECT_THAT(saved.message, HasSubstr("collides in module namespace"));
 }
 
 TEST_F(SnapshotFixture, deleted_reference_targets_are_written_as_retail_invalid) {

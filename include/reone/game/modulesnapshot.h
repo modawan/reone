@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -65,13 +66,20 @@ struct ModuleSnapshotResult {
     explicit operator bool() const { return snapshot.has_value(); }
 };
 
-/** Deterministic identity allocator scoped to one serialized item owner. */
-class OwnerLocalItemIdAllocator {
+/** Ordinary saved-object identity namespace shared by one module snapshot. */
+class ModuleObjectIdContext {
 public:
-    uint32_t allocate(const Item &item);
+    void reserveWorldId(uint32_t id);
+    void reservePartyId(uint32_t id);
+    void retainItem(const Item &item);
+    void allocateItem(const Item &item);
+    uint32_t itemId(const Item &item) const;
+    uint32_t nextId(uint32_t retainedCursor) const;
 
 private:
     std::set<uint32_t> _used;
+    std::set<uint32_t> _reservedPartyIds;
+    std::map<const Item *, uint32_t> _itemIds;
 };
 
 /**
@@ -95,22 +103,34 @@ private:
     const Game &_game;
     std::string _saveGroup;
 
-    std::shared_ptr<resource::Gff> buildIfo(const Module &module) const;
+    ModuleObjectIdContext buildObjectIdContext(
+        const Module &module, const Area &area) const;
+    std::shared_ptr<resource::Gff> buildIfo(
+        const Module &module, const ModuleObjectIdContext &ids) const;
     std::shared_ptr<resource::Gff> buildAre(const Area &area) const;
-    std::shared_ptr<resource::Gff> buildGit(const Module &module, const Area &area) const;
+    std::shared_ptr<resource::Gff> buildGit(
+        const Module &module, const Area &area,
+        const ModuleObjectIdContext &ids) const;
     std::shared_ptr<resource::Gff> objectBase(
         const Object &object, resource::ResType templateType, uint32_t structType) const;
     void writeObjectState(resource::Gff &record, const Object &object) const;
     std::shared_ptr<resource::Gff> writeCreature(
         const Creature &creature, uint32_t structType,
         std::optional<uint32_t> serializedId) const;
+    std::shared_ptr<resource::Gff> writeCreature(
+        const Creature &creature, uint32_t structType,
+        std::optional<uint32_t> serializedId,
+        const ModuleObjectIdContext &ids,
+        bool includeInventory = true) const;
     std::shared_ptr<resource::Gff> writeDoor(const Door &door) const;
-    std::shared_ptr<resource::Gff> writePlaceable(const Placeable &placeable) const;
+    std::shared_ptr<resource::Gff> writePlaceable(
+        const Placeable &placeable, const ModuleObjectIdContext &ids) const;
     std::shared_ptr<resource::Gff> writeItem(
         const Item &item, uint32_t structType, std::optional<uint32_t> serializedId) const;
     std::shared_ptr<resource::Gff> writeTrigger(const Trigger &trigger) const;
     std::shared_ptr<resource::Gff> writeEncounter(const Encounter &encounter) const;
-    std::shared_ptr<resource::Gff> writeStore(const Store &store) const;
+    std::shared_ptr<resource::Gff> writeStore(
+        const Store &store, const ModuleObjectIdContext &ids) const;
     std::shared_ptr<resource::Gff> writeWaypoint(const Waypoint &waypoint) const;
     std::shared_ptr<resource::Gff> writeSound(const Sound &sound) const;
     std::shared_ptr<resource::Gff> writeCamera(const StaticCamera &camera) const;
