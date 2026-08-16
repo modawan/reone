@@ -14,6 +14,7 @@
 #include "../fixtures/game.h"
 
 #include "reone/game/action/wait.h"
+#include "reone/game/action/playanimation.h"
 #include "reone/game/game.h"
 #include "reone/game/modulesnapshot.h"
 #include "reone/game/object/area.h"
@@ -696,6 +697,30 @@ TEST_F(SnapshotFixture, unsupported_live_action_fails_without_mutating_runtime_o
     EXPECT_EQ(player->actions().size(), actionCount);
     EXPECT_EQ(TestGameModule::nextObjectId(game), cursor);
     EXPECT_EQ(game.saveResourceShadows().size(), shadowCount);
+}
+
+TEST_F(SnapshotFixture, play_animation_is_a_supported_transition_snapshot_action) {
+    auto action = game.newAction<PlayAnimationAction>(
+        AnimationType::LoopingPause, 1.5f, 6.0f, true, true);
+    SavedActionRecord provenance;
+    provenance.groupActionId = 19;
+    action->attachSavedAction(provenance);
+    player->addAction(action);
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+    ASSERT_TRUE(result) << result.message;
+    auto ifo = readGff(result.snapshot->ifoBytes);
+    auto playerRecord = ifo->getList("Mod_PlayerList").front();
+    ASSERT_EQ(playerRecord->getList("ActionList").size(), 1);
+    auto saved = SavedActionRecord::fromGff(
+        *playerRecord->getList("ActionList").front());
+    EXPECT_EQ(saved.actionId, 6u);
+    EXPECT_EQ(saved.groupActionId, 19);
+    ASSERT_EQ(saved.parameters.size(), 5);
+    EXPECT_EQ(std::get<SavedObjectReference>(saved.parameters[0].payload).id,
+              static_cast<uint32_t>(AnimationType::LoopingPause));
+    EXPECT_EQ(std::get<int32_t>(saved.parameters[3].payload), 0);
+    EXPECT_TRUE(saved.toRuntimeAction(game));
 }
 
 TEST(ModuleSnapshot, exports_advanced_runtime_script_situations_and_rejects_unsupported_values) {

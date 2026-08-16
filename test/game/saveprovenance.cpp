@@ -7,6 +7,7 @@
 #include "../fixtures/game.h"
 
 #include "reone/game/action/wait.h"
+#include "reone/game/action/playanimation.h"
 #include "reone/game/game.h"
 #include "reone/game/location.h"
 #include "reone/game/object/item.h"
@@ -28,6 +29,10 @@ public:
     }
 
     void tickEffects(float dt) { updateEffects(dt); }
+    void tickActionQueue(float dt) {
+        updateActions(dt);
+        executeActions(dt);
+    }
 };
 
 std::shared_ptr<Gff> savedWait(float seconds = 5.0f) {
@@ -248,6 +253,85 @@ TEST(ActionSaveProvenance, pending_loaded_cancelled_completed_and_new_waits) {
     ASSERT_EQ(generated.size(), 1);
     EXPECT_EQ(generated[0].actionId, 30u);
     EXPECT_FLOAT_EQ(std::get<float>(generated[0].parameters[0].payload), 6.0f);
+}
+
+TEST(ActionSaveProvenance, play_animation_uses_retail_id_shape_and_live_state) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto object = std::make_shared<SaveTestObject>(2, game, engine.services());
+
+    auto pending = game.newAction<PlayAnimationAction>(
+        AnimationType::LoopingPause, 1.25f, 10.0f);
+    SavedActionRecord provenance;
+    provenance.groupActionId = 17;
+    pending->attachSavedAction(provenance);
+    object->addAction(pending);
+
+    auto saved = object->saveActionSnapshot();
+    ASSERT_EQ(saved.size(), 1);
+    EXPECT_EQ(saved[0].actionId, 6u);
+    EXPECT_EQ(saved[0].groupActionId, 17);
+    EXPECT_EQ(saved[0].declaredParameterCount, 5);
+    ASSERT_EQ(saved[0].parameters.size(), 5);
+    EXPECT_EQ(saved[0].parameters[0].type, 3u);
+    EXPECT_EQ(std::get<SavedObjectReference>(saved[0].parameters[0].payload).id,
+              static_cast<uint32_t>(AnimationType::LoopingPause));
+    EXPECT_EQ(saved[0].parameters[1].type, 2u);
+    EXPECT_FLOAT_EQ(std::get<float>(saved[0].parameters[1].payload), 1.25f);
+    EXPECT_FLOAT_EQ(std::get<float>(saved[0].parameters[2].payload), 10.0f);
+    EXPECT_EQ(std::get<int32_t>(saved[0].parameters[3].payload), 1);
+    EXPECT_EQ(std::get<int32_t>(saved[0].parameters[4].payload), 1);
+
+    auto started = game.newAction<PlayAnimationAction>(
+        AnimationType::LoopingPause, 1.25f, 6.0f, true, true);
+    object->clearAllActions(true);
+    object->addAction(started);
+    started->execute(started, *object, 2.0f);
+    saved = object->saveActionSnapshot();
+    ASSERT_EQ(saved.size(), 1);
+    EXPECT_FLOAT_EQ(std::get<float>(saved[0].parameters[2].payload), 4.0f);
+    EXPECT_EQ(std::get<int32_t>(saved[0].parameters[3].payload), 0);
+}
+
+TEST(ActionSaveProvenance, play_animation_import_is_inert_and_semantically_symmetric) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+
+    SavedActionRecord saved;
+    saved.actionId = 6;
+    saved.groupActionId = 23;
+    saved.declaredParameterCount = 5;
+    saved.parameters = {
+        {3, SavedObjectReference {static_cast<uint32_t>(AnimationType::LoopingPause)}},
+        {2, 1.0f},
+        {2, 6.0f},
+        {1, int32_t {0}},
+        {1, int32_t {1}},
+    };
+
+    auto runtime = saved.toRuntimeAction(game);
+    ASSERT_TRUE(runtime);
+    EXPECT_EQ(runtime->type(), ActionType::PlayAnimation);
+    EXPECT_FALSE(runtime->isCompleted());
+    auto exported = runtime->saveFacingState();
+    ASSERT_TRUE(exported);
+    EXPECT_EQ(exported->actionId, 6u);
+    EXPECT_EQ(exported->groupActionId, 23);
+    EXPECT_FLOAT_EQ(std::get<float>(exported->parameters[2].payload), 6.0f);
+    EXPECT_EQ(std::get<int32_t>(exported->parameters[3].payload), 0);
+
+    auto object = std::make_shared<SaveTestObject>(2, game, engine.services());
+    object->addAction(runtime);
+    object->addAction(game.newAction<WaitAction>(2.0f));
+    object->tickActionQueue(5.0f);
+    EXPECT_EQ(object->actions().size(), 2);
+    object->tickActionQueue(1.0f);
+    EXPECT_EQ(object->actions().size(), 2);
+    object->tickActionQueue(0.0f);
+    ASSERT_EQ(object->actions().size(), 1);
+    EXPECT_EQ(object->actions().front()->type(), ActionType::Wait);
 }
 
 TEST(ActionSaveProvenance, unsupported_loaded_record_is_live_until_queue_clear) {

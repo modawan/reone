@@ -12,6 +12,7 @@
 #include <set>
 
 #include "reone/game/action/wait.h"
+#include "reone/game/action/playanimation.h"
 #include "reone/game/game.h"
 #include "reone/game/script/savedsituation.h"
 
@@ -321,6 +322,19 @@ SavedActionRecord SavedActionRecord::fromGff(const resource::Gff &gff) {
 }
 
 SavedExecutionSupport SavedActionRecord::executionSupport() const {
+    if (actionId == 6 && declaredParameterCount == 5 && parameters.size() == 5 &&
+        parameters[0].type == static_cast<uint32_t>(SavedActionParameterType::Object) &&
+        parameters[1].type == static_cast<uint32_t>(SavedActionParameterType::Float) &&
+        parameters[2].type == static_cast<uint32_t>(SavedActionParameterType::Float) &&
+        parameters[3].type == static_cast<uint32_t>(SavedActionParameterType::Integer) &&
+        parameters[4].type == static_cast<uint32_t>(SavedActionParameterType::Integer) &&
+        std::holds_alternative<SavedObjectReference>(parameters[0].payload) &&
+        std::holds_alternative<float>(parameters[1].payload) &&
+        std::holds_alternative<float>(parameters[2].payload) &&
+        std::holds_alternative<int32_t>(parameters[3].payload) &&
+        std::holds_alternative<int32_t>(parameters[4].payload)) {
+        return SavedExecutionSupport::Executable;
+    }
     if (actionId == 30 && !parameters.empty() && std::holds_alternative<float>(parameters.front().payload)) {
         return SavedExecutionSupport::Executable;
     }
@@ -342,6 +356,28 @@ std::shared_ptr<Action> SavedActionRecord::toRuntimeAction(
         action->attachSavedAction(*this);
         return action;
     }
+    if (actionId == 6) {
+        auto animation = std::get<SavedObjectReference>(parameters[0].payload).id;
+        auto speed = std::get<float>(parameters[1].payload);
+        auto duration = std::get<float>(parameters[2].payload);
+        auto start = std::get<int32_t>(parameters[3].payload);
+        auto looping = std::get<int32_t>(parameters[4].payload);
+        bool validAnimation = animation <= 41 ||
+                              (animation >= 43 && animation <= 46) ||
+                              (animation >= 100 && animation <= 110) ||
+                              (animation >= 112 && animation <= 124) ||
+                              (animation >= 200 && animation <= 213);
+        if (!validAnimation ||
+            !std::isfinite(speed) || !std::isfinite(duration) ||
+            (start != 0 && start != 1) || (looping != 0 && looping != 1)) {
+            return nullptr;
+        }
+        auto action = game.newAction<PlayAnimationAction>(
+            static_cast<AnimationType>(animation), speed, duration,
+            start == 0, looping != 0);
+        action->attachSavedAction(*this);
+        return action;
+    }
     if (!importer) {
         return nullptr;
     }
@@ -357,7 +393,11 @@ std::shared_ptr<Action> SavedActionRecord::toRuntimeAction(
 
 bool SavedActionRecord::bindObjectReferences(const Game &game) {
     bool allBound = true;
-    for (auto &parameter : parameters) {
+    for (size_t index = 0; index < parameters.size(); ++index) {
+        auto &parameter = parameters[index];
+        // ActionId 6 reuses the retail type-3 storage slot for an animation
+        // identifier rather than an object identity.
+        if (actionId == 6 && index == 0) continue;
         allBound = parameter.bindObjectReferences(game) && allBound;
     }
     return allBound;

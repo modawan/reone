@@ -719,7 +719,11 @@ void ModuleSnapshotBuilder::normalizeSituationReferences(
 
 void ModuleSnapshotBuilder::normalizeActionReferences(
     SavedActionRecord &action) const {
-    for (auto &parameter : action.parameters) {
+    for (size_t index = 0; index < action.parameters.size(); ++index) {
+        auto &parameter = action.parameters[index];
+        // Retail stores PlayAnimation's animation identifier in its generic
+        // type-3/DWORD slot. It is not an object reference.
+        if (action.actionId == 6 && index == 0) continue;
         if (auto reference = std::get_if<SavedObjectReference>(&parameter.payload)) {
             reference->id = serializedReferenceId(*reference);
         } else if (auto situation = std::get_if<SerializedScriptSituation>(&parameter.payload)) {
