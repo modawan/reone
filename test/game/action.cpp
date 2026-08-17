@@ -21,9 +21,11 @@
 #include <set>
 
 #include "../fixtures/engine.h"
+#include "reone/game/action/followleader.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/action/usetalentonobject.h"
 #include "reone/game/game.h"
+#include "reone/game/party.h"
 #include "reone/game/script/routines.h"
 #include "reone/resource/types.h"
 #include "reone/script/executioncontext.h"
@@ -231,6 +233,72 @@ TEST(Action, get_is_conversation_active_reports_the_shared_predicate) {
 
     setScreen(game, Game::Screen::Conversation);
     EXPECT_EQ(1, routine.invoke({}, ctx).intValue);
+}
+
+namespace {
+
+// A leader far enough away that a follower still has ground to cover, so an
+// honored FollowLeader stays in progress rather than completing on arrival.
+constexpr float kFarFromLeader = 10.0f * kDefaultFollowDistance;
+
+} // namespace
+
+// E. FollowLeader has no leader to follow while the party is empty - before it
+// is first populated, after a module transition resets it, and once the last
+// member is removed. The action is dropped there instead of dereferencing the
+// absent leader, and nothing else is promoted in its place.
+TEST(Action, follow_leader_is_discarded_when_the_party_has_no_leader) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto follower = makeApproachingSpeaker(game);
+    ASSERT_TRUE(game.party().isEmpty());
+    ASSERT_FALSE(game.party().getLeader());
+
+    auto action = game.newAction<FollowLeaderAction>();
+    action->execute(action, *follower, 1.0f);
+
+    EXPECT_TRUE(action->isCompleted());
+}
+
+// F. The complement of E, and the check that the guard drops nothing it should
+// not: with a leader in the party the action survives and its follower sets
+// about the approach instead of being discarded.
+TEST(Action, follow_leader_survives_when_the_party_has_a_leader) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto leader = game.newCreature();
+    leader->setPosition(glm::vec3(kFarFromLeader, 0.0f, 0.0f));
+    game.party().addMember(kNpcPlayer, leader);
+    ASSERT_EQ(leader, game.party().getLeader());
+
+    auto follower = makeApproachingSpeaker(game);
+
+    auto action = game.newAction<FollowLeaderAction>();
+    action->execute(action, *follower, 1.0f);
+
+    EXPECT_FALSE(action->isCompleted());
+}
+
+// G. Leader-present completion is unchanged too: a follower already within
+// following distance of the leader finishes the action.
+TEST(Action, follow_leader_completes_once_the_follower_is_with_the_leader) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto leader = game.newCreature();
+    game.party().addMember(kNpcPlayer, leader);
+    auto follower = game.newCreature();
+    ASSERT_EQ(leader->position(), follower->position());
+
+    auto action = game.newAction<FollowLeaderAction>();
+    action->execute(action, *follower, 1.0f);
+
+    EXPECT_TRUE(action->isCompleted());
 }
 
 namespace {
