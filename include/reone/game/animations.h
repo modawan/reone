@@ -37,9 +37,7 @@ public:
 
     virtual std::string getNameById(uint32_t id) const = 0;
     virtual std::string getAttackResult(std::string attackAnim, CreatureWieldType targetWield, AttackResultType result) const = 0;
-    virtual int getMeleeImpactTime(const std::string &attackAnim, size_t attackIndex) const {
-        throw std::logic_error("Melee impact timing is not implemented");
-    }
+    virtual int getMeleeImpactTime(const std::string &attackAnim, size_t attackIndex) const = 0;
 };
 
 class Animations : public IAnimations {

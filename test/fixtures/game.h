@@ -143,6 +143,7 @@ public:
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::string, getNameById, (uint32_t id), (const override));
     MOCK_METHOD(std::string, getAttackResult, (std::string attackAnim, CreatureWieldType targetWield, AttackResultType result), (const override));
+    MOCK_METHOD(int, getMeleeImpactTime, (const std::string &attackAnim, size_t attackIndex), (const override));
 };
 
 class MockVisualEffects : public IVisualEffects, boost::noncopyable {
