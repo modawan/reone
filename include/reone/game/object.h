@@ -228,6 +228,14 @@ public:
     const std::string &getOnHeartbeat() const { return _onHeartbeat; }
     const std::string &getOnUserDefined() const { return _onUserDefined; }
 
+    /**
+     * Drop this object's OnHeartbeat script, leaving its other event scripts
+     * alone. Area heartbeat dispatch skips objects without one, so the object
+     * stops receiving heartbeats. Used by the KotOR II RemoveHeartbeat routine
+     * once a heartbeat script has done its one-off work.
+     */
+    void clearOnHeartbeat() { _onHeartbeat.clear(); }
+
     // END Scripts
 
 protected:

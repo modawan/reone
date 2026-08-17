@@ -7087,7 +7087,12 @@ static Variable RemoveHeartbeat(const std::vector<Variable> &args, const Routine
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("RemoveHeartbeat");
+    // Only the heartbeat script is dropped, and it stays dropped: no routine
+    // can assign an event script back. Area heartbeat dispatch reads a copy of
+    // the resref before running it, so a heartbeat that removes its own script
+    // still runs to completion.
+    oPlaceable->clearOnHeartbeat();
+    return Variable::ofNull();
 }
 
 static Variable RemoveEffectByID(const std::vector<Variable> &args, const RoutineContext &ctx) {
