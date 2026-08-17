@@ -30,6 +30,7 @@
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/gffs.h"
 #include "reone/resource/resources.h"
+#include "reone/resource/strings.h"
 #include "reone/system/exception/validation.h"
 #include "reone/system/logutil.h"
 
@@ -84,6 +85,16 @@ void Module::activate() {
 }
 
 void Module::loadInfo(const resource::generated::IFO &ifo) {
+    // Mod_Name is a localized string: KotOR II modules carry a talk table
+    // reference, while KotOR modules usually carry the text inline. LocString
+    // resolves whichever form is present, and yields an empty string when
+    // neither is.
+    _localizedName = LocString(
+                         ifo.Mod_Name.first,
+                         ifo.Mod_Name.second,
+                         _services.resource.strings)
+                         .str();
+
     // Entry location
 
     _info.entryArea = ifo.Mod_Entry_Area;

@@ -86,6 +86,14 @@ public:
     bool isHostileToPartyLeader(const Creature &creature) const;
 
     const std::string &name() const { return _name; }
+
+    /**
+     * The module's localized name, as authored in the module IFO's Mod_Name.
+     * Distinct from name(), which is the module's resource name and is
+     * normalized to lower case. Empty when the field resolves to nothing.
+     */
+    const std::string &localizedName() const { return _localizedName; }
+
     const ModuleInfo &info() const { return _info; }
     std::shared_ptr<Area> area() const { return _area; }
     Player &player() { return *_player; }
@@ -94,6 +102,7 @@ private:
     friend class TestGameModule;
 
     std::string _name;
+    std::string _localizedName;
     ModuleInfo _info;
     std::shared_ptr<Area> _area;
     std::unique_ptr<Player> _player;

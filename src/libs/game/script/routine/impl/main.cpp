@@ -5193,7 +5193,11 @@ static Variable WriteTimestampedLogEntry(const std::vector<Variable> &args, cons
 
 static Variable GetModuleName(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetModuleName");
+    // The module's authored Mod_Name, not its resource name: shipped scripts
+    // compare the result case-sensitively and take substrings of it. Scripts do
+    // not run without a module, so the empty string here is only defensive.
+    auto module = ctx.game.module();
+    return Variable::ofString(module ? module->localizedName() : "");
 }
 
 static Variable GetFactionLeader(const std::vector<Variable> &args, const RoutineContext &ctx) {
