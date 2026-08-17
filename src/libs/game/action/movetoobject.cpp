@@ -27,7 +27,16 @@ namespace game {
 
 void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto dest = _moveTo->position();
+    // A conversation owned by a placeable or a door runs its action scripts with
+    // that object as the caller, so a creature-only action can be queued on one.
+    // Non-creature objects execute their action queues like any other, and there
+    // is nothing to move, so the action is dropped rather than dereferencing the
+    // absent creature.
     auto creatureActor = _game.getObjectById<Creature>(actor.id());
+    if (!creatureActor) {
+        complete();
+        return;
+    }
 
     bool reached = creatureActor->navigateTo(dest, _run, _range, dt);
     if (reached) {
