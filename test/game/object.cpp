@@ -3868,3 +3868,231 @@ TEST(OverlayAnimation, routine_854_plays_the_overlay_on_its_target) {
     EXPECT_EQ(script::VariableType::Void, result.type);
     EXPECT_EQ("cdiveroll", fixture.node->activeAnimationName());
 }
+
+
+namespace {
+
+// KotOR II routine numbers, as the shipped scripts encode them.
+constexpr int kRemoveHeartbeatRoutine = 866;
+constexpr int kSetLocalBooleanRoutine = 680;
+
+// An arbitrary local slot the heartbeat script writes to so the test can see
+// how far the script got.
+constexpr int kReachedEndFlag = 7;
+
+std::map<std::string, int> &heartbeatDispatches() {
+    static std::map<std::string, int> counts;
+    return counts;
+}
+
+std::shared_ptr<TwoDA> makePlaceablesTable() {
+    TwoDA::Builder builder;
+    builder.columns({"modelname"});
+    // No model is resolvable for this row, so appearance loading stops before
+    // it needs a scene node.
+    builder.row({"plc_footlker"});
+    return std::shared_ptr<TwoDA>(builder.build());
+}
+
+// A placeable in the shape the game loads one: a UTP names its heartbeat in
+// OnHeartbeat, not in the base object's ScriptHeartbeat field.
+std::shared_ptr<Gff> makeHeartbeatPlaceableGff(
+    std::string tag,
+    std::string onHeartbeat,
+    std::string onUsed = "") {
+
+    auto builder = Gff::Builder();
+    builder.field(Gff::Field::newCExoString("Tag", std::move(tag)));
+    builder.field(Gff::Field::newDword("Appearance", 0));
+    if (!onHeartbeat.empty()) {
+        builder.field(Gff::Field::newResRef("OnHeartbeat", std::move(onHeartbeat)));
+    }
+    if (!onUsed.empty()) {
+        builder.field(Gff::Field::newResRef("OnUsed", std::move(onUsed)));
+    }
+    return builder.build();
+}
+
+// The shape the shipped k_plc_tres* heartbeats use: do the one-off work, then
+// hand OBJECT_SELF to RemoveHeartbeat. Arguments are pushed so that argument 0
+// ends up on top of the stack.
+std::shared_ptr<script::ScriptProgram> makeSelfRemovingHeartbeat(const std::string &resRef) {
+    auto program = std::make_shared<script::ScriptProgram>(resRef);
+    program->add(script::Instruction::newCONSTO(script::kObjectSelf));
+    program->add(script::Instruction::newACTION(kRemoveHeartbeatRoutine, 1));
+    // Executed after the removal, so a heartbeat that removes itself is still
+    // seen through to the end.
+    program->add(script::Instruction::newCONSTI(1));
+    program->add(script::Instruction::newCONSTI(kReachedEndFlag));
+    program->add(script::Instruction::newCONSTO(script::kObjectSelf));
+    program->add(script::Instruction::newACTION(kSetLocalBooleanRoutine, 3));
+    program->add(script::Instruction(script::InstructionType::RETN));
+    return program;
+}
+
+// A heartbeat that does nothing, for the objects a test only needs to keep
+// ticking.
+std::shared_ptr<script::ScriptProgram> makeInertScript(const std::string &resRef) {
+    auto program = std::make_shared<script::ScriptProgram>(resRef);
+    program->add(script::Instruction(script::InstructionType::RETN));
+    return program;
+}
+
+// Serve a program for resRef and count how many times it is dispatched. Area
+// heartbeat dispatch fetches the program once per run, which is what makes the
+// fetch count the dispatch count.
+void serveScript(
+    TestEngine &engine,
+    const std::string &resRef,
+    std::shared_ptr<script::ScriptProgram> program) {
+
+    heartbeatDispatches()[resRef] = 0;
+    EXPECT_CALL(engine.resourceModule().scripts(), get(resRef))
+        .Times(AnyNumber())
+        .WillRepeatedly(Invoke([program](const std::string &key) {
+            ++heartbeatDispatches()[key];
+            return program;
+        }));
+}
+
+int dispatchesOf(const std::string &resRef) {
+    return heartbeatDispatches()[resRef];
+}
+
+struct HeartbeatFixture {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game {GameID::TSL, "", engine.options(), engine.services(), console};
+    std::shared_ptr<Area> area;
+
+    HeartbeatFixture() {
+        testSceneGraph(engine);
+        EXPECT_CALL(engine.resourceModule().twoDas(), get("placeables"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(makePlaceablesTable()));
+        // Appearance loading looks the model up and stops when there is none;
+        // these tests never need a scene node.
+        EXPECT_CALL(engine.resourceModule().models(), get("plc_footlker"))
+            .Times(AnyNumber());
+        // Heartbeat dispatch runs scripts through the game's own script runner.
+        game.initLocalServices();
+        area = game.newArea();
+        TestGameModule::setActiveModuleArea(game, area);
+    }
+
+    std::shared_ptr<Placeable> addPlaceable(
+        std::string tag,
+        std::string onHeartbeat,
+        std::string onUsed = "") {
+
+        auto placeable = game.newPlaceable();
+        placeable->deserialize(*makeHeartbeatPlaceableGff(
+            std::move(tag), std::move(onHeartbeat), std::move(onUsed)));
+        area->add(placeable);
+        return placeable;
+    }
+
+    // Advance the area far enough to cross one heartbeat interval.
+    void tickHeartbeat(int times = 1) {
+        for (int i = 0; i < times; ++i) {
+            area->update(kHeartbeatInterval);
+        }
+    }
+};
+
+} // namespace
+
+// A. The shipped pattern: a placeable's heartbeat removes its own heartbeat
+// script. It runs once, and the area's heartbeat cadence never runs it again,
+// however long the object stays around.
+TEST(RemoveHeartbeat, should_stop_further_heartbeats_on_the_object_that_removed_its_own) {
+    HeartbeatFixture fixture;
+    serveScript(fixture.engine, "k_plc_treasure", makeSelfRemovingHeartbeat("k_plc_treasure"));
+    auto placeable = fixture.addPlaceable("treasure", "k_plc_treasure");
+    ASSERT_EQ("k_plc_treasure", placeable->getOnHeartbeat());
+
+    fixture.tickHeartbeat();
+
+    // It ran, and it ran all the way through: the routine after RemoveHeartbeat
+    // still took effect, so removal does not abort the heartbeat in progress.
+    EXPECT_EQ(1, dispatchesOf("k_plc_treasure"));
+    EXPECT_TRUE(placeable->getLocalBoolean(kReachedEndFlag));
+
+    // The slot is empty, which is what takes the object out of dispatch.
+    EXPECT_TRUE(placeable->getOnHeartbeat().empty());
+
+    // Removal holds for the rest of the object's life, not just one interval.
+    fixture.tickHeartbeat(5);
+
+    EXPECT_EQ(1, dispatchesOf("k_plc_treasure"));
+}
+
+// B. Only the heartbeat slot is cleared. The same object's other event scripts
+// are untouched and still dispatch - shipped treasure placeables carry OnUsed,
+// OnOpen and OnMeleeAttacked scripts alongside the heartbeat they remove.
+TEST(RemoveHeartbeat, should_leave_the_other_event_scripts_on_the_object_alone) {
+    HeartbeatFixture fixture;
+    serveScript(fixture.engine, "k_plc_hb", makeSelfRemovingHeartbeat("k_plc_hb"));
+    serveScript(fixture.engine, "k_plc_used", makeInertScript("k_plc_used"));
+    auto placeable = fixture.addPlaceable("treasure", "k_plc_hb", "k_plc_used");
+
+    fixture.tickHeartbeat();
+    ASSERT_TRUE(placeable->getOnHeartbeat().empty());
+
+    placeable->runOnUsed(nullptr);
+
+    EXPECT_EQ(1, dispatchesOf("k_plc_used"));
+}
+
+// C. Removal is per object. A second placeable running the very same heartbeat
+// script keeps being dispatched after the first one removes its own.
+TEST(RemoveHeartbeat, should_not_disturb_the_heartbeat_of_another_object) {
+    HeartbeatFixture fixture;
+    serveScript(fixture.engine, "k_plc_selfrem", makeSelfRemovingHeartbeat("k_plc_selfrem"));
+    serveScript(fixture.engine, "k_plc_keeps", makeInertScript("k_plc_keeps"));
+    auto remover = fixture.addPlaceable("remover", "k_plc_selfrem");
+    auto bystander = fixture.addPlaceable("bystander", "k_plc_keeps");
+
+    fixture.tickHeartbeat(3);
+
+    EXPECT_EQ(1, dispatchesOf("k_plc_selfrem"));
+    EXPECT_TRUE(remover->getOnHeartbeat().empty());
+
+    // The bystander ran on every interval and still has its script.
+    EXPECT_EQ(3, dispatchesOf("k_plc_keeps"));
+    EXPECT_EQ("k_plc_keeps", bystander->getOnHeartbeat());
+}
+
+// D. Routine 866 is registered for KotOR II and tolerates an object that has no
+// heartbeat script to begin with.
+TEST(RemoveHeartbeat, routine_866_is_a_no_op_on_an_object_without_a_heartbeat) {
+    HeartbeatFixture fixture;
+    Routines routines(GameID::TSL, &fixture.game, &fixture.engine.services());
+    routines.init();
+    script::Routine &routine = routines.get(kRemoveHeartbeatRoutine);
+    ASSERT_EQ("RemoveHeartbeat", routine.name());
+
+    auto placeable = fixture.addPlaceable("plain", "");
+    ASSERT_TRUE(placeable->getOnHeartbeat().empty());
+
+    script::ExecutionContext ctx;
+    auto result = routine.invoke({script::Variable::ofObject(placeable->id())}, ctx);
+
+    EXPECT_EQ(script::VariableType::Void, result.type);
+    EXPECT_TRUE(placeable->getOnHeartbeat().empty());
+}
+
+// E. The routine belongs to KotOR II only - it is absent from the KotOR I
+// nwscript, and its table stops short of 866 entirely.
+TEST(RemoveHeartbeat, is_not_registered_for_kotor_one) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    Routines k1(GameID::KotOR, &game, &engine.services());
+    k1.init();
+    EXPECT_THROW(k1.get(kRemoveHeartbeatRoutine), std::out_of_range);
+
+    Routines k2(GameID::TSL, &game, &engine.services());
+    k2.init();
+    EXPECT_EQ("RemoveHeartbeat", k2.get(kRemoveHeartbeatRoutine).name());
+}
