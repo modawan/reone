@@ -174,6 +174,9 @@ public:
     static void finishPazaak(Game &game, PazaakCompletedResult result);
     static void serializePazaakPartyTable(const Game &game, resource::Gff &gff);
     static void deserializePartyTable(Game &game, resource::Gff &gff);
+    // Drive the two steps of Module::load that module identity depends on,
+    // without the area/scene machinery a full load would need.
+    static void loadModuleInfo(Module &module, std::string name, const resource::Gff &ifo);
     static void clickCreature(Module &module, const std::shared_ptr<Creature> &creature);
 
     void init() {
