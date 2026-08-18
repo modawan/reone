@@ -6493,6 +6493,30 @@ static Variable GetRacialSubType(const std::vector<Variable> &args, const Routin
     throw RoutineNotImplementedException("GetRacialSubType");
 }
 
+// Number globals are signed 8-bit values. IncrementGlobalNumber and
+// DecrementGlobalNumber are documented as failing with a warning when the
+// resulting amount would leave that domain, so a rejected call leaves the stored
+// value alone: it neither wraps nor clamps to the bound.
+static constexpr int kMinGlobalNumber = -128;
+static constexpr int kMaxGlobalNumber = 127;
+
+// Add a signed delta to a named number global, rejecting a result outside the
+// domain. Widened to 64-bit so that an extreme amount cannot overflow before the
+// bounds check decides the call.
+static void applyGlobalNumberDelta(
+    const RoutineContext &ctx,
+    const std::string &identifier,
+    int64_t delta) {
+
+    int64_t result = static_cast<int64_t>(ctx.game.getGlobalNumber(identifier)) + delta;
+    if (result < kMinGlobalNumber || result > kMaxGlobalNumber) {
+        debug(str(boost::format("Global number out of range: %s %d") % identifier % result),
+              LogChannel::Script);
+        return;
+    }
+    ctx.game.setGlobalNumber(identifier, static_cast<int>(result));
+}
+
 static Variable IncrementGlobalNumber(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto sIdentifier = getString(args, 0);
@@ -6501,7 +6525,8 @@ static Variable IncrementGlobalNumber(const std::vector<Variable> &args, const R
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("IncrementGlobalNumber");
+    applyGlobalNumberDelta(ctx, sIdentifier, nAmount);
+    return Variable::ofNull();
 }
 
 static Variable DecrementGlobalNumber(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6512,7 +6537,10 @@ static Variable DecrementGlobalNumber(const std::vector<Variable> &args, const R
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("DecrementGlobalNumber");
+    // Negated as 64-bit: the amount may be the most negative int, which has no
+    // positive counterpart in its own width.
+    applyGlobalNumberDelta(ctx, sIdentifier, -static_cast<int64_t>(nAmount));
+    return Variable::ofNull();
 }
 
 static Variable SetBonusForcePoints(const std::vector<Variable> &args, const RoutineContext &ctx) {
