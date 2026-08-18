@@ -27,6 +27,11 @@ namespace game {
 
 void MoveToLocationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto creatureActor = _game.getObjectById<Creature>(actor.id());
+    if (!creatureActor) {
+        complete();
+        return;
+    }
+
     glm::vec3 destination(_destination->position());
 
     bool reached = creatureActor->navigateTo(destination, _run, 1.0f, dt);

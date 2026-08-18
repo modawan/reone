@@ -38,6 +38,11 @@ void FollowLeaderAction::execute(std::shared_ptr<Action> self, Object &actor, fl
     }
 
     auto creatureActor = _game.getObjectById<Creature>(actor.id());
+    if (!creatureActor) {
+        complete();
+        return;
+    }
+
     glm::vec3 destination(leader->position());
     float distance2 = creatureActor->getSquareDistanceTo(glm::vec2(destination));
     bool run = distance2 > kDistanceWalk;
