@@ -679,7 +679,16 @@ static Variable GetSubString(const std::vector<Variable> &args, const RoutineCon
     // Transform
 
     // Execute
-    return Variable::ofString(sString.substr(nStart, nStart));
+    // nCount is a character count, not an end position. Out-of-range requests
+    // yield the empty string the declaration documents for an error, the way
+    // GetStringLeft and GetStringRight already handle theirs. Widened so that
+    // extreme arguments cannot overflow the range check.
+    std::string substring;
+    if (nStart >= 0 && nCount >= 0 &&
+        static_cast<int64_t>(nStart) + nCount <= static_cast<int64_t>(sString.size())) {
+        substring = sString.substr(nStart, nCount);
+    }
+    return Variable::ofString(std::move(substring));
 }
 
 static Variable FindSubString(const std::vector<Variable> &args, const RoutineContext &ctx) {
