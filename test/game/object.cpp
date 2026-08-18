@@ -4096,3 +4096,116 @@ TEST(RemoveHeartbeat, is_not_registered_for_kotor_one) {
     k2.init();
     EXPECT_EQ("RemoveHeartbeat", k2.get(kRemoveHeartbeatRoutine).name());
 }
+
+
+namespace {
+
+// Door action routine numbers, registered for both games.
+constexpr int kActionOpenDoor = 43;
+constexpr int kActionCloseDoor = 44;
+
+// Invoke a door action routine the way a script does: by number, with the
+// caller the engine would have supplied.
+script::Variable invokeDoorRoutine(
+    Routines &routines,
+    int routine,
+    const std::shared_ptr<Object> &caller,
+    const std::shared_ptr<Object> &target) {
+
+    script::ExecutionContext ctx;
+    ctx.args.emplace_back(script::ArgKind::Caller, script::Variable::ofObject(caller->id()));
+    return routines.get(routine).invoke({script::Variable::ofObject(target->id())}, ctx);
+}
+
+struct DoorTargetFixture {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game {GameID::KotOR, "", engine.options(), engine.services(), console};
+    Routines routines {GameID::KotOR, &game, &engine.services()};
+
+    DoorTargetFixture() {
+        testSceneGraph(engine);
+        routines.init();
+    }
+};
+
+} // namespace
+
+// A non-door target is rejected by argument validation, so nothing is queued on
+// the caller. ActionCloseDoor takes a generic object in nwscript, so a script
+// can name anything at all here.
+TEST(CloseDoorTarget, should_reject_a_non_door_target) {
+    DoorTargetFixture fixture;
+    auto caller = makeMovingCreature(fixture.game, fixture.engine);
+    auto notADoor = fixture.game.newPlaceable();
+
+    auto result = invokeDoorRoutine(fixture.routines, kActionCloseDoor, caller, notADoor);
+
+    EXPECT_EQ(script::VariableType::Void, result.type);
+    EXPECT_TRUE(caller->actions().empty());
+}
+
+// The same rejection for a caller that is not a creature. Without validation
+// this is the path that skipped the approach and went straight to closing the
+// target, so it has to be covered separately from the creature case.
+TEST(CloseDoorTarget, should_reject_a_non_door_target_for_a_non_creature_caller) {
+    DoorTargetFixture fixture;
+    auto caller = fixture.game.newPlaceable();
+    auto notADoor = fixture.game.newPlaceable();
+
+    invokeDoorRoutine(fixture.routines, kActionCloseDoor, caller, notADoor);
+
+    EXPECT_TRUE(caller->actions().empty());
+}
+
+// A real door is queued and closed as before.
+TEST(CloseDoorTarget, should_close_a_door_the_actor_has_reached) {
+    DoorTargetFixture fixture;
+    auto door = makePlainDoor(fixture.game, fixture.engine);
+    auto caller = makeMovingCreature(fixture.game, fixture.engine);
+    door->open();
+    ASSERT_TRUE(door->isOpen());
+
+    invokeDoorRoutine(fixture.routines, kActionCloseDoor, caller, door);
+    ASSERT_EQ(1u, caller->actions().size());
+    auto action = caller->actions().front();
+
+    action->execute(action, *caller, 1.0f);
+
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_FALSE(door->isOpen());
+    EXPECT_EQ(DoorState::Closed, door->state());
+}
+
+// Out of range the action stays in progress and the door is left alone, which
+// is what separates an honored action from a dropped one.
+TEST(CloseDoorTarget, should_keep_approaching_a_door_that_is_out_of_reach) {
+    DoorTargetFixture fixture;
+    auto door = makePlainDoor(fixture.game, fixture.engine, /*locked=*/false, /*onOpen=*/"",
+                              glm::vec3(50.0f, 0.0f, 0.0f));
+    auto caller = makeMovingCreature(fixture.game, fixture.engine);
+    caller->setMovementRestricted(true);
+    door->open();
+
+    invokeDoorRoutine(fixture.routines, kActionCloseDoor, caller, door);
+    ASSERT_EQ(1u, caller->actions().size());
+    auto action = caller->actions().front();
+
+    action->execute(action, *caller, 1.0f);
+
+    EXPECT_FALSE(action->isCompleted());
+    EXPECT_TRUE(door->isOpen());
+}
+
+// Both door routines apply the same validation to the same bad target.
+TEST(CloseDoorTarget, opens_and_closes_reject_a_non_door_target_alike) {
+    DoorTargetFixture fixture;
+    auto caller = makeMovingCreature(fixture.game, fixture.engine);
+    auto notADoor = fixture.game.newPlaceable();
+
+    invokeDoorRoutine(fixture.routines, kActionOpenDoor, caller, notADoor);
+    EXPECT_TRUE(caller->actions().empty());
+
+    invokeDoorRoutine(fixture.routines, kActionCloseDoor, caller, notADoor);
+    EXPECT_TRUE(caller->actions().empty());
+}
