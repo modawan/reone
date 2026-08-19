@@ -1750,6 +1750,14 @@ void Game::loadNextModule() {
 }
 
 void Game::stopMovement() {
+    // Reached with no module while one is being swapped in: loadGame resets the
+    // game before the destination module is up, and the menus that call this
+    // outlive that reset. There is no player to halt and no in-game camera for
+    // getActiveCamera to find, so there is nothing to stop.
+    if (!_module) {
+        return;
+    }
+
     auto camera = getActiveCamera();
     if (camera) {
         camera->stopMovement();

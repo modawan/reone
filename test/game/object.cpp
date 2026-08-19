@@ -39,6 +39,7 @@
 #include "reone/game/object/module.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/object/trigger.h"
+#include "reone/game/player.h"
 #include "reone/game/reputes.h"
 #include "reone/game/room.h"
 #include "reone/game/script/routines.h"
@@ -51,6 +52,7 @@
 #include "reone/scene/collision.h"
 #include "reone/scene/node/dummy.h"
 #include "reone/scene/node/model.h"
+#include "reone/scene/node/camera.h"
 #include "reone/scene/node/trigger.h"
 #include "reone/scene/node/walkmesh.h"
 #include "reone/script/executioncontext.h"
@@ -306,6 +308,16 @@ scene::MockSceneGraph &testSceneGraph(TestEngine &engine) {
         EXPECT_CALL(engine.sceneModule().graphs(), get(_))
             .Times(AnyNumber())
             .WillRepeatedly(ReturnRef(graph));
+        ON_CALL(graph, newCamera())
+            .WillByDefault(Invoke([&engine]() {
+                auto node = std::make_shared<scene::CameraSceneNode>(
+                    graph,
+                    engine.services().graphics,
+                    engine.services().audio,
+                    engine.services().resource);
+                createdNodes.push_back(node);
+                return node;
+            }));
         ON_CALL(graph, newTrigger(_))
             .WillByDefault(Invoke([&engine](std::vector<glm::vec3> geometry) {
                 return std::make_shared<scene::TriggerSceneNode>(
@@ -4208,4 +4220,71 @@ TEST(CloseDoorTarget, opens_and_closes_reject_a_non_door_target_alike) {
 
     invokeDoorRoutine(fixture.routines, kActionCloseDoor, caller, notADoor);
     EXPECT_TRUE(caller->actions().empty());
+}
+
+
+void reone::game::TestGameModule::stopMovement(Game &game) {
+    game.stopMovement();
+}
+
+void reone::game::TestGameModule::loadModulePlayer(Module &module) {
+    module.loadPlayer();
+}
+
+namespace {
+
+// A module with the area, cameras and player a loaded one has, which is what
+// the movement stop actually reaches.
+struct StopMovementFixture {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game {GameID::KotOR, "", engine.options(), engine.services(), console};
+
+    StopMovementFixture() {
+        testSceneGraph(engine);
+    }
+
+    std::shared_ptr<Creature> bringUpModule() {
+        auto area = game.newArea();
+        area->initCameras(glm::vec3(0.0f), 0.0f);
+        TestGameModule::setActiveModuleArea(game, area);
+        TestGameModule::loadModulePlayer(*game.module());
+
+        auto leader = makeMovingCreature(game, engine);
+        game.party().addMember(kNpcPlayer, leader);
+        game.party().setPlayer(leader);
+        area->add(leader);
+        return leader;
+    }
+};
+
+} // namespace
+
+// Between resetting the game and the destination module coming up there is no
+// module to stop anything on. Nothing is halted because nothing is moving, and
+// no state is conjured to stand in for the absent module.
+TEST(StopMovement, should_do_nothing_without_a_module) {
+    StopMovementFixture fixture;
+    ASSERT_FALSE(fixture.game.module());
+
+    TestGameModule::stopMovement(fixture.game);
+
+    EXPECT_FALSE(fixture.game.module());
+    EXPECT_TRUE(fixture.game.party().isEmpty());
+}
+
+// With a module the player is still halted, which is the whole point of the
+// call: a player holding a movement key is left standing.
+TEST(StopMovement, should_halt_the_player_with_a_module) {
+    StopMovementFixture fixture;
+    fixture.bringUpModule();
+    Player &player = fixture.game.module()->player();
+
+    ASSERT_TRUE(player.handle(input::Event::newKeyDown(
+        input::KeyEvent(true, input::KeyCode::W, 0, false))));
+    ASSERT_TRUE(player.isMovementRequested());
+
+    TestGameModule::stopMovement(fixture.game);
+
+    EXPECT_FALSE(player.isMovementRequested());
 }
