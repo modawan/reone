@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "reone/game/galaxymapstate.h"
 #include "reone/input/event.h"
 
 #include <array>
@@ -155,6 +156,16 @@ public:
 
     // END Experience
 
+    // Galaxy map
+    //
+    // Planet availability, selectability and the current travel destination
+    // are party-wide runtime state, carried in PARTYTABLE.
+
+    GalaxyMapState &galaxyMap() { return _galaxyMap; }
+    const GalaxyMapState &galaxyMap() const { return _galaxyMap; }
+
+    // END Galaxy map
+
     // Inventory
     //
     // KOTOR keeps a single shared party inventory, modelled here as the player
@@ -177,6 +188,7 @@ private:
     bool _solo {false};
     int _gold {0};
     int _xp {0};
+    GalaxyMapState _galaxyMap;
     bool _pazaakDataValid {false};
     size_t _pazaakCardCount {kK1PazaakCardCount};
     PazaakCardCounts _pazaakCardCounts {};

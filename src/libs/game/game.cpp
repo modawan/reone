@@ -400,6 +400,7 @@ static int getDebugFaction(const std::shared_ptr<Object> &object) {
 
 void Game::init() {
     initConsole();
+    resetGalaxyMap();
     initLocalServices();
     setSceneSurfaces();
     setCursorType(CursorType::Default);
@@ -1013,6 +1014,8 @@ void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
 }
 
 void Game::deserializeParty(resource::Gff &ifoGff) {
+    resetGalaxyMap();
+
     const auto &players = ifoGff.getList("Mod_PlayerList");
     if (players.empty()) {
         return;
@@ -1043,9 +1046,21 @@ void Game::deserializeParty(resource::Gff &ifoGff) {
         _party.setXP(xp);
     }
 
+    deserializeGalaxyMap(*ptGff);
     deserializePartyTable(*ptGff);
     deserializePartyMembers(*ptGff);
     deserializeJournal(*ptGff);
+}
+
+void Game::resetGalaxyMap() {
+    // K1 takes its planet count from content; K2 ignores the table and always
+    // carries sixteen rows.
+    auto planetary = _services.resource.twoDas.get("planetary");
+    _party.galaxyMap().reset(_gameId, planetary ? planetary->getRowCount() : 0);
+}
+
+void Game::deserializeGalaxyMap(resource::Gff &ptGff) {
+    _party.galaxyMap().loadFromPartyTable(ptGff);
 }
 
 void Game::deserializePartyTable(resource::Gff &ptGff) {
