@@ -37,6 +37,7 @@
 #include "gui/container.h"
 #include "gui/conversation.h"
 #include "gui/dialog.h"
+#include "gui/galaxymap.h"
 #include "gui/hud.h"
 #include "gui/ingame.h"
 #include "gui/loadscreen.h"
@@ -125,6 +126,7 @@ public:
         Container,
         PartySelection,
         SaveLoad,
+        GalaxyMap,
         SwoopRace,
         PazaakWager,
         PazaakSetup,
@@ -233,6 +235,7 @@ public:
     void openContainer(const std::shared_ptr<Object> &container);
     void openPartySelection(const PartySelectionContext &ctx);
     void openSaveLoad(SaveLoadMode mode);
+    void openGalaxyMap(int initialPlanet);
 
     // KotOR I Pazaak lifecycle
 
@@ -680,6 +683,7 @@ private:
     std::unique_ptr<ContainerGUI> _container;
     std::unique_ptr<PartySelection> _partySelect;
     std::unique_ptr<SaveLoad> _saveLoad;
+    std::unique_ptr<GalaxyMap> _galaxyMap;
     std::unique_ptr<PazaakWagerGUI> _pazaakWager;
     std::unique_ptr<PazaakSetupGUI> _pazaakSetup;
     std::unique_ptr<PazaakBoardGUI> _pazaakBoard;
