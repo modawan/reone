@@ -165,6 +165,10 @@ public:
     static void initConsole(Game &game);
     static void setActiveModule(Game &game, bool active);
     static void setActiveModuleArea(Game &game, std::shared_ptr<Area> area);
+    // Game::stopMovement is private and its public callers need in-game
+    // menus that only exist once a module has been loaded.
+    static void stopMovement(Game &game);
+    static void loadModulePlayer(Module &module);
     static void setPazaakDevelopmentSelectedObject(
         Game &game,
         std::shared_ptr<Object> object);
