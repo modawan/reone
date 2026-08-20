@@ -151,6 +151,10 @@ void AttackObjectAction::addProjectiles(const Creature &creature) {
 
 void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     Creature &attacker = cast<Creature>(actor);
+    if (!_target || _target->id() == attacker.id()) {
+        finish(attacker);
+        return;
+    }
     attacker.setAttemptedAttackTarget(_target->id());
 
     if (_target->isDead()) {
@@ -209,6 +213,32 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
 void AttackObjectAction::cancel(std::shared_ptr<Action> self, Object &actor) {
     Creature &attacker = cast<Creature>(actor);
     finish(attacker);
+}
+
+std::optional<SavedActionRecord> AttackObjectAction::saveFacingState() const {
+    if (!_target) {
+        return std::nullopt;
+    }
+
+    // K1 and K2 both save the high-level physical-attack command as retail
+    // ActionId 12. Combat-round resolution, navigation, animations and
+    // projectiles live outside this queue record and restart after load.
+    SavedActionRecord result = originalSavedAction().value_or(SavedActionRecord {});
+    result.actionId = 12;
+    result.declaredParameterCount = 10;
+    result.parameters = {
+        {1, int32_t {0}},
+        {3, SavedObjectReference {_target->id()}},
+        {1, int32_t {1}},
+        {1, int32_t {10009}},
+        {1, int32_t {1500}},
+        {1, int32_t {1}},
+        {1, int32_t {0}},
+        {1, int32_t {0}},
+        {1, int32_t {4}},
+        {1, int32_t {0}},
+    };
+    return result;
 }
 
 void AttackObjectAction::finish(Creature &attacker) {

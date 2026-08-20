@@ -14,6 +14,7 @@
 #include "../fixtures/game.h"
 
 #include "reone/game/action/wait.h"
+#include "reone/game/action/attackobject.h"
 #include "reone/game/action/playanimation.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/movetoobject.h"
@@ -737,6 +738,33 @@ TEST_F(SnapshotFixture, play_animation_is_a_supported_transition_snapshot_action
     EXPECT_EQ(std::get<SavedObjectReference>(saved.parameters[0].payload).id,
               static_cast<uint32_t>(AnimationType::LoopingPause));
     EXPECT_EQ(std::get<int32_t>(saved.parameters[3].payload), 0);
+    EXPECT_TRUE(saved.toRuntimeAction(game));
+}
+
+TEST_F(SnapshotFixture, attack_object_is_a_supported_transition_snapshot_action) {
+    auto target = game.newCreature();
+    TestGameModule::addSnapshotObject(*area, target);
+    auto action = game.newAction<AttackObjectAction>(target);
+    SavedActionRecord provenance;
+    provenance.groupActionId = 29;
+    action->attachSavedAction(provenance);
+    player->addAction(action);
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+
+    ASSERT_TRUE(result) << result.message;
+    auto ifo = readGff(result.snapshot->ifoBytes);
+    auto playerRecord = ifo->getList("Mod_PlayerList").front();
+    ASSERT_EQ(playerRecord->getList("ActionList").size(), 1);
+    auto saved = SavedActionRecord::fromGff(
+        *playerRecord->getList("ActionList").front());
+    EXPECT_EQ(saved.actionId, 12u);
+    EXPECT_EQ(saved.groupActionId, 29);
+    EXPECT_EQ(saved.declaredParameterCount, 10);
+    ASSERT_EQ(saved.parameters.size(), 10);
+    EXPECT_EQ(std::get<SavedObjectReference>(saved.parameters[1].payload).id,
+              target->id());
+    ASSERT_TRUE(saved.bindObjectReferences(game));
     EXPECT_TRUE(saved.toRuntimeAction(game));
 }
 

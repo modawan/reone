@@ -13,6 +13,7 @@
 #include "../fixtures/engine.h"
 
 #include "reone/game/action.h"
+#include "reone/game/action/attackobject.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/startconversation.h"
@@ -109,6 +110,23 @@ std::shared_ptr<Gff> action(
     return builder.build();
 }
 
+std::shared_ptr<Gff> basicAttackAction(
+    uint32_t target,
+    uint16_t group = 7) {
+    return action(12, group, {
+        valueParameter(1, Gff::Field::newInt("Value", 0)),
+        valueParameter(3, Gff::Field::newDword("Value", target)),
+        valueParameter(1, Gff::Field::newInt("Value", 1)),
+        valueParameter(1, Gff::Field::newInt("Value", 10009)),
+        valueParameter(1, Gff::Field::newInt("Value", 1500)),
+        valueParameter(1, Gff::Field::newInt("Value", 1)),
+        valueParameter(1, Gff::Field::newInt("Value", 0)),
+        valueParameter(1, Gff::Field::newInt("Value", 0)),
+        valueParameter(1, Gff::Field::newInt("Value", 4)),
+        valueParameter(1, Gff::Field::newInt("Value", 0)),
+    });
+}
+
 std::shared_ptr<Gff> event(
     uint32_t eventId,
     uint32_t day,
@@ -187,6 +205,129 @@ TEST(SavedAction, should_convert_only_a_proven_supported_reone_action) {
     EXPECT_EQ(wait.executionSupport(), SavedExecutionSupport::Executable);
     EXPECT_FALSE(unknown.toRuntimeAction(game));
     EXPECT_EQ(unknown.executionSupport(), SavedExecutionSupport::RepresentableButUnsupported);
+}
+
+TEST(SavedAction, attack_object_exports_exact_retail_basic_attack_shape_in_both_titles) {
+    for (GameID id : {GameID::KotOR, GameID::TSL}) {
+        TestEngine &engine = testEngine();
+        StubConsole console;
+        Game game(id, "", engine.options(), engine.services(), console);
+        auto target = game.newCreature();
+        auto runtime = game.newAction<AttackObjectAction>(target);
+        SavedActionRecord provenance;
+        provenance.groupActionId = 23;
+        runtime->attachSavedAction(provenance);
+
+        auto exported = runtime->saveFacingState();
+
+        ASSERT_TRUE(exported);
+        EXPECT_EQ(exported->actionId, 12u);
+        EXPECT_EQ(exported->groupActionId, 23);
+        EXPECT_EQ(exported->declaredParameterCount, 10);
+        ASSERT_EQ(exported->parameters.size(), 10);
+        std::array<uint32_t, 10> types {1, 3, 1, 1, 1, 1, 1, 1, 1, 1};
+        for (size_t i = 0; i < types.size(); ++i) {
+            EXPECT_EQ(exported->parameters[i].type, types[i]);
+        }
+        EXPECT_EQ(
+            std::get<SavedObjectReference>(exported->parameters[1].payload).id,
+            target->id());
+        std::array<int32_t, 9> values {0, 1, 10009, 1500, 1, 0, 0, 4, 0};
+        for (size_t i = 0, value = 0; i < exported->parameters.size(); ++i) {
+            if (i == 1) continue;
+            EXPECT_EQ(std::get<int32_t>(exported->parameters[i].payload),
+                      values[value++]);
+        }
+        EXPECT_EQ(exported->executionSupport(), SavedExecutionSupport::Executable);
+    }
+}
+
+TEST(SavedAction, attack_object_imports_bound_target_and_preserves_group) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    auto record = SavedActionRecord::fromGff(*basicAttackAction(target->id(), 41));
+
+    ASSERT_EQ(record.executionSupport(), SavedExecutionSupport::Executable);
+    ASSERT_TRUE(record.bindObjectReferences(game));
+    auto restored = std::dynamic_pointer_cast<AttackObjectAction>(
+        record.toRuntimeAction(game));
+
+    ASSERT_TRUE(restored);
+    EXPECT_EQ(restored->target(), target);
+    ASSERT_TRUE(restored->originalSavedAction());
+    EXPECT_EQ(restored->originalSavedAction()->groupActionId, 41);
+    EXPECT_FALSE(restored->isCompleted());
+    EXPECT_FALSE(restored->isCancelled());
+}
+
+TEST(SavedAction, attack_object_rejects_malformed_special_or_missing_targets) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto record = SavedActionRecord::fromGff(*basicAttackAction(123456));
+    EXPECT_FALSE(record.bindObjectReferences(game));
+    EXPECT_FALSE(record.toRuntimeAction(game));
+
+    auto target = game.newCreature();
+    record = SavedActionRecord::fromGff(*basicAttackAction(target->id()));
+    record.parameters[6].payload = int32_t {1703936};
+    EXPECT_EQ(record.executionSupport(),
+              SavedExecutionSupport::RepresentableButUnsupported);
+    EXPECT_FALSE(record.toRuntimeAction(game));
+    record.parameters[6].payload = int32_t {0};
+    record.parameters[1].type = 1;
+    EXPECT_EQ(record.executionSupport(),
+              SavedExecutionSupport::RepresentableButUnsupported);
+    record.parameters[1].type = 3;
+    record.declaredParameterCount = 9;
+    EXPECT_EQ(record.executionSupport(),
+              SavedExecutionSupport::RepresentableButUnsupported);
+}
+
+TEST(SavedAction, attack_object_self_target_completes_without_starting_combat) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto actor = game.newCreature();
+    auto attack = game.newAction<AttackObjectAction>(actor);
+
+    attack->execute(attack, *actor, 0.0f);
+
+    EXPECT_TRUE(attack->isCompleted());
+    EXPECT_FALSE(attack->isCancelled());
+}
+
+TEST(SavedRuntimePublication, attack_object_is_installed_inertly_ahead_of_later_action) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    auto saved = Gff::Builder()
+                     .field(Gff::Field::newList(
+                         "ActionList",
+                         {basicAttackAction(target->id(), 11),
+                          action(30, 12, {
+                              valueParameter(
+                                  2, Gff::Field::newFloat("Value", 2.0f)),
+                          })}))
+                     .build();
+    auto actor = game.newCreature();
+
+    actor->deserializeRuntimeState(*saved);
+    EXPECT_TRUE(actor->actions().empty());
+    actor->bindSavedRuntimeState();
+    EXPECT_TRUE(actor->actions().empty());
+    actor->publishSavedRuntimeState();
+
+    ASSERT_EQ(actor->actions().size(), 2);
+    auto attack = std::dynamic_pointer_cast<AttackObjectAction>(actor->actions()[0]);
+    ASSERT_TRUE(attack);
+    EXPECT_EQ(attack->target(), target);
+    EXPECT_EQ(actor->actions()[1]->type(), ActionType::Wait);
+    EXPECT_FALSE(attack->isCompleted());
+    EXPECT_FALSE(actor->actions()[1]->isCompleted());
 }
 
 TEST(SavedAction, play_animation_rejects_malformed_parameter_shapes) {

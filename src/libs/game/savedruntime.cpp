@@ -11,6 +11,7 @@
 
 #include <set>
 
+#include "reone/game/action/attackobject.h"
 #include "reone/game/action/wait.h"
 #include "reone/game/action/playanimation.h"
 #include "reone/game/action/movetoobject.h"
@@ -324,6 +325,37 @@ SavedActionRecord SavedActionRecord::fromGff(const resource::Gff &gff) {
 }
 
 SavedExecutionSupport SavedActionRecord::executionSupport() const {
+    if (actionId == 12 && declaredParameterCount == 10 && parameters.size() == 10) {
+        static constexpr std::array<uint32_t, 10> types {
+            1, 3, 1, 1, 1, 1, 1, 1, 1, 1};
+        for (size_t i = 0; i < types.size(); ++i) {
+            if (parameters[i].type != types[i]) {
+                return SavedExecutionSupport::RepresentableButUnsupported;
+            }
+        }
+        bool payloads =
+            std::holds_alternative<int32_t>(parameters[0].payload) &&
+            std::holds_alternative<SavedObjectReference>(parameters[1].payload);
+        for (size_t i = 2; i < parameters.size(); ++i) {
+            payloads = payloads &&
+                       std::holds_alternative<int32_t>(parameters[i].payload);
+        }
+        if (!payloads) {
+            return SavedExecutionSupport::RepresentableButUnsupported;
+        }
+        auto parameter = [this](size_t index) {
+            return std::get<int32_t>(parameters[index].payload);
+        };
+        bool ordinaryBasicAttack =
+            (parameter(0) == 0 || parameter(0) == 1) &&
+            parameter(2) == 1 && parameter(3) == 10009 &&
+            parameter(4) == 1500 && parameter(5) == 1 &&
+            parameter(6) == 0 && parameter(7) == 0 &&
+            parameter(8) == 4 && parameter(9) == 0;
+        return ordinaryBasicAttack
+                   ? SavedExecutionSupport::Executable
+                   : SavedExecutionSupport::RepresentableButUnsupported;
+    }
     if (actionId == 24 && declaredParameterCount == 3 && parameters.size() == 3 &&
         parameters[0].type == static_cast<uint32_t>(SavedActionParameterType::Object) &&
         parameters[1].type == static_cast<uint32_t>(SavedActionParameterType::String) &&
@@ -404,6 +436,15 @@ std::shared_ptr<Action> SavedActionRecord::toRuntimeAction(
     }
     if (actionId == 30) {
         auto action = game.newAction<WaitAction>(std::get<float>(parameters.front().payload));
+        action->attachSavedAction(*this);
+        return action;
+    }
+    if (actionId == 12) {
+        auto target = std::get<SavedObjectReference>(parameters[1].payload).boundObject();
+        if (!target) {
+            return nullptr;
+        }
+        auto action = game.newAction<AttackObjectAction>(std::move(target));
         action->attachSavedAction(*this);
         return action;
     }
