@@ -57,6 +57,8 @@ public:
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
+    std::optional<SavedActionRecord> saveFacingState() const override;
+
     std::shared_ptr<script::ExecutionContext> actionToDo() const { return _actionToDo; }
 
 private:

@@ -377,8 +377,10 @@ SavedExecutionSupport SavedActionRecord::executionSupport() const {
     if (actionId == 30 && !parameters.empty() && std::holds_alternative<float>(parameters.front().payload)) {
         return SavedExecutionSupport::Executable;
     }
-    if (actionId == 37 &&
+    if (actionId == 37 && declaredParameterCount == 1 &&
         parameters.size() == 1 &&
+        parameters.front().type ==
+            static_cast<uint32_t>(SavedActionParameterType::ScriptSituation) &&
         std::holds_alternative<SerializedScriptSituation>(parameters.front().payload)) {
         return SavedExecutionSupport::Executable;
     }

@@ -13,10 +13,14 @@
 #include "../fixtures/engine.h"
 
 #include "reone/game/action.h"
+#include "reone/game/action/docommand.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/game.h"
 #include "reone/game/savedruntime.h"
 #include "reone/resource/gff.h"
+#include "reone/script/executioncontext.h"
+#include "reone/script/executionstate.h"
+#include "reone/script/program.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -360,6 +364,52 @@ TEST(SavedAction, active_forced_move_preserves_absolute_world_time) {
     EXPECT_FLOAT_EQ(std::get<float>(exported->parameters[8].payload), 0.0f);
     EXPECT_EQ(std::get<int32_t>(exported->parameters[11].payload), 4);
     EXPECT_EQ(std::get<int32_t>(exported->parameters[12].payload), 12345);
+}
+
+TEST(SavedAction, runtime_do_command_exports_retail_action_37_situation) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto program = std::make_shared<script::ScriptProgram>("runtime_do_command");
+    program->add(script::Instruction(script::InstructionType::RETN));
+    auto state = std::make_shared<script::ExecutionState>();
+    state->program = program;
+    state->insOffset = 13;
+    state->globals = {script::Variable::ofInt(17)};
+    state->locals = {script::Variable::ofString("pending")};
+    auto context = std::make_shared<script::ExecutionContext>();
+    context->savedState = state;
+    auto runtime = game.newAction<DoCommandAction>(context);
+    SavedActionRecord provenance;
+    provenance.groupActionId = 41;
+    runtime->attachSavedAction(provenance);
+
+    auto exported = runtime->saveFacingState();
+
+    ASSERT_TRUE(exported);
+    EXPECT_EQ(exported->actionId, 37u);
+    EXPECT_EQ(exported->groupActionId, 41);
+    EXPECT_EQ(exported->declaredParameterCount, 1);
+    ASSERT_EQ(exported->parameters.size(), 1);
+    EXPECT_EQ(exported->parameters[0].type,
+              static_cast<uint32_t>(SavedActionParameterType::ScriptSituation));
+    auto &situation = std::get<SerializedScriptSituation>(
+        exported->parameters[0].payload);
+    EXPECT_EQ(situation.scriptName, "runtime_do_command");
+    EXPECT_EQ(situation.instructionPointer, 0);
+    EXPECT_EQ(situation.basePointer, 1);
+    EXPECT_EQ(situation.stackPointer, 2);
+    EXPECT_EQ(situation.stack.size(), 2);
+    EXPECT_EQ(exported->executionSupport(), SavedExecutionSupport::Executable);
+
+    exported->declaredParameterCount = 0;
+    EXPECT_EQ(exported->executionSupport(),
+              SavedExecutionSupport::RepresentableButUnsupported);
+    exported->declaredParameterCount = 1;
+    exported->parameters[0].type =
+        static_cast<uint32_t>(SavedActionParameterType::String);
+    EXPECT_EQ(exported->executionSupport(),
+              SavedExecutionSupport::RepresentableButUnsupported);
 }
 
 TEST(SavedRuntimePublication, move_to_object_waits_for_publication_and_preserves_queue_order) {

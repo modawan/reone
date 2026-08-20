@@ -15,6 +15,7 @@
 
 #include "reone/game/action/wait.h"
 #include "reone/game/action/playanimation.h"
+#include "reone/game/action/docommand.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/game.h"
 #include "reone/game/modulesnapshot.h"
@@ -34,6 +35,8 @@
 #include "reone/resource/format/erfreader.h"
 #include "reone/resource/format/gffreader.h"
 #include "reone/script/program.h"
+#include "reone/script/executioncontext.h"
+#include "reone/script/executionstate.h"
 #include "reone/system/stream/memoryinput.h"
 
 using namespace reone;
@@ -771,6 +774,35 @@ TEST_F(SnapshotFixture, forced_move_to_object_is_a_supported_transition_snapshot
     EXPECT_EQ(std::get<SavedObjectReference>(saved.parameters[4].payload).id, target->id());
     EXPECT_EQ(std::get<int32_t>(saved.parameters[5].payload), 4);
     EXPECT_FLOAT_EQ(std::get<float>(saved.parameters[8].payload), 30.0f);
+}
+
+TEST_F(SnapshotFixture, pending_do_command_is_a_supported_transition_snapshot_action) {
+    auto program = std::make_shared<script::ScriptProgram>("transition_command");
+    program->add(script::Instruction(script::InstructionType::RETN));
+    auto state = std::make_shared<script::ExecutionState>();
+    state->program = std::move(program);
+    state->insOffset = 13;
+    state->globals = {script::Variable::ofInt(9)};
+    auto context = std::make_shared<script::ExecutionContext>();
+    context->savedState = std::move(state);
+    auto action = game.newAction<DoCommandAction>(std::move(context));
+    SavedActionRecord provenance;
+    provenance.groupActionId = 18;
+    action->attachSavedAction(provenance);
+    player->addAction(action);
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+
+    ASSERT_TRUE(result) << result.message;
+    auto ifo = readGff(result.snapshot->ifoBytes);
+    auto saved = SavedActionRecord::fromGff(
+        *ifo->getList("Mod_PlayerList").front()->getList("ActionList").front());
+    EXPECT_EQ(saved.actionId, 37u);
+    EXPECT_EQ(saved.groupActionId, 18);
+    EXPECT_EQ(saved.declaredParameterCount, 1);
+    ASSERT_EQ(saved.parameters.size(), 1);
+    EXPECT_EQ(saved.parameters[0].type,
+              static_cast<uint32_t>(SavedActionParameterType::ScriptSituation));
 }
 
 TEST(ModuleSnapshot, exports_advanced_runtime_script_situations_and_rejects_unsupported_values) {

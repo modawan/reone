@@ -406,6 +406,7 @@ TEST_F(SavedSituationTest, delay_event_and_do_command_action_payloads_share_the_
     // the broad action restorer decides when the resulting action is run.
     SavedActionRecord action;
     action.actionId = 37; // Retail AIActionDoCommand, not Reone ActionType.
+    action.declaredParameterCount = 1;
     action.parameters.push_back(SavedActionParameter {
         static_cast<uint32_t>(SavedActionParameterType::ScriptSituation),
         actionSituation});

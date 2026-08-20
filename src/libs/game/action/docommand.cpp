@@ -18,11 +18,14 @@
 #include "reone/game/action/docommand.h"
 
 #include "reone/script/executioncontext.h"
+#include "reone/script/executionstate.h"
 #include "reone/script/program.h"
 #include "reone/script/virtualmachine.h"
 
-
+#include "reone/game/modulesnapshot.h"
 #include "reone/game/object.h"
+#include "reone/game/script/savedsituation.h"
+#include "reone/system/exception/validation.h"
 
 using namespace reone::script;
 
@@ -65,6 +68,33 @@ void runCommandAsActor(const ExecutionContext &command, Object &actor) {
 void DoCommandAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     runCommandAsActor(*_actionToDo, actor);
     complete();
+}
+
+std::optional<SavedActionRecord> DoCommandAction::saveFacingState() const {
+    if (!_actionToDo || !_actionToDo->savedState ||
+        !_actionToDo->savedState->program) {
+        throw ValidationException("DoCommand action has no serializable continuation");
+    }
+
+    auto continuation = SavedScriptContinuation::fromRuntime(
+        _actionToDo->savedState,
+        _actionToDo->savedState->program->name(),
+        _game);
+    std::string error;
+    auto situation = exportScriptSituation(*continuation, error);
+    if (!situation) {
+        throw ValidationException(
+            "DoCommand continuation is not serializable: " + error);
+    }
+
+    SavedActionRecord result =
+        originalSavedAction().value_or(SavedActionRecord {});
+    result.actionId = 37;
+    result.declaredParameterCount = 1;
+    result.parameters = {SavedActionParameter {
+        static_cast<uint32_t>(SavedActionParameterType::ScriptSituation),
+        std::move(*situation)}};
+    return result;
 }
 
 } // namespace game
