@@ -55,6 +55,7 @@ class Area;
 class Game;
 class Module;
 class Object;
+class Conversation;
 
 class MockCameraStyles : public ICameraStyles, boost::noncopyable {
 public:
@@ -161,6 +162,7 @@ public:
         PazaakSession::MainDeckFactory mainDeckFactory,
         std::function<void(const std::string &, uint32_t)> continuation);
     static void setCurrentScreen(Game &game, int screen);
+    static void setConversation(Game &game, Conversation *conversation);
     static void raiseTimingDiscontinuity(Game &game);
     static void initConsole(Game &game);
     static void setActiveModule(Game &game, bool active);

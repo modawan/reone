@@ -3241,10 +3241,16 @@ void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
 }
 
 void Game::resumeConversation() {
+    if (!_conversation || !isConversationActive()) {
+        return;
+    }
     _conversation->resume();
 }
 
 void Game::pauseConversation() {
+    if (!_conversation || !isConversationActive()) {
+        return;
+    }
     _conversation->pause();
 }
 
