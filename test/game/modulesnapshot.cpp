@@ -853,7 +853,11 @@ TEST_F(SnapshotFixture, pending_do_command_is_a_supported_transition_snapshot_ac
     auto state = std::make_shared<script::ExecutionState>();
     state->program = std::move(program);
     state->insOffset = 13;
-    state->globals = {script::Variable::ofInt(9)};
+    state->globals = {
+        script::Variable::ofInt(9),
+        script::Variable::ofTalent(std::make_shared<Talent>(
+            TalentType::Spell, 123, 2, kSavedRuntimeInvalidObjectId, 5, 14, 1))};
+    state->locals = {script::Variable::ofString("after-talent")};
     auto context = std::make_shared<script::ExecutionContext>();
     context->savedState = std::move(state);
     auto action = game.newAction<DoCommandAction>(std::move(context));
@@ -866,14 +870,45 @@ TEST_F(SnapshotFixture, pending_do_command_is_a_supported_transition_snapshot_ac
 
     ASSERT_TRUE(result) << result.message;
     auto ifo = readGff(result.snapshot->ifoBytes);
-    auto saved = SavedActionRecord::fromGff(
-        *ifo->getList("Mod_PlayerList").front()->getList("ActionList").front());
+    auto actionRecord = ifo->getList("Mod_PlayerList").front()->getList("ActionList").front();
+    auto situationRecord = actionRecord->getList("Paramaters").front()->findStruct("Value");
+    ASSERT_TRUE(situationRecord);
+    auto stackRecord = situationRecord->findStruct("Stack");
+    ASSERT_TRUE(stackRecord);
+    auto talentRecord = stackRecord->getList("Stack")[1]->findStruct("GameDefinedStrct");
+    ASSERT_TRUE(talentRecord);
+    auto fieldType = [&](std::string_view label) {
+        auto it = std::find_if(
+            talentRecord->fields().begin(), talentRecord->fields().end(),
+            [&](const auto &field) { return field.label == label; });
+        EXPECT_NE(it, talentRecord->fields().end());
+        return it == talentRecord->fields().end() ? Gff::FieldType::Byte : it->type;
+    };
+    EXPECT_EQ(fieldType("ID"), Gff::FieldType::Dword);
+    EXPECT_EQ(fieldType("Type"), Gff::FieldType::Dword);
+    EXPECT_EQ(fieldType("ItemPropertyInde"), Gff::FieldType::Dword);
+
+    auto saved = SavedActionRecord::fromGff(*actionRecord);
     EXPECT_EQ(saved.actionId, 37u);
     EXPECT_EQ(saved.groupActionId, 18);
     EXPECT_EQ(saved.declaredParameterCount, 1);
     ASSERT_EQ(saved.parameters.size(), 1);
     EXPECT_EQ(saved.parameters[0].type,
               static_cast<uint32_t>(SavedActionParameterType::ScriptSituation));
+    const auto &situation = std::get<SerializedScriptSituation>(saved.parameters[0].payload);
+    EXPECT_EQ(situation.basePointer, 2);
+    EXPECT_EQ(situation.stackPointer, 3);
+    ASSERT_EQ(situation.stack.size(), 3);
+    ASSERT_EQ(situation.stack[1].type, static_cast<int8_t>(SavedVmStackType::Talent));
+    const auto &talent = std::get<SavedTalentValue>(situation.stack[1].payload);
+    EXPECT_EQ(talent.id, 123);
+    EXPECT_EQ(talent.type, static_cast<int32_t>(TalentType::Spell));
+    EXPECT_EQ(talent.multiClass, 2);
+    EXPECT_EQ(talent.item.id, kSavedRuntimeInvalidObjectId);
+    EXPECT_EQ(talent.itemPropertyIndex, 5);
+    EXPECT_EQ(talent.casterLevel, 14);
+    EXPECT_EQ(talent.metaType, 1);
+    EXPECT_EQ(std::get<std::string>(situation.stack[2].payload), "after-talent");
 }
 
 TEST_F(SnapshotFixture, runtime_delays_export_as_retail_timed_events_with_remaining_game_time) {
@@ -962,6 +997,8 @@ TEST_F(SnapshotFixture, due_delay_is_inert_on_restore_and_delivered_exactly_once
     auto state = std::make_shared<script::ExecutionState>();
     state->program = std::move(program);
     state->insOffset = 13;
+    state->globals = {script::Variable::ofTalent(std::make_shared<Talent>(
+        TalentType::Feat, 6, 0, kSavedRuntimeInvalidObjectId, -1, 0xff, 0xff))};
     auto context = std::make_shared<script::ExecutionContext>();
     context->savedState = std::move(state);
     player->delayAction(game.newAction<DoCommandAction>(std::move(context)), 0.0f);
@@ -1019,6 +1056,7 @@ TEST(ModuleSnapshot, exports_advanced_runtime_script_situations_and_rejects_unsu
     state->globals = {Variable::ofInt(12)};
     state->locals = {
         Variable::ofString("local"),
+        Variable::ofTalent(std::make_shared<Talent>(TalentType::Feat, 17)),
         Variable::ofLocation(std::make_shared<Location>(
             glm::vec3(1.0f, 2.0f, 3.0f), glm::vec3(0.0f, 1.0f, 0.0f)))};
     auto continuation = SavedScriptContinuation::fromRuntime(
@@ -1030,14 +1068,15 @@ TEST(ModuleSnapshot, exports_advanced_runtime_script_situations_and_rejects_unsu
     ASSERT_TRUE(exported) << error;
     EXPECT_EQ(exported->instructionPointer, static_cast<int32_t>(resume - 13));
     EXPECT_EQ(exported->basePointer, 1);
-    EXPECT_EQ(exported->stackPointer, 3);
+    EXPECT_EQ(exported->stackPointer, 4);
     EXPECT_EQ(exported->codeSize, static_cast<int32_t>(exported->code.size()));
-    EXPECT_EQ(exported->stack[2].type, static_cast<int8_t>(SavedVmStackType::Location));
+    EXPECT_EQ(exported->stack[2].type, static_cast<int8_t>(SavedVmStackType::Talent));
+    EXPECT_EQ(exported->stack[3].type, static_cast<int8_t>(SavedVmStackType::Location));
 
     state->locals.push_back(Variable::ofVector({1.0f, 2.0f, 3.0f}));
     error.clear();
     EXPECT_FALSE(exportScriptSituation(*continuation, error));
-    EXPECT_THAT(error, HasSubstr("without a retail save representation"));
+    EXPECT_THAT(error, HasSubstr("unsupported type="));
 }
 
 } // namespace

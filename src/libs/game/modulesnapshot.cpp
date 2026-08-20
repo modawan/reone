@@ -22,6 +22,7 @@
 #include "reone/game/event.h"
 #include "reone/game/game.h"
 #include "reone/game/location.h"
+#include "reone/game/talent.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/camera/static.h"
 #include "reone/game/object/creature.h"
@@ -248,6 +249,26 @@ std::shared_ptr<Gff> scriptEventToGff(const SavedScriptEvent &event) {
     return result;
 }
 
+std::shared_ptr<Gff> talentToGff(const SavedTalentValue &talent, const Game *game) {
+    auto result = Gff::Builder().type(3)
+        .field(Gff::Field::newByte("MultiClass", talent.multiClass))
+        .field(Gff::Field::newDword("Item", talent.item.id))
+        .field(Gff::Field::newByte("CasterLevel", talent.casterLevel))
+        .field(Gff::Field::newByte("MetaType", talent.metaType))
+        .build();
+    if (game && !game->isTSL()) {
+        put(*result, Gff::Field::newDword("ID", static_cast<uint32_t>(talent.id)));
+        put(*result, Gff::Field::newDword("Type", static_cast<uint32_t>(talent.type)));
+        put(*result, Gff::Field::newDword(
+            "ItemPropertyInde", static_cast<uint32_t>(talent.itemPropertyIndex)));
+    } else {
+        put(*result, Gff::Field::newInt("ID", talent.id));
+        put(*result, Gff::Field::newInt("Type", talent.type));
+        put(*result, Gff::Field::newInt("ItemPropertyInde", talent.itemPropertyIndex));
+    }
+    return result;
+}
+
 std::shared_ptr<Gff> situationToGff(
     const SerializedScriptSituation &situation, const Game *game = nullptr) {
     auto result = Gff::Builder().type(0x7777)
@@ -296,6 +317,10 @@ std::shared_ptr<Gff> situationToGff(
             put(*value, Gff::Field::newStruct("GameDefinedStrct", std::move(payload)));
             break;
         }
+        case SavedVmStackType::Talent:
+            put(*value, Gff::Field::newStruct(
+                "GameDefinedStrct", talentToGff(std::get<SavedTalentValue>(saved.payload), game)));
+            break;
         default:
             if (auto unsupported = std::get_if<UnsupportedSavedPayload>(&saved.payload)) {
                 value = savedStructToGff(unsupported->data);
@@ -547,7 +572,10 @@ std::optional<SerializedScriptSituation> exportScriptSituation(
     result.crc = 0;
     result.secondaryPointer = 0;
 
-    auto convert = [&error](const script::Variable &value) -> std::optional<SavedVmStackValue> {
+    auto convert = [&error](
+                       const script::Variable &value,
+                       const char *scope,
+                       size_t index) -> std::optional<SavedVmStackValue> {
         SavedVmStackValue saved;
         switch (value.type) {
         case script::VariableType::Int:
@@ -578,18 +606,39 @@ std::optional<SerializedScriptSituation> exportScriptSituation(
             saved.type = static_cast<int8_t>(SavedVmStackType::Location);
             saved.payload = SavedLocationValue {location->position(), location->saveOrientation()}; break;
         }
+        case script::VariableType::Talent: {
+            auto talent = std::dynamic_pointer_cast<Talent>(value.engineType);
+            if (!talent) { error = "live VM talent has an unsupported engine value"; return std::nullopt; }
+            saved.type = static_cast<int8_t>(SavedVmStackType::Talent);
+            saved.payload = SavedTalentValue {
+                talent->value(),
+                static_cast<int32_t>(talent->type()),
+                talent->multiClass(),
+                SavedObjectReference {talent->item()},
+                talent->itemPropertyIndex(),
+                talent->casterLevel(),
+                talent->metaType()};
+            break;
+        }
         default:
-            error = "live VM stack contains a value without a retail save representation";
+            error = str(boost::format(
+                "live VM %s[%d] contains unsupported type=%d engine=%s") %
+                scope % index % static_cast<int>(value.type) %
+                (value.engineType ? typeid(*value.engineType).name() : "none"));
             return std::nullopt;
         }
         return saved;
     };
-    for (const auto &value : state.globals) {
-        auto saved = convert(value); if (!saved) return std::nullopt; result.stack.push_back(std::move(*saved));
+    for (size_t i = 0; i < state.globals.size(); ++i) {
+        auto saved = convert(state.globals[i], "globals", i);
+        if (!saved) return std::nullopt;
+        result.stack.push_back(std::move(*saved));
     }
     result.basePointer = static_cast<int32_t>(result.stack.size());
-    for (const auto &value : state.locals) {
-        auto saved = convert(value); if (!saved) return std::nullopt; result.stack.push_back(std::move(*saved));
+    for (size_t i = 0; i < state.locals.size(); ++i) {
+        auto saved = convert(state.locals[i], "locals", i);
+        if (!saved) return std::nullopt;
+        result.stack.push_back(std::move(*saved));
     }
     result.stackPointer = static_cast<int32_t>(result.stack.size());
     result.stackSize = result.stackPointer;

@@ -17,6 +17,7 @@
 #include "reone/game/object.h"
 #include "reone/game/script/runner.h"
 #include "reone/game/location.h"
+#include "reone/game/talent.h"
 #include "reone/game/modulesnapshot.h"
 #include "reone/resource/provider/scripts.h"
 #include "reone/script/format/ncsreader.h"
@@ -139,6 +140,23 @@ bool convertStackValue(
             float facing = std::atan2(value->orientation.y, value->orientation.x);
             result = script::Variable::ofLocation(
                 std::make_shared<Location>(value->position, facing));
+            return true;
+        }
+        break;
+    case SavedVmStackType::Talent:
+        if (auto value = std::get_if<SavedTalentValue>(&saved.payload)) {
+            if (value->type < static_cast<int32_t>(TalentType::Force) ||
+                value->type > static_cast<int32_t>(TalentType::Invalid)) {
+                break;
+            }
+            result = script::Variable::ofTalent(std::make_shared<Talent>(
+                static_cast<TalentType>(value->type),
+                value->id,
+                value->multiClass,
+                value->item.id,
+                value->itemPropertyIndex,
+                value->casterLevel,
+                value->metaType));
             return true;
         }
         break;

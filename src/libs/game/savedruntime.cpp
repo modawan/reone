@@ -159,6 +159,20 @@ SavedBodyBag savedBodyBagFromGff(const resource::Gff &gff) {
     return result;
 }
 
+SavedTalentValue savedTalentFromGff(const resource::Gff &gff) {
+    SavedTalentValue result;
+    result.id = gff.getInt("ID");
+    result.type = gff.getInt("Type");
+    result.multiClass = static_cast<uint8_t>(gff.getUint("MultiClass"));
+    result.item.id = gff.getUint("Item");
+    // Retail passes "ItemPropertyIndex" to a 16-byte GFF label API; the
+    // on-wire label is therefore truncated to this value.
+    result.itemPropertyIndex = gff.getInt("ItemPropertyInde");
+    result.casterLevel = static_cast<uint8_t>(gff.getUint("CasterLevel"));
+    result.metaType = static_cast<uint8_t>(gff.getUint("MetaType"));
+    return result;
+}
+
 struct SavedMoveToPoint {
     glm::vec3 destination {0.0f};
     SavedObjectReference area;
@@ -319,6 +333,12 @@ SerializedScriptSituation SerializedScriptSituation::fromGff(const resource::Gff
                                       : SavedVmStackPayload(unsupportedPayload(*item));
             break;
         }
+        case SavedVmStackType::Talent: {
+            auto structure = item->findStruct("GameDefinedStrct");
+            value.payload = structure ? SavedVmStackPayload(savedTalentFromGff(*structure))
+                                      : SavedVmStackPayload(unsupportedPayload(*item));
+            break;
+        }
         default:
             value.payload = unsupportedPayload(*item);
             break;
@@ -348,6 +368,8 @@ bool SerializedScriptSituation::bindObjectReferences(const Game &game) {
             for (auto &reference : event->objects) {
                 bindReference(game, reference, allBound);
             }
+        } else if (auto talent = std::get_if<SavedTalentValue>(&entry.payload)) {
+            bindReference(game, talent->item, allBound);
         }
     }
     return allBound;

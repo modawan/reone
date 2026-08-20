@@ -97,6 +97,17 @@ struct SavedScriptEvent {
     std::vector<SavedObjectReference> objects;
 };
 
+/** Retail CScriptTalent game-defined VM structure (engine structure 3). */
+struct SavedTalentValue {
+    int32_t id {-1};
+    int32_t type {-1};
+    uint8_t multiClass {0};
+    SavedObjectReference item;
+    int32_t itemPropertyIndex {-1};
+    uint8_t casterLevel {0xff};
+    uint8_t metaType {0xff};
+};
+
 enum class SavedVmStackType : int8_t {
     Integer = 3,
     Float = 4,
@@ -105,6 +116,7 @@ enum class SavedVmStackType : int8_t {
     Effect = 16,
     Event = 17,
     Location = 18,
+    Talent = 19,
 };
 
 using SavedVmStackPayload = std::variant<
@@ -115,7 +127,8 @@ using SavedVmStackPayload = std::variant<
     SavedObjectReference,
     EffectInstance,
     SavedScriptEvent,
-    SavedLocationValue>;
+    SavedLocationValue,
+    SavedTalentValue>;
 
 struct SavedVmStackValue {
     int8_t type {0};

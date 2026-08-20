@@ -17,6 +17,7 @@
 
 #include "reone/game/game.h"
 #include "reone/game/location.h"
+#include "reone/game/talent.h"
 #include "reone/game/script/runner.h"
 #include "reone/game/script/savedsituation.h"
 #include "reone/script/format/ncswriter.h"
@@ -192,9 +193,18 @@ TEST_F(SavedSituationTest, translates_every_supported_stack_value_without_losing
     event.strings = {"event"};
     event.objects = {SavedObjectReference {kSavedRuntimeInvalidObjectId}};
 
-    situation.stackSize = 8;
+    SavedTalentValue talent;
+    talent.id = 42;
+    talent.type = static_cast<int32_t>(TalentType::Feat);
+    talent.multiClass = 2;
+    talent.item.id = kSavedRuntimeInvalidObjectId;
+    talent.itemPropertyIndex = 6;
+    talent.casterLevel = 12;
+    talent.metaType = 3;
+
+    situation.stackSize = 9;
     situation.basePointer = 4;
-    situation.stackPointer = 8;
+    situation.stackPointer = 9;
     situation.totalSize = 24;
     situation.stack = {
         {static_cast<int8_t>(SavedVmStackType::Integer), int32_t {-7}},
@@ -205,6 +215,7 @@ TEST_F(SavedSituationTest, translates_every_supported_stack_value_without_losing
         {static_cast<int8_t>(SavedVmStackType::Event), event},
         {static_cast<int8_t>(SavedVmStackType::Location),
          SavedLocationValue {glm::vec3(1.0f, 2.0f, 3.0f), glm::vec3(0.0f, 1.0f, 0.0f)}},
+        {static_cast<int8_t>(SavedVmStackType::Talent), talent},
         {static_cast<int8_t>(SavedVmStackType::Object), SavedObjectReference {1234}},
     };
 
@@ -213,7 +224,7 @@ TEST_F(SavedSituationTest, translates_every_supported_stack_value_without_losing
     ASSERT_TRUE(imported) << imported.message;
     const auto &state = imported.continuation->executionState();
     ASSERT_EQ(state.globals.size(), 4);
-    ASSERT_EQ(state.locals.size(), 4);
+    ASSERT_EQ(state.locals.size(), 5);
     EXPECT_EQ(state.globals[0].intValue, -7);
     EXPECT_FLOAT_EQ(state.globals[1].floatValue, 2.5f);
     EXPECT_EQ(state.globals[2].strValue, "text");
@@ -233,7 +244,16 @@ TEST_F(SavedSituationTest, translates_every_supported_stack_value_without_losing
     ASSERT_TRUE(location);
     EXPECT_EQ(location->position(), glm::vec3(1.0f, 2.0f, 3.0f));
     EXPECT_FLOAT_EQ(location->facing(), glm::half_pi<float>());
-    EXPECT_EQ(state.locals[3].objectId, 1234);
+    auto runtimeTalent = std::dynamic_pointer_cast<Talent>(state.locals[3].engineType);
+    ASSERT_TRUE(runtimeTalent);
+    EXPECT_EQ(runtimeTalent->type(), TalentType::Feat);
+    EXPECT_EQ(runtimeTalent->value(), 42);
+    EXPECT_EQ(runtimeTalent->multiClass(), 2);
+    EXPECT_EQ(runtimeTalent->item(), kSavedRuntimeInvalidObjectId);
+    EXPECT_EQ(runtimeTalent->itemPropertyIndex(), 6);
+    EXPECT_EQ(runtimeTalent->casterLevel(), 12);
+    EXPECT_EQ(runtimeTalent->metaType(), 3);
+    EXPECT_EQ(state.locals[4].objectId, 1234);
 }
 
 TEST_F(SavedSituationTest, saved_effect_vm_value_reuses_effect_instance_when_applied) {
@@ -348,6 +368,12 @@ TEST_F(SavedSituationTest, refuses_unbound_crc_secondary_code_pointer_and_stack_
     auto unsupported = base;
     unsupported.stack[0] = SavedVmStackValue {23, UnsupportedSavedPayload {}};
     EXPECT_EQ(bindAndImport(unsupported).error, SavedScriptSituationImportError::InvalidStackValue);
+
+    auto invalidTalent = base;
+    invalidTalent.stack[0] = SavedVmStackValue {
+        static_cast<int8_t>(SavedVmStackType::Talent),
+        SavedTalentValue {1, 99}};
+    EXPECT_EQ(bindAndImport(invalidTalent).error, SavedScriptSituationImportError::InvalidStackValue);
 }
 
 TEST_F(SavedSituationTest, session_retirement_invalidates_imported_and_save_facing_continuations) {
