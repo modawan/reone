@@ -30,7 +30,9 @@ std::shared_ptr<Dialog> Dialogs::doGet(std::string resRef) {
         return nullptr;
     }
     auto dlgParsed = resource::generated::parseDLG(*dlg);
-    return loadDialog(dlgParsed);
+    auto dialog = loadDialog(dlgParsed);
+    dialog->resRef = ResRef(std::move(resRef)).value();
+    return dialog;
 }
 
 std::unique_ptr<Dialog> Dialogs::loadDialog(const resource::generated::DLG &dlg) {

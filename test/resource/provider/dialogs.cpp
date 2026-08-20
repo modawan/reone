@@ -89,3 +89,39 @@ TEST(Dialogs, should_preserve_quest_and_plot_xp_fields_from_dlg) {
     EXPECT_EQ(8, dialog->replies[0].plotIndex);
     EXPECT_FLOAT_EQ(0.5f, dialog->replies[0].plotXPPercentage);
 }
+
+TEST(Dialogs, should_preserve_resource_identity) {
+    // given
+
+    auto root = Gff(0xffffffff, {});
+    auto dlgBytes = ByteBuffer();
+    auto dlgStream = MemoryOutputStream(dlgBytes);
+    GffWriter(ResType::Dlg, root).save(dlgStream);
+    auto alternateDlgBytes = dlgBytes;
+
+    auto resources = Resources();
+    auto container = std::make_unique<MemoryResourceContainer>();
+    container->add(ResourceId("sample", ResType::Dlg), std::move(dlgBytes));
+    container->add(ResourceId("alternate", ResType::Dlg), std::move(alternateDlgBytes));
+    resources.add(std::move(container));
+
+    auto gffs = Gffs(resources);
+    auto strings = Strings();
+    auto dialogs = Dialogs(gffs, strings);
+
+    // when
+
+    auto dialog = dialogs.get("SAMPLE");
+    auto cachedDialog = dialogs.get("SAMPLE");
+    auto alternateDialog = dialogs.get("alternate");
+
+    // then
+
+    ASSERT_TRUE(static_cast<bool>(dialog));
+    ASSERT_TRUE(static_cast<bool>(alternateDialog));
+
+    EXPECT_EQ("sample", dialog->resRef);
+    EXPECT_EQ(dialog, cachedDialog);
+    EXPECT_EQ("sample", cachedDialog->resRef);
+    EXPECT_EQ("alternate", alternateDialog->resRef);
+}
