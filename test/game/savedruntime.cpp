@@ -15,6 +15,7 @@
 #include "reone/game/action.h"
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/docommand.h"
+#include "reone/game/action/movetolocation.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/game.h"
@@ -124,6 +125,31 @@ std::shared_ptr<Gff> basicAttackAction(
         valueParameter(1, Gff::Field::newInt("Value", 0)),
         valueParameter(1, Gff::Field::newInt("Value", 4)),
         valueParameter(1, Gff::Field::newInt("Value", 0)),
+    });
+}
+
+std::shared_ptr<Gff> moveToPointAction(
+    uint32_t area,
+    glm::vec3 destination = glm::vec3(12.0f, 34.0f, 5.0f),
+    int32_t flags = 1,
+    float timeout = 0.0f,
+    int32_t day = 0,
+    int32_t time = 0,
+    uint16_t group = 9) {
+    return action(1, group, {
+        valueParameter(2, Gff::Field::newFloat("Value", destination.x)),
+        valueParameter(2, Gff::Field::newFloat("Value", destination.y)),
+        valueParameter(2, Gff::Field::newFloat("Value", destination.z)),
+        valueParameter(3, Gff::Field::newDword("Value", area)),
+        valueParameter(3, Gff::Field::newDword("Value", kSavedRuntimeInvalidObjectId)),
+        valueParameter(1, Gff::Field::newInt("Value", flags)),
+        valueParameter(2, Gff::Field::newFloat("Value", 0.0f)),
+        valueParameter(1, Gff::Field::newInt("Value", 0)),
+        valueParameter(2, Gff::Field::newFloat("Value", timeout)),
+        valueParameter(2, Gff::Field::newFloat("Value", 0.0f)),
+        valueParameter(2, Gff::Field::newFloat("Value", 0.0f)),
+        valueParameter(1, Gff::Field::newInt("Value", day)),
+        valueParameter(1, Gff::Field::newInt("Value", time)),
     });
 }
 
@@ -478,6 +504,146 @@ TEST(SavedAction, forced_move_to_object_uses_retail_action_1_and_preserves_timin
     record.parameters[5].payload = int32_t {5};
     record.parameters[9].payload = 1.0f;
     EXPECT_FALSE(record.toRuntimeAction(game));
+}
+
+TEST(SavedAction, move_to_location_uses_exact_retail_action_1_shape_in_both_titles) {
+    for (GameID id : {GameID::KotOR, GameID::TSL}) {
+        TestEngine &engine = testEngine();
+        StubConsole console;
+        Game game(id, "", engine.options(), engine.services(), console);
+        auto area = game.newArea();
+        auto location = std::make_shared<Location>(glm::vec3(12.0f, 34.0f, 5.0f), 1.2f);
+        MoveToLocationAction::ForcedState state;
+        state.areaId = area->id();
+        auto runtime = game.newAction<MoveToLocationAction>(
+            location, true, false, -1.0f, state);
+        SavedActionRecord provenance;
+        provenance.groupActionId = 31;
+        runtime->attachSavedAction(provenance);
+
+        auto exported = runtime->saveFacingState();
+
+        ASSERT_TRUE(exported);
+        EXPECT_EQ(exported->actionId, 1u);
+        EXPECT_EQ(exported->groupActionId, 31);
+        EXPECT_EQ(exported->declaredParameterCount, 13);
+        ASSERT_EQ(exported->parameters.size(), 13);
+        std::array<uint32_t, 13> types {2,2,2,3,3,1,2,1,2,2,2,1,1};
+        for (size_t i = 0; i < types.size(); ++i) {
+            EXPECT_EQ(exported->parameters[i].type, types[i]);
+        }
+        EXPECT_FLOAT_EQ(std::get<float>(exported->parameters[0].payload), 12.0f);
+        EXPECT_FLOAT_EQ(std::get<float>(exported->parameters[1].payload), 34.0f);
+        EXPECT_FLOAT_EQ(std::get<float>(exported->parameters[2].payload), 5.0f);
+        EXPECT_EQ(std::get<SavedObjectReference>(exported->parameters[3].payload).id,
+                  area->id());
+        EXPECT_TRUE(std::get<SavedObjectReference>(exported->parameters[4].payload).isInvalid());
+        EXPECT_EQ(std::get<int32_t>(exported->parameters[5].payload), 1);
+        EXPECT_FLOAT_EQ(std::get<float>(exported->parameters[6].payload), 0.0f);
+        EXPECT_EQ(std::get<int32_t>(exported->parameters[7].payload), 0);
+    }
+}
+
+TEST(SavedAction, move_to_location_imports_ordinary_pending_and_active_forced_timing) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+
+    auto ordinaryRecord = SavedActionRecord::fromGff(*moveToPointAction(area->id()));
+    ASSERT_TRUE(ordinaryRecord.bindObjectReferences(game));
+    auto ordinary = std::dynamic_pointer_cast<MoveToLocationAction>(
+        ordinaryRecord.toRuntimeAction(game));
+    ASSERT_TRUE(ordinary);
+    EXPECT_TRUE(ordinary->isRun());
+    EXPECT_FALSE(ordinary->isForced());
+    EXPECT_EQ(ordinary->destination()->position(), glm::vec3(12.0f, 34.0f, 5.0f));
+
+    auto pendingRecord = SavedActionRecord::fromGff(
+        *moveToPointAction(area->id(), glm::vec3(4.0f), 5, 30.0f, 0, 0, 22));
+    ASSERT_TRUE(pendingRecord.bindObjectReferences(game));
+    auto pending = std::dynamic_pointer_cast<MoveToLocationAction>(
+        pendingRecord.toRuntimeAction(game));
+    ASSERT_TRUE(pending);
+    EXPECT_TRUE(pending->isForced());
+    EXPECT_FALSE(pending->forcedState().active);
+    EXPECT_FLOAT_EQ(pending->timeout(), 30.0f);
+    EXPECT_EQ(pending->originalSavedAction()->groupActionId, 22);
+
+    auto activeRecord = SavedActionRecord::fromGff(
+        *moveToPointAction(area->id(), glm::vec3(8.0f), 1, 0.0f, 7, 12345));
+    ASSERT_TRUE(activeRecord.bindObjectReferences(game));
+    auto active = std::dynamic_pointer_cast<MoveToLocationAction>(
+        activeRecord.toRuntimeAction(game));
+    ASSERT_TRUE(active);
+    EXPECT_TRUE(active->isForced());
+    EXPECT_TRUE(active->forcedState().active);
+    EXPECT_EQ(active->forcedState().expiryDay, 7u);
+    EXPECT_EQ(active->forcedState().expiryTime, 12345u);
+    auto reexported = active->saveFacingState();
+    ASSERT_TRUE(reexported);
+    EXPECT_EQ(std::get<int32_t>(reexported->parameters[5].payload), 1);
+    EXPECT_FLOAT_EQ(std::get<float>(reexported->parameters[8].payload), 0.0f);
+    EXPECT_EQ(std::get<int32_t>(reexported->parameters[11].payload), 7);
+    EXPECT_EQ(std::get<int32_t>(reexported->parameters[12].payload), 12345);
+}
+
+TEST(SavedAction, move_to_location_rejects_malformed_semantics_and_invalid_area) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    auto record = SavedActionRecord::fromGff(*moveToPointAction(area->id()));
+    ASSERT_TRUE(record.bindObjectReferences(game));
+
+    record.parameters[6].payload = 1.0f;
+    EXPECT_FALSE(record.toRuntimeAction(game));
+    record.parameters[6].payload = 0.0f;
+    record.parameters[7].payload = int32_t {1};
+    EXPECT_FALSE(record.toRuntimeAction(game));
+    record.parameters[7].payload = int32_t {0};
+    record.parameters[5].payload = int32_t {8};
+    EXPECT_FALSE(record.toRuntimeAction(game));
+    record.parameters[5].payload = int32_t {1};
+    record.parameters[0].payload = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_FALSE(record.toRuntimeAction(game));
+
+    auto missingArea = SavedActionRecord::fromGff(*moveToPointAction(123456));
+    EXPECT_FALSE(missingArea.bindObjectReferences(game));
+    EXPECT_FALSE(missingArea.toRuntimeAction(game));
+    auto invalidArea = SavedActionRecord::fromGff(
+        *moveToPointAction(kSavedRuntimeInvalidObjectId));
+    ASSERT_TRUE(invalidArea.bindObjectReferences(game));
+    EXPECT_FALSE(invalidArea.toRuntimeAction(game));
+    record.declaredParameterCount = 12;
+    EXPECT_EQ(record.executionSupport(), SavedExecutionSupport::RepresentableButUnsupported);
+}
+
+TEST(SavedRuntimePublication, move_to_location_is_inert_and_blocks_later_action) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    auto saved = Gff::Builder()
+                     .field(Gff::Field::newList(
+                         "ActionList",
+                         {moveToPointAction(area->id()),
+                          action(30, 10, {valueParameter(
+                              2, Gff::Field::newFloat("Value", 2.0f))})}))
+                     .build();
+    auto actor = game.newCreature();
+
+    actor->deserializeRuntimeState(*saved);
+    EXPECT_TRUE(actor->actions().empty());
+    actor->bindSavedRuntimeState();
+    EXPECT_TRUE(actor->actions().empty());
+    actor->publishSavedRuntimeState();
+
+    ASSERT_EQ(actor->actions().size(), 2);
+    EXPECT_TRUE(std::dynamic_pointer_cast<MoveToLocationAction>(actor->actions()[0]));
+    EXPECT_EQ(actor->actions()[1]->type(), ActionType::Wait);
+    EXPECT_FALSE(actor->actions()[0]->isCompleted());
+    EXPECT_FALSE(actor->actions()[1]->isCompleted());
 }
 
 TEST(SavedAction, active_forced_move_preserves_absolute_world_time) {

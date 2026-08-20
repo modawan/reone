@@ -26,6 +26,13 @@ namespace game {
 
 class MoveToLocationAction : public Action {
 public:
+    struct ForcedState {
+        uint32_t areaId {kSavedRuntimeInvalidObjectId};
+        bool active {false};
+        uint32_t expiryDay {0};
+        uint32_t expiryTime {0};
+    };
+
     MoveToLocationAction(Game &game,
                          ServicesView &services,
                          std::shared_ptr<Location> destination,
@@ -39,19 +46,40 @@ public:
         _timeout(timeout) {
     }
 
+    MoveToLocationAction(Game &game,
+                         ServicesView &services,
+                         std::shared_ptr<Location> destination,
+                         bool run,
+                         bool force,
+                         float timeout,
+                         ForcedState forcedState) :
+        Action(game, services, ActionType::MoveToLocation),
+        _destination(std::move(destination)),
+        _run(run),
+        _force(force),
+        _timeout(timeout),
+        _forcedState(std::move(forcedState)) {
+    }
+
     static bool classof(Action *from) {
         return from->type() == ActionType::MoveToLocation;
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    std::optional<SavedActionRecord> saveFacingState() const override;
 
     bool isRun() const { return _run; }
+    const std::shared_ptr<Location> &destination() const { return _destination; }
+    bool isForced() const { return _force; }
+    float timeout() const { return _timeout; }
+    const ForcedState &forcedState() const { return _forcedState; }
 
 private:
     std::shared_ptr<Location> _destination;
     bool _run;
     bool _force;
     float _timeout;
+    ForcedState _forcedState;
 };
 
 } // namespace game

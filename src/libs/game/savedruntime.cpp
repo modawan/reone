@@ -14,9 +14,12 @@
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/wait.h"
 #include "reone/game/action/playanimation.h"
+#include "reone/game/action/movetolocation.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/game.h"
+#include "reone/game/location.h"
+#include "reone/game/object/area.h"
 #include "reone/game/script/savedsituation.h"
 
 namespace reone {
@@ -153,6 +156,89 @@ SavedBodyBag savedBodyBagFromGff(const resource::Gff &gff) {
         gff.getFloat("PositionX"),
         gff.getFloat("PositionY"),
         gff.getFloat("PositionZ"));
+    return result;
+}
+
+struct SavedMoveToPoint {
+    glm::vec3 destination {0.0f};
+    SavedObjectReference area;
+    SavedObjectReference target;
+    bool run {false};
+    float range {0.0f};
+    float timeout {0.0f};
+    bool forcedPending {false};
+    bool forcedActive {false};
+    uint32_t expiryDay {0};
+    uint32_t expiryTime {0};
+};
+
+std::optional<SavedMoveToPoint> decodeMoveToPoint(const SavedActionRecord &record) {
+    if (record.actionId != 1 || record.declaredParameterCount != 13 ||
+        record.parameters.size() != 13) {
+        return std::nullopt;
+    }
+    static constexpr std::array<uint32_t, 13> types {
+        2, 2, 2, 3, 3, 1, 2, 1, 2, 2, 2, 1, 1};
+    for (size_t i = 0; i < types.size(); ++i) {
+        if (record.parameters[i].type != types[i]) {
+            return std::nullopt;
+        }
+    }
+    bool payloads =
+        std::holds_alternative<float>(record.parameters[0].payload) &&
+        std::holds_alternative<float>(record.parameters[1].payload) &&
+        std::holds_alternative<float>(record.parameters[2].payload) &&
+        std::holds_alternative<SavedObjectReference>(record.parameters[3].payload) &&
+        std::holds_alternative<SavedObjectReference>(record.parameters[4].payload) &&
+        std::holds_alternative<int32_t>(record.parameters[5].payload) &&
+        std::holds_alternative<float>(record.parameters[6].payload) &&
+        std::holds_alternative<int32_t>(record.parameters[7].payload) &&
+        std::holds_alternative<float>(record.parameters[8].payload) &&
+        std::holds_alternative<float>(record.parameters[9].payload) &&
+        std::holds_alternative<float>(record.parameters[10].payload) &&
+        std::holds_alternative<int32_t>(record.parameters[11].payload) &&
+        std::holds_alternative<int32_t>(record.parameters[12].payload);
+    if (!payloads) {
+        return std::nullopt;
+    }
+
+    SavedMoveToPoint result;
+    result.destination = glm::vec3(
+        std::get<float>(record.parameters[0].payload),
+        std::get<float>(record.parameters[1].payload),
+        std::get<float>(record.parameters[2].payload));
+    result.area = std::get<SavedObjectReference>(record.parameters[3].payload);
+    result.target = std::get<SavedObjectReference>(record.parameters[4].payload);
+    int32_t flags = std::get<int32_t>(record.parameters[5].payload);
+    result.run = (flags & 1) != 0;
+    result.range = std::get<float>(record.parameters[6].payload);
+    int32_t subtype = std::get<int32_t>(record.parameters[7].payload);
+    result.timeout = std::get<float>(record.parameters[8].payload);
+    glm::vec2 offset(
+        std::get<float>(record.parameters[9].payload),
+        std::get<float>(record.parameters[10].payload));
+    int32_t day = std::get<int32_t>(record.parameters[11].payload);
+    int32_t time = std::get<int32_t>(record.parameters[12].payload);
+    bool timed = (flags & 4) != 0;
+    bool ordinary = !timed && day == 0 && time == 0 && result.timeout == 0.0f;
+    result.forcedPending = timed && result.timeout > 0.0f && day == 0 && time == 0;
+    result.forcedActive = !timed && (day != 0 || time != 0) &&
+                          result.timeout == 0.0f && day >= 0 && time >= 0 &&
+                          static_cast<uint32_t>(time) < 24u * 60u * 60u * 1000u;
+    bool valid =
+        std::isfinite(result.destination.x) && std::isfinite(result.destination.y) &&
+        std::isfinite(result.destination.z) && std::isfinite(result.range) &&
+        result.range >= 0.0f && std::isfinite(result.timeout) &&
+        std::isfinite(offset.x) && std::isfinite(offset.y) &&
+        offset == glm::vec2(0.0f) && subtype == 0 && (flags & ~5) == 0 &&
+        !result.area.isInvalid() &&
+        (ordinary || result.forcedPending || result.forcedActive) &&
+        (result.target.isInvalid() ? result.range == 0.0f : !ordinary);
+    if (!valid) {
+        return std::nullopt;
+    }
+    result.expiryDay = static_cast<uint32_t>(day);
+    result.expiryTime = static_cast<uint32_t>(time);
     return result;
 }
 
@@ -366,29 +452,9 @@ SavedExecutionSupport SavedActionRecord::executionSupport() const {
         return SavedExecutionSupport::Executable;
     }
     if (actionId == 1 && declaredParameterCount == 13 && parameters.size() == 13) {
-        static constexpr std::array<uint32_t, 13> types {
-            2, 2, 2, 3, 3, 1, 2, 1, 2, 2, 2, 1, 1};
-        for (size_t i = 0; i < types.size(); ++i) {
-            if (parameters[i].type != types[i]) {
-                return SavedExecutionSupport::RepresentableButUnsupported;
-            }
-        }
-        bool payloads =
-            std::holds_alternative<float>(parameters[0].payload) &&
-            std::holds_alternative<float>(parameters[1].payload) &&
-            std::holds_alternative<float>(parameters[2].payload) &&
-            std::holds_alternative<SavedObjectReference>(parameters[3].payload) &&
-            std::holds_alternative<SavedObjectReference>(parameters[4].payload) &&
-            std::holds_alternative<int32_t>(parameters[5].payload) &&
-            std::holds_alternative<float>(parameters[6].payload) &&
-            std::holds_alternative<int32_t>(parameters[7].payload) &&
-            std::holds_alternative<float>(parameters[8].payload) &&
-            std::holds_alternative<float>(parameters[9].payload) &&
-            std::holds_alternative<float>(parameters[10].payload) &&
-            std::holds_alternative<int32_t>(parameters[11].payload) &&
-            std::holds_alternative<int32_t>(parameters[12].payload);
-        return payloads ? SavedExecutionSupport::Executable
-                        : SavedExecutionSupport::RepresentableButUnsupported;
+        return decodeMoveToPoint(*this)
+                   ? SavedExecutionSupport::Executable
+                   : SavedExecutionSupport::RepresentableButUnsupported;
     }
     if (actionId == 17 && declaredParameterCount == 5 && parameters.size() == 5 &&
         parameters[0].type == static_cast<uint32_t>(SavedActionParameterType::Object) &&
@@ -462,45 +528,37 @@ std::shared_ptr<Action> SavedActionRecord::toRuntimeAction(
         return action;
     }
     if (actionId == 1) {
-        glm::vec3 destination(
-            std::get<float>(parameters[0].payload),
-            std::get<float>(parameters[1].payload),
-            std::get<float>(parameters[2].payload));
-        auto area = std::get<SavedObjectReference>(parameters[3].payload);
-        auto targetReference = std::get<SavedObjectReference>(parameters[4].payload);
-        int32_t flags = std::get<int32_t>(parameters[5].payload);
-        float range = std::get<float>(parameters[6].payload);
-        int32_t subtype = std::get<int32_t>(parameters[7].payload);
-        float timeout = std::get<float>(parameters[8].payload);
-        glm::vec2 offset(
-            std::get<float>(parameters[9].payload),
-            std::get<float>(parameters[10].payload));
-        int32_t day = std::get<int32_t>(parameters[11].payload);
-        int32_t time = std::get<int32_t>(parameters[12].payload);
-        bool timed = (flags & 4) != 0;
-        bool active = !timed && (day != 0 || time != 0);
-        bool valid =
-            std::isfinite(destination.x) && std::isfinite(destination.y) &&
-            std::isfinite(destination.z) && std::isfinite(range) && range >= 0.0f &&
-            std::isfinite(timeout) && std::isfinite(offset.x) && std::isfinite(offset.y) &&
-            offset == glm::vec2(0.0f) && subtype == 0 && (flags & ~5) == 0 &&
-            !area.isInvalid() && !targetReference.isInvalid() &&
-            ((timed && timeout > 0.0f && day == 0 && time == 0) ||
-             (active && timeout == 0.0f && day >= 0 && time >= 0 &&
-              static_cast<uint32_t>(time) < 24u * 60u * 60u * 1000u));
-        if (!valid) {
+        auto decoded = decodeMoveToPoint(*this);
+        if (!decoded || !std::dynamic_pointer_cast<Area>(decoded->area.boundObject())) {
+            return nullptr;
+        }
+        if (decoded->target.isInvalid()) {
+            MoveToLocationAction::ForcedState state;
+            state.areaId = decoded->area.id;
+            state.active = decoded->forcedActive;
+            state.expiryDay = decoded->expiryDay;
+            state.expiryTime = decoded->expiryTime;
+            auto location = std::make_shared<Location>(decoded->destination, 0.0f);
+            auto action = game.newAction<MoveToLocationAction>(
+                std::move(location), decoded->run,
+                decoded->forcedPending || decoded->forcedActive,
+                decoded->forcedPending ? decoded->timeout : 0.0f, state);
+            action->attachSavedAction(*this);
+            return action;
+        }
+        auto target = decoded->target.boundObject();
+        if (!target) {
             return nullptr;
         }
         MoveToObjectAction::ForcedState state;
-        state.destination = destination;
-        state.areaId = area.id;
-        state.offset = offset;
-        state.active = active;
-        state.expiryDay = static_cast<uint32_t>(day);
-        state.expiryTime = static_cast<uint32_t>(time);
+        state.destination = decoded->destination;
+        state.areaId = decoded->area.id;
+        state.active = decoded->forcedActive;
+        state.expiryDay = decoded->expiryDay;
+        state.expiryTime = decoded->expiryTime;
         auto action = game.newAction<MoveToObjectAction>(
-            targetReference.boundObject(), (flags & 1) != 0, range,
-            timed ? timeout : 0.0f, state);
+            std::move(target), decoded->run, decoded->range,
+            decoded->forcedPending ? decoded->timeout : 0.0f, state);
         action->attachSavedAction(*this);
         return action;
     }

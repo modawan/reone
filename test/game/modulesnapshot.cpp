@@ -17,6 +17,7 @@
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/playanimation.h"
 #include "reone/game/action/docommand.h"
+#include "reone/game/action/movetolocation.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/game.h"
@@ -766,6 +767,35 @@ TEST_F(SnapshotFixture, attack_object_is_a_supported_transition_snapshot_action)
               target->id());
     ASSERT_TRUE(saved.bindObjectReferences(game));
     EXPECT_TRUE(saved.toRuntimeAction(game));
+}
+
+TEST_F(SnapshotFixture, move_to_location_is_a_supported_transition_snapshot_action) {
+    auto destination = std::make_shared<Location>(glm::vec3(24.0f, 7.0f, 1.5f), 0.0f);
+    MoveToLocationAction::ForcedState state;
+    state.areaId = area->id();
+    auto action = game.newAction<MoveToLocationAction>(
+        destination, false, false, -1.0f, state);
+    SavedActionRecord provenance;
+    provenance.groupActionId = 33;
+    action->attachSavedAction(provenance);
+    player->addAction(action);
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+
+    ASSERT_TRUE(result) << result.message;
+    auto ifo = readGff(result.snapshot->ifoBytes);
+    auto playerRecord = ifo->getList("Mod_PlayerList").front();
+    ASSERT_EQ(playerRecord->getList("ActionList").size(), 1);
+    auto saved = SavedActionRecord::fromGff(
+        *playerRecord->getList("ActionList").front());
+    EXPECT_EQ(saved.actionId, 1u);
+    EXPECT_EQ(saved.groupActionId, 33);
+    EXPECT_EQ(saved.declaredParameterCount, 13);
+    ASSERT_EQ(saved.parameters.size(), 13);
+    EXPECT_TRUE(std::get<SavedObjectReference>(saved.parameters[4].payload).isInvalid());
+    ASSERT_TRUE(saved.bindObjectReferences(game));
+    EXPECT_TRUE(std::dynamic_pointer_cast<MoveToLocationAction>(
+        saved.toRuntimeAction(game)));
 }
 
 TEST_F(SnapshotFixture, move_to_object_is_a_supported_transition_snapshot_action) {
