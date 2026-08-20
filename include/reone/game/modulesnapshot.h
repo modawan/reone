@@ -140,6 +140,9 @@ private:
     void normalizeSituationReferences(SerializedScriptSituation &situation) const;
     void normalizeActionReferences(SavedActionRecord &action) const;
     void normalizeEventReferences(SavedEventRecord &event) const;
+    void appendRuntimeDelayedEvents(
+        std::vector<SavedEventRecord> &events,
+        const Object &owner) const;
     void validate(const SavedModuleSnapshot &snapshot) const;
 };
 

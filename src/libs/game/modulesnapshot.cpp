@@ -658,6 +658,7 @@ void ModuleSnapshotBuilder::writeObjectState(
 bool ModuleSnapshotBuilder::isSerializedWorldObject(
     const Object &object) const {
     if (!_game._module || !_game._module->_area) return false;
+    if (&object == _game._module.get()) return true;
     const auto &area = *_game._module->_area;
     if (&object == &area) return true;
     for (const auto &entry : area._objects) {
@@ -758,6 +759,64 @@ void ModuleSnapshotBuilder::normalizeEventReferences(
         }
     } else if (auto bag = std::get_if<SavedBodyBag>(&event.payload)) {
         bag->object.id = serializedReferenceId(bag->object);
+    }
+}
+
+void ModuleSnapshotBuilder::appendRuntimeDelayedEvents(
+    std::vector<SavedEventRecord> &events,
+    const Object &owner) const {
+    for (size_t index = 0; index < owner._delayed.size(); ++index) {
+        const auto &delayed = owner._delayed[index];
+        if (!delayed.action || delayed.action->isCompleted() ||
+            delayed.action->isCancelled()) {
+            continue;
+        }
+
+        auto savedAction = delayed.action->saveFacingState();
+        if (!savedAction || savedAction->actionId != 37 ||
+            savedAction->parameters.size() != 1) {
+            std::ostringstream message;
+            message << "live delayed action has no retail timed-event representation"
+                    << ": ownerId=" << owner.id()
+                    << " ownerType=" << static_cast<int>(owner.type())
+                    << " ownerTag=\"" << owner.tag() << '"'
+                    << " delayedIndex=" << index
+                    << " actionType=" << static_cast<int>(delayed.action->type());
+            throw ValidationException(message.str());
+        }
+        auto situation = std::get_if<SerializedScriptSituation>(
+            &savedAction->parameters.front().payload);
+        if (!situation) {
+            throw ValidationException(
+                "live delayed DoCommand action lacks a script situation"
+                ": ownerId=" + std::to_string(owner.id()) +
+                " delayedIndex=" + std::to_string(index));
+        }
+
+        // Object::_delayed counts stable-frame simulation seconds. EventQueue
+        // stores an absolute world timestamp, whose rate is controlled by
+        // Mod_MinPerHour. Snapshotting reads but never resets the live Timer.
+        const double remainingSeconds = delayed.timer
+                                            ? std::max(0.0f, delayed.timer->remaining())
+                                            : 0.0f;
+        const double worldMilliseconds =
+            remainingSeconds * 60000.0 /
+            static_cast<double>(std::max<uint8_t>(1, _game._minutesPerHour));
+        const uint64_t now =
+            static_cast<uint64_t>(_game._worldTimeDay) * kMillisecondsPerDay +
+            _game._worldTimeOfDay;
+        const uint64_t absolute = now +
+            static_cast<uint64_t>(std::floor(worldMilliseconds));
+
+        SavedEventRecord event;
+        event.day = static_cast<uint32_t>(absolute / kMillisecondsPerDay);
+        event.time = static_cast<uint32_t>(absolute % kMillisecondsPerDay);
+        event.object = SavedObjectReference(owner.id());
+        event.caller = SavedObjectReference(owner.id());
+        event.eventId = static_cast<uint32_t>(SavedEventType::Timed);
+        event.payload = *situation;
+        normalizeEventReferences(event);
+        events.push_back(std::move(event));
     }
 }
 
@@ -1365,7 +1424,29 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
     put(*result, Gff::Field::newList("Mod_Tokens", std::move(tokens)));
 
     std::vector<std::shared_ptr<Gff>> events;
-    for (auto event : module.saveEventSnapshot()) {
+    std::vector<SavedEventRecord> eventSnapshot = module.saveEventSnapshot();
+    std::set<const Object *> delayedOwners;
+    auto appendOwner = [&](const std::shared_ptr<Object> &owner) {
+        if (owner && delayedOwners.insert(owner.get()).second) {
+            appendRuntimeDelayedEvents(eventSnapshot, *owner);
+        }
+    };
+    appendOwner(_game._module);
+    appendOwner(module._area);
+    for (const auto &object : area._objects) {
+        if (object && area._objectsToDestroy.count(object->id()) == 0) {
+            appendOwner(object);
+        }
+    }
+    appendOwner(_game._party.player());
+    appendOwner(_game._party.actualPlayer());
+    for (const auto &creature : module._limboCreatures) appendOwner(creature);
+    std::stable_sort(
+        eventSnapshot.begin(), eventSnapshot.end(),
+        [](const SavedEventRecord &left, const SavedEventRecord &right) {
+            return std::tie(left.day, left.time) < std::tie(right.day, right.time);
+        });
+    for (auto event : eventSnapshot) {
         normalizeEventReferences(event);
         events.push_back(eventToGff(event, &_game));
     }

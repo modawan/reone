@@ -216,6 +216,9 @@ public:
     static void markSnapshotObjectDeleted(Area &area, uint32_t objectId);
     static void addSnapshotLimboCreature(
         Module &module, std::shared_ptr<Creature> creature);
+    static void dispatchSnapshotEvents(Module &module);
+    static void clearSnapshotDelayed(Object &object);
+    static void initSnapshotLocalServices(Game &game);
     static void setSnapshotWorldTime(
         Game &game, uint32_t day, uint32_t time, uint8_t minutesPerHour);
     static void deserializeSnapshotRuntimeState(

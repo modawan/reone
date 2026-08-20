@@ -80,6 +80,18 @@ void reone::game::TestGameModule::addSnapshotLimboCreature(
     module._limboCreatures.push_back(std::move(creature));
 }
 
+void reone::game::TestGameModule::dispatchSnapshotEvents(Module &module) {
+    module.dispatchDueSavedEvents();
+}
+
+void reone::game::TestGameModule::clearSnapshotDelayed(Object &object) {
+    object._delayed.clear();
+}
+
+void reone::game::TestGameModule::initSnapshotLocalServices(Game &game) {
+    game.initLocalServices();
+}
+
 void reone::game::TestGameModule::setSnapshotWorldTime(
     Game &game, uint32_t day, uint32_t time, uint8_t minutesPerHour) {
     game._worldTimeDay = day;
@@ -804,6 +816,111 @@ TEST_F(SnapshotFixture, pending_do_command_is_a_supported_transition_snapshot_ac
     ASSERT_EQ(saved.parameters.size(), 1);
     EXPECT_EQ(saved.parameters[0].type,
               static_cast<uint32_t>(SavedActionParameterType::ScriptSituation));
+}
+
+TEST_F(SnapshotFixture, runtime_delays_export_as_retail_timed_events_with_remaining_game_time) {
+    TestGameModule::setSnapshotWorldTime(game, 3, 1000, 5);
+    auto newDelayedCommand = [&](int value) {
+        auto program = std::make_shared<script::ScriptProgram>("delayed_command");
+        program->add(script::Instruction(script::InstructionType::RETN));
+        auto state = std::make_shared<script::ExecutionState>();
+        state->program = std::move(program);
+        state->insOffset = 13;
+        state->globals = {script::Variable::ofInt(value)};
+        auto context = std::make_shared<script::ExecutionContext>();
+        context->savedState = std::move(state);
+        return game.newAction<DoCommandAction>(std::move(context));
+    };
+    player->delayAction(newDelayedCommand(9), 10.0f);
+    player->update(4.0f);
+
+    auto first = ModuleSnapshotBuilder(game, "module003").build();
+    auto second = ModuleSnapshotBuilder(game, "module003").build();
+
+    ASSERT_TRUE(first) << first.message;
+    ASSERT_TRUE(second) << second.message;
+    EXPECT_EQ(first.snapshot->ifoBytes, second.snapshot->ifoBytes);
+    auto ifo = readGff(first.snapshot->ifoBytes);
+    auto queue = SavedEventQueue::fromGff(*ifo);
+    ASSERT_EQ(queue.events.size(), 1);
+    const auto &event = queue.events.front();
+    EXPECT_EQ(event.eventId, static_cast<uint32_t>(SavedEventType::Timed));
+    EXPECT_EQ(event.day, 3u);
+    // Six simulation seconds at five real minutes per game hour.
+    EXPECT_EQ(event.time, 73000u);
+    EXPECT_EQ(event.object.id, player->id());
+    EXPECT_EQ(event.caller.id, player->id());
+    const auto *situation = std::get_if<SerializedScriptSituation>(&event.payload);
+    ASSERT_NE(situation, nullptr);
+    ASSERT_EQ(situation->stack.size(), 1);
+    EXPECT_EQ(std::get<int32_t>(situation->stack.front().payload), 9);
+}
+
+TEST_F(SnapshotFixture, runtime_delays_preserve_stable_time_order_and_fail_closed) {
+    TestGameModule::setSnapshotWorldTime(game, 2, 86390000, 10);
+    auto delayed = [&](Object &owner, float seconds, int value) {
+        auto program = std::make_shared<script::ScriptProgram>("ordered_delay");
+        program->add(script::Instruction(script::InstructionType::RETN));
+        auto state = std::make_shared<script::ExecutionState>();
+        state->program = std::move(program);
+        state->insOffset = 13;
+        state->globals = {script::Variable::ofInt(value)};
+        auto context = std::make_shared<script::ExecutionContext>();
+        context->savedState = std::move(state);
+        owner.delayAction(game.newAction<DoCommandAction>(std::move(context)), seconds);
+    };
+    auto door = addDoorWithShadow();
+    delayed(*player, 4.0f, 1);
+    delayed(*player, 2.0f, 2);
+    delayed(*door, 2.0f, 3);
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+
+    ASSERT_TRUE(result) << result.message;
+    auto queue = SavedEventQueue::fromGff(*readGff(result.snapshot->ifoBytes));
+    ASSERT_EQ(queue.events.size(), 3);
+    EXPECT_EQ(queue.events[0].day, 3u);
+    EXPECT_EQ(queue.events[0].time, 2000u);
+    EXPECT_EQ(queue.events[0].object.id, player->id());
+    EXPECT_EQ(queue.events[1].time, 2000u);
+    EXPECT_EQ(queue.events[1].object.id, door->id());
+    EXPECT_EQ(queue.events[2].time, 14000u);
+
+    door->delayAction(
+        std::make_shared<UnserializableAction>(game, engine.services()), 3.0f);
+    auto rejected = ModuleSnapshotBuilder(game, "module003").build();
+    EXPECT_FALSE(rejected);
+    EXPECT_EQ(rejected.error, ModuleSnapshotError::UnsupportedLiveState);
+    EXPECT_THAT(rejected.message, HasSubstr("ownerId=" + std::to_string(door->id())));
+    EXPECT_THAT(rejected.message, HasSubstr("delayedIndex=1"));
+}
+
+TEST_F(SnapshotFixture, due_delay_is_inert_on_restore_and_delivered_exactly_once) {
+    TestGameModule::setSnapshotWorldTime(game, 4, 5000, 2);
+    TestGameModule::initSnapshotLocalServices(game);
+    auto program = std::make_shared<script::ScriptProgram>("boundary_delay");
+    program->add(script::Instruction::newCONSTI(0));
+    program->add(script::Instruction(script::InstructionType::RETN));
+    auto state = std::make_shared<script::ExecutionState>();
+    state->program = std::move(program);
+    state->insOffset = 13;
+    auto context = std::make_shared<script::ExecutionContext>();
+    context->savedState = std::move(state);
+    player->delayAction(game.newAction<DoCommandAction>(std::move(context)), 0.0f);
+    auto saved = ModuleSnapshotBuilder(game, "module003").build();
+    ASSERT_TRUE(saved) << saved.message;
+
+    auto ifo = readGff(saved.snapshot->ifoBytes);
+    TestGameModule::clearSnapshotDelayed(*player);
+    game.module()->deserializeSavedEventQueue(*ifo);
+    game.module()->bindSavedEventQueue();
+    game.module()->publishSavedEventQueue();
+
+    EXPECT_EQ(game.module()->pendingSavedEventCount(), 1u);
+    TestGameModule::dispatchSnapshotEvents(*game.module());
+    EXPECT_EQ(game.module()->pendingSavedEventCount(), 0u);
+    TestGameModule::dispatchSnapshotEvents(*game.module());
+    EXPECT_EQ(game.module()->pendingSavedEventCount(), 0u);
 }
 
 TEST_F(SnapshotFixture, pending_start_conversation_is_a_supported_transition_snapshot_action) {
