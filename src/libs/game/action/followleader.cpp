@@ -52,6 +52,17 @@ void FollowLeaderAction::execute(std::shared_ptr<Action> self, Object &actor, fl
     }
 }
 
+std::optional<SavedActionRecord> FollowLeaderAction::saveFacingState() const {
+    // Retail AI action 61 is the abstract party-follow command. It deliberately
+    // carries no target or formation parameters: execution resolves the current
+    // party leader, while Party/FollowInfo owns formation state.
+    SavedActionRecord result = originalSavedAction().value_or(SavedActionRecord {});
+    result.actionId = 61;
+    result.declaredParameterCount = 0;
+    result.parameters.clear();
+    return result;
+}
+
 } // namespace game
 
 } // namespace reone

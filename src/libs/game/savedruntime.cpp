@@ -12,6 +12,7 @@
 #include <set>
 
 #include "reone/game/action/attackobject.h"
+#include "reone/game/action/followleader.h"
 #include "reone/game/action/wait.h"
 #include "reone/game/action/playanimation.h"
 #include "reone/game/action/movetolocation.h"
@@ -433,6 +434,9 @@ SavedActionRecord SavedActionRecord::fromGff(const resource::Gff &gff) {
 }
 
 SavedExecutionSupport SavedActionRecord::executionSupport() const {
+    if (actionId == 61 && declaredParameterCount == 0 && parameters.empty()) {
+        return SavedExecutionSupport::Executable;
+    }
     if (actionId == 12 && declaredParameterCount == 10 && parameters.size() == 10) {
         static constexpr std::array<uint32_t, 10> types {
             1, 3, 1, 1, 1, 1, 1, 1, 1, 1};
@@ -521,6 +525,11 @@ std::shared_ptr<Action> SavedActionRecord::toRuntimeAction(
     Game &game, const SavedScriptSituationImporter *importer) const {
     if (executionSupport() != SavedExecutionSupport::Executable) {
         return nullptr;
+    }
+    if (actionId == 61) {
+        auto action = game.newAction<FollowLeaderAction>();
+        action->attachSavedAction(*this);
+        return action;
     }
     if (actionId == 30) {
         auto action = game.newAction<WaitAction>(std::get<float>(parameters.front().payload));

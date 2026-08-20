@@ -17,6 +17,7 @@
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/playanimation.h"
 #include "reone/game/action/docommand.h"
+#include "reone/game/action/followleader.h"
 #include "reone/game/action/movetolocation.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/startconversation.h"
@@ -1144,6 +1145,40 @@ TEST(ModuleSnapshot, exports_advanced_runtime_script_situations_and_rejects_unsu
     error.clear();
     EXPECT_FALSE(exportScriptSituation(*continuation, error));
     EXPECT_THAT(error, HasSubstr("unsupported type="));
+}
+
+TEST_F(SnapshotFixture, follow_leader_and_later_action_preserve_transition_queue_order) {
+    auto follow = game.newAction<FollowLeaderAction>();
+    SavedActionRecord followProvenance;
+    followProvenance.groupActionId = 40;
+    follow->attachSavedAction(followProvenance);
+    player->addAction(follow);
+
+    auto later = game.newAction<WaitAction>(3.0f);
+    SavedActionRecord laterProvenance;
+    laterProvenance.groupActionId = 41;
+    later->attachSavedAction(laterProvenance);
+    player->addAction(later);
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+
+    ASSERT_TRUE(result) << result.message;
+    auto ifo = readGff(result.snapshot->ifoBytes);
+    const auto &savedQueue =
+        ifo->getList("Mod_PlayerList").front()->getList("ActionList");
+    ASSERT_EQ(savedQueue.size(), 2);
+    auto savedFollow = SavedActionRecord::fromGff(*savedQueue[0]);
+    auto savedLater = SavedActionRecord::fromGff(*savedQueue[1]);
+    EXPECT_EQ(savedFollow.actionId, 61u);
+    EXPECT_EQ(savedFollow.groupActionId, 40);
+    EXPECT_EQ(savedFollow.declaredParameterCount, 0);
+    EXPECT_TRUE(savedFollow.parameters.empty());
+    EXPECT_EQ(savedLater.actionId, 30u);
+    EXPECT_EQ(savedLater.groupActionId, 41);
+    EXPECT_TRUE(std::dynamic_pointer_cast<FollowLeaderAction>(
+        savedFollow.toRuntimeAction(game)));
+    EXPECT_TRUE(std::dynamic_pointer_cast<WaitAction>(
+        savedLater.toRuntimeAction(game)));
 }
 
 TEST(ModuleSnapshot, exports_retail_zero_location_for_uninitialized_runtime_location) {

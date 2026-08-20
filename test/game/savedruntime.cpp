@@ -15,6 +15,7 @@
 #include "reone/game/action.h"
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/docommand.h"
+#include "reone/game/action/followleader.h"
 #include "reone/game/action/movetolocation.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/startconversation.h"
@@ -231,6 +232,84 @@ TEST(SavedAction, should_convert_only_a_proven_supported_reone_action) {
     EXPECT_EQ(wait.executionSupport(), SavedExecutionSupport::Executable);
     EXPECT_FALSE(unknown.toRuntimeAction(game));
     EXPECT_EQ(unknown.executionSupport(), SavedExecutionSupport::RepresentableButUnsupported);
+}
+
+TEST(SavedAction, follow_leader_uses_exact_parameterless_retail_shape_in_both_titles) {
+    for (auto gameId : {resource::GameID::KotOR, resource::GameID::TSL}) {
+        TestEngine &engine = testEngine();
+        StubConsole console;
+        Game game(gameId, "", engine.options(), engine.services(), console);
+
+        auto runtime = game.newAction<FollowLeaderAction>();
+        SavedActionRecord provenance;
+        provenance.groupActionId = 23;
+        runtime->attachSavedAction(provenance);
+
+        auto exported = runtime->saveFacingState();
+        ASSERT_TRUE(exported);
+        EXPECT_EQ(exported->actionId, 61u);
+        EXPECT_EQ(exported->groupActionId, 23);
+        EXPECT_EQ(exported->declaredParameterCount, 0);
+        EXPECT_TRUE(exported->parameters.empty());
+
+        auto encoded = action(exported->actionId, exported->groupActionId);
+        auto imported = SavedActionRecord::fromGff(*encoded);
+        EXPECT_EQ(imported.executionSupport(), SavedExecutionSupport::Executable);
+        auto restored = std::dynamic_pointer_cast<FollowLeaderAction>(
+            imported.toRuntimeAction(game));
+        ASSERT_TRUE(restored);
+        ASSERT_TRUE(restored->originalSavedAction());
+        EXPECT_EQ(restored->originalSavedAction()->groupActionId, 23);
+        auto reexported = restored->saveFacingState();
+        ASSERT_TRUE(reexported);
+        EXPECT_EQ(reexported->actionId, 61u);
+        EXPECT_EQ(reexported->declaredParameterCount, 0);
+        EXPECT_TRUE(reexported->parameters.empty());
+    }
+}
+
+TEST(SavedAction, follow_leader_rejects_any_parameter_shape) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto wrongCount = SavedActionRecord::fromGff(
+        *action(61, 7, {valueParameter(1, Gff::Field::newInt("Value", 0))}));
+    EXPECT_EQ(wrongCount.executionSupport(),
+              SavedExecutionSupport::RepresentableButUnsupported);
+    EXPECT_FALSE(wrongCount.toRuntimeAction(game));
+
+    auto hiddenParameter = SavedActionRecord::fromGff(*action(61, 7));
+    hiddenParameter.parameters.push_back(SavedActionParameter {
+        static_cast<uint32_t>(SavedActionParameterType::Integer), int32_t {0}});
+    EXPECT_EQ(hiddenParameter.executionSupport(),
+              SavedExecutionSupport::RepresentableButUnsupported);
+    EXPECT_FALSE(hiddenParameter.toRuntimeAction(game));
+}
+
+TEST(SavedAction, restored_follow_leader_resolves_the_leader_only_at_execution) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    ASSERT_TRUE(game.party().isEmpty());
+    auto record = SavedActionRecord::fromGff(*action(61, 9));
+    auto restored = std::dynamic_pointer_cast<FollowLeaderAction>(
+        record.toRuntimeAction(game));
+    ASSERT_TRUE(restored);
+
+    // Publication may establish or switch the party leader after action import.
+    // The parameterless record must remain inert and unbound until execution.
+    auto publishedLeader = game.newCreature();
+    publishedLeader->setPosition(glm::vec3(0.0f));
+    ASSERT_TRUE(game.party().addMember(kNpcPlayer, publishedLeader));
+    auto follower = game.newCreature();
+    ASSERT_EQ(game.party().getLeader(), publishedLeader);
+    restored->execute(restored, *follower, 1.0f);
+
+    // Completion at the leader published after import proves the wire record
+    // did not capture or bind a target during reconstruction.
+    EXPECT_TRUE(restored->isCompleted());
 }
 
 TEST(SavedAction, attack_object_exports_exact_retail_basic_attack_shape_in_both_titles) {
