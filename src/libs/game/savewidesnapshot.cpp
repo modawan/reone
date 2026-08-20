@@ -159,9 +159,11 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildGlobals() const {
     numberValues.reserve(numbers.size());
     for (const auto &[name, value] : numbers) {
         (void)name;
-        if (value < 0 || value > 255) {
-            throw ValidationException("global number is outside retail byte range");
+        if (value < -128 || value > 127) {
+            throw ValidationException("global number is outside retail signed-byte range");
         }
+        // Conversion to uint8_t is defined modulo 256 and therefore preserves
+        // the retail two's-complement byte for every validated signed value.
         numberValues.push_back(static_cast<uint8_t>(value));
     }
 

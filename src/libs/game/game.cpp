@@ -2667,7 +2667,12 @@ void Game::setGlobalBoolean(const std::string &name, bool value) {
 }
 
 void Game::setGlobalNumber(const std::string &name, int value) {
-    _globalNumbers[name] = value;
+    // Retail SetGlobalNumber stores the low byte in its signed-char table.
+    // Express that conversion portably instead of relying on plain-char
+    // signedness or an implementation-defined narrowing conversion.
+    uint8_t raw = static_cast<uint8_t>(value);
+    _globalNumbers[name] = raw <= 0x7f ? static_cast<int>(raw)
+                                       : static_cast<int>(raw) - 0x100;
 }
 
 void Game::setGlobalString(const std::string &name, const std::string &value) {

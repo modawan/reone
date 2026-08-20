@@ -63,19 +63,27 @@ std::shared_ptr<Gff> locations(
 
 } // namespace
 
-TEST(GVT, should_decode_numeric_values_as_unsigned_retail_bytes) {
+TEST(GVT, should_decode_numeric_values_as_signed_retail_bytes) {
     auto gff = Gff::Builder()
         .field(Gff::Field::newList(
-            "CatNumber", {locationName("zero"), locationName("maximum")}))
+            "CatNumber", {
+                locationName("zero"), locationName("one"),
+                locationName("positive_max"), locationName("negative_min"),
+                locationName("negative_one")}))
         .field(Gff::Field::newVoid(
-            "ValNumber", {0, static_cast<char>(0xff)}))
+            "ValNumber", {
+                0, 1, 0x7f, static_cast<char>(0x80),
+                static_cast<char>(0xff)}))
         .build();
 
     auto parsed = parseGVT(*gff);
 
-    ASSERT_EQ(parsed.numbers.size(), 2);
+    ASSERT_EQ(parsed.numbers.size(), 5);
     EXPECT_EQ(parsed.numbers[0], GVT::Number("zero", 0));
-    EXPECT_EQ(parsed.numbers[1], GVT::Number("maximum", 255));
+    EXPECT_EQ(parsed.numbers[1], GVT::Number("one", 1));
+    EXPECT_EQ(parsed.numbers[2], GVT::Number("positive_max", 127));
+    EXPECT_EQ(parsed.numbers[3], GVT::Number("negative_min", -128));
+    EXPECT_EQ(parsed.numbers[4], GVT::Number("negative_one", -1));
 }
 
 TEST(GVT, should_decode_k1_saved_locations_from_the_retail_void_payload) {

@@ -13,6 +13,7 @@
 #include "reone/game/object/item.h"
 #include "reone/game/party.h"
 #include "reone/game/saveprovenance.h"
+#include "reone/game/script/routines.h"
 #include "reone/game/savewidesnapshot.h"
 #include "reone/resource/format/erfwriter.h"
 #include "reone/resource/format/gffreader.h"
@@ -21,6 +22,7 @@
 #include "reone/resource/saveworkingstate.h"
 #include "reone/system/stream/fileoutput.h"
 #include "reone/system/stream/memoryinput.h"
+#include "reone/script/executioncontext.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -179,7 +181,7 @@ RichState configureRich(Game &game, bool tsl) {
     for (int i = 0; i < 9; ++i) {
         game.setGlobalBoolean("bool_" + std::to_string(i), (i % 2) == 0);
     }
-    game.setGlobalNumber("number_max", 255);
+    game.setGlobalNumber("number_negative_one", -1);
     game.setGlobalNumber("number_zero", 0);
     game.setGlobalString("string_empty", "");
     game.setGlobalString("string_value", "value");
@@ -316,7 +318,7 @@ TEST(SaveWideSnapshot, rich_k1_round_trips_all_common_state_and_shadows) {
     TestGameModule::deserializeGlobalVariables(loaded, *globals);
     EXPECT_FALSE(loaded.globalBooleans().count("stale_from_a"));
     EXPECT_TRUE(loaded.getGlobalBoolean("bool_0"));
-    EXPECT_EQ(loaded.getGlobalNumber("number_max"), 255);
+    EXPECT_EQ(loaded.getGlobalNumber("number_negative_one"), -1);
     TestGameModule::replaceJournal(loaded, *party);
     ASSERT_EQ(loaded.journal().quests().size(), 1);
     EXPECT_EQ(loaded.journal().quests()[0].plotId, "tat17_landing");
@@ -533,6 +535,70 @@ TEST(SaveWideSnapshot, rich_k2_writes_title_specific_party_pc_puppet_and_nfo) {
     EXPECT_EQ(nfo->getString("PORTRAIT0"), "po_pfhh01");
 }
 
+TEST(GlobalNumber, script_api_uses_retail_signed_low_byte_for_both_titles) {
+    auto &engine = testEngine();
+    StubConsole console;
+    script::ExecutionContext execution;
+
+    for (auto gameId : {GameID::KotOR, GameID::TSL}) {
+        Game game(gameId, "", engine.options(), engine.services(), console);
+        Routines routines(gameId, &game, &engine.services());
+        routines.init();
+
+        for (const auto &[input, expected] : std::vector<std::pair<int, int>> {
+                 {-129, 127}, {-128, -128}, {-1, -1}, {0, 0}, {1, 1},
+                 {127, 127}, {128, -128}, {255, -1}, {256, 0}}) {
+            routines.get(581).invoke(
+                {script::Variable::ofString("boundary"),
+                 script::Variable::ofInt(input)},
+                execution);
+            auto result = routines.get(580).invoke(
+                {script::Variable::ofString("boundary")}, execution);
+            EXPECT_EQ(result.intValue, expected) << "input=" << input;
+            EXPECT_EQ(game.getGlobalNumber("boundary"), expected)
+                << "input=" << input;
+        }
+    }
+}
+
+TEST(SaveWideSnapshot, signed_global_numbers_round_trip_for_both_titles) {
+    auto &engine = testEngine();
+    configureReputes(engine);
+    StubConsole console;
+    const std::vector<std::pair<std::string, int>> boundaries {
+        {"number_max", 127}, {"number_min", -128},
+        {"number_negative_one", -1}, {"number_one", 1},
+        {"number_zero", 0}};
+    const ByteBuffer expectedBytes {
+        0x7f, static_cast<char>(0x80), static_cast<char>(0xff), 1, 0};
+
+    for (auto gameId : {GameID::KotOR, GameID::TSL}) {
+        bool tsl = gameId == GameID::TSL;
+        Game game(gameId, "", engine.options(), engine.services(), console);
+        configureRich(game, tsl);
+        for (const auto &[name, value] : boundaries) {
+            game.setGlobalNumber(name, value);
+        }
+
+        auto saved = SaveWideSnapshotBuilder(game, metadata(tsl)).build();
+        ASSERT_TRUE(saved) << saved.message;
+        auto globals = readGff(
+            saved.snapshot->looseSlotResources.at({"globalvars", ResType::Res}));
+        EXPECT_EQ(globals->getData("ValNumber"), expectedBytes);
+
+        auto parsed = parseGVT(*globals);
+        EXPECT_EQ(parsed.numbers, boundaries);
+
+        Game loaded(gameId, "", engine.options(), engine.services(), console);
+        loaded.setGlobalNumber("stale", 42);
+        TestGameModule::deserializeGlobalVariables(loaded, *globals);
+        EXPECT_FALSE(loaded.globalNumbers().count("stale"));
+        for (const auto &[name, value] : boundaries) {
+            EXPECT_EQ(loaded.getGlobalNumber(name), value);
+        }
+    }
+}
+
 TEST(SaveWideSnapshot, application_replaces_current_tombstones_stale_and_keeps_unknowns) {
     auto &engine = testEngine();
     configureReputes(engine);
@@ -564,7 +630,7 @@ TEST(SaveWideSnapshot, failed_build_exposes_no_partial_result_or_mutation) {
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     configureRich(game, false);
-    game.setGlobalNumber("invalid", 256);
+    game.setGlobalLocation("invalid", nullptr);
     const auto beforeGlobals = game.globalNumbers();
 
     auto failed = SaveWideSnapshotBuilder(game, metadata(false)).build();
