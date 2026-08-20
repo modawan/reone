@@ -20,19 +20,146 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object.h"
+#include "reone/game/object/module.h"
+#include "reone/game/savedruntime.h"
+
+#include <cmath>
 
 namespace reone {
 
 namespace game {
 
+namespace {
+
+constexpr uint32_t kMillisecondsPerDay = 24u * 60u * 60u * 1000u;
+
+}
+
+MoveToObjectAction::MoveToObjectAction(
+    Game &game, ServicesView &services, std::shared_ptr<Object> moveTo,
+    bool run, float range, bool force, float timeout) :
+    Action(game, services, ActionType::MoveToObject),
+    _moveTo(std::move(moveTo)),
+    _run(run),
+    _range(range),
+    _force(force),
+    _timeout(timeout) {
+    if (_moveTo) {
+        _forcedState.destination = _moveTo->position();
+    }
+}
+
+MoveToObjectAction::MoveToObjectAction(
+    Game &game, ServicesView &services, std::shared_ptr<Object> moveTo,
+    bool run, float range, float timeout, ForcedState forcedState) :
+    Action(game, services, ActionType::MoveToObject),
+    _moveTo(std::move(moveTo)),
+    _run(run),
+    _range(range),
+    _force(true),
+    _timeout(timeout),
+    _forcedState(std::move(forcedState)) {
+}
+
 void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    auto dest = _moveTo->position();
+    if (_force && !_forcedState.active) {
+        _forcedState.active = true;
+        if (_moveTo) {
+            _forcedState.destination = _moveTo->position();
+        }
+        if (auto module = _game.module(); module && module->area()) {
+            _forcedState.areaId = module->area()->id();
+        }
+        uint64_t now = static_cast<uint64_t>(_game.worldTimeDay()) * kMillisecondsPerDay +
+                       _game.worldTimeOfDay();
+        uint64_t expiry = now + static_cast<uint64_t>(
+            std::llround(std::max(0.0f, _timeout) * 1000.0f));
+        _forcedState.expiryDay = static_cast<uint32_t>(expiry / kMillisecondsPerDay);
+        _forcedState.expiryTime = static_cast<uint32_t>(expiry % kMillisecondsPerDay);
+    }
+
+    auto dest = _moveTo ? _moveTo->position() : _forcedState.destination;
     auto creatureActor = _game.getObjectById<Creature>(actor.id());
+    if (!creatureActor) {
+        complete();
+        return;
+    }
+
+    if (_force && _forcedState.active) {
+        bool expired = _game.worldTimeDay() > _forcedState.expiryDay ||
+                       (_game.worldTimeDay() == _forcedState.expiryDay &&
+                        _game.worldTimeOfDay() >= _forcedState.expiryTime);
+        if (expired) {
+            actor.setPosition(_forcedState.destination);
+            if (auto module = _game.module(); module && module->area() &&
+                module->area()->id() == _forcedState.areaId) {
+                module->area()->landObject(actor);
+            }
+            complete();
+            return;
+        }
+    }
 
     bool reached = creatureActor->navigateTo(dest, _run, _range, dt);
     if (reached) {
         complete();
     }
+}
+
+std::optional<SavedActionRecord> MoveToObjectAction::saveFacingState() const {
+    // Retail ActionId 17 is the ranged move-to-object check. Forced movement
+    // carries additional path/timeout semantics which are not this record.
+    if (!_moveTo || !std::isfinite(_range)) {
+        return std::nullopt;
+    }
+
+    SavedActionRecord result = originalSavedAction().value_or(SavedActionRecord {});
+    if (_force || _timeout >= 0.0f) {
+        if (!_force || !std::isfinite(_timeout) || _timeout < 0.0f) {
+            return std::nullopt;
+        }
+        auto destination = _forcedState.active ? _forcedState.destination : _moveTo->position();
+        uint32_t areaId = _forcedState.areaId;
+        if (areaId == kSavedRuntimeInvalidObjectId) {
+            if (auto module = _game.module(); module && module->area()) {
+                areaId = module->area()->id();
+            }
+        }
+        if (areaId == kSavedRuntimeInvalidObjectId) {
+            return std::nullopt;
+        }
+        int32_t flags = (_run ? 1 : 0) | (_forcedState.active ? 0 : 4);
+        result.actionId = 1;
+        result.declaredParameterCount = 13;
+        result.parameters = {
+            {2, destination.x}, {2, destination.y}, {2, destination.z},
+            {3, SavedObjectReference {areaId}}, {3, SavedObjectReference {_moveTo->id()}},
+            {1, flags}, {2, _range}, {1, int32_t {0}},
+            {2, _forcedState.active ? 0.0f : _timeout},
+            {2, _forcedState.offset.x}, {2, _forcedState.offset.y},
+            {1, static_cast<int32_t>(_forcedState.active ? _forcedState.expiryDay : 0)},
+            {1, static_cast<int32_t>(_forcedState.active ? _forcedState.expiryTime : 0)},
+        };
+        return result;
+    }
+
+    result.actionId = 17;
+    result.declaredParameterCount = 5;
+    result.parameters = {
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Object),
+            SavedObjectReference {_moveTo->id()}},
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Integer),
+            static_cast<int32_t>(_run ? 1 : 0)},
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Float), _range},
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Float), _range},
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Integer), int32_t {1}},
+    };
+    return result;
 }
 
 } // namespace game

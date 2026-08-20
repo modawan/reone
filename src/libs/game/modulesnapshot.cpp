@@ -675,8 +675,15 @@ uint32_t ModuleSnapshotBuilder::serializedReferenceId(
     const SavedObjectReference &reference) const {
     if (reference.isInvalid()) return kSavedRuntimeInvalidObjectId;
     auto bound = reference.boundObject();
-    return bound && isSerializedWorldObject(*bound)
-               ? bound->id()
+    if (bound) {
+        return isSerializedWorldObject(*bound)
+                   ? bound->id()
+                   : kSavedRuntimeInvalidObjectId;
+    }
+    auto found = _game._objectById.find(reference.id);
+    return found != _game._objectById.end() &&
+                   isSerializedWorldObject(*found->second)
+               ? found->second->id()
                : kSavedRuntimeInvalidObjectId;
 }
 

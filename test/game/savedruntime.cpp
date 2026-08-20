@@ -13,6 +13,7 @@
 #include "../fixtures/engine.h"
 
 #include "reone/game/action.h"
+#include "reone/game/action/movetoobject.h"
 #include "reone/game/game.h"
 #include "reone/game/savedruntime.h"
 #include "reone/resource/gff.h"
@@ -214,6 +215,185 @@ TEST(SavedAction, play_animation_rejects_malformed_parameter_shapes) {
     record.parameters[0].payload = SavedObjectReference {100};
     record.parameters[0].type = 1;
     EXPECT_EQ(record.executionSupport(), SavedExecutionSupport::RepresentableButUnsupported);
+}
+
+TEST(SavedAction, move_to_object_uses_retail_action_17_shape_and_bound_target) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    auto saved = action(17, 13, {
+        valueParameter(3, Gff::Field::newDword("Value", target->id())),
+        valueParameter(1, Gff::Field::newInt("Value", 0)),
+        valueParameter(2, Gff::Field::newFloat("Value", 0.5f)),
+        valueParameter(2, Gff::Field::newFloat("Value", 0.5f)),
+        valueParameter(1, Gff::Field::newInt("Value", 1)),
+    });
+    auto record = SavedActionRecord::fromGff(*saved);
+
+    EXPECT_EQ(record.executionSupport(), SavedExecutionSupport::Executable);
+    EXPECT_TRUE(record.bindObjectReferences(game));
+    auto runtime = std::dynamic_pointer_cast<MoveToObjectAction>(
+        record.toRuntimeAction(game));
+    ASSERT_TRUE(runtime);
+    EXPECT_EQ(runtime->target(), target);
+    EXPECT_FALSE(runtime->isRun());
+    EXPECT_FLOAT_EQ(runtime->range(), 0.5f);
+    EXPECT_FALSE(runtime->isForced());
+    EXPECT_FLOAT_EQ(runtime->timeout(), -1.0f);
+    ASSERT_TRUE(runtime->originalSavedAction());
+    EXPECT_EQ(runtime->originalSavedAction()->groupActionId, 13);
+
+    auto exported = runtime->saveFacingState();
+    ASSERT_TRUE(exported);
+    EXPECT_EQ(exported->actionId, 17u);
+    EXPECT_EQ(exported->groupActionId, 13);
+    ASSERT_EQ(exported->parameters.size(), 5);
+    EXPECT_EQ(std::get<SavedObjectReference>(exported->parameters[0].payload).id,
+              target->id());
+    EXPECT_EQ(std::get<int32_t>(exported->parameters[1].payload), 0);
+    EXPECT_FLOAT_EQ(std::get<float>(exported->parameters[2].payload), 0.5f);
+    EXPECT_FLOAT_EQ(std::get<float>(exported->parameters[3].payload), 0.5f);
+    EXPECT_EQ(std::get<int32_t>(exported->parameters[4].payload), 1);
+}
+
+TEST(SavedAction, move_to_object_rejects_malformed_or_missing_target) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto saved = action(17, 3, {
+        valueParameter(3, Gff::Field::newDword("Value", 123456)),
+        valueParameter(1, Gff::Field::newInt("Value", 1)),
+        valueParameter(2, Gff::Field::newFloat("Value", 1.0f)),
+        valueParameter(2, Gff::Field::newFloat("Value", 1.0f)),
+        valueParameter(1, Gff::Field::newInt("Value", 1)),
+    });
+    auto record = SavedActionRecord::fromGff(*saved);
+    EXPECT_FALSE(record.bindObjectReferences(game));
+    EXPECT_FALSE(record.toRuntimeAction(game));
+
+    record.parameters[1].payload = int32_t {2};
+    EXPECT_FALSE(record.toRuntimeAction(game));
+    record.parameters[1].payload = int32_t {1};
+    record.parameters[3].payload = 2.0f;
+    EXPECT_FALSE(record.toRuntimeAction(game));
+    record.parameters[3].payload = 1.0f;
+    record.parameters[4].payload = int32_t {0};
+    EXPECT_FALSE(record.toRuntimeAction(game));
+    record.declaredParameterCount = 4;
+    EXPECT_EQ(record.executionSupport(),
+              SavedExecutionSupport::RepresentableButUnsupported);
+}
+
+TEST(SavedAction, forced_move_to_object_uses_retail_action_1_and_preserves_timing) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    auto target = game.newCreature();
+    auto saved = action(1, 13, {
+        valueParameter(2, Gff::Field::newFloat("Value", 46.0f)),
+        valueParameter(2, Gff::Field::newFloat("Value", 17.0f)),
+        valueParameter(2, Gff::Field::newFloat("Value", 1.9f)),
+        valueParameter(3, Gff::Field::newDword("Value", area->id())),
+        valueParameter(3, Gff::Field::newDword("Value", target->id())),
+        valueParameter(1, Gff::Field::newInt("Value", 5)),
+        valueParameter(2, Gff::Field::newFloat("Value", 0.5f)),
+        valueParameter(1, Gff::Field::newInt("Value", 0)),
+        valueParameter(2, Gff::Field::newFloat("Value", 30.0f)),
+        valueParameter(2, Gff::Field::newFloat("Value", 0.0f)),
+        valueParameter(2, Gff::Field::newFloat("Value", 0.0f)),
+        valueParameter(1, Gff::Field::newInt("Value", 0)),
+        valueParameter(1, Gff::Field::newInt("Value", 0)),
+    });
+    auto record = SavedActionRecord::fromGff(*saved);
+    ASSERT_EQ(record.executionSupport(), SavedExecutionSupport::Executable);
+    ASSERT_TRUE(record.bindObjectReferences(game));
+    auto runtime = std::dynamic_pointer_cast<MoveToObjectAction>(record.toRuntimeAction(game));
+    ASSERT_TRUE(runtime);
+    EXPECT_TRUE(runtime->isForced());
+    EXPECT_TRUE(runtime->isRun());
+    EXPECT_FLOAT_EQ(runtime->timeout(), 30.0f);
+    EXPECT_FALSE(runtime->forcedState().active);
+    EXPECT_EQ(runtime->target(), target);
+
+    auto exported = runtime->saveFacingState();
+    ASSERT_TRUE(exported);
+    EXPECT_EQ(exported->actionId, 1u);
+    EXPECT_EQ(exported->groupActionId, 13);
+    ASSERT_EQ(exported->parameters.size(), 13);
+    std::array<uint32_t, 13> types {2,2,2,3,3,1,2,1,2,2,2,1,1};
+    for (size_t i = 0; i < types.size(); ++i) EXPECT_EQ(exported->parameters[i].type, types[i]);
+    EXPECT_EQ(std::get<int32_t>(exported->parameters[5].payload), 5);
+    EXPECT_FLOAT_EQ(std::get<float>(exported->parameters[8].payload), 30.0f);
+
+    record.parameters[5].payload = int32_t {8};
+    EXPECT_FALSE(record.toRuntimeAction(game));
+    record.parameters[5].payload = int32_t {5};
+    record.parameters[9].payload = 1.0f;
+    EXPECT_FALSE(record.toRuntimeAction(game));
+}
+
+TEST(SavedAction, active_forced_move_preserves_absolute_world_time) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    auto target = game.newCreature();
+    auto saved = action(1, 27, {
+        valueParameter(2, Gff::Field::newFloat("Value", 1.0f)), valueParameter(2, Gff::Field::newFloat("Value", 2.0f)),
+        valueParameter(2, Gff::Field::newFloat("Value", 3.0f)), valueParameter(3, Gff::Field::newDword("Value", area->id())),
+        valueParameter(3, Gff::Field::newDword("Value", target->id())), valueParameter(1, Gff::Field::newInt("Value", 1)),
+        valueParameter(2, Gff::Field::newFloat("Value", 0.5f)), valueParameter(1, Gff::Field::newInt("Value", 0)),
+        valueParameter(2, Gff::Field::newFloat("Value", 0.0f)), valueParameter(2, Gff::Field::newFloat("Value", 0.0f)),
+        valueParameter(2, Gff::Field::newFloat("Value", 0.0f)), valueParameter(1, Gff::Field::newInt("Value", 4)),
+        valueParameter(1, Gff::Field::newInt("Value", 12345)),
+    });
+    auto record = SavedActionRecord::fromGff(*saved);
+    ASSERT_TRUE(record.bindObjectReferences(game));
+    auto runtime = std::dynamic_pointer_cast<MoveToObjectAction>(record.toRuntimeAction(game));
+    ASSERT_TRUE(runtime);
+    EXPECT_TRUE(runtime->forcedState().active);
+    auto exported = runtime->saveFacingState();
+    ASSERT_TRUE(exported);
+    EXPECT_EQ(std::get<int32_t>(exported->parameters[5].payload), 1);
+    EXPECT_FLOAT_EQ(std::get<float>(exported->parameters[8].payload), 0.0f);
+    EXPECT_EQ(std::get<int32_t>(exported->parameters[11].payload), 4);
+    EXPECT_EQ(std::get<int32_t>(exported->parameters[12].payload), 12345);
+}
+
+TEST(SavedRuntimePublication, move_to_object_waits_for_publication_and_preserves_queue_order) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    auto saved = Gff::Builder()
+                     .field(Gff::Field::newList(
+                         "ActionList",
+                         {action(17, 21, {
+                              valueParameter(3, Gff::Field::newDword("Value", target->id())),
+                              valueParameter(1, Gff::Field::newInt("Value", 1)),
+                              valueParameter(2, Gff::Field::newFloat("Value", 1.0f)),
+                              valueParameter(2, Gff::Field::newFloat("Value", 1.0f)),
+                              valueParameter(1, Gff::Field::newInt("Value", 1)),
+                          }),
+                          action(30, 22, {
+                              valueParameter(2, Gff::Field::newFloat("Value", 2.0f)),
+                          })}))
+                     .build();
+    auto actor = game.newCreature();
+    actor->deserializeRuntimeState(*saved);
+
+    EXPECT_TRUE(actor->actions().empty());
+    actor->bindSavedRuntimeState();
+    EXPECT_TRUE(actor->actions().empty());
+    actor->publishSavedRuntimeState();
+
+    ASSERT_EQ(actor->actions().size(), 2);
+    EXPECT_EQ(actor->actions()[0]->type(), ActionType::MoveToObject);
+    EXPECT_EQ(actor->actions()[1]->type(), ActionType::Wait);
+    EXPECT_FALSE(actor->actions()[0]->isCompleted());
+    EXPECT_FALSE(actor->actions()[1]->isCompleted());
 }
 
 TEST(SavedRuntimePublication, should_separate_parse_bind_and_idempotent_publication) {

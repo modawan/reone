@@ -15,6 +15,7 @@
 
 #include "reone/game/action/wait.h"
 #include "reone/game/action/playanimation.h"
+#include "reone/game/action/movetoobject.h"
 #include "reone/game/game.h"
 #include "reone/game/modulesnapshot.h"
 #include "reone/game/object/area.h"
@@ -721,6 +722,55 @@ TEST_F(SnapshotFixture, play_animation_is_a_supported_transition_snapshot_action
               static_cast<uint32_t>(AnimationType::LoopingPause));
     EXPECT_EQ(std::get<int32_t>(saved.parameters[3].payload), 0);
     EXPECT_TRUE(saved.toRuntimeAction(game));
+}
+
+TEST_F(SnapshotFixture, move_to_object_is_a_supported_transition_snapshot_action) {
+    auto target = game.newCreature();
+    TestGameModule::addSnapshotObject(*area, target);
+    auto action = game.newAction<MoveToObjectAction>(target, false, 0.5f);
+    SavedActionRecord provenance;
+    provenance.groupActionId = 13;
+    action->attachSavedAction(provenance);
+    player->addAction(action);
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+    ASSERT_TRUE(result) << result.message;
+    auto ifo = readGff(result.snapshot->ifoBytes);
+    auto playerRecord = ifo->getList("Mod_PlayerList").front();
+    ASSERT_EQ(playerRecord->getList("ActionList").size(), 1);
+    auto saved = SavedActionRecord::fromGff(
+        *playerRecord->getList("ActionList").front());
+    EXPECT_EQ(saved.actionId, 17u);
+    EXPECT_EQ(saved.groupActionId, 13);
+    ASSERT_EQ(saved.parameters.size(), 5);
+    EXPECT_EQ(std::get<SavedObjectReference>(saved.parameters[0].payload).id,
+              target->id());
+    EXPECT_EQ(std::get<int32_t>(saved.parameters[1].payload), 0);
+    EXPECT_FLOAT_EQ(std::get<float>(saved.parameters[2].payload), 0.5f);
+}
+
+TEST_F(SnapshotFixture, forced_move_to_object_is_a_supported_transition_snapshot_action) {
+    auto target = game.newCreature();
+    target->setPosition({46.0f, 17.0f, 1.9f});
+    TestGameModule::addSnapshotObject(*area, target);
+    auto action = game.newAction<MoveToObjectAction>(target, false, 0.5f, true, 30.0f);
+    SavedActionRecord provenance;
+    provenance.groupActionId = 13;
+    action->attachSavedAction(provenance);
+    player->addAction(action);
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+    ASSERT_TRUE(result) << result.message;
+    auto ifo = readGff(result.snapshot->ifoBytes);
+    auto saved = SavedActionRecord::fromGff(
+        *ifo->getList("Mod_PlayerList").front()->getList("ActionList").front());
+    EXPECT_EQ(saved.actionId, 1u);
+    EXPECT_EQ(saved.groupActionId, 13);
+    ASSERT_EQ(saved.parameters.size(), 13);
+    EXPECT_EQ(std::get<SavedObjectReference>(saved.parameters[3].payload).id, area->id());
+    EXPECT_EQ(std::get<SavedObjectReference>(saved.parameters[4].payload).id, target->id());
+    EXPECT_EQ(std::get<int32_t>(saved.parameters[5].payload), 4);
+    EXPECT_FLOAT_EQ(std::get<float>(saved.parameters[8].payload), 30.0f);
 }
 
 TEST(ModuleSnapshot, exports_advanced_runtime_script_situations_and_rejects_unsupported_values) {

@@ -25,20 +25,30 @@ namespace game {
 
 class MoveToObjectAction : public Action {
 public:
+    struct ForcedState {
+        glm::vec3 destination {0.0f};
+        uint32_t areaId {kSavedRuntimeInvalidObjectId};
+        glm::vec2 offset {0.0f};
+        bool active {false};
+        uint32_t expiryDay {0};
+        uint32_t expiryTime {0};
+    };
+
     MoveToObjectAction(Game &game,
                        ServicesView &services,
                        std::shared_ptr<Object> moveTo,
                        bool run,
                        float range,
                        bool force = false,
-                       float timeout = -1.0f) :
-        Action(game, services, ActionType::MoveToObject),
-        _moveTo(std::move(moveTo)),
-        _run(run),
-        _range(range),
-        _timeout(timeout),
-        _force(force) {
-    }
+                       float timeout = -1.0f);
+
+    MoveToObjectAction(Game &game,
+                       ServicesView &services,
+                       std::shared_ptr<Object> moveTo,
+                       bool run,
+                       float range,
+                       float timeout,
+                       ForcedState forcedState);
 
     static bool classof(Action *from) {
         return from->type() == ActionType::MoveToObject;
@@ -46,7 +56,14 @@ public:
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
+    std::optional<SavedActionRecord> saveFacingState() const override;
+
     bool isRun() const { return _run; }
+    const std::shared_ptr<Object> &target() const { return _moveTo; }
+    float range() const { return _range; }
+    bool isForced() const { return _force; }
+    float timeout() const { return _timeout; }
+    const ForcedState &forcedState() const { return _forcedState; }
 
 private:
     std::shared_ptr<Object> _moveTo;
@@ -54,6 +71,7 @@ private:
     float _range;
     bool _force;
     float _timeout;
+    ForcedState _forcedState;
 };
 
 } // namespace game

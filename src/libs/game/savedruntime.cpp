@@ -13,6 +13,7 @@
 
 #include "reone/game/action/wait.h"
 #include "reone/game/action/playanimation.h"
+#include "reone/game/action/movetoobject.h"
 #include "reone/game/game.h"
 #include "reone/game/script/savedsituation.h"
 
@@ -322,6 +323,44 @@ SavedActionRecord SavedActionRecord::fromGff(const resource::Gff &gff) {
 }
 
 SavedExecutionSupport SavedActionRecord::executionSupport() const {
+    if (actionId == 1 && declaredParameterCount == 13 && parameters.size() == 13) {
+        static constexpr std::array<uint32_t, 13> types {
+            2, 2, 2, 3, 3, 1, 2, 1, 2, 2, 2, 1, 1};
+        for (size_t i = 0; i < types.size(); ++i) {
+            if (parameters[i].type != types[i]) {
+                return SavedExecutionSupport::RepresentableButUnsupported;
+            }
+        }
+        bool payloads =
+            std::holds_alternative<float>(parameters[0].payload) &&
+            std::holds_alternative<float>(parameters[1].payload) &&
+            std::holds_alternative<float>(parameters[2].payload) &&
+            std::holds_alternative<SavedObjectReference>(parameters[3].payload) &&
+            std::holds_alternative<SavedObjectReference>(parameters[4].payload) &&
+            std::holds_alternative<int32_t>(parameters[5].payload) &&
+            std::holds_alternative<float>(parameters[6].payload) &&
+            std::holds_alternative<int32_t>(parameters[7].payload) &&
+            std::holds_alternative<float>(parameters[8].payload) &&
+            std::holds_alternative<float>(parameters[9].payload) &&
+            std::holds_alternative<float>(parameters[10].payload) &&
+            std::holds_alternative<int32_t>(parameters[11].payload) &&
+            std::holds_alternative<int32_t>(parameters[12].payload);
+        return payloads ? SavedExecutionSupport::Executable
+                        : SavedExecutionSupport::RepresentableButUnsupported;
+    }
+    if (actionId == 17 && declaredParameterCount == 5 && parameters.size() == 5 &&
+        parameters[0].type == static_cast<uint32_t>(SavedActionParameterType::Object) &&
+        parameters[1].type == static_cast<uint32_t>(SavedActionParameterType::Integer) &&
+        parameters[2].type == static_cast<uint32_t>(SavedActionParameterType::Float) &&
+        parameters[3].type == static_cast<uint32_t>(SavedActionParameterType::Float) &&
+        parameters[4].type == static_cast<uint32_t>(SavedActionParameterType::Integer) &&
+        std::holds_alternative<SavedObjectReference>(parameters[0].payload) &&
+        std::holds_alternative<int32_t>(parameters[1].payload) &&
+        std::holds_alternative<float>(parameters[2].payload) &&
+        std::holds_alternative<float>(parameters[3].payload) &&
+        std::holds_alternative<int32_t>(parameters[4].payload)) {
+        return SavedExecutionSupport::Executable;
+    }
     if (actionId == 6 && declaredParameterCount == 5 && parameters.size() == 5 &&
         parameters[0].type == static_cast<uint32_t>(SavedActionParameterType::Object) &&
         parameters[1].type == static_cast<uint32_t>(SavedActionParameterType::Float) &&
@@ -353,6 +392,66 @@ std::shared_ptr<Action> SavedActionRecord::toRuntimeAction(
     }
     if (actionId == 30) {
         auto action = game.newAction<WaitAction>(std::get<float>(parameters.front().payload));
+        action->attachSavedAction(*this);
+        return action;
+    }
+    if (actionId == 1) {
+        glm::vec3 destination(
+            std::get<float>(parameters[0].payload),
+            std::get<float>(parameters[1].payload),
+            std::get<float>(parameters[2].payload));
+        auto area = std::get<SavedObjectReference>(parameters[3].payload);
+        auto targetReference = std::get<SavedObjectReference>(parameters[4].payload);
+        int32_t flags = std::get<int32_t>(parameters[5].payload);
+        float range = std::get<float>(parameters[6].payload);
+        int32_t subtype = std::get<int32_t>(parameters[7].payload);
+        float timeout = std::get<float>(parameters[8].payload);
+        glm::vec2 offset(
+            std::get<float>(parameters[9].payload),
+            std::get<float>(parameters[10].payload));
+        int32_t day = std::get<int32_t>(parameters[11].payload);
+        int32_t time = std::get<int32_t>(parameters[12].payload);
+        bool timed = (flags & 4) != 0;
+        bool active = !timed && (day != 0 || time != 0);
+        bool valid =
+            std::isfinite(destination.x) && std::isfinite(destination.y) &&
+            std::isfinite(destination.z) && std::isfinite(range) && range >= 0.0f &&
+            std::isfinite(timeout) && std::isfinite(offset.x) && std::isfinite(offset.y) &&
+            offset == glm::vec2(0.0f) && subtype == 0 && (flags & ~5) == 0 &&
+            !area.isInvalid() && !targetReference.isInvalid() &&
+            ((timed && timeout > 0.0f && day == 0 && time == 0) ||
+             (active && timeout == 0.0f && day >= 0 && time >= 0 &&
+              static_cast<uint32_t>(time) < 24u * 60u * 60u * 1000u));
+        if (!valid) {
+            return nullptr;
+        }
+        MoveToObjectAction::ForcedState state;
+        state.destination = destination;
+        state.areaId = area.id;
+        state.offset = offset;
+        state.active = active;
+        state.expiryDay = static_cast<uint32_t>(day);
+        state.expiryTime = static_cast<uint32_t>(time);
+        auto action = game.newAction<MoveToObjectAction>(
+            targetReference.boundObject(), (flags & 1) != 0, range,
+            timed ? timeout : 0.0f, state);
+        action->attachSavedAction(*this);
+        return action;
+    }
+    if (actionId == 17) {
+        auto target = std::get<SavedObjectReference>(parameters[0].payload).boundObject();
+        auto run = std::get<int32_t>(parameters[1].payload);
+        auto moveRange = std::get<float>(parameters[2].payload);
+        auto useRadius = std::get<float>(parameters[3].payload);
+        auto moveFlags = std::get<int32_t>(parameters[4].payload);
+        if (!target || (run != 0 && run != 1) ||
+            !std::isfinite(moveRange) || moveRange < 0.0f ||
+            !std::isfinite(useRadius) || useRadius != moveRange ||
+            moveFlags != 1) {
+            return nullptr;
+        }
+        auto action = game.newAction<MoveToObjectAction>(
+            std::move(target), run != 0, moveRange);
         action->attachSavedAction(*this);
         return action;
     }
