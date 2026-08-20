@@ -1104,6 +1104,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(const Door &door) const {
     auto result = objectBase(door, ResType::Utd, 8);
     writeObjectState(*result, door);
     putTransform(*result, door, true);
+    put(*result, Gff::Field::newDword("Appearance", door._appearance));
+    put(*result, Gff::Field::newByte("GenericType", door._genericType));
     put(*result, Gff::Field::newByte("OpenState", static_cast<uint8_t>(door._state)));
     put(*result, Gff::Field::newByte("Locked", door._locked));
     put(*result, Gff::Field::newByte("Lockable", door._lockable));
@@ -1121,6 +1123,11 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(const Door &door) const {
     put(*result, Gff::Field::newByte("AutoRemoveKey", door._autoRemoveKey));
     put(*result, Gff::Field::newByte("OpenLockDC", door._openLockDC));
     put(*result, Gff::Field::newByte("CloseLockDC", door._closeLockDC));
+    put(*result, Gff::Field::newByte("LinkedToFlags", door._linkedToFlags));
+    put(*result, Gff::Field::newCExoString("LinkedTo", door._linkedTo));
+    put(*result, Gff::Field::newResRef("LinkedToModule", door._linkedToModule));
+    put(*result, Gff::Field::newCExoLocString(
+        "TransitionDestin", -1, door._transitionDestin.str()));
     return result;
 }
 
@@ -1385,7 +1392,13 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
             lists["Placeable List"].push_back(writePlaceable(*static_cast<Placeable *>(object.get()), ids));
             break;
         case ObjectType::Trigger:
-            lists["TriggerList"].push_back(writeTrigger(*static_cast<Trigger *>(object.get())));
+            // Linked-door thresholds are runtime collision helpers derived
+            // from the durable door linkage. Persisting them as authored GIT
+            // triggers reconstructs stale ordinary triggers on the next load.
+            if (!static_cast<Trigger *>(object.get())->isLinkedDoorTransition()) {
+                lists["TriggerList"].push_back(
+                    writeTrigger(*static_cast<Trigger *>(object.get())));
+            }
             break;
         case ObjectType::Encounter:
             lists["Encounter List"].push_back(writeEncounter(*static_cast<Encounter *>(object.get())));

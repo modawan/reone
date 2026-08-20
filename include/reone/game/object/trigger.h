@@ -91,6 +91,7 @@ public:
 
 private:
     friend class ModuleSnapshotBuilder;
+    friend class TestGameModule;
     // Serializable
     std::string _onEnter;
     std::string _onExit;

@@ -60,6 +60,7 @@ class Module;
 class Conversation;
 class Object;
 class StaticCamera;
+class Trigger;
 struct SaveOrchestrationSeams;
 
 class MockCameraStyles : public ICameraStyles, boost::noncopyable {
@@ -234,6 +235,9 @@ public:
     static void setSnapshotEquipment(
         Creature &creature, int slot, std::shared_ptr<Item> item);
     static void setSnapshotDoorState(Door &door, DoorState state);
+    static void configureSnapshotLinkedDoor(
+        Door &door, std::string module, std::string entry);
+    static void markSnapshotLinkedDoorHelper(Trigger &trigger);
     static void configureSnapshotCamera(
         StaticCamera &camera, int cameraId, glm::vec3 position,
         glm::quat orientation, float pitch, float height,

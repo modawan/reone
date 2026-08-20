@@ -121,6 +121,23 @@ void reone::game::TestGameModule::setSnapshotDoorState(
     door._state = state;
 }
 
+void reone::game::TestGameModule::configureSnapshotLinkedDoor(
+    Door &door, std::string module, std::string entry) {
+    door._appearance = 0;
+    door._genericType = 57;
+    door._linkedToFlags = 2;
+    door._linkedToModule = std::move(module);
+    door._linkedTo = std::move(entry);
+    door._linkedTransitionGeometry = {
+        {-1.0f, -0.5f, 0.0f}, {-1.0f, 0.5f, 0.0f},
+        {1.0f, 0.5f, 0.0f}, {1.0f, -0.5f, 0.0f}};
+}
+
+void reone::game::TestGameModule::markSnapshotLinkedDoorHelper(
+    Trigger &trigger) {
+    trigger._linkedDoorTransition = true;
+}
+
 void reone::game::TestGameModule::configureSnapshotCamera(
     StaticCamera &camera, int cameraId, glm::vec3 position,
     glm::quat orientation, float pitch, float height,
@@ -427,6 +444,56 @@ TEST_F(SnapshotFixture, authoritative_membership_omits_deleted_shadow_records) {
     auto deleted = ModuleSnapshotBuilder(game, "module004").build();
     ASSERT_TRUE(deleted) << deleted.message;
     EXPECT_TRUE(deleted.snapshot->git->getList("Door List").empty());
+}
+
+TEST_F(SnapshotFixture, linked_door_helpers_are_derived_not_saved_git_members) {
+    auto door = game.newDoor();
+    door->setTag("linked_door");
+    TestGameModule::configureSnapshotLinkedDoor(
+        *door, "destination_module", "destination_entry");
+    TestGameModule::addSnapshotObject(*area, door);
+
+    auto helper = game.newTrigger();
+    TestGameModule::markSnapshotLinkedDoorHelper(*helper);
+    TestGameModule::addSnapshotObject(*area, helper);
+
+    auto authored = game.newTrigger();
+    authored->setTag("authored_trigger");
+    TestGameModule::addSnapshotObject(*area, authored);
+
+    ASSERT_TRUE(helper->isLinkedDoorTransition());
+    ASSERT_FALSE(authored->isLinkedDoorTransition());
+
+    // A stale helper in the root shadow must not resurrect when authoritative
+    // live membership replaces TriggerList.
+    auto staleHelper = Gff::Builder().type(1)
+        .field(Gff::Field::newDword("ObjectId", helper->id()))
+        .field(Gff::Field::newCExoString("Tag", "stale_helper"))
+        .build();
+    auto rootShadow = Gff::Builder().type(0xffffffff)
+        .field(Gff::Field::newList("TriggerList", {staleHelper}))
+        .build();
+    game.captureSaveResourceShadow(
+        {SaveResourceKind::AreaGit, "tat_m17ab"}, *rootShadow);
+
+    for (int activation = 0; activation < 3; ++activation) {
+        SCOPED_TRACE(activation);
+        auto saved = ModuleSnapshotBuilder(game, "module_linked").build();
+        ASSERT_TRUE(saved) << saved.message;
+        const auto &triggers = saved.snapshot->git->getList("TriggerList");
+        ASSERT_EQ(triggers.size(), 1u);
+        EXPECT_EQ(triggers.front()->getUint("ObjectId"), authored->id());
+        EXPECT_FALSE(recordById(*saved.snapshot->git, "TriggerList", helper->id()));
+
+        auto doorRecord = recordById(
+            *saved.snapshot->git, "Door List", door->id());
+        ASSERT_TRUE(doorRecord);
+        EXPECT_EQ(doorRecord->getUint("Appearance"), 0u);
+        EXPECT_EQ(doorRecord->getUint("GenericType"), 57u);
+        EXPECT_EQ(doorRecord->getUint("LinkedToFlags"), 2u);
+        EXPECT_EQ(doorRecord->getString("LinkedTo"), "destination_entry");
+        EXPECT_EQ(doorRecord->getString("LinkedToModule"), "destination_module");
+    }
 }
 
 TEST_F(SnapshotFixture, module_item_ids_are_global_deterministic_and_retained) {
