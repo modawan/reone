@@ -18,7 +18,9 @@
 #include "reone/game/animations.h"
 #include "reone/game/attack.h"
 #include "reone/resource/2da.h"
+#include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/2das.h"
+#include "reone/system/exception/validation.h"
 #include "reone/system/logutil.h"
 
 #include <cctype>
@@ -97,18 +99,54 @@ static std::vector<CombatAnimColumn> parseCombatAnimColumns(TwoDA &combatAnimDa)
 }
 
 void Animations::parseCombatAnim(TwoDA &combatAnimDa) {
-    std::vector<CombatAnimColumn> columns = parseCombatAnimColumns(combatAnimDa);
+    const std::vector<std::string> &columnNames = combatAnimDa.columns();
+    if (columnNames.size() < 2 || columnNames.front() != "hits") {
+        throw ValidationException(
+            "combatanimations.2da: invalid attack columns");
+    }
 
-    // Rows of combatanimations.2da match the order of attack animations from
-    // animations.2da.
-    int row = 0;
-    for (const Anim &attackAnim : _anims) {
-        if (row == combatAnimDa.getRowCount()) {
-            return;
+    std::vector<CombatAnimColumn> columns = parseCombatAnimColumns(combatAnimDa);
+    const std::vector<TwoDA::Row> &rows = combatAnimDa.rows();
+
+    for (int row = 0; row < combatAnimDa.getRowCount(); ++row) {
+        const std::string &rowLabel = rows[row].label;
+        size_t parsedLength = 0;
+        unsigned long animationId;
+        try {
+            animationId = std::stoul(rowLabel, &parsedLength, 10);
+        } catch (const std::exception &) {
+            throw ValidationException(
+                "combatanimations.2da: invalid row label " + rowLabel);
+        }
+        if (parsedLength != rowLabel.size() || animationId >= _anims.size()) {
+            throw ValidationException(
+                "combatanimations.2da: invalid animation row " + rowLabel);
         }
 
+        const Anim &attackAnim = _anims[animationId];
         if (!attackAnim.attack) {
-            continue;
+            throw ValidationException(
+                "combatanimations.2da: non-attack animation row " + rowLabel);
+        }
+
+        // GetWeaponImpactTime passes the raw subattack ordinal as a
+        // numeric 2DA column index after the leading hits column. Retain every
+        // subsequent column in source order, including reaction-ID columns.
+        std::vector<int> impactTimes;
+        impactTimes.reserve(columnNames.size() - 1);
+        for (size_t column = 1; column < columnNames.size(); ++column) {
+            impactTimes.push_back(combatAnimDa.getInt(
+                row,
+                columnNames[column],
+                0));
+        }
+        if (!_meleeImpactTimes.emplace(
+                 attackAnim.name,
+                 std::move(impactTimes))
+                 .second) {
+            throw ValidationException(
+                "combatanimations.2da: duplicate attack animation " +
+                attackAnim.name);
         }
 
         // Parse animations that follow an attack: parry, dodge, damage.
@@ -134,9 +172,9 @@ void Animations::parseCombatAnim(TwoDA &combatAnimDa) {
                 break;
             }
         }
-
-        ++row;
     }
+
+    _combatAnimationsLoaded = true;
 }
 
 void Animations::init() {
@@ -158,6 +196,8 @@ void Animations::init() {
 void Animations::clear() {
     _anims.clear();
     _attackResults.clear();
+    _meleeImpactTimes.clear();
+    _combatAnimationsLoaded = false;
 }
 
 std::string Animations::getNameById(uint32_t id) const {
@@ -195,6 +235,26 @@ std::string Animations::getAttackResult(std::string attackAnim,
     }
 
     return std::string();
+}
+
+int Animations::getMeleeImpactTime(
+    const std::string &attackAnim,
+    size_t attackIndex) const {
+
+    if (!_combatAnimationsLoaded) {
+        throw ResourceNotFoundException("2DA not found: combatanimations");
+    }
+
+    auto it = _meleeImpactTimes.find(attackAnim);
+    if (it == _meleeImpactTimes.end()) {
+        throw ValidationException(
+            "combatanimations.2da: missing attack animation " + attackAnim);
+    }
+    if (attackIndex >= it->second.size()) {
+        throw ValidationException(
+            "combatanimations.2da: attack impact column out of range");
+    }
+    return it->second[attackIndex];
 }
 
 } // namespace game

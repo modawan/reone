@@ -32,6 +32,7 @@
 #include "reone/resource/provider/textures.h"
 #include "reone/resource/resources.h"
 #include "reone/resource/strings.h"
+#include "reone/system/exception/validation.h"
 
 using namespace reone::audio;
 using namespace reone::graphics;
@@ -84,6 +85,7 @@ void Item::deserializeAll(const resource::Gff &gff) {
     gff.readDword(_addCost, "AddCost");
     gff.readBool(_stolen, "Stolen");
     gff.readWord(_stackSize, "StackSize");
+    gff.readDword(_upgrades, "Upgrades");
 
     gff.readBool(_identified, "Identified");
     gff.readByte(_modelVariation, "ModelVariation");
@@ -341,6 +343,18 @@ bool Item::isEquippable() const {
 
 bool Item::isEquippable(int slot) const {
     return (_equipableSlots >> slot) & 1;
+}
+
+bool Item::isPropertyActive(const PropertyEntry &property) const {
+    if (property.upgradeType == 0xff) {
+        return true;
+    }
+    if (property.upgradeType >= 32) {
+        throw ValidationException(str(boost::format(
+            "Invalid item-property UpgradeType: %d") %
+            static_cast<int>(property.upgradeType)));
+    }
+    return (_upgrades & (1u << property.upgradeType)) != 0;
 }
 
 void Item::setDropable(bool dropable) {

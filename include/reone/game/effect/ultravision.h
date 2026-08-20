@@ -15,33 +15,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/game/effect/attackdecrease.h"
+#pragma once
 
-#include "reone/game/game.h"
-#include "reone/game/object/creature.h"
+#include "../effect.h"
 
 namespace reone {
-
 namespace game {
 
-bool AttackDecreaseEffect::onApply(Object &object) {
-    auto *creature = dyn_cast<Creature>(&object);
-    if (!creature) {
-        return false;
-    }
-    if (_penalty <= 0 || creature->plotFlag()) {
-        return false;
+class UltravisionEffect : public Effect {
+public:
+    explicit UltravisionEffect(EffectProvenance provenance = {}) :
+        Effect(EffectType::Ultravision, std::move(provenance)) {
     }
 
-    auto creatorObject = object.game().getObjectById(creatorId());
-    const auto *creator = creatorObject
-                              ? dyn_cast<Creature>(creatorObject.get())
-                              : nullptr;
-    return !creature->hasEffectImmunity(
-        ImmunityType::AttackDecrease,
-        creator);
-}
+    bool onApply(Object &object) override;
+    void onRemove(Object &object) override;
+};
 
 } // namespace game
-
 } // namespace reone

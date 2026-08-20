@@ -25,11 +25,19 @@ namespace game {
 
 class BlindEffect : public Effect {
 public:
-    BlindEffect() :
-        Effect(EffectType::Blindness) {
+    explicit BlindEffect(
+        int mask = 16,
+        EffectProvenance provenance = {}) :
+        Effect(EffectType::Blindness, std::move(provenance)),
+        _mask(mask) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
+
+    int mask() const { return _mask; }
+
+private:
+    int _mask;
 };
 
 } // namespace game

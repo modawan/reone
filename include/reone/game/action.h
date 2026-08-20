@@ -70,8 +70,19 @@ public:
     ActionType type() const { return _type; }
 
     bool isUserAction() const { return _userAction; }
+
+    /**
+     * Native user-action records retain two required object identities:
+     * the action target and the creature that owns the queued action.
+     */
+    virtual const Object *userActionPrimaryTarget() const { return nullptr; }
+    virtual const Object *userActionSecondaryTarget(const Object &actor) const {
+        return &actor;
+    }
+
     bool isCompleted() const { return _completed; }
     bool isCancelled() const { return _cancelled; }
+    bool hasValidUserActionTargets(const Object &actor) const;
 
     void setUserAction(bool val) { _userAction = val; }
     void markCancelled() { _cancelled = true; }

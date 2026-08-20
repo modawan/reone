@@ -25,13 +25,16 @@ namespace game {
 
 class AttackDecreaseEffect : public Effect {
 public:
-    AttackDecreaseEffect(int penalty, AttackBonus modifierType) :
-        Effect(EffectType::AttackDecrease),
+    AttackDecreaseEffect(
+        int penalty,
+        AttackBonus modifierType,
+        EffectProvenance provenance = {}) :
+        Effect(EffectType::AttackDecrease, std::move(provenance)),
         _penalty(penalty),
         _modifierType(modifierType) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
     int penalty() const { return _penalty; }
     AttackBonus modifierType() const { return _modifierType; }

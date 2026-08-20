@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2020-2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,14 +17,26 @@
 
 #include "reone/game/effect/invisibility.h"
 
-namespace reone {
+#include "reone/game/object/creature.h"
+#include "reone/system/cast.h"
 
+namespace reone {
 namespace game {
 
-void InvisibilityEffect::applyTo(Object &object) {
-    // TODO: implement
+bool InvisibilityEffect::onApply(Object &object) {
+    auto *creature = dyn_cast<Creature>(&object);
+    if (!creature) {
+        return false;
+    }
+    creature->refreshEffectInvisibility();
+    return true;
+}
+
+void InvisibilityEffect::onRemove(Object &object) {
+    if (auto *creature = dyn_cast<Creature>(&object)) {
+        creature->refreshEffectInvisibility();
+    }
 }
 
 } // namespace game
-
 } // namespace reone

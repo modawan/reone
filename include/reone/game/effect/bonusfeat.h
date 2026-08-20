@@ -15,32 +15,28 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/game/effect/attackdecrease.h"
+#pragma once
 
-#include "reone/game/game.h"
-#include "reone/game/object/creature.h"
+#include "../effect.h"
 
 namespace reone {
 
 namespace game {
 
-bool AttackDecreaseEffect::onApply(Object &object) {
-    auto *creature = dyn_cast<Creature>(&object);
-    if (!creature) {
-        return false;
-    }
-    if (_penalty <= 0 || creature->plotFlag()) {
-        return false;
-    }
+class BonusFeatEffect : public Effect {
+public:
+    explicit BonusFeatEffect(
+        FeatType feat,
+        EffectProvenance provenance = {});
 
-    auto creatorObject = object.game().getObjectById(creatorId());
-    const auto *creator = creatorObject
-                              ? dyn_cast<Creature>(creatorObject.get())
-                              : nullptr;
-    return !creature->hasEffectImmunity(
-        ImmunityType::AttackDecrease,
-        creator);
-}
+    bool onApply(Object &object) override;
+    void onRemove(Object &object) override;
+
+    FeatType feat() const { return _feat; }
+
+private:
+    FeatType _feat {FeatType::Invalid};
+};
 
 } // namespace game
 

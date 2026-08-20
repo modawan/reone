@@ -573,6 +573,7 @@ std::shared_ptr<Gff> makeDisguiseItemGff(int appearance) {
                         .field(Gff::Field::newWord("Subtype", appearance))
                         .build();
     return Gff::Builder()
+        .type(0x00002)
         .field(Gff::Field::newInt("BaseItem", 2))
         .field(Gff::Field::newList("PropertiesList", {std::move(property)}))
         .build();

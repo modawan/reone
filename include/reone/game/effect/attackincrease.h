@@ -25,8 +25,11 @@ namespace game {
 
 class AttackIncreaseEffect : public Effect {
 public:
-    AttackIncreaseEffect(int bonus, AttackBonus modifierType) :
-        Effect(EffectType::AttackIncrease),
+    AttackIncreaseEffect(
+        int bonus,
+        AttackBonus modifierType,
+        EffectProvenance provenance = {}) :
+        Effect(EffectType::AttackIncrease, std::move(provenance)),
         _bonus(bonus),
         _modifierType(modifierType) {
     }

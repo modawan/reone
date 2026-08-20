@@ -25,8 +25,12 @@ namespace game {
 
 class SavingThrowIncreaseEffect : public Effect {
 public:
-    SavingThrowIncreaseEffect(int save, int value, SavingThrowType savingThrowType) :
-        Effect(EffectType::SavingThrowIncrease),
+    SavingThrowIncreaseEffect(
+        int save,
+        int value,
+        SavingThrowType savingThrowType,
+        EffectProvenance provenance = {}) :
+        Effect(EffectType::SavingThrowIncrease, std::move(provenance)),
         _save(save),
         _value(value),
         _savingThrowType(savingThrowType) {

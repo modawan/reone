@@ -45,6 +45,7 @@ public:
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
+    const Object *userActionPrimaryTarget() const override { return _target.get(); }
     SkillType skill() const { return _skill; }
 
 private:

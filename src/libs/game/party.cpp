@@ -119,6 +119,9 @@ bool Party::addMember(int npc, std::shared_ptr<Creature> creature) {
     member.npc = npc;
     member.creature = creature;
     _members.push_back(std::move(member));
+    if (_members.size() == 1 && _members.front().creature) {
+        _game.setLastTarget(_members.front().creature->id());
+    }
 
     return true;
 }
@@ -204,6 +207,7 @@ void Party::switchLeader() {
 void Party::onLeaderChanged() {
     auto entry = static_cast<resource::SoundSetEntry>(static_cast<int>(resource::SoundSetEntry::Select1) + randomInt(0, 2));
     _members[0].creature->playSound(entry, false);
+    _game.setLastTarget(_members[0].creature->id());
 
     for (auto &member : _members) {
         member.creature->clearAllActions();

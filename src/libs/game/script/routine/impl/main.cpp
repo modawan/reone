@@ -2266,7 +2266,8 @@ static Variable ApplyEffectToObject(const std::vector<Variable> &args, const Rou
     auto durationType = static_cast<DurationType>(nDurationType);
 
     // Execute
-    oTarget->applyEffect(eEffect, durationType, fDuration);
+    uint32_t creatorId = getCaller(ctx)->id();
+    oTarget->applyEffect(eEffect, durationType, fDuration, creatorId);
     return Variable::ofNull();
 }
 
@@ -3471,23 +3472,36 @@ static Variable GetDamageDealtByType(const std::vector<Variable> &args, const Ro
     // Load
     auto nDamageType = getInt(args, 0);
 
-    // Transform
+    auto object = getCaller(ctx);
 
     // Execute
-    throw RoutineNotImplementedException("GetDamageDealtByType");
+    switch (object->type()) {
+    case ObjectType::Creature:
+    case ObjectType::Door:
+    case ObjectType::Placeable:
+        return Variable::ofInt(object->getLastDamageAmount(nDamageType));
+    default:
+        return Variable::ofInt(0);
+    }
 }
 
 static Variable GetTotalDamageDealt(const std::vector<Variable> &args, const RoutineContext &ctx) {
+    auto object = getCaller(ctx);
+
     // Execute
-    throw RoutineNotImplementedException("GetTotalDamageDealt");
+    switch (object->type()) {
+    case ObjectType::Creature:
+    case ObjectType::Door:
+    case ObjectType::Placeable:
+        return Variable::ofInt(object->getTotalDamageDealt());
+    default:
+        return Variable::ofInt(0);
+    }
 }
 
 static Variable GetLastDamager(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    if (const Variable *damager = ctx.execution.findArg(ArgKind::LastDamager)) {
-        return *damager;
-    }
-    return Variable::ofObject(kObjectInvalid);
+    return Variable::ofObject(getCaller(ctx)->getLastDamager());
 }
 
 static Variable GetLastDisarmed(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3549,10 +3563,15 @@ static Variable VersusAlignmentEffect(const std::vector<Variable> &args, const R
     auto nLawChaos = getIntOrElse(args, 1, 0);
     auto nGoodEvil = getIntOrElse(args, 2, 0);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("VersusAlignmentEffect");
+    // The VM validates only the first inherited argument. Supported effect
+    // families retain both slots; physical-combat consumers compare the
+    // second with GetSimpleAlignmentGoodEvil.
+    if (!eEffect ||
+        nLawChaos < 0 || nLawChaos > 3) {
+        return Variable::ofEffect(std::move(eEffect));
+    }
+    eEffect->setVersusAlignment(nLawChaos, nGoodEvil);
+    return Variable::ofEffect(std::move(eEffect));
 }
 
 static Variable VersusRacialTypeEffect(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3560,10 +3579,13 @@ static Variable VersusRacialTypeEffect(const std::vector<Variable> &args, const 
     auto eEffect = getEffect(args, 0);
     auto nRacialType = getInt(args, 1);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("VersusRacialTypeEffect");
+    if (!eEffect ||
+        nRacialType < static_cast<int>(RacialType::Unknown) ||
+        nRacialType > static_cast<int>(RacialType::All)) {
+        return Variable::ofEffect(std::move(eEffect));
+    }
+    eEffect->setVersusRacialType(nRacialType);
+    return Variable::ofEffect(std::move(eEffect));
 }
 
 static Variable VersusTrapEffect(const std::vector<Variable> &args, const RoutineContext &ctx) {

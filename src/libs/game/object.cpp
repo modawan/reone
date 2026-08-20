@@ -208,9 +208,11 @@ void Object::executeActions(float dt) {
 }
 
 bool Object::hasUserActionsPending(const Action *excluded) const {
-    // TODO: must only work during combat
     for (const auto &action : _actions) {
-        if (action.get() != excluded && action->isUserAction()) {
+        if (action.get() == excluded || !action->isUserAction()) {
+            continue;
+        }
+        if (action->hasValidUserActionTargets(*this)) {
             return true;
         }
     }
@@ -380,19 +382,64 @@ void Object::moveDropableItemsTo(Object &other) {
     }
 }
 
-void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration) {
+void Object::applyEffect(
+    const std::shared_ptr<Effect> &effect,
+    DurationType durationType,
+    float duration,
+    uint32_t creatorId) {
+
+    if (creatorId != script::kObjectInvalid &&
+        effect->creatorId() == script::kObjectInvalid) {
+        effect->setCreatorId(creatorId);
+    }
+    if (effect->creatorId() != script::kObjectInvalid &&
+        effect->sourceItemId() == script::kObjectInvalid) {
+        auto creator = _game.getObjectById(effect->creatorId());
+        if (creator && creator->type() == ObjectType::Item) {
+            effect->setSourceItemId(creator->id());
+        }
+    }
     if (durationType == DurationType::Instant) {
         if (effect->onApply(*this)) {
             effect->onRemove(*this);
         }
-    } else {
-        AppliedEffect appliedEffect;
-        appliedEffect.effect = effect;
-        appliedEffect.durationType = durationType;
-        appliedEffect.duration = duration;
+        return;
+    }
+
+    AppliedEffect appliedEffect;
+    appliedEffect.effect = effect;
+    appliedEffect.durationType = durationType;
+    appliedEffect.duration = duration;
+    appliedEffect.applicationOrder = _nextEffectApplicationOrder++;
+
+    auto inserted = _effects.end();
+    int nativeType = getNativeEffectType(*effect);
+    if (nativeType >= 0) {
+        effect->setNativeType(nativeType);
+        inserted = std::find_if(
+            _effects.begin(),
+            _effects.end(),
+            [nativeType](const AppliedEffect &candidate) {
+                int candidateType = getNativeEffectType(*candidate.effect);
+                return candidateType >= 0 && candidateType > nativeType;
+            });
+    }
+
+    if (inserted == _effects.end()) {
         _effects.push_back(std::move(appliedEffect));
-        if (!_effects.back().effect->onApply(*this)) {
-            _effects.pop_back();
+    } else {
+        _effects.insert(inserted, std::move(appliedEffect));
+    }
+
+    if (!effect->onApply(*this)) {
+        auto rejected = std::find_if(
+            _effects.begin(),
+            _effects.end(),
+            [&effect](const AppliedEffect &candidate) {
+                return candidate.effect == effect;
+            });
+        if (rejected != _effects.end()) {
+            _effects.erase(rejected);
         }
     }
 }
@@ -533,6 +580,42 @@ int Object::applyDamageToHitPoints(int amount, int currentHitPoints) {
 }
 
 void Object::damage(int amount, uint32_t damager) {
+}
+
+void Object::applyDamageEffect(
+    int amount,
+    uint32_t damager,
+    const std::array<int16_t, 15> &damageAmounts) {
+
+    setLastDamager(damager ? damager : script::kObjectInvalid);
+    setLastDamageAmounts(damageAmounts);
+    damage(amount, damager);
+}
+
+int Object::getLastDamageAmount(int damageFlags) const {
+    if (damageFlags <= 0 || (damageFlags & (damageFlags - 1)) != 0) {
+        return 0;
+    }
+
+    int slot = 0;
+    while (damageFlags > 1) {
+        damageFlags >>= 1;
+        ++slot;
+    }
+    if (slot >= static_cast<int>(_lastDamageAmounts.size())) {
+        return 0;
+    }
+    return _lastDamageAmounts[slot];
+}
+
+int Object::getTotalDamageDealt() const {
+    int result = 0;
+    for (int amount : _lastDamageAmounts) {
+        if (amount > 0) {
+            result += amount;
+        }
+    }
+    return result;
 }
 
 void Object::startStuntMode() {

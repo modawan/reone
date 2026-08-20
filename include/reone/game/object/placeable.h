@@ -49,6 +49,10 @@ public:
     void deserialize(const resource::Gff &gff);
 
     void damage(int amount, uint32_t damager) override;
+    void applyDamageEffect(
+        int amount,
+        uint32_t damager,
+        const std::array<int16_t, 15> &damageAmounts) override;
 
     bool hasInventory() const { return _hasInventory; }
     bool isSelectable() const override { return _usable; }

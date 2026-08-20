@@ -25,8 +25,11 @@ namespace game {
 
 class SkillIncreaseEffect : public Effect {
 public:
-    SkillIncreaseEffect(SkillType skill, int value) :
-        Effect(EffectType::SkillIncrease),
+    SkillIncreaseEffect(
+        SkillType skill,
+        int value,
+        EffectProvenance provenance = {}) :
+        Effect(EffectType::SkillIncrease, std::move(provenance)),
         _skill(skill),
         _value(value) {
     }

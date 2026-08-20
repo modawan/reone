@@ -15,33 +15,35 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/game/effect/attackdecrease.h"
+#include "reone/game/effect/ultravision.h"
 
-#include "reone/game/game.h"
 #include "reone/game/object/creature.h"
+#include "reone/system/cast.h"
 
 namespace reone {
-
 namespace game {
 
-bool AttackDecreaseEffect::onApply(Object &object) {
+bool UltravisionEffect::onApply(Object &object) {
     auto *creature = dyn_cast<Creature>(&object);
     if (!creature) {
         return false;
     }
-    if (_penalty <= 0 || creature->plotFlag()) {
-        return false;
-    }
+    creature->setVisibilityCounter(Creature::kUltravisionCounter, true);
+    creature->refreshEffectInvisibility();
+    return true;
+}
 
-    auto creatorObject = object.game().getObjectById(creatorId());
-    const auto *creator = creatorObject
-                              ? dyn_cast<Creature>(creatorObject.get())
-                              : nullptr;
-    return !creature->hasEffectImmunity(
-        ImmunityType::AttackDecrease,
-        creator);
+void UltravisionEffect::onRemove(Object &object) {
+    auto *creature = dyn_cast<Creature>(&object);
+    if (!creature) {
+        return;
+    }
+    creature->restoreVisibilityCounter(
+        EffectType::Ultravision,
+        Creature::kUltravisionCounter,
+        false);
+    creature->refreshEffectInvisibility();
 }
 
 } // namespace game
-
 } // namespace reone

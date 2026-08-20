@@ -673,6 +673,11 @@ void Area::doDestroyObject(uint32_t objectId) {
         }
     }
 
+    for (auto &creatureObject : _objectsByType[ObjectType::Creature]) {
+        auto creature = std::static_pointer_cast<Creature>(creatureObject);
+        creature->removePerceptionObject(object->id());
+    }
+
     auto maybeObject = std::find_if(_objects.begin(), _objects.end(), [&object](auto &o) { return o.get() == object.get(); });
     if (maybeObject != _objects.end()) {
         _objects.erase(maybeObject);
@@ -1372,6 +1377,9 @@ void Area::hilightObject(std::shared_ptr<Object> object) {
 }
 
 void Area::selectObject(std::shared_ptr<Object> object, bool force) {
+    if (object && !force) {
+        _game.setLastTarget(object->id());
+    }
     _selectedObject = std::move(object);
     _forceSelection = force;
 }
@@ -1528,6 +1536,45 @@ void Area::updatePerception(float dt) {
     }
 }
 
+void Area::refreshEffectInvisibility(Creature &creature) {
+    ObjectList &creatures = getObjectsByType(ObjectType::Creature);
+    auto changedIt = std::find_if(
+        creatures.begin(),
+        creatures.end(),
+        [&creature](const std::shared_ptr<Object> &object) {
+            return object->id() == creature.id();
+        });
+    if (changedIt == creatures.end()) {
+        return;
+    }
+
+    auto changed = std::static_pointer_cast<Creature>(*changedIt);
+    auto refreshObserver = [](
+                               Creature &observer,
+                               const std::shared_ptr<Creature> &target) {
+        bool invisible = target->isInvisibleTo(observer);
+        bool wasInvisible =
+            observer.perception().effectInvisible.count(target->id()) != 0;
+        if (wasInvisible != invisible) {
+            observer.setObjectEffectInvisible(target, invisible);
+        }
+    };
+
+    for (const std::shared_ptr<Object> &object : creatures) {
+        if (object == changed) {
+            continue;
+        }
+
+        auto other = std::static_pointer_cast<Creature>(object);
+        if (!other->isDead()) {
+            refreshObserver(*other, changed);
+        }
+        if (!changed->isDead()) {
+            refreshObserver(*changed, other);
+        }
+    }
+}
+
 void Area::doUpdatePerception() {
     // For each creature, determine a list of creatures it sees
     ObjectList &creatures = getObjectsByType(ObjectType::Creature);
@@ -1547,6 +1594,7 @@ void Area::doUpdatePerception() {
 
             bool heard = false;
             bool seen = false;
+            bool effectInvisible = false;
 
             float distance2 = creature->getSquareDistanceTo(*other);
             if (distance2 <= hearingRange2) {
@@ -1555,12 +1603,19 @@ void Area::doUpdatePerception() {
             if (distance2 <= sightRange2) {
                 seen = isObjectSeen(*creature, *other);
             }
+            auto otherCreature = std::static_pointer_cast<Creature>(other);
+            effectInvisible = otherCreature->isInvisibleTo(*creature);
 
-            // Hearing
+            // Hearing, ordinary sight, and effect invisibility are separate
+            // native visible-list fields.
             bool wasHeard = creature->perception().heard.count(other->id()) > 0;
             bool wasSeen = creature->perception().seen.count(other->id()) > 0;
+            bool wasEffectInvisible =
+                creature->perception().effectInvisible.count(other->id()) > 0;
 
-            if (wasHeard == heard && wasSeen == seen) {
+            if (wasHeard == heard &&
+                wasSeen == seen &&
+                wasEffectInvisible == effectInvisible) {
                 continue; // no change in perception
             }
 
@@ -1574,7 +1629,13 @@ void Area::doUpdatePerception() {
                 creature->setObjectSeen(other, seen);
             }
 
-            creature->runOnNotice(*other, heard, seen);
+            if (wasEffectInvisible != effectInvisible) {
+                creature->setObjectEffectInvisible(other, effectInvisible);
+            }
+
+            if (wasHeard != heard || wasSeen != seen) {
+                creature->runOnNotice(*other, heard, seen);
+            }
         }
     }
 }

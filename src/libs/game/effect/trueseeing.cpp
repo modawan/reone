@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2020-2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,14 +17,35 @@
 
 #include "reone/game/effect/trueseeing.h"
 
-namespace reone {
+#include "reone/game/object/creature.h"
+#include "reone/system/cast.h"
 
+namespace reone {
 namespace game {
 
-void TrueSeeingEffect::applyTo(Object &object) {
-    // TODO: implement
+bool TrueSeeingEffect::onApply(Object &object) {
+    auto *creature = dyn_cast<Creature>(&object);
+    if (!creature) {
+        return false;
+    }
+    creature->setVisibilityCounter(Creature::kTrueSeeingCounter, true);
+    creature->refreshEffectInvisibility();
+    return true;
+}
+
+void TrueSeeingEffect::onRemove(Object &object) {
+    auto *creature = dyn_cast<Creature>(&object);
+    if (!creature) {
+        return;
+    }
+    // Native behavior literally restores the Ultravision bit when another
+    // True Seeing record survives removal. Do not normalize this quirk.
+    creature->restoreVisibilityCounter(
+        EffectType::TrueSeeing,
+        Creature::kTrueSeeingCounter,
+        true);
+    creature->refreshEffectInvisibility();
 }
 
 } // namespace game
-
 } // namespace reone

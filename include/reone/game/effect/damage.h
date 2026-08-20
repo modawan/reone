@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <array>
+#include <cstdint>
 #include <optional>
 #include <stdexcept>
 
@@ -33,6 +35,56 @@ inline constexpr int kPhysicalDamageTypeFlags = 16391;
 
 DamageType getPrimaryDamageType(int damageFlags);
 bool damageTypeMatches(int modifierFlags, int damageFlags);
+
+enum class MitigationFeedbackType : uint16_t {
+    DamageImmunity = 0x3e,
+    DamageResistance = 0x3f,
+    DamageReduction = 0x40,
+    FiniteDamageResistance = 0x42,
+    FiniteDamageReduction = 0x43,
+};
+
+struct MitigationFeedback {
+    MitigationFeedbackType type;
+    int amount {0};
+    std::optional<int> remaining;
+    int damageFlags {0};
+};
+
+/**
+ * Values produced while resolving one damage packet against its target.
+ *
+ * This is an observational record of the existing mitigation calculation.
+ * It retains both post-mutation pool state and producer-time feedback values.
+ */
+struct DamageResolution {
+    int damageFlags {0};
+    DamagePower damagePower {DamagePower::Normal};
+    int rawDamage {0};
+    bool plotSuppressed {false};
+
+    int immunityPercent {0};
+    int immunityPrevented {0};
+    int vulnerabilityAdded {0};
+    int damageAfterImmunity {0};
+
+    int resistanceAmount {0};
+    int resistancePrevented {0};
+    int resistanceFeatPrevented {0};
+    int improvedToughnessBonus {0};
+    int wookieeEnduranceBonus {0};
+    std::optional<int> resistancePoolRemaining;
+    int damageAfterResistance {0};
+
+    int reductionAmount {0};
+    DamagePower reductionPower {DamagePower::Normal};
+    bool reductionBypassed {false};
+    int reductionPrevented {0};
+    std::optional<int> reductionPoolRemaining;
+
+    SmallVector<MitigationFeedback, 3> mitigationFeedback;
+    int finalDamage {0};
+};
 
 /**
  * Typed damage caused by one hit.
@@ -53,8 +105,9 @@ public:
 
     int total() const;
     int resolvedDamage() const;
+    const DamageResolution &resolution() const;
     bool empty() const { return _components.empty(); }
-    bool isResolved() const { return _resolvedDamage.has_value(); }
+    bool isResolved() const { return _resolution.has_value(); }
 
 private:
     struct Component {
@@ -68,11 +121,22 @@ private:
     DamagePower _power;
     int _damageFlags {0};
     SmallVector<Component, 4> _components;
-    std::optional<int> _resolvedDamage;
+    std::optional<DamageResolution> _resolution;
 };
 
 class DamageEffect : public Effect {
 public:
+    struct ApplicationContext {
+        ApplicationContext() {
+            damageAmounts.fill(-1);
+        }
+
+        std::array<int16_t, 15> damageAmounts;
+        bool preResolved {false};
+        bool suppressDamageShields {false};
+        bool feedbackHandled {false};
+    };
+
     DamageEffect(int amount,
                  DamageType type,
                  DamagePower power,
@@ -82,12 +146,28 @@ public:
         _damager(damager) {
         _damage.add(amount, type);
         _damage.setDamageFlags(static_cast<int>(type));
+
+        int flags = static_cast<int>(type);
+        if (flags > 0 && (flags & (flags - 1)) == 0) {
+            int slot = 0;
+            while (flags > 1) {
+                flags >>= 1;
+                ++slot;
+            }
+            if (slot < static_cast<int>(_context.damageAmounts.size())) {
+                _context.damageAmounts[slot] = static_cast<int16_t>(amount);
+            }
+        }
     }
 
-    DamageEffect(DamagePacket damage, uint32_t damager) :
+    DamageEffect(
+        DamagePacket damage,
+        uint32_t damager,
+        ApplicationContext context) :
         Effect(EffectType::Damage),
         _damage(std::move(damage)),
-        _damager(damager) {
+        _damager(damager),
+        _context(std::move(context)) {
         if (!_damage.isResolved()) {
             throw std::invalid_argument("Damage packet has not been resolved");
         }
@@ -100,6 +180,7 @@ public:
 private:
     DamagePacket _damage;
     uint32_t _damager;
+    ApplicationContext _context;
 };
 
 } // namespace game

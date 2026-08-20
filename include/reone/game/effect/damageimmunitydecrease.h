@@ -25,8 +25,11 @@ namespace game {
 
 class DamageImmunityDecreaseEffect : public Effect {
 public:
-    DamageImmunityDecreaseEffect(DamageType damageType, int percentImmunity) :
-        Effect(EffectType::DamageImmunityDecrease),
+    DamageImmunityDecreaseEffect(
+        DamageType damageType,
+        int percentImmunity,
+        EffectProvenance provenance = {}) :
+        Effect(EffectType::DamageImmunityDecrease, std::move(provenance)),
         _damageType(damageType),
         _percentImmunity(percentImmunity) {
     }

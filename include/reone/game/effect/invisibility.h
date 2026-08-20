@@ -25,12 +25,28 @@ namespace game {
 
 class InvisibilityEffect : public Effect {
 public:
-    InvisibilityEffect(InvisibilityType type) :
-        Effect(EffectType::Invisibility),
+    InvisibilityEffect(
+        InvisibilityType type,
+        RacialType observerRace = RacialType::All,
+        Alignment observerAlignment = Alignment::All,
+        EffectProvenance provenance = {}) :
+        Effect(EffectType::Invisibility, std::move(provenance)),
         _type(type) {
+
+        if (observerRace != RacialType::All) {
+            setVersusRacialType(static_cast<int>(observerRace));
+        }
+        if (observerAlignment != Alignment::All) {
+            setVersusAlignment(
+                static_cast<int>(Alignment::All),
+                static_cast<int>(observerAlignment));
+        }
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
+    void onRemove(Object &object) override;
+
+    InvisibilityType invisibilityType() const { return _type; }
 
 private:
     InvisibilityType _type;

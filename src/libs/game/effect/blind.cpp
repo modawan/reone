@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2020-2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,13 +18,14 @@
 #include "reone/game/effect/blind.h"
 
 namespace reone {
-
 namespace game {
 
-void BlindEffect::applyTo(Object &object) {
-    // TODO: implement
+bool BlindEffect::onApply(Object &) {
+    // Blindness owns creator-sensitive immunity feedback and linked helper
+    // effects. Reject the root until that complete lifecycle is represented;
+    // a counter-only approximation changes combat state.
+    return false;
 }
 
 } // namespace game
-
 } // namespace reone

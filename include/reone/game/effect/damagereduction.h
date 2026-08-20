@@ -26,8 +26,12 @@ namespace game {
 
 class DamageReductionEffect : public Effect {
 public:
-    DamageReductionEffect(int amount, DamagePower damagePower, int limit) :
-        Effect(EffectType::DamageReduction),
+    DamageReductionEffect(
+        int amount,
+        DamagePower damagePower,
+        int limit,
+        EffectProvenance provenance = {}) :
+        Effect(EffectType::DamageReduction, std::move(provenance)),
         _absorption(amount, limit),
         _damagePower(damagePower) {
     }
@@ -39,6 +43,9 @@ public:
     DamagePower damagePower() const { return _damagePower; }
     int absorb(int damage) { return _absorption.absorb(damage); }
     bool exhausted() const { return _absorption.exhausted(); }
+    std::optional<int> remainingLimit() const {
+        return _absorption.remainingLimit();
+    }
 
 private:
     DamageAbsorption _absorption;

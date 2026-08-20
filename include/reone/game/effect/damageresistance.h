@@ -26,22 +26,33 @@ namespace game {
 
 class DamageResistanceEffect : public Effect {
 public:
-    DamageResistanceEffect(DamageType damageType, int amount, int limit) :
-        Effect(EffectType::DamageResistance),
+    DamageResistanceEffect(
+        DamageType damageType,
+        int amount,
+        int limit,
+        int secondaryDamageFlags,
+        EffectProvenance provenance = {}) :
+        Effect(EffectType::DamageResistance, std::move(provenance)),
         _damageType(damageType),
-        _absorption(amount, limit) {
+        _absorption(amount, limit),
+        _secondaryDamageFlags(secondaryDamageFlags) {
     }
 
     void applyTo(Object &object) override;
 
     DamageType damageType() const { return _damageType; }
     int amount() const { return _absorption.amount(); }
+    int secondaryDamageFlags() const { return _secondaryDamageFlags; }
     int absorb(int damage) { return _absorption.absorb(damage); }
     bool exhausted() const { return _absorption.exhausted(); }
+    std::optional<int> remainingLimit() const {
+        return _absorption.remainingLimit();
+    }
 
 private:
     DamageType _damageType;
     DamageAbsorption _absorption;
+    int _secondaryDamageFlags;
 };
 
 } // namespace game

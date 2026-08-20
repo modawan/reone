@@ -25,61 +25,18 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/projectiles.h"
 #include "reone/scene/graphs.h"
-#include "reone/system/randomutil.h"
-
-#include "attackanimations.h"
 
 namespace reone {
 
 namespace game {
 
-// Attack animation variants are numbered from 1 - a0 is not an authored
-// animation. Cinematic attacks consume the whole 1-5 roll, while non-cinematic
-// attacks keep to the a1/a2 subset this selector has always intended to use.
-// Some K2 families author further variants; selecting those is a separate
-// change.
-static constexpr int kNonCinematicVariants = 2;
+static std::vector<std::string> attack(
+    const CombatRound &round,
+    Creature &attacker,
+    Object &target,
+    const IAnimations &anims,
+    AttackBuffer &attacks) {
 
-static int nonCinematicVariant(int variant) {
-    return 1 + std::max(0, variant - 1) % kNonCinematicVariants;
-}
-
-std::string getMeleeAttackAnim(CreatureWieldType attackerWield,
-                               CreatureWieldType targetWield,
-                               int variant, bool duel) {
-    // Cinematic attack variants.
-    if (duel && isMeleeWieldType(targetWield)) {
-        return str(boost::format("c%da%d") % static_cast<int>(attackerWield) % variant);
-    }
-
-    variant = nonCinematicVariant(variant);
-
-    if (targetWield != CreatureWieldType::None) {
-        return str(boost::format("m%da%d") % static_cast<int>(attackerWield) % variant);
-    }
-
-    return str(boost::format("g%da%d") % static_cast<int>(attackerWield) % variant);
-}
-
-std::string getUnarmedAttackAnim(CreatureWieldType attackerWield, CreatureWieldType targetWield, int variant, bool duel) {
-    if (attackerWield == CreatureWieldType::HandToHandComplex) {
-        if (duel && targetWield == attackerWield) {
-            return str(boost::format("c%da%d") % static_cast<int>(attackerWield) % variant);
-        }
-    }
-
-    // Fallback to a basic unarmed animation.
-    variant = nonCinematicVariant(variant);
-    return str(boost::format("g8a%d") % variant);
-}
-
-std::string getStunBatonAttackAnim(int variant) {
-    variant = nonCinematicVariant(variant);
-    return str(boost::format("g1a%d") % variant);
-}
-
-static void attack(const CombatRound &round, Creature &attacker, Object &target,
-                   const IAnimations &anims, AttackBuffer &attacks) {
     attacks.addPhysicalAttacks(attacker, target);
 
     scene::AnimationProperties animProp =
@@ -90,48 +47,40 @@ static void attack(const CombatRound &round, Creature &attacker, Object &target,
         targetWield = targetCreature->getWieldType();
     }
 
-    int variant = randomInt(1, 5);
-
     CreatureWieldType attackerWield = attacker.getWieldType();
+    bool melee = !isRangedWieldType(attackerWield);
+    size_t animationCount = melee ? attacks.attackCount() : 1;
+    std::vector<std::string> attackAnimations;
+    attackAnimations.reserve(animationCount);
 
-    std::string attackAnim;
-    switch (attackerWield) {
-    case CreatureWieldType::None: {
-        assert(0 && "Monster attacks are not supported");
-        break;
-    }
-    case CreatureWieldType::SingleSword:
-    case CreatureWieldType::DoubleBladedSword:
-    case CreatureWieldType::DualSwords: {
-        attackAnim = getMeleeAttackAnim(attackerWield, targetWield, variant, round.duel);
-        break;
-    }
-    case CreatureWieldType::BlasterPistol:
-    case CreatureWieldType::DualPistols:
-    case CreatureWieldType::BlasterRifle:
-    case CreatureWieldType::HeavyWeapon: {
-        attackAnim = getRangedAttackAnim(attacker, /*kind=*/1);
-        break;
-    }
-    case CreatureWieldType::HandToHand:
-    case CreatureWieldType::HandToHandComplex: {
-        attackAnim = getUnarmedAttackAnim(attackerWield, targetWield, variant, round.duel);
-        break;
-    }
-    case CreatureWieldType::StunBaton:
-        attackAnim = getStunBatonAttackAnim(variant);
-        break;
+    for (size_t index = 0; index < animationCount; ++index) {
+        std::string attackAnim;
+        if (isRangedWieldType(attackerWield)) {
+            attackAnim = getRangedAttackAnim(attacker, /*kind=*/1);
+        } else {
+            attackAnim = selectPhysicalMeleeAttackAnimation(
+                attacker,
+                target,
+                attackerWield);
+        }
+        attackAnimations.push_back(std::move(attackAnim));
     }
 
-    attacker.playAnimation(attackAnim, animProp);
+    const std::string &primaryAttackAnimation = attackAnimations.front();
+    attacker.playAnimation(primaryAttackAnimation, animProp);
 
     if (round.duel) {
         auto &opponent = cast<Creature>(target);
         opponent.face(attacker);
 
-        std::string resultAnim = anims.getAttackResult(attackAnim, targetWield, attacks.result());
+        std::string resultAnim = anims.getAttackResult(
+            primaryAttackAnimation,
+            targetWield,
+            attacks.result());
         opponent.playAnimation(resultAnim, animProp);
     }
+
+    return attackAnimations;
 }
 
 /**
@@ -153,7 +102,7 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
     Creature &attacker = cast<Creature>(actor);
     attacker.setAttemptedAttackTarget(_target->id());
 
-    if (_target->isDead()) {
+    if (_target->isDead() && !_attacks.hasPendingMelee()) {
         finish(attacker);
         return;
     }
@@ -174,14 +123,53 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         attacker.setMovementType(Creature::MovementType::None);
         attacker.setMovementRestricted(true);
 
-        attack(round, attacker, *_target, _services.game.animations, _attacks);
+        std::vector<std::string> attackAnimations = attack(
+            round,
+            attacker,
+            *_target,
+            _services.game.animations,
+            _attacks);
         _attacks.resolve(attacker, *_target);
+
+        if (!isRangedWieldType(attacker.getWieldType())) {
+            _attacks.prepareMeleeSequence(
+                _services.game.animations,
+                attackAnimations);
+            _schedule.startMelee(
+                _attacks.latestMeleeImpactMilliseconds());
+            _attacks.signalReadyMelee(
+                0,
+                _game,
+                _services,
+                attacker,
+                *_target);
+        }
 
         addProjectiles(attacker);
         return;
     }
+    case AttackSchedule::WaitDamage: {
+        if (_schedule.isMelee()) {
+            _attacks.signalReadyMelee(
+                _schedule.meleeElapsedMilliseconds(),
+                _game,
+                _services,
+                attacker,
+                *_target);
+        }
+        break;
+    }
     case AttackSchedule::Damage: {
-        _attacks.signal(_game, _services, attacker, *_target);
+        if (_schedule.isMelee()) {
+            _attacks.signalReadyMelee(
+                _schedule.meleeElapsedMilliseconds(),
+                _game,
+                _services,
+                attacker,
+                *_target);
+        } else {
+            _attacks.signal(_game, _services, attacker, *_target);
+        }
         break;
     }
     case AttackSchedule::Finish: {
@@ -208,6 +196,7 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
 
 void AttackObjectAction::cancel(std::shared_ptr<Action> self, Object &actor) {
     Creature &attacker = cast<Creature>(actor);
+    _attacks.discardPendingMelee();
     finish(attacker);
 }
 
