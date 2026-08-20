@@ -320,6 +320,9 @@ public:
     // ResourceDirector::saveNames().
     void loadGame(std::string_view name);
 
+    std::vector<SavedGame> savedGames() const;
+    const std::filesystem::path &gamePath() const { return _path; }
+
     SaveResult requestSave(SaveRequest request);
     SaveResult requestManualSave(uint32_t slot, std::string displayName);
     SaveResult requestQuickSave();

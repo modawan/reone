@@ -764,6 +764,13 @@ bool Game::handleKeyDown(const input::KeyEvent &event) {
     }
 
     switch (event.code) {
+    case input::KeyCode::F4:
+        if (_screen == Screen::InGame) {
+            requestQuickSave();
+            return true;
+        }
+        break;
+
     case input::KeyCode::Minus:
         if (_options.game.developer && _gameSpeed > 1.0f) {
             _gameSpeed = glm::max(1.0f, _gameSpeed - 1.0f);
@@ -2673,6 +2680,10 @@ void Game::setGlobalNumber(const std::string &name, int value) {
     uint8_t raw = static_cast<uint8_t>(value);
     _globalNumbers[name] = raw <= 0x7f ? static_cast<int>(raw)
                                        : static_cast<int>(raw) - 0x100;
+}
+
+std::vector<SavedGame> Game::savedGames() const {
+    return discoverSavedGames(_path);
 }
 
 void Game::setGlobalString(const std::string &name, const std::string &value) {

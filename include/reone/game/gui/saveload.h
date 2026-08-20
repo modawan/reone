@@ -21,7 +21,9 @@
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
 #include "reone/gui/control/togglebutton.h"
+#include "reone/gui/textinput.h"
 
+#include "confirmpopup.h"
 #include "../gui.h"
 #include "../savedgame.h"
 
@@ -40,13 +42,11 @@ public:
 
     void setMode(SaveLoadMode mode);
 
-private:
-    struct SavedGameDescriptor {
-        int number {0};
-        SavedGame save;
-        std::filesystem::path path;
-    };
+    bool handle(const input::Event &event) override;
+    void update(float dt) override;
+    void render() override;
 
+private:
     struct Controls {
         std::shared_ptr<gui::Button> BTN_BACK;
         std::shared_ptr<gui::Button> BTN_DELETE;
@@ -71,7 +71,24 @@ private:
     Controls _controls;
 
     SaveLoadMode _mode {SaveLoadMode::Save};
-    std::vector<SavedGameDescriptor> _saves;
+    std::vector<SavedGame> _saves;
+    std::optional<uint32_t> _selectedSaveSlot;
+    std::optional<uint64_t> _pendingRequestId;
+    std::unique_ptr<ConfirmPopup> _confirmation;
+
+    struct SaveNameControls {
+        std::shared_ptr<gui::Button> BTN_CANCEL;
+        std::shared_ptr<gui::Button> BTN_OK;
+        std::shared_ptr<gui::Label> EDITBOX;
+        std::shared_ptr<gui::Label> LBL_TITLE;
+    };
+    std::shared_ptr<gui::IGUI> _saveNameGUI;
+    SaveNameControls _saveNameControls;
+    TextBuffer _saveNameBuffer;
+    gui::TextInput _saveNameInput {
+        _saveNameBuffer, gui::TextInputFlags::console};
+    bool _saveNameVisible {false};
+    uint32_t _saveNameSlot {0};
 
     void onGUILoaded() override;
 
@@ -97,14 +114,18 @@ private:
     }
 
     void refreshSavedGames();
-    void indexSavedGame(std::filesystem::path path);
-
-    void saveGame(int number) {}
-    void loadGame(int number) {}
-    void deleteGame(int number);
+    void refreshSelection();
+    void showStatus(std::string message);
+    void showSaveName(uint32_t slot, std::string name);
+    void hideSaveName();
+    void confirmSaveName();
+    void saveGame(uint32_t number, std::string name);
+    void loadGame(uint32_t number);
+    void deleteGame(uint32_t number);
 
     int getSelectedSaveNumber() const;
-    int getNewSaveNumber() const;
+    uint32_t getNewSaveNumber() const;
+    const SavedGame *findSave(uint32_t number) const;
 };
 
 } // namespace game

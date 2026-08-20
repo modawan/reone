@@ -397,8 +397,19 @@ SaveMetadataInput Game::buildSaveMetadata(const SaveRequest &request) const {
 resource::SaveSlotDescriptor Game::saveTarget(const SaveRequest &request) const {
     std::ostringstream prefix;
     prefix << std::setw(6) << std::setfill('0') << request.slot;
-    auto directory = _path / "saves" /
-                     (prefix.str() + " - " + request.displayName);
+    auto saves = _path / "saves";
+    auto directory = saves / (prefix.str() + " - " + request.displayName);
+    // Retail/UI identity is the numeric slot. Reuse an existing complete slot
+    // even if its directory suffix differs from the newly entered display
+    // name; the authoritative user-facing name lives in savenfo.res.
+    if (std::filesystem::is_directory(saves)) {
+        auto candidates = discoverSavedGames(_path);
+        auto existing = std::find_if(
+            candidates.begin(), candidates.end(), [&request](const auto &save) {
+                return save.slot == request.slot;
+            });
+        if (existing != candidates.end()) directory = existing->descriptor.directory;
+    }
     return {directory, directory / "SAVEGAME.sav"};
 }
 

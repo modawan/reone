@@ -45,6 +45,10 @@ public:
     }
 
     void show(const std::string &message, std::shared_ptr<graphics::Texture> icon = nullptr);
+    void showConfirm(
+        const std::string &message,
+        std::function<void()> onConfirm,
+        std::function<void()> onCancel = {});
     void hide();
 
     bool isVisible() const { return _visible; }
@@ -58,6 +62,8 @@ private:
 
     Controls _controls;
     bool _visible {false};
+    std::function<void()> _onConfirm;
+    std::function<void()> _onCancel;
 
     std::shared_ptr<gui::Control> _icon;
     gui::Control::Extent _messageExtent;

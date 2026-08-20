@@ -26,6 +26,7 @@ class Gff;
 struct NFO {
     std::string areaName;
     std::string lastModule;
+    std::string pcName;
     uint32_t timePlayed;
     bool cheatUsed;
     std::string savegameName;
@@ -39,6 +40,8 @@ struct NFO {
     std::string live6;
     uint32_t liveContent;
     std::string portrait0;
+    std::string portrait1;
+    std::string portrait2;
 };
 
 NFO parseNFO(const Gff &gff);

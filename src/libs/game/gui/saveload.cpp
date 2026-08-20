@@ -1,245 +1,426 @@
-/*
- * Copyright (c) 2020-2023 The reone project contributors
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
+/* Copyright (c) 2020-2026 The reone project contributors */
 
 #include "reone/game/gui/saveload.h"
 
+#include <algorithm>
+#include <iomanip>
+#include <sstream>
+
 #include "reone/game/game.h"
+#include "reone/graphics/font.h"
 #include "reone/graphics/format/tgareader.h"
-#include "reone/resource/container/erf.h"
-#include "reone/resource/format/erfreader.h"
-#include "reone/resource/format/gffreader.h"
+#include "reone/graphics/texture.h"
+#include "reone/gui/guis.h"
 #include "reone/resource/strings.h"
+#include "reone/resource/provider/textures.h"
 #include "reone/system/logutil.h"
 #include "reone/system/stream/memoryinput.h"
 
-
-using namespace reone::audio;
-
 using namespace reone::graphics;
 using namespace reone::gui;
-using namespace reone::resource;
 
 namespace reone {
-
 namespace game {
+namespace {
 
-static const char kSavesDirectoryName[] = "saves";
+constexpr int kStrRefLoadGame = 1585;
+constexpr int kStrRefSave = 1587;
+constexpr int kStrRefSaveGame = 1588;
+constexpr int kStrRefLoad = 1589;
+constexpr int kStrRefConfirmOverwrite = 1591;
+constexpr int kStrRefConfirmDelete = 1592;
 
-static constexpr int kStrRefLoadGame = 1585;
-static constexpr int kStrRefSave = 1587;
-static constexpr int kStrRefSaveGame = 1588;
-static constexpr int kStrRefLoad = 1589;
+std::string playedTime(uint32_t seconds) {
+    std::ostringstream out;
+    out << std::setfill('0') << std::setw(2) << seconds / 3600 << ':'
+        << std::setw(2) << (seconds / 60) % 60 << ':'
+        << std::setw(2) << seconds % 60;
+    return out.str();
+}
+
+std::string elideToWidth(
+    std::string text,
+    const Font &font,
+    float maxWidth) {
+    if (font.measure(text) <= maxWidth) return text;
+    static const std::string suffix = "...";
+    while (!text.empty() && font.measure(text + suffix) > maxWidth) {
+        text.pop_back();
+    }
+    return text + suffix;
+}
+
+std::string saveListText(
+    const SavedGame &save,
+    const Font &font,
+    float maxWidth) {
+    auto hours = save.metadata.timePlayed / 3600;
+    auto minutes = (save.metadata.timePlayed / 60) % 60;
+    auto name = save.metadata.savegameName.empty()
+                    ? save.descriptor.directory.filename().string()
+                    : save.metadata.savegameName;
+    return "Game " + std::to_string(save.slot) + " - " +
+           std::to_string(hours) + "H " + std::to_string(minutes) +
+           "M\n" + elideToWidth(std::move(name), font, maxWidth);
+}
+
+std::string terminalMessage(const SaveResult &result) {
+    if (result.durable) {
+        return result.cleanupPending
+                   ? "Game saved. Cleanup of the previous slot is pending."
+                   : "Game saved successfully.";
+    }
+    switch (result.status) {
+    case SaveStatus::Busy: return "Another save is already in progress.";
+    case SaveStatus::NotAllowed: return "The game cannot be saved at this time.";
+    case SaveStatus::SnapshotFailure: return "The current game state could not be captured.";
+    case SaveStatus::SerializationFailure: return "The save data could not be prepared.";
+    case SaveStatus::PublicationFailure: return "The save slot could not be written.";
+    case SaveStatus::InternalExecutionFailure: return "The save could not be completed.";
+    case SaveStatus::Cancelled: return "The save was cancelled.";
+    default: return "The save could not be completed.";
+    }
+}
+
+} // namespace
 
 void SaveLoad::onGUILoaded() {
-    if (!_game.isTSL()) {
-        loadBackground(BackgroundType::Menu);
-    }
-
+    if (!_game.isTSL()) loadBackground(BackgroundType::Menu);
     bindControls();
-
     _controls.LBL_PLANETNAME->setVisible(false);
     _controls.LBL_AREANAME->setVisible(false);
-
     _controls.LB_GAMES->setSelectionMode(ListBox::SelectionMode::OnClick);
     _controls.LB_GAMES->setPadding(3);
     _controls.LB_GAMES->protoItem().setUseBorderColorOverride(true);
     _controls.LB_GAMES->protoItem().setBorderColorOverride(_baseColor);
     _controls.LB_GAMES->protoItem().setHilightColor(_hilightColor);
-    _controls.LB_GAMES->setOnItemClick([this](const std::string &item) {
-        // Get save number by item tag
-        int selectedSaveNumber = -1;
-        for (int i = 0; i < _controls.LB_GAMES->getItemCount(); ++i) {
-            auto &lbItem = _controls.LB_GAMES->getItemAt(i);
-            if (lbItem.tag == item) {
-                selectedSaveNumber = stoi(lbItem.tag);
-                break;
+    _controls.LB_GAMES->setOnItemClick([this](const std::string &tag) {
+        _selectedSaveSlot.reset();
+        if (tag != "new") {
+            try {
+                _selectedSaveSlot = static_cast<uint32_t>(std::stoul(tag));
+            } catch (const std::exception &) {
             }
         }
-
-        // Get save screenshot by save number
-        std::shared_ptr<Texture> screenshot;
-        if (selectedSaveNumber != -1) {
-            for (auto &save : _saves) {
-                if (save.number == selectedSaveNumber) {
-                    screenshot = save.save.screen;
-                    break;
-                }
-            }
-        }
-
-        // Set screenshot
-        _controls.LBL_SCREENSHOT->setBorderFill(std::move(screenshot));
+        refreshSelection();
     });
 
     _controls.BTN_SAVELOAD->setOnClick([this]() {
-        int number = getSelectedSaveNumber();
-        switch (_mode) {
-        case SaveLoadMode::Save:
-            if (number == -1) {
-                number = getNewSaveNumber();
-            }
-            saveGame(number);
-            refresh();
-            break;
-        default:
-            if (number != -1) {
-                loadGame(number);
-            }
-            break;
+        if (_pendingRequestId) return;
+        int selected = getSelectedSaveNumber();
+        if (_mode == SaveLoadMode::Save) {
+            uint32_t slot = selected < 0 ? getNewSaveNumber() : static_cast<uint32_t>(selected);
+            auto save = selected < 0 ? nullptr : findSave(slot);
+            showSaveName(slot, save ? save->metadata.savegameName : "");
+        } else if (selected >= 0) {
+            debug("SaveLoad: dispatching selected load slot " + std::to_string(selected));
+            loadGame(static_cast<uint32_t>(selected));
         }
     });
     _controls.BTN_DELETE->setOnClick([this]() {
-        int number = getSelectedSaveNumber();
-        if (number != -1) {
-            deleteGame(number);
-            refresh();
-        }
+        int selected = getSelectedSaveNumber();
+        if (selected >= 0 && !_pendingRequestId) deleteGame(static_cast<uint32_t>(selected));
     });
     _controls.BTN_BACK->setOnClick([this]() {
-        _controls.LB_GAMES->clearSelection();
-        switch (_mode) {
-        case SaveLoadMode::Save:
-        case SaveLoadMode::LoadFromInGame:
-            _game.openInGame();
-            break;
-        default:
+        if (_saveNameVisible) {
+            hideSaveName();
+        } else if (_mode == SaveLoadMode::LoadFromMainMenu) {
             _game.openMainMenu();
-            break;
+        } else {
+            _game.openInGame();
         }
     });
+
+    _saveNameGUI = _services.gui.guis.get(guiResRef("savename"), [this](IGUI &gui) {
+        gui.setResolution(_game.isTSL() ? 800 : 640, _game.isTSL() ? 600 : 480);
+        gui.setScaling(GUI::ScalingMode::Center);
+    });
+    if (_saveNameGUI) {
+        _saveNameControls.BTN_CANCEL = std::static_pointer_cast<Button>(_saveNameGUI->findControl("BTN_CANCEL"));
+        _saveNameControls.BTN_OK = std::static_pointer_cast<Button>(_saveNameGUI->findControl("BTN_OK"));
+        _saveNameControls.EDITBOX = std::static_pointer_cast<Label>(_saveNameGUI->findControl("EDITBOX"));
+        _saveNameControls.LBL_TITLE = std::static_pointer_cast<Label>(_saveNameGUI->findControl("LBL_TITLE"));
+        _saveNameControls.LBL_TITLE->setTextMessage(_services.resource.strings.getText(kStrRefSaveGame));
+        _saveNameControls.BTN_CANCEL->setOnClick([this]() { hideSaveName(); });
+        _saveNameControls.BTN_OK->setOnClick([this]() { confirmSaveName(); });
+    }
+    _confirmation = std::make_unique<ConfirmPopup>(_game, _services);
+    _confirmation->init();
+}
+
+bool SaveLoad::handle(const input::Event &event) {
+    if (_confirmation && _confirmation->isVisible()) {
+        return _confirmation->handle(event);
+    }
+    if (_saveNameVisible && _saveNameGUI) {
+        if (event.type == input::EventType::KeyDown && _saveNameInput.handle(event)) {
+            _saveNameControls.EDITBOX->setTextMessage(std::string(_saveNameBuffer.str()));
+            return true;
+        }
+        return _saveNameGUI->handle(event);
+    }
+    return GameGUI::handle(event);
+}
+
+void SaveLoad::update(float dt) {
+    GameGUI::update(dt);
+    if (_confirmation && _confirmation->isVisible()) {
+        _confirmation->update(dt);
+    }
+    if (_saveNameVisible && _saveNameGUI) _saveNameGUI->update(dt);
+    if (!_pendingRequestId) return;
+    const auto &result = _game.lastSaveResult();
+    if (!result || result->requestId != *_pendingRequestId || result->status == SaveStatus::Accepted) return;
+    _pendingRequestId.reset();
+    _controls.BTN_SAVELOAD->setDisabled(false);
+    showStatus(terminalMessage(*result));
+    if (result->durable) refreshSavedGames();
+}
+
+void SaveLoad::render() {
+    GameGUI::render();
+    if (_confirmation && _confirmation->isVisible()) {
+        _confirmation->render();
+    }
+    if (_saveNameVisible && _saveNameGUI) _saveNameGUI->render();
 }
 
 void SaveLoad::refresh() {
-    _controls.BTN_DELETE->setDisabled(_mode != SaveLoadMode::Save);
-
-    std::string panelName(_services.resource.strings.getText(_mode == SaveLoadMode::Save ? kStrRefSaveGame : kStrRefLoadGame));
-    _controls.LBL_PANELNAME->setTextMessage(std::move(panelName));
-
-    std::string actionName(_services.resource.strings.getText(_mode == SaveLoadMode::Save ? kStrRefSave : kStrRefLoad));
-    _controls.BTN_SAVELOAD->setTextMessage(std::move(actionName));
-
+    _controls.LBL_PANELNAME->setTextMessage(_services.resource.strings.getText(
+        _mode == SaveLoadMode::Save ? kStrRefSaveGame : kStrRefLoadGame));
+    _controls.BTN_SAVELOAD->setTextMessage(_services.resource.strings.getText(
+        _mode == SaveLoadMode::Save ? kStrRefSave : kStrRefLoad));
+    _controls.LBL_AREANAME->setVisible(false);
     refreshSavedGames();
 }
 
-static std::filesystem::path getSavesPath() {
-    std::filesystem::path savesPath(std::filesystem::current_path());
-    savesPath.append(kSavesDirectoryName);
-    return savesPath;
-}
-
 void SaveLoad::refreshSavedGames() {
-    _saves.clear();
-
-    std::filesystem::path savesPath(getSavesPath());
-    if (!std::filesystem::exists(savesPath)) {
-        std::filesystem::create_directory(savesPath);
-    }
-    for (auto &entry : std::filesystem::directory_iterator(savesPath)) {
-        if (std::filesystem::is_regular_file(entry) && boost::to_lower_copy(entry.path().extension().string()) == ".sav") {
-            indexSavedGame(entry);
-        }
-    }
-
+    _saves = _game.savedGames();
+    _selectedSaveSlot.reset();
+    _controls.LBL_AREANAME->setTextMessage("");
+    _controls.LBL_AREANAME->setVisible(false);
+    _controls.LBL_PLANETNAME->setTextMessage("");
+    _controls.LBL_PLANETNAME->setVisible(false);
     _controls.LB_GAMES->clearItems();
-    for (size_t i = 0; i < _saves.size(); ++i) {
-        std::string name(str(boost::format("%06d") % _saves[i].number));
+    if (_mode == SaveLoadMode::Save) {
         ListBox::Item item;
-        item.tag = name;
-        item.text = name;
+        item.tag = "new";
+        item.text = "New Save Game";
         _controls.LB_GAMES->addItem(std::move(item));
     }
-}
-
-static SavedGame peekSavedGame(const std::filesystem::path &path) {
-    auto erfResourceContainer = ErfResourceContainer(path);
-
-    auto nfoData = erfResourceContainer.findResourceData(ResourceId("savenfo", ResType::Res));
-    auto nfoStream = MemoryInputStream(*nfoData);
-    GffReader nfo(nfoStream);
-    nfo.load();
-
-    std::shared_ptr<Texture> screen;
-    auto screenData = erfResourceContainer.findResourceData(ResourceId("screen", ResType::Tga));
-    if (screenData) {
-        auto tga = MemoryInputStream(*screenData);
-        TgaReader tgaReader(tga, "screen", TextureUsage::GUI);
-        tgaReader.load();
-        screen = tgaReader.texture();
+    for (const auto &save : _saves) {
+        ListBox::Item item;
+        item.tag = std::to_string(save.slot);
+        auto &proto = _controls.LB_GAMES->protoItem();
+        float textWidth = static_cast<float>(
+            proto.extent().width - 2 * proto.border().dimension);
+        item.text = saveListText(
+            save, *proto.text().font, std::max(0.0f, textWidth));
+        _controls.LB_GAMES->addItem(std::move(item));
     }
-
-    SavedGame result;
-    result.screen = std::move(screen);
-    result.lastModule = nfo.root()->getString("LastModule");
-
-    return result;
+    if (_controls.LBL_SCREENSHOT) {
+        _controls.LBL_SCREENSHOT->setBorderFill(std::shared_ptr<Texture>());
+    }
+    if (_controls.LBL_PM1) {
+        _controls.LBL_PM1->setBorderFill(std::shared_ptr<Texture>());
+    }
+    if (_controls.LBL_PM2) {
+        _controls.LBL_PM2->setBorderFill(std::shared_ptr<Texture>());
+    }
+    if (_controls.LBL_PM3) {
+        _controls.LBL_PM3->setBorderFill(std::shared_ptr<Texture>());
+    }
+    _controls.BTN_DELETE->setDisabled(true);
+    _controls.BTN_SAVELOAD->setDisabled(_mode != SaveLoadMode::Save);
+    _controls.BTN_SAVELOAD->setVisible(_mode == SaveLoadMode::Save);
 }
 
-void SaveLoad::indexSavedGame(std::filesystem::path path) {
+void SaveLoad::refreshSelection() {
+    int selected = getSelectedSaveNumber();
+    const SavedGame *save = selected < 0 ? nullptr : findSave(selected);
+    _controls.BTN_DELETE->setDisabled(!save || _pendingRequestId.has_value());
+    _controls.BTN_SAVELOAD->setDisabled(
+        _pendingRequestId.has_value() || (_mode != SaveLoadMode::Save && !save));
+    _controls.BTN_SAVELOAD->setVisible(
+        _mode == SaveLoadMode::Save || static_cast<bool>(save));
+    if (!save) {
+        _controls.LBL_AREANAME->setTextMessage("");
+        _controls.LBL_AREANAME->setVisible(false);
+        _controls.LBL_PLANETNAME->setTextMessage("");
+        _controls.LBL_PLANETNAME->setVisible(false);
+        if (_controls.LBL_SCREENSHOT) {
+            _controls.LBL_SCREENSHOT->setBorderFill(std::shared_ptr<Texture>());
+        }
+        if (_controls.LBL_PM1) {
+            _controls.LBL_PM1->setBorderFill(std::shared_ptr<Texture>());
+        }
+        if (_controls.LBL_PM2) {
+            _controls.LBL_PM2->setBorderFill(std::shared_ptr<Texture>());
+        }
+        if (_controls.LBL_PM3) {
+            _controls.LBL_PM3->setBorderFill(std::shared_ptr<Texture>());
+        }
+        return;
+    }
+    std::shared_ptr<Texture> screenshot;
+    if (save->screenshot) {
+        try {
+            auto screenshotBytes = *save->screenshot;
+            MemoryInputStream stream(screenshotBytes);
+            TgaReader reader(stream, "save_screen", TextureUsage::GUI);
+            reader.load();
+            screenshot = reader.texture();
+            if (screenshot) screenshot->init();
+        } catch (const std::exception &e) {
+            warn("Unable to decode save thumbnail: " + std::string(e.what()));
+        }
+    }
+    if (_controls.LBL_SCREENSHOT) {
+        _controls.LBL_SCREENSHOT->setBorderFill(std::move(screenshot));
+    }
+    auto separator = save->metadata.areaName.find(" - ");
+    auto planetName = separator == std::string::npos
+                          ? std::string()
+                          : save->metadata.areaName.substr(0, separator);
+    auto areaName = separator == std::string::npos
+                        ? save->metadata.areaName
+                        : save->metadata.areaName.substr(separator + 3);
+    if (_controls.LBL_AREANAME) {
+        _controls.LBL_AREANAME->setTextMessage(std::move(areaName));
+        _controls.LBL_AREANAME->setVisible(true);
+    }
+    if (_controls.LBL_PLANETNAME) {
+        _controls.LBL_PLANETNAME->setTextMessage(std::move(planetName));
+        _controls.LBL_PLANETNAME->setVisible(true);
+    }
+    if (_controls.LBL_PCNAME) {
+        _controls.LBL_PCNAME->setTextMessage(save->metadata.pcName);
+    }
+    if (_controls.LBL_TIMEPLAYED) {
+        _controls.LBL_TIMEPLAYED->setTextMessage(playedTime(save->metadata.timePlayed));
+    }
+    auto loadPortrait = [this](const std::string &resRef) {
+        std::shared_ptr<Texture> portrait;
+        if (resRef.empty()) return portrait;
+        try {
+            portrait = _services.resource.textures.get(
+                resRef, TextureUsage::GUI);
+        } catch (const std::exception &e) {
+            warn("Unable to load save portrait: " + std::string(e.what()));
+        }
+        return portrait;
+    };
+    if (_controls.LBL_PM1) {
+        _controls.LBL_PM1->setBorderFill(loadPortrait(save->metadata.portrait0));
+    }
+    if (_controls.LBL_PM2) {
+        _controls.LBL_PM2->setBorderFill(loadPortrait(save->metadata.portrait1));
+    }
+    if (_controls.LBL_PM3) {
+        _controls.LBL_PM3->setBorderFill(loadPortrait(save->metadata.portrait2));
+    }
+}
+
+void SaveLoad::showStatus(std::string message) {
+    _controls.LBL_AREANAME->setTextMessage(std::move(message));
+    _controls.LBL_AREANAME->setVisible(true);
+}
+
+void SaveLoad::showSaveName(uint32_t slot, std::string name) {
+    if (!_saveNameGUI) {
+        saveGame(slot, std::move(name));
+        return;
+    }
+    if (name.empty()) name = "Game " + std::to_string(slot);
+    _saveNameSlot = slot;
+    _saveNameInput.setText(name);
+    _saveNameControls.EDITBOX->setTextMessage(name);
+    _saveNameVisible = true;
+}
+
+void SaveLoad::hideSaveName() { _saveNameVisible = false; }
+
+void SaveLoad::confirmSaveName() {
+    auto name = std::string(_saveNameBuffer.str());
+    hideSaveName();
+    if (findSave(_saveNameSlot) && _confirmation) {
+        auto slot = _saveNameSlot;
+        _confirmation->showConfirm(
+            _services.resource.strings.getText(kStrRefConfirmOverwrite),
+            [this, slot, name = std::move(name)]() mutable {
+                saveGame(slot, std::move(name));
+            });
+        return;
+    }
+    saveGame(_saveNameSlot, std::move(name));
+}
+
+void SaveLoad::saveGame(uint32_t number, std::string name) {
+    auto result = _game.requestManualSave(number, std::move(name));
+    if (result.status == SaveStatus::Accepted) {
+        _pendingRequestId = result.requestId;
+        _controls.BTN_SAVELOAD->setDisabled(true);
+        _controls.BTN_DELETE->setDisabled(true);
+        showStatus("Saving game...");
+    } else {
+        showStatus(terminalMessage(result));
+    }
+}
+
+void SaveLoad::loadGame(uint32_t number) {
+    auto save = findSave(number);
+    if (!save) return;
     try {
-        std::filesystem::path basename(path.filename());
-        basename.replace_extension();
-        int number = stoi(basename.string());
-
-        SavedGameDescriptor descriptor;
-        descriptor.number = number;
-        descriptor.save = peekSavedGame(path);
-        descriptor.path = std::move(path);
-        _saves.push_back(std::move(descriptor));
+        // Game::loadGame consumes the normalized keys exposed by
+        // ResourceDirector::saveNames(), not the display-cased disk name.
+        _game.loadGame(boost::to_lower_copy(
+            save->descriptor.directory.filename().string()));
     } catch (const std::exception &e) {
-        warn("Error indexing a saved game: " + std::string(e.what()));
+        warn("Unable to load selected save: " + std::string(e.what()));
+        showStatus("The selected game could not be loaded.");
     }
 }
 
-void SaveLoad::setMode(SaveLoadMode mode) {
-    _mode = mode;
-}
+void SaveLoad::setMode(SaveLoadMode mode) { _mode = mode; }
 
 int SaveLoad::getSelectedSaveNumber() const {
-    int hilightedIdx = _controls.LB_GAMES->selectedItemIndex();
-    if (hilightedIdx == -1)
-        return -1;
-
-    std::string tag(_controls.LB_GAMES->getItemAt(hilightedIdx).tag);
-
-    return stoi(tag);
+    return _selectedSaveSlot
+               ? static_cast<int>(*_selectedSaveSlot)
+               : -1;
 }
 
-int SaveLoad::getNewSaveNumber() const {
-    int number = 0;
-    for (auto &save : _saves) {
-        number = std::max(number, save.number);
+uint32_t SaveLoad::getNewSaveNumber() const { return nextManualSaveSlot(_saves); }
+
+const SavedGame *SaveLoad::findSave(uint32_t number) const {
+    auto found = std::find_if(_saves.begin(), _saves.end(), [number](const auto &save) {
+        return save.slot == number;
+    });
+    return found == _saves.end() ? nullptr : &*found;
+}
+
+void SaveLoad::deleteGame(uint32_t number) {
+    auto save = findSave(number);
+    if (!save) return;
+    if (_confirmation) {
+        _confirmation->showConfirm(
+            _services.resource.strings.getText(kStrRefConfirmDelete),
+            [this, number]() {
+                auto confirmed = findSave(number);
+                if (!confirmed ||
+                    !deleteSavedGame(_game.gamePath(), confirmed->descriptor)) {
+                    showStatus("The selected save could not be deleted.");
+                    return;
+                }
+                refreshSavedGames();
+            });
+        return;
     }
-    return number + 1;
-}
-
-static std::filesystem::path getSaveGamePath(int number) {
-    std::filesystem::path result(getSavesPath());
-    result.append(str(boost::format("%06d") % number) + ".sav");
-    return result;
-}
-
-void SaveLoad::deleteGame(int number) {
-    auto maybeSave = std::find_if(_saves.begin(), _saves.end(), [&number](auto &save) { return save.number == number; });
-    if (maybeSave != _saves.end()) {
-        std::filesystem::remove(maybeSave->path);
-        refresh();
+    if (!deleteSavedGame(_game.gamePath(), save->descriptor)) {
+        showStatus("The selected save could not be deleted.");
+        return;
     }
+    refreshSavedGames();
 }
 
 } // namespace game
-
 } // namespace reone

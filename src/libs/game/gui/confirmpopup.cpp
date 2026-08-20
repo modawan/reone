@@ -42,9 +42,15 @@ void ConfirmPopup::preload(IGUI &gui) {
 void ConfirmPopup::onGUILoaded() {
     bindControls();
 
-    _controls.BTN_CANCEL->setVisible(false);
-    _controls.BTN_OK->setOnClick([this]() {
+    _controls.BTN_CANCEL->setOnClick([this]() {
+        auto callback = std::move(_onCancel);
         hide();
+        if (callback) callback();
+    });
+    _controls.BTN_OK->setOnClick([this]() {
+        auto callback = std::move(_onConfirm);
+        hide();
+        if (callback) callback();
     });
     _controls.LB_MESSAGE->setItemsInteractive(false);
 
@@ -63,6 +69,9 @@ void ConfirmPopup::onGUILoaded() {
 }
 
 void ConfirmPopup::show(const std::string &message, std::shared_ptr<graphics::Texture> icon) {
+    _onConfirm = {};
+    _onCancel = {};
+    _controls.BTN_CANCEL->setVisible(false);
     // Reserve a gutter for the icon, if any, before the message is broken
     // into lines.
     bool hasIcon = static_cast<bool>(icon);
@@ -82,8 +91,20 @@ void ConfirmPopup::show(const std::string &message, std::shared_ptr<graphics::Te
     _visible = true;
 }
 
+void ConfirmPopup::showConfirm(
+    const std::string &message,
+    std::function<void()> onConfirm,
+    std::function<void()> onCancel) {
+    show(message);
+    _onConfirm = std::move(onConfirm);
+    _onCancel = std::move(onCancel);
+    _controls.BTN_CANCEL->setVisible(true);
+}
+
 void ConfirmPopup::hide() {
     _visible = false;
+    _onConfirm = {};
+    _onCancel = {};
 }
 
 } // namespace game
