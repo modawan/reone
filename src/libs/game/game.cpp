@@ -52,6 +52,7 @@
 #include "reone/graphics/modelnode.h"
 #include "reone/graphics/renderbuffer.h"
 #include "reone/graphics/shaderregistry.h"
+#include "reone/graphics/texture.h"
 #include "reone/graphics/uniforms.h"
 #include "reone/gui/gui.h"
 #include "reone/movie/format/bikreader.h"
@@ -561,6 +562,12 @@ void Game::initLocalServices() {
 
     _scriptRunner = std::make_unique<ScriptRunner>(*_routines, _services.resource.scripts);
 
+    if (!_saveSeams.captureScreenshot) {
+        _saveSeams.captureScreenshot = [this]() {
+            return captureSaveScreenshot();
+        };
+    }
+
     _map = std::make_unique<Map>(*this, _services);
 }
 
@@ -1013,6 +1020,7 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
 }
 
 void Game::retireActiveModuleRuntime() {
+    _lastRenderedSceneOutput = nullptr;
     _runtimeSessionPlayable = false;
 
     std::set<uint32_t> sessionObjectIds;
@@ -1076,6 +1084,7 @@ void Game::retireRuntimeSession() {
     ++_runtimeSessionGeneration;
     _runtimeSessionPlayable = false;
     _screen = Screen::None;
+    _lastRenderedSceneOutput = nullptr;
 
     abortPazaak();
     _lastPazaakResult.reset();
@@ -1774,10 +1783,12 @@ void Game::playMusic(const std::string &resRef) {
 
 void Game::renderScene() {
     if (!_module) {
+        _lastRenderedSceneOutput = nullptr;
         return;
     }
     auto &scene = _services.scene.graphs.get(kSceneMain);
     auto &output = scene.render({_options.graphics.width, _options.graphics.height});
+    _lastRenderedSceneOutput = &output;
     _services.graphics.uniforms.setLocals(std::bind(&LocalUniforms::reset, std::placeholders::_1));
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::ndcTexture));
     _services.graphics.context.bindTexture(output);

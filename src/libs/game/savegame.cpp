@@ -11,12 +11,81 @@
 
 #include "reone/resource/director.h"
 #include "reone/game/portraits.h"
+#include "reone/graphics/context.h"
+#include "reone/graphics/format/tgawriter.h"
 #include "reone/system/fileutil.h"
+#include "reone/system/exception/validation.h"
 #include "reone/system/logger.h"
 #include "reone/system/logutil.h"
 
 namespace reone {
 namespace game {
+
+ByteBuffer encodeSaveScreenshot(
+    uint32_t width,
+    uint32_t height,
+    graphics::PixelFormat format,
+    const ByteBuffer &pixels) {
+    size_t channels;
+    bool bgr;
+    switch (format) {
+    case graphics::PixelFormat::RGB8: channels = 3; bgr = false; break;
+    case graphics::PixelFormat::BGR8: channels = 3; bgr = true; break;
+    case graphics::PixelFormat::RGBA8: channels = 4; bgr = false; break;
+    case graphics::PixelFormat::BGRA8: channels = 4; bgr = true; break;
+    default:
+        throw ValidationException("save screenshot source must be RGB8 or RGBA8");
+    }
+    if (width == 0 || height == 0 ||
+        static_cast<uint64_t>(width) * height * channels != pixels.size()) {
+        throw ValidationException("save screenshot source dimensions do not match its pixels");
+    }
+
+    constexpr uint32_t kPreviewSize = 256;
+    const uint32_t crop = std::min(width, height);
+    const uint32_t cropX = (width - crop) / 2;
+    const uint32_t cropY = (height - crop) / 2;
+    ByteBuffer preview(static_cast<size_t>(kPreviewSize) * kPreviewSize * 3);
+    for (uint32_t y = 0; y < kPreviewSize; ++y) {
+        const uint32_t sourceY = cropY + static_cast<uint32_t>(
+            (static_cast<uint64_t>(2 * y + 1) * crop) / (2 * kPreviewSize));
+        for (uint32_t x = 0; x < kPreviewSize; ++x) {
+            const uint32_t sourceX = cropX + static_cast<uint32_t>(
+                (static_cast<uint64_t>(2 * x + 1) * crop) / (2 * kPreviewSize));
+            const size_t source =
+                (static_cast<size_t>(sourceY) * width + sourceX) * channels;
+            const size_t target =
+                (static_cast<size_t>(y) * kPreviewSize + x) * 3;
+            preview[target] = pixels[source + (bgr ? 2 : 0)];
+            preview[target + 1] = pixels[source + 1];
+            preview[target + 2] = pixels[source + (bgr ? 0 : 2)];
+        }
+    }
+    return graphics::TgaWriter(
+               kPreviewSize, kPreviewSize, graphics::PixelFormat::RGB8,
+               std::move(preview), graphics::TgaOrigin::BottomLeft)
+        .toBytes();
+}
+
+std::optional<ByteBuffer> Game::captureSaveScreenshot() {
+    if (!_lastRenderedSceneOutput) {
+        return std::nullopt;
+    }
+    auto &texture = *_lastRenderedSceneOutput;
+    // Texture readback operates on the currently bound GL texture. The prior
+    // frame's GUI rendering leaves an unrelated texture bound, so explicitly
+    // bind the retained clean scene output before transferring its pixels.
+    _services.graphics.context.bindTexture(texture);
+    texture.flushGPUToCPU();
+    if (texture.layers().empty() || !texture.layers().front().pixels) {
+        return std::nullopt;
+    }
+    return encodeSaveScreenshot(
+        static_cast<uint32_t>(texture.width()),
+        static_cast<uint32_t>(texture.height()),
+        texture.pixelFormat(), *texture.layers().front().pixels);
+}
+
 namespace {
 
 constexpr uint32_t kQuickSaveSlot = 0;

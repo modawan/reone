@@ -88,6 +88,7 @@ class GUI;
 namespace graphics {
 
 class Font;
+class Texture;
 
 }
 
@@ -644,6 +645,7 @@ private:
     bool _transitionInProgress {false};
     bool _atStableSavePoint {false};
     SaveOrchestrationSeams _saveSeams;
+    graphics::Texture *_lastRenderedSceneOutput {nullptr};
 
     // Services
 
@@ -744,6 +746,7 @@ private:
     SaveMetadataInput buildSaveMetadata(const SaveRequest &request) const;
     resource::SaveSlotDescriptor saveTarget(const SaveRequest &request) const;
     std::map<std::string, ByteBuffer> currentLooseSavePassthrough() const;
+    std::optional<ByteBuffer> captureSaveScreenshot();
 
     uint32_t savedObjectId(const resource::Gff &gff) const;
     void registerObject(

@@ -6,6 +6,8 @@
 #include <optional>
 #include <string>
 
+#include "reone/graphics/types.h"
+
 #include "modulesnapshot.h"
 #include "saveslotpublisher.h"
 #include "savewidesnapshot.h"
@@ -82,6 +84,13 @@ struct SaveOrchestrationSeams {
     /** Test/diagnostic observer called once for each accepted request. */
     std::function<void(const SaveRequest &, const SaveResult &)> terminalResult;
 };
+
+/** Center-crop and nearest-resample a bottom-left-origin image to Screen.tga. */
+ByteBuffer encodeSaveScreenshot(
+    uint32_t width,
+    uint32_t height,
+    graphics::PixelFormat format,
+    const ByteBuffer &pixels);
 
 } // namespace game
 } // namespace reone

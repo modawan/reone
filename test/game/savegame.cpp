@@ -12,12 +12,71 @@
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/module.h"
+#include "reone/graphics/format/tgareader.h"
 #include "reone/resource/saveworkingstate.h"
+#include "reone/system/stream/memoryinput.h"
 
 using namespace reone;
 using namespace reone::game;
 using namespace reone::resource;
 using namespace testing;
+
+TEST(SaveScreenshot, center_crops_resamples_and_preserves_orientation_and_channels) {
+    ByteBuffer rgba(4u * 2u * 4u, 0);
+    auto pixel = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        size_t offset = static_cast<size_t>(y * 4 + x) * 4;
+        rgba[offset] = static_cast<char>(r);
+        rgba[offset + 1] = static_cast<char>(g);
+        rgba[offset + 2] = static_cast<char>(b);
+        rgba[offset + 3] = static_cast<char>(0x7f);
+    };
+    // The one-pixel side columns are cropped. Rows use OpenGL bottom-left order.
+    pixel(1, 0, 255, 0, 0);   // bottom-left red
+    pixel(2, 0, 0, 255, 0);   // bottom-right green
+    pixel(1, 1, 0, 0, 255);   // top-left blue
+    pixel(2, 1, 255, 255, 0); // top-right yellow
+
+    auto encoded = encodeSaveScreenshot(4, 2, graphics::PixelFormat::RGBA8, rgba);
+
+    ASSERT_EQ(encoded.size(), 18u + 256u * 256u * 3u);
+    EXPECT_EQ(static_cast<uint8_t>(encoded[12]), 0u);
+    EXPECT_EQ(static_cast<uint8_t>(encoded[13]), 1u);
+    EXPECT_EQ(static_cast<uint8_t>(encoded[14]), 0u);
+    EXPECT_EQ(static_cast<uint8_t>(encoded[15]), 1u);
+    EXPECT_EQ(static_cast<uint8_t>(encoded[16]), 24u);
+    EXPECT_EQ(static_cast<uint8_t>(encoded[17]) & 0x20u, 0u);
+
+    MemoryInputStream input(encoded);
+    graphics::TgaReader reader(input, "save_preview", graphics::TextureUsage::Default);
+    reader.load();
+    auto texture = reader.texture();
+    ASSERT_TRUE(texture);
+    ASSERT_EQ(texture->width(), 256);
+    ASSERT_EQ(texture->height(), 256);
+    const auto &bgr = *texture->layers().front().pixels;
+    auto expectBgr = [&](int x, int y, uint8_t b, uint8_t g, uint8_t r) {
+        size_t offset = static_cast<size_t>(y * 256 + x) * 3;
+        EXPECT_EQ(static_cast<uint8_t>(bgr[offset]), b);
+        EXPECT_EQ(static_cast<uint8_t>(bgr[offset + 1]), g);
+        EXPECT_EQ(static_cast<uint8_t>(bgr[offset + 2]), r);
+    };
+    expectBgr(0, 0, 0, 0, 255);
+    expectBgr(255, 0, 0, 255, 0);
+    expectBgr(0, 255, 255, 0, 0);
+    expectBgr(255, 255, 0, 255, 255);
+}
+
+TEST(SaveScreenshot, rejects_missing_malformed_and_unsupported_sources) {
+    EXPECT_THROW(
+        encodeSaveScreenshot(0, 2, graphics::PixelFormat::RGBA8, {}),
+        ValidationException);
+    EXPECT_THROW(
+        encodeSaveScreenshot(2, 2, graphics::PixelFormat::RGBA8, ByteBuffer(15)),
+        ValidationException);
+    EXPECT_THROW(
+        encodeSaveScreenshot(2, 2, graphics::PixelFormat::R8, ByteBuffer(4)),
+        ValidationException);
+}
 
 void reone::game::TestGameModule::configureSaveOrchestration(
     Game &game, SaveOrchestrationSeams seams) {
