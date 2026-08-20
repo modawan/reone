@@ -125,6 +125,10 @@ public:
         return DialogGUI::decodeCutAnimation(ordinal);
     }
 
+    static AnimationType dialogAnimationType(DialogGUI &gui, int ordinal) {
+        return gui.getDialogAnimationType(ordinal);
+    }
+
     static void setOwner(DialogGUI &gui, std::shared_ptr<Object> owner) {
         gui._owner = std::move(owner);
     }
@@ -1092,10 +1096,27 @@ std::shared_ptr<scene::ModelSceneNode> modelNodeOf(const std::shared_ptr<Creatur
 std::shared_ptr<TwoDA> makeDialogAnimationsTable() {
     TwoDA::Builder builder;
     builder.columns({"name"});
-    for (int i = 0; i < 30; ++i) {
-        builder.row({""});
+    for (int i = 0; i < 227; ++i) {
+        std::string name;
+        switch (i) {
+        case 30:
+            name = "Talk_Normal";
+            break;
+        case 35:
+            name = "Bow";
+            break;
+        case 40:
+            name = "Talk_Forceful";
+            break;
+        case 44:
+            name = "Victory";
+            break;
+        case 70:
+            name = "Inject";
+            break;
+        }
+        builder.row({name});
     }
-    builder.row({"Talk_Normal"});
     return builder.build();
 }
 
@@ -1133,6 +1154,72 @@ TEST(DialogGUI, should_decode_participant_animation_ordinals_by_cut_band) {
     for (int ordinal : {0, 35, 40, 70, 999, 1800, 2000, 9999, 10000, 10038, 10511}) {
         EXPECT_FALSE(MixedStuntTestAccess::decodeCut(ordinal).has_value()) << "ordinal " << ordinal;
     }
+}
+
+TEST(DialogGUI, should_decode_direct_k1_dialog_animation_rows) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    DialogGUI gui(game, engine.services());
+    auto animations = makeDialogAnimationsTable();
+
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("dialoganimations"))
+        .Times(4)
+        .WillRepeatedly(Return(animations));
+
+    EXPECT_EQ(AnimationType::FireForgetBow, MixedStuntTestAccess::dialogAnimationType(gui, 35));
+    EXPECT_EQ(AnimationType::LoopingTalkForceful, MixedStuntTestAccess::dialogAnimationType(gui, 40));
+    EXPECT_EQ(AnimationType::FireForgetVictory1, MixedStuntTestAccess::dialogAnimationType(gui, 44));
+    EXPECT_EQ(AnimationType::FireForgetInject, MixedStuntTestAccess::dialogAnimationType(gui, 70));
+}
+
+TEST(DialogGUI, should_preserve_offset_dialog_animation_rows_and_k2_rejection) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game k1Game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    Game k2Game(GameID::TSL, "", engine.options(), engine.services(), console);
+    DialogGUI k1Gui(k1Game, engine.services());
+    DialogGUI k2Gui(k2Game, engine.services());
+    auto animations = makeDialogAnimationsTable();
+
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("dialoganimations"))
+        .Times(2)
+        .WillRepeatedly(Return(animations));
+
+    EXPECT_EQ(AnimationType::FireForgetBow, MixedStuntTestAccess::dialogAnimationType(k1Gui, 10035));
+    EXPECT_EQ(AnimationType::FireForgetBow, MixedStuntTestAccess::dialogAnimationType(k2Gui, 10035));
+    EXPECT_EQ(AnimationType::Invalid, MixedStuntTestAccess::dialogAnimationType(k2Gui, 35));
+}
+
+TEST(DialogGUI, should_reject_invalid_and_unresolved_k1_dialog_animation_rows) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    DialogGUI gui(game, engine.services());
+    auto animations = makeDialogAnimationsTable();
+
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("dialoganimations"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(animations));
+
+    EXPECT_EQ(AnimationType::Invalid, MixedStuntTestAccess::dialogAnimationType(gui, 0));
+    EXPECT_EQ(AnimationType::Invalid, MixedStuntTestAccess::dialogAnimationType(gui, -1));
+    EXPECT_EQ(AnimationType::Invalid, MixedStuntTestAccess::dialogAnimationType(gui, 227));
+    EXPECT_EQ(AnimationType::Invalid, MixedStuntTestAccess::dialogAnimationType(gui, 10227));
+    EXPECT_EQ(AnimationType::Invalid, MixedStuntTestAccess::dialogAnimationType(gui, 2000));
+}
+
+TEST(DialogGUI, should_preserve_cut_band_precedence_for_k1_direct_rows) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    DialogGUI gui(game, engine.services());
+    Dialog::EntryReply entry;
+    entry.animations.push_back({"owner", 1000});
+
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("dialoganimations")).Times(0);
+
+    MixedStuntTestAccess::updateAnimationsForEntry(gui, entry);
 }
 
 TEST(DialogGUI, should_animate_the_real_player_when_an_animated_cut_authors_no_stunt_participants) {
