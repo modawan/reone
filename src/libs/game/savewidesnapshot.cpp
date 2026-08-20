@@ -323,16 +323,19 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildPartyTable() const {
 
     put(*result, Gff::Field::newInt("PT_AISTATE", state.aiState));
     put(*result, Gff::Field::newInt("PT_FOLLOWSTATE", state.followState));
+    const auto &galaxyState = party.galaxyMap();
     uint32_t planetMask = 0;
-    for (size_t planet = 0; planet < Party::kGalaxyPlanetCount; ++planet) {
-        if (state.planetAvailable[planet]) planetMask |= 1u << planet;
-        if (state.planetSelectable[planet]) planetMask |= 1u << (planet + 16);
+    for (int planet = 0; planet < GalaxyMapState::kPlanetMaskBits; ++planet) {
+        if (galaxyState.available(planet)) planetMask |= 1u << planet;
+        if (galaxyState.selectable(planet)) {
+            planetMask |= 1u << (planet + GalaxyMapState::kPlanetMaskBits);
+        }
     }
     auto galaxy = result->findStruct("GlxyMap");
     if (!galaxy) galaxy = emptyRecord();
-    put(*galaxy, Gff::Field::newDword("GlxyMapNumPnts", state.galaxyPointCount));
+    put(*galaxy, Gff::Field::newDword("GlxyMapNumPnts", galaxyState.rowCount()));
     put(*galaxy, Gff::Field::newDword("GlxyMapPlntMsk", planetMask));
-    put(*galaxy, Gff::Field::newInt("GlxyMapSelPnt", state.selectedPlanet));
+    put(*galaxy, Gff::Field::newInt("GlxyMapSelPnt", galaxyState.selectedPlanet()));
     put(*result, Gff::Field::newStruct("GlxyMap", std::move(galaxy)));
 
     std::vector<std::shared_ptr<Gff>> cards;

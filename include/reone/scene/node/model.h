@@ -109,6 +109,15 @@ public:
     void computeAABB();
     void signalEvent(const std::string &name);
 
+    /**
+     * Prewarm every continuous emitter in this model, so a scene that is shown
+     * rather than entered does not have to build its effects up from nothing
+     * in front of the viewer.
+     *
+     * Opt-in: nothing calls this on an ordinary model.
+     */
+    void prewarmEmitters();
+
     bool isPickable() const { return _pickable; }
 
     ModelNodeSceneNode *getNodeByNumber(uint16_t number);

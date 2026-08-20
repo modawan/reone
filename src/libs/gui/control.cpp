@@ -207,49 +207,71 @@ void Control::render(const glm::ivec2 &screenSize,
         return;
     }
     glm::ivec2 size(_extent.width, _extent.height);
+
+    // The borders this control is currently showing, in the order they stack:
+    // its own border, its HILIGHT border, or - where the hilight is authored to
+    // sit over the border rather than replace it - both.
+    std::array<const Border *, 2> borderStorage;
+    size_t borderCount = 0;
     if (_border && (!_selected || _hilightOverBorder || !_hilight)) {
-        renderBorder(*_border, offset, size, pass);
+        borderStorage[borderCount++] = _border.get();
     }
     if (_selected && _hilight) {
-        renderBorder(*_hilight, offset, size, pass);
+        borderStorage[borderCount++] = _hilight.get();
     }
-    if (!_textLines.empty()) {
-        renderText(_textLines, offset, size, pass);
-    }
-    if (!_sceneName.empty()) {
-        std::optional<std::reference_wrapper<Texture>> output;
-        _graphicsSvc.context.withBlendMode(BlendMode::None, [this, &output]() {
-            output = _sceneGraphs.get(_sceneName).render({_extent.width, _extent.height});
+
+    renderControlLayers(
+        ArrayRef<const Border *>(borderStorage.data(), borderCount),
+        !_sceneName.empty(),
+        [this, &offset, &size, &pass](const Border &border, BorderRenderPart part) {
+            renderBorder(border, offset, size, pass, part);
+        },
+        [this, &screenSize, &offset, &pass]() {
+            renderScene(screenSize, offset, pass);
+        },
+        [this, &offset, &size, &pass]() {
+            if (!_textLines.empty()) {
+                renderText(_textLines, offset, size, pass);
+            }
         });
-        _graphicsSvc.uniforms.setGlobals([&screenSize](auto &globals) {
-            globals.reset();
-            globals.projection = glm::ortho(
-                0.0f,
-                static_cast<float>(screenSize.x),
-                static_cast<float>(screenSize.y),
-                0.0f, 0.0f, 100.0f);
-            globals.projectionInv = glm::inverse(globals.projection);
-        });
-        _graphicsSvc.context.withDepthTestMode(DepthTestMode::None, [this, &offset, &pass, &output]() {
-            pass.drawImage(
-                *output,
-                {_extent.left + offset.x, _extent.top + offset.y},
-                {_extent.width, _extent.height});
-        });
-    }
+}
+
+void Control::renderScene(const glm::ivec2 &screenSize,
+                          const glm::ivec2 &offset,
+                          IRenderPass &pass) {
+    std::optional<std::reference_wrapper<Texture>> output;
+    _graphicsSvc.context.withBlendMode(BlendMode::None, [this, &output]() {
+        output = _sceneGraphs.get(_sceneName).render({_extent.width, _extent.height});
+    });
+    _graphicsSvc.uniforms.setGlobals([&screenSize](auto &globals) {
+        globals.reset();
+        globals.projection = glm::ortho(
+            0.0f,
+            static_cast<float>(screenSize.x),
+            static_cast<float>(screenSize.y),
+            0.0f, 0.0f, 100.0f);
+        globals.projectionInv = glm::inverse(globals.projection);
+    });
+    _graphicsSvc.context.withDepthTestMode(DepthTestMode::None, [this, &offset, &pass, &output]() {
+        pass.drawImage(
+            *output,
+            {_extent.left + offset.x, _extent.top + offset.y},
+            {_extent.width, _extent.height});
+    });
 }
 
 void Control::renderBorder(const Border &border,
                            const glm::ivec2 &offset,
                            const glm::ivec2 &size,
-                           IRenderPass &pass) {
+                           IRenderPass &pass,
+                           BorderRenderPart part) {
     _graphicsSvc.context.useProgram(_graphicsSvc.shaderRegistry.get(ShaderProgramId::mvpTexture));
 
     glm::vec3 color(getBorderColor());
     glm::mat4 transform(1.0f);
     glm::mat3x4 uv(1.0f);
 
-    if (border.fill) {
+    if (part != BorderRenderPart::Frame && border.fill) {
         if (border.fillTransform == Border::FillTransform::Rotate180) {
             uv = glm::mat3x4(
                 glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
@@ -269,7 +291,7 @@ void Control::renderBorder(const Border &border,
         });
     }
 
-    if (border.edge) {
+    if (part != BorderRenderPart::Fill && border.edge) {
         int width = size.x - 2 * border.dimension;
         int height = size.y - 2 * border.dimension;
 
@@ -327,7 +349,7 @@ void Control::renderBorder(const Border &border,
         }
     }
 
-    if (border.corner) {
+    if (part != BorderRenderPart::Fill && border.corner) {
         int x = _extent.left + offset.x;
         int y = _extent.top + offset.y;
 

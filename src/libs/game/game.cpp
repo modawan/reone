@@ -462,6 +462,7 @@ static int getDebugFaction(const std::shared_ptr<Object> &object) {
 
 void Game::init() {
     initConsole();
+    resetGalaxyMap();
     initLocalServices();
     setSceneSurfaces();
     setCursorType(CursorType::Default);
@@ -1327,6 +1328,7 @@ void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
 }
 
 void Game::deserializeParty(resource::Gff &ifoGff) {
+    resetGalaxyMap();
     auto ptGff = decodeSaveGff(
         _services.resource.director.findSaveMetadata(ResourceId("partytable", ResType::Res)));
 
@@ -1355,6 +1357,7 @@ void Game::publishPartyRuntimeState(
     const std::shared_ptr<resource::Gff> &pcGff) {
     if (ptGff) {
         captureSaveResourceShadow({SaveResourceKind::PartyTable, {}}, *ptGff);
+        deserializeGalaxyMap(*ptGff);
         uint32_t gold = 0;
         if (ptGff->readDword(gold, "PT_GOLD")) {
             _party.takeGold(_party.gold());
@@ -1519,6 +1522,17 @@ Party::PersistedState Game::parsePartyTable(const resource::Gff &ptGff) const {
 
 void Game::replacePartyTable(Party::PersistedState state) {
     _party.setPersistedState(std::move(state));
+}
+
+void Game::resetGalaxyMap() {
+    // K1 takes its planet count from content; K2 ignores the table and always
+    // carries sixteen rows.
+    auto planetary = _services.resource.twoDas.get("planetary");
+    _party.galaxyMap().reset(_gameId, planetary ? planetary->getRowCount() : 0);
+}
+
+void Game::deserializeGalaxyMap(resource::Gff &ptGff) {
+    _party.galaxyMap().loadFromPartyTable(ptGff);
 }
 
 void Game::deserializePazaakPartyTable(resource::Gff &ptGff) {
@@ -2489,6 +2503,14 @@ void Game::loadNextModule() {
 }
 
 void Game::stopMovement() {
+    // Reached with no module while one is being swapped in: loadGame resets the
+    // game before the destination module is up, and the menus that call this
+    // outlive that reset. There is no player to halt and no in-game camera for
+    // getActiveCamera to find, so there is nothing to stop.
+    if (!_module) {
+        return;
+    }
+
     auto camera = getActiveCamera();
     if (camera) {
         camera->stopMovement();
@@ -4424,9 +4446,10 @@ void Game::consoleSelectObjectByTag(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "tag");
     std::string_view tag = args[1].value();
 
-    for (auto [id, object] : _objectById) {
+    auto area = getConsoleArea();
+    for (auto &object : area->objects()) {
         if (object->tag() == tag) {
-            getConsoleArea()->selectObject(object, /*force=*/true);
+            area->selectObject(object, /*force=*/true);
             return;
         }
     }

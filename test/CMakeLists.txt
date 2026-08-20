@@ -46,18 +46,23 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/extract/modulealignment.cpp
     ${TESTS_SOURCE_DIR}/fixtures/engine.cpp
     ${TESTS_SOURCE_DIR}/game/action.cpp
+    ${TESTS_SOURCE_DIR}/game/actionactor.cpp
     ${TESTS_SOURCE_DIR}/game/assigncommand.cpp
     ${TESTS_SOURCE_DIR}/game/d20/class.cpp
     ${TESTS_SOURCE_DIR}/game/d20/spells.cpp
     ${TESTS_SOURCE_DIR}/game/conversation.cpp
+    ${TESTS_SOURCE_DIR}/game/globalnumber.cpp
     ${TESTS_SOURCE_DIR}/game/interaction.cpp
     ${TESTS_SOURCE_DIR}/game/effect.cpp
+    ${TESTS_SOURCE_DIR}/game/galaxymaproutines.cpp
+    ${TESTS_SOURCE_DIR}/game/galaxymapstate.cpp
     ${TESTS_SOURCE_DIR}/game/savedruntime.cpp
     ${TESTS_SOURCE_DIR}/game/saveprovenance.cpp
     ${TESTS_SOURCE_DIR}/game/savedsituation.cpp
     ${TESTS_SOURCE_DIR}/game/journal.cpp
     ${TESTS_SOURCE_DIR}/game/messagebus.cpp
     ${TESTS_SOURCE_DIR}/game/minigame.cpp
+    ${TESTS_SOURCE_DIR}/game/modulename.cpp
     ${TESTS_SOURCE_DIR}/game/modulesnapshot.cpp
     ${TESTS_SOURCE_DIR}/game/savegame.cpp
     ${TESTS_SOURCE_DIR}/game/savedgame.cpp
@@ -71,6 +76,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/pathfinder.cpp
     ${TESTS_SOURCE_DIR}/game/reputes.cpp
     ${TESTS_SOURCE_DIR}/game/statussummary.cpp
+    ${TESTS_SOURCE_DIR}/game/stringroutines.cpp
     ${TESTS_SOURCE_DIR}/game/timingepoch.cpp
     ${TESTS_SOURCE_DIR}/game/transitioncandidate.cpp
     ${TESTS_SOURCE_DIR}/game/turret.cpp
@@ -83,6 +89,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/graphics/format/txireader.cpp
     ${TESTS_SOURCE_DIR}/graphics/keyframetrack.cpp
     ${TESTS_SOURCE_DIR}/graphics/walkmesh.cpp
+    ${TESTS_SOURCE_DIR}/gui/controlrender.cpp
     ${TESTS_SOURCE_DIR}/json/gff.cpp
     ${TESTS_SOURCE_DIR}/resource/archivevalidation.cpp
     ${TESTS_SOURCE_DIR}/resource/extractresources.cpp
@@ -122,6 +129,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/scene/emitter.cpp
     ${TESTS_SOURCE_DIR}/scene/mesh.cpp
     ${TESTS_SOURCE_DIR}/scene/model.cpp
+    ${TESTS_SOURCE_DIR}/scene/particleutil.cpp
     ${TESTS_SOURCE_DIR}/script/format/ncsreader.cpp
     ${TESTS_SOURCE_DIR}/script/format/ncswriter.cpp
     ${TESTS_SOURCE_DIR}/script/virtualmachine.cpp

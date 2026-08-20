@@ -62,6 +62,14 @@ MoveToObjectAction::MoveToObjectAction(
 }
 
 void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    // Conversations owned by doors/placeables can queue creature actions on
+    // those objects. Such actors have nothing to move, so discard safely.
+    auto creatureActor = _game.getObjectById<Creature>(actor.id());
+    if (!creatureActor) {
+        complete();
+        return;
+    }
+
     if (_force && !_forcedState.active) {
         _forcedState.active = true;
         if (_moveTo) {
@@ -79,11 +87,6 @@ void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
     }
 
     auto dest = _moveTo ? _moveTo->position() : _forcedState.destination;
-    auto creatureActor = _game.getObjectById<Creature>(actor.id());
-    if (!creatureActor) {
-        complete();
-        return;
-    }
 
     if (_force && _forcedState.active) {
         bool expired = _game.worldTimeDay() > _forcedState.expiryDay ||

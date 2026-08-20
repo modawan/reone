@@ -126,6 +126,7 @@ public:
     std::shared_ptr<Item> addItem(const std::string &resRef, int stackSize = 1, bool dropable = true);
     void addItem(const std::shared_ptr<Item> &item);
     bool removeItem(const std::shared_ptr<Item> &item, bool &last);
+    bool removeItemStack(const std::shared_ptr<Item> &item);
     void moveDropableItemsTo(Object &other);
 
     std::shared_ptr<Item> getFirstItem();
@@ -249,6 +250,14 @@ public:
 
     const std::string &getOnHeartbeat() const { return _onHeartbeat; }
     const std::string &getOnUserDefined() const { return _onUserDefined; }
+
+    /**
+     * Drop this object's OnHeartbeat script, leaving its other event scripts
+     * alone. Area heartbeat dispatch skips objects without one, so the object
+     * stops receiving heartbeats. Used by the KotOR II RemoveHeartbeat routine
+     * once a heartbeat script has done its one-off work.
+     */
+    void clearOnHeartbeat() { _onHeartbeat.clear(); }
 
     // END Scripts
 

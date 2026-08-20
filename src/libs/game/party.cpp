@@ -147,6 +147,7 @@ void Party::reset() {
     _solo = false;
     _gold = 0;
     _xp = 0;
+    _galaxyMap.clear();
     _pazaakDataValid = false;
     _pazaakCardCounts.fill(0);
     _pazaakSideDeck.fill(-1);

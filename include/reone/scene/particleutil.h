@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,33 +17,31 @@
 
 #pragma once
 
-#include "../action.h"
+#include "glm/glm.hpp"
 
 namespace reone {
 
-namespace game {
+namespace scene {
 
-class Door;
+namespace particleutil {
 
-class CloseDoorAction : public Action {
-public:
-    CloseDoorAction(Game &game,
-                    ServicesView &services,
-                    std::shared_ptr<Door> door) :
-        Action(game, services, ActionType::CloseDoor),
-        _door(std::move(door)) {
-    }
-
-    static bool classof(Action *from) {
-        return from->type() == ActionType::CloseDoor;
-    }
-
-    void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
-
-private:
-    std::shared_ptr<Door> _door;
+struct MotionBlurBasis {
+    glm::vec3 right {0.0f};
+    glm::vec3 up {0.0f};
+    float lengthScale {1.0f};
 };
 
-} // namespace game
+MotionBlurBasis buildMotionBlurBasis(
+    const glm::mat4 &emitterTransform,
+    const glm::vec3 &localVelocity,
+    const glm::vec3 &toCamera,
+    const glm::vec3 &cameraRight,
+    const glm::vec3 &cameraUp,
+    float particleLength,
+    float blurLength);
+
+} // namespace particleutil
+
+} // namespace scene
 
 } // namespace reone

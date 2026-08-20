@@ -127,6 +127,11 @@ RichState configureRich(Game &game, bool tsl) {
         state.puppetIds.push_back(0);
     }
     game.party().setPersistedState(state);
+    game.party().galaxyMap().reset(
+        tsl ? GameID::TSL : GameID::KotOR, Party::kGalaxyPlanetCount);
+    game.party().galaxyMap().setAvailable(2, true);
+    game.party().galaxyMap().setSelectable(4, true);
+    game.party().galaxyMap().restoreSelectedPlanet(4);
     game.party().giveGold(1234);
     game.party().setXP(4321);
     Party::PazaakCardCounts cards {};

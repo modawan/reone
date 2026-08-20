@@ -184,6 +184,10 @@ public:
     static bool hasConversation(const Game &game);
     static void bindHUDSelection(Game &game, std::shared_ptr<Object> object);
     static bool hasHUDSelection(const Game &game);
+    // Game::stopMovement is private and its public callers need in-game
+    // menus that only exist once a module has been loaded.
+    static void stopMovement(Game &game);
+    static void loadModulePlayer(Module &module);
     static void setPazaakDevelopmentSelectedObject(
         Game &game,
         std::shared_ptr<Object> object);
@@ -193,6 +197,9 @@ public:
     static void finishPazaak(Game &game, PazaakCompletedResult result);
     static void serializePazaakPartyTable(const Game &game, resource::Gff &gff);
     static void deserializePartyTable(Game &game, resource::Gff &gff);
+    // Drive the two steps of Module::load that module identity depends on,
+    // without the area/scene machinery a full load would need.
+    static void loadModuleInfo(Module &module, std::string name, const resource::Gff &ifo);
     static void clickCreature(Module &module, const std::shared_ptr<Creature> &creature);
     static void publishPartyRuntimeState(
         Game &game,

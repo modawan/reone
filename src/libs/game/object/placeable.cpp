@@ -242,18 +242,23 @@ void Placeable::runOnUsed(std::shared_ptr<Object> usedBy) {
     _game.scriptRunner().run(_onUsed, args);
 }
 
-void Placeable::runOnInvDisturbed(std::shared_ptr<Object> triggerrer) {
+void Placeable::runOnInvDisturbed(uint32_t triggerrer, InventoryDisturbType type, uint32_t item) {
     if (_onInvDisturbed.empty()) {
         return;
     }
 
     std::vector<script::Argument> args;
-    args.emplace_back(script::ArgKind::Caller, Variable::ofObject(_id));
+    args.emplace_back();
 
     // FIXME: implement LastDisturbed
     // triggerrer ? triggerrer->id() : kObjectInvalid
 
-    _game.scriptRunner().run(_onInvDisturbed, args);
+    _game.scriptRunner().run(
+        _onInvDisturbed,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::LastDisturbed, Variable::ofObject(triggerrer)},
+         {script::ArgKind::InventoryDisturbItem, Variable::ofObject(item)},
+         {script::ArgKind::InventoryDisturbType, Variable::ofInt(static_cast<int>(type))}});
 }
 
 void Placeable::runDamagedScript(uint32_t damagerId) {
