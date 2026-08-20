@@ -307,7 +307,25 @@ std::optional<SavedActionRecord> SavedDoCommandAction::saveFacingState() const {
     std::string error;
     auto situation = exportScriptSituation(*_continuation, error);
     if (!situation) {
-        throw ValidationException("DoCommand continuation is not serializable: " + error);
+        const auto &state = _continuation->executionState();
+        auto original = _continuation->originalSavedSituationProvenance();
+        std::ostringstream message;
+        message << "DoCommand continuation is not serializable: " << error
+                << "; script=\"" << _continuation->scriptName() << '\"'
+                << " continuationProvenance=" << (original ? "present" : "absent")
+                << " continuationReusable="
+                << (_continuation->originalSavedSituationReusable() ? "yes" : "no")
+                << " globals=" << state.globals.size()
+                << " locals=" << state.locals.size()
+                << " runtimeBP=" << state.globals.size()
+                << " runtimeSP=" << state.globals.size() + state.locals.size();
+        if (original) {
+            message << " originalBP=" << original->basePointer
+                    << " originalSP=" << original->stackPointer
+                    << " originalTotalSize=" << original->totalSize
+                    << " originalInstructionPtr=" << original->instructionPointer;
+        }
+        throw ValidationException(message.str());
     }
     SavedActionRecord result = originalSavedAction().value_or(SavedActionRecord {});
     result.actionId = 37;

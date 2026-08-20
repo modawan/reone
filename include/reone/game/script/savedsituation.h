@@ -51,6 +51,12 @@ public:
     const SerializedScriptSituation *originalSavedSituation() const {
         return _originalReusable ? _original.get() : nullptr;
     }
+    const SerializedScriptSituation *originalSavedSituationProvenance() const {
+        return _original.get();
+    }
+    bool originalSavedSituationReusable() const {
+        return _original && _originalReusable;
+    }
     bool requiresRuntimeExport() const { return !originalSavedSituation(); }
     void markAdvanced() const { _originalReusable = false; }
 

@@ -602,7 +602,21 @@ std::optional<SerializedScriptSituation> exportScriptSituation(
         }
         case script::VariableType::Location: {
             auto location = std::dynamic_pointer_cast<Location>(value.engineType);
-            if (!location) { error = "live VM location has an unsupported engine value"; return std::nullopt; }
+            if (!value.engineType) {
+                // Retail K1 normalizes an uninitialized VM location to a
+                // discriminator-18 structure whose six components are zero.
+                saved.type = static_cast<int8_t>(SavedVmStackType::Location);
+                saved.payload = SavedLocationValue {};
+                break;
+            }
+            if (!location) {
+                error = str(boost::format(
+                    "live VM %s[%d] type=%d location has engine=%s, expected=%s") %
+                    scope % index % static_cast<int>(value.type) %
+                    (value.engineType ? typeid(*value.engineType).name() : "none") %
+                    typeid(Location).name());
+                return std::nullopt;
+            }
             saved.type = static_cast<int8_t>(SavedVmStackType::Location);
             saved.payload = SavedLocationValue {location->position(), location->saveOrientation()}; break;
         }

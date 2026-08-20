@@ -285,6 +285,29 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
         }
         return ValidationException(message.str());
     };
+    auto saveAction = [this](const Action &action, size_t queueIndex) {
+        try {
+            return action.saveFacingState();
+        } catch (const std::exception &ex) {
+            std::ostringstream message;
+            message << ex.what()
+                    << "; ownerId=" << id()
+                    << " ownerType=" << static_cast<int>(type())
+                    << " ownerClass=" << typeid(*this).name()
+                    << " ownerTag=\"" << tag() << '\"'
+                    << " ownerBlueprint=\"" << blueprintResRef() << '\"'
+                    << " queueIndex=" << queueIndex
+                    << " actionType=" << static_cast<int>(action.type())
+                    << " runtimeClass=" << typeid(action).name()
+                    << " actionProvenance="
+                    << (action.originalSavedAction() ? "present" : "absent");
+            if (action.originalSavedAction()) {
+                message << " savedActionId=" << action.originalSavedAction()->actionId
+                        << " groupActionId=" << action.originalSavedAction()->groupActionId;
+            }
+            throw ValidationException(message.str());
+        }
+    };
     for (const auto &slot : _loadedSaveActionSlots) {
         if (slot.unsupportedPending) {
             result.push_back(slot.original);
@@ -297,13 +320,13 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
             continue;
         }
         represented.insert(action.get());
-        if (auto saved = action->saveFacingState()) {
+        auto position = std::find(_actions.begin(), _actions.end(), action);
+        auto queueIndex = static_cast<size_t>(
+            std::distance(_actions.begin(), position));
+        if (auto saved = saveAction(*action, queueIndex)) {
             result.push_back(std::move(*saved));
         } else {
-            auto position = std::find(_actions.begin(), _actions.end(), action);
-            throw unsupportedAction(
-                *action,
-                static_cast<size_t>(std::distance(_actions.begin(), position)));
+            throw unsupportedAction(*action, queueIndex);
         }
     }
     for (size_t index = 0; index < _actions.size(); ++index) {
@@ -312,7 +335,7 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
             action->isCompleted() || action->isCancelled()) {
             continue;
         }
-        if (auto saved = action->saveFacingState()) {
+        if (auto saved = saveAction(*action, index)) {
             result.push_back(std::move(*saved));
         } else {
             throw unsupportedAction(*action, index);

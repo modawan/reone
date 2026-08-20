@@ -1146,4 +1146,48 @@ TEST(ModuleSnapshot, exports_advanced_runtime_script_situations_and_rejects_unsu
     EXPECT_THAT(error, HasSubstr("unsupported type="));
 }
 
+TEST(ModuleSnapshot, exports_retail_zero_location_for_uninitialized_runtime_location) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto program = std::make_shared<ScriptProgram>("k_ai_master");
+    program->add(Instruction::newCONSTI(1));
+    uint32_t resume = program->length();
+    program->add(Instruction(InstructionType::RETN));
+
+    auto state = std::make_shared<ExecutionState>();
+    state->program = program;
+    state->insOffset = resume;
+    state->globals.assign(174, Variable::ofInt(0));
+    state->locals = {Variable::ofLocation(nullptr)};
+    state->locals.insert(state->locals.end(), 8, Variable::ofInt(0));
+    auto context = std::make_shared<ExecutionContext>();
+    context->savedState = state;
+    auto action = game.newAction<DoCommandAction>(std::move(context));
+
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        SCOPED_TRACE(attempt);
+        auto exportedAction = action->saveFacingState();
+
+        ASSERT_TRUE(exportedAction);
+        ASSERT_EQ(exportedAction->actionId, 37u);
+        ASSERT_EQ(exportedAction->parameters.size(), 1u);
+        const auto &exported = std::get<SerializedScriptSituation>(
+            exportedAction->parameters.front().payload);
+        EXPECT_EQ(exported.basePointer, 174);
+        EXPECT_EQ(exported.stackPointer, 183);
+        ASSERT_EQ(exported.stack.size(), 183u);
+        const auto &saved = exported.stack[174];
+        EXPECT_EQ(saved.type, static_cast<int8_t>(SavedVmStackType::Location));
+        const auto &location = std::get<SavedLocationValue>(saved.payload);
+        EXPECT_EQ(location.position, glm::vec3(0.0f));
+        EXPECT_EQ(location.orientation, glm::vec3(0.0f));
+
+        // Snapshotting is observational: the live default location remains
+        // an uninitialized engine slot for the pending command to consume.
+        EXPECT_EQ(state->locals[0].type, VariableType::Location);
+        EXPECT_FALSE(state->locals[0].engineType);
+    }
+}
+
 } // namespace
