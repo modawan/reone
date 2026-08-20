@@ -31,6 +31,17 @@ std::optional<uint32_t> parseSlot(const std::string &name) {
     }
 }
 
+uint32_t displayNumber(
+    uint32_t slot,
+    const resource::NFO &metadata) {
+    // K2 persists the display value explicitly. K1 does not and numbers
+    // manual games from one while quick/autosave occupy durable slots 0/1.
+    // The directory suffix is not authoritative: Reone stores the user-entered
+    // save name there, and retail-style names only corroborate this slot model.
+    if (metadata.saveNumber) return *metadata.saveNumber;
+    return slot >= 2 ? slot - 1 : slot;
+}
+
 ByteBuffer readFile(const std::filesystem::path &path) {
     FileInputStream stream(path);
     ByteBuffer result(stream.length());
@@ -57,6 +68,7 @@ SavedGame readSlot(
     result.slot = slot;
     result.descriptor = {directory, archive};
     result.metadata = resource::parseNFO(*reader.root());
+    result.displayNumber = displayNumber(slot, result.metadata);
     auto screenshot = directory / "Screen.tga";
     if (std::filesystem::is_regular_file(screenshot)) {
         result.screenshot = readFile(screenshot);
@@ -103,6 +115,10 @@ std::vector<SavedGame> discoverSavedGames(const std::filesystem::path &gamePath)
         return a.slot < b.slot;
     });
     return result;
+}
+
+std::string saveGameNumberLabel(const SavedGame &save) {
+    return "Game " + std::to_string(save.displayNumber);
 }
 
 uint32_t nextManualSaveSlot(const std::vector<SavedGame> &saves) {

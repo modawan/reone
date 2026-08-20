@@ -59,7 +59,7 @@ std::string saveListText(
     auto name = save.metadata.savegameName.empty()
                     ? save.descriptor.directory.filename().string()
                     : save.metadata.savegameName;
-    return "Game " + std::to_string(save.slot) + " - " +
+    return saveGameNumberLabel(save) + " - " +
            std::to_string(hours) + "H " + std::to_string(minutes) +
            "M\n" + elideToWidth(std::move(name), font, maxWidth);
 }

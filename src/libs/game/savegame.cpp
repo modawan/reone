@@ -398,8 +398,14 @@ resource::SaveSlotDescriptor Game::saveTarget(const SaveRequest &request) const 
     std::ostringstream prefix;
     prefix << std::setw(6) << std::setfill('0') << request.slot;
     auto saves = _path / "saves";
-    auto directory = saves / (prefix.str() + " - " + request.displayName);
-    // Retail/UI identity is the numeric slot. Reuse an existing complete slot
+    // Retail keeps the user-entered title in SAVEGAMENAME. Manual directory
+    // suffixes use the allocation sequence after reserved quick/autosave slots.
+    // Existing exact slot directories are retained below for overwrite identity.
+    auto suffix = request.slot >= 2
+                      ? "Game" + std::to_string(request.slot - 1)
+                      : request.displayName;
+    auto directory = saves / (prefix.str() + " - " + suffix);
+    // Durable storage identity is the numeric slot. Reuse an existing complete slot
     // even if its directory suffix differs from the newly entered display
     // name; the authoritative user-facing name lives in savenfo.res.
     if (std::filesystem::is_directory(saves)) {

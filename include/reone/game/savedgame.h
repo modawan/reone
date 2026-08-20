@@ -32,6 +32,7 @@ namespace game {
 
 struct SavedGame {
     uint32_t slot {0};
+    uint32_t displayNumber {0};
     resource::SaveSlotDescriptor descriptor;
     resource::NFO metadata;
     std::optional<ByteBuffer> screenshot;
@@ -39,6 +40,9 @@ struct SavedGame {
 
 /** Discover structurally usable durable slots below one installation root. */
 std::vector<SavedGame> discoverSavedGames(const std::filesystem::path &gamePath);
+
+/** Presentation label only; never use it to target durable storage. */
+std::string saveGameNumberLabel(const SavedGame &save);
 
 /** Numeric slot identity is authoritative; return the next unused manual slot. */
 uint32_t nextManualSaveSlot(const std::vector<SavedGame> &saves);

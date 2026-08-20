@@ -31,6 +31,10 @@ NFO parseNFO(const Gff &gff) {
     nfo.timePlayed = gff.getUint("TIMEPLAYED");
     nfo.cheatUsed = gff.getBool("CHEATUSED");
     nfo.savegameName = gff.getString("SAVEGAMENAME");
+    uint32_t saveNumber = 0;
+    if (gff.readDword(saveNumber, "SAVENUMBER")) {
+        nfo.saveNumber = saveNumber;
+    }
     nfo.gameplayHint = gff.getUint("GAMEPLAYHINT");
     nfo.storyHint = gff.getUint("STORYHINT");
     nfo.live1 = gff.getString("LIVE1");

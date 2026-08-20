@@ -37,7 +37,8 @@ protected:
     std::filesystem::path addSlot(
         const std::string &directoryName,
         const std::string &saveName = "Test Save",
-        bool screenshot = false) {
+        bool screenshot = false,
+        std::optional<uint32_t> saveNumber = std::nullopt) {
         auto directory = _root / "saves" / directoryName;
         std::filesystem::create_directories(directory);
         std::ofstream(directory / "SAVEGAME.sav", std::ios::binary).put('x');
@@ -49,6 +50,9 @@ protected:
                        .field(Gff::Field::newCExoString("SAVEGAMENAME", saveName))
                        .field(Gff::Field::newCExoString("PORTRAIT0", "po_pmhc01"))
                        .build();
+        if (saveNumber) {
+            nfo->fields().push_back(Gff::Field::newDword("SAVENUMBER", *saveNumber));
+        }
         auto bytes = GffWriter(GffFileFormat::v32("NFO "), *nfo).toBytes();
         std::ofstream nfoFile(directory / "savenfo.res", std::ios::binary);
         nfoFile.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
@@ -76,6 +80,83 @@ TEST_F(SaveBrowserTest, discoversRetailAndReoneDirectorySlotsWithMetadata) {
     EXPECT_EQ(saves[1].metadata.timePlayed, 3723);
     ASSERT_TRUE(saves[1].screenshot);
     EXPECT_EQ(*saves[1].screenshot, ByteBuffer({'t', 'g', 'a'}));
+}
+
+TEST_F(SaveBrowserTest, k1RetailGameSuffixIsDisplayOnlyWhileSlotRemainsDurableIdentity) {
+    auto directory = addSlot("000164 - game163", "Dan-ruins");
+
+    auto saves = discoverSavedGames(_root);
+
+    ASSERT_EQ(saves.size(), 1);
+    EXPECT_EQ(saves[0].slot, 164u);
+    EXPECT_EQ(saves[0].displayNumber, 163u);
+    EXPECT_EQ(saveGameNumberLabel(saves[0]), "Game 163");
+    EXPECT_EQ(saves[0].descriptor.directory, directory);
+    EXPECT_EQ(saves[0].descriptor.archive, directory / "SAVEGAME.sav");
+}
+
+TEST_F(SaveBrowserTest, k1DisplayNumberCannotRedirectAnExactSlotMutation) {
+    auto unrelated = addSlot("000163 - game162", "Keep slot 163");
+    auto selectedDirectory = addSlot("000164 - game163", "Overwrite slot 164");
+    auto saves = discoverSavedGames(_root);
+    auto selected = std::find_if(saves.begin(), saves.end(), [](const SavedGame &save) {
+        return save.displayNumber == 163;
+    });
+
+    ASSERT_NE(selected, saves.end());
+    EXPECT_EQ(selected->slot, 164u);
+    EXPECT_EQ(selected->descriptor.directory, selectedDirectory);
+    EXPECT_EQ(nextManualSaveSlot(saves), 165u);
+    ASSERT_TRUE(deleteSavedGame(_root, selected->descriptor));
+    EXPECT_FALSE(std::filesystem::exists(selectedDirectory));
+    EXPECT_TRUE(std::filesystem::exists(unrelated));
+}
+
+TEST_F(SaveBrowserTest, k2NfoSaveNumberControlsDisplayButNotDurableIdentity) {
+    auto directory = addSlot("000164 - game163", "K2 save", false, 91);
+
+    auto saves = discoverSavedGames(_root);
+
+    ASSERT_EQ(saves.size(), 1);
+    EXPECT_EQ(saves[0].slot, 164u);
+    EXPECT_EQ(saves[0].displayNumber, 91u);
+    EXPECT_EQ(saves[0].metadata.saveNumber, 91u);
+    EXPECT_EQ(saves[0].descriptor.directory, directory);
+}
+
+TEST_F(SaveBrowserTest, reoneK1ManualSaveUsesRetailManualDisplaySequence) {
+    addSlot("000998 - FINAL_K1_SAVE", "FINAL_K1_SAVE");
+
+    auto saves = discoverSavedGames(_root);
+
+    ASSERT_EQ(saves.size(), 1);
+    EXPECT_EQ(saves[0].slot, 998u);
+    EXPECT_EQ(saves[0].displayNumber, 997u);
+    EXPECT_EQ(nextManualSaveSlot(saves), 999u);
+}
+
+TEST_F(SaveBrowserTest, k1UserDirectorySuffixCannotOverrideManualDisplaySequence) {
+    addSlot("000164 - game999", "User chose a game-like name");
+
+    auto saves = discoverSavedGames(_root);
+
+    ASSERT_EQ(saves.size(), 1);
+    EXPECT_EQ(saves[0].slot, 164u);
+    EXPECT_EQ(saves[0].displayNumber, 163u);
+}
+
+TEST_F(SaveBrowserTest, quickAndAutosaveIdentitiesDoNotUnderflowDisplayNumbers) {
+    addSlot("000000 - QUICKSAVE", "QUICKSAVE");
+    addSlot("000001 - AUTOSAVE", "AUTOSAVE");
+
+    auto saves = discoverSavedGames(_root);
+
+    ASSERT_EQ(saves.size(), 2);
+    EXPECT_EQ(saves[0].slot, 0u);
+    EXPECT_EQ(saves[0].displayNumber, 0u);
+    EXPECT_EQ(saves[1].slot, 1u);
+    EXPECT_EQ(saves[1].displayNumber, 1u);
+    EXPECT_EQ(nextManualSaveSlot(saves), 2u);
 }
 
 TEST_F(SaveBrowserTest, omitsIncompleteMalformedAndNonSlotEntries) {

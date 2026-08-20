@@ -276,7 +276,7 @@ TEST_F(SaveFixture, first_unsaved_manual_save_is_deferred_and_adopted_without_re
     EXPECT_EQ(SaveStatus::DurableSuccess, game->lastSaveResult()->status);
     EXPECT_EQ(1, publishedAdoptions);
     ASSERT_EQ(1, packageTargets.size());
-    EXPECT_EQ(root.path / "saves" / "000042 - First Save",
+    EXPECT_EQ(root.path / "saves" / "000042 - Game41",
               packageTargets[0].directory);
     ASSERT_EQ(1, capturedMetadata.size());
     EXPECT_EQ("First Save", capturedMetadata[0].displayName);
@@ -340,7 +340,7 @@ TEST_F(SaveFixture, one_pending_request_is_enforced_and_console_only_enqueues) {
     EXPECT_EQ(0, publishedAdoptions);
     TestGameModule::processPendingSave(*game);
     ASSERT_EQ(1, packageTargets.size());
-    EXPECT_EQ(root.path / "saves" / "000077 - Console Name",
+    EXPECT_EQ(root.path / "saves" / "000077 - Game76",
               packageTargets[0].directory);
 }
 
@@ -364,12 +364,12 @@ TEST_F(SaveFixture, quick_auto_same_slot_overwrite_and_save_as_keep_source_coher
     TestGameModule::processPendingSave(*game);
 
     ASSERT_EQ(5, packageTargets.size());
-    EXPECT_EQ("000010 - Manual", packageTargets[0].directory.filename());
+    EXPECT_EQ("000010 - Game9", packageTargets[0].directory.filename());
     EXPECT_EQ(packageTargets[0].directory, packageTargets[1].directory);
     EXPECT_EQ("000000 - QUICKSAVE", packageTargets[2].directory.filename());
     EXPECT_EQ("000001 - AUTOSAVE", packageTargets[3].directory.filename());
-    EXPECT_EQ("000010 - Renamed", packageTargets[4].directory.filename());
-    EXPECT_NE(packageTargets[0].directory, packageTargets[4].directory);
+    EXPECT_EQ("000010 - Game9", packageTargets[4].directory.filename());
+    EXPECT_EQ(packageTargets[0].directory, packageTargets[4].directory);
     EXPECT_EQ(5, publishedAdoptions);
     EXPECT_EQ(5, terminalResults.size());
     EXPECT_LT(terminalResults[0].requestId, terminalResults[1].requestId);

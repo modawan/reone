@@ -30,6 +30,7 @@ struct NFO {
     uint32_t timePlayed;
     bool cheatUsed;
     std::string savegameName;
+    std::optional<uint32_t> saveNumber;
     uint32_t gameplayHint;
     uint32_t storyHint;
     std::string live1;
