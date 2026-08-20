@@ -14,6 +14,7 @@
 #include "reone/game/action/wait.h"
 #include "reone/game/action/playanimation.h"
 #include "reone/game/action/movetoobject.h"
+#include "reone/game/action/startconversation.h"
 #include "reone/game/game.h"
 #include "reone/game/script/savedsituation.h"
 
@@ -323,6 +324,15 @@ SavedActionRecord SavedActionRecord::fromGff(const resource::Gff &gff) {
 }
 
 SavedExecutionSupport SavedActionRecord::executionSupport() const {
+    if (actionId == 24 && declaredParameterCount == 3 && parameters.size() == 3 &&
+        parameters[0].type == static_cast<uint32_t>(SavedActionParameterType::Object) &&
+        parameters[1].type == static_cast<uint32_t>(SavedActionParameterType::String) &&
+        parameters[2].type == static_cast<uint32_t>(SavedActionParameterType::Integer) &&
+        std::holds_alternative<SavedObjectReference>(parameters[0].payload) &&
+        std::holds_alternative<std::string>(parameters[1].payload) &&
+        std::holds_alternative<int32_t>(parameters[2].payload)) {
+        return SavedExecutionSupport::Executable;
+    }
     if (actionId == 1 && declaredParameterCount == 13 && parameters.size() == 13) {
         static constexpr std::array<uint32_t, 13> types {
             2, 2, 2, 3, 3, 1, 2, 1, 2, 2, 2, 1, 1};
@@ -394,6 +404,19 @@ std::shared_ptr<Action> SavedActionRecord::toRuntimeAction(
     }
     if (actionId == 30) {
         auto action = game.newAction<WaitAction>(std::get<float>(parameters.front().payload));
+        action->attachSavedAction(*this);
+        return action;
+    }
+    if (actionId == 24) {
+        auto target = std::get<SavedObjectReference>(parameters[0].payload).boundObject();
+        const auto &dialog = std::get<std::string>(parameters[1].payload);
+        int32_t privateConversation = std::get<int32_t>(parameters[2].payload);
+        if (!target || dialog.size() > 16 ||
+            (privateConversation != 0 && privateConversation != 1)) {
+            return nullptr;
+        }
+        auto action = game.newAction<StartConversationAction>(
+            std::move(target), dialog, privateConversation != 0);
         action->attachSavedAction(*this);
         return action;
     }

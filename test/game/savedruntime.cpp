@@ -15,6 +15,7 @@
 #include "reone/game/action.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/movetoobject.h"
+#include "reone/game/action/startconversation.h"
 #include "reone/game/game.h"
 #include "reone/game/savedruntime.h"
 #include "reone/resource/gff.h"
@@ -410,6 +411,60 @@ TEST(SavedAction, runtime_do_command_exports_retail_action_37_situation) {
         static_cast<uint32_t>(SavedActionParameterType::String);
     EXPECT_EQ(exported->executionSupport(),
               SavedExecutionSupport::RepresentableButUnsupported);
+}
+
+TEST(SavedAction, start_conversation_uses_retail_action_24_shape) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    auto runtime = game.newAction<StartConversationAction>(
+        target, "meeting", true);
+    SavedActionRecord provenance;
+    provenance.groupActionId = 12;
+    runtime->attachSavedAction(provenance);
+
+    auto exported = runtime->saveFacingState();
+
+    ASSERT_TRUE(exported);
+    EXPECT_EQ(exported->actionId, 24u);
+    EXPECT_EQ(exported->groupActionId, 12);
+    EXPECT_EQ(exported->declaredParameterCount, 3);
+    ASSERT_EQ(exported->parameters.size(), 3);
+    EXPECT_EQ(exported->parameters[0].type, 3u);
+    EXPECT_EQ(exported->parameters[1].type, 4u);
+    EXPECT_EQ(exported->parameters[2].type, 1u);
+    EXPECT_EQ(std::get<SavedObjectReference>(exported->parameters[0].payload).id,
+              target->id());
+    EXPECT_EQ(std::get<std::string>(exported->parameters[1].payload), "meeting");
+    EXPECT_EQ(std::get<int32_t>(exported->parameters[2].payload), 1);
+    ASSERT_TRUE(exported->bindObjectReferences(game));
+    auto restored = std::dynamic_pointer_cast<StartConversationAction>(
+        exported->toRuntimeAction(game));
+    ASSERT_TRUE(restored);
+    EXPECT_EQ(restored->target(), target);
+    EXPECT_EQ(restored->dialogResRef(), "meeting");
+    EXPECT_TRUE(restored->isPrivateConversation());
+    EXPECT_FALSE(restored->isCompleted());
+}
+
+TEST(SavedAction, start_conversation_rejects_malformed_or_unbound_records) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto saved = action(24, 7, {
+        valueParameter(3, Gff::Field::newDword("Value", 123456)),
+        valueParameter(4, Gff::Field::newCExoString("Value", "dialog")),
+        valueParameter(1, Gff::Field::newInt("Value", 0)),
+    });
+    auto record = SavedActionRecord::fromGff(*saved);
+    EXPECT_FALSE(record.bindObjectReferences(game));
+    EXPECT_FALSE(record.toRuntimeAction(game));
+    record.declaredParameterCount = 2;
+    EXPECT_EQ(record.executionSupport(), SavedExecutionSupport::RepresentableButUnsupported);
+    record.declaredParameterCount = 3;
+    record.parameters[1].type = 1;
+    EXPECT_EQ(record.executionSupport(), SavedExecutionSupport::RepresentableButUnsupported);
 }
 
 TEST(SavedRuntimePublication, move_to_object_waits_for_publication_and_preserves_queue_order) {

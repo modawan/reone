@@ -17,6 +17,7 @@
 #include "reone/game/action/playanimation.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/movetoobject.h"
+#include "reone/game/action/startconversation.h"
 #include "reone/game/game.h"
 #include "reone/game/modulesnapshot.h"
 #include "reone/game/object/area.h"
@@ -803,6 +804,30 @@ TEST_F(SnapshotFixture, pending_do_command_is_a_supported_transition_snapshot_ac
     ASSERT_EQ(saved.parameters.size(), 1);
     EXPECT_EQ(saved.parameters[0].type,
               static_cast<uint32_t>(SavedActionParameterType::ScriptSituation));
+}
+
+TEST_F(SnapshotFixture, pending_start_conversation_is_a_supported_transition_snapshot_action) {
+    auto target = game.newCreature();
+    TestGameModule::addSnapshotObject(*area, target);
+    auto action = game.newAction<StartConversationAction>(target, "meeting", false);
+    SavedActionRecord provenance;
+    provenance.groupActionId = 16;
+    action->attachSavedAction(provenance);
+    player->addAction(action);
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+
+    ASSERT_TRUE(result) << result.message;
+    auto ifo = readGff(result.snapshot->ifoBytes);
+    auto saved = SavedActionRecord::fromGff(
+        *ifo->getList("Mod_PlayerList").front()->getList("ActionList").front());
+    EXPECT_EQ(saved.actionId, 24u);
+    EXPECT_EQ(saved.groupActionId, 16);
+    EXPECT_EQ(saved.declaredParameterCount, 3);
+    EXPECT_EQ(std::get<SavedObjectReference>(saved.parameters[0].payload).id,
+              target->id());
+    EXPECT_EQ(std::get<std::string>(saved.parameters[1].payload), "meeting");
+    EXPECT_EQ(std::get<int32_t>(saved.parameters[2].payload), 0);
 }
 
 TEST(ModuleSnapshot, exports_advanced_runtime_script_situations_and_rejects_unsupported_values) {
