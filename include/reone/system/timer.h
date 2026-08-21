@@ -39,6 +39,8 @@ public:
         return _timeToElapse == 0.0f;
     }
 
+    float remaining() const { return _timeToElapse; }
+
 private:
     float _timeToElapse {0.0f};
 };

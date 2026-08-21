@@ -16,8 +16,10 @@
  */
 
 #include "reone/game/game.h"
+#include "reone/game/savedruntime.h"
 
 #include <cctype>
+#include <cmath>
 #include <exception>
 #include <numeric>
 
@@ -50,6 +52,7 @@
 #include "reone/graphics/modelnode.h"
 #include "reone/graphics/renderbuffer.h"
 #include "reone/graphics/shaderregistry.h"
+#include "reone/graphics/texture.h"
 #include "reone/graphics/uniforms.h"
 #include "reone/gui/gui.h"
 #include "reone/movie/format/bikreader.h"
@@ -59,6 +62,7 @@
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/format/erfreader.h"
 #include "reone/resource/format/erfwriter.h"
+#include "reone/resource/format/gffreader.h"
 #include "reone/resource/format/gffwriter.h"
 #include "reone/resource/parser/gff/gvt.h"
 #include "reone/resource/parser/gff/nfo.h"
@@ -90,6 +94,7 @@
 #include "reone/system/logutil.h"
 #include "reone/system/randomutil.h"
 #include "reone/system/smallset.h"
+#include "reone/system/stream/memoryinput.h"
 #include "reone/system/threadutil.h"
 
 #include <imgui.h>
@@ -106,12 +111,69 @@ namespace reone {
 
 namespace game {
 
+ModuleLoadContext resolveModuleLoadContext(
+    bool initialSaveRestore,
+    bool savedModuleSnapshot) {
+
+    if (initialSaveRestore) {
+        return ModuleLoadContext::InitialSaveRestore;
+    }
+    return savedModuleSnapshot
+               ? ModuleLoadContext::SavedModuleTransition
+               : ModuleLoadContext::FreshModule;
+}
+
+bool restoresSavedWorld(ModuleLoadContext context) {
+    return context != ModuleLoadContext::FreshModule;
+}
+
+bool restoresSavedSession(ModuleLoadContext context) {
+    return context == ModuleLoadContext::InitialSaveRestore;
+}
+
+bool Game::bindEffectCreator(EffectInstance &effect) const {
+    auto it = _objectById.find(effect.creatorId);
+    return effect.bindCreator(it == _objectById.end() ? nullptr : it->second);
+}
+
+bool Game::bindSavedObjectReference(SavedObjectReference &reference) const {
+    if (reference._runtimeSession && *reference._runtimeSession != _runtimeSessionGeneration) {
+        reference._object.reset();
+        return false;
+    }
+    if (reference.isInvalid()) {
+        reference._object.reset();
+        return false;
+    }
+    if (!reference._runtimeSession) {
+        reference._runtimeSession = _runtimeSessionGeneration;
+    }
+
+    auto it = _objectById.find(reference.id);
+    if (it == _objectById.end()) {
+        reference._object.reset();
+        return false;
+    }
+    reference._object = it->second;
+    return true;
+}
+
 static constexpr char kDeveloperOverlayToggleHelp[] = "Ctrl+Shift+D";
 static constexpr char kDeveloperTriggerToggleHelp[] = "Ctrl+Shift+T";
 static constexpr char kDeveloperActorToggleHelp[] = "Ctrl+Shift+A";
 static constexpr char kDeveloperActorLongToggleHelp[] = "Ctrl+Shift+L";
 static constexpr char kDeveloperWatchToggleHelp[] = "Ctrl+Shift+W";
 static constexpr float kDeveloperActorLabelDistance = 32.0f;
+
+static std::shared_ptr<Gff> decodeSaveGff(std::optional<Resource> resource) {
+    if (!resource) {
+        return {};
+    }
+    MemoryInputStream stream(resource->data);
+    GffReader reader(stream);
+    reader.load();
+    return reader.root();
+}
 
 static const char *screenName(Game::Screen screen) {
     switch (screen) {
@@ -420,7 +482,21 @@ void Game::initJournalNotifications() {
 }
 
 void Game::registerConsoleCommand(std::string name, std::string description, ConsoleCommandHandler handler) {
-    _console.registerCommand(name, description, std::bind(handler, this, std::placeholders::_1));
+    static const std::set<std::string> cheatCommands {
+        "playanim", "warp", "kill", "additem", "givexp", "givegold",
+        "spawncreature", "spawncompanion", "setfaction", "setposition",
+        "professionaltools", "killroom", "setability", "setskill",
+        "addfeat", "removefeat", "addspell", "removespell",
+        "castspellatobject", "opendoor", "closedoor"};
+    bool marksCheatUsed = cheatCommands.count(name) != 0;
+    _console.registerCommand(
+        name, description,
+        [this, handler, marksCheatUsed](const ConsoleArgs &args) {
+            (this->*handler)(args);
+            if (marksCheatUsed) {
+                _cheatUsed = true;
+            }
+        });
 }
 
 void Game::initConsole() {
@@ -463,6 +539,7 @@ void Game::initConsole() {
     registerConsoleCommand("closedoor", "close a selected door object", &Game::consoleOpenCloseDoor);
     registerConsoleCommand("listgames", "list savegames", &Game::consoleListGames);
     registerConsoleCommand("loadgame", "load a savegame", &Game::consoleLoadGame);
+    registerConsoleCommand("savegame", "save to a semantic slot", &Game::consoleSaveGame);
     registerConsoleCommand("startpazaak", "start a development Pazaak match", &Game::consoleStartPazaak);
     if (_options.game.developer) {
         registerConsoleCommand("minigameinfo", "print minigame metadata for current area", &Game::consoleMiniGameInfo);
@@ -485,6 +562,12 @@ void Game::initLocalServices() {
     _routines = std::move(routines);
 
     _scriptRunner = std::make_unique<ScriptRunner>(*_routines, _services.resource.scripts);
+
+    if (!_saveSeams.captureScreenshot) {
+        _saveSeams.captureScreenshot = [this]() {
+            return captureSaveScreenshot();
+        };
+    }
 
     _map = std::make_unique<Map>(*this, _services);
 }
@@ -578,6 +661,12 @@ void Game::update(float frameTime) {
     }
     updateMusic();
 
+    // Requests made by scripts, console handlers or UI code in the previous
+    // update execute only after those call stacks have unwound. This precedes
+    // deferred module transition handling, so save+transition in one script
+    // deterministically captures the source module first.
+    processPendingSave();
+
     if (_screen == Screen::PazaakBoard && _pazaakSession) {
         static constexpr float kPazaakOpponentEventDelay = 0.45f;
         if (_pazaakSession->advanceResultPresentation(dt)) {
@@ -639,6 +728,8 @@ void Game::update(float frameTime) {
     bool updModule = !_movie && _module && (_screen == Screen::InGame || _screen == Screen::Conversation);
     if (updModule && !_paused) {
         _floatingText.update(dt);
+        advanceWorldTime(dt);
+        advancePlayedTime(dt);
         _module->update(dt);
         _combat.update(dt);
     }
@@ -674,6 +765,13 @@ bool Game::handleKeyDown(const input::KeyEvent &event) {
     }
 
     switch (event.code) {
+    case input::KeyCode::F4:
+        if (_screen == Screen::InGame) {
+            requestQuickSave();
+            return true;
+        }
+        break;
+
     case input::KeyCode::Minus:
         if (_options.game.developer && _gameSpeed > 1.0f) {
             _gameSpeed = glm::max(1.0f, _gameSpeed - 1.0f);
@@ -780,8 +878,13 @@ bool Game::handleMouseButtonUp(const input::MouseButtonEvent &event) {
     return false;
 }
 
-void Game::loadModule(const std::string &name, std::string entry, bool fromSave) {
+bool Game::loadModule(const std::string &name, std::string entry, bool initialSaveRestore) {
     info("Loading module '" + name + "'");
+    _transitionInProgress = true;
+    struct TransitionGuard {
+        bool &value;
+        ~TransitionGuard() { value = false; }
+    } transitionGuard {_transitionInProgress};
 
     // A module transition is a technical Pazaak abort. It must not manufacture
     // a result or invoke the pending continuation.
@@ -820,13 +923,30 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
         _conversation->cleanupForModuleTransition();
     }
 
-    withLoadingScreen("load_" + name, [this, &name, &entry, fromSave]() {
+    // Exit scripts are part of the source module's last observable state.
+    // Freeze that state before party/object teardown or destination mounting.
+    // A capture failure aborts with the source runtime graph still alive.
+    if (_module) {
+        try {
+            _module->area()->runOnExitScript();
+        } catch (const std::exception &e) {
+            error("Source module exit script failed: " + std::string(e.what()));
+            return false;
+        }
+        if (!storeCurrentModuleForTransition()) {
+            return false;
+        }
+    }
+
+    bool loaded = false;
+
+    withLoadingScreen("load_" + name, [this, &name, &entry, initialSaveRestore, &loaded]() {
         loadInGameMenus();
 
         try {
             if (_module) {
-                _module->area()->runOnExitScript();
                 _module->area()->unloadParty();
+                retireActiveModuleRuntime();
             }
 
             // Do not carry a displayed or pending batch, indicator, or GUI
@@ -847,32 +967,34 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
 
             _services.scene.graphs.get(kSceneMain).clear();
 
-            auto maybeModule = _loadedModules.find(name);
-            if (maybeModule != _loadedModules.end()) {
-                _module = maybeModule->second;
-                _module->activate();
-            } else {
-                _module = newModule();
-                _objectById.insert(std::make_pair(_module->id(), _module));
-
-                std::shared_ptr<Gff> ifo(_services.resource.gffs.get("module", ResType::Ifo));
-                if (!ifo) {
-                    throw ResourceNotFoundException("Module IFO not found");
-                }
-
-                _module->load(name, *ifo, fromSave);
-                _loadedModules.insert(std::make_pair(name, _module));
+            std::shared_ptr<Gff> ifo(_services.resource.gffs.get("module", ResType::Ifo));
+            if (!ifo) {
+                throw ResourceNotFoundException("Module IFO not found");
             }
+            ModuleLoadContext context = resolveModuleLoadContext(
+                initialSaveRestore,
+                ifo->getBool("Mod_IsSaveGame"));
+            bool restoringSavedWorld = restoresSavedWorld(context);
+            bool restoringSavedSession = restoresSavedSession(context);
+
+            _module = restoringSavedWorld ? newSavedModule() : newModule();
+            _module->load(name, *ifo, restoringSavedWorld);
+            _loadedModules.insert(std::make_pair(name, _module));
 
             if (_party.isEmpty()) {
                 loadDefaultParty();
             }
 
-            if (!fromSave) {
+            if (!restoringSavedWorld) {
                 _module->runOnLoadScript();
             }
 
-            _module->loadParty(entry, fromSave);
+            _module->loadParty(entry, restoringSavedSession);
+
+            if (restoringSavedWorld) {
+                bindSavedRuntimeState();
+                publishSavedRuntimeState();
+            }
 
             info("Module '" + name + "' loaded successfully");
 
@@ -885,8 +1007,15 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
             playMusic(musicName);
 
             openInGame();
+            loaded = true;
         } catch (const std::exception &e) {
             error("Failed loading module '" + name + "': " + std::string(e.what()));
+            if (initialSaveRestore) {
+                retireRuntimeSession();
+            } else {
+                retireActiveModuleRuntime();
+                _screen = Screen::None;
+            }
         }
     });
 
@@ -895,10 +1024,80 @@ void Game::loadModule(const std::string &name, std::string entry, bool fromSave)
     // the next update, or the whole load lands on the world as one enormous
     // step.
     _timingDiscontinuity = true;
+    return loaded;
 }
 
-void Game::resetGame() {
+void Game::retireActiveModuleRuntime() {
+    _lastRenderedSceneOutput = nullptr;
+    _runtimeSessionPlayable = false;
+
+    std::set<uint32_t> sessionObjectIds;
+    std::function<void(const std::shared_ptr<Object> &)> preserve;
+    preserve = [&](const std::shared_ptr<Object> &object) {
+        if (!object || !sessionObjectIds.insert(object->id()).second) {
+            return;
+        }
+        for (const auto &item : object->items()) {
+            preserve(item);
+        }
+        if (object->type() != ObjectType::Creature) {
+            return;
+        }
+        auto creature = std::static_pointer_cast<Creature>(object);
+        for (const auto &[_, item] : creature->equipment()) {
+            preserve(item);
+        }
+    };
+
+    preserve(_party.player());
+    preserve(_party.actualPlayer());
+    for (const auto &member : _party.members()) {
+        preserve(member.creature);
+    }
+    for (size_t npc = 0; npc < Party::kMaxNpcCount; ++npc) {
+        preserve(_party.getAvailableMember(static_cast<int>(npc)));
+    }
+    for (size_t puppet = 0; puppet < Party::kMaxPuppetCount; ++puppet) {
+        preserve(_party.getAvailablePuppet(static_cast<int>(puppet)));
+    }
+
+    _combat.reset();
+    _module.reset();
+    _loadedModules.clear();
+    for (auto it = _objectById.begin(); it != _objectById.end();) {
+        if (sessionObjectIds.count(it->first) != 0) {
+            ++it;
+        } else {
+            it = _objectById.erase(it);
+        }
+    }
+}
+
+void Game::retireRuntimeSession() {
+    // Stable-frame save execution is synchronous and cannot ordinarily overlap
+    // retirement. A re-entrant retirement from an injected/service callback is
+    // an invariant violation; the local request owner in processPendingSave()
+    // still remains responsible for terminalization.
+    if (_saveInProgress) {
+        error("Runtime session retirement re-entered synchronous save execution");
+    }
+    if (_pendingSave) {
+        auto request = std::move(*_pendingSave);
+        _pendingSave.reset();
+        SaveResult cancelled;
+        cancelled.status = SaveStatus::Cancelled;
+        cancelled.message = "Runtime session retired before save execution";
+        finalizeSaveRequest(request, std::move(cancelled));
+    }
+    ++_runtimeSessionGeneration;
+    _runtimeSessionPlayable = false;
+    _screen = Screen::None;
+    _lastRenderedSceneOutput = nullptr;
+
     abortPazaak();
+    _lastPazaakResult.reset();
+    _pazaakContinuationCaller.reset();
+    _pazaakDevelopmentSelectedObjectOverride.reset();
     if (_swoopRace.isActive()) {
         _swoopRace.stop();
     }
@@ -906,7 +1105,14 @@ void Game::resetGame() {
         _turret.stop();
     }
     _pendingTurret = PendingTurretRequest();
-    _screen = Screen::None;
+    _swoopLifecycle = MinigameLifecycle();
+    _turretLifecycle = MinigameLifecycle();
+
+    if (_conversation) {
+        _conversation->cleanupForModuleTransition();
+        _conversation = nullptr;
+    }
+
     _services.audio.mixer.stopAll();
     _music.reset();
     _movie.reset();
@@ -918,29 +1124,65 @@ void Game::resetGame() {
     _cameraType = CameraType::ThirdPerson;
     _savedCameraType = CameraType::ThirdPerson;
     _paused = false;
-    _quitRequested = false;
     _relativeMouseMode = false;
-    if (_conversation) {
-        _conversation->cleanupForModuleTransition();
-        _conversation = nullptr;
+
+    _statusSummary.reset();
+    if (_hud) {
+        _hud->resetStatusSummaryPresentation();
     }
+
+    // Drop GUI-owned object selections, conversation participants and
+    // container/party bindings before releasing the runtime graph.
+    _hud.reset();
+    _inGame.reset();
+    _dialog.reset();
+    _computer.reset();
+    _container.reset();
+    _partySelect.reset();
+
+    if (_map) {
+        _map->retireRuntimeSession();
+    }
+
+    _combat.reset();
+    _party.retireRuntimeSession();
+
+    _services.scene.graphs.get(kSceneMain).clear();
+    _module.reset();
+    _loadedModules.clear();
+
+    _objectById.clear();
+    _reservedSavedObjectIds.clear();
+    _nextObjectId = kFirstRuntimeObjectId;
+    _effectIds.reset();
+    _worldTimeDay = 0;
+    _worldTimeOfDay = 0;
+    _minutesPerHour = 5;
+    _worldTimeFraction = 0.0;
+
+    _nextModule.clear();
+    _nextEntry.clear();
+    _atStableSavePoint = false;
+}
+
+void Game::resetGame() {
+    retireRuntimeSession();
+
+    _quitRequested = false;
     _globalStrings.clear();
     _globalBooleans.clear();
     _globalNumbers.clear();
     _globalLocations.clear();
     _customTokens.clear();
+    _saveResourceShadows.clear();
 
     _party.reset();
-    _combat.reset();
     _journal.reset();
     _messageLog.reset();
     _floatingText.reset();
-    _statusSummary.reset();
-    if (_hud) {
-        _hud->resetStatusSummaryPresentation();
-    }
-    _module.reset();
-    _loadedModules.clear();
+    _cheatUsed = false;
+    _playedTimeFraction = 0.0;
+    _services.resource.director.onNewGame();
 }
 
 void Game::loadGame(std::string_view name) {
@@ -952,19 +1194,43 @@ void Game::loadGame(std::string_view name) {
     // Add savegame files to resource resolution.
     _services.resource.director.onGameLoad(name);
 
-    std::shared_ptr<Gff> saveInfo(_services.resource.gffs.get("savenfo", ResType::Res));
+    auto saveInfo = decodeSaveGff(
+        _services.resource.director.findSaveMetadata(ResourceId("savenfo", ResType::Res)));
     if (!saveInfo) {
         throw ResourceNotFoundException("saveinfo.res not found");
     }
     NFO nfo = resource::parseNFO(*saveInfo);
+    _cheatUsed = nfo.cheatUsed;
+    captureSaveResourceShadow({SaveResourceKind::Nfo, {}}, *saveInfo);
 
     // Add module files to resource resolution. Since all savegame files are
     // already in scope, this is going to resolve to the last module from the
     // save game.
     _services.resource.director.onModuleLoad(nfo.lastModule);
 
+    // Restore the save-wide faction table before any module objects can query
+    // disposition. A missing or malformed optional FAC starts from fresh base
+    // data; it must never preserve relationships from the previous save.
+    std::optional<IReputes::State> reputesState;
+    try {
+        if (auto reputesGff = decodeSaveGff(
+                _services.resource.director.findSaveWorking(
+                    ResourceId("repute", ResType::Fac)))) {
+            captureSaveResourceShadow(
+                {SaveResourceKind::FactionTable, {}}, *reputesGff);
+            reputesState = _services.game.reputes.parse(*reputesGff);
+        }
+    } catch (const std::exception &e) {
+        warn("Game: invalid repute.fac: " + std::string(e.what()));
+    }
+    if (!reputesState) {
+        reputesState = _services.game.reputes.baseState();
+    }
+    _services.game.reputes.replace(std::move(*reputesState));
+
     // Deserialize global variables
-    std::shared_ptr<Gff> globalVars(_services.resource.gffs.get("globalvars", ResType::Res));
+    auto globalVars = decodeSaveGff(
+        _services.resource.director.findSaveMetadata(ResourceId("globalvars", ResType::Res)));
     if (!globalVars) {
         throw ResourceNotFoundException("globalvars.res not found");
     }
@@ -975,10 +1241,40 @@ void Game::loadGame(std::string_view name) {
     if (!ifo) {
         throw ResourceNotFoundException("Module IFO not found");
     }
+    captureSaveResourceShadow({SaveResourceKind::ModuleIfo, nfo.lastModule}, *ifo);
+    replaceCustomTokens(parseCustomTokens(*ifo));
+    prepareSavedRuntimeNamespace(*ifo);
+
+    // Reserve serialized identities before party/inventory reconstruction can
+    // allocate owner-local support objects. The active GIT is mounted as
+    // module state rather than as a top-level working-state resource.
+    for (const auto &id : _services.resource.director.saveWorkingResourceIds()) {
+        if (!resource::isGFFCompatibleResType(id.type)) {
+            continue;
+        }
+        try {
+            if (auto gff = decodeSaveGff(
+                    _services.resource.director.findSaveWorking(id))) {
+                reserveSavedObjectIds(*gff);
+            }
+        } catch (const std::exception &) {
+            // A generic .res is not necessarily GFF. Required structured
+            // resources retain their normal validation path below.
+        }
+    }
+    const std::string entryArea = ifo->getString("Mod_Entry_Area");
+    if (!entryArea.empty()) {
+        if (auto git = _services.resource.gffs.get(entryArea, ResType::Git)) {
+            reserveSavedObjectIds(*git);
+        }
+    }
     deserializeParty(*ifo);
 
     // Once the player is loaded, deserialize player's inventory.
-    if (auto inventoryGff = _services.resource.gffs.get("inventory", ResType::Res)) {
+    if (auto inventoryGff = decodeSaveGff(
+            _services.resource.director.findSaveWorking(ResourceId("inventory", ResType::Res)))) {
+        captureSaveResourceShadow(
+            {SaveResourceKind::Inventory, {}}, *inventoryGff);
         deserializeInventory(*inventoryGff);
     }
 
@@ -986,13 +1282,32 @@ void Game::loadGame(std::string_view name) {
     loadModule(nfo.lastModule, /*entry=*/"", /*fromSave=*/true);
 }
 
+std::map<int, std::string> Game::parseCustomTokens(
+    const resource::Gff &ifoGff) const {
+
+    std::map<int, std::string> result;
+    for (const auto &entry : ifoGff.getList("Mod_Tokens")) {
+        uint32_t token = 0;
+        if (!entry->readDword(token, "Mod_TokensNumber") ||
+            token > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+            continue;
+        }
+        result[static_cast<int>(token)] = entry->getString("Mod_TokensValue");
+    }
+    return result;
+}
+
+void Game::replaceCustomTokens(std::map<int, std::string> tokens) {
+    _customTokens = std::move(tokens);
+}
+
 void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
+    captureSaveResourceShadow({SaveResourceKind::GlobalVars, {}}, gvtGff);
     GVT gvt = resource::parseGVT(gvtGff);
     _globalStrings.clear();
     _globalBooleans.clear();
     _globalNumbers.clear();
     _globalLocations.clear();
-    _customTokens.clear();
 
     for (auto &[name, value] : gvt.strings) {
         setGlobalString(name, value);
@@ -1008,48 +1323,206 @@ void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
 
     for (auto &[name, value] : gvt.locations) {
         auto &[pos, rot] = value;
-        float facing = glm::half_pi<float>() - glm::atan(rot.x, rot.y);
-        setGlobalLocation(name, std::make_shared<Location>(pos, facing));
+        setGlobalLocation(name, std::make_shared<Location>(pos, rot));
     }
 }
 
 void Game::deserializeParty(resource::Gff &ifoGff) {
     resetGalaxyMap();
+    auto ptGff = decodeSaveGff(
+        _services.resource.director.findSaveMetadata(ResourceId("partytable", ResType::Res)));
+
+    std::shared_ptr<Gff> pcGff;
+    const auto &players = ifoGff.getList("Mod_PlayerList");
+    if (!players.empty()) {
+        const int controlledNpc =
+            ptGff ? parsePartyTable(*ptGff).controlledNpc : -1;
+        // Retail K2 may mark the controlled module creature primary even while
+        // pc.utc holds a distinct canonical player. PARTYTABLE is authoritative.
+        if (controlledNpc != -1) {
+            try {
+                pcGff = decodeSaveGff(
+                    _services.resource.director.findSaveWorking(ResourceId("pc", ResType::Utc)));
+            } catch (const std::exception &e) {
+                warn("Game: invalid pc.utc: " + std::string(e.what()));
+            }
+        }
+    }
+
+    publishPartyRuntimeState(ifoGff, ptGff, pcGff);
+}
+
+void Game::publishPartyRuntimeState(
+    resource::Gff &ifoGff,
+    const std::shared_ptr<resource::Gff> &ptGff,
+    const std::shared_ptr<resource::Gff> &pcGff) {
+    if (ptGff) {
+        captureSaveResourceShadow({SaveResourceKind::PartyTable, {}}, *ptGff);
+        deserializeGalaxyMap(*ptGff);
+        uint32_t gold = 0;
+        if (ptGff->readDword(gold, "PT_GOLD")) {
+            _party.takeGold(_party.gold());
+            _party.giveGold(gold);
+        }
+
+        uint32_t xp = 0;
+        if (ptGff->readDword(xp, "PT_XP_POOL")) {
+            // Populate the shared party XP pool. Members added below are synced to it.
+            _party.setXP(xp);
+        }
+
+        Party::PersistedState partyState = parsePartyTable(*ptGff);
+        replacePartyTable(std::move(partyState));
+        deserializePazaakPartyTable(*ptGff);
+        // Retail constructs the available/limbo creature records before
+        // completing the primary player. Keeping that boundary also ensures
+        // every party object exists before saved references are bound.
+        deserializeAvailableNpcs();
+    }
 
     const auto &players = ifoGff.getList("Mod_PlayerList");
     if (players.empty()) {
         return;
     }
 
-    std::shared_ptr<Creature> player = newCreature();
-    _objectById.insert(std::make_pair(player->id(), player));
-    player->deserialize(*players.front());
-    player->setTag(kObjectTagPlayer);
-    _party.addMember(kNpcPlayer, player);
-    _party.addAvailableMember(kNpcPlayer, player);
-    _party.setPlayer(player);
+    auto modulePlayer = newCreature(*players.front());
+    modulePlayer->deserialize(*players.front());
+    modulePlayer->captureSaveRecord(
+        *players.front(), {SaveRecordOriginKind::ModulePlayer, {}});
+    modulePlayer->setTag(kObjectTagPlayer);
 
-    std::shared_ptr<Gff> ptGff(_services.resource.gffs.get("partytable", ResType::Res));
-    if (!ptGff) {
-        return;
+    auto actualPlayer = modulePlayer;
+    const auto &partyState = _party.persistedState();
+    // PT_CONTROLLED_NP, not Mod_IsPrimaryPlr, defines whether pc.utc is the
+    // canonical player distinct from the currently controlled module creature.
+    if (partyState.controlledNpc != -1 && pcGff) {
+        actualPlayer = pcGff->has("ObjectId")
+                           ? newCreature(*pcGff)
+                           : newCreature();
+        actualPlayer->deserialize(*pcGff);
+        actualPlayer->captureSaveRecord(
+            *pcGff, {SaveRecordOriginKind::PrimaryPlayerUtc, {}});
     }
 
-    uint32_t gold = 0;
-    if (ptGff->readDword(gold, "PT_GOLD")) {
-        _party.takeGold(_party.gold());
-        _party.giveGold(gold);
+    // Retail K1 and K2 complete primary-player BIC publication by assigning
+    // the derived maximum HP after creature load. Keep this explicit and
+    // separate from generic creature deserialization: corpses, party NPCs and
+    // unrelated serialized PCs must retain their archived health state.
+    actualPlayer->restorePrimaryPlayerHitPoints();
+
+    _party.setPlayer(modulePlayer);
+    _party.setActualPlayer(actualPlayer);
+
+    if (ptGff) {
+        deserializePartyMembers(*ptGff);
+        deserializeJournal(*ptGff);
+    } else {
+        _party.addMember(kNpcPlayer, actualPlayer);
+    }
+}
+
+Party::PersistedState Game::parsePartyTable(const resource::Gff &ptGff) const {
+    Party::PersistedState state;
+    state.pcName = ptGff.getString("PT_PCNAME");
+    // GFF labels are capped at sixteen bytes. Retail KotOR II stores the
+    // component count under this exact truncated label.
+    state.itemComponent = ptGff.getUint("PT_ITEM_COMPONEN");
+    if (!ptGff.has("PT_ITEM_COMPONEN")) {
+        state.itemComponent = ptGff.getUint("PT_ITEM_COMPONENT");
+    }
+    state.itemChemical = ptGff.getUint("PT_ITEM_CHEMICAL");
+    state.swoopUpgrades[0] = ptGff.getUint("PT_SWOOP1");
+    state.swoopUpgrades[1] = ptGff.getUint("PT_SWOOP2");
+    state.swoopUpgrades[2] = ptGff.getUint("PT_SWOOP3");
+    state.playedSeconds = ptGff.getUint("PT_PLAYEDSECONDS");
+    uint32_t playedMinutes = ptGff.getUint("PT_PLAYEDMINUTES");
+    if (playedMinutes != 0) {
+        state.playedSeconds = playedMinutes * 60;
+    }
+    state.controlledNpc = ptGff.getInt("PT_CONTROLLED_NP", -1);
+    state.soloMode = ptGff.getBool("PT_SOLOMODE");
+
+    const auto memberList = ptGff.getList("PT_MEMBERS");
+    size_t memberCount = std::min<size_t>(
+        std::min<size_t>(ptGff.getUint("PT_NUM_MEMBERS"), memberList.size()), 2);
+    for (size_t index = 0; index < memberCount; ++index) {
+        int npc = memberList[index]->getInt("PT_MEMBER_ID", -1);
+        state.memberIds.push_back(npc);
+        if (memberList[index]->getBool("PT_IS_LEADER")) {
+            state.leader = npc;
+        }
     }
 
-    uint32_t xp = 0;
-    if (ptGff->readDword(xp, "PT_XP_POOL")) {
-        // Populate the shared party XP pool. Members added below are synced to it.
-        _party.setXP(xp);
+    const auto puppetList = ptGff.getList("PT_PUPPETS");
+    size_t puppetCount = std::min<size_t>(
+        std::min<size_t>(ptGff.getUint("PT_NUM_PUPPETS"), puppetList.size()),
+        Party::kMaxPuppetCount);
+    for (size_t index = 0; index < puppetCount; ++index) {
+        state.puppetIds.push_back(puppetList[index]->getInt("PT_PUPPET_ID", -1));
     }
 
-    deserializeGalaxyMap(*ptGff);
-    deserializePartyTable(*ptGff);
-    deserializePartyMembers(*ptGff);
-    deserializeJournal(*ptGff);
+    const auto availableNpcs = ptGff.getList("PT_AVAIL_NPCS");
+    size_t npcCount = std::min(
+        availableNpcs.size(), isTSL() ? Party::kK2NpcCount : Party::kK1NpcCount);
+    for (size_t npc = 0; npc < npcCount; ++npc) {
+        state.npcAvailable[npc] = availableNpcs[npc]->getBool("PT_NPC_AVAIL");
+        state.npcSelectable[npc] = availableNpcs[npc]->getBool("PT_NPC_SELECT", true);
+    }
+
+    const auto influences = ptGff.getList("PT_INFLUENCE");
+    for (size_t npc = 0; npc < std::min(influences.size(), Party::kMaxNpcCount); ++npc) {
+        state.influence[npc] = influences[npc]->getInt("PT_NPC_INFLUENCE", -1);
+    }
+
+    const auto availablePuppets = ptGff.getList("PT_AVAIL_PUPS");
+    for (size_t puppet = 0;
+         puppet < std::min(availablePuppets.size(), Party::kMaxPuppetCount);
+         ++puppet) {
+        state.puppetAvailable[puppet] =
+            availablePuppets[puppet]->getBool("PT_PUP_AVAIL");
+        state.puppetSelectable[puppet] =
+            availablePuppets[puppet]->getBool("PT_PUP_SELECT", true);
+    }
+
+    state.aiState = ptGff.getInt("PT_AISTATE");
+    state.followState = ptGff.getInt("PT_FOLLOWSTATE");
+    if (auto galaxy = ptGff.findStruct("GlxyMap")) {
+        state.galaxyPointCount = galaxy->getUint("GlxyMapNumPnts");
+        uint32_t mask = galaxy->getUint("GlxyMapPlntMsk");
+        for (size_t planet = 0; planet < Party::kGalaxyPlanetCount; ++planet) {
+            state.planetAvailable[planet] = (mask & (1u << planet)) != 0;
+            state.planetSelectable[planet] = (mask & (1u << (planet + 16))) != 0;
+        }
+        state.selectedPlanet = galaxy->getInt("GlxyMapSelPnt", -1);
+    }
+    state.mapDisabled = ptGff.getBool("PT_DISABLEMAP");
+    state.regenerationDisabled = ptGff.getBool("PT_DISABLEREGEN");
+
+    for (const auto &entry : ptGff.getList("PT_DLG_MSG_LIST")) {
+        Party::SavedDialogMessage message;
+        message.speaker = entry->getString("PT_DLG_MSG_SPKR");
+        message.text = entry->getString("PT_DLG_MSG_MSG");
+        state.dialogMessages.push_back(std::move(message));
+    }
+    for (const auto &entry : ptGff.getList("PT_FB_MSG_LIST")) {
+        Party::SavedLogMessage message;
+        entry->readByte(message.color, "PT_FB_MSG_COLOR");
+        entry->readDword(message.type, "PT_FB_MSG_TYPE");
+        message.text = entry->getString("PT_FB_MSG_MSG");
+        state.feedbackMessages.push_back(std::move(message));
+    }
+    for (const auto &entry : ptGff.getList("PT_COM_MSG_LIST")) {
+        Party::SavedLogMessage message;
+        entry->readByte(message.color, "PT_COM_MSG_COOR");
+        entry->readDword(message.type, "PT_COM_MSG_TYPE");
+        message.text = entry->getString("PT_COM_MSG_MSG");
+        state.combatMessages.push_back(std::move(message));
+    }
+    return state;
+}
+
+void Game::replacePartyTable(Party::PersistedState state) {
+    _party.setPersistedState(std::move(state));
 }
 
 void Game::resetGalaxyMap() {
@@ -1063,7 +1536,7 @@ void Game::deserializeGalaxyMap(resource::Gff &ptGff) {
     _party.galaxyMap().loadFromPartyTable(ptGff);
 }
 
-void Game::deserializePartyTable(resource::Gff &ptGff) {
+void Game::deserializePazaakPartyTable(resource::Gff &ptGff) {
     const auto &pazaakCards = ptGff.getList("PT_PAZAAKCARDS");
     const auto &pazaakSide = ptGff.getList("PT_PAZSIDELIST");
     // Each title stores its own number of ownership entries, so the saved table
@@ -1107,33 +1580,80 @@ void Game::deserializePartyTable(resource::Gff &ptGff) {
         warn("Game: invalid Pazaak list sizes in PARTYTABLE.res");
     }
 
-    int nextNpc = 0;
-    for (const auto &npcState : ptGff.getList("PT_AVAIL_NPCS")) {
-        int npc = nextNpc++;
-        if (!npcState->getBool("PT_NPC_AVAIL")) {
+}
+
+void Game::deserializeAvailableNpcs() {
+    const auto &persisted = _party.persistedState();
+    size_t npcCount = isTSL() ? Party::kK2NpcCount : Party::kK1NpcCount;
+    for (size_t npc = 0; npc < npcCount; ++npc) {
+        if (!persisted.npcAvailable[npc]) {
             continue;
         }
-        // TODO: handle selectability of NPCs.
-        bool select = npcState->getBool("PT_NPC_SELECT");
-
         std::string utc = str(boost::format("availnpc%d") % npc);
 
-        std::shared_ptr<Gff> utcGff(_services.resource.gffs.get(utc, ResType::Utc));
+        std::shared_ptr<Gff> utcGff;
+        try {
+            utcGff = decodeSaveGff(
+                _services.resource.director.findSaveWorking(ResourceId(utc, ResType::Utc)));
+        } catch (const std::exception &e) {
+            warn("Game: invalid " + utc + ".utc: " + std::string(e.what()));
+            continue;
+        }
         if (!utcGff) {
-            return;
+            warn("Game: missing " + utc + ".utc");
+            continue;
         }
 
-        std::shared_ptr<Creature> creature = newCreature();
-        _objectById.insert(std::make_pair(creature->id(), creature));
+        std::shared_ptr<Creature> creature = utcGff->has("ObjectId")
+                                                 ? newCreature(*utcGff)
+                                                 : newCreature();
         creature->deserialize(*utcGff);
+        creature->captureSaveRecord(
+            *utcGff,
+            {SaveRecordOriginKind::AvailableNpc, std::to_string(npc)});
 
-        _party.addAvailableMember(npc, creature);
+        _party.addAvailableMember(static_cast<int>(npc), creature);
+    }
+
+    if (!isTSL()) {
+        return;
+    }
+    for (size_t puppet = 0; puppet < Party::kMaxPuppetCount; ++puppet) {
+        if (!persisted.puppetAvailable[puppet]) {
+            continue;
+        }
+        std::string utc = str(boost::format("availpup%d") % puppet);
+
+        std::shared_ptr<Gff> utcGff;
+        try {
+            utcGff = decodeSaveGff(
+                _services.resource.director.findSaveWorking(ResourceId(utc, ResType::Utc)));
+        } catch (const std::exception &e) {
+            warn("Game: invalid " + utc + ".utc: " + std::string(e.what()));
+            continue;
+        }
+        if (!utcGff) {
+            warn("Game: missing " + utc + ".utc");
+            continue;
+        }
+
+        auto creature = utcGff->has("ObjectId")
+                            ? newCreature(*utcGff)
+                            : newCreature();
+        creature->deserialize(*utcGff);
+        creature->captureSaveRecord(
+            *utcGff,
+            {SaveRecordOriginKind::AvailablePuppet, std::to_string(puppet)});
+        _party.addAvailablePuppet(static_cast<int>(puppet), std::move(creature));
     }
 }
 
 void Game::deserializePartyMembers(resource::Gff &ptGff) {
-    auto members = ptGff.getList("PT_MEMBERS");
-    auto leader = std::find_if(members.begin(), members.end(), [](auto &member) {
+    auto savedMembers = ptGff.getList("PT_MEMBERS");
+    size_t memberCount = std::min<size_t>(
+        std::min<size_t>(ptGff.getUint("PT_NUM_MEMBERS"), savedMembers.size()), 2);
+    savedMembers.resize(memberCount);
+    auto leader = std::find_if(savedMembers.begin(), savedMembers.end(), [](auto &member) {
         return member->getBool("PT_IS_LEADER");
     });
 
@@ -1143,24 +1663,48 @@ void Game::deserializePartyMembers(resource::Gff &ptGff) {
             warn("Game: missing PT_MEMBER_ID");
             return;
         }
+        if (_party.isMember(npc)) {
+            return;
+        }
 
-        auto member = _party.getAvailableMember(npc);
+        auto member =
+            npc == _party.persistedState().controlledNpc &&
+                    _party.player() != _party.actualPlayer()
+                ? _party.player()
+                : _party.getAvailableMember(npc);
         if (!member) {
             warn("Game: NPC is not available: " + std::to_string(npc));
+            return;
         }
 
         _party.addMember(npc, member);
     };
 
-    // Party leader is the first party member. Populate the party starting from
-    // the leader.
-    for (auto it = leader, end = members.end(); it != end; ++it) {
-        addMember(**it);
+    // Party leader is the first runtime member. A controlled companion is the
+    // module player while pc.utc remains the actual player in limbo.
+    if (leader != savedMembers.end()) {
+        addMember(**leader);
     }
 
-    // Then add other members.
-    for (auto it = members.begin(), end = leader; it != end; ++it) {
-        addMember(**it);
+    auto actualPlayer = _party.actualPlayer();
+    // A zero-member controlled-NPC PARTYTABLE is used by retail K2 prologue
+    // saves for an NPC operating alone while the canonical PC remains in
+    // limbo. Non-empty lists retain the usual implicit canonical PC member.
+    const bool canonicalPlayerIsActive =
+        _party.persistedState().controlledNpc == -1 || !savedMembers.empty();
+    if (canonicalPlayerIsActive && actualPlayer && !_party.isMember(*actualPlayer)) {
+        _party.addMember(kNpcPlayer, actualPlayer);
+    }
+
+    if (_party.player() != actualPlayer &&
+        !_party.isMember(_party.persistedState().controlledNpc)) {
+        _party.addMember(_party.persistedState().controlledNpc, _party.player());
+    }
+
+    for (auto &savedMember : savedMembers) {
+        if (leader == savedMembers.end() || savedMember != *leader) {
+            addMember(*savedMember);
+        }
     }
 }
 
@@ -1179,14 +1723,17 @@ void Game::deserializeJournal(const resource::Gff &ptGff) {
 }
 
 void Game::deserializeInventory(resource::Gff &inventoryGff) {
-    std::shared_ptr<Creature> player = _party.player();
+    std::shared_ptr<Creature> player = _party.actualPlayer();
     if (!player) {
         return;
     }
 
     for (const auto &itemGff : inventoryGff.getList("ItemList")) {
-        std::shared_ptr<Item> item = newItem();
+        std::shared_ptr<Item> item = newOwnedItem();
         item->deserialize(*itemGff);
+        item->captureOwnerLocalSaveRecord(
+            *itemGff,
+            {SaveRecordOriginKind::PartyInventoryItem, "inventory"});
         player->addItem(item);
     }
 }
@@ -1263,10 +1810,12 @@ void Game::playMusic(const std::string &resRef) {
 
 void Game::renderScene() {
     if (!_module) {
+        _lastRenderedSceneOutput = nullptr;
         return;
     }
     auto &scene = _services.scene.graphs.get(kSceneMain);
     auto &output = scene.render({_options.graphics.width, _options.graphics.height});
+    _lastRenderedSceneOutput = &output;
     _services.graphics.uniforms.setLocals(std::bind(&LocalUniforms::reset, std::placeholders::_1));
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::ndcTexture));
     _services.graphics.context.bindTexture(output);
@@ -1321,6 +1870,213 @@ std::shared_ptr<Object> Game::getObjectById(uint32_t id) const {
         return it != _objectById.end() ? it->second : nullptr;
     }
     }
+}
+
+uint32_t Game::savedObjectId(const resource::Gff &gff) const {
+    uint32_t id = 0;
+    if (!gff.readDword(id, "ObjectId")) {
+        throw ValidationException("Saved runtime object is missing ObjectId");
+    }
+    return id;
+}
+
+void Game::registerObject(
+    const std::shared_ptr<Object> &object,
+    bool allowReserved) {
+    uint32_t id = object->id();
+    if (id == std::numeric_limits<uint32_t>::max()) {
+        throw ValidationException("Invalid saved ObjectId");
+    }
+    if (!allowReserved && id < kFirstRuntimeObjectId) {
+        throw ValidationException("Reserved saved ObjectId: " + std::to_string(id));
+    }
+    if (!_objectById.emplace(id, object).second) {
+        throw ValidationException("Duplicate saved ObjectId: " + std::to_string(id));
+    }
+    _reservedSavedObjectIds.erase(id);
+}
+
+std::shared_ptr<Item> Game::newItem(const resource::Gff &gff) {
+    return gff.has("ObjectId")
+               ? newObjectFromGff<Item>(gff, *this, _services)
+               : newItem();
+}
+
+std::shared_ptr<Creature> Game::newCreature(
+    const resource::Gff &gff,
+    std::string sceneName) {
+    return newObjectFromGff<Creature>(
+        gff, std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Placeable> Game::newPlaceable(
+    const resource::Gff &gff,
+    std::string sceneName) {
+    return newObjectFromGff<Placeable>(
+        gff, std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Door> Game::newDoor(
+    const resource::Gff &gff,
+    std::string sceneName) {
+    return newObjectFromGff<Door>(
+        gff, std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Waypoint> Game::newWaypoint(
+    const resource::Gff &gff,
+    std::string sceneName) {
+    return newObjectFromGff<Waypoint>(
+        gff, std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Trigger> Game::newTrigger(
+    const resource::Gff &gff,
+    std::string sceneName) {
+    return newObjectFromGff<Trigger>(
+        gff, std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Sound> Game::newSound(
+    const resource::Gff &gff,
+    std::string sceneName) {
+    return newObjectFromGff<Sound>(
+        gff, std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Encounter> Game::newEncounter(
+    const resource::Gff &gff,
+    std::string sceneName) {
+    return newObjectFromGff<Encounter>(
+        gff, std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Store> Game::newStore(
+    const resource::Gff &gff,
+    std::string sceneName) {
+    return newObjectFromGff<Store>(
+        gff, std::move(sceneName), *this, _services);
+}
+
+void Game::prepareSavedRuntimeNamespace(const resource::Gff &ifo) {
+    reserveSavedObjectIds(ifo);
+
+    uint32_t nextObjectId = kFirstRuntimeObjectId;
+    if (ifo.readDword(nextObjectId, "Mod_NextObjId0") &&
+        nextObjectId != 0 &&
+        nextObjectId < kFirstRuntimeObjectId) {
+        throw ValidationException("Invalid Mod_NextObjId0");
+    }
+    _nextObjectId = std::max(nextObjectId, kFirstRuntimeObjectId);
+
+    uint64_t nextEffectId = 0;
+    if (ifo.readDword64(nextEffectId, "Mod_Effect_NxtId")) {
+        if (!setNextEffectId(nextEffectId)) {
+            throw ValidationException("Invalid Mod_Effect_NxtId");
+        }
+    }
+    _worldTimeDay = ifo.getUint("Mod_CalendarDay");
+    _worldTimeOfDay = ifo.getUint("Mod_TimeOfDay");
+    if (_worldTimeOfDay >= kMillisecondsPerDay) {
+        throw ValidationException("Invalid Mod_TimeOfDay");
+    }
+
+    uint32_t minutesPerHour = ifo.getUint("Mod_MinPerHour");
+    if (minutesPerHour > std::numeric_limits<uint8_t>::max()) {
+        throw ValidationException("Invalid Mod_MinPerHour");
+    }
+    _minutesPerHour = minutesPerHour == 0
+                          ? 5
+                          : static_cast<uint8_t>(minutesPerHour);
+    _worldTimeFraction = 0.0;
+}
+
+void Game::reserveSavedObjectIds(const resource::Gff &gff) {
+    for (const auto &field : gff.fields()) {
+        if (field.label == "ObjectId" &&
+            field.type == resource::Gff::FieldType::Dword) {
+            _reservedSavedObjectIds.insert(field.uintValue);
+        }
+        for (const auto &child : field.children) {
+            reserveSavedObjectIds(*child);
+        }
+    }
+}
+
+void Game::resolveSavedObjectReferences() {
+    for (const auto &[_, object] : _objectById) {
+        object->resolveSavedReferences(
+            [this](uint32_t id) {
+                auto found = _objectById.find(id);
+                return found == _objectById.end() ? nullptr : found->second;
+            });
+    }
+}
+
+void Game::bindSavedRuntimeState() {
+    if (!_module) {
+        return;
+    }
+    resolveSavedObjectReferences();
+    for (const auto &[_, object] : _objectById) {
+        object->bindSavedRuntimeState();
+    }
+    _module->bindSavedEventQueue();
+}
+
+void Game::publishSavedRuntimeState() {
+    if (!_module) {
+        return;
+    }
+    for (const auto &[_, object] : _objectById) {
+        object->publishSavedRuntimeState();
+    }
+    _module->publishSavedEventQueue();
+}
+
+void Game::advanceWorldTime(float dt) {
+    if (dt <= 0.0f) {
+        return;
+    }
+    double gameMilliseconds =
+        _worldTimeFraction +
+        static_cast<double>(dt) * 60000.0 /
+            static_cast<double>(_minutesPerHour);
+    uint64_t wholeMilliseconds =
+        static_cast<uint64_t>(std::floor(gameMilliseconds));
+    _worldTimeFraction =
+        gameMilliseconds - static_cast<double>(wholeMilliseconds);
+
+    uint64_t timeOfDay =
+        static_cast<uint64_t>(_worldTimeOfDay) + wholeMilliseconds;
+    _worldTimeDay += static_cast<uint32_t>(
+        timeOfDay / kMillisecondsPerDay);
+    _worldTimeOfDay = static_cast<uint32_t>(
+        timeOfDay % kMillisecondsPerDay);
+}
+
+std::optional<float> Game::remainingEffectDuration(
+    const EffectInstance &effect) const {
+    if (effect.durationType() != DurationType::Temporary) {
+        return std::nullopt;
+    }
+    if (effect.expiryDay == 0 && effect.expiryTime == 0) {
+        return std::max(0.0f, effect.duration);
+    }
+
+    uint64_t now =
+        static_cast<uint64_t>(_worldTimeDay) * kMillisecondsPerDay +
+        _worldTimeOfDay;
+    uint64_t expiry =
+        static_cast<uint64_t>(effect.expiryDay) * kMillisecondsPerDay +
+        effect.expiryTime;
+    if (expiry <= now) {
+        return 0.0f;
+    }
+    double realSeconds =
+        static_cast<double>(expiry - now) *
+        static_cast<double>(_minutesPerHour) / 60000.0;
+    return static_cast<float>(realSeconds);
 }
 
 void Game::renderGUI() {
@@ -1669,10 +2425,13 @@ void Game::loadNextModule() {
     }
     bool wasLifecycleActive = _swoopLifecycle.active || _turretLifecycle.active;
 
-    loadModule(_nextModule, _nextEntry);
+    bool loaded = loadModule(_nextModule, _nextEntry);
 
     _nextModule.clear();
     _nextEntry.clear();
+    if (!loaded) {
+        return;
+    }
 
     // Vanilla K1 minigame entry: a dialogue node or cutscene script calls
     // StartNewModule("<*mg>"); the engine auto-enters the minigame on load (no
@@ -1943,7 +2702,16 @@ void Game::setGlobalBoolean(const std::string &name, bool value) {
 }
 
 void Game::setGlobalNumber(const std::string &name, int value) {
-    _globalNumbers[name] = value;
+    // Retail SetGlobalNumber stores the low byte in its signed-char table.
+    // Express that conversion portably instead of relying on plain-char
+    // signedness or an implementation-defined narrowing conversion.
+    uint8_t raw = static_cast<uint8_t>(value);
+    _globalNumbers[name] = raw <= 0x7f ? static_cast<int>(raw)
+                                       : static_cast<int>(raw) - 0x100;
+}
+
+std::vector<SavedGame> Game::savedGames() const {
+    return discoverSavedGames(_path);
 }
 
 void Game::setGlobalString(const std::string &name, const std::string &value) {
@@ -1976,6 +2744,7 @@ void Game::withLoadingScreen(const std::string &imageResRef, const std::function
 }
 
 void Game::openMainMenu() {
+    resetGame();
     if (!_mainMenu) {
         _mainMenu = tryLoadGUI<MainMenu>();
     }
@@ -1990,6 +2759,7 @@ void Game::openMainMenu() {
 }
 
 void Game::openInGame() {
+    _runtimeSessionPlayable = static_cast<bool>(_module);
     changeScreen(Screen::InGame);
 }
 
@@ -3207,6 +3977,7 @@ void Game::notifyLevelUpPending(const Creature &creature) {
 }
 
 void Game::startCharacterGeneration() {
+    resetGame();
     if (!_charGen) {
         _charGen = tryLoadGUI<CharacterGeneration>();
     }
@@ -4046,6 +4817,24 @@ void Game::consoleLoadGame(const ConsoleArgs &args) {
     auto name = _saveNames.begin();
     std::advance(name, id);
     loadGame(*name);
+}
+
+void Game::consoleSaveGame(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, std::numeric_limits<size_t>::max(), "slot [name]");
+    auto slot = args.get<uint32_t>(1);
+    if (!slot) {
+        throw std::runtime_error("Invalid save slot");
+    }
+    std::string name;
+    for (size_t i = 2; i < args.size(); ++i) {
+        if (!name.empty()) {
+            name += " ";
+        }
+        name += std::string(*args[i]);
+    }
+    auto result = requestSave(
+        {SaveKind::Developer, *slot, std::move(name), true});
+    _console.printLine(result.message);
 }
 
 void Game::consoleStartPazaak(const ConsoleArgs &args) {

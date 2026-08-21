@@ -483,6 +483,14 @@ protected:
         return static_cast<bool>(_resources->find(ResourceId(resRef, type)));
     }
 
+    std::string working(ResourceDirector &director, const std::string &resRef, ResType type = ResType::Txt) {
+        return dataOf(director.findSaveWorking(ResourceId(resRef, type)));
+    }
+
+    std::string metadata(ResourceDirector &director, const std::string &resRef, ResType type = ResType::Txt) {
+        return dataOf(director.findSaveMetadata(ResourceId(resRef, type)));
+    }
+
     graphics::GraphicsOptions _graphicsOpt;
     graphics::TestGraphicsModule _graphics;
     script::TestScriptModule _script;
@@ -528,7 +536,7 @@ void writeSaveSlots(TmpDir &game) {
 
 } // namespace
 
-TEST_P(SourceLifetimeDirectorTest, a_save_is_unloaded_when_another_is_loaded) {
+TEST_P(SourceLifetimeDirectorTest, a_save_working_state_is_replaced_when_another_is_loaded) {
     TmpDir game("reone_test_lifetime_saves");
     TmpDir cwd("reone_test_lifetime_saves_cwd");
     makeInstallation(game, cwd);
@@ -541,44 +549,38 @@ TEST_P(SourceLifetimeDirectorTest, a_save_is_unloaded_when_another_is_loaded) {
     }
 
     director->onGameLoad("slot_a");
-    EXPECT_EQ("from a", find("common"));
-    EXPECT_TRUE(has("a_only"));
-    EXPECT_TRUE(has("loose_a"));
+    EXPECT_EQ("from a", working(*director, "common"));
+    EXPECT_EQ("from a", working(*director, "a_only"));
+    EXPECT_EQ("loose from a", metadata(*director, "loose_a"));
 
     director->onGameLoad("slot_b");
-    EXPECT_EQ("from b", find("common"));
-    EXPECT_TRUE(has("b_only"));
-    EXPECT_FALSE(has("a_only")) << "a resource only the previous save held must stop resolving";
-    EXPECT_FALSE(has("loose_a")) << "the previous save's loose directory goes with it";
+    EXPECT_EQ("from b", working(*director, "common"));
+    EXPECT_EQ("from b", working(*director, "b_only"));
+    EXPECT_EQ("<not found>", working(*director, "a_only"));
+    EXPECT_EQ("<not found>", metadata(*director, "loose_a"));
 
     director->onGameLoad("slot_a");
-    EXPECT_EQ("from a", find("common"));
-    EXPECT_TRUE(has("a_only"));
-    EXPECT_FALSE(has("b_only"));
-    EXPECT_FALSE(has("loose_b"));
+    EXPECT_EQ("from a", working(*director, "common"));
+    EXPECT_EQ("from a", working(*director, "a_only"));
+    EXPECT_EQ("<not found>", working(*director, "b_only"));
+    EXPECT_EQ("<not found>", metadata(*director, "loose_b"));
 }
 
 /**
- * Retiring a source does not reach a record already parsed out of it.
+ * Save-session validation happens before the commit-side cache invalidation.
  *
- * The save's own records are read between loading a save and loading its
- * module, so the module load's cache clear comes too late for them. They are
- * keyed by resref and type alone, which is the same in every slot, so without
- * clearing here the previous save's parsed copy answers for the new one however
- * the sources are mounted. This is the one cache the save path clears, and this
- * is why.
+ * A successful commit clears decoded results that may refer to the prior
+ * session. A rejected candidate leaves both the active working state and its
+ * still-valid decoded cache untouched.
  */
-TEST_P(SourceLifetimeDirectorTest, a_parsed_record_of_the_previous_save_is_not_served_for_the_next) {
+TEST_P(SourceLifetimeDirectorTest, only_a_committed_save_retires_decoded_cache_entries) {
     TmpDir game("reone_test_lifetime_save_cache");
     TmpDir cwd("reone_test_lifetime_save_cache_cwd");
     makeInstallation(game, cwd);
 
     auto a = game.mkdir("saves/slot_a");
-    writeErf(a / "savegame.sav", ErfWriter::FileType::ERF,
-             {{"savenfo", ResType::Res, emptyGff()}});
-    auto b = game.mkdir("saves/slot_b");
-    writeErf(b / "savegame.sav", ErfWriter::FileType::ERF,
-             {{"savenfo", ResType::Res, emptyGff()}});
+    writeErf(a / "savegame.sav", ErfWriter::FileType::MOD, {});
+    game.mkdir("saves/slot_broken");
 
     Gffs gffs(*_resources);
     auto director = makeDirector(game.path, GameID::TSL, &gffs);
@@ -586,17 +588,23 @@ TEST_P(SourceLifetimeDirectorTest, a_parsed_record_of_the_previous_save_is_not_s
         CwdGuard guard(cwd.path);
         director->init();
     }
+    _resources->addMemERF(
+        erfBytes(ErfWriter::FileType::ERF,
+                 {{"cacheprobe", ResType::Res, emptyGff()}}),
+        ResourceOwner::Global,
+        ResourceSourceBucket::EncapsulatedClass1);
+
+    auto beforeCommit = gffs.get("cacheprobe", ResType::Res);
+    ASSERT_TRUE(beforeCommit);
+    EXPECT_EQ(beforeCommit, gffs.get("cacheprobe", ResType::Res));
 
     director->onGameLoad("slot_a");
-    auto first = gffs.get("savenfo", ResType::Res);
-    ASSERT_TRUE(first);
-    EXPECT_EQ(first, gffs.get("savenfo", ResType::Res)) << "the provider really does cache";
+    auto afterCommit = gffs.get("cacheprobe", ResType::Res);
+    ASSERT_TRUE(afterCommit);
+    EXPECT_NE(beforeCommit, afterCommit);
 
-    director->onGameLoad("slot_b");
-    auto afterSwitch = gffs.get("savenfo", ResType::Res);
-    ASSERT_TRUE(afterSwitch);
-    EXPECT_NE(first, afterSwitch)
-        << "the record must be read again from the save that is now loaded";
+    EXPECT_THROW(director->onGameLoad("slot_broken"), ResourceNotFoundException);
+    EXPECT_EQ(afterCommit, gffs.get("cacheprobe", ResType::Res));
 }
 
 TEST_P(SourceLifetimeDirectorTest, loading_the_same_save_twice_accumulates_nothing) {
@@ -613,25 +621,24 @@ TEST_P(SourceLifetimeDirectorTest, loading_the_same_save_twice_accumulates_nothi
 
     director->onGameLoad("slot_a");
     auto after = _count();
-    auto common = find("common");
+    auto common = working(*director, "common");
 
     director->onGameLoad("slot_a");
     EXPECT_EQ(after, _count());
-    EXPECT_EQ(common, find("common"));
+    EXPECT_EQ(common, working(*director, "common"));
 
     director->onGameLoad("slot_a");
     EXPECT_EQ(after, _count());
-    EXPECT_EQ(common, find("common"));
+    EXPECT_EQ(common, working(*director, "common"));
 }
 
-TEST_P(SourceLifetimeDirectorTest, a_save_that_cannot_be_loaded_leaves_none_of_itself_behind) {
+TEST_P(SourceLifetimeDirectorTest, an_invalid_incoming_save_leaves_the_active_session_unchanged) {
     TmpDir game("reone_test_lifetime_save_failure");
     TmpDir cwd("reone_test_lifetime_save_failure_cwd");
     makeInstallation(game, cwd);
     writeSaveSlots(game);
 
-    // A slot with its loose directory but no archive. The directory is mounted
-    // before the archive is looked for, so this is the partial case.
+    // A slot with loose files but no archive cannot form a session candidate.
     auto broken = game.mkdir("saves/slot_broken");
     writeFile(broken / "loose_broken.txt", "loose from broken");
 
@@ -644,19 +651,19 @@ TEST_P(SourceLifetimeDirectorTest, a_save_that_cannot_be_loaded_leaves_none_of_i
     auto globals = _count();
 
     EXPECT_THROW(director->onGameLoad("slot_broken"), ResourceNotFoundException);
-    EXPECT_FALSE(has("loose_broken")) << "the half-loaded save must leave nothing mounted";
-    EXPECT_FALSE(has("a_only")) << "the previous save was already unloaded before the attempt";
+    EXPECT_EQ("<not found>", metadata(*director, "loose_broken"));
+    EXPECT_EQ("from a", working(*director, "a_only"));
 
     // Repeating the failed load starts from the same state and ends in it.
     auto afterFailure = _count();
     EXPECT_THROW(director->onGameLoad("slot_broken"), ResourceNotFoundException);
     EXPECT_EQ(afterFailure, _count());
-    EXPECT_FALSE(has("loose_broken"));
+    EXPECT_EQ("<not found>", metadata(*director, "loose_broken"));
 
     // And a good slot still loads afterwards.
     director->onGameLoad("slot_b");
-    EXPECT_EQ("from b", find("common"));
-    EXPECT_LT(globals - globals, _count());
+    EXPECT_EQ("from b", working(*director, "common"));
+    EXPECT_EQ(globals, _count());
 }
 
 // Module transitions.
@@ -802,11 +809,11 @@ TEST_P(SourceLifetimeDirectorTest, a_module_transition_does_not_unload_the_save)
 
     director->onGameLoad("slot_a");
     director->onModuleLoad("a");
-    EXPECT_TRUE(has("a_only")) << "the save is still loaded";
+    EXPECT_EQ("from a", working(*director, "a_only"));
 
     director->onModuleLoad("b");
-    EXPECT_TRUE(has("a_only")) << "walking to another module does not leave the save";
-    EXPECT_EQ("from a", find("common"));
+    EXPECT_EQ("from a", working(*director, "a_only"));
+    EXPECT_EQ("from a", working(*director, "common"));
 }
 
 TEST_P(SourceLifetimeDirectorTest, replacing_the_save_does_not_disturb_the_active_module) {
@@ -866,7 +873,7 @@ TEST_P(SourceLifetimeDirectorTest, the_staged_module_state_goes_with_the_module)
     EXPECT_EQ("disk b", find("probe"));
     EXPECT_FALSE(has("staged_only")) << "the previous module's state is not the new module's";
 
-    // The outer save is still loaded, so returning restores the same state.
+    // The save working state remains active, so returning restores the same state.
     director->onModuleLoad("a");
     EXPECT_EQ("staged a", find("probe"));
     EXPECT_TRUE(has("staged_only"));
@@ -1177,7 +1184,7 @@ TEST_P(K1SourceLifetimeTest, retires_module_sources_on_the_activated_path) {
     EXPECT_EQ(sourcesForA, _count());
 }
 
-TEST_P(K1SourceLifetimeTest, unloads_a_save_on_the_activated_path) {
+TEST_P(K1SourceLifetimeTest, replaces_save_working_state_on_the_activated_path) {
     TmpDir game("reone_test_lifetime_k1_saves");
     TmpDir cwd("reone_test_lifetime_k1_saves_cwd");
     makeInstallation(game, cwd);
@@ -1190,11 +1197,11 @@ TEST_P(K1SourceLifetimeTest, unloads_a_save_on_the_activated_path) {
     }
 
     director->onGameLoad("slot_a");
-    EXPECT_TRUE(has("a_only"));
+    EXPECT_EQ("from a", working(*director, "a_only"));
 
     director->onGameLoad("slot_b");
-    EXPECT_EQ("from b", find("common"));
-    EXPECT_FALSE(has("a_only"));
+    EXPECT_EQ("from b", working(*director, "common"));
+    EXPECT_EQ("<not found>", working(*director, "a_only"));
 }
 
 INSTANTIATE_TEST_SUITE_P(Backends,

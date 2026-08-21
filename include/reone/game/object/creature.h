@@ -47,6 +47,7 @@ namespace game {
 constexpr float kDefaultAttackRange = 2.0f;
 
 class DamagePacket;
+class ModuleSnapshotBuilder;
 struct AttackBonusBreakdown;
 
 class Creature : public Object, public scene::IAnimationEventListener {
@@ -135,6 +136,7 @@ public:
     Gender gender() const { return _gender; }
     ModelType modelType() const { return _modelType; }
     int appearance() const { return _appearance; }
+    uint16_t portraitId() const { return _portraitId; }
     std::shared_ptr<graphics::Texture> portrait() const { return _portrait; }
     float walkSpeed() const { return _walkSpeed; }
     float runSpeed() const { return _runSpeed; }
@@ -157,6 +159,13 @@ public:
     void setAppearance(int appearance) { _appearance = appearance; }
     void setMovementType(MovementType type);
     void setFaction(Faction faction) { _faction = faction; }
+    /**
+     * Complete retail primary-player publication after saved creature data has
+     * been read. Both Odyssey titles refill the authoritative primary player
+     * to the derived maximum here; ordinary creatures and detached PCs never
+     * pass through this operation.
+     */
+    void restorePrimaryPlayerHitPoints();
     void setMovementRestricted(bool restricted) { _movementRestricted = restricted; }
     void setImmortal(bool immortal) { _immortal = immortal; }
     void setAIStyle(NPCAIStyle style) { _aiStyle = style; }
@@ -362,6 +371,8 @@ protected:
     bool canExecuteActions() const override;
 
 private:
+    friend class ModuleSnapshotBuilder;
+    friend class TestGameModule;
     // Serializable
     RacialType _race {RacialType::Unknown};
     Subrace _subrace {Subrace::None};

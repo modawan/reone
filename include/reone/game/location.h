@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "reone/script/enginetype.h"
 
 namespace reone {
@@ -30,12 +32,32 @@ public:
         _facing(facing) {
     }
 
+    Location(glm::vec3 position, glm::vec3 serializedOrientation) :
+        _position(std::move(position)),
+        _facing(std::atan2(serializedOrientation.y, serializedOrientation.x)),
+        _preservedOrientation(std::move(serializedOrientation)) {
+    }
+
     const glm::vec3 &position() const { return _position; }
     float facing() const { return _facing; }
+    const std::optional<glm::vec3> &preservedOrientation() const {
+        return _preservedOrientation;
+    }
+    glm::vec3 saveOrientation() const {
+        return _preservedOrientation.value_or(
+            glm::vec3(std::cos(_facing), std::sin(_facing), 0.0f));
+    }
+
+    void setPosition(glm::vec3 position) { _position = std::move(position); }
+    void setFacing(float facing) {
+        _facing = facing;
+        _preservedOrientation.reset();
+    }
 
 private:
     glm::vec3 _position;
     float _facing;
+    std::optional<glm::vec3> _preservedOrientation;
 };
 
 } // namespace game

@@ -26,6 +26,25 @@ namespace game {
 
 class Encounter : public Object {
 public:
+    struct SavedRuntimeState {
+        int32_t areaListMaxSize {0};
+        int32_t areaListSize {0};
+        std::vector<uint32_t> areaObjectIds;
+        float areaPoints {0.0f};
+        int32_t currentSpawns {0};
+        int32_t customScriptId {0};
+        bool exhausted {false};
+        uint32_t heartbeatDay {0};
+        uint32_t heartbeatTime {0};
+        uint32_t lastEntered {0};
+        uint32_t lastLeft {0};
+        uint32_t lastSpawnDay {0};
+        uint32_t lastSpawnTime {0};
+        int32_t numberSpawned {0};
+        float spawnPoolActive {0.0f};
+        bool started {false};
+    };
+
     Encounter(
         uint32_t id,
         std::string sceneName,
@@ -44,8 +63,11 @@ public:
     }
 
     void deserialize(const resource::Gff &gff);
+    const SavedRuntimeState &savedRuntimeState() const { return _savedRuntimeState; }
+    std::shared_ptr<Object> savedAreaObject(size_t index) const;
 
 private:
+    friend class ModuleSnapshotBuilder;
     struct SpawnPoint {
         glm::vec3 position {0.0f};
         float orientation {0.0f};
@@ -81,9 +103,11 @@ private:
     std::vector<EncounterCreature> _creatures;
     std::vector<glm::vec3> _geometry;
     std::vector<SpawnPoint> _spawnPoints;
+    SavedRuntimeState _savedRuntimeState;
     // END Serializable
 
     void deserializeAll(const resource::Gff &gff);
+    void deserializeSavedRuntimeState(const resource::Gff &gff);
     void deserializeCreatures(const resource::Gff &gff);
     void deserializeGeometry(const resource::Gff &gff);
     void deserializeSpawnPoints(const resource::Gff &gff);

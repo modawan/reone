@@ -41,7 +41,7 @@ public:
 private:
     struct LocString {
         int32_t strRef {-1};
-        std::string subString;
+        std::vector<Gff::LocSubstring> substrings;
     };
 
     BinaryReader _gff;

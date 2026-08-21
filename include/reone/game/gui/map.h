@@ -47,6 +47,8 @@ public:
 
     void load(const std::string &area, const resource::generated::ARE_Map &map);
 
+    void retireRuntimeSession();
+
     void render(Mode mode, const glm::vec4 &bounds);
 
     bool isLoaded() const { return static_cast<bool>(_areaTexture); }

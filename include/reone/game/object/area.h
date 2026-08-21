@@ -49,6 +49,7 @@ class Location;
 class Object;
 class Room;
 class Trigger;
+class ModuleSnapshotBuilder;
 
 using RoomMap = std::unordered_map<std::string, std::shared_ptr<Room>>;
 using ObjectList = std::vector<std::shared_ptr<Object>>;
@@ -172,7 +173,10 @@ public:
     // Party
 
     void unloadPartyMember(const std::shared_ptr<Creature> &member);
-    void loadParty(const glm::vec3 &position, float facing, bool fromSave = false);
+    void loadParty(
+        const glm::vec3 &position,
+        float facing,
+        bool preserveSavedPlacement = false);
     void unloadParty();
     void reloadParty();
 
@@ -240,6 +244,8 @@ public:
     // END Scene
 
 private:
+    friend class ModuleSnapshotBuilder;
+    friend class TestGameModule;
     std::string _sceneName;
 
     Pathfinder _pathfinder;
@@ -323,7 +329,10 @@ private:
     void updateVisibility();
     void updateHeartbeat(float dt);
 
-    void loadPartyMember(const std::shared_ptr<Creature> &member, int index, bool fromSave);
+    void loadPartyMember(
+        const std::shared_ptr<Creature> &member,
+        int index,
+        bool preserveSavedPlacement);
     glm::vec3 findPartyPosition(const Creature &member, const glm::vec3 &position) const;
 
     struct CreatureCollision {
@@ -376,18 +385,19 @@ private:
 
     // Loading GIT
 
-    void loadGIT(const resource::generated::GIT &git, const resource::Gff &gff);
+    void loadGIT(const resource::generated::GIT &git, const resource::Gff &gff, bool fromSave);
 
     void loadProperties(const resource::generated::GIT &git);
-    void loadCreatures(const resource::Gff &gff);
-    void loadDoors(const resource::Gff &gff);
-    void loadPlaceables(const resource::Gff &gff);
-    void loadWaypoints(const resource::Gff &gff);
-    void loadTriggers(const resource::Gff &gff);
-    void loadSounds(const resource::Gff &gff);
-    void loadCameras(const resource::Gff &gff);
-    void loadEncounters(const resource::Gff &gff);
-    void loadStores(const resource::Gff &gff);
+    void loadCreatures(const resource::Gff &gff, bool fromSave);
+    void loadDoors(const resource::Gff &gff, bool fromSave);
+    void loadPlaceables(const resource::Gff &gff, bool fromSave);
+    void loadWaypoints(const resource::Gff &gff, bool fromSave);
+    void loadTriggers(const resource::Gff &gff, bool fromSave);
+    void loadSounds(const resource::Gff &gff, bool fromSave);
+    void loadCameras(const resource::Gff &gff, bool fromSave);
+    void loadEncounters(const resource::Gff &gff, bool fromSave);
+    void loadStores(const resource::Gff &gff, bool fromSave);
+    void loadItems(const resource::Gff &gff, bool fromSave);
 
     // END Loading GIT
 

@@ -4750,7 +4750,8 @@ static Variable GetWeaponRanged(const std::vector<Variable> &args, const Routine
 
 static Variable DoSinglePlayerAutoSave(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("DoSinglePlayerAutoSave");
+    ctx.game.requestAutoSave();
+    return Variable::ofNull();
 }
 
 static Variable GetGameDifficulty(const std::vector<Variable> &args, const RoutineContext &ctx) {

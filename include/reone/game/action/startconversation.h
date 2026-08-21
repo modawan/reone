@@ -42,7 +42,14 @@ public:
         Action(game, services, ActionType::StartConversation),
         _objectToConverse(std::move(objectToConverse)),
         _dialogResRef(std::move(dialogResRef)),
-        _ignoreStartRange(ignoreStartRange) {
+        _privateConversation(privateConversation),
+        _conversationType(conversationType),
+        _ignoreStartRange(ignoreStartRange),
+        _namesToIgnore(std::move(namesToIgnore)),
+        _useLeader(useLeader),
+        _barkX(barkX),
+        _barkY(barkY),
+        _dontClearAllActions(dontClearAllActions) {
     }
 
     static bool classof(Action *from) {
@@ -51,9 +58,13 @@ public:
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
+    std::optional<SavedActionRecord> saveFacingState() const override;
+
     bool isStartRangeIgnored() const { return _ignoreStartRange; }
 
     const std::string &dialogResRef() const { return _dialogResRef; }
+    const std::shared_ptr<Object> &target() const { return _objectToConverse; }
+    bool isPrivateConversation() const { return _privateConversation; }
 
 private:
     std::shared_ptr<Object> _objectToConverse;

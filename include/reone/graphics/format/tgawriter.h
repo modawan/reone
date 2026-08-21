@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "reone/system/stream/output.h"
 
 #include "../types.h"
@@ -27,18 +29,40 @@ namespace graphics {
 
 class Texture;
 
+enum class TgaOrigin {
+    BottomLeft,
+    TopLeft,
+};
+
 class TgaWriter {
 public:
     TgaWriter(std::shared_ptr<Texture> texture);
+    TgaWriter(
+        uint32_t width,
+        uint32_t height,
+        PixelFormat format,
+        ByteBuffer pixels,
+        TgaOrigin origin = TgaOrigin::BottomLeft);
 
     void save(IOutputStream &out, bool compress = false);
+    ByteBuffer toBytes(bool compress = false);
 
 private:
-    std::shared_ptr<Texture> _texture;
+    struct RawImage {
+        uint32_t width {0};
+        uint32_t height {0};
+        PixelFormat format {PixelFormat::RGB8};
+        ByteBuffer pixels;
+        TgaOrigin origin {TgaOrigin::BottomLeft};
+    };
 
-    void writeRLE(uint8_t *pixels, int depth, IOutputStream &out);
+    std::shared_ptr<Texture> _texture;
+    std::optional<RawImage> _rawImage;
+
+    void writeRLE(const uint8_t *pixels, int width, int depth, IOutputStream &out);
 
     std::vector<uint8_t> getTexturePixels(bool compress, TGADataType &dataType, int &depth) const;
+    std::vector<uint8_t> getRawImagePixels(TGADataType &dataType, int &depth) const;
 };
 
 } // namespace graphics

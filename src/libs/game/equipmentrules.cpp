@@ -17,6 +17,8 @@
 
 #include "reone/game/equipmentrules.h"
 
+#include "reone/game/game.h"
+#include "reone/game/object.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
 #include "reone/game/types.h"
@@ -208,6 +210,25 @@ EquipmentCandidateDecision evaluateEquipmentCandidate(
     }
 
     return result;
+}
+
+std::shared_ptr<Item> takeEquipmentCandidate(
+    Game &game,
+    Object &inventory,
+    const std::shared_ptr<Item> &item) {
+
+    bool last = false;
+    if (!inventory.removeItem(item, last)) {
+        return nullptr;
+    }
+    if (last) {
+        return item;
+    }
+
+    auto split = game.newItem();
+    split->clone(*item);
+    split->setStackSize(1);
+    return split;
 }
 
 } // namespace game

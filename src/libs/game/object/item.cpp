@@ -51,25 +51,34 @@ void Item::loadFromBlueprint(const std::string &resRef) {
 
 void Item::deserialize(const resource::Gff &gff) {
     std::string ref;
-    if (gff.readResRef(ref, "EquippedRes")) {
+    if (!gff.has("ObjectId") && gff.readResRef(ref, "EquippedRes")) {
         if (auto uti = _services.resource.gffs.get(ref, ResType::Uti)) {
             deserializeAll(*uti);
         }
     }
 
-    if (gff.readResRef(ref, "InventoryRes")) {
+    if (!gff.has("ObjectId") && gff.readResRef(ref, "InventoryRes")) {
         if (auto uti = _services.resource.gffs.get(ref, ResType::Uti)) {
             deserializeAll(*uti);
         }
     }
 
-    if (gff.readResRef(ref, "TemplateResRef")) {
+    if (!gff.has("ObjectId") && gff.readResRef(ref, "TemplateResRef")) {
         if (auto uti = _services.resource.gffs.get(ref, ResType::Uti)) {
             deserializeAll(*uti);
         }
     }
 
     deserializeAll(gff);
+}
+
+void Item::captureOwnerLocalSaveRecord(
+    const resource::Gff &gff, SaveRecordOrigin origin) {
+    uint32_t savedId = 0;
+    _originalOwnerLocalObjectId = gff.readDword(savedId, "ObjectId")
+                                      ? std::optional<uint32_t>(savedId)
+                                      : std::nullopt;
+    captureSaveRecord(gff, std::move(origin));
 }
 
 void Item::deserializeAll(const resource::Gff &gff) {

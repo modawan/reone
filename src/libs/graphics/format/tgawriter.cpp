@@ -20,6 +20,7 @@
 #include "reone/graphics/dxtutil.h"
 #include "reone/graphics/texture.h"
 #include "reone/system/exception/validation.h"
+#include "reone/system/stream/memoryoutput.h"
 
 namespace reone {
 
@@ -27,19 +28,78 @@ namespace graphics {
 
 static constexpr int kHeaderSize = 18;
 
+static size_t checkedPixelSize(uint64_t width, uint64_t height, uint64_t channels) {
+    if (channels == 0) {
+        throw ValidationException("TGA channel count must be positive");
+    }
+    if (width == 0 || height == 0 || width > std::numeric_limits<uint16_t>::max() ||
+        height > std::numeric_limits<uint16_t>::max()) {
+        throw ValidationException("TGA dimensions must be between 1 and 65535");
+    }
+    if (width > std::numeric_limits<uint64_t>::max() / height ||
+        width * height > std::numeric_limits<uint64_t>::max() / channels) {
+        throw ValidationException("TGA pixel size overflows");
+    }
+    uint64_t size = width * height * channels;
+    if (size > std::numeric_limits<size_t>::max()) {
+        throw ValidationException("TGA pixel size exceeds addressable memory");
+    }
+    return static_cast<size_t>(size);
+}
+
+static uint64_t checkedTextureHeight(int height, size_t layers) {
+    if (height <= 0 || layers == 0 ||
+        layers > std::numeric_limits<uint64_t>::max() / static_cast<uint64_t>(height)) {
+        throw ValidationException("TGA texture layer dimensions overflow");
+    }
+    return static_cast<uint64_t>(height) * layers;
+}
+
 TgaWriter::TgaWriter(std::shared_ptr<Texture> texture) :
     _texture(std::move(texture)) {
+    if (!_texture) {
+        throw ValidationException("TGA writer requires a texture");
+    }
+}
+
+TgaWriter::TgaWriter(
+    uint32_t width,
+    uint32_t height,
+    PixelFormat format,
+    ByteBuffer pixels,
+    TgaOrigin origin) :
+    _rawImage(RawImage {width, height, format, std::move(pixels), origin}) {
 }
 
 void TgaWriter::save(IOutputStream &out, bool compress) {
-    // Image ID, color-mapped images, RLE and image orientation are not supported
-
-    int width = _texture->width();
-    int totalHeight = static_cast<int>(_texture->layers().size()) * _texture->height();
-
     TGADataType dataType;
     int depth;
-    std::vector<uint8_t> pixels(getTexturePixels(compress, dataType, depth));
+    uint32_t width;
+    uint32_t totalHeight;
+    TgaOrigin origin;
+    std::vector<uint8_t> pixels;
+    if (_rawImage) {
+        width = _rawImage->width;
+        totalHeight = _rawImage->height;
+        origin = _rawImage->origin;
+        pixels = getRawImagePixels(dataType, depth);
+        if (compress) {
+            dataType = TGADataType::RGBA_RLE;
+        }
+    } else {
+        width = static_cast<uint32_t>(_texture->width());
+        uint64_t height = checkedTextureHeight(
+            _texture->height(),
+            _texture->layers().size());
+        origin = TgaOrigin::BottomLeft;
+        checkedPixelSize(width, height, 1);
+        totalHeight = static_cast<uint32_t>(height);
+        pixels = getTexturePixels(compress, dataType, depth);
+    }
+    size_t expectedSize = checkedPixelSize(width, totalHeight, depth / 8);
+    if (pixels.size() != expectedSize) {
+        throw ValidationException("TGA pixel buffer length does not match its dimensions and format");
+    }
 
     // Write Header
 
@@ -57,25 +117,31 @@ void TgaWriter::save(IOutputStream &out, bool compress) {
     header[14] = totalHeight % 256;   // height (lo)
     header[15] = totalHeight / 256;   // height (hi)
     header[16] = depth;               // pixel size
-    header[17] = depth == 32 ? 8 : 0; // image descriptor;
+    header[17] = (depth == 32 ? 8 : 0) |
+                 (origin == TgaOrigin::TopLeft ? 0x20 : 0);
     out.write(reinterpret_cast<char *>(header), kHeaderSize);
 
     // Write Scanlines
 
-    int scanlineSize = width * depth / 8;
+    size_t scanlineSize = checkedPixelSize(width, 1, depth / 8);
     if (depth >= 24 && compress) {
-        for (int wrote = 0; wrote < totalHeight; ++wrote) {
-            int offset = wrote * scanlineSize;
-            writeRLE(&pixels[offset], depth, out);
+        for (uint32_t wrote = 0; wrote < totalHeight; ++wrote) {
+            size_t offset = wrote * scanlineSize;
+            writeRLE(&pixels[offset], static_cast<int>(width), depth, out);
         }
     } else {
-        out.write(reinterpret_cast<char *>(&pixels[0]), static_cast<size_t>(totalHeight) * scanlineSize);
+        out.writeAll(reinterpret_cast<char *>(pixels.data()), pixels.size());
     }
 }
 
-std::vector<uint8_t> TgaWriter::getTexturePixels(bool compress, TGADataType &dataType, int &depth) const {
-    std::vector<uint8_t> result;
+ByteBuffer TgaWriter::toBytes(bool compress) {
+    ByteBuffer result;
+    MemoryOutputStream out(result);
+    save(out, compress);
+    return result;
+}
 
+std::vector<uint8_t> TgaWriter::getTexturePixels(bool compress, TGADataType &dataType, int &depth) const {
     switch (_texture->pixelFormat()) {
     case PixelFormat::R8:
         dataType = TGADataType::Grayscale;
@@ -97,22 +163,56 @@ std::vector<uint8_t> TgaWriter::getTexturePixels(bool compress, TGADataType &dat
         throw ValidationException("Unsupported texture pixel format: " + std::to_string(static_cast<int>(_texture->pixelFormat())));
     }
 
-    int numLayers = static_cast<int>(_texture->layers().size());
-    int numPixels = _texture->width() * _texture->height();
-    int numPixelsTotal = numLayers * numPixels;
-    result.resize(static_cast<size_t>(numPixelsTotal) * depth / 8);
-    uint8_t *pixels = &result[0];
+    size_t numLayers = _texture->layers().size();
+    size_t numPixels = checkedPixelSize(_texture->width(), _texture->height(), 1);
+    uint64_t totalHeight = checkedTextureHeight(_texture->height(), numLayers);
+    size_t resultSize = checkedPixelSize(_texture->width(), totalHeight, depth / 8);
+    std::vector<uint8_t> result(resultSize);
+    uint8_t *pixels = result.data();
 
-    for (int i = 0; i < numLayers; ++i) {
+    for (size_t i = 0; i < numLayers; ++i) {
         auto &layer = _texture->layers()[i];
+        if (!layer.pixels) {
+            throw ValidationException("TGA texture layer has no pixels");
+        }
         auto layerPixelsPtr = reinterpret_cast<const uint8_t *>(layer.pixels->data());
+        size_t expectedLayerSize;
+        switch (_texture->pixelFormat()) {
+        case PixelFormat::R8:
+            expectedLayerSize = numPixels;
+            break;
+        case PixelFormat::RGB8:
+        case PixelFormat::BGR8:
+            expectedLayerSize = numPixels * 3;
+            break;
+        case PixelFormat::RGBA8:
+        case PixelFormat::BGRA8:
+            expectedLayerSize = numPixels * 4;
+            break;
+        case PixelFormat::DXT1:
+            expectedLayerSize =
+                ((static_cast<size_t>(_texture->width()) + 3) / 4) *
+                ((static_cast<size_t>(_texture->height()) + 3) / 4) * 8;
+            break;
+        case PixelFormat::DXT5:
+            expectedLayerSize =
+                ((static_cast<size_t>(_texture->width()) + 3) / 4) *
+                ((static_cast<size_t>(_texture->height()) + 3) / 4) * 16;
+            break;
+        default:
+            throw ValidationException("Unsupported texture pixel format");
+        }
+        if (layer.pixels->size() != expectedLayerSize) {
+            throw ValidationException("TGA texture layer length does not match its dimensions and format");
+        }
 
         switch (_texture->pixelFormat()) {
         case PixelFormat::R8:
             memcpy(pixels, layerPixelsPtr, numPixels);
+            pixels += numPixels;
             break;
         case PixelFormat::RGB8:
-            for (int j = 0; j < numPixels; ++j) {
+            for (size_t j = 0; j < numPixels; ++j) {
                 *(pixels++) = layerPixelsPtr[2];
                 *(pixels++) = layerPixelsPtr[1];
                 *(pixels++) = layerPixelsPtr[0];
@@ -120,7 +220,7 @@ std::vector<uint8_t> TgaWriter::getTexturePixels(bool compress, TGADataType &dat
             }
             break;
         case PixelFormat::RGBA8:
-            for (int j = 0; j < numPixels; ++j) {
+            for (size_t j = 0; j < numPixels; ++j) {
                 *(pixels++) = layerPixelsPtr[2];
                 *(pixels++) = layerPixelsPtr[1];
                 *(pixels++) = layerPixelsPtr[0];
@@ -129,16 +229,18 @@ std::vector<uint8_t> TgaWriter::getTexturePixels(bool compress, TGADataType &dat
             }
             break;
         case PixelFormat::BGR8:
-            memcpy(pixels, layerPixelsPtr, 3ll * numPixels);
+            memcpy(pixels, layerPixelsPtr, 3 * numPixels);
+            pixels += 3 * numPixels;
             break;
         case PixelFormat::BGRA8:
-            memcpy(pixels, layerPixelsPtr, 4ll * numPixels);
+            memcpy(pixels, layerPixelsPtr, 4 * numPixels);
+            pixels += 4 * numPixels;
             break;
         case PixelFormat::DXT1: {
             std::vector<uint32_t> decompPixels(numPixels);
             decompressDXT1(_texture->width(), _texture->height(), layerPixelsPtr, &decompPixels[0]);
             uint32_t *decompPtr = &decompPixels[0];
-            for (int j = 0; j < numPixels; ++j) {
+            for (size_t j = 0; j < numPixels; ++j) {
                 uint32_t rgb = *(decompPtr++);
                 *(pixels++) = (rgb >> 8) & 0xff;
                 *(pixels++) = (rgb >> 16) & 0xff;
@@ -150,7 +252,7 @@ std::vector<uint8_t> TgaWriter::getTexturePixels(bool compress, TGADataType &dat
             std::vector<uint32_t> decompPixels(numPixels);
             decompressDXT5(_texture->width(), _texture->height(), layerPixelsPtr, &decompPixels[0]);
             uint32_t *decompPtr = &decompPixels[0];
-            for (int j = 0; j < numPixels; ++j) {
+            for (size_t j = 0; j < numPixels; ++j) {
                 uint32_t rgba = *(decompPtr++);
                 *(pixels++) = (rgba >> 8) & 0xff;
                 *(pixels++) = (rgba >> 16) & 0xff;
@@ -167,55 +269,82 @@ std::vector<uint8_t> TgaWriter::getTexturePixels(bool compress, TGADataType &dat
     return result;
 }
 
-void TgaWriter::writeRLE(uint8_t *pixels, int depth, IOutputStream &out) {
-    uint8_t *from = pixels;
-    uint8_t repeat = 0, direct = 0;
-    int bytes = depth / 8;
-
-    for (int x = 1; x < _texture->width(); ++x) {
-        if (memcpy(pixels, pixels + bytes, bytes)) {
-            if (repeat) {
-                out.writeByte(128 + repeat);
-                out.write(reinterpret_cast<char *>(from), bytes);
-                from = pixels + bytes;
-                repeat = 0;
-                direct = 0;
-            } else {
-                ++direct;
-            }
-        } else {
-            if (direct) {
-                out.writeByte(direct - 1);
-                out.write(reinterpret_cast<char *>(from), bytes * static_cast<size_t>(direct));
-                from = pixels;
-                direct = 0;
-                repeat = 1;
-            } else {
-                ++repeat;
-            }
-        }
-        if (repeat == 128) {
-            out.writeByte(static_cast<char>(255));
-            out.write(reinterpret_cast<char *>(from), bytes);
-            from = pixels + bytes;
-            direct = 0;
-            repeat = 0;
-        } else if (direct == 128) {
-            out.writeByte(127);
-            out.write(reinterpret_cast<char *>(from), bytes * static_cast<size_t>(direct));
-            from = pixels + bytes;
-            direct = 0;
-            repeat = 0;
-        }
-        pixels += bytes;
+std::vector<uint8_t> TgaWriter::getRawImagePixels(TGADataType &dataType, int &depth) const {
+    dataType = TGADataType::RGBA;
+    size_t channels;
+    switch (_rawImage->format) {
+    case PixelFormat::RGB8:
+    case PixelFormat::BGR8:
+        channels = 3;
+        depth = 24;
+        break;
+    case PixelFormat::RGBA8:
+    case PixelFormat::BGRA8:
+        channels = 4;
+        depth = 32;
+        break;
+    default:
+        throw ValidationException("Raw TGA output supports only RGB8, BGR8, RGBA8, and BGRA8 pixels");
     }
 
-    if (repeat > 0) {
-        out.writeByte(128 + repeat);
-        out.write(reinterpret_cast<char *>(from), bytes);
-    } else {
-        out.writeByte(direct);
-        out.write(reinterpret_cast<char *>(from), bytes * static_cast<size_t>(direct + 1));
+    size_t expectedSize = checkedPixelSize(_rawImage->width, _rawImage->height, channels);
+    if (_rawImage->pixels.size() != expectedSize) {
+        throw ValidationException("TGA pixel buffer length does not match its dimensions and format");
+    }
+
+    std::vector<uint8_t> result(expectedSize);
+    bool alreadyBgr = _rawImage->format == PixelFormat::BGR8 ||
+                      _rawImage->format == PixelFormat::BGRA8;
+    for (size_t offset = 0; offset < expectedSize; offset += channels) {
+        result[offset] = _rawImage->pixels[offset + (alreadyBgr ? 0 : 2)];
+        result[offset + 1] = _rawImage->pixels[offset + 1];
+        result[offset + 2] = _rawImage->pixels[offset + (alreadyBgr ? 2 : 0)];
+        if (channels == 4) {
+            result[offset + 3] = _rawImage->pixels[offset + 3];
+        }
+    }
+    return result;
+}
+
+void TgaWriter::writeRLE(const uint8_t *pixels, int width, int depth, IOutputStream &out) {
+    size_t bytes = static_cast<size_t>(depth / 8);
+    int x = 0;
+    while (x < width) {
+        int run = 1;
+        while (x + run < width && run < 128 &&
+               memcmp(pixels + static_cast<size_t>(x) * bytes,
+                      pixels + static_cast<size_t>(x + run) * bytes,
+                      bytes) == 0) {
+            ++run;
+        }
+        if (run >= 2) {
+            out.writeByte(static_cast<char>(0x80 | (run - 1)));
+            out.write(
+                reinterpret_cast<const char *>(pixels + static_cast<size_t>(x) * bytes),
+                bytes);
+            x += run;
+            continue;
+        }
+
+        int rawStart = x++;
+        while (x < width && x - rawStart < 128) {
+            run = 1;
+            while (x + run < width && run < 128 &&
+                   memcmp(pixels + static_cast<size_t>(x) * bytes,
+                          pixels + static_cast<size_t>(x + run) * bytes,
+                          bytes) == 0) {
+                ++run;
+            }
+            if (run >= 2) {
+                break;
+            }
+            ++x;
+        }
+        int rawLength = x - rawStart;
+        out.writeByte(static_cast<char>(rawLength - 1));
+        out.write(
+            reinterpret_cast<const char *>(pixels + static_cast<size_t>(rawStart) * bytes),
+            static_cast<size_t>(rawLength) * bytes);
     }
 }
 

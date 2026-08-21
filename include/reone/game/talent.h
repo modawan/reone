@@ -27,16 +27,39 @@ namespace game {
 
 class Talent : public script::EngineType {
 public:
-    Talent(TalentType type, int value) :
-        _type(type), _value(value) {
+    Talent(
+        TalentType type,
+        int value,
+        uint8_t multiClass = 0,
+        uint32_t item = 0x7f000000,
+        int itemPropertyIndex = -1,
+        uint8_t casterLevel = 0xff,
+        uint8_t metaType = 0xff) :
+        _type(type),
+        _value(value),
+        _multiClass(multiClass),
+        _item(item),
+        _itemPropertyIndex(itemPropertyIndex),
+        _casterLevel(casterLevel),
+        _metaType(metaType) {
     }
 
     TalentType type() const { return _type; }
     int value() const { return _value; }
+    uint8_t multiClass() const { return _multiClass; }
+    uint32_t item() const { return _item; }
+    int itemPropertyIndex() const { return _itemPropertyIndex; }
+    uint8_t casterLevel() const { return _casterLevel; }
+    uint8_t metaType() const { return _metaType; }
 
 private:
     TalentType _type;
     int _value;
+    uint8_t _multiClass;
+    uint32_t _item;
+    int _itemPropertyIndex;
+    uint8_t _casterLevel;
+    uint8_t _metaType;
 };
 
 } // namespace game

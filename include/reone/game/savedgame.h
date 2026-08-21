@@ -17,16 +17,40 @@
 
 #pragma once
 
-#include "reone/graphics/texture.h"
+#include <filesystem>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "reone/resource/parser/gff/nfo.h"
+#include "reone/resource/saveworkingstate.h"
+#include "reone/system/types.h"
 
 namespace reone {
 
 namespace game {
 
 struct SavedGame {
-    std::shared_ptr<graphics::Texture> screen;
-    std::string lastModule;
+    uint32_t slot {0};
+    uint32_t displayNumber {0};
+    resource::SaveSlotDescriptor descriptor;
+    resource::NFO metadata;
+    std::optional<ByteBuffer> screenshot;
 };
+
+/** Discover structurally usable durable slots below one installation root. */
+std::vector<SavedGame> discoverSavedGames(const std::filesystem::path &gamePath);
+
+/** Presentation label only; never use it to target durable storage. */
+std::string saveGameNumberLabel(const SavedGame &save);
+
+/** Numeric slot identity is authoritative; return the next unused manual slot. */
+uint32_t nextManualSaveSlot(const std::vector<SavedGame> &saves);
+
+/** Delete one exact validated durable slot. Active working state is detached. */
+bool deleteSavedGame(
+    const std::filesystem::path &gamePath,
+    const resource::SaveSlotDescriptor &slot);
 
 } // namespace game
 

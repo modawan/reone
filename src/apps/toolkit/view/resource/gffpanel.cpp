@@ -247,6 +247,11 @@ void GFFResourcePanel::OnTreeCtrlItemContextMenu(wxDataViewEvent &event) {
                         m_viewModel.modifyField(node.id, [&strRef, &substring](auto &field) {
                             field.intValue = strRef;
                             field.strValue = substring;
+                            field.locSubstrings.clear();
+                            if (!substring.empty()) {
+                                field.locSubstrings.push_back(
+                                    Gff::LocSubstring {0, substring});
+                            }
                         });
                     }
                 }

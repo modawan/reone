@@ -51,6 +51,7 @@ public:
     const std::string &mapNote() const { return _mapNote.str(); }
 
 private:
+    friend class ModuleSnapshotBuilder;
     // Serializable
     bool _hasMapNote {false};
     bool _mapNoteEnabled {false};

@@ -17,9 +17,12 @@
 
 #include <gtest/gtest.h>
 
+#include "reone/resource/format/gffreader.h"
 #include "reone/resource/format/gffwriter.h"
 #include "reone/resource/gff.h"
 #include "reone/system/binarywriter.h"
+#include "reone/system/exception/validation.h"
+#include "reone/system/stream/memoryinput.h"
 #include "reone/system/stream/memoryoutput.h"
 #include "reone/system/stringbuilder.h"
 
@@ -209,4 +212,172 @@ TEST(GffWriter, should_write_gff) {
 
     auto actualOutput = std::string(&bytes[0], bytes.size());
     EXPECT_EQ(expectedOutput, actualOutput) << notEqualMessage(expectedOutput, actualOutput);
+}
+
+namespace {
+
+std::shared_ptr<Gff> readGff(ByteBuffer bytes) {
+    MemoryInputStream stream(bytes);
+    GffReader reader(stream);
+    reader.load();
+    return reader.root();
+}
+
+std::string firstEight(const ByteBuffer &bytes) {
+    return std::string(bytes.begin(), bytes.begin() + 8);
+}
+
+const Gff::Field &field(const Gff &gff, std::string_view label) {
+    auto found = std::find_if(
+        gff.fields().begin(),
+        gff.fields().end(),
+        [label](const auto &candidate) { return candidate.label == label; });
+    if (found == gff.fields().end()) {
+        throw std::logic_error("missing GFF field: " + std::string(label));
+    }
+    return *found;
+}
+
+} // namespace
+
+TEST(GffWriter, writes_explicit_save_facing_signatures_independent_of_resource_type) {
+    Gff root(0, {});
+    const std::vector<std::string> signatures {
+        "IFO ", "GVT ", "PT  ", "NFO ", "FAC ", "ARE ", "GIT ", "UTC "};
+
+    for (const auto &signature : signatures) {
+        auto encoded = GffWriter(GffFileFormat::v32(signature), root).toBytes();
+        EXPECT_EQ(signature + "V3.2", firstEight(encoded));
+        auto decoded = readGff(encoded);
+        ASSERT_TRUE(decoded->signature());
+        EXPECT_EQ(signature + "V3.2", *decoded->signature());
+    }
+}
+
+TEST(GffWriter, rejects_invalid_explicit_format) {
+    EXPECT_THROW(GffFileFormat::v32("GVT"), ValidationException);
+    EXPECT_THROW(GffFileFormat::v32(std::string("GV\0T", 4)), ValidationException);
+    EXPECT_THROW(GffFileFormat("GVT ", "3.2"), ValidationException);
+    EXPECT_THROW(GffFileFormat("GVT ", "V4.0"), ValidationException);
+    Gff root(0, {});
+    EXPECT_THROW(GffWriter(ResType::Txt, root), ValidationException);
+}
+
+TEST(GffWriter, round_trips_primitives_nested_structures_empty_values_and_64_bit_fields) {
+    auto nested = std::make_shared<Gff>(7, std::vector<Gff::Field> {
+        Gff::Field::newCExoString("Nested", "value")});
+    Gff root(0, std::vector<Gff::Field> {
+        Gff::Field::newByte("Byte", 255),
+        Gff::Field::newChar("Char", -1),
+        Gff::Field::newWord("Word", 65535),
+        Gff::Field::newShort("Short", -123),
+        Gff::Field::newDword("Dword", 0xfedcba98),
+        Gff::Field::newInt("Int", -123456),
+        Gff::Field::newDword64("Dword64", 0xfedcba9876543210ull),
+        Gff::Field::newInt64("Int64", -0x1234567890ll),
+        Gff::Field::newFloat("Float", 1.25f),
+        Gff::Field::newDouble("Double", -2.5),
+        Gff::Field::newCExoString("EmptyString", ""),
+        Gff::Field::newResRef("EmptyResRef", ""),
+        Gff::Field::newVoid("Void", ByteBuffer {'a', '\0', 'b'}),
+        Gff::Field::newVoid("EmptyVoid", {}),
+        Gff::Field::newStruct("Struct", nested),
+        Gff::Field::newList("EmptyList", {}),
+        Gff::Field::newList("List", {std::make_shared<Gff>(8, std::vector<Gff::Field> {
+                                               Gff::Field::newInt("Value", 42)})})});
+
+    auto decoded = readGff(GffWriter(GffFileFormat::v32("GVT "), root).toBytes());
+
+    ASSERT_EQ(17u, decoded->fields().size());
+    EXPECT_EQ(255u, field(*decoded, "Byte").uintValue);
+    EXPECT_EQ(-1, field(*decoded, "Char").intValue);
+    EXPECT_EQ(65535u, field(*decoded, "Word").uintValue);
+    EXPECT_EQ(-123, field(*decoded, "Short").intValue);
+    EXPECT_EQ(0xfedcba98u, field(*decoded, "Dword").uintValue);
+    EXPECT_EQ(-123456, field(*decoded, "Int").intValue);
+    EXPECT_EQ(0xfedcba9876543210ull, field(*decoded, "Dword64").uint64Value);
+    EXPECT_EQ(-0x1234567890ll, field(*decoded, "Int64").int64Value);
+    EXPECT_FLOAT_EQ(1.25f, field(*decoded, "Float").floatValue);
+    EXPECT_DOUBLE_EQ(-2.5, field(*decoded, "Double").doubleValue);
+    EXPECT_TRUE(field(*decoded, "EmptyString").strValue.empty());
+    EXPECT_TRUE(field(*decoded, "EmptyResRef").strValue.empty());
+    EXPECT_EQ((ByteBuffer {'a', '\0', 'b'}), field(*decoded, "Void").data);
+    EXPECT_TRUE(field(*decoded, "EmptyVoid").data.empty());
+    ASSERT_EQ(1u, field(*decoded, "Struct").children.size());
+    EXPECT_EQ("value", field(*decoded, "Struct").children[0]->getString("Nested"));
+    EXPECT_TRUE(field(*decoded, "EmptyList").children.empty());
+    ASSERT_EQ(1u, field(*decoded, "List").children.size());
+    EXPECT_EQ(42, field(*decoded, "List").children[0]->getInt("Value"));
+}
+
+TEST(GffWriter, round_trips_lossless_localized_substrings) {
+    Gff root(0, std::vector<Gff::Field> {
+        Gff::Field::newCExoLocString("None", -1, std::vector<Gff::LocSubstring> {}),
+        Gff::Field::newCExoLocString("One", -1, std::vector<Gff::LocSubstring> {{0, "English male"}}),
+        Gff::Field::newCExoLocString("Languages", -1, std::vector<Gff::LocSubstring> {
+                                                       {0, "English"}, {2, "French"}}),
+        Gff::Field::newCExoLocString("Gender", -1, std::vector<Gff::LocSubstring> {
+                                                    {0, "Male"}, {1, "Female"}}),
+        Gff::Field::newCExoLocString("StrRef", 1234, std::vector<Gff::LocSubstring> {
+                                                     {5, "German female override"}}),
+        Gff::Field::newCExoLocString("NoStrRef", -1, std::vector<Gff::LocSubstring> {
+                                                     {4, "Italian male override"}})});
+
+    auto decoded = readGff(GffWriter(GffFileFormat::v32("DLG "), root).toBytes());
+
+    EXPECT_TRUE(field(*decoded, "None").locSubstrings.empty());
+    EXPECT_EQ((std::vector<Gff::LocSubstring> {{0, "English male"}}),
+              field(*decoded, "One").locSubstrings);
+    EXPECT_EQ((std::vector<Gff::LocSubstring> {{0, "English"}, {2, "French"}}),
+              field(*decoded, "Languages").locSubstrings);
+    EXPECT_EQ((std::vector<Gff::LocSubstring> {{0, "Male"}, {1, "Female"}}),
+              field(*decoded, "Gender").locSubstrings);
+    EXPECT_EQ(1234, field(*decoded, "StrRef").intValue);
+    EXPECT_EQ((std::vector<Gff::LocSubstring> {{5, "German female override"}}),
+              field(*decoded, "StrRef").locSubstrings);
+    EXPECT_EQ(-1, field(*decoded, "NoStrRef").intValue);
+    EXPECT_EQ((std::vector<Gff::LocSubstring> {{4, "Italian male override"}}),
+              field(*decoded, "NoStrRef").locSubstrings);
+}
+
+TEST(GffWriter, localized_substring_order_is_deterministic) {
+    Gff first(0, {Gff::Field::newCExoLocString(
+                     "Text", -1, std::vector<Gff::LocSubstring> {{4, "four"}, {0, "zero"}, {1, "one"}})});
+    Gff second(0, {Gff::Field::newCExoLocString(
+                      "Text", -1, std::vector<Gff::LocSubstring> {{1, "one"}, {4, "four"}, {0, "zero"}})});
+
+    auto firstBytes = GffWriter(GffFileFormat::v32("GVT "), first).toBytes();
+    auto secondBytes = GffWriter(GffFileFormat::v32("GVT "), second).toBytes();
+
+    EXPECT_EQ(firstBytes, secondBytes);
+    auto decoded = readGff(firstBytes);
+    EXPECT_EQ((std::vector<Gff::LocSubstring> {{0, "zero"}, {1, "one"}, {4, "four"}}),
+              field(*decoded, "Text").locSubstrings);
+}
+
+TEST(GffWriter, repeated_writes_are_identical) {
+    Gff root(0, {Gff::Field::newInt("Value", 7)});
+    GffWriter writer(GffFileFormat::v32("NFO "), root);
+    EXPECT_EQ(writer.toBytes(), writer.toBytes());
+}
+
+TEST(GffWriter, rejects_values_that_would_truncate_or_corrupt_output) {
+    Gff longLabel(0, {Gff::Field::newInt(std::string(17, 'x'), 1)});
+    EXPECT_THROW(GffWriter(GffFileFormat::v32("GVT "), longLabel).toBytes(), ValidationException);
+
+    Gff longResRef(0, {Gff::Field::newResRef("Ref", std::string(256, 'x'))});
+    EXPECT_THROW(GffWriter(GffFileFormat::v32("GVT "), longResRef).toBytes(), ValidationException);
+
+    Gff duplicateLoc(0, {Gff::Field::newCExoLocString(
+                            "Text", -1, std::vector<Gff::LocSubstring> {{0, "first"}, {0, "second"}})});
+    EXPECT_THROW(GffWriter(GffFileFormat::v32("GVT "), duplicateLoc).toBytes(), ValidationException);
+
+    Gff malformedStruct(0, {Gff::Field::newStruct("Child", nullptr)});
+    EXPECT_THROW(GffWriter(GffFileFormat::v32("GVT "), malformedStruct).toBytes(), ValidationException);
+
+    Gff::Field unsupported;
+    unsupported.label = "Unknown";
+    unsupported.type = static_cast<Gff::FieldType>(999);
+    Gff invalidType(0, {unsupported});
+    EXPECT_THROW(GffWriter(GffFileFormat::v32("GVT "), invalidType).toBytes(), ValidationException);
 }

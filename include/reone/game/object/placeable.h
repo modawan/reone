@@ -72,6 +72,7 @@ public:
     // END Scripts
 
 private:
+    friend class ModuleSnapshotBuilder;
     // Serializable
     resource::LocString _locName;
     bool _autoRemoveKey {false};
@@ -99,7 +100,6 @@ private:
     bool _hasInventory {false};
     bool _keyRequired {false};
     uint8_t _closeLockDC {0};
-    bool _open {false};
     bool _partyInteract {false};
     uint16_t _portraitId {0};
     uint8_t _bodyBagId {0xFF};

@@ -27,9 +27,18 @@ NFO parseNFO(const Gff &gff) {
 
     nfo.areaName = gff.getString("AREANAME");
     nfo.lastModule = gff.getString("LASTMODULE");
+    nfo.pcName = gff.getString("PCNAME");
     nfo.timePlayed = gff.getUint("TIMEPLAYED");
     nfo.cheatUsed = gff.getBool("CHEATUSED");
     nfo.savegameName = gff.getString("SAVEGAMENAME");
+    uint64_t timestamp = 0;
+    if (gff.readDword64(timestamp, "TIMESTAMP")) {
+        nfo.timestamp = timestamp;
+    }
+    uint32_t saveNumber = 0;
+    if (gff.readDword(saveNumber, "SAVENUMBER")) {
+        nfo.saveNumber = saveNumber;
+    }
     nfo.gameplayHint = gff.getUint("GAMEPLAYHINT");
     nfo.storyHint = gff.getUint("STORYHINT");
     nfo.live1 = gff.getString("LIVE1");
@@ -40,6 +49,8 @@ NFO parseNFO(const Gff &gff) {
     nfo.live6 = gff.getString("LIVE6");
     nfo.liveContent = gff.getUint("LIVECONTENT");
     nfo.portrait0 = gff.getString("PORTRAIT0");
+    nfo.portrait1 = gff.getString("PORTRAIT1");
+    nfo.portrait2 = gff.getString("PORTRAIT2");
 
     return nfo;
 }

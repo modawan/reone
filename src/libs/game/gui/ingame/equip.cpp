@@ -317,19 +317,9 @@ void Equipment::confirmCandidateItem(const std::string &item) {
             player->addItem(pairedOffHand);
         }
         if (itemObj) {
-            bool last;
-            if (player->removeItem(itemObj, last)) {
-                if (last) {
-                    if (!partyLeader->equip(slot, itemObj)) {
-                        player->addItem(itemObj);
-                    }
-                } else {
-                    std::shared_ptr<Item> clonedItem = _game.newItem();
-                    clonedItem->loadFromBlueprint(itemObj->blueprintResRef());
-                    if (!partyLeader->equip(slot, clonedItem)) {
-                        player->addItem(itemObj);
-                    }
-                }
+            auto candidate = takeEquipmentCandidate(_game, *player, itemObj);
+            if (candidate && !partyLeader->equip(slot, candidate)) {
+                player->addItem(candidate);
             }
         }
     }

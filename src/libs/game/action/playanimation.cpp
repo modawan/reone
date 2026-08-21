@@ -19,6 +19,7 @@
 
 #include "reone/game/animationutil.h"
 #include "reone/game/object.h"
+#include "reone/game/savedruntime.h"
 #include "reone/scene/animproperties.h"
 #include "reone/graphics/animation.h"
 
@@ -37,7 +38,8 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
         return;
     }
 
-    if (isAnimationLooping(_animation)) {
+    bool looping = _looping.value_or(isAnimationLooping(_animation));
+    if (looping) {
         // Looping animations never finish. Complete the action immediately to
         // avoid stalling the action queue.
         if (_durationSeconds < 0.0f) {
@@ -68,6 +70,29 @@ void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, f
     properties.duration = _durationSeconds;
     actor.playAnimation(_animation, std::move(properties));
     _playing = true;
+}
+
+std::optional<SavedActionRecord> PlayAnimationAction::saveFacingState() const {
+    SavedActionRecord result = originalSavedAction().value_or(SavedActionRecord {});
+    result.actionId = 6;
+    result.declaredParameterCount = 5;
+    result.parameters = {
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Object),
+            SavedObjectReference {static_cast<uint32_t>(_animation)}},
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Float), _speed},
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Float),
+            _playing ? _timer.remaining() : _durationSeconds},
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Integer),
+            static_cast<int32_t>(_playing ? 0 : 1)},
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Integer),
+            static_cast<int32_t>(_looping.value_or(isAnimationLooping(_animation)) ? 1 : 0)},
+    };
+    return result;
 }
 
 } // namespace game

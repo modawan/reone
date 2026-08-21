@@ -126,6 +126,9 @@ static bool hasEffectImmunity(
     ImmunityType immunityType) {
 
     for (const Object::AppliedEffect &applied : target.effects()) {
+        if (!applied.effect) {
+            continue;
+        }
         if (applied.effect->type() != EffectType::Immunity) {
             continue;
         }

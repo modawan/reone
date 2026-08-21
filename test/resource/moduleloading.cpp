@@ -434,7 +434,7 @@ TEST_P(K2ModuleLoadingTest, mounts_the_staged_archive_when_no_staged_image_exist
         << "the active table is mounted last, so it wins its bucket against the disk archive";
 }
 
-TEST_P(K2ModuleLoadingTest, resolves_the_save_folder_above_the_outer_save_archive) {
+TEST_P(K2ModuleLoadingTest, keeps_loose_metadata_separate_from_outer_working_state) {
     TmpDir game("reone_test_k2_save_scope");
     TmpDir cwd("reone_test_k2_save_scope_cwd");
     makeInstallation(game, cwd);
@@ -452,11 +452,10 @@ TEST_P(K2ModuleLoadingTest, resolves_the_save_folder_above_the_outer_save_archiv
     }
     director->onGameLoad("000001");
 
-    // The save folder is a loose directory and the outer archive is not. This
-    // reverses the former insertion order, where whichever was mounted last won.
-    EXPECT_EQ("save folder", find("loose"));
-    EXPECT_EQ("save archive", find("archive_only"))
-        << "the outer archive must still supply what nothing else holds";
+    // The two save surfaces are explicit, so a shared id is not rank-resolved.
+    EXPECT_EQ("save folder", dataOf(director->findSaveMetadata(ResourceId("loose", ResType::Txt))));
+    EXPECT_EQ("save archive", dataOf(director->findSaveWorking(ResourceId("archive_only", ResType::Txt))))
+        << "working-state members remain available through the explicit session route";
 }
 
 // Saved-state eligibility.
@@ -648,9 +647,8 @@ TEST_P(K2ModuleLoadingTest, keeps_streamed_audio_out_of_the_odyssey_resource_lis
 }
 
 TEST_P(K2ModuleLoadingTest, mounts_every_odyssey_source_into_one_placed_order) {
-    // A list is homogeneous: it rejects a mount that does not match the mode it
-    // is in. A load that completes therefore proves no Odyssey source was left
-    // unplaced, which no assertion about individual mount calls could show.
+    // The registry remains homogeneous; the explicit save assertion separately
+    // proves working state remains usable without mounting the outer archive.
     TmpDir game("reone_test_k2_homogeneous");
     TmpDir cwd("reone_test_k2_homogeneous_cwd");
     makeInstallation(game, cwd);
@@ -677,7 +675,7 @@ TEST_P(K2ModuleLoadingTest, mounts_every_odyssey_source_into_one_placed_order) {
     EXPECT_EQ("patch", find("p"));
     EXPECT_EQ("global lips", find("g"));
     EXPECT_EQ("module", find("m"));
-    EXPECT_EQ("save", find("s"));
+    EXPECT_EQ("save", dataOf(director->findSaveWorking(ResourceId("s", ResType::Txt))));
 }
 
 TEST_P(K2ModuleLoadingTest, admits_a_later_loose_directory_mounted_by_another_caller) {

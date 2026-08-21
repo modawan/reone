@@ -52,10 +52,18 @@ class Gff;
 namespace game {
 
 class Area;
+class Creature;
+class Door;
 class Game;
+class Item;
 class Module;
-class Object;
+class SaveLoad;
 class Conversation;
+class Object;
+class StaticCamera;
+class Trigger;
+struct SaveOrchestrationSeams;
+struct SaveResult;
 
 class MockCameraStyles : public ICameraStyles, boost::noncopyable {
 public:
@@ -101,6 +109,10 @@ public:
 
 class MockReputes : public IReputes, boost::noncopyable {
 public:
+    MOCK_METHOD(State, baseState, (), (const override));
+    MOCK_METHOD(State, state, (), (const override));
+    MOCK_METHOD(std::optional<State>, parse, (const resource::Gff &gff), (const override));
+    MOCK_METHOD(void, replace, (State state), (override));
     MOCK_METHOD(int, getReputation, (Faction sourceFaction, Faction targetFaction), (const override));
     MOCK_METHOD(void, adjustReputation, (Faction sourceFaction, Faction targetFaction, int adjustment), (override));
     MOCK_METHOD(bool, getIsEnemy, (const Creature &source, const Creature &target), (const override));
@@ -167,6 +179,20 @@ public:
     static void initConsole(Game &game);
     static void setActiveModule(Game &game, bool active);
     static void setActiveModuleArea(Game &game, std::shared_ptr<Area> area);
+    static void cacheActiveModule(Game &game, std::string name);
+    static std::pair<glm::vec3, float> resolveModuleEntry(
+        Module &module,
+        std::string entry,
+        const glm::vec3 &defaultPosition,
+        float defaultFacing);
+    static size_t objectRegistrySize(const Game &game);
+    static size_t loadedModuleCount(const Game &game);
+    static uint32_t nextObjectId(const Game &game);
+    static uint64_t runtimeSessionGeneration(const Game &game);
+    static void bindConversation(Game &game, Conversation &conversation);
+    static bool hasConversation(const Game &game);
+    static void bindHUDSelection(Game &game, std::shared_ptr<Object> object);
+    static bool hasHUDSelection(const Game &game);
     // Game::stopMovement is private and its public callers need in-game
     // menus that only exist once a module has been loaded.
     static void stopMovement(Game &game);
@@ -184,6 +210,64 @@ public:
     // without the area/scene machinery a full load would need.
     static void loadModuleInfo(Module &module, std::string name, const resource::Gff &ifo);
     static void clickCreature(Module &module, const std::shared_ptr<Creature> &creature);
+    static void publishPartyRuntimeState(
+        Game &game,
+        resource::Gff &ifoGff,
+        const std::shared_ptr<resource::Gff> &ptGff,
+        const std::shared_ptr<resource::Gff> &pcGff);
+    static void deserializeAvailableNpcs(Game &game);
+    static void deserializeInventory(Game &game, resource::Gff &gff);
+    static void deserializeCustomTokens(Game &game, const resource::Gff &gff);
+    static void deserializeGlobalVariables(Game &game, resource::Gff &gff);
+    static void replaceJournal(Game &game, const resource::Gff &gff);
+    static void replaceInventory(Game &game, resource::Gff &gff);
+    static void configureModuleSnapshot(
+        Game &game,
+        std::shared_ptr<Area> area,
+        std::shared_ptr<Creature> player,
+        std::string moduleName,
+        std::string areaName);
+    static void addSnapshotObject(
+        Area &area, std::shared_ptr<Object> object);
+    static void markSnapshotObjectDeleted(Area &area, uint32_t objectId);
+    static void addSnapshotLimboCreature(
+        Module &module, std::shared_ptr<Creature> creature);
+    static void dispatchSnapshotEvents(Module &module);
+    static void clearSnapshotDelayed(Object &object);
+    static void initSnapshotLocalServices(Game &game);
+    static void setSnapshotWorldTime(
+        Game &game, uint32_t day, uint32_t time, uint8_t minutesPerHour);
+    static void deserializeSnapshotRuntimeState(
+        Object &object, const resource::Gff &gff);
+    static void setSnapshotObjectId(Object &object, uint32_t objectId);
+    static void setSnapshotEquipment(
+        Creature &creature, int slot, std::shared_ptr<Item> item);
+    static void setSnapshotDoorState(Door &door, DoorState state);
+    static void configureSnapshotLinkedDoor(
+        Door &door, std::string module, std::string entry);
+    static void markSnapshotLinkedDoorHelper(Trigger &trigger);
+    static void configureSnapshotCamera(
+        StaticCamera &camera, int cameraId, glm::vec3 position,
+        glm::quat orientation, float pitch, float height,
+        float fieldOfView, float micRange);
+    static void configureSaveOrchestration(
+        Game &game, SaveOrchestrationSeams seams);
+    static void processPendingSave(Game &game);
+    static bool storeCurrentModuleForTransition(Game &game);
+    static void setSnapshotModuleName(Game &game, std::string name);
+    static bool hasPendingSave(const Game &game);
+    static void setRuntimeSessionPlayable(Game &game, bool playable);
+    static void clearSnapshotModule(Game &game);
+    static void clearSnapshotArea(Game &game);
+    static void clearSnapshotPlayers(Game &game);
+    static void setTransitionInProgress(Game &game, bool inProgress);
+    static void setSaveInProgress(Game &game, bool inProgress);
+    static void setSaveLoadPendingRequest(SaveLoad &saveLoad, uint64_t requestId);
+    static bool consumeSaveLoadResult(
+        SaveLoad &saveLoad, const std::optional<SaveResult> &result);
+    static void dismissSaveLoad(SaveLoad &saveLoad);
+    static bool hasSaveLoadPendingRequest(const SaveLoad &saveLoad);
+    static bool hasSaveLoadTransientState(const SaveLoad &saveLoad);
 
     void init() {
         _cameraStyles = std::make_unique<MockCameraStyles>();
@@ -221,6 +305,7 @@ public:
     }
 
     MockSpells &spells() { return *_spells; }
+    MockPortraits &portraits() { return *_portraits; }
 
 private:
     std::unique_ptr<MockCameraStyles> _cameraStyles;

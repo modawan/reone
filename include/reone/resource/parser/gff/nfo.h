@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <cstdint>
+#include <optional>
+#include <string>
+
 namespace reone {
 
 namespace resource {
@@ -26,9 +30,12 @@ class Gff;
 struct NFO {
     std::string areaName;
     std::string lastModule;
+    std::string pcName;
     uint32_t timePlayed;
     bool cheatUsed;
     std::string savegameName;
+    std::optional<uint64_t> timestamp;
+    std::optional<uint32_t> saveNumber;
     uint32_t gameplayHint;
     uint32_t storyHint;
     std::string live1;
@@ -39,6 +46,8 @@ struct NFO {
     std::string live6;
     uint32_t liveContent;
     std::string portrait0;
+    std::string portrait1;
+    std::string portrait2;
 };
 
 NFO parseNFO(const Gff &gff);

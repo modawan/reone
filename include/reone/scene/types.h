@@ -63,6 +63,8 @@ struct AnimationFlags {
      */
     static constexpr int layer = 0x20;
 
+    static constexpr int retargetRoot = 0x40; /**< map an external animation's proxy root onto the target model root */
+
     static constexpr int loopOverlay = loop | overlay;
     static constexpr int loopBlend = loop | blend;
 };

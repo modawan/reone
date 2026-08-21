@@ -114,6 +114,8 @@ public:
     // END Walkmeshes
 
 private:
+    friend class ModuleSnapshotBuilder;
+    friend class TestGameModule;
     // Serializable
     resource::LocString _locName;
     uint32_t _appearance {0};

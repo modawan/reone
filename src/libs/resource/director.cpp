@@ -114,19 +114,71 @@ void ResourceDirector::onModuleLoad(const std::string &name) {
 }
 
 /**
- * Replace the loaded save.
+ * Validate and atomically replace the loaded save session.
  *
- * The GFF cache is cleared here rather than left to the module load that
- * follows, because the caller reads the save's own records in between. Those
- * records are keyed by resref and type alone, so the previous save's copy would
- * be served from the cache whatever is mounted: retiring a source does not
- * reach a result already parsed out of it. No other provider cache is read
- * before the module load clears it, so no other one is cleared here.
+ * Candidate construction validates the working-state archive first. Committing
+ * retires decoded GFF entries from the prior session; a rejected candidate
+ * leaves the active session and cache untouched.
  */
 void ResourceDirector::onGameLoad(std::string_view name) {
-    _gffs.clear();
+    auto candidate = buildSaveSession(name);
+
     _resources.clearOwner(ResourceOwner::SaveSlot);
-    loadSaveGameResources(name);
+    _saveSession = std::move(candidate);
+    _gffs.clear();
+}
+
+void ResourceDirector::onNewGame() {
+    _resources.clearOwner(ResourceOwner::SaveSlot);
+    _resources.clearOwner(ResourceOwner::ActiveModuleState);
+    _saveSession = std::make_unique<SaveSessionState>();
+    _gffs.clear();
+}
+
+std::optional<Resource> ResourceDirector::findSaveMetadata(const ResourceId &id) {
+    if (!_saveSession) {
+        return std::nullopt;
+    }
+    return _saveSession->findMetadata(id);
+}
+
+std::optional<Resource> ResourceDirector::findSaveWorking(const ResourceId &id) {
+    if (!_saveSession) {
+        return std::nullopt;
+    }
+    return _saveSession->findWorking(id);
+}
+
+std::unordered_set<ResourceId> ResourceDirector::saveWorkingResourceIds() const {
+    if (!_saveSession) {
+        return {};
+    }
+    return _saveSession->workingState()->resourceIds();
+}
+
+std::shared_ptr<const SaveWorkingState>
+ResourceDirector::committedSaveWorkingState() const {
+    return _saveSession ? _saveSession->workingState() : nullptr;
+}
+
+std::optional<SaveSlotDescriptor> ResourceDirector::saveSlotDescriptor() const {
+    return _saveSession ? _saveSession->slotDescriptor() : std::nullopt;
+}
+
+void ResourceDirector::adoptSaveWorkingState(
+    std::shared_ptr<const SaveWorkingState> state) {
+    if (!_saveSession) {
+        _saveSession = std::make_unique<SaveSessionState>();
+    }
+    _saveSession->replaceWorkingState(std::move(state));
+}
+
+void ResourceDirector::adoptPublishedSave(
+    SaveSlotDescriptor descriptor,
+    std::shared_ptr<const SaveWorkingState> state) {
+    auto candidate = std::make_unique<SaveSessionState>(
+        std::move(descriptor), std::move(state));
+    _saveSession = std::move(candidate);
 }
 
 std::set<std::string> ResourceDirector::moduleNames() {
@@ -555,9 +607,13 @@ void ResourceDirector::addStagedModuleSources(const std::string &moduleRoot,
         {ResType::Sav, ModuleArchiveFamily::SavedArchive, ".sav"},
     }};
 
+    if (!_saveSession) {
+        return;
+    }
+    auto workingState = _saveSession->workingState();
     for (const auto &probe : kProbes) {
         auto id = ResourceId(moduleRoot, probe.type);
-        if (!_resources.find(id)) {
+        if (!workingState->contains(id)) {
             continue;
         }
         ModuleSourceCandidate candidate;
@@ -565,7 +621,10 @@ void ResourceDirector::addStagedModuleSources(const std::string &moduleRoot,
         candidate.rootId = kStagedRootId;
         candidate.origin = ModulePrimaryOrigin::GameInProgress;
         candidate.family = probe.family;
-        index.add(RuntimeModuleSource {std::move(candidate), id});
+        RuntimeModuleResourceReader reader = [workingState, id]() {
+            return workingState->find(id);
+        };
+        index.add(RuntimeModuleSource {std::move(candidate), std::move(reader)});
     }
 }
 
@@ -670,30 +729,13 @@ void ResourceDirector::loadModuleResourcesFromPolicy(const std::string &name) {
 }
 
 /**
- * Put a save slot's sources in scope.
+ * Build a complete, unpublished save-session candidate.
  *
- * Both sources are owned by the save slot, so loading another save retires
- * them. They were global before, which meant no save was ever unloaded and the
- * resources of every save visited stayed resolvable for the rest of the
- * process; a resource held only by the previous save could then answer a lookup
- * made under the current one.
- *
- * Mounting the outer archive directly is a compatibility path, not the Odyssey
- * architecture: the original unpacks the container into the live working state
- * and reads the loose results, so the container is never a source in its own
- * right. Replacing the direct mount with that unpack step belongs to the save
- * architecture work; giving it the right lifetime does not depend on it and is
- * done here.
- *
- * Class 2 remains a compatibility placement for that direct mount rather than
- * an evidenced bucket for the container: it is the least privileged position
- * that still lets the save supply resources held nowhere else, and it cannot
- * shadow a live module source.
- *
- * The whole setup is one operation. A slot whose archive is missing leaves no
- * loose directory mounted behind it, so a failed load cannot half-load a save.
+ * The descriptor, loose metadata view, and indexed working state remain outside
+ * the global registry. Construction finishes before publication, so an invalid
+ * archive cannot partially replace the active session.
  */
-void ResourceDirector::loadSaveGameResources(std::string_view name) {
+std::unique_ptr<SaveSessionState> ResourceDirector::buildSaveSession(std::string_view name) {
     auto allSavesPath = findFileIgnoreCase(_gamePath, kSavesDirectoryName);
     if (!allSavesPath) {
         throw ResourceNotFoundException("Saves directory not found");
@@ -704,25 +746,16 @@ void ResourceDirector::loadSaveGameResources(std::string_view name) {
         throw ResourceNotFoundException(str(boost::format("Save directory not found: %s") % name));
     }
 
-    ResourceMountTransaction transaction(_resources);
-
-    // Add savegame directory itself, so we can load globalvars.res
-    // partytable.res and savenfo.res.
-    _resources.addFolder(*savePath,
-                         ResourceOwner::SaveSlot,
-                         bucketOf(ResourceSourceBucket::LooseDirectory));
-
     auto savegamePath = findFileIgnoreCase(*savePath, "savegame.sav");
     if (!savegamePath) {
         throw ResourceNotFoundException("savegame.sav not found");
     }
 
-    _resources.addERF(*savegamePath,
-                      ResourceOwner::SaveSlot,
-                      bucketOf(ResourceSourceBucket::EncapsulatedClass2));
-
-    transaction.commit();
-    _savegamePath = std::move(savegamePath);
+    SaveSlotDescriptor descriptor {
+        *savePath,
+        *savegamePath,
+    };
+    return std::make_unique<SaveSessionState>(std::move(descriptor));
 }
 
 } // namespace resource

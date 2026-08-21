@@ -29,7 +29,7 @@ public:
     Storage(std::filesystem::path path) :
         _path(path), _file(std::make_unique<FileInputStream>(_path)) {}
     Storage(ByteBuffer buffer) :
-        _buffer(buffer), _mem(std::make_unique<MemoryInputStream>(_buffer)) {}
+        _buffer(std::move(buffer)), _mem(std::make_unique<MemoryInputStream>(_buffer)) {}
 
     IInputStream &stream() {
         assert((_file || _mem) && "uninitialized storage");

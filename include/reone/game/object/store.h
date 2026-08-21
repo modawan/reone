@@ -47,6 +47,7 @@ public:
     void deserialize(const resource::Gff &gff);
 
 private:
+    friend class ModuleSnapshotBuilder;
     // Serializable
     resource::LocString _locName;
     int32_t _markDown {100};

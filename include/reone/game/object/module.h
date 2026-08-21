@@ -49,6 +49,8 @@ struct ModuleInfo {
 
 class Door;
 class Placeable;
+class SavedScriptContinuation;
+class ModuleSnapshotBuilder;
 
 class Module : public Object {
 public:
@@ -68,9 +70,11 @@ public:
         return from->type() == ObjectType::Module;
     }
 
-    void load(std::string name, const resource::Gff &ifo, bool fromSave = false);
+    void load(std::string name, const resource::Gff &ifo, bool restoreSavedWorld = false);
     void activate();
-    void loadParty(const std::string &entry = "", bool fromSave = false);
+    void loadParty(
+        const std::string &entry = "",
+        bool preserveSavedPlacement = false);
     void runOnLoadScript();
     void runOnStartScript();
 
@@ -97,8 +101,21 @@ public:
     const ModuleInfo &info() const { return _info; }
     std::shared_ptr<Area> area() const { return _area; }
     Player &player() { return *_player; }
+    bool isSaveGame() const { return _isSaveGame; }
+    const std::vector<std::shared_ptr<Creature>> &limboCreatures() const { return _limboCreatures; }
+    const SavedEventQueue &savedEventQueue() const { return _savedEventQueue; }
+    size_t pendingSavedEventCount() const;
+    std::vector<SavedEventRecord> saveEventSnapshot() const;
+    size_t enqueueSaveEvent(SavedEventRecord event);
+    bool cancelSaveEvent(size_t index);
+
+    void deserializeSavedEventQueue(const resource::Gff &ifo);
+    void bindSavedEventQueue();
+    void publishSavedEventQueue();
+    void dispatchDueSavedEvents();
 
 private:
+    friend class ModuleSnapshotBuilder;
     friend class TestGameModule;
 
     std::string _name;
@@ -106,6 +123,19 @@ private:
     ModuleInfo _info;
     std::shared_ptr<Area> _area;
     std::unique_ptr<Player> _player;
+    bool _isSaveGame {false};
+    std::vector<std::shared_ptr<Creature>> _limboCreatures;
+    SavedEventQueue _savedEventQueue;
+    std::vector<bool> _savedEventLive;
+
+    struct PublishedSavedEvent {
+        size_t savedIndex {0};
+        std::shared_ptr<SavedScriptContinuation> continuation;
+        bool delivered {false};
+    };
+
+    std::vector<PublishedSavedEvent> _publishedSavedEvents;
+    bool _savedEventsPublished {false};
 
     void onCreatureClick(const std::shared_ptr<Creature> &creature);
     void onDoorClick(const std::shared_ptr<Door> &door);
@@ -117,8 +147,12 @@ private:
     // Loading
 
     void loadInfo(const resource::generated::IFO &ifo);
-    void loadArea(const resource::generated::IFO &ifo, bool fromSave = false);
+    void loadArea(
+        const resource::generated::IFO &ifo,
+        bool restoreSavedWorld = false);
     void loadPlayer();
+    void loadLimboCreatures(const resource::Gff &ifo);
+    void deliverSavedEvent(PublishedSavedEvent &event);
 
     // END Loading
 

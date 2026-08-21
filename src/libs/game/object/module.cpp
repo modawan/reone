@@ -24,6 +24,7 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/party.h"
+#include "reone/game/script/savedsituation.h"
 #include "reone/game/reputes.h"
 #include "reone/game/script/runner.h"
 #include "reone/resource/di/services.h"
@@ -36,6 +37,7 @@
 
 #include "../action/commonactions.h"
 
+#include <algorithm>
 #include <boost/algorithm/string/case_conv.hpp>
 
 using namespace reone::graphics;
@@ -64,18 +66,33 @@ static bool canBashPlaceable(const Placeable &placeable, const Creature &actor, 
            (placeable.hitPoints() > 0 || placeable.currentHitPoints() > 0);
 }
 
-void Module::load(std::string name, const Gff &ifo, bool fromSave) {
+void Module::load(std::string name, const Gff &ifo, bool restoreSavedWorld) {
     _name = std::move(name);
+    if (restoreSavedWorld) {
+        _game.captureSaveResourceShadow(
+            {SaveResourceKind::ModuleIfo, _name}, ifo);
+    }
+    _publishedSavedEvents.clear();
+    _savedEventsPublished = false;
 
     auto ifoParsed = resource::generated::parseIFO(ifo);
+    _isSaveGame = restoreSavedWorld && ifoParsed.Mod_IsSaveGame != 0;
+    if (restoreSavedWorld) {
+        deserializeRuntimeState(ifo);
+        deserializeSavedEventQueue(ifo);
+        loadLimboCreatures(ifo);
+    } else {
+        _savedEventQueue = SavedEventQueue {};
+        _savedEventLive.clear();
+    }
     loadInfo(ifoParsed);
-    loadArea(ifoParsed);
+    loadArea(ifoParsed, restoreSavedWorld);
 
     _area->initCameras(_info.entryPosition, _info.entryFacing);
 
     loadPlayer();
 
-    if (!fromSave) {
+    if (!restoreSavedWorld) {
         _area->runSpawnScripts();
     }
 }
@@ -114,10 +131,19 @@ void Module::loadInfo(const resource::generated::IFO &ifo) {
     _info.onModStart = boost::to_lower_copy(ifo.Mod_OnModStart);
 }
 
-void Module::loadArea(const resource::generated::IFO &ifo, bool fromSave) {
+void Module::loadArea(const resource::generated::IFO &ifo, bool restoreSavedWorld) {
     reone::info("Load area '" + _info.entryArea + "'");
 
-    _area = _game.newArea();
+    if (restoreSavedWorld) {
+        auto area = std::find_if(
+            ifo.Mod_Area_list.begin(),
+            ifo.Mod_Area_list.end(),
+            [this](const auto &entry) { return entry.Area_Name == _info.entryArea; });
+        uint32_t areaId = area == ifo.Mod_Area_list.end() ? 1 : area->ObjectId;
+        _area = _game.newSavedArea(areaId);
+    } else {
+        _area = _game.newArea();
+    }
 
     std::shared_ptr<Gff> are(_services.resource.gffs.get(_info.entryArea, ResType::Are));
     if (!are) {
@@ -129,23 +155,35 @@ void Module::loadArea(const resource::generated::IFO &ifo, bool fromSave) {
         throw ResourceNotFoundException("Area GIT not found: " + _info.entryArea);
     }
 
-    _area->load(_info.entryArea, *are, *git, fromSave);
+    _area->load(_info.entryArea, *are, *git, restoreSavedWorld);
+
+}
+void Module::loadLimboCreatures(const resource::Gff &ifo) {
+    _limboCreatures.clear();
+    for (const auto &creatureGff : ifo.getList("Creature List")) {
+        auto creature = _game.newCreature(*creatureGff);
+        creature->deserialize(*creatureGff);
+        creature->captureSaveRecord(
+            *creatureGff,
+            {SaveRecordOriginKind::ModuleLimboCreature, _name});
+        _limboCreatures.push_back(std::move(creature));
+    }
 }
 
 void Module::loadPlayer() {
     _player = std::make_unique<Player>(*this, *_area, *_area->getCamera(CameraType::ThirdPerson), _game.party());
 }
 
-void Module::loadParty(const std::string &entry, bool fromSave) {
+void Module::loadParty(const std::string &entry, bool preserveSavedPlacement) {
     glm::vec3 position(0.0f);
     float facing = 0.0f;
     getEntryPoint(entry, position, facing);
 
-    _area->loadParty(position, facing, fromSave);
+    _area->loadParty(position, facing, preserveSavedPlacement);
     _area->onPartyLeaderMoved(true);
     _area->update3rdPersonCameraFacing();
 
-    if (!fromSave) {
+    if (!preserveSavedPlacement) {
         _area->runOnEnterScript();
     }
 }
@@ -169,10 +207,13 @@ void Module::getEntryPoint(const std::string &waypoint, glm::vec3 &position, flo
     facing = _info.entryFacing;
 
     if (!waypoint.empty()) {
-        std::shared_ptr<Object> object(_area->getObjectByTag(waypoint));
+        std::shared_ptr<Object> object(
+            _area->getObjectByTag(boost::to_lower_copy(waypoint)));
         if (object) {
             position = object->position();
             facing = object->getFacing();
+        } else {
+            debug("Module entry '" + waypoint + "' not found; using default entry");
         }
     }
 }
@@ -340,11 +381,171 @@ void Module::onPlaceableClick(const std::shared_ptr<Placeable> &placeable) {
     }
 }
 
+size_t Module::pendingSavedEventCount() const {
+    return static_cast<size_t>(std::count(
+        _savedEventLive.begin(), _savedEventLive.end(), true));
+}
+
+void Module::deserializeSavedEventQueue(const resource::Gff &ifo) {
+    _savedEventQueue = SavedEventQueue::fromGff(ifo);
+    _savedEventLive.clear();
+    _savedEventLive.reserve(_savedEventQueue.events.size());
+    for (const auto &event : _savedEventQueue.events) {
+        _savedEventLive.push_back(event.shouldRestore());
+    }
+    _publishedSavedEvents.clear();
+    _savedEventsPublished = false;
+}
+
+std::vector<SavedEventRecord> Module::saveEventSnapshot() const {
+    // Stable-frame semantic snapshot; byte encoding is deliberately later E3.
+    std::vector<SavedEventRecord> result;
+    for (size_t index = 0; index < _savedEventQueue.events.size(); ++index) {
+        if (index < _savedEventLive.size() && _savedEventLive[index]) {
+            result.push_back(_savedEventQueue.events[index]);
+        }
+    }
+    return result;
+}
+
+size_t Module::enqueueSaveEvent(SavedEventRecord event) {
+    // New events bind through the current B registry before becoming visible to
+    // a save snapshot; raw IDs never gain cross-session authority.
+    event.bindObjectReferences(_game);
+    _savedEventQueue.events.push_back(std::move(event));
+    _savedEventLive.push_back(true);
+    return _savedEventQueue.events.size() - 1;
+}
+
+bool Module::cancelSaveEvent(size_t index) {
+    if (index >= _savedEventLive.size() || !_savedEventLive[index]) {
+        return false;
+    }
+    _savedEventLive[index] = false;
+    for (auto &published : _publishedSavedEvents) {
+        if (published.savedIndex == index) {
+            published.delivered = true;
+        }
+    }
+    return true;
+}
+
+void Module::bindSavedEventQueue() {
+    for (auto &event : _savedEventQueue.events) {
+        if (event.shouldRestore()) {
+            event.bindObjectReferences(_game);
+        }
+    }
+}
+
+void Module::publishSavedEventQueue() {
+    if (_savedEventsPublished) {
+        return;
+    }
+    SavedScriptSituationImporter importer(
+        _game, _services.resource.scripts);
+    _publishedSavedEvents.clear();
+
+    for (size_t index = 0; index < _savedEventQueue.events.size(); ++index) {
+        const auto &savedEvent = _savedEventQueue.events[index];
+        if (!savedEvent.shouldRestore() ||
+            savedEvent.executionSupport() != SavedExecutionSupport::Executable) {
+            continue;
+        }
+
+        PublishedSavedEvent event;
+        event.savedIndex = index;
+        if (savedEvent.eventId == static_cast<uint32_t>(SavedEventType::Timed)) {
+            auto situation = std::get_if<SerializedScriptSituation>(
+                &savedEvent.payload);
+            if (!situation) {
+                continue;
+            }
+            auto imported = importer.import(*situation);
+            if (!imported) {
+                warn("Module: preserving unsupported timed event: " + imported.message);
+                continue;
+            }
+            event.continuation = std::move(imported.continuation);
+        }
+        _publishedSavedEvents.push_back(std::move(event));
+    }
+    _savedEventsPublished = true;
+}
+
+void Module::dispatchDueSavedEvents() {
+    for (auto &published : _publishedSavedEvents) {
+        if (published.delivered) {
+            continue;
+        }
+        const auto &savedEvent = _savedEventQueue.events[published.savedIndex];
+        bool due = savedEvent.day < _game.worldTimeDay() ||
+                   (savedEvent.day == _game.worldTimeDay() &&
+                    savedEvent.time <= _game.worldTimeOfDay());
+        if (due) {
+            deliverSavedEvent(published);
+        }
+    }
+}
+
+void Module::deliverSavedEvent(PublishedSavedEvent &published) {
+    published.delivered = true;
+    if (published.savedIndex < _savedEventLive.size()) {
+        _savedEventLive[published.savedIndex] = false;
+    }
+    const auto &savedEvent = _savedEventQueue.events[published.savedIndex];
+    auto target = savedEvent.object.boundObject();
+    if (!target) {
+        return;
+    }
+
+    switch (static_cast<SavedEventType>(savedEvent.eventId)) {
+    case SavedEventType::Timed:
+        if (published.continuation) {
+            _game.scriptRunner().run(
+                *published.continuation, _game, target->id());
+        }
+        break;
+    case SavedEventType::ApplyEffect: {
+        auto savedEffect = std::get_if<EffectInstance>(&savedEvent.payload);
+        if (!savedEffect) {
+            break;
+        }
+        EffectInstance effect(*savedEffect);
+        if (effect.durationType() == DurationType::Temporary) {
+            auto remaining = _game.remainingEffectDuration(effect);
+            if (!remaining || *remaining <= 0.0f) {
+                break;
+            }
+            effect.remainingDuration = *remaining;
+        }
+        if (effect.hasStableId()) {
+            _game.importEffectId(effect.id);
+        } else {
+            effect.id = _game.allocateEffectId();
+        }
+        target->restoreEffect(std::move(effect));
+        break;
+    }
+    case SavedEventType::RemoveEffect: {
+        auto effect = std::get_if<EffectInstance>(&savedEvent.payload);
+        if (effect) {
+            target->removeEffectsById(effect->id);
+        }
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+
 void Module::update(float dt) {
     // Process the module object's own action queue so delayed/assigned commands
     // scheduled by module scripts (e.g. Mod_OnModLoad) execute. Without this the
     // module is never ticked and its DelayCommand continuations never run.
     Object::update(dt);
+    dispatchDueSavedEvents();
 
     if (_game.cameraType() == CameraType::ThirdPerson) {
         _player->update(dt);

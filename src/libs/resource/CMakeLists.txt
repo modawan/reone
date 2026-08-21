@@ -104,6 +104,7 @@ set(RESOURCE_HEADERS
     ${RESOURCE_INCLUDE_DIR}/resource.h
     ${RESOURCE_INCLUDE_DIR}/resources.h
     ${RESOURCE_INCLUDE_DIR}/resref.h
+    ${RESOURCE_INCLUDE_DIR}/saveworkingstate.h
     ${RESOURCE_INCLUDE_DIR}/sourcelist.h
     ${RESOURCE_INCLUDE_DIR}/strings.h
     ${RESOURCE_INCLUDE_DIR}/talktable.h
@@ -183,6 +184,7 @@ set(RESOURCE_SOURCES
     ${RESOURCE_SOURCE_DIR}/provider/visibilities.cpp
     ${RESOURCE_SOURCE_DIR}/provider/walkmeshes.cpp
     ${RESOURCE_SOURCE_DIR}/resources.cpp
+    ${RESOURCE_SOURCE_DIR}/saveworkingstate.cpp
     ${RESOURCE_SOURCE_DIR}/strings.cpp
     ${RESOURCE_SOURCE_DIR}/talktable.cpp
     ${RESOURCE_SOURCE_DIR}/typeutil.cpp)

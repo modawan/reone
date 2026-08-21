@@ -77,6 +77,13 @@ public:
 
     void loadFromBlueprint(const std::string &resRef);
     void deserialize(const resource::Gff &gff);
+    void captureOwnerLocalSaveRecord(
+        const resource::Gff &gff,
+        SaveRecordOrigin origin);
+
+    std::optional<uint32_t> originalOwnerLocalObjectId() const {
+        return _originalOwnerLocalObjectId;
+    }
     void clone(Item &from);
 
     void update(float dt) override;
@@ -141,6 +148,7 @@ public:
     void setOwner(uint32_t id) { _ownerId = id; }
 
 private:
+    friend class ModuleSnapshotBuilder;
     // Serializable
     int32_t _baseItem {0};
     resource::LocString _localizedName;
@@ -193,6 +201,7 @@ private:
     std::optional<SpellType> _activateSpell;
     int _disguiseAppearance {-1};
     std::vector<PropertyEntry> _properties;
+    std::optional<uint32_t> _originalOwnerLocalObjectId;
 
     std::shared_ptr<audio::AudioSource> _audioSource;
 

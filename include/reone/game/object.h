@@ -28,6 +28,8 @@
 #include "action.h"
 #include "action/playanimation.h"
 #include "effect.h"
+#include "saveprovenance.h"
+#include "savedruntime.h"
 #include "types.h"
 
 namespace reone {
@@ -43,6 +45,7 @@ struct ServicesView;
 class Action;
 class Game;
 class Item;
+class ModuleSnapshotBuilder;
 class Room;
 
 class Object : public scene::IUser, boost::noncopyable {
@@ -136,17 +139,16 @@ public:
 
     // Effects
 
+    using AppliedEffect = EffectInstance;
+
     void clearAllEffects();
     void removeEffect(const std::shared_ptr<Effect> &effect);
     void applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration = 0.0f);
+    bool restoreEffect(EffectInstance effect);
+    size_t removeEffectsById(EffectId id);
 
-    struct AppliedEffect {
-        std::shared_ptr<Effect> effect;
-        DurationType durationType {DurationType::Instant};
-        float duration {0.0f};
-    };
-
-    const std::deque<AppliedEffect> &effects() const { return _effects; }
+    const std::deque<EffectInstance> &effects() const { return _effects; }
+    std::vector<EffectInstance> saveEffectSnapshot() const;
     bool hasEffect(EffectType type) const;
     std::shared_ptr<Effect> getFirstEffect();
     std::shared_ptr<Effect> getNextEffect();
@@ -199,6 +201,7 @@ public:
     std::shared_ptr<Action> getCurrentAction() const;
 
     const std::deque<std::shared_ptr<Action>> &actions() const { return _actions; }
+    std::vector<SavedActionRecord> saveActionSnapshot() const;
 
     // END Actions
 
@@ -217,6 +220,26 @@ public:
 
     const std::map<int, bool> &localBooleans() const { return _localBooleans; }
     const std::map<int, int> &localNumbers() const { return _localNumbers; }
+    void deserializeRuntimeState(const resource::Gff &gff);
+    void bindSavedRuntimeState();
+    void publishSavedRuntimeState();
+    const std::vector<EffectInstance> &savedEffects() const { return _savedEffects; }
+    const SavedActionQueue &savedActionQueue() const { return _savedActionQueue; }
+    bool hasPublishedSavedRuntimeState() const { return _savedRuntimePublished; }
+
+    void captureSaveRecord(
+        const resource::Gff &gff,
+        SaveRecordOrigin origin = {});
+    const std::optional<SaveRecordProvenance> &saveRecordProvenance() const {
+        return _saveRecordProvenance;
+    }
+
+
+    void resolveSavedReferences(
+        const std::function<std::shared_ptr<Object>(uint32_t)> &resolver);
+    std::shared_ptr<Object> savedReference(std::string_view field) const;
+
+
 
     void setLocalBoolean(int index, bool value);
     void setLocalNumber(int index, int value);
@@ -239,6 +262,8 @@ public:
     // END Scripts
 
 protected:
+    friend class ModuleSnapshotBuilder;
+    friend class TestGameModule;
     struct DelayedAction {
         std::shared_ptr<Action> action;
         std::unique_ptr<Timer> timer;
@@ -274,7 +299,7 @@ protected:
     glm::mat4 _transform {1.0f};
     bool _visible {true};
     Room *_room {nullptr};
-    std::deque<AppliedEffect> _effects;
+    std::deque<EffectInstance> _effects;
     bool _open {false};
     bool _stunt {false};
     std::string _activeAnimName;
@@ -290,11 +315,26 @@ protected:
     std::vector<DelayedAction> _delayed;
     std::weak_ptr<Action> _executingAction;
 
+    struct LoadedSaveActionSlot {
+        SavedActionRecord original;
+        std::weak_ptr<Action> runtimeAction;
+        bool unsupportedPending {false};
+    };
+    std::vector<LoadedSaveActionSlot> _loadedSaveActionSlots;
+
     // END Actions
 
     uint32_t _lastHostileActor {script::kObjectInvalid};
 
     // Local variables
+    std::map<std::string, uint32_t> _savedReferenceIds;
+    std::map<std::string, std::weak_ptr<Object>> _savedReferences;
+    std::vector<EffectInstance> _savedEffects;
+    SavedActionQueue _savedActionQueue;
+    bool _savedRuntimeParsed {false};
+    bool _savedRuntimePublished {false};
+    std::optional<SaveRecordProvenance> _saveRecordProvenance;
+
 
     std::map<int, bool> _localBooleans;
     std::map<int, int> _localNumbers;

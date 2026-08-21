@@ -37,6 +37,7 @@ set(TESTS_HEADERS
     ${TESTS_SOURCE_DIR}/fixtures/system.h)
 
 set(TESTS_SOURCES
+    ${TESTS_SOURCE_DIR}/audio/mixer.cpp
     ${TESTS_SOURCE_DIR}/audio/format/wavreader.cpp
     ${TESTS_SOURCE_DIR}/extract/capsule.cpp
     ${TESTS_SOURCE_DIR}/extract/chitin.cpp
@@ -53,13 +54,24 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/conversation.cpp
     ${TESTS_SOURCE_DIR}/game/globalnumber.cpp
     ${TESTS_SOURCE_DIR}/game/interaction.cpp
+    ${TESTS_SOURCE_DIR}/game/effect.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymaproutines.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymapstate.cpp
+    ${TESTS_SOURCE_DIR}/game/savedruntime.cpp
+    ${TESTS_SOURCE_DIR}/game/saveprovenance.cpp
+    ${TESTS_SOURCE_DIR}/game/savedsituation.cpp
     ${TESTS_SOURCE_DIR}/game/journal.cpp
     ${TESTS_SOURCE_DIR}/game/messagebus.cpp
     ${TESTS_SOURCE_DIR}/game/minigame.cpp
     ${TESTS_SOURCE_DIR}/game/modulename.cpp
+    ${TESTS_SOURCE_DIR}/game/modulesnapshot.cpp
+    ${TESTS_SOURCE_DIR}/game/savegame.cpp
+    ${TESTS_SOURCE_DIR}/game/savedgame.cpp
+    ${TESTS_SOURCE_DIR}/game/saveload.cpp
+    ${TESTS_SOURCE_DIR}/game/saveslotpublisher.cpp
+    ${TESTS_SOURCE_DIR}/game/savewidesnapshot.cpp
     ${TESTS_SOURCE_DIR}/game/object.cpp
+    ${TESTS_SOURCE_DIR}/game/runtimesession.cpp
     ${TESTS_SOURCE_DIR}/game/pazaak.cpp
     ${TESTS_SOURCE_DIR}/game/pazaakintegration.cpp
     ${TESTS_SOURCE_DIR}/game/pazaaksession.cpp
@@ -74,6 +86,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/graphics/format/bwmreader.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/mdlmdxreader.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/tgareader.cpp
+    ${TESTS_SOURCE_DIR}/graphics/format/tgawriter.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/tpcreader.cpp
     ${TESTS_SOURCE_DIR}/graphics/format/txireader.cpp
     ${TESTS_SOURCE_DIR}/graphics/keyframetrack.cpp
@@ -99,6 +112,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/resource/format/rimwriter.cpp
     ${TESTS_SOURCE_DIR}/resource/format/tlkreader.cpp
     ${TESTS_SOURCE_DIR}/resource/format/tlkwriter.cpp
+    ${TESTS_SOURCE_DIR}/resource/parser/gvt.cpp
     ${TESTS_SOURCE_DIR}/resource/parser/jrl.cpp
     ${TESTS_SOURCE_DIR}/resource/k1startup.cpp
     ${TESTS_SOURCE_DIR}/resource/lookup.cpp
@@ -110,6 +124,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/resource/2da.cpp
     ${TESTS_SOURCE_DIR}/resource/resources.cpp
     ${TESTS_SOURCE_DIR}/resource/resref.cpp
+    ${TESTS_SOURCE_DIR}/resource/saveworkingstate.cpp
     ${TESTS_SOURCE_DIR}/resource/sourcebuckets.cpp
     ${TESTS_SOURCE_DIR}/resource/sourcelifetimes.cpp
     ${TESTS_SOURCE_DIR}/resource/strings.cpp

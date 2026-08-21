@@ -52,7 +52,7 @@ void BinaryWriter::writeFloat(float val) {
 }
 
 void BinaryWriter::writeString(const std::string &str) {
-    _stream.write(&str[0], str.length());
+    _stream.writeAll(str.data(), str.size());
 }
 
 void BinaryWriter::writeCString(const std::string &str) {
@@ -62,7 +62,7 @@ void BinaryWriter::writeCString(const std::string &str) {
 }
 
 void BinaryWriter::write(const ByteBuffer &bytes) {
-    _stream.write(&bytes[0], bytes.size());
+    _stream.writeAll(bytes.data(), bytes.size());
 }
 
 void BinaryWriter::write(int count, uint8_t val) {

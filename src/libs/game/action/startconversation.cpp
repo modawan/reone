@@ -22,6 +22,7 @@
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/party.h"
+#include "reone/game/savedruntime.h"
 
 namespace reone {
 
@@ -126,6 +127,35 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
 
     _game.module()->area()->startDialog(dialogOwner, _dialogResRef);
     complete();
+}
+
+std::optional<SavedActionRecord> StartConversationAction::saveFacingState() const {
+    bool ignoredNamesAreEmpty = std::all_of(
+        _namesToIgnore.begin(), _namesToIgnore.end(),
+        [](const std::string &name) { return name.empty(); });
+    if (!_objectToConverse || _dialogResRef.size() > 16 ||
+        _conversationType != resource::ConversationType::Cinematic ||
+        _ignoreStartRange || !ignoredNamesAreEmpty || _useLeader ||
+        _barkX != -1 || _barkY != -1 || _dontClearAllActions) {
+        return std::nullopt;
+    }
+
+    SavedActionRecord result =
+        originalSavedAction().value_or(SavedActionRecord {});
+    result.actionId = 24;
+    result.declaredParameterCount = 3;
+    result.parameters = {
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Object),
+            SavedObjectReference {_objectToConverse->id()}},
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::String),
+            _dialogResRef},
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Integer),
+            static_cast<int32_t>(_privateConversation ? 1 : 0)},
+    };
+    return result;
 }
 
 } // namespace game
