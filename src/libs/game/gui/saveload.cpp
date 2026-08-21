@@ -84,6 +84,48 @@ std::string terminalMessage(const SaveResult &result) {
 
 } // namespace
 
+namespace detail {
+
+std::vector<SavedGame> prepareSaveBrowserEntries(
+    std::vector<SavedGame> saves,
+    bool tsl,
+    SaveLoadMode mode) {
+
+    if (mode == SaveLoadMode::Save) {
+        saves.erase(
+            std::remove_if(saves.begin(), saves.end(),
+                           [](const auto &save) { return save.slot < 2; }),
+            saves.end());
+    }
+    std::sort(saves.begin(), saves.end(), [tsl](const auto &a, const auto &b) {
+        if (!tsl) return a.slot < b.slot;
+        auto aTimestamp = a.metadata.timestamp.value_or(0);
+        auto bTimestamp = b.metadata.timestamp.value_or(0);
+        if (aTimestamp != bTimestamp) return aTimestamp > bTimestamp;
+        return a.slot > b.slot;
+    });
+    return saves;
+}
+
+SaveBrowserActivation evaluateSaveBrowserActivation(
+    SaveLoadMode mode,
+    bool pending,
+    bool hasSelectedSlot,
+    bool selectedSlotExists) {
+
+    if (pending) return SaveBrowserActivation::None;
+    if (mode == SaveLoadMode::Save) {
+        if (!hasSelectedSlot) return SaveBrowserActivation::SaveNew;
+        return selectedSlotExists ? SaveBrowserActivation::SaveExisting
+                                  : SaveBrowserActivation::None;
+    }
+    return hasSelectedSlot && selectedSlotExists
+               ? SaveBrowserActivation::LoadExisting
+               : SaveBrowserActivation::None;
+}
+
+} // namespace detail
+
 void SaveLoad::onGUILoaded() {
     if (!_game.isTSL()) loadBackground(BackgroundType::Menu);
     bindControls();
@@ -104,18 +146,12 @@ void SaveLoad::onGUILoaded() {
         }
         refreshSelection();
     });
+    _controls.LB_GAMES->setOnItemDoubleClick([this](const std::string &) {
+        activateSelection();
+    });
 
     _controls.BTN_SAVELOAD->setOnClick([this]() {
-        if (_pendingRequestId) return;
-        int selected = getSelectedSaveNumber();
-        if (_mode == SaveLoadMode::Save) {
-            uint32_t slot = selected < 0 ? getNewSaveNumber() : static_cast<uint32_t>(selected);
-            auto save = selected < 0 ? nullptr : findSave(slot);
-            showSaveName(slot, save ? save->metadata.savegameName : "");
-        } else if (selected >= 0) {
-            debug("SaveLoad: dispatching selected load slot " + std::to_string(selected));
-            loadGame(static_cast<uint32_t>(selected));
-        }
+        activateSelection();
     });
     _controls.BTN_DELETE->setOnClick([this]() {
         int selected = getSelectedSaveNumber();
@@ -195,8 +231,30 @@ void SaveLoad::refresh() {
     refreshSavedGames();
 }
 
+void SaveLoad::activateSelection() {
+    int selected = getSelectedSaveNumber();
+    auto save = selected < 0 ? nullptr : findSave(static_cast<uint32_t>(selected));
+    auto activation = detail::evaluateSaveBrowserActivation(
+        _mode, _pendingRequestId.has_value(), selected >= 0, save != nullptr);
+    switch (activation) {
+    case detail::SaveBrowserActivation::SaveNew:
+        showSaveName(getNewSaveNumber(), "");
+        break;
+    case detail::SaveBrowserActivation::SaveExisting:
+        showSaveName(static_cast<uint32_t>(selected), save->metadata.savegameName);
+        break;
+    case detail::SaveBrowserActivation::LoadExisting:
+        debug("SaveLoad: dispatching selected load slot " + std::to_string(selected));
+        loadGame(static_cast<uint32_t>(selected));
+        break;
+    case detail::SaveBrowserActivation::None:
+        break;
+    }
+}
+
 void SaveLoad::refreshSavedGames() {
-    _saves = _game.savedGames();
+    _saves = detail::prepareSaveBrowserEntries(
+        _game.savedGames(), _game.isTSL(), _mode);
     _selectedSaveSlot.reset();
     _controls.LBL_AREANAME->setTextMessage("");
     _controls.LBL_AREANAME->setVisible(false);

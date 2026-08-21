@@ -33,6 +33,29 @@ namespace game {
 
 class TestGameModule;
 struct SaveResult;
+
+namespace detail {
+
+enum class SaveBrowserActivation {
+    None,
+    SaveNew,
+    SaveExisting,
+    LoadExisting
+};
+
+std::vector<SavedGame> prepareSaveBrowserEntries(
+    std::vector<SavedGame> saves,
+    bool tsl,
+    SaveLoadMode mode);
+
+SaveBrowserActivation evaluateSaveBrowserActivation(
+    SaveLoadMode mode,
+    bool pending,
+    bool hasSelectedSlot,
+    bool selectedSlotExists);
+
+} // namespace detail
+
 class SaveLoad : public GameGUI {
 public:
     SaveLoad(Game &game, ServicesView &services) :
@@ -117,6 +140,7 @@ private:
         _controls.LB_GAMES = findControl<gui::ListBox>("LB_GAMES");
     }
 
+    void activateSelection();
     void refreshSavedGames();
     void refreshSelection();
     void showStatus(std::string message);

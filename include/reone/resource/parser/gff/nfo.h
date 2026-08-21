@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <cstdint>
+#include <optional>
+#include <string>
+
 namespace reone {
 
 namespace resource {
@@ -30,6 +34,7 @@ struct NFO {
     uint32_t timePlayed;
     bool cheatUsed;
     std::string savegameName;
+    std::optional<uint64_t> timestamp;
     std::optional<uint32_t> saveNumber;
     uint32_t gameplayHint;
     uint32_t storyHint;

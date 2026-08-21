@@ -38,7 +38,8 @@ protected:
         const std::string &directoryName,
         const std::string &saveName = "Test Save",
         bool screenshot = false,
-        std::optional<uint32_t> saveNumber = std::nullopt) {
+        std::optional<uint32_t> saveNumber = std::nullopt,
+        std::optional<uint64_t> timestamp = std::nullopt) {
         auto directory = _root / "saves" / directoryName;
         std::filesystem::create_directories(directory);
         std::ofstream(directory / "SAVEGAME.sav", std::ios::binary).put('x');
@@ -52,6 +53,9 @@ protected:
                        .build();
         if (saveNumber) {
             nfo->fields().push_back(Gff::Field::newDword("SAVENUMBER", *saveNumber));
+        }
+        if (timestamp) {
+            nfo->fields().push_back(Gff::Field::newDword64("TIMESTAMP", *timestamp));
         }
         auto bytes = GffWriter(GffFileFormat::v32("NFO "), *nfo).toBytes();
         std::ofstream nfoFile(directory / "savenfo.res", std::ios::binary);
@@ -113,7 +117,7 @@ TEST_F(SaveBrowserTest, k1DisplayNumberCannotRedirectAnExactSlotMutation) {
 }
 
 TEST_F(SaveBrowserTest, k2NfoSaveNumberControlsDisplayButNotDurableIdentity) {
-    auto directory = addSlot("000164 - game163", "K2 save", false, 91);
+    auto directory = addSlot("000164 - game163", "K2 save", false, 91, 134317923752070828ULL);
 
     auto saves = discoverSavedGames(_root);
 
@@ -121,6 +125,7 @@ TEST_F(SaveBrowserTest, k2NfoSaveNumberControlsDisplayButNotDurableIdentity) {
     EXPECT_EQ(saves[0].slot, 164u);
     EXPECT_EQ(saves[0].displayNumber, 91u);
     EXPECT_EQ(saves[0].metadata.saveNumber, 91u);
+    EXPECT_EQ(saves[0].metadata.timestamp, 134317923752070828ULL);
     EXPECT_EQ(saves[0].descriptor.directory, directory);
 }
 
