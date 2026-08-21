@@ -17,12 +17,16 @@
 
 #pragma once
 
+#include <memory>
+
 namespace reone {
 
 namespace game {
 
 class Creature;
+class Game;
 class Item;
+class Object;
 
 enum class EquipmentCandidateAction {
     None,
@@ -85,6 +89,11 @@ EquipmentCandidateDecision evaluateEquipmentCandidate(
 EquipmentSlotActivationDecision evaluateEquipmentSlotActivation(
     const Creature &creature,
     int requestedSlot);
+
+std::shared_ptr<Item> takeEquipmentCandidate(
+    Game &game,
+    Object &inventory,
+    const std::shared_ptr<Item> &item);
 
 } // namespace game
 

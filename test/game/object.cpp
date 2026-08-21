@@ -26,6 +26,7 @@
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/action/opendoor.h"
 #include "reone/game/action/unlockobject.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/areatransition.h"
 #include "reone/game/gui/conversation.h"
@@ -258,6 +259,27 @@ std::shared_ptr<TwoDA> makeBaseItemsTable() {
     builder.row({"", "", "", "", "", "", "I_Credits", "", "", "", "", ""});
     builder.row({"", "", "", "", "", "", "I_Datapad", "", "", "", "", ""});
     builder.row({"", "", "", "", "", "2", "I_Disguise", "", "", "", "-1", ""});
+    return std::shared_ptr<TwoDA>(builder.build());
+}
+
+std::shared_ptr<TwoDA> makeLightsaberBaseItemsTable() {
+    TwoDA::Builder builder;
+    builder.columns({"maxattackrange", "crithitmult", "critthreat", "damageflags", "dietoroll",
+                     "equipableslots", "itemclass", "numdice", "weapontype", "weaponwield",
+                     "ammunitiontype", "bodyvar"});
+    for (int i = 0; i <= 12; ++i) {
+        if (i == 1) {
+            builder.row({"1.5", "2", "2", "2", "4", "48", "w_stunbaton", "1", "1", "1", "-1", ""});
+        } else if (i == 3) {
+            builder.row({"1.5", "2", "2", "2", "6", "48", "w_vbroswrd", "1", "1", "2", "-1", ""});
+        } else if (i == 8) {
+            builder.row({"1.5", "2", "2", "2", "8", "48", "w_lghtsbr", "1", "1", "2", "-1", ""});
+        } else if (i == 12) {
+            builder.row({"23", "2", "2", "2", "6", "48", "w_blstrpstl", "1", "4", "4", "-1", ""});
+        } else {
+            builder.row({"", "", "", "", "", "", "", "", "", "", "", ""});
+        }
+    }
     return std::shared_ptr<TwoDA>(builder.build());
 }
 
@@ -737,6 +759,149 @@ TEST(Conversation, should_finish_active_presentation_before_starting_replacement
 
     conversation.cleanupForModuleTransition();
     EXPECT_FALSE(secondOwner->isInConversation());
+}
+
+TEST(EquipmentStack, reequips_a_restored_offhand_lightsaber_after_inventory_merge) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeLightsaberBaseItemsTable()));
+
+    auto actor = game.newCreature();
+    auto mainHand = makeItem(game, "g_w_lghtsbr01", 8, 1);
+    auto offHand = makeItem(game, "g_w_lghtsbr01", 8, 1);
+    auto inventorySaber = makeItem(game, "g_w_lghtsbr01", 8, 1);
+    ASSERT_TRUE(mainHand->blueprintResRef().empty());
+    ASSERT_TRUE(offHand->blueprintResRef().empty());
+    ASSERT_TRUE(inventorySaber->blueprintResRef().empty());
+
+    ASSERT_TRUE(actor->equip(InventorySlots::rightWeapon, mainHand));
+    ASSERT_TRUE(actor->equip(InventorySlots::leftWeapon, offHand));
+    actor->addItem(inventorySaber);
+
+    actor->unequip(offHand);
+    actor->addItem(offHand);
+
+    ASSERT_EQ(1u, actor->items().size());
+    ASSERT_EQ(inventorySaber, actor->items().front());
+    ASSERT_EQ(2, inventorySaber->stackSize());
+    ASSERT_EQ(actor->id(), inventorySaber->owner());
+    ASSERT_EQ(mainHand, actor->getEquippedItem(InventorySlots::rightWeapon));
+    ASSERT_FALSE(actor->getEquippedItem(InventorySlots::leftWeapon));
+
+    auto decision = evaluateEquipmentCandidate(
+        *actor, InventorySlots::leftWeapon, inventorySaber.get());
+    ASSERT_TRUE(decision.valid);
+    ASSERT_EQ(EquipmentCandidateAction::Equip, decision.action);
+
+    auto candidate = takeEquipmentCandidate(game, *actor, inventorySaber);
+    ASSERT_TRUE(candidate);
+    EXPECT_NE(inventorySaber, candidate);
+    EXPECT_EQ(1, inventorySaber->stackSize());
+    EXPECT_EQ(8, candidate->baseItemType());
+    EXPECT_EQ(1, candidate->stackSize());
+
+    ASSERT_TRUE(actor->equip(InventorySlots::leftWeapon, candidate));
+    EXPECT_EQ(mainHand, actor->getEquippedItem(InventorySlots::rightWeapon));
+    EXPECT_EQ(candidate, actor->getEquippedItem(InventorySlots::leftWeapon));
+    EXPECT_EQ(actor->id(), candidate->owner());
+    EXPECT_EQ(1u, actor->items().size());
+    EXPECT_EQ(1, actor->items().front()->stackSize());
+}
+
+TEST(EquipmentCompatibility, accepts_lightsaber_and_vibroblade_in_either_hand_order) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeLightsaberBaseItemsTable()));
+
+    auto saberMainActor = game.newCreature();
+    auto mainSaber = makeItem(game, "g_w_lghtsbr01", 8, 1);
+    auto offVibroblade = makeItem(game, "g_w_vbroswrd01", 3, 1);
+    ASSERT_TRUE(saberMainActor->equip(InventorySlots::rightWeapon, mainSaber));
+    auto vibrobladeDecision = evaluateEquipmentCandidate(
+        *saberMainActor, InventorySlots::leftWeapon, offVibroblade.get());
+    ASSERT_TRUE(vibrobladeDecision.valid);
+    ASSERT_EQ(EquipmentCandidateAction::Equip, vibrobladeDecision.action);
+    ASSERT_TRUE(saberMainActor->equip(InventorySlots::leftWeapon, offVibroblade));
+
+    auto vibrobladeMainActor = game.newCreature();
+    auto mainVibroblade = makeItem(game, "g_w_vbroswrd01", 3, 1);
+    auto offSaber = makeItem(game, "g_w_lghtsbr01", 8, 1);
+    ASSERT_TRUE(vibrobladeMainActor->equip(InventorySlots::rightWeapon, mainVibroblade));
+    auto saberDecision = evaluateEquipmentCandidate(
+        *vibrobladeMainActor, InventorySlots::leftWeapon, offSaber.get());
+    ASSERT_TRUE(saberDecision.valid);
+    ASSERT_EQ(EquipmentCandidateAction::Equip, saberDecision.action);
+    ASSERT_TRUE(vibrobladeMainActor->equip(InventorySlots::leftWeapon, offSaber));
+}
+
+TEST(EquipmentCompatibility, rejects_retail_incompatible_melee_and_ranged_weapons) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeLightsaberBaseItemsTable()));
+
+    auto saberMainActor = game.newCreature();
+    auto mainSaber = makeItem(game, "g_w_lghtsbr01", 8, 1);
+    auto offBlaster = makeItem(game, "g_w_blstrpstl001", 12, 1);
+    ASSERT_TRUE(saberMainActor->equip(InventorySlots::rightWeapon, mainSaber));
+    auto blasterDecision = evaluateEquipmentCandidate(
+        *saberMainActor, InventorySlots::leftWeapon, offBlaster.get());
+    ASSERT_FALSE(blasterDecision.valid);
+    ASSERT_EQ(EquipmentCandidateAction::Reject, blasterDecision.action);
+    ASSERT_EQ(EquipmentCandidateReason::IncompatibleWithMainHand, blasterDecision.reason);
+
+    auto blasterMainActor = game.newCreature();
+    auto mainBlaster = makeItem(game, "g_w_blstrpstl001", 12, 1);
+    auto offSaber = makeItem(game, "g_w_lghtsbr01", 8, 1);
+    ASSERT_TRUE(blasterMainActor->equip(InventorySlots::rightWeapon, mainBlaster));
+    auto saberDecision = evaluateEquipmentCandidate(
+        *blasterMainActor, InventorySlots::leftWeapon, offSaber.get());
+    ASSERT_FALSE(saberDecision.valid);
+    ASSERT_EQ(EquipmentCandidateAction::Reject, saberDecision.action);
+    ASSERT_EQ(EquipmentCandidateReason::IncompatibleWithMainHand, saberDecision.reason);
+}
+
+TEST(EquipmentStack, equips_a_restored_stun_baton_stack_on_an_empty_party_member) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeLightsaberBaseItemsTable()));
+
+    auto sharedInventory = game.newCreature();
+    auto bastila = game.newCreature();
+    auto batonStack = makeItem(game, "ptar_shockstick", 1, 3);
+    ASSERT_TRUE(batonStack->blueprintResRef().empty());
+    sharedInventory->addItem(batonStack);
+
+    auto decision = evaluateEquipmentCandidate(
+        *bastila, InventorySlots::rightWeapon, batonStack.get());
+    ASSERT_TRUE(decision.valid);
+    ASSERT_EQ(EquipmentCandidateAction::Equip, decision.action);
+    ASSERT_FALSE(bastila->getEquippedItem(InventorySlots::leftWeapon));
+
+    auto candidate = takeEquipmentCandidate(game, *sharedInventory, batonStack);
+    ASSERT_TRUE(candidate);
+    EXPECT_EQ(1, candidate->baseItemType());
+    EXPECT_EQ(2, batonStack->stackSize());
+    ASSERT_TRUE(bastila->equip(InventorySlots::rightWeapon, candidate));
+    EXPECT_EQ(candidate, bastila->getEquippedItem(InventorySlots::rightWeapon));
+    EXPECT_FALSE(bastila->getEquippedItem(InventorySlots::leftWeapon));
+    EXPECT_EQ(bastila->id(), candidate->owner());
+    EXPECT_EQ(sharedInventory->id(), batonStack->owner());
 }
 
 TEST(Creature, should_activate_and_deactivate_lightsabers_in_both_hands_with_combat) {
