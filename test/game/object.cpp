@@ -39,6 +39,7 @@
 #include "reone/game/object/module.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/object/trigger.h"
+#include "reone/game/object/waypoint.h"
 #include "reone/game/player.h"
 #include "reone/game/reputes.h"
 #include "reone/game/room.h"
@@ -180,6 +181,20 @@ std::pair<std::string, std::string> reone::game::TestGameModule::scheduledTransi
 void reone::game::TestGameModule::setActiveModuleArea(Game &game, std::shared_ptr<Area> area) {
     game._module = game.newModule();
     game._module->_area = std::move(area);
+}
+
+std::pair<glm::vec3, float> reone::game::TestGameModule::resolveModuleEntry(
+    Module &module,
+    std::string entry,
+    const glm::vec3 &defaultPosition,
+    float defaultFacing) {
+
+    module._info.entryPosition = defaultPosition;
+    module._info.entryFacing = defaultFacing;
+    glm::vec3 position;
+    float facing = 0.0f;
+    module.getEntryPoint(entry, position, facing);
+    return {position, facing};
 }
 
 void reone::game::TestGameModule::deserializeInventory(Game &game, Gff &gff) {
@@ -467,6 +482,27 @@ std::shared_ptr<Door> makeTransitionDoor(
     auto door = game.newDoor();
     door->deserialize(*gff);
     return door;
+}
+
+std::shared_ptr<Waypoint> addEntryWaypoint(
+    Game &game,
+    const std::shared_ptr<Area> &area,
+    std::string tag,
+    const glm::vec3 &position,
+    float facing = 0.0f) {
+
+    auto gff = Gff::Builder()
+                   .field(Gff::Field::newCExoString("Tag", std::move(tag)))
+                   .field(Gff::Field::newFloat("XPosition", position.x))
+                   .field(Gff::Field::newFloat("YPosition", position.y))
+                   .field(Gff::Field::newFloat("ZPosition", position.z))
+                   .field(Gff::Field::newFloat("XOrientation", -glm::sin(facing)))
+                   .field(Gff::Field::newFloat("YOrientation", glm::cos(facing)))
+                   .build();
+    auto waypoint = game.newWaypoint();
+    waypoint->deserialize(*gff);
+    area->add(waypoint);
+    return waypoint;
 }
 
 // Door without linked-module metadata, so it blocks and opens without also
@@ -2144,6 +2180,59 @@ TEST(LinkedDoorTransition, should_support_authored_cross_module_flag_values) {
     EXPECT_EQ(flag2Trigger->linkedToFlags(), 2);
     EXPECT_EQ(flag2Trigger->linkedToModule(), "flag2_module");
     EXPECT_EQ(flag2Trigger->linkedTo(), "flag2_waypoint");
+}
+
+TEST(TransitionEntryResolution, matches_odyssey_entry_tags_case_insensitively) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    testSceneGraph(engine);
+    auto area = game.newArea();
+    TestGameModule::setActiveModuleArea(game, area);
+    auto module = game.module();
+    ASSERT_TRUE(module);
+
+    const glm::vec3 defaultPosition(101.0f, 102.0f, 103.0f);
+    const float defaultFacing = 1.25f;
+    addEntryWaypoint(game, area, "from_106per2", {-20.45f, 62.86f, 11.89f}, 0.25f);
+    addEntryWaypoint(game, area, "from_103per2", {-33.20f, 73.82f, 0.85f}, 0.5f);
+    addEntryWaypoint(game, area, "same_case", {4.0f, 5.0f, 6.0f}, 0.75f);
+    addEntryWaypoint(game, area, "My_Entry", {7.0f, 8.0f, 9.0f}, 1.0f);
+    addEntryWaypoint(game, area, "FROM15", {10.0f, 11.0f, 12.0f}, 1.125f);
+
+    auto into103 = TestGameModule::resolveModuleEntry(
+        *module, "From_106PER2", defaultPosition, defaultFacing);
+    EXPECT_EQ(into103.first, glm::vec3(-20.45f, 62.86f, 11.89f));
+    EXPECT_FLOAT_EQ(into103.second, 0.25f);
+
+    auto into106 = TestGameModule::resolveModuleEntry(
+        *module, "FROM_103PER2", defaultPosition, defaultFacing);
+    EXPECT_EQ(into106.first, glm::vec3(-33.20f, 73.82f, 0.85f));
+    EXPECT_FLOAT_EQ(into106.second, 0.5f);
+
+    auto sameCase = TestGameModule::resolveModuleEntry(
+        *module, "same_case", defaultPosition, defaultFacing);
+    EXPECT_EQ(sameCase.first, glm::vec3(4.0f, 5.0f, 6.0f));
+
+    auto modCase = TestGameModule::resolveModuleEntry(
+        *module, "my_entry", defaultPosition, defaultFacing);
+    EXPECT_EQ(modCase.first, glm::vec3(7.0f, 8.0f, 9.0f));
+
+    auto k1Case = TestGameModule::resolveModuleEntry(
+        *module, "from15", defaultPosition, defaultFacing);
+    EXPECT_EQ(k1Case.first, glm::vec3(10.0f, 11.0f, 12.0f));
+
+    auto absent = TestGameModule::resolveModuleEntry(
+        *module, "genuinely_absent", defaultPosition, defaultFacing);
+    EXPECT_EQ(absent.first, defaultPosition);
+    EXPECT_FLOAT_EQ(absent.second, defaultFacing);
+
+    addEntryWaypoint(game, area, "EntryFoo", {1.0f, 2.0f, 3.0f});
+    addEntryWaypoint(game, area, "entryfoo", {4.0f, 5.0f, 6.0f});
+
+    auto resolved = TestGameModule::resolveModuleEntry(
+        *module, "ENTRYFOO", defaultPosition, defaultFacing);
+    EXPECT_EQ(resolved.first, glm::vec3(1.0f, 2.0f, 3.0f));
 }
 
 TEST(LinkedDoorTransition, should_reject_unlinked_unsupported_or_incomplete_metadata) {

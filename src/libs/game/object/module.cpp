@@ -207,10 +207,13 @@ void Module::getEntryPoint(const std::string &waypoint, glm::vec3 &position, flo
     facing = _info.entryFacing;
 
     if (!waypoint.empty()) {
-        std::shared_ptr<Object> object(_area->getObjectByTag(waypoint));
+        std::shared_ptr<Object> object(
+            _area->getObjectByTag(boost::to_lower_copy(waypoint)));
         if (object) {
             position = object->position();
             facing = object->getFacing();
+        } else {
+            debug("Module entry '" + waypoint + "' not found; using default entry");
         }
     }
 }

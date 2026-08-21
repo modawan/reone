@@ -451,7 +451,7 @@ TEST_F(SnapshotFixture, linked_door_helpers_are_derived_not_saved_git_members) {
     auto door = game.newDoor();
     door->setTag("linked_door");
     TestGameModule::configureSnapshotLinkedDoor(
-        *door, "destination_module", "destination_entry");
+        *door, "destination_module", "Destination_Entry");
     TestGameModule::addSnapshotObject(*area, door);
 
     auto helper = game.newTrigger();
@@ -492,7 +492,7 @@ TEST_F(SnapshotFixture, linked_door_helpers_are_derived_not_saved_git_members) {
         EXPECT_EQ(doorRecord->getUint("Appearance"), 0u);
         EXPECT_EQ(doorRecord->getUint("GenericType"), 57u);
         EXPECT_EQ(doorRecord->getUint("LinkedToFlags"), 2u);
-        EXPECT_EQ(doorRecord->getString("LinkedTo"), "destination_entry");
+        EXPECT_EQ(doorRecord->getString("LinkedTo"), "Destination_Entry");
         EXPECT_EQ(doorRecord->getString("LinkedToModule"), "destination_module");
     }
 }

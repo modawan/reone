@@ -179,6 +179,11 @@ public:
     static void setActiveModule(Game &game, bool active);
     static void setActiveModuleArea(Game &game, std::shared_ptr<Area> area);
     static void cacheActiveModule(Game &game, std::string name);
+    static std::pair<glm::vec3, float> resolveModuleEntry(
+        Module &module,
+        std::string entry,
+        const glm::vec3 &defaultPosition,
+        float defaultFacing);
     static size_t objectRegistrySize(const Game &game);
     static size_t loadedModuleCount(const Game &game);
     static uint32_t nextObjectId(const Game &game);
