@@ -1335,10 +1335,11 @@ void Game::deserializeParty(resource::Gff &ifoGff) {
     std::shared_ptr<Gff> pcGff;
     const auto &players = ifoGff.getList("Mod_PlayerList");
     if (!players.empty()) {
-        int controlledNpc = ptGff ? parsePartyTable(*ptGff).controlledNpc : -1;
-        bool modulePlayerIsPrimary =
-            players.front()->getBool("Mod_IsPrimaryPlr", controlledNpc < 0);
-        if (!modulePlayerIsPrimary) {
+        const int controlledNpc =
+            ptGff ? parsePartyTable(*ptGff).controlledNpc : -1;
+        // Retail K2 may mark the controlled module creature primary even while
+        // pc.utc holds a distinct canonical player. PARTYTABLE is authoritative.
+        if (controlledNpc != -1) {
             try {
                 pcGff = decodeSaveGff(
                     _services.resource.director.findSaveWorking(ResourceId("pc", ResType::Utc)));
@@ -1392,9 +1393,9 @@ void Game::publishPartyRuntimeState(
 
     auto actualPlayer = modulePlayer;
     const auto &partyState = _party.persistedState();
-    bool modulePlayerIsPrimary =
-        players.front()->getBool("Mod_IsPrimaryPlr", partyState.controlledNpc < 0);
-    if (!modulePlayerIsPrimary && pcGff) {
+    // PT_CONTROLLED_NP, not Mod_IsPrimaryPlr, defines whether pc.utc is the
+    // canonical player distinct from the currently controlled module creature.
+    if (partyState.controlledNpc != -1 && pcGff) {
         actualPlayer = pcGff->has("ObjectId")
                            ? newCreature(*pcGff)
                            : newCreature();
@@ -1686,7 +1687,12 @@ void Game::deserializePartyMembers(resource::Gff &ptGff) {
     }
 
     auto actualPlayer = _party.actualPlayer();
-    if (actualPlayer && !_party.isMember(*actualPlayer)) {
+    // A zero-member controlled-NPC PARTYTABLE is used by retail K2 prologue
+    // saves for an NPC operating alone while the canonical PC remains in
+    // limbo. Non-empty lists retain the usual implicit canonical PC member.
+    const bool canonicalPlayerIsActive =
+        _party.persistedState().controlledNpc == -1 || !savedMembers.empty();
+    if (canonicalPlayerIsActive && actualPlayer && !_party.isMember(*actualPlayer)) {
         _party.addMember(kNpcPlayer, actualPlayer);
     }
 

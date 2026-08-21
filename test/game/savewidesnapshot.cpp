@@ -8,6 +8,7 @@
 
 #include "reone/game/game.h"
 #include "reone/game/location.h"
+#include "reone/game/modulesnapshot.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
@@ -47,6 +48,14 @@ std::shared_ptr<TwoDA> makeRoundTripBaseItemsTable() {
     for (int i = 0; i <= 5; ++i) {
         builder.row({"", "", "", "", "", "", "I_Test", "", "", "", "", ""});
     }
+    return std::shared_ptr<TwoDA>(builder.build());
+}
+
+std::shared_ptr<TwoDA> makeRoundTripAppearanceTable() {
+    TwoDA::Builder builder;
+    builder.columns({"modeltype", "walkdist", "rundist", "footsteptype",
+                     "envmap", "race", "racetex"});
+    builder.row({"S", "1", "1", "-1", "", "", ""});
     return std::shared_ptr<TwoDA>(builder.build());
 }
 
@@ -538,6 +547,135 @@ TEST(SaveWideSnapshot, rich_k2_writes_title_specific_party_pc_puppet_and_nfo) {
     EXPECT_EQ(nfo->getUint("STORYHINT7"), 82u);
     EXPECT_FALSE(nfo->has("STORYHINT"));
     EXPECT_EQ(nfo->getString("PORTRAIT0"), "po_pfhh01");
+}
+
+TEST(SaveWideSnapshot,
+     k2_zero_member_controlled_npc_round_trips_canonical_and_controlled_players) {
+    TestEngine engine;
+    engine.init();
+    configureReputes(engine);
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+
+    auto area = game.newArea();
+    auto controlled = game.newCreature();
+    controlled->setName("T3-M4");
+    TestGameModule::setSnapshotObjectId(*controlled, 330);
+    controlled->setTag(kObjectTagPlayer);
+    controlled->setMaxHitPoints(30);
+    controlled->setCurrentHitPoints(24);
+    auto controlledShadow =
+        Gff::Builder()
+            .type(0xffffffff)
+            .field(Gff::Field::newCExoLocString("FirstName", -1, "T3-M4"))
+            .build();
+    controlled->captureSaveRecord(
+        *controlledShadow, {SaveRecordOriginKind::ModulePlayer, {}});
+    TestGameModule::configureModuleSnapshot(
+        game, area, controlled, "106per", "106per");
+
+    auto canonical = game.newCreature();
+    canonical->setName("Ta'ahn Kaast");
+    canonical->setTag("canonical_pc");
+    canonical->setMaxHitPoints(47);
+    canonical->setCurrentHitPoints(10);
+    auto canonicalShadow =
+        Gff::Builder()
+            .type(0xffffffff)
+            .field(Gff::Field::newCExoLocString("FirstName", -1, "Ta'ahn Kaast"))
+            .build();
+    canonical->captureSaveRecord(
+        *canonicalShadow, {SaveRecordOriginKind::PrimaryPlayerUtc, {}});
+
+    Party::PersistedState state;
+    state.pcName = "Ta'ahn Kaast";
+    state.controlledNpc = 8;
+    state.soloMode = false;
+    state.npcAvailable[8] = true;
+    state.npcSelectable[8] = true;
+    game.party().setPersistedState(state);
+    Party::PazaakCardCounts cards {};
+    Party::PazaakSideDeck sideDeck;
+    sideDeck.fill(-1);
+    game.party().setPazaakData(cards, sideDeck, Party::kK2PazaakCardCount);
+    game.party().addAvailableMember(8, controlled);
+    game.party().clear();
+    game.party().addMember(8, controlled);
+    game.party().setPlayer(controlled);
+    game.party().setActualPlayer(canonical);
+
+    auto module = ModuleSnapshotBuilder(game, "game13").build();
+    auto saved = SaveWideSnapshotBuilder(game, metadata(true)).build();
+
+    ASSERT_TRUE(module) << module.message;
+    ASSERT_TRUE(saved) << saved.message;
+    auto party = readGff(
+        saved.snapshot->looseSlotResources.at({"partytable", ResType::Res}));
+    auto pc = readGff(
+        saved.snapshot->outerWorkingResources.at({"pc", ResType::Utc}));
+    EXPECT_EQ(8, party->getInt("PT_CONTROLLED_NP"));
+    EXPECT_EQ(0u, party->getUint("PT_NUM_MEMBERS"));
+    EXPECT_TRUE(party->getList("PT_MEMBERS").empty());
+    EXPECT_FALSE(party->getBool("PT_SOLOMODE"));
+    EXPECT_EQ("Ta'ahn Kaast", pc->getString("FirstName"));
+    EXPECT_FALSE(pc->has("ObjectId"));
+    ASSERT_EQ(1u, module.snapshot->ifo->getList("Mod_PlayerList").size());
+    EXPECT_EQ(kObjectTagPlayer,
+              module.snapshot->ifo->getList("Mod_PlayerList")[0]->getString("Tag"));
+
+    Game reloaded(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto reloadedArea = reloaded.newArea();
+    auto placeholder = reloaded.newCreature();
+    TestGameModule::configureModuleSnapshot(
+        reloaded, reloadedArea, placeholder, "106per", "106per");
+    reloaded.party().clear();
+    TestGameModule::deserializePartyTable(reloaded, *party);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeRoundTripAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(engine.services().game.portraits),
+                getTextureByAppearance(_))
+        .Times(AnyNumber());
+    EXPECT_CALL(
+        engine.resourceModule().director(),
+        findSaveWorking(ResourceId("availnpc8", ResType::Utc)))
+        .WillOnce(Return(Resource {ByteBuffer(
+            saved.snapshot->outerWorkingResources.at(
+                {"availnpc8", ResType::Utc}))}));
+    auto reloadedIfo = readGff(module.snapshot->ifoBytes);
+    TestGameModule::publishPartyRuntimeState(
+        reloaded, *reloadedIfo, party, pc);
+
+    ASSERT_TRUE(reloaded.party().player());
+    ASSERT_TRUE(reloaded.party().actualPlayer());
+    EXPECT_NE(reloaded.party().player(), reloaded.party().actualPlayer());
+    EXPECT_EQ(kObjectTagPlayer, reloaded.party().player()->tag());
+    EXPECT_EQ("T3-M4", reloaded.party().player()->name());
+    EXPECT_EQ("canonical_pc", reloaded.party().actualPlayer()->tag());
+    EXPECT_EQ("Ta'ahn Kaast", reloaded.party().actualPlayer()->name());
+    EXPECT_EQ(reloaded.party().player(), reloaded.party().getLeader());
+    EXPECT_EQ(reloaded.party().player(), reloaded.party().getMemberByNPC(8));
+    EXPECT_FALSE(reloaded.party().isMember(*reloaded.party().actualPlayer()));
+    EXPECT_EQ(1, reloaded.party().getSize());
+    EXPECT_EQ(8, reloaded.party().persistedState().controlledNpc);
+    EXPECT_TRUE(reloaded.party().persistedState().npcAvailable[8]);
+    EXPECT_TRUE(reloaded.party().persistedState().npcSelectable[8]);
+
+    auto rebuiltModule = ModuleSnapshotBuilder(reloaded, "game13").build();
+    auto rebuilt = SaveWideSnapshotBuilder(reloaded, metadata(true)).build();
+    ASSERT_TRUE(rebuiltModule) << rebuiltModule.message;
+    ASSERT_TRUE(rebuilt) << rebuilt.message;
+    auto rebuiltParty = readGff(
+        rebuilt.snapshot->looseSlotResources.at({"partytable", ResType::Res}));
+    auto rebuiltPc = readGff(
+        rebuilt.snapshot->outerWorkingResources.at({"pc", ResType::Utc}));
+    EXPECT_EQ(8, rebuiltParty->getInt("PT_CONTROLLED_NP"));
+    EXPECT_EQ(0u, rebuiltParty->getUint("PT_NUM_MEMBERS"));
+    EXPECT_TRUE(rebuiltParty->getList("PT_MEMBERS").empty());
+    EXPECT_EQ("Ta'ahn Kaast", rebuiltPc->getString("FirstName"));
+    ASSERT_EQ(1u, rebuiltModule.snapshot->ifo->getList("Mod_PlayerList").size());
+    EXPECT_EQ(kObjectTagPlayer,
+              rebuiltModule.snapshot->ifo->getList("Mod_PlayerList")[0]->getString("Tag"));
 }
 
 TEST(GlobalNumber, script_api_uses_retail_signed_low_byte_for_both_titles) {

@@ -4519,8 +4519,13 @@ TEST(SavedRuntimeState, primary_health_publication_does_not_recover_unrelated_pc
                    .field(Gff::Field::newList("Mod_PlayerList", {modulePlayer}))
                    .build();
     auto pc = makePlayer(0x7fffffff, 36, true);
+    auto partyTable = Gff::Builder()
+                          .field(Gff::Field::newInt("PT_CONTROLLED_NP", 0))
+                          .field(Gff::Field::newByte("PT_NUM_MEMBERS", 0))
+                          .field(Gff::Field::newList("PT_MEMBERS", {}))
+                          .build();
 
-    TestGameModule::publishPartyRuntimeState(game, *ifo, nullptr, pc);
+    TestGameModule::publishPartyRuntimeState(game, *ifo, partyTable, pc);
 
     auto moduleRuntime = game.party().player();
     auto actual = game.party().actualPlayer();

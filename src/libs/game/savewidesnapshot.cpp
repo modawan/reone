@@ -587,7 +587,15 @@ SaveWideSnapshotResult SaveWideSnapshotBuilder::build() const noexcept {
         }
         if ((partyState.controlledNpc == -1) !=
             (_game._party.player() == _game._party.actualPlayer())) {
-            throw ValidationException("controlled and actual player topology contradict PARTYTABLE");
+            const auto &controlled = _game._party.player();
+            const auto &actual = _game._party.actualPlayer();
+            throw ValidationException(
+                "controlled and actual player topology contradict PARTYTABLE: "
+                "PT_CONTROLLED_NP=" + std::to_string(partyState.controlledNpc) +
+                ", controlled=" + controlled->tag() + "#" +
+                std::to_string(controlled->id()) + ", actual=" + actual->tag() +
+                "#" + std::to_string(actual->id()) +
+                ", same=" + (controlled == actual ? "1" : "0"));
         }
 
         SaveWideSnapshot snapshot;

@@ -1101,3 +1101,41 @@ TEST(SavedPlayerRestoration, controlled_companion_keeps_pc_utc_as_actual_player)
               fixture.game.party().getMemberByNPC(kNpcPlayer));
     EXPECT_EQ(2, fixture.game.party().getSize());
 }
+
+TEST(SavedPlayerRestoration,
+     k2_zero_member_controlled_npc_uses_partytable_despite_primary_flag) {
+    Fixture fixture(GameID::TSL);
+    EXPECT_CALL(fixture.engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(appearanceTable()));
+    EXPECT_CALL(fixture.engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(fixture.engine.services().game.portraits),
+                getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    // Exact retail-shaped topology from 000014 - Game13/PERAGUSFUELDEPO:
+    // PT_CONTROLLED_NP=8, no PT_MEMBERS, T3-M4 marked Mod_IsPrimaryPlr in
+    // module.ifo, and a distinct canonical player in pc.utc.
+    auto partyTable = emptyPartyTable(8);
+    auto pc = savedPlayer("canonical_pc", 2147483646u, true);
+    auto controlled = savedPlayer("t3m4", 330, true);
+    auto ifo = Gff::Builder()
+                   .field(Gff::Field::newList("Mod_PlayerList", {controlled}))
+                   .build();
+
+    TestGameModule::publishPartyRuntimeState(
+        fixture.game, *ifo, partyTable, pc);
+
+    ASSERT_TRUE(fixture.game.party().player());
+    ASSERT_TRUE(fixture.game.party().actualPlayer());
+    EXPECT_NE(fixture.game.party().player(), fixture.game.party().actualPlayer());
+    EXPECT_EQ(kObjectTagPlayer, fixture.game.party().player()->tag());
+    EXPECT_EQ(330u, fixture.game.party().player()->id());
+    EXPECT_EQ("canonical_pc", fixture.game.party().actualPlayer()->tag());
+    EXPECT_EQ(2147483646u, fixture.game.party().actualPlayer()->id());
+    EXPECT_EQ(fixture.game.party().player(), fixture.game.party().getLeader());
+    EXPECT_EQ(fixture.game.party().player(),
+              fixture.game.party().getMemberByNPC(8));
+    EXPECT_FALSE(fixture.game.party().isMember(*fixture.game.party().actualPlayer()));
+    EXPECT_EQ(1, fixture.game.party().getSize());
+    EXPECT_EQ(8, fixture.game.party().persistedState().controlledNpc);
+}
