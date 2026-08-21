@@ -23,6 +23,8 @@
 #include "reone/audio/clip.h"
 #include "reone/audio/mixer.h"
 #include "reone/audio/source.h"
+#include "reone/game/action/pauseconversation.h"
+#include "reone/game/action/resumeconversation.h"
 #include "reone/game/console.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/conversation.h"
@@ -214,11 +216,78 @@ protected:
         _conversation->start(makeDialog(-1, true), nullptr);
     }
 
+    void attachConversation(Game::Screen screen) {
+        TestGameModule::setConversation(*_game, _conversation.get());
+        TestGameModule::setCurrentScreen(*_game, static_cast<int>(screen));
+    }
+
     TestEngine _engine;
     StubConsole _console;
     std::unique_ptr<Game> _game;
     std::unique_ptr<TestConversation> _conversation;
 };
+
+TEST_F(ConversationTest, game_pause_is_harmless_without_a_conversation) {
+    EXPECT_FALSE(_game->isConversationActive());
+
+    _game->pauseConversation();
+}
+
+TEST_F(ConversationTest, game_resume_is_harmless_without_a_conversation) {
+    EXPECT_FALSE(_game->isConversationActive());
+
+    _game->resumeConversation();
+}
+
+TEST_F(ConversationTest, pause_and_resume_actions_complete_without_a_conversation) {
+    auto actor = _game->newCreature();
+    auto pause = _game->newAction<PauseConversationAction>();
+    auto resume = _game->newAction<ResumeConversationAction>();
+
+    pause->execute(pause, *actor, 0.0f);
+    resume->execute(resume, *actor, 0.0f);
+
+    EXPECT_TRUE(pause->isCompleted());
+    EXPECT_TRUE(resume->isCompleted());
+}
+
+TEST_F(ConversationTest, queued_pause_and_resume_actions_are_consumed_without_a_conversation) {
+    auto actor = _game->newCreature();
+    actor->addAction(_game->newAction<PauseConversationAction>());
+    actor->addAction(_game->newAction<ResumeConversationAction>());
+
+    actor->update(0.0f);
+    actor->update(0.0f);
+    actor->update(0.0f);
+
+    EXPECT_TRUE(actor->actions().empty());
+}
+
+TEST_F(ConversationTest, game_pause_and_resume_ignore_a_retained_inactive_conversation) {
+    startSilent();
+    attachConversation(Game::Screen::InGame);
+
+    ASSERT_FALSE(_conversation->isPaused());
+    _game->pauseConversation();
+    EXPECT_FALSE(_conversation->isPaused());
+
+    _conversation->pause();
+    ASSERT_TRUE(_conversation->isPaused());
+    _game->resumeConversation();
+    EXPECT_TRUE(_conversation->isPaused());
+}
+
+TEST_F(ConversationTest, game_pause_and_resume_control_an_active_conversation) {
+    startSilent();
+    attachConversation(Game::Screen::Conversation);
+
+    ASSERT_FALSE(_conversation->isPaused());
+    _game->pauseConversation();
+    EXPECT_TRUE(_conversation->isPaused());
+
+    _game->resumeConversation();
+    EXPECT_FALSE(_conversation->isPaused());
+}
 
 TEST_F(ConversationTest, silent_entry_timer_expiry_does_not_advance_while_paused) {
     startSilent();
