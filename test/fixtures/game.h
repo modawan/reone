@@ -57,11 +57,13 @@ class Door;
 class Game;
 class Item;
 class Module;
+class SaveLoad;
 class Conversation;
 class Object;
 class StaticCamera;
 class Trigger;
 struct SaveOrchestrationSeams;
+struct SaveResult;
 
 class MockCameraStyles : public ICameraStyles, boost::noncopyable {
 public:
@@ -254,6 +256,12 @@ public:
     static void clearSnapshotPlayers(Game &game);
     static void setTransitionInProgress(Game &game, bool inProgress);
     static void setSaveInProgress(Game &game, bool inProgress);
+    static void setSaveLoadPendingRequest(SaveLoad &saveLoad, uint64_t requestId);
+    static bool consumeSaveLoadResult(
+        SaveLoad &saveLoad, const std::optional<SaveResult> &result);
+    static void dismissSaveLoad(SaveLoad &saveLoad);
+    static bool hasSaveLoadPendingRequest(const SaveLoad &saveLoad);
+    static bool hasSaveLoadTransientState(const SaveLoad &saveLoad);
 
     void init() {
         _cameraStyles = std::make_unique<MockCameraStyles>();

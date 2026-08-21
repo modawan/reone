@@ -37,6 +37,7 @@ set(TESTS_HEADERS
     ${TESTS_SOURCE_DIR}/fixtures/system.h)
 
 set(TESTS_SOURCES
+    ${TESTS_SOURCE_DIR}/audio/mixer.cpp
     ${TESTS_SOURCE_DIR}/audio/format/wavreader.cpp
     ${TESTS_SOURCE_DIR}/extract/capsule.cpp
     ${TESTS_SOURCE_DIR}/extract/chitin.cpp
@@ -66,6 +67,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/modulesnapshot.cpp
     ${TESTS_SOURCE_DIR}/game/savegame.cpp
     ${TESTS_SOURCE_DIR}/game/savedgame.cpp
+    ${TESTS_SOURCE_DIR}/game/saveload.cpp
     ${TESTS_SOURCE_DIR}/game/saveslotpublisher.cpp
     ${TESTS_SOURCE_DIR}/game/savewidesnapshot.cpp
     ${TESTS_SOURCE_DIR}/game/object.cpp

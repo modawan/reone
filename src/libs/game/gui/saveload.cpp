@@ -125,8 +125,10 @@ void SaveLoad::onGUILoaded() {
         if (_saveNameVisible) {
             hideSaveName();
         } else if (_mode == SaveLoadMode::LoadFromMainMenu) {
+            dismissTransientState();
             _game.openMainMenu();
         } else {
+            dismissTransientState();
             _game.openInGame();
         }
     });
@@ -168,10 +170,8 @@ void SaveLoad::update(float dt) {
         _confirmation->update(dt);
     }
     if (_saveNameVisible && _saveNameGUI) _saveNameGUI->update(dt);
-    if (!_pendingRequestId) return;
     const auto &result = _game.lastSaveResult();
-    if (!result || result->requestId != *_pendingRequestId || result->status == SaveStatus::Accepted) return;
-    _pendingRequestId.reset();
+    if (!consumeTerminalResult(result)) return;
     _controls.BTN_SAVELOAD->setDisabled(false);
     showStatus(terminalMessage(*result));
     if (result->durable) refreshSavedGames();
@@ -186,6 +186,7 @@ void SaveLoad::render() {
 }
 
 void SaveLoad::refresh() {
+    dismissTransientState();
     _controls.LBL_PANELNAME->setTextMessage(_services.resource.strings.getText(
         _mode == SaveLoadMode::Save ? kStrRefSaveGame : kStrRefLoadGame));
     _controls.BTN_SAVELOAD->setTextMessage(_services.resource.strings.getText(
@@ -379,6 +380,24 @@ void SaveLoad::loadGame(uint32_t number) {
         warn("Unable to load selected save: " + std::string(e.what()));
         showStatus("The selected game could not be loaded.");
     }
+}
+
+bool SaveLoad::consumeTerminalResult(
+    const std::optional<SaveResult> &result) {
+    if (!_pendingRequestId || !result ||
+        result->requestId != *_pendingRequestId ||
+        result->status == SaveStatus::Accepted) {
+        return false;
+    }
+    _pendingRequestId.reset();
+    return true;
+}
+
+void SaveLoad::dismissTransientState() {
+    // SaveLoad is a persistent controller. Screen changes must discard only
+    // view-local interaction state; an in-flight request remains observed.
+    _selectedSaveSlot.reset();
+    _saveNameVisible = false;
 }
 
 void SaveLoad::setMode(SaveLoadMode mode) { _mode = mode; }

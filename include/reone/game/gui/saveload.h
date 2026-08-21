@@ -31,6 +31,8 @@ namespace reone {
 
 namespace game {
 
+class TestGameModule;
+struct SaveResult;
 class SaveLoad : public GameGUI {
 public:
     SaveLoad(Game &game, ServicesView &services) :
@@ -45,6 +47,8 @@ public:
     bool handle(const input::Event &event) override;
     void update(float dt) override;
     void render() override;
+
+    friend class TestGameModule;
 
 private:
     struct Controls {
@@ -122,6 +126,8 @@ private:
     void saveGame(uint32_t number, std::string name);
     void loadGame(uint32_t number);
     void deleteGame(uint32_t number);
+    bool consumeTerminalResult(const std::optional<SaveResult> &result);
+    void dismissTransientState();
 
     int getSelectedSaveNumber() const;
     uint32_t getNewSaveNumber() const;
