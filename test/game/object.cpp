@@ -735,6 +735,47 @@ std::shared_ptr<Dialog> makeRoutingDialog() {
 
 } // namespace
 
+TEST(Creature, restores_the_creation_script_flag_only_from_a_saved_record) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(engine.services().game.portraits),
+                getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto record = [](std::optional<uint8_t> creationScriptFired) {
+        Gff::Builder builder;
+        builder.field(Gff::Field::newDword("Appearance_Type", 0))
+            .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+            .field(Gff::Field::newByte("BodyBag", 0xff))
+            .field(Gff::Field::newByte("PerceptionRange", 0xff));
+        if (creationScriptFired) {
+            builder.field(Gff::Field::newByte(
+                "CreatnScrptFird", *creationScriptFired));
+        }
+        return builder.build();
+    };
+
+    // A blueprint says nothing about creation, so the creature still owes its
+    // OnSpawn. A save record is authoritative either way.
+    auto blueprint = game.newCreature();
+    blueprint->deserialize(*record(std::nullopt));
+    EXPECT_FALSE(blueprint->spawnScriptFired());
+
+    auto restoredSpawned = game.newCreature();
+    restoredSpawned->deserialize(*record(1));
+    EXPECT_TRUE(restoredSpawned->spawnScriptFired());
+
+    auto restoredUnspawned = game.newCreature();
+    restoredUnspawned->deserialize(*record(0));
+    EXPECT_FALSE(restoredUnspawned->spawnScriptFired());
+}
+
 TEST(Conversation, should_finish_active_presentation_before_starting_replacement) {
     TestEngine &engine = testEngine();
     StubConsole console;

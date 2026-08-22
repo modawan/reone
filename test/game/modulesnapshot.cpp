@@ -1225,4 +1225,22 @@ TEST(ModuleSnapshot, exports_retail_zero_location_for_uninitialized_runtime_loca
     }
 }
 
+TEST_F(SnapshotFixture, creature_records_carry_the_creation_script_flag) {
+    auto spawned = game.newCreature();
+    auto unspawned = game.newCreature();
+    spawned->runSpawnScript();
+    TestGameModule::addSnapshotObject(*area, spawned);
+    TestGameModule::addSnapshotObject(*area, unspawned);
+
+    auto saved = ModuleSnapshotBuilder(game, "tat_m17ab").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto spawnedRecord = recordById(*saved.snapshot->git, "Creature List", spawned->id());
+    auto unspawnedRecord = recordById(*saved.snapshot->git, "Creature List", unspawned->id());
+    ASSERT_TRUE(spawnedRecord);
+    ASSERT_TRUE(unspawnedRecord);
+    EXPECT_EQ(1, spawnedRecord->getInt("CreatnScrptFird"));
+    EXPECT_EQ(0, unspawnedRecord->getInt("CreatnScrptFird"));
+}
+
 } // namespace

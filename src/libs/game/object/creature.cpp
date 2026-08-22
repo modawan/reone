@@ -1083,6 +1083,16 @@ int Creature::getNeededXP() const {
 }
 
 void Creature::runSpawnScript() {
+    // Retail gates the creation script on CreatnScrptFird, so it fires at most
+    // once per creature rather than once per area attachment. A party member
+    // carried through an ordinary module transition is the same creature
+    // object: the destination area takes it in without recreating it, and its
+    // OnSpawn must not run a second time. Retail also latches the flag
+    // regardless of whether a script was authored.
+    if (_spawnScriptFired) {
+        return;
+    }
+    _spawnScriptFired = true;
     if (!_onSpawn.empty()) {
         _game.scriptRunner().run(_onSpawn, _id);
     }
@@ -3035,6 +3045,13 @@ void Creature::deserializeAll(const resource::Gff &gff) {
     gff.readResRef(_onSpawn, "ScriptSpawn");
     gff.readResRef(_onDeath, "ScriptDeath");
     gff.readResRef(_onBlocked, "ScriptOnBlocked");
+
+    // Only a saved creature record carries CreatnScrptFird; a blueprint leaves
+    // the flag clear so a freshly materialized creature still spawns once.
+    uint8_t spawnScriptFired = 0;
+    if (gff.readByte(spawnScriptFired, "CreatnScrptFird")) {
+        _spawnScriptFired = spawnScriptFired != 0;
+    }
 
     deserializeName(gff);
     deserializeSoundSet(gff);

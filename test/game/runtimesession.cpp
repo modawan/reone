@@ -97,6 +97,10 @@ uint64_t reone::game::TestGameModule::runtimeSessionGeneration(const Game &game)
     return game._runtimeSessionGeneration;
 }
 
+void reone::game::TestGameModule::markSpawnScriptFired(Creature &creature) {
+    creature._spawnScriptFired = true;
+}
+
 void reone::game::TestGameModule::bindConversation(Game &game, Conversation &conversation) {
     game._conversation = &conversation;
 }
@@ -567,4 +571,276 @@ TEST(RuntimeSession, initial_save_restore_preserves_archived_party_placement) {
     EXPECT_EQ(&savedRoom, player->room());
     EXPECT_TRUE(savedRoom.tenants().count(player.get()));
     EXPECT_EQ(23, player->currentHitPoints());
+}
+
+namespace {
+
+// Script execution counts keyed by resref. Static so the stub installed on a
+// scripts mock stays valid for the lifetime of the test that installed it.
+std::map<std::string, int> &spawnRunCounts() {
+    static std::map<std::string, int> counts;
+    return counts;
+}
+
+// Start counting dispatches of the named scripts. Each resolves to no program,
+// which is enough to observe that the runner was asked to run it.
+void countSpawnRuns(TestEngine &engine, const std::vector<std::string> &resRefs) {
+    for (const auto &resRef : resRefs) {
+        spawnRunCounts()[resRef] = 0;
+        EXPECT_CALL(engine.resourceModule().scripts(), get(resRef))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([](const std::string &key) {
+                ++spawnRunCounts()[key];
+                return std::shared_ptr<script::ScriptProgram>();
+            }));
+    }
+}
+
+int spawnRuns(const std::string &resRef) {
+    return spawnRunCounts()[resRef];
+}
+
+// A live party crossing module boundaries. Areas come and go around it; the
+// party creatures are session-owned and outlive every one of them.
+struct PartyTransferHarness {
+    TestEngine engine;
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    StubConsole console;
+    Room room {"transfer", glm::vec3(0.0f), nullptr, nullptr, nullptr};
+    std::unique_ptr<Game> game;
+    std::shared_ptr<Creature> player;
+    std::shared_ptr<Creature> companion;
+    std::shared_ptr<Area> area;
+
+    explicit PartyTransferHarness(resource::GameID gameId) {
+        engine.init();
+        configureRuntimeMocks(engine, sceneGraph);
+        ON_CALL(sceneGraph, testElevation(_, _))
+            .WillByDefault(Invoke([this](
+                                      const glm::vec3 &position,
+                                      scene::Collision &collision) {
+                collision.intersection = position;
+                collision.user = &room;
+                return true;
+            }));
+        game = std::make_unique<Game>(
+            gameId, "", engine.options(), engine.services(), console);
+        game->initLocalServices();
+        countSpawnRuns(engine, {"pc_spawn", "npc_spawn", "extra_spawn"});
+
+        player = game->newCreature();
+        player->setOnSpawn("pc_spawn");
+        game->party().addMember(kNpcPlayer, player);
+        game->party().setPlayer(player);
+        game->party().setActualPlayer(player);
+
+        companion = game->newCreature();
+        companion->setOnSpawn("npc_spawn");
+        game->party().addMember(0, companion);
+    }
+
+    // One ordinary module transition: the source area retires, a destination
+    // area is mounted, and the same party creatures are positioned into it.
+    std::shared_ptr<Area> transitionTo(const glm::vec3 &entry, float facing) {
+        if (area) {
+            area->unloadParty();
+        }
+        auto previous = std::move(area);
+        area = game->newArea();
+        area->loadParty(entry, facing, false);
+        return previous;
+    }
+};
+
+} // namespace
+
+TEST(PartyTransferSpawn, newly_created_area_creature_runs_its_spawn_script_exactly_once) {
+    for (auto gameId : {resource::GameID::KotOR, resource::GameID::TSL}) {
+        PartyTransferHarness harness(gameId);
+        auto stranger = harness.game->newCreature();
+        stranger->setOnSpawn("extra_spawn");
+        harness.area = harness.game->newArea();
+        harness.area->add(stranger);
+
+        harness.area->runSpawnScripts();
+        EXPECT_EQ(1, spawnRuns("extra_spawn"));
+
+        // A second module-load style sweep over the same live creature is not
+        // a second creation.
+        harness.area->runSpawnScripts();
+        EXPECT_EQ(1, spawnRuns("extra_spawn"));
+    }
+}
+
+TEST(PartyTransferSpawn, ordinary_transition_keeps_retained_party_members_spawned) {
+    for (auto gameId : {resource::GameID::KotOR, resource::GameID::TSL}) {
+        PartyTransferHarness harness(gameId);
+
+        auto sourceArea = harness.transitionTo(glm::vec3(3.0f, 4.0f, 0.0f), 0.25f);
+        EXPECT_EQ(nullptr, sourceArea);
+        EXPECT_EQ(1, spawnRuns("pc_spawn"));
+        EXPECT_EQ(1, spawnRuns("npc_spawn"));
+        EXPECT_TRUE(harness.player->spawnScriptFired());
+        EXPECT_TRUE(harness.companion->spawnScriptFired());
+
+        auto playerId = harness.player->id();
+        auto companionId = harness.companion->id();
+        auto *playerObject = harness.player.get();
+        auto *companionObject = harness.companion.get();
+
+        auto retired = harness.transitionTo(glm::vec3(-9.0f, 12.5f, 0.0f), 1.5f);
+
+        // Same session-owned creatures, positioned into the destination area.
+        ASSERT_TRUE(retired);
+        EXPECT_EQ(playerObject, harness.game->party().player().get());
+        EXPECT_EQ(companionObject, harness.game->party().getMember(1).get());
+        EXPECT_EQ(playerId, harness.player->id());
+        EXPECT_EQ(companionId, harness.companion->id());
+        EXPECT_EQ(harness.player, harness.game->getObjectById(playerId));
+        EXPECT_EQ(harness.companion, harness.game->getObjectById(companionId));
+
+        // Attachment to a new area is not a new creation.
+        EXPECT_EQ(1, spawnRuns("pc_spawn"));
+        EXPECT_EQ(1, spawnRuns("npc_spawn"));
+
+        // The retired area no longer owns them; the destination one does.
+        const auto &retiredCreatures = retired->getObjectsByType(ObjectType::Creature);
+        EXPECT_EQ(retiredCreatures.end(),
+                  std::find(retiredCreatures.begin(), retiredCreatures.end(), harness.player));
+        EXPECT_EQ(retiredCreatures.end(),
+                  std::find(retiredCreatures.begin(), retiredCreatures.end(), harness.companion));
+        const auto &creatures = harness.area->getObjectsByType(ObjectType::Creature);
+        EXPECT_NE(creatures.end(),
+                  std::find(creatures.begin(), creatures.end(), harness.player));
+        EXPECT_NE(creatures.end(),
+                  std::find(creatures.begin(), creatures.end(), harness.companion));
+        EXPECT_EQ(&harness.room, harness.player->room());
+        EXPECT_EQ(&harness.room, harness.companion->room());
+        EXPECT_EQ(glm::vec3(-9.0f, 12.5f, 0.0f), harness.player->position());
+        EXPECT_FLOAT_EQ(1.5f, harness.player->getFacing());
+    }
+}
+
+TEST(PartyTransferSpawn, repeated_transitions_never_respawn_the_same_party) {
+    for (auto gameId : {resource::GameID::KotOR, resource::GameID::TSL}) {
+        PartyTransferHarness harness(gameId);
+        auto *companionObject = harness.companion.get();
+        auto companionId = harness.companion->id();
+
+        // A -> B -> A -> B.
+        harness.transitionTo(glm::vec3(1.0f, 1.0f, 0.0f), 0.0f);
+        harness.transitionTo(glm::vec3(2.0f, 2.0f, 0.0f), 0.5f);
+        harness.transitionTo(glm::vec3(1.0f, 1.0f, 0.0f), 1.0f);
+        harness.transitionTo(glm::vec3(2.0f, 2.0f, 0.0f), 1.5f);
+
+        EXPECT_EQ(1, spawnRuns("pc_spawn"));
+        EXPECT_EQ(1, spawnRuns("npc_spawn"));
+        EXPECT_EQ(companionObject, harness.game->party().getMember(1).get());
+        EXPECT_EQ(companionId, harness.companion->id());
+        EXPECT_EQ(harness.companion, harness.game->getObjectById(companionId));
+    }
+}
+
+TEST(PartyTransferSpawn, transferred_party_member_keeps_its_runtime_state) {
+    for (auto gameId : {resource::GameID::KotOR, resource::GameID::TSL}) {
+        PartyTransferHarness harness(gameId);
+        harness.transitionTo(glm::vec3(0.0f, 0.0f, 0.0f), 0.0f);
+
+        harness.companion->setCurrentHitPoints(19);
+        harness.companion->setLocalBoolean(3, true);
+        harness.companion->setLocalNumber(5, 42);
+        auto effect = std::make_shared<Effect>(EffectType::Invalid);
+        harness.companion->applyEffect(effect, DurationType::Permanent);
+        int executions = 0;
+        auto action = harness.game->newAction<CountingAction>(executions);
+        harness.companion->addAction(action);
+        auto carried = harness.game->newOwnedItem();
+        harness.companion->addItem(carried);
+        auto equipped = harness.game->newOwnedItem();
+        TestGameModule::setSnapshotEquipment(
+            *harness.companion, InventorySlots::rightWeapon, equipped);
+
+        harness.transitionTo(glm::vec3(7.0f, -3.0f, 0.0f), 2.0f);
+
+        EXPECT_EQ(19, harness.companion->currentHitPoints());
+        EXPECT_TRUE(harness.companion->getLocalBoolean(3));
+        EXPECT_EQ(42, harness.companion->getLocalNumber(5));
+        ASSERT_EQ(1, harness.companion->effects().size());
+        EXPECT_EQ(effect, harness.companion->effects().front().effect);
+        ASSERT_EQ(1, harness.companion->actions().size());
+        EXPECT_EQ(action, harness.companion->actions().front());
+        EXPECT_EQ(0, executions);
+        ASSERT_EQ(1, harness.companion->items().size());
+        EXPECT_EQ(carried, harness.companion->items().front());
+        EXPECT_EQ(equipped,
+                  harness.companion->getEquippedItem(InventorySlots::rightWeapon));
+        EXPECT_EQ(1, spawnRuns("npc_spawn"));
+    }
+}
+
+TEST(PartyTransferSpawn, initial_save_restore_places_the_party_without_spawning_it) {
+    for (auto gameId : {resource::GameID::KotOR, resource::GameID::TSL}) {
+        PartyTransferHarness harness(gameId);
+        glm::vec3 archived(11.3286257f, -40.3899155f, 0.0f);
+        harness.player->setPosition(archived);
+        harness.player->setFacing(0.75f);
+        harness.companion->setPosition(glm::vec3(9.0f, -41.0f, 0.0f));
+
+        harness.area = harness.game->newArea();
+        harness.area->loadParty(glm::vec3(-6.8f, -26.7f, 0.0f), 1.5f, true);
+
+        EXPECT_EQ(archived, harness.player->position());
+        EXPECT_FLOAT_EQ(0.75f, harness.player->getFacing());
+        EXPECT_EQ(&harness.room, harness.player->room());
+        EXPECT_EQ(0, spawnRuns("pc_spawn"));
+        EXPECT_EQ(0, spawnRuns("npc_spawn"));
+        EXPECT_FALSE(harness.player->spawnScriptFired());
+
+        // The restored session then plays on. A save records the party as
+        // already spawned, so the first ordinary transition out of the restored
+        // module is still a transfer rather than a creation.
+        TestGameModule::markSpawnScriptFired(*harness.player);
+        TestGameModule::markSpawnScriptFired(*harness.companion);
+        harness.transitionTo(glm::vec3(4.0f, 4.0f, 0.0f), 0.5f);
+
+        EXPECT_EQ(0, spawnRuns("pc_spawn"));
+        EXPECT_EQ(0, spawnRuns("npc_spawn"));
+    }
+}
+
+TEST(PartyTransferSpawn, session_replacement_does_not_leak_the_old_party) {
+    for (auto gameId : {resource::GameID::KotOR, resource::GameID::TSL}) {
+        PartyTransferHarness harness(gameId);
+        harness.transitionTo(glm::vec3(0.0f, 0.0f, 0.0f), 0.0f);
+        ASSERT_EQ(1, spawnRuns("npc_spawn"));
+        auto retiredCompanion = harness.companion;
+        auto retiredId = retiredCompanion->id();
+
+        EXPECT_CALL(harness.engine.audioModule().mixer(), stopAll()).Times(1);
+        EXPECT_CALL(harness.sceneGraph, clear()).Times(AnyNumber());
+        harness.game->retireRuntimeSession();
+
+        EXPECT_FALSE(harness.game->getObjectById(retiredId));
+        EXPECT_TRUE(harness.game->party().members().empty());
+
+        // The replacement session builds its own party creatures, and those are
+        // genuinely new: they spawn.
+        auto player = harness.game->newCreature();
+        harness.game->party().addMember(kNpcPlayer, player);
+        harness.game->party().setPlayer(player);
+        harness.game->party().setActualPlayer(player);
+        auto companion = harness.game->newCreature();
+        companion->setOnSpawn("npc_spawn");
+        harness.game->party().addMember(0, companion);
+        EXPECT_NE(retiredCompanion.get(), companion.get());
+
+        harness.area = harness.game->newArea();
+        harness.area->loadParty(glm::vec3(0.0f), 0.0f, false);
+
+        EXPECT_EQ(2, spawnRuns("npc_spawn"));
+        EXPECT_TRUE(companion->spawnScriptFired());
+        // Ids restart with the session, so the retired companion is gone even
+        // where its id has since been handed to a new object.
+        EXPECT_NE(retiredCompanion, harness.game->getObjectById(retiredId));
+    }
 }

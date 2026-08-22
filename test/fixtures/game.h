@@ -242,6 +242,8 @@ public:
     static void setSnapshotObjectId(Object &object, uint32_t objectId);
     static void setSnapshotEquipment(
         Creature &creature, int slot, std::shared_ptr<Item> item);
+    // Stand in for a save record that reports the creature as already spawned.
+    static void markSpawnScriptFired(Creature &creature);
     static void setSnapshotDoorState(Door &door, DoorState state);
     static void configureSnapshotLinkedDoor(
         Door &door, std::string module, std::string entry);
