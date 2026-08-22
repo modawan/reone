@@ -31,6 +31,7 @@
 #include "reone/game/script/routines.h"
 #include "reone/scene/node/model.h"
 #include "reone/script/executioncontext.h"
+#include "reone/script/types.h"
 #include "reone/script/variable.h"
 
 using namespace reone;
@@ -71,6 +72,24 @@ public:
     static const std::shared_ptr<ModelSceneNode> &planetModelNode(const GalaxyMap &map) {
         return map._planetModelNode;
     }
+
+    static const std::string &resRef(const GalaxyMap &map) { return map._resRef; }
+
+    static int locationAtOpen(const GalaxyMap &map) { return map._locationAtOpen; }
+    static int lockedOutReason(const GalaxyMap &map, int row) { return map.lockedOutReason(row); }
+    static uint32_t travelScriptCaller(const GalaxyMap &map) { return map.travelScriptCaller(); }
+    static bool acceptTravels(const GalaxyMap &map) {
+        return map.decideAccept().outcome == GalaxyMap::AcceptOutcome::Travel;
+    }
+
+    static bool acceptShowsMessage(const GalaxyMap &map) {
+        return map.decideAccept().outcome == GalaxyMap::AcceptOutcome::Message;
+    }
+
+    static int acceptMessageStrRef(const GalaxyMap &map) { return map.decideAccept().strRef; }
+
+    static void selectNext(GalaxyMap &map) { map.selectNextDestination(); }
+    static void selectPrevious(GalaxyMap &map) { map.selectPreviousDestination(); }
 
     static void select(GalaxyMap &map, int row) { map.select(row); }
     static void accept(GalaxyMap &map) { map.accept(); }
@@ -481,4 +500,449 @@ TEST_F(GalaxyMapFixture, revisiting_a_planet_does_not_stack_cameras_on_its_hook)
 
     EXPECT_EQ(first.get(), GalaxyMapTestAccess::planetModelNode(*_map).get());
     EXPECT_EQ(1u, camerasOnHook(first));
+}
+
+namespace {
+
+/**
+ * A stand-in K2 planetary.2da: sixteen rows, of which the first few carry
+ * planets and one is locked out with a reason.
+ */
+std::shared_ptr<TwoDA> newTSLPlanetary() {
+    auto builder = TwoDA::Builder();
+    builder.columns({"label", "name", "description", "model", "guitag", "lockedoutreason"});
+    builder.row({"Dantooine", "123725", "123726", "planet_06", "LBL_Planet_Dantooine", ""});
+    builder.row({"Dxun", "123721", "123722", "planet_04", "LBL_Planet_Dxun", ""});
+    builder.row({"Ebon_Hawk", "112771", "", "ebon_01", "LBL_EbonHawk", ""});
+    builder.row({"Onderon", "123723", "123724", "planet_05", "LBL_Planet_Onderon", "136291"});
+    for (int row = 4; row < 16; ++row) {
+        builder.row({"Live_Planet", "", "", "", "", ""});
+    }
+    return builder.build();
+}
+
+/** The K2 panel, on its own engine. */
+class TSLGalaxyMapFixture : public ::testing::Test {
+protected:
+    void SetUp() override {
+        _engine.init();
+        _game = std::make_unique<Game>(
+            GameID::TSL, "", _engine.options(), _engine.services(), _console);
+        _game->initLocalServices();
+        _map = std::make_unique<GalaxyMap>(*_game, _engine.services());
+        GalaxyMapTestAccess::setPlanetary(*_map, newTSLPlanetary());
+        _game->party().galaxyMap().reset(GameID::TSL, 0);
+    }
+
+    std::shared_ptr<gui::Button> newButton(std::string tag) {
+        auto button = std::make_shared<gui::Button>(
+            _gui,
+            _engine.sceneModule().graphs(),
+            _engine.graphicsModule().services(),
+            _engine.resourceModule().services());
+        button->setTag(std::move(tag));
+        return button;
+    }
+
+    GalaxyMapState &galaxyMap() { return _game->party().galaxyMap(); }
+
+    TestEngine _engine;
+    StubConsole _console;
+    gui::MockGUI _gui;
+    std::unique_ptr<Game> _game;
+    std::unique_ptr<GalaxyMap> _map;
+};
+
+} // namespace
+
+TEST_F(TSLGalaxyMapFixture, the_panel_is_the_one_k2_authors) {
+    EXPECT_EQ("galaxymap_p", GalaxyMapTestAccess::resRef(*_map));
+}
+
+TEST_F(GalaxyMapFixture, the_panel_is_the_one_k1_authors) {
+    EXPECT_EQ("galaxymap", GalaxyMapTestAccess::resRef(*_map));
+}
+
+TEST_F(TSLGalaxyMapFixture, the_planet_list_is_always_sixteen_rows) {
+    EXPECT_EQ(16, galaxyMap().rowCount());
+}
+
+TEST_F(TSLGalaxyMapFixture, the_party_is_where_the_routine_opens_not_where_the_selection_points) {
+    // The "Nar Shaddaa 1st" save: the Ebon Hawk sits on Dantooine while the
+    // map still carries Nar Shaddaa as the destination last chosen. The
+    // routine opens on row 0, and that - not the selection - is the location.
+    galaxyMap().setAvailable(0, true);
+    galaxyMap().setAvailable(6, true);
+    galaxyMap().setSelectable(6, true);
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(6));
+
+    _map->prepare(0);
+
+    EXPECT_EQ(0, GalaxyMapTestAccess::locationAtOpen(*_map));
+    // The destination the player already chose is left alone.
+    EXPECT_EQ(6, galaxyMap().selectedPlanet());
+}
+
+TEST_F(TSLGalaxyMapFixture, the_chosen_destination_travels_and_the_party_location_says_so) {
+    galaxyMap().setAvailable(0, true);
+    galaxyMap().setAvailable(6, true);
+    galaxyMap().setSelectable(6, true);
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(6));
+
+    _map->prepare(0);
+
+    // Nar Shaddaa is somewhere else, so accepting it travels.
+    EXPECT_TRUE(GalaxyMapTestAccess::acceptTravels(*_map));
+
+    // Dantooine is where the party already is, whatever its own flags say.
+    GalaxyMapTestAccess::select(*_map, 0);
+    EXPECT_TRUE(GalaxyMapTestAccess::acceptShowsMessage(*_map));
+    EXPECT_EQ(125629, GalaxyMapTestAccess::acceptMessageStrRef(*_map));
+}
+
+TEST_F(TSLGalaxyMapFixture, changing_the_selection_does_not_move_where_the_party_is) {
+    for (int row : {0, 1, 6}) {
+        galaxyMap().setAvailable(row, true);
+        galaxyMap().setSelectable(row, true);
+    }
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(6));
+
+    _map->prepare(0);
+    ASSERT_EQ(0, GalaxyMapTestAccess::locationAtOpen(*_map));
+
+    GalaxyMapTestAccess::select(*_map, 1);
+    EXPECT_EQ(0, GalaxyMapTestAccess::locationAtOpen(*_map));
+    GalaxyMapTestAccess::select(*_map, 0);
+    EXPECT_EQ(0, GalaxyMapTestAccess::locationAtOpen(*_map));
+    GalaxyMapTestAccess::selectNext(*_map);
+    EXPECT_EQ(0, GalaxyMapTestAccess::locationAtOpen(*_map));
+
+    // Still the planet the routine opened on, so it still says so.
+    GalaxyMapTestAccess::select(*_map, 0);
+    EXPECT_EQ(125629, GalaxyMapTestAccess::acceptMessageStrRef(*_map));
+}
+
+TEST_F(TSLGalaxyMapFixture, the_routine_planet_is_taken_only_when_the_selection_is_unusable) {
+    // Nothing selected, so the planet the routine names is the first fallback.
+    galaxyMap().setAvailable(3, true);
+    galaxyMap().setSelectable(3, true);
+    galaxyMap().setAvailable(0, true);
+    ASSERT_EQ(-1, galaxyMap().selectedPlanet());
+
+    _map->prepare(0);
+
+    EXPECT_EQ(0, galaxyMap().selectedPlanet());
+}
+
+TEST_F(TSLGalaxyMapFixture, an_unavailable_routine_planet_falls_through_to_somewhere_reachable) {
+    galaxyMap().setAvailable(3, true);
+    galaxyMap().setSelectable(3, true);
+    ASSERT_EQ(-1, galaxyMap().selectedPlanet());
+
+    // Row 0 is not on the map at all, so it cannot be the opening selection.
+    _map->prepare(0);
+
+    EXPECT_EQ(3, galaxyMap().selectedPlanet());
+}
+
+TEST_F(GalaxyMapFixture, k1_still_opens_on_the_planet_the_routine_names) {
+    galaxyMap().setAvailable(0, true);
+    galaxyMap().setSelectable(0, true);
+    galaxyMap().setAvailable(2, true);
+    galaxyMap().setSelectable(2, true);
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(0));
+
+    _map->prepare(2);
+
+    EXPECT_EQ(2, galaxyMap().selectedPlanet());
+}
+
+TEST_F(TSLGalaxyMapFixture, opening_records_where_the_party_already_is) {
+    galaxyMap().setAvailable(2, true);
+    galaxyMap().setSelectable(2, true);
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(2));
+
+    _map->prepare(2);
+
+    EXPECT_EQ(2, GalaxyMapTestAccess::locationAtOpen(*_map));
+    // A selection that still stands is kept.
+    EXPECT_EQ(2, galaxyMap().selectedPlanet());
+}
+
+TEST_F(TSLGalaxyMapFixture, opening_without_a_usable_selection_falls_back_to_a_reachable_planet) {
+    galaxyMap().setAvailable(3, true);
+    galaxyMap().setAvailable(1, true);
+    galaxyMap().setSelectable(1, true);
+    ASSERT_EQ(-1, galaxyMap().selectedPlanet());
+
+    _map->prepare();
+
+    // Row 3 is available first by index, but locked out of travel; the fallback
+    // prefers somewhere the party can actually go.
+    EXPECT_EQ(1, galaxyMap().selectedPlanet());
+    EXPECT_EQ(-1, GalaxyMapTestAccess::locationAtOpen(*_map));
+}
+
+TEST_F(TSLGalaxyMapFixture, opening_falls_back_to_a_locked_out_planet_when_that_is_all_there_is) {
+    galaxyMap().setAvailable(3, true);
+
+    _map->prepare();
+
+    EXPECT_EQ(3, galaxyMap().selectedPlanet());
+}
+
+TEST_F(TSLGalaxyMapFixture, opening_with_no_planet_available_selects_nothing) {
+    _map->prepare();
+
+    EXPECT_EQ(-1, galaxyMap().selectedPlanet());
+    EXPECT_EQ(-1, GalaxyMapTestAccess::locationAtOpen(*_map));
+}
+
+TEST_F(TSLGalaxyMapFixture, navigation_walks_the_available_planets_and_wraps_around) {
+    for (int row : {0, 1, 3}) {
+        galaxyMap().setAvailable(row, true);
+        galaxyMap().setSelectable(row, true);
+    }
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(0));
+
+    GalaxyMapTestAccess::selectNext(*_map);
+    EXPECT_EQ(1, galaxyMap().selectedPlanet());
+    GalaxyMapTestAccess::selectNext(*_map);
+    EXPECT_EQ(3, galaxyMap().selectedPlanet());
+    GalaxyMapTestAccess::selectNext(*_map);
+    EXPECT_EQ(0, galaxyMap().selectedPlanet());
+
+    GalaxyMapTestAccess::selectPrevious(*_map);
+    EXPECT_EQ(3, galaxyMap().selectedPlanet());
+    GalaxyMapTestAccess::selectPrevious(*_map);
+    EXPECT_EQ(1, galaxyMap().selectedPlanet());
+}
+
+TEST_F(TSLGalaxyMapFixture, navigation_stops_at_planets_travel_is_locked_out_of) {
+    galaxyMap().setAvailable(0, true);
+    galaxyMap().setSelectable(0, true);
+    // On the map, but not a valid destination.
+    galaxyMap().setAvailable(3, true);
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(0));
+
+    GalaxyMapTestAccess::selectNext(*_map);
+
+    EXPECT_EQ(3, galaxyMap().selectedPlanet());
+}
+
+TEST_F(TSLGalaxyMapFixture, navigation_is_safe_with_no_planet_available) {
+    GalaxyMapTestAccess::selectNext(*_map);
+    EXPECT_EQ(-1, galaxyMap().selectedPlanet());
+
+    GalaxyMapTestAccess::selectPrevious(*_map);
+    EXPECT_EQ(-1, galaxyMap().selectedPlanet());
+}
+
+TEST_F(TSLGalaxyMapFixture, planet_details_come_from_the_table_row) {
+    EXPECT_EQ("planet_04", GalaxyMapTestAccess::planetModelResRef(*_map, 1));
+    EXPECT_EQ(136291, GalaxyMapTestAccess::lockedOutReason(*_map, 3));
+    // Rows content leaves open carry no reason, and neither do rows off the table.
+    EXPECT_EQ(-1, GalaxyMapTestAccess::lockedOutReason(*_map, 0));
+    EXPECT_EQ(-1, GalaxyMapTestAccess::lockedOutReason(*_map, 16));
+}
+
+TEST_F(TSLGalaxyMapFixture, accepting_where_the_party_already_is_says_so_and_does_not_travel) {
+    galaxyMap().setAvailable(1, true);
+    galaxyMap().setSelectable(1, true);
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(1));
+    // The routine opens on the planet the party is at, which here is also the
+    // destination it already carries.
+    _map->prepare(1);
+    EXPECT_CALL(_engine.resourceModule().scripts(), get(_)).Times(0);
+
+    EXPECT_TRUE(GalaxyMapTestAccess::acceptShowsMessage(*_map));
+    EXPECT_EQ(125629, GalaxyMapTestAccess::acceptMessageStrRef(*_map));
+
+    GalaxyMapTestAccess::accept(*_map);
+
+    // The map stays up and the choice stands.
+    EXPECT_NE(Game::Screen::InGame, _game->currentScreen());
+    EXPECT_EQ(1, galaxyMap().selectedPlanet());
+}
+
+TEST_F(TSLGalaxyMapFixture, accepting_a_locked_out_planet_shows_its_reason_and_does_not_travel) {
+    galaxyMap().setAvailable(1, true);
+    galaxyMap().setSelectable(1, true);
+    galaxyMap().setAvailable(3, true);
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(1));
+    _map->prepare();
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(3));
+    EXPECT_CALL(_engine.resourceModule().scripts(), get(_)).Times(0);
+
+    EXPECT_TRUE(GalaxyMapTestAccess::acceptShowsMessage(*_map));
+    EXPECT_EQ(136291, GalaxyMapTestAccess::acceptMessageStrRef(*_map));
+
+    GalaxyMapTestAccess::accept(*_map);
+
+    EXPECT_NE(Game::Screen::InGame, _game->currentScreen());
+}
+
+TEST_F(TSLGalaxyMapFixture, accepting_a_new_reachable_planet_travels_there) {
+    galaxyMap().setAvailable(0, true);
+    galaxyMap().setSelectable(0, true);
+    galaxyMap().setAvailable(1, true);
+    galaxyMap().setSelectable(1, true);
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(0));
+    _map->prepare();
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(1));
+
+    EXPECT_CALL(_engine.resourceModule().scripts(), get(kTravelScript))
+        .Times(1)
+        .WillRepeatedly(Return(nullptr));
+
+    EXPECT_TRUE(GalaxyMapTestAccess::acceptTravels(*_map));
+
+    GalaxyMapTestAccess::accept(*_map);
+    GalaxyMapTestAccess::accept(*_map);
+
+    // K2 leaves the panel only once the travel script has been handed over.
+    EXPECT_EQ(Game::Screen::InGame, _game->currentScreen());
+    EXPECT_FALSE(_map->isRunningTravelScript());
+}
+
+TEST_F(TSLGalaxyMapFixture, the_travel_script_is_handed_an_invalid_caller) {
+    EXPECT_EQ(script::kObjectInvalid, GalaxyMapTestAccess::travelScriptCaller(*_map));
+}
+
+TEST_F(GalaxyMapFixture, the_k1_travel_script_is_handed_no_caller) {
+    EXPECT_EQ(0u, GalaxyMapTestAccess::travelScriptCaller(*_map));
+}
+
+TEST_F(TSLGalaxyMapFixture, a_failing_travel_script_still_clears_the_running_state) {
+    galaxyMap().setAvailable(0, true);
+    galaxyMap().setSelectable(0, true);
+    galaxyMap().setAvailable(1, true);
+    galaxyMap().setSelectable(1, true);
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(0));
+    _map->prepare();
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(1));
+
+    EXPECT_CALL(_engine.resourceModule().scripts(), get(kTravelScript))
+        .WillRepeatedly(testing::Throw(std::runtime_error("script blew up")));
+
+    GalaxyMapTestAccess::accept(*_map);
+
+    EXPECT_FALSE(_map->isRunningTravelScript());
+}
+
+TEST_F(TSLGalaxyMapFixture, escape_leaves_the_map_without_travelling_or_rolling_back) {
+    galaxyMap().setAvailable(0, true);
+    galaxyMap().setSelectable(0, true);
+    galaxyMap().setAvailable(1, true);
+    galaxyMap().setSelectable(1, true);
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(0));
+    _map->prepare();
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(1));
+    EXPECT_CALL(_engine.resourceModule().scripts(), get(_)).Times(0);
+
+    auto escape = input::Event::newKeyDown(
+        input::KeyEvent(true, input::KeyCode::Escape, 0, false));
+    EXPECT_TRUE(_map->handle(escape));
+
+    EXPECT_EQ(Game::Screen::InGame, _game->currentScreen());
+    EXPECT_EQ(1, galaxyMap().selectedPlanet());
+}
+
+TEST(GalaxyMapShowGuards, the_map_only_takes_over_a_screen_it_can_return_to) {
+    EXPECT_TRUE(Game::canOpenGalaxyMapFrom(Game::Screen::None));
+    EXPECT_TRUE(Game::canOpenGalaxyMapFrom(Game::Screen::InGame));
+    EXPECT_TRUE(Game::canOpenGalaxyMapFrom(Game::Screen::InGameMenu));
+    EXPECT_TRUE(Game::canOpenGalaxyMapFrom(Game::Screen::Conversation));
+
+    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::GalaxyMap));
+    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::MainMenu));
+    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::Loading));
+    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::CharacterGeneration));
+    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::SaveLoad));
+    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::Container));
+    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::PartySelection));
+    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::PazaakBoard));
+    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::SwoopRace));
+    EXPECT_FALSE(Game::canOpenGalaxyMapFrom(Game::Screen::Turret));
+}
+
+TEST_F(TSLGalaxyMapFixture, a_panel_that_will_not_load_leaves_the_screen_alone) {
+    _game->openInGame();
+    ASSERT_EQ(Game::Screen::InGame, _game->currentScreen());
+
+    // The GUI provider hands back nothing, so the panel cannot be built.
+    _game->openGalaxyMap(0);
+
+    EXPECT_EQ(Game::Screen::InGame, _game->currentScreen());
+}
+
+TEST_F(TSLGalaxyMapFixture, a_planet_travel_is_locked_out_of_can_still_be_picked_on_the_map) {
+    auto onderon = std::make_shared<gui::Button>(
+        _gui,
+        _engine.sceneModule().graphs(),
+        _engine.graphicsModule().services(),
+        _engine.resourceModule().services());
+    onderon->setTag("LBL_Planet_Onderon");
+    GalaxyMapTestAccess::setPlanetControl(*_map, 3, onderon);
+    galaxyMap().setAvailable(0, true);
+    galaxyMap().setSelectable(0, true);
+    // On the map, but not a destination the party can travel to.
+    galaxyMap().setAvailable(3, true);
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(0));
+
+    _map->prepare();
+
+    // Picking it is the only way the player is told why it is closed, so the
+    // control has to stay live.
+    EXPECT_TRUE(onderon->isVisible());
+    EXPECT_FALSE(onderon->isDisabled());
+
+    GalaxyMapTestAccess::select(*_map, 3);
+
+    EXPECT_EQ(3, galaxyMap().selectedPlanet());
+    EXPECT_TRUE(GalaxyMapTestAccess::acceptShowsMessage(*_map));
+    EXPECT_EQ(136291, GalaxyMapTestAccess::acceptMessageStrRef(*_map));
+}
+
+TEST_F(GalaxyMapFixture, a_k1_destination_that_cannot_be_travelled_to_stays_inert) {
+    auto dantooine = newButton("LBL_Planet_Dantooine");
+    GalaxyMapTestAccess::setPlanetControl(*_map, 2, dantooine);
+    galaxyMap().setAvailable(2, true);
+
+    _map->prepare();
+
+    // K1 authors no reason to show, so there is nothing to be gained by
+    // letting the player land on it.
+    EXPECT_TRUE(dantooine->isVisible());
+    EXPECT_TRUE(dantooine->isDisabled());
+
+    GalaxyMapTestAccess::select(*_map, 2);
+    EXPECT_EQ(-1, galaxyMap().selectedPlanet());
+}
+
+TEST_F(TSLGalaxyMapFixture, accept_stays_live_for_a_planet_that_only_has_a_reason_to_give) {
+    auto accept = newButton("BTN_ACCEPT");
+    GalaxyMapTestAccess::setAcceptButton(*_map, accept);
+    galaxyMap().setAvailable(0, true);
+    galaxyMap().setSelectable(0, true);
+    galaxyMap().setAvailable(3, true);
+    ASSERT_TRUE(galaxyMap().trySelectPlanet(0));
+    _map->prepare();
+
+    // The party's own location: pressing Accept is how it says so.
+    EXPECT_FALSE(accept->isDisabled());
+
+    // A planet travel is locked out of: pressing Accept is how the reason shows.
+    GalaxyMapTestAccess::select(*_map, 3);
+    EXPECT_FALSE(accept->isDisabled());
+}
+
+TEST_F(TSLGalaxyMapFixture, accept_is_dead_with_nothing_reachable_chosen) {
+    auto accept = newButton("BTN_ACCEPT");
+    GalaxyMapTestAccess::setAcceptButton(*_map, accept);
+
+    _map->prepare();
+
+    ASSERT_EQ(-1, galaxyMap().selectedPlanet());
+    EXPECT_TRUE(accept->isDisabled());
 }
