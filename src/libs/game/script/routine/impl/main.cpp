@@ -5341,14 +5341,7 @@ static Variable RemovePartyMember(const std::vector<Variable> &args, const Routi
     // Transform
 
     // Execute
-    bool removed = false;
-    if (ctx.game.party().isMember(nNPC)) {
-        ctx.game.party().removeMember(nNPC);
-        auto area = ctx.game.module()->area();
-        area->unloadParty();
-        area->reloadParty();
-        removed = true;
-    }
+    bool removed = ctx.game.party().removeMember(nNPC);
     return Variable::ofInt(static_cast<int>(removed));
 }
 
