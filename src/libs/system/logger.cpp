@@ -18,6 +18,8 @@
 #include "reone/system/logger.h"
 #include "reone/system/threadutil.h"
 
+#include <SDL3/SDL_time.h>
+
 namespace reone {
 
 static const std::unordered_map<LogSeverity, std::string> kSeverityToName {
@@ -56,6 +58,7 @@ void Logger::init(LogSeverity minSeverity,
     } else {
         _stream = std::make_unique<std::ostream>(std::clog.rdbuf());
     }
+    SDL_GetCurrentTime(&_initTimeNs);
     _inited = true;
 }
 
@@ -82,7 +85,15 @@ void Logger::append(std::string message,
     if (_enabledChannels.count(channel) == 0) {
         return;
     }
-    auto formatted = str(boost::format("%1$5s [%2%][%3%] %4%\n") %
+
+    // Print time in seconds from the start of the program (from the logger
+    // initialization).
+    int64_t timeNs = 0;
+    SDL_GetCurrentTime(&timeNs);
+    int64_t timeMs = (timeNs - _initTimeNs) / 1000000;
+
+    auto formatted = str(boost::format("%1%.%2$03d %3$5s [%4%][%5%] %6%\n") %
+                         (timeMs / 1000) % (timeMs % 1000) %
                          kSeverityToName.at(severity) %
                          threadName() %
                          kChannelToName.at(channel) %

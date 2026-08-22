@@ -53,6 +53,8 @@ private:
     std::mutex _buffersMutex;
     std::mutex _streamMutex;
 
+    int64_t _initTimeNs {0};
+
     Logger() = default;
 
     ~Logger() {
