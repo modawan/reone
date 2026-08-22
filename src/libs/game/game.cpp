@@ -197,6 +197,8 @@ static const char *screenName(Game::Screen screen) {
         return "PartySelection";
     case Game::Screen::SaveLoad:
         return "SaveLoad";
+    case Game::Screen::GalaxyMap:
+        return "GalaxyMap";
     case Game::Screen::SwoopRace:
         return "SwoopRace";
     case Game::Screen::PazaakWager:
@@ -3535,6 +3537,26 @@ void Game::openSaveLoad(SaveLoadMode mode) {
     changeScreen(Screen::SaveLoad);
 }
 
+void Game::openGalaxyMap(int initialPlanet) {
+    if (_screen == Screen::GalaxyMap) {
+        return;
+    }
+    if (!_galaxyMap) {
+        _galaxyMap = tryLoadGUI<GalaxyMap>();
+    }
+    if (!_galaxyMap) {
+        // A panel that will not load must not take the screen away from
+        // whatever is on it.
+        return;
+    }
+    _party.galaxyMap().trySelectPlanet(initialPlanet);
+    stopMovement();
+    setRelativeMouseMode(false);
+    setCursorType(CursorType::Default);
+    _galaxyMap->prepare();
+    changeScreen(Screen::GalaxyMap);
+}
+
 void Game::serializePazaakPartyTable(resource::Gff &ptGff) const {
     auto replaceField = [&ptGff](resource::Gff::Field replacement) {
         auto &fields = ptGff.fields();
@@ -4074,6 +4096,8 @@ GameGUI *Game::getScreenGUI() const {
         return _partySelect.get();
     case Screen::SaveLoad:
         return _saveLoad.get();
+    case Screen::GalaxyMap:
+        return _galaxyMap.get();
     case Screen::SwoopRace:
         return nullptr; // race skeleton has no HUD yet
     case Screen::PazaakWager:

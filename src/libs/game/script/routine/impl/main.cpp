@@ -6062,7 +6062,8 @@ static Variable ShowGalaxyMap(const std::vector<Variable> &args, const RoutineCo
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("ShowGalaxyMap");
+    ctx.game.openGalaxyMap(nPlanet);
+    return {};
 }
 
 static Variable SetPlanetSelectable(const std::vector<Variable> &args, const RoutineContext &ctx) {
