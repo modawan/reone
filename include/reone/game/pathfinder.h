@@ -17,44 +17,98 @@
 
 #pragma once
 
-#include "reone/resource/path.h"
+#include "reone/graphics/aabb.h"
+#include "reone/graphics/walkmesh.h"
 
 namespace reone {
 
 namespace game {
 
-/**
- * A* pathfinding.
- */
-class Pathfinder : boost::noncopyable {
-public:
-    void load(const std::vector<resource::Path::Point> &points, const std::unordered_map<int, float> &pointZ);
+/// Walkable face that is used for pathfinding.
+struct Uniface {
+    /// Indices into Uniwalk::vertices array.
+    uint32_t vertices[3];
 
-    const std::vector<glm::vec3> findPath(const glm::vec3 &from, const glm::vec3 &to) const;
+    /// Indices of adjecent faces. Edges [0, 1], [1, 2], [2, 0] are
+    // adjecent when they are common with any other face.
+    uint32_t adjecent[3];
 
-private:
-    struct ContextVertex {
-        uint16_t index {0};
-        uint16_t parentIndex {0xffff};
-        float distance {0.0f};
-        float heuristic {0.0f};
-        float totalCost {0.0f};
-    };
-
-    struct Context {
-        std::unordered_map<uint16_t, ContextVertex> vertices;
-        std::set<uint16_t> open;
-        std::set<uint16_t> closed;
-
-        const ContextVertex &getVertexWithLeastTotalCostFromOpen() const;
-    };
-
-    std::vector<glm::vec3> _vertices;
-    std::unordered_map<uint16_t, std::vector<uint16_t>> _adjacentVertices;
-
-    uint16_t getNearestVertex(const glm::vec3 &point) const;
-    uint16_t getNearestVertexBetweenPoints(const glm::vec3 &point, const glm::vec3 &ref) const;
+    /// Center of a face. Used to estimate distance between two faces.
+    glm::vec3 centroid;
 };
+
+/// Subdivision of a walkmesh. Uniroom associates a range of faces [begin, end)
+/// to AABB.
+struct Uniroom {
+    uint32_t begin;
+    uint32_t end;
+    glm::vec3 min;
+    glm::vec3 max;
+};
+
+/// Unified walkmesh, assembled from walkmeshes of all rooms in the area.
+struct Uniwalk {
+    std::vector<glm::vec3> vertices;
+    std::vector<Uniface> faces;
+    std::vector<Uniroom> rooms;
+};
+
+/// State of a face for A* algorithm.
+struct AStarFace {
+    enum Flag {
+        Open = 1,
+        Closed = 2,
+    };
+
+    Flag flag;
+    uint32_t parent;
+};
+
+/// Element of a list of faces to consider next for A* algorithm.
+struct AStarOpenFace {
+    uint32_t index;
+    float cost;
+};
+
+struct AStarContext {
+    std::vector<AStarFace> state;
+    std::vector<AStarOpenFace> open;
+};
+
+/// Fully calculated path.
+struct AStarPath {
+    std::vector<uint32_t> faces;
+    glm::vec3 from;
+    glm::vec3 to;
+    uint32_t next;
+    glm::vec3 nextPoint;
+
+    int32_t index;
+    bool active;
+};
+
+/// Handle to a calculated path.
+struct Path {
+    int32_t index;
+};
+
+struct Pathfinder : public boost::noncopyable {
+    Uniwalk uni;
+    AStarContext astar;
+    std::vector<AStarPath> paths;
+};
+
+void uniwalkLoadRoom(struct Uniwalk &wm, graphics::Walkmesh &data, std::set<uint32_t> &walkableMaterial);
+void uniwalkFinalize(struct Uniwalk &uni);
+
+std::optional<Path> createPath(Pathfinder &pf, const glm::vec3 &from, const glm::vec3 &to);
+bool updatePath(Pathfinder &pf, Path p, const glm::vec3 &current);
+void releasePath(Pathfinder &pf, Path path);
+
+glm::vec3 getNextPathPoint(Pathfinder &pf, Path path);
+glm::vec3 getLastPathPoint(Pathfinder &pf, Path path);
+
+glm::vec3 computeKeepoutForce(const Uniwalk &uni, const glm::vec3 &position);
 
 } // namespace game
 

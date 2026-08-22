@@ -24,13 +24,30 @@ namespace reone {
 
 namespace graphics {
 
+enum RaycastFail {
+    RAYCAST_OK = 0,
+    RAYCAST_NO_INTERSECTION,
+    RAYCAST_NO_MATERIAL,
+    RAYCAST_FLIPPED_NORMAL,
+};
+
+struct Raycast {
+    uint32_t face;
+    float distance;
+    RaycastFail fail;
+};
+
 class Walkmesh : boost::noncopyable {
 public:
     struct Face {
-        int index {0};
+        uint32_t index {0};
         uint32_t material {0};
-        std::vector<glm::vec3> vertices;
+        glm::vec3 vertices[3];
         glm::vec3 normal {0.0f};
+    };
+
+    struct FaceVertices {
+        uint32_t indices[3];
     };
 
     struct AABB {
@@ -41,52 +58,64 @@ public:
     };
 
     /**
-     * @return pointer to intersected face or nullptr when no intersection
+     * @return index of the face that the ray intersects, distance from the
+     * origin point to the intersection, and an error code if there is no
+     * intersection.
      */
-    const Walkmesh::Face *raycast(
+    Raycast raycast(
         std::set<uint32_t> walkcheckSurfaces,
         const glm::vec3 &origin,
         const glm::vec3 &dir,
         float maxDistance,
-        bool ignoreBackface,
-        float &outDistance) const;
+        bool ignoreBackface) const;
 
     bool contains(const glm::vec2 &point) const;
 
     bool isAreaWalkmesh() const { return _area; }
 
-    const std::vector<Face> &faces() const { return _faces; }
-
-    void add(Face &&face) {
-        _faces.push_back(face);
+    Face getFace(uint32_t index) const {
+        FaceVertices face = faces[index];
+        return Face {
+            index,
+            materials[index],
+            {
+                vertices[face.indices[0]],
+                vertices[face.indices[1]],
+                vertices[face.indices[2]],
+            },
+            normals[index],
+        };
     }
 
     void setRootAABB(std::shared_ptr<AABB> aabb) {
         _rootAabb = std::move(aabb);
     }
 
-private:
-    std::vector<Face> _faces;
-    std::shared_ptr<AABB> _rootAabb;
+    void verify() const;
 
+    std::vector<glm::vec3> vertices;
+    std::vector<FaceVertices> faces;
+    std::vector<glm::vec3> normals;
+    std::vector<uint32_t> materials;
+
+private:
+    std::shared_ptr<AABB> _rootAabb;
     bool _area {false};
 
-    const Walkmesh::Face *raycastAABB(
+    Raycast raycastAABB(
         std::set<uint32_t> surfaces,
         const glm::vec3 &origin,
         const glm::vec3 &dir,
         float maxDistance,
-        bool ignoreBackface,
-        float &outDistance) const;
+        bool ignoreBackface) const;
 
-    bool raycastFace(
+    Raycast raycastFace(
         std::set<uint32_t> surfaces,
         const Walkmesh::Face &face,
         const glm::vec3 &origin,
         const glm::vec3 &dir,
         float maxDistance,
-        bool ignoreBackface,
-        float &outDistance) const;
+        bool ignoreBackface) const;
 
     friend class BwmReader;
 };

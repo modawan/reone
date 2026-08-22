@@ -50,7 +50,7 @@ private:
     uint32_t _numVertices {0};
     uint32_t _offVertices {0};
     uint32_t _numFaces {0};
-    uint32_t _offIndices {0};
+    uint32_t _offFaces {0};
     uint32_t _offMaterials {0};
     uint32_t _offNormals {0};
     uint32_t _offPlanarDistances {0};
@@ -63,15 +63,10 @@ private:
     uint32_t _numPerimeters {0};
     uint32_t _offPerimeters {0};
 
-    std::vector<float> _vertices;
-    std::vector<uint32_t> _indices;
-    std::vector<uint32_t> _materials;
-    std::vector<float> _normals;
-
     std::shared_ptr<Walkmesh> _walkmesh;
 
     void loadVertices();
-    void loadIndices();
+    void loadFaces();
     void loadMaterials();
     void loadNormals();
     void loadAABB();

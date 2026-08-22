@@ -25,10 +25,34 @@ using namespace reone::graphics;
 TEST(Walkmesh, should_find_ray_walkmesh_intersection__intersection_from_close) {
     // given
     auto walkmesh = Walkmesh();
-    walkmesh.add(Walkmesh::Face {0, 0, std::vector<glm::vec3> {glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f)}, glm::vec3(1.0f, 0.0f, 0.0f)});
-    walkmesh.add(Walkmesh::Face {1, 0, std::vector<glm::vec3> {glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(-1.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f)}, glm::vec3(1.0f, 0.0f, 0.0f)});
-    walkmesh.add(Walkmesh::Face {2, 0, std::vector<glm::vec3> {glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(1.0f, -1.0f, 0.0f)}, glm::vec3(1.0f, 0.0f, 0.0f)});
-    walkmesh.add(Walkmesh::Face {3, 0, std::vector<glm::vec3> {glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, -1.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)}, glm::vec3(1.0f, 0.0f, 0.0f)});
+    walkmesh.vertices = {
+        glm::vec3(-1.0f, 0.0f, 0.0f),
+        glm::vec3(-1.0f, 1.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f),
+        glm::vec3(-1.0f, 1.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, -1.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, -1.0f, 0.0f),
+        glm::vec3(0.0f, -1.0f, 0.0f),
+    };
+    walkmesh.normals = {
+        glm::vec3(1.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, 0.0f, 0.0f),
+    };
+    walkmesh.faces = {
+        {0, 1, 2},
+        {3, 4, 5},
+        {6, 7, 8},
+        {9, 10, 11},
+    };
+    walkmesh.materials = {0, 0, 0, 0};
+
     auto rootAabb = std::make_shared<Walkmesh::AABB>();
     rootAabb->value = AABB(glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec3(1.0f, 1.0f, 0.0f));
     rootAabb->left = std::make_shared<Walkmesh::AABB>();
@@ -46,22 +70,45 @@ TEST(Walkmesh, should_find_ray_walkmesh_intersection__intersection_from_close) {
     walkmesh.setRootAABB(rootAabb);
 
     // when
-    float distance = -1.0f;
-    auto face = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(-0.5f, 0.25, 1.0f), glm::vec3(0.0f, 0.0f, -1.0f), 10.0f, /*ignoreBackface=*/false, distance);
+    auto raycast = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(-0.5f, 0.25, 1.0f), glm::vec3(0.0f, 0.0f, -1.0f), 10.0f, /*ignoreBackface=*/false);
 
     // then
-    EXPECT_TRUE(static_cast<bool>(face));
-    EXPECT_EQ(0, face->index);
-    EXPECT_NEAR(1.0f, distance, 1e-5);
+    EXPECT_EQ(RAYCAST_OK, raycast.fail);
+    EXPECT_EQ(0, raycast.face);
+    EXPECT_NEAR(1.0f, raycast.distance, 1e-5);
 }
 
 TEST(Walkmesh, should_find_ray_walkmesh_intersection__intersection_from_far) {
     // given
     auto walkmesh = Walkmesh();
-    walkmesh.add(Walkmesh::Face {0, 0, std::vector<glm::vec3> {glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f)}, glm::vec3(1.0f, 0.0f, 0.0f)});
-    walkmesh.add(Walkmesh::Face {1, 0, std::vector<glm::vec3> {glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(-1.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f)}, glm::vec3(1.0f, 0.0f, 0.0f)});
-    walkmesh.add(Walkmesh::Face {2, 0, std::vector<glm::vec3> {glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(1.0f, -1.0f, 0.0f)}, glm::vec3(1.0f, 0.0f, 0.0f)});
-    walkmesh.add(Walkmesh::Face {3, 0, std::vector<glm::vec3> {glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, -1.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)}, glm::vec3(1.0f, 0.0f, 0.0f)});
+    walkmesh.vertices = {
+        glm::vec3(-1.0f, 0.0f, 0.0f),
+        glm::vec3(-1.0f, 1.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f),
+        glm::vec3(-1.0f, 1.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, -1.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, -1.0f, 0.0f),
+        glm::vec3(0.0f, -1.0f, 0.0f),
+    };
+    walkmesh.normals = {
+        glm::vec3(1.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, 0.0f, 0.0f),
+    };
+    walkmesh.faces = {
+        {0, 1, 2},
+        {3, 4, 5},
+        {6, 7, 8},
+        {9, 10, 11},
+    };
+    walkmesh.materials = {0, 0, 0, 0};
+
     auto rootAabb = std::make_shared<Walkmesh::AABB>();
     rootAabb->value = AABB(glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec3(1.0f, 1.0f, 0.0f));
     rootAabb->left = std::make_shared<Walkmesh::AABB>();
@@ -79,20 +126,43 @@ TEST(Walkmesh, should_find_ray_walkmesh_intersection__intersection_from_far) {
     walkmesh.setRootAABB(rootAabb);
 
     // when
-    float distance = -1.0f;
-    auto face = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(-0.5f, 0.25, 20.0f), glm::vec3(0.0f, 0.0f, -1.0f), 10.0f, /*ignoreBackface=*/false, distance);
+    auto raycast = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(-0.5f, 0.25, 20.0f), glm::vec3(0.0f, 0.0f, -1.0f), 10.0f, /*ignoreBackface=*/false);
 
     // then
-    EXPECT_TRUE(!static_cast<bool>(face));
+    EXPECT_EQ(RAYCAST_NO_INTERSECTION, raycast.fail);
 }
 
 TEST(Walkmesh, should_find_ray_walkmesh_intersection__no_intersection) {
     // given
     auto walkmesh = Walkmesh();
-    walkmesh.add(Walkmesh::Face {0, 0, std::vector<glm::vec3> {glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f)}, glm::vec3(1.0f, 0.0f, 0.0f)});
-    walkmesh.add(Walkmesh::Face {1, 0, std::vector<glm::vec3> {glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(-1.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f)}, glm::vec3(1.0f, 0.0f, 0.0f)});
-    walkmesh.add(Walkmesh::Face {2, 0, std::vector<glm::vec3> {glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(1.0f, -1.0f, 0.0f)}, glm::vec3(1.0f, 0.0f, 0.0f)});
-    walkmesh.add(Walkmesh::Face {3, 0, std::vector<glm::vec3> {glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, -1.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)}, glm::vec3(1.0f, 0.0f, 0.0f)});
+    walkmesh.vertices = {
+        glm::vec3(-1.0f, 0.0f, 0.0f),
+        glm::vec3(-1.0f, 1.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f),
+        glm::vec3(-1.0f, 1.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, -1.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, -1.0f, 0.0f),
+        glm::vec3(0.0f, -1.0f, 0.0f),
+    };
+    walkmesh.normals = {
+        glm::vec3(1.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, 0.0f, 0.0f),
+    };
+    walkmesh.faces = {
+        {0, 1, 2},
+        {3, 4, 5},
+        {6, 7, 8},
+        {9, 10, 11},
+    };
+    walkmesh.materials = {0, 0, 0, 0};
+
     auto rootAabb = std::make_shared<Walkmesh::AABB>();
     rootAabb->value = AABB(glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec3(1.0f, 1.0f, 0.0f));
     rootAabb->left = std::make_shared<Walkmesh::AABB>();
@@ -110,22 +180,33 @@ TEST(Walkmesh, should_find_ray_walkmesh_intersection__no_intersection) {
     walkmesh.setRootAABB(rootAabb);
 
     // when
-    float distance = -1.0f;
-    auto face = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(-0.5f, 0.25, 1.0f), glm::vec3(1.0f, 0.0f, 0.0f), 10.0f, /*ignoreBackface=*/false, distance);
+    auto raycast = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(-0.5f, 0.25, 1.0f), glm::vec3(1.0f, 0.0f, 0.0f), 10.0f, /*ignoreBackface=*/false);
 
     // then
-    EXPECT_TRUE(!static_cast<bool>(face));
+    EXPECT_EQ(RAYCAST_NO_INTERSECTION, raycast.fail);
 }
 
 TEST(Walkmesh, should_find_ray_walkmesh_intersection__ignore_backface) {
     // given
     auto walkmesh = Walkmesh();
-
-    // Bottom triangle (facing up)
-    walkmesh.add(Walkmesh::Face {0, 0, std::vector<glm::vec3> {glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec3(1.0f, -1.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)}, glm::vec3(0.0f, 0.0f, 1.0f)});
-
-    // Top triangle (facing down)
-    walkmesh.add(Walkmesh::Face {1, 0, std::vector<glm::vec3> {glm::vec3(-1.0f, -1.0f, 1.0f), glm::vec3(1.0f, -1.0f, 1.0f), glm::vec3(0.0f, 1.0f, 1.0f)}, glm::vec3(0.0f, 0.0f, -1.0f)});
+    walkmesh.vertices = {
+        // Bottom triangle (facing up)
+        glm::vec3(-1.0f, -1.0f, 0.0f),
+        glm::vec3(1.0f, -1.0f, 0.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f),
+        // Top triangle (facing down)
+        glm::vec3(-1.0f, -1.0f, 1.0f),
+        glm::vec3(1.0f, -1.0f, 1.0f),
+        glm::vec3(0.0f, 1.0f, 1.0f),
+    };
+    walkmesh.normals = {
+        glm::vec3(0.0f, 0.0f, 1.0f),
+        glm::vec3(0.0f, 0.0f, -1.0f)};
+    walkmesh.faces = {
+        {0, 1, 2},
+        {3, 4, 5},
+    };
+    walkmesh.materials = {0, 0};
 
     // Root AABB covers both triangles.
     auto rootAabb = std::make_shared<Walkmesh::AABB>();
@@ -145,30 +226,41 @@ TEST(Walkmesh, should_find_ray_walkmesh_intersection__ignore_backface) {
 
     // When ignoreBackface is false, we should hit the top face first
     // regardless of its orientation (normal is up or down).
-    float distance = -1.0f;
-    auto face = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(0.0f, 0.0f, 2.0f), glm::vec3(0.0f, 0.0f, -1.0f), 10.0f, /*ignoreBackface=*/false, distance);
-    EXPECT_TRUE(face);
-    EXPECT_EQ(1, face->index);
-    EXPECT_NEAR(1.0f, distance, 1e-5);
+    auto raycast = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(0.0f, 0.0f, 2.0f), glm::vec3(0.0f, 0.0f, -1.0f), 10.0f, /*ignoreBackface=*/false);
+    EXPECT_EQ(RAYCAST_OK, raycast.fail);
+    EXPECT_EQ(1, raycast.face);
+    EXPECT_NEAR(1.0f, raycast.distance, 1e-5);
 
     // When ignoreBackface is true, we should ignore the top face and
     // hit the bottom face.
-    distance = -1.0f;
-    face = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(0.0f, 0.0f, 2.0f), glm::vec3(0.0f, 0.0f, -1.0f), 10.0f, /*ignoreBackface=*/true, distance);
-    EXPECT_TRUE(face);
-    EXPECT_EQ(0, face->index);
-    EXPECT_NEAR(2.0f, distance, 1e-5);
+    raycast = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(0.0f, 0.0f, 2.0f), glm::vec3(0.0f, 0.0f, -1.0f), 10.0f, /*ignoreBackface=*/true);
+    EXPECT_EQ(RAYCAST_OK, raycast.fail);
+    EXPECT_EQ(0, raycast.face);
+    EXPECT_NEAR(2.0f, raycast.distance, 1e-5);
 }
 
 TEST(Walkmesh, should_find_ray_walkmesh_intersection__multi_level) {
     // given
     auto walkmesh = Walkmesh();
 
-    // Bottom triangle (facing up)
-    walkmesh.add(Walkmesh::Face {0, 0, std::vector<glm::vec3> {glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec3(1.0f, -1.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)}, glm::vec3(0.0f, 0.0f, 1.0f)});
-
-    // Top triangle (facing up)
-    walkmesh.add(Walkmesh::Face {1, 0, std::vector<glm::vec3> {glm::vec3(-1.0f, -1.0f, 1.0f), glm::vec3(1.0f, -1.0f, 1.0f), glm::vec3(0.0f, 1.0f, 1.0f)}, glm::vec3(0.0f, 0.0f, 1.0f)});
+    walkmesh.vertices = {
+        // Bottom triangle (facing up)
+        glm::vec3(-1.0f, -1.0f, 0.0f),
+        glm::vec3(1.0f, -1.0f, 0.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f),
+        // Top triangle (facing up)
+        glm::vec3(-1.0f, -1.0f, 1.0f),
+        glm::vec3(1.0f, -1.0f, 1.0f),
+        glm::vec3(0.0f, 1.0f, 1.0f),
+    };
+    walkmesh.normals = {
+        glm::vec3(0.0f, 0.0f, 1.0f),
+        glm::vec3(0.0f, 0.0f, 1.0f)};
+    walkmesh.faces = {
+        {0, 1, 2},
+        {3, 4, 5},
+    };
+    walkmesh.materials = {0, 0};
 
     auto rootAabb = std::make_shared<Walkmesh::AABB>();
     rootAabb->value = AABB(glm::vec3(-1.0f, -1.0f, -0.2f), glm::vec3(1.0f, 1.0f, 1.2f));
@@ -187,17 +279,15 @@ TEST(Walkmesh, should_find_ray_walkmesh_intersection__multi_level) {
 
     // With both triangles are facing up, we should pick the one
     // closer to the origin.
-    float distance = -1.0f;
-    auto face = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(0.0f, 0.0f, 1.1f), glm::vec3(0.0f, 0.0f, -1.0f), 10.0f, /*ignoreBackface=*/true, distance);
-    EXPECT_TRUE(face);
-    EXPECT_EQ(1, face->index);
-    EXPECT_NEAR(0.1f, distance, 1e-5);
+    auto raycast = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(0.0f, 0.0f, 1.1f), glm::vec3(0.0f, 0.0f, -1.0f), 10.0f, /*ignoreBackface=*/true);
+    EXPECT_EQ(RAYCAST_OK, raycast.fail);
+    EXPECT_EQ(1, raycast.face);
+    EXPECT_NEAR(0.1f, raycast.distance, 1e-5);
 
     // Now move the origin closer to the bottom triangle. Raycast
     // should pick it instead of the top triangle.
-    distance = -1.0f;
-    face = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(0.0f, 0.0f, 0.2f), glm::vec3(0.0f, 0.0f, -1.0f), 10.0f, /*ignoreBackface=*/true, distance);
-    EXPECT_TRUE(face);
-    EXPECT_EQ(0, face->index);
-    EXPECT_NEAR(0.2f, distance, 1e-5);
+    raycast = walkmesh.raycast(std::set<uint32_t> {0}, glm::vec3(0.0f, 0.0f, 0.2f), glm::vec3(0.0f, 0.0f, -1.0f), 10.0f, /*ignoreBackface=*/true);
+    EXPECT_EQ(RAYCAST_OK, raycast.fail);
+    EXPECT_EQ(0, raycast.face);
+    EXPECT_NEAR(0.2f, raycast.distance, 1e-5);
 }

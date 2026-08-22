@@ -459,13 +459,15 @@ scene::MockSceneGraph &testSceneGraph(TestEngine &engine) {
 
 std::shared_ptr<graphics::Walkmesh> makeDoorWalkmesh() {
     auto walkmesh = std::make_shared<graphics::Walkmesh>();
-    walkmesh->add(graphics::Walkmesh::Face {
-        0,
-        0,
-        {glm::vec3(-2.0f, -0.5f, 0.0f),
-         glm::vec3(2.0f, -0.5f, 3.0f),
-         glm::vec3(2.0f, 0.5f, 0.0f)},
-        glm::vec3(0.0f, 0.0f, 1.0f)});
+    walkmesh->vertices = {
+        glm::vec3(-2.0f, -0.5f, 0.0f),
+        glm::vec3(2.0f, -0.5f, 3.0f),
+        glm::vec3(2.0f, 0.5f, 0.0f)};
+    walkmesh->normals = {
+        glm::vec3(0.0f, 0.0f, 1.0f),
+    };
+    walkmesh->faces = {{0, 1, 2}};
+    walkmesh->materials = {0};
     return walkmesh;
 }
 
@@ -594,8 +596,8 @@ std::shared_ptr<Creature> makeMovingCreature(
 // it exercises the same path AI, scripts and actions take, unlike direct player
 // locomotion which calls Area::moveCreature.
 void navigationStep(Creature &creature, const glm::vec3 &dest, float dt = 1.0f) {
-    creature.setPath(dest, std::vector<glm::vec3> {dest}, 0);
-    creature.advanceOnPath(false, dt);
+    glm::vec3 dir = glm::normalize(dest - creature.position());
+    creature.advanceOnPath(dest, dir, /*run=*/false, /*distance=*/0.1f, dt);
 }
 
 std::shared_ptr<Gff> makeTransitionTriggerGff(

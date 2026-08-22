@@ -26,6 +26,7 @@
 #include "reone/game/animationutil.h"
 #include "reone/game/attack.h"
 #include "reone/game/d20/classes.h"
+#include "reone/game/debug.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/acdecrease.h"
 #include "reone/game/effect/acincrease.h"
@@ -58,6 +59,7 @@
 #include "reone/resource/resources.h"
 #include "reone/resource/strings.h"
 #include "reone/scene/di/services.h"
+#include "reone/scene/drawdebug.h"
 #include "reone/scene/graphs.h"
 #include "reone/scene/types.h"
 #include "reone/script/types.h"
@@ -86,6 +88,7 @@ static constexpr int kSituationalAttackBonus = 10;
 static constexpr float kCloseRangeAttackDistance2 = 25.0f;
 static constexpr size_t kACBonusTypeCount = static_cast<size_t>(ACBonus::Deflection) + 1;
 static constexpr float kKeepPathDuration = 1000.0f;
+static constexpr float kPathPointTolerance = 0.5f;
 
 static constexpr char kItemPropertyCostTable[] = "iprp_costtable";
 static constexpr char kBonusCostTable[] = "iprp_bonuscost";
@@ -525,13 +528,6 @@ Creature::Creature(
     // savegames. Set default ranges to match PercepRngDefault from ranges.2da.
     _perception.sightRange = 20.0f;
     _perception.hearingRange = 20.0f;
-}
-
-void Creature::Path::selectNextPoint() {
-    size_t pointCount = points.size();
-    if (pointIdx < pointCount) {
-        pointIdx++;
-    }
 }
 
 void Creature::loadFromBlueprint(const std::string &resRef) {
@@ -1006,42 +1002,6 @@ void Creature::setMovementType(MovementType type) {
     _movementType = type;
     _animDirty = true;
     _animFireForget = false;
-}
-
-void Creature::setPath(const glm::vec3 &dest, std::vector<glm::vec3> &&points, uint32_t timeFound) {
-    int pointIdx = 0;
-    if (_path) {
-        bool lastPointReached = _path->pointIdx == _path->points.size();
-        if (lastPointReached) {
-            float nearestDist = INFINITY;
-            for (int i = 0; i < points.size(); ++i) {
-                float dist = glm::distance2(_path->destination, points[i]);
-                if (dist < nearestDist) {
-                    nearestDist = dist;
-                    pointIdx = i;
-                }
-            }
-        } else {
-            const glm::vec3 &nextPoint = _path->points[_path->pointIdx];
-            for (int i = 0; i < points.size(); ++i) {
-                if (points[i] == nextPoint) {
-                    pointIdx = i;
-                    break;
-                }
-            }
-        }
-    }
-    auto path = std::make_unique<Path>();
-    path->destination = dest;
-    path->points = points;
-    path->timeFound = timeFound;
-    path->pointIdx = pointIdx;
-
-    _path = std::move(path);
-}
-
-void Creature::clearPath() {
-    _path.reset();
 }
 
 glm::vec3 Creature::getSelectablePosition() const {
@@ -2279,10 +2239,65 @@ void Creature::takeGold(int amount) {
     _gold -= amount;
 }
 
+glm::vec3 Creature::computeSteeringForce(const Uniwalk &uni, const glm::vec3 &next, float dt) {
+    glm::vec3 desiredForce = glm::normalize(next - _position);
+    glm::vec3 keepoutForce = computeKeepoutForce(uni, _position);
+
+    // If we're not making progress - move in a random direction and
+    // hope. If we wander off too far, the path will be recalculated.
+    if (!_stuckTimer.elapsed() || glm::length2(_position - _previousPosition) < 0.0001) {
+        // Try to unstuck for some time even if we're moving
+        // again. Otherwise desiredForce kicks in again next frame.
+        if (_stuckTimer.elapsed()) {
+            _stuckTimer.reset(1.0f);
+            _stuckForce =
+                glm::normalize(glm::vec3 {
+                    randomFloat(-1.0f, 1.0f),
+                    randomFloat(-1.0f, 1.0f),
+                    randomFloat(-1.0f, 1.0f),
+                });
+        } else {
+            _stuckTimer.update(dt);
+        }
+        desiredForce = glm::vec3 {0.0f, 0.0f, 0.0f};
+    } else {
+        _stuckForce = glm::vec3 {0.0f, 0.0f, 0.0f};
+    }
+    _previousPosition = _position;
+
+    glm::vec3 combinedForce = desiredForce + 0.1f * keepoutForce + _stuckForce;
+
+    drawdebug::pushId("computeSteeringForce");
+    drawdebug::pushId(_id);
+    drawdebug::clear();
+
+    if (isShowPathEnabled()) {
+        drawdebug::line(_position, _position + desiredForce, 0x00BFFFFF, 0.02);
+        drawdebug::line(_position, _position + keepoutForce, 0xDDA0DDFF, 0.02);
+        drawdebug::line(_position, _position + _stuckForce, 0xF08080FF, 0.02);
+        drawdebug::line(_position, _position + combinedForce, 0xADFF2FFF, 0.02);
+    }
+
+    drawdebug::popId();
+    drawdebug::popId();
+
+    return combinedForce;
+}
+
 bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float dt) {
     if (_movementRestricted)
         return false;
 
+    auto module = _game.module();
+    if (!module || !module->area()) {
+        // Navigation without a module does not make sense. This is only useful
+        // for unit tests.
+        return true;
+    }
+
+    Pathfinder &pf = module->area()->pathfinder();
+
+    // Stop if we reached the destination.
     float distToDest2 = getSquareDistanceTo(glm::vec2(dest));
     if (distToDest2 <= distance * distance) {
         setMovementType(Creature::MovementType::None);
@@ -2290,62 +2305,65 @@ bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float
         return true;
     }
 
-    bool updPath = true;
-    if (_path) {
-        uint32_t now = _services.system.clock.millis();
-        if (_path->destination == dest || now - _path->timeFound <= kKeepPathDuration) {
-            advanceOnPath(run, dt);
-            updPath = false;
-        }
-    }
-    if (updPath) {
-        updatePath(dest);
+    float eps2 = std::min(0.5f * 0.5f, distance * distance);
+    if (_path && getSquareDistanceTo(getLastPathPoint(pf, *_path)) < eps2) {
+        // Reached the last point, but not reached the destination. Find another
+        // path.
+        releasePath(pf, *_path);
+        _path = std::nullopt;
     }
 
-    return false;
+    if (_path && !updatePath(pf, *_path, position())) {
+        // Lost the path and cannot recalculate.
+        releasePath(pf, *_path);
+        _path = std::nullopt;
+        return false;
+    }
+
+    // Advance on path.
+    if (_path) {
+        glm::vec3 steeringForce = computeSteeringForce(pf.uni, getNextPathPoint(pf, *_path), dt);
+        _pathVelocity += steeringForce * dt;
+
+        float maxSpeed = 0.5f;
+        float speed = glm::min(glm::length(_pathVelocity), maxSpeed);
+        _pathVelocity = glm::normalize(_pathVelocity) * speed;
+
+        glm::vec3 dir = glm::normalize(_pathVelocity);
+        advanceOnPath(dest, dir, run, distance, dt);
+        return false;
+    }
+
+    // Find a path and start following it.
+    _path = createPath(pf, position(), dest);
+    if (!_path) {
+        return false;
+    }
+    _pathVelocity = {0.0f, 0.0f, 0.0f};
+
+    return navigateTo(dest, run, distance, dt);
 }
 
-void Creature::advanceOnPath(bool run, float dt) {
-    const glm::vec3 &origin = _position;
-    size_t pointCount = _path->points.size();
-    glm::vec3 dest;
-    float distToDest;
+void Creature::advanceOnPath(const glm::vec3 &dest, const glm::vec3 &dir, bool run, float distance, float dt) {
+    setMovementType(run ? Creature::MovementType::Run : Creature::MovementType::Walk);
+    _game.module()->area()->moveCreature(
+        _game.getObjectById<Creature>(_id), dir, run, dt, getDistanceTo(dest));
 
-    if (_path->pointIdx == pointCount) {
-        dest = _path->destination;
-        distToDest = glm::distance2(origin, dest);
+    // Report a door that obstructed this step. A door can stop the creature
+    // from making progress while the slide in moveCreature still produces
+    // some sideways motion, so this is keyed on the recorded obstruction
+    // rather than on whether the step moved the creature at all.
+    dispatchBlockedEvent();
+}
 
-    } else {
-        const glm::vec3 &nextPoint = _path->points[_path->pointIdx];
-        float distToNextPoint = glm::distance2(origin, nextPoint);
-        float distToPathDest = glm::distance2(origin, _path->destination);
-
-        if (distToPathDest < distToNextPoint) {
-            dest = _path->destination;
-            distToDest = distToPathDest;
-            _path->pointIdx = static_cast<int>(pointCount);
-
-        } else {
-            dest = nextPoint;
-            distToDest = distToNextPoint;
-        }
+void Creature::clearPath() {
+    if (!_path) {
+        return;
     }
 
-    if (distToDest <= 1.0f) {
-        _path->selectNextPoint();
-    } else {
-        std::shared_ptr<Creature> creature(_game.getObjectById<Creature>(_id));
-        if (_game.module()->area()->moveCreatureTowards(creature, dest, run, dt)) {
-            setMovementType(run ? Creature::MovementType::Run : Creature::MovementType::Walk);
-        } else {
-            setMovementType(Creature::MovementType::None);
-        }
-        // Report a door that obstructed this step. A door can stop the creature
-        // from making progress while the slide in moveCreature still produces
-        // some sideways motion, so this is keyed on the recorded obstruction
-        // rather than on whether the step moved the creature at all.
-        dispatchBlockedEvent();
-    }
+    Pathfinder &pf = _game.module()->area()->pathfinder();
+    releasePath(pf, *_path);
+    _path = std::nullopt;
 }
 
 void Creature::dispatchBlockedEvent() {
@@ -2361,12 +2379,6 @@ void Creature::dispatchBlockedEvent() {
     }
     _blockedEventDoorId = _blockingDoorId;
     runBlockedScript(_blockingDoorId);
-}
-
-void Creature::updatePath(const glm::vec3 &dest) {
-    std::vector<glm::vec3> points(_game.module()->area()->pathfinder().findPath(_position, dest));
-    uint32_t now = _services.system.clock.millis();
-    setPath(dest, std::move(points), now);
 }
 
 std::string Creature::getAnimationName(AnimationType anim) const {
