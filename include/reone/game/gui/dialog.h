@@ -121,6 +121,8 @@ private:
 
     int bandHeight() const;
     gui::Control::Extent bandExtent(int top) const;
+    /** The centred 4:3 rectangle within the bottom band that the replies occupy. */
+    gui::Control::Extent replySafeArea() const;
     void loadFrames();
     void loadCurrentSpeaker();
 
