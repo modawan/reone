@@ -51,7 +51,11 @@ static int g_strRefAdd = 38455;
 static int g_strRefRemove = 38456;
 
 static glm::vec3 g_kotorColorOn = {0.984314f, 1.0f, 0};
+// Neither game authors an in-party colour; K1's green is the retail runtime
+// tint. TSL authors white for its buttons' selected state, and the K1 green
+// clashes with its teal-and-sand palette.
 static glm::vec3 g_kotorColorAdded = {0, 0.831373f, 0.090196f};
+static glm::vec3 g_tslColorAdded = {1.0f, 1.0f, 1.0f};
 
 static bool matchesPendingSelection(
     const bool (&added)[kMaxNpcCount],
@@ -103,7 +107,7 @@ void PartySelection::onGUILoaded() {
     for (int i = 0; i < npcCount(); ++i) {
         ToggleButton &button = getNpcButton(i);
         button.setOnColor(g_kotorColorOn);
-        button.setBorderColorOverride(g_kotorColorAdded);
+        button.setBorderColorOverride(_game.isTSL() ? g_tslColorAdded : g_kotorColorAdded);
         button.setUseBorderColorOverride(false);
     }
 
