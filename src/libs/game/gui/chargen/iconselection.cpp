@@ -79,10 +79,15 @@ std::shared_ptr<IconChain> addIconSelectionChain(
     float layoutScale = gui.scale();
     auto scrollBar = sourceList.scrollBarOrNull();
     if (scrollBar) {
-        // The list scales its scroll bar with the row-density factor; the grid
-        // panel is laid out at plain GUI scale, so restretch it to match
-        // before placing it against the panel edge.
+        // Restretch the bar to the grid panel's plain GUI scale, then slim
+        // its width to the shared density unit: the grid cells stay at full
+        // scale, but a full-width bar reads heavier than every other bar
+        // once lists and prose draw at their reduced scales.
         scrollBar->stretch(layoutScale, layoutScale);
+        auto scrollBarExtent = scrollBar->extent();
+        scrollBarExtent.width = scalePixels(
+            scrollBar->authoredExtent().width, layoutScale * gui.listScale());
+        scrollBar->setExtent(std::move(scrollBarExtent));
         ListBox::insetScrollBar(
             *scrollBar,
             chain->extent(),
