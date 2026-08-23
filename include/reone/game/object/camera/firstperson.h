@@ -49,6 +49,10 @@ public:
 
     void setPosition(const glm::vec3 &position);
     void setFacing(float facing);
+    void setLookAt(const glm::vec3 &target);
+
+    const glm::vec3 &position() const { return _position; }
+    float pitch() const { return _pitch; }
 
 private:
     enum class MovementDirection {

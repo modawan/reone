@@ -939,6 +939,10 @@ private:
     void consoleGiveXP(const ConsoleArgs &tokens);
     void consoleGiveGold(const ConsoleArgs &tokens);
     void consoleWarp(const ConsoleArgs &tokens);
+    void consoleCamera(const ConsoleArgs &tokens);
+    void consoleCamPos(const ConsoleArgs &tokens);
+    void consoleCamLook(const ConsoleArgs &tokens);
+    void consoleCamStatus(const ConsoleArgs &tokens);
     void consoleOpenMenu(const ConsoleArgs &tokens);
     void consoleOpenCharacterGeneration(const ConsoleArgs &tokens);
     void consoleSkipMovie(const ConsoleArgs &tokens);

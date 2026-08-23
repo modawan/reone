@@ -230,6 +230,18 @@ void FirstPersonCamera::setFacing(float facing) {
     updateSceneNode();
 }
 
+void FirstPersonCamera::setLookAt(const glm::vec3 &target) {
+    glm::vec3 direction = target - _position;
+    float length = glm::length(direction);
+    if (length <= glm::epsilon<float>()) {
+        throw std::invalid_argument("Camera look target must differ from its position");
+    }
+    direction /= length;
+    _facing = glm::atan(-direction.x, direction.y);
+    _pitch = glm::clamp(glm::asin(direction.z), -glm::quarter_pi<float>(), glm::quarter_pi<float>());
+    updateSceneNode();
+}
+
 } // namespace game
 
 } // namespace reone

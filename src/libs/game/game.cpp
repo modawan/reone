@@ -512,6 +512,10 @@ void Game::initConsole() {
     registerConsoleCommand("listanim", "list animations of selected object", &Game::consoleListAnim);
     registerConsoleCommand("playanim", "play animation on selected object", &Game::consolePlayAnim);
     registerConsoleCommand("warp", "warp to a module", &Game::consoleWarp);
+    registerConsoleCommand("camera", "select camera (free)", &Game::consoleCamera);
+    registerConsoleCommand("campos", "set free camera position", &Game::consoleCamPos);
+    registerConsoleCommand("camlook", "aim free camera at a point", &Game::consoleCamLook);
+    registerConsoleCommand("camstatus", "print free camera viewpoint commands", &Game::consoleCamStatus);
     registerConsoleCommand("openmenu", "open an in-game menu tab", &Game::consoleOpenMenu);
     registerConsoleCommand("openchargen", "open a character-generation screen", &Game::consoleOpenCharacterGeneration);
     registerConsoleCommand("skipmovie", "skip the active movie", &Game::consoleSkipMovie);
@@ -4403,6 +4407,50 @@ void Game::consoleGiveGold(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "amount");
     _party.giveGold(args.get<int>(1).value());
     _console.printLine(str(boost::format("party gold: %d") % _party.gold()));
+}
+
+// The free camera is the first-person camera flown off the player: WASD/QZ
+// move it, the mouse aims it. These commands exist so a viewpoint found by
+// hand can be replayed exactly from a commands file - camstatus prints the
+// line to paste - and the same commands drive other builds of the engine,
+// which keeps captures comparable between them.
+void Game::consoleCamera(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "free");
+    if (args[1].value() != "free") {
+        throw std::runtime_error("Unknown camera: " + std::string(args[1].value()));
+    }
+    if (_screen != Screen::InGame) {
+        throw std::runtime_error("The free camera needs the in-game screen");
+    }
+    if (_cameraType != CameraType::FirstPerson) {
+        toggleInGameCameraType();
+    }
+}
+
+void Game::consoleCamPos(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 3, 3, "x y z");
+    auto camera = getConsoleArea()->getCamera<FirstPersonCamera>(CameraType::FirstPerson);
+    camera->setPosition({args.get<float>(1).value(), args.get<float>(2).value(), args.get<float>(3).value()});
+}
+
+void Game::consoleCamLook(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 3, 3, "x y z");
+    auto camera = getConsoleArea()->getCamera<FirstPersonCamera>(CameraType::FirstPerson);
+    camera->setLookAt({args.get<float>(1).value(), args.get<float>(2).value(), args.get<float>(3).value()});
+}
+
+void Game::consoleCamStatus(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 0, 0, "");
+    auto camera = getConsoleArea()->getCamera<FirstPersonCamera>(CameraType::FirstPerson);
+    glm::vec3 pos = camera->position();
+    glm::vec3 forward(-glm::sin(camera->facing()) * glm::cos(camera->pitch()),
+                      glm::cos(camera->facing()) * glm::cos(camera->pitch()),
+                      glm::sin(camera->pitch()));
+    glm::vec3 target = pos + forward;
+    std::string result = str(boost::format("camera free; campos %.6f %.6f %.6f; camlook %.6f %.6f %.6f") %
+                             pos.x % pos.y % pos.z % target.x % target.y % target.z);
+    _console.printLine(result);
+    info(result);
 }
 
 void Game::consoleWarp(const ConsoleArgs &args) {
