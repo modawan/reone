@@ -17,6 +17,8 @@
 
 #include "reone/game/gui/partyselect.h"
 
+#include <utility>
+
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/party.h"
@@ -238,12 +240,33 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
         if (auto member = party.getAvailableMember(i)) {
             auto portrait = member->portrait();
             BTN_NPC.setDisabled(false);
+            BTN_NPC.setVisible(true);
             LBL_CHAR.setBorderFill(std::move(portrait));
             LBL_NA.setVisible(false);
         } else {
             BTN_NPC.setDisabled(true);
+            BTN_NPC.setVisible(true);
             LBL_CHAR.setBorderFill(std::shared_ptr<Texture>(nullptr));
             LBL_NA.setVisible(true);
+        }
+    }
+    if (_game.isTSL()) {
+        // Handmaiden/Disciple and Mira/Hanharr are authored on one shared
+        // slot each. The not-available overlay belongs to the slot, not to
+        // each NPC: with one of the pair available, the other's overlay and
+        // disabled button frame would draw over the occupant's portrait, and
+        // with both away a single overlay is enough.
+        static constexpr std::pair<int, int> kSharedSlots[] {
+            {4, 11}, // Handmaiden, Disciple
+            {7, 10}, // Mira, Hanharr
+        };
+        for (const auto &slot : kSharedSlots) {
+            bool firstAvailable = party.isMemberAvailable(slot.first);
+            bool secondAvailable = party.isMemberAvailable(slot.second);
+            naLabels[slot.first]->setVisible(!firstAvailable && !secondAvailable);
+            naLabels[slot.second]->setVisible(false);
+            getNpcButton(slot.first).setVisible(firstAvailable || !secondAvailable);
+            getNpcButton(slot.second).setVisible(secondAvailable);
         }
     }
     refreshAvailableCount();
