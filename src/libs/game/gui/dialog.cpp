@@ -184,12 +184,15 @@ void DialogGUI::configureReplies() {
     // override above, and no layout pass carries its scroll bar along, so
     // without this the bar would render at its raw authored coordinates in
     // the screen's top-left corner whenever the replies overflow the band.
+    // The bar and the row indent share the dialogue text scale, not the
+    // layout factor: the rows draw their prose at that scale, and the
+    // authored proportion is a bar as wide as a row is tall.
     if (auto scrollBar = _controls.LB_REPLIES->scrollBarOrNull()) {
         auto safeArea = replySafeArea();
         scrollBar->setExtent({
             safeArea.left,
             safeArea.top,
-            static_cast<int>(std::lround(scrollBar->authoredExtent().width * _gui->scale())),
+            static_cast<int>(std::lround(scrollBar->authoredExtent().width * _controls.LBL_MESSAGE->scale())),
             safeArea.height});
     }
     _controls.LB_REPLIES->setProtoMatchContent(true);
@@ -625,7 +628,7 @@ void DialogGUI::setReplyLines(std::vector<std::string> lines) {
     int indent = static_cast<int>(std::lround(
         (_controls.LB_REPLIES->protoItem().authoredExtent().left -
          _controls.LB_REPLIES->authoredExtent().left) *
-        _gui->scale()));
+        _controls.LBL_MESSAGE->scale()));
     extent.left = safeArea.left + indent;
     extent.width = safeArea.width - indent;
     extent.top = band.top;
