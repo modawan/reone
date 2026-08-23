@@ -620,15 +620,24 @@ void DialogGUI::setReplyLines(std::vector<std::string> lines) {
     // Replies start at the top-left of the centred 4:3 safe area within the
     // bottom band, indented past the scroll-bar column by their authored
     // offset so an overflowing list shows its bar beside the prose, not
-    // under it. The list root stays full-width so the offset is applied
-    // exactly once to its row prototype.
+    // under it. K1 authors the rows flush against the bar, which reads as
+    // touching; hold them clear of it by the gap TSL authors, which leaves
+    // TSL's own indent unchanged. The list root stays full-width so the
+    // offset is applied exactly once to its row prototype.
+    static constexpr int kScrollBarTextGap = 8;
     auto extent = _controls.LB_REPLIES->protoItem().extent();
     const auto &band = _controls.LB_REPLIES->extent();
     auto safeArea = replySafeArea();
+    float textScale = _controls.LBL_MESSAGE->scale();
     int indent = static_cast<int>(std::lround(
         (_controls.LB_REPLIES->protoItem().authoredExtent().left -
          _controls.LB_REPLIES->authoredExtent().left) *
-        _controls.LBL_MESSAGE->scale()));
+        textScale));
+    if (auto scrollBar = _controls.LB_REPLIES->scrollBarOrNull()) {
+        indent = std::max(
+            indent,
+            scrollBar->extent().width + static_cast<int>(std::lround(kScrollBarTextGap * textScale)));
+    }
     extent.left = safeArea.left + indent;
     extent.width = safeArea.width - indent;
     extent.top = band.top;
