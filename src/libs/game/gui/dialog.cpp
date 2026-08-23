@@ -17,6 +17,8 @@
 
 #include "reone/game/gui/dialog.h"
 
+#include <cmath>
+
 #include "reone/audio/mixer.h"
 #include "reone/audio/source.h"
 #include "reone/graphics/di/services.h"
@@ -144,6 +146,12 @@ Control::Extent DialogGUI::bandExtent(int top) const {
     return {0, top, _game.options().graphics.width, bandHeight()};
 }
 
+Control::Extent DialogGUI::replySafeArea() const {
+    int safeWidth = std::min(_game.options().graphics.width, _game.options().graphics.height * 4 / 3);
+    int safeLeft = (_game.options().graphics.width - safeWidth) / 2;
+    return {safeLeft, _game.options().graphics.height - bandHeight(), safeWidth, bandHeight()};
+}
+
 void DialogGUI::loadFrames() {
     addFrame(kControlTagTopFrame, 0);
     addFrame(kControlTagBottomFrame, _game.options().graphics.height - bandHeight());
@@ -170,6 +178,20 @@ void DialogGUI::configureReplies() {
     // do not receive the safe-area offset twice. The row prototype below is
     // positioned in the 4:3 rectangle itself.
     _controls.LB_REPLIES->setExtent(bandExtent(_game.options().graphics.height - bandHeight()));
+    // The authored list reserves a scroll-bar column against its left edge,
+    // with the row prototype indented past it. Recreate that column at the
+    // safe area's left edge: the list is moved into the band by the extent
+    // override above, and no layout pass carries its scroll bar along, so
+    // without this the bar would render at its raw authored coordinates in
+    // the screen's top-left corner whenever the replies overflow the band.
+    if (auto scrollBar = _controls.LB_REPLIES->scrollBarOrNull()) {
+        auto safeArea = replySafeArea();
+        scrollBar->setExtent({
+            safeArea.left,
+            safeArea.top,
+            static_cast<int>(std::lround(scrollBar->authoredExtent().width * _gui->scale())),
+            safeArea.height});
+    }
     _controls.LB_REPLIES->setProtoMatchContent(true);
     _controls.LB_REPLIES->protoItem().setTextFont(_controls.LBL_MESSAGE->text().font);
     _controls.LB_REPLIES->protoItem().setScale(_controls.LBL_MESSAGE->scale());
@@ -593,13 +615,19 @@ void DialogGUI::setReplyLines(std::vector<std::string> lines) {
         _controls.LB_REPLIES->addItem(std::move(item));
     }
     // Replies start at the top-left of the centred 4:3 safe area within the
-    // bottom band. The list root stays full-width so the offset is applied
+    // bottom band, indented past the scroll-bar column by their authored
+    // offset so an overflowing list shows its bar beside the prose, not
+    // under it. The list root stays full-width so the offset is applied
     // exactly once to its row prototype.
     auto extent = _controls.LB_REPLIES->protoItem().extent();
     const auto &band = _controls.LB_REPLIES->extent();
-    int safeWidth = std::min(_game.options().graphics.width, _game.options().graphics.height * 4 / 3);
-    extent.left = (_game.options().graphics.width - safeWidth) / 2;
-    extent.width = safeWidth;
+    auto safeArea = replySafeArea();
+    int indent = static_cast<int>(std::lround(
+        (_controls.LB_REPLIES->protoItem().authoredExtent().left -
+         _controls.LB_REPLIES->authoredExtent().left) *
+        _gui->scale()));
+    extent.left = safeArea.left + indent;
+    extent.width = safeArea.width - indent;
     extent.top = band.top;
     _controls.LB_REPLIES->protoItem().setExtent(std::move(extent));
 }
