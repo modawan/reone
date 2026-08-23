@@ -957,6 +957,7 @@ private:
     void consoleShowTriggers(const ConsoleArgs &tokens);
     void consoleSpawnCreature(const ConsoleArgs &tokens);
     void consoleSpawnCompanion(const ConsoleArgs &tokens);
+    void consoleAddAvailableNpc(const ConsoleArgs &tokens);
     void consoleSelectObjectById(const ConsoleArgs &tokens);
     void consoleSelectObjectByTag(const ConsoleArgs &tokens);
     void consoleSelectLeader(const ConsoleArgs &tokens);

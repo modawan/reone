@@ -533,6 +533,7 @@ void Game::initConsole() {
     registerConsoleCommand("showtriggers", "toggle rendering triggers", &Game::consoleShowTriggers);
     registerConsoleCommand("spawncreature", "spawn a creature", &Game::consoleSpawnCreature);
     registerConsoleCommand("spawncompanion", "spawn a companion", &Game::consoleSpawnCompanion);
+    registerConsoleCommand("addavailablenpc", "add an NPC to the party selection roster", &Game::consoleAddAvailableNpc);
     registerConsoleCommand("selectobjectbyid", "select an object by id", &Game::consoleSelectObjectById);
     registerConsoleCommand("selectobjectbytag", "select an object by tag", &Game::consoleSelectObjectByTag);
     registerConsoleCommand("selectleader", "select the party leader", &Game::consoleSelectLeader);
@@ -4780,6 +4781,17 @@ void Game::consoleSpawnCompanion(const ConsoleArgs &args) {
     area->add(companion);
     companion->runSpawnScript();
     _party.addMember(npc, companion);
+}
+
+void Game::consoleAddAvailableNpc(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 2, 2, "npcindex blueprint");
+
+    int npc = args.get<int>(1).value();
+    std::string blueprint(args[2].value());
+
+    if (!_party.addAvailableMember(npc, blueprint)) {
+        throw std::runtime_error("NPC is already available: " + std::to_string(npc));
+    }
 }
 
 void Game::consoleSelectObjectById(const ConsoleArgs &args) {
