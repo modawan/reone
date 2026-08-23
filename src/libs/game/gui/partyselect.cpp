@@ -80,7 +80,12 @@ void PartySelection::onGUILoaded() {
     bindControls();
 
     if (_game.isTSL()) {
-        fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
+        // LBL_BAR1 and LBL_BAR2 are not a section-title strip here: they are
+        // authored twenty pixels apart with the available-slot count centred
+        // between them. Collapsing them the way the in-game menus do strands
+        // the count below the strip, so the bars keep their authored places
+        // and only take the shell tint.
+        tintK2InGameHeader();
         for (auto &control : {
                  _controls.LBL_NA0, _controls.LBL_NA1, _controls.LBL_NA2, _controls.LBL_NA3,
                  _controls.LBL_NA4, _controls.LBL_NA5, _controls.LBL_NA6, _controls.LBL_NA7,
