@@ -1187,14 +1187,14 @@ void Game::resetGame() {
     _services.resource.director.onNewGame();
 }
 
-void Game::loadGame(std::string_view name) {
-    info(str(boost::format("Loading savegame '%s'") % name));
+void Game::loadGame(const resource::SaveSlotDescriptor &slot) {
+    info(str(boost::format("Loading savegame '%s'") % slot.directory.filename().string()));
 
     // Reset game state before loading a new game.
     resetGame();
 
     // Add savegame files to resource resolution.
-    _services.resource.director.onGameLoad(name);
+    _services.resource.director.onGameLoad(slot);
 
     auto saveInfo = decodeSaveGff(
         _services.resource.director.findSaveMetadata(ResourceId("savenfo", ResType::Res)));
@@ -4821,11 +4821,13 @@ void Game::consoleOpenCloseDoor(const ConsoleArgs &args) {
 void Game::consoleListGames(const ConsoleArgs &args) {
     consoleCheckUsage(args, 0, 0, "");
 
+    // Indices must address the same list consoleLoadGame indexes.
     std::stringstream ss;
     unsigned index = 0;
     const char *newline = "";
-    for (const std::string &name : _saveNames) {
-        ss << newline << "[" << index++ << "] " << name;
+    for (const auto &save : savedGames()) {
+        ss << newline << "[" << index++ << "] "
+           << save.descriptor.directory.filename().string();
         newline = "\n";
     }
     _console.printLine(ss.str());
@@ -4834,13 +4836,11 @@ void Game::consoleListGames(const ConsoleArgs &args) {
 void Game::consoleLoadGame(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "save_id");
     size_t id = *args.get<size_t>(1);
-    const auto &_saveNames = _services.resource.director.saveNames();
-    if (id >= _saveNames.size()) {
+    auto saves = savedGames();
+    if (id >= saves.size()) {
         throw std::runtime_error("Invalid savegame id");
     }
-    auto name = _saveNames.begin();
-    std::advance(name, id);
-    loadGame(*name);
+    loadGame(saves[id].descriptor);
 }
 
 void Game::consoleSaveGame(const ConsoleArgs &args) {

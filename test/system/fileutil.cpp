@@ -139,3 +139,66 @@ TEST(FileUtilities, should_reject_unsafe_path_components) {
     EXPECT_FALSE(isSafePathComponent("bad<name>"));
     EXPECT_FALSE(isSafePathComponent("bad\"name"));
 }
+
+/// Temporary directory holding entries that differ only by case.
+struct TmpCaseClash {
+    std::filesystem::path root;
+
+    explicit TmpCaseClash(const std::vector<std::string> &names) {
+        root = std::filesystem::temp_directory_path() / "reone_test_file_util_case_clash";
+        std::error_code ec;
+        std::filesystem::remove_all(root, ec);
+        for (const auto &name : names) {
+            std::filesystem::create_directories(root / name);
+        }
+    }
+
+    ~TmpCaseClash() {
+        std::error_code ec;
+        std::filesystem::remove_all(root, ec);
+    }
+};
+
+TEST(FileUtilities, resolves_an_exact_match_ahead_of_other_casings) {
+    // given both casings on disk
+    TmpCaseClash tree({"saves", "Saves"});
+
+    // when
+    auto resolved = findFileIgnoreCase(tree.root, "saves");
+
+    // then the exactly named entry wins rather than whichever the directory
+    // happened to yield first
+    ASSERT_TRUE(resolved);
+    EXPECT_EQ("saves", resolved->filename().string());
+}
+
+TEST(FileUtilities, resolves_case_clashing_entries_deterministically) {
+    // given only folded matches, so there is nothing exact to prefer.
+    // Directory iteration order is unspecified, so without a tie-break two
+    // consumers asking the same question could disagree about which entry a
+    // name refers to, and one could offer a file the other cannot find.
+    TmpCaseClash tree({"Saves", "SAVES"});
+
+    // when
+    auto first = findFileIgnoreCase(tree.root, "saves");
+    ASSERT_TRUE(first);
+
+    // then
+    for (int i = 0; i < 16; ++i) {
+        auto repeated = findFileIgnoreCase(tree.root, "saves");
+        ASSERT_TRUE(repeated);
+        EXPECT_EQ(*first, *repeated);
+    }
+}
+
+TEST(FileUtilities, resolves_a_single_folded_match_to_its_real_path) {
+    // given retail data ships under whatever casing the installer used
+    TmpCaseClash tree({"Saves"});
+
+    // when
+    auto resolved = findFileIgnoreCase(tree.root, "saves");
+
+    // then
+    ASSERT_TRUE(resolved);
+    EXPECT_EQ("Saves", resolved->filename().string());
+}

@@ -219,3 +219,136 @@ TEST_F(SaveBrowserTest, deletesOnlyTheExactValidatedSlotDirectory) {
 }
 
 } // namespace
+
+namespace {
+
+/// Installation root whose save directory casing the test chooses.
+class SaveRootCasingTest : public Test {
+protected:
+    std::filesystem::path _root;
+
+    void SetUp() override {
+        static std::atomic_uint64_t sequence {0};
+        _root = std::filesystem::temp_directory_path() /
+                ("reone_saveroot_" + std::to_string(++sequence));
+        std::filesystem::create_directories(_root);
+    }
+
+    void TearDown() override {
+        std::error_code ec;
+        std::filesystem::remove_all(_root, ec);
+    }
+
+    std::filesystem::path addSlot(
+        const std::string &savesDirectoryName,
+        const std::string &directoryName,
+        bool complete = true) {
+        auto directory = _root / savesDirectoryName / directoryName;
+        std::filesystem::create_directories(directory);
+        std::ofstream(directory / "SAVEGAME.sav", std::ios::binary).put('x');
+        if (!complete) {
+            return directory;
+        }
+        auto nfo = Gff::Builder()
+                       .field(Gff::Field::newCExoString("AREANAME", "Upper City"))
+                       .field(Gff::Field::newCExoString("LASTMODULE", "tar_m02aa"))
+                       .field(Gff::Field::newCExoString("PCNAME", "Revan"))
+                       .field(Gff::Field::newDword("TIMEPLAYED", 3723))
+                       .field(Gff::Field::newCExoString("SAVEGAMENAME", "Test Save"))
+                       .build();
+        auto bytes = GffWriter(GffFileFormat::v32("NFO "), *nfo).toBytes();
+        std::ofstream nfoFile(directory / "savenfo.res", std::ios::binary);
+        nfoFile.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        return directory;
+    }
+};
+
+} // namespace
+
+TEST_F(SaveRootCasingTest, discoversSlotsUnderAnUppercaseSaveRoot) {
+    // given a retail installation that ships "Saves" rather than "saves", as
+    // K2 does. Spelling the directory instead of discovering it leaves the
+    // list empty on a case-sensitive filesystem.
+    addSlot("Saves", "000002 - Game1");
+
+    // when
+    auto saves = discoverSavedGames(_root);
+
+    // then
+    ASSERT_EQ(1u, saves.size());
+    EXPECT_EQ(2u, saves.front().slot);
+    EXPECT_EQ("000002 - Game1", saves.front().descriptor.directory.filename().string());
+}
+
+TEST_F(SaveRootCasingTest, discoversSlotsUnderALowercaseSaveRoot) {
+    // given
+    addSlot("saves", "000002 - Game1");
+
+    // when
+    auto saves = discoverSavedGames(_root);
+
+    // then
+    ASSERT_EQ(1u, saves.size());
+    EXPECT_EQ("000002 - Game1", saves.front().descriptor.directory.filename().string());
+}
+
+TEST_F(SaveRootCasingTest, prefersTheExactlyNamedSaveRootWhenSeveralCasingsExist) {
+    // given both casings on disk. Indexing, deletion and writing each resolve
+    // the save root independently: if they disagree the list offers a slot the
+    // loader cannot mount, which is what strands a load with no session.
+    addSlot("saves", "000002 - Game1");
+    addSlot("Saves", "000003 - Game2");
+
+    // A case-insensitive filesystem cannot hold both spellings at once, so the
+    // second slot lands below the first root and there is no ambiguity left to
+    // resolve. Ask the filesystem rather than the platform: Windows can be
+    // configured per-directory either way.
+    std::error_code ec;
+    if (std::filesystem::equivalent(_root / "saves", _root / "Saves", ec) && !ec) {
+        GTEST_SKIP() << "filesystem is case-insensitive: both save roots are "
+                        "one directory, so no case collision exists to resolve";
+    }
+
+    // when
+    auto resolved = savedGamesDirectory(_root);
+    auto saves = discoverSavedGames(_root);
+
+    // then the canonically spelled root wins, and discovery agrees with it
+    EXPECT_EQ("saves", resolved.filename().string());
+    ASSERT_EQ(1u, saves.size());
+    EXPECT_EQ(2u, saves.front().slot);
+    EXPECT_EQ(resolved, saves.front().descriptor.directory.parent_path());
+}
+
+TEST_F(SaveRootCasingTest, resolvesTheCanonicalRootWhenNoSaveDirectoryExistsYet) {
+    // given a fresh installation, so a first save still has somewhere to go
+    // when
+    auto resolved = savedGamesDirectory(_root);
+
+    // then
+    EXPECT_EQ("saves", resolved.filename().string());
+    EXPECT_EQ(_root, resolved.parent_path());
+    EXPECT_TRUE(discoverSavedGames(_root).empty());
+}
+
+TEST_F(SaveRootCasingTest, stillRejectsIncompleteSlotsUnderAnUppercaseSaveRoot) {
+    // given a slot missing savenfo.res
+    addSlot("Saves", "000002 - Game1", /*complete=*/false);
+
+    // when / then case-safe discovery must not weaken structural validation
+    EXPECT_TRUE(discoverSavedGames(_root).empty());
+}
+
+TEST_F(SaveRootCasingTest, deletesAValidatedSlotUnderAnUppercaseSaveRoot) {
+    // given deletion validates containment against the resolved save root
+    auto directory = addSlot("Saves", "000002 - Game1");
+    auto saves = discoverSavedGames(_root);
+    ASSERT_EQ(1u, saves.size());
+
+    // when
+    bool deleted = deleteSavedGame(_root, saves.front().descriptor);
+
+    // then
+    EXPECT_TRUE(deleted);
+    EXPECT_FALSE(std::filesystem::exists(directory));
+}
