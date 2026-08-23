@@ -1194,6 +1194,11 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeTrigger(
             .field(Gff::Field::newFloat("PointZ", point.z)).build());
     }
     put(*result, Gff::Field::newList("Geometry", std::move(geometry)));
+    put(*result, Gff::Field::newByte("LinkedToFlags", trigger._linkedToFlags));
+    put(*result, Gff::Field::newCExoString("LinkedTo", trigger._linkedTo));
+    put(*result, Gff::Field::newResRef("LinkedToModule", trigger._linkedToModule));
+    put(*result, Gff::Field::newCExoLocString(
+                     "TransitionDestin", trigger._transitionDestin.id(), trigger._transitionDestin.str()));
     return result;
 }
 
