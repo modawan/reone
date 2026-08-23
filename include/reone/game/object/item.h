@@ -134,6 +134,7 @@ public:
     int maxDexterityBonus() const { return _maxDexterityBonus; }
     ACBonus acBonusType() const { return _acBonusType; }
     std::optional<SpellType> activateSpell() const { return _activateSpell; }
+    int activateSpellCost() const { return _activateSpellCost; }
     const std::vector<PropertyEntry> &properties() const { return _properties; }
 
     bool hasDisguise() const { return _disguiseAppearance >= 0; }
@@ -199,6 +200,7 @@ private:
     ACBonus _acBonusType {ACBonus::Invalid};
 
     std::optional<SpellType> _activateSpell;
+    int _activateSpellCost {0};
     int _disguiseAppearance {-1};
     std::vector<PropertyEntry> _properties;
     std::optional<uint32_t> _originalOwnerLocalObjectId;

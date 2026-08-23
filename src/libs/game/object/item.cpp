@@ -120,9 +120,21 @@ void Item::deserializeProperties(const resource::Gff &gff) {
 
         if (prop->readWord(entry.propertyName, "PropertyName")) {
             switch (static_cast<ItemProperty>(entry.propertyName)) {
-            case ItemProperty::ActivateItem:
+            case ItemProperty::ActivateItem: {
                 _activateSpell = static_cast<SpellType>(entry.subtype);
+
+                // CostTable is an index into iprp_costtable.2da: index 3 is
+                // iprp_chargecost.2da table. Other tables are not used.
+                //
+                // CostValue is an index in the corresponding table: index 1 is
+                // a "Single_Use" item. Index 13 is an "Unlimited_Use" item.
+                //
+                // For now, treat everything except "Single_Use" as unlimited.
+                if (entry.costTable == 3 && entry.costValue == 1) {
+                    _activateSpellCost = 1;
+                }
                 break;
+            }
             case ItemProperty::Disguise:
                 _disguiseAppearance = entry.subtype;
                 break;
