@@ -143,7 +143,7 @@ $startupStates = @(
     @{ Id = "main-menu"; Frame = $readyFrame }
 )
 
-function New-GameStates([string]$module, [string]$swoop, [bool]$party, [string]$dialog, [int]$dialogFrame, [string]$computerModule, [string]$computerDialog) {
+function New-GameStates([string]$module, [string]$swoop, [bool]$party, [string]$dialog, [int]$dialogFrame, [string]$computerModule, [string]$computerDialog, [string]$scrollModule, [string]$scrollDialog) {
     $items = if ($party) {
         @("w_blaste_01", "w_blaste_02 2", "w_blaste_03", "w_blaste_04", "w_blaste_05 2", "w_blaste_06", "w_blaste_07 2", "w_blaste_08")
     } else {
@@ -176,6 +176,9 @@ function New-GameStates([string]$module, [string]$swoop, [bool]$party, [string]$
         @{ Id = "pazaak-board"; Frame = 30; Commands = @("warp $module", "showgallerymode pazaak board") },
         @{ Id = "dialog"; Frame = $dialogFrame; Commands = @("warp $module", "startconversation $dialog") },
         @{ Id = "dialog-options"; Frame = 30; Commands = @("warp $module", "autoskipenable 1", $dialogEntrySkips, "autoskipreplies 0", "startconversation $dialog"); BeforeCaptureCommands = @("selectdialogoption 0"); AfterCommands = @("autoskipenable 0") },
+        # More replies than the bottom band can hold, so the reply list
+        # presents its scroll bar beside the prose in the 4:3 safe area.
+        @{ Id = "dialog-scrollbar"; Frame = 30; Commands = @("warp $scrollModule", "autoskipenable 1", "autoskipentries 1", "autoskipreplies 0", "startconversation $scrollDialog"); BeforeCaptureCommands = @("selectdialogoption 0"); AfterCommands = @("autoskipenable 0") },
         @{ Id = "computer"; Frame = $readyFrame; Commands = @("warp $computerModule", "startconversation $computerDialog") }
     ))
 
@@ -185,6 +188,21 @@ function New-GameStates([string]$module, [string]$swoop, [bool]$party, [string]$
         $needsItems = $tab -eq "inventory" -or $tab -eq "equipment-items"
         $commands = @("warp $module") + $(if ($needsItems) { $fixture } else { @() }) + @("openmenu $tab")
         $states.Add(@{ Id = $tab; Frame = $readyFrame; Commands = $commands })
+    }
+
+    if ($party) {
+        # A mid-game roster: Handmaiden occupies the slot she shares with
+        # Disciple, Mira and Hanharr are both away, and the available-slot
+        # count sits centred in its strip above the portraits.
+        $roster = @(
+            "addavailablenpc 0 p_atton",
+            "addavailablenpc 1 p_baodur",
+            "addavailablenpc 2 p_mand",
+            "addavailablenpc 4 p_handmaiden",
+            "addavailablenpc 6 p_kreia",
+            "addavailablenpc 8 p_t3m4",
+            "addavailablenpc 9 p_visas")
+        $states.Add(@{ Id = "party-roster"; Frame = $readyFrame; Commands = (@("warp $module") + $roster + @("openmenu party")) })
     }
 
     $states.Add(@{ Id = "bark-bubble"; Frame = 30; Commands = @("warp $module",
@@ -198,8 +216,8 @@ function New-GameStates([string]$module, [string]$swoop, [bool]$party, [string]$
 }
 
 $games = @(
-    @{ Id = "kotor1"; Dir = $Kotor1Dir; States = (New-GameStates "danm14aa" "tar_m03mg" $false "dan14_adam" 310 "end_m01ab" "end_securitycomp") },
-    @{ Id = "kotor2"; Dir = $Kotor2Dir; States = (New-GameStates "101per" "371nar" $true "101atton" 900 "101per" "admlog") }
+    @{ Id = "kotor1"; Dir = $Kotor1Dir; States = (New-GameStates "danm14aa" "tar_m03mg" $false "dan14_adam" 310 "end_m01ab" "end_securitycomp" "ebo_m40ad" "ebn12_galaxymap") },
+    @{ Id = "kotor2"; Dir = $Kotor2Dir; States = (New-GameStates "101per" "371nar" $true "101atton" 900 "101per" "admlog" "101per" "3cfd") }
 )
 
 $count = 0

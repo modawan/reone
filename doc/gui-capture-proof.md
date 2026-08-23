@@ -52,7 +52,9 @@ main menu, every character-generation window, the gameplay HUD and populated
 combat action sequence, an area-transition banner, Swoop, the three Pazaak
 screens, every in-game tab, a
 wrapping bark bubble, an icon-bearing confirmation popup, dialogue and a
-computer terminal. A combined-overlay state intentionally presents the combat
+computer terminal. A dialogue whose replies overflow the bottom band shows the
+reply list's scroll bar, and a TSL party-selection roster puts Handmaiden in
+the slot she shares with Disciple while Mira and Hanharr are both away. A combined-overlay state intentionally presents the combat
 HUD, bark bubble and confirmation popup at once to catch layering or shared-state
 regressions. Every capture uses the default GUI presentation scales, including
 the 50% list-row density. The matrix does not add alternate scale variants; use
