@@ -739,10 +739,38 @@ std::shared_ptr<Object> Area::getObjectByTag(const std::string &tag, int nth) co
     auto objects = _objectsByTag.find(tag);
     if (objects == _objectsByTag.end())
         return nullptr;
+
     if (nth >= objects->second.size())
         return nullptr;
 
-    return objects->second[nth];
+    // GetObjectByTag routine requires the array to be partitioned by isDead:
+    // all alive objects should be at the front, and all dead objects should be
+    // at the back of the array.
+    //
+    // We do not actually sort the array, but traverse it in two passes with an
+    // inverted condition.
+
+    // Search "not dead" objects first.
+    size_t i = 0;
+    for (const std::shared_ptr<Object> &object : objects->second) {
+        if (!object->isDead()) {
+            if ((i++) == nth) {
+                return object;
+            }
+        }
+    }
+
+    // Search across dead objects.
+    for (const std::shared_ptr<Object> &object : objects->second) {
+        if (object->isDead()) {
+            if ((i++) == nth) {
+                return object;
+            }
+        }
+    }
+
+    assert(0 && "inconsistent getObjectByTag");
+    return nullptr;
 }
 
 bool Area::landObject(Object &object) {

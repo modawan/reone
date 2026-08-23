@@ -48,6 +48,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/fixtures/engine.cpp
     ${TESTS_SOURCE_DIR}/game/action.cpp
     ${TESTS_SOURCE_DIR}/game/actionactor.cpp
+    ${TESTS_SOURCE_DIR}/game/area.cpp
     ${TESTS_SOURCE_DIR}/game/assigncommand.cpp
     ${TESTS_SOURCE_DIR}/game/d20/class.cpp
     ${TESTS_SOURCE_DIR}/game/d20/spells.cpp
