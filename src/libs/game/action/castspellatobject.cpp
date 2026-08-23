@@ -77,13 +77,15 @@ void CastSpellAtObjectAction::execute(std::shared_ptr<Action> self, Object &acto
         lock();
 
         bool lastItem = false;
-        if (!_cheat && _item && !caster.removeItem(_item.value(), lastItem)) {
-            // Ran out of items since this action was enqueued. This may happen
-            // in case of shared inventory (not implemented yet).
-            //
-            // Cheats ignore all requirements and do not remove the item.
-            finish(caster);
-            return;
+        if (!_cheat && _item && _item.value()->activateSpellCost()) {
+            if (!caster.removeItem(_item.value(), lastItem)) {
+                // Ran out of items since this action was enqueued. This may happen
+                // in case of shared inventory (not implemented yet).
+                //
+                // Cheats ignore all requirements and do not remove the item.
+                finish(caster);
+                return;
+            }
         }
 
         caster.setMovementType(Creature::MovementType::None);
