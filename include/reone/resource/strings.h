@@ -74,6 +74,10 @@ public:
         return _loc;
     }
 
+    const int32_t &id() const {
+        return _id;
+    }
+
 private:
     int32_t _id;
     std::string _ref;
