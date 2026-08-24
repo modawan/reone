@@ -374,6 +374,9 @@ void CharacterGeneration::finish() {
         party.reset();
         party.addMember(kNpcPlayer, player);
         party.setPlayer(player);
+        // The canonical PC has to exist before any script hands control to a
+        // stand-in, or there is nothing to hand control back to.
+        party.setActualPlayer(player);
 
         std::string moduleName(!_game.isTSL() ? "end_m01aa" : "001ebo");
         _game.loadModule(moduleName);

@@ -133,6 +133,20 @@ public:
     const std::vector<Member> &members() const { return _members; }
 
     const PersistedState &persistedState() const { return _persistedState; }
+
+    /** Roster index of the actor standing in for the PC, or kNpcPlayer. */
+    int controlledNpc() const { return _persistedState.controlledNpc; }
+
+    /**
+     * Hand control to a creature, leaving the rest of the party alone.
+     *
+     * Retail models temporary control as a roster NPC taking the player's
+     * place: the outgoing actor is parked rather than demoted to a companion,
+     * and the companions travelling with it are untouched. The incoming
+     * creature occupies the leading slot exactly once, however it was
+     * represented before.
+     */
+    void setControlledMember(int npc, const std::shared_ptr<Creature> &creature);
     void setPersistedState(PersistedState state);
 
     void setPartyLeader(int npc);
