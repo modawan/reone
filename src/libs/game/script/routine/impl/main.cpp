@@ -222,12 +222,22 @@ static Variable SwitchPlayerCharacter(const std::vector<Variable> &args, const R
 
     // Execute
     Party &party = ctx.game.party();
-    if (party.getMemberByNPC(nNPC)) {
-        party.setPartyLeader(nNPC);
-        return Variable::ofInt(1);
-    }
 
-    std::shared_ptr<Creature> creature = party.getAvailableMember(nNPC);
+    // The canonical PC is not a roster entry. Retail parks it while another
+    // actor stands in, and -1 asks for it back; the available roster only ever
+    // holds companions.
+    std::shared_ptr<Creature> creature;
+    if (nNPC == kNpcPlayer) {
+        if (party.controlledNpc() == kNpcPlayer) {
+            return Variable::ofInt(1);
+        }
+        creature = party.actualPlayer();
+    } else {
+        if (party.controlledNpc() == nNPC) {
+            return Variable::ofInt(1);
+        }
+        creature = party.getAvailableMember(nNPC);
+    }
     if (!creature) {
         warn("Party: NPC not found: " + std::to_string(nNPC));
         return Variable::ofInt(0);
@@ -243,9 +253,7 @@ static Variable SwitchPlayerCharacter(const std::vector<Variable> &args, const R
         area->unloadParty();
     }
 
-    party.clear();
-    party.addMember(nNPC, creature);
-    party.setPlayer(creature);
+    party.setControlledMember(nNPC, creature);
 
     if (area) {
         area->loadParty(position, facing);

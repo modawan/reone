@@ -17,6 +17,8 @@
 
 #include "reone/game/party.h"
 
+#include <algorithm>
+
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/system/logutil.h"
@@ -336,6 +338,33 @@ void Party::setPartyLeaderByIndex(int index) {
 
 void Party::setPlayer(const std::shared_ptr<Creature> &player) {
     _player = player;
+}
+
+void Party::setControlledMember(int npc, const std::shared_ptr<Creature> &creature) {
+    // However the incoming creature was represented before, it ends up in the
+    // leading slot once and only once.
+    _members.erase(
+        std::remove_if(
+            _members.begin(), _members.end(),
+            [&npc, &creature](const Member &member) {
+                return member.npc == npc || member.creature == creature;
+            }),
+        _members.end());
+
+    // The actor being relieved stops being a party member rather than becoming
+    // a companion: the canonical PC waits in _actualPlayer and a relieved NPC
+    // waits in the available roster, which is where each is looked up again.
+    if (!_members.empty() && _player && _members.front().creature == _player) {
+        _members.erase(_members.begin());
+    }
+
+    Member member;
+    member.npc = npc;
+    member.creature = creature;
+    _members.insert(_members.begin(), std::move(member));
+
+    _player = creature;
+    _persistedState.controlledNpc = npc;
 }
 
 bool Party::removeMember(int npc) {

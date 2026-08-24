@@ -1764,6 +1764,7 @@ void Game::loadDefaultParty() {
         player->setImmortal(true);
         _party.addMember(kNpcPlayer, player);
         _party.setPlayer(player);
+        _party.setActualPlayer(player);
     }
     if (!member2.empty()) {
         std::shared_ptr<Creature> companion = newCreature();
