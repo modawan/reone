@@ -29,12 +29,6 @@ namespace reone {
 
 namespace game {
 
-namespace {
-
-constexpr uint32_t kMillisecondsPerDay = 24u * 60u * 60u * 1000u;
-
-}
-
 void MoveToLocationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     if (!_destination) {
         complete();
@@ -52,18 +46,14 @@ void MoveToLocationAction::execute(std::shared_ptr<Action> self, Object &actor, 
         if (auto module = _game.module(); module && module->area()) {
             _forcedState.areaId = module->area()->id();
         }
-        uint64_t now = static_cast<uint64_t>(_game.worldTimeDay()) * kMillisecondsPerDay +
-                       _game.worldTimeOfDay();
-        uint64_t expiry = now + static_cast<uint64_t>(
-            std::llround(std::max(0.0f, _timeout) * 1000.0f));
-        _forcedState.expiryDay = static_cast<uint32_t>(expiry / kMillisecondsPerDay);
-        _forcedState.expiryTime = static_cast<uint32_t>(expiry % kMillisecondsPerDay);
+        _forcedState.expiryMilliseconds = _game.worldTimeMilliseconds() +
+            static_cast<uint64_t>(
+                std::llround(std::max(0.0f, _timeout) * 1000.0f));
     }
 
     if (_force && _forcedState.active) {
-        bool expired = _game.worldTimeDay() > _forcedState.expiryDay ||
-                       (_game.worldTimeDay() == _forcedState.expiryDay &&
-                        _game.worldTimeOfDay() >= _forcedState.expiryTime);
+        bool expired =
+            _game.worldTimeMilliseconds() >= _forcedState.expiryMilliseconds;
         if (expired) {
             actor.setPosition(destination);
             if (auto module = _game.module(); module && module->area() &&
@@ -88,8 +78,7 @@ std::optional<SavedActionRecord> MoveToLocationAction::saveFacingState() const {
         (_force && (!std::isfinite(_timeout) ||
                     (!_forcedState.active && _timeout <= 0.0f))) ||
         (_force && _forcedState.active &&
-         ((_forcedState.expiryDay == 0 && _forcedState.expiryTime == 0) ||
-          _forcedState.expiryTime >= kMillisecondsPerDay))) {
+         _forcedState.expiryMilliseconds == 0)) {
         return std::nullopt;
     }
 
@@ -102,6 +91,18 @@ std::optional<SavedActionRecord> MoveToLocationAction::saveFacingState() const {
     if (areaId == kSavedRuntimeInvalidObjectId) {
         return std::nullopt;
     }
+
+    // Split the absolute deadline into the retail pair at the serialization
+    // boundary. A zero absolute deadline is rejected above, so an armed forced
+    // move never serializes as the unarmed (0, 0) encoding.
+    const bool forcedActive = _force && _forcedState.active;
+    const uint64_t millisecondsPerDay = _game.millisecondsPerWorldDay();
+    const uint32_t expiryDay = forcedActive
+        ? static_cast<uint32_t>(_forcedState.expiryMilliseconds / millisecondsPerDay)
+        : 0;
+    const uint32_t expiryTime = forcedActive
+        ? static_cast<uint32_t>(_forcedState.expiryMilliseconds % millisecondsPerDay)
+        : 0;
 
     SavedActionRecord result = originalSavedAction().value_or(SavedActionRecord {});
     result.actionId = 1;
@@ -120,8 +121,8 @@ std::optional<SavedActionRecord> MoveToLocationAction::saveFacingState() const {
         {2, _force && !_forcedState.active ? _timeout : 0.0f},
         {2, 0.0f},
         {2, 0.0f},
-        {1, static_cast<int32_t>(_force && _forcedState.active ? _forcedState.expiryDay : 0)},
-        {1, static_cast<int32_t>(_force && _forcedState.active ? _forcedState.expiryTime : 0)},
+        {1, static_cast<int32_t>(expiryDay)},
+        {1, static_cast<int32_t>(expiryTime)},
     };
     return result;
 }

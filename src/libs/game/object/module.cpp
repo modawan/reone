@@ -455,6 +455,12 @@ void Module::publishSavedEventQueue() {
 
         PublishedSavedEvent event;
         event.savedIndex = index;
+        // Both fields are Dwords and a day is at most 255 * 60 * 1000 * 24 ms,
+        // so the composition cannot overflow the 64-bit clock.
+        event.dueMilliseconds =
+            static_cast<uint64_t>(savedEvent.day) *
+                _game.millisecondsPerWorldDay() +
+            savedEvent.time;
         if (savedEvent.eventId == static_cast<uint32_t>(SavedEventType::Timed)) {
             auto situation = std::get_if<SerializedScriptSituation>(
                 &savedEvent.payload);
@@ -478,11 +484,7 @@ void Module::dispatchDueSavedEvents() {
         if (published.delivered) {
             continue;
         }
-        const auto &savedEvent = _savedEventQueue.events[published.savedIndex];
-        bool due = savedEvent.day < _game.worldTimeDay() ||
-                   (savedEvent.day == _game.worldTimeDay() &&
-                    savedEvent.time <= _game.worldTimeOfDay());
-        if (due) {
+        if (published.dueMilliseconds <= _game.worldTimeMilliseconds()) {
             deliverSavedEvent(published);
         }
     }

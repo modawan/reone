@@ -130,6 +130,12 @@ private:
 
     struct PublishedSavedEvent {
         size_t savedIndex {0};
+        /**
+         * Absolute due time in world milliseconds, composed once from the
+         * record's day/time pair when the queue is published. Dispatch then
+         * compares clocks without rebuilding a calendar every frame.
+         */
+        uint64_t dueMilliseconds {0};
         std::shared_ptr<SavedScriptContinuation> continuation;
         bool delivered {false};
     };

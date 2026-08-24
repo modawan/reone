@@ -1157,8 +1157,7 @@ void Game::retireRuntimeSession() {
     _reservedSavedObjectIds.clear();
     _nextObjectId = kFirstRuntimeObjectId;
     _effectIds.reset();
-    _worldTimeDay = 0;
-    _worldTimeOfDay = 0;
+    _worldTimeMilliseconds = 0;
     _minutesPerHour = 5;
     _worldTimeFraction = 0.0;
 
@@ -1978,12 +1977,8 @@ void Game::prepareSavedRuntimeNamespace(const resource::Gff &ifo) {
             throw ValidationException("Invalid Mod_Effect_NxtId");
         }
     }
-    _worldTimeDay = ifo.getUint("Mod_CalendarDay");
-    _worldTimeOfDay = ifo.getUint("Mod_TimeOfDay");
-    if (_worldTimeOfDay >= kMillisecondsPerDay) {
-        throw ValidationException("Invalid Mod_TimeOfDay");
-    }
-
+    // Mod_MinPerHour first: it defines the day length that Mod_TimeOfDay is
+    // measured against.
     uint32_t minutesPerHour = ifo.getUint("Mod_MinPerHour");
     if (minutesPerHour > std::numeric_limits<uint8_t>::max()) {
         throw ValidationException("Invalid Mod_MinPerHour");
@@ -1991,6 +1986,16 @@ void Game::prepareSavedRuntimeNamespace(const resource::Gff &ifo) {
     _minutesPerHour = minutesPerHour == 0
                           ? 5
                           : static_cast<uint8_t>(minutesPerHour);
+
+    // Compose the canonical clock from the retail day/time pair. An oversized
+    // time of day carries into later days rather than being rejected, as
+    // CWorldTimer::GetWorldTime does: saves written before the day length
+    // became Mod_MinPerHour-derived hold a time of day on the old fixed
+    // 24-hour scale, and must still load. Both fields are Dwords, so the
+    // composition cannot overflow the 64-bit clock.
+    uint64_t day = ifo.getUint("Mod_CalendarDay");
+    uint64_t timeOfDay = ifo.getUint("Mod_TimeOfDay");
+    _worldTimeMilliseconds = day * millisecondsPerWorldDay() + timeOfDay;
     _worldTimeFraction = 0.0;
 }
 
@@ -2041,21 +2046,20 @@ void Game::advanceWorldTime(float dt) {
     if (dt <= 0.0f) {
         return;
     }
+    // One second of simulation is one thousand world milliseconds.
+    // Mod_MinPerHour shortens the day, it does not accelerate the clock:
+    // CWorldTimer accumulates elapsed time into m_nSnapshotTime and only
+    // derives the day boundary from m_nMillisecondsInDay. Scaling the rate
+    // here instead made every duration measured in world time short by
+    // 60 / Mod_MinPerHour.
     double gameMilliseconds =
-        _worldTimeFraction +
-        static_cast<double>(dt) * 60000.0 /
-            static_cast<double>(_minutesPerHour);
+        _worldTimeFraction + static_cast<double>(dt) * 1000.0;
     uint64_t wholeMilliseconds =
         static_cast<uint64_t>(std::floor(gameMilliseconds));
     _worldTimeFraction =
         gameMilliseconds - static_cast<double>(wholeMilliseconds);
 
-    uint64_t timeOfDay =
-        static_cast<uint64_t>(_worldTimeOfDay) + wholeMilliseconds;
-    _worldTimeDay += static_cast<uint32_t>(
-        timeOfDay / kMillisecondsPerDay);
-    _worldTimeOfDay = static_cast<uint32_t>(
-        timeOfDay % kMillisecondsPerDay);
+    _worldTimeMilliseconds += wholeMilliseconds;
 }
 
 std::optional<float> Game::remainingEffectDuration(
@@ -2067,19 +2071,18 @@ std::optional<float> Game::remainingEffectDuration(
         return std::max(0.0f, effect.duration);
     }
 
-    uint64_t now =
-        static_cast<uint64_t>(_worldTimeDay) * kMillisecondsPerDay +
-        _worldTimeOfDay;
+    // Save-facing expiry provenance, converted once here at the restoration
+    // boundary. Live effects then count down in world seconds and never
+    // reconstruct a calendar day again.
     uint64_t expiry =
-        static_cast<uint64_t>(effect.expiryDay) * kMillisecondsPerDay +
+        static_cast<uint64_t>(effect.expiryDay) * millisecondsPerWorldDay() +
         effect.expiryTime;
-    if (expiry <= now) {
+    if (expiry <= _worldTimeMilliseconds) {
         return 0.0f;
     }
-    double realSeconds =
-        static_cast<double>(expiry - now) *
-        static_cast<double>(_minutesPerHour) / 60000.0;
-    return static_cast<float>(realSeconds);
+    double remainingSeconds =
+        static_cast<double>(expiry - _worldTimeMilliseconds) / 1000.0;
+    return static_cast<float>(remainingSeconds);
 }
 
 void Game::renderGUI() {

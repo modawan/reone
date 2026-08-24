@@ -30,8 +30,12 @@ public:
         uint32_t areaId {kSavedRuntimeInvalidObjectId};
         glm::vec2 offset {0.0f};
         bool active {false};
-        uint32_t expiryDay {0};
-        uint32_t expiryTime {0};
+        /**
+         * Absolute deadline in world milliseconds. The retail record stores a
+         * day/time pair; it is composed on restore and split again on save, so
+         * the running action never rebuilds a calendar.
+         */
+        uint64_t expiryMilliseconds {0};
     };
 
     MoveToObjectAction(Game &game,
