@@ -339,6 +339,8 @@ public:
     void runDialogueScript(uint32_t speakerId, int32_t listenNumber);
     void runAttackedScript(uint32_t attackerId);
 
+    bool spawnScriptFired() const { return _spawnScriptFired; }
+
     void setOnHeartbeat(std::string onHeartbeat) { _onHeartbeat = onHeartbeat; }
     void setOnSpawn(std::string onSpawn) { _onSpawn = onSpawn; }
     void setOnDeath(std::string onDeath) { _onDeath = onDeath; }
@@ -411,6 +413,11 @@ private:
     std::string _onSpawn;
     std::string _onDeath;
     std::string _onBlocked;
+
+    // Retail CreatnScrptFird. The creation script belongs to the creature, not
+    // to any one area attachment: it fires at most once per creature and the
+    // flag travels with the creature through saves.
+    bool _spawnScriptFired {false};
 
     // Door currently obstructing this creature, and the door the blocked event
     // was last reported for. Object ids rather than pointers, so a door that is

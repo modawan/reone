@@ -977,6 +977,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
     put(*result, Gff::Field::newByte("TextureVar", creature._textureVar));
     put(*result, Gff::Field::newByte("PartyInteract", creature._partyInteract));
     put(*result, Gff::Field::newByte(
+        "CreatnScrptFird", creature._spawnScriptFired));
+    put(*result, Gff::Field::newByte(
         "MovementRate", static_cast<uint8_t>(std::clamp(creature._walkRate, 0, 255))));
     put(*result, Gff::Field::newByte("Listening", creature._isListening));
     put(*result, Gff::Field::newByte("NaturalAC", creature._naturalAC));
