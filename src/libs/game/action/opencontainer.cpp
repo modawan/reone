@@ -31,19 +31,23 @@ void OpenContainerAction::execute(std::shared_ptr<Action> self, Object &actor, f
         complete();
         return;
     }
+
+    auto &creatureActor = cast<Creature>(actor);
+    bool reached = creatureActor.navigateTo(_object->position(), true, kDefaultMaxObjectDistance, dt);
+    if (!reached) {
+        return;
+    }
+
     if (auto *placeable = dyn_cast<Placeable>(_object.get())) {
+        placeable->runOnUsed(actor.id());
         if (placeable->isLocked()) {
             complete();
             return;
         }
     }
 
-    auto &creatureActor = cast<Creature>(actor);
-    bool reached = creatureActor.navigateTo(_object->position(), true, kDefaultMaxObjectDistance, dt);
-    if (reached) {
-        _game.openContainer(_object);
-        complete();
-    }
+    _game.openContainer(_object);
+    complete();
 }
 
 } // namespace game

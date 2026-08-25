@@ -226,7 +226,7 @@ void Placeable::onOpen(uint32_t triggererId) {
          {script::ArgKind::LastOpenedBy, Variable::ofObject(triggererId)}});
 }
 
-void Placeable::runOnUsed(std::shared_ptr<Object> usedBy) {
+void Placeable::runOnUsed(uint32_t usedBy) {
     if (_onUsed.empty()) {
         return;
     }
@@ -235,8 +235,7 @@ void Placeable::runOnUsed(std::shared_ptr<Object> usedBy) {
     args.emplace_back(script::ArgKind::Caller, Variable::ofObject(_id));
 
     if (usedBy) {
-        args.emplace_back(script::ArgKind::LastUsedBy,
-                          Variable::ofObject(usedBy->id()));
+        args.emplace_back(script::ArgKind::LastUsedBy, Variable::ofObject(usedBy));
     }
 
     _game.scriptRunner().run(_onUsed, args);
