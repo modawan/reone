@@ -47,8 +47,9 @@ if(MSVC)
 else()
     find_package(PkgConfig REQUIRED)
     if(APPLE)
-        # MacOS provides OpenAL.framework.
-        find_package(OpenAL REQUIRED openal)
+        # OpenAL.framework is deprecated. Prefer OpenAL-soft from homebrew.
+        set(CMAKE_PREFIX_PATH "/opt/homebrew/opt/openal-soft")
+        find_package(OpenAL CONFIG REQUIRED)
     else()
         pkg_check_modules(OpenAL REQUIRED openal)
     endif()
