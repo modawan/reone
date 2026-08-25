@@ -63,6 +63,23 @@ std::shared_ptr<Gff> emptyRecord(uint32_t type) {
     return Gff::Builder().type(type).build();
 }
 
+/**
+ * Whether an area object owns an identity in the module's saved object
+ * namespace.
+ *
+ * Retail keeps placeable cameras out of CGameObjectArray, so they never
+ * receive a server ObjectId: a GIT CameraList entry carries CameraID,
+ * Position, Orientation, Pitch, Height, FieldOfView and MicRange and nothing
+ * else, in both games, and no script routine can resolve a camera as an
+ * object. They are presentation records rebuilt from module data, addressed
+ * by CameraID, so they must not consume identities that creatures, doors,
+ * placeables, triggers, stores, waypoints, sounds, encounters and items
+ * legitimately own.
+ */
+bool ownsSavedObjectIdentity(ObjectType type) {
+    return type != ObjectType::Camera;
+}
+
 void put(Gff &record, Gff::Field field) {
     replaceSaveField(record, std::move(field));
 }
@@ -519,7 +536,9 @@ ModuleObjectIdContext ModuleSnapshotBuilder::buildObjectIdContext(
     for (const auto &object : area._objects) {
         if (!object || area._objectsToDestroy.count(object->id()) != 0 ||
             _game._party.isMember(*object)) continue;
-        ids.reserveWorldId(object->id());
+        if (ownsSavedObjectIdentity(object->type())) {
+            ids.reserveWorldId(object->id());
+        }
         switch (object->type()) {
         case ObjectType::Creature:
             addCreatureItems(*static_cast<const Creature *>(object.get()), true);

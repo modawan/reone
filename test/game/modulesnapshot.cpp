@@ -734,6 +734,210 @@ TEST_P(PartyItemIdFixture, every_party_item_gets_a_unique_non_colliding_id) {
     }
 }
 
+
+// Cameras are presentation records rebuilt from module data, addressed by
+// CameraID. Retail never places them in CGameObjectArray, so their runtime
+// identity must not consume the module's saved object namespace. Before this
+// was fixed, a camera's runtime ID could claim an identity that a legitimate
+// module-owned item already held, and snapshotting the source module aborted
+// the whole transition.
+struct CameraIdFixture : TestWithParam<GameID> {
+    CameraIdFixture() :
+        game(GetParam(), "", engine.options(), engine.services(), console) {
+    }
+
+    void SetUp() override {
+        area = game.newArea();
+        player = game.newCreature();
+        TestGameModule::configureModuleSnapshot(
+            game, area, player, "module_cam", "module_cam");
+        TestGameModule::setSnapshotObjectId(*player, 0x7ffffffeu);
+        TestGameModule::addSnapshotObject(*area, player);
+
+        auto ifo = Gff::Builder().type(0xffffffff)
+            .field(Gff::Field::newDword("Mod_NextObjId0", 50)).build();
+        auto are = Gff::Builder().type(0xffffffff).build();
+        auto git = Gff::Builder().type(0xffffffff).build();
+        game.captureSaveResourceShadow({SaveResourceKind::ModuleIfo, "module_cam"}, *ifo);
+        game.captureSaveResourceShadow({SaveResourceKind::AreaAre, "module_cam"}, *are);
+        game.captureSaveResourceShadow({SaveResourceKind::AreaGit, "module_cam"}, *git);
+    }
+
+    /** A camera whose runtime object ID is exactly `runtimeId`. */
+    std::shared_ptr<StaticCamera> cameraWithRuntimeId(uint32_t runtimeId, int cameraId) {
+        auto camera = game.newStaticCamera();
+        TestGameModule::setSnapshotObjectId(*camera, runtimeId);
+        TestGameModule::configureSnapshotCamera(
+            *camera, cameraId, {1.0f, 2.0f, 3.0f},
+            glm::quat(1.0f, 0.0f, 0.0f, 0.0f), 10.0f, 1.5f, 55.0f, 8.0f);
+        TestGameModule::addSnapshotObject(*area, camera);
+        return camera;
+    }
+
+    /** A module-owned item that already holds `id` in this module. */
+    std::shared_ptr<Item> moduleItemWithSavedId(uint32_t id, const std::string &tag) {
+        auto placeable = game.newPlaceable();
+        TestGameModule::setSnapshotObjectId(*placeable, 900 + id);
+        auto item = game.newOwnedItem();
+        item->setTag(tag);
+        auto record = Gff::Builder().type(0)
+            .field(Gff::Field::newDword("ObjectId", id)).build();
+        item->captureOwnerLocalSaveRecord(
+            *record, {SaveRecordOriginKind::PlaceableItem, "module_cam"});
+        placeable->addItem(item);
+        TestGameModule::addSnapshotObject(*area, placeable);
+        return item;
+    }
+
+    std::set<uint32_t> savedWorldIds(const resource::Gff &git) const {
+        std::set<uint32_t> out;
+        for (const char *list : {"Creature List", "Door List", "Placeable List",
+                                 "TriggerList", "WaypointList", "SoundList",
+                                 "StoreList", "Encounter List", "List"}) {
+            for (const auto &o : git.getList(list)) out.insert(o->getUint("ObjectId"));
+        }
+        return out;
+    }
+
+    TestEngine &engine {testEngine()};
+    StubConsole console;
+    Game game;
+    std::shared_ptr<Area> area;
+    std::shared_ptr<Creature> player;
+};
+
+// The exact reproduced failure: a camera runtime ID equal to a legitimate
+// module-owned item's saved ID must not abort the snapshot.
+TEST_P(CameraIdFixture, camera_runtime_id_may_equal_a_module_item_saved_id) {
+    cameraWithRuntimeId(577, 3);
+    auto item = moduleItemWithSavedId(577, "g_w_dsrptrfl001");
+
+    auto result = ModuleSnapshotBuilder(game, "module_cam").build();
+
+    ASSERT_TRUE(result) << result.message;
+    auto git = readGff(result.snapshot->gitBytes);
+    // The item keeps the identity it legitimately owns in this module.
+    auto placeables = git->getList("Placeable List");
+    ASSERT_FALSE(placeables.empty());
+    auto items = placeables.front()->getList("ItemList");
+    ASSERT_EQ(items.size(), 1u);
+    EXPECT_EQ(items.front()->getUint("ObjectId"), 577u);
+}
+
+TEST_P(CameraIdFixture, camera_does_not_reserve_an_entry_in_the_saved_namespace) {
+    cameraWithRuntimeId(577, 3);
+
+    auto result = ModuleSnapshotBuilder(game, "module_cam").build();
+
+    ASSERT_TRUE(result) << result.message;
+    auto git = readGff(result.snapshot->gitBytes);
+    // No saved world record claims the camera's runtime identity, and the
+    // camera record itself carries no ObjectId at all.
+    EXPECT_EQ(savedWorldIds(*git).count(577u), 0u);
+    auto cameras = git->getList("CameraList");
+    ASSERT_EQ(cameras.size(), 1u);
+    EXPECT_FALSE(cameras.front()->has("ObjectId"));
+}
+
+TEST_P(CameraIdFixture, camera_survives_the_snapshot_through_its_camera_id) {
+    cameraWithRuntimeId(577, 42);
+
+    auto result = ModuleSnapshotBuilder(game, "module_cam").build();
+
+    ASSERT_TRUE(result) << result.message;
+    auto cameras = readGff(result.snapshot->gitBytes)->getList("CameraList");
+    ASSERT_EQ(cameras.size(), 1u);
+    // CameraID is the camera's durable identity, and the retail presentation
+    // fields travel with it.
+    EXPECT_EQ(cameras.front()->getInt("CameraID"), 42);
+    EXPECT_FLOAT_EQ(cameras.front()->getFloat("FieldOfView"), 55.0f);
+    EXPECT_FLOAT_EQ(cameras.front()->getFloat("MicRange"), 8.0f);
+    EXPECT_FLOAT_EQ(cameras.front()->getFloat("Pitch"), 10.0f);
+}
+
+// The runtime and the save-facing namespaces are separate. Several cameras,
+// each with its own distinct runtime ID, may each overlap a different saved
+// item identity without any of them contending for it.
+TEST_P(CameraIdFixture, camera_runtime_ids_never_contend_for_saved_item_identities) {
+    cameraWithRuntimeId(600, 1);
+    cameraWithRuntimeId(601, 2);
+    moduleItemWithSavedId(600, "g_w_blstrpstl001");
+    moduleItemWithSavedId(601, "g_w_blstrrfl001");
+
+    auto result = ModuleSnapshotBuilder(game, "module_cam").build();
+
+    ASSERT_TRUE(result) << result.message;
+    auto git = readGff(result.snapshot->gitBytes);
+
+    // Both items keep the identities they legitimately own.
+    std::set<uint32_t> itemIds;
+    for (const auto &placeable : git->getList("Placeable List")) {
+        for (const auto &item : placeable->getList("ItemList")) {
+            itemIds.insert(item->getUint("ObjectId"));
+        }
+    }
+    EXPECT_EQ(itemIds, (std::set<uint32_t> {600u, 601u}));
+
+    // Both cameras serialize through CameraID alone.
+    auto cameras = git->getList("CameraList");
+    ASSERT_EQ(cameras.size(), 2u);
+    std::set<int> cameraIds;
+    for (const auto &camera : cameras) {
+        EXPECT_FALSE(camera->has("ObjectId"));
+        cameraIds.insert(camera->getInt("CameraID"));
+    }
+    EXPECT_EQ(cameraIds, (std::set<int> {1, 2}));
+}
+
+// Fail-closed behaviour for entities that really do share the namespace must
+// be untouched by the camera exclusion.
+TEST_P(CameraIdFixture, genuine_saved_object_collision_is_still_rejected) {
+    cameraWithRuntimeId(577, 3);
+    auto soundA = game.newSound();
+    TestGameModule::setSnapshotObjectId(*soundA, 321);
+    TestGameModule::addSnapshotObject(*area, soundA);
+    auto soundB = game.newSound();
+    TestGameModule::setSnapshotObjectId(*soundB, 321);
+    TestGameModule::addSnapshotObject(*area, soundB);
+
+    auto result = ModuleSnapshotBuilder(game, "module_cam").build();
+
+    EXPECT_FALSE(result);
+    EXPECT_THAT(result.message, HasSubstr("collides in module namespace"));
+}
+
+// A camera must not open a hole for a foreign item identity either: an item
+// carrying another module's ID is still allocated a fresh one (#327).
+TEST_P(CameraIdFixture, foreign_item_id_is_still_allocated_not_retained) {
+    cameraWithRuntimeId(577, 3);
+    auto equipped = game.newOwnedItem();
+    equipped->setTag("blaster");
+    auto record = Gff::Builder().type(0)
+        .field(Gff::Field::newDword("ObjectId", 577)).build();
+    equipped->captureOwnerLocalSaveRecord(
+        *record, {SaveRecordOriginKind::EquippedItem, "some_other_module"});
+    TestGameModule::setSnapshotEquipment(*player, InventorySlots::rightWeapon, equipped);
+
+    auto result = ModuleSnapshotBuilder(game, "module_cam").build();
+
+    ASSERT_TRUE(result) << result.message;
+    auto ifo = readGff(result.snapshot->ifoBytes);
+    auto players = ifo->getList("Mod_PlayerList");
+    ASSERT_FALSE(players.empty());
+    auto equip = players.front()->getList("Equip_ItemList");
+    ASSERT_EQ(equip.size(), 1u);
+    EXPECT_NE(equip.front()->getUint("ObjectId"), 577u)
+        << "a party item must not retain a foreign module's identity";
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    BothGames,
+    CameraIdFixture,
+    ::testing::Values(GameID::KotOR, GameID::TSL),
+    [](const ::testing::TestParamInfo<GameID> &info) {
+        return info.param == GameID::TSL ? "TSL" : "KotOR";
+    });
+
 INSTANTIATE_TEST_SUITE_P(
     BothGames,
     PartyItemIdFixture,
