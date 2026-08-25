@@ -254,10 +254,15 @@ bool Trigger::acceptsTransitionActivator(const std::shared_ptr<Object> &activato
     if (_linkedToModule.empty() || !isActive()) {
         return false;
     }
-    if (_linkedDoorTransition && (!activator || activator != _game.party().getLeader())) {
+    if (!activator) {
         return false;
     }
-    return true;
+    // Only the player character or the current party leader moves the party
+    // between modules; a following companion crossing a transition is ignored.
+    // Taking control of a companion makes it the leader, so it keeps the
+    // ability to transition and stays controlled in the destination.
+    const Party &party = _game.party();
+    return activator == party.actualPlayer() || activator == party.getLeader();
 }
 
 bool Trigger::detachLinkedDoorTransition(const Door &door) {

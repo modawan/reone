@@ -2791,6 +2791,163 @@ TEST(LinkedDoorTransition, should_reject_npcs_and_companions) {
         std::make_pair(std::string("destination_module"), std::string("destination_waypoint")));
 }
 
+// Ordinary LinkedToModule triggers, the kind that carry an area transition
+// without a linked door. Retail only lets the player character or the current
+// party leader move the party between modules, so a follower crossing a
+// reciprocal transition on arrival must not send everyone straight back.
+struct ModuleTransitionActivatorFixture : TestWithParam<GameID> {
+    ModuleTransitionActivatorFixture() :
+        game(GetParam(), "", engine.options(), engine.services(), console) {
+    }
+
+    void SetUp() override {
+        testSceneGraph(engine);
+        area = game.newArea();
+        trigger = game.newTrigger();
+        trigger->deserialize(*makeTransitionTriggerGff("ebo_m12aa", "K_EBN_RAMP_ENTRANCE"));
+        trigger->setPosition(glm::vec3(0.0f, 0.0f, 0.0f));
+        area->add(trigger);
+    }
+
+    /** A creature standing just short of the trigger's southern edge. */
+    std::shared_ptr<Creature> creatureBelowTrigger() {
+        auto creature = makeMovingCreature(game, engine);
+        creature->setPosition(glm::vec3(0.0f, -1.5f, 0.0f));
+        area->add(creature);
+        return creature;
+    }
+
+    /** Walk north, crossing into the trigger polygon. */
+    bool stepIn(const std::shared_ptr<Creature> &creature) {
+        return area->moveCreature(creature, glm::vec2(0.0f, 1.0f), false, 0.75f);
+    }
+
+    std::pair<std::string, std::string> scheduled() const {
+        return scheduledTransition(engine, game);
+    }
+
+    static std::pair<std::string, std::string> none() {
+        return {std::string(), std::string()};
+    }
+
+    static std::pair<std::string, std::string> hawk() {
+        return {std::string("ebo_m12aa"), std::string("k_ebn_ramp_entrance")};
+    }
+
+    TestEngine &engine {testEngine()};
+    StubConsole console;
+    Game game;
+    std::shared_ptr<Area> area;
+    std::shared_ptr<Trigger> trigger;
+};
+
+TEST_P(ModuleTransitionActivatorFixture, player_character_may_transition) {
+    auto player = creatureBelowTrigger();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().setActualPlayer(player);
+
+    ASSERT_TRUE(stepIn(player));
+
+    EXPECT_EQ(scheduled(), hawk());
+}
+
+// Controlling a companion makes it the leader. It must keep the ability to
+// transition, and nothing here may narrow that to the canonical PC.
+TEST_P(ModuleTransitionActivatorFixture, controlled_companion_may_transition) {
+    auto player = makeMovingCreature(game, engine);
+    player->setPosition(glm::vec3(5.0f, -5.0f, 0.0f));
+    area->add(player);
+    auto companion = creatureBelowTrigger();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setActualPlayer(player);
+    game.party().setControlledMember(0, companion);
+
+    ASSERT_EQ(game.party().getLeader(), companion);
+    ASSERT_TRUE(stepIn(companion));
+
+    EXPECT_EQ(scheduled(), hawk());
+}
+
+// The canonical PC keeps its own right to transition even while a companion
+// is the one being controlled.
+TEST_P(ModuleTransitionActivatorFixture, player_character_may_transition_while_a_companion_leads) {
+    auto player = creatureBelowTrigger();
+    auto companion = makeMovingCreature(game, engine);
+    companion->setPosition(glm::vec3(5.0f, -5.0f, 0.0f));
+    area->add(companion);
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setActualPlayer(player);
+    game.party().setControlledMember(0, companion);
+
+    ASSERT_NE(game.party().getLeader(), player);
+    ASSERT_TRUE(stepIn(player));
+
+    EXPECT_EQ(scheduled(), hawk());
+}
+
+TEST_P(ModuleTransitionActivatorFixture, following_companion_may_not_transition) {
+    auto player = makeMovingCreature(game, engine);
+    player->setPosition(glm::vec3(5.0f, -5.0f, 0.0f));
+    area->add(player);
+    auto follower = creatureBelowTrigger();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().setActualPlayer(player);
+    game.party().addMember(0, follower);
+
+    ASSERT_TRUE(stepIn(follower));
+
+    EXPECT_EQ(scheduled(), none())
+        << "a following companion must not move the whole party between modules";
+}
+
+TEST_P(ModuleTransitionActivatorFixture, non_party_creature_may_not_transition) {
+    auto player = makeMovingCreature(game, engine);
+    player->setPosition(glm::vec3(5.0f, -5.0f, 0.0f));
+    area->add(player);
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().setActualPlayer(player);
+    auto ambient = creatureBelowTrigger();
+
+    ASSERT_TRUE(stepIn(ambient));
+
+    EXPECT_EQ(scheduled(), none());
+}
+
+// The reproduction shape: arriving on Dantooine, a follower crosses the
+// reciprocal Hawk transition while the player stands clear.
+TEST_P(ModuleTransitionActivatorFixture, follower_does_not_bounce_the_party_back_on_arrival) {
+    auto player = makeMovingCreature(game, engine);
+    player->setPosition(glm::vec3(-4.0f, -4.0f, 0.0f));
+    area->add(player);
+    auto follower = makeMovingCreature(game, engine);
+    follower->setPosition(glm::vec3(0.5f, -1.5f, 0.0f));
+    area->add(follower);
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().setActualPlayer(player);
+    game.party().addMember(0, follower);
+
+    ASSERT_TRUE(stepIn(follower));
+    EXPECT_EQ(scheduled(), none());
+
+    // Deliberately walking the player in later still works normally: the
+    // restriction is on who may activate, not on the trigger itself.
+    player->setPosition(glm::vec3(-0.5f, -1.5f, 0.0f));
+    ASSERT_TRUE(stepIn(player));
+    EXPECT_EQ(scheduled(), hawk());
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    BothGames,
+    ModuleTransitionActivatorFixture,
+    ::testing::Values(GameID::KotOR, GameID::TSL),
+    [](const ::testing::TestParamInfo<GameID> &info) {
+        return info.param == GameID::TSL ? "TSL" : "KotOR";
+    });
+
 TEST(LinkedDoorTransition, should_support_authored_cross_module_flag_values) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -2903,25 +3060,30 @@ TEST(LinkedDoorTransition, should_preserve_reusable_authored_type1_trigger_lifec
     auto trigger = game.newTrigger();
     trigger->deserialize(*gff);
     auto area = game.newArea();
-    auto npc = makeMovingCreature(game, engine);
-    npc->setPosition(glm::vec3(0.0f, -2.0f, 0.0f));
+    // The subject here is the trigger's own enter/exit/re-enter lifecycle, so
+    // the mover is the party leader, who may activate a module transition.
+    auto leader = makeMovingCreature(game, engine);
+    leader->setPosition(glm::vec3(0.0f, -2.0f, 0.0f));
+    game.party().addMember(kNpcPlayer, leader);
+    game.party().setPlayer(leader);
+    game.party().setActualPlayer(leader);
     area->add(trigger);
-    area->add(npc);
+    area->add(leader);
 
     EXPECT_FALSE(trigger->isLinkedDoorTransition());
     EXPECT_TRUE(trigger->isActive());
-    ASSERT_TRUE(area->moveCreature(npc, glm::vec2(0.0f, 1.0f), false, 1.25f));
-    EXPECT_TRUE(trigger->isTenant(npc));
+    ASSERT_TRUE(area->moveCreature(leader, glm::vec2(0.0f, 1.0f), false, 1.25f));
+    EXPECT_TRUE(trigger->isTenant(leader));
     EXPECT_EQ(
         scheduledTransition(engine, game),
         std::make_pair(std::string("authored_module"), std::string("authored_waypoint")));
 
-    ASSERT_TRUE(area->moveCreature(npc, glm::vec2(0.0f, 1.0f), false, 2.0f));
+    ASSERT_TRUE(area->moveCreature(leader, glm::vec2(0.0f, 1.0f), false, 2.0f));
     trigger->update(0.0f);
-    EXPECT_FALSE(trigger->isTenant(npc));
+    EXPECT_FALSE(trigger->isTenant(leader));
 
-    ASSERT_TRUE(area->moveCreature(npc, glm::vec2(0.0f, -1.0f), false, 0.5f));
-    EXPECT_TRUE(trigger->isTenant(npc));
+    ASSERT_TRUE(area->moveCreature(leader, glm::vec2(0.0f, -1.0f), false, 0.5f));
+    EXPECT_TRUE(trigger->isTenant(leader));
 }
 
 TEST(LinkedDoorTransition, should_allow_normal_close_action_and_reactivate_when_reopened) {
