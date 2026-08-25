@@ -561,6 +561,178 @@ TEST_F(SnapshotFixture, module_item_ids_are_global_deterministic_and_retained) {
     EXPECT_EQ(repeated.snapshot->archiveBytes, saved.snapshot->archiveBytes);
 }
 
+namespace {
+
+// A party member carries items whose saved IDs came from whatever module they
+// were last serialized in. Those IDs are meaningless in the module being
+// snapshotted, so they must be allocated fresh rather than retained.
+struct PartyItemIdFixture : TestWithParam<GameID> {
+    PartyItemIdFixture() :
+        game(GetParam(), "", engine.options(), engine.services(), console) {
+    }
+
+    void SetUp() override {
+        area = game.newArea();
+        player = game.newCreature();
+        TestGameModule::configureModuleSnapshot(
+            game, area, player, "module_pid", "module_pid");
+        TestGameModule::setSnapshotObjectId(*player, 0x7fffffffu);
+        TestGameModule::addSnapshotObject(*area, player);
+        captureResourceShadows();
+    }
+
+    // Snapshotting reads the module's own records. Capture them as shadows so
+    // the builder never falls through to the shared resource mock, whose
+    // expectations belong to other suites.
+    void captureResourceShadows() {
+        auto ifo = Gff::Builder().type(0xffffffff)
+            .field(Gff::Field::newDword("Mod_NextObjId0", 50)).build();
+        auto are = Gff::Builder().type(0xffffffff).build();
+        auto git = Gff::Builder().type(0xffffffff).build();
+        game.captureSaveResourceShadow({SaveResourceKind::ModuleIfo, "module_pid"}, *ifo);
+        game.captureSaveResourceShadow({SaveResourceKind::AreaAre, "module_pid"}, *are);
+        game.captureSaveResourceShadow({SaveResourceKind::AreaGit, "module_pid"}, *git);
+    }
+
+    /** Give an item the save-facing identity it held in a previous module. */
+    void retain(const std::shared_ptr<Item> &item, uint32_t id,
+                SaveRecordOriginKind kind, const std::string &owner) {
+        auto record = Gff::Builder().type(0)
+            .field(Gff::Field::newDword("ObjectId", id)).build();
+        item->captureOwnerLocalSaveRecord(*record, {kind, owner});
+    }
+
+    std::shared_ptr<Sound> worldSoundWithId(uint32_t id) {
+        auto sound = game.newSound();
+        TestGameModule::setSnapshotObjectId(*sound, id);
+        TestGameModule::addSnapshotObject(*area, sound);
+        return sound;
+    }
+
+    /** ObjectIds the snapshot assigned to the player's equipped items. */
+    std::vector<uint32_t> playerEquipIds(const resource::Gff &ifo) {
+        std::vector<uint32_t> out;
+        auto players = ifo.getList("Mod_PlayerList");
+        if (players.empty()) return out;
+        for (const auto &it : players.front()->getList("Equip_ItemList")) {
+            out.push_back(it->getUint("ObjectId"));
+        }
+        return out;
+    }
+
+    std::set<uint32_t> worldIds(const resource::Gff &git) {
+        std::set<uint32_t> out;
+        for (const char *list : {"Creature List", "Door List", "Placeable List",
+                                 "TriggerList", "WaypointList", "SoundList",
+                                 "StoreList", "Encounter List"}) {
+            for (const auto &o : git.getList(list)) out.insert(o->getUint("ObjectId"));
+        }
+        return out;
+    }
+
+    TestEngine &engine {testEngine()};
+    StubConsole console;
+    Game game;
+    std::shared_ptr<Area> area;
+    std::shared_ptr<Creature> player;
+};
+
+} // namespace
+
+// A: the exact K1 Hawk failure - a world sound owns 106, and the PC carries an
+// item that was serialized as 106 in a different module.
+TEST_P(PartyItemIdFixture, foreign_party_item_id_does_not_collide_with_a_world_object) {
+    worldSoundWithId(106);
+    auto equipped = game.newOwnedItem();
+    equipped->setTag("blaster");
+    retain(equipped, 106, SaveRecordOriginKind::EquippedItem, "player");
+    TestGameModule::setSnapshotEquipment(*player, InventorySlots::rightWeapon, equipped);
+
+    auto saved = ModuleSnapshotBuilder(game, "module_pid").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto ifo = readGff(saved.snapshot->ifoBytes);
+    auto ids = playerEquipIds(*ifo);
+    ASSERT_EQ(ids.size(), 1u);
+    EXPECT_NE(ids.front(), 106u) << "a foreign saved ID must not be retained";
+    EXPECT_GE(ids.front(), 2u);
+}
+
+// B: reallocation happens even when nothing collides.
+TEST_P(PartyItemIdFixture, party_item_ids_are_allocated_not_retained) {
+    auto equipped = game.newOwnedItem();
+    retain(equipped, 4321, SaveRecordOriginKind::EquippedItem, "player");
+    TestGameModule::setSnapshotEquipment(*player, InventorySlots::rightWeapon, equipped);
+
+    auto saved = ModuleSnapshotBuilder(game, "module_pid").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto ids = playerEquipIds(*readGff(saved.snapshot->ifoBytes));
+    ASSERT_EQ(ids.size(), 1u);
+    EXPECT_NE(ids.front(), 4321u);
+}
+
+// C: module-owned items still keep the identity they hold in this module.
+TEST_P(PartyItemIdFixture, module_owned_item_retains_its_saved_id) {
+    auto placeable = game.newPlaceable();
+    TestGameModule::setSnapshotObjectId(*placeable, 300);
+    auto stored = game.newOwnedItem();
+    retain(stored, 301, SaveRecordOriginKind::PlaceableItem, "chest");
+    placeable->addItem(stored);
+    TestGameModule::addSnapshotObject(*area, placeable);
+
+    auto saved = ModuleSnapshotBuilder(game, "module_pid").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto git = readGff(saved.snapshot->gitBytes);
+    auto list = git->getList("Placeable List");
+    ASSERT_FALSE(list.empty());
+    auto items = list.front()->getList("ItemList");
+    ASSERT_EQ(items.size(), 1u);
+    EXPECT_EQ(items.front()->getUint("ObjectId"), 301u)
+        << "an item this module already owns keeps its saved ID";
+}
+
+// D + E: several foreign party items, all overlapping live world IDs.
+TEST_P(PartyItemIdFixture, every_party_item_gets_a_unique_non_colliding_id) {
+    worldSoundWithId(106);
+    worldSoundWithId(107);
+    worldSoundWithId(108);
+
+    auto right = game.newOwnedItem();
+    auto left = game.newOwnedItem();
+    auto body = game.newOwnedItem();
+    retain(right, 106, SaveRecordOriginKind::EquippedItem, "player");
+    retain(left, 107, SaveRecordOriginKind::EquippedItem, "player");
+    retain(body, 108, SaveRecordOriginKind::EquippedItem, "player");
+    TestGameModule::setSnapshotEquipment(*player, InventorySlots::rightWeapon, right);
+    TestGameModule::setSnapshotEquipment(*player, InventorySlots::leftWeapon, left);
+    TestGameModule::setSnapshotEquipment(*player, InventorySlots::body, body);
+
+    auto saved = ModuleSnapshotBuilder(game, "module_pid").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto ifo = readGff(saved.snapshot->ifoBytes);
+    auto git = readGff(saved.snapshot->gitBytes);
+    auto ids = playerEquipIds(*ifo);
+    ASSERT_EQ(ids.size(), 3u);
+
+    std::set<uint32_t> unique(ids.begin(), ids.end());
+    EXPECT_EQ(unique.size(), ids.size()) << "allocated IDs must be distinct";
+    for (auto id : ids) {
+        EXPECT_EQ(worldIds(*git).count(id), 0u)
+            << "allocated ID " << id << " collides with a world object";
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    BothGames,
+    PartyItemIdFixture,
+    ::testing::Values(GameID::KotOR, GameID::TSL),
+    [](const ::testing::TestParamInfo<GameID> &info) {
+        return info.param == GameID::TSL ? "TSL" : "KotOR";
+    });
+
 TEST_F(SnapshotFixture, retained_module_item_collision_is_rejected) {
     auto owner = game.newPlaceable();
     auto item = game.newOwnedItem();
