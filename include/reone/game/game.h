@@ -328,6 +328,24 @@ public:
     // the slot the player picked is the slot that gets loaded.
     void loadGame(const resource::SaveSlotDescriptor &slot);
 
+    /**
+     * Candidate save load, resolved and validated but not yet committed.
+     *
+     * Everything here is read from the unpublished session, so preparing it
+     * cannot disturb the running game. The decoded records are carried into
+     * restoration rather than parsed a second time once the candidate has been
+     * published.
+     */
+    struct PreparedSaveLoad {
+        std::unique_ptr<resource::SaveSessionState> session;
+        resource::NFO nfo;
+        std::shared_ptr<resource::Gff> saveInfo;
+        std::shared_ptr<resource::Gff> globalVars;
+        std::shared_ptr<resource::Gff> moduleIfo;
+        std::shared_ptr<resource::Gff> partyTable;
+        std::shared_ptr<resource::Gff> inventory;
+    };
+
     std::vector<SavedGame> savedGames() const;
     const std::filesystem::path &gamePath() const { return _path; }
 
@@ -610,8 +628,12 @@ public:
     std::map<int, std::string> parseCustomTokens(
         const resource::Gff &ifoGff) const;
     void replaceCustomTokens(std::map<int, std::string> tokens);
+    PreparedSaveLoad prepareSaveLoad(const resource::SaveSlotDescriptor &slot);
+    void restoreSaveLoad(PreparedSaveLoad prepared);
+    void retireToMainMenu();
+
     void deserializeGlobalVariables(resource::Gff &gvtGff);
-    void deserializeParty(resource::Gff &ifoGff);
+    void deserializeParty(resource::Gff &ifoGff, const std::shared_ptr<resource::Gff> &ptGff);
     void publishPartyRuntimeState(
         resource::Gff &ifoGff,
         const std::shared_ptr<resource::Gff> &ptGff,

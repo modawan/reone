@@ -77,6 +77,21 @@ public:
 
     /** Mount the exact slot discovered during indexing. */
     virtual void onGameLoad(const SaveSlotDescriptor &slot) = 0;
+
+    /**
+     * Build an unpublished candidate over the exact slot discovered during
+     * indexing.
+     *
+     * Throws if the slot cannot be opened, and mutates nothing when it does:
+     * the committed session stays authoritative until commitGameLoad accepts
+     * the candidate, so a load that cannot proceed leaves the running game
+     * intact rather than stranding it.
+     */
+    virtual std::unique_ptr<SaveSessionState> prepareGameLoad(
+        const SaveSlotDescriptor &slot) = 0;
+
+    /** Publish a prepared candidate, retiring the previous save mounts. */
+    virtual void commitGameLoad(std::unique_ptr<SaveSessionState> candidate) = 0;
     virtual std::optional<Resource> findSaveMetadata(const ResourceId &id) = 0;
     virtual std::optional<Resource> findSaveWorking(const ResourceId &id) = 0;
     virtual std::unordered_set<ResourceId> saveWorkingResourceIds() const = 0;
@@ -132,6 +147,9 @@ public:
     void onNewGame() override;
     void onGameLoad(std::string_view name) override;
     void onGameLoad(const SaveSlotDescriptor &slot) override;
+    std::unique_ptr<SaveSessionState> prepareGameLoad(
+        const SaveSlotDescriptor &slot) override;
+    void commitGameLoad(std::unique_ptr<SaveSessionState> candidate) override;
     std::optional<Resource> findSaveMetadata(const ResourceId &id) override;
     std::optional<Resource> findSaveWorking(const ResourceId &id) override;
     std::unordered_set<ResourceId> saveWorkingResourceIds() const override;

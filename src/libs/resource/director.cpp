@@ -124,8 +124,18 @@ void ResourceDirector::onGameLoad(std::string_view name) {
     commitSaveSession(buildSaveSession(name));
 }
 
+/** Prepare and commit in one step, for callers that need no commit boundary. */
 void ResourceDirector::onGameLoad(const SaveSlotDescriptor &slot) {
-    commitSaveSession(buildSaveSession(slot));
+    commitGameLoad(prepareGameLoad(slot));
+}
+
+std::unique_ptr<SaveSessionState> ResourceDirector::prepareGameLoad(
+    const SaveSlotDescriptor &slot) {
+    return buildSaveSession(slot);
+}
+
+void ResourceDirector::commitGameLoad(std::unique_ptr<SaveSessionState> candidate) {
+    commitSaveSession(std::move(candidate));
 }
 
 void ResourceDirector::commitSaveSession(std::unique_ptr<SaveSessionState> candidate) {
