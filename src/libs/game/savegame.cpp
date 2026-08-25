@@ -11,6 +11,7 @@
 
 #include "reone/resource/director.h"
 #include "reone/game/portraits.h"
+#include "reone/game/savedgame.h"
 #include "reone/graphics/context.h"
 #include "reone/graphics/format/tgawriter.h"
 #include "reone/system/fileutil.h"
@@ -397,7 +398,7 @@ SaveMetadataInput Game::buildSaveMetadata(const SaveRequest &request) const {
 resource::SaveSlotDescriptor Game::saveTarget(const SaveRequest &request) const {
     std::ostringstream prefix;
     prefix << std::setw(6) << std::setfill('0') << request.slot;
-    auto saves = _path / "saves";
+    auto saves = savedGamesDirectory(_path);
     // Retail keeps the user-entered title in SAVEGAMENAME. Manual directory
     // suffixes use the allocation sequence after reserved quick/autosave slots.
     // Existing exact slot directories are retained below for overwrite identity.

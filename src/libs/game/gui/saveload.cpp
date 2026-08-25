@@ -430,10 +430,10 @@ void SaveLoad::loadGame(uint32_t number) {
     auto save = findSave(number);
     if (!save) return;
     try {
-        // Game::loadGame consumes the normalized keys exposed by
-        // ResourceDirector::saveNames(), not the display-cased disk name.
-        _game.loadGame(boost::to_lower_copy(
-            save->descriptor.directory.filename().string()));
+        // Hand over the slot discovered by indexing. Reducing it to a name here
+        // would make the loader resolve the directory a second time, and the
+        // entity it found need not be the one the player selected.
+        _game.loadGame(save->descriptor);
     } catch (const std::exception &e) {
         warn("Unable to load selected save: " + std::string(e.what()));
         showStatus("The selected game could not be loaded.");

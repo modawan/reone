@@ -121,8 +121,14 @@ void ResourceDirector::onModuleLoad(const std::string &name) {
  * leaves the active session and cache untouched.
  */
 void ResourceDirector::onGameLoad(std::string_view name) {
-    auto candidate = buildSaveSession(name);
+    commitSaveSession(buildSaveSession(name));
+}
 
+void ResourceDirector::onGameLoad(const SaveSlotDescriptor &slot) {
+    commitSaveSession(buildSaveSession(slot));
+}
+
+void ResourceDirector::commitSaveSession(std::unique_ptr<SaveSessionState> candidate) {
     _resources.clearOwner(ResourceOwner::SaveSlot);
     _saveSession = std::move(candidate);
     _gffs.clear();
@@ -751,11 +757,28 @@ std::unique_ptr<SaveSessionState> ResourceDirector::buildSaveSession(std::string
         throw ResourceNotFoundException("savegame.sav not found");
     }
 
-    SaveSlotDescriptor descriptor {
-        *savePath,
-        *savegamePath,
-    };
-    return std::make_unique<SaveSessionState>(std::move(descriptor));
+    return buildSaveSession(SaveSlotDescriptor {*savePath, *savegamePath});
+}
+
+/**
+ * Build a candidate over an already discovered slot.
+ *
+ * The descriptor is the durable identity: mounting it verbatim keeps the entity
+ * the list offered and the entity the loader opens the same one, which a second
+ * lookup by name cannot guarantee once the directory has changed underneath or
+ * holds entries differing only by case.
+ */
+std::unique_ptr<SaveSessionState> ResourceDirector::buildSaveSession(const SaveSlotDescriptor &slot) {
+    std::error_code ec;
+    if (!std::filesystem::is_directory(slot.directory, ec)) {
+        throw ResourceNotFoundException(
+            str(boost::format("Save directory not found: %s") % slot.directory.string()));
+    }
+    if (!std::filesystem::is_regular_file(slot.archive, ec)) {
+        throw ResourceNotFoundException(
+            str(boost::format("savegame.sav not found: %s") % slot.archive.string()));
+    }
+    return std::make_unique<SaveSessionState>(slot);
 }
 
 } // namespace resource

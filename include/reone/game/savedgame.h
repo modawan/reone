@@ -38,6 +38,18 @@ struct SavedGame {
     std::optional<ByteBuffer> screenshot;
 };
 
+/**
+ * Resolve the installation's save root.
+ *
+ * Retail ships this directory under either casing, so it must be discovered
+ * rather than spelled. Indexing, deletion and writing all have to agree with
+ * ResourceDirector on the one directory a slot lives in: resolving it
+ * separately lets the list offer a save the loader cannot mount. Falls back to
+ * the canonical name when no directory exists yet, so a first save can create
+ * it.
+ */
+std::filesystem::path savedGamesDirectory(const std::filesystem::path &gamePath);
+
 /** Discover structurally usable durable slots below one installation root. */
 std::vector<SavedGame> discoverSavedGames(const std::filesystem::path &gamePath);
 

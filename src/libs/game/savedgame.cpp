@@ -15,6 +15,8 @@ namespace game {
 
 namespace {
 
+constexpr char kSavesDirectoryName[] = "saves";
+
 std::optional<uint32_t> parseSlot(const std::string &name) {
     if (name.size() < 6 ||
         !std::all_of(name.begin(), name.begin() + 6,
@@ -78,9 +80,60 @@ SavedGame readSlot(
 
 } // namespace
 
+std::filesystem::path savedGamesDirectory(const std::filesystem::path &gamePath) {
+    std::error_code ec;
+    if (!std::filesystem::is_directory(gamePath, ec)) {
+        return gamePath / kSavesDirectoryName;
+    }
+
+    auto foldsToSaves = [](const std::string &name) {
+        static const std::string canonical {kSavesDirectoryName};
+        if (name.size() != canonical.size()) {
+            return false;
+        }
+        return std::equal(
+            name.begin(), name.end(), canonical.begin(),
+            [](unsigned char lhs, unsigned char rhs) {
+                return std::tolower(lhs) == std::tolower(rhs);
+            });
+    };
+
+    std::vector<std::filesystem::path> roots;
+    for (const auto &entry : std::filesystem::directory_iterator(gamePath, ec)) {
+        if (entry.is_directory(ec) && foldsToSaves(entry.path().filename().string())) {
+            roots.push_back(entry.path());
+        }
+    }
+    if (roots.empty()) {
+        return gamePath / kSavesDirectoryName;
+    }
+    std::sort(roots.begin(), roots.end());
+
+    auto chosen = roots.front();
+    for (const auto &root : roots) {
+        if (root.filename().string() == kSavesDirectoryName) {
+            chosen = root;
+            break;
+        }
+    }
+
+    // A second save root is not cosmetic: every slot below the roots that lose
+    // is invisible to the list, and saves written here will not be found by
+    // anything that resolved differently. Say so rather than quietly picking.
+    for (const auto &root : roots) {
+        if (root == chosen) {
+            continue;
+        }
+        warn("Save root '" + root.filename().string() + "' is shadowed by '" +
+             chosen.filename().string() + "': saves stored there are not listed. " +
+             "Merge them into '" + chosen.filename().string() + "' to recover them");
+    }
+    return chosen;
+}
+
 std::vector<SavedGame> discoverSavedGames(const std::filesystem::path &gamePath) {
     std::vector<SavedGame> result;
-    auto savesPath = gamePath / "saves";
+    auto savesPath = savedGamesDirectory(gamePath);
     if (!std::filesystem::is_directory(savesPath)) return result;
 
     // Numeric identity is authoritative. If external tools left duplicates,
@@ -133,7 +186,7 @@ bool deleteSavedGame(
     const std::filesystem::path &gamePath,
     const resource::SaveSlotDescriptor &slot) {
     std::error_code ec;
-    auto saves = std::filesystem::weakly_canonical(gamePath / "saves", ec);
+    auto saves = std::filesystem::weakly_canonical(savedGamesDirectory(gamePath), ec);
     if (ec) return false;
     auto target = std::filesystem::weakly_canonical(slot.directory, ec);
     if (ec || target.parent_path() != saves || target == saves ||

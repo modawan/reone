@@ -223,7 +223,12 @@ TEST(RuntimeSession, retirement_preserves_save_wide_logical_and_resource_state) 
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
 
-    EXPECT_CALL(engine.resourceModule().director(), onGameLoad(_)).Times(0);
+    EXPECT_CALL(engine.resourceModule().director(),
+                onGameLoad(An<std::string_view>()))
+        .Times(0);
+    EXPECT_CALL(engine.resourceModule().director(),
+                onGameLoad(An<const resource::SaveSlotDescriptor &>()))
+        .Times(0);
     EXPECT_CALL(engine.resourceModule().director(), onModuleLoad(_)).Times(0);
     EXPECT_CALL(engine.audioModule().mixer(), stopAll()).Times(1);
     EXPECT_CALL(sceneGraph, clear()).Times(1);

@@ -320,9 +320,10 @@ public:
     void scheduleModuleTransition(const std::string &moduleName, const std::string &entry);
     void scheduleModuleTransitionWithMovies(const std::string &moduleName, const std::string &entry, std::vector<std::string> movies);
 
-    // Load a savegame. Name must be one of savegame directores returned by
-    // ResourceDirector::saveNames().
-    void loadGame(std::string_view name);
+    // Load a savegame. The slot is the durable identity discovered by
+    // discoverSavedGames(); it is mounted verbatim rather than re-resolved, so
+    // the slot the player picked is the slot that gets loaded.
+    void loadGame(const resource::SaveSlotDescriptor &slot);
 
     std::vector<SavedGame> savedGames() const;
     const std::filesystem::path &gamePath() const { return _path; }

@@ -66,7 +66,17 @@ public:
     virtual void init() = 0;
     virtual void onModuleLoad(const std::string &name) = 0;
     virtual void onNewGame() = 0;
+    /**
+     * Mount a save resolved by name below the game path.
+     *
+     * Convenience for callers that only hold a name. It re-resolves the
+     * directory, so it does not carry durable slot identity: code that already
+     * discovered a slot must pass the descriptor overload instead.
+     */
     virtual void onGameLoad(std::string_view name) = 0;
+
+    /** Mount the exact slot discovered during indexing. */
+    virtual void onGameLoad(const SaveSlotDescriptor &slot) = 0;
     virtual std::optional<Resource> findSaveMetadata(const ResourceId &id) = 0;
     virtual std::optional<Resource> findSaveWorking(const ResourceId &id) = 0;
     virtual std::unordered_set<ResourceId> saveWorkingResourceIds() const = 0;
@@ -121,6 +131,7 @@ public:
     void onModuleLoad(const std::string &name) override;
     void onNewGame() override;
     void onGameLoad(std::string_view name) override;
+    void onGameLoad(const SaveSlotDescriptor &slot) override;
     std::optional<Resource> findSaveMetadata(const ResourceId &id) override;
     std::optional<Resource> findSaveWorking(const ResourceId &id) override;
     std::unordered_set<ResourceId> saveWorkingResourceIds() const override;
@@ -171,6 +182,8 @@ private:
     void loadK1GlobalResources();
     void loadLiveResources();
     std::unique_ptr<SaveSessionState> buildSaveSession(std::string_view name);
+    std::unique_ptr<SaveSessionState> buildSaveSession(const SaveSlotDescriptor &slot);
+    void commitSaveSession(std::unique_ptr<SaveSessionState> candidate);
 
     void loadModuleResources(const std::string &name);
     void loadModuleResourcesFromPolicy(const std::string &name);
