@@ -488,10 +488,18 @@ uint32_t ModuleObjectIdContext::nextId(uint32_t retainedCursor) const {
 ModuleObjectIdContext ModuleSnapshotBuilder::buildObjectIdContext(
     const Module &module, const Area &area) const {
     ModuleObjectIdContext ids;
-    std::vector<const Item *> items;
+    // Items owned by this module keep the saved identity they already hold in
+    // this module's namespace. Items carried by the party arrived from whatever
+    // module they were last serialized in, so their saved IDs mean nothing
+    // here: retail allocates party item IDs inside each module's own namespace,
+    // and retaining a foreign one collides with a legitimate world object as
+    // soon as the two ranges overlap.
+    std::vector<const Item *> moduleItems;
+    std::vector<const Item *> partyItems;
     std::set<const Item *> seenItems;
+    std::vector<const Item *> *sink = &moduleItems;
     auto addItem = [&](const std::shared_ptr<Item> &item) {
-        if (item && seenItems.insert(item.get()).second) items.push_back(item.get());
+        if (item && seenItems.insert(item.get()).second) sink->push_back(item.get());
     };
     auto addCreatureItems = [&](const Creature &creature, bool includeInventory) {
         std::set<const Item *> equipped;
@@ -529,14 +537,20 @@ ModuleObjectIdContext ModuleSnapshotBuilder::buildObjectIdContext(
     auto modulePlayer = _game._party.player();
     if (!modulePlayer) throw ValidationException("module has no controlled player creature");
     ids.reservePartyId(modulePlayer->id());
+    sink = &partyItems;
     addCreatureItems(*modulePlayer, false);
+    sink = &moduleItems;
     for (const auto &creature : module._limboCreatures) {
         if (!creature) continue;
         ids.reservePartyId(creature->id());
         addCreatureItems(*creature, true);
     }
-    for (const Item *item : items) ids.retainItem(*item);
-    for (const Item *item : items) ids.allocateItem(*item);
+    // Retain only what this module already owns, then allocate the rest. Party
+    // items are allocated after every retained ID is reserved, so they can
+    // never displace a legitimate module identity.
+    for (const Item *item : moduleItems) ids.retainItem(*item);
+    for (const Item *item : moduleItems) ids.allocateItem(*item);
+    for (const Item *item : partyItems) ids.allocateItem(*item);
     return ids;
 }
 
