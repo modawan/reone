@@ -1,4 +1,4 @@
-name: Build and run tests on Linux
+name: Build and run tests on MacOS
 on:
   push:
     branches: [master]
