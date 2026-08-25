@@ -450,9 +450,47 @@ public:
     void bindSavedRuntimeState();
     void publishSavedRuntimeState();
 
-    uint32_t worldTimeDay() const { return _worldTimeDay; }
-    uint32_t worldTimeOfDay() const { return _worldTimeOfDay; }
+    /**
+     * World time as absolute elapsed world/simulation milliseconds.
+     *
+     * This is the canonical runtime clock. It advances with simulation dt and
+     * is never rescaled; Mod_MinPerHour only changes how the calendar divides
+     * it. Retail saves store a day and a time of day instead, so that split
+     * happens at the save and load boundaries and nowhere else.
+     */
+    uint64_t worldTimeMilliseconds() const { return _worldTimeMilliseconds; }
+
     uint8_t minutesPerHour() const { return _minutesPerHour; }
+
+    /**
+     * Length of a game day in world-time milliseconds.
+     *
+     * Mod_MinPerHour shortens the day - an in-game hour lasts that many
+     * minutes of world time - it does not change the rate at which the clock
+     * advances. Matches CWorldTimer, where m_nMillisecondsInDay =
+     * MinutesPerHour * 60 * 1000 * HOURS_IN_DAY and the raw timer accumulates
+     * elapsed time.
+     */
+    uint32_t millisecondsPerWorldDay() const {
+        return static_cast<uint32_t>(_minutesPerHour == 0 ? 5 : _minutesPerHour) *
+               60u * 1000u * 24u;
+    }
+
+    /**
+     * Calendar day, derived from the canonical clock. Calendar time is a real
+     * engine concept - day/night cycles, NPC schedules, waiting - and not just
+     * a detail of the save format.
+     */
+    uint32_t worldTimeDay() const {
+        return static_cast<uint32_t>(
+            _worldTimeMilliseconds / millisecondsPerWorldDay());
+    }
+
+    /** World milliseconds elapsed within the current calendar day. */
+    uint32_t worldTimeOfDay() const {
+        return static_cast<uint32_t>(
+            _worldTimeMilliseconds % millisecondsPerWorldDay());
+    }
     std::optional<float> remainingEffectDuration(const EffectInstance &effect) const;
 
     template <class T>
@@ -642,9 +680,7 @@ private:
     bool _runtimeSessionPlayable {false};
     bool _cheatUsed {false};
     uint64_t _runtimeSessionGeneration {1};
-    static constexpr uint32_t kMillisecondsPerDay = 24u * 60u * 60u * 1000u;
-    uint32_t _worldTimeDay {0};
-    uint32_t _worldTimeOfDay {0};
+    uint64_t _worldTimeMilliseconds {0};
     uint8_t _minutesPerHour {5};
     double _worldTimeFraction {0.0};
     double _playedTimeFraction {0.0};

@@ -237,6 +237,10 @@ public:
     static void initSnapshotLocalServices(Game &game);
     static void setSnapshotWorldTime(
         Game &game, uint32_t day, uint32_t time, uint8_t minutesPerHour);
+    /** Change the calendar scale without disturbing the canonical clock. */
+    static void setSnapshotMinutesPerHour(Game &game, uint8_t minutesPerHour);
+    static void advanceWorldTime(Game &game, float dt);
+    static void prepareWorldTimeFromIfo(Game &game, const resource::Gff &ifo);
     static void deserializeSnapshotRuntimeState(
         Object &object, const resource::Gff &gff);
     static void setSnapshotObjectId(Object &object, uint32_t objectId);

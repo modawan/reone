@@ -58,7 +58,6 @@ using resource::Gff;
 using resource::ResType;
 
 constexpr uint32_t kNcsHeaderSize = 13;
-constexpr uint32_t kMillisecondsPerDay = 24u * 60u * 60u * 1000u;
 
 std::shared_ptr<Gff> emptyRecord(uint32_t type) {
     return Gff::Builder().type(type).build();
@@ -174,17 +173,18 @@ std::shared_ptr<Gff> effectToGff(
     uint32_t expiryDay = effect.expiryDay;
     uint32_t expiryTime = effect.expiryTime;
     if (effect.durationType() == DurationType::Temporary && effect.remainingDuration) {
-        if (!game || game->minutesPerHour() == 0) {
+        // A Game is still needed to read the canonical clock. Mod_MinPerHour
+        // no longer enters the conversion: it only sets the day length that
+        // splits the absolute expiry into the retail day/time pair.
+        if (!game) {
             throw ValidationException("temporary effect lacks a game-time conversion context");
         }
-        uint64_t now = static_cast<uint64_t>(game->worldTimeDay()) * kMillisecondsPerDay +
-                       game->worldTimeOfDay();
         uint64_t delta = static_cast<uint64_t>(std::llround(
-            std::max(0.0f, *effect.remainingDuration) * 60000.0 /
-            game->minutesPerHour()));
-        uint64_t expiry = now + delta;
-        expiryDay = static_cast<uint32_t>(expiry / kMillisecondsPerDay);
-        expiryTime = static_cast<uint32_t>(expiry % kMillisecondsPerDay);
+            std::max(0.0f, *effect.remainingDuration) * 1000.0));
+        uint64_t expiry = game->worldTimeMilliseconds() + delta;
+        uint64_t millisecondsPerDay = game->millisecondsPerWorldDay();
+        expiryDay = static_cast<uint32_t>(expiry / millisecondsPerDay);
+        expiryTime = static_cast<uint32_t>(expiry % millisecondsPerDay);
     } else if (!effect.hasSerializableTemporalProvenance()) {
         throw ValidationException("temporary effect lacks save-facing expiry provenance");
     }
@@ -870,24 +870,21 @@ void ModuleSnapshotBuilder::appendRuntimeDelayedEvents(
                 " delayedIndex=" + std::to_string(index));
         }
 
-        // Object::_delayed counts stable-frame simulation seconds. EventQueue
-        // stores an absolute world timestamp, whose rate is controlled by
-        // Mod_MinPerHour. Snapshotting reads but never resets the live Timer.
+        // Object::_delayed counts stable-frame simulation seconds and the
+        // canonical clock counts world milliseconds, so the two share a unit.
+        // EventQueue stores an absolute timestamp as a day/time pair, split
+        // here at the serialization boundary. Snapshotting reads but never
+        // resets the live Timer.
         const double remainingSeconds = delayed.timer
                                             ? std::max(0.0f, delayed.timer->remaining())
                                             : 0.0f;
-        const double worldMilliseconds =
-            remainingSeconds * 60000.0 /
-            static_cast<double>(std::max<uint8_t>(1, _game._minutesPerHour));
-        const uint64_t now =
-            static_cast<uint64_t>(_game._worldTimeDay) * kMillisecondsPerDay +
-            _game._worldTimeOfDay;
-        const uint64_t absolute = now +
-            static_cast<uint64_t>(std::floor(worldMilliseconds));
+        const uint64_t absolute = _game._worldTimeMilliseconds +
+            static_cast<uint64_t>(std::floor(remainingSeconds * 1000.0));
+        const uint64_t millisecondsPerDay = _game.millisecondsPerWorldDay();
 
         SavedEventRecord event;
-        event.day = static_cast<uint32_t>(absolute / kMillisecondsPerDay);
-        event.time = static_cast<uint32_t>(absolute % kMillisecondsPerDay);
+        event.day = static_cast<uint32_t>(absolute / millisecondsPerDay);
+        event.time = static_cast<uint32_t>(absolute % millisecondsPerDay);
         event.object = SavedObjectReference(owner.id());
         event.caller = SavedObjectReference(owner.id());
         event.eventId = static_cast<uint32_t>(SavedEventType::Timed);
@@ -1496,8 +1493,10 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
     put(*result, Gff::Field::newFloat("Mod_Entry_Z", module._info.entryPosition.z));
     put(*result, Gff::Field::newFloat("Mod_Entry_Dir_X", -std::sin(module._info.entryFacing)));
     put(*result, Gff::Field::newFloat("Mod_Entry_Dir_Y", std::cos(module._info.entryFacing)));
-    put(*result, Gff::Field::newDword("Mod_CalendarDay", _game._worldTimeDay));
-    put(*result, Gff::Field::newDword("Mod_TimeOfDay", _game._worldTimeOfDay));
+    // Split the canonical clock into the retail pair. Records written here are
+    // therefore always normalized: Mod_TimeOfDay is below one day length.
+    put(*result, Gff::Field::newDword("Mod_CalendarDay", _game.worldTimeDay()));
+    put(*result, Gff::Field::newDword("Mod_TimeOfDay", _game.worldTimeOfDay()));
     put(*result, Gff::Field::newByte("Mod_MinPerHour", _game._minutesPerHour));
     put(*result, Gff::Field::newDword64("Mod_Effect_NxtId", _game._effectIds.nextId()));
     put(*result, Gff::Field::newStruct("SWVarTable", writeLocals(module)));

@@ -237,9 +237,13 @@ std::optional<SavedMoveToPoint> decodeMoveToPoint(const SavedActionRecord &recor
     bool timed = (flags & 4) != 0;
     bool ordinary = !timed && day == 0 && time == 0 && result.timeout == 0.0f;
     result.forcedPending = timed && result.timeout > 0.0f && day == 0 && time == 0;
+    // Only non-negative day/time are required. A time of day larger than the
+    // current day length is unnormalized, not invalid: records written before
+    // the day length became Mod_MinPerHour-derived used a fixed 24-hour scale,
+    // and composing them into absolute milliseconds carries the excess into
+    // later days. Snapshots written from here on are always normalized.
     result.forcedActive = !timed && (day != 0 || time != 0) &&
-                          result.timeout == 0.0f && day >= 0 && time >= 0 &&
-                          static_cast<uint32_t>(time) < 24u * 60u * 60u * 1000u;
+                          result.timeout == 0.0f && day >= 0 && time >= 0;
     bool valid =
         std::isfinite(result.destination.x) && std::isfinite(result.destination.y) &&
         std::isfinite(result.destination.z) && std::isfinite(result.range) &&
@@ -567,8 +571,10 @@ std::shared_ptr<Action> SavedActionRecord::toRuntimeAction(
             MoveToLocationAction::ForcedState state;
             state.areaId = decoded->area.id;
             state.active = decoded->forcedActive;
-            state.expiryDay = decoded->expiryDay;
-            state.expiryTime = decoded->expiryTime;
+            state.expiryMilliseconds =
+                static_cast<uint64_t>(decoded->expiryDay) *
+                    game.millisecondsPerWorldDay() +
+                decoded->expiryTime;
             auto location = std::make_shared<Location>(decoded->destination, 0.0f);
             auto action = game.newAction<MoveToLocationAction>(
                 std::move(location), decoded->run,
@@ -585,8 +591,10 @@ std::shared_ptr<Action> SavedActionRecord::toRuntimeAction(
         state.destination = decoded->destination;
         state.areaId = decoded->area.id;
         state.active = decoded->forcedActive;
-        state.expiryDay = decoded->expiryDay;
-        state.expiryTime = decoded->expiryTime;
+        state.expiryMilliseconds =
+            static_cast<uint64_t>(decoded->expiryDay) *
+                game.millisecondsPerWorldDay() +
+            decoded->expiryTime;
         auto action = game.newAction<MoveToObjectAction>(
             std::move(target), decoded->run, decoded->range,
             decoded->forcedPending ? decoded->timeout : 0.0f, state);

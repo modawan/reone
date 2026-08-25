@@ -97,8 +97,15 @@ void reone::game::TestGameModule::initSnapshotLocalServices(Game &game) {
 
 void reone::game::TestGameModule::setSnapshotWorldTime(
     Game &game, uint32_t day, uint32_t time, uint8_t minutesPerHour) {
-    game._worldTimeDay = day;
-    game._worldTimeOfDay = time;
+    // Compose the canonical clock the same way the load boundary does: the day
+    // length has to be known before the pair means anything.
+    game._minutesPerHour = minutesPerHour;
+    game._worldTimeMilliseconds =
+        static_cast<uint64_t>(day) * game.millisecondsPerWorldDay() + time;
+}
+
+void reone::game::TestGameModule::setSnapshotMinutesPerHour(
+    Game &game, uint8_t minutesPerHour) {
     game._minutesPerHour = minutesPerHour;
 }
 
@@ -378,7 +385,9 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     auto effect = EffectInstance::fromGff(
         *playerRecord->getList("EffectList").front());
     EXPECT_EQ(effect.expiryDay, 3u);
-    EXPECT_EQ(effect.expiryTime, 241000u);
+    // Twenty seconds remaining. World-time milliseconds are real milliseconds,
+    // as in CWorldTimer, so this is 1000 + 20 * 1000.
+    EXPECT_EQ(effect.expiryTime, 21000u);
     ASSERT_TRUE(game.remainingEffectDuration(effect));
     EXPECT_FLOAT_EQ(*game.remainingEffectDuration(effect), 20.0f);
     Creature e2Creature(player->id() + 1000, "", game, engine.services());
@@ -1179,8 +1188,8 @@ TEST_F(SnapshotFixture, runtime_delays_export_as_retail_timed_events_with_remain
     const auto &event = queue.events.front();
     EXPECT_EQ(event.eventId, static_cast<uint32_t>(SavedEventType::Timed));
     EXPECT_EQ(event.day, 3u);
-    // Six simulation seconds at five real minutes per game hour.
-    EXPECT_EQ(event.time, 73000u);
+    // Six simulation seconds. World-time milliseconds are real milliseconds.
+    EXPECT_EQ(event.time, 7000u);
     EXPECT_EQ(event.object.id, player->id());
     EXPECT_EQ(event.caller.id, player->id());
     const auto *situation = std::get_if<SerializedScriptSituation>(&event.payload);
@@ -1190,7 +1199,9 @@ TEST_F(SnapshotFixture, runtime_delays_export_as_retail_timed_events_with_remain
 }
 
 TEST_F(SnapshotFixture, runtime_delays_preserve_stable_time_order_and_fail_closed) {
-    TestGameModule::setSnapshotWorldTime(game, 2, 86390000, 10);
+    // One real second before the end of a game day. At Mod_MinPerHour=10 a day
+    // is 10 * 60 * 1000 * 24 ms, so the 2 s and 4 s delays cross midnight.
+    TestGameModule::setSnapshotWorldTime(game, 2, 10u * 60u * 1000u * 24u - 1000u, 10);
     auto delayed = [&](Object &owner, float seconds, int value) {
         auto program = std::make_shared<script::ScriptProgram>("ordered_delay");
         program->add(script::Instruction(script::InstructionType::RETN));
@@ -1213,11 +1224,11 @@ TEST_F(SnapshotFixture, runtime_delays_preserve_stable_time_order_and_fail_close
     auto queue = SavedEventQueue::fromGff(*readGff(result.snapshot->ifoBytes));
     ASSERT_EQ(queue.events.size(), 3);
     EXPECT_EQ(queue.events[0].day, 3u);
-    EXPECT_EQ(queue.events[0].time, 2000u);
+    EXPECT_EQ(queue.events[0].time, 1000u);
     EXPECT_EQ(queue.events[0].object.id, player->id());
-    EXPECT_EQ(queue.events[1].time, 2000u);
+    EXPECT_EQ(queue.events[1].time, 1000u);
     EXPECT_EQ(queue.events[1].object.id, door->id());
-    EXPECT_EQ(queue.events[2].time, 14000u);
+    EXPECT_EQ(queue.events[2].time, 3000u);
 
     door->delayAction(
         std::make_shared<UnserializableAction>(game, engine.services()), 3.0f);
@@ -1256,6 +1267,31 @@ TEST_F(SnapshotFixture, due_delay_is_inert_on_restore_and_delivered_exactly_once
     EXPECT_EQ(game.module()->pendingSavedEventCount(), 0u);
     TestGameModule::dispatchSnapshotEvents(*game.module());
     EXPECT_EQ(game.module()->pendingSavedEventCount(), 0u);
+}
+
+TEST_F(SnapshotFixture, writes_a_normalized_calendar_pair_split_from_the_absolute_clock) {
+    // The runtime clock is absolute milliseconds; the IFO stores a day and a
+    // time of day. The split happens here, at the serialization boundary, so
+    // every record written is normalized regardless of where the clock stands.
+    constexpr uint8_t kMinutesPerHour = 2;
+    const uint32_t millisecondsPerDay = kMinutesPerHour * 60u * 1000u * 24u;
+    TestGameModule::setSnapshotWorldTime(
+        game, 6, millisecondsPerDay - 1000u, kMinutesPerHour);
+    TestGameModule::advanceWorldTime(game, 3.0f);
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+    ASSERT_TRUE(result) << result.message;
+    auto ifo = readGff(result.snapshot->ifoBytes);
+
+    EXPECT_EQ(ifo->getUint("Mod_MinPerHour"), kMinutesPerHour);
+    EXPECT_EQ(ifo->getUint("Mod_CalendarDay"), 7u);
+    EXPECT_EQ(ifo->getUint("Mod_TimeOfDay"), 2000u);
+    EXPECT_LT(ifo->getUint("Mod_TimeOfDay"), millisecondsPerDay);
+    // And the pair recomposes to exactly the clock that produced it.
+    EXPECT_EQ(static_cast<uint64_t>(ifo->getUint("Mod_CalendarDay")) *
+                      millisecondsPerDay +
+                  ifo->getUint("Mod_TimeOfDay"),
+              game.worldTimeMilliseconds());
 }
 
 TEST_F(SnapshotFixture, pending_start_conversation_is_a_supported_transition_snapshot_action) {

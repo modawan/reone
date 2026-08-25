@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 
 #include "../fixtures/engine.h"
+#include "../fixtures/game.h"
 
 #include "reone/game/action.h"
 #include "reone/game/action/attackobject.h"
@@ -657,8 +658,9 @@ TEST(SavedAction, move_to_location_imports_ordinary_pending_and_active_forced_ti
     ASSERT_TRUE(active);
     EXPECT_TRUE(active->isForced());
     EXPECT_TRUE(active->forcedState().active);
-    EXPECT_EQ(active->forcedState().expiryDay, 7u);
-    EXPECT_EQ(active->forcedState().expiryTime, 12345u);
+    // The retail pair is composed into an absolute deadline on restore.
+    EXPECT_EQ(active->forcedState().expiryMilliseconds,
+              7ull * game.millisecondsPerWorldDay() + 12345ull);
     auto reexported = active->saveFacingState();
     ASSERT_TRUE(reexported);
     EXPECT_EQ(std::get<int32_t>(reexported->parameters[5].payload), 1);
@@ -751,6 +753,112 @@ TEST(SavedAction, active_forced_move_preserves_absolute_world_time) {
     EXPECT_FLOAT_EQ(std::get<float>(exported->parameters[8].payload), 0.0f);
     EXPECT_EQ(std::get<int32_t>(exported->parameters[11].payload), 4);
     EXPECT_EQ(std::get<int32_t>(exported->parameters[12].payload), 12345);
+}
+
+TEST(SavedAction, forced_move_deadline_round_trips_across_a_day_boundary) {
+    // The runtime holds one absolute deadline; the retail record holds a
+    // day/time pair. Splitting on save and composing on load must be lossless
+    // even when the deadline sits on the far side of a day boundary.
+    for (GameID id : {GameID::KotOR, GameID::TSL}) {
+        TestEngine &engine = testEngine();
+        StubConsole console;
+        Game game(id, "", engine.options(), engine.services(), console);
+        auto area = game.newArea();
+        auto location = std::make_shared<Location>(glm::vec3(1.0f, 2.0f, 3.0f), 0.0f);
+
+        const uint64_t deadline =
+            3ull * game.millisecondsPerWorldDay() + 4567ull;
+        MoveToLocationAction::ForcedState state;
+        state.areaId = area->id();
+        state.active = true;
+        state.expiryMilliseconds = deadline;
+        auto runtime = game.newAction<MoveToLocationAction>(
+            location, false, true, 0.0f, state);
+
+        auto exported = runtime->saveFacingState();
+        ASSERT_TRUE(exported);
+        // Written records are always normalized.
+        EXPECT_EQ(std::get<int32_t>(exported->parameters[11].payload), 3);
+        EXPECT_EQ(std::get<int32_t>(exported->parameters[12].payload), 4567);
+
+        ASSERT_TRUE(exported->bindObjectReferences(game));
+        auto restored = std::dynamic_pointer_cast<MoveToLocationAction>(
+            exported->toRuntimeAction(game));
+        ASSERT_TRUE(restored);
+        EXPECT_TRUE(restored->forcedState().active);
+        EXPECT_EQ(restored->forcedState().expiryMilliseconds, deadline);
+    }
+}
+
+TEST(SavedAction, forced_move_accepts_an_unnormalized_legacy_time_of_day) {
+    // Records written before the day length became Mod_MinPerHour-derived hold
+    // a time of day on the old fixed 24-hour scale, which overflows the current
+    // day length. That is unnormalized, not invalid: it must still restore.
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    constexpr uint32_t kLegacyTimeOfDay = 24u * 60u * 60u * 1000u - 1u;
+    ASSERT_GT(kLegacyTimeOfDay, game.millisecondsPerWorldDay());
+
+    auto record = SavedActionRecord::fromGff(
+        *moveToPointAction(area->id(), glm::vec3(8.0f), 1, 0.0f, 2,
+                           static_cast<int32_t>(kLegacyTimeOfDay)));
+    ASSERT_TRUE(record.bindObjectReferences(game));
+    auto restored = std::dynamic_pointer_cast<MoveToLocationAction>(
+        record.toRuntimeAction(game));
+    ASSERT_TRUE(restored);
+    EXPECT_TRUE(restored->forcedState().active);
+    EXPECT_EQ(restored->forcedState().expiryMilliseconds,
+              2ull * game.millisecondsPerWorldDay() + kLegacyTimeOfDay);
+
+    // And re-exporting it normalizes the pair.
+    auto exported = restored->saveFacingState();
+    ASSERT_TRUE(exported);
+    EXPECT_GT(std::get<int32_t>(exported->parameters[11].payload), 2);
+    EXPECT_LT(static_cast<uint32_t>(std::get<int32_t>(exported->parameters[12].payload)),
+              game.millisecondsPerWorldDay());
+}
+
+TEST(SavedRuntimePublication, should_compare_event_due_times_on_the_absolute_clock) {
+    // An unnormalized record whose Time exceeds one day length is due two days
+    // later, not on the next calendar rollover. A lexicographic day/time
+    // comparison fires it a whole day early.
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    ON_CALL(engine.sceneModule().graphs(), get(_)).WillByDefault(ReturnRef(sceneGraph));
+
+    auto ifo = Gff::Builder()
+                   .field(Gff::Field::newDword("Mod_CalendarDay", 4))
+                   .field(Gff::Field::newDword("Mod_TimeOfDay", 0))
+                   .field(Gff::Field::newDword("Mod_MinPerHour", 5))
+                   .build();
+    game.prepareSavedRuntimeNamespace(*ifo);
+    const uint32_t millisecondsPerDay = game.millisecondsPerWorldDay();
+    auto module = game.newModule();
+
+    auto queue = Gff::Builder()
+                     .field(Gff::Field::newList(
+                         "EventQueue",
+                         {event(5, 4, 2u * millisecondsPerDay, minimalEffect())}))
+                     .build();
+    module->deserializeSavedEventQueue(*queue);
+    module->bindSavedEventQueue();
+    module->publishSavedEventQueue();
+    ASSERT_EQ(module->pendingSavedEventCount(), 1);
+
+    // One day on: a lexicographic comparison would call this due already.
+    TestGameModule::setSnapshotWorldTime(game, 5, 0, 5);
+    module->dispatchDueSavedEvents();
+    EXPECT_EQ(module->pendingSavedEventCount(), 1)
+        << "an event two day lengths out must not fire after one";
+
+    TestGameModule::setSnapshotWorldTime(game, 6, 0, 5);
+    module->dispatchDueSavedEvents();
+    EXPECT_EQ(module->pendingSavedEventCount(), 0);
+    EXPECT_EQ(module->effects().size(), 1);
 }
 
 TEST(SavedAction, runtime_do_command_exports_retail_action_37_situation) {
@@ -987,7 +1095,9 @@ TEST(SavedRuntimePublication, should_publish_supported_events_without_dispatchin
     EffectInstance expiring;
     expiring.subType = static_cast<uint16_t>(DurationType::Temporary);
     expiring.expiryDay = 4;
-    expiring.expiryTime = 60100;
+    // Five real seconds after the current world time of 100. World-time
+    // milliseconds are real milliseconds, as in CWorldTimer.
+    expiring.expiryTime = 5100;
     auto remaining = game.remainingEffectDuration(expiring);
     ASSERT_TRUE(remaining);
     EXPECT_FLOAT_EQ(*remaining, 5.0f);
