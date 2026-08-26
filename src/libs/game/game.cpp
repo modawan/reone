@@ -43,6 +43,7 @@
 #include "reone/game/party.h"
 #include "reone/game/reputes.h"
 #include "reone/game/room.h"
+#include "reone/game/savewidesnapshot.h"
 #include "reone/game/script/routines.h"
 #include "reone/game/surfaces.h"
 #include "reone/graphics/context.h"
@@ -83,6 +84,7 @@
 #include "reone/resource/provider/textures.h"
 #include "reone/resource/provider/walkmeshes.h"
 #include "reone/resource/resources.h"
+#include "reone/resource/saveworkingstate.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/drawdebug.h"
 #include "reone/scene/graphs.h"
@@ -1620,6 +1622,28 @@ void Game::deserializePazaakPartyTable(resource::Gff &ptGff) {
         warn("Game: invalid Pazaak list sizes in PARTYTABLE.res");
     }
 
+}
+
+void Game::saveNpcState(int npc) {
+    // Retail bounds the roster flat, then treats an empty slot as nothing to
+    // save rather than an error.
+    if (npc < 0 || npc >= static_cast<int>(Party::kMaxNpcCount)) {
+        return;
+    }
+    auto creature = _party.getAvailableMember(npc);
+    if (!creature) {
+        return;
+    }
+
+    // The same record a save writes for this roster slot, produced by the same
+    // serializer, so a companion persisted here reads back exactly as one
+    // persisted by saving would.
+    auto candidate = resource::SaveWorkingStateCandidate::fromCommitted(
+        _services.resource.director.committedSaveWorkingState());
+    candidate.put(
+        ResourceId("availnpc" + std::to_string(npc), ResType::Utc),
+        SaveWideSnapshotBuilder::availableNpcRecord(*this, *creature));
+    _services.resource.director.adoptSaveWorkingState(candidate.freeze());
 }
 
 void Game::deserializeAvailableNpcs() {

@@ -475,6 +475,17 @@ public:
     bool isLoadingFromSaveGame() const { return _loadingFromSaveGame; }
 
     /**
+     * Persist the current state of one roster NPC over its availnpc record.
+     *
+     * Scripts call this when a companion's state has to survive independently
+     * of the party it is or is not currently in - the roster record is what a
+     * later spawn reads back. Purely a write: membership, availability,
+     * control and placement are all left alone, and a slot holding no creature
+     * is silently nothing to save.
+     */
+    void saveNpcState(int npc);
+
+    /**
      * Length of a game day in world-time milliseconds.
      *
      * Mod_MinPerHour shortens the day - an in-game hour lasts that many

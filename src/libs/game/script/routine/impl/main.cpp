@@ -6010,7 +6010,9 @@ static Variable SaveNPCState(const std::vector<Variable> &args, const RoutineCon
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SaveNPCState");
+    ctx.game.saveNpcState(nNPC);
+
+    return Variable::ofNull();
 }
 
 static Variable GetCategoryFromTalent(const std::vector<Variable> &args, const RoutineContext &ctx) {
