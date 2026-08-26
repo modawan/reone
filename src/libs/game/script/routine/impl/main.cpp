@@ -2572,7 +2572,7 @@ static Variable RandomName(const std::vector<Variable> &args, const RoutineConte
 
 static Variable GetLoadFromSaveGame(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetLoadFromSaveGame");
+    return Variable::ofInt(static_cast<int>(ctx.game.isLoadingFromSaveGame()));
 }
 
 static Variable GetName(const std::vector<Variable> &args, const RoutineContext &ctx) {

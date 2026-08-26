@@ -69,6 +69,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/minigame.cpp
     ${TESTS_SOURCE_DIR}/game/modulename.cpp
     ${TESTS_SOURCE_DIR}/game/modulesnapshot.cpp
+    ${TESTS_SOURCE_DIR}/game/loadfromsavegame.cpp
     ${TESTS_SOURCE_DIR}/game/savegame.cpp
     ${TESTS_SOURCE_DIR}/game/savedgame.cpp
     ${TESTS_SOURCE_DIR}/game/saveload.cpp

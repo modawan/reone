@@ -463,6 +463,18 @@ public:
     uint8_t minutesPerHour() const { return _minutesPerHour; }
 
     /**
+     * Whether the world currently being built came from loading a save from
+     * disk, as opposed to a new game or an ordinary module transition.
+     *
+     * Authored scripts read this to skip entry work - spawns, cutscenes,
+     * destruction - whose results the save already holds. It is true only
+     * while the initial module of a save load is being restored, so an
+     * ordinary transition or a revisit to a module the save already knows
+     * reports false.
+     */
+    bool isLoadingFromSaveGame() const { return _loadingFromSaveGame; }
+
+    /**
      * Length of a game day in world-time milliseconds.
      *
      * Mod_MinPerHour shortens the day - an in-game hour lasts that many
@@ -680,6 +692,7 @@ private:
     bool _runtimeSessionPlayable {false};
     bool _cheatUsed {false};
     uint64_t _runtimeSessionGeneration {1};
+    bool _loadingFromSaveGame {false};
     uint64_t _worldTimeMilliseconds {0};
     uint8_t _minutesPerHour {5};
     double _worldTimeFraction {0.0};

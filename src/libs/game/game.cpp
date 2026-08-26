@@ -916,6 +916,15 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
         ~TransitionGuard() { value = false; }
     } transitionGuard {_transitionInProgress};
 
+    // Restoring a save is the only load an authored script may see as such,
+    // and only while it runs: the flag falls away on completion, on failure
+    // and on the way out of any exception.
+    _loadingFromSaveGame = initialSaveRestore;
+    struct LoadFromSaveGuard {
+        bool &value;
+        ~LoadFromSaveGuard() { value = false; }
+    } loadFromSaveGuard {_loadingFromSaveGame};
+
     // A module transition is a technical Pazaak abort. It must not manufacture
     // a result or invoke the pending continuation.
     abortPazaak();
