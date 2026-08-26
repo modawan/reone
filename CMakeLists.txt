@@ -36,23 +36,15 @@ option(ENABLE_ASAN "enable address sanitizer" OFF)
 
 # Dependencies
 
-list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
+list(PREPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 find_package(Boost REQUIRED COMPONENTS program_options exception json)
 find_package(OpenGL REQUIRED)
 find_package(MAD REQUIRED)
-
+find_package(OpenAL REQUIRED)
 if(MSVC)
-    find_package(OpenAL CONFIG REQUIRED)
     find_package(SDL3 CONFIG REQUIRED)
 else()
     find_package(PkgConfig REQUIRED)
-    if(APPLE)
-        # OpenAL.framework is deprecated. Prefer OpenAL-soft from homebrew.
-        set(CMAKE_PREFIX_PATH "/opt/homebrew/opt/openal-soft")
-        find_package(OpenAL CONFIG REQUIRED)
-    else()
-        pkg_check_modules(OpenAL REQUIRED openal)
-    endif()
     pkg_check_modules(SDL3 REQUIRED sdl3)
     find_package(Threads REQUIRED)
 endif()
