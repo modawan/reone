@@ -19,6 +19,8 @@
 
 #include "../gui.h"
 
+#include "confirmpopup.h"
+
 namespace reone {
 
 namespace resource {
@@ -50,21 +52,44 @@ class GalaxyMapTestAccess;
  * Everything the panel shows comes from planetary.2da. A row names the GUI
  * control that stands for the planet, the strings describing it, and the model
  * shown in the lower preview.
+ *
+ * K2 authors its own panel and adds two rules of its own: a destination can be
+ * locked out with a reason to show for it, and accepting the location the party
+ * is already at says so instead of travelling.
  */
 class GalaxyMap : public GameGUI {
 public:
-    GalaxyMap(Game &game, ServicesView &services) :
-        GameGUI(game, services) {
-        _resRef = "galaxymap";
-    }
+    GalaxyMap(Game &game, ServicesView &services);
 
     /** Bring the panel in line with the current planet state before it opens. */
-    void prepare();
+    void prepare(int initialPlanet = -1);
+
+    /** Move the choice to the next or previous planet the party can reach. */
+    void selectNextDestination() { selectAdjacentDestination(1); }
+    void selectPreviousDestination() { selectAdjacentDestination(-1); }
+
+    /** Whether the travel script this panel dispatched is still running. */
+    bool isRunningTravelScript() const { return _runningTravelScript; }
 
     bool handle(const input::Event &event) override;
+    void update(float dt) override;
+    void render() override;
 
 private:
     friend class GalaxyMapTestAccess;
+
+    /** What pressing Accept on the current choice comes to. */
+    enum class AcceptOutcome {
+        Nothing,
+        Message,
+        Travel
+    };
+
+    struct AcceptDecision {
+        AcceptOutcome outcome {AcceptOutcome::Nothing};
+        /** String to show when the outcome is a message, -1 when there is none. */
+        int strRef {-1};
+    };
 
     std::shared_ptr<resource::TwoDA> _planetary;
 
@@ -87,6 +112,11 @@ private:
     int _hoveredPlanet {-1};
     bool _accepting {false};
 
+    /** The current physical planet for this opening, for K2 location checking. */
+    int _locationAtOpen {-1};
+    bool _runningTravelScript {false};
+    std::unique_ptr<ConfirmPopup> _popup;
+
     void onGUILoaded() override;
     void onSelectionChanged(const std::string &control, bool selected) override;
 
@@ -100,6 +130,18 @@ private:
     void detachCameras(scene::ModelSceneNode &model);
 
     bool isTravelDestination(int row) const;
+    bool isSelectableOnMap(int row) const;
+    int lockedOutReason(int row) const;
+
+    void applyOpeningSelection(int initialPlanet);
+    int adjacentDestination(int from, int step) const;
+    void selectAdjacentDestination(int step);
+
+    AcceptDecision decideAccept() const;
+    void showMessage(int strRef);
+
+    uint32_t travelScriptCaller() const;
+    void runTravelScript();
 
     void select(int row);
     void refreshPresentation();

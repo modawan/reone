@@ -237,6 +237,8 @@ public:
     void openPartySelection(const PartySelectionContext &ctx);
     void openSaveLoad(SaveLoadMode mode);
     void openGalaxyMap(int initialPlanet);
+    /** Whether the galaxy map may take the screen over from the given one. */
+    static bool canOpenGalaxyMapFrom(Screen screen);
 
     // KotOR I Pazaak lifecycle
 
