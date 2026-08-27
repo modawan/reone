@@ -564,6 +564,12 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildNfo() const {
     return result;
 }
 
+ByteBuffer SaveWideSnapshotBuilder::availableNpcRecord(
+    const Game &game, const Creature &creature) {
+    ModuleSnapshotBuilder records(game, {});
+    return encode("UTC ", *records.writeCreature(creature, 0xffffffff, std::nullopt));
+}
+
 SaveWideSnapshotResult SaveWideSnapshotBuilder::build() const noexcept {
     SaveWideSnapshotResult result;
     if (!_game._module || !_game._module->area() || !_game._runtimeSessionPlayable) {

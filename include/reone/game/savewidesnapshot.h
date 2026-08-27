@@ -21,6 +21,7 @@ class SaveWorkingStateCandidate;
 namespace game {
 
 class Game;
+class Creature;
 
 struct SaveMetadataInput {
     std::string displayName;
@@ -77,6 +78,13 @@ public:
     }
 
     SaveWideSnapshotResult build() const noexcept;
+
+    /**
+     * The availnpc record for one roster creature, in the same shape a save
+     * writes, so a companion persisted outside a save reads back identically.
+     */
+    static ByteBuffer availableNpcRecord(
+        const Game &game, const Creature &creature);
 
 private:
     const Game &_game;
