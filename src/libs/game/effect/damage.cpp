@@ -27,23 +27,16 @@
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 
+#include <cassert>
+
 namespace reone {
 
 namespace game {
 
 static constexpr int kDamageTypeCount = 15;
 
-static int applyNativeDamageImmunityDelta(int current, long long delta) {
-    // Native processing performs each immunity adjustment with addb/subb, sign-extends the
-    // resulting byte, and only then applies the setter's [-100, 100] clamp.
-    // Preserve that per-effect truncation instead of accumulating in an int.
-    long long raw = static_cast<long long>(current) + delta;
-    int byte = static_cast<int>(raw % 0x100);
-    if (byte < 0) {
-        byte += 0x100;
-    }
-    int signedByte = byte < 0x80 ? byte : byte - 0x100;
-    return std::clamp(signedByte, -100, 100);
+static int applyDamageImmunityDelta(int current, int delta) {
+    return std::clamp(current + delta, -100, 100);
 }
 
 DamageType getPrimaryDamageType(int damageFlags) {
@@ -112,9 +105,9 @@ static int getDamageImmunity(const Object &object, DamageType damageType) {
                 if (damageTypeMatches(
                         static_cast<int>(effect.damageType()),
                         static_cast<int>(type))) {
-                    immunity = applyNativeDamageImmunityDelta(
+                    immunity = applyDamageImmunityDelta(
                         immunity,
-                        static_cast<long long>(effect.percentImmunity()));
+                        effect.percentImmunity());
                 }
                 break;
             }
@@ -124,9 +117,9 @@ static int getDamageImmunity(const Object &object, DamageType damageType) {
                 if (damageTypeMatches(
                         static_cast<int>(effect.damageType()),
                         static_cast<int>(type))) {
-                    immunity = applyNativeDamageImmunityDelta(
+                    immunity = applyDamageImmunityDelta(
                         immunity,
-                        -static_cast<long long>(effect.percentImmunity()));
+                        -effect.percentImmunity());
                 }
                 break;
             }
@@ -331,9 +324,7 @@ static int applyDamageReduction(
 }
 
 void DamagePacket::requireUnresolved() const {
-    if (isResolved()) {
-        throw std::logic_error("Damage packet has already been resolved");
-    }
+    assert(!isResolved() && "damage packet has already been resolved");
 }
 
 void DamagePacket::addResolved(int amount, DamageType type) {
@@ -374,9 +365,7 @@ void DamagePacket::setPower(DamagePower power) {
 
 void DamagePacket::resolve(Object &object) {
     requireUnresolved();
-    if (_damageFlags == 0) {
-        throw std::logic_error("Damage packet has no damage flags");
-    }
+    assert(_damageFlags != 0 && "damage packet has no damage flags");
 
     DamageResolution result;
     result.damageFlags = _damageFlags;
@@ -410,9 +399,7 @@ void DamagePacket::resolve(Object &object) {
 }
 
 const DamageResolution &DamagePacket::resolution() const {
-    if (!_resolution) {
-        throw std::logic_error("Damage packet has not been resolved");
-    }
+    assert(_resolution && "damage packet has not been resolved");
     return *_resolution;
 }
 
@@ -428,13 +415,13 @@ int DamagePacket::total() const {
     return result;
 }
 
-void DamageEffect::applyTo(Object &object) {
+bool DamageEffect::onApply(Object &object) {
     // Native OnApplyDamage decides whether to enter the effect path from the
     // raw fifteen-slot payload. A raw-positive attack that mitigation reduces
     // to zero must still publish LastDamager/slot state and run OnDamaged.
     int entryAmount = _damage.total();
     if (entryAmount == 0 && !object.plotFlag()) {
-        return;
+        return true;
     }
 
     if (!_damage.isResolved()) {
@@ -444,12 +431,12 @@ void DamageEffect::applyTo(Object &object) {
     int amount = object.game().scaleDamageForDifficulty(
         _damage.resolvedDamage(),
         object);
-    std::array<int16_t, 15> damageAmounts = _context.damageAmounts;
+    std::array<int, 15> damageAmounts = _context.damageAmounts;
     if (_context.preResolved && damageAmounts.back() >= 0) {
-        damageAmounts.back() = static_cast<int16_t>(amount);
+        damageAmounts.back() = amount;
     }
     if (object.plotFlag() || (!_context.preResolved && amount == 0)) {
-        for (int16_t &value : damageAmounts) {
+        for (int &value : damageAmounts) {
             if (value >= 0) {
                 value = 0;
             }
@@ -458,6 +445,7 @@ void DamageEffect::applyTo(Object &object) {
 
     debug(str(boost::format("Damage taken: %s %d") % object.tag() % amount));
     object.applyDamageEffect(amount, _damager, damageAmounts);
+    return true;
 }
 
 } // namespace game

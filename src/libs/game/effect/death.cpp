@@ -23,8 +23,9 @@ namespace reone {
 
 namespace game {
 
-void DeathEffect::applyTo(Object &object) {
+bool DeathEffect::onApply(Object &object) {
     object.damage(std::numeric_limits<int>::max(), 0);
+    return true;
 }
 
 } // namespace game

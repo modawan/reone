@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void BeamEffect::applyTo(Object &object) {
+bool BeamEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

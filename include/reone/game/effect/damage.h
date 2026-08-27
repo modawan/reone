@@ -127,11 +127,14 @@ private:
 class DamageEffect : public Effect {
 public:
     struct ApplicationContext {
+        static constexpr int kAbsentDamageAmount = -1;
+
         ApplicationContext() {
-            damageAmounts.fill(-1);
+            // DamageType::Universal uses slot 3; -1 marks an unpopulated slot.
+            damageAmounts.fill(kAbsentDamageAmount);
         }
 
-        std::array<int16_t, 15> damageAmounts;
+        std::array<int, 15> damageAmounts;
         bool preResolved {false};
         bool suppressDamageShields {false};
         bool feedbackHandled {false};
@@ -147,16 +150,9 @@ public:
         _damage.add(amount, type);
         _damage.setDamageFlags(static_cast<int>(type));
 
-        int flags = static_cast<int>(type);
-        if (flags > 0 && (flags & (flags - 1)) == 0) {
-            int slot = 0;
-            while (flags > 1) {
-                flags >>= 1;
-                ++slot;
-            }
-            if (slot < static_cast<int>(_context.damageAmounts.size())) {
-                _context.damageAmounts[slot] = static_cast<int16_t>(amount);
-            }
+        auto slot = getDamageAmountSlot(type);
+        if (slot && *slot < static_cast<int>(_context.damageAmounts.size())) {
+            _context.damageAmounts[*slot] = amount;
         }
     }
 
@@ -173,11 +169,25 @@ public:
         }
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
     uint32_t damager() const { return _damager; }
 
 private:
+    static std::optional<int> getDamageAmountSlot(DamageType type) {
+        int flags = static_cast<int>(type);
+        if (flags <= 0 || (flags & (flags - 1)) != 0) {
+            return std::nullopt;
+        }
+
+        int slot = 0;
+        while (flags > 1) {
+            flags >>= 1;
+            ++slot;
+        }
+        return slot;
+    }
+
     DamagePacket _damage;
     uint32_t _damager;
     ApplicationContext _context;

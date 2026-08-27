@@ -30,7 +30,7 @@ public:
         _hitPoints(hitPoints) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
 private:
     int _hitPoints;

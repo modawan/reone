@@ -34,7 +34,7 @@ public:
         _modifierType(modifierType) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
     int bonus() const { return _bonus; }
     AttackBonus modifierType() const { return _modifierType; }

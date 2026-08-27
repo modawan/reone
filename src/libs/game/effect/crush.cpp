@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void CrushEffect::applyTo(Object &object) {
+bool CrushEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

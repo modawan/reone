@@ -34,7 +34,7 @@ public:
         _damageType(damageType) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
     int bonus() const { return _bonus; }
     DamageType damageType() const { return _damageType; }

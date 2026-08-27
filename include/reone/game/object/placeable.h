@@ -52,7 +52,7 @@ public:
     void applyDamageEffect(
         int amount,
         uint32_t damager,
-        const std::array<int16_t, 15> &damageAmounts) override;
+        const std::array<int, 15> &damageAmounts) override;
 
     bool hasInventory() const { return _hasInventory; }
     bool isSelectable() const override { return _usable; }

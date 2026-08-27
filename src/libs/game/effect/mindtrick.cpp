@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void MindTrickEffect::applyTo(Object &object) {
+bool MindTrickEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

@@ -31,7 +31,7 @@ public:
         _parentEffect(std::move(parentEffect)) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
 private:
     std::shared_ptr<Effect> _childEffect;

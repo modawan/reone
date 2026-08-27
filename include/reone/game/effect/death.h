@@ -32,7 +32,7 @@ public:
         _noFadeAway(noFadeAway) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
 private:
     bool _spectacularDeath;

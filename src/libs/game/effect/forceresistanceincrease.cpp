@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void ForceResistanceIncreaseEffect::applyTo(Object &object) {
+bool ForceResistanceIncreaseEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

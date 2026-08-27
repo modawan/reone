@@ -57,7 +57,7 @@ public:
     void applyDamageEffect(
         int amount,
         uint32_t damager,
-        const std::array<int16_t, 15> &damageAmounts) override;
+        const std::array<int, 15> &damageAmounts) override;
 
     void open();
     void close();

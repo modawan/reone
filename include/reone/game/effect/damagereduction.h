@@ -36,7 +36,8 @@ public:
         _damagePower(damagePower) {
     }
 
-    void applyTo(Object &) override {
+    bool onApply(Object &) override {
+        return true;
     }
 
     int amount() const { return _absorption.amount(); }

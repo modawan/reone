@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void ParalyzeEffect::applyTo(Object &object) {
+bool ParalyzeEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

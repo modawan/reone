@@ -30,7 +30,7 @@ public:
         _poisonType(poisonType) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
 private:
     Poison _poisonType;

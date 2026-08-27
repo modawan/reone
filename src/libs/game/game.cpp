@@ -33,6 +33,7 @@
 #include "reone/game/d20/spells.h"
 #include "reone/game/debug.h"
 #include "reone/game/di/services.h"
+#include "reone/game/difficultyoptions.h"
 #include "reone/game/gui/hud.h"
 #include "reone/game/gui/sounds.h"
 #include "reone/game/location.h"
@@ -41,7 +42,6 @@
 #include "reone/game/room.h"
 #include "reone/game/script/routines.h"
 #include "reone/game/surfaces.h"
-#include "reone/game/twodautil.h"
 #include "reone/graphics/context.h"
 #include "reone/graphics/di/services.h"
 #include "reone/graphics/font.h"
@@ -86,7 +86,6 @@
 #include "reone/system/binarywriter.h"
 #include "reone/system/clock.h"
 #include "reone/system/di/services.h"
-#include "reone/system/exception/validation.h"
 #include "reone/system/fileutil.h"
 #include "reone/system/logutil.h"
 #include "reone/system/randomutil.h"
@@ -1314,24 +1313,16 @@ int Game::scaleDamageForDifficulty(int damage, const Object &target) const {
         return damage;
     }
 
-    bool playerTarget = _party.isMember(target) ||
-                        (_party.player() && _party.player()->id() == target.id());
-    if (!playerTarget) {
+    if (!_party.isMember(target)) {
         return damage;
     }
 
-    int row = static_cast<int>(_options.game.clientDifficulty);
-    auto table = getRequiredTwoDA(_services.resource.twoDas, "difficultyopt");
-    validateTwoDARow(*table, "difficultyopt", row);
-    auto multiplier = table->getFloatOpt(row, "multiplier");
-    if (!multiplier) {
-        if (row == 3) {
-            return damage;
-        }
-        throw ValidationException(str(boost::format(
-            "difficultyopt.2da multiplier missing at row %d") % row));
-    }
-    return static_cast<int>(static_cast<float>(damage) * *multiplier);
+    const DifficultyOption &difficulty =
+        _services.game.difficultyOptions.get(
+            static_cast<int>(_options.game.clientDifficulty));
+
+    return static_cast<int>(
+        static_cast<float>(damage) * difficulty.damageMultiplier);
 }
 
 void Game::renderGUI() {

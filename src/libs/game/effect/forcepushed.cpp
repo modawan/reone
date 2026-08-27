@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void ForcePushedEffect::applyTo(Object &object) {
+bool ForcePushedEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

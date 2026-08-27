@@ -62,7 +62,7 @@ public:
     virtual void applyDamageEffect(
         int amount,
         uint32_t damager,
-        const std::array<int16_t, 15> &damageAmounts);
+        const std::array<int, 15> &damageAmounts);
     void heal(int amount) { damage(-amount, 0); }
 
     void face(const Object &other);
@@ -218,13 +218,15 @@ public:
 
     uint32_t getLastHostileActor() const { return _lastHostileActor; }
     uint32_t getLastDamager() const { return _lastDamager; }
-    int getLastDamageAmount(int damageFlags) const;
+    // Returns the amount recorded for one atomic damage-type flag.
+    // Composite masks, including DamageType::Physical, return zero.
+    int getLastDamageAmountByType(int damageTypeFlag) const;
     int getTotalDamageDealt() const;
 
     void setLastHostileActor(uint32_t actor) { _lastHostileActor = actor; }
     void setLastDamager(uint32_t damager) { _lastDamager = damager; }
     void setLastDamageAmounts(
-        const std::array<int16_t, 15> &amounts) {
+        const std::array<int, 15> &amounts) {
         _lastDamageAmounts = amounts;
     }
 
@@ -307,7 +309,7 @@ protected:
 
     uint32_t _lastHostileActor {script::kObjectInvalid};
     uint32_t _lastDamager {script::kObjectInvalid};
-    std::array<int16_t, 15> _lastDamageAmounts;
+    std::array<int, 15> _lastDamageAmounts;
 
     // Local variables
 

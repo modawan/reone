@@ -50,10 +50,9 @@ struct EffectProvenance {
     EffectLinkClass linkClass {EffectLinkClass::None};
     int nativeType {-1};
     std::optional<int> versusRacialType;
-    // VersusAlignmentEffect retains both inherited slots. The VM validates
-    // the first, while physical-combat consumers compare the second with
-    // GetSimpleAlignmentGoodEvil().
     std::optional<int> versusLawChaos;
+    // Target-specific consumers evaluate this qualifier through
+    // Effect::appliesVersus().
     std::optional<int> versusGoodEvil;
 };
 
@@ -63,7 +62,8 @@ public:
         EffectType type,
         EffectProvenance provenance = {});
 
-    virtual void applyTo(Object &object);
+    // Validates and activates the effect. Returning false rejects it and
+    // prevents a later onRemove call.
     virtual bool onApply(Object &object);
     virtual void onRemove(Object &object);
 

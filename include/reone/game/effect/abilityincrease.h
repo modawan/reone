@@ -34,7 +34,7 @@ public:
         _modifyBy(modifyBy) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
     Ability ability() const { return _abilityToIncrease; }
     int amount() const { return _modifyBy; }

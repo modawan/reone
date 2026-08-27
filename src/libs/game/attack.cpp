@@ -34,6 +34,7 @@
 #include "reone/system/randomutil.h"
 
 #include <algorithm>
+#include <cassert>
 #include <initializer_list>
 
 namespace reone {
@@ -46,27 +47,7 @@ static constexpr int kUnarmedCriticalThreat = 1;
 static constexpr int kCriticalHitImmunityPropertySubtype = 8;
 static constexpr float kSpecialAttackDefensePenaltyDuration = 3.0f;
 
-static int toNativeSignedByte(int value) {
-    unsigned int byte = static_cast<unsigned int>(value) & 0xffu;
-    if (byte < 0x80u) {
-        return static_cast<int>(byte);
-    }
-    return static_cast<int>(byte) - 0x100;
-}
-
-static int toNativeUnsignedByte(int value) {
-    return static_cast<int>(static_cast<unsigned int>(value) & 0xffu);
-}
-
-static int toNativeSignedWord(int value) {
-    unsigned int word = static_cast<unsigned int>(value) & 0xffffu;
-    if (word < 0x8000u) {
-        return static_cast<int>(word);
-    }
-    return static_cast<int>(word) - 0x10000;
-}
-
-static int getNativeDamageSlot(DamageType type) {
+static int getDamageSlot(DamageType type) {
     int damageFlags = static_cast<int>(type);
     if (damageFlags <= 0) {
         throw std::invalid_argument("Damage breakdown type must be positive");
@@ -88,8 +69,8 @@ DamageBreakdown::DamageBreakdown() {
 }
 
 void DamageBreakdown::addRawDamage(int amount, DamageType type) {
-    int slot = getNativeDamageSlot(type);
-    int16_t &current = rawDamageSlots[slot];
+    int slot = getDamageSlot(type);
+    int &current = rawDamageSlots[slot];
     int result;
     if (current > 0) {
         result = current + amount;
@@ -99,7 +80,7 @@ void DamageBreakdown::addRawDamage(int amount, DamageType type) {
     } else {
         result = std::max(amount, 0);
     }
-    current = toNativeSignedWord(result);
+    current = result;
 }
 
 bool isMeleeWieldType(CreatureWieldType type) {
@@ -370,15 +351,13 @@ static void computeWeaponDamage(
 
     breakdown.strengthModifier = weapon.isRanged()
                                      ? 0
-                                     : toNativeSignedByte(
-                                           multiplier * physicalBonus.strengthModifier);
-    breakdown.weaponSpecialization = toNativeUnsignedByte(
-        multiplier * physicalBonus.weaponSpecialization);
-    breakdown.otherSpecialBonus = toNativeUnsignedByte(
-        multiplier * damageBonus + massiveCriticalDamage);
+                                     : multiplier * physicalBonus.strengthModifier;
+    breakdown.weaponSpecialization =
+        multiplier * physicalBonus.weaponSpecialization;
+    breakdown.otherSpecialBonus =
+        multiplier * damageBonus + massiveCriticalDamage;
     breakdown.criticalMultiplier = criticalConfirmed
-                                       ? toNativeSignedByte(
-                                             weapon.criticalHitMultiplier())
+                                       ? weapon.criticalHitMultiplier()
                                        : 0;
 
     DamageType type = getPrimaryDamageType(weapon.damageFlags());
@@ -399,7 +378,7 @@ static void computeWeaponDamage(
         targetCreature,
         &weapon,
         offHand));
-    if (toNativeSignedWord(amount) <= 0) {
+    if (amount <= 0) {
         breakdown.addRawDamage(1, type);
     }
 
@@ -433,12 +412,12 @@ static void computeUnarmedDamage(
         nullptr, result == AttackResultType::CriticalHit);
     amount += massiveCriticalDamage;
 
-    breakdown.strengthModifier = toNativeSignedByte(
-        multiplier * physicalBonus.strengthModifier);
-    breakdown.weaponSpecialization = toNativeUnsignedByte(
-        multiplier * physicalBonus.weaponSpecialization);
-    breakdown.otherSpecialBonus = toNativeUnsignedByte(
-        multiplier * damageBonus + massiveCriticalDamage);
+    breakdown.strengthModifier =
+        multiplier * physicalBonus.strengthModifier;
+    breakdown.weaponSpecialization =
+        multiplier * physicalBonus.weaponSpecialization;
+    breakdown.otherSpecialBonus =
+        multiplier * damageBonus + massiveCriticalDamage;
     breakdown.criticalMultiplier = criticalConfirmed
                                        ? 2
                                        : 0;
@@ -460,7 +439,7 @@ static void computeUnarmedDamage(
         targetCreature,
         nullptr,
         false));
-    if (toNativeSignedWord(amount) <= 0) {
+    if (amount <= 0) {
         breakdown.addRawDamage(1, DamageType::Bludgeoning);
     }
 
@@ -720,9 +699,7 @@ void AttackBuffer::resolveDamage(Object &target) {
 }
 
 void AttackBuffer::resolve(Creature &attacker, Object &target) {
-    if (_attacks.empty()) {
-        throw std::logic_error("Physical attack buffer is empty");
-    }
+    assert(!_attacks.empty() && "physical attack buffer is empty");
 
     resolveDamage(target);
 
@@ -753,8 +730,7 @@ void AttackBuffer::applyEffects(
             attack.damageBreakdown.rawDamageSlots.begin(),
             attack.damageBreakdown.rawDamageSlots.end(),
             context.damageAmounts.begin());
-        context.damageAmounts.back() = toNativeSignedWord(
-            attack.damage.resolvedDamage());
+        context.damageAmounts.back() = attack.damage.resolvedDamage();
         context.preResolved = true;
         context.suppressDamageShields = attack.ranged;
 
@@ -799,19 +775,15 @@ void AttackBuffer::prepareMeleeSequence(
     const IAnimations &animations,
     const std::vector<std::string> &attackAnimations) {
 
-    if (_attacks.empty()) {
-        throw std::logic_error("Physical attack buffer is empty");
-    }
+    assert(!_attacks.empty() && "physical attack buffer is empty");
     if (std::any_of(
             _attacks.begin(),
             _attacks.end(),
             [](const Attack &attack) { return attack.ranged; })) {
         throw std::logic_error("Ranged attack in melee sequence");
     }
-    if (attackAnimations.size() != _attacks.size()) {
-        throw std::logic_error(
-            "Melee attack animation count does not match attack count");
-    }
+    assert(attackAnimations.size() == _attacks.size() &&
+           "melee attack animation count does not match attack count");
 
     for (size_t index = 0; index < _attacks.size(); ++index) {
         Attack &attack = _attacks[index];
@@ -831,9 +803,8 @@ size_t AttackBuffer::signalReadyMelee(
     Creature &attacker,
     Object &target) {
 
-    if (!_meleeSequencePrepared) {
-        throw std::logic_error("Melee attack sequence is not prepared");
-    }
+    assert(_meleeSequencePrepared &&
+           "melee attack sequence is not prepared");
     if (!hasPendingMelee()) {
         return 0;
     }
@@ -866,9 +837,8 @@ size_t AttackBuffer::signalReadyMelee(
 }
 
 int AttackBuffer::latestMeleeImpactMilliseconds() const {
-    if (!_meleeSequencePrepared) {
-        throw std::logic_error("Melee attack sequence is not prepared");
-    }
+    assert(_meleeSequencePrepared &&
+           "melee attack sequence is not prepared");
 
     int latest = 0;
     for (const Attack &attack : _attacks) {
@@ -984,7 +954,6 @@ static void appendDefenseComponent(
     int strRef,
     int value) {
 
-    value = toNativeSignedByte(value);
     if (value == 0) {
         return;
     }
@@ -1038,7 +1007,7 @@ static std::string getDamageBreakdown(
     const DamagePacket &damage) {
 
     const DamageResolution &resolution = damage.resolution();
-    int finalDamage = toNativeSignedWord(resolution.finalDamage);
+    int finalDamage = resolution.finalDamage;
     if (finalDamage <= 0) {
         return {};
     }
@@ -1122,8 +1091,7 @@ static std::string getDamageBreakdown(
             values.sneakAttack);
     }
 
-    int improvedToughness = toNativeUnsignedByte(
-        resolution.improvedToughnessBonus);
+    int improvedToughness = resolution.improvedToughnessBonus;
     if (improvedToughness != 0) {
         appendDamageModifier(
             game,
@@ -1133,8 +1101,7 @@ static std::string getDamageBreakdown(
             kStrRefImprovedToughnessDamage,
             improvedToughness);
     }
-    int wookieeEndurance = toNativeUnsignedByte(
-        resolution.wookieeEnduranceBonus);
+    int wookieeEndurance = resolution.wookieeEnduranceBonus;
     if (wookieeEndurance != 0) {
         appendDamageModifier(
             game,
@@ -1260,10 +1227,8 @@ static std::string getMitigationFeedback(
                 {1, std::to_string(feedback.amount)},
             });
     case MitigationFeedbackType::FiniteDamageResistance:
-        if (!feedback.remaining) {
-            throw std::logic_error(
-                "Finite damage-resistance feedback has no remainder");
-        }
+        assert(feedback.remaining &&
+               "finite damage-resistance feedback has no remainder");
         return getFeedbackString(
             game,
             services,
@@ -1274,10 +1239,8 @@ static std::string getMitigationFeedback(
                 {2, std::to_string(*feedback.remaining)},
             });
     case MitigationFeedbackType::FiniteDamageReduction:
-        if (!feedback.remaining) {
-            throw std::logic_error(
-                "Finite damage-reduction feedback has no remainder");
-        }
+        assert(feedback.remaining &&
+               "finite damage-reduction feedback has no remainder");
         return getFeedbackString(
             game,
             services,
@@ -1288,7 +1251,8 @@ static std::string getMitigationFeedback(
                 {2, std::to_string(*feedback.remaining)},
             });
     }
-    throw std::logic_error("Invalid mitigation feedback type");
+    assert(false && "invalid mitigation feedback type");
+    return {};
 }
 
 static void addMitigationFeedback(
@@ -1364,7 +1328,7 @@ void AttackBuffer::addCombatFeedback(
 
     const std::string &attackerName = attacker.name();
     const std::string &targetName = target.name();
-    int defense = toNativeSignedByte(attack.defenseBreakdown.total);
+    int defense = attack.defenseBreakdown.total;
 
     bool successful = isAttackSuccessful(attack.result);
     std::string feedback = getFeedbackString(
@@ -1931,9 +1895,8 @@ AttackSchedule::State AttackSchedule::update(
 }
 
 void AttackSchedule::startMelee(int latestImpactMilliseconds) {
-    if (_state != AttackSchedule::Attack) {
-        throw std::logic_error("Melee attack schedule has not started");
-    }
+    assert(_state == AttackSchedule::Attack &&
+           "melee attack schedule has not started");
 
     _melee = true;
     _meleeElapsedMilliseconds = 0;

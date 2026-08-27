@@ -35,7 +35,7 @@ public:
     VisualEffect(int visualEffectId, bool missEffect, ServicesView &services);
     ~VisualEffect();
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
     void setLocation(glm::vec3 loc) { _location = loc; }
     float duration() const;
 

@@ -38,7 +38,7 @@ public:
         _secondaryDamageFlags(secondaryDamageFlags) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
     DamageType damageType() const { return _damageType; }
     int amount() const { return _absorption.amount(); }

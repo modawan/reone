@@ -32,7 +32,7 @@ public:
         _ignoreTestDirectLine(ignoreTestDirectLine) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
 private:
     std::shared_ptr<Location> _centre;

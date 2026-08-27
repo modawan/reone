@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void SavingThrowIncreaseEffect::applyTo(Object &object) {
+bool SavingThrowIncreaseEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void ForceFizzleEffect::applyTo(Object &object) {
+bool ForceFizzleEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

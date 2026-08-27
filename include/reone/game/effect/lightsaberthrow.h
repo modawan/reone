@@ -37,7 +37,7 @@ public:
         _advancedDamage(advancedDamage) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
 private:
     std::shared_ptr<Object> _target1;

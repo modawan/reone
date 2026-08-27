@@ -43,7 +43,7 @@ public:
         }
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
     ImmunityType immunityType() const { return _immunityType; }
 

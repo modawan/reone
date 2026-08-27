@@ -29,7 +29,7 @@ public:
         Effect(EffectType::CutSceneStunned) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 };
 
 } // namespace game

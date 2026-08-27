@@ -36,7 +36,8 @@ public:
         _onExitScript(std::move(onExitScript)) {
     }
 
-    void applyTo(Object &object) override {
+    bool onApply(Object &object) override {
+        return true;
     }
 
 private:

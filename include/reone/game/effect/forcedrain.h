@@ -30,7 +30,8 @@ public:
         _damage(damage) {
     }
 
-    void applyTo(Object &object) override {
+    bool onApply(Object &object) override {
+        return true;
     }
 
 private:

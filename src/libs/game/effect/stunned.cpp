@@ -23,10 +23,11 @@ namespace reone {
 
 namespace game {
 
-void StunnedEffect::applyTo(Object &object) {
+bool StunnedEffect::onApply(Object &object) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->setMovementType(Creature::MovementType::None);
     }
+    return true;
 }
 
 void StunnedEffect::onRemove(Object &object) {

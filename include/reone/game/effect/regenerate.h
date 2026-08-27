@@ -31,7 +31,7 @@ public:
         _intervalSeconds(intervalSeconds) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
 private:
     int _amount;

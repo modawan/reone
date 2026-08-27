@@ -43,12 +43,8 @@ Effect::Effect(
     }
 }
 
-void Effect::applyTo(Object &object) {
+bool Effect::onApply(Object &) {
     debug("Unsupported effect type: " + std::to_string(static_cast<int>(_type)));
-}
-
-bool Effect::onApply(Object &object) {
-    applyTo(object);
     return true;
 }
 

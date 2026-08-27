@@ -22,8 +22,9 @@ namespace reone {
 
 namespace game {
 
-void HealEffect::applyTo(Object &object) {
+bool HealEffect::onApply(Object &object) {
     object.heal(_damageToHeal);
+    return true;
 }
 
 } // namespace game

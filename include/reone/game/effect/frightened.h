@@ -29,7 +29,8 @@ public:
         Effect(EffectType::Frightened) {
     }
 
-    void applyTo(Object &object) override {
+    bool onApply(Object &object) override {
+        return true;
     }
 };
 

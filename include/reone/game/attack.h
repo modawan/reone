@@ -138,7 +138,7 @@ struct DamageBreakdown {
 
     void addRawDamage(int amount, DamageType type);
 
-    std::array<int16_t, 14> rawDamageSlots;
+    std::array<int, 14> rawDamageSlots;
     int strengthModifier {0};
     int otherSpecialBonus {0};
     int sneakAttack {0};

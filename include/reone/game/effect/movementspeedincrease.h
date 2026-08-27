@@ -30,7 +30,7 @@ public:
         _newSpeedPercent(newSpeedPercent) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
 private:
     int _newSpeedPercent;

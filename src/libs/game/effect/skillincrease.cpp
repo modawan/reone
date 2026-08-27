@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void SkillIncreaseEffect::applyTo(Object &object) {
+bool SkillIncreaseEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

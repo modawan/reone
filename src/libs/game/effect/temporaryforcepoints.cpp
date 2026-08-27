@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void TemporaryForcePointsEffect::applyTo(Object &object) {
+bool TemporaryForcePointsEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

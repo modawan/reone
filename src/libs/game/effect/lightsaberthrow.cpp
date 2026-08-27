@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void LightsaberThrowEffect::applyTo(Object &object) {
+bool LightsaberThrowEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

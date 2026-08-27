@@ -64,9 +64,9 @@ static float durationSound(const std::shared_ptr<audio::AudioClip> &sound) {
     return sound->duration();
 }
 
-void VisualEffect::applyTo(Object &object) {
+bool VisualEffect::onApply(Object &object) {
     if (!_desc || !_location) {
-        return;
+        return true;
     }
 
     scene::ISceneGraph *graph = nullptr;
@@ -77,7 +77,7 @@ void VisualEffect::applyTo(Object &object) {
     }
 
     if (!graph) {
-        return;
+        return true;
     }
 
     if (_desc->impRootMNode) {
@@ -95,6 +95,7 @@ void VisualEffect::applyTo(Object &object) {
             /*loop=*/false,
             _location);
     }
+    return true;
 }
 
 float VisualEffect::duration() const {

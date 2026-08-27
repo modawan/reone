@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void CutsceneHorrifiedEffect::applyTo(Object &object) {
+bool CutsceneHorrifiedEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

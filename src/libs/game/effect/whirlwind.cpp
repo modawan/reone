@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void WhirlWindEffect::applyTo(Object &object) {
+bool WhirlWindEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

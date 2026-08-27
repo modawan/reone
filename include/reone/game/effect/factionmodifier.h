@@ -30,7 +30,7 @@ public:
         _newFaction(newFaction) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
 private:
     int _newFaction;

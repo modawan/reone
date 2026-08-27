@@ -36,7 +36,7 @@ public:
         _savingThrowType(savingThrowType) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
     int save() const { return _save; }
     int value() const { return _value; }

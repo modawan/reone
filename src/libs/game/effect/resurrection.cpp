@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void ResurrectionEffect::applyTo(Object &object) {
+bool ResurrectionEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

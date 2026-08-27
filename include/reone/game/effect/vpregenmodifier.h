@@ -30,7 +30,7 @@ public:
         _percent(percent) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
 private:
     int _percent;

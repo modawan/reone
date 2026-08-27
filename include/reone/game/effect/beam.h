@@ -37,7 +37,7 @@ public:
         _missEffect(missEffect) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
 private:
     int _beamVisualEffect;

@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void LinkEffectsEffect::applyTo(Object &object) {
+bool LinkEffectsEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

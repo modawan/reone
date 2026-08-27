@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void DamageDecreaseEffect::applyTo(Object &object) {
+bool DamageDecreaseEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game

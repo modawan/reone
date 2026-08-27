@@ -3470,7 +3470,7 @@ static Variable GetDamageDealtByType(const std::vector<Variable> &args, const Ro
     case ObjectType::Creature:
     case ObjectType::Door:
     case ObjectType::Placeable:
-        return Variable::ofInt(object->getLastDamageAmount(nDamageType));
+        return Variable::ofInt(object->getLastDamageAmountByType(nDamageType));
     default:
         return Variable::ofInt(0);
     }
@@ -3554,9 +3554,8 @@ static Variable VersusAlignmentEffect(const std::vector<Variable> &args, const R
     auto nLawChaos = getIntOrElse(args, 1, 0);
     auto nGoodEvil = getIntOrElse(args, 2, 0);
 
-    // The VM validates only the first inherited argument. Supported effect
-    // families retain both slots; physical-combat consumers compare the
-    // second with GetSimpleAlignmentGoodEvil.
+    // Target-specific consumers evaluate the stored alignment qualifier
+    // through Effect::appliesVersus().
     if (!eEffect ||
         nLawChaos < 0 || nLawChaos > 3) {
         return Variable::ofEffect(std::move(eEffect));

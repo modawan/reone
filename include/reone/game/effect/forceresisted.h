@@ -30,7 +30,7 @@ public:
         _source(source) {
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object) override;
 
 private:
     Object &_source;

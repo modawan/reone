@@ -585,21 +585,22 @@ void Object::damage(int amount, uint32_t damager) {
 void Object::applyDamageEffect(
     int amount,
     uint32_t damager,
-    const std::array<int16_t, 15> &damageAmounts) {
+    const std::array<int, 15> &damageAmounts) {
 
     setLastDamager(damager ? damager : script::kObjectInvalid);
     setLastDamageAmounts(damageAmounts);
     damage(amount, damager);
 }
 
-int Object::getLastDamageAmount(int damageFlags) const {
-    if (damageFlags <= 0 || (damageFlags & (damageFlags - 1)) != 0) {
+int Object::getLastDamageAmountByType(int damageTypeFlag) const {
+    if (damageTypeFlag <= 0 ||
+        (damageTypeFlag & (damageTypeFlag - 1)) != 0) {
         return 0;
     }
 
     int slot = 0;
-    while (damageFlags > 1) {
-        damageFlags >>= 1;
+    while (damageTypeFlag > 1) {
+        damageTypeFlag >>= 1;
         ++slot;
     }
     if (slot >= static_cast<int>(_lastDamageAmounts.size())) {

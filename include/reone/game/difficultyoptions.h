@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,23 +17,45 @@
 
 #pragma once
 
-#include "../effect.h"
+#include <string>
+#include <vector>
 
 namespace reone {
 
+namespace resource {
+
+class ITwoDAs;
+
+} // namespace resource
+
 namespace game {
 
-class ForceBodyEffect : public Effect {
+struct DifficultyOption {
+    int nameStrRef {-1};
+    std::string description;
+    float damageMultiplier {1.0f};
+};
+
+class IDifficultyOptions {
 public:
-    ForceBodyEffect(int level) :
-        Effect(EffectType::ForceBody),
-        _level(level) {
+    virtual ~IDifficultyOptions() = default;
+
+    virtual const DifficultyOption &get(int difficulty) const = 0;
+};
+
+class DifficultyOptions : public IDifficultyOptions, boost::noncopyable {
+public:
+    explicit DifficultyOptions(resource::ITwoDAs &twoDas) :
+        _twoDas(twoDas) {
     }
 
-    bool onApply(Object &object) override;
+    void init();
+
+    const DifficultyOption &get(int difficulty) const override;
 
 private:
-    int _level;
+    resource::ITwoDAs &_twoDas;
+    std::vector<DifficultyOption> _options;
 };
 
 } // namespace game

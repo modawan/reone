@@ -21,8 +21,9 @@ namespace reone {
 
 namespace game {
 
-void MovementSpeedDecreaseEffect::applyTo(Object &object) {
+bool MovementSpeedDecreaseEffect::onApply(Object &object) {
     // TODO: implement
+    return true;
 }
 
 } // namespace game
