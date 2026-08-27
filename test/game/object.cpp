@@ -5022,7 +5022,7 @@ TEST(SavedRuntimeState, accepts_retail_low_ids_but_rejects_invalid_and_duplicate
     EXPECT_THROW(game.newItem(*saved), ValidationException);
 }
 
-TEST(SavedRuntimeState, keeps_structural_module_outside_the_saved_object_registry) {
+TEST(SavedRuntimeState, gives_structural_module_a_transient_runtime_identity) {
     TestEngine engine;
     engine.init();
     StubConsole console;
@@ -5031,9 +5031,10 @@ TEST(SavedRuntimeState, keeps_structural_module_outside_the_saved_object_registr
     auto module = game.newSavedModule();
     auto area = game.newSavedArea(0);
 
-    EXPECT_EQ(0u, module->id());
+    EXPECT_EQ(2u, module->id());
     EXPECT_EQ(0u, area->id());
-    EXPECT_EQ(1u, engine.gameModule().objectRegistrySize(game));
+    EXPECT_EQ(module, game.getObjectById(module->id()));
+    EXPECT_EQ(2u, engine.gameModule().objectRegistrySize(game));
 }
 
 TEST(SavedRuntimeState, reserves_the_actual_retail_graph_before_owner_local_allocations) {
@@ -5073,11 +5074,12 @@ TEST(SavedRuntimeState, reserves_the_actual_retail_graph_before_owner_local_allo
     auto savedTrigger = game.newTrigger(*trigger);
     auto savedPlaceable = game.newPlaceable(*placeable);
 
-    EXPECT_EQ(0u, module->id());
+    EXPECT_EQ(52u, module->id());
     EXPECT_EQ(0u, savedArea->id());
     EXPECT_EQ(1u, savedTrigger->id());
     EXPECT_EQ(50u, savedPlaceable->id());
-    EXPECT_EQ(52u, engine.gameModule().objectRegistrySize(game));
+    EXPECT_EQ(module, game.getObjectById(module->id()));
+    EXPECT_EQ(53u, engine.gameModule().objectRegistrySize(game));
     EXPECT_THROW(game.newPlaceable(*placeable), ValidationException);
 }
 
