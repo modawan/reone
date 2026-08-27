@@ -6965,7 +6965,8 @@ static Variable GetIsPartyLeader(const std::vector<Variable> &args, const Routin
 
 static Variable GetPartyLeader(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("GetPartyLeader");
+    auto leader = ctx.game.party().getLeader();
+    return Variable::ofObject(getObjectIdOrInvalid(leader));
 }
 
 static Variable RemoveNPCFromPartyToBase(const std::vector<Variable> &args, const RoutineContext &ctx) {
