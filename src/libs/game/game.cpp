@@ -1034,9 +1034,11 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
                 loadDefaultParty();
             }
 
-            if (!restoringSavedWorld) {
-                _module->runOnLoadScript();
-            }
+            // Whether the world came from persisted state decides what gets
+            // restored, not whether the module's authored entry hook runs.
+            // Content relies on that hook every time it is entered, including
+            // when revisiting a module whose world state is restored.
+            _module->runOnLoadScript();
 
             _module->loadParty(entry, restoringSavedSession);
 
