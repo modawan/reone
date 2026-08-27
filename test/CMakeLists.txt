@@ -56,6 +56,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/globalnumber.cpp
     ${TESTS_SOURCE_DIR}/game/interaction.cpp
     ${TESTS_SOURCE_DIR}/game/effect.cpp
+    ${TESTS_SOURCE_DIR}/game/entrylifecycle.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymap.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymaproutines.cpp
     ${TESTS_SOURCE_DIR}/game/partycontrol.cpp

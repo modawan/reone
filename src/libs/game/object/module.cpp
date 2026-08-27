@@ -183,9 +183,13 @@ void Module::loadParty(const std::string &entry, bool preserveSavedPlacement) {
     _area->onPartyLeaderMoved(true);
     _area->update3rdPersonCameraFacing();
 
-    if (!preserveSavedPlacement) {
-        _area->runOnEnterScript();
-    }
+    // Where the party stands is restored from the save; the area's authored
+    // OnEnter still runs. Retail defers that script and hands it the
+    // load-from-save answer captured when the enter event was made, so the
+    // script sees the restore it was created during. Here the script runs
+    // inline, still inside the load, so it reads the same answer from the
+    // live value without anything needing to carry it.
+    _area->runOnEnterScript();
 }
 
 void Module::runOnLoadScript() {
