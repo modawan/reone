@@ -304,6 +304,12 @@ public:
 
     std::shared_ptr<Object> getObjectById(uint32_t id) const;
 
+    /**
+     * Client-facing target for the currently controlled party member.
+     *
+     * World selection, combat-camera and target-sensitive feedback consumers
+     * share this state. It is not the attack target of every creature.
+     */
     uint32_t lastTarget() const { return _lastTarget; }
     void setLastTarget(uint32_t objectId) { _lastTarget = objectId; }
     bool floatingTextEnabled() const {

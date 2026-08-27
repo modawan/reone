@@ -301,6 +301,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/location.h
     ${GAME_INCLUDE_DIR}/messagebus.h
     ${GAME_INCLUDE_DIR}/messagelog.h
+    ${GAME_INCLUDE_DIR}/mitigationfeedback.h
     ${GAME_INCLUDE_DIR}/minigame.h
     ${GAME_INCLUDE_DIR}/object.h
     ${GAME_INCLUDE_DIR}/object/area.h
@@ -527,6 +528,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/statussummary.cpp
     ${GAME_SOURCE_DIR}/messagebus.cpp
     ${GAME_SOURCE_DIR}/messagelog.cpp
+    ${GAME_SOURCE_DIR}/mitigationfeedback.cpp
     ${GAME_SOURCE_DIR}/minigame.cpp
     ${GAME_SOURCE_DIR}/object.cpp
     ${GAME_SOURCE_DIR}/object/area.cpp

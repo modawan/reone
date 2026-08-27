@@ -18,6 +18,7 @@
 #pragma once
 
 #include "reone/input/event.h"
+#include "reone/script/types.h"
 
 #include <array>
 
@@ -49,6 +50,7 @@ public:
     struct Member {
         int npc {0};
         std::shared_ptr<Creature> creature;
+        uint32_t lastTarget {script::kObjectInvalid};
     };
 
     Party(Game &game) :
@@ -187,6 +189,7 @@ private:
     // Apply the party XP pool value to every current member's creature XP.
     void syncMembersXP();
 
+    void saveLeaderAttackTarget();
     void onLeaderChanged();
 };
 

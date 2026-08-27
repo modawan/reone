@@ -928,6 +928,7 @@ void Game::resetGame() {
     _globalNumbers.clear();
     _globalLocations.clear();
     _customTokens.clear();
+    _lastTarget = script::kObjectInvalid;
 
     _party.reset();
     _combat.reset();

@@ -119,9 +119,6 @@ bool Party::addMember(int npc, std::shared_ptr<Creature> creature) {
     member.npc = npc;
     member.creature = creature;
     _members.push_back(std::move(member));
-    if (_members.size() == 1 && _members.front().creature) {
-        _game.setLastTarget(_members.front().creature->id());
-    }
 
     return true;
 }
@@ -196,6 +193,8 @@ void Party::switchLeader() {
         return;
     }
 
+    saveLeaderAttackTarget();
+
     Member tmp(_members[0]);
     _members.erase(_members.begin());
     _members.push_back(tmp);
@@ -203,10 +202,16 @@ void Party::switchLeader() {
     onLeaderChanged();
 }
 
+void Party::saveLeaderAttackTarget() {
+    auto &member = _members.front();
+    auto target = member.creature ? member.creature->getAttackTarget() : nullptr;
+    member.lastTarget = target ? target->id() : script::kObjectInvalid;
+}
+
 void Party::onLeaderChanged() {
     auto entry = static_cast<resource::SoundSetEntry>(static_cast<int>(resource::SoundSetEntry::Select1) + randomInt(0, 2));
     _members[0].creature->playSound(entry, false);
-    _game.setLastTarget(_members[0].creature->id());
+    _game.setLastTarget(_members[0].lastTarget);
 
     for (auto &member : _members) {
         member.creature->clearAllActions();
@@ -302,6 +307,8 @@ void Party::setPartyLeader(int npc) {
 void Party::setPartyLeaderByIndex(int index) {
     if (index < 1 || index >= _members.size())
         return;
+
+    saveLeaderAttackTarget();
 
     Member tmp(_members[0]);
     _members[0] = _members[index];

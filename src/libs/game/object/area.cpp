@@ -1549,15 +1549,21 @@ void Area::refreshEffectInvisibility(Creature &creature) {
     }
 
     auto changed = std::static_pointer_cast<Creature>(*changedIt);
-    auto refreshObserver = [](
+    auto refreshObserver = [this](
                                Creature &observer,
                                const std::shared_ptr<Creature> &target) {
-        bool invisible = target->isInvisibleTo(observer);
+        bool partyPair =
+            _game.party().isMember(observer) &&
+            _game.party().isMember(*target);
+        bool invisible = !partyPair && target->isInvisibleTo(observer);
         bool wasInvisible =
             observer.perception().effectInvisible.count(target->id()) != 0;
         if (wasInvisible != invisible) {
             observer.setObjectEffectInvisible(target, invisible);
         }
+
+        // The periodic perception pass updates effective sight and runs the
+        // notice script only when this change makes the target appear or vanish.
     };
 
     for (const std::shared_ptr<Object> &object : creatures) {
@@ -1592,22 +1598,30 @@ void Area::doUpdatePerception() {
             if (other == object)
                 continue;
 
-            bool heard = false;
-            bool seen = false;
+            auto otherCreature = std::static_pointer_cast<Creature>(other);
+            bool partyPair =
+                _game.party().isMember(*creature) &&
+                _game.party().isMember(*otherCreature);
+
+            bool heard = partyPair;
+            bool seen = partyPair;
             bool effectInvisible = false;
 
-            float distance2 = creature->getSquareDistanceTo(*other);
-            if (distance2 <= hearingRange2) {
-                heard = true;
-            }
-            if (distance2 <= sightRange2) {
-                seen = isObjectSeen(*creature, *other);
-            }
-            auto otherCreature = std::static_pointer_cast<Creature>(other);
-            effectInvisible = otherCreature->isInvisibleTo(*creature);
+            if (!partyPair) {
+                float distance2 = creature->getSquareDistanceTo(*other);
+                if (distance2 <= hearingRange2) {
+                    heard = true;
+                }
 
-            // Hearing, ordinary sight, and effect invisibility are separate
-            // native visible-list fields.
+                bool ordinarySeen =
+                    distance2 <= sightRange2 &&
+                    isObjectSeen(*creature, *other);
+                effectInvisible = otherCreature->isInvisibleTo(*creature);
+                seen = ordinarySeen && !effectInvisible;
+            }
+
+            // Store effective sight separately from the effect-invisibility
+            // state that can suppress it.
             bool wasHeard = creature->perception().heard.count(other->id()) > 0;
             bool wasSeen = creature->perception().seen.count(other->id()) > 0;
             bool wasEffectInvisible =
@@ -1619,6 +1633,10 @@ void Area::doUpdatePerception() {
                 continue; // no change in perception
             }
 
+            if (wasEffectInvisible != effectInvisible) {
+                creature->setObjectEffectInvisible(other, effectInvisible);
+            }
+
             if (wasHeard != heard) {
                 debug(str(boost::format("%s %s %s") % other->tag() % (heard ? "heard by" : "inaudible by") % creature->tag()), LogChannel::Perception);
                 creature->setObjectHeard(other, heard);
@@ -1627,10 +1645,6 @@ void Area::doUpdatePerception() {
             if (wasSeen != seen) {
                 debug(str(boost::format("%s %s %s") % other->tag() % (seen ? "seen by" : "vanished from") % creature->tag()), LogChannel::Perception);
                 creature->setObjectSeen(other, seen);
-            }
-
-            if (wasEffectInvisible != effectInvisible) {
-                creature->setObjectEffectInvisible(other, effectInvisible);
             }
 
             if (wasHeard != heard || wasSeen != seen) {

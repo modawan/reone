@@ -1822,8 +1822,6 @@ std::shared_ptr<Item> Creature::getOffhandAttackWeapon() const {
 
 void Creature::beginCombatAttack(std::shared_ptr<Object> target, FeatType feat) {
     if (target) {
-        _game.setLastTarget(target->id());
-
         std::vector<std::shared_ptr<Effect>> normalInvisibility;
         for (const AppliedEffect &applied : effects()) {
             if (applied.effect->type() != EffectType::Invisibility) {

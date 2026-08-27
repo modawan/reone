@@ -36,14 +36,25 @@ inline constexpr int kPhysicalDamageTypeFlags = 16391;
 DamageType getPrimaryDamageType(int damageFlags);
 bool damageTypeMatches(int modifierFlags, int damageFlags);
 
-enum class MitigationFeedbackType : uint16_t {
-    DamageImmunity = 0x3e,
-    DamageResistance = 0x3f,
-    DamageReduction = 0x40,
-    FiniteDamageResistance = 0x42,
-    FiniteDamageReduction = 0x43,
+/**
+ * Stable reone-owned identifiers for mitigation-feedback payloads.
+ *
+ * These IDs are independent of K1 client-control feedback message IDs.
+ */
+enum class MitigationFeedbackType {
+    DamageImmunity = 0,
+    DamageResistance = 1,
+    DamageReduction = 2,
+    FiniteDamageResistance = 3,
+    FiniteDamageReduction = 4,
 };
 
+/**
+ * Semantic payload consumed by reone's mitigation-feedback presentation.
+ *
+ * Every type carries an amount. Finite resistance and reduction also carry
+ * the remaining pool, while immunity uses damageFlags to select its label.
+ */
 struct MitigationFeedback {
     MitigationFeedbackType type;
     int amount {0};

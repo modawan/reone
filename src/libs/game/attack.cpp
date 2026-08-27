@@ -25,6 +25,7 @@
 #include "reone/game/effect/acdecrease.h"
 #include "reone/game/effect/immunity.h"
 #include "reone/game/game.h"
+#include "reone/game/mitigationfeedback.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
 #include "reone/game/projectiles.h"
@@ -884,11 +885,6 @@ static constexpr int kStrRefDamageBreakdown = 42150;
 static constexpr int kStrRefStrengthModifier = 42154;
 static constexpr int kStrRefOtherDamageBonus = 42155;
 static constexpr int kStrRefSneakAttackDamage = 42156;
-static constexpr int kStrRefDamageResistance = 1454;
-static constexpr int kStrRefDamageReduction = 1455;
-static constexpr int kStrRefFiniteDamageResistance = 1456;
-static constexpr int kStrRefFiniteDamageReduction = 1457;
-static constexpr int kStrRefDamageImmunity = 1458;
 static constexpr int kStrRefConfirmedCritical = 1511;
 static constexpr int kStrRefCriticalThreatConfirmed = 1392;
 static constexpr int kStrRefCriticalThreatFailed = 1393;
@@ -926,7 +922,7 @@ static constexpr int kStrRefCoupDeGrace = 42303;
 static constexpr int kStrRefAutomaticHit = 42390;
 static constexpr int kStrRefAutomaticMiss = 42391;
 static constexpr int kStrRefBaseAttackBonus = 42392;
-static constexpr int kStrRefNativeDamageSlot2000 = 41902;
+static constexpr int kStrRefPoisonDamage = 41902;
 static constexpr int kStrRefDefenseDebilitated = 42427;
 static constexpr int kStrRefImprovedToughnessDamage = 42433;
 static constexpr int kStrRefWookieeEnduranceDamage = 42434;
@@ -1043,7 +1039,7 @@ static std::string getDamageBreakdown(
         {9, kStrRefDarkSideDamage},
         {10, kStrRefSonicDamage},
         {11, kStrRefIonDamage},
-        {13, kStrRefNativeDamageSlot2000},
+        {13, kStrRefPoisonDamage},
     };
     for (const auto &[slot, strRef] : kDamageComponents) {
         appendDamageComponent(
@@ -1160,99 +1156,24 @@ static void addDamageBreakdownFeedback(
     }
 }
 
-static std::string getMitigationDamageTypeName(
-    ServicesView &services,
-    int damageFlags) {
-
-    if ((damageFlags & static_cast<int>(DamageType::Physical)) != 0) {
-        return services.resource.strings.getText(kStrRefPhysicalDamage);
-    }
-
-    static constexpr std::pair<int, int> kDamageTypes[] {
-        {0x0008, kStrRefUniversalDamage},
-        {0x0010, kStrRefAcidDamage},
-        {0x0020, kStrRefColdDamage},
-        {0x0040, kStrRefLightSideDamage},
-        {0x0080, kStrRefElectricalDamage},
-        {0x0100, kStrRefFireDamage},
-        {0x0200, kStrRefDarkSideDamage},
-        {0x0400, kStrRefSonicDamage},
-        {0x0800, kStrRefIonDamage},
-        {0x1000, kStrRefEnergyDamage},
-        {0x2000, kStrRefNativeDamageSlot2000},
-    };
-    for (const auto &[flag, strRef] : kDamageTypes) {
-        if ((damageFlags & flag) != 0) {
-            return services.resource.strings.getText(strRef);
-        }
-    }
-    return {};
-}
-
 static std::string getMitigationFeedback(
     Game &game,
     ServicesView &services,
     const Object &target,
     const MitigationFeedback &feedback) {
 
-    const std::string &targetName = target.name();
-    switch (feedback.type) {
-    case MitigationFeedbackType::DamageImmunity:
-        return getFeedbackString(
-            game,
-            services,
-            kStrRefDamageImmunity,
-            {
-                {0, targetName},
-                {1, getMitigationDamageTypeName(
-                        services,
-                        feedback.damageFlags)},
-            });
-    case MitigationFeedbackType::DamageResistance:
-        return getFeedbackString(
-            game,
-            services,
-            kStrRefDamageResistance,
-            {
-                {0, targetName},
-                {1, std::to_string(feedback.amount)},
-            });
-    case MitigationFeedbackType::DamageReduction:
-        return getFeedbackString(
-            game,
-            services,
-            kStrRefDamageReduction,
-            {
-                {0, targetName},
-                {1, std::to_string(feedback.amount)},
-            });
-    case MitigationFeedbackType::FiniteDamageResistance:
-        assert(feedback.remaining &&
-               "finite damage-resistance feedback has no remainder");
-        return getFeedbackString(
-            game,
-            services,
-            kStrRefFiniteDamageResistance,
-            {
-                {0, targetName},
-                {1, std::to_string(feedback.amount)},
-                {2, std::to_string(*feedback.remaining)},
-            });
-    case MitigationFeedbackType::FiniteDamageReduction:
-        assert(feedback.remaining &&
-               "finite damage-reduction feedback has no remainder");
-        return getFeedbackString(
-            game,
-            services,
-            kStrRefFiniteDamageReduction,
-            {
-                {0, targetName},
-                {1, std::to_string(feedback.amount)},
-                {2, std::to_string(*feedback.remaining)},
-            });
+    MitigationFeedbackMessage message = buildMitigationFeedbackMessage(
+        services.resource.strings,
+        target.name(),
+        feedback);
+    std::string text = services.resource.strings.getText(message.strRef);
+    for (std::size_t token = 0; token < message.customTokenCount; ++token) {
+        text = game.substituteCustomToken(
+            std::move(text),
+            static_cast<int>(token),
+            message.customTokens[token]);
     }
-    assert(false && "invalid mitigation feedback type");
-    return {};
+    return text;
 }
 
 static void addMitigationFeedback(

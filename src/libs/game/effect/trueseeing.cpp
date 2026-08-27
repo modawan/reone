@@ -38,8 +38,8 @@ void TrueSeeingEffect::onRemove(Object &object) {
     if (!creature) {
         return;
     }
-    // Native behavior literally restores the Ultravision bit when another
-    // True Seeing record survives removal. Do not normalize this quirk.
+    // Keep the Darkness visibility counter active while another True Seeing
+    // effect remains.
     creature->restoreVisibilityCounter(
         EffectType::TrueSeeing,
         Creature::kTrueSeeingCounter,

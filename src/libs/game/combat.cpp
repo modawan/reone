@@ -382,6 +382,7 @@ void Combat::finishRound(CombatRound &round) {
         }
 
         if (enemy) {
+            _game.setLastTarget(enemy->id());
             leader->addAction(_game.newAction<AttackObjectAction>(std::move(enemy)));
         } else {
             leader->deactivateCombat(0.0f);

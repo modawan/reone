@@ -129,9 +129,8 @@ void Animations::parseCombatAnim(TwoDA &combatAnimDa) {
                 "combatanimations.2da: non-attack animation row " + rowLabel);
         }
 
-        // GetWeaponImpactTime passes the raw subattack ordinal as a
-        // numeric 2DA column index after the leading hits column. Retain every
-        // subsequent column in source order, including reaction-ID columns.
+        // Store every column after `hits` in source order. getMeleeImpactTime()
+        // indexes this sequence by the attack's zero-based position in the round.
         std::vector<int> impactTimes;
         impactTimes.reserve(columnNames.size() - 1);
         for (size_t column = 1; column < columnNames.size(); ++column) {
