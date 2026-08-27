@@ -1020,6 +1020,12 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
             bool restoringSavedWorld = restoresSavedWorld(context);
             bool restoringSavedSession = restoresSavedSession(context);
 
+            // The module itself needs a transient runtime identity even though
+            // it is not serialized. Keep that allocation clear of identities
+            // explicitly owned by the saved IFO graph (notably the Area).
+            if (restoringSavedWorld) {
+                reserveSavedObjectIds(*ifo);
+            }
             _module = restoringSavedWorld ? newSavedModule() : newModule();
             _module->load(name, *ifo, restoringSavedWorld);
             _loadedModules.insert(std::make_pair(name, _module));

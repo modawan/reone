@@ -363,9 +363,10 @@ public:
         return newObject<Module>(*this, _services);
     }
     inline std::shared_ptr<Module> newSavedModule() {
-        // Module is the structural owner of the saved graph, not an entry in
-        // its ObjectId namespace. Retail saves can assign 0 to the Area.
-        return std::make_shared<Module>(0, *this, _services);
+        // The module is not part of the serialized object graph, but it still
+        // needs a live identity: authored OnLoad scripts run with the module
+        // as OBJECT_SELF and may schedule commands back onto it.
+        return newObject<Module>(*this, _services);
     }
     inline std::shared_ptr<Item> newItem() {
         return newObject<Item>(*this, _services);
