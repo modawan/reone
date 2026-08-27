@@ -16,27 +16,26 @@
  */
 
 #include "reone/resource/gameprobe.h"
-#include "reone/system/exception/validation.h"
 #include "reone/system/fileutil.h"
+#include "reone/system/logutil.h"
 
 namespace reone {
 
 namespace resource {
 
 GameID GameProbe::probe() {
-    // If there is a KotOR executable then game is KotOR
-    auto exePathK1 = findFileIgnoreCase(_gamePath, "swkotor.exe");
-    if (exePathK1) {
-        return GameID::KotOR;
+    auto chitin = findFileIgnoreCase(_gamePath, "chitin.key");
+    if (!chitin) {
+        error("chitin.key is missing");
+        throw std::runtime_error("Unable to determine game ID: " + _gamePath.string());
     }
 
-    // If there is a TSL executable then game is TSL
-    auto exePathK2 = findFileIgnoreCase(_gamePath, "swkotor2.exe");
-    if (exePathK2) {
+    auto k2 = findFileIgnoreCase(_gamePath, "swkotor2.ini");
+    if (k2) {
         return GameID::TSL;
     }
 
-    throw std::runtime_error("Unable to determine game ID: " + _gamePath.string());
+    return GameID::KotOR;
 }
 
 } // namespace resource
