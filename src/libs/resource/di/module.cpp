@@ -68,8 +68,7 @@ void ResourceModule::init() {
         _graphics.shaderRegistry(),
         *_textures,
         _graphics.uniforms(),
-        _graphics.statistic(),
-        *_auxResources);
+        _graphics.statistic());
     _audioClips = std::make_unique<AudioClips>(*_resources, *_auxResources);
     _movies = std::make_unique<Movies>(_gamePath, _graphics.services(), _audio.mixer());
     _scripts = std::make_unique<Scripts>(*_resources);
