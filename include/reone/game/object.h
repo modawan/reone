@@ -205,6 +205,10 @@ public:
     const std::deque<std::shared_ptr<Action>> &actions() const { return _actions; }
     std::vector<SavedActionRecord> saveActionSnapshot() const;
 
+    /** Drop live execution and object bindings after their Area was captured. */
+    void retireAreaRuntimeState(
+        const std::set<const Object *> &retainedObjects);
+
     // END Actions
 
     // Combat

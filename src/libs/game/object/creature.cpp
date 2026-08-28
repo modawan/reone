@@ -530,6 +530,44 @@ Creature::Creature(
     _perception.hearingRange = 20.0f;
 }
 
+void Creature::retireAreaRuntime(
+    Pathfinder &pathfinder,
+    const std::set<const Object *> &retainedObjects) {
+    retireAreaRuntimeState(retainedObjects);
+
+    if (_path) {
+        releasePath(pathfinder, *_path);
+        _path.reset();
+    }
+    _pathVelocity = glm::vec3(0.0f);
+    _previousPosition = _position;
+    _stuckTimer.reset(0.0f);
+    _stuckForce = glm::vec3(0.0f);
+    setMovementType(MovementType::None);
+    _blockingDoorId = script::kObjectInvalid;
+    _blockedEventDoorId = script::kObjectInvalid;
+
+    deactivateCombat(0.0f);
+    _combatState.attackTarget.reset();
+    _combatState.attemptedAttackTarget = script::kObjectInvalid;
+    _combatState.attackAction = ActionType::QueueEmpty;
+    _combatState.combatFeat = FeatType::Invalid;
+    _combatState.deactivationTimer.reset(0.0f);
+    _lastHostileTarget = script::kObjectInvalid;
+    _lastAttackAction = ActionType::QueueEmpty;
+    _lastCombatFeat = FeatType::Invalid;
+    _lastAttackResult = AttackResultType::Invalid;
+
+    _perception.seen.clear();
+    _perception.heard.clear();
+    stopTalking();
+    stopStuntMode();
+    if (_audioSourceVoice) _audioSourceVoice->stop();
+    if (_audioSourceFootstep) _audioSourceFootstep->stop();
+    _audioSourceVoice.reset();
+    _audioSourceFootstep.reset();
+}
+
 void Creature::loadFromBlueprint(const std::string &resRef) {
     auto utc = _services.resource.gffs.get(resRef, ResType::Utc);
     if (!utc) {

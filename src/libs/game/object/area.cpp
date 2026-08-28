@@ -894,16 +894,28 @@ void Area::loadPartyMember(const std::shared_ptr<Creature> &member, int index, b
     }
 }
 
-void Area::unloadPartyMember(const std::shared_ptr<Creature> &member) {
-    // Party creatures persist across modules, but combat does not. Reset it
-    // before rebuilding their models in the destination area so powered
-    // weapons do not leak their active state through a transition.
-    member->deactivateCombat(0.0f);
-    doDestroyObject(member->id());
+void Area::retireCreatureRuntime(const std::shared_ptr<Creature> &creature) {
+    if (!creature ||
+        std::find(_objects.begin(), _objects.end(), creature) == _objects.end()) {
+        return;
+    }
 
-    // Party objects outlive this Area. Do not leave their semantic room
-    // membership pointing into the retiring module's room graph.
-    member->setRoom(nullptr);
+    auto runtimeObjects = _game.party().runtimeObjects();
+    std::set<const Object *> retainedObjects;
+    for (const auto &object : runtimeObjects) {
+        if (object) retainedObjects.insert(object.get());
+    }
+
+    // Creature-side handles must retire while Pathfinder and every referenced
+    // outgoing object are alive. Area-owned structural attachments follow,
+    // then the raw Room pointer is invalidated before Room destruction.
+    creature->retireAreaRuntime(_pathfinder, retainedObjects);
+    doDestroyObject(creature->id());
+    creature->setRoom(nullptr);
+}
+
+void Area::unloadPartyMember(const std::shared_ptr<Creature> &member) {
+    retireCreatureRuntime(member);
 }
 
 void Area::loadParty(const glm::vec3 &position, float facing, bool preserveSavedPlacement) {
@@ -922,8 +934,11 @@ void Area::loadParty(const glm::vec3 &position, float facing, bool preserveSaved
 }
 
 void Area::unloadParty() {
-    for (auto &member : _game.party().members()) {
-        unloadPartyMember(member.creature);
+    auto runtimeObjects = _game.party().runtimeObjects();
+    for (const auto &object : runtimeObjects) {
+        if (object && object->type() == ObjectType::Creature) {
+            retireCreatureRuntime(std::static_pointer_cast<Creature>(object));
+        }
     }
 }
 

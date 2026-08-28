@@ -363,6 +363,47 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
     return result;
 }
 
+void Object::retireAreaRuntimeState(
+    const std::set<const Object *> &retainedObjects) {
+    // The authoritative source snapshot was captured before this boundary.
+    // Discard rather than cancel: cancellation callbacks are live gameplay and
+    // must not mutate the already-frozen outgoing world.
+    for (auto &action : _actions) {
+        if (action) action->markCancelled();
+    }
+    _actions.clear();
+    _delayed.clear();
+    _executingAction.reset();
+    _loadedSaveActionSlots.clear();
+    _savedActionQueue = SavedActionQueue {};
+
+    for (auto &effect : _effects) {
+        if (effect.effect) {
+            effect.effect->retireAreaRuntime(retainedObjects);
+        }
+        effect.retireAreaRuntimeBindings(retainedObjects);
+    }
+    _savedEffects.clear();
+    _savedRuntimeParsed = false;
+    _savedRuntimePublished = false;
+
+    // Rebase object-local bindings exactly as effects are rebased. Master/owner
+    // relations between retained session objects remain meaningful; every
+    // outgoing Area binding retires. A2 separately owns the saved-graph
+    // namespace, aliases, and generation.
+    std::map<std::string, uint32_t> retainedReferenceIds;
+    std::map<std::string, std::weak_ptr<Object>> retainedReferences;
+    for (const auto &[field, binding] : _savedReferences) {
+        auto object = binding.lock();
+        if (!object || retainedObjects.count(object.get()) == 0) continue;
+        retainedReferenceIds.emplace(field, object->id());
+        retainedReferences.emplace(field, object);
+    }
+    _savedReferenceIds = std::move(retainedReferenceIds);
+    _savedReferences = std::move(retainedReferences);
+    _lastHostileActor = script::kObjectInvalid;
+}
+
 void Object::resolveSavedReferences(
     const std::function<std::shared_ptr<Object>(uint32_t)> &resolver) {
     _savedReferences.clear();

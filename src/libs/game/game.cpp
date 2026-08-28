@@ -1164,33 +1164,8 @@ void Game::retireActiveModuleRuntime() {
     _runtimeSessionPlayable = false;
 
     std::set<uint32_t> sessionObjectIds;
-    std::function<void(const std::shared_ptr<Object> &)> preserve;
-    preserve = [&](const std::shared_ptr<Object> &object) {
-        if (!object || !sessionObjectIds.insert(object->id()).second) {
-            return;
-        }
-        for (const auto &item : object->items()) {
-            preserve(item);
-        }
-        if (object->type() != ObjectType::Creature) {
-            return;
-        }
-        auto creature = std::static_pointer_cast<Creature>(object);
-        for (const auto &[_, item] : creature->equipment()) {
-            preserve(item);
-        }
-    };
-
-    preserve(_party.player());
-    preserve(_party.actualPlayer());
-    for (const auto &member : _party.members()) {
-        preserve(member.creature);
-    }
-    for (size_t npc = 0; npc < Party::kMaxNpcCount; ++npc) {
-        preserve(_party.getAvailableMember(static_cast<int>(npc)));
-    }
-    for (size_t puppet = 0; puppet < Party::kMaxPuppetCount; ++puppet) {
-        preserve(_party.getAvailablePuppet(static_cast<int>(puppet)));
+    for (const auto &object : _party.runtimeObjects()) {
+        if (object) sessionObjectIds.insert(object->id());
     }
 
     _combat.reset();

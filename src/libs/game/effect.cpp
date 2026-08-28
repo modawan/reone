@@ -154,6 +154,29 @@ bool EffectInstance::bindObjectParameter(
     return true;
 }
 
+void EffectInstance::retireAreaRuntimeBindings(
+    const std::set<const Object *> &retainedObjects) {
+    auto retain = [&retainedObjects](
+                      std::weak_ptr<Object> &binding,
+                      uint32_t &identity) {
+        auto object = binding.lock();
+        if (!object || retainedObjects.count(object.get()) == 0) {
+            binding.reset();
+            identity = kSavedEffectInvalidObjectId;
+            return;
+        }
+        identity = object->id();
+    };
+
+    retain(creator, creatorId);
+    for (size_t index = 0; index < objectParameters.size(); ++index) {
+        retain(objectParameterObjects[index], objectParameters[index]);
+    }
+    serializedObjectReferences = false;
+    _savedGraph.reset();
+    _runtimeSession.reset();
+}
+
 SavedEffectValue::SavedEffectValue(EffectInstance instance) :
     Effect(static_cast<EffectType>(instance.retailType)),
     _instance(std::move(instance)) {

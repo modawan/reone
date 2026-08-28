@@ -355,6 +355,14 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     EXPECT_EQ(first.snapshot->archiveBytes, second.snapshot->archiveBytes);
     EXPECT_EQ(first.snapshot->target, ResourceId("module003", ResType::Sav));
 
+    // The module archive is frozen before the live Area attachment retires.
+    // Runtime execution must not leak into the destination merely because the
+    // party creature survives, while persistent gameplay effects remain live.
+    std::set<const Object *> retainedObjects {player.get()};
+    player->retireAreaRuntime(area->pathfinder(), retainedObjects);
+    EXPECT_TRUE(player->actions().empty());
+    ASSERT_EQ(1u, player->effects().size());
+
     auto ifo = readGff(first.snapshot->ifoBytes);
     auto are = readGff(first.snapshot->areBytes);
     auto git = readGff(first.snapshot->gitBytes);

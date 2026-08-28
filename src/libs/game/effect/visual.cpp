@@ -38,9 +38,15 @@ VisualEffect::VisualEffect(int visualEffectId, bool missEffect, ServicesView &se
 }
 
 VisualEffect::~VisualEffect() {
+    retireAreaRuntime({});
+}
+
+void VisualEffect::retireAreaRuntime(
+    const std::set<const Object *> &) {
     if (_node) {
         scene::ISceneGraph &graph = _node->graph();
         graph.removeRoot(*_node);
+        _node.reset();
     }
 }
 

@@ -38,6 +38,14 @@ public:
     }
 
     void applyTo(Object &object) override;
+    void retireAreaRuntime(
+        const std::set<const Object *> &retainedObjects) override {
+        for (auto *target : {&_target1, &_target2, &_target3}) {
+            if (*target && retainedObjects.count(target->get()) == 0) {
+                target->reset();
+            }
+        }
+    }
 
 private:
     std::shared_ptr<Object> _target1;

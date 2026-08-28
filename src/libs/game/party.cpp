@@ -152,6 +152,27 @@ std::optional<RosterIdentity> Party::rosterIdentity(
     return std::nullopt;
 }
 
+std::vector<std::shared_ptr<Object>> Party::runtimeObjects() const {
+    std::vector<std::shared_ptr<Object>> result;
+    std::set<const Object *> seen;
+    std::function<void(const std::shared_ptr<Object> &)> append;
+    append = [&](const std::shared_ptr<Object> &object) {
+        if (!object || !seen.insert(object.get()).second) return;
+        result.push_back(object);
+        for (const auto &item : object->items()) append(item);
+        if (object->type() != ObjectType::Creature) return;
+        auto creature = std::static_pointer_cast<Creature>(object);
+        for (const auto &[_, item] : creature->equipment()) append(item);
+    };
+
+    append(_player);
+    append(_actualPlayer);
+    for (const auto &member : _members) append(member.creature);
+    for (const auto &[_, creature] : _availableMembers) append(creature);
+    for (const auto &[_, creature] : _availablePuppets) append(creature);
+    return result;
+}
+
 bool Party::bindRosterCreature(
     const RosterIdentity &identity,
     const std::shared_ptr<Creature> &creature) {

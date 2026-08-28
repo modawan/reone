@@ -25,6 +25,12 @@ void LinkEffectsEffect::applyTo(Object &object) {
     // TODO: implement
 }
 
+void LinkEffectsEffect::retireAreaRuntime(
+    const std::set<const Object *> &retainedObjects) {
+    if (_childEffect) _childEffect->retireAreaRuntime(retainedObjects);
+    if (_parentEffect) _parentEffect->retireAreaRuntime(retainedObjects);
+}
+
 } // namespace game
 
 } // namespace reone

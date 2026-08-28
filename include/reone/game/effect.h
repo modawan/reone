@@ -85,6 +85,9 @@ public:
     virtual void applyTo(Object &object);
     virtual bool onApply(Object &object);
     virtual void onRemove(Object &object);
+    /** Release executable payload owned by the outgoing Area lifetime. */
+    virtual void retireAreaRuntime(
+        const std::set<const Object *> &retainedObjects) {}
 
     EffectType type() const { return _type; }
 
@@ -149,6 +152,17 @@ struct EffectInstance {
                    ? objectParameterObjects[index].lock()
                    : nullptr;
     }
+
+    /**
+     * Rebase live object bindings at an Area lifetime boundary.
+     *
+     * Effects are durable gameplay state, but their object identities are not:
+     * a saved-graph identity and a module-owned runtime object both retire with
+     * the outgoing Area. Only bindings to explicitly retained session objects
+     * survive, rewritten as runtime-session identities.
+     */
+    void retireAreaRuntimeBindings(
+        const std::set<const Object *> &retainedObjects);
 
 private:
     friend class Game;

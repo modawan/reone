@@ -106,6 +106,15 @@ public:
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
 
+    /**
+     * Invalidate state that only exists while this retained creature inhabits
+     * one Area. The owning Area supplies its still-live Pathfinder so path
+     * handles are released before that owner is destroyed.
+     */
+    void retireAreaRuntime(
+        Pathfinder &pathfinder,
+        const std::set<const Object *> &retainedObjects);
+
     void update(float dt) override;
 
     void clearAllActions(bool force = false) override;

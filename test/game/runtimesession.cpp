@@ -16,14 +16,21 @@
 
 #include "reone/game/action.h"
 #include "reone/game/effect.h"
+#include "reone/game/effect/assuredhit.h"
+#include "reone/game/effect/beam.h"
+#include "reone/game/effect/modifyattacks.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/conversation.h"
 #include "reone/game/gui/hud.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/module.h"
+#include "reone/game/object/trigger.h"
 #include "reone/game/room.h"
+#include "reone/graphics/model.h"
+#include "reone/graphics/modelnode.h"
 #include "reone/scene/collision.h"
+#include "reone/scene/node/model.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -99,6 +106,30 @@ uint64_t reone::game::TestGameModule::runtimeSessionGeneration(const Game &game)
 
 uint64_t reone::game::TestGameModule::savedGraphGeneration(const Game &game) {
     return game._savedGraphGeneration;
+}
+
+void reone::game::TestGameModule::setAreaRuntimePath(
+    Creature &creature, Pathfinder &pathfinder) {
+    pathfinder.paths.emplace_back();
+    pathfinder.paths.back().active = true;
+    creature._path = Path {static_cast<int32_t>(pathfinder.paths.size() - 1)};
+}
+
+bool reone::game::TestGameModule::hasAreaRuntimePath(const Creature &creature) {
+    return creature._path.has_value();
+}
+
+size_t reone::game::TestGameModule::seenObjectCount(const Creature &creature) {
+    return creature._perception.seen.size();
+}
+
+size_t reone::game::TestGameModule::heardObjectCount(const Creature &creature) {
+    return creature._perception.heard.size();
+}
+
+void reone::game::TestGameModule::setAreaRuntimeSceneNode(
+    Object &object, std::shared_ptr<scene::SceneNode> sceneNode) {
+    object._sceneNode = std::move(sceneNode);
 }
 
 void reone::game::TestGameModule::registerSavedModuleReferenceTarget(
@@ -524,7 +555,7 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
 
     EXPECT_EQ(nullptr, player->room());
     EXPECT_EQ(nullptr, companion->room());
-    EXPECT_TRUE(player->isStuntMode());
+    EXPECT_FALSE(player->isStuntMode());
     EXPECT_FALSE(sourceRoom.tenants().count(player.get()));
     EXPECT_FALSE(sourceRoom.tenants().count(companion.get()));
     EXPECT_EQ(player, game.party().player());
@@ -533,8 +564,8 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
     EXPECT_EQ(17, player->currentHitPoints());
     ASSERT_EQ(1, player->effects().size());
     EXPECT_EQ(effect, player->effects().front().effect);
-    ASSERT_EQ(1, player->actions().size());
-    EXPECT_EQ(action, player->actions().front());
+    EXPECT_TRUE(player->actions().empty());
+    EXPECT_TRUE(action->isCancelled());
     EXPECT_EQ(0, actionExecutions);
 
     auto destinationArea = game.newArea();
@@ -552,7 +583,7 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
     EXPECT_EQ(player, game.getObjectById(player->id()));
     EXPECT_EQ(17, player->currentHitPoints());
     EXPECT_EQ(1, player->effects().size());
-    EXPECT_EQ(1, player->actions().size());
+    EXPECT_TRUE(player->actions().empty());
     EXPECT_EQ(0, actionExecutions);
     auto &destinationCreatures = destinationArea->getObjectsByType(ObjectType::Creature);
     EXPECT_NE(destinationCreatures.end(),
@@ -764,7 +795,7 @@ TEST(PartyTransferSpawn, repeated_transitions_never_respawn_the_same_party) {
     }
 }
 
-TEST(PartyTransferSpawn, transferred_party_member_keeps_its_runtime_state) {
+TEST(PartyTransferSpawn, transferred_party_member_keeps_durable_not_area_execution_state) {
     for (auto gameId : {resource::GameID::KotOR, resource::GameID::TSL}) {
         PartyTransferHarness harness(gameId);
         harness.transitionTo(glm::vec3(0.0f, 0.0f, 0.0f), 0.0f);
@@ -790,14 +821,202 @@ TEST(PartyTransferSpawn, transferred_party_member_keeps_its_runtime_state) {
         EXPECT_EQ(42, harness.companion->getLocalNumber(5));
         ASSERT_EQ(1, harness.companion->effects().size());
         EXPECT_EQ(effect, harness.companion->effects().front().effect);
-        ASSERT_EQ(1, harness.companion->actions().size());
-        EXPECT_EQ(action, harness.companion->actions().front());
+        EXPECT_TRUE(harness.companion->actions().empty());
+        EXPECT_TRUE(action->isCancelled());
         EXPECT_EQ(0, executions);
         ASSERT_EQ(1, harness.companion->items().size());
         EXPECT_EQ(carried, harness.companion->items().front());
         EXPECT_EQ(equipped,
                   harness.companion->getEquippedItem(InventorySlots::rightWeapon));
         EXPECT_EQ(1, spawnRuns("npc_spawn"));
+    }
+}
+
+TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachment) {
+    TestEngine engine;
+    engine.init();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    configureRuntimeMocks(engine, sceneGraph);
+    StubConsole console;
+    Game game(resource::GameID::TSL, "", engine.options(), engine.services(), console);
+
+    auto area = game.newArea();
+    auto retained = game.newCreature();
+    auto outgoing = game.newCreature();
+    auto trigger = game.newTrigger();
+    trigger->deserialize(
+        *resource::Gff::Builder().build(),
+        SerializedIdentityContext::templateResource());
+
+    game.party().addAvailableMember(0, retained);
+    game.party().addMember(0, retained);
+    game.party().setPlayer(retained);
+    game.party().setActualPlayer(retained);
+
+    auto root = std::make_shared<graphics::ModelNode>(
+        0, "retained", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto model = std::make_unique<graphics::Model>(
+        "retained", 0, root,
+        std::vector<std::shared_ptr<graphics::Animation>>(), "", 1.0f);
+    auto sceneNode = std::make_shared<scene::ModelSceneNode>(
+        *model, scene::ModelUsage::Creature, sceneGraph,
+        engine.graphicsModule().services(),
+        engine.audioModule().services(),
+        engine.resourceModule().services());
+    TestGameModule::setAreaRuntimeSceneNode(*retained, sceneNode);
+
+    area->add(outgoing);
+    area->add(trigger);
+    area->add(retained);
+    Room room("source", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    retained->setRoom(&room);
+    trigger->addTenant(retained);
+    TestGameModule::setAreaRuntimePath(*retained, area->pathfinder());
+
+    retained->beginCombatAttack(outgoing, FeatType::Invalid);
+    retained->setAttemptedAttackTarget(outgoing->id());
+    retained->setLastHostileActor(outgoing->id());
+    retained->setObjectSeen(outgoing, true);
+    retained->setObjectHeard(outgoing, true);
+    retained->setBlockingDoor(outgoing->id());
+    retained->startStuntMode();
+
+    int executions = 0;
+    auto action = game.newAction<CountingAction>(executions);
+    auto delayed = game.newAction<CountingAction>(executions);
+    retained->addAction(action);
+    retained->delayAction(delayed, 30.0f);
+
+    retained->setCurrentHitPoints(19);
+    retained->setLocalBoolean(3, true);
+    retained->setLocalNumber(4, 23);
+    retained->setAppearance(42);
+    auto carried = game.newOwnedItem();
+    retained->addItem(carried);
+    auto durableEffect = std::make_shared<Effect>(EffectType::Invalid);
+    retained->applyEffect(durableEffect, DurationType::Permanent);
+    retained->applyEffect(
+        std::make_shared<ModifyAttacksEffect>(1), DurationType::Permanent);
+    retained->applyEffect(
+        std::make_shared<AssuredHitEffect>(), DurationType::Permanent);
+    ASSERT_EQ(1, retained->modifiedAttacks());
+    ASSERT_TRUE(retained->hasAssuredHit());
+
+    std::weak_ptr<Object> outgoingEffectTarget = outgoing;
+    auto beamEffect = std::make_shared<BeamEffect>(
+        0, outgoing, BodyNode::Chest, false);
+    retained->applyEffect(beamEffect, DurationType::Permanent);
+
+    EffectInstance areaBoundEffect;
+    areaBoundEffect.effect = std::make_shared<Effect>(EffectType::Invalid);
+    areaBoundEffect.id = game.allocateEffectId();
+    areaBoundEffect.subType = static_cast<uint16_t>(DurationType::Permanent);
+    areaBoundEffect.creatorId = outgoing->id();
+    areaBoundEffect.objectParameters[0] = outgoing->id();
+    ASSERT_TRUE(game.bindEffectCreator(areaBoundEffect));
+    ASSERT_TRUE(retained->restoreEffect(std::move(areaBoundEffect)));
+
+    ASSERT_EQ(&room, retained->room());
+    ASSERT_TRUE(room.tenants().count(retained.get()));
+    ASSERT_TRUE(trigger->isTenant(retained));
+    ASSERT_TRUE(TestGameModule::hasAreaRuntimePath(*retained));
+    ASSERT_TRUE(retained->getAttackTarget());
+    ASSERT_EQ(1u, TestGameModule::seenObjectCount(*retained));
+    ASSERT_EQ(1u, TestGameModule::heardObjectCount(*retained));
+    ASSERT_EQ(1u, TestGameModule::delayedActionCount(*retained));
+    EXPECT_CALL(sceneGraph, removeRoot(A<scene::ModelSceneNode &>()))
+        .WillOnce(Invoke([expected = sceneNode.get()](scene::ModelSceneNode &node) {
+            EXPECT_EQ(expected, &node);
+        }));
+
+    area->retireCreatureRuntime(retained);
+
+    EXPECT_EQ(nullptr, retained->room());
+    EXPECT_FALSE(room.tenants().count(retained.get()));
+    EXPECT_FALSE(trigger->isTenant(retained));
+    EXPECT_FALSE(TestGameModule::hasAreaRuntimePath(*retained));
+    ASSERT_EQ(1u, area->pathfinder().paths.size());
+    EXPECT_FALSE(area->pathfinder().paths.front().active);
+    EXPECT_FALSE(retained->isInCombat());
+    EXPECT_FALSE(retained->getAttackTarget());
+    EXPECT_EQ(script::kObjectInvalid, retained->getAttemptedAttackTarget());
+    EXPECT_EQ(script::kObjectInvalid, retained->getLastHostileActor());
+    EXPECT_EQ(0u, TestGameModule::seenObjectCount(*retained));
+    EXPECT_EQ(0u, TestGameModule::heardObjectCount(*retained));
+    EXPECT_EQ(script::kObjectInvalid, retained->blockingDoorId());
+    EXPECT_TRUE(retained->actions().empty());
+    EXPECT_TRUE(action->isCancelled());
+    EXPECT_EQ(0u, TestGameModule::delayedActionCount(*retained));
+    EXPECT_FALSE(retained->isStuntMode());
+
+    EXPECT_EQ(19, retained->currentHitPoints());
+    EXPECT_TRUE(retained->getLocalBoolean(3));
+    EXPECT_EQ(23, retained->getLocalNumber(4));
+    EXPECT_EQ(42, retained->appearance());
+    ASSERT_EQ(1u, retained->items().size());
+    EXPECT_EQ(carried, retained->items().front());
+    ASSERT_EQ(5u, retained->effects().size());
+    EXPECT_EQ(durableEffect, retained->effects().front().effect);
+    EXPECT_EQ(1, retained->modifiedAttacks());
+    EXPECT_TRUE(retained->hasAssuredHit());
+    EXPECT_FALSE(retained->effects().back().boundCreator());
+    EXPECT_EQ(kSavedEffectInvalidObjectId, retained->effects().back().creatorId);
+    EXPECT_FALSE(retained->effects().back().boundObjectParameter(0));
+    EXPECT_EQ(
+        kSavedEffectInvalidObjectId,
+        retained->effects().back().objectParameters[0]);
+    EXPECT_EQ(retained, game.party().rosterCreature({RosterKind::Npc, 0}));
+
+    const auto &creatures = area->getObjectsByType(ObjectType::Creature);
+    EXPECT_EQ(creatures.end(), std::find(creatures.begin(), creatures.end(), retained));
+    EXPECT_NE(creatures.end(), std::find(creatures.begin(), creatures.end(), outgoing));
+
+    area->destroyObject(*outgoing);
+    area->update(0.0f);
+    TestGameModule::removeObject(game, outgoing->id());
+    outgoing.reset();
+    beamEffect.reset();
+    EXPECT_TRUE(outgoingEffectTarget.expired());
+}
+
+TEST(AreaRuntimeRetirement, unload_party_includes_inactive_roster_and_puppets) {
+    for (auto gameId : {resource::GameID::KotOR, resource::GameID::TSL}) {
+        TestEngine engine;
+        engine.init();
+        NiceMock<scene::MockSceneGraph> sceneGraph;
+        configureRuntimeMocks(engine, sceneGraph);
+        StubConsole console;
+        Game game(gameId, "", engine.options(), engine.services(), console);
+        auto area = game.newArea();
+
+        auto pc = game.newCreature();
+        game.party().addMember(kNpcPlayer, pc);
+        game.party().setPlayer(pc);
+        game.party().setActualPlayer(pc);
+        area->add(pc);
+
+        auto inactive = game.newCreature();
+        game.party().addAvailableMember(0, inactive);
+        area->add(inactive);
+
+        std::shared_ptr<Creature> puppet;
+        if (gameId == resource::GameID::TSL) {
+            puppet = game.newCreature();
+            game.party().addAvailablePuppet(0, puppet);
+            area->add(puppet);
+        }
+
+        area->unloadParty();
+
+        const auto &creatures = area->getObjectsByType(ObjectType::Creature);
+        EXPECT_EQ(creatures.end(), std::find(creatures.begin(), creatures.end(), pc));
+        EXPECT_EQ(creatures.end(), std::find(creatures.begin(), creatures.end(), inactive));
+        if (puppet) {
+            EXPECT_EQ(creatures.end(), std::find(creatures.begin(), creatures.end(), puppet));
+            EXPECT_EQ(puppet, game.party().rosterCreature({RosterKind::Puppet, 0}));
+        }
+        EXPECT_EQ(inactive, game.party().rosterCreature({RosterKind::Npc, 0}));
     }
 }
 

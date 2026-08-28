@@ -227,6 +227,9 @@ public:
     std::optional<RosterIdentity> rosterIdentity(
         const Creature &creature) const;
 
+    /** Complete live object graph retained by the session across Areas. */
+    std::vector<std::shared_ptr<Object>> runtimeObjects() const;
+
     // END Available puppets
 
     // Default party

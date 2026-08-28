@@ -177,6 +177,8 @@ public:
 
     // Party
 
+    /** Canonical Area-residency retirement for one session-owned creature. */
+    void retireCreatureRuntime(const std::shared_ptr<Creature> &creature);
     void unloadPartyMember(const std::shared_ptr<Creature> &member);
     void loadParty(
         const glm::vec3 &position,

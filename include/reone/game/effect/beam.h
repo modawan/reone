@@ -38,6 +38,12 @@ public:
     }
 
     void applyTo(Object &object) override;
+    void retireAreaRuntime(
+        const std::set<const Object *> &retainedObjects) override {
+        if (_effector && retainedObjects.count(_effector.get()) == 0) {
+            _effector.reset();
+        }
+    }
 
 private:
     int _beamVisualEffect;

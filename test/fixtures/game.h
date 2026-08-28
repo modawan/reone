@@ -49,10 +49,15 @@ class Gff;
 
 }
 
+namespace scene {
+class SceneNode;
+}
+
 namespace game {
 
 class Area;
 class Creature;
+struct Pathfinder;
 class Door;
 class Game;
 class Item;
@@ -247,6 +252,12 @@ public:
     static void dispatchSnapshotEvents(Module &module);
     static void clearSnapshotDelayed(Object &object);
     static size_t delayedActionCount(const Object &object);
+    static void setAreaRuntimePath(Creature &creature, Pathfinder &pathfinder);
+    static bool hasAreaRuntimePath(const Creature &creature);
+    static size_t seenObjectCount(const Creature &creature);
+    static size_t heardObjectCount(const Creature &creature);
+    static void setAreaRuntimeSceneNode(
+        Object &object, std::shared_ptr<scene::SceneNode> sceneNode);
     static void initSnapshotLocalServices(Game &game);
     static void setSnapshotWorldTime(
         Game &game, uint32_t day, uint32_t time, uint8_t minutesPerHour);
