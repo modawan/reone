@@ -21,6 +21,8 @@
 #include "reone/input/event.h"
 
 #include <array>
+#include <optional>
+#include <tuple>
 
 namespace reone {
 
@@ -35,6 +37,29 @@ enum class XPSource {
     Combat,
     Stealth,
     Console
+};
+
+enum class RosterKind {
+    Npc,
+    Puppet,
+};
+
+/** Save-wide identity of a companion record, independent of every ObjectId. */
+struct RosterIdentity {
+    RosterKind kind {RosterKind::Npc};
+    int slot {-1};
+
+    bool operator<(const RosterIdentity &rhs) const {
+        return std::tie(kind, slot) < std::tie(rhs.kind, rhs.slot);
+    }
+
+    bool operator==(const RosterIdentity &rhs) const {
+        return kind == rhs.kind && slot == rhs.slot;
+    }
+
+    bool operator!=(const RosterIdentity &rhs) const {
+        return !operator==(rhs);
+    }
 };
 
 class Party {
@@ -188,6 +213,19 @@ public:
 
     bool addAvailablePuppet(int puppet, std::shared_ptr<Creature> creature);
     std::shared_ptr<Creature> getAvailablePuppet(int puppet) const;
+
+    /**
+     * Publish one materialized creature as the sole runtime binding for a
+     * logical roster slot. Existing active-member views of that slot follow
+     * the binding; another logical slot may never bind the same creature.
+     */
+    bool bindRosterCreature(
+        const RosterIdentity &identity,
+        const std::shared_ptr<Creature> &creature);
+    std::shared_ptr<Creature> rosterCreature(
+        const RosterIdentity &identity) const;
+    std::optional<RosterIdentity> rosterIdentity(
+        const Creature &creature) const;
 
     // END Available puppets
 

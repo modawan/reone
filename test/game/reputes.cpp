@@ -618,6 +618,21 @@ void reone::game::TestGameModule::deserializeAvailableNpcs(Game &game) {
     game.deserializeAvailableNpcs();
 }
 
+void reone::game::TestGameModule::prepareRosterMaterialization(
+    Game &game,
+    const Gff *git,
+    const SerializedIdentityContext &identityContext) {
+    game.prepareRosterMaterialization(git, identityContext);
+}
+
+void reone::game::TestGameModule::commitRosterMaterialization(Game &game) {
+    game.commitRosterMaterialization();
+}
+
+void reone::game::TestGameModule::abortRosterMaterialization(Game &game) {
+    game.abortRosterMaterialization();
+}
+
 void reone::game::TestGameModule::publishPartyRuntimeState(
     Game &game,
     Gff &ifoGff,

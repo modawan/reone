@@ -130,6 +130,58 @@ std::shared_ptr<Creature> Party::getAvailablePuppet(int puppet) const {
     return found == _availablePuppets.end() ? nullptr : found->second;
 }
 
+std::shared_ptr<Creature> Party::rosterCreature(
+    const RosterIdentity &identity) const {
+    return identity.kind == RosterKind::Npc
+               ? getAvailableMember(identity.slot)
+               : getAvailablePuppet(identity.slot);
+}
+
+std::optional<RosterIdentity> Party::rosterIdentity(
+    const Creature &creature) const {
+    for (const auto &[slot, bound] : _availableMembers) {
+        if (bound.get() == &creature) {
+            return RosterIdentity {RosterKind::Npc, slot};
+        }
+    }
+    for (const auto &[slot, bound] : _availablePuppets) {
+        if (bound.get() == &creature) {
+            return RosterIdentity {RosterKind::Puppet, slot};
+        }
+    }
+    return std::nullopt;
+}
+
+bool Party::bindRosterCreature(
+    const RosterIdentity &identity,
+    const std::shared_ptr<Creature> &creature) {
+    if (!creature || identity.slot < 0 ||
+        (identity.kind == RosterKind::Npc &&
+         identity.slot >= static_cast<int>(kMaxNpcCount)) ||
+        (identity.kind == RosterKind::Puppet &&
+         identity.slot >= static_cast<int>(kMaxPuppetCount))) {
+        return false;
+    }
+
+    auto existingIdentity = rosterIdentity(*creature);
+    if (existingIdentity && *existingIdentity != identity) {
+        warn("Party: creature is already bound to another roster slot");
+        return false;
+    }
+
+    if (identity.kind == RosterKind::Npc) {
+        _availableMembers.insert_or_assign(identity.slot, creature);
+        for (auto &member : _members) {
+            if (member.npc == identity.slot) {
+                member.creature = creature;
+            }
+        }
+    } else {
+        _availablePuppets.insert_or_assign(identity.slot, creature);
+    }
+    return true;
+}
+
 bool Party::addMember(int npc, std::shared_ptr<Creature> creature) {
     // A creature joining the party derives its XP from the shared party pool.
     if (creature) {
@@ -287,7 +339,7 @@ bool Party::isMemberAvailable(int npc) const {
 
 bool Party::isMember(const Object &object) const {
     for (auto &member : _members) {
-        if (member.creature->id() == object.id())
+        if (member.creature.get() == &object)
             return true;
     }
     return false;

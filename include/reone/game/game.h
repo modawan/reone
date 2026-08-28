@@ -109,6 +109,18 @@ ModuleLoadContext resolveModuleLoadContext(
 bool restoresSavedWorld(ModuleLoadContext context);
 bool restoresSavedSession(ModuleLoadContext context);
 
+enum class RosterGitAction {
+    Ordinary,
+    MaterializeAndBind,
+    OmitAndReuse,
+};
+
+struct RosterGitMaterialization {
+    RosterGitAction action {RosterGitAction::Ordinary};
+    RosterIdentity identity;
+    std::shared_ptr<Creature> existing;
+};
+
 struct SavedObjectReference;
 struct SerializedScriptSituation;
 class SavedScriptContinuation;
@@ -579,6 +591,13 @@ public:
         const std::shared_ptr<Object> &object,
         const SerializedIdentityContext &identityContext);
 
+    RosterGitMaterialization rosterGitMaterialization(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
+    void stageRosterGitCreature(
+        const RosterIdentity &identity,
+        const std::shared_ptr<Creature> &creature);
+
     const SaveResourceShadows &saveResourceShadows() const {
         return _saveResourceShadows;
     }
@@ -737,7 +756,9 @@ private:
     uint32_t _nextObjectId {kFirstRuntimeObjectId};
     std::map<uint32_t, std::shared_ptr<Object>> _objectById;
     std::map<uint32_t, std::weak_ptr<Object>> _objectBySavedId;
-    std::map<const Object *, uint32_t> _savedIdByObject;
+    // A logical roster creature may be the target of more than one serialized
+    // view. Saved IDs remain unique; the reverse side therefore records aliases.
+    std::map<const Object *, std::set<uint32_t>> _savedIdsByObject;
     std::set<uint32_t> _reservedSavedObjectIds;
     std::optional<std::string> _reservedSavedIdentityNamespace;
     std::map<uint32_t, std::string> _reservedSavedObjectIdClaims;
@@ -762,6 +783,43 @@ private:
     graphics::Texture *_lastRenderedSceneOutput {nullptr};
 
     // Services
+
+    struct RosterRepresentationKey {
+        std::string tag;
+
+        bool valid() const {
+            return !tag.empty();
+        }
+    };
+
+    struct PlannedRosterRecord {
+        std::shared_ptr<resource::Gff> detached;
+        RosterRepresentationKey key;
+        bool active {false};
+        bool representedInGit {false};
+    };
+
+    struct RosterMaterializationPlan {
+        SerializedIdentityContext identityContext;
+        std::map<RosterIdentity, PlannedRosterRecord> records;
+        std::vector<std::pair<RosterRepresentationKey, RosterIdentity>>
+            gitBindings;
+        std::map<RosterIdentity, std::shared_ptr<Creature>> stagedBindings;
+    };
+
+    std::optional<RosterMaterializationPlan> _rosterMaterializationPlan;
+    RosterRepresentationKey rosterRepresentationKey(
+        const resource::Gff &gff) const;
+    RosterRepresentationKey rosterRepresentationKey(
+        const Creature &creature) const;
+    bool sameRosterRepresentation(
+        const RosterRepresentationKey &lhs,
+        const RosterRepresentationKey &rhs) const;
+    void prepareRosterMaterialization(
+        const resource::Gff *git,
+        const SerializedIdentityContext &identityContext);
+    void commitRosterMaterialization();
+    void abortRosterMaterialization();
 
     Party _party;
     Combat _combat;
