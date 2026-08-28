@@ -80,17 +80,21 @@ void HUD::onGUILoaded() {
     bindControls();
 
     if (!_game.isTSL()) {
+        // The GUI control tree outlives this wrapper in the GUI cache. Derive
+        // from the live layout inputs so rebuilding a HUD cannot feed the
+        // previous presentation scale back into itself.
+        const float combatTextScale = _gui->scale() * _gui->textScale() * kK1CombatTextScale;
         for (Control *control : {
                  static_cast<Control *>(_controls.LBL_CMBTMODEMSG.get()),
                  static_cast<Control *>(_controls.BTN_CLEARALL.get()),
                  static_cast<Control *>(_controls.BTN_CLEARONE.get()),
                  static_cast<Control *>(_controls.BTN_CLEARONE2.get())}) {
             if (control) {
-                control->setScale(control->scale() * kK1CombatTextScale);
+                control->setScale(combatTextScale);
             }
         }
         if (auto actionDescription = findControl<gui::Label>("LBL_ACTIONDESC")) {
-            actionDescription->setScale(actionDescription->scale() * kK1CombatTextScale);
+            actionDescription->setScale(combatTextScale);
         }
     }
 
