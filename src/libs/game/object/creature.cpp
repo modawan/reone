@@ -538,7 +538,7 @@ void Creature::loadFromBlueprint(const std::string &resRef) {
     // A blueprint is a single source, so deserialize it once. Routing through
     // deserialize() would re-read the self-referential TemplateResRef and
     // deserialize the same data twice, doubling accumulated class levels.
-    deserializeAll(*utc);
+    deserializeAll(*utc, SerializedIdentityContext::templateResource(resRef));
     updateTransform();
     loadAppearance();
 }
@@ -2960,28 +2960,35 @@ std::string Creature::getWeaponModelName(int slot) const {
     return modelName;
 }
 
-void Creature::deserialize(const resource::Gff &gff) {
+void Creature::deserialize(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
     std::string templateRes;
-    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "TemplateResRef")) {
+    if (!identityContext.isSerializedState() &&
+        gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto utc = _services.resource.gffs.get(templateRes, ResType::Utc)) {
-            deserializeAll(*utc);
+            deserializeAll(
+                *utc,
+                SerializedIdentityContext::templateResource(templateRes));
         }
     }
-    deserializeAll(gff);
+    deserializeAll(gff, identityContext);
 
     updateTransform();
     loadAppearance();
 }
 
-void Creature::deserializeAll(const resource::Gff &gff) {
-    Object::deserialize(gff);
+void Creature::deserializeAll(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    Object::deserialize(gff, identityContext);
 
     // Retail reads IsPC before post-processing hit points. A player character
     // remains an incapacitated, resumable runtime object through 0..-9 HP and
     // becomes truly dead only at -10 HP. Preserve the saved HP verbatim; this
     // distinction is runtime state, not a load-time recovery/clamp.
     gff.readBool(_isPC, "IsPC");
-    if (gff.has("ObjectId") && gff.has("CurrentHitPoints")) {
+    if (identityContext.isSerializedState() && gff.has("CurrentHitPoints")) {
         if (_minOneHP && _currentHitPoints < 1) {
             _currentHitPoints = 1;
         }
@@ -3070,7 +3077,7 @@ void Creature::deserializeAll(const resource::Gff &gff) {
     deserializeBodyBag(gff);
     deserializeAttributes(gff);
     deserializePerception(gff);
-    deserializeEquipItems(gff);
+    deserializeEquipItems(gff, identityContext);
 }
 
 void Creature::deserializeName(const resource::Gff &gff) {
@@ -3190,19 +3197,22 @@ void Creature::deserializePerception(const resource::Gff &gff) {
     _perception.hearingRange = ranges->getFloat(_perceptionId, "secondaryrange");
 }
 
-void Creature::deserializeEquipItems(const resource::Gff &gff) {
-    if (gff.has("ObjectId")) {
+void Creature::deserializeEquipItems(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    if (identityContext.isSerializedState()) {
         _equipment.clear();
     }
     for (const auto &itemGff : gff.getList("Equip_ItemList")) {
         std::shared_ptr<Item> item = _game.newOwnedItem();
-        item->deserialize(*itemGff);
-        if (gff.has("ObjectId")) {
-            item->captureOwnerLocalSaveRecord(
+        item->deserialize(*itemGff, identityContext);
+        if (identityContext.isSerializedState()) {
+            item->captureSaveRecord(
                 *itemGff,
+                identityContext,
                 {SaveRecordOriginKind::EquippedItem, std::to_string(_id)});
         }
-        if (gff.has("ObjectId")) {
+        if (identityContext.isSerializedState()) {
             uint32_t slotMask = itemGff->type();
             if (slotMask != 0 && (slotMask & (slotMask - 1)) == 0) {
                 int slot = 0;

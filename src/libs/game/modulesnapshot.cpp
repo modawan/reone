@@ -455,15 +455,21 @@ void ModuleObjectIdContext::reservePartyId(uint32_t id) {
 void ModuleObjectIdContext::retainItem(const Item &item) {
     if (_itemIds.count(&item) != 0) return;
     constexpr uint32_t invalid = std::numeric_limits<uint32_t>::max();
-    auto preferred = item.originalOwnerLocalObjectId();
-    if (!preferred || *preferred >= kSavedRuntimeInvalidObjectId ||
-        *preferred == invalid) {
+    const auto &serializedIdentity = item.serializedObjectIdentity();
+    if (!serializedIdentity || serializedIdentity->id >= kSavedRuntimeInvalidObjectId ||
+        serializedIdentity->id == invalid) {
         return;
     }
-    if (!_used.insert(*preferred).second) {
+    if (_outputIdentityContext.hasAuthoritativeObjectIds() &&
+        !serializedIdentity->context.hasAuthoritativeObjectIds()) {
+        throw ValidationException(
+            "detached item identity requires module saved-ID translation");
+    }
+    const uint32_t preferred = serializedIdentity->id;
+    if (!_used.insert(preferred).second) {
         throw ValidationException("retained module item ID collides in saved object namespace");
     }
-    _itemIds.emplace(&item, *preferred);
+    _itemIds.emplace(&item, preferred);
 }
 
 void ModuleObjectIdContext::allocateItem(const Item &item) {
@@ -504,7 +510,8 @@ uint32_t ModuleObjectIdContext::nextId(uint32_t retainedCursor) const {
 
 ModuleObjectIdContext ModuleSnapshotBuilder::buildObjectIdContext(
     const Module &module, const Area &area) const {
-    ModuleObjectIdContext ids;
+    ModuleObjectIdContext ids(
+        SerializedIdentityContext::moduleGraph(_saveGroup));
     // Items owned by this module keep the saved identity they already hold in
     // this module's namespace. Items carried by the party arrived from whatever
     // module they were last serialized in, so their saved IDs mean nothing
@@ -952,8 +959,9 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeItem(
 
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
     const Creature &creature, uint32_t structType,
-    std::optional<uint32_t> serializedId) const {
-    ModuleObjectIdContext ids;
+    std::optional<uint32_t> serializedId,
+    const SerializedIdentityContext &outputIdentityContext) const {
+    ModuleObjectIdContext ids(outputIdentityContext);
     std::set<const Item *> seen;
     std::vector<const Item *> items;
     auto addItem = [&](const std::shared_ptr<Item> &item) {

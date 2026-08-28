@@ -46,7 +46,9 @@ public:
     }
 
     void loadFromBlueprint(const std::string &resRef);
-    void deserialize(const resource::Gff &gff);
+    void deserialize(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
 
     void damage(int amount, uint32_t damager) override;
 
@@ -139,7 +141,9 @@ private:
     void runDamagedScript(uint32_t damagerId);
     void runDeathScript(uint32_t damagerId);
 
-    void deserializeAll(const resource::Gff &gff);
+    void deserializeAll(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     void loadAppearance();
 
     void updateTransform() override;

@@ -1024,7 +1024,10 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
             // it is not serialized. Keep that allocation clear of identities
             // explicitly owned by the saved IFO graph (notably the Area).
             if (restoringSavedWorld) {
-                reserveSavedObjectIds(*ifo);
+                reserveSavedObjectIds(
+                    *ifo,
+                    SerializedIdentityContext::moduleGraph(name),
+                    SerializedGraphRoot::ModuleIfo);
             }
             _module = restoringSavedWorld ? newSavedModule() : newModule();
             _module->load(name, *ifo, restoringSavedWorld);
@@ -1127,6 +1130,9 @@ void Game::retireActiveModuleRuntime() {
             it = _objectById.erase(it);
         }
     }
+    _reservedSavedObjectIds.clear();
+    _reservedSavedIdentityNamespace.reset();
+    _reservedSavedObjectIdClaims.clear();
 }
 
 void Game::retireRuntimeSession() {
@@ -1209,6 +1215,8 @@ void Game::retireRuntimeSession() {
 
     _objectById.clear();
     _reservedSavedObjectIds.clear();
+    _reservedSavedIdentityNamespace.reset();
+    _reservedSavedObjectIdClaims.clear();
     _nextObjectId = kFirstRuntimeObjectId;
     _effectIds.reset();
     _worldTimeMilliseconds = 0;
@@ -1353,32 +1361,22 @@ void Game::restoreSaveLoad(PreparedSaveLoad prepared) {
     }
     captureSaveResourceShadow({SaveResourceKind::ModuleIfo, nfo.lastModule}, *ifo);
     replaceCustomTokens(parseCustomTokens(*ifo));
-    prepareSavedRuntimeNamespace(*ifo);
+    const auto moduleIdentityContext =
+        SerializedIdentityContext::moduleGraph(nfo.lastModule);
+    prepareSavedRuntimeNamespace(*ifo, moduleIdentityContext);
 
-    // Reserve serialized identities before party/inventory reconstruction can
-    // allocate owner-local support objects. The active GIT is mounted as
-    // module state rather than as a top-level working-state resource.
-    for (const auto &id : _services.resource.director.saveWorkingResourceIds()) {
-        if (!resource::isGFFCompatibleResType(id.type)) {
-            continue;
-        }
-        try {
-            if (auto gff = decodeSaveGff(
-                    _services.resource.director.findSaveWorking(id))) {
-                reserveSavedObjectIds(*gff);
-            }
-        } catch (const std::exception &) {
-            // A generic .res is not necessarily GFF. Required structured
-            // resources retain their normal validation path below.
-        }
-    }
+    // Detached save-wide records are deliberately not traversed here: their
+    // ObjectId fields do not claim identities in the active module graph.
     const std::string entryArea = ifo->getString("Mod_Entry_Area");
     if (!entryArea.empty()) {
         if (auto git = _services.resource.gffs.get(entryArea, ResType::Git)) {
-            reserveSavedObjectIds(*git);
+            reserveSavedObjectIds(
+                *git,
+                moduleIdentityContext,
+                SerializedGraphRoot::AreaGit);
         }
     }
-    deserializeParty(*ifo, prepared.partyTable);
+    deserializeParty(*ifo, prepared.partyTable, moduleIdentityContext);
 
     // Once the player is loaded, deserialize player's inventory.
     if (prepared.inventory) {
@@ -1436,7 +1434,10 @@ void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
     }
 }
 
-void Game::deserializeParty(resource::Gff &ifoGff, const std::shared_ptr<Gff> &ptGff) {
+void Game::deserializeParty(
+    resource::Gff &ifoGff,
+    const std::shared_ptr<Gff> &ptGff,
+    const SerializedIdentityContext &moduleIdentityContext) {
     resetGalaxyMap();
 
     std::shared_ptr<Gff> pcGff;
@@ -1456,13 +1457,14 @@ void Game::deserializeParty(resource::Gff &ifoGff, const std::shared_ptr<Gff> &p
         }
     }
 
-    publishPartyRuntimeState(ifoGff, ptGff, pcGff);
+    publishPartyRuntimeState(ifoGff, ptGff, pcGff, moduleIdentityContext);
 }
 
 void Game::publishPartyRuntimeState(
     resource::Gff &ifoGff,
     const std::shared_ptr<resource::Gff> &ptGff,
-    const std::shared_ptr<resource::Gff> &pcGff) {
+    const std::shared_ptr<resource::Gff> &pcGff,
+    const SerializedIdentityContext &moduleIdentityContext) {
     if (ptGff) {
         captureSaveResourceShadow({SaveResourceKind::PartyTable, {}}, *ptGff);
         deserializeGalaxyMap(*ptGff);
@@ -1492,10 +1494,10 @@ void Game::publishPartyRuntimeState(
         return;
     }
 
-    auto modulePlayer = newCreature(*players.front());
-    modulePlayer->deserialize(*players.front());
+    auto modulePlayer = newCreature(*players.front(), moduleIdentityContext);
+    modulePlayer->deserialize(*players.front(), moduleIdentityContext);
     modulePlayer->captureSaveRecord(
-        *players.front(), {SaveRecordOriginKind::ModulePlayer, {}});
+        *players.front(), moduleIdentityContext, {SaveRecordOriginKind::ModulePlayer, {}});
     modulePlayer->setTag(kObjectTagPlayer);
 
     auto actualPlayer = modulePlayer;
@@ -1503,12 +1505,12 @@ void Game::publishPartyRuntimeState(
     // PT_CONTROLLED_NP, not Mod_IsPrimaryPlr, defines whether pc.utc is the
     // canonical player distinct from the currently controlled module creature.
     if (partyState.controlledNpc != -1 && pcGff) {
-        actualPlayer = pcGff->has("ObjectId")
-                           ? newCreature(*pcGff)
-                           : newCreature();
-        actualPlayer->deserialize(*pcGff);
+        const auto pcIdentityContext =
+            SerializedIdentityContext::detachedRecord("pc.utc");
+        actualPlayer = newCreature(*pcGff, pcIdentityContext);
+        actualPlayer->deserialize(*pcGff, pcIdentityContext);
         actualPlayer->captureSaveRecord(
-            *pcGff, {SaveRecordOriginKind::PrimaryPlayerUtc, {}});
+            *pcGff, pcIdentityContext, {SaveRecordOriginKind::PrimaryPlayerUtc, {}});
     }
 
     // Retail K1 and K2 complete primary-player BIC publication by assigning
@@ -1733,12 +1735,13 @@ void Game::deserializeAvailableNpcs() {
             continue;
         }
 
-        std::shared_ptr<Creature> creature = utcGff->has("ObjectId")
-                                                 ? newCreature(*utcGff)
-                                                 : newCreature();
-        creature->deserialize(*utcGff);
+        const auto identityContext =
+            SerializedIdentityContext::detachedRecord(utc + ".utc");
+        auto creature = newCreature(*utcGff, identityContext);
+        creature->deserialize(*utcGff, identityContext);
         creature->captureSaveRecord(
             *utcGff,
+            identityContext,
             {SaveRecordOriginKind::AvailableNpc, std::to_string(npc)});
 
         _party.addAvailableMember(static_cast<int>(npc), creature);
@@ -1766,12 +1769,13 @@ void Game::deserializeAvailableNpcs() {
             continue;
         }
 
-        auto creature = utcGff->has("ObjectId")
-                            ? newCreature(*utcGff)
-                            : newCreature();
-        creature->deserialize(*utcGff);
+        const auto identityContext =
+            SerializedIdentityContext::detachedRecord(utc + ".utc");
+        auto creature = newCreature(*utcGff, identityContext);
+        creature->deserialize(*utcGff, identityContext);
         creature->captureSaveRecord(
             *utcGff,
+            identityContext,
             {SaveRecordOriginKind::AvailablePuppet, std::to_string(puppet)});
         _party.addAvailablePuppet(static_cast<int>(puppet), std::move(creature));
     }
@@ -1858,10 +1862,13 @@ void Game::deserializeInventory(resource::Gff &inventoryGff) {
     }
 
     for (const auto &itemGff : inventoryGff.getList("ItemList")) {
-        std::shared_ptr<Item> item = newOwnedItem();
-        item->deserialize(*itemGff);
-        item->captureOwnerLocalSaveRecord(
+        const auto identityContext =
+            SerializedIdentityContext::detachedRecord("inventory.res");
+        auto item = newItem(*itemGff, identityContext);
+        item->deserialize(*itemGff, identityContext);
+        item->captureSaveRecord(
             *itemGff,
+            identityContext,
             {SaveRecordOriginKind::PartyInventoryItem, "inventory"});
         player->addItem(item);
     }
@@ -2026,70 +2033,80 @@ void Game::registerObject(
     _reservedSavedObjectIds.erase(id);
 }
 
-std::shared_ptr<Item> Game::newItem(const resource::Gff &gff) {
-    return gff.has("ObjectId")
-               ? newObjectFromGff<Item>(gff, *this, _services)
-               : newItem();
+std::shared_ptr<Item> Game::newItem(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    return newObjectFromGff<Item>(gff, identityContext, *this, _services);
 }
 
 std::shared_ptr<Creature> Game::newCreature(
     const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
     std::string sceneName) {
     return newObjectFromGff<Creature>(
-        gff, std::move(sceneName), *this, _services);
+        gff, identityContext, std::move(sceneName), *this, _services);
 }
 
 std::shared_ptr<Placeable> Game::newPlaceable(
     const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
     std::string sceneName) {
     return newObjectFromGff<Placeable>(
-        gff, std::move(sceneName), *this, _services);
+        gff, identityContext, std::move(sceneName), *this, _services);
 }
 
 std::shared_ptr<Door> Game::newDoor(
     const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
     std::string sceneName) {
     return newObjectFromGff<Door>(
-        gff, std::move(sceneName), *this, _services);
+        gff, identityContext, std::move(sceneName), *this, _services);
 }
 
 std::shared_ptr<Waypoint> Game::newWaypoint(
     const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
     std::string sceneName) {
     return newObjectFromGff<Waypoint>(
-        gff, std::move(sceneName), *this, _services);
+        gff, identityContext, std::move(sceneName), *this, _services);
 }
 
 std::shared_ptr<Trigger> Game::newTrigger(
     const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
     std::string sceneName) {
     return newObjectFromGff<Trigger>(
-        gff, std::move(sceneName), *this, _services);
+        gff, identityContext, std::move(sceneName), *this, _services);
 }
 
 std::shared_ptr<Sound> Game::newSound(
     const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
     std::string sceneName) {
     return newObjectFromGff<Sound>(
-        gff, std::move(sceneName), *this, _services);
+        gff, identityContext, std::move(sceneName), *this, _services);
 }
 
 std::shared_ptr<Encounter> Game::newEncounter(
     const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
     std::string sceneName) {
     return newObjectFromGff<Encounter>(
-        gff, std::move(sceneName), *this, _services);
+        gff, identityContext, std::move(sceneName), *this, _services);
 }
 
 std::shared_ptr<Store> Game::newStore(
     const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
     std::string sceneName) {
     return newObjectFromGff<Store>(
-        gff, std::move(sceneName), *this, _services);
+        gff, identityContext, std::move(sceneName), *this, _services);
 }
 
-void Game::prepareSavedRuntimeNamespace(const resource::Gff &ifo) {
-    reserveSavedObjectIds(ifo);
+void Game::prepareSavedRuntimeNamespace(
+    const resource::Gff &ifo,
+    const SerializedIdentityContext &identityContext) {
+    reserveSavedObjectIds(ifo, identityContext, SerializedGraphRoot::ModuleIfo);
 
     uint32_t nextObjectId = kFirstRuntimeObjectId;
     if (ifo.readDword(nextObjectId, "Mod_NextObjId0") &&
@@ -2127,15 +2144,30 @@ void Game::prepareSavedRuntimeNamespace(const resource::Gff &ifo) {
     _worldTimeFraction = 0.0;
 }
 
-void Game::reserveSavedObjectIds(const resource::Gff &gff) {
-    for (const auto &field : gff.fields()) {
-        if (field.label == "ObjectId" &&
-            field.type == resource::Gff::FieldType::Dword) {
-            _reservedSavedObjectIds.insert(field.uintValue);
+void Game::reserveSavedObjectIds(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
+    SerializedGraphRoot graphRoot) {
+    if (!identityContext.hasAuthoritativeObjectIds()) {
+        return;
+    }
+    if (!_reservedSavedIdentityNamespace) {
+        _reservedSavedIdentityNamespace = identityContext.identityNamespace;
+    } else if (*_reservedSavedIdentityNamespace != identityContext.identityNamespace) {
+        throw ValidationException("Cannot mix authoritative saved object namespaces");
+    }
+    for (auto &claim : collectSerializedObjectIdClaims(gff, identityContext, graphRoot)) {
+        if (claim.id == std::numeric_limits<uint32_t>::max()) {
+            throw ValidationException("Invalid saved ObjectId");
         }
-        for (const auto &child : field.children) {
-            reserveSavedObjectIds(*child);
+        auto [found, inserted] = _reservedSavedObjectIdClaims.emplace(claim.id, claim.path);
+        if (!inserted && found->second != claim.path) {
+            throw ValidationException(
+                "Duplicate authoritative saved ObjectId " +
+                std::to_string(claim.id) + " at " + found->second +
+                " and " + claim.path);
         }
+        _reservedSavedObjectIds.insert(claim.id);
     }
 }
 

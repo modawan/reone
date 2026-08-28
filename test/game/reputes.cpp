@@ -623,7 +623,11 @@ void reone::game::TestGameModule::publishPartyRuntimeState(
     Gff &ifoGff,
     const std::shared_ptr<Gff> &ptGff,
     const std::shared_ptr<Gff> &pcGff) {
-    game.publishPartyRuntimeState(ifoGff, ptGff, pcGff);
+    game.publishPartyRuntimeState(
+        ifoGff,
+        ptGff,
+        pcGff,
+        SerializedIdentityContext::moduleGraph("test-module"));
 }
 
 void reone::game::TestGameModule::deserializeCustomTokens(
@@ -1131,7 +1135,12 @@ TEST(SavedPlayerRestoration,
     EXPECT_EQ(kObjectTagPlayer, fixture.game.party().player()->tag());
     EXPECT_EQ(330u, fixture.game.party().player()->id());
     EXPECT_EQ("canonical_pc", fixture.game.party().actualPlayer()->tag());
-    EXPECT_EQ(2147483646u, fixture.game.party().actualPlayer()->id());
+    EXPECT_NE(2147483646u, fixture.game.party().actualPlayer()->id());
+    EXPECT_EQ(
+        fixture.game.party().actualPlayer()->serializedObjectIdentity(),
+        std::optional<SerializedObjectIdentity>({
+            SerializedIdentityContext::detachedRecord("pc.utc"),
+            2147483646u}));
     EXPECT_EQ(fixture.game.party().player(), fixture.game.party().getLeader());
     EXPECT_EQ(fixture.game.party().player(),
               fixture.game.party().getMemberByNPC(8));

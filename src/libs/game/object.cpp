@@ -42,7 +42,9 @@ static constexpr float kDefaultMaxObjectDistance = 2.0f;
 static constexpr float kMaxConversationDistance = 4.0f;
 static constexpr float kDistanceWalk = 4.0f;
 
-void Object::deserialize(const resource::Gff &gff) {
+void Object::deserialize(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
     }
@@ -79,16 +81,17 @@ void Object::deserialize(const resource::Gff &gff) {
         }
     }
 
-    if (gff.has("ObjectId")) {
+    if (identityContext.isSerializedState()) {
         _items.clear();
     }
     if (_type != ObjectType::Placeable && _type != ObjectType::Store) {
         for (const auto &itemGff : gff.getList("ItemList")) {
             std::shared_ptr<Item> item = _game.newOwnedItem();
-            item->deserialize(*itemGff);
-            if (gff.has("ObjectId")) {
-                item->captureOwnerLocalSaveRecord(
+            item->deserialize(*itemGff, identityContext);
+            if (identityContext.isSerializedState()) {
+                item->captureSaveRecord(
                     *itemGff,
+                    identityContext,
                     {SaveRecordOriginKind::ContainedItem, std::to_string(_id)});
             }
             addItem(item);
@@ -251,9 +254,17 @@ void Object::publishSavedRuntimeState() {
 }
 
 void Object::captureSaveRecord(
-    const resource::Gff &gff, SaveRecordOrigin origin) {
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
+    SaveRecordOrigin origin) {
+    std::optional<SerializedObjectIdentity> identity;
+    uint32_t id = 0;
+    if (identityContext.isSerializedState() &&
+        gff.readDword(id, "ObjectId")) {
+        identity = SerializedObjectIdentity {identityContext, id};
+    }
     _saveRecordProvenance = SaveRecordProvenance {
-        SaveGffShadow::capture(gff), std::move(origin)};
+        SaveGffShadow::capture(gff), std::move(origin), std::move(identity)};
 }
 
 std::vector<EffectInstance> Object::saveEffectSnapshot() const {

@@ -15,6 +15,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <vector>
 
 #include "reone/resource/gff.h"
 
@@ -42,6 +43,71 @@ private:
 void replaceSaveField(resource::Gff &record, resource::Gff::Field field);
 void removeSaveField(resource::Gff &record, std::string_view label);
 
+/**
+ * Authority carried by ObjectId fields in one materialization context.
+ *
+ * The GFF field type alone does not answer this question. Saved module graphs
+ * own an authoritative object namespace, detached records carry only local
+ * serialization identities, and templates carry no serialized instance
+ * identity at all.
+ */
+enum class SerializedIdentityDomain {
+    ModuleGraph,
+    DetachedRecord,
+    Template,
+};
+
+struct SerializedIdentityContext {
+    SerializedIdentityDomain domain {SerializedIdentityDomain::Template};
+    std::string identityNamespace;
+
+    static SerializedIdentityContext moduleGraph(std::string identityNamespace) {
+        return {SerializedIdentityDomain::ModuleGraph, std::move(identityNamespace)};
+    }
+    static SerializedIdentityContext detachedRecord(std::string identityNamespace) {
+        return {SerializedIdentityDomain::DetachedRecord, std::move(identityNamespace)};
+    }
+    static SerializedIdentityContext templateResource(std::string identityNamespace = {}) {
+        return {SerializedIdentityDomain::Template, std::move(identityNamespace)};
+    }
+
+    bool isSerializedState() const {
+        return domain != SerializedIdentityDomain::Template;
+    }
+    bool hasAuthoritativeObjectIds() const {
+        return domain == SerializedIdentityDomain::ModuleGraph;
+    }
+
+    bool operator==(const SerializedIdentityContext &rhs) const {
+        return domain == rhs.domain && identityNamespace == rhs.identityNamespace;
+    }
+};
+
+struct SerializedObjectIdentity {
+    SerializedIdentityContext context;
+    uint32_t id {0};
+
+    bool operator==(const SerializedObjectIdentity &rhs) const {
+        return context == rhs.context && id == rhs.id;
+    }
+};
+
+enum class SerializedGraphRoot {
+    ModuleIfo,
+    AreaGit,
+};
+
+struct SerializedObjectIdClaim {
+    uint32_t id {0};
+    std::string path;
+};
+
+/** Collect only owned identities, never ObjectId-shaped reference fields. */
+std::vector<SerializedObjectIdClaim> collectSerializedObjectIdClaims(
+    const resource::Gff &root,
+    const SerializedIdentityContext &context,
+    SerializedGraphRoot graphRoot);
+
 enum class SaveRecordOriginKind {
     ActiveGitObject,
     ModulePlayer,
@@ -68,6 +134,7 @@ struct SaveRecordOrigin {
 struct SaveRecordProvenance {
     SaveGffShadow shadow;
     SaveRecordOrigin origin;
+    std::optional<SerializedObjectIdentity> identity;
 };
 
 enum class SaveResourceKind {

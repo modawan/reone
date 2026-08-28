@@ -32,7 +32,8 @@ void reone::game::TestGameModule::advanceWorldTime(Game &game, float dt) {
 }
 
 void reone::game::TestGameModule::prepareWorldTimeFromIfo(Game &game, const Gff &ifo) {
-    game.prepareSavedRuntimeNamespace(ifo);
+    game.prepareSavedRuntimeNamespace(
+        ifo, SerializedIdentityContext::moduleGraph("test-module"));
 }
 
 namespace {

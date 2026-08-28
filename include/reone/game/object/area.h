@@ -77,7 +77,11 @@ public:
         return from->type() == ObjectType::Area;
     }
 
-    void load(std::string name, const resource::Gff &are, const resource::Gff &git, bool fromSave = false);
+    void load(
+        std::string name,
+        const resource::Gff &are,
+        const resource::Gff &git,
+        const SerializedIdentityContext &identityContext);
     void activate();
 
     bool handle(const input::Event &event);
@@ -385,19 +389,22 @@ private:
 
     // Loading GIT
 
-    void loadGIT(const resource::generated::GIT &git, const resource::Gff &gff, bool fromSave);
+    void loadGIT(
+        const resource::generated::GIT &git,
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
 
     void loadProperties(const resource::generated::GIT &git);
-    void loadCreatures(const resource::Gff &gff, bool fromSave);
-    void loadDoors(const resource::Gff &gff, bool fromSave);
-    void loadPlaceables(const resource::Gff &gff, bool fromSave);
-    void loadWaypoints(const resource::Gff &gff, bool fromSave);
-    void loadTriggers(const resource::Gff &gff, bool fromSave);
-    void loadSounds(const resource::Gff &gff, bool fromSave);
-    void loadCameras(const resource::Gff &gff, bool fromSave);
-    void loadEncounters(const resource::Gff &gff, bool fromSave);
-    void loadStores(const resource::Gff &gff, bool fromSave);
-    void loadItems(const resource::Gff &gff, bool fromSave);
+    void loadCreatures(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadDoors(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadPlaceables(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadWaypoints(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadTriggers(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadSounds(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadCameras(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadEncounters(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadStores(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadItems(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
 
     // END Loading GIT
 

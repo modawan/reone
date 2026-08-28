@@ -56,7 +56,9 @@ public:
         return true;
     }
 
-    void deserialize(const resource::Gff &gff);
+    void deserialize(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
 
     virtual void update(float dt);
     virtual void damage(int amount, uint32_t damager);
@@ -229,9 +231,15 @@ public:
 
     void captureSaveRecord(
         const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext,
         SaveRecordOrigin origin = {});
     const std::optional<SaveRecordProvenance> &saveRecordProvenance() const {
         return _saveRecordProvenance;
+    }
+    std::optional<SerializedObjectIdentity> serializedObjectIdentity() const {
+        return _saveRecordProvenance
+                   ? _saveRecordProvenance->identity
+                   : std::nullopt;
     }
 
 

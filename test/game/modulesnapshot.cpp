@@ -232,7 +232,9 @@ struct SnapshotFixture : Test {
             .field(Gff::Field::newCExoString("FutureDoor", "preserve-door"))
             .build();
         door->captureSaveRecord(
-            *source, {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
+            *source,
+            SerializedIdentityContext::moduleGraph("tat_m17ab"),
+            {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
         door->open();
         door->setLocked(true);
         TestGameModule::addSnapshotObject(*area, door);
@@ -305,7 +307,9 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
         *camera, 7, {4.0f, 5.0f, 6.0f},
         glm::quat(1.0f, 0.0f, 0.0f, 0.0f), 12.0f, 1.5f, 55.0f, 8.0f);
     camera->captureSaveRecord(
-        *cameraSource, {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
+        *cameraSource,
+        SerializedIdentityContext::moduleGraph("tat_m17ab"),
+        {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
     for (const auto &object : std::vector<std::shared_ptr<Object>> {
              placeable, worldItem, trigger, encounter, store, waypoint, sound,
              camera}) {
@@ -318,7 +322,9 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
         .field(Gff::Field::newCExoString("FutureTrigger", "preserve-trigger"))
         .build();
     trigger->captureSaveRecord(
-        *triggerShadow, {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
+        *triggerShadow,
+        SerializedIdentityContext::moduleGraph("tat_m17ab"),
+        {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
     TestGameModule::deserializeSnapshotRuntimeState(*trigger, *triggerShadow);
     game.resolveSavedObjectReferences();
 
@@ -524,7 +530,10 @@ TEST_F(SnapshotFixture, module_item_ids_are_global_deterministic_and_retained) {
                      SaveRecordOriginKind kind, const std::string &owner) {
         auto record = Gff::Builder().type(0)
             .field(Gff::Field::newDword("ObjectId", id)).build();
-        item->captureOwnerLocalSaveRecord(*record, {kind, owner});
+        item->captureSaveRecord(
+            *record,
+            SerializedIdentityContext::moduleGraph("module005"),
+            {kind, owner});
     };
     retain(first, 70, SaveRecordOriginKind::PlaceableItem, "a");
     retain(third, 71, SaveRecordOriginKind::StoreItem, "b");
@@ -608,7 +617,15 @@ struct PartyItemIdFixture : TestWithParam<GameID> {
                 SaveRecordOriginKind kind, const std::string &owner) {
         auto record = Gff::Builder().type(0)
             .field(Gff::Field::newDword("ObjectId", id)).build();
-        item->captureOwnerLocalSaveRecord(*record, {kind, owner});
+        const auto identityContext =
+            kind == SaveRecordOriginKind::PlaceableItem ||
+                    kind == SaveRecordOriginKind::StoreItem
+                ? SerializedIdentityContext::moduleGraph("module_pid")
+                : SerializedIdentityContext::detachedRecord(owner);
+        item->captureSaveRecord(
+            *record,
+            identityContext,
+            {kind, owner});
     }
 
     std::shared_ptr<Sound> worldSoundWithId(uint32_t id) {
@@ -782,8 +799,10 @@ struct CameraIdFixture : TestWithParam<GameID> {
         item->setTag(tag);
         auto record = Gff::Builder().type(0)
             .field(Gff::Field::newDword("ObjectId", id)).build();
-        item->captureOwnerLocalSaveRecord(
-            *record, {SaveRecordOriginKind::PlaceableItem, "module_cam"});
+        item->captureSaveRecord(
+            *record,
+            SerializedIdentityContext::moduleGraph("module_cam"),
+            {SaveRecordOriginKind::PlaceableItem, "module_cam"});
         placeable->addItem(item);
         TestGameModule::addSnapshotObject(*area, placeable);
         return item;
@@ -914,8 +933,10 @@ TEST_P(CameraIdFixture, foreign_item_id_is_still_allocated_not_retained) {
     equipped->setTag("blaster");
     auto record = Gff::Builder().type(0)
         .field(Gff::Field::newDword("ObjectId", 577)).build();
-    equipped->captureOwnerLocalSaveRecord(
-        *record, {SaveRecordOriginKind::EquippedItem, "some_other_module"});
+    equipped->captureSaveRecord(
+        *record,
+        SerializedIdentityContext::detachedRecord("some_other_module"),
+        {SaveRecordOriginKind::EquippedItem, "some_other_module"});
     TestGameModule::setSnapshotEquipment(*player, InventorySlots::rightWeapon, equipped);
 
     auto result = ModuleSnapshotBuilder(game, "module_cam").build();
@@ -951,8 +972,10 @@ TEST_F(SnapshotFixture, retained_module_item_collision_is_rejected) {
     auto item = game.newOwnedItem();
     auto record = Gff::Builder().type(0)
         .field(Gff::Field::newDword("ObjectId", owner->id())).build();
-    item->captureOwnerLocalSaveRecord(
-        *record, {SaveRecordOriginKind::PlaceableItem, "owner"});
+    item->captureSaveRecord(
+        *record,
+        SerializedIdentityContext::moduleGraph("module005"),
+        {SaveRecordOriginKind::PlaceableItem, "owner"});
     owner->addItem(item);
     TestGameModule::addSnapshotObject(*area, owner);
 
@@ -991,7 +1014,9 @@ TEST(ModuleSnapshot, k1_reserved_player_id_does_not_drive_cursor_or_duplicate_in
     EXPECT_EQ(saved.snapshot->ifo->getUint("Mod_NextObjId0"), 136u);
 
     Game reloaded(GameID::KotOR, "", engine.options(), engine.services(), console);
-    reloaded.prepareSavedRuntimeNamespace(*saved.snapshot->ifo);
+    reloaded.prepareSavedRuntimeNamespace(
+        *saved.snapshot->ifo,
+        SerializedIdentityContext::moduleGraph("test-module"));
     auto postLoadItem = reloaded.newItem();
     EXPECT_EQ(postLoadItem->id(), 136u);
     EXPECT_EQ(reloaded.getObjectById(136), postLoadItem);
@@ -1118,7 +1143,9 @@ TEST_F(SnapshotFixture, deleted_reference_targets_are_written_as_retail_invalid)
         .field(Gff::Field::newDword("ObjectId", trigger->id()))
         .field(Gff::Field::newDword("CreatorId", door->id())).build();
     trigger->captureSaveRecord(
-        *source, {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
+        *source,
+        SerializedIdentityContext::moduleGraph("tat_m17ab"),
+        {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
     TestGameModule::deserializeSnapshotRuntimeState(*trigger, *source);
     game.resolveSavedObjectReferences();
 

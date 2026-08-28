@@ -39,22 +39,27 @@ void Sound::loadFromBlueprint(const std::string &resRef) {
     if (!uts) {
         return;
     }
-    deserialize(*uts);
+    deserialize(*uts, SerializedIdentityContext::templateResource(resRef));
 }
 
-void Sound::deserialize(const resource::Gff &gff) {
+void Sound::deserialize(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
     std::string templateRes;
-    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "TemplateResRef")) {
+    if (!identityContext.isSerializedState() &&
+        gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto uts = _services.resource.gffs.get(templateRes, ResType::Uts)) {
-            deserializeAll(*uts);
+            deserializeAll(*uts, SerializedIdentityContext::templateResource(templateRes));
         }
     }
-    deserializeAll(gff);
+    deserializeAll(gff, identityContext);
     loadAppearance();
     updateTransform();
 }
 
-void Sound::deserializeAll(const resource::Gff &gff) {
+void Sound::deserializeAll(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &) {
     deserializeRuntimeState(gff);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);

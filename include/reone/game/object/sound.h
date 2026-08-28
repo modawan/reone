@@ -50,7 +50,9 @@ public:
     }
 
     void loadFromBlueprint(const std::string &resRef);
-    void deserialize(const resource::Gff &gff);
+    void deserialize(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
 
     void update(float dt) override;
 
@@ -100,7 +102,9 @@ private:
     float _timeout {0.0f};
     std::vector<std::string> _sounds;
 
-    void deserializeAll(const resource::Gff &gff);
+    void deserializeAll(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     void loadAppearance();
     void updateTransform() override;
 };

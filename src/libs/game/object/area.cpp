@@ -168,9 +168,13 @@ void Area::init() {
     _objectsByType.insert(std::make_pair(ObjectType::Sound, ObjectList()));
 }
 
-void Area::load(std::string name, const Gff &are, const Gff &git, bool fromSave) {
+void Area::load(
+    std::string name,
+    const Gff &are,
+    const Gff &git,
+    const SerializedIdentityContext &identityContext) {
     _name = std::move(name);
-    if (fromSave) {
+    if (identityContext.isSerializedState()) {
         _game.captureSaveResourceShadow(
             {SaveResourceKind::AreaAre, _name}, are);
         _game.captureSaveResourceShadow(
@@ -183,7 +187,7 @@ void Area::load(std::string name, const Gff &are, const Gff &git, bool fromSave)
 
     loadARE(areParsed);
     loadLYT();
-    loadGIT(gitParsed, git, fromSave);
+    loadGIT(gitParsed, git, identityContext);
     loadVIS();
 }
 
@@ -299,18 +303,22 @@ void Area::applySceneProperties() {
     sceneGraph.setFog(fogProperties);
 }
 
-void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff, bool fromSave) {
+void Area::loadGIT(
+    const resource::generated::GIT &git,
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    _game.reserveSavedObjectIds(gff, identityContext, SerializedGraphRoot::AreaGit);
     loadProperties(git);
-    loadCreatures(gff, fromSave);
-    loadDoors(gff, fromSave);
-    loadPlaceables(gff, fromSave);
-    loadWaypoints(gff, fromSave);
-    loadTriggers(gff, fromSave);
-    loadSounds(gff, fromSave);
-    loadCameras(gff, fromSave);
-    loadEncounters(gff, fromSave);
-    loadStores(gff, fromSave);
-    loadItems(gff, fromSave);
+    loadCreatures(gff, identityContext);
+    loadDoors(gff, identityContext);
+    loadPlaceables(gff, identityContext);
+    loadWaypoints(gff, identityContext);
+    loadTriggers(gff, identityContext);
+    loadSounds(gff, identityContext);
+    loadCameras(gff, identityContext);
+    loadEncounters(gff, identityContext);
+    loadStores(gff, identityContext);
+    loadItems(gff, identityContext);
 }
 
 void Area::loadProperties(const resource::generated::GIT &git) {
@@ -321,103 +329,114 @@ void Area::loadProperties(const resource::generated::GIT &git) {
     }
 }
 
-void Area::loadCreatures(const resource::Gff &gff, bool fromSave) {
+void Area::loadCreatures(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (const auto &creatureGff : gff.getList("Creature List")) {
-        std::shared_ptr<Creature> creature = fromSave ? _game.newCreature(*creatureGff, _sceneName)
-                                                     : _game.newCreature(_sceneName);
-        creature->deserialize(*creatureGff);
-        if (fromSave) creature->captureSaveRecord(*creatureGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto creature = _game.newCreature(*creatureGff, identityContext, _sceneName);
+        creature->deserialize(*creatureGff, identityContext);
+        if (identityContext.isSerializedState()) {
+            creature->captureSaveRecord(*creatureGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         landObject(*creature);
         add(creature);
     }
 }
 
-void Area::loadDoors(const resource::Gff &gff, bool fromSave) {
+void Area::loadDoors(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &doorGff : gff.getList("Door List")) {
-        std::shared_ptr<Door> door = fromSave ? _game.newDoor(*doorGff, _sceneName)
-                                             : _game.newDoor(_sceneName);
-        door->deserialize(*doorGff);
-        if (fromSave) door->captureSaveRecord(*doorGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto door = _game.newDoor(*doorGff, identityContext, _sceneName);
+        door->deserialize(*doorGff, identityContext);
+        if (identityContext.isSerializedState()) {
+            door->captureSaveRecord(*doorGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(door);
     }
 }
 
-void Area::loadPlaceables(const resource::Gff &gff, bool fromSave) {
+void Area::loadPlaceables(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &placeableGff : gff.getList("Placeable List")) {
-        std::shared_ptr<Placeable> placeable = fromSave ? _game.newPlaceable(*placeableGff, _sceneName)
-                                                       : _game.newPlaceable(_sceneName);
-        placeable->deserialize(*placeableGff);
-        if (fromSave) placeable->captureSaveRecord(*placeableGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto placeable = _game.newPlaceable(*placeableGff, identityContext, _sceneName);
+        placeable->deserialize(*placeableGff, identityContext);
+        if (identityContext.isSerializedState()) {
+            placeable->captureSaveRecord(*placeableGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(placeable);
     }
 }
 
-void Area::loadWaypoints(const resource::Gff &gff, bool fromSave) {
+void Area::loadWaypoints(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &waypointGff : gff.getList("WaypointList")) {
-        std::shared_ptr<Waypoint> waypoint = fromSave ? _game.newWaypoint(*waypointGff, _sceneName)
-                                                     : _game.newWaypoint(_sceneName);
-        waypoint->deserialize(*waypointGff);
-        if (fromSave) waypoint->captureSaveRecord(*waypointGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto waypoint = _game.newWaypoint(*waypointGff, identityContext, _sceneName);
+        waypoint->deserialize(*waypointGff, identityContext);
+        if (identityContext.isSerializedState()) {
+            waypoint->captureSaveRecord(*waypointGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(waypoint);
     }
 }
 
-void Area::loadTriggers(const resource::Gff &gff, bool fromSave) {
+void Area::loadTriggers(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &triggerGff : gff.getList("TriggerList")) {
-        std::shared_ptr<Trigger> trigger = fromSave ? _game.newTrigger(*triggerGff, _sceneName)
-                                                   : _game.newTrigger(_sceneName);
-        trigger->deserialize(*triggerGff);
-        if (fromSave) trigger->captureSaveRecord(*triggerGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto trigger = _game.newTrigger(*triggerGff, identityContext, _sceneName);
+        trigger->deserialize(*triggerGff, identityContext);
+        if (identityContext.isSerializedState()) {
+            trigger->captureSaveRecord(*triggerGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(trigger);
     }
 }
 
-void Area::loadSounds(const resource::Gff &gff, bool fromSave) {
+void Area::loadSounds(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &soundGff : gff.getList("SoundList")) {
-        std::shared_ptr<Sound> sound = fromSave ? _game.newSound(*soundGff, _sceneName)
-                                               : _game.newSound(_sceneName);
-        sound->deserialize(*soundGff);
-        if (fromSave) sound->captureSaveRecord(*soundGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto sound = _game.newSound(*soundGff, identityContext, _sceneName);
+        sound->deserialize(*soundGff, identityContext);
+        if (identityContext.isSerializedState()) {
+            sound->captureSaveRecord(*soundGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(sound);
     }
 }
 
-void Area::loadCameras(const resource::Gff &gff, bool fromSave) {
+void Area::loadCameras(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &cameraGff : gff.getList("CameraList")) {
         std::shared_ptr<StaticCamera> camera = _game.newStaticCamera(_sceneName);
         camera->deserialize(*cameraGff);
-        if (fromSave) camera->captureSaveRecord(*cameraGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        if (identityContext.isSerializedState()) {
+            camera->captureSaveRecord(*cameraGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(camera);
     }
 }
 
-void Area::loadEncounters(const resource::Gff &gff, bool fromSave) {
+void Area::loadEncounters(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &encounterGff : gff.getList("Encounter List")) {
-        std::shared_ptr<Encounter> encounter = fromSave ? _game.newEncounter(*encounterGff, _sceneName)
-                                                       : _game.newEncounter(_sceneName);
-        encounter->deserialize(*encounterGff);
-        if (fromSave) encounter->captureSaveRecord(*encounterGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto encounter = _game.newEncounter(*encounterGff, identityContext, _sceneName);
+        encounter->deserialize(*encounterGff, identityContext);
+        if (identityContext.isSerializedState()) {
+            encounter->captureSaveRecord(*encounterGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(encounter);
     }
 }
 
-void Area::loadStores(const resource::Gff &gff, bool fromSave) {
+void Area::loadStores(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &storeGff : gff.getList("StoreList")) {
-        std::shared_ptr<Store> store = fromSave ? _game.newStore(*storeGff, _sceneName)
-                                               : _game.newStore(_sceneName);
-        store->deserialize(*storeGff);
-        if (fromSave) store->captureSaveRecord(*storeGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto store = _game.newStore(*storeGff, identityContext, _sceneName);
+        store->deserialize(*storeGff, identityContext);
+        if (identityContext.isSerializedState()) {
+            store->captureSaveRecord(*storeGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(store);
     }
 }
 
 
-void Area::loadItems(const resource::Gff &gff, bool fromSave) {
+void Area::loadItems(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &itemGff : gff.getList("List")) {
-        std::shared_ptr<Item> item = fromSave ? _game.newItem(*itemGff)
-                                             : _game.newItem();
-        item->deserialize(*itemGff);
-        if (fromSave) item->captureSaveRecord(*itemGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto item = _game.newItem(*itemGff, identityContext);
+        item->deserialize(*itemGff, identityContext);
+        if (identityContext.isSerializedState()) {
+            item->captureSaveRecord(*itemGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(item);
     }
 }

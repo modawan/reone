@@ -396,7 +396,7 @@ public:
     inline std::shared_ptr<Item> newOwnedItem() {
         return newItem();
     }
-    std::shared_ptr<Item> newItem(const resource::Gff &gff);
+    std::shared_ptr<Item> newItem(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
 
     inline std::shared_ptr<Area> newArea(std::string sceneName = kSceneMain) {
         return newObject<Area>(std::move(sceneName), *this, _services);
@@ -408,32 +408,32 @@ public:
     inline std::shared_ptr<Creature> newCreature(std::string sceneName = kSceneMain) {
         return newObject<Creature>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Creature> newCreature(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    std::shared_ptr<Creature> newCreature(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Placeable> newPlaceable(std::string sceneName = kSceneMain) {
         return newObject<Placeable>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Placeable> newPlaceable(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    std::shared_ptr<Placeable> newPlaceable(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Door> newDoor(std::string sceneName = kSceneMain) {
         return newObject<Door>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Door> newDoor(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    std::shared_ptr<Door> newDoor(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Waypoint> newWaypoint(std::string sceneName = kSceneMain) {
         return newObject<Waypoint>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Waypoint> newWaypoint(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    std::shared_ptr<Waypoint> newWaypoint(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Trigger> newTrigger(std::string sceneName = kSceneMain) {
         return newObject<Trigger>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Trigger> newTrigger(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    std::shared_ptr<Trigger> newTrigger(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Sound> newSound(std::string sceneName = kSceneMain) {
         return newObject<Sound>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Sound> newSound(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    std::shared_ptr<Sound> newSound(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<AnimatedCamera> newAnimatedCamera(std::string sceneName = kSceneMain) {
         return newObject<AnimatedCamera>(std::move(sceneName), *this, _services);
@@ -458,15 +458,15 @@ public:
     inline std::shared_ptr<Encounter> newEncounter(std::string sceneName = kSceneMain) {
         return newObject<Encounter>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Encounter> newEncounter(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    std::shared_ptr<Encounter> newEncounter(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Store> newStore(std::string sceneName = kSceneMain) {
         return newObject<Store>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Store> newStore(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    std::shared_ptr<Store> newStore(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
-    void prepareSavedRuntimeNamespace(const resource::Gff &ifo);
-    void reserveSavedObjectIds(const resource::Gff &gff);
+    void prepareSavedRuntimeNamespace(const resource::Gff &ifo, const SerializedIdentityContext &identityContext);
+    void reserveSavedObjectIds(const resource::Gff &gff, const SerializedIdentityContext &identityContext, SerializedGraphRoot graphRoot);
     void resolveSavedObjectReferences();
     void bindSavedRuntimeState();
     void publishSavedRuntimeState();
@@ -633,11 +633,15 @@ public:
     void retireToMainMenu();
 
     void deserializeGlobalVariables(resource::Gff &gvtGff);
-    void deserializeParty(resource::Gff &ifoGff, const std::shared_ptr<resource::Gff> &ptGff);
+    void deserializeParty(
+        resource::Gff &ifoGff,
+        const std::shared_ptr<resource::Gff> &ptGff,
+        const SerializedIdentityContext &moduleIdentityContext);
     void publishPartyRuntimeState(
         resource::Gff &ifoGff,
         const std::shared_ptr<resource::Gff> &ptGff,
-        const std::shared_ptr<resource::Gff> &pcGff);
+        const std::shared_ptr<resource::Gff> &pcGff,
+        const SerializedIdentityContext &moduleIdentityContext);
     Party::PersistedState parsePartyTable(const resource::Gff &ptGff) const;
     void replacePartyTable(Party::PersistedState state);
     void deserializePazaakPartyTable(resource::Gff &ptGff);
@@ -724,6 +728,8 @@ private:
     uint32_t _nextObjectId {kFirstRuntimeObjectId};
     std::map<uint32_t, std::shared_ptr<Object>> _objectById;
     std::set<uint32_t> _reservedSavedObjectIds;
+    std::optional<std::string> _reservedSavedIdentityNamespace;
+    std::map<uint32_t, std::string> _reservedSavedObjectIdClaims;
     EffectIdNamespace _effectIds;
     bool _runtimeSessionPlayable {false};
     bool _cheatUsed {false};
@@ -865,7 +871,11 @@ private:
     template <class T, class... Args>
     inline std::shared_ptr<T> newObjectFromGff(
         const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext,
         Args &&...args) {
+        if (!identityContext.hasAuthoritativeObjectIds()) {
+            return newObject<T>(std::forward<Args>(args)...);
+        }
         return newObjectAtId<T>(
             savedObjectId(gff),
             true,

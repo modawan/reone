@@ -155,16 +155,21 @@ void Module::loadArea(const resource::generated::IFO &ifo, bool restoreSavedWorl
         throw ResourceNotFoundException("Area GIT not found: " + _info.entryArea);
     }
 
-    _area->load(_info.entryArea, *are, *git, restoreSavedWorld);
+    const auto identityContext = restoreSavedWorld
+                                     ? SerializedIdentityContext::moduleGraph(_name)
+                                     : SerializedIdentityContext::templateResource(_name);
+    _area->load(_info.entryArea, *are, *git, identityContext);
 
 }
 void Module::loadLimboCreatures(const resource::Gff &ifo) {
     _limboCreatures.clear();
+    const auto identityContext = SerializedIdentityContext::moduleGraph(_name);
     for (const auto &creatureGff : ifo.getList("Creature List")) {
-        auto creature = _game.newCreature(*creatureGff);
-        creature->deserialize(*creatureGff);
+        auto creature = _game.newCreature(*creatureGff, identityContext);
+        creature->deserialize(*creatureGff, identityContext);
         creature->captureSaveRecord(
             *creatureGff,
+            identityContext,
             {SaveRecordOriginKind::ModuleLimboCreature, _name});
         _limboCreatures.push_back(std::move(creature));
     }

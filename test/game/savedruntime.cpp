@@ -835,7 +835,8 @@ TEST(SavedRuntimePublication, should_compare_event_due_times_on_the_absolute_clo
                    .field(Gff::Field::newDword("Mod_TimeOfDay", 0))
                    .field(Gff::Field::newDword("Mod_MinPerHour", 5))
                    .build();
-    game.prepareSavedRuntimeNamespace(*ifo);
+    game.prepareSavedRuntimeNamespace(
+        *ifo, SerializedIdentityContext::moduleGraph("test-module"));
     const uint32_t millisecondsPerDay = game.millisecondsPerWorldDay();
     auto module = game.newModule();
 
@@ -1060,7 +1061,8 @@ TEST(SavedRuntimePublication, should_publish_supported_events_without_dispatchin
                    .field(Gff::Field::newDword("Mod_TimeOfDay", 100))
                    .field(Gff::Field::newDword("Mod_MinPerHour", 5))
                    .build();
-    game.prepareSavedRuntimeNamespace(*ifo);
+    game.prepareSavedRuntimeNamespace(
+        *ifo, SerializedIdentityContext::moduleGraph("test-module"));
     auto module = game.newModule();
 
     auto queue = Gff::Builder()

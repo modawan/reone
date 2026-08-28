@@ -60,17 +60,20 @@ void Trigger::loadFromBlueprint(const std::string &resRef) {
     if (!utt) {
         return;
     }
-    deserialize(*utt);
+    deserialize(*utt, SerializedIdentityContext::templateResource(resRef));
 }
 
-void Trigger::deserialize(const resource::Gff &gff) {
+void Trigger::deserialize(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
     std::string templateRes;
-    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "TemplateResRef")) {
+    if (!identityContext.isSerializedState() &&
+        gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto utt = _services.resource.gffs.get(templateRes, ResType::Utt)) {
-            deserializeAll(*utt);
+            deserializeAll(*utt, SerializedIdentityContext::templateResource(templateRes));
         }
     }
-    deserializeAll(gff);
+    deserializeAll(gff, identityContext);
     loadAppearance();
     updateTransform();
 }
@@ -91,7 +94,9 @@ void Trigger::configureLinkedDoorTransition(const std::shared_ptr<Door> &door) {
     updateTransform();
 }
 
-void Trigger::deserializeAll(const resource::Gff &gff) {
+void Trigger::deserializeAll(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &) {
     deserializeRuntimeState(gff);
     gff.readResRef(_onHeartbeat, "ScriptHeartbeat");
     gff.readResRef(_onEnter, "ScriptOnEnter");

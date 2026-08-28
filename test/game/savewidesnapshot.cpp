@@ -159,7 +159,9 @@ RichState configureRich(Game &game, bool tsl) {
                          .field(Gff::Field::newShort("CurrentHitPoints", 1))
                          .build();
     result.npc->captureSaveRecord(
-        *npcShadow, {SaveRecordOriginKind::AvailableNpc, "0"});
+        *npcShadow,
+        SerializedIdentityContext::detachedRecord("availnpc0.utc"),
+        {SaveRecordOriginKind::AvailableNpc, "0"});
     result.npc->setCurrentHitPoints(19);
     game.party().addAvailableMember(0, result.npc);
     game.party().clear();
@@ -173,7 +175,9 @@ RichState configureRich(Game &game, bool tsl) {
                                     "FuturePuppet", "puppet-shadow"))
                                 .build();
         result.puppet->captureSaveRecord(
-            *puppetShadow, {SaveRecordOriginKind::AvailablePuppet, "0"});
+            *puppetShadow,
+            SerializedIdentityContext::detachedRecord("availpup0.utc"),
+            {SaveRecordOriginKind::AvailablePuppet, "0"});
         game.party().addAvailablePuppet(0, result.puppet);
     }
 
@@ -187,8 +191,10 @@ RichState configureRich(Game &game, bool tsl) {
                               "FutureItem", "item-shadow"))
                           .build();
     result.item->setStackSize(3);
-    result.item->captureOwnerLocalSaveRecord(
-        *itemShadow, {SaveRecordOriginKind::PartyInventoryItem, "inventory"});
+    result.item->captureSaveRecord(
+        *itemShadow,
+        SerializedIdentityContext::detachedRecord("inventory.res"),
+        {SaveRecordOriginKind::PartyInventoryItem, "inventory"});
     result.player->addItem(result.item);
 
     game.journal().restoreEntry("tat17_landing", 30, 4, 500);
@@ -431,8 +437,10 @@ TEST(SaveWideSnapshot, thirteen_item_inventory_round_trip_is_singular_and_semant
         item->deserializeRuntimeState(*record);
         item->setTag("roundtrip_" + std::to_string(index));
         item->setStackSize(index + 1);
-        item->captureOwnerLocalSaveRecord(
-            *record, {SaveRecordOriginKind::PartyInventoryItem, "inventory"});
+        item->captureSaveRecord(
+            *record,
+            SerializedIdentityContext::detachedRecord("inventory.res"),
+            {SaveRecordOriginKind::PartyInventoryItem, "inventory"});
         rich.player->addItem(item);
         expectedStacks.push_back(index + 1);
     }
@@ -570,7 +578,9 @@ TEST(SaveWideSnapshot,
             .field(Gff::Field::newCExoLocString("FirstName", -1, "T3-M4"))
             .build();
     controlled->captureSaveRecord(
-        *controlledShadow, {SaveRecordOriginKind::ModulePlayer, {}});
+        *controlledShadow,
+        SerializedIdentityContext::moduleGraph("106per"),
+        {SaveRecordOriginKind::ModulePlayer, {}});
     TestGameModule::configureModuleSnapshot(
         game, area, controlled, "106per", "106per");
 
@@ -585,7 +595,9 @@ TEST(SaveWideSnapshot,
             .field(Gff::Field::newCExoLocString("FirstName", -1, "Ta'ahn Kaast"))
             .build();
     canonical->captureSaveRecord(
-        *canonicalShadow, {SaveRecordOriginKind::PrimaryPlayerUtc, {}});
+        *canonicalShadow,
+        SerializedIdentityContext::detachedRecord("pc.utc"),
+        {SaveRecordOriginKind::PrimaryPlayerUtc, {}});
 
     Party::PersistedState state;
     state.pcName = "Ta'ahn Kaast";

@@ -76,14 +76,9 @@ public:
     }
 
     void loadFromBlueprint(const std::string &resRef);
-    void deserialize(const resource::Gff &gff);
-    void captureOwnerLocalSaveRecord(
+    void deserialize(
         const resource::Gff &gff,
-        SaveRecordOrigin origin);
-
-    std::optional<uint32_t> originalOwnerLocalObjectId() const {
-        return _originalOwnerLocalObjectId;
-    }
+        const SerializedIdentityContext &identityContext);
     void clone(Item &from);
 
     void update(float dt) override;
@@ -203,12 +198,12 @@ private:
     int _activateSpellCost {0};
     int _disguiseAppearance {-1};
     std::vector<PropertyEntry> _properties;
-    std::optional<uint32_t> _originalOwnerLocalObjectId;
-
     std::shared_ptr<audio::AudioSource> _audioSource;
 
     // Blueprint
-    void deserializeAll(const resource::Gff &gff);
+    void deserializeAll(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     void deserializeProperties(const resource::Gff &gff);
     void deserializeBase(const resource::Gff &gff);
     void loadAmmunitionType();

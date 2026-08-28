@@ -83,6 +83,14 @@ using namespace reone::game;
 using namespace reone::resource;
 using namespace testing;
 
+static SerializedIdentityContext testModuleIdentity() {
+    return SerializedIdentityContext::moduleGraph("test-module");
+}
+
+static SerializedIdentityContext testDetachedIdentity() {
+    return SerializedIdentityContext::detachedRecord("test-record");
+}
+
 namespace reone::game {
 
 class TestStatusSummary : public StatusSummary {
@@ -604,7 +612,7 @@ std::shared_ptr<Door> makeTransitionDoor(
                    .field(Gff::Field::newCExoLocString("TransitionDestin", -1, "Destination Area"))
                    .build();
     auto door = game.newDoor();
-    door->deserialize(*gff);
+    door->deserialize(*gff, SerializedIdentityContext::templateResource());
     return door;
 }
 
@@ -624,7 +632,7 @@ std::shared_ptr<Waypoint> addEntryWaypoint(
                    .field(Gff::Field::newFloat("YOrientation", glm::cos(facing)))
                    .build();
     auto waypoint = game.newWaypoint();
-    waypoint->deserialize(*gff);
+    waypoint->deserialize(*gff, SerializedIdentityContext::templateResource());
     area->add(waypoint);
     return waypoint;
 }
@@ -663,7 +671,7 @@ std::shared_ptr<Door> makePlainDoor(
                    .field(Gff::Field::newFloat("Z", position.z))
                    .build();
     auto door = game.newDoor();
-    door->deserialize(*gff);
+    door->deserialize(*gff, SerializedIdentityContext::templateResource());
     return door;
 }
 
@@ -688,7 +696,7 @@ std::shared_ptr<Creature> makeMovingCreature(
                    .field(Gff::Field::newResRef("ScriptOnBlocked", std::move(onBlocked)))
                    .build();
     auto creature = game.newCreature();
-    creature->deserialize(*gff);
+    creature->deserialize(*gff, SerializedIdentityContext::templateResource());
     return creature;
 }
 
@@ -768,7 +776,7 @@ std::shared_ptr<Item> makeItem(Game &game, std::string tag, int baseItem, int st
                    .field(Gff::Field::newWord("StackSize", stackSize))
                    .build();
     auto item = game.newItem();
-    item->deserialize(*gff);
+    item->deserialize(*gff, SerializedIdentityContext::templateResource());
     item->setDropable(true);
     return item;
 }
@@ -866,15 +874,16 @@ TEST(Creature, restores_the_creation_script_flag_only_from_a_saved_record) {
     // A blueprint says nothing about creation, so the creature still owes its
     // OnSpawn. A save record is authoritative either way.
     auto blueprint = game.newCreature();
-    blueprint->deserialize(*record(std::nullopt));
+    blueprint->deserialize(
+        *record(std::nullopt), SerializedIdentityContext::templateResource());
     EXPECT_FALSE(blueprint->spawnScriptFired());
 
     auto restoredSpawned = game.newCreature();
-    restoredSpawned->deserialize(*record(1));
+    restoredSpawned->deserialize(*record(1), testModuleIdentity());
     EXPECT_TRUE(restoredSpawned->spawnScriptFired());
 
     auto restoredUnspawned = game.newCreature();
-    restoredUnspawned->deserialize(*record(0));
+    restoredUnspawned->deserialize(*record(0), testModuleIdentity());
     EXPECT_FALSE(restoredUnspawned->spawnScriptFired());
 }
 
@@ -2528,7 +2537,8 @@ TEST(TransitionPresentationPortals, should_expose_authored_transitions_without_t
         "authored_module",
         "authored_waypoint",
         "",
-        "Authored Destination"));
+        "Authored Destination"),
+        SerializedIdentityContext::templateResource());
     trigger->setPosition(glm::vec3(4.0f, 0.0f, 0.0f));
     area->add(trigger);
     area->add(leader);
@@ -2585,11 +2595,17 @@ TEST(TransitionPresentationPortals, should_ignore_non_transitions_and_expose_emp
     auto area = game.newArea();
 
     auto nonTransition = game.newTrigger();
-    nonTransition->deserialize(*makeTransitionTriggerGff("", "", "", "Not a transition"));
+    nonTransition->deserialize(
+        *makeTransitionTriggerGff("", "", "", "Not a transition"),
+        SerializedIdentityContext::templateResource());
     auto emptyDestination = game.newTrigger();
-    emptyDestination->deserialize(*makeTransitionTriggerGff("empty_module", "empty_waypoint", "", ""));
+    emptyDestination->deserialize(
+        *makeTransitionTriggerGff("empty_module", "empty_waypoint", "", ""),
+        SerializedIdentityContext::templateResource());
     auto missingDestination = game.newTrigger();
-    missingDestination->deserialize(*makeTransitionTriggerGff("missing_module", "missing_waypoint"));
+    missingDestination->deserialize(
+        *makeTransitionTriggerGff("missing_module", "missing_waypoint"),
+        SerializedIdentityContext::templateResource());
     area->add(nonTransition);
     area->add(emptyDestination);
     area->add(missingDestination);
@@ -2664,7 +2680,9 @@ TEST(LinkedDoorTransition, should_destroy_generated_threshold_with_its_source_do
     game.party().setPlayer(leader);
 
     auto authored = game.newTrigger();
-    authored->deserialize(*Gff::Builder().build());
+    authored->deserialize(
+        *Gff::Builder().build(),
+        SerializedIdentityContext::templateResource());
     area->add(authored);
     area->add(door);
     area->add(leader);
@@ -2806,7 +2824,9 @@ struct ModuleTransitionActivatorFixture : TestWithParam<GameID> {
         testSceneGraph(engine);
         area = game.newArea();
         trigger = game.newTrigger();
-        trigger->deserialize(*makeTransitionTriggerGff("ebo_m12aa", "K_EBN_RAMP_ENTRANCE"));
+        trigger->deserialize(
+            *makeTransitionTriggerGff("ebo_m12aa", "K_EBN_RAMP_ENTRANCE"),
+            SerializedIdentityContext::templateResource());
         trigger->setPosition(glm::vec3(0.0f, 0.0f, 0.0f));
         area->add(trigger);
     }
@@ -3060,7 +3080,7 @@ TEST(LinkedDoorTransition, should_preserve_reusable_authored_type1_trigger_lifec
         "authored_waypoint",
         "override_transition");
     auto trigger = game.newTrigger();
-    trigger->deserialize(*gff);
+    trigger->deserialize(*gff, SerializedIdentityContext::templateResource());
     auto area = game.newArea();
     // The subject here is the trigger's own enter/exit/re-enter lifecycle, so
     // the mover is the party leader, who may activate a module transition.
@@ -3181,7 +3201,7 @@ std::shared_ptr<Door> makeLifecycleDoor(
                    .field(Gff::Field::newByte("OpenState", static_cast<uint8_t>(openState)))
                    .build();
     auto door = game.newDoor();
-    door->deserialize(*gff);
+    door->deserialize(*gff, SerializedIdentityContext::templateResource());
     return door;
 }
 
@@ -4060,7 +4080,8 @@ TEST(Object, should_restore_saved_appearance_after_unequipping_loaded_disguise) 
                            .field(Gff::Field::newList("Equip_ItemList", {makeDisguiseItemGff(2)}))
                            .build();
     auto creature = game.newCreature();
-    creature->deserialize(*creatureGff);
+    creature->deserialize(
+        *creatureGff, SerializedIdentityContext::templateResource());
 
     ASSERT_EQ(creature->appearance(), 2);
     auto disguise = creature->getEquippedItem(InventorySlots::body);
@@ -4688,7 +4709,8 @@ TEST(OpenDoorAction, still_refuses_a_locked_door_and_fires_on_fail_to_open) {
     auto gff = Gff::Builder()
                    .field(Gff::Field::newResRef("OnFailToOpen", "door_on_fail"))
                    .build();
-    fixture.door->deserialize(*gff);
+    fixture.door->deserialize(
+        *gff, SerializedIdentityContext::templateResource());
     fixture.countScriptRuns("door_on_fail");
     npc->setPosition(fixture.door->position());
 
@@ -4757,7 +4779,7 @@ void makeHumanoid(TestCreature &creature, TestEngine &engine) {
                    .field(Gff::Field::newByte("BodyBag", 0xff))
                    .field(Gff::Field::newByte("PerceptionRange", 0xff))
                    .build();
-    creature.deserialize(*gff);
+    creature.deserialize(*gff, SerializedIdentityContext::templateResource());
     ASSERT_EQ(Creature::ModelType::Character, creature.modelType());
 }
 
@@ -4967,12 +4989,12 @@ TEST(SavedRuntimeState, restores_explicit_object_identity_and_allocator_cursors)
                    .field(Gff::Field::newDword("Mod_NextObjId0", 700))
                    .field(Gff::Field::newDword64("Mod_Effect_NxtId", 900))
                    .build();
-    game.prepareSavedRuntimeNamespace(*ifo);
+    game.prepareSavedRuntimeNamespace(*ifo, testModuleIdentity());
 
     auto saved = Gff::Builder()
                      .field(Gff::Field::newDword("ObjectId", 650))
                      .build();
-    auto item = game.newItem(*saved);
+    auto item = game.newItem(*saved, testModuleIdentity());
     item->deserializeRuntimeState(*saved);
 
     EXPECT_EQ(650u, item->id());
@@ -4990,13 +5012,13 @@ TEST(SavedRuntimeState, accepts_retail_zero_object_cursor_but_rejects_reserved_n
     auto unavailableCursor = Gff::Builder()
                                  .field(Gff::Field::newDword("Mod_NextObjId0", 0))
                                  .build();
-    EXPECT_NO_THROW(game.prepareSavedRuntimeNamespace(*unavailableCursor));
+    EXPECT_NO_THROW(game.prepareSavedRuntimeNamespace(*unavailableCursor, testModuleIdentity()));
     EXPECT_EQ(2u, game.newItem()->id());
 
     auto reservedCursor = Gff::Builder()
                               .field(Gff::Field::newDword("Mod_NextObjId0", 1))
                               .build();
-    EXPECT_THROW(game.prepareSavedRuntimeNamespace(*reservedCursor), ValidationException);
+    EXPECT_THROW(game.prepareSavedRuntimeNamespace(*reservedCursor, testModuleIdentity()), ValidationException);
 }
 
 TEST(SavedRuntimeState, accepts_retail_low_ids_but_rejects_invalid_and_duplicate_object_ids) {
@@ -5015,11 +5037,11 @@ TEST(SavedRuntimeState, accepts_retail_low_ids_but_rejects_invalid_and_duplicate
                      .field(Gff::Field::newDword("ObjectId", 42))
                      .build();
 
-    EXPECT_NO_THROW(game.newItem(*reserved));
-    EXPECT_THROW(game.newItem(*reserved), ValidationException);
-    EXPECT_THROW(game.newItem(*invalid), ValidationException);
-    EXPECT_NO_THROW(game.newItem(*saved));
-    EXPECT_THROW(game.newItem(*saved), ValidationException);
+    EXPECT_NO_THROW(game.newItem(*reserved, testModuleIdentity()));
+    EXPECT_THROW(game.newItem(*reserved, testModuleIdentity()), ValidationException);
+    EXPECT_THROW(game.newItem(*invalid, testModuleIdentity()), ValidationException);
+    EXPECT_NO_THROW(game.newItem(*saved, testModuleIdentity()));
+    EXPECT_THROW(game.newItem(*saved, testModuleIdentity()), ValidationException);
 }
 
 TEST(SavedRuntimeState, gives_structural_module_a_transient_runtime_identity) {
@@ -5061,8 +5083,8 @@ TEST(SavedRuntimeState, reserves_the_actual_retail_graph_before_owner_local_allo
                    .field(Gff::Field::newList("Placeable List", {placeable}))
                    .build();
 
-    game.prepareSavedRuntimeNamespace(*ifo);
-    game.reserveSavedObjectIds(*git);
+    game.prepareSavedRuntimeNamespace(*ifo, testModuleIdentity());
+    game.reserveSavedObjectIds(*git, testModuleIdentity(), SerializedGraphRoot::AreaGit);
 
     for (uint32_t expected = 2; expected < 50; ++expected) {
         EXPECT_EQ(expected, game.newItem()->id());
@@ -5071,8 +5093,8 @@ TEST(SavedRuntimeState, reserves_the_actual_retail_graph_before_owner_local_allo
 
     auto module = game.newSavedModule();
     auto savedArea = game.newSavedArea(0);
-    auto savedTrigger = game.newTrigger(*trigger);
-    auto savedPlaceable = game.newPlaceable(*placeable);
+    auto savedTrigger = game.newTrigger(*trigger, testModuleIdentity());
+    auto savedPlaceable = game.newPlaceable(*placeable, testModuleIdentity());
 
     EXPECT_EQ(52u, module->id());
     EXPECT_EQ(0u, savedArea->id());
@@ -5080,7 +5102,7 @@ TEST(SavedRuntimeState, reserves_the_actual_retail_graph_before_owner_local_allo
     EXPECT_EQ(50u, savedPlaceable->id());
     EXPECT_EQ(module, game.getObjectById(module->id()));
     EXPECT_EQ(53u, engine.gameModule().objectRegistrySize(game));
-    EXPECT_THROW(game.newPlaceable(*placeable), ValidationException);
+    EXPECT_THROW(game.newPlaceable(*placeable, testModuleIdentity()), ValidationException);
 }
 
 TEST(SavedRuntimeState, restores_swvar_boolean_and_numeric_locals) {
@@ -5133,11 +5155,11 @@ TEST(SavedRuntimeState, resolves_references_only_after_saved_graph_construction)
     auto targetGff = Gff::Builder()
                          .field(Gff::Field::newDword("ObjectId", 81))
                          .build();
-    auto source = game.newItem(*sourceGff);
+    auto source = game.newItem(*sourceGff, testModuleIdentity());
     source->deserializeRuntimeState(*sourceGff);
     EXPECT_FALSE(source->savedReference("CreatorId"));
 
-    auto target = game.newItem(*targetGff);
+    auto target = game.newItem(*targetGff, testModuleIdentity());
     target->deserializeRuntimeState(*targetGff);
     game.resolveSavedObjectReferences();
 
@@ -5174,12 +5196,12 @@ TEST(SavedRuntimeState, preserves_and_binds_saved_encounter_runtime_state) {
                      .field(Gff::Field::newByte("Started", 1))
                      .build();
 
-    auto encounter = game.newEncounter(*saved);
-    encounter->deserialize(*saved);
+    auto encounter = game.newEncounter(*saved, testModuleIdentity());
+    encounter->deserialize(*saved, testModuleIdentity());
     auto targetGff = Gff::Builder()
                          .field(Gff::Field::newDword("ObjectId", 90))
                          .build();
-    auto target = game.newItem(*targetGff);
+    auto target = game.newItem(*targetGff, testModuleIdentity());
     game.resolveSavedObjectReferences();
 
     const auto &state = encounter->savedRuntimeState();
@@ -5221,8 +5243,8 @@ TEST(SavedRuntimeState, restores_saved_creature_death_from_current_hit_points) {
                      .field(Gff::Field::newByte("BodyBag", 0xff))
                      .field(Gff::Field::newByte("PerceptionRange", 0xff))
                      .build();
-    auto creature = game.newCreature(*saved);
-    creature->deserialize(*saved);
+    auto creature = game.newCreature(*saved, testModuleIdentity());
+    creature->deserialize(*saved, testModuleIdentity());
 
     EXPECT_EQ(0, creature->currentHitPoints());
     EXPECT_TRUE(creature->isDead());
@@ -5252,8 +5274,8 @@ TEST(SavedRuntimeState, restores_retail_player_death_threshold_without_clamping_
     };
 
     auto incapacitatedState = makeSavedPlayer(0, 0x7fffffff);
-    auto incapacitated = game.newCreature(*incapacitatedState);
-    incapacitated->deserialize(*incapacitatedState);
+    auto incapacitated = game.newCreature(*incapacitatedState, testModuleIdentity());
+    incapacitated->deserialize(*incapacitatedState, testModuleIdentity());
     EXPECT_EQ(0, incapacitated->currentHitPoints());
     EXPECT_TRUE(incapacitated->isPC());
     EXPECT_FALSE(incapacitated->isDead());
@@ -5264,8 +5286,8 @@ TEST(SavedRuntimeState, restores_retail_player_death_threshold_without_clamping_
     EXPECT_FALSE(incapacitated->isDead());
 
     auto deadState = makeSavedPlayer(-10, 0x7ffffffe);
-    auto dead = game.newCreature(*deadState);
-    dead->deserialize(*deadState);
+    auto dead = game.newCreature(*deadState, testModuleIdentity());
+    dead->deserialize(*deadState, testModuleIdentity());
     EXPECT_EQ(-10, dead->currentHitPoints());
     EXPECT_TRUE(dead->isDead());
 }
@@ -5292,8 +5314,8 @@ TEST(SavedRuntimeState, k1_zero_hp_pc_is_dead_until_primary_player_publication) 
                      .field(Gff::Field::newByte("BodyBag", 0xff))
                      .field(Gff::Field::newByte("PerceptionRange", 0xff))
                      .build();
-    auto player = game.newCreature(*saved);
-    player->deserialize(*saved);
+    auto player = game.newCreature(*saved, testModuleIdentity());
+    player->deserialize(*saved, testModuleIdentity());
 
     // K1 does not share K2's -10 incapacitation threshold. The saved creature
     // remains exact until the coordinator identifies it as the primary player.
@@ -5325,8 +5347,8 @@ TEST(SavedRuntimeState, keeps_min_one_hp_creature_alive_when_saved_at_zero) {
                      .field(Gff::Field::newByte("BodyBag", 0xff))
                      .field(Gff::Field::newByte("PerceptionRange", 0xff))
                      .build();
-    auto creature = game.newCreature(*saved);
-    creature->deserialize(*saved);
+    auto creature = game.newCreature(*saved, testModuleIdentity());
+    creature->deserialize(*saved, testModuleIdentity());
 
     EXPECT_EQ(1, creature->currentHitPoints());
     EXPECT_FALSE(creature->isDead());
@@ -5361,9 +5383,9 @@ TEST(SavedRuntimeState, detached_creatures_keep_nested_item_ids_owner_scoped) {
                                 .build();
 
     auto first = game.newCreature();
-    first->deserialize(*detachedCreature);
+    first->deserialize(*detachedCreature, testDetachedIdentity());
     auto second = game.newCreature();
-    EXPECT_NO_THROW(second->deserialize(*detachedCreature));
+    EXPECT_NO_THROW(second->deserialize(*detachedCreature, testDetachedIdentity()));
 
     auto firstItem = first->getEquippedItem(InventorySlots::body);
     auto secondItem = second->getEquippedItem(InventorySlots::body);
@@ -5480,10 +5502,10 @@ TEST(SavedRuntimeState, keeps_authoritative_owner_items_local_to_their_owner_nam
     auto savedWorldItem = Gff::Builder()
                               .field(Gff::Field::newDword("ObjectId", 15))
                               .build();
-    auto worldItem = game.newItem(*savedWorldItem);
+    auto worldItem = game.newItem(*savedWorldItem, testModuleIdentity());
     EXPECT_EQ(15u, worldItem->id());
     EXPECT_EQ(worldItem, game.getObjectById(15));
-    EXPECT_THROW(game.newItem(*savedWorldItem), ValidationException);
+    EXPECT_THROW(game.newItem(*savedWorldItem, testModuleIdentity()), ValidationException);
 }
 
 namespace {
@@ -5603,7 +5625,8 @@ struct HeartbeatFixture {
 
         auto placeable = game.newPlaceable();
         placeable->deserialize(*makeHeartbeatPlaceableGff(
-            std::move(tag), std::move(onHeartbeat), std::move(onUsed)));
+            std::move(tag), std::move(onHeartbeat), std::move(onUsed)),
+            SerializedIdentityContext::templateResource());
         area->add(placeable);
         return placeable;
     }

@@ -9,6 +9,7 @@
 #include <string>
 
 #include "reone/resource/id.h"
+#include "reone/game/saveprovenance.h"
 #include "reone/system/types.h"
 
 namespace reone {
@@ -69,6 +70,10 @@ struct ModuleSnapshotResult {
 /** Ordinary saved-object identity namespace shared by one module snapshot. */
 class ModuleObjectIdContext {
 public:
+    explicit ModuleObjectIdContext(SerializedIdentityContext outputIdentityContext) :
+        _outputIdentityContext(std::move(outputIdentityContext)) {
+    }
+
     void reserveWorldId(uint32_t id);
     void reservePartyId(uint32_t id);
     void retainItem(const Item &item);
@@ -77,6 +82,7 @@ public:
     uint32_t nextId(uint32_t retainedCursor) const;
 
 private:
+    SerializedIdentityContext _outputIdentityContext;
     std::set<uint32_t> _used;
     std::set<uint32_t> _reservedPartyIds;
     std::map<const Item *, uint32_t> _itemIds;
@@ -116,7 +122,8 @@ private:
     void writeObjectState(resource::Gff &record, const Object &object) const;
     std::shared_ptr<resource::Gff> writeCreature(
         const Creature &creature, uint32_t structType,
-        std::optional<uint32_t> serializedId) const;
+        std::optional<uint32_t> serializedId,
+        const SerializedIdentityContext &outputIdentityContext) const;
     std::shared_ptr<resource::Gff> writeCreature(
         const Creature &creature, uint32_t structType,
         std::optional<uint32_t> serializedId,

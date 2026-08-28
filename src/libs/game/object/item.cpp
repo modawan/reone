@@ -44,45 +44,43 @@ namespace game {
 void Item::loadFromBlueprint(const std::string &resRef) {
     std::shared_ptr<Gff> uti(_services.resource.gffs.get(resRef, ResType::Uti));
     if (uti) {
-        deserialize(*uti);
+        deserialize(*uti, SerializedIdentityContext::templateResource(resRef));
         return;
     }
 }
 
-void Item::deserialize(const resource::Gff &gff) {
+void Item::deserialize(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
     std::string ref;
-    if (!gff.has("ObjectId") && gff.readResRef(ref, "EquippedRes")) {
+    if (!identityContext.isSerializedState() &&
+        gff.readResRef(ref, "EquippedRes")) {
         if (auto uti = _services.resource.gffs.get(ref, ResType::Uti)) {
-            deserializeAll(*uti);
+            deserializeAll(*uti, SerializedIdentityContext::templateResource(ref));
         }
     }
 
-    if (!gff.has("ObjectId") && gff.readResRef(ref, "InventoryRes")) {
+    if (!identityContext.isSerializedState() &&
+        gff.readResRef(ref, "InventoryRes")) {
         if (auto uti = _services.resource.gffs.get(ref, ResType::Uti)) {
-            deserializeAll(*uti);
+            deserializeAll(*uti, SerializedIdentityContext::templateResource(ref));
         }
     }
 
-    if (!gff.has("ObjectId") && gff.readResRef(ref, "TemplateResRef")) {
+    if (!identityContext.isSerializedState() &&
+        gff.readResRef(ref, "TemplateResRef")) {
         if (auto uti = _services.resource.gffs.get(ref, ResType::Uti)) {
-            deserializeAll(*uti);
+            deserializeAll(*uti, SerializedIdentityContext::templateResource(ref));
         }
     }
 
-    deserializeAll(gff);
+    deserializeAll(gff, identityContext);
 }
 
-void Item::captureOwnerLocalSaveRecord(
-    const resource::Gff &gff, SaveRecordOrigin origin) {
-    uint32_t savedId = 0;
-    _originalOwnerLocalObjectId = gff.readDword(savedId, "ObjectId")
-                                      ? std::optional<uint32_t>(savedId)
-                                      : std::nullopt;
-    captureSaveRecord(gff, std::move(origin));
-}
-
-void Item::deserializeAll(const resource::Gff &gff) {
-    Object::deserialize(gff);
+void Item::deserializeAll(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    Object::deserialize(gff, identityContext);
 
     gff.readLocString(_localizedName, "LocalizedName", _services.resource.strings);
     gff.readLocString(_description, "Description", _services.resource.strings);

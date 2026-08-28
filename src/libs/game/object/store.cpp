@@ -30,18 +30,23 @@ namespace reone {
 
 namespace game {
 
-void Store::deserialize(const resource::Gff &gff) {
+void Store::deserialize(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
     std::string templateRes;
-    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "ResRef")) {
+    if (!identityContext.isSerializedState() &&
+        gff.readResRef(templateRes, "ResRef")) {
         if (auto utm = _services.resource.gffs.get(templateRes, ResType::Utm)) {
-            deserializeAll(*utm);
+            deserializeAll(*utm, SerializedIdentityContext::templateResource(templateRes));
         }
     }
-    deserializeAll(gff);
+    deserializeAll(gff, identityContext);
     updateTransform();
 }
 
-void Store::deserializeAll(const resource::Gff &gff) {
+void Store::deserializeAll(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
     deserializeRuntimeState(gff);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
@@ -68,16 +73,19 @@ void Store::deserializeAll(const resource::Gff &gff) {
 
     gff.readBool(_commandable, "Commandable");
 
-    deserializeItems(gff);
+    deserializeItems(gff, identityContext);
 }
 
-void Store::deserializeItems(const resource::Gff &gff) {
+void Store::deserializeItems(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
     for (const auto &itemGff : gff.getList("ItemList")) {
         std::shared_ptr<Item> item = _game.newOwnedItem();
-        item->deserialize(*itemGff);
-        if (gff.has("ObjectId")) {
-            item->captureOwnerLocalSaveRecord(
+        item->deserialize(*itemGff, identityContext);
+        if (identityContext.isSerializedState()) {
+            item->captureSaveRecord(
                 *itemGff,
+                identityContext,
                 {SaveRecordOriginKind::StoreItem, std::to_string(_id)});
         }
         addItem(item);

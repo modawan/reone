@@ -102,7 +102,9 @@ public:
     void loadFromBlueprint(const std::string &resRef);
     void loadAppearance();
 
-    void deserialize(const resource::Gff &gff);
+    void deserialize(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
 
     void update(float dt) override;
 
@@ -553,14 +555,18 @@ private:
     // END Animation
 
     // Blueprint
-    void deserializeAll(const resource::Gff &gff);
+    void deserializeAll(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     void deserializeName(const resource::Gff &gff);
     void deserializeSoundSet(const resource::Gff &gff);
     void deserializeBodyBag(const resource::Gff &gff);
     void deserializeAttributes(const resource::Gff &gff);
     void deserializeClass(const resource::Gff &gff);
     void deserializePerception(const resource::Gff &gff);
-    void deserializeEquipItems(const resource::Gff &gff);
+    void deserializeEquipItems(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     // END Blueprint
 };
 
