@@ -4997,9 +4997,10 @@ TEST(SavedRuntimeState, restores_explicit_object_identity_and_allocator_cursors)
     auto item = game.newItem(*saved, testModuleIdentity());
     item->deserializeRuntimeState(*saved);
 
-    EXPECT_EQ(650u, item->id());
-    EXPECT_EQ(item, game.getObjectById(650));
-    EXPECT_EQ(700u, game.newItem()->id());
+    EXPECT_EQ(700u, item->id());
+    EXPECT_EQ(item, game.getObjectBySavedId(650));
+    EXPECT_FALSE(game.getObjectById(650));
+    EXPECT_EQ(701u, game.newItem()->id());
     EXPECT_EQ(900u, game.nextEffectId());
 }
 
@@ -5044,19 +5045,48 @@ TEST(SavedRuntimeState, accepts_retail_low_ids_but_rejects_invalid_and_duplicate
     EXPECT_THROW(game.newItem(*saved, testModuleIdentity()), ValidationException);
 }
 
-TEST(SavedRuntimeState, gives_structural_module_a_transient_runtime_identity) {
+TEST(SavedRuntimeState, maps_structural_module_through_contextual_retail_slot_zero) {
     TestEngine engine;
     engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
 
     auto module = game.newSavedModule();
-    auto area = game.newSavedArea(0);
+    TestGameModule::registerSavedModuleReferenceTarget(
+        game, module, testModuleIdentity());
 
     EXPECT_EQ(2u, module->id());
-    EXPECT_EQ(0u, area->id());
+    EXPECT_EQ(module, game.getObjectBySavedId(kSavedRuntimeModuleObjectId));
     EXPECT_EQ(module, game.getObjectById(module->id()));
-    EXPECT_EQ(2u, engine.gameModule().objectRegistrySize(game));
+    EXPECT_FALSE(module->serializedObjectIdentity());
+    EXPECT_EQ(1u, engine.gameModule().objectRegistrySize(game));
+
+    EXPECT_THROW(
+        game.newSavedArea(kSavedRuntimeModuleObjectId, testModuleIdentity()),
+        ValidationException);
+}
+
+TEST(SavedRuntimeState, rejects_an_owned_record_in_the_structural_module_slot) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto area = Gff::Builder()
+                    .field(Gff::Field::newDword(
+                        "ObjectId", kSavedRuntimeModuleObjectId))
+                    .build();
+    auto ifo = Gff::Builder()
+                   .field(Gff::Field::newList("Mod_Area_list", {area}))
+                   .build();
+    game.prepareSavedRuntimeNamespace(*ifo, testModuleIdentity());
+    auto module = game.newSavedModule();
+
+    EXPECT_THROW(
+        TestGameModule::registerSavedModuleReferenceTarget(
+            game, module, testModuleIdentity()),
+        ValidationException);
+    EXPECT_FALSE(game.getObjectBySavedId(kSavedRuntimeModuleObjectId));
 }
 
 TEST(SavedRuntimeState, reserves_the_actual_retail_graph_before_owner_local_allocations) {
@@ -5066,14 +5096,14 @@ TEST(SavedRuntimeState, reserves_the_actual_retail_graph_before_owner_local_allo
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
 
     auto area = Gff::Builder()
-                    .field(Gff::Field::newDword("ObjectId", 0))
+                    .field(Gff::Field::newDword("ObjectId", 1))
                     .build();
     auto ifo = Gff::Builder()
                    .field(Gff::Field::newDword("Mod_NextObjId0", 0))
                    .field(Gff::Field::newList("Mod_Area_list", {area}))
                    .build();
     auto trigger = Gff::Builder()
-                       .field(Gff::Field::newDword("ObjectId", 1))
+                       .field(Gff::Field::newDword("ObjectId", 2))
                        .build();
     auto placeable = Gff::Builder()
                          .field(Gff::Field::newDword("ObjectId", 50))
@@ -5086,22 +5116,25 @@ TEST(SavedRuntimeState, reserves_the_actual_retail_graph_before_owner_local_allo
     game.prepareSavedRuntimeNamespace(*ifo, testModuleIdentity());
     game.reserveSavedObjectIds(*git, testModuleIdentity(), SerializedGraphRoot::AreaGit);
 
-    for (uint32_t expected = 2; expected < 50; ++expected) {
+    for (uint32_t expected = 3; expected < 50; ++expected) {
         EXPECT_EQ(expected, game.newItem()->id());
     }
     EXPECT_EQ(51u, game.newItem()->id());
 
     auto module = game.newSavedModule();
-    auto savedArea = game.newSavedArea(0);
+    auto savedArea = game.newSavedArea(1, testModuleIdentity());
     auto savedTrigger = game.newTrigger(*trigger, testModuleIdentity());
     auto savedPlaceable = game.newPlaceable(*placeable, testModuleIdentity());
 
     EXPECT_EQ(52u, module->id());
-    EXPECT_EQ(0u, savedArea->id());
-    EXPECT_EQ(1u, savedTrigger->id());
-    EXPECT_EQ(50u, savedPlaceable->id());
+    EXPECT_EQ(53u, savedArea->id());
+    EXPECT_EQ(54u, savedTrigger->id());
+    EXPECT_EQ(55u, savedPlaceable->id());
+    EXPECT_EQ(savedArea, game.getObjectBySavedId(1));
+    EXPECT_EQ(savedTrigger, game.getObjectBySavedId(2));
+    EXPECT_EQ(savedPlaceable, game.getObjectBySavedId(50));
     EXPECT_EQ(module, game.getObjectById(module->id()));
-    EXPECT_EQ(53u, engine.gameModule().objectRegistrySize(game));
+    EXPECT_EQ(52u, engine.gameModule().objectRegistrySize(game));
     EXPECT_THROW(game.newPlaceable(*placeable, testModuleIdentity()), ValidationException);
 }
 
@@ -5445,7 +5478,7 @@ TEST(SavedRuntimeState, primary_health_publication_does_not_recover_unrelated_pc
     EXPECT_EQ(36, actual->currentHitPoints());
     EXPECT_FALSE(actual->isDead());
 }
-TEST(SavedRuntimeState, keeps_authoritative_owner_items_local_to_their_owner_namespace) {
+TEST(SavedRuntimeState, keeps_module_owned_items_authoritative_and_detached_inventory_local) {
     TestEngine engine;
     engine.init();
     StubConsole console;
@@ -5487,6 +5520,7 @@ TEST(SavedRuntimeState, keeps_authoritative_owner_items_local_to_their_owner_nam
     ASSERT_TRUE(equipped);
     EXPECT_NE(15u, equipped->id());
     EXPECT_FALSE(game.getObjectById(15));
+    EXPECT_EQ(equipped, game.getObjectBySavedId(15));
 
     auto inventory = Gff::Builder()
                          .field(Gff::Field::newList("ItemList", {savedLongsword}))
@@ -5498,13 +5532,11 @@ TEST(SavedRuntimeState, keeps_authoritative_owner_items_local_to_their_owner_nam
     EXPECT_NE(15u, carried->id());
     EXPECT_NE(equipped->id(), carried->id());
     EXPECT_FALSE(game.getObjectById(15));
+    EXPECT_EQ(equipped, game.getObjectBySavedId(15));
 
     auto savedWorldItem = Gff::Builder()
                               .field(Gff::Field::newDword("ObjectId", 15))
                               .build();
-    auto worldItem = game.newItem(*savedWorldItem, testModuleIdentity());
-    EXPECT_EQ(15u, worldItem->id());
-    EXPECT_EQ(worldItem, game.getObjectById(15));
     EXPECT_THROW(game.newItem(*savedWorldItem, testModuleIdentity()), ValidationException);
 }
 

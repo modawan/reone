@@ -129,7 +129,8 @@ SavedScriptEvent savedScriptEventFromGff(const resource::Gff &gff) {
         result.strings.push_back(item->getString("Parameter"));
     }
     for (const auto &item : gff.getList("ObjectList")) {
-        result.objects.push_back(SavedObjectReference {item->getUint("Parameter")});
+        result.objects.push_back(SavedObjectReference::fromSerializedId(
+            item->getUint("Parameter")));
     }
     return result;
 }
@@ -137,10 +138,10 @@ SavedScriptEvent savedScriptEventFromGff(const resource::Gff &gff) {
 SavedSpellImpact savedSpellImpactFromGff(const resource::Gff &gff) {
     SavedSpellImpact result;
     result.spellId = gff.getInt("SpellId");
-    result.caster.id = gff.getUint("CasterId");
-    result.target.id = gff.getUint("TargetId");
-    result.area.id = gff.getUint("AreaId");
-    result.item.id = gff.getUint("ItemId");
+    result.caster = SavedObjectReference::fromSerializedId(gff.getUint("CasterId"));
+    result.target = SavedObjectReference::fromSerializedId(gff.getUint("TargetId"));
+    result.area = SavedObjectReference::fromSerializedId(gff.getUint("AreaId"));
+    result.item = SavedObjectReference::fromSerializedId(gff.getUint("ItemId"));
     result.script = gff.getString("Script");
     result.targetPosition = glm::vec3(
         gff.getFloat("TargetPosX"),
@@ -152,7 +153,7 @@ SavedSpellImpact savedSpellImpactFromGff(const resource::Gff &gff) {
 
 SavedBodyBag savedBodyBagFromGff(const resource::Gff &gff) {
     SavedBodyBag result;
-    result.object.id = gff.getUint("BodyBagId");
+    result.object = SavedObjectReference::fromSerializedId(gff.getUint("BodyBagId"));
     result.position = glm::vec3(
         gff.getFloat("PositionX"),
         gff.getFloat("PositionY"),
@@ -165,7 +166,7 @@ SavedTalentValue savedTalentFromGff(const resource::Gff &gff) {
     result.id = gff.getInt("ID");
     result.type = gff.getInt("Type");
     result.multiClass = static_cast<uint8_t>(gff.getUint("MultiClass"));
-    result.item.id = gff.getUint("Item");
+    result.item = SavedObjectReference::fromSerializedId(gff.getUint("Item"));
     // Retail passes "ItemPropertyIndex" to a 16-byte GFF label API; the
     // on-wire label is therefore truncated to this value.
     result.itemPropertyIndex = gff.getInt("ItemPropertyInde");
@@ -318,7 +319,8 @@ SerializedScriptSituation SerializedScriptSituation::fromGff(const resource::Gff
             value.payload = item->getString("Value");
             break;
         case SavedVmStackType::Object:
-            value.payload = SavedObjectReference {item->getUint("Value")};
+            value.payload = SavedObjectReference::fromSerializedId(
+                item->getUint("Value"));
             break;
         case SavedVmStackType::Effect: {
             auto structure = item->findStruct("GameDefinedStrct");
@@ -366,9 +368,7 @@ bool SerializedScriptSituation::bindObjectReferences(const Game &game) {
         if (auto reference = std::get_if<SavedObjectReference>(&entry.payload)) {
             bindReference(game, *reference, allBound);
         } else if (auto effect = std::get_if<EffectInstance>(&entry.payload)) {
-            if (effect->creatorId != kSavedRuntimeInvalidObjectId) {
-                allBound = game.bindEffectCreator(*effect) && allBound;
-            }
+            allBound = game.bindEffectCreator(*effect) && allBound;
         } else if (auto event = std::get_if<SavedScriptEvent>(&entry.payload)) {
             for (auto &reference : event->objects) {
                 bindReference(game, reference, allBound);
@@ -395,7 +395,8 @@ SavedActionParameter SavedActionParameter::fromGff(const resource::Gff &gff) {
         result.payload = gff.getFloat("Value");
         break;
     case SavedActionParameterType::Object:
-        result.payload = SavedObjectReference {gff.getUint("Value")};
+        result.payload = SavedObjectReference::fromSerializedId(
+            gff.getUint("Value"));
         break;
     case SavedActionParameterType::String:
         result.payload = gff.getString("Value");
@@ -677,8 +678,8 @@ SavedEventRecord SavedEventRecord::fromGff(const resource::Gff &gff) {
     SavedEventRecord result;
     result.day = gff.getUint("Day");
     result.time = gff.getUint("Time");
-    result.object.id = gff.getUint("ObjectId");
-    result.caller.id = gff.getUint("CallerId");
+    result.object = SavedObjectReference::fromSerializedId(gff.getUint("ObjectId"));
+    result.caller = SavedObjectReference::fromSerializedId(gff.getUint("CallerId"));
     result.eventId = gff.getUint("EventId");
     result.unsupportedFields = collectUnsupportedFields(
         gff,
@@ -754,9 +755,7 @@ bool SavedEventRecord::bindObjectReferences(const Game &game) {
     if (auto situation = std::get_if<SerializedScriptSituation>(&payload)) {
         allBound = situation->bindObjectReferences(game) && allBound;
     } else if (auto effect = std::get_if<EffectInstance>(&payload)) {
-        if (effect->creatorId != kSavedRuntimeInvalidObjectId) {
-            allBound = game.bindEffectCreator(*effect) && allBound;
-        }
+        allBound = game.bindEffectCreator(*effect) && allBound;
     } else if (auto spell = std::get_if<SavedSpellImpact>(&payload)) {
         bindReference(game, spell->caster, allBound);
         bindReference(game, spell->target, allBound);

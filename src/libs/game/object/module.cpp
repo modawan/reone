@@ -140,7 +140,8 @@ void Module::loadArea(const resource::generated::IFO &ifo, bool restoreSavedWorl
             ifo.Mod_Area_list.end(),
             [this](const auto &entry) { return entry.Area_Name == _info.entryArea; });
         uint32_t areaId = area == ifo.Mod_Area_list.end() ? 1 : area->ObjectId;
-        _area = _game.newSavedArea(areaId);
+        _area = _game.newSavedArea(
+            areaId, SerializedIdentityContext::moduleGraph(_name));
     } else {
         _area = _game.newArea();
     }

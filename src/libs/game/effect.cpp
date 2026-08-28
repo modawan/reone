@@ -75,6 +75,7 @@ void Effect::onRemove(Object &object) {
 
 EffectInstance EffectInstance::fromGff(const resource::Gff &gff) {
     EffectInstance result;
+    result.serializedObjectReferences = true;
     result.id = gff.getUint64("Id");
     result.retailType = static_cast<uint16_t>(gff.getUint("Type"));
     result.subType = static_cast<uint16_t>(gff.getUint("SubType"));
@@ -133,10 +134,23 @@ DurationType EffectInstance::durationType() const {
 
 bool EffectInstance::bindCreator(const std::shared_ptr<Object> &object) {
     creator.reset();
-    if (!object || object->id() != creatorId) {
+    if (!object) {
         return false;
     }
     creator = object;
+    return true;
+}
+
+bool EffectInstance::bindObjectParameter(
+    size_t index, const std::shared_ptr<Object> &object) {
+    if (index >= objectParameterObjects.size()) {
+        return false;
+    }
+    objectParameterObjects[index].reset();
+    if (!object) {
+        return false;
+    }
+    objectParameterObjects[index] = object;
     return true;
 }
 

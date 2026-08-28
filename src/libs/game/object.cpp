@@ -86,7 +86,7 @@ void Object::deserialize(
     }
     if (_type != ObjectType::Placeable && _type != ObjectType::Store) {
         for (const auto &itemGff : gff.getList("ItemList")) {
-            std::shared_ptr<Item> item = _game.newOwnedItem();
+            std::shared_ptr<Item> item = _game.newOwnedItem(*itemGff, identityContext);
             item->deserialize(*itemGff, identityContext);
             if (identityContext.isSerializedState()) {
                 item->captureSaveRecord(
@@ -204,9 +204,7 @@ void Object::bindSavedRuntimeState() {
         return;
     }
     for (auto &effect : _savedEffects) {
-        if (effect.creatorId != kSavedEffectInvalidObjectId) {
-            _game.bindEffectCreator(effect);
-        }
+        _game.bindEffectCreator(effect);
     }
     for (auto &action : _savedActionQueue.actions) {
         action.bindObjectReferences(_game);
@@ -265,6 +263,16 @@ void Object::captureSaveRecord(
     }
     _saveRecordProvenance = SaveRecordProvenance {
         SaveGffShadow::capture(gff), std::move(origin), std::move(identity)};
+}
+
+void Object::assignSerializedObjectIdentity(
+    const SerializedObjectIdentity &identity) {
+    if (_saveRecordProvenance) {
+        _saveRecordProvenance->identity = identity;
+    } else {
+        _saveRecordProvenance = SaveRecordProvenance {
+            SaveGffShadow {}, SaveRecordOrigin {}, identity};
+    }
 }
 
 std::vector<EffectInstance> Object::saveEffectSnapshot() const {

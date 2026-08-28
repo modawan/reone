@@ -432,63 +432,86 @@ void putTransform(Gff &record, const Object &object, bool xyzLabels = false) {
 
 } // namespace
 
-void ModuleObjectIdContext::reserveWorldId(uint32_t id) {
-    if (id >= kSavedRuntimeInvalidObjectId) {
-        throw ValidationException("ordinary saved object uses a reserved ID");
-    }
-    if (!_used.insert(id).second) {
-        throw ValidationException("saved object ID collides in module namespace");
-    }
+static bool sameModuleIdentityNamespace(
+    const SerializedIdentityContext &lhs,
+    const SerializedIdentityContext &rhs) {
+    return lhs.hasAuthoritativeObjectIds() &&
+           rhs.hasAuthoritativeObjectIds() &&
+           boost::iequals(lhs.identityNamespace, rhs.identityNamespace);
 }
 
-void ModuleObjectIdContext::reservePartyId(uint32_t id) {
-    if (id < kSavedRuntimeInvalidObjectId) {
-        reserveWorldId(id);
+void ModuleObjectIdContext::assignContextObject(
+    const Object &object, uint32_t id) {
+    if (_objectIds.count(&object) != 0) {
         return;
     }
-    if (id == kSavedRuntimeInvalidObjectId || id > 0x7fffffffu ||
-        !_reservedPartyIds.insert(id).second) {
-        throw ValidationException("saved party creature uses an invalid or duplicate reserved ID");
-    }
-}
-
-void ModuleObjectIdContext::retainItem(const Item &item) {
-    if (_itemIds.count(&item) != 0) return;
-    constexpr uint32_t invalid = std::numeric_limits<uint32_t>::max();
-    const auto &serializedIdentity = item.serializedObjectIdentity();
-    if (!serializedIdentity || serializedIdentity->id >= kSavedRuntimeInvalidObjectId ||
-        serializedIdentity->id == invalid) {
-        return;
-    }
-    if (_outputIdentityContext.hasAuthoritativeObjectIds() &&
-        !serializedIdentity->context.hasAuthoritativeObjectIds()) {
+    if (id >= kSavedRuntimeInvalidObjectId || !_used.insert(id).second) {
         throw ValidationException(
-            "detached item identity requires module saved-ID translation");
+            "contextual object ID collides in module namespace");
     }
-    const uint32_t preferred = serializedIdentity->id;
-    if (!_used.insert(preferred).second) {
-        throw ValidationException("retained module item ID collides in saved object namespace");
-    }
-    _itemIds.emplace(&item, preferred);
+    _objectIds.emplace(&object, id);
 }
 
-void ModuleObjectIdContext::allocateItem(const Item &item) {
-    if (_itemIds.count(&item) != 0) return;
+void ModuleObjectIdContext::retainObject(
+    const Object &object, bool partyIdentity) {
+    if (_objectIds.count(&object) != 0) return;
+    auto identity = object.serializedObjectIdentity();
+    if (!identity ||
+        !sameModuleIdentityNamespace(identity->context, _outputIdentityContext)) {
+        return;
+    }
+    uint32_t id = identity->id;
+    if (partyIdentity && id >= kSavedRuntimeInvalidObjectId) {
+        if (id > 0x7fffffffu || !_reservedPartyIds.insert(id).second) {
+            throw ValidationException(
+                "saved party creature uses an invalid or duplicate reserved ID");
+        }
+    } else {
+        if (id >= kSavedRuntimeInvalidObjectId) {
+            throw ValidationException("ordinary saved object uses a reserved ID");
+        }
+        if (!_used.insert(id).second) {
+            throw ValidationException(
+                "authoritative saved object ID collides in module namespace");
+        }
+    }
+    _objectIds.emplace(&object, id);
+}
+
+void ModuleObjectIdContext::allocateObject(
+    const Object &object, bool partyIdentity) {
+    if (_objectIds.count(&object) != 0) return;
+    const uint32_t preferred = object.id();
+    if (partyIdentity && preferred > kSavedRuntimeInvalidObjectId &&
+        preferred <= 0x7fffffffu &&
+        _reservedPartyIds.insert(preferred).second) {
+        _objectIds.emplace(&object, preferred);
+        return;
+    }
+    if (preferred < kSavedRuntimeInvalidObjectId &&
+        _used.insert(preferred).second) {
+        _objectIds.emplace(&object, preferred);
+        return;
+    }
     for (uint32_t candidate = 2; candidate < kSavedRuntimeInvalidObjectId; ++candidate) {
         if (_used.insert(candidate).second) {
-            _itemIds.emplace(&item, candidate);
+            _objectIds.emplace(&object, candidate);
             return;
         }
     }
     throw ValidationException("saved object ID namespace is exhausted");
 }
 
-uint32_t ModuleObjectIdContext::itemId(const Item &item) const {
-    auto found = _itemIds.find(&item);
-    if (found == _itemIds.end()) {
-        throw ValidationException("module item has no serialized object ID");
+uint32_t ModuleObjectIdContext::objectId(const Object &object) const {
+    auto found = _objectIds.find(&object);
+    if (found == _objectIds.end()) {
+        throw ValidationException("module graph object has no serialized identity");
     }
     return found->second;
+}
+
+bool ModuleObjectIdContext::contains(const Object &object) const {
+    return _objectIds.count(&object) != 0;
 }
 
 uint32_t ModuleObjectIdContext::nextId(uint32_t retainedCursor) const {
@@ -512,18 +535,19 @@ ModuleObjectIdContext ModuleSnapshotBuilder::buildObjectIdContext(
     const Module &module, const Area &area) const {
     ModuleObjectIdContext ids(
         SerializedIdentityContext::moduleGraph(_saveGroup));
-    // Items owned by this module keep the saved identity they already hold in
-    // this module's namespace. Items carried by the party arrived from whatever
-    // module they were last serialized in, so their saved IDs mean nothing
-    // here: retail allocates party item IDs inside each module's own namespace,
-    // and retaining a foreign one collides with a legitimate world object as
-    // soon as the two ranges overlap.
-    std::vector<const Item *> moduleItems;
-    std::vector<const Item *> partyItems;
-    std::set<const Item *> seenItems;
-    std::vector<const Item *> *sink = &moduleItems;
+    // Retail creates the structural Module before loading the owned IFO/GIT
+    // graph. Slot 0 is consequently a contextual reference target, not an
+    // ObjectId persisted by an owned Module record.
+    ids.assignContextObject(module, kSavedRuntimeModuleObjectId);
+    std::vector<std::pair<const Object *, bool>> objects;
+    std::set<const Object *> seen;
+    auto addObject = [&](const Object &object, bool partyIdentity = false) {
+        if (seen.insert(&object).second) {
+            objects.emplace_back(&object, partyIdentity);
+        }
+    };
     auto addItem = [&](const std::shared_ptr<Item> &item) {
-        if (item && seenItems.insert(item.get()).second) sink->push_back(item.get());
+        if (item) addObject(*item);
     };
     auto addCreatureItems = [&](const Creature &creature, bool includeInventory) {
         std::set<const Item *> equipped;
@@ -539,12 +563,13 @@ ModuleObjectIdContext ModuleSnapshotBuilder::buildObjectIdContext(
         }
     };
 
-    ids.reserveWorldId(area._id);
+    addObject(module);
+    addObject(area);
     for (const auto &object : area._objects) {
         if (!object || area._objectsToDestroy.count(object->id()) != 0 ||
             _game._party.isMember(*object)) continue;
         if (ownsSavedObjectIdentity(object->type())) {
-            ids.reserveWorldId(object->id());
+            addObject(*object);
         }
         switch (object->type()) {
         case ObjectType::Creature:
@@ -562,21 +587,22 @@ ModuleObjectIdContext ModuleSnapshotBuilder::buildObjectIdContext(
     }
     auto modulePlayer = _game._party.player();
     if (!modulePlayer) throw ValidationException("module has no controlled player creature");
-    ids.reservePartyId(modulePlayer->id());
-    sink = &partyItems;
+    addObject(*modulePlayer, true);
     addCreatureItems(*modulePlayer, false);
-    sink = &moduleItems;
     for (const auto &creature : module._limboCreatures) {
         if (!creature) continue;
-        ids.reservePartyId(creature->id());
+        addObject(*creature, true);
         addCreatureItems(*creature, true);
     }
-    // Retain only what this module already owns, then allocate the rest. Party
-    // items are allocated after every retained ID is reserved, so they can
-    // never displace a legitimate module identity.
-    for (const Item *item : moduleItems) ids.retainItem(*item);
-    for (const Item *item : moduleItems) ids.allocateItem(*item);
-    for (const Item *item : partyItems) ids.allocateItem(*item);
+    // Reserve every identity already authoritative in this exact destination
+    // graph before importing anything. Detached/local numbers never enter the
+    // namespace; allocation is keyed by the live object, not by that number.
+    for (const auto &[object, partyIdentity] : objects) {
+        ids.retainObject(*object, partyIdentity);
+    }
+    for (const auto &[object, partyIdentity] : objects) {
+        ids.allocateObject(*object, partyIdentity);
+    }
     return ids;
 }
 
@@ -625,7 +651,7 @@ std::optional<SerializedScriptSituation> exportScriptSituation(
         case script::VariableType::String:
             saved.type = static_cast<int8_t>(SavedVmStackType::String); saved.payload = value.strValue; break;
         case script::VariableType::Object:
-            saved.type = static_cast<int8_t>(SavedVmStackType::Object); saved.payload = SavedObjectReference(value.objectId); break;
+            saved.type = static_cast<int8_t>(SavedVmStackType::Object); saved.payload = SavedObjectReference::fromRuntimeId(value.objectId); break;
         case script::VariableType::Effect: {
             auto effect = std::dynamic_pointer_cast<SavedEffectValue>(value.engineType);
             if (!effect) { error = "live VM effect lacks a save-facing EffectInstance"; return std::nullopt; }
@@ -668,7 +694,7 @@ std::optional<SerializedScriptSituation> exportScriptSituation(
                 talent->value(),
                 static_cast<int32_t>(talent->type()),
                 talent->multiClass(),
-                SavedObjectReference {talent->item()},
+                SavedObjectReference::fromRuntimeId(talent->item()),
                 talent->itemPropertyIndex(),
                 talent->casterLevel(),
                 talent->metaType()};
@@ -717,8 +743,14 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::objectBase(
 }
 
 void ModuleSnapshotBuilder::writeObjectState(
-    Gff &record, const Object &object) const {
-    put(record, Gff::Field::newDword("ObjectId", object._id));
+    Gff &record,
+    const Object &object,
+    const ModuleObjectIdContext &ids) const {
+    if (ids.contains(object)) {
+        put(record, Gff::Field::newDword("ObjectId", ids.objectId(object)));
+    } else {
+        removeSaveField(record, "ObjectId");
+    }
     put(record, Gff::Field::newCExoString("Tag", object._tag));
     if (!object._blueprintResRef.empty()) {
         put(record, Gff::Field::newResRef("TemplateResRef", object._blueprintResRef));
@@ -731,13 +763,13 @@ void ModuleSnapshotBuilder::writeObjectState(
     std::vector<std::shared_ptr<Gff>> effects;
     for (auto effect : object.saveEffectSnapshot()) {
         effects.push_back(effectToGff(
-            normalizeEffectReferences(std::move(effect)), &_game));
+            normalizeEffectReferences(std::move(effect), ids), &_game));
     }
     put(record, Gff::Field::newList("EffectList", std::move(effects)));
 
     std::vector<std::shared_ptr<Gff>> actions;
     for (auto action : object.saveActionSnapshot()) {
-        normalizeActionReferences(action);
+        normalizeActionReferences(action, ids);
         actions.push_back(actionToGff(action, &_game));
     }
     put(record, Gff::Field::newList("ActionList", std::move(actions)));
@@ -751,123 +783,122 @@ void ModuleSnapshotBuilder::writeObjectState(
             auto bound = object.savedReference(field);
             put(record, Gff::Field::newDword(
                 field,
-                bound && isSerializedWorldObject(*bound)
-                    ? bound->id()
+                bound && ids.contains(*bound)
+                    ? ids.objectId(*bound)
                     : kSavedRuntimeInvalidObjectId));
         }
     }
 }
 
-bool ModuleSnapshotBuilder::isSerializedWorldObject(
-    const Object &object) const {
-    if (!_game._module || !_game._module->_area) return false;
-    if (&object == _game._module.get()) return true;
-    const auto &area = *_game._module->_area;
-    if (&object == &area) return true;
-    for (const auto &entry : area._objects) {
-        if (entry.get() == &object &&
-            area._objectsToDestroy.count(object.id()) == 0) return true;
-    }
-    for (const auto &entry : _game._module->_limboCreatures) {
-        if (entry.get() == &object) return true;
-    }
-    return _game._party.player().get() == &object ||
-           _game._party.actualPlayer().get() == &object;
-}
-
 uint32_t ModuleSnapshotBuilder::serializedReferenceId(
-    const SavedObjectReference &reference) const {
+    const SavedObjectReference &reference,
+    const ModuleObjectIdContext &ids) const {
     if (reference.isInvalid()) return kSavedRuntimeInvalidObjectId;
     auto bound = reference.boundObject();
     if (bound) {
-        return isSerializedWorldObject(*bound)
-                   ? bound->id()
+        return ids.contains(*bound)
+                   ? ids.objectId(*bound)
                    : kSavedRuntimeInvalidObjectId;
     }
+    if (reference.isSerializedIdentity()) {
+        return kSavedRuntimeInvalidObjectId;
+    }
     auto found = _game._objectById.find(reference.id);
-    return found != _game._objectById.end() &&
-                   isSerializedWorldObject(*found->second)
-               ? found->second->id()
+    return found != _game._objectById.end() && ids.contains(*found->second)
+               ? ids.objectId(*found->second)
                : kSavedRuntimeInvalidObjectId;
 }
 
 EffectInstance ModuleSnapshotBuilder::normalizeEffectReferences(
-    EffectInstance effect) const {
-    auto normalizeId = [this](uint32_t id) {
+    EffectInstance effect, const ModuleObjectIdContext &ids) const {
+    auto normalizeId = [this, &ids, serialized = effect.serializedObjectReferences](uint32_t id) {
         if (id == kSavedRuntimeInvalidObjectId ||
             id == kSavedEffectInvalidObjectId) return id;
+        if (serialized) return kSavedRuntimeInvalidObjectId;
         auto found = _game._objectById.find(id);
-        return found != _game._objectById.end() &&
-                       isSerializedWorldObject(*found->second)
-                   ? found->second->id()
+        return found != _game._objectById.end() && ids.contains(*found->second)
+                   ? ids.objectId(*found->second)
                    : kSavedRuntimeInvalidObjectId;
     };
     if (auto creator = effect.boundCreator()) {
-        effect.creatorId = isSerializedWorldObject(*creator)
-                               ? creator->id()
+        effect.creatorId = ids.contains(*creator)
+                               ? ids.objectId(*creator)
                                : kSavedRuntimeInvalidObjectId;
     } else {
         effect.creatorId = normalizeId(effect.creatorId);
     }
-    for (auto &id : effect.objectParameters) id = normalizeId(id);
+    for (size_t index = 0; index < effect.objectParameters.size(); ++index) {
+        if (auto object = effect.boundObjectParameter(index)) {
+            effect.objectParameters[index] = ids.contains(*object)
+                                                   ? ids.objectId(*object)
+                                                   : kSavedRuntimeInvalidObjectId;
+        } else {
+            effect.objectParameters[index] = normalizeId(
+                effect.objectParameters[index]);
+        }
+    }
     return effect;
 }
 
 void ModuleSnapshotBuilder::normalizeSituationReferences(
-    SerializedScriptSituation &situation) const {
+    SerializedScriptSituation &situation,
+    const ModuleObjectIdContext &ids) const {
     for (auto &value : situation.stack) {
         if (auto reference = std::get_if<SavedObjectReference>(&value.payload)) {
-            reference->id = serializedReferenceId(*reference);
+            reference->id = serializedReferenceId(*reference, ids);
         } else if (auto effect = std::get_if<EffectInstance>(&value.payload)) {
-            *effect = normalizeEffectReferences(std::move(*effect));
+            *effect = normalizeEffectReferences(std::move(*effect), ids);
         } else if (auto event = std::get_if<SavedScriptEvent>(&value.payload)) {
             for (auto &reference : event->objects) {
-                reference.id = serializedReferenceId(reference);
+                reference.id = serializedReferenceId(reference, ids);
             }
         }
     }
 }
 
 void ModuleSnapshotBuilder::normalizeActionReferences(
-    SavedActionRecord &action) const {
+    SavedActionRecord &action,
+    const ModuleObjectIdContext &ids) const {
     for (size_t index = 0; index < action.parameters.size(); ++index) {
         auto &parameter = action.parameters[index];
         // Retail stores PlayAnimation's animation identifier in its generic
         // type-3/DWORD slot. It is not an object reference.
         if (action.actionId == 6 && index == 0) continue;
         if (auto reference = std::get_if<SavedObjectReference>(&parameter.payload)) {
-            reference->id = serializedReferenceId(*reference);
+            reference->id = serializedReferenceId(*reference, ids);
         } else if (auto situation = std::get_if<SerializedScriptSituation>(&parameter.payload)) {
-            normalizeSituationReferences(*situation);
+            normalizeSituationReferences(*situation, ids);
         }
     }
 }
 
 void ModuleSnapshotBuilder::normalizeEventReferences(
-    SavedEventRecord &event) const {
-    event.object.id = serializedReferenceId(event.object);
-    event.caller.id = serializedReferenceId(event.caller);
+    SavedEventRecord &event,
+    const ModuleObjectIdContext &ids) const {
+    event.object.id = serializedReferenceId(event.object, ids);
+    event.caller.id = serializedReferenceId(event.caller, ids);
     if (auto situation = std::get_if<SerializedScriptSituation>(&event.payload)) {
-        normalizeSituationReferences(*situation);
+        normalizeSituationReferences(*situation, ids);
     } else if (auto effect = std::get_if<EffectInstance>(&event.payload)) {
-        *effect = normalizeEffectReferences(std::move(*effect));
+        *effect = normalizeEffectReferences(std::move(*effect), ids);
     } else if (auto spell = std::get_if<SavedSpellImpact>(&event.payload)) {
-        spell->caster.id = serializedReferenceId(spell->caster);
-        spell->target.id = serializedReferenceId(spell->target);
-        spell->area.id = serializedReferenceId(spell->area);
-        spell->item.id = serializedReferenceId(spell->item);
+        spell->caster.id = serializedReferenceId(spell->caster, ids);
+        spell->target.id = serializedReferenceId(spell->target, ids);
+        spell->area.id = serializedReferenceId(spell->area, ids);
+        spell->item.id = serializedReferenceId(spell->item, ids);
     } else if (auto scriptEvent = std::get_if<SavedScriptEvent>(&event.payload)) {
         for (auto &reference : scriptEvent->objects) {
-            reference.id = serializedReferenceId(reference);
+            reference.id = serializedReferenceId(reference, ids);
         }
     } else if (auto bag = std::get_if<SavedBodyBag>(&event.payload)) {
-        bag->object.id = serializedReferenceId(bag->object);
+        bag->object.id = serializedReferenceId(bag->object, ids);
     }
 }
 
 void ModuleSnapshotBuilder::appendRuntimeDelayedEvents(
     std::vector<SavedEventRecord> &events,
-    const Object &owner) const {
+    const Object &owner,
+    const ModuleObjectIdContext &ids) const {
     for (size_t index = 0; index < owner._delayed.size(); ++index) {
         const auto &delayed = owner._delayed[index];
         if (!delayed.action || delayed.action->isCompleted() ||
@@ -911,20 +942,28 @@ void ModuleSnapshotBuilder::appendRuntimeDelayedEvents(
         SavedEventRecord event;
         event.day = static_cast<uint32_t>(absolute / millisecondsPerDay);
         event.time = static_cast<uint32_t>(absolute % millisecondsPerDay);
-        event.object = SavedObjectReference(owner.id());
-        event.caller = SavedObjectReference(owner.id());
+        event.object = SavedObjectReference::fromRuntimeId(owner.id());
+        event.caller = SavedObjectReference::fromRuntimeId(owner.id());
         event.eventId = static_cast<uint32_t>(SavedEventType::Timed);
         event.payload = *situation;
-        normalizeEventReferences(event);
+        normalizeEventReferences(event, ids);
         events.push_back(std::move(event));
     }
 }
 
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writeItem(
     const Item &item, uint32_t structType,
-    std::optional<uint32_t> serializedId) const {
+    std::optional<uint32_t> serializedId,
+    const ModuleObjectIdContext *ids) const {
     auto result = objectBase(item, ResType::Uti, structType);
-    writeObjectState(*result, item);
+    if (ids) {
+        writeObjectState(*result, item, *ids);
+    } else {
+        ModuleObjectIdContext local(
+            SerializedIdentityContext::detachedRecord("standalone-item"));
+        local.allocateObject(item);
+        writeObjectState(*result, item, local);
+    }
     if (serializedId) {
         put(*result, Gff::Field::newDword("ObjectId", *serializedId));
     } else {
@@ -972,8 +1011,10 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
         addItem(item);
     }
     for (const auto &item : creature._items) addItem(item);
-    for (const Item *item : items) ids.retainItem(*item);
-    for (const Item *item : items) ids.allocateItem(*item);
+    ids.retainObject(creature);
+    for (const Item *item : items) ids.retainObject(*item);
+    ids.allocateObject(creature);
+    for (const Item *item : items) ids.allocateObject(*item);
     return writeCreature(creature, structType, serializedId, ids, true);
 }
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
@@ -982,7 +1023,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
     const ModuleObjectIdContext &ids,
     bool includeInventory) const {
     auto result = objectBase(creature, ResType::Utc, structType);
-    writeObjectState(*result, creature);
+    writeObjectState(*result, creature, ids);
     if (serializedId) {
         put(*result, Gff::Field::newDword("ObjectId", *serializedId));
     } else {
@@ -1110,7 +1151,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
     for (const auto &[slot, item] : creature._equipment) {
         if (!item) continue;
         equipped.insert(item.get());
-        auto saved = writeItem(*item, 1u << slot, ids.itemId(*item));
+        auto saved = writeItem(
+            *item, 1u << slot, ids.objectId(*item), &ids);
         saved->setType(1u << slot);
         equipList.push_back(std::move(saved));
     }
@@ -1118,7 +1160,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
     if (includeInventory) {
         for (const auto &item : creature._items) {
             if (!item || equipped.count(item.get()) != 0) continue;
-            inventory.push_back(writeItem(*item, 0, ids.itemId(*item)));
+            inventory.push_back(writeItem(
+                *item, 0, ids.objectId(*item), &ids));
         }
     }
     put(*result, Gff::Field::newList("Equip_ItemList", std::move(equipList)));
@@ -1137,8 +1180,9 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
     for (uint32_t id : perceived) {
         auto objectIt = _game._objectById.find(id);
         if (objectIt == _game._objectById.end() ||
-            !isSerializedWorldObject(*objectIt->second)) continue;
-        auto found = oldPerceptions.find(id);
+            !ids.contains(*objectIt->second)) continue;
+        uint32_t savedId = ids.objectId(*objectIt->second);
+        auto found = oldPerceptions.find(savedId);
         auto perception = found != oldPerceptions.end()
                               ? found->second
                               : emptyRecord(0);
@@ -1146,7 +1190,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
             perception->getUint("PerceptionData") & ~0x3u);
         if (creature._perception.seen.count(id) != 0) data |= 0x1;
         if (creature._perception.heard.count(id) != 0) data |= 0x2;
-        put(*perception, Gff::Field::newDword("ObjectId", id));
+        put(*perception, Gff::Field::newDword("ObjectId", savedId));
         put(*perception, Gff::Field::newByte("PerceptionData", data));
         perceptions.push_back(std::move(perception));
     }
@@ -1154,9 +1198,10 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
     return result;
 }
 
-std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(const Door &door) const {
+std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(
+    const Door &door, const ModuleObjectIdContext &ids) const {
     auto result = objectBase(door, ResType::Utd, 8);
-    writeObjectState(*result, door);
+    writeObjectState(*result, door, ids);
     putTransform(*result, door, true);
     put(*result, Gff::Field::newDword("Appearance", door._appearance));
     put(*result, Gff::Field::newByte("GenericType", door._genericType));
@@ -1188,7 +1233,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeDoor(const Door &door) const {
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
     const Placeable &placeable, const ModuleObjectIdContext &ids) const {
     auto result = objectBase(placeable, ResType::Utp, 9);
-    writeObjectState(*result, placeable);
+    writeObjectState(*result, placeable, ids);
     putTransform(*result, placeable, true);
     put(*result, Gff::Field::newByte("Open", placeable._open));
     put(*result, Gff::Field::newByte("Locked", placeable._locked));
@@ -1206,15 +1251,16 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writePlaceable(
     put(*result, Gff::Field::newByte("TrapDetectDC", placeable._trapDetectDC));
     put(*result, Gff::Field::newByte("TrapOneShot", placeable._trapOneShot));
     std::vector<std::shared_ptr<Gff>> items;
-    for (const auto &item : placeable._items) if (item) items.push_back(writeItem(*item, 0, ids.itemId(*item)));
+    for (const auto &item : placeable._items) if (item) items.push_back(
+        writeItem(*item, 0, ids.objectId(*item), &ids));
     put(*result, Gff::Field::newList("ItemList", std::move(items)));
     return result;
 }
 
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writeTrigger(
-    const Trigger &trigger) const {
+    const Trigger &trigger, const ModuleObjectIdContext &ids) const {
     auto result = objectBase(trigger, ResType::Utt, 1);
-    writeObjectState(*result, trigger);
+    writeObjectState(*result, trigger, ids);
     putTransform(*result, trigger);
     put(*result, Gff::Field::newResRef("ScriptOnEnter", trigger._onEnter));
     put(*result, Gff::Field::newResRef("ScriptOnExit", trigger._onExit));
@@ -1243,9 +1289,9 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeTrigger(
 }
 
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writeEncounter(
-    const Encounter &encounter) const {
+    const Encounter &encounter, const ModuleObjectIdContext &ids) const {
     auto result = objectBase(encounter, ResType::Ute, 7);
-    writeObjectState(*result, encounter);
+    writeObjectState(*result, encounter, ids);
     putTransform(*result, encounter);
     put(*result, Gff::Field::newByte("Active", encounter._active));
     put(*result, Gff::Field::newByte("Reset", encounter._reset));
@@ -1281,8 +1327,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeEncounter(
         areaList.push_back(Gff::Builder().type(0)
             .field(Gff::Field::newDword(
                 "AreaObject",
-                object && isSerializedWorldObject(*object)
-                    ? object->id()
+                object && ids.contains(*object)
+                    ? ids.objectId(*object)
                     : kSavedRuntimeInvalidObjectId)).build());
     }
     put(*result, Gff::Field::newList("AreaList", std::move(areaList)));
@@ -1319,7 +1365,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeEncounter(
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writeStore(
     const Store &store, const ModuleObjectIdContext &ids) const {
     auto result = objectBase(store, ResType::Utm, 11);
-    writeObjectState(*result, store);
+    writeObjectState(*result, store, ids);
     putTransform(*result, store);
     const auto direction = glm::vec3(-std::sin(store.getFacing()), std::cos(store.getFacing()), 0.0f);
     put(*result, Gff::Field::newFloat("XOrientation", direction.x));
@@ -1329,15 +1375,16 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeStore(
     put(*result, Gff::Field::newResRef("OnOpenStore", store._onOpenStore));
     put(*result, Gff::Field::newByte("BuySellFlag", store._buySellFlag));
     std::vector<std::shared_ptr<Gff>> items;
-    for (const auto &item : store._items) if (item) items.push_back(writeItem(*item, 0, ids.itemId(*item)));
+    for (const auto &item : store._items) if (item) items.push_back(
+        writeItem(*item, 0, ids.objectId(*item), &ids));
     put(*result, Gff::Field::newList("ItemList", std::move(items)));
     return result;
 }
 
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writeWaypoint(
-    const Waypoint &waypoint) const {
+    const Waypoint &waypoint, const ModuleObjectIdContext &ids) const {
     auto result = objectBase(waypoint, ResType::Utw, 5);
-    writeObjectState(*result, waypoint);
+    writeObjectState(*result, waypoint, ids);
     putTransform(*result, waypoint);
     auto direction = glm::vec3(-std::sin(waypoint.getFacing()), std::cos(waypoint.getFacing()), 0.0f);
     put(*result, Gff::Field::newFloat("XOrientation", direction.x));
@@ -1348,9 +1395,9 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeWaypoint(
 }
 
 std::shared_ptr<Gff> ModuleSnapshotBuilder::writeSound(
-    const Sound &sound) const {
+    const Sound &sound, const ModuleObjectIdContext &ids) const {
     auto result = objectBase(sound, ResType::Uts, 6);
-    writeObjectState(*result, sound);
+    writeObjectState(*result, sound, ids);
     putTransform(*result, sound);
     put(*result, Gff::Field::newByte("Active", sound._active));
     put(*result, Gff::Field::newByte("Positional", sound._positional));
@@ -1442,10 +1489,12 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
         switch (object->type()) {
         case ObjectType::Creature:
             lists["Creature List"].push_back(writeCreature(
-                *static_cast<Creature *>(object.get()), 4, object->id(), ids));
+                *static_cast<Creature *>(object.get()), 4,
+                ids.objectId(*object), ids));
             break;
         case ObjectType::Door:
-            lists["Door List"].push_back(writeDoor(*static_cast<Door *>(object.get())));
+            lists["Door List"].push_back(
+                writeDoor(*static_cast<Door *>(object.get()), ids));
             break;
         case ObjectType::Placeable:
             lists["Placeable List"].push_back(writePlaceable(*static_cast<Placeable *>(object.get()), ids));
@@ -1456,27 +1505,32 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
             // triggers reconstructs stale ordinary triggers on the next load.
             if (!static_cast<Trigger *>(object.get())->isLinkedDoorTransition()) {
                 lists["TriggerList"].push_back(
-                    writeTrigger(*static_cast<Trigger *>(object.get())));
+                    writeTrigger(*static_cast<Trigger *>(object.get()), ids));
             }
             break;
         case ObjectType::Encounter:
-            lists["Encounter List"].push_back(writeEncounter(*static_cast<Encounter *>(object.get())));
+            lists["Encounter List"].push_back(
+                writeEncounter(*static_cast<Encounter *>(object.get()), ids));
             break;
         case ObjectType::Store:
             lists["StoreList"].push_back(writeStore(*static_cast<Store *>(object.get()), ids));
             break;
         case ObjectType::Waypoint:
-            lists["WaypointList"].push_back(writeWaypoint(*static_cast<Waypoint *>(object.get())));
+            lists["WaypointList"].push_back(
+                writeWaypoint(*static_cast<Waypoint *>(object.get()), ids));
             break;
         case ObjectType::Sound:
-            lists["SoundList"].push_back(writeSound(*static_cast<Sound *>(object.get())));
+            lists["SoundList"].push_back(
+                writeSound(*static_cast<Sound *>(object.get()), ids));
             break;
         case ObjectType::Camera:
             lists["CameraList"].push_back(writeCamera(
                 *static_cast<StaticCamera *>(object.get())));
             break;
         case ObjectType::Item: {
-            auto item = writeItem(*static_cast<Item *>(object.get()), 0, object->id());
+            auto item = writeItem(
+                *static_cast<Item *>(object.get()), 0,
+                ids.objectId(*object), &ids);
             putTransform(*item, *object, true);
             lists["List"].push_back(std::move(item));
             break;
@@ -1514,7 +1568,10 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
     put(*result, Gff::Field::newResRef("Mod_ResRef", module._name));
     put(*result, Gff::Field::newCExoString("Mod_Tag", module._tag.empty() ? module._name : module._tag));
     put(*result, Gff::Field::newResRef("Mod_Entry_Area", area._name));
-    put(*result, Gff::Field::newDword("Mod_Area", area._id));
+    put(*result, Gff::Field::newDword("Mod_Area", ids.objectId(area)));
+    // A short-lived local A2 draft wrote this private extension. It is not a
+    // retail field and the contextual Module target needs no on-disk carrier.
+    removeSaveField(*result, "ReoneModObjId");
     put(*result, Gff::Field::newFloat("Mod_Entry_X", module._info.entryPosition.x));
     put(*result, Gff::Field::newFloat("Mod_Entry_Y", module._info.entryPosition.y));
     put(*result, Gff::Field::newFloat("Mod_Entry_Z", module._info.entryPosition.z));
@@ -1530,7 +1587,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
 
     auto areaEntry = Gff::Builder().type(6)
         .field(Gff::Field::newResRef("Area_Name", area._name))
-        .field(Gff::Field::newDword("ObjectId", area._id)).build();
+        .field(Gff::Field::newDword("ObjectId", ids.objectId(area))).build();
     put(*result, Gff::Field::newList("Mod_Area_list", {areaEntry}));
 
     uint32_t shadowNext = result->getUint("Mod_NextObjId0", 2);
@@ -1551,7 +1608,7 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
     std::set<const Object *> delayedOwners;
     auto appendOwner = [&](const std::shared_ptr<Object> &owner) {
         if (owner && delayedOwners.insert(owner.get()).second) {
-            appendRuntimeDelayedEvents(eventSnapshot, *owner);
+            appendRuntimeDelayedEvents(eventSnapshot, *owner, ids);
         }
     };
     appendOwner(_game._module);
@@ -1570,14 +1627,15 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
             return std::tie(left.day, left.time) < std::tie(right.day, right.time);
         });
     for (auto event : eventSnapshot) {
-        normalizeEventReferences(event);
+        normalizeEventReferences(event, ids);
         events.push_back(eventToGff(event, &_game));
     }
     put(*result, Gff::Field::newList("EventQueue", std::move(events)));
 
     auto modulePlayer = _game._party.player();
     if (!modulePlayer) throw ValidationException("module has no controlled player creature");
-    auto player = writeCreature(*modulePlayer, 4, modulePlayer->id(), ids, false);
+    auto player = writeCreature(
+        *modulePlayer, 4, ids.objectId(*modulePlayer), ids, false);
     put(*player, Gff::Field::newByte(
         "Mod_IsPrimaryPlr", modulePlayer == _game._party.actualPlayer()));
     put(*result, Gff::Field::newList("Mod_PlayerList", {player}));
@@ -1585,7 +1643,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
     std::vector<std::shared_ptr<Gff>> limbo;
     for (const auto &creature : module._limboCreatures) {
         if (creature) {
-            limbo.push_back(writeCreature(*creature, 4, creature->id(), ids));
+            limbo.push_back(writeCreature(
+                *creature, 4, ids.objectId(*creature), ids));
         }
     }
     put(*result, Gff::Field::newList("Creature List", std::move(limbo)));
@@ -1673,8 +1732,10 @@ void ModuleSnapshotBuilder::validate(const SavedModuleSnapshot &snapshot) const 
     auto ifo = roundTrip(snapshot.ifoBytes, "IFO ");
     auto are = roundTrip(snapshot.areBytes, "ARE ");
     auto git = roundTrip(snapshot.gitBytes, "GIT ");
+    const auto areaEntries = ifo->getList("Mod_Area_list");
     if (ifo->getString("Mod_Entry_Area") != _game._module->_area->_name ||
-        ifo->getUint("Mod_Area") != _game._module->_area->_id) {
+        areaEntries.size() != 1 ||
+        ifo->getUint("Mod_Area") != areaEntries.front()->getUint("ObjectId")) {
         throw ValidationException("IFO active-area identity is inconsistent");
     }
     uint32_t nextId = ifo->getUint("Mod_NextObjId0");

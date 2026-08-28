@@ -396,14 +396,18 @@ public:
     inline std::shared_ptr<Item> newOwnedItem() {
         return newItem();
     }
+    std::shared_ptr<Item> newOwnedItem(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     std::shared_ptr<Item> newItem(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
 
     inline std::shared_ptr<Area> newArea(std::string sceneName = kSceneMain) {
         return newObject<Area>(std::move(sceneName), *this, _services);
     }
-    inline std::shared_ptr<Area> newSavedArea(uint32_t id, std::string sceneName = kSceneMain) {
-        return newObjectAtId<Area>(id, true, std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<Area> newSavedArea(
+        uint32_t id,
+        const SerializedIdentityContext &identityContext,
+        std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Creature> newCreature(std::string sceneName = kSceneMain) {
         return newObject<Creature>(std::move(sceneName), *this, _services);
@@ -569,6 +573,11 @@ public:
     size_t effectIdCount() const { return _effectIds.size(); }
     bool bindEffectCreator(EffectInstance &effect) const;
     bool bindSavedObjectReference(SavedObjectReference &reference) const;
+    std::shared_ptr<Object> getObjectBySavedId(uint32_t id) const;
+    void registerSavedObjectIdentity(
+        uint32_t id,
+        const std::shared_ptr<Object> &object,
+        const SerializedIdentityContext &identityContext);
 
     const SaveResourceShadows &saveResourceShadows() const {
         return _saveResourceShadows;
@@ -727,6 +736,8 @@ private:
     static constexpr uint32_t kFirstRuntimeObjectId = 2; // ids 0 and 1 are reserved
     uint32_t _nextObjectId {kFirstRuntimeObjectId};
     std::map<uint32_t, std::shared_ptr<Object>> _objectById;
+    std::map<uint32_t, std::weak_ptr<Object>> _objectBySavedId;
+    std::map<const Object *, uint32_t> _savedIdByObject;
     std::set<uint32_t> _reservedSavedObjectIds;
     std::optional<std::string> _reservedSavedIdentityNamespace;
     std::map<uint32_t, std::string> _reservedSavedObjectIdClaims;
@@ -734,6 +745,7 @@ private:
     bool _runtimeSessionPlayable {false};
     bool _cheatUsed {false};
     uint64_t _runtimeSessionGeneration {1};
+    uint64_t _savedGraphGeneration {1};
     bool _loadingFromSaveGame {false};
     uint64_t _worldTimeMilliseconds {0};
     uint8_t _minutesPerHour {5};
@@ -854,6 +866,10 @@ private:
     std::optional<ByteBuffer> captureSaveScreenshot();
 
     uint32_t savedObjectId(const resource::Gff &gff) const;
+    void retireSavedObjectGraph();
+    void registerSavedModuleReferenceTarget(
+        const std::shared_ptr<Module> &module,
+        const SerializedIdentityContext &identityContext);
     void registerObject(
         const std::shared_ptr<Object> &object,
         bool allowReserved);
@@ -873,13 +889,12 @@ private:
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext,
         Args &&...args) {
-        if (!identityContext.hasAuthoritativeObjectIds()) {
-            return newObject<T>(std::forward<Args>(args)...);
+        auto object = newObject<T>(std::forward<Args>(args)...);
+        if (identityContext.hasAuthoritativeObjectIds()) {
+            registerSavedObjectIdentity(
+                savedObjectId(gff), object, identityContext);
         }
-        return newObjectAtId<T>(
-            savedObjectId(gff),
-            true,
-            std::forward<Args>(args)...);
+        return object;
     }
     void loadDefaultParty();
     bool loadParty();

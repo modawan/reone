@@ -326,6 +326,14 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
         SerializedIdentityContext::moduleGraph("tat_m17ab"),
         {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
     TestGameModule::deserializeSnapshotRuntimeState(*trigger, *triggerShadow);
+    game.registerSavedObjectIdentity(
+        player->id(),
+        player,
+        SerializedIdentityContext::moduleGraph("tat_m17ab"));
+    game.registerSavedObjectIdentity(
+        trigger->id(),
+        trigger,
+        SerializedIdentityContext::moduleGraph("tat_m17ab"));
     game.resolveSavedObjectReferences();
 
     auto limbo = game.newCreature();
@@ -684,6 +692,71 @@ TEST_P(PartyItemIdFixture, foreign_party_item_id_does_not_collide_with_a_world_o
     EXPECT_GE(ids.front(), 2u);
 }
 
+TEST_F(SnapshotFixture, translates_authoritative_and_detached_item_136_by_object) {
+    auto placeable = game.newPlaceable();
+    auto authoritative = game.newOwnedItem();
+    auto detached = game.newOwnedItem();
+    auto item136 = Gff::Builder().type(0)
+        .field(Gff::Field::newDword("ObjectId", 136)).build();
+    authoritative->captureSaveRecord(
+        *item136,
+        SerializedIdentityContext::moduleGraph("tat_m17ab"),
+        {SaveRecordOriginKind::PlaceableItem, "module-chest"});
+    detached->captureSaveRecord(
+        *item136,
+        SerializedIdentityContext::detachedRecord("availnpc7.utc"),
+        {SaveRecordOriginKind::EquippedItem, "availnpc7.utc"});
+    placeable->addItem(authoritative);
+    TestGameModule::addSnapshotObject(*area, placeable);
+    TestGameModule::setSnapshotEquipment(
+        *player, InventorySlots::rightWeapon, detached);
+
+    auto saved = ModuleSnapshotBuilder(game, "tat_m17ab").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto placeables = saved.snapshot->git->getList("Placeable List");
+    ASSERT_EQ(placeables.size(), 1u);
+    auto moduleItems = placeables.front()->getList("ItemList");
+    ASSERT_EQ(moduleItems.size(), 1u);
+    EXPECT_EQ(moduleItems.front()->getUint("ObjectId"), 136u);
+    auto playerRecord = saved.snapshot->ifo->getList("Mod_PlayerList").front();
+    auto equipment = playerRecord->getList("Equip_ItemList");
+    ASSERT_EQ(equipment.size(), 1u);
+    EXPECT_NE(equipment.front()->getUint("ObjectId"), 136u);
+    EXPECT_NE(equipment.front()->getUint("ObjectId"),
+              moduleItems.front()->getUint("ObjectId"));
+}
+
+TEST_F(SnapshotFixture, imports_overlapping_ids_from_two_detached_graphs_once_each) {
+    auto first = game.newOwnedItem();
+    auto second = game.newOwnedItem();
+    auto item136 = Gff::Builder().type(0)
+        .field(Gff::Field::newDword("ObjectId", 136)).build();
+    first->captureSaveRecord(
+        *item136,
+        SerializedIdentityContext::detachedRecord("availnpc0.utc"),
+        {SaveRecordOriginKind::EquippedItem, "availnpc0.utc"});
+    second->captureSaveRecord(
+        *item136,
+        SerializedIdentityContext::detachedRecord("availnpc7.utc"),
+        {SaveRecordOriginKind::EquippedItem, "availnpc7.utc"});
+    TestGameModule::setSnapshotEquipment(
+        *player, InventorySlots::rightWeapon, first);
+    TestGameModule::setSnapshotEquipment(
+        *player, InventorySlots::leftWeapon, second);
+
+    auto saved = ModuleSnapshotBuilder(game, "tat_m17ab").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto equipment = saved.snapshot->ifo->getList("Mod_PlayerList")
+                         .front()->getList("Equip_ItemList");
+    ASSERT_EQ(equipment.size(), 2u);
+    EXPECT_NE(equipment[0]->getUint("ObjectId"),
+              equipment[1]->getUint("ObjectId"));
+    EXPECT_NE(equipment[0]->getUint("ObjectId"), 136u);
+    EXPECT_NE(equipment[1]->getUint("ObjectId"), 136u);
+}
+
 // B: reallocation happens even when nothing collides.
 TEST_P(PartyItemIdFixture, party_item_ids_are_allocated_not_retained) {
     auto equipped = game.newOwnedItem();
@@ -914,9 +987,13 @@ TEST_P(CameraIdFixture, genuine_saved_object_collision_is_still_rejected) {
     cameraWithRuntimeId(577, 3);
     auto soundA = game.newSound();
     TestGameModule::setSnapshotObjectId(*soundA, 321);
+    soundA->assignSerializedObjectIdentity({
+        SerializedIdentityContext::moduleGraph("module_cam"), 321});
     TestGameModule::addSnapshotObject(*area, soundA);
     auto soundB = game.newSound();
     TestGameModule::setSnapshotObjectId(*soundB, 321);
+    soundB->assignSerializedObjectIdentity({
+        SerializedIdentityContext::moduleGraph("module_cam"), 321});
     TestGameModule::addSnapshotObject(*area, soundB);
 
     auto result = ModuleSnapshotBuilder(game, "module_cam").build();
@@ -976,6 +1053,8 @@ TEST_F(SnapshotFixture, retained_module_item_collision_is_rejected) {
         *record,
         SerializedIdentityContext::moduleGraph("module005"),
         {SaveRecordOriginKind::PlaceableItem, "owner"});
+    owner->assignSerializedObjectIdentity({
+        SerializedIdentityContext::moduleGraph("module005"), owner->id()});
     owner->addItem(item);
     TestGameModule::addSnapshotObject(*area, owner);
 
@@ -983,7 +1062,8 @@ TEST_F(SnapshotFixture, retained_module_item_collision_is_rejected) {
 
     EXPECT_FALSE(saved);
     EXPECT_EQ(saved.error, ModuleSnapshotError::UnsupportedLiveState);
-    EXPECT_THAT(saved.message, HasSubstr("retained module item ID collides"));
+    EXPECT_THAT(saved.message, HasSubstr(
+        "authoritative saved object ID collides"));
 }
 
 TEST(ModuleSnapshot, k1_reserved_player_id_does_not_drive_cursor_or_duplicate_inventory) {
@@ -1061,8 +1141,12 @@ TEST_F(SnapshotFixture, reserved_limbo_party_id_does_not_drive_ordinary_cursor) 
 
 TEST_F(SnapshotFixture, duplicate_reserved_party_ids_are_rejected) {
     TestGameModule::setSnapshotObjectId(*player, 0x7fffffffu);
+    player->assignSerializedObjectIdentity({
+        SerializedIdentityContext::moduleGraph("module006"), 0x7fffffffu});
     auto companion = game.newCreature();
     TestGameModule::setSnapshotObjectId(*companion, 0x7fffffffu);
+    companion->assignSerializedObjectIdentity({
+        SerializedIdentityContext::moduleGraph("module006"), 0x7fffffffu});
     TestGameModule::addSnapshotLimboCreature(*game.module(), companion);
 
     auto saved = ModuleSnapshotBuilder(game, "module006").build();
@@ -1089,11 +1173,11 @@ TEST_F(SnapshotFixture, module_player_keeps_equipment_but_not_shared_inventory) 
     EXPECT_LT(modulePlayer->getList("Equip_ItemList").front()->getUint("ObjectId"),
               kSavedRuntimeInvalidObjectId);
 }
-TEST_F(SnapshotFixture, preserves_open2_and_accepts_retail_world_ids_zero_and_one) {
+TEST_F(SnapshotFixture, preserves_open2_and_accepts_low_retail_world_ids) {
     auto door = game.newDoor();
     auto placeable = game.newPlaceable();
-    TestGameModule::setSnapshotObjectId(*door, 0);
-    TestGameModule::setSnapshotObjectId(*placeable, 1);
+    TestGameModule::setSnapshotObjectId(*door, 1);
+    TestGameModule::setSnapshotObjectId(*placeable, 4);
     TestGameModule::setSnapshotDoorState(*door, DoorState::Opened2);
     TestGameModule::addSnapshotObject(*area, door);
     TestGameModule::addSnapshotObject(*area, placeable);
@@ -1101,10 +1185,10 @@ TEST_F(SnapshotFixture, preserves_open2_and_accepts_retail_world_ids_zero_and_on
     auto saved = ModuleSnapshotBuilder(game, "module007").build();
 
     ASSERT_TRUE(saved) << saved.message;
-    auto doorRecord = recordById(*saved.snapshot->git, "Door List", 0);
+    auto doorRecord = recordById(*saved.snapshot->git, "Door List", 1);
     ASSERT_TRUE(doorRecord);
     EXPECT_EQ(doorRecord->getUint("OpenState"), 2u);
-    EXPECT_TRUE(recordById(*saved.snapshot->git, "Placeable List", 1));
+    EXPECT_TRUE(recordById(*saved.snapshot->git, "Placeable List", 4));
 }
 
 TEST_F(SnapshotFixture, rejects_duplicate_authoritative_world_ids) {
@@ -1112,6 +1196,10 @@ TEST_F(SnapshotFixture, rejects_duplicate_authoritative_world_ids) {
     auto second = game.newPlaceable();
     TestGameModule::setSnapshotObjectId(*first, 77);
     TestGameModule::setSnapshotObjectId(*second, 77);
+    first->assignSerializedObjectIdentity({
+        SerializedIdentityContext::moduleGraph("module008"), 77});
+    second->assignSerializedObjectIdentity({
+        SerializedIdentityContext::moduleGraph("module008"), 77});
     TestGameModule::addSnapshotObject(*area, first);
     TestGameModule::addSnapshotObject(*area, second);
 
@@ -1125,6 +1213,10 @@ TEST_F(SnapshotFixture, rejects_duplicate_authoritative_world_ids) {
 TEST_F(SnapshotFixture, rejects_world_id_collision_with_structural_area) {
     auto door = game.newDoor();
     TestGameModule::setSnapshotObjectId(*door, area->id());
+    area->assignSerializedObjectIdentity({
+        SerializedIdentityContext::moduleGraph("module008"), area->id()});
+    door->assignSerializedObjectIdentity({
+        SerializedIdentityContext::moduleGraph("module008"), area->id()});
     TestGameModule::addSnapshotObject(*area, door);
 
     auto saved = ModuleSnapshotBuilder(game, "module008").build();
@@ -1245,6 +1337,10 @@ TEST_F(SnapshotFixture, attack_object_is_a_supported_transition_snapshot_action)
     ASSERT_EQ(saved.parameters.size(), 10);
     EXPECT_EQ(std::get<SavedObjectReference>(saved.parameters[1].payload).id,
               target->id());
+    game.registerSavedObjectIdentity(
+        std::get<SavedObjectReference>(saved.parameters[1].payload).id,
+        target,
+        SerializedIdentityContext::moduleGraph("module003"));
     ASSERT_TRUE(saved.bindObjectReferences(game));
     EXPECT_TRUE(saved.toRuntimeAction(game));
 }
@@ -1273,6 +1369,10 @@ TEST_F(SnapshotFixture, move_to_location_is_a_supported_transition_snapshot_acti
     EXPECT_EQ(saved.declaredParameterCount, 13);
     ASSERT_EQ(saved.parameters.size(), 13);
     EXPECT_TRUE(std::get<SavedObjectReference>(saved.parameters[4].payload).isInvalid());
+    game.registerSavedObjectIdentity(
+        std::get<SavedObjectReference>(saved.parameters[3].payload).id,
+        area,
+        SerializedIdentityContext::moduleGraph("module003"));
     ASSERT_TRUE(saved.bindObjectReferences(game));
     EXPECT_TRUE(std::dynamic_pointer_cast<MoveToLocationAction>(
         saved.toRuntimeAction(game)));
@@ -1427,6 +1527,47 @@ TEST_F(SnapshotFixture, runtime_delays_export_as_retail_timed_events_with_remain
     ASSERT_NE(situation, nullptr);
     ASSERT_EQ(situation->stack.size(), 1);
     EXPECT_EQ(std::get<int32_t>(situation->stack.front().payload), 9);
+}
+
+TEST_F(SnapshotFixture, structural_module_references_restore_onto_a_different_runtime_id) {
+    const auto context =
+        SerializedIdentityContext::moduleGraph("tat_m17ab");
+    SavedEventRecord event;
+    event.day = 8;
+    event.time = 9123;
+    event.object = SavedObjectReference::fromRuntimeId(game.module()->id());
+    event.caller = SavedObjectReference::fromRuntimeId(game.module()->id());
+    event.eventId = static_cast<uint32_t>(SavedEventType::CloseObject);
+    game.module()->enqueueSaveEvent(event);
+
+    auto saved = ModuleSnapshotBuilder(game, "tat_m17ab").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    uint32_t privateModuleId = 0;
+    EXPECT_FALSE(saved.snapshot->ifo->readDword(
+        privateModuleId, "ReoneModObjId"));
+    auto serialized = SavedEventQueue::fromGff(*saved.snapshot->ifo);
+    ASSERT_EQ(serialized.events.size(), 1u);
+    EXPECT_EQ(
+        serialized.events.front().object.id,
+        kSavedRuntimeModuleObjectId);
+    EXPECT_EQ(
+        serialized.events.front().caller.id,
+        kSavedRuntimeModuleObjectId);
+
+    Game restored(
+        GameID::KotOR, "", engine.options(), engine.services(), console);
+    restored.prepareSavedRuntimeNamespace(*saved.snapshot->ifo, context);
+    auto restoredModule = restored.newSavedModule();
+    ASSERT_NE(restoredModule->id(), kSavedRuntimeModuleObjectId);
+    TestGameModule::registerSavedModuleReferenceTarget(
+        restored, restoredModule, context);
+    restoredModule->deserializeSavedEventQueue(*saved.snapshot->ifo);
+    restoredModule->bindSavedEventQueue();
+    const auto &events = restoredModule->savedEventQueue().events;
+    ASSERT_EQ(events.size(), 1u);
+    EXPECT_EQ(events.front().object.boundObject(), restoredModule);
+    EXPECT_EQ(events.front().caller.boundObject(), restoredModule);
 }
 
 TEST_F(SnapshotFixture, runtime_delays_preserve_stable_time_order_and_fail_closed) {

@@ -3204,7 +3204,7 @@ void Creature::deserializeEquipItems(
         _equipment.clear();
     }
     for (const auto &itemGff : gff.getList("Equip_ItemList")) {
-        std::shared_ptr<Item> item = _game.newOwnedItem();
+        std::shared_ptr<Item> item = _game.newOwnedItem(*itemGff, identityContext);
         item->deserialize(*itemGff, identityContext);
         if (identityContext.isSerializedState()) {
             item->captureSaveRecord(

@@ -1062,7 +1062,10 @@ TEST(SavedPlayerRestoration, primary_module_player_does_not_duplicate_pc_utc) {
 
     ASSERT_TRUE(fixture.game.party().player());
     EXPECT_EQ(fixture.game.party().player(), fixture.game.party().actualPlayer());
-    EXPECT_EQ(100u, fixture.game.party().player()->id());
+    EXPECT_NE(100u, fixture.game.party().player()->id());
+    EXPECT_EQ(
+        fixture.game.party().player(),
+        fixture.game.getObjectBySavedId(100));
     EXPECT_EQ(1, fixture.game.party().getSize());
 }
 
@@ -1098,7 +1101,10 @@ TEST(SavedPlayerRestoration, controlled_companion_keeps_pc_utc_as_actual_player)
     ASSERT_TRUE(fixture.game.party().player());
     ASSERT_TRUE(fixture.game.party().actualPlayer());
     EXPECT_NE(fixture.game.party().player(), fixture.game.party().actualPlayer());
-    EXPECT_EQ(101u, fixture.game.party().player()->id());
+    EXPECT_NE(101u, fixture.game.party().player()->id());
+    EXPECT_EQ(
+        fixture.game.party().player(),
+        fixture.game.getObjectBySavedId(101));
     EXPECT_EQ(fixture.game.party().player(), fixture.game.party().getLeader());
     EXPECT_EQ("actual_pc", fixture.game.party().actualPlayer()->tag());
     EXPECT_EQ(fixture.game.party().actualPlayer(),
@@ -1133,7 +1139,10 @@ TEST(SavedPlayerRestoration,
     ASSERT_TRUE(fixture.game.party().actualPlayer());
     EXPECT_NE(fixture.game.party().player(), fixture.game.party().actualPlayer());
     EXPECT_EQ(kObjectTagPlayer, fixture.game.party().player()->tag());
-    EXPECT_EQ(330u, fixture.game.party().player()->id());
+    EXPECT_NE(330u, fixture.game.party().player()->id());
+    EXPECT_EQ(
+        fixture.game.party().player(),
+        fixture.game.getObjectBySavedId(330));
     EXPECT_EQ("canonical_pc", fixture.game.party().actualPlayer()->tag());
     EXPECT_NE(2147483646u, fixture.game.party().actualPlayer()->id());
     EXPECT_EQ(

@@ -97,6 +97,17 @@ uint64_t reone::game::TestGameModule::runtimeSessionGeneration(const Game &game)
     return game._runtimeSessionGeneration;
 }
 
+uint64_t reone::game::TestGameModule::savedGraphGeneration(const Game &game) {
+    return game._savedGraphGeneration;
+}
+
+void reone::game::TestGameModule::registerSavedModuleReferenceTarget(
+    Game &game,
+    const std::shared_ptr<Module> &module,
+    const SerializedIdentityContext &identityContext) {
+    game.registerSavedModuleReferenceTarget(module, identityContext);
+}
+
 void reone::game::TestGameModule::markSpawnScriptFired(Creature &creature) {
     creature._spawnScriptFired = true;
 }
@@ -388,6 +399,7 @@ TEST(RuntimeSession, saved_session_can_publish_repeated_ordinary_module_transiti
     game.openInGame();
 
     auto sessionGeneration = TestGameModule::runtimeSessionGeneration(game);
+    auto graphGeneration = TestGameModule::savedGraphGeneration(game);
     auto oldModuleId = oldModule->id();
     auto oldAreaId = oldArea->id();
     auto oldWorldObjectId = oldWorldObject->id();
@@ -408,6 +420,9 @@ TEST(RuntimeSession, saved_session_can_publish_repeated_ordinary_module_transiti
     EXPECT_EQ(available, game.getObjectById(available->id()));
     EXPECT_EQ(9, game.getGlobalNumber("SESSION"));
     EXPECT_EQ(sessionGeneration, TestGameModule::runtimeSessionGeneration(game));
+    EXPECT_EQ(
+        graphGeneration + 1,
+        TestGameModule::savedGraphGeneration(game));
 
     TestGameModule::setActiveModule(game, true);
     TestGameModule::cacheActiveModule(game, "module_b");
@@ -436,6 +451,9 @@ TEST(RuntimeSession, saved_session_can_publish_repeated_ordinary_module_transiti
     EXPECT_FALSE(game.getObjectById(targetArea->id()));
     EXPECT_FALSE(game.getObjectById(targetWorldObject->id()));
     EXPECT_EQ(sessionGeneration, TestGameModule::runtimeSessionGeneration(game));
+    EXPECT_EQ(
+        graphGeneration + 2,
+        TestGameModule::savedGraphGeneration(game));
 }
 
 TEST(ModuleLoadContext, separates_saved_world_provenance_from_session_placement) {

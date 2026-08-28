@@ -80,7 +80,7 @@ void Store::deserializeItems(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
     for (const auto &itemGff : gff.getList("ItemList")) {
-        std::shared_ptr<Item> item = _game.newOwnedItem();
+        std::shared_ptr<Item> item = _game.newOwnedItem(*itemGff, identityContext);
         item->deserialize(*itemGff, identityContext);
         if (identityContext.isSerializedState()) {
             item->captureSaveRecord(

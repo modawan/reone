@@ -136,8 +136,46 @@ bool restoresSavedSession(ModuleLoadContext context) {
 }
 
 bool Game::bindEffectCreator(EffectInstance &effect) const {
-    auto it = _objectById.find(effect.creatorId);
-    return effect.bindCreator(it == _objectById.end() ? nullptr : it->second);
+    if (effect._runtimeSession &&
+        *effect._runtimeSession != _runtimeSessionGeneration) {
+        effect.creator.reset();
+        for (auto &object : effect.objectParameterObjects) {
+            object.reset();
+        }
+        return false;
+    }
+    if (effect.serializedObjectReferences && effect._savedGraph &&
+        *effect._savedGraph != _savedGraphGeneration) {
+        effect.creator.reset();
+        for (auto &object : effect.objectParameterObjects) {
+            object.reset();
+        }
+        return false;
+    }
+    if (!effect._runtimeSession) {
+        effect._runtimeSession = _runtimeSessionGeneration;
+    }
+    if (effect.serializedObjectReferences && !effect._savedGraph) {
+        effect._savedGraph = _savedGraphGeneration;
+    }
+    auto resolve = [this, serialized = effect.serializedObjectReferences](uint32_t id) {
+        return serialized ? getObjectBySavedId(id) : getObjectById(id);
+    };
+    bool allBound = true;
+    if (effect.creatorId != kSavedEffectInvalidObjectId &&
+        effect.creatorId != kSavedRuntimeInvalidObjectId) {
+        allBound = effect.bindCreator(resolve(effect.creatorId));
+    }
+    for (size_t index = 0; index < effect.objectParameters.size(); ++index) {
+        uint32_t id = effect.objectParameters[index];
+        if (id == kSavedEffectInvalidObjectId ||
+            id == kSavedRuntimeInvalidObjectId) {
+            continue;
+        }
+        allBound = effect.bindObjectParameter(index, resolve(id)) &&
+                   allBound;
+    }
+    return allBound;
 }
 
 bool Game::bindSavedObjectReference(SavedObjectReference &reference) const {
@@ -152,13 +190,23 @@ bool Game::bindSavedObjectReference(SavedObjectReference &reference) const {
     if (!reference._runtimeSession) {
         reference._runtimeSession = _runtimeSessionGeneration;
     }
-
-    auto it = _objectById.find(reference.id);
-    if (it == _objectById.end()) {
+    if (reference.isSerializedIdentity() && reference._savedGraph &&
+        *reference._savedGraph != _savedGraphGeneration) {
         reference._object.reset();
         return false;
     }
-    reference._object = it->second;
+    if (reference.isSerializedIdentity() && !reference._savedGraph) {
+        reference._savedGraph = _savedGraphGeneration;
+    }
+
+    auto object = reference.isSerializedIdentity()
+                      ? getObjectBySavedId(reference.id)
+                      : getObjectById(reference.id);
+    if (!object) {
+        reference._object.reset();
+        return false;
+    }
+    reference._object = object;
     return true;
 }
 
@@ -1030,6 +1078,11 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
                     SerializedGraphRoot::ModuleIfo);
             }
             _module = restoringSavedWorld ? newSavedModule() : newModule();
+            if (restoringSavedWorld) {
+                registerSavedModuleReferenceTarget(
+                    _module,
+                    SerializedIdentityContext::moduleGraph(name));
+            }
             _module->load(name, *ifo, restoringSavedWorld);
             _loadedModules.insert(std::make_pair(name, _module));
 
@@ -1130,9 +1183,16 @@ void Game::retireActiveModuleRuntime() {
             it = _objectById.erase(it);
         }
     }
+    retireSavedObjectGraph();
+}
+
+void Game::retireSavedObjectGraph() {
+    ++_savedGraphGeneration;
     _reservedSavedObjectIds.clear();
     _reservedSavedIdentityNamespace.reset();
     _reservedSavedObjectIdClaims.clear();
+    _objectBySavedId.clear();
+    _savedIdByObject.clear();
 }
 
 void Game::retireRuntimeSession() {
@@ -1214,9 +1274,7 @@ void Game::retireRuntimeSession() {
     _loadedModules.clear();
 
     _objectById.clear();
-    _reservedSavedObjectIds.clear();
-    _reservedSavedIdentityNamespace.reset();
-    _reservedSavedObjectIdClaims.clear();
+    retireSavedObjectGraph();
     _nextObjectId = kFirstRuntimeObjectId;
     _effectIds.reset();
     _worldTimeMilliseconds = 0;
@@ -2009,6 +2067,11 @@ std::shared_ptr<Object> Game::getObjectById(uint32_t id) const {
     }
 }
 
+std::shared_ptr<Object> Game::getObjectBySavedId(uint32_t id) const {
+    auto found = _objectBySavedId.find(id);
+    return found == _objectBySavedId.end() ? nullptr : found->second.lock();
+}
+
 uint32_t Game::savedObjectId(const resource::Gff &gff) const {
     uint32_t id = 0;
     if (!gff.readDword(id, "ObjectId")) {
@@ -2028,15 +2091,97 @@ void Game::registerObject(
         throw ValidationException("Reserved saved ObjectId: " + std::to_string(id));
     }
     if (!_objectById.emplace(id, object).second) {
-        throw ValidationException("Duplicate saved ObjectId: " + std::to_string(id));
+        throw ValidationException("Duplicate runtime ObjectId: " + std::to_string(id));
     }
     _reservedSavedObjectIds.erase(id);
+}
+
+void Game::registerSavedObjectIdentity(
+    uint32_t id,
+    const std::shared_ptr<Object> &object,
+    const SerializedIdentityContext &identityContext) {
+    if (!identityContext.hasAuthoritativeObjectIds()) {
+        throw ValidationException(
+            "Cannot register a non-authoritative saved object identity");
+    }
+    if (!_reservedSavedIdentityNamespace) {
+        _reservedSavedIdentityNamespace = identityContext.identityNamespace;
+    } else if (*_reservedSavedIdentityNamespace !=
+               identityContext.identityNamespace) {
+        throw ValidationException("Saved object identity namespace is not active");
+    }
+    if (id == std::numeric_limits<uint32_t>::max() || !object) {
+        throw ValidationException("Invalid saved ObjectId mapping");
+    }
+    auto reverse = _savedIdByObject.find(object.get());
+    if (reverse != _savedIdByObject.end() && reverse->second != id) {
+        throw ValidationException("Runtime object has multiple saved ObjectIds");
+    }
+    auto [found, inserted] = _objectBySavedId.emplace(id, object);
+    if (!inserted) {
+        auto existing = found->second.lock();
+        if (!existing || existing.get() != object.get()) {
+            throw ValidationException(
+                "Duplicate authoritative saved ObjectId mapping: " +
+                std::to_string(id));
+        }
+    }
+    _savedIdByObject.emplace(object.get(), id);
+    object->assignSerializedObjectIdentity({identityContext, id});
+}
+
+void Game::registerSavedModuleReferenceTarget(
+    const std::shared_ptr<Module> &module,
+    const SerializedIdentityContext &identityContext) {
+    if (!identityContext.hasAuthoritativeObjectIds() || !module) {
+        throw ValidationException("Invalid saved structural Module target");
+    }
+    if (!_reservedSavedIdentityNamespace) {
+        _reservedSavedIdentityNamespace = identityContext.identityNamespace;
+    } else if (*_reservedSavedIdentityNamespace !=
+               identityContext.identityNamespace) {
+        throw ValidationException("Saved object identity namespace is not active");
+    }
+    if (_reservedSavedObjectIds.count(kSavedRuntimeModuleObjectId) != 0) {
+        throw ValidationException(
+            "Saved ObjectId 0 collides with the structural Module target");
+    }
+    auto [found, inserted] = _objectBySavedId.emplace(
+        kSavedRuntimeModuleObjectId, module);
+    if (!inserted) {
+        auto existing = found->second.lock();
+        if (!existing || existing.get() != module.get()) {
+            throw ValidationException(
+                "Duplicate saved structural Module target");
+        }
+    }
 }
 
 std::shared_ptr<Item> Game::newItem(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
     return newObjectFromGff<Item>(gff, identityContext, *this, _services);
+}
+
+std::shared_ptr<Item> Game::newOwnedItem(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    auto item = newItem();
+    uint32_t id = 0;
+    if (identityContext.hasAuthoritativeObjectIds() &&
+        gff.readDword(id, "ObjectId")) {
+        registerSavedObjectIdentity(id, item, identityContext);
+    }
+    return item;
+}
+
+std::shared_ptr<Area> Game::newSavedArea(
+    uint32_t id,
+    const SerializedIdentityContext &identityContext,
+    std::string sceneName) {
+    auto area = newArea(std::move(sceneName));
+    registerSavedObjectIdentity(id, area, identityContext);
+    return area;
 }
 
 std::shared_ptr<Creature> Game::newCreature(
@@ -2173,11 +2318,11 @@ void Game::reserveSavedObjectIds(
 
 void Game::resolveSavedObjectReferences() {
     for (const auto &[_, object] : _objectById) {
+        if (_savedIdByObject.count(object.get()) == 0) {
+            continue;
+        }
         object->resolveSavedReferences(
-            [this](uint32_t id) {
-                auto found = _objectById.find(id);
-                return found == _objectById.end() ? nullptr : found->second;
-            });
+            [this](uint32_t id) { return getObjectBySavedId(id); });
     }
 }
 
@@ -2187,6 +2332,9 @@ void Game::bindSavedRuntimeState() {
     }
     resolveSavedObjectReferences();
     for (const auto &[_, object] : _objectById) {
+        if (_savedIdByObject.count(object.get()) == 0) {
+            continue;
+        }
         object->bindSavedRuntimeState();
     }
     _module->bindSavedEventQueue();
@@ -2197,6 +2345,9 @@ void Game::publishSavedRuntimeState() {
         return;
     }
     for (const auto &[_, object] : _objectById) {
+        if (_savedIdByObject.count(object.get()) == 0) {
+            continue;
+        }
         object->publishSavedRuntimeState();
     }
     _module->publishSavedEventQueue();

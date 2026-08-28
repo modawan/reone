@@ -96,6 +96,13 @@ std::shared_ptr<TwoDA> identityTestBaseItems() {
     return std::shared_ptr<TwoDA>(builder.build());
 }
 
+std::shared_ptr<TwoDA> identityTestAppearances() {
+    TwoDA::Builder builder;
+    builder.columns({"modeltype", "walkdist", "rundist", "footsteptype", "envmap", "race", "racetex"});
+    builder.row({"S", "1", "1", "-1", "", "", ""});
+    return std::shared_ptr<TwoDA>(builder.build());
+}
+
 TEST(SerializedIdentityAuthority, same_structure_has_contextual_authority) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -108,7 +115,8 @@ TEST(SerializedIdentityAuthority, same_structure_has_contextual_authority) {
         SerializedIdentityContext::moduleGraph("test-module");
     auto authoritative = moduleGame.newItem(*record, moduleContext);
     authoritative->captureSaveRecord(*record, moduleContext);
-    EXPECT_EQ(authoritative->id(), 136u);
+    EXPECT_NE(authoritative->id(), 136u);
+    EXPECT_EQ(moduleGame.getObjectBySavedId(136), authoritative);
     EXPECT_EQ(
         authoritative->serializedObjectIdentity(),
         std::optional<SerializedObjectIdentity>({moduleContext, 136}));
@@ -127,6 +135,74 @@ TEST(SerializedIdentityAuthority, same_structure_has_contextual_authority) {
     auto templated = templateGame.newItem(
         *record, SerializedIdentityContext::templateResource("test.uti"));
     EXPECT_NE(templated->id(), 136u);
+}
+
+TEST(SavedIdentityTranslation, authoritative_nested_effect_reference_binds_to_fresh_runtime_item) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .WillRepeatedly(Return(identityTestBaseItems()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(identityTestAppearances()));
+    const auto context =
+        SerializedIdentityContext::moduleGraph("test-module");
+    auto item = Gff::Builder().type(0)
+        .field(Gff::Field::newDword("ObjectId", 136))
+        .field(Gff::Field::newInt("BaseItem", 0)).build();
+    auto effect = savedEffect(DurationType::Permanent);
+    replaceSaveField(
+        *effect,
+        Gff::Field::newList(
+            "ObjectList",
+            {Gff::Builder()
+                 .field(Gff::Field::newDword("Value", 136))
+                 .build()}));
+    auto creatureRecord = Gff::Builder().type(4)
+        .field(Gff::Field::newDword("ObjectId", 40))
+        .field(Gff::Field::newList("ItemList", {item}))
+        .field(Gff::Field::newList("EffectList", {effect}))
+        .field(Gff::Field::newList("ActionList", {})).build();
+    auto git = Gff::Builder()
+        .field(Gff::Field::newList("Creature List", {creatureRecord}))
+        .build();
+    game.reserveSavedObjectIds(*git, context, SerializedGraphRoot::AreaGit);
+
+    auto creature = game.newCreature(*creatureRecord, context);
+    creature->deserialize(*creatureRecord, context);
+    creature->captureSaveRecord(*creatureRecord, context);
+    game.resolveSavedObjectReferences();
+    creature->bindSavedRuntimeState();
+
+    ASSERT_EQ(creature->items().size(), 1u);
+    auto runtimeItem = creature->items().front();
+    EXPECT_NE(runtimeItem->id(), 136u);
+    EXPECT_EQ(game.getObjectBySavedId(136), runtimeItem);
+    ASSERT_EQ(creature->savedEffects().size(), 1u);
+    EXPECT_EQ(
+        creature->savedEffects().front().boundObjectParameter(0),
+        runtimeItem);
+}
+
+TEST(SavedIdentityTranslation, matching_runtime_number_does_not_establish_saved_identity) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto unrelatedRuntimeTwo = game.newItem();
+    ASSERT_EQ(unrelatedRuntimeTwo->id(), 2u);
+    auto record = Gff::Builder()
+        .field(Gff::Field::newDword("ObjectId", 2)).build();
+    const auto context =
+        SerializedIdentityContext::moduleGraph("test-module");
+    auto savedTwo = game.newItem(*record, context);
+    ASSERT_NE(savedTwo->id(), 2u);
+
+    auto reference = SavedObjectReference::fromSerializedId(2);
+    ASSERT_TRUE(game.bindSavedObjectReference(reference));
+    EXPECT_EQ(reference.boundObject(), savedTwo);
+    EXPECT_NE(reference.boundObject(), unrelatedRuntimeTwo);
+    EXPECT_EQ(game.getObjectById(2), unrelatedRuntimeTwo);
+    EXPECT_EQ(game.getObjectBySavedId(2), savedTwo);
 }
 
 TEST(SerializedIdentityAuthority, detached_nested_ids_overlap_without_runtime_collision) {

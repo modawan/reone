@@ -28,6 +28,10 @@ class Object;
 class SavedScriptSituationImporter;
 
 constexpr uint32_t kSavedRuntimeInvalidObjectId = 0x7f000000;
+// Retail creates the structural Module before loading its saved object graph.
+// Its contextual object-reference target is therefore slot 0 even though the
+// IFO contains no owned Module record or explicit Module ObjectId field.
+constexpr uint32_t kSavedRuntimeModuleObjectId = 0;
 
 /** A saved object identity which is deliberately unbound while B is built. */
 struct SavedObjectReference {
@@ -35,14 +39,25 @@ struct SavedObjectReference {
 
     SavedObjectReference() = default;
     explicit SavedObjectReference(uint32_t id) : id(id) {}
+    static SavedObjectReference fromRuntimeId(uint32_t id) {
+        return SavedObjectReference(id);
+    }
+    static SavedObjectReference fromSerializedId(uint32_t id) {
+        SavedObjectReference result(id);
+        result._serializedIdentity = true;
+        return result;
+    }
 
     bool isInvalid() const { return id == kSavedRuntimeInvalidObjectId; }
+    bool isSerializedIdentity() const { return _serializedIdentity; }
     std::shared_ptr<Object> boundObject() const { return _object.lock(); }
 
 private:
     friend class Game;
     std::weak_ptr<Object> _object;
     std::optional<uint64_t> _runtimeSession;
+    std::optional<uint64_t> _savedGraph;
+    bool _serializedIdentity {false};
 };
 
 struct SavedLocString {

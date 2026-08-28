@@ -74,18 +74,18 @@ public:
         _outputIdentityContext(std::move(outputIdentityContext)) {
     }
 
-    void reserveWorldId(uint32_t id);
-    void reservePartyId(uint32_t id);
-    void retainItem(const Item &item);
-    void allocateItem(const Item &item);
-    uint32_t itemId(const Item &item) const;
+    void assignContextObject(const Object &object, uint32_t id);
+    void retainObject(const Object &object, bool partyIdentity = false);
+    void allocateObject(const Object &object, bool partyIdentity = false);
+    uint32_t objectId(const Object &object) const;
+    bool contains(const Object &object) const;
     uint32_t nextId(uint32_t retainedCursor) const;
 
 private:
     SerializedIdentityContext _outputIdentityContext;
     std::set<uint32_t> _used;
     std::set<uint32_t> _reservedPartyIds;
-    std::map<const Item *, uint32_t> _itemIds;
+    std::map<const Object *, uint32_t> _objectIds;
 };
 
 /**
@@ -119,7 +119,10 @@ private:
         const ModuleObjectIdContext &ids) const;
     std::shared_ptr<resource::Gff> objectBase(
         const Object &object, resource::ResType templateType, uint32_t structType) const;
-    void writeObjectState(resource::Gff &record, const Object &object) const;
+    void writeObjectState(
+        resource::Gff &record,
+        const Object &object,
+        const ModuleObjectIdContext &ids) const;
     std::shared_ptr<resource::Gff> writeCreature(
         const Creature &creature, uint32_t structType,
         std::optional<uint32_t> serializedId,
@@ -129,27 +132,42 @@ private:
         std::optional<uint32_t> serializedId,
         const ModuleObjectIdContext &ids,
         bool includeInventory = true) const;
-    std::shared_ptr<resource::Gff> writeDoor(const Door &door) const;
+    std::shared_ptr<resource::Gff> writeDoor(
+        const Door &door, const ModuleObjectIdContext &ids) const;
     std::shared_ptr<resource::Gff> writePlaceable(
         const Placeable &placeable, const ModuleObjectIdContext &ids) const;
     std::shared_ptr<resource::Gff> writeItem(
-        const Item &item, uint32_t structType, std::optional<uint32_t> serializedId) const;
-    std::shared_ptr<resource::Gff> writeTrigger(const Trigger &trigger) const;
-    std::shared_ptr<resource::Gff> writeEncounter(const Encounter &encounter) const;
+        const Item &item,
+        uint32_t structType,
+        std::optional<uint32_t> serializedId,
+        const ModuleObjectIdContext *ids = nullptr) const;
+    std::shared_ptr<resource::Gff> writeTrigger(
+        const Trigger &trigger, const ModuleObjectIdContext &ids) const;
+    std::shared_ptr<resource::Gff> writeEncounter(
+        const Encounter &encounter, const ModuleObjectIdContext &ids) const;
     std::shared_ptr<resource::Gff> writeStore(
         const Store &store, const ModuleObjectIdContext &ids) const;
-    std::shared_ptr<resource::Gff> writeWaypoint(const Waypoint &waypoint) const;
-    std::shared_ptr<resource::Gff> writeSound(const Sound &sound) const;
+    std::shared_ptr<resource::Gff> writeWaypoint(
+        const Waypoint &waypoint, const ModuleObjectIdContext &ids) const;
+    std::shared_ptr<resource::Gff> writeSound(
+        const Sound &sound, const ModuleObjectIdContext &ids) const;
     std::shared_ptr<resource::Gff> writeCamera(const StaticCamera &camera) const;
-    bool isSerializedWorldObject(const Object &object) const;
-    uint32_t serializedReferenceId(const SavedObjectReference &reference) const;
-    EffectInstance normalizeEffectReferences(EffectInstance effect) const;
-    void normalizeSituationReferences(SerializedScriptSituation &situation) const;
-    void normalizeActionReferences(SavedActionRecord &action) const;
-    void normalizeEventReferences(SavedEventRecord &event) const;
+    uint32_t serializedReferenceId(
+        const SavedObjectReference &reference,
+        const ModuleObjectIdContext &ids) const;
+    EffectInstance normalizeEffectReferences(
+        EffectInstance effect, const ModuleObjectIdContext &ids) const;
+    void normalizeSituationReferences(
+        SerializedScriptSituation &situation,
+        const ModuleObjectIdContext &ids) const;
+    void normalizeActionReferences(
+        SavedActionRecord &action, const ModuleObjectIdContext &ids) const;
+    void normalizeEventReferences(
+        SavedEventRecord &event, const ModuleObjectIdContext &ids) const;
     void appendRuntimeDelayedEvents(
         std::vector<SavedEventRecord> &events,
-        const Object &owner) const;
+        const Object &owner,
+        const ModuleObjectIdContext &ids) const;
     void validate(const SavedModuleSnapshot &snapshot) const;
 };
 

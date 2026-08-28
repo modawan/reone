@@ -72,16 +72,23 @@ ByteBuffer withNcsHeader(const ByteBuffer &code) {
     return result;
 }
 
+uint32_t runtimeObjectId(const SavedObjectReference &reference) {
+    if (reference.isInvalid()) return script::kObjectInvalid;
+    if (auto object = reference.boundObject()) return object->id();
+    return reference.isSerializedIdentity()
+               ? script::kObjectInvalid
+               : reference.id;
+}
+
 script::Variable objectVariable(const SavedObjectReference &reference) {
-    uint32_t id = reference.isInvalid() ? script::kObjectInvalid : reference.id;
-    return script::Variable::ofObject(id);
+    return script::Variable::ofObject(runtimeObjectId(reference));
 }
 
 std::shared_ptr<Event> eventValue(const SavedScriptEvent &saved) {
     std::vector<uint32_t> objects;
     objects.reserve(saved.objects.size());
     for (const auto &reference : saved.objects) {
-        objects.push_back(reference.isInvalid() ? script::kObjectInvalid : reference.id);
+        objects.push_back(runtimeObjectId(reference));
     }
     return std::make_shared<Event>(
         saved.type,
@@ -89,6 +96,28 @@ std::shared_ptr<Event> eventValue(const SavedScriptEvent &saved) {
         saved.floats,
         saved.strings,
         std::move(objects));
+}
+
+EffectInstance runtimeEffectInstance(const EffectInstance &saved) {
+    EffectInstance result = saved;
+    if (!result.serializedObjectReferences) return result;
+
+    if (result.creatorId != kSavedEffectInvalidObjectId &&
+        result.creatorId != kSavedRuntimeInvalidObjectId) {
+        auto creator = result.boundCreator();
+        result.creatorId = creator ? creator->id() : kSavedRuntimeInvalidObjectId;
+    }
+    for (size_t index = 0; index < result.objectParameters.size(); ++index) {
+        uint32_t &id = result.objectParameters[index];
+        if (id == kSavedEffectInvalidObjectId ||
+            id == kSavedRuntimeInvalidObjectId) {
+            continue;
+        }
+        auto object = result.boundObjectParameter(index);
+        id = object ? object->id() : kSavedRuntimeInvalidObjectId;
+    }
+    result.serializedObjectReferences = false;
+    return result;
 }
 
 bool convertStackValue(
@@ -122,7 +151,8 @@ bool convertStackValue(
         break;
     case SavedVmStackType::Effect:
         if (auto value = std::get_if<EffectInstance>(&saved.payload)) {
-            result = script::Variable::ofEffect(std::make_shared<SavedEffectValue>(*value));
+            result = script::Variable::ofEffect(
+                std::make_shared<SavedEffectValue>(runtimeEffectInstance(*value)));
             if (value->hasStableId()) {
                 effectIds.push_back(value->id);
             }
@@ -153,7 +183,7 @@ bool convertStackValue(
                 static_cast<TalentType>(value->type),
                 value->id,
                 value->multiClass,
-                value->item.id,
+                runtimeObjectId(value->item),
                 value->itemPropertyIndex,
                 value->casterLevel,
                 value->metaType));

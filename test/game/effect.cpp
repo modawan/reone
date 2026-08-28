@@ -173,7 +173,7 @@ TEST(EffectIdNamespace, should_reset_all_session_identity) {
     EXPECT_EQ(ids.allocate(), 1);
 }
 
-TEST(SavedEffect, should_bind_creator_only_through_the_current_runtime_registry) {
+TEST(SavedEffect, should_not_rebind_serialized_objects_across_saved_graphs) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -184,18 +184,32 @@ TEST(SavedEffect, should_bind_creator_only_through_the_current_runtime_registry)
 
     EffectInstance effect = EffectInstance::fromGff(*richSavedEffect());
     effect.creatorId = creator->id();
+    effect.objectParameters.fill(kSavedEffectInvalidObjectId);
+    game.registerSavedObjectIdentity(
+        effect.creatorId,
+        creator,
+        SerializedIdentityContext::moduleGraph("test-module"));
     EXPECT_TRUE(game.bindEffectCreator(effect));
     EXPECT_EQ(effect.boundCreator(), creator);
 
-    game.retireRuntimeSession();
+    game.retireActiveModuleRuntime();
 
     EXPECT_FALSE(game.bindEffectCreator(effect));
     EXPECT_FALSE(effect.boundCreator());
 
     auto replacement = game.newCreature();
-    ASSERT_EQ(replacement->id(), effect.creatorId);
-    EXPECT_TRUE(game.bindEffectCreator(effect));
-    EXPECT_EQ(effect.boundCreator(), replacement);
+    game.registerSavedObjectIdentity(
+        effect.creatorId,
+        replacement,
+        SerializedIdentityContext::moduleGraph("test-module"));
+    EXPECT_FALSE(game.bindEffectCreator(effect));
+    EXPECT_FALSE(effect.boundCreator());
+
+    auto replacementEffect = EffectInstance::fromGff(*richSavedEffect());
+    replacementEffect.creatorId = effect.creatorId;
+    replacementEffect.objectParameters.fill(kSavedEffectInvalidObjectId);
+    EXPECT_TRUE(game.bindEffectCreator(replacementEffect));
+    EXPECT_EQ(replacementEffect.boundCreator(), replacement);
 }
 
 TEST(EffectInstance, should_keep_unsupported_saved_effects_in_the_runtime_collection) {

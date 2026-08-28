@@ -241,6 +241,8 @@ public:
                    ? _saveRecordProvenance->identity
                    : std::nullopt;
     }
+    void assignSerializedObjectIdentity(
+        const SerializedObjectIdentity &identity);
 
 
     void resolveSavedReferences(

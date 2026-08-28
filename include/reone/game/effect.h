@@ -127,6 +127,8 @@ struct EffectInstance {
         kSavedEffectInvalidObjectId,
     };
     std::weak_ptr<Object> creator;
+    std::array<std::weak_ptr<Object>, 4> objectParameterObjects;
+    bool serializedObjectReferences {false};
 
     static EffectInstance fromGff(const resource::Gff &gff);
 
@@ -142,10 +144,18 @@ struct EffectInstance {
     }
 
     std::shared_ptr<Object> boundCreator() const { return creator.lock(); }
+    std::shared_ptr<Object> boundObjectParameter(size_t index) const {
+        return index < objectParameterObjects.size()
+                   ? objectParameterObjects[index].lock()
+                   : nullptr;
+    }
 
 private:
     friend class Game;
+    std::optional<uint64_t> _runtimeSession;
+    std::optional<uint64_t> _savedGraph;
     bool bindCreator(const std::shared_ptr<Object> &object);
+    bool bindObjectParameter(size_t index, const std::shared_ptr<Object> &object);
 };
 
 /**

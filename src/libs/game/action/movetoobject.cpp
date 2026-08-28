@@ -135,7 +135,7 @@ std::optional<SavedActionRecord> MoveToObjectAction::saveFacingState() const {
         result.declaredParameterCount = 13;
         result.parameters = {
             {2, destination.x}, {2, destination.y}, {2, destination.z},
-            {3, SavedObjectReference {areaId}}, {3, SavedObjectReference {_moveTo->id()}},
+            {3, SavedObjectReference::fromRuntimeId(areaId)}, {3, SavedObjectReference::fromRuntimeId(_moveTo->id())},
             {1, flags}, {2, _range}, {1, int32_t {0}},
             {2, _forcedState.active ? 0.0f : _timeout},
             {2, _forcedState.offset.x}, {2, _forcedState.offset.y},
@@ -150,7 +150,7 @@ std::optional<SavedActionRecord> MoveToObjectAction::saveFacingState() const {
     result.parameters = {
         SavedActionParameter {
             static_cast<uint32_t>(SavedActionParameterType::Object),
-            SavedObjectReference {_moveTo->id()}},
+            SavedObjectReference::fromRuntimeId(_moveTo->id())},
         SavedActionParameter {
             static_cast<uint32_t>(SavedActionParameterType::Integer),
             static_cast<int32_t>(_run ? 1 : 0)},
