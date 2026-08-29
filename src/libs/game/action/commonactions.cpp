@@ -56,7 +56,7 @@ void tryUnlockDoorWithKey(Door &door, Object &actor, Party &party) {
 bool unlockDoor(Door &door, Object &actor, float distance, float dt) {
     if (actor.type() == ObjectType::Creature) {
         auto &creature = static_cast<Creature &>(actor);
-        bool reached = creature.navigateTo(door.position(), true, distance, dt);
+        bool reached = creature.navigateToObject(door, true, distance, dt);
         if (!reached) {
             return false;
         }
@@ -80,7 +80,7 @@ bool unlockDoor(Door &door, Object &actor, float distance, float dt) {
 
 bool unlockPlaceable(Placeable &placeable, Object &actor, float distance, float dt) {
     if (auto *creature = dyn_cast<Creature>(&actor)) {
-        bool reached = creature->navigateTo(placeable.position(), true, distance, dt);
+        bool reached = creature->navigateToObject(placeable, true, distance, dt);
         if (!reached) {
             return false;
         }

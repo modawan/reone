@@ -71,7 +71,7 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
         }
         bool reached =
             _ignoreStartRange ||
-            creatureActor->navigateTo(_objectToConverse->position(), true, kMaxConversationDistance, dt);
+            creatureActor->navigateToObject(*_objectToConverse, true, kMaxConversationDistance, dt);
 
         if (!reached) {
             return;

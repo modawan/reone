@@ -203,6 +203,7 @@ public:
     // END Equipment
 
     // Pathfinding
+    bool navigateToObject(const Object &object, bool run, float distance, float dt);
     bool navigateTo(const glm::vec3 &dest, bool run, float distance, float dt);
     void clearPath();
     void advanceOnPath(const glm::vec3 &dest, const glm::vec3 &dir, bool run, float distance, float dt);

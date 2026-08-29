@@ -28,7 +28,7 @@ namespace game {
 void CloseDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto creatureActor = _game.getObjectById<Creature>(actor.id());
 
-    bool reached = !creatureActor || creatureActor->navigateTo(_door->position(), true, kDefaultMaxObjectDistance, dt);
+    bool reached = !creatureActor || creatureActor->navigateToObject(*_door, true, kDefaultMaxObjectDistance, dt);
     if (reached) {
         _door->close();
         complete();

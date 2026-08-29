@@ -2294,6 +2294,16 @@ glm::vec3 Creature::computeSteeringForce(const Uniwalk &uni, const glm::vec3 &ne
     return combinedForce;
 }
 
+bool Creature::navigateToObject(const Object &object, bool run, float distance, float dt) {
+    float epsilon = 0.2f;
+    float minDistance = creaturePersonalSpace() + epsilon;
+    if (auto creature = dyn_cast<Creature>(&object)) {
+        minDistance += creature->creaturePersonalSpace();
+    }
+    glm::vec3 dest = object.position();
+    return navigateTo(dest, run, std::max(minDistance, distance), dt);
+}
+
 bool Creature::navigateTo(const glm::vec3 &dest, bool run, float distance, float dt) {
     if (_movementRestricted)
         return false;
