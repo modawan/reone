@@ -1062,7 +1062,12 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
         } catch (const std::exception &e) {
             error("Failed loading module '" + name + "': " + std::string(e.what()));
             if (initialSaveRestore) {
+                // Restoring a save has already retired the session that was
+                // running, so there is nothing to fall back to. Retiring alone
+                // leaves Screen::None, which renders as a black window over a
+                // still-updating engine; send the player somewhere deliberate.
                 retireRuntimeSession();
+                retireToMainMenu();
             } else {
                 retireActiveModuleRuntime();
                 _screen = Screen::None;
@@ -1235,23 +1240,79 @@ void Game::resetGame() {
     _services.resource.director.onNewGame();
 }
 
+/**
+ * Resolve and validate a save without disturbing the running game.
+ *
+ * Every read goes through the unpublished candidate rather than the director,
+ * because the director still answers for the committed session: consulting it
+ * here would validate the save that is already loaded. Records that the loader
+ * treats as mandatory are proven now, so the failures that used to strand a
+ * half-torn-down session are raised while the old one is still authoritative.
+ */
+Game::PreparedSaveLoad Game::prepareSaveLoad(const resource::SaveSlotDescriptor &slot) {
+    PreparedSaveLoad prepared;
+    prepared.session = _services.resource.director.prepareGameLoad(slot);
+
+    prepared.saveInfo = decodeSaveGff(
+        prepared.session->findMetadata(ResourceId("savenfo", ResType::Res)));
+    if (!prepared.saveInfo) {
+        throw ResourceNotFoundException("saveinfo.res not found");
+    }
+    prepared.nfo = resource::parseNFO(*prepared.saveInfo);
+
+    prepared.globalVars = decodeSaveGff(
+        prepared.session->findMetadata(ResourceId("globalvars", ResType::Res)));
+    if (!prepared.globalVars) {
+        throw ResourceNotFoundException("globalvars.res not found");
+    }
+
+    // The remaining records are optional to the loader. Decode what the slot
+    // carries so restoration does not read it again, but do not invent a
+    // requirement: a module IFO absent from the archive still resolves from the
+    // module itself once mounted, and rejecting the save here would refuse one
+    // that loads correctly today.
+    prepared.moduleIfo = decodeSaveGff(
+        prepared.session->findWorking(ResourceId("module", ResType::Ifo)));
+    prepared.partyTable = decodeSaveGff(
+        prepared.session->findMetadata(ResourceId("partytable", ResType::Res)));
+    prepared.inventory = decodeSaveGff(
+        prepared.session->findWorking(ResourceId("inventory", ResType::Res)));
+
+    return prepared;
+}
+
 void Game::loadGame(const resource::SaveSlotDescriptor &slot) {
     info(str(boost::format("Loading savegame '%s'") % slot.directory.filename().string()));
 
-    // Reset game state before loading a new game.
+    // Resolve and validate the replacement before anything is given up. A
+    // throw here leaves the current session and its mounts untouched, so the
+    // player keeps playing instead of being left with nothing to render.
+    auto prepared = prepareSaveLoad(slot);
+
+    // Commit. The old runtime and the old mounts retire together, and only
+    // then does the candidate become authoritative: no runtime ever observes
+    // the other session's resources.
     resetGame();
+    _services.resource.director.commitGameLoad(std::move(prepared.session));
 
-    // Add savegame files to resource resolution.
-    _services.resource.director.onGameLoad(slot);
-
-    auto saveInfo = decodeSaveGff(
-        _services.resource.director.findSaveMetadata(ResourceId("savenfo", ResType::Res)));
-    if (!saveInfo) {
-        throw ResourceNotFoundException("saveinfo.res not found");
+    try {
+        restoreSaveLoad(std::move(prepared));
+    } catch (const std::exception &e) {
+        // Past the commit boundary the previous session no longer exists and
+        // cannot be restored. Retire whatever was half-built and land on a
+        // deliberate screen rather than the blank one an abandoned session
+        // leaves behind.
+        error("Failed restoring savegame '" +
+              slot.directory.filename().string() + "': " + std::string(e.what()));
+        retireToMainMenu();
+        return;
     }
-    NFO nfo = resource::parseNFO(*saveInfo);
+}
+
+void Game::restoreSaveLoad(PreparedSaveLoad prepared) {
+    const NFO &nfo = prepared.nfo;
     _cheatUsed = nfo.cheatUsed;
-    captureSaveResourceShadow({SaveResourceKind::Nfo, {}}, *saveInfo);
+    captureSaveResourceShadow({SaveResourceKind::Nfo, {}}, *prepared.saveInfo);
 
     // Add module files to resource resolution. Since all savegame files are
     // already in scope, this is going to resolve to the last module from the
@@ -1278,16 +1339,15 @@ void Game::loadGame(const resource::SaveSlotDescriptor &slot) {
     }
     _services.game.reputes.replace(std::move(*reputesState));
 
-    // Deserialize global variables
-    auto globalVars = decodeSaveGff(
-        _services.resource.director.findSaveMetadata(ResourceId("globalvars", ResType::Res)));
-    if (!globalVars) {
-        throw ResourceNotFoundException("globalvars.res not found");
-    }
-    deserializeGlobalVariables(*globalVars);
+    // Deserialize global variables, proven present while the candidate was
+    // still unpublished.
+    deserializeGlobalVariables(*prepared.globalVars);
 
-    // Deserialize party.
-    std::shared_ptr<Gff> ifo(_services.resource.gffs.get("module", ResType::Ifo));
+    // Deserialize party. The archive usually carries its own module IFO; when
+    // it does not, the mounted module still supplies one.
+    std::shared_ptr<Gff> ifo = prepared.moduleIfo
+                                   ? prepared.moduleIfo
+                                   : _services.resource.gffs.get("module", ResType::Ifo);
     if (!ifo) {
         throw ResourceNotFoundException("Module IFO not found");
     }
@@ -1318,14 +1378,13 @@ void Game::loadGame(const resource::SaveSlotDescriptor &slot) {
             reserveSavedObjectIds(*git);
         }
     }
-    deserializeParty(*ifo);
+    deserializeParty(*ifo, prepared.partyTable);
 
     // Once the player is loaded, deserialize player's inventory.
-    if (auto inventoryGff = decodeSaveGff(
-            _services.resource.director.findSaveWorking(ResourceId("inventory", ResType::Res)))) {
+    if (prepared.inventory) {
         captureSaveResourceShadow(
-            {SaveResourceKind::Inventory, {}}, *inventoryGff);
-        deserializeInventory(*inventoryGff);
+            {SaveResourceKind::Inventory, {}}, *prepared.inventory);
+        deserializeInventory(*prepared.inventory);
     }
 
     // Warp to the last module.
@@ -1377,10 +1436,8 @@ void Game::deserializeGlobalVariables(resource::Gff &gvtGff) {
     }
 }
 
-void Game::deserializeParty(resource::Gff &ifoGff) {
+void Game::deserializeParty(resource::Gff &ifoGff, const std::shared_ptr<Gff> &ptGff) {
     resetGalaxyMap();
-    auto ptGff = decodeSaveGff(
-        _services.resource.director.findSaveMetadata(ResourceId("partytable", ResType::Res)));
 
     std::shared_ptr<Gff> pcGff;
     const auto &players = ifoGff.getList("Mod_PlayerList");
@@ -2824,6 +2881,23 @@ void Game::withLoadingScreen(const std::string &imageResRef, const std::function
     changeScreen(Screen::Loading);
     render();
     block();
+}
+
+/**
+ * Terminal destination for a load that failed after the commit boundary.
+ *
+ * openMainMenu retires whatever was half-built and drops the candidate mounts
+ * with it, so nothing of either session survives. It gives up early when the
+ * menu GUI cannot be loaded, which would leave the screen wherever the
+ * abandoned session left it; record the intended destination regardless, so a
+ * missing menu resource is its own visible failure rather than an engine that
+ * renders nothing while still running.
+ */
+void Game::retireToMainMenu() {
+    openMainMenu();
+    if (_screen == Screen::None) {
+        _screen = Screen::MainMenu;
+    }
 }
 
 void Game::openMainMenu() {

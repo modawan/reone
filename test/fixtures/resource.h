@@ -190,6 +190,10 @@ public:
     MOCK_METHOD(void, onNewGame, (), (override));
     MOCK_METHOD(void, onGameLoad, (std::string_view name), (override));
     MOCK_METHOD(void, onGameLoad, (const SaveSlotDescriptor &slot), (override));
+    MOCK_METHOD(std::unique_ptr<SaveSessionState>, prepareGameLoad,
+                (const SaveSlotDescriptor &slot), (override));
+    MOCK_METHOD(void, commitGameLoad,
+                (std::unique_ptr<SaveSessionState> candidate), (override));
     MOCK_METHOD(std::optional<Resource>, findSaveMetadata, (const ResourceId &id), (override));
     MOCK_METHOD(std::optional<Resource>, findSaveWorking, (const ResourceId &id), (override));
     MOCK_METHOD(std::unordered_set<ResourceId>, saveWorkingResourceIds, (), (const, override));
