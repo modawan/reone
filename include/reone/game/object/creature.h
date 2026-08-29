@@ -157,6 +157,8 @@ public:
     NPCAIStyle aiStyle() const { return _aiStyle; }
     int walkmeshMaterial() const { return _walkmeshMaterial; }
     bool isPC() const { return _isPC; }
+    int assignedPuppet() const { return _assignedPuppet; }
+    bool isPuppet() const { return _puppet; }
 
     void setGender(Gender gender) { _gender = gender; }
     void setAppearance(int appearance) { _appearance = appearance; }
@@ -172,6 +174,8 @@ public:
     void setMovementRestricted(bool restricted) { _movementRestricted = restricted; }
     void setImmortal(bool immortal) { _immortal = immortal; }
     void setAIStyle(NPCAIStyle style) { _aiStyle = style; }
+    void setAssignedPuppet(int puppet) { _assignedPuppet = puppet; }
+    void setPuppet(bool puppet) { _puppet = puppet; }
     void setWalkmeshMaterial(int material) { _walkmeshMaterial = material; }
 
     // Animation
@@ -385,6 +389,8 @@ private:
     Gender _gender {Gender::Male};
     uint16_t _portraitId {0};
     bool _isPC {false};
+    int32_t _assignedPuppet {-1};
+    bool _puppet {false};
     Faction _faction {Faction::Invalid};
     bool _disarmable {false};
     bool _noPermDeath {false};

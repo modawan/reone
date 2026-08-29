@@ -452,7 +452,7 @@ void Object::retireAreaRuntimeState(
     // Rebase object-local bindings exactly as effects are rebased. Master/owner
     // relations between retained session objects remain meaningful; every
     // outgoing Area binding retires. A2 separately owns the saved-graph
-    // namespace, aliases, and generation.
+    // namespace, translation, and generation.
     std::map<std::string, uint32_t> retainedReferenceIds;
     std::map<std::string, std::weak_ptr<Object>> retainedReferences;
     for (const auto &[field, binding] : _savedReferences) {

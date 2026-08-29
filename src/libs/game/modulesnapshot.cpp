@@ -1118,6 +1118,10 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
     put(*result, Gff::Field::newFloat("YOrientation", direction.y));
     put(*result, Gff::Field::newFloat("ZOrientation", direction.z));
     put(*result, Gff::Field::newByte("IsPC", creature._isPC));
+    if (_game.isTSL()) {
+        put(*result, Gff::Field::newInt(
+            "AssignedPup", creature._assignedPuppet));
+    }
     put(*result, Gff::Field::newWord("FactionID", static_cast<uint16_t>(creature._faction)));
     put(*result, Gff::Field::newWord("Appearance_Type", creature._appearance));
     put(*result, Gff::Field::newByte("Gender", static_cast<uint8_t>(creature._gender)));

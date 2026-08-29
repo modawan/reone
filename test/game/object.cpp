@@ -2788,6 +2788,7 @@ TEST(LinkedDoorTransition, should_reject_npcs_and_companions) {
     npc->setPosition(glm::vec3(1.9f, -1.0f, 0.0f));
     game.party().addMember(kNpcPlayer, leader);
     game.party().setPlayer(leader);
+    game.party().addAvailableMember(0, companion);
     game.party().addMember(0, companion);
     area->add(door);
     area->add(leader);
@@ -2883,6 +2884,7 @@ TEST_P(ModuleTransitionActivatorFixture, controlled_companion_may_transition) {
     auto companion = creatureBelowTrigger();
     game.party().addMember(kNpcPlayer, player);
     game.party().setActualPlayer(player);
+    game.party().addAvailableMember(0, companion);
     game.party().setControlledMember(0, companion);
 
     ASSERT_EQ(game.party().getLeader(), companion);
@@ -2900,6 +2902,7 @@ TEST_P(ModuleTransitionActivatorFixture, player_character_may_transition_while_a
     area->add(companion);
     game.party().addMember(kNpcPlayer, player);
     game.party().setActualPlayer(player);
+    game.party().addAvailableMember(0, companion);
     game.party().setControlledMember(0, companion);
 
     ASSERT_NE(game.party().getLeader(), player);
@@ -2916,6 +2919,7 @@ TEST_P(ModuleTransitionActivatorFixture, following_companion_may_not_transition)
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
     game.party().setActualPlayer(player);
+    game.party().addAvailableMember(0, follower);
     game.party().addMember(0, follower);
 
     ASSERT_TRUE(stepIn(follower));
@@ -2950,6 +2954,7 @@ TEST_P(ModuleTransitionActivatorFixture, follower_does_not_bounce_the_party_back
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
     game.party().setActualPlayer(player);
+    game.party().addAvailableMember(0, follower);
     game.party().addMember(0, follower);
 
     ASSERT_TRUE(stepIn(follower));
@@ -3572,6 +3577,7 @@ TEST(Party, should_award_xp_to_pool_and_sync_current_members) {
     auto companion = game.newCreature();
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
+    game.party().addAvailableMember(0, companion);
     game.party().addMember(0, companion);
 
     game.party().awardXP(100, XPSource::Plot);
@@ -3592,6 +3598,7 @@ TEST(Party, should_set_xp_pool_and_sync_current_members) {
     auto companion = game.newCreature();
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
+    game.party().addAvailableMember(0, companion);
     game.party().addMember(0, companion);
 
     game.party().setXP(250);
@@ -3634,6 +3641,7 @@ TEST(Party, should_restore_saved_pool_after_reset_and_sync_late_member) {
     game.party().setXP(750);
 
     auto lateCompanion = game.newCreature();
+    game.party().addAvailableMember(0, lateCompanion);
     game.party().addMember(0, lateCompanion);
 
     EXPECT_EQ(game.party().xp(), 750);
@@ -3652,6 +3660,7 @@ TEST(Party, should_sync_member_added_after_xp_gain) {
     game.party().awardXP(100, XPSource::Combat);
 
     auto latecomer = game.newCreature();
+    game.party().addAvailableMember(0, latecomer);
     game.party().addMember(0, latecomer);
 
     EXPECT_EQ(latecomer->xp(), 100);
@@ -3685,6 +3694,7 @@ TEST(XPStatusSummary, should_accumulate_each_positive_party_award_once) {
     auto companion = game.newCreature();
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
+    game.party().addAvailableMember(0, companion);
     game.party().addMember(0, companion);
 
     game.party().awardXP(100, XPSource::Plot);
@@ -3723,6 +3733,7 @@ TEST(XPStatusSummary, should_preserve_negative_accounting_without_received_notif
     auto companion = game.newCreature();
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
+    game.party().addAvailableMember(0, companion);
     game.party().addMember(0, companion);
     game.party().setXP(100);
 
@@ -4000,6 +4011,7 @@ TEST(Party, should_route_item_acquired_by_companion_to_shared_player_inventory) 
     auto companion = game.newCreature();
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
+    game.party().addAvailableMember(0, companion);
     game.party().addMember(0, companion);
 
     auto receiver = game.party().sharedInventoryReceiver(companion);
@@ -4362,6 +4374,7 @@ TEST(CreatureBlockedByDoor, should_run_the_script_authored_on_each_creature) {
     BlockedDoorFixture fixture;
     auto npc = fixture.addCreature("k_def_blocked01");
     auto companion = fixture.addCreature("k_hen_blocked01");
+    fixture.game.party().addAvailableMember(0, companion);
     fixture.game.party().addMember(0, companion);
 
     // Each creature runs what its own template names. The engine picks neither
@@ -5469,10 +5482,16 @@ TEST(SavedRuntimeState, primary_health_publication_does_not_recover_unrelated_pc
                    .field(Gff::Field::newList("Mod_PlayerList", {modulePlayer}))
                    .build();
     auto pc = makePlayer(0x7fffffff, 36, true);
+    auto availableNpc = Gff::Builder()
+                            .field(Gff::Field::newByte("PT_NPC_AVAIL", 1))
+                            .field(Gff::Field::newByte("PT_NPC_SELECT", 1))
+                            .build();
     auto partyTable = Gff::Builder()
                           .field(Gff::Field::newInt("PT_CONTROLLED_NP", 0))
                           .field(Gff::Field::newByte("PT_NUM_MEMBERS", 0))
                           .field(Gff::Field::newList("PT_MEMBERS", {}))
+                          .field(Gff::Field::newList(
+                              "PT_AVAIL_NPCS", {availableNpc}))
                           .build();
 
     TestGameModule::publishPartyRuntimeState(game, *ifo, partyTable, pc);

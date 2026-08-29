@@ -582,6 +582,7 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
     game.party().setActualPlayer(player);
     auto companion = game.newCreature();
     companion->setPosition(glm::vec3(90.0f, 145.0f, 3.75f));
+    game.party().addAvailableMember(0, companion);
     game.party().addMember(0, companion);
 
     sourceArea->add(player);
@@ -734,6 +735,7 @@ struct PartyTransferHarness {
 
         companion = game->newCreature();
         companion->setOnSpawn("npc_spawn");
+        game->party().addAvailableMember(0, companion);
         game->party().addMember(0, companion);
     }
 
@@ -892,10 +894,14 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
         *resource::Gff::Builder().build(),
         SerializedIdentityContext::templateResource());
 
+    Party::PersistedState state;
+    state.controlledNpc = 0;
+    state.npcAvailable[0] = true;
+    game.party().setPersistedState(state);
     game.party().addAvailableMember(0, retained);
     game.party().addMember(0, retained);
     game.party().setPlayer(retained);
-    game.party().setActualPlayer(retained);
+    game.party().setActualPlayer(game.newCreature());
 
     auto root = std::make_shared<graphics::ModelNode>(
         0, "retained", glm::vec3(0.0f),
@@ -1351,6 +1357,7 @@ TEST(PartyTransferSpawn, session_replacement_does_not_leak_the_old_party) {
         harness.game->party().setActualPlayer(player);
         auto companion = harness.game->newCreature();
         companion->setOnSpawn("npc_spawn");
+        harness.game->party().addAvailableMember(0, companion);
         harness.game->party().addMember(0, companion);
         EXPECT_NE(retiredCompanion.get(), companion.get());
 

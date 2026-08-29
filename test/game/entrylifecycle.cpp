@@ -317,6 +317,7 @@ TEST_P(EntryLifecycleFixture, neither_hook_is_dispatched_twice) {
 TEST_P(EntryLifecycleFixture, authored_entry_work_on_a_revisit_takes_effect) {
     serveModule(/*savedModuleSnapshot=*/true);
     auto companion = game->newCreature();
+    game->party().addAvailableMember(0, companion);
     game->party().addMember(0, companion);
     ASSERT_EQ(2, game->party().getSize());
 

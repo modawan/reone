@@ -236,7 +236,7 @@ static Variable SwitchPlayerCharacter(const std::vector<Variable> &args, const R
         if (party.controlledNpc() == nNPC) {
             return Variable::ofInt(1);
         }
-        creature = party.getAvailableMember(nNPC);
+        creature = party.getAvailableMember(nNPC, true);
     }
     if (!creature) {
         warn("Party: NPC not found: " + std::to_string(nNPC));
@@ -5640,10 +5640,11 @@ static Variable AddAvailableNPCByObject(const std::vector<Variable> &args, const
     auto nNPC = getInt(args, 0);
     auto oCreature = getObject(args, 1, ctx);
 
-    // Transform
+    auto creature = checkCreature(oCreature);
 
     // Execute
-    throw RoutineNotImplementedException("AddAvailableNPCByObject");
+    return Variable::ofInt(ctx.game.party().addAvailableRosterRecord(
+        {RosterKind::Npc, nNPC}, creature));
 }
 
 static Variable RemoveAvailableNPC(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5687,7 +5688,7 @@ static Variable SpawnAvailableNPC(const std::vector<Variable> &args, const Routi
     auto lPosition = getLocationArgument(args, 1);
 
     // Execute
-    auto member = ctx.game.party().getAvailableMember(nNPC);
+    auto member = ctx.game.party().getAvailableMember(nNPC, true);
     if (!member) {
         return Variable::ofObject(kObjectInvalid);
     }
@@ -5699,8 +5700,13 @@ static Variable SpawnAvailableNPC(const std::vector<Variable> &args, const Routi
     member->setPosition(lPosition->position());
     member->setFacing(lPosition->facing());
     area->landObject(*member);
-    area->add(member);
-    member->runSpawnScript();
+    const bool alreadyResident = std::find(
+        area->objects().begin(), area->objects().end(), member) !=
+        area->objects().end();
+    if (!alreadyResident) {
+        area->add(member);
+        member->runSpawnScript();
+    }
     return Variable::ofObject(member->id());
 }
 
@@ -5766,20 +5772,22 @@ static Variable SetNPCSelectability(const std::vector<Variable> &args, const Rou
     auto nNPC = getInt(args, 0);
     auto nSelectability = getInt(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SetNPCSelectability");
+    ctx.game.party().setRosterSelectable(
+        {RosterKind::Npc, nNPC}, nSelectability != 0);
+    return Variable::ofNull();
 }
 
 static Variable GetNPCSelectability(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nNPC = getInt(args, 0);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("GetNPCSelectability");
+    const RosterIdentity identity {RosterKind::Npc, nNPC};
+    if (!ctx.game.party().isRosterAvailable(identity)) {
+        return Variable::ofInt(-1);
+    }
+    return Variable::ofInt(ctx.game.party().isRosterSelectable(identity));
 }
 
 static Variable ClearAllEffects(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6310,12 +6318,19 @@ static Variable CreateItemOnFloor(const std::vector<Variable> &args, const Routi
 static Variable SetAvailableNPCId(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nNPC = getInt(args, 0);
-    auto oidNPC = getObject(args, 1, ctx);
-
-    // Transform
+    auto oidNPC = getObjectOrNull(args, 1, ctx);
 
     // Execute
-    throw RoutineNotImplementedException("SetAvailableNPCId");
+    const RosterIdentity identity {RosterKind::Npc, nNPC};
+    if (!oidNPC) {
+        if (args[1].objectId == kObjectInvalid &&
+            ctx.game.party().isRosterAvailable(identity)) {
+            ctx.game.party().clearRosterCreature(identity);
+        }
+    } else {
+        ctx.game.party().bindRosterCreature(identity, checkCreature(oidNPC));
+    }
+    return Variable::ofNull();
 }
 
 static Variable GetScriptParameter(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6895,10 +6910,11 @@ static Variable AddAvailablePUPByTemplate(const std::vector<Variable> &args, con
     auto nPUP = getInt(args, 0);
     auto sTemplate = getString(args, 1);
 
-    // Transform
+    auto tmplt = boost::to_lower_copy(sTemplate);
 
     // Execute
-    throw RoutineNotImplementedException("AddAvailablePUPByTemplate");
+    return Variable::ofInt(ctx.game.party().addAvailableRosterRecord(
+        {RosterKind::Puppet, nPUP}, tmplt));
 }
 
 static Variable AddAvailablePUPByObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6906,10 +6922,11 @@ static Variable AddAvailablePUPByObject(const std::vector<Variable> &args, const
     auto nPUP = getInt(args, 0);
     auto oPuppet = getObject(args, 1, ctx);
 
-    // Transform
+    auto creature = checkCreature(oPuppet);
 
     // Execute
-    throw RoutineNotImplementedException("AddAvailablePUPByObject");
+    return Variable::ofInt(ctx.game.party().addAvailableRosterRecord(
+        {RosterKind::Puppet, nPUP}, creature));
 }
 
 static Variable AssignPUP(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6917,10 +6934,8 @@ static Variable AssignPUP(const std::vector<Variable> &args, const RoutineContex
     auto nPUP = getInt(args, 0);
     auto nNPC = getInt(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("AssignPUP");
+    return Variable::ofInt(ctx.game.party().assignPuppet(nPUP, nNPC));
 }
 
 static Variable SpawnAvailablePUP(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6928,10 +6943,25 @@ static Variable SpawnAvailablePUP(const std::vector<Variable> &args, const Routi
     auto nPUP = getInt(args, 0);
     auto lLocation = getLocationArgument(args, 1);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("SpawnAvailablePUP");
+    auto puppet = ctx.game.party().getAvailablePuppet(nPUP, true);
+    auto module = ctx.game.module();
+    auto area = module ? module->area() : nullptr;
+    if (!puppet || !area) {
+        return Variable::ofObject(kObjectInvalid);
+    }
+    puppet->setPuppet(true);
+    puppet->setPosition(lLocation->position());
+    puppet->setFacing(lLocation->facing());
+    area->landObject(*puppet);
+    const bool alreadyResident = std::find(
+        area->objects().begin(), area->objects().end(), puppet) !=
+        area->objects().end();
+    if (!alreadyResident) {
+        area->add(puppet);
+        puppet->runSpawnScript();
+    }
+    return Variable::ofObject(puppet->id());
 }
 
 static Variable AddPartyPuppet(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6939,30 +6969,35 @@ static Variable AddPartyPuppet(const std::vector<Variable> &args, const RoutineC
     auto nPUP = getInt(args, 0);
     auto oidCreature = getObject(args, 1, ctx);
 
-    // Transform
+    auto creature = checkCreature(oidCreature);
 
     // Execute
-    throw RoutineNotImplementedException("AddPartyPuppet");
+    return Variable::ofInt(ctx.game.party().addPuppet(nPUP, creature));
 }
 
 static Variable GetPUPOwner(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto oPUP = getObjectOrCaller(args, 0, ctx);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("GetPUPOwner");
+    auto creature = dyn_cast<Creature>(oPUP);
+    auto identity = creature
+                        ? ctx.game.party().rosterIdentity(*creature)
+                        : std::nullopt;
+    if (!identity || identity->kind != RosterKind::Puppet) {
+        return Variable::ofObject(kObjectInvalid);
+    }
+    auto owner = ctx.game.party().puppetOwner(identity->slot);
+    return Variable::ofObject(getObjectIdOrInvalid(owner));
 }
 
 static Variable GetIsPuppet(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto oPUP = getObjectOrCaller(args, 0, ctx);
 
-    // Transform
-
     // Execute
-    throw RoutineNotImplementedException("GetIsPuppet");
+    auto creature = dyn_cast<Creature>(oPUP);
+    return Variable::ofInt(creature && creature->isPuppet());
 }
 
 static Variable GetIsPartyLeader(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7227,10 +7262,12 @@ static Variable SaveNPCByObject(const std::vector<Variable> &args, const Routine
     auto nNPC = getInt(args, 0);
     auto oidCharacter = getObject(args, 1, ctx);
 
-    // Transform
+    auto creature = checkCreature(oidCharacter);
 
     // Execute
-    throw RoutineNotImplementedException("SaveNPCByObject");
+    creature->clearAllActions();
+    ctx.game.saveRosterState({RosterKind::Npc, nNPC}, *creature);
+    return Variable::ofNull();
 }
 
 static Variable SavePUPByObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7238,10 +7275,12 @@ static Variable SavePUPByObject(const std::vector<Variable> &args, const Routine
     auto nPUP = getInt(args, 0);
     auto oidPuppet = getObject(args, 1, ctx);
 
-    // Transform
+    auto creature = checkCreature(oidPuppet);
 
     // Execute
-    throw RoutineNotImplementedException("SavePUPByObject");
+    creature->clearAllActions();
+    ctx.game.saveRosterState({RosterKind::Puppet, nPUP}, *creature);
+    return Variable::ofNull();
 }
 
 static Variable GetIsPlayerMadeCharacter(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -7256,7 +7295,39 @@ static Variable GetIsPlayerMadeCharacter(const std::vector<Variable> &args, cons
 
 static Variable RebuildPartyTable(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("RebuildPartyTable");
+    auto module = ctx.game.module();
+    auto area = module ? module->area() : nullptr;
+    if (!area) return Variable::ofNull();
+
+    // Retail K2 deliberately authors this association in routine 876. It is
+    // the one place where these content Tags mean "bind this object to this
+    // PartyTable slot"; they are not general engine identities.
+    static const std::array<const char *, Party::kK2NpcCount> kNpcTags {
+        "atton", "baodur", "mand", "g0t0", "handmaiden", "hk47",
+        "kreia", "mira", "t3m4", "visasmarr", "hanharr", "disciple"};
+    auto findCreature = [&area](const std::string &tag) {
+        for (const auto &object : area->objects()) {
+            if (object->type() == ObjectType::Creature &&
+                boost::iequals(object->tag(), tag)) {
+                return std::static_pointer_cast<Creature>(object);
+            }
+        }
+        return std::shared_ptr<Creature> {};
+    };
+    auto &party = ctx.game.party();
+    for (size_t slot = 0; slot < kNpcTags.size(); ++slot) {
+        if (!party.isMemberAvailable(static_cast<int>(slot))) continue;
+        if (auto creature = findCreature(kNpcTags[slot])) {
+            party.bindRosterCreature(
+                {RosterKind::Npc, static_cast<int>(slot)}, creature);
+        }
+    }
+    if (party.isRosterAvailable({RosterKind::Puppet, 0})) {
+        if (auto remote = findCreature("remote")) {
+            party.bindRosterCreature({RosterKind::Puppet, 0}, remote);
+        }
+    }
+    return Variable::ofNull();
 }
 
 void Routines::registerMainKotorRoutines() {

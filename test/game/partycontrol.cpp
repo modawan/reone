@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 The reone project contributors */
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "../fixtures/engine.h"
@@ -16,6 +17,7 @@ using namespace reone;
 using namespace reone::game;
 using namespace reone::resource;
 using namespace reone::script;
+using namespace testing;
 
 namespace {
 
@@ -28,7 +30,24 @@ public:
     explicit ControlHarness(GameID gameId) :
         _game(gameId, "", testEngine().options(), testEngine().services(), _console),
         _routines(gameId, &_game, &testEngine().services()) {
+        auto &director = testEngine().resourceModule().director();
+        // testEngine() is process-global. Discard callbacks installed by a
+        // completed fixture before this harness exercises RemoveMember's
+        // retail save-before-control-transfer behavior.
+        Mock::VerifyAndClear(&director);
+        EXPECT_CALL(director, committedSaveWorkingState())
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([this]() { return _committed; }));
+        EXPECT_CALL(director, adoptSaveWorkingState(_))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([this](auto state) {
+                _committed = std::move(state);
+            }));
         _routines.init();
+    }
+
+    ~ControlHarness() {
+        Mock::VerifyAndClear(&testEngine().resourceModule().director());
     }
 
     /** A brand new game: no save has ever been loaded. */
@@ -77,6 +96,8 @@ private:
     StubConsole _console;
     Game _game;
     Routines _routines;
+    std::shared_ptr<const SaveWorkingState> _committed {
+        std::make_shared<const SaveWorkingState>()};
 };
 
 class PartyControl : public ::testing::TestWithParam<GameID> {};

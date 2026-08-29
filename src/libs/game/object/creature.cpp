@@ -3026,6 +3026,7 @@ void Creature::deserializeAll(
     // becomes truly dead only at -10 HP. Preserve the saved HP verbatim; this
     // distinction is runtime state, not a load-time recovery/clamp.
     gff.readBool(_isPC, "IsPC");
+    gff.readInt(_assignedPuppet, "AssignedPup");
     if (identityContext.isSerializedState() && gff.has("CurrentHitPoints")) {
         if (_minOneHP && _currentHitPoints < 1) {
             _currentHitPoints = 1;

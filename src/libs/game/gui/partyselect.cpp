@@ -241,7 +241,7 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
         Label &LBL_CHAR = *charLabels[i];
         Label &LBL_NA = *naLabels[i];
 
-        if (auto member = party.getAvailableMember(i)) {
+        if (auto member = party.getAvailableMember(i, true)) {
             auto portrait = member->portrait();
             BTN_NPC.setDisabled(false);
             BTN_NPC.setVisible(true);
@@ -382,12 +382,15 @@ void PartySelection::changeParty() {
     }
 
     party.clear();
-    party.addMember(kNpcPlayer, party.player());
+    const int controlled = party.controlledNpc();
+    party.addMember(
+        controlled == kNpcPlayer ? kNpcPlayer : controlled,
+        party.player());
 
     for (int i = 0; i < npcCount(); ++i) {
         if (!_added[i])
             continue;
-        party.addMember(i, party.getAvailableMember(i));
+        party.addMember(i, party.getAvailableMember(i, true));
     }
 
     area->reloadParty();

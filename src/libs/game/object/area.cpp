@@ -331,11 +331,6 @@ void Area::loadProperties(const resource::generated::GIT &git) {
 
 void Area::loadCreatures(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (const auto &creatureGff : gff.getList("Creature List")) {
-        const auto roster =
-            _game.rosterGitMaterialization(*creatureGff, identityContext);
-        if (roster.action == RosterGitAction::OmitAndReuse) {
-            continue;
-        }
         auto creature = _game.newCreature(*creatureGff, identityContext, _sceneName);
         creature->deserialize(*creatureGff, identityContext);
         if (identityContext.isSerializedState()) {
@@ -343,9 +338,6 @@ void Area::loadCreatures(const resource::Gff &gff, const SerializedIdentityConte
         }
         landObject(*creature);
         add(creature);
-        if (roster.action == RosterGitAction::MaterializeAndBind) {
-            _game.stageRosterGitCreature(roster.identity, creature);
-        }
     }
 }
 
@@ -939,6 +931,12 @@ void Area::loadParty(const glm::vec3 &position, float facing, bool preserveSaved
 
     for (int i = 1; i < party.getSize(); ++i) {
         loadPartyMember(party.getMember(i), i, preserveSavedPlacement);
+    }
+    int formationIndex = party.getSize();
+    for (int puppet : party.persistedState().puppetIds) {
+        if (auto creature = party.getAvailablePuppet(puppet, true)) {
+            loadPartyMember(creature, formationIndex++, preserveSavedPlacement);
+        }
     }
 }
 

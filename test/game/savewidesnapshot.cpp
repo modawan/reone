@@ -570,13 +570,13 @@ TEST(SaveWideSnapshot,
     auto area = game.newArea();
     auto controlled = game.newCreature();
     controlled->setName("T3-M4");
-    TestGameModule::setSnapshotObjectId(*controlled, 330);
     controlled->setTag(kObjectTagPlayer);
     controlled->setMaxHitPoints(30);
     controlled->setCurrentHitPoints(24);
     auto controlledShadow =
         Gff::Builder()
             .type(0xffffffff)
+            .field(Gff::Field::newDword("ObjectId", 330))
             .field(Gff::Field::newCExoLocString("FirstName", -1, "T3-M4"))
             .build();
     controlled->captureSaveRecord(
@@ -612,11 +612,12 @@ TEST(SaveWideSnapshot,
     Party::PazaakSideDeck sideDeck;
     sideDeck.fill(-1);
     game.party().setPazaakData(cards, sideDeck, Party::kK2PazaakCardCount);
-    game.party().addAvailableMember(8, controlled);
-    game.party().clear();
-    game.party().addMember(8, controlled);
-    game.party().setPlayer(controlled);
     game.party().setActualPlayer(canonical);
+    ASSERT_TRUE(game.party().addAvailableMember(8, controlled));
+    game.party().clear();
+    ASSERT_TRUE(game.party().addMember(8, controlled));
+    game.party().setPlayer(controlled);
+    ASSERT_EQ(controlled, game.party().getAvailableMember(8));
 
     auto module = ModuleSnapshotBuilder(game, "game13").build();
     auto saved = SaveWideSnapshotBuilder(game, metadata(true)).build();
@@ -653,9 +654,7 @@ TEST(SaveWideSnapshot,
     EXPECT_CALL(
         engine.resourceModule().director(),
         findSaveWorking(ResourceId("availnpc8", ResType::Utc)))
-        .WillOnce(Return(Resource {ByteBuffer(
-            saved.snapshot->outerWorkingResources.at(
-                {"availnpc8", ResType::Utc}))}));
+        .Times(0);
     auto reloadedIfo = readGff(module.snapshot->ifoBytes);
     TestGameModule::publishPartyRuntimeState(
         reloaded, *reloadedIfo, party, pc);

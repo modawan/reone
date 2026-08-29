@@ -1121,16 +1121,6 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
                     ? SerializedIdentityContext::moduleGraph(name)
                     : SerializedIdentityContext::templateResource(name);
             const std::string entryArea = ifo->getString("Mod_Entry_Area");
-            auto git = entryArea.empty()
-                           ? nullptr
-                           : _services.resource.gffs.get(entryArea, ResType::Git);
-            const bool preparedForInitialRestore =
-                initialSaveRestore && _rosterMaterializationPlan &&
-                _rosterMaterializationPlan->identityContext == identityContext;
-            if (!preparedForInitialRestore) {
-                prepareRosterMaterialization(git.get(), identityContext);
-            }
-
             // The module itself needs a transient runtime identity even though
             // it is not serialized. Keep that allocation clear of identities
             // explicitly owned by the saved IFO graph (notably the Area).
@@ -1147,10 +1137,6 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
                     SerializedIdentityContext::moduleGraph(name));
             }
             _module->load(name, *ifo, restoringSavedWorld);
-            // A roster slot only changes binding once every destination object
-            // has completed construction. OnLoad and saved action publication
-            // therefore observe the reconciled, single-object roster graph.
-            commitRosterMaterialization();
             _loadedModules.insert(std::make_pair(name, _module));
 
             if (_party.isEmpty()) {
@@ -1181,7 +1167,6 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
             openInGame();
             loaded = true;
         } catch (const std::exception &e) {
-            abortRosterMaterialization();
             error("Failed loading module '" + name + "': " + std::string(e.what()));
             if (initialSaveRestore) {
                 // Restoring a save has already retired the session that was
@@ -1235,7 +1220,7 @@ void Game::retireSavedObjectGraph() {
     _reservedSavedIdentityNamespace.reset();
     _reservedSavedObjectIdClaims.clear();
     _objectBySavedId.clear();
-    _savedIdsByObject.clear();
+    _savedIdByObject.clear();
 }
 
 void Game::retireRuntimeSession() {
@@ -1310,7 +1295,6 @@ void Game::retireRuntimeSession() {
     }
 
     _combat.reset();
-    abortRosterMaterialization();
     _party.retireRuntimeSession();
 
     _services.scene.graphs.get(kSceneMain).clear();
@@ -1585,15 +1569,6 @@ void Game::publishPartyRuntimeState(
         Party::PersistedState partyState = parsePartyTable(*ptGff);
         replacePartyTable(std::move(partyState));
         deserializePazaakPartyTable(*ptGff);
-        const auto &entryArea = ifoGff.getString("Mod_Entry_Area");
-        auto git = entryArea.empty()
-                       ? nullptr
-                       : _services.resource.gffs.get(entryArea, ResType::Git);
-        prepareRosterMaterialization(git.get(), moduleIdentityContext);
-        // Retail constructs the available/limbo creature records before
-        // completing the primary player. Keeping that boundary also ensures
-        // every party object exists before saved references are bound.
-        deserializeAvailableNpcs();
     }
 
     const auto &players = ifoGff.getList("Mod_PlayerList");
@@ -1744,7 +1719,7 @@ Party::PersistedState Game::parsePartyTable(const resource::Gff &ptGff) const {
 }
 
 void Game::replacePartyTable(Party::PersistedState state) {
-    _party.setPersistedState(std::move(state));
+    _party.loadPersistedState(std::move(state));
 }
 
 void Game::resetGalaxyMap() {
@@ -1815,344 +1790,96 @@ void Game::saveNpcState(int npc) {
         return;
     }
 
-    // The same record a save writes for this roster slot, produced by the same
-    // serializer, so a companion persisted here reads back exactly as one
-    // persisted by saving would.
-    auto candidate = resource::SaveWorkingStateCandidate::fromCommitted(
-        _services.resource.director.committedSaveWorkingState());
+    saveRosterState({RosterKind::Npc, npc}, *creature);
+}
+
+void Game::saveRosterState(
+    const RosterIdentity &identity,
+    const Creature &creature) {
+    if (!_party.isRosterIdentityValid(identity)) {
+        throw ValidationException("Roster slot is outside the title range");
+    }
+    const std::string prefix =
+        identity.kind == RosterKind::Npc ? "availnpc" : "availpup";
+    auto committed = _services.resource.director.committedSaveWorkingState();
+    if (!committed) {
+        committed = std::make_shared<const resource::SaveWorkingState>();
+    }
+    auto candidate =
+        resource::SaveWorkingStateCandidate::fromCommitted(std::move(committed));
     candidate.put(
-        ResourceId("availnpc" + std::to_string(npc), ResType::Utc),
-        SaveWideSnapshotBuilder::availableNpcRecord(*this, *creature));
+        ResourceId(prefix + std::to_string(identity.slot), ResType::Utc),
+        SaveWideSnapshotBuilder::availableNpcRecord(*this, creature));
     _services.resource.director.adoptSaveWorkingState(candidate.freeze());
 }
 
-Game::RosterRepresentationKey Game::rosterRepresentationKey(
-    const resource::Gff &gff) const {
-    RosterRepresentationKey key;
-    key.tag = boost::to_lower_copy(gff.getString("Tag"));
-    return key;
-}
+std::shared_ptr<Creature> Game::materializeRosterCreature(
+    const RosterIdentity &identity) {
+    if (!_party.isRosterAvailable(identity)) return nullptr;
+    if (auto existing = _party.rosterCreature(identity)) return existing;
 
-Game::RosterRepresentationKey Game::rosterRepresentationKey(
-    const Creature &creature) const {
-    RosterRepresentationKey key;
-    key.tag = boost::to_lower_copy(creature.tag());
-    return key;
-}
-
-bool Game::sameRosterRepresentation(
-    const RosterRepresentationKey &lhs,
-    const RosterRepresentationKey &rhs) const {
-    // Retail's RebuildPartyTable resolves authored module creatures by Tag,
-    // then binds the resulting runtime object to the explicit PartyTable slot.
-    // AVAILNPC/AVAILPUP files retain that same tag but no durable ObjectId or
-    // slot field. Appearance, name, portrait and template provenance are live
-    // character state and therefore cannot strengthen this authored contract.
-    return lhs.valid() && rhs.valid() && lhs.tag == rhs.tag;
-}
-
-void Game::prepareRosterMaterialization(
-    const resource::Gff *git,
-    const SerializedIdentityContext &identityContext) {
-    RosterMaterializationPlan plan;
-    plan.identityContext = identityContext;
-
-    const auto &persisted = _party.persistedState();
-    auto isActive = [&persisted](const RosterIdentity &identity) {
-        const auto &active = identity.kind == RosterKind::Npc
-                                 ? persisted.memberIds
-                                 : persisted.puppetIds;
-        return (identity.kind == RosterKind::Npc &&
-                persisted.controlledNpc == identity.slot) ||
-               std::find(active.begin(), active.end(), identity.slot) !=
-                   active.end();
-    };
-    auto loadRecord = [this](const RosterIdentity &identity) {
-        auto bound = _party.rosterCreature(identity);
-        if (bound && bound->saveRecordProvenance() &&
-            bound->saveRecordProvenance()->shadow) {
-            return bound->saveRecordProvenance()->shadow.cloneForMerge();
-        }
-
-        const std::string prefix =
-            identity.kind == RosterKind::Npc ? "availnpc" : "availpup";
-        const std::string resref = prefix + std::to_string(identity.slot);
-        try {
-            return decodeSaveGff(
-                _services.resource.director.findSaveWorking(
-                    ResourceId(resref, ResType::Utc)));
-        } catch (const std::exception &e) {
-            warn("Game: invalid " + resref + ".utc: " + std::string(e.what()));
-            return std::shared_ptr<Gff> {};
-        }
-    };
-
-    const size_t npcCount = isTSL() ? Party::kK2NpcCount : Party::kK1NpcCount;
-    for (size_t slot = 0; slot < npcCount; ++slot) {
-        if (!persisted.npcAvailable[slot]) {
-            continue;
-        }
-        RosterIdentity identity {RosterKind::Npc, static_cast<int>(slot)};
-        auto bound = _party.rosterCreature(identity);
-        auto record = loadRecord(identity);
-        if (!record && !bound) {
-            continue;
-        }
-        auto key = record ? rosterRepresentationKey(*record)
-                          : rosterRepresentationKey(*bound);
-        plan.records.emplace(
-            identity,
-            PlannedRosterRecord {
-                std::move(record), std::move(key), isActive(identity), false});
+    const std::string prefix =
+        identity.kind == RosterKind::Npc ? "availnpc" : "availpup";
+    const std::string name = prefix + std::to_string(identity.slot);
+    std::shared_ptr<Gff> record;
+    try {
+        record = decodeSaveGff(
+            _services.resource.director.findSaveWorking(
+                ResourceId(name, ResType::Utc)));
+    } catch (const std::exception &e) {
+        warn("Game: invalid " + name + ".utc: " + std::string(e.what()));
+        return nullptr;
     }
-    if (isTSL()) {
-        for (size_t slot = 0; slot < Party::kMaxPuppetCount; ++slot) {
-            if (!persisted.puppetAvailable[slot]) {
-                continue;
-            }
-            RosterIdentity identity {RosterKind::Puppet, static_cast<int>(slot)};
-            auto bound = _party.rosterCreature(identity);
-            auto record = loadRecord(identity);
-            if (!record && !bound) {
-                continue;
-            }
-            auto key = record ? rosterRepresentationKey(*record)
-                              : rosterRepresentationKey(*bound);
-            plan.records.emplace(
-                identity,
-                PlannedRosterRecord {
-                    std::move(record), std::move(key), isActive(identity), false});
-        }
+    if (!record) {
+        warn("Game: missing " + name + ".utc");
+        return nullptr;
     }
 
-    for (auto first = plan.records.begin(); first != plan.records.end(); ++first) {
-        for (auto second = std::next(first); second != plan.records.end(); ++second) {
-            if (sameRosterRepresentation(
-                    first->second.key, second->second.key)) {
-                throw ValidationException(
-                    "Ambiguous logical roster representation signatures");
-            }
-        }
-    }
-
-    if (git) {
-        for (const auto &creature : git->getList("Creature List")) {
-            auto key = rosterRepresentationKey(*creature);
-            std::optional<RosterIdentity> logical;
-            for (const auto &[identity, record] : plan.records) {
-                if (!sameRosterRepresentation(key, record.key)) {
-                    continue;
-                }
-                if (logical) {
-                    throw ValidationException(
-                        "GIT creature matches multiple logical roster slots");
-                }
-                logical = identity;
-            }
-            if (!logical) {
-                continue;
-            }
-            if (std::any_of(
-                    plan.gitBindings.begin(), plan.gitBindings.end(),
-                    [&logical](const auto &binding) {
-                        return binding.second == *logical;
-                    })) {
-                throw ValidationException(
-                    "Multiple GIT creatures represent one logical roster slot");
-            }
-            plan.gitBindings.emplace_back(std::move(key), *logical);
-            plan.records.at(*logical).representedInGit = true;
-        }
-    }
-
-    _rosterMaterializationPlan = std::move(plan);
-}
-
-RosterGitMaterialization Game::rosterGitMaterialization(
-    const resource::Gff &gff,
-    const SerializedIdentityContext &identityContext) {
-    if (!_rosterMaterializationPlan ||
-        !(_rosterMaterializationPlan->identityContext == identityContext)) {
-        return {};
-    }
-    auto key = rosterRepresentationKey(gff);
-    auto found = std::find_if(
-        _rosterMaterializationPlan->gitBindings.begin(),
-        _rosterMaterializationPlan->gitBindings.end(),
-        [this, &key](const auto &binding) {
-            return sameRosterRepresentation(key, binding.first);
-        });
-    if (found == _rosterMaterializationPlan->gitBindings.end()) {
-        return {};
-    }
-
-    const auto &identity = found->second;
-    const auto &record = _rosterMaterializationPlan->records.at(identity);
-    if (!record.active) {
-        return {RosterGitAction::MaterializeAndBind, identity, {}};
-    }
-
-    auto existing = _party.rosterCreature(identity);
-    if (!existing) {
-        throw ValidationException(
-            "Active roster slot has no materialized creature binding");
-    }
-    if (identityContext.hasAuthoritativeObjectIds()) {
-        registerSavedObjectIdentity(savedObjectId(gff), existing, identityContext);
-    }
-    return {RosterGitAction::OmitAndReuse, identity, std::move(existing)};
-}
-
-void Game::stageRosterGitCreature(
-    const RosterIdentity &identity,
-    const std::shared_ptr<Creature> &creature) {
-    if (!_rosterMaterializationPlan || !creature ||
-        !_rosterMaterializationPlan->records.count(identity) ||
-        !_rosterMaterializationPlan->stagedBindings.emplace(
-            identity, creature).second) {
-        throw ValidationException("Invalid staged roster creature binding");
-    }
-}
-
-void Game::commitRosterMaterialization() {
-    if (!_rosterMaterializationPlan) {
-        return;
-    }
-
-    std::set<const Creature *> stagedCreatures;
-    std::vector<std::shared_ptr<Creature>> retiredBindings;
-    for (const auto &[identity, creature] :
-         _rosterMaterializationPlan->stagedBindings) {
-        if (!stagedCreatures.insert(creature.get()).second) {
-            throw ValidationException(
-                "One runtime creature was staged for multiple roster slots");
-        }
-        auto existing = _party.rosterIdentity(*creature);
-        if (existing && *existing != identity) {
-            throw ValidationException(
-                "Staged creature is bound to a different logical roster slot");
-        }
-        auto previous = _party.rosterCreature(identity);
-        if (previous && previous != creature) {
-            if (_party.isMember(*previous) || previous == _party.player() ||
-                previous == _party.actualPlayer()) {
-                throw ValidationException(
-                    "Cannot replace an active roster creature binding");
-            }
-            retiredBindings.push_back(std::move(previous));
-        }
-    }
-    for (const auto &[identity, creature] :
-         _rosterMaterializationPlan->stagedBindings) {
+    const auto context =
+        SerializedIdentityContext::detachedRecord(name + ".utc");
+    auto creature = newCreature(*record, context);
+    try {
+        creature->deserialize(*record, context);
+        creature->captureSaveRecord(
+            *record,
+            context,
+            {identity.kind == RosterKind::Npc
+                 ? SaveRecordOriginKind::AvailableNpc
+                 : SaveRecordOriginKind::AvailablePuppet,
+             std::to_string(identity.slot)});
         if (!_party.bindRosterCreature(identity, creature)) {
-            throw ValidationException("Failed to publish roster creature binding");
+            throw ValidationException("Could not bind materialized roster creature");
         }
+        // Initial restoration performs one graph-wide bind/publication after
+        // every object exists. A retail-style lazy GetNPCObject call in an
+        // already playable session must complete the same detached-record
+        // publication for this one newly materialized object immediately.
+        if (_runtimeSessionPlayable) {
+            creature->resolveSavedReferences(
+                [this, context](uint32_t id) {
+                    return resolveSerializedObjectReference(id, context);
+                });
+            creature->bindSavedRuntimeState();
+            creature->publishSavedRuntimeState();
+        }
+    } catch (...) {
+        destroyRuntimeObjectGraph(creature);
+        throw;
     }
-    // The old inactive representation was deliberately retained until every
-    // destination object had constructed. Once all logical bindings publish,
-    // end its complete runtime-object lifetime through the generic registry
-    // finalizer; A3 remains responsible only for the logical binding choice.
-    for (const auto &retired : retiredBindings) {
-        destroyRuntimeObjectGraph(retired);
-    }
-    _rosterMaterializationPlan.reset();
+    return creature;
 }
 
-void Game::abortRosterMaterialization() {
-    _rosterMaterializationPlan.reset();
-}
-
-void Game::deserializeAvailableNpcs() {
-    const auto &persisted = _party.persistedState();
-    size_t npcCount = isTSL() ? Party::kK2NpcCount : Party::kK1NpcCount;
-    for (size_t npc = 0; npc < npcCount; ++npc) {
-        if (!persisted.npcAvailable[npc]) {
-            continue;
-        }
-        std::string utc = str(boost::format("availnpc%d") % npc);
-
-        const RosterIdentity identity {RosterKind::Npc, static_cast<int>(npc)};
-        std::shared_ptr<Gff> utcGff;
-        if (_rosterMaterializationPlan) {
-            auto planned = _rosterMaterializationPlan->records.find(identity);
-            if (planned != _rosterMaterializationPlan->records.end()) {
-                if (planned->second.representedInGit && !planned->second.active) {
-                    continue;
-                }
-                utcGff = planned->second.detached;
-            }
-        }
-        if (!utcGff) {
-            try {
-                utcGff = decodeSaveGff(
-                    _services.resource.director.findSaveWorking(ResourceId(utc, ResType::Utc)));
-            } catch (const std::exception &e) {
-                warn("Game: invalid " + utc + ".utc: " + std::string(e.what()));
-                continue;
-            }
-        }
-        if (!utcGff) {
-            warn("Game: missing " + utc + ".utc");
-            continue;
-        }
-
-        const auto identityContext =
-            SerializedIdentityContext::detachedRecord(utc + ".utc");
-        auto creature = newCreature(*utcGff, identityContext);
-        creature->deserialize(*utcGff, identityContext);
-        creature->captureSaveRecord(
-            *utcGff,
-            identityContext,
-            {SaveRecordOriginKind::AvailableNpc, std::to_string(npc)});
-
-        _party.addAvailableMember(static_cast<int>(npc), creature);
+bool Game::killRosterCreature(const RosterIdentity &identity) {
+    auto creature = _party.rosterCreature(identity);
+    if (!creature) {
+        _party.clearRosterCreature(identity);
+        return false;
     }
-
-    if (!isTSL()) {
-        return;
+    if (_module && _module->area()) {
+        _module->area()->retireCreatureRuntime(creature);
     }
-    for (size_t puppet = 0; puppet < Party::kMaxPuppetCount; ++puppet) {
-        if (!persisted.puppetAvailable[puppet]) {
-            continue;
-        }
-        std::string utc = str(boost::format("availpup%d") % puppet);
-
-        const RosterIdentity identity {
-            RosterKind::Puppet, static_cast<int>(puppet)};
-        std::shared_ptr<Gff> utcGff;
-        if (_rosterMaterializationPlan) {
-            auto planned = _rosterMaterializationPlan->records.find(identity);
-            if (planned != _rosterMaterializationPlan->records.end()) {
-                if (planned->second.representedInGit && !planned->second.active) {
-                    continue;
-                }
-                utcGff = planned->second.detached;
-            }
-        }
-        if (!utcGff) {
-            try {
-                utcGff = decodeSaveGff(
-                    _services.resource.director.findSaveWorking(ResourceId(utc, ResType::Utc)));
-            } catch (const std::exception &e) {
-                warn("Game: invalid " + utc + ".utc: " + std::string(e.what()));
-                continue;
-            }
-        }
-        if (!utcGff) {
-            warn("Game: missing " + utc + ".utc");
-            continue;
-        }
-
-        const auto identityContext =
-            SerializedIdentityContext::detachedRecord(utc + ".utc");
-        auto creature = newCreature(*utcGff, identityContext);
-        creature->deserialize(*utcGff, identityContext);
-        creature->captureSaveRecord(
-            *utcGff,
-            identityContext,
-            {SaveRecordOriginKind::AvailablePuppet, std::to_string(puppet)});
-        _party.addAvailablePuppet(static_cast<int>(puppet), std::move(creature));
-    }
+    destroyRuntimeObjectGraph(creature);
+    return true;
 }
 
 void Game::deserializePartyMembers(resource::Gff &ptGff) {
@@ -2178,7 +1905,7 @@ void Game::deserializePartyMembers(resource::Gff &ptGff) {
             npc == _party.persistedState().controlledNpc &&
                     _party.player() != _party.actualPlayer()
                 ? _party.player()
-                : _party.getAvailableMember(npc);
+                : _party.getAvailableMember(npc, true);
         if (!member) {
             warn("Game: NPC is not available: " + std::to_string(npc));
             return;
@@ -2272,12 +1999,14 @@ void Game::loadDefaultParty() {
         companion->loadFromBlueprint(member2);
         companion->setImmortal(true);
         companion->equip("g_w_dblsbr001");
+        _party.addAvailableMember(0, companion);
         _party.addMember(0, companion);
     }
     if (!member3.empty()) {
         std::shared_ptr<Creature> companion = newCreature();
         companion->loadFromBlueprint(member3);
         companion->setImmortal(true);
+        _party.addAvailableMember(1, companion);
         _party.addMember(1, companion);
     }
 }
@@ -2383,6 +2112,12 @@ void Game::unregisterRuntimeObject(const std::shared_ptr<Object> &object) {
     if (!object) {
         return;
     }
+    if (auto creature = std::dynamic_pointer_cast<Creature>(object)) {
+        // A PartyTable binding denotes a live runtime object, not storage
+        // ownership. Pointer-guarded clearing cannot disturb a replacement
+        // that reused the same runtime number.
+        _party.clearRosterCreature(*creature);
+    }
     auto registered = _objectById.find(object->id());
     if (registered != _objectById.end() &&
         registered->second.get() == object.get()) {
@@ -2398,7 +2133,7 @@ void Game::unregisterRuntimeObject(const std::shared_ptr<Object> &object) {
             ++it;
         }
     }
-    _savedIdsByObject.erase(object.get());
+    _savedIdByObject.erase(object.get());
 }
 
 void Game::destroyRuntimeObjectGraph(const std::shared_ptr<Object> &object) {
@@ -2459,13 +2194,13 @@ void Game::commitRuntimeObjectGraphReplacement(
     _stagedRuntimeObjectGraph.reset();
 
     // Publication ownership has already changed through a no-throw swap. Old
-    // objects and aliases now retire before candidate map nodes are merged.
+    // obsolete reverse mappings now retire before candidate nodes are merged.
     for (const auto &object : obsoleteObjects) {
         destroyRuntimeObjectGraph(object);
     }
     _objectById.merge(staged.objectById);
     _objectBySavedId.merge(staged.objectBySavedId);
-    _savedIdsByObject.merge(staged.savedIdsByObject);
+    _savedIdByObject.merge(staged.savedIdByObject);
     for (uint32_t id : staged.reservedSavedObjectIdsToRelease) {
         _reservedSavedObjectIds.erase(id);
     }
@@ -2552,28 +2287,21 @@ void Game::registerSavedObjectIdentity(
         }
     }
     const auto &reverseMap = _stagedRuntimeObjectGraph
-                                 ? _stagedRuntimeObjectGraph->savedIdsByObject
-                                 : _savedIdsByObject;
+                                 ? _stagedRuntimeObjectGraph->savedIdByObject
+                                 : _savedIdByObject;
     auto reverse = reverseMap.find(object.get());
-    if (reverse != reverseMap.end() && !reverse->second.count(id)) {
-        auto creature = std::dynamic_pointer_cast<Creature>(object);
-        if (!creature || !_party.rosterIdentity(*creature)) {
-            throw ValidationException("Runtime object has multiple saved ObjectIds");
-        }
+    if (reverse != reverseMap.end() && reverse->second != id) {
+        throw ValidationException("Runtime object has multiple saved ObjectIds");
     }
     auto &savedMap = _stagedRuntimeObjectGraph
                          ? _stagedRuntimeObjectGraph->objectBySavedId
                          : _objectBySavedId;
     savedMap[id] = object;
-    auto &aliases = _stagedRuntimeObjectGraph
-                        ? _stagedRuntimeObjectGraph->savedIdsByObject[object.get()]
-                        : _savedIdsByObject[object.get()];
-    aliases.insert(id);
-    // The first authoritative view remains the object's serialization
-    // provenance. Additional roster views are resolution aliases only.
-    if (aliases.size() == 1) {
-        object->assignSerializedObjectIdentity({identityContext, id});
-    }
+    auto &canonicalId = _stagedRuntimeObjectGraph
+                            ? _stagedRuntimeObjectGraph->savedIdByObject[object.get()]
+                            : _savedIdByObject[object.get()];
+    canonicalId = id;
+    object->assignSerializedObjectIdentity({identityContext, id});
 }
 
 void Game::registerSavedModuleReferenceTarget(
@@ -5590,6 +5318,7 @@ void Game::consoleSpawnCompanion(const ConsoleArgs &args) {
     area->landObject(*companion);
     area->add(companion);
     companion->runSpawnScript();
+    _party.addAvailableMember(npc, companion);
     _party.addMember(npc, companion);
 }
 

@@ -614,25 +614,6 @@ TEST(ReputesFac, save_switch_a_b_a_replaces_all_factions_and_pairs) {
     EXPECT_EQ(77, reputes->getReputation(kBeta, kGamma));
     EXPECT_EQ("save_a", reputes->factions()[4].name);
 }
-void reone::game::TestGameModule::deserializeAvailableNpcs(Game &game) {
-    game.deserializeAvailableNpcs();
-}
-
-void reone::game::TestGameModule::prepareRosterMaterialization(
-    Game &game,
-    const Gff *git,
-    const SerializedIdentityContext &identityContext) {
-    game.prepareRosterMaterialization(git, identityContext);
-}
-
-void reone::game::TestGameModule::commitRosterMaterialization(Game &game) {
-    game.commitRosterMaterialization();
-}
-
-void reone::game::TestGameModule::abortRosterMaterialization(Game &game) {
-    game.abortRosterMaterialization();
-}
-
 void reone::game::TestGameModule::publishPartyRuntimeState(
     Game &game,
     Gff &ifoGff,
@@ -821,9 +802,15 @@ std::shared_ptr<Gff> savedPlayer(std::string tag, uint32_t id, bool primary) {
 }
 
 std::shared_ptr<Gff> emptyPartyTable(int controlledNpc = -1) {
+    std::vector<std::shared_ptr<Gff>> available;
+    for (int slot = 0; slot <= controlledNpc; ++slot) {
+        available.push_back(
+            availableNpc(slot == controlledNpc, slot == controlledNpc));
+    }
     return Gff::Builder()
         .field(Gff::Field::newInt("PT_CONTROLLED_NP", controlledNpc))
         .field(Gff::Field::newByte("PT_NUM_MEMBERS", 0))
+        .field(Gff::Field::newList("PT_AVAIL_NPCS", std::move(available)))
         .build();
 }
 
@@ -1004,7 +991,8 @@ TEST(SaveWideAvailableNpcs, a_b_a_replaces_indexed_working_state_records) {
                     findSaveWorking(ResourceId(
                         str(boost::format("availnpc%d") % index), ResType::Utc)))
             .WillOnce(Return(encodedCreature(std::move(tag))));
-        TestGameModule::deserializeAvailableNpcs(fixture.game);
+        EXPECT_TRUE(fixture.game.party().getAvailableMember(
+            static_cast<int>(index), true));
     };
 
     loadNpc(0, "npc_a");
@@ -1030,7 +1018,7 @@ TEST(SaveWideAvailableNpcs, malformed_optional_record_is_ignored) {
                 findSaveWorking(ResourceId("availnpc0", ResType::Utc)))
         .WillOnce(Return(Resource {{'b', 'a', 'd'}}));
 
-    TestGameModule::deserializeAvailableNpcs(fixture.game);
+    EXPECT_FALSE(fixture.game.party().getAvailableMember(0, true));
 
     EXPECT_FALSE(fixture.game.party().getAvailableMember(0));
 }
@@ -1052,9 +1040,10 @@ TEST(SaveWideAvailablePuppets, k2_materializes_available_puppet_resource) {
                 findSaveWorking(ResourceId("availpup0", ResType::Utc)))
         .WillOnce(Return(encodedCreature("puppet_a")));
 
-    TestGameModule::deserializeAvailableNpcs(fixture.game);
+    EXPECT_TRUE(fixture.game.party().getAvailablePuppet(0, true));
     ASSERT_TRUE(fixture.game.party().getAvailablePuppet(0));
     EXPECT_EQ("puppet_a", fixture.game.party().getAvailablePuppet(0)->tag());
+    EXPECT_TRUE(fixture.game.party().getAvailablePuppet(0)->isPuppet());
 }
 
 TEST(SavedPlayerRestoration, primary_module_player_does_not_duplicate_pc_utc) {
@@ -1097,6 +1086,8 @@ TEST(SavedPlayerRestoration, controlled_companion_keeps_pc_utc_as_actual_player)
                           .field(Gff::Field::newInt("PT_CONTROLLED_NP", 0))
                           .field(Gff::Field::newByte("PT_NUM_MEMBERS", 1))
                           .field(Gff::Field::newList("PT_MEMBERS", {member(0, true)}))
+                          .field(Gff::Field::newList(
+                              "PT_AVAIL_NPCS", {availableNpc(true, true)}))
                           .build();
     auto pc = Gff::Builder()
                   .field(Gff::Field::newCExoString("Tag", "actual_pc"))

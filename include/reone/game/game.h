@@ -109,18 +109,6 @@ ModuleLoadContext resolveModuleLoadContext(
 bool restoresSavedWorld(ModuleLoadContext context);
 bool restoresSavedSession(ModuleLoadContext context);
 
-enum class RosterGitAction {
-    Ordinary,
-    MaterializeAndBind,
-    OmitAndReuse,
-};
-
-struct RosterGitMaterialization {
-    RosterGitAction action {RosterGitAction::Ordinary};
-    RosterIdentity identity;
-    std::shared_ptr<Creature> existing;
-};
-
 struct SavedObjectReference;
 struct SerializedScriptSituation;
 class SavedScriptContinuation;
@@ -551,6 +539,18 @@ public:
      */
     void saveNpcState(int npc);
 
+    /** Persist one live creature as a detached PartyTable roster record. */
+    void saveRosterState(
+        const RosterIdentity &identity,
+        const Creature &creature);
+
+    /** Materialize an available, unbound slot from AVAILNPC/AVAILPUP. */
+    std::shared_ptr<Creature> materializeRosterCreature(
+        const RosterIdentity &identity);
+
+    /** End a bound roster representation without changing availability. */
+    bool killRosterCreature(const RosterIdentity &identity);
+
     /**
      * Length of a game day in world-time milliseconds.
      *
@@ -624,13 +624,6 @@ public:
         uint32_t id,
         const std::shared_ptr<Object> &object,
         const SerializedIdentityContext &identityContext);
-
-    RosterGitMaterialization rosterGitMaterialization(
-        const resource::Gff &gff,
-        const SerializedIdentityContext &identityContext);
-    void stageRosterGitCreature(
-        const RosterIdentity &identity,
-        const std::shared_ptr<Creature> &creature);
 
     const SaveResourceShadows &saveResourceShadows() const {
         return _saveResourceShadows;
@@ -707,7 +700,6 @@ public:
     Party::PersistedState parsePartyTable(const resource::Gff &ptGff) const;
     void replacePartyTable(Party::PersistedState state);
     void deserializePazaakPartyTable(resource::Gff &ptGff);
-    void deserializeAvailableNpcs();
     void deserializeGalaxyMap(resource::Gff &ptGff);
     void resetGalaxyMap();
     void serializePazaakPartyTable(resource::Gff &ptGff) const;
@@ -790,14 +782,14 @@ private:
     uint32_t _nextObjectId {kFirstRuntimeObjectId};
     std::map<uint32_t, std::shared_ptr<Object>> _objectById;
     std::map<uint32_t, std::weak_ptr<Object>> _objectBySavedId;
-    // A logical roster creature may be the target of more than one serialized
-    // view. Saved IDs remain unique; the reverse side therefore records aliases.
-    std::map<const Object *, std::set<uint32_t>> _savedIdsByObject;
+    // One authoritative graph object has one canonical saved identity. Roster
+    // doubles live in detached graphs and never create cross-graph aliases.
+    std::map<const Object *, uint32_t> _savedIdByObject;
     struct StagedRuntimeObjectGraph {
         uint32_t initialNextObjectId {kFirstRuntimeObjectId};
         std::map<uint32_t, std::shared_ptr<Object>> objectById;
         std::map<uint32_t, std::weak_ptr<Object>> objectBySavedId;
-        std::map<const Object *, std::set<uint32_t>> savedIdsByObject;
+        std::map<const Object *, uint32_t> savedIdByObject;
         std::set<const Object *> replaceableObjects;
         std::set<uint32_t> reservedSavedObjectIdsToRelease;
     };
@@ -826,43 +818,6 @@ private:
     graphics::Texture *_lastRenderedSceneOutput {nullptr};
 
     // Services
-
-    struct RosterRepresentationKey {
-        std::string tag;
-
-        bool valid() const {
-            return !tag.empty();
-        }
-    };
-
-    struct PlannedRosterRecord {
-        std::shared_ptr<resource::Gff> detached;
-        RosterRepresentationKey key;
-        bool active {false};
-        bool representedInGit {false};
-    };
-
-    struct RosterMaterializationPlan {
-        SerializedIdentityContext identityContext;
-        std::map<RosterIdentity, PlannedRosterRecord> records;
-        std::vector<std::pair<RosterRepresentationKey, RosterIdentity>>
-            gitBindings;
-        std::map<RosterIdentity, std::shared_ptr<Creature>> stagedBindings;
-    };
-
-    std::optional<RosterMaterializationPlan> _rosterMaterializationPlan;
-    RosterRepresentationKey rosterRepresentationKey(
-        const resource::Gff &gff) const;
-    RosterRepresentationKey rosterRepresentationKey(
-        const Creature &creature) const;
-    bool sameRosterRepresentation(
-        const RosterRepresentationKey &lhs,
-        const RosterRepresentationKey &rhs) const;
-    void prepareRosterMaterialization(
-        const resource::Gff *git,
-        const SerializedIdentityContext &identityContext);
-    void commitRosterMaterialization();
-    void abortRosterMaterialization();
 
     Party _party;
     Combat _combat;
