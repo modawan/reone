@@ -1036,6 +1036,7 @@ private:
     void consoleShowGalleryMode(const ConsoleArgs &tokens);
     void consoleSeed(const ConsoleArgs &tokens);
     void consoleGraphics(const ConsoleArgs &tokens);
+    void consoleGameSpeed(const ConsoleArgs &tokens);
     void consoleShowHUD(const ConsoleArgs &tokens);
     void consoleShowTransition(const ConsoleArgs &tokens);
     void consoleOpenContainer(const ConsoleArgs &tokens);
