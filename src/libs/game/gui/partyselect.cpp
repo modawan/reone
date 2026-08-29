@@ -377,7 +377,9 @@ void PartySelection::changeParty() {
     std::shared_ptr<Area> area(_game.module()->area());
     for (const auto &member : party.members()) {
         if (member.npc != kNpcPlayer && !_added[member.npc]) {
-            area->unloadPartyMember(member.creature);
+            // This companion ceases to inhabit the current Area; unlike a
+            // control switch, party removal is a full Area-departure boundary.
+            area->retirePartyMemberAreaRuntime(member.creature);
         }
     }
 
@@ -393,7 +395,7 @@ void PartySelection::changeParty() {
         party.addMember(i, party.getAvailableMember(i, true));
     }
 
-    area->reloadParty();
+    area->repositionParty();
 }
 
 } // namespace game

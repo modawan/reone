@@ -596,7 +596,7 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
     ASSERT_TRUE(sourceRoom.tenants().count(player.get()));
     ASSERT_TRUE(sourceRoom.tenants().count(companion.get()));
 
-    sourceArea->unloadParty();
+    sourceArea->retirePartyAreaRuntime();
 
     EXPECT_EQ(nullptr, player->room());
     EXPECT_EQ(nullptr, companion->room());
@@ -743,7 +743,7 @@ struct PartyTransferHarness {
     // area is mounted, and the same party creatures are positioned into it.
     std::shared_ptr<Area> transitionTo(const glm::vec3 &entry, float facing) {
         if (area) {
-            area->unloadParty();
+            area->retirePartyAreaRuntime();
         }
         auto previous = std::move(area);
         area = game->newArea();
@@ -980,7 +980,7 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
             EXPECT_EQ(expected, &node);
         }));
 
-    area->retireCreatureRuntime(retained);
+    area->retireCreatureAreaRuntime(retained);
 
     EXPECT_EQ(nullptr, retained->room());
     EXPECT_FALSE(room.tenants().count(retained.get()));
@@ -1257,14 +1257,82 @@ TEST(RuntimeObjectIntegrity, area_retirement_preserves_session_object_liveness) 
     game.party().setActualPlayer(retained);
     area->add(retained);
 
-    area->retireCreatureRuntime(retained);
+    area->retireCreatureAreaRuntime(retained);
 
     EXPECT_EQ(retained, game.getObjectById(retained->id()));
     EXPECT_TRUE(game.isRuntimeObjectLive(*retained));
     EXPECT_TRUE(area->getObjectsByType(ObjectType::Creature).empty());
 }
 
-TEST(AreaRuntimeRetirement, unload_party_includes_inactive_roster_and_puppets) {
+TEST(AreaRuntimeRetirement, candidate_cleanup_handles_partial_party_placement_idempotently) {
+    TestEngine engine;
+    engine.init();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    configureRuntimeMocks(engine, sceneGraph);
+    Room room("partial", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    ON_CALL(sceneGraph, testElevation(_, _))
+        .WillByDefault(Invoke([&room](
+                                  const glm::vec3 &position,
+                                  scene::Collision &collision) {
+            collision.intersection = position;
+            collision.user = &room;
+            return true;
+        }));
+    StubConsole console;
+    Game game(resource::GameID::TSL, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    TestGameModule::setActiveModuleArea(game, area);
+
+    auto pc = game.newCreature();
+    game.party().addMember(kNpcPlayer, pc);
+    game.party().setPlayer(pc);
+    game.party().setActualPlayer(pc);
+    auto companion = game.newCreature();
+    ASSERT_TRUE(game.party().addAvailableMember(0, companion));
+    ASSERT_TRUE(game.party().addMember(0, companion));
+    auto puppet = game.newCreature();
+    ASSERT_TRUE(game.party().addAvailablePuppet(0, puppet));
+    ASSERT_TRUE(game.party().addPuppet(0, puppet));
+
+    auto trigger = game.newTrigger();
+    area->add(trigger);
+    area->add(pc);
+    area->add(puppet);
+    trigger->addTenant(pc);
+    trigger->addTenant(puppet);
+    TestGameModule::setAreaRuntimePath(*pc, area->pathfinder());
+    TestGameModule::setAreaRuntimePath(*puppet, area->pathfinder());
+    ASSERT_EQ(&room, pc->room());
+    ASSERT_EQ(&room, puppet->room());
+    ASSERT_EQ(nullptr, companion->room());
+
+    game.retireActiveModuleRuntime();
+
+    EXPECT_FALSE(game.module());
+    EXPECT_EQ(nullptr, pc->room());
+    EXPECT_EQ(nullptr, puppet->room());
+    EXPECT_EQ(nullptr, companion->room());
+    EXPECT_FALSE(room.tenants().count(pc.get()));
+    EXPECT_FALSE(room.tenants().count(puppet.get()));
+    EXPECT_FALSE(trigger->isTenant(pc));
+    EXPECT_FALSE(trigger->isTenant(puppet));
+    EXPECT_FALSE(TestGameModule::hasAreaRuntimePath(*pc));
+    EXPECT_FALSE(TestGameModule::hasAreaRuntimePath(*puppet));
+    EXPECT_EQ(pc, game.party().actualPlayer());
+    EXPECT_EQ(companion, game.party().rosterCreature({RosterKind::Npc, 0}));
+    EXPECT_EQ(puppet, game.party().rosterCreature({RosterKind::Puppet, 0}));
+    EXPECT_EQ(pc, game.getObjectById(pc->id()));
+    EXPECT_EQ(companion, game.getObjectById(companion->id()));
+    EXPECT_EQ(puppet, game.getObjectById(puppet->id()));
+
+    // Re-entering both cleanup boundaries after partial retirement is safe.
+    game.retireActiveModuleRuntime();
+    EXPECT_CALL(engine.audioModule().mixer(), stopAll()).Times(1);
+    EXPECT_CALL(sceneGraph, clear()).Times(AnyNumber());
+    game.retireRuntimeSession();
+}
+
+TEST(AreaRuntimeRetirement, retire_party_includes_inactive_roster_and_puppets) {
     for (auto gameId : {resource::GameID::KotOR, resource::GameID::TSL}) {
         TestEngine engine;
         engine.init();
@@ -1291,7 +1359,7 @@ TEST(AreaRuntimeRetirement, unload_party_includes_inactive_roster_and_puppets) {
             area->add(puppet);
         }
 
-        area->unloadParty();
+        area->retirePartyAreaRuntime();
 
         const auto &creatures = area->getObjectsByType(ObjectType::Creature);
         EXPECT_EQ(creatures.end(), std::find(creatures.begin(), creatures.end(), pc));

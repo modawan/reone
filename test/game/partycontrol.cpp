@@ -1,15 +1,25 @@
 /* Copyright (c) 2026 The reone project contributors */
 
+#include <algorithm>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "../fixtures/engine.h"
+#include "../fixtures/game.h"
+#include "../fixtures/scene.h"
+#include "reone/game/action.h"
+#include "reone/game/effect.h"
+#include "reone/game/effect/modifyattacks.h"
 #include "reone/game/game.h"
+#include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/party.h"
+#include "reone/game/room.h"
 #include "reone/game/script/routines.h"
 #include "reone/game/types.h"
 #include "reone/resource/types.h"
+#include "reone/scene/collision.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/variable.h"
 
@@ -20,6 +30,25 @@ using namespace reone::script;
 using namespace testing;
 
 namespace {
+
+class CountingAction : public reone::game::Action {
+public:
+    CountingAction(Game &game, ServicesView &services, int &executions) :
+        reone::game::Action(game, services, ActionType::Invalid),
+        _executions(executions) {
+    }
+
+    void execute(
+        std::shared_ptr<reone::game::Action> self,
+        Object &actor,
+        float dt) override {
+        ++_executions;
+        complete();
+    }
+
+private:
+    int &_executions;
+};
 
 /**
  * A game plus its routine table, so SwitchPlayerCharacter can be called the way
@@ -101,6 +130,79 @@ private:
 };
 
 class PartyControl : public ::testing::TestWithParam<GameID> {};
+
+/** A real Area around SwitchPlayerCharacter, with no resource load required. */
+class AreaControlHarness : boost::noncopyable {
+public:
+    explicit AreaControlHarness(GameID gameId) :
+        _room("control", glm::vec3(0.0f), nullptr, nullptr, nullptr) {
+
+        _engine.init();
+        ON_CALL(_engine.sceneModule().graphs(), get(_))
+            .WillByDefault(ReturnRef(_sceneGraph));
+        ON_CALL(_sceneGraph, testElevation(_, _))
+            .WillByDefault(Invoke([this](
+                                      const glm::vec3 &position,
+                                      scene::Collision &collision) {
+                collision.intersection = position;
+                collision.user = &_room;
+                return true;
+            }));
+
+        _game = std::make_unique<Game>(
+            gameId, "", _engine.options(), _engine.services(), _console);
+        auto &director = _engine.resourceModule().director();
+        EXPECT_CALL(director, committedSaveWorkingState())
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([this]() { return _committed; }));
+        EXPECT_CALL(director, adoptSaveWorkingState(_))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([this](auto state) {
+                _committed = std::move(state);
+            }));
+
+        _routines = std::make_unique<Routines>(
+            gameId, _game.get(), &_engine.services());
+        _routines->init();
+
+        _player = _game->newCreature();
+        _area = _game->newArea();
+        TestGameModule::configureModuleSnapshot(
+            *_game, _area, _player, "control_module", "control_area");
+
+        _companion = _game->newCreature();
+        _game->party().addAvailableMember(0, _companion);
+        _game->party().addMember(0, _companion);
+        _area->loadParty(glm::vec3(2.0f, 3.0f, 0.0f), 0.25f);
+    }
+
+    int switchTo(int npc) {
+        Routine &routine = _routines->get(
+            _routines->getIndexByName("SwitchPlayerCharacter"));
+        ExecutionContext execution;
+        execution.routines = _routines.get();
+        return routine.invoke({Variable::ofInt(npc)}, execution).intValue;
+    }
+
+    Game &game() { return *_game; }
+    Area &area() { return *_area; }
+    Room &room() { return _room; }
+    const std::shared_ptr<Creature> &player() const { return _player; }
+    const std::shared_ptr<Creature> &companion() const { return _companion; }
+
+private:
+    TestEngine _engine;
+    NiceMock<scene::MockSceneGraph> _sceneGraph;
+    Room _room;
+    StubConsole _console;
+    std::unique_ptr<Game> _game;
+    std::unique_ptr<Routines> _routines;
+    std::shared_ptr<Area> _area;
+    std::shared_ptr<Creature> _player;
+    std::shared_ptr<Creature> _companion;
+    std::shared_ptr<const SaveWorkingState> _committed {
+        std::make_shared<const SaveWorkingState>()};
+};
 
 } // namespace
 
@@ -189,6 +291,80 @@ TEST_P(PartyControl, switchingToAnUnknownNpcChangesNothing) {
     EXPECT_EQ(0, harness.switchTo(9));
     EXPECT_EQ(player, harness.party().player());
     EXPECT_EQ(kNpcPlayer, harness.party().controlledNpc());
+}
+
+TEST_P(PartyControl, sameAreaControlSwitchPreservesRuntimeExecutionAndEffects) {
+    AreaControlHarness harness(GetParam());
+    auto player = harness.player();
+    auto companion = harness.companion();
+
+    int queuedExecutions = 0;
+    int delayedExecutions = 0;
+    auto queued = harness.game().newAction<CountingAction>(queuedExecutions);
+    auto delayed = harness.game().newAction<CountingAction>(delayedExecutions);
+    player->addAction(queued);
+    player->delayAction(delayed, 1.0f);
+
+    player->applyEffect(
+        std::make_shared<ModifyAttacksEffect>(1), DurationType::Permanent);
+    EffectInstance referencedEffect;
+    referencedEffect.effect = std::make_shared<Effect>(EffectType::Invalid);
+    referencedEffect.id = harness.game().allocateEffectId();
+    referencedEffect.subType = static_cast<uint16_t>(DurationType::Permanent);
+    referencedEffect.creatorId = companion->id();
+    referencedEffect.objectParameters[0] = companion->id();
+    ASSERT_TRUE(harness.game().bindEffectCreator(referencedEffect));
+    ASSERT_TRUE(player->restoreEffect(std::move(referencedEffect)));
+    ASSERT_EQ(1, player->modifiedAttacks());
+    ASSERT_EQ(2u, player->effects().size());
+
+    TestGameModule::setAreaRuntimePath(*player, harness.area().pathfinder());
+    player->startStuntMode();
+    const auto generation = TestGameModule::savedGraphGeneration(harness.game());
+
+    ASSERT_EQ(1, harness.switchTo(0));
+
+    EXPECT_EQ(companion, harness.game().party().player());
+    EXPECT_EQ(player, harness.game().party().actualPlayer());
+    EXPECT_EQ(companion, harness.game().party().rosterCreature({RosterKind::Npc, 0}));
+    EXPECT_EQ(generation, TestGameModule::savedGraphGeneration(harness.game()));
+    EXPECT_EQ(1u, player->actions().size());
+    EXPECT_EQ(1u, TestGameModule::delayedActionCount(*player));
+    EXPECT_TRUE(TestGameModule::hasAreaRuntimePath(*player));
+    EXPECT_TRUE(player->isStuntMode());
+    EXPECT_EQ(1, player->modifiedAttacks());
+    ASSERT_EQ(2u, player->effects().size());
+    EXPECT_EQ(companion, player->effects()[1].boundCreator());
+    EXPECT_EQ(companion, player->effects()[1].boundObjectParameter(0));
+
+    player->update(0.5f);
+    EXPECT_EQ(1, queuedExecutions);
+    EXPECT_EQ(0, delayedExecutions);
+    player->update(0.6f);
+    EXPECT_EQ(1, delayedExecutions);
+}
+
+TEST_P(PartyControl, sameAreaControlSwitchDoesNotDetachOrDuplicateResidents) {
+    AreaControlHarness harness(GetParam());
+    auto player = harness.player();
+    auto companion = harness.companion();
+
+    ASSERT_EQ(&harness.room(), player->room());
+    ASSERT_EQ(&harness.room(), companion->room());
+    ASSERT_EQ(1u, harness.room().tenants().count(player.get()));
+    ASSERT_EQ(1u, harness.room().tenants().count(companion.get()));
+
+    const glm::vec3 outgoingPosition = player->position();
+    ASSERT_EQ(1, harness.switchTo(0));
+
+    const auto &creatures = harness.area().getObjectsByType(ObjectType::Creature);
+    EXPECT_EQ(1, std::count(creatures.begin(), creatures.end(), player));
+    EXPECT_EQ(1, std::count(creatures.begin(), creatures.end(), companion));
+    EXPECT_EQ(outgoingPosition, companion->position());
+    EXPECT_EQ(&harness.room(), player->room());
+    EXPECT_EQ(&harness.room(), companion->room());
+    EXPECT_EQ(1u, harness.room().tenants().count(player.get()));
+    EXPECT_EQ(1u, harness.room().tenants().count(companion.get()));
 }
 
 INSTANTIATE_TEST_SUITE_P(Games, PartyControl,

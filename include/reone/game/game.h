@@ -935,6 +935,7 @@ private:
         const std::vector<std::shared_ptr<Object>> &obsoleteObjects);
     void abortRuntimeObjectGraphReplacement();
     void unregisterRuntimeObject(const std::shared_ptr<Object> &object);
+    void retireActiveAreaRuntime();
 
     template <class T, class... Args>
     inline std::shared_ptr<T> newObjectAtId(

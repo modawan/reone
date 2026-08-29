@@ -1084,7 +1084,8 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
 
         try {
             if (_module) {
-                _module->area()->unloadParty();
+                // The source snapshot is already frozen. Module retirement
+                // now owns the full Area-departure boundary itself.
                 retireActiveModuleRuntime();
             }
 
@@ -1194,6 +1195,11 @@ void Game::retireActiveModuleRuntime() {
     _lastRenderedSceneOutput = nullptr;
     _runtimeSessionPlayable = false;
 
+    // This is also the failed-destination cleanup boundary. If construction
+    // attached only part of the retained party, Area retirement inspects
+    // actual residency and safely ignores every not-yet-attached object.
+    retireActiveAreaRuntime();
+
     std::set<uint32_t> sessionObjectIds;
     for (const auto &object : _party.runtimeObjects()) {
         if (object) sessionObjectIds.insert(object->id());
@@ -1212,6 +1218,14 @@ void Game::retireActiveModuleRuntime() {
         destroyRuntimeObjectGraph(object);
     }
     retireSavedObjectGraph();
+}
+
+void Game::retireActiveAreaRuntime() {
+    auto module = _module;
+    auto area = module ? module->area() : nullptr;
+    if (area) {
+        area->retirePartyAreaRuntime();
+    }
 }
 
 void Game::retireSavedObjectGraph() {
@@ -1293,6 +1307,11 @@ void Game::retireRuntimeSession() {
     if (_map) {
         _map->retireRuntimeSession();
     }
+
+    // Full-session teardown can follow a partially failed destination load.
+    // Retire retained Area residency before Party bindings or the owning
+    // Module/Area/Pathfinder disappear. A prior failure cleanup is harmless.
+    retireActiveAreaRuntime();
 
     _combat.reset();
     _party.retireRuntimeSession();
@@ -1876,7 +1895,7 @@ bool Game::killRosterCreature(const RosterIdentity &identity) {
         return false;
     }
     if (_module && _module->area()) {
-        _module->area()->retireCreatureRuntime(creature);
+        _module->area()->retireCreatureAreaRuntime(creature);
     }
     destroyRuntimeObjectGraph(creature);
     return true;

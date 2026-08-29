@@ -895,7 +895,7 @@ void Area::loadPartyMember(const std::shared_ptr<Creature> &member, int index, b
     }
 }
 
-void Area::retireCreatureRuntime(const std::shared_ptr<Creature> &creature) {
+void Area::retireCreatureAreaRuntime(const std::shared_ptr<Creature> &creature) {
     if (!creature ||
         std::find(_objects.begin(), _objects.end(), creature) == _objects.end()) {
         return;
@@ -915,8 +915,8 @@ void Area::retireCreatureRuntime(const std::shared_ptr<Creature> &creature) {
     creature->setRoom(nullptr);
 }
 
-void Area::unloadPartyMember(const std::shared_ptr<Creature> &member) {
-    retireCreatureRuntime(member);
+void Area::retirePartyMemberAreaRuntime(const std::shared_ptr<Creature> &member) {
+    retireCreatureAreaRuntime(member);
 }
 
 void Area::loadParty(const glm::vec3 &position, float facing, bool preserveSavedPlacement) {
@@ -940,18 +940,95 @@ void Area::loadParty(const glm::vec3 &position, float facing, bool preserveSaved
     }
 }
 
-void Area::unloadParty() {
+void Area::retirePartyAreaRuntime() {
     auto runtimeObjects = _game.party().runtimeObjects();
     for (const auto &object : runtimeObjects) {
         if (object && object->type() == ObjectType::Creature) {
-            retireCreatureRuntime(std::static_pointer_cast<Creature>(object));
+            retireCreatureAreaRuntime(std::static_pointer_cast<Creature>(object));
         }
     }
 }
 
-void Area::reloadParty() {
+void Area::repositionPartyMember(
+    const std::shared_ptr<Creature> &member,
+    int index) {
+
+    bool loaded = std::find(_objects.begin(), _objects.end(), member) != _objects.end();
+    if (index > 0) {
+        auto leader = _game.party().getLeader();
+        glm::vec3 position(leader->position());
+
+        if (index <= static_cast<int>(kPartyFormationOffsets.size())) {
+            glm::quat rotation(glm::angleAxis(
+                leader->getFacing(), glm::vec3(0.0f, 0.0f, 1.0f)));
+            position += rotation * kPartyFormationOffsets[index - 1];
+        }
+
+        member->setPosition(findPartyPosition(*member, position));
+        member->setFacing(leader->getFacing());
+    }
+
+    bool landed = landObject(*member);
+    if (index == 0 && !landed) {
+        glm::vec3 position(member->position());
+        glm::vec3 fallbackPosition(position);
+        fallbackPosition.z = scene::kElevationTestZ;
+
+        member->setPosition(fallbackPosition);
+        if (!landObject(*member)) {
+            member->setPosition(position);
+        }
+    }
+
+    if (loaded) {
+        determineObjectRoom(*member);
+        return;
+    }
+
+    add(member);
+    member->runSpawnScript();
+}
+
+void Area::placeControlledCreature(
+    const std::shared_ptr<Creature> &creature,
+    const glm::vec3 &position,
+    float facing) {
+
+    // Retail SwitchPlayerCharacter transfers control in the existing Area.
+    // Only the incoming actor inherits the outgoing leader's transform;
+    // unrelated followers and the parked actor retain their current runtime
+    // state and placement.
+    creature->setPosition(position);
+    creature->setFacing(facing);
+    repositionPartyMember(creature, 0);
+}
+
+void Area::repositionParty(const glm::vec3 &position, float facing) {
+    // This is a same-Area operation. It deliberately does not call
+    // retireCreatureAreaRuntime: action/delay/effect and Area-lifetime state
+    // remain authoritative while control or party composition changes.
+    Party &party = _game.party();
+    auto leader = party.getLeader();
+    if (!leader) return;
+
+    leader->setPosition(position);
+    leader->setFacing(facing);
+    repositionPartyMember(leader, 0);
+    for (int i = 1; i < party.getSize(); ++i) {
+        repositionPartyMember(party.getMember(i), i);
+    }
+    int formationIndex = party.getSize();
+    for (int puppet : party.persistedState().puppetIds) {
+        if (auto creature = party.getAvailablePuppet(puppet, true)) {
+            repositionPartyMember(creature, formationIndex++);
+        }
+    }
+}
+
+void Area::repositionParty() {
     auto leader = _game.party().getLeader();
-    loadParty(leader->position(), leader->getFacing());
+    if (!leader) return;
+    repositionParty(leader->position(), leader->getFacing());
 }
 
 bool Area::handle(const input::Event &event) {
@@ -1194,7 +1271,7 @@ glm::vec3 Area::getSelectableScreenCoords(const std::shared_ptr<Object> &object,
 
 void Area::update3rdPersonCameraFacing() {
     auto partyLeader = _game.party().getLeader();
-    if (!partyLeader) {
+    if (!partyLeader || !_thirdPersonCamera) {
         return;
     }
     _thirdPersonCamera->setFacing(partyLeader->getFacing());

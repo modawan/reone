@@ -249,14 +249,12 @@ static Variable SwitchPlayerCharacter(const std::vector<Variable> &args, const R
 
     auto module = ctx.game.module();
     auto area = module ? module->area() : nullptr;
-    if (area) {
-        area->unloadParty();
-    }
-
     party.setControlledMember(nNPC, creature);
 
     if (area) {
-        area->loadParty(position, facing);
+        // Retail changes the controlled object inside the existing Area. Do
+        // not invoke module-boundary retirement merely to place the new PC.
+        area->placeControlledCreature(creature, position, facing);
         area->onPartyLeaderMoved(true);
         area->update3rdPersonCameraFacing();
     }

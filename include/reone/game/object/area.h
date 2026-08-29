@@ -177,15 +177,23 @@ public:
 
     // Party
 
-    /** Canonical Area-residency retirement for one session-owned creature. */
-    void retireCreatureRuntime(const std::shared_ptr<Creature> &creature);
-    void unloadPartyMember(const std::shared_ptr<Creature> &member);
+    /** End one retained creature's current Area lifetime. */
+    void retireCreatureAreaRuntime(const std::shared_ptr<Creature> &creature);
+    void retirePartyMemberAreaRuntime(const std::shared_ptr<Creature> &member);
     void loadParty(
         const glm::vec3 &position,
         float facing,
         bool preserveSavedPlacement = false);
-    void unloadParty();
-    void reloadParty();
+    /** End every session-owned creature's residency in this Area. */
+    void retirePartyAreaRuntime();
+    /** Place a newly controlled actor without ending any existing Area lifetime. */
+    void placeControlledCreature(
+        const std::shared_ptr<Creature> &creature,
+        const glm::vec3 &position,
+        float facing);
+    /** Reconcile/position the selected party without ending this Area lifetime. */
+    void repositionParty(const glm::vec3 &position, float facing);
+    void repositionParty();
 
     // END Party
 
@@ -339,6 +347,9 @@ private:
         const std::shared_ptr<Creature> &member,
         int index,
         bool preserveSavedPlacement);
+    void repositionPartyMember(
+        const std::shared_ptr<Creature> &member,
+        int index);
     glm::vec3 findPartyPosition(const Creature &member, const glm::vec3 &position) const;
 
     struct CreatureCollision {

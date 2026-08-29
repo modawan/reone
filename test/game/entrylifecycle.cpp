@@ -19,10 +19,13 @@
 #include "reone/game/types.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/module.h"
+#include "reone/game/object/trigger.h"
 #include "reone/game/party.h"
+#include "reone/game/room.h"
 #include "reone/game/script/routines.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/layout.h"
+#include "reone/scene/collision.h"
 #include "reone/scene/node/camera.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/program.h"
@@ -86,6 +89,14 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
         // than re-initializing mocks other suites already depend on.
         ON_CALL(engine.sceneModule().graphs(), get(_))
             .WillByDefault(ReturnRef(sharedSceneGraph()));
+        ON_CALL(sharedSceneGraph(), testElevation(_, _))
+            .WillByDefault(Invoke([this](
+                                      const glm::vec3 &position,
+                                      scene::Collision &collision) {
+                collision.intersection = position;
+                collision.user = &candidateRoom;
+                return true;
+            }));
         EXPECT_CALL(engine.gameModule().portraits(), portraits())
             .Times(AnyNumber())
             .WillRepeatedly(ReturnRef(portraitRows));
@@ -230,6 +241,7 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
     std::unique_ptr<Game> game;
     std::unique_ptr<Routines> routines;
     std::shared_ptr<Creature> player;
+    Room candidateRoom {"candidate", glm::vec3(0.0f), nullptr, nullptr, nullptr};
     std::vector<std::shared_ptr<scene::CameraSceneNode>> cameraNodes;
     std::shared_ptr<Layout> emptyLayout {std::make_shared<Layout>()};
     std::shared_ptr<Gff> moduleIfo;
@@ -394,6 +406,100 @@ TEST_P(EntryLifecycleFixture, a_fresh_module_owns_and_executes_its_delayed_onloa
 
     EXPECT_TRUE(fresh->getLocalBoolean(kDelayedMutationLocal));
     EXPECT_EQ(0u, TestGameModule::delayedActionCount(*fresh));
+}
+
+TEST_P(EntryLifecycleFixture, failed_destination_retires_attached_session_creatures_before_teardown) {
+    serveModule(/*savedModuleSnapshot=*/false);
+
+    std::shared_ptr<Creature> controlled;
+    std::shared_ptr<Creature> puppet;
+    if (GetParam() == GameID::TSL) {
+        controlled = game->newCreature();
+        ASSERT_TRUE(game->party().addAvailableMember(0, controlled));
+        game->party().setControlledMember(0, controlled);
+        ASSERT_EQ(controlled, game->party().player());
+
+        puppet = game->newCreature();
+        ASSERT_TRUE(game->party().addAvailablePuppet(0, puppet));
+        ASSERT_TRUE(game->party().addPuppet(0, puppet));
+    }
+
+    auto expectedLeader = game->party().player();
+    std::shared_ptr<Area> failedArea;
+    std::shared_ptr<Trigger> failedTrigger;
+    EXPECT_CALL(engine.resourceModule().scripts(), get(std::string(kOnEnterScript)))
+        .WillOnce(Invoke([this, &failedArea, &failedTrigger, expectedLeader, puppet](
+                             const std::string &resRef)
+                             -> std::shared_ptr<ScriptProgram> {
+            dispatched.push_back({resRef, game->isLoadingFromSaveGame()});
+            failedArea = game->module()->area();
+            TestGameModule::setAreaRuntimePath(
+                *expectedLeader, failedArea->pathfinder());
+            failedTrigger = game->newTrigger();
+            failedArea->add(failedTrigger);
+            failedTrigger->addTenant(expectedLeader);
+            if (puppet) {
+                TestGameModule::setAreaRuntimePath(
+                    *puppet, failedArea->pathfinder());
+                failedTrigger->addTenant(puppet);
+            }
+            throw std::runtime_error("injected Area OnEnter failure");
+        }));
+
+    ASSERT_FALSE(game->loadModule("module_b"));
+    ASSERT_TRUE(failedArea);
+    ASSERT_TRUE(failedTrigger);
+    EXPECT_FALSE(game->module());
+    EXPECT_EQ(nullptr, expectedLeader->room());
+    EXPECT_FALSE(candidateRoom.tenants().count(expectedLeader.get()));
+    EXPECT_FALSE(TestGameModule::hasAreaRuntimePath(*expectedLeader));
+    EXPECT_FALSE(failedTrigger->isTenant(expectedLeader));
+    const auto &creatures = failedArea->getObjectsByType(ObjectType::Creature);
+    EXPECT_EQ(creatures.end(), std::find(creatures.begin(), creatures.end(), expectedLeader));
+    EXPECT_EQ(expectedLeader, game->party().player());
+    EXPECT_EQ(expectedLeader, game->getObjectById(expectedLeader->id()));
+
+    if (controlled) {
+        EXPECT_EQ(controlled, game->party().rosterCreature({RosterKind::Npc, 0}));
+        EXPECT_EQ(nullptr, player->room())
+            << "the parked canonical PC was never attached to the candidate";
+    }
+    if (puppet) {
+        EXPECT_EQ(nullptr, puppet->room());
+        EXPECT_FALSE(candidateRoom.tenants().count(puppet.get()));
+        EXPECT_FALSE(TestGameModule::hasAreaRuntimePath(*puppet));
+        EXPECT_FALSE(failedTrigger->isTenant(puppet));
+        EXPECT_EQ(puppet, game->party().rosterCreature({RosterKind::Puppet, 0}));
+        EXPECT_EQ(creatures.end(), std::find(creatures.begin(), creatures.end(), puppet));
+    }
+
+    // A later whole-session retirement sees already-detached objects and is
+    // intentionally harmless.
+    EXPECT_CALL(engine.audioModule().mixer(), stopAll()).Times(1);
+    EXPECT_CALL(sharedSceneGraph(), clear()).Times(AnyNumber());
+    game->retireRuntimeSession();
+}
+
+TEST_P(EntryLifecycleFixture, failed_destination_before_party_placement_is_harmless) {
+    serveModule(/*savedModuleSnapshot=*/false);
+
+    std::shared_ptr<Area> failedArea;
+    EXPECT_CALL(engine.resourceModule().scripts(), get(std::string(kOnLoadScript)))
+        .WillOnce(Invoke([this, &failedArea](const std::string &resRef)
+                             -> std::shared_ptr<ScriptProgram> {
+            dispatched.push_back({resRef, game->isLoadingFromSaveGame()});
+            failedArea = game->module()->area();
+            throw std::runtime_error("injected Module OnLoad failure");
+        }));
+
+    ASSERT_FALSE(game->loadModule("module_b"));
+    ASSERT_TRUE(failedArea);
+    EXPECT_FALSE(game->module());
+    EXPECT_EQ(nullptr, player->room());
+    EXPECT_FALSE(candidateRoom.tenants().count(player.get()));
+    EXPECT_TRUE(failedArea->getObjectsByType(ObjectType::Creature).empty());
+    EXPECT_EQ(player, game->party().player());
+    EXPECT_EQ(player, game->getObjectById(player->id()));
 }
 
 // The predicates that decide what gets restored keep their own meaning; only

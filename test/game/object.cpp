@@ -2752,7 +2752,7 @@ TEST(LinkedDoorTransition, should_rearm_after_party_unload_and_exit_reentry) {
 
     // Module transitions cache Area/Trigger instances. Party unload removes
     // the old tenant, and loading the party again models revisiting the module.
-    area->unloadParty();
+    area->retirePartyAreaRuntime();
     EXPECT_FALSE(trigger->isTenant(leader));
     area->loadParty(glm::vec3(0.0f, -1.0f, 0.0f), 0.0f);
     game.scheduleModuleTransition("", "");
