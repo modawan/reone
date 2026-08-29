@@ -10,6 +10,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <map>
+
 #include "../fixtures/engine.h"
 #include "../fixtures/game.h"
 
@@ -21,6 +23,7 @@
 #include "reone/game/action/movetolocation.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/startconversation.h"
+#include "reone/game/effect.h"
 #include "reone/game/game.h"
 #include "reone/game/modulesnapshot.h"
 #include "reone/game/object/area.h"
@@ -48,6 +51,27 @@ using namespace reone::game;
 using namespace reone::resource;
 using namespace reone::script;
 using namespace testing;
+
+namespace {
+
+SerializedIdentityContext snapshotIdentityContext() {
+    return SerializedIdentityContext::moduleGraph("module003");
+}
+
+class CompleteReferenceEffect : public Effect {
+public:
+    CompleteReferenceEffect(
+        const std::shared_ptr<Object> &creator,
+        const std::array<std::shared_ptr<Object>, 4> &objects) :
+        Effect(EffectType::Beam) {
+        setSaveFacingCreator(creator);
+        for (size_t index = 0; index < objects.size(); ++index) {
+            setSaveFacingObject(index, objects[index]);
+        }
+    }
+};
+
+} // namespace
 
 void reone::game::TestGameModule::configureModuleSnapshot(
     Game &game,
@@ -110,8 +134,9 @@ void reone::game::TestGameModule::setSnapshotMinutesPerHour(
 }
 
 void reone::game::TestGameModule::deserializeSnapshotRuntimeState(
-    Object &object, const Gff &gff) {
-    object.deserializeRuntimeState(gff);
+    Object &object, const Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    object.deserializeRuntimeState(gff, identityContext);
 }
 
 void reone::game::TestGameModule::setSnapshotObjectId(
@@ -325,7 +350,9 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
         *triggerShadow,
         SerializedIdentityContext::moduleGraph("tat_m17ab"),
         {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
-    TestGameModule::deserializeSnapshotRuntimeState(*trigger, *triggerShadow);
+    TestGameModule::deserializeSnapshotRuntimeState(
+        *trigger, *triggerShadow,
+        SerializedIdentityContext::moduleGraph("tat_m17ab"));
     game.registerSavedObjectIdentity(
         player->id(),
         player,
@@ -383,13 +410,15 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     EXPECT_EQ(reparsedTokens.at(2), "two");
     EXPECT_EQ(reparsedTokens.at(9), "nine");
     Module e2Module(1000, game, engine.services());
-    TestGameModule::deserializeSnapshotRuntimeState(e2Module, *ifo);
+    TestGameModule::deserializeSnapshotRuntimeState(
+        e2Module, *ifo, snapshotIdentityContext());
     EXPECT_TRUE(e2Module.getLocalBoolean(7));
     EXPECT_EQ(e2Module.getLocalNumber(3), 44);
     ASSERT_EQ(ifo->getList("EventQueue").size(), 1);
     EXPECT_EQ(ifo->getList("EventQueue")[0]->getUint("Day"), 8u);
     EXPECT_EQ(ifo->getList("EventQueue")[0]->getUint("Time"), 9123u);
-    const auto e2Events = SavedEventQueue::fromGff(*ifo);
+    const auto e2Events = SavedEventQueue::fromGff(
+        *ifo, snapshotIdentityContext());
     ASSERT_EQ(e2Events.events.size(), 1);
     EXPECT_EQ(e2Events.events.front().day, 8u);
     EXPECT_EQ(e2Events.events.front().time, 9123u);
@@ -402,10 +431,12 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     ASSERT_EQ(playerRecord->getList("ActionList").size(), 1);
     EXPECT_FLOAT_EQ(
         std::get<float>(SavedActionRecord::fromGff(
-            *playerRecord->getList("ActionList").front()).parameters.front().payload),
+            *playerRecord->getList("ActionList").front(),
+            snapshotIdentityContext()).parameters.front().payload),
         20.0f);
     auto effect = EffectInstance::fromGff(
-        *playerRecord->getList("EffectList").front());
+        *playerRecord->getList("EffectList").front(),
+        snapshotIdentityContext());
     EXPECT_EQ(effect.expiryDay, 3u);
     // Twenty seconds remaining. World-time milliseconds are real milliseconds,
     // as in CWorldTimer, so this is 1000 + 20 * 1000.
@@ -413,7 +444,8 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     ASSERT_TRUE(game.remainingEffectDuration(effect));
     EXPECT_FLOAT_EQ(*game.remainingEffectDuration(effect), 20.0f);
     Creature e2Creature(player->id() + 1000, "", game, engine.services());
-    TestGameModule::deserializeSnapshotRuntimeState(e2Creature, *playerRecord);
+    TestGameModule::deserializeSnapshotRuntimeState(
+        e2Creature, *playerRecord, snapshotIdentityContext());
     EXPECT_TRUE(e2Creature.getLocalBoolean(31));
     EXPECT_EQ(e2Creature.getLocalNumber(4), 23);
     ASSERT_EQ(e2Creature.savedEffects().size(), 1);
@@ -464,6 +496,52 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     archive.load();
     EXPECT_EQ(archive.signature(), "MOD V1.0");
     EXPECT_EQ(archive.keys().size(), 3);
+}
+
+TEST_F(SnapshotFixture, rewrites_perception_shadow_ids_from_detached_namespace) {
+    const auto detachedContext =
+        SerializedIdentityContext::detachedRecord("availnpc0.utc");
+    auto target = game.newCreature();
+    target->assignSerializedObjectIdentity({detachedContext, 77u});
+    TestGameModule::addSnapshotObject(*area, target);
+
+    auto encounterRecord = Gff::Builder()
+                               .type(7)
+                               .field(Gff::Field::newList(
+                                   "PerceptionList",
+                                   {Gff::Builder()
+                                        .type(0)
+                                        .field(Gff::Field::newDword(
+                                            "ObjectId", 77u))
+                                        .field(Gff::Field::newByte(
+                                            "PerceptionData", 3u))
+                                        .build()}))
+                               .build();
+    auto encounter = game.newEncounter();
+    encounter->deserializeRuntimeState(
+        *encounterRecord, detachedContext);
+    encounter->captureSaveRecord(
+        *encounterRecord,
+        detachedContext,
+        {SaveRecordOriginKind::ActiveGitObject, "detached-test"});
+    TestGameModule::addSnapshotObject(*area, encounter);
+    game.resolveSavedObjectReferences();
+    ASSERT_EQ(encounter->savedReference("Perception/0"), target);
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+    ASSERT_TRUE(result) << result.message;
+    auto git = readGff(result.snapshot->gitBytes);
+    auto targetRecord = recordById(*git, "Creature List", target->id());
+    ASSERT_TRUE(targetRecord);
+    auto savedEncounter = recordById(
+        *git, "Encounter List", encounter->id());
+    ASSERT_TRUE(savedEncounter);
+    ASSERT_EQ(savedEncounter->getList("PerceptionList").size(), 1u);
+    const auto rewritten = savedEncounter->getList("PerceptionList")
+                               .front()
+                               ->getUint("ObjectId");
+    EXPECT_EQ(rewritten, targetRecord->getUint("ObjectId"));
+    EXPECT_NE(rewritten, 77u);
 }
 
 TEST_F(SnapshotFixture, authoritative_membership_omits_deleted_shadow_records) {
@@ -1246,7 +1324,9 @@ TEST_F(SnapshotFixture, deleted_reference_targets_are_written_as_retail_invalid)
         *source,
         SerializedIdentityContext::moduleGraph("tat_m17ab"),
         {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
-    TestGameModule::deserializeSnapshotRuntimeState(*trigger, *source);
+    TestGameModule::deserializeSnapshotRuntimeState(
+        *trigger, *source,
+        SerializedIdentityContext::moduleGraph("tat_m17ab"));
     game.resolveSavedObjectReferences();
 
     EffectInstance effect;
@@ -1312,7 +1392,8 @@ TEST_F(SnapshotFixture, play_animation_is_a_supported_transition_snapshot_action
     auto playerRecord = ifo->getList("Mod_PlayerList").front();
     ASSERT_EQ(playerRecord->getList("ActionList").size(), 1);
     auto saved = SavedActionRecord::fromGff(
-        *playerRecord->getList("ActionList").front());
+        *playerRecord->getList("ActionList").front(),
+        snapshotIdentityContext());
     EXPECT_EQ(saved.actionId, 6u);
     EXPECT_EQ(saved.groupActionId, 19);
     ASSERT_EQ(saved.parameters.size(), 5);
@@ -1338,7 +1419,8 @@ TEST_F(SnapshotFixture, attack_object_is_a_supported_transition_snapshot_action)
     auto playerRecord = ifo->getList("Mod_PlayerList").front();
     ASSERT_EQ(playerRecord->getList("ActionList").size(), 1);
     auto saved = SavedActionRecord::fromGff(
-        *playerRecord->getList("ActionList").front());
+        *playerRecord->getList("ActionList").front(),
+        snapshotIdentityContext());
     EXPECT_EQ(saved.actionId, 12u);
     EXPECT_EQ(saved.groupActionId, 29);
     EXPECT_EQ(saved.declaredParameterCount, 10);
@@ -1371,7 +1453,8 @@ TEST_F(SnapshotFixture, move_to_location_is_a_supported_transition_snapshot_acti
     auto playerRecord = ifo->getList("Mod_PlayerList").front();
     ASSERT_EQ(playerRecord->getList("ActionList").size(), 1);
     auto saved = SavedActionRecord::fromGff(
-        *playerRecord->getList("ActionList").front());
+        *playerRecord->getList("ActionList").front(),
+        snapshotIdentityContext());
     EXPECT_EQ(saved.actionId, 1u);
     EXPECT_EQ(saved.groupActionId, 33);
     EXPECT_EQ(saved.declaredParameterCount, 13);
@@ -1401,7 +1484,8 @@ TEST_F(SnapshotFixture, move_to_object_is_a_supported_transition_snapshot_action
     auto playerRecord = ifo->getList("Mod_PlayerList").front();
     ASSERT_EQ(playerRecord->getList("ActionList").size(), 1);
     auto saved = SavedActionRecord::fromGff(
-        *playerRecord->getList("ActionList").front());
+        *playerRecord->getList("ActionList").front(),
+        snapshotIdentityContext());
     EXPECT_EQ(saved.actionId, 17u);
     EXPECT_EQ(saved.groupActionId, 13);
     ASSERT_EQ(saved.parameters.size(), 5);
@@ -1425,7 +1509,8 @@ TEST_F(SnapshotFixture, forced_move_to_object_is_a_supported_transition_snapshot
     ASSERT_TRUE(result) << result.message;
     auto ifo = readGff(result.snapshot->ifoBytes);
     auto saved = SavedActionRecord::fromGff(
-        *ifo->getList("Mod_PlayerList").front()->getList("ActionList").front());
+        *ifo->getList("Mod_PlayerList").front()->getList("ActionList").front(),
+        snapshotIdentityContext());
     EXPECT_EQ(saved.actionId, 1u);
     EXPECT_EQ(saved.groupActionId, 13);
     ASSERT_EQ(saved.parameters.size(), 13);
@@ -1436,6 +1521,14 @@ TEST_F(SnapshotFixture, forced_move_to_object_is_a_supported_transition_snapshot
 }
 
 TEST_F(SnapshotFixture, pending_do_command_is_a_supported_transition_snapshot_action) {
+    auto talentItem = game.newOwnedItem();
+    ASSERT_NE(talentItem->id(), 200u);
+    talentItem->assignSerializedObjectIdentity(
+        {snapshotIdentityContext(), 200u});
+    game.registerSavedObjectIdentity(
+        200u, talentItem, snapshotIdentityContext());
+    TestGameModule::setSnapshotEquipment(*player, 0, talentItem);
+
     auto program = std::make_shared<script::ScriptProgram>("transition_command");
     program->add(script::Instruction(script::InstructionType::RETN));
     auto state = std::make_shared<script::ExecutionState>();
@@ -1444,7 +1537,7 @@ TEST_F(SnapshotFixture, pending_do_command_is_a_supported_transition_snapshot_ac
     state->globals = {
         script::Variable::ofInt(9),
         script::Variable::ofTalent(std::make_shared<Talent>(
-            TalentType::Spell, 123, 2, kSavedRuntimeInvalidObjectId, 5, 14, 1))};
+            TalentType::Spell, 123, 2, talentItem->id(), 5, 14, 1))};
     state->locals = {script::Variable::ofString("after-talent")};
     auto context = std::make_shared<script::ExecutionContext>();
     context->savedState = std::move(state);
@@ -1476,14 +1569,15 @@ TEST_F(SnapshotFixture, pending_do_command_is_a_supported_transition_snapshot_ac
     EXPECT_EQ(fieldType("Type"), Gff::FieldType::Dword);
     EXPECT_EQ(fieldType("ItemPropertyInde"), Gff::FieldType::Dword);
 
-    auto saved = SavedActionRecord::fromGff(*actionRecord);
+    auto saved = SavedActionRecord::fromGff(
+        *actionRecord, snapshotIdentityContext());
     EXPECT_EQ(saved.actionId, 37u);
     EXPECT_EQ(saved.groupActionId, 18);
     EXPECT_EQ(saved.declaredParameterCount, 1);
     ASSERT_EQ(saved.parameters.size(), 1);
     EXPECT_EQ(saved.parameters[0].type,
               static_cast<uint32_t>(SavedActionParameterType::ScriptSituation));
-    const auto &situation = std::get<SerializedScriptSituation>(saved.parameters[0].payload);
+    auto &situation = std::get<SerializedScriptSituation>(saved.parameters[0].payload);
     EXPECT_EQ(situation.basePointer, 2);
     EXPECT_EQ(situation.stackPointer, 3);
     ASSERT_EQ(situation.stack.size(), 3);
@@ -1492,11 +1586,86 @@ TEST_F(SnapshotFixture, pending_do_command_is_a_supported_transition_snapshot_ac
     EXPECT_EQ(talent.id, 123);
     EXPECT_EQ(talent.type, static_cast<int32_t>(TalentType::Spell));
     EXPECT_EQ(talent.multiClass, 2);
-    EXPECT_EQ(talent.item.id, kSavedRuntimeInvalidObjectId);
+    EXPECT_EQ(talent.item.id, 200u);
+    EXPECT_NE(talent.item.id, talentItem->id());
     EXPECT_EQ(talent.itemPropertyIndex, 5);
     EXPECT_EQ(talent.casterLevel, 14);
     EXPECT_EQ(talent.metaType, 1);
     EXPECT_EQ(std::get<std::string>(situation.stack[2].payload), "after-talent");
+    ASSERT_TRUE(situation.bindObjectReferences(game));
+    EXPECT_EQ(talent.item.boundObject(), talentItem);
+}
+
+TEST_F(SnapshotFixture, live_effect_continuation_translates_creator_and_all_object_slots) {
+    auto creator = game.newCreature();
+    TestGameModule::addSnapshotObject(*area, creator);
+    std::array<std::shared_ptr<Object>, 4> targets;
+    for (auto &target : targets) {
+        target = game.newCreature();
+        TestGameModule::addSnapshotObject(
+            *area, std::static_pointer_cast<Creature>(target));
+    }
+
+    creator->assignSerializedObjectIdentity(
+        {snapshotIdentityContext(), 300u});
+    game.registerSavedObjectIdentity(
+        300u, creator, snapshotIdentityContext());
+    for (size_t index = 0; index < targets.size(); ++index) {
+        const uint32_t savedId = 301u + static_cast<uint32_t>(index);
+        targets[index]->assignSerializedObjectIdentity(
+            {snapshotIdentityContext(), savedId});
+        game.registerSavedObjectIdentity(
+            savedId, targets[index], snapshotIdentityContext());
+        ASSERT_NE(targets[index]->id(), savedId);
+    }
+
+    auto program = std::make_shared<script::ScriptProgram>("effect_command");
+    program->add(script::Instruction(script::InstructionType::RETN));
+    auto state = std::make_shared<script::ExecutionState>();
+    state->program = std::move(program);
+    state->insOffset = 13;
+    state->globals = {script::Variable::ofEffect(
+        std::make_shared<CompleteReferenceEffect>(creator, targets))};
+    auto context = std::make_shared<script::ExecutionContext>();
+    context->savedState = std::move(state);
+    auto action = game.newAction<DoCommandAction>(std::move(context));
+    player->addAction(action);
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+    ASSERT_TRUE(result) << result.message;
+    auto ifo = readGff(result.snapshot->ifoBytes);
+    auto actionRecord = ifo->getList("Mod_PlayerList")
+                            .front()
+                            ->getList("ActionList")
+                            .front();
+    auto saved = SavedActionRecord::fromGff(
+        *actionRecord, snapshotIdentityContext());
+    auto &situation = std::get<SerializedScriptSituation>(
+        saved.parameters.front().payload);
+    auto &effect = std::get<EffectInstance>(situation.stack.front().payload);
+    EXPECT_EQ(effect.creatorId, 300u);
+    EXPECT_EQ(
+        effect.objectParameters,
+        (std::array<uint32_t, 4> {301u, 302u, 303u, 304u}));
+
+    ASSERT_TRUE(situation.bindObjectReferences(game));
+    EXPECT_EQ(effect.boundCreator(), creator);
+    for (size_t index = 0; index < targets.size(); ++index) {
+        EXPECT_EQ(effect.boundObjectParameter(index), targets[index]);
+    }
+    auto imported = SavedScriptSituationImporter(
+                        game, engine.resourceModule().scripts())
+                        .import(situation);
+    ASSERT_TRUE(imported) << imported.message;
+    auto runtimeEffect = std::dynamic_pointer_cast<SavedEffectValue>(
+        imported.continuation->executionState().globals.front().engineType);
+    ASSERT_TRUE(runtimeEffect);
+    EXPECT_EQ(runtimeEffect->instance().creatorId, creator->id());
+    for (size_t index = 0; index < targets.size(); ++index) {
+        EXPECT_EQ(
+            runtimeEffect->instance().objectParameters[index],
+            targets[index]->id());
+    }
 }
 
 TEST_F(SnapshotFixture, runtime_delays_export_as_retail_timed_events_with_remaining_game_time) {
@@ -1522,7 +1691,8 @@ TEST_F(SnapshotFixture, runtime_delays_export_as_retail_timed_events_with_remain
     ASSERT_TRUE(second) << second.message;
     EXPECT_EQ(first.snapshot->ifoBytes, second.snapshot->ifoBytes);
     auto ifo = readGff(first.snapshot->ifoBytes);
-    auto queue = SavedEventQueue::fromGff(*ifo);
+    auto queue = SavedEventQueue::fromGff(
+        *ifo, snapshotIdentityContext());
     ASSERT_EQ(queue.events.size(), 1);
     const auto &event = queue.events.front();
     EXPECT_EQ(event.eventId, static_cast<uint32_t>(SavedEventType::Timed));
@@ -1554,7 +1724,8 @@ TEST_F(SnapshotFixture, structural_module_references_restore_onto_a_different_ru
     uint32_t privateModuleId = 0;
     EXPECT_FALSE(saved.snapshot->ifo->readDword(
         privateModuleId, "ReoneModObjId"));
-    auto serialized = SavedEventQueue::fromGff(*saved.snapshot->ifo);
+    auto serialized = SavedEventQueue::fromGff(
+        *saved.snapshot->ifo, snapshotIdentityContext());
     ASSERT_EQ(serialized.events.size(), 1u);
     EXPECT_EQ(
         serialized.events.front().object.id,
@@ -1570,12 +1741,109 @@ TEST_F(SnapshotFixture, structural_module_references_restore_onto_a_different_ru
     ASSERT_NE(restoredModule->id(), kSavedRuntimeModuleObjectId);
     TestGameModule::registerSavedModuleReferenceTarget(
         restored, restoredModule, context);
-    restoredModule->deserializeSavedEventQueue(*saved.snapshot->ifo);
+    restoredModule->deserializeSavedEventQueue(
+        *saved.snapshot->ifo, context);
     restoredModule->bindSavedEventQueue();
     const auto &events = restoredModule->savedEventQueue().events;
     ASSERT_EQ(events.size(), 1u);
     EXPECT_EQ(events.front().object.boundObject(), restoredModule);
     EXPECT_EQ(events.front().caller.boundObject(), restoredModule);
+}
+
+TEST_F(SnapshotFixture, recovered_event_payload_references_renumber_symmetrically) {
+    const auto sourceContext =
+        SerializedIdentityContext::moduleGraph("source-module");
+    game.registerSavedObjectIdentity(390u, player, sourceContext);
+    std::vector<std::shared_ptr<Creature>> targets;
+    for (uint32_t index = 0; index < 5; ++index) {
+        auto target = game.newCreature();
+        target->setTag("event_ref_" + std::to_string(index));
+        TestGameModule::addSnapshotObject(*area, target);
+        game.registerSavedObjectIdentity(
+            400u + index, target, sourceContext);
+        targets.push_back(std::move(target));
+    }
+
+    auto aoo = Gff::Builder().type(0x3333)
+                   .field(Gff::Field::newDword("Value", 400u)).build();
+    auto combat = Gff::Builder().type(0x2222)
+                      .field(Gff::Field::newDword("ReactObject", 401u))
+                      .field(Gff::Field::newDword("AmmoItem", 402u))
+                      .field(Gff::Field::newInt("AttackType", 17)).build();
+    auto feedbackObject1 = Gff::Builder().type(0xbaad)
+                               .field(Gff::Field::newDword(
+                                   "ObjectValue", 403u)).build();
+    auto feedbackObject2 = Gff::Builder().type(0xbaad)
+                               .field(Gff::Field::newDword(
+                                   "ObjectValue", 404u)).build();
+    auto feedback = Gff::Builder().type(0xcccc)
+                        .field(Gff::Field::newByte("Type", 9))
+                        .field(Gff::Field::newList(
+                            "ObjectIDList",
+                            {feedbackObject1, feedbackObject2})).build();
+    auto spell = Gff::Builder().type(0x6666)
+                     .field(Gff::Field::newDword("CasterId", 400u))
+                     .field(Gff::Field::newDword("TargetId", 401u))
+                     .field(Gff::Field::newDword("AreaId", 402u))
+                     .field(Gff::Field::newDword("ItemId", 403u)).build();
+    auto makeEvent = [&](uint32_t type, std::shared_ptr<Gff> data) {
+        return Gff::Builder().type(0xabcd)
+            .field(Gff::Field::newDword("Day", 1))
+            .field(Gff::Field::newDword("Time", type))
+            .field(Gff::Field::newDword("ObjectId", 390u))
+            .field(Gff::Field::newDword("CallerId", 390u))
+            .field(Gff::Field::newDword("EventId", type))
+            .field(Gff::Field::newStruct("EventData", std::move(data)))
+            .build();
+    };
+    for (const auto &[type, data] :
+         std::vector<std::pair<uint32_t, std::shared_ptr<Gff>>> {
+             {20u, aoo}, {15u, combat}, {22u, feedback}, {19u, spell}}) {
+        auto event = SavedEventRecord::fromGff(
+            *makeEvent(type, data), sourceContext);
+        ASSERT_TRUE(event.bindObjectReferences(game));
+        game.module()->enqueueSaveEvent(std::move(event));
+    }
+
+    auto saved = ModuleSnapshotBuilder(game, "module003").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    std::map<std::string, uint32_t> idByTag;
+    for (const auto &record : saved.snapshot->git->getList("Creature List")) {
+        idByTag.emplace(
+            record->getString("Tag"), record->getUint("ObjectId"));
+    }
+    ASSERT_EQ(idByTag.size(), targets.size());
+    for (uint32_t index = 0; index < targets.size(); ++index) {
+        EXPECT_NE(idByTag.at("event_ref_" + std::to_string(index)),
+                  400u + index);
+    }
+    std::map<uint32_t, std::shared_ptr<Gff>> eventByType;
+    for (const auto &record : saved.snapshot->ifo->getList("EventQueue")) {
+        eventByType.emplace(record->getUint("EventId"), record);
+    }
+    ASSERT_EQ(eventByType.size(), 4u);
+    EXPECT_EQ(
+        eventByType.at(20u)->findStruct("EventData")->getUint("Value"),
+        idByTag.at("event_ref_0"));
+    const auto savedCombat = eventByType.at(15u)->findStruct("EventData");
+    EXPECT_EQ(savedCombat->getUint("ReactObject"),
+              idByTag.at("event_ref_1"));
+    EXPECT_EQ(savedCombat->getUint("AmmoItem"),
+              idByTag.at("event_ref_2"));
+    EXPECT_EQ(savedCombat->getInt("AttackType"), 17);
+    const auto savedFeedback = eventByType.at(22u)->findStruct("EventData");
+    ASSERT_EQ(savedFeedback->getList("ObjectIDList").size(), 2u);
+    EXPECT_EQ(savedFeedback->getList("ObjectIDList")[0]->getUint("ObjectValue"),
+              idByTag.at("event_ref_3"));
+    EXPECT_EQ(savedFeedback->getList("ObjectIDList")[1]->getUint("ObjectValue"),
+              idByTag.at("event_ref_4"));
+    EXPECT_EQ(savedFeedback->getUint("Type"), 9u);
+    const auto savedSpell = eventByType.at(19u)->findStruct("EventData");
+    EXPECT_EQ(savedSpell->getUint("CasterId"), idByTag.at("event_ref_0"));
+    EXPECT_EQ(savedSpell->getUint("TargetId"), idByTag.at("event_ref_1"));
+    EXPECT_EQ(savedSpell->getUint("AreaId"), idByTag.at("event_ref_2"));
+    EXPECT_EQ(savedSpell->getUint("ItemId"), idByTag.at("event_ref_3"));
 }
 
 TEST_F(SnapshotFixture, runtime_delays_preserve_stable_time_order_and_fail_closed) {
@@ -1601,7 +1869,8 @@ TEST_F(SnapshotFixture, runtime_delays_preserve_stable_time_order_and_fail_close
     auto result = ModuleSnapshotBuilder(game, "module003").build();
 
     ASSERT_TRUE(result) << result.message;
-    auto queue = SavedEventQueue::fromGff(*readGff(result.snapshot->ifoBytes));
+    auto queue = SavedEventQueue::fromGff(
+        *readGff(result.snapshot->ifoBytes), snapshotIdentityContext());
     ASSERT_EQ(queue.events.size(), 3);
     EXPECT_EQ(queue.events[0].day, 3u);
     EXPECT_EQ(queue.events[0].time, 1000u);
@@ -1638,7 +1907,15 @@ TEST_F(SnapshotFixture, due_delay_is_inert_on_restore_and_delivered_exactly_once
 
     auto ifo = readGff(saved.snapshot->ifoBytes);
     TestGameModule::clearSnapshotDelayed(*player);
-    game.module()->deserializeSavedEventQueue(*ifo);
+    const auto serialized = SavedEventQueue::fromGff(
+        *ifo, snapshotIdentityContext());
+    ASSERT_EQ(serialized.events.size(), 1u);
+    game.registerSavedObjectIdentity(
+        serialized.events.front().object.id,
+        player,
+        snapshotIdentityContext());
+    game.module()->deserializeSavedEventQueue(
+        *ifo, snapshotIdentityContext());
     game.module()->bindSavedEventQueue();
     game.module()->publishSavedEventQueue();
 
@@ -1688,7 +1965,8 @@ TEST_F(SnapshotFixture, pending_start_conversation_is_a_supported_transition_sna
     ASSERT_TRUE(result) << result.message;
     auto ifo = readGff(result.snapshot->ifoBytes);
     auto saved = SavedActionRecord::fromGff(
-        *ifo->getList("Mod_PlayerList").front()->getList("ActionList").front());
+        *ifo->getList("Mod_PlayerList").front()->getList("ActionList").front(),
+        snapshotIdentityContext());
     EXPECT_EQ(saved.actionId, 24u);
     EXPECT_EQ(saved.groupActionId, 16);
     EXPECT_EQ(saved.declaredParameterCount, 3);
@@ -1755,8 +2033,10 @@ TEST_F(SnapshotFixture, follow_leader_and_later_action_preserve_transition_queue
     const auto &savedQueue =
         ifo->getList("Mod_PlayerList").front()->getList("ActionList");
     ASSERT_EQ(savedQueue.size(), 2);
-    auto savedFollow = SavedActionRecord::fromGff(*savedQueue[0]);
-    auto savedLater = SavedActionRecord::fromGff(*savedQueue[1]);
+    auto savedFollow = SavedActionRecord::fromGff(
+        *savedQueue[0], snapshotIdentityContext());
+    auto savedLater = SavedActionRecord::fromGff(
+        *savedQueue[1], snapshotIdentityContext());
     EXPECT_EQ(savedFollow.actionId, 61u);
     EXPECT_EQ(savedFollow.groupActionId, 40);
     EXPECT_EQ(savedFollow.declaredParameterCount, 0);

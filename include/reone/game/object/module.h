@@ -109,7 +109,9 @@ public:
     size_t enqueueSaveEvent(SavedEventRecord event);
     bool cancelSaveEvent(size_t index);
 
-    void deserializeSavedEventQueue(const resource::Gff &ifo);
+    void deserializeSavedEventQueue(
+        const resource::Gff &ifo,
+        const SerializedIdentityContext &identityContext);
     void bindSavedEventQueue();
     void publishSavedEventQueue();
     void dispatchDueSavedEvents();
@@ -127,6 +129,7 @@ private:
     std::vector<std::shared_ptr<Creature>> _limboCreatures;
     SavedEventQueue _savedEventQueue;
     std::vector<bool> _savedEventLive;
+    std::vector<bool> _savedEventReferencesBound;
 
     struct PublishedSavedEvent {
         size_t savedIndex {0};

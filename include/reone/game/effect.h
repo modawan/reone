@@ -25,12 +25,17 @@
 
 #include "reone/script/enginetype.h"
 
+#include "saveprovenance.h"
 #include "types.h"
 
 namespace reone {
 
 namespace resource {
 class Gff;
+}
+
+namespace script {
+struct Variable;
 }
 
 namespace game {
@@ -89,10 +94,38 @@ public:
     virtual void retireAreaRuntime(
         const std::set<const Object *> &retainedObjects) {}
 
+    /**
+     * Build the retail CGameEffect value carried by a live VM continuation.
+     *
+     * Runtime effects retain executable C++ behavior, while this description
+     * carries the orthogonal save-facing fields and object bindings. Subclasses
+     * configure their generic retail parameters through the protected helpers.
+     */
+    virtual EffectInstance saveFacingInstance() const;
+    void setSaveFacingCreator(const std::shared_ptr<Object> &creator);
+    void captureSaveFacingScriptArguments(
+        const std::vector<script::Variable> &arguments,
+        const Game &game);
+
     EffectType type() const { return _type; }
 
 protected:
+    void setSaveFacingInteger(size_t index, int32_t value);
+    void setSaveFacingFloat(size_t index, float value);
+    void setSaveFacingString(size_t index, std::string value);
+    void setSaveFacingObject(
+        size_t index,
+        const std::shared_ptr<Object> &object);
+
     EffectType _type;
+
+private:
+    std::vector<int32_t> _saveFacingIntegers;
+    std::array<float, 4> _saveFacingFloats {};
+    std::array<std::string, 6> _saveFacingStrings {};
+    std::weak_ptr<Object> _saveFacingCreator;
+    std::array<std::weak_ptr<Object>, 4> _saveFacingObjects;
+    bool _saveFacingRepresentable {true};
 };
 
 /**
@@ -131,13 +164,18 @@ struct EffectInstance {
     };
     std::weak_ptr<Object> creator;
     std::array<std::weak_ptr<Object>, 4> objectParameterObjects;
-    bool serializedObjectReferences {false};
+    std::optional<SerializedIdentityContext> serializedReferenceContext;
 
-    static EffectInstance fromGff(const resource::Gff &gff);
+    static EffectInstance fromGff(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
 
     DurationType durationType() const;
     uint16_t semanticSubType() const { return subType & 0x18; }
     bool hasStableId() const { return id != kUnassignedEffectId; }
+    bool hasSerializedObjectReferences() const {
+        return serializedReferenceContext.has_value();
+    }
     bool shouldRestoreOnLoad() const {
         return !skipOnLoad && durationType() != DurationType::Equipped;
     }
@@ -183,6 +221,7 @@ class SavedEffectValue : public Effect {
 public:
     explicit SavedEffectValue(EffectInstance instance);
     const EffectInstance &instance() const { return _instance; }
+    EffectInstance saveFacingInstance() const override { return _instance; }
 
 private:
     EffectInstance _instance;

@@ -35,6 +35,10 @@ public:
         _effector(std::move(effector)),
         _bodyPart(bodyPart),
         _missEffect(missEffect) {
+        setSaveFacingInteger(0, beamVisualEffect);
+        setSaveFacingInteger(1, static_cast<int>(bodyPart));
+        setSaveFacingInteger(2, missEffect ? 1 : 0);
+        setSaveFacingObject(0, _effector);
     }
 
     void applyTo(Object &object) override;

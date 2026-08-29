@@ -434,7 +434,9 @@ TEST(SaveWideSnapshot, thirteen_item_inventory_round_trip_is_singular_and_semant
             .field(Gff::Field::newWord("StackSize", index + 1))
             .field(Gff::Field::newCExoString("Tag", "roundtrip_" + std::to_string(index)))
             .build();
-        item->deserializeRuntimeState(*record);
+        item->deserializeRuntimeState(
+            *record,
+            SerializedIdentityContext::detachedRecord("inventory.res"));
         item->setTag("roundtrip_" + std::to_string(index));
         item->setStackSize(index + 1);
         item->captureSaveRecord(

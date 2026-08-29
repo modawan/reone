@@ -44,8 +44,8 @@ void Encounter::deserialize(
 
 void Encounter::deserializeAll(
     const resource::Gff &gff,
-    const SerializedIdentityContext &) {
-    deserializeRuntimeState(gff);
+    const SerializedIdentityContext &identityContext) {
+    deserializeRuntimeState(gff, identityContext);
     deserializeSavedRuntimeState(gff);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);

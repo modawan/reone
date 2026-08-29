@@ -144,7 +144,11 @@ bool Game::bindEffectCreator(EffectInstance &effect) const {
         }
         return false;
     }
-    if (effect.serializedObjectReferences && effect._savedGraph &&
+    const auto &serializedContext = effect.serializedReferenceContext;
+    const bool moduleGraphReferences =
+        serializedContext &&
+        serializedContext->domain == SerializedIdentityDomain::ModuleGraph;
+    if (moduleGraphReferences && effect._savedGraph &&
         *effect._savedGraph != _savedGraphGeneration) {
         effect.creator.reset();
         for (auto &object : effect.objectParameterObjects) {
@@ -155,11 +159,13 @@ bool Game::bindEffectCreator(EffectInstance &effect) const {
     if (!effect._runtimeSession) {
         effect._runtimeSession = _runtimeSessionGeneration;
     }
-    if (effect.serializedObjectReferences && !effect._savedGraph) {
+    if (moduleGraphReferences && !effect._savedGraph) {
         effect._savedGraph = _savedGraphGeneration;
     }
-    auto resolve = [this, serialized = effect.serializedObjectReferences](uint32_t id) {
-        return serialized ? getObjectBySavedId(id) : getObjectById(id);
+    auto resolve = [this, &serializedContext](uint32_t id) {
+        return serializedContext
+                   ? resolveSerializedObjectReference(id, *serializedContext)
+                   : getObjectById(id);
     };
     bool allBound = true;
     if (effect.creatorId != kSavedEffectInvalidObjectId &&
@@ -190,17 +196,22 @@ bool Game::bindSavedObjectReference(SavedObjectReference &reference) const {
     if (!reference._runtimeSession) {
         reference._runtimeSession = _runtimeSessionGeneration;
     }
-    if (reference.isSerializedIdentity() && reference._savedGraph &&
+    const auto &serializedContext = reference.serializedIdentityContext();
+    const bool moduleGraphReference =
+        serializedContext &&
+        serializedContext->domain == SerializedIdentityDomain::ModuleGraph;
+    if (moduleGraphReference && reference._savedGraph &&
         *reference._savedGraph != _savedGraphGeneration) {
         reference._object.reset();
         return false;
     }
-    if (reference.isSerializedIdentity() && !reference._savedGraph) {
+    if (moduleGraphReference && !reference._savedGraph) {
         reference._savedGraph = _savedGraphGeneration;
     }
 
-    auto object = reference.isSerializedIdentity()
-                      ? getObjectBySavedId(reference.id)
+    auto object = serializedContext
+                      ? resolveSerializedObjectReference(
+                            reference.id, *serializedContext)
                       : getObjectById(reference.id);
     if (!object) {
         reference._object.reset();
@@ -208,6 +219,43 @@ bool Game::bindSavedObjectReference(SavedObjectReference &reference) const {
     }
     reference._object = object;
     return true;
+}
+
+std::shared_ptr<Object> Game::resolveSerializedObjectReference(
+    uint32_t id,
+    const SerializedIdentityContext &identityContext) const {
+    switch (identityContext.domain) {
+    case SerializedIdentityDomain::ModuleGraph:
+        if (!_reservedSavedIdentityNamespace ||
+            *_reservedSavedIdentityNamespace != identityContext.identityNamespace) {
+            return nullptr;
+        }
+        return getObjectBySavedId(id);
+    case SerializedIdentityDomain::Template:
+        // ObjectId-shaped fields in blueprints do not name instances in any
+        // live serialized graph. Treating them as module references would
+        // recreate the cross-domain equality assumption A1 removed.
+        return nullptr;
+    case SerializedIdentityDomain::DetachedRecord: {
+        std::shared_ptr<Object> result;
+        for (const auto &[_, candidate] : _objectById) {
+            auto identity = candidate->serializedObjectIdentity();
+            if (!identity || !(identity->context == identityContext) ||
+                identity->id != id) {
+                continue;
+            }
+            if (result && result.get() != candidate.get()) {
+                throw ValidationException(
+                    "Ambiguous detached-record object reference " +
+                    identityContext.identityNamespace + ":" +
+                    std::to_string(id));
+            }
+            result = candidate;
+        }
+        return result;
+    }
+    }
+    return nullptr;
 }
 
 static constexpr char kDeveloperOverlayToggleHelp[] = "Ctrl+Shift+D";
@@ -1117,10 +1165,8 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
 
             _module->loadParty(entry, restoringSavedSession);
 
-            if (restoringSavedWorld) {
-                bindSavedRuntimeState();
-                publishSavedRuntimeState();
-            }
+            bindSavedRuntimeState();
+            publishSavedRuntimeState();
 
             info("Module '" + name + "' loaded successfully");
 
@@ -2718,11 +2764,11 @@ void Game::reserveSavedObjectIds(
 
 void Game::resolveSavedObjectReferences() {
     for (const auto &[_, object] : _objectById) {
-        if (_savedIdsByObject.count(object.get()) == 0) {
-            continue;
-        }
+        const auto identityContext = object->_savedRuntimeIdentityContext;
         object->resolveSavedReferences(
-            [this](uint32_t id) { return getObjectBySavedId(id); });
+            [this, identityContext](uint32_t id) {
+                return resolveSerializedObjectReference(id, identityContext);
+            });
     }
 }
 
@@ -2732,9 +2778,6 @@ void Game::bindSavedRuntimeState() {
     }
     resolveSavedObjectReferences();
     for (const auto &[_, object] : _objectById) {
-        if (_savedIdsByObject.count(object.get()) == 0) {
-            continue;
-        }
         object->bindSavedRuntimeState();
     }
     _module->bindSavedEventQueue();
@@ -2745,9 +2788,6 @@ void Game::publishSavedRuntimeState() {
         return;
     }
     for (const auto &[_, object] : _objectById) {
-        if (_savedIdsByObject.count(object.get()) == 0) {
-            continue;
-        }
         object->publishSavedRuntimeState();
     }
     _module->publishSavedEventQueue();

@@ -59,6 +59,14 @@ using resource::ResType;
 
 constexpr uint32_t kNcsHeaderSize = 13;
 
+template <class... Visitors>
+struct Overloaded : Visitors... {
+    using Visitors::operator()...;
+};
+
+template <class... Visitors>
+Overloaded(Visitors...) -> Overloaded<Visitors...>;
+
 std::shared_ptr<Gff> emptyRecord(uint32_t type) {
     return Gff::Builder().type(type).build();
 }
@@ -396,13 +404,33 @@ std::shared_ptr<Gff> eventToGff(
     else if (auto value = std::get_if<EffectInstance>(&event.payload)) data = effectToGff(*value, game);
     else if (auto value = std::get_if<SavedBytePayload>(&event.payload)) data = Gff::Builder().type(0x9999).field(Gff::Field::newByte("Value", value->value)).build();
     else if (auto value = std::get_if<SavedIntPayload>(&event.payload)) data = Gff::Builder().type(0x3333).field(Gff::Field::newInt("Value", value->value)).build();
-    else if (auto value = std::get_if<SavedDwordPayload>(&event.payload)) data = Gff::Builder().type(0x3333).field(Gff::Field::newDword("Value", value->value)).build();
     else if (auto value = std::get_if<SavedScriptEvent>(&event.payload)) data = scriptEventToGff(*value);
     else if (auto value = std::get_if<SavedBodyBag>(&event.payload)) data = Gff::Builder().type(0x5555)
         .field(Gff::Field::newDword("BodyBagId", value->object.id))
         .field(Gff::Field::newFloat("PositionX", value->position.x))
         .field(Gff::Field::newFloat("PositionY", value->position.y))
         .field(Gff::Field::newFloat("PositionZ", value->position.z)).build();
+    else if (auto value = std::get_if<SavedBroadcastAoo>(&event.payload)) data = Gff::Builder().type(0x3333)
+        .field(Gff::Field::newDword("Value", value->target.id)).build();
+    else if (auto value = std::get_if<SavedCombatAttack>(&event.payload)) {
+        data = savedStructToGff(value->data);
+        put(*data, Gff::Field::newDword(
+                       "ReactObject", value->reactionObject.id));
+        put(*data, Gff::Field::newDword("AmmoItem", value->ammoItem.id));
+    } else if (auto value = std::get_if<SavedFeedbackMessage>(&event.payload)) {
+        data = savedStructToGff(value->data);
+        auto objects = data->getList("ObjectIDList");
+        if (objects.size() != value->objects.size()) {
+            throw ValidationException(
+                "feedback message object-reference shadow changed shape");
+        }
+        for (size_t index = 0; index < objects.size(); ++index) {
+            put(*objects[index], Gff::Field::newDword(
+                                     "ObjectValue", value->objects[index].id));
+        }
+        put(*data, Gff::Field::newList(
+                       "ObjectIDList", std::move(objects)));
+    }
     else if (auto value = std::get_if<SavedSpellImpact>(&event.payload)) data = Gff::Builder().type(0x6666)
         .field(Gff::Field::newInt("SpellId", value->spellId))
         .field(Gff::Field::newDword("CasterId", value->caster.id))
@@ -654,8 +682,15 @@ std::optional<SerializedScriptSituation> exportScriptSituation(
             saved.type = static_cast<int8_t>(SavedVmStackType::Object); saved.payload = SavedObjectReference::fromRuntimeId(value.objectId); break;
         case script::VariableType::Effect: {
             auto effect = std::dynamic_pointer_cast<SavedEffectValue>(value.engineType);
-            if (!effect) { error = "live VM effect lacks a save-facing EffectInstance"; return std::nullopt; }
-            saved.type = static_cast<int8_t>(SavedVmStackType::Effect); saved.payload = effect->instance(); break;
+            auto liveEffect = std::dynamic_pointer_cast<Effect>(value.engineType);
+            if (!liveEffect) {
+                error = "live VM effect has an unsupported engine value";
+                return std::nullopt;
+            }
+            saved.type = static_cast<int8_t>(SavedVmStackType::Effect);
+            saved.payload = effect ? effect->instance()
+                                   : liveEffect->saveFacingInstance();
+            break;
         }
         case script::VariableType::Event: {
             auto event = std::dynamic_pointer_cast<Event>(value.engineType);
@@ -788,6 +823,29 @@ void ModuleSnapshotBuilder::writeObjectState(
                     : kSavedRuntimeInvalidObjectId));
         }
     }
+
+    // PerceptionList is part of the same reference-bearing save shadow as the
+    // flat fields above. Rewrite every known ObjectId before a subclass either
+    // publishes live perception state or preserves the record as shadow data;
+    // otherwise graph renumbering could leave a stale numeric alias behind.
+    std::vector<std::shared_ptr<Gff>> perceptions;
+    size_t perceptionIndex = 0;
+    for (const auto &savedPerception : record.getList("PerceptionList")) {
+        auto perception = savedPerception->deepCopy();
+        auto binding = object.savedReference(
+            "Perception/" + std::to_string(perceptionIndex));
+        put(*perception, Gff::Field::newDword(
+                             "ObjectId",
+                             binding && ids.contains(*binding)
+                                 ? ids.objectId(*binding)
+                                 : kSavedRuntimeInvalidObjectId));
+        perceptions.push_back(std::move(perception));
+        ++perceptionIndex;
+    }
+    if (record.has("PerceptionList")) {
+        put(record, Gff::Field::newList(
+                        "PerceptionList", std::move(perceptions)));
+    }
 }
 
 uint32_t ModuleSnapshotBuilder::serializedReferenceId(
@@ -811,7 +869,7 @@ uint32_t ModuleSnapshotBuilder::serializedReferenceId(
 
 EffectInstance ModuleSnapshotBuilder::normalizeEffectReferences(
     EffectInstance effect, const ModuleObjectIdContext &ids) const {
-    auto normalizeId = [this, &ids, serialized = effect.serializedObjectReferences](uint32_t id) {
+    auto normalizeId = [this, &ids, serialized = effect.hasSerializedObjectReferences()](uint32_t id) {
         if (id == kSavedRuntimeInvalidObjectId ||
             id == kSavedEffectInvalidObjectId) return id;
         if (serialized) return kSavedRuntimeInvalidObjectId;
@@ -844,15 +902,29 @@ void ModuleSnapshotBuilder::normalizeSituationReferences(
     SerializedScriptSituation &situation,
     const ModuleObjectIdContext &ids) const {
     for (auto &value : situation.stack) {
-        if (auto reference = std::get_if<SavedObjectReference>(&value.payload)) {
-            reference->id = serializedReferenceId(*reference, ids);
-        } else if (auto effect = std::get_if<EffectInstance>(&value.payload)) {
-            *effect = normalizeEffectReferences(std::move(*effect), ids);
-        } else if (auto event = std::get_if<SavedScriptEvent>(&value.payload)) {
-            for (auto &reference : event->objects) {
-                reference.id = serializedReferenceId(reference, ids);
-            }
-        }
+        std::visit(
+            Overloaded {
+                [](UnsupportedSavedPayload &) {},
+                [](int32_t &) {},
+                [](float &) {},
+                [](std::string &) {},
+                [this, &ids](SavedObjectReference &reference) {
+                    reference.id = serializedReferenceId(reference, ids);
+                },
+                [this, &ids](EffectInstance &effect) {
+                    effect = normalizeEffectReferences(std::move(effect), ids);
+                },
+                [this, &ids](SavedScriptEvent &event) {
+                    for (auto &reference : event.objects) {
+                        reference.id = serializedReferenceId(reference, ids);
+                    }
+                },
+                [](SavedLocationValue &) {},
+                [this, &ids](SavedTalentValue &talent) {
+                    talent.item.id = serializedReferenceId(talent.item, ids);
+                },
+            },
+            value.payload);
     }
 }
 
@@ -892,6 +964,16 @@ void ModuleSnapshotBuilder::normalizeEventReferences(
         }
     } else if (auto bag = std::get_if<SavedBodyBag>(&event.payload)) {
         bag->object.id = serializedReferenceId(bag->object, ids);
+    } else if (auto broadcast = std::get_if<SavedBroadcastAoo>(&event.payload)) {
+        broadcast->target.id = serializedReferenceId(broadcast->target, ids);
+    } else if (auto combat = std::get_if<SavedCombatAttack>(&event.payload)) {
+        combat->reactionObject.id = serializedReferenceId(
+            combat->reactionObject, ids);
+        combat->ammoItem.id = serializedReferenceId(combat->ammoItem, ids);
+    } else if (auto feedback = std::get_if<SavedFeedbackMessage>(&event.payload)) {
+        for (auto &reference : feedback->objects) {
+            reference.id = serializedReferenceId(reference, ids);
+        }
     }
 }
 

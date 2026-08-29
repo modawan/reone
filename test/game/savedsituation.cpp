@@ -181,6 +181,7 @@ TEST_F(SavedSituationTest, new_runtime_continuation_exposes_future_export_seam) 
 TEST_F(SavedSituationTest, translates_every_supported_stack_value_without_losing_engine_payloads) {
     auto fixture = continuationProgram();
     auto situation = situationFor(fixture);
+    auto runtimeObject = game.newCreature();
     EffectInstance effect;
     effect.id = 77;
     effect.retailType = static_cast<uint16_t>(EffectType::Disease);
@@ -217,7 +218,8 @@ TEST_F(SavedSituationTest, translates_every_supported_stack_value_without_losing
         {static_cast<int8_t>(SavedVmStackType::Location),
          SavedLocationValue {glm::vec3(1.0f, 2.0f, 3.0f), glm::vec3(0.0f, 1.0f, 0.0f)}},
         {static_cast<int8_t>(SavedVmStackType::Talent), talent},
-        {static_cast<int8_t>(SavedVmStackType::Object), SavedObjectReference {1234}},
+        {static_cast<int8_t>(SavedVmStackType::Object),
+         SavedObjectReference {runtimeObject->id()}},
     };
 
     auto imported = bindAndImport(situation);
@@ -254,7 +256,7 @@ TEST_F(SavedSituationTest, translates_every_supported_stack_value_without_losing
     EXPECT_EQ(runtimeTalent->itemPropertyIndex(), 6);
     EXPECT_EQ(runtimeTalent->casterLevel(), 12);
     EXPECT_EQ(runtimeTalent->metaType(), 3);
-    EXPECT_EQ(state.locals[4].objectId, 1234);
+    EXPECT_EQ(state.locals[4].objectId, runtimeObject->id());
 }
 
 TEST_F(SavedSituationTest, saved_effect_vm_value_reuses_effect_instance_when_applied) {
@@ -464,7 +466,7 @@ TEST_F(SavedSituationTest, delay_event_and_do_command_action_payloads_share_the_
     EXPECT_EQ(event.executionSupport(), SavedExecutionSupport::Executable);
 }
 
-TEST_F(SavedSituationTest, missing_stack_object_remains_a_safe_raw_identity_for_runtime_resolution) {
+TEST_F(SavedSituationTest, missing_runtime_stack_object_fails_closed) {
     auto fixture = continuationProgram();
     auto situation = situationFor(fixture);
     situation.stack[0] = {
@@ -473,8 +475,10 @@ TEST_F(SavedSituationTest, missing_stack_object_remains_a_safe_raw_identity_for_
     EXPECT_FALSE(situation.bindObjectReferences(game));
     auto imported = SavedScriptSituationImporter(game, scripts).import(situation);
 
-    ASSERT_TRUE(imported) << imported.message;
-    EXPECT_EQ(imported.continuation->executionState().globals[0].objectId, 123456);
+    EXPECT_FALSE(imported);
+    EXPECT_EQ(
+        imported.error,
+        SavedScriptSituationImportError::UnboundRuntimeSession);
 }
 
 TEST_F(SavedSituationTest, translates_bound_serialized_stack_references_to_runtime_identity) {
@@ -489,14 +493,17 @@ TEST_F(SavedSituationTest, translates_bound_serialized_stack_references_to_runti
         SerializedIdentityContext::moduleGraph("test-module"));
 
     EffectInstance effect;
-    effect.serializedObjectReferences = true;
+    effect.serializedReferenceContext =
+        SerializedIdentityContext::moduleGraph("test-module");
     effect.creatorId = savedId;
     effect.objectParameters[0] = savedId;
     SavedScriptEvent event;
-    event.objects = {SavedObjectReference::fromSerializedId(savedId)};
+    event.objects = {SavedObjectReference::fromSerializedId(
+        savedId, SerializedIdentityContext::moduleGraph("test-module"))};
     SavedTalentValue talent;
     talent.type = static_cast<int32_t>(TalentType::Feat);
-    talent.item = SavedObjectReference::fromSerializedId(savedId);
+    talent.item = SavedObjectReference::fromSerializedId(
+        savedId, SerializedIdentityContext::moduleGraph("test-module"));
 
     situation.stackSize = 4;
     situation.basePointer = 4;
@@ -504,7 +511,9 @@ TEST_F(SavedSituationTest, translates_bound_serialized_stack_references_to_runti
     situation.totalSize = 20;
     situation.stack = {
         {static_cast<int8_t>(SavedVmStackType::Object),
-         SavedObjectReference::fromSerializedId(savedId)},
+         SavedObjectReference::fromSerializedId(
+             savedId,
+             SerializedIdentityContext::moduleGraph("test-module"))},
         {static_cast<int8_t>(SavedVmStackType::Event), event},
         {static_cast<int8_t>(SavedVmStackType::Talent), talent},
         {static_cast<int8_t>(SavedVmStackType::Effect), effect},
@@ -526,7 +535,7 @@ TEST_F(SavedSituationTest, translates_bound_serialized_stack_references_to_runti
     ASSERT_TRUE(savedEffect);
     EXPECT_EQ(savedEffect->instance().creatorId, target->id());
     EXPECT_EQ(savedEffect->instance().objectParameters[0], target->id());
-    EXPECT_FALSE(savedEffect->instance().serializedObjectReferences);
+    EXPECT_FALSE(savedEffect->instance().hasSerializedObjectReferences());
 }
 
 TEST_F(SavedSituationTest, missing_serialized_stack_object_fails_closed) {
@@ -534,13 +543,57 @@ TEST_F(SavedSituationTest, missing_serialized_stack_object_fails_closed) {
     auto situation = situationFor(fixture);
     situation.stack[0] = {
         static_cast<int8_t>(SavedVmStackType::Object),
-        SavedObjectReference::fromSerializedId(123456)};
+        SavedObjectReference::fromSerializedId(
+            123456,
+            SerializedIdentityContext::moduleGraph("test-module"))};
 
     EXPECT_FALSE(situation.bindObjectReferences(game));
     auto imported = SavedScriptSituationImporter(game, scripts).import(situation);
 
+    EXPECT_FALSE(imported);
+    EXPECT_EQ(
+        imported.error,
+        SavedScriptSituationImportError::UnboundRuntimeSession);
+}
+
+TEST_F(SavedSituationTest, detached_reference_never_uses_active_module_saved_map) {
+    auto fixture = continuationProgram();
+    auto situation = situationFor(fixture);
+    auto moduleObject = game.newCreature();
+    game.registerSavedObjectIdentity(
+        100u,
+        moduleObject,
+        SerializedIdentityContext::moduleGraph("test-module"));
+    situation.stack[0] = {
+        static_cast<int8_t>(SavedVmStackType::Object),
+        SavedObjectReference::fromSerializedId(
+            100u,
+            SerializedIdentityContext::detachedRecord("availnpc0.utc"))};
+
+    EXPECT_FALSE(situation.bindObjectReferences(game));
+    auto imported = SavedScriptSituationImporter(game, scripts).import(situation);
+    EXPECT_FALSE(imported);
+    EXPECT_FALSE(
+        std::get<SavedObjectReference>(situation.stack[0].payload)
+            .boundObject());
+}
+
+TEST_F(SavedSituationTest, detached_reference_resolves_only_inside_its_record) {
+    auto fixture = continuationProgram();
+    auto situation = situationFor(fixture);
+    const auto context =
+        SerializedIdentityContext::detachedRecord("availnpc0.utc");
+    auto localItem = game.newItem();
+    localItem->assignSerializedObjectIdentity({context, 100u});
+    situation.stack[0] = {
+        static_cast<int8_t>(SavedVmStackType::Object),
+        SavedObjectReference::fromSerializedId(100u, context)};
+
+    auto imported = bindAndImport(situation);
     ASSERT_TRUE(imported) << imported.message;
-    EXPECT_EQ(imported.continuation->executionState().globals[0].objectId, kObjectInvalid);
+    EXPECT_EQ(
+        imported.continuation->executionState().globals[0].objectId,
+        localItem->id());
 }
 
 TEST_F(SavedSituationTest, ordinary_script_runner_path_remains_unchanged) {

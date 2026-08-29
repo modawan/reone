@@ -42,14 +42,21 @@ struct SavedObjectReference {
     static SavedObjectReference fromRuntimeId(uint32_t id) {
         return SavedObjectReference(id);
     }
-    static SavedObjectReference fromSerializedId(uint32_t id) {
+    static SavedObjectReference fromSerializedId(
+        uint32_t id,
+        SerializedIdentityContext identityContext) {
         SavedObjectReference result(id);
-        result._serializedIdentity = true;
+        result._serializedIdentityContext = std::move(identityContext);
         return result;
     }
 
     bool isInvalid() const { return id == kSavedRuntimeInvalidObjectId; }
-    bool isSerializedIdentity() const { return _serializedIdentity; }
+    bool isSerializedIdentity() const {
+        return _serializedIdentityContext.has_value();
+    }
+    const std::optional<SerializedIdentityContext> &serializedIdentityContext() const {
+        return _serializedIdentityContext;
+    }
     std::shared_ptr<Object> boundObject() const { return _object.lock(); }
 
 private:
@@ -57,7 +64,7 @@ private:
     std::weak_ptr<Object> _object;
     std::optional<uint64_t> _runtimeSession;
     std::optional<uint64_t> _savedGraph;
-    bool _serializedIdentity {false};
+    std::optional<SerializedIdentityContext> _serializedIdentityContext;
 };
 
 struct SavedLocString {
@@ -96,6 +103,14 @@ struct SavedStruct {
 };
 
 struct UnsupportedSavedPayload {
+    /**
+     * Opaque compatibility shadow only. Reone never executes it and never
+     * guesses that an arbitrary DWORD is an ObjectId. Consequently, a modded
+     * unknown payload that embeds an undocumented object reference can only be
+     * preserved numerically; it is not promised to survive graph renumbering.
+     * Once a structure is known to carry references it must receive a typed
+     * model and symmetric translation instead of remaining here.
+     */
     SavedStruct data;
 };
 
@@ -170,7 +185,9 @@ struct SerializedScriptSituation {
     std::vector<SavedVmStackValue> stack;
     std::vector<SavedField> unsupportedFields;
 
-    static SerializedScriptSituation fromGff(const resource::Gff &gff);
+    static SerializedScriptSituation fromGff(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     ScriptSituationResumeSupport resumeSupport() const {
         return ScriptSituationResumeSupport::ValidatedImport;
     }
@@ -180,6 +197,7 @@ struct SerializedScriptSituation {
 private:
     friend class SavedScriptSituationImporter;
     std::optional<uint64_t> _runtimeSession;
+    bool _referencesBound {false};
 };
 
 enum class SavedActionParameterType : uint32_t {
@@ -203,7 +221,9 @@ struct SavedActionParameter {
     uint32_t type {0};
     SavedActionParameterPayload payload {UnsupportedSavedPayload {}};
 
-    static SavedActionParameter fromGff(const resource::Gff &gff);
+    static SavedActionParameter fromGff(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     bool bindObjectReferences(const Game &game);
 };
 
@@ -220,7 +240,9 @@ struct SavedActionRecord {
     std::vector<SavedActionParameter> parameters;
     std::vector<SavedField> unsupportedFields;
 
-    static SavedActionRecord fromGff(const resource::Gff &gff);
+    static SavedActionRecord fromGff(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     SavedExecutionSupport executionSupport() const;
     std::shared_ptr<Action> toRuntimeAction(
         Game &game,
@@ -232,7 +254,10 @@ struct SavedActionRecord {
 struct SavedActionQueue {
     std::vector<SavedActionRecord> actions;
 
-    static SavedActionQueue fromGff(const resource::Gff &gff, const std::string &label = "ActionList");
+    static SavedActionQueue fromGff(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext,
+        const std::string &label = "ActionList");
 };
 
 enum class SavedEventType : uint32_t {
@@ -271,10 +296,6 @@ struct SavedBytePayload {
 struct SavedIntPayload {
     int32_t value {0};
 };
-struct SavedDwordPayload {
-    uint32_t value {0};
-};
-
 struct SavedSpellImpact {
     int32_t spellId {0};
     SavedObjectReference caster;
@@ -291,6 +312,32 @@ struct SavedBodyBag {
     glm::vec3 position {0.0f};
 };
 
+/** Retail EVENT_BROADCAST_AOO stores an ObjectId in its generic DWORD Value. */
+struct SavedBroadcastAoo {
+    SavedObjectReference target;
+};
+
+/**
+ * Partially modelled CSWSCombatAttackData.
+ *
+ * The complete combat payload remains a compatibility shadow, while its two
+ * recovered ObjectId fields participate in normal graph translation.
+ */
+struct SavedCombatAttack {
+    SavedStruct data;
+    SavedObjectReference reactionObject;
+    SavedObjectReference ammoItem;
+};
+
+/**
+ * Partially modelled CSWCCMessageData used by EVENT_FEEDBACK_MESSAGE.
+ * Non-reference fields remain preserved in data.
+ */
+struct SavedFeedbackMessage {
+    SavedStruct data;
+    std::vector<SavedObjectReference> objects;
+};
+
 using SavedEventPayload = std::variant<
     std::monostate,
     UnsupportedSavedPayload,
@@ -298,10 +345,12 @@ using SavedEventPayload = std::variant<
     EffectInstance,
     SavedBytePayload,
     SavedIntPayload,
-    SavedDwordPayload,
     SavedSpellImpact,
     SavedScriptEvent,
-    SavedBodyBag>;
+    SavedBodyBag,
+    SavedBroadcastAoo,
+    SavedCombatAttack,
+    SavedFeedbackMessage>;
 
 struct SavedEventRecord {
     /** Absolute world/game timestamp, never a wall-clock or derived delay. */
@@ -313,7 +362,9 @@ struct SavedEventRecord {
     SavedEventPayload payload;
     std::vector<SavedField> unsupportedFields;
 
-    static SavedEventRecord fromGff(const resource::Gff &gff);
+    static SavedEventRecord fromGff(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     SavedExecutionSupport executionSupport() const;
     bool shouldRestore() const;
     bool bindObjectReferences(const Game &game);
@@ -323,7 +374,10 @@ struct SavedEventRecord {
 struct SavedEventQueue {
     std::vector<SavedEventRecord> events;
 
-    static SavedEventQueue fromGff(const resource::Gff &gff, const std::string &label = "EventQueue");
+    static SavedEventQueue fromGff(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext,
+        const std::string &label = "EventQueue");
 };
 
 } // namespace game

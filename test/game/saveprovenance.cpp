@@ -197,7 +197,7 @@ TEST(SavedIdentityTranslation, matching_runtime_number_does_not_establish_saved_
     auto savedTwo = game.newItem(*record, context);
     ASSERT_NE(savedTwo->id(), 2u);
 
-    auto reference = SavedObjectReference::fromSerializedId(2);
+    auto reference = SavedObjectReference::fromSerializedId(2, context);
     ASSERT_TRUE(game.bindSavedObjectReference(reference));
     EXPECT_EQ(reference.boundObject(), savedTwo);
     EXPECT_NE(reference.boundObject(), unrelatedRuntimeTwo);
@@ -441,7 +441,9 @@ TEST(EffectSaveProvenance, loaded_and_runtime_expiry_follow_live_collection) {
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto object = std::make_shared<SaveTestObject>(2, game, engine.services());
 
-    auto loaded = EffectInstance::fromGff(*savedEffect());
+    auto loaded = EffectInstance::fromGff(
+        *savedEffect(),
+        SerializedIdentityContext::moduleGraph("test-module"));
     EXPECT_EQ(loaded.expiryOrigin, EffectExpiryOrigin::LoadedAbsoluteGameTime);
     ASSERT_TRUE(object->restoreEffect(loaded));
     ASSERT_EQ(object->saveEffectSnapshot().size(), 1);
@@ -469,7 +471,9 @@ TEST(ActionSaveProvenance, pending_loaded_cancelled_completed_and_new_waits) {
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto object = std::make_shared<SaveTestObject>(2, game, engine.services());
 
-    SavedActionRecord loaded = SavedActionRecord::fromGff(*savedWait());
+    SavedActionRecord loaded = SavedActionRecord::fromGff(
+        *savedWait(),
+        SerializedIdentityContext::moduleGraph("test-module"));
     auto wait = loaded.toRuntimeAction(game);
     ASSERT_TRUE(wait);
     EXPECT_TRUE(wait->originalSavedAction());
@@ -588,7 +592,9 @@ TEST(ActionSaveProvenance, unsupported_loaded_record_is_live_until_queue_clear) 
                     .field(Gff::Field::newList(
                         "ActionList", {savedWait(2.0f), unsupported}))
                     .build();
-    object->deserializeRuntimeState(*root);
+    object->deserializeRuntimeState(
+        *root,
+        SerializedIdentityContext::moduleGraph("test-module"));
     object->bindSavedRuntimeState();
     object->publishSavedRuntimeState();
     auto snapshot = object->saveActionSnapshot();
@@ -613,6 +619,10 @@ TEST(EventSaveProvenance, loaded_delivery_cancellation_new_and_session_replaceme
     game.prepareSavedRuntimeNamespace(
         *clock, SerializedIdentityContext::moduleGraph("test-module"));
     auto target = game.newCreature();
+    game.registerSavedObjectIdentity(
+        target->id(),
+        target,
+        SerializedIdentityContext::moduleGraph("test-module"));
     auto moduleA = game.newModule();
     auto queue = Gff::Builder()
                      .field(Gff::Field::newList(
@@ -625,7 +635,9 @@ TEST(EventSaveProvenance, loaded_delivery_cancellation_new_and_session_replaceme
                               static_cast<uint32_t>(SavedEventType::DestroyObject),
                               target->id())}))
                      .build();
-    moduleA->deserializeSavedEventQueue(*queue);
+    moduleA->deserializeSavedEventQueue(
+        *queue,
+        SerializedIdentityContext::moduleGraph("test-module"));
     moduleA->bindSavedEventQueue();
     moduleA->publishSavedEventQueue();
     ASSERT_EQ(moduleA->saveEventSnapshot().size(), 2);

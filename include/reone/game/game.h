@@ -616,6 +616,9 @@ public:
     size_t effectIdCount() const { return _effectIds.size(); }
     bool bindEffectCreator(EffectInstance &effect) const;
     bool bindSavedObjectReference(SavedObjectReference &reference) const;
+    std::shared_ptr<Object> resolveSerializedObjectReference(
+        uint32_t id,
+        const SerializedIdentityContext &identityContext) const;
     std::shared_ptr<Object> getObjectBySavedId(uint32_t id) const;
     void registerSavedObjectIdentity(
         uint32_t id,

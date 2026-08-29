@@ -96,8 +96,8 @@ void Trigger::configureLinkedDoorTransition(const std::shared_ptr<Door> &door) {
 
 void Trigger::deserializeAll(
     const resource::Gff &gff,
-    const SerializedIdentityContext &) {
-    deserializeRuntimeState(gff);
+    const SerializedIdentityContext &identityContext) {
+    deserializeRuntimeState(gff, identityContext);
     gff.readResRef(_onHeartbeat, "ScriptHeartbeat");
     gff.readResRef(_onEnter, "ScriptOnEnter");
     gff.readResRef(_onExit, "ScriptOnExit");

@@ -16,6 +16,7 @@
 #include "reone/game/game.h"
 #include "reone/game/object.h"
 #include "reone/resource/gff.h"
+#include "reone/script/variable.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -78,6 +79,14 @@ std::shared_ptr<Gff> richSavedEffect(uint16_t subType = 0x11, bool skipOnLoad = 
         .build();
 }
 
+EffectInstance parsedSavedEffect(
+    uint16_t subType = 0x11,
+    bool skipOnLoad = false) {
+    return EffectInstance::fromGff(
+        *richSavedEffect(subType, skipOnLoad),
+        SerializedIdentityContext::moduleGraph("test-module"));
+}
+
 class CountingEffect : public Effect {
 public:
     CountingEffect() : Effect(EffectType::Haste) {}
@@ -97,7 +106,7 @@ public:
 };
 
 TEST(SavedEffect, should_preserve_the_complete_observed_payload) {
-    EffectInstance effect = EffectInstance::fromGff(*richSavedEffect());
+    EffectInstance effect = parsedSavedEffect();
 
     EXPECT_EQ(effect.id, 0x100000002ULL);
     EXPECT_EQ(effect.retailType, 68);
@@ -123,19 +132,19 @@ TEST(SavedEffect, should_preserve_the_complete_observed_payload) {
 }
 
 TEST(SavedEffect, should_decode_all_directly_proven_duration_types_from_subtype) {
-    EXPECT_EQ(EffectInstance::fromGff(*richSavedEffect(0)).durationType(), DurationType::Instant);
-    EXPECT_EQ(EffectInstance::fromGff(*richSavedEffect(1)).durationType(), DurationType::Temporary);
-    EXPECT_EQ(EffectInstance::fromGff(*richSavedEffect(2)).durationType(), DurationType::Permanent);
-    EXPECT_EQ(EffectInstance::fromGff(*richSavedEffect(3)).durationType(), DurationType::Equipped);
-    EXPECT_EQ(EffectInstance::fromGff(*richSavedEffect(4)).durationType(), DurationType::Innate);
-    EXPECT_EQ(EffectInstance::fromGff(*richSavedEffect(7)).durationType(), DurationType::Invalid);
+    EXPECT_EQ(parsedSavedEffect(0).durationType(), DurationType::Instant);
+    EXPECT_EQ(parsedSavedEffect(1).durationType(), DurationType::Temporary);
+    EXPECT_EQ(parsedSavedEffect(2).durationType(), DurationType::Permanent);
+    EXPECT_EQ(parsedSavedEffect(3).durationType(), DurationType::Equipped);
+    EXPECT_EQ(parsedSavedEffect(4).durationType(), DurationType::Innate);
+    EXPECT_EQ(parsedSavedEffect(7).durationType(), DurationType::Invalid);
 }
 
 TEST(SavedEffect, should_follow_direct_skip_and_equipped_load_policy) {
-    EXPECT_FALSE(EffectInstance::fromGff(*richSavedEffect(1)).skipOnLoad);
-    EXPECT_TRUE(EffectInstance::fromGff(*richSavedEffect(1)).shouldRestoreOnLoad());
-    EXPECT_FALSE(EffectInstance::fromGff(*richSavedEffect(3)).shouldRestoreOnLoad());
-    EXPECT_FALSE(EffectInstance::fromGff(*richSavedEffect(1, true)).shouldRestoreOnLoad());
+    EXPECT_FALSE(parsedSavedEffect(1).skipOnLoad);
+    EXPECT_TRUE(parsedSavedEffect(1).shouldRestoreOnLoad());
+    EXPECT_FALSE(parsedSavedEffect(3).shouldRestoreOnLoad());
+    EXPECT_FALSE(parsedSavedEffect(1, true).shouldRestoreOnLoad());
 }
 
 TEST(EffectIdNamespace, should_import_authoritative_cursor_and_skip_imported_ids) {
@@ -182,7 +191,7 @@ TEST(SavedEffect, should_not_rebind_serialized_objects_across_saved_graphs) {
         .WillByDefault(ReturnRef(sceneGraph));
     auto creator = game.newCreature();
 
-    EffectInstance effect = EffectInstance::fromGff(*richSavedEffect());
+    EffectInstance effect = parsedSavedEffect();
     effect.creatorId = creator->id();
     effect.objectParameters.fill(kSavedEffectInvalidObjectId);
     game.registerSavedObjectIdentity(
@@ -205,11 +214,30 @@ TEST(SavedEffect, should_not_rebind_serialized_objects_across_saved_graphs) {
     EXPECT_FALSE(game.bindEffectCreator(effect));
     EXPECT_FALSE(effect.boundCreator());
 
-    auto replacementEffect = EffectInstance::fromGff(*richSavedEffect());
+    auto replacementEffect = parsedSavedEffect();
     replacementEffect.creatorId = effect.creatorId;
     replacementEffect.objectParameters.fill(kSavedEffectInvalidObjectId);
     EXPECT_TRUE(game.bindEffectCreator(replacementEffect));
     EXPECT_EQ(replacementEffect.boundCreator(), replacement);
+}
+
+TEST(SavedEffect, linked_vm_value_matches_retails_flat_inert_encoding) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto linked = std::make_shared<Effect>(EffectType::LinkEffects);
+    linked->captureSaveFacingScriptArguments(
+        {script::Variable::ofEffect(
+             std::make_shared<Effect>(EffectType::Haste)),
+         script::Variable::ofEffect(
+             std::make_shared<Effect>(EffectType::Slow))},
+        game);
+
+    const auto saved = linked->saveFacingInstance();
+
+    EXPECT_EQ(saved.retailType, static_cast<uint16_t>(EffectType::LinkEffects));
+    EXPECT_TRUE(saved.integerParameters.empty());
+    EXPECT_EQ(saved.creatorId, kSavedEffectInvalidObjectId);
 }
 
 TEST(EffectInstance, should_keep_unsupported_saved_effects_in_the_runtime_collection) {
@@ -217,7 +245,7 @@ TEST(EffectInstance, should_keep_unsupported_saved_effects_in_the_runtime_collec
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto object = std::make_shared<EffectTestObject>(2, game, engine.services());
-    EffectInstance effect = EffectInstance::fromGff(*richSavedEffect());
+    EffectInstance effect = parsedSavedEffect();
     effect.id = 41;
 
     EXPECT_TRUE(object->restoreEffect(std::move(effect)));
@@ -231,10 +259,10 @@ TEST(EffectInstance, should_remove_every_member_of_a_shared_id_group) {
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto object = std::make_shared<EffectTestObject>(2, game, engine.services());
-    EffectInstance left = EffectInstance::fromGff(*richSavedEffect(2));
-    EffectInstance right = EffectInstance::fromGff(*richSavedEffect(2));
+    EffectInstance left = parsedSavedEffect(2);
+    EffectInstance right = parsedSavedEffect(2);
     left.id = right.id = 77;
-    EffectInstance unrelated = EffectInstance::fromGff(*richSavedEffect(2));
+    EffectInstance unrelated = parsedSavedEffect(2);
     unrelated.id = 78;
     ASSERT_TRUE(object->restoreEffect(std::move(left)));
     ASSERT_TRUE(object->restoreEffect(std::move(right)));
@@ -296,8 +324,8 @@ TEST(EffectInstance, should_not_restore_skipped_or_equipped_records) {
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto object = std::make_shared<EffectTestObject>(2, game, engine.services());
 
-    EXPECT_FALSE(object->restoreEffect(EffectInstance::fromGff(*richSavedEffect(1, true))));
-    EXPECT_FALSE(object->restoreEffect(EffectInstance::fromGff(*richSavedEffect(3))));
+    EXPECT_FALSE(object->restoreEffect(parsedSavedEffect(1, true)));
+    EXPECT_FALSE(object->restoreEffect(parsedSavedEffect(3)));
     EXPECT_TRUE(object->effects().empty());
 }
 

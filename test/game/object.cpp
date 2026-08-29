@@ -4995,7 +4995,9 @@ TEST(SavedRuntimeState, restores_explicit_object_identity_and_allocator_cursors)
                      .field(Gff::Field::newDword("ObjectId", 650))
                      .build();
     auto item = game.newItem(*saved, testModuleIdentity());
-    item->deserializeRuntimeState(*saved);
+    item->deserializeRuntimeState(
+        *saved,
+        SerializedIdentityContext::moduleGraph("test-module"));
 
     EXPECT_EQ(700u, item->id());
     EXPECT_EQ(item, game.getObjectBySavedId(650));
@@ -5165,7 +5167,9 @@ TEST(SavedRuntimeState, restores_swvar_boolean_and_numeric_locals) {
                      .build();
 
     auto item = game.newItem();
-    item->deserializeRuntimeState(*saved);
+    item->deserializeRuntimeState(
+        *saved,
+        SerializedIdentityContext::moduleGraph("test-module"));
 
     EXPECT_TRUE(item->getLocalBoolean(31));
     EXPECT_TRUE(item->getLocalBoolean(34));
@@ -5189,11 +5193,15 @@ TEST(SavedRuntimeState, resolves_references_only_after_saved_graph_construction)
                          .field(Gff::Field::newDword("ObjectId", 81))
                          .build();
     auto source = game.newItem(*sourceGff, testModuleIdentity());
-    source->deserializeRuntimeState(*sourceGff);
+    source->deserializeRuntimeState(
+        *sourceGff,
+        SerializedIdentityContext::moduleGraph("test-module"));
     EXPECT_FALSE(source->savedReference("CreatorId"));
 
     auto target = game.newItem(*targetGff, testModuleIdentity());
-    target->deserializeRuntimeState(*targetGff);
+    target->deserializeRuntimeState(
+        *targetGff,
+        SerializedIdentityContext::moduleGraph("test-module"));
     game.resolveSavedObjectReferences();
 
     EXPECT_EQ(target, source->savedReference("CreatorId"));

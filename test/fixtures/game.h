@@ -266,7 +266,8 @@ public:
     static void advanceWorldTime(Game &game, float dt);
     static void prepareWorldTimeFromIfo(Game &game, const resource::Gff &ifo);
     static void deserializeSnapshotRuntimeState(
-        Object &object, const resource::Gff &gff);
+        Object &object, const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     static void setSnapshotObjectId(Object &object, uint32_t objectId);
     static void setSnapshotEquipment(
         Creature &creature, int slot, std::shared_ptr<Item> item);

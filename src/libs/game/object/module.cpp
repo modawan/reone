@@ -78,8 +78,10 @@ void Module::load(std::string name, const Gff &ifo, bool restoreSavedWorld) {
     auto ifoParsed = resource::generated::parseIFO(ifo);
     _isSaveGame = restoreSavedWorld && ifoParsed.Mod_IsSaveGame != 0;
     if (restoreSavedWorld) {
-        deserializeRuntimeState(ifo);
-        deserializeSavedEventQueue(ifo);
+        const auto identityContext =
+            SerializedIdentityContext::moduleGraph(_name);
+        deserializeRuntimeState(ifo, identityContext);
+        deserializeSavedEventQueue(ifo, identityContext);
         loadLimboCreatures(ifo);
     } else {
         _savedEventQueue = SavedEventQueue {};
@@ -396,9 +398,12 @@ size_t Module::pendingSavedEventCount() const {
         _savedEventLive.begin(), _savedEventLive.end(), true));
 }
 
-void Module::deserializeSavedEventQueue(const resource::Gff &ifo) {
-    _savedEventQueue = SavedEventQueue::fromGff(ifo);
+void Module::deserializeSavedEventQueue(
+    const resource::Gff &ifo,
+    const SerializedIdentityContext &identityContext) {
+    _savedEventQueue = SavedEventQueue::fromGff(ifo, identityContext);
     _savedEventLive.clear();
+    _savedEventReferencesBound.clear();
     _savedEventLive.reserve(_savedEventQueue.events.size());
     for (const auto &event : _savedEventQueue.events) {
         _savedEventLive.push_back(event.shouldRestore());
@@ -421,9 +426,10 @@ std::vector<SavedEventRecord> Module::saveEventSnapshot() const {
 size_t Module::enqueueSaveEvent(SavedEventRecord event) {
     // New events bind through the current B registry before becoming visible to
     // a save snapshot; raw IDs never gain cross-session authority.
-    event.bindObjectReferences(_game);
+    const bool referencesBound = event.bindObjectReferences(_game);
     _savedEventQueue.events.push_back(std::move(event));
     _savedEventLive.push_back(true);
+    _savedEventReferencesBound.push_back(referencesBound);
     return _savedEventQueue.events.size() - 1;
 }
 
@@ -441,10 +447,11 @@ bool Module::cancelSaveEvent(size_t index) {
 }
 
 void Module::bindSavedEventQueue() {
+    _savedEventReferencesBound.clear();
+    _savedEventReferencesBound.reserve(_savedEventQueue.events.size());
     for (auto &event : _savedEventQueue.events) {
-        if (event.shouldRestore()) {
-            event.bindObjectReferences(_game);
-        }
+        _savedEventReferencesBound.push_back(
+            !event.shouldRestore() || event.bindObjectReferences(_game));
     }
 }
 
@@ -459,6 +466,8 @@ void Module::publishSavedEventQueue() {
     for (size_t index = 0; index < _savedEventQueue.events.size(); ++index) {
         const auto &savedEvent = _savedEventQueue.events[index];
         if (!savedEvent.shouldRestore() ||
+            index >= _savedEventReferencesBound.size() ||
+            !_savedEventReferencesBound[index] ||
             savedEvent.executionSupport() != SavedExecutionSupport::Executable) {
             continue;
         }

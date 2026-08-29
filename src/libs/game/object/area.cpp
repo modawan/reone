@@ -183,7 +183,7 @@ void Area::load(
 
     auto areParsed = resource::generated::parseARE(are);
     auto gitParsed = resource::generated::parseGIT(git);
-    deserializeRuntimeState(are);
+    deserializeRuntimeState(are, identityContext);
 
     loadARE(areParsed);
     loadLYT();

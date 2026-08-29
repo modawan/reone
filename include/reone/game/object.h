@@ -231,7 +231,9 @@ public:
 
     const std::map<int, bool> &localBooleans() const { return _localBooleans; }
     const std::map<int, int> &localNumbers() const { return _localNumbers; }
-    void deserializeRuntimeState(const resource::Gff &gff);
+    void deserializeRuntimeState(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     void bindSavedRuntimeState();
     void publishSavedRuntimeState();
     const std::vector<EffectInstance> &savedEffects() const { return _savedEffects; }
@@ -351,6 +353,9 @@ protected:
     std::map<std::string, std::weak_ptr<Object>> _savedReferences;
     std::vector<EffectInstance> _savedEffects;
     SavedActionQueue _savedActionQueue;
+    SerializedIdentityContext _savedRuntimeIdentityContext;
+    std::vector<bool> _savedEffectReferencesBound;
+    std::vector<bool> _savedActionReferencesBound;
     bool _savedRuntimeParsed {false};
     bool _savedRuntimePublished {false};
     std::optional<SaveRecordProvenance> _saveRecordProvenance;

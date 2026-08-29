@@ -86,7 +86,7 @@ void Object::deserialize(
         deserializeOwnedItems(
             gff, identityContext, SaveRecordOriginKind::ContainedItem);
     }
-    deserializeRuntimeState(gff);
+    deserializeRuntimeState(gff, identityContext);
 }
 
 std::vector<std::shared_ptr<Object>> Object::ownedRuntimeObjects() const {
@@ -169,7 +169,9 @@ void Object::setLocalBoolean(int index, bool value) {
 void Object::setLocalNumber(int index, int value) {
     _localNumbers[index] = value;
 }
-void Object::deserializeRuntimeState(const resource::Gff &gff) {
+void Object::deserializeRuntimeState(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
 
     _localBooleans.clear();
     _localNumbers.clear();
@@ -195,14 +197,19 @@ void Object::deserializeRuntimeState(const resource::Gff &gff) {
 
     _savedEffects.clear();
     _savedActionQueue = SavedActionQueue {};
+    _savedRuntimeIdentityContext = identityContext;
+    _savedEffectReferencesBound.clear();
+    _savedActionReferencesBound.clear();
     _savedRuntimeParsed = gff.has("EffectList") || gff.has("ActionList");
     _savedRuntimePublished = false;
     _loadedSaveActionSlots.clear();
     if (_savedRuntimeParsed) {
         for (const auto &effect : gff.getList("EffectList")) {
-            _savedEffects.push_back(EffectInstance::fromGff(*effect));
+            _savedEffects.push_back(EffectInstance::fromGff(
+                *effect, identityContext));
         }
-        _savedActionQueue = SavedActionQueue::fromGff(gff);
+        _savedActionQueue = SavedActionQueue::fromGff(
+            gff, identityContext);
         _effects.clear();
         _actions.clear();
         _delayed.clear();
@@ -245,10 +252,12 @@ void Object::bindSavedRuntimeState() {
         return;
     }
     for (auto &effect : _savedEffects) {
-        _game.bindEffectCreator(effect);
+        _savedEffectReferencesBound.push_back(
+            _game.bindEffectCreator(effect));
     }
     for (auto &action : _savedActionQueue.actions) {
-        action.bindObjectReferences(_game);
+        _savedActionReferencesBound.push_back(
+            action.bindObjectReferences(_game));
     }
 }
 
@@ -259,7 +268,12 @@ void Object::publishSavedRuntimeState() {
     SavedScriptSituationImporter importer(
         _game, _services.resource.scripts);
 
-    for (const auto &savedEffect : _savedEffects) {
+    for (size_t index = 0; index < _savedEffects.size(); ++index) {
+        const auto &savedEffect = _savedEffects[index];
+        if (index >= _savedEffectReferencesBound.size() ||
+            !_savedEffectReferencesBound[index]) {
+            continue;
+        }
         EffectInstance effect(savedEffect);
         if (effect.durationType() == DurationType::Temporary) {
             auto remaining = _game.remainingEffectDuration(effect);
@@ -276,7 +290,14 @@ void Object::publishSavedRuntimeState() {
         restoreEffect(std::move(effect));
     }
 
-    for (const auto &savedAction : _savedActionQueue.actions) {
+    for (size_t index = 0; index < _savedActionQueue.actions.size(); ++index) {
+        const auto &savedAction = _savedActionQueue.actions[index];
+        if (index >= _savedActionReferencesBound.size() ||
+            !_savedActionReferencesBound[index]) {
+            _loadedSaveActionSlots.push_back(
+                LoadedSaveActionSlot {savedAction, {}, true});
+            continue;
+        }
         auto action = savedAction.toRuntimeAction(_game, &importer);
         if (action) {
             action->attachSavedAction(savedAction);
@@ -767,7 +788,7 @@ void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType dur
         return;
     }
 
-    EffectInstance instance;
+    EffectInstance instance = effect->saveFacingInstance();
     instance.effect = effect;
     instance.id = _game.allocateEffectId();
     instance.subType = static_cast<uint16_t>(durationType);

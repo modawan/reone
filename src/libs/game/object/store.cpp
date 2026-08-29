@@ -47,7 +47,7 @@ void Store::deserialize(
 void Store::deserializeAll(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
-    deserializeRuntimeState(gff);
+    deserializeRuntimeState(gff, identityContext);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
     }

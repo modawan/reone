@@ -35,6 +35,8 @@ VisualEffect::VisualEffect(int visualEffectId, bool missEffect, ServicesView &se
     _missEffect(missEffect),
     _desc(services.game.visualEffects.get(visualEffectId).value_or(nullptr)),
     _services(services) {
+    setSaveFacingInteger(0, visualEffectId);
+    setSaveFacingInteger(2, missEffect ? 1 : 0);
 }
 
 VisualEffect::~VisualEffect() {

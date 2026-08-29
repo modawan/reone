@@ -100,7 +100,7 @@ std::shared_ptr<Event> eventValue(const SavedScriptEvent &saved) {
 
 EffectInstance runtimeEffectInstance(const EffectInstance &saved) {
     EffectInstance result = saved;
-    if (!result.serializedObjectReferences) return result;
+    if (!result.hasSerializedObjectReferences()) return result;
 
     if (result.creatorId != kSavedEffectInvalidObjectId &&
         result.creatorId != kSavedRuntimeInvalidObjectId) {
@@ -116,7 +116,7 @@ EffectInstance runtimeEffectInstance(const EffectInstance &saved) {
         auto object = result.boundObjectParameter(index);
         id = object ? object->id() : kSavedRuntimeInvalidObjectId;
     }
-    result.serializedObjectReferences = false;
+    result.serializedReferenceContext.reset();
     return result;
 }
 

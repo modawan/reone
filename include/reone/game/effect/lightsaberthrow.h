@@ -35,6 +35,11 @@ public:
         _target2(std::move(target2)),
         _target3(std::move(target3)),
         _advancedDamage(advancedDamage) {
+        // Retail accepts the fourth argument but does not persist it in the
+        // CGameEffect. The three object slots are the complete wire payload.
+        setSaveFacingObject(0, _target1);
+        setSaveFacingObject(1, _target2);
+        setSaveFacingObject(2, _target3);
     }
 
     void applyTo(Object &object) override;

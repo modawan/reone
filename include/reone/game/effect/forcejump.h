@@ -29,6 +29,8 @@ public:
         Effect(EffectType::ForceJump),
         _target(std::move(target)),
         _advanced(advanced) {
+        setSaveFacingInteger(0, advanced);
+        setSaveFacingObject(0, _target);
     }
 
     void applyTo(Object &object) override {
