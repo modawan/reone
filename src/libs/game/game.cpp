@@ -525,6 +525,7 @@ void Game::initConsole() {
     registerConsoleCommand("showpopup", "show the confirmation popup with an optional icon", &Game::consoleShowPopup);
     registerConsoleCommand("showgallerymode", "open a deterministic gameplay-mode gallery fixture", &Game::consoleShowGalleryMode);
     registerConsoleCommand("graphics", "toggle 3D scene rendering: graphics on|off", &Game::consoleGraphics);
+    registerConsoleCommand("gamespeed", "scale the simulation timestep: gamespeed <multiplier>", &Game::consoleGameSpeed);
     registerConsoleCommand("seed", "reseed the shared random generator: seed <number>", &Game::consoleSeed);
     registerConsoleCommand("showhud", "open the third-person gameplay HUD for a scripted capture", &Game::consoleShowHUD);
     registerConsoleCommand("showtransition", "show an area-transition banner for a scripted capture", &Game::consoleShowTransition);
@@ -4767,6 +4768,17 @@ void Game::consoleShowPopup(const ConsoleArgs &args) {
 void Game::consoleSeed(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "number");
     setRandomSeed(static_cast<uint32_t>(args.get<int>(1).value()));
+}
+
+void Game::consoleGameSpeed(const ConsoleArgs &args) {
+    consoleCheckUsage(args, 1, 1, "multiplier");
+    auto speed = args.get<float>(1);
+    if (!speed || *speed < 0.0f || *speed > 8.0f) {
+        throw std::runtime_error("Expected a multiplier between 0 and 8");
+    }
+    // Zero is allowed, and differs from pausing: the module still ticks, with
+    // dt == 0.
+    _gameSpeed = *speed;
 }
 
 void Game::consoleGraphics(const ConsoleArgs &args) {
