@@ -654,7 +654,7 @@ void Area::doDestroyObjects() {
     _objectsToDestroy.clear();
 }
 
-void Area::doDestroyObject(uint32_t objectId) {
+void Area::doDestroyObject(uint32_t objectId, bool destroyRuntimeObject) {
     auto object = _game.getObjectById(objectId);
     if (!object) {
         return;
@@ -738,6 +738,15 @@ void Area::doDestroyObject(uint32_t objectId) {
     auto maybeObjectByType = std::find_if(typeObjects.begin(), typeObjects.end(), [&object](auto &o) { return o.get() == object.get(); });
     if (maybeObjectByType != typeObjects.end()) {
         typeObjects.erase(maybeObjectByType);
+    }
+    if (_hilightedObject.get() == object.get()) {
+        _hilightedObject.reset();
+    }
+    if (_selectedObject.get() == object.get()) {
+        _selectedObject.reset();
+    }
+    if (destroyRuntimeObject) {
+        _game.destroyRuntimeObjectGraph(object);
     }
 }
 
@@ -910,7 +919,7 @@ void Area::retireCreatureRuntime(const std::shared_ptr<Creature> &creature) {
     // outgoing object are alive. Area-owned structural attachments follow,
     // then the raw Room pointer is invalidated before Room destruction.
     creature->retireAreaRuntime(_pathfinder, retainedObjects);
-    doDestroyObject(creature->id());
+    doDestroyObject(creature->id(), false);
     creature->setRoom(nullptr);
 }
 

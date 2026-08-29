@@ -24,13 +24,19 @@
 #include "reone/game/gui/hud.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/item.h"
 #include "reone/game/object/module.h"
+#include "reone/game/object/placeable.h"
+#include "reone/game/object/store.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/room.h"
 #include "reone/graphics/model.h"
 #include "reone/graphics/modelnode.h"
 #include "reone/scene/collision.h"
 #include "reone/scene/node/model.h"
+#include "reone/resource/2da.h"
+#include "reone/resource/gff.h"
+#include "reone/system/exception/validation.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -80,6 +86,44 @@ void configureRuntimeMocks(
 
     ON_CALL(engine.sceneModule().graphs(), get(_))
         .WillByDefault(ReturnRef(sceneGraph));
+}
+
+std::shared_ptr<resource::TwoDA> runtimeBaseItems() {
+    resource::TwoDA::Builder builder;
+    builder.columns({"equipableslots", "itemclass", "ammunitiontype"});
+    builder.row({"2", "i_test", "0"});
+    return std::shared_ptr<resource::TwoDA>(builder.build());
+}
+
+std::shared_ptr<resource::TwoDA> runtimePlaceables() {
+    resource::TwoDA::Builder builder;
+    builder.columns({"modelname"});
+    builder.row({""});
+    return std::shared_ptr<resource::TwoDA>(builder.build());
+}
+
+std::shared_ptr<resource::TwoDA> runtimeAppearances() {
+    resource::TwoDA::Builder builder;
+    builder.columns(
+        {"modeltype", "walkdist", "rundist", "perspace", "creperspace",
+         "sizecategory", "footsteptype", "envmap", "race"});
+    builder.row({"S", "1", "1", "0.6", "0.6", "3", "-1", "", ""});
+    return std::shared_ptr<resource::TwoDA>(builder.build());
+}
+
+std::shared_ptr<resource::Gff> runtimeItem(
+    std::string tag,
+    std::optional<uint32_t> savedId = std::nullopt,
+    uint32_t structType = 0) {
+    resource::Gff::Builder builder;
+    builder.type(structType)
+        .field(resource::Gff::Field::newCExoString("Tag", std::move(tag)))
+        .field(resource::Gff::Field::newInt("BaseItem", 0))
+        .field(resource::Gff::Field::newWord("StackSize", 1));
+    if (savedId) {
+        builder.field(resource::Gff::Field::newDword("ObjectId", *savedId));
+    }
+    return builder.build();
 }
 
 } // namespace
@@ -974,10 +1018,244 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
 
     area->destroyObject(*outgoing);
     area->update(0.0f);
-    TestGameModule::removeObject(game, outgoing->id());
+    EXPECT_FALSE(game.getObjectById(outgoing->id()));
     outgoing.reset();
     beamEffect.reset();
     EXPECT_TRUE(outgoingEffectTarget.expired());
+}
+
+TEST(RuntimeObjectIntegrity, creature_inventory_and_equipment_replace_as_one_graph) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeAppearances()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(
+        static_cast<MockPortraits &>(engine.services().game.portraits),
+        getTextureByAppearance(_))
+        .Times(AnyNumber());
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto creature = game.newCreature();
+    auto initial = resource::Gff::Builder()
+                       .field(resource::Gff::Field::newList(
+                           "ItemList", {runtimeItem("old_inventory", 810)}))
+                       .field(resource::Gff::Field::newList(
+                           "Equip_ItemList",
+                           {runtimeItem("old_equipment", 811, 1u << InventorySlots::body)}))
+                       .build();
+    creature->deserialize(
+        *initial, SerializedIdentityContext::moduleGraph("replacement"));
+    auto oldInventory = creature->items().front();
+    auto oldEquipment = creature->getEquippedItem(InventorySlots::body);
+    ASSERT_TRUE(oldEquipment);
+    const size_t registrySize = TestGameModule::objectRegistrySize(game);
+
+    auto saved = resource::Gff::Builder()
+                     .field(resource::Gff::Field::newList(
+                         "ItemList", {runtimeItem("new_inventory", 810)}))
+                     .field(resource::Gff::Field::newList(
+                         "Equip_ItemList",
+                         {runtimeItem("new_equipment", 811, 1u << InventorySlots::body)}))
+                     .build();
+    creature->deserialize(
+        *saved, SerializedIdentityContext::moduleGraph("replacement"));
+
+    EXPECT_FALSE(game.getObjectById(oldInventory->id()));
+    EXPECT_FALSE(game.getObjectById(oldEquipment->id()));
+    ASSERT_EQ(1u, creature->items().size());
+    ASSERT_TRUE(creature->getEquippedItem(InventorySlots::body));
+    EXPECT_EQ("new_inventory", creature->items().front()->tag());
+    EXPECT_EQ("new_equipment",
+              creature->getEquippedItem(InventorySlots::body)->tag());
+    EXPECT_EQ(creature->items().front(), game.getObjectBySavedId(810));
+    EXPECT_EQ(creature->getEquippedItem(InventorySlots::body),
+              game.getObjectBySavedId(811));
+    EXPECT_EQ(registrySize, TestGameModule::objectRegistrySize(game));
+}
+
+TEST(RuntimeObjectIntegrity, savewide_party_inventory_replacement_retires_old_items) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().setActualPlayer(player);
+    auto oldItem = game.newItem();
+    player->addItem(oldItem);
+    auto inventory = resource::Gff::Builder()
+                         .field(resource::Gff::Field::newList(
+                             "ItemList", {runtimeItem("shared_new")}))
+                         .build();
+
+    TestGameModule::deserializeInventory(game, *inventory);
+
+    EXPECT_FALSE(game.getObjectById(oldItem->id()));
+    ASSERT_EQ(1u, player->items().size());
+    EXPECT_EQ(player->items().front(),
+              game.getObjectById(player->items().front()->id()));
+    ASSERT_TRUE(player->items().front()->saveRecordProvenance());
+    EXPECT_EQ(SaveRecordOriginKind::PartyInventoryItem,
+              player->items().front()->saveRecordProvenance()->origin.kind);
+}
+
+TEST(RuntimeObjectIntegrity, failed_graph_replacement_preserves_old_graph_and_cursor) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto creature = game.newCreature();
+    auto oldEquipment = game.newItem();
+    oldEquipment->deserialize(
+        *runtimeItem("old_equipment"),
+        SerializedIdentityContext::templateResource());
+    ASSERT_TRUE(creature->equip(InventorySlots::body, oldEquipment));
+    const size_t registrySize = TestGameModule::objectRegistrySize(game);
+    const uint32_t nextId = TestGameModule::nextObjectId(game);
+
+    auto saved = resource::Gff::Builder()
+                     .field(resource::Gff::Field::newList(
+                         "Equip_ItemList",
+                         {runtimeItem("candidate_a", 820, 1u << InventorySlots::body),
+                          runtimeItem("candidate_b", 821, 1u << InventorySlots::body)}))
+                     .build();
+    EXPECT_THROW(
+        creature->deserialize(
+            *saved, SerializedIdentityContext::moduleGraph("failure")),
+        ValidationException);
+
+    EXPECT_EQ(oldEquipment, creature->getEquippedItem(InventorySlots::body));
+    EXPECT_EQ(oldEquipment, game.getObjectById(oldEquipment->id()));
+    EXPECT_FALSE(game.getObjectBySavedId(820));
+    EXPECT_FALSE(game.getObjectBySavedId(821));
+    EXPECT_EQ(registrySize, TestGameModule::objectRegistrySize(game));
+    EXPECT_EQ(nextId, TestGameModule::nextObjectId(game));
+}
+
+TEST(RuntimeObjectIntegrity, store_and_placeable_replace_owned_items_immediately) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("placeables"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimePlaceables()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto store = game.newStore();
+    auto oldStoreItem = game.newItem();
+    store->addItem(oldStoreItem);
+    auto storeSaved = resource::Gff::Builder()
+                          .field(resource::Gff::Field::newList(
+                              "ItemList", {runtimeItem("store_new")}))
+                          .build();
+    store->deserialize(
+        *storeSaved, SerializedIdentityContext::detachedRecord("store"));
+    EXPECT_FALSE(game.getObjectById(oldStoreItem->id()));
+    ASSERT_EQ(1u, store->items().size());
+    EXPECT_EQ(store->items().front(),
+              game.getObjectById(store->items().front()->id()));
+
+    auto placeable = game.newPlaceable();
+    auto oldPlaceableItem = game.newItem();
+    placeable->addItem(oldPlaceableItem);
+    auto placeableSaved = resource::Gff::Builder()
+                              .field(resource::Gff::Field::newDword("Appearance", 0))
+                              .field(resource::Gff::Field::newList(
+                                  "ItemList", {runtimeItem("placeable_new")}))
+                              .build();
+    placeable->deserialize(
+        *placeableSaved,
+        SerializedIdentityContext::detachedRecord("placeable"));
+    EXPECT_FALSE(game.getObjectById(oldPlaceableItem->id()));
+    ASSERT_EQ(1u, placeable->items().size());
+    EXPECT_EQ(placeable->items().front(),
+              game.getObjectById(placeable->items().front()->id()));
+}
+
+TEST(RuntimeObjectIntegrity, area_destruction_ends_registry_and_saved_visibility) {
+    TestEngine engine;
+    engine.init();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    configureRuntimeMocks(engine, sceneGraph);
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    auto saved = resource::Gff::Builder()
+                     .field(resource::Gff::Field::newDword("ObjectId", 830))
+                     .build();
+    auto object = game.newCreature(
+        *saved, SerializedIdentityContext::moduleGraph("destroy"));
+    area->add(object);
+    const uint32_t runtimeId = object->id();
+
+    area->destroyObject(*object);
+    area->update(0.0f);
+
+    EXPECT_FALSE(game.getObjectById(runtimeId));
+    EXPECT_FALSE(game.getObjectBySavedId(830));
+    EXPECT_FALSE(game.isRuntimeObjectLive(*object));
+    EXPECT_TRUE(area->getObjectsByType(ObjectType::Creature).empty());
+    game.destroyRuntimeObjectGraph(object);
+    EXPECT_FALSE(game.getObjectById(runtimeId));
+}
+
+TEST(RuntimeObjectIntegrity, stale_finalization_cannot_erase_a_newer_id_owner) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto stale = game.newItem();
+    game.destroyRuntimeObjectGraph(stale);
+    auto replacement = game.newItem();
+    TestGameModule::setSnapshotObjectId(*stale, replacement->id());
+
+    game.destroyRuntimeObjectGraph(stale);
+
+    EXPECT_EQ(replacement, game.getObjectById(replacement->id()));
+    EXPECT_TRUE(game.isRuntimeObjectLive(*replacement));
+}
+
+TEST(RuntimeObjectIntegrity, area_retirement_preserves_session_object_liveness) {
+    TestEngine engine;
+    engine.init();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    configureRuntimeMocks(engine, sceneGraph);
+    StubConsole console;
+    Game game(resource::GameID::TSL, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    auto retained = game.newCreature();
+    game.party().addMember(kNpcPlayer, retained);
+    game.party().setPlayer(retained);
+    game.party().setActualPlayer(retained);
+    area->add(retained);
+
+    area->retireCreatureRuntime(retained);
+
+    EXPECT_EQ(retained, game.getObjectById(retained->id()));
+    EXPECT_TRUE(game.isRuntimeObjectLive(*retained));
+    EXPECT_TRUE(area->getObjectsByType(ObjectType::Creature).empty());
 }
 
 TEST(AreaRuntimeRetirement, unload_party_includes_inactive_roster_and_puppets) {

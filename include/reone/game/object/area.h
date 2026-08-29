@@ -330,7 +330,7 @@ private:
     void attachRoomToSceneGraph(Room &room);
     void attachObjectToSceneGraph(const std::shared_ptr<Object> &object);
 
-    void doDestroyObject(uint32_t objectId);
+    void doDestroyObject(uint32_t objectId, bool destroyRuntimeObject = true);
     void doDestroyObjects();
     void updateVisibility();
     void updateHeartbeat(float dt);

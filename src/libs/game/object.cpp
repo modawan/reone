@@ -81,23 +81,64 @@ void Object::deserialize(
         }
     }
 
-    if (identityContext.isSerializedState()) {
-        _items.clear();
+    if (_type != ObjectType::Placeable && _type != ObjectType::Store &&
+        _type != ObjectType::Item && dynamic_cast<Creature *>(this) == nullptr) {
+        deserializeOwnedItems(
+            gff, identityContext, SaveRecordOriginKind::ContainedItem);
     }
-    if (_type != ObjectType::Placeable && _type != ObjectType::Store) {
+    deserializeRuntimeState(gff);
+}
+
+std::vector<std::shared_ptr<Object>> Object::ownedRuntimeObjects() const {
+    return {_items.begin(), _items.end()};
+}
+
+void Object::deserializeOwnedItems(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
+    SaveRecordOriginKind originKind,
+    bool forceDropable,
+    std::string originOwner) {
+    if (!identityContext.isSerializedState()) {
         for (const auto &itemGff : gff.getList("ItemList")) {
-            std::shared_ptr<Item> item = _game.newOwnedItem(*itemGff, identityContext);
+            auto item = _game.newOwnedItem(*itemGff, identityContext);
             item->deserialize(*itemGff, identityContext);
-            if (identityContext.isSerializedState()) {
-                item->captureSaveRecord(
-                    *itemGff,
-                    identityContext,
-                    {SaveRecordOriginKind::ContainedItem, std::to_string(_id)});
+            if (forceDropable) {
+                item->setDropable(true);
             }
             addItem(item);
         }
+        return;
     }
-    deserializeRuntimeState(gff);
+
+    std::vector<std::shared_ptr<Object>> obsolete(_items.begin(), _items.end());
+    std::vector<std::shared_ptr<Item>> replacement;
+    _game.replaceRuntimeObjectGraph(
+        obsolete,
+        [&]() {
+            for (const auto &itemGff : gff.getList("ItemList")) {
+                auto item = _game.newOwnedItem(*itemGff, identityContext);
+                item->deserialize(*itemGff, identityContext);
+                item->captureSaveRecord(
+                    *itemGff,
+                    identityContext,
+                    {originKind,
+                     originOwner.empty() ? std::to_string(_id) : originOwner});
+                if (forceDropable) {
+                    item->setDropable(true);
+                }
+                item->setOwner(_id);
+                replacement.push_back(std::move(item));
+            }
+        },
+        [&]() noexcept { _items = std::move(replacement); });
+
+    if (Creature *creature = dynamic_cast<Creature *>(this)) {
+        creature->itemAttributes() = ItemAttributes();
+        for (const auto &item : _items) {
+            creature->itemAttributes().addItem(item, _services.game);
+        }
+    }
 }
 
 void Object::update(float dt) {
@@ -684,6 +725,8 @@ void Object::moveDropableItemsTo(Object &other) {
             // the inventory; the stack size is the credit amount.
             if (otherInParty && item->isCredits()) {
                 _game.party().giveGold(item->stackSize());
+                item->setOwner(0);
+                _game.destroyRuntimeObjectGraph(item);
             } else {
                 other.addItem(item);
             }

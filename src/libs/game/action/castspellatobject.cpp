@@ -86,6 +86,9 @@ void CastSpellAtObjectAction::execute(std::shared_ptr<Action> self, Object &acto
                 finish(caster);
                 return;
             }
+            if (lastItem) {
+                _game.destroyRuntimeObjectGraph(_item.value());
+            }
         }
 
         caster.setMovementType(Creature::MovementType::None);

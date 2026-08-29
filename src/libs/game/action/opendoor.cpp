@@ -48,7 +48,7 @@ void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float 
         return;
     }
 
-    tryUnlockDoorWithKey(*_door, actor, _game.party());
+    tryUnlockDoorWithKey(_game, *_door, actor, _game.party());
 
     if (!_door->isLocked()) {
         _door->open();

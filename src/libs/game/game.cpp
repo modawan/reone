@@ -1171,12 +1171,14 @@ void Game::retireActiveModuleRuntime() {
     _combat.reset();
     _module.reset();
     _loadedModules.clear();
-    for (auto it = _objectById.begin(); it != _objectById.end();) {
-        if (sessionObjectIds.count(it->first) != 0) {
-            ++it;
-        } else {
-            it = _objectById.erase(it);
+    std::vector<std::shared_ptr<Object>> retiredObjects;
+    for (const auto &[id, object] : _objectById) {
+        if (sessionObjectIds.count(id) == 0) {
+            retiredObjects.push_back(object);
         }
+    }
+    for (const auto &object : retiredObjects) {
+        destroyRuntimeObjectGraph(object);
     }
     retireSavedObjectGraph();
 }
@@ -2002,25 +2004,10 @@ void Game::commitRosterMaterialization() {
     }
     // The old inactive representation was deliberately retained until every
     // destination object had constructed. Once all logical bindings publish,
-    // release that exact roster object from the runtime registry as one A3
-    // operation; general object-graph finalization remains A5 work.
+    // end its complete runtime-object lifetime through the generic registry
+    // finalizer; A3 remains responsible only for the logical binding choice.
     for (const auto &retired : retiredBindings) {
-        auto registered = _objectById.find(retired->id());
-        if (registered != _objectById.end() &&
-            registered->second.get() == retired.get()) {
-            _objectById.erase(registered);
-        }
-        auto aliases = _savedIdsByObject.find(retired.get());
-        if (aliases != _savedIdsByObject.end()) {
-            for (uint32_t savedId : aliases->second) {
-                auto saved = _objectBySavedId.find(savedId);
-                if (saved != _objectBySavedId.end() &&
-                    saved->second.lock().get() == retired.get()) {
-                    _objectBySavedId.erase(saved);
-                }
-            }
-            _savedIdsByObject.erase(aliases);
-        }
+        destroyRuntimeObjectGraph(retired);
     }
     _rosterMaterializationPlan.reset();
 }
@@ -2201,18 +2188,12 @@ void Game::deserializeInventory(resource::Gff &inventoryGff) {
     if (!player) {
         return;
     }
-
-    for (const auto &itemGff : inventoryGff.getList("ItemList")) {
-        const auto identityContext =
-            SerializedIdentityContext::detachedRecord("inventory.res");
-        auto item = newItem(*itemGff, identityContext);
-        item->deserialize(*itemGff, identityContext);
-        item->captureSaveRecord(
-            *itemGff,
-            identityContext,
-            {SaveRecordOriginKind::PartyInventoryItem, "inventory"});
-        player->addItem(item);
-    }
+    player->deserializeOwnedItems(
+        inventoryGff,
+        SerializedIdentityContext::detachedRecord("inventory.res"),
+        SaveRecordOriginKind::PartyInventoryItem,
+        false,
+        "inventory");
 }
 
 bool Game::loadParty() {
@@ -2233,7 +2214,6 @@ void Game::loadDefaultParty() {
 
     if (!member1.empty()) {
         std::shared_ptr<Creature> player = newCreature();
-        _objectById.insert(std::make_pair(player->id(), player));
         player->loadFromBlueprint(member1);
         player->setTag(kObjectTagPlayer);
         player->setImmortal(true);
@@ -2243,7 +2223,6 @@ void Game::loadDefaultParty() {
     }
     if (!member2.empty()) {
         std::shared_ptr<Creature> companion = newCreature();
-        _objectById.insert(std::make_pair(companion->id(), companion));
         companion->loadFromBlueprint(member2);
         companion->setImmortal(true);
         companion->equip("g_w_dblsbr001");
@@ -2251,7 +2230,6 @@ void Game::loadDefaultParty() {
     }
     if (!member3.empty()) {
         std::shared_ptr<Creature> companion = newCreature();
-        _objectById.insert(std::make_pair(companion->id(), companion));
         companion->loadFromBlueprint(member3);
         companion->setImmortal(true);
         _party.addMember(1, companion);
@@ -2350,6 +2328,111 @@ std::shared_ptr<Object> Game::getObjectById(uint32_t id) const {
     }
 }
 
+bool Game::isRuntimeObjectLive(const Object &object) const {
+    auto found = _objectById.find(object.id());
+    return found != _objectById.end() && found->second.get() == &object;
+}
+
+void Game::unregisterRuntimeObject(const std::shared_ptr<Object> &object) {
+    if (!object) {
+        return;
+    }
+    auto registered = _objectById.find(object->id());
+    if (registered != _objectById.end() &&
+        registered->second.get() == object.get()) {
+        _objectById.erase(registered);
+    }
+
+    // Include the structural Module alias, which deliberately has no reverse
+    // serialized identity on the Module object itself.
+    for (auto it = _objectBySavedId.begin(); it != _objectBySavedId.end();) {
+        if (it->second.lock().get() == object.get()) {
+            it = _objectBySavedId.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    _savedIdsByObject.erase(object.get());
+}
+
+void Game::destroyRuntimeObjectGraph(const std::shared_ptr<Object> &object) {
+    if (!object) {
+        return;
+    }
+    std::vector<std::shared_ptr<Object>> pending {object};
+    std::set<const Object *> seen;
+    std::vector<std::shared_ptr<Object>> graph;
+    while (!pending.empty()) {
+        auto current = std::move(pending.back());
+        pending.pop_back();
+        if (!current || !seen.insert(current.get()).second) {
+            continue;
+        }
+        graph.push_back(current);
+        for (auto &owned : current->ownedRuntimeObjects()) {
+            pending.push_back(std::move(owned));
+        }
+    }
+    // Children cease to exist before their owner. The pointer guard makes this
+    // idempotent and protects a newer object if an explicit ID was reused.
+    for (auto it = graph.rbegin(); it != graph.rend(); ++it) {
+        unregisterRuntimeObject(*it);
+    }
+}
+
+void Game::beginRuntimeObjectGraphReplacement(
+    const std::vector<std::shared_ptr<Object>> &obsoleteObjects) {
+    if (_stagedRuntimeObjectGraph) {
+        throw ValidationException("Nested runtime object graph replacement");
+    }
+    _stagedRuntimeObjectGraph.emplace();
+    _stagedRuntimeObjectGraph->initialNextObjectId = _nextObjectId;
+
+    std::vector<std::shared_ptr<Object>> pending(obsoleteObjects);
+    while (!pending.empty()) {
+        auto object = std::move(pending.back());
+        pending.pop_back();
+        if (!object ||
+            !_stagedRuntimeObjectGraph->replaceableObjects.insert(
+                object.get()).second) {
+            continue;
+        }
+        for (auto &owned : object->ownedRuntimeObjects()) {
+            pending.push_back(std::move(owned));
+        }
+    }
+}
+
+void Game::commitRuntimeObjectGraphReplacement(
+    const std::vector<std::shared_ptr<Object>> &obsoleteObjects) {
+    if (!_stagedRuntimeObjectGraph) {
+        throw ValidationException("No runtime object graph replacement is active");
+    }
+
+    auto staged = std::move(*_stagedRuntimeObjectGraph);
+    _stagedRuntimeObjectGraph.reset();
+
+    // Publication ownership has already changed through a no-throw swap. Old
+    // objects and aliases now retire before candidate map nodes are merged.
+    for (const auto &object : obsoleteObjects) {
+        destroyRuntimeObjectGraph(object);
+    }
+    _objectById.merge(staged.objectById);
+    _objectBySavedId.merge(staged.objectBySavedId);
+    _savedIdsByObject.merge(staged.savedIdsByObject);
+    for (uint32_t id : staged.reservedSavedObjectIdsToRelease) {
+        _reservedSavedObjectIds.erase(id);
+    }
+}
+
+void Game::abortRuntimeObjectGraphReplacement() {
+    if (!_stagedRuntimeObjectGraph) {
+        return;
+    }
+    _nextObjectId = _stagedRuntimeObjectGraph->initialNextObjectId;
+    _stagedRuntimeObjectGraph.reset();
+}
+
 std::shared_ptr<Object> Game::getObjectBySavedId(uint32_t id) const {
     auto found = _objectBySavedId.find(id);
     return found == _objectBySavedId.end() ? nullptr : found->second.lock();
@@ -2373,10 +2456,19 @@ void Game::registerObject(
     if (!allowReserved && id < kFirstRuntimeObjectId) {
         throw ValidationException("Reserved saved ObjectId: " + std::to_string(id));
     }
-    if (!_objectById.emplace(id, object).second) {
+    if (_objectById.count(id) != 0) {
         throw ValidationException("Duplicate runtime ObjectId: " + std::to_string(id));
     }
-    _reservedSavedObjectIds.erase(id);
+    if (_stagedRuntimeObjectGraph) {
+        if (!_stagedRuntimeObjectGraph->objectById.emplace(id, object).second) {
+            throw ValidationException(
+                "Duplicate staged runtime ObjectId: " + std::to_string(id));
+        }
+        _stagedRuntimeObjectGraph->reservedSavedObjectIdsToRelease.insert(id);
+    } else {
+        _objectById.emplace(id, object);
+        _reservedSavedObjectIds.erase(id);
+    }
 }
 
 void Game::registerSavedObjectIdentity(
@@ -2396,24 +2488,40 @@ void Game::registerSavedObjectIdentity(
     if (id == std::numeric_limits<uint32_t>::max() || !object) {
         throw ValidationException("Invalid saved ObjectId mapping");
     }
-    auto [found, inserted] = _objectBySavedId.emplace(id, object);
-    if (!inserted) {
-        auto existing = found->second.lock();
-        if (!existing || existing.get() != object.get()) {
+    auto existing = getObjectBySavedId(id);
+    if (existing && existing.get() != object.get() &&
+        (!_stagedRuntimeObjectGraph ||
+         !_stagedRuntimeObjectGraph->replaceableObjects.count(existing.get()))) {
+        throw ValidationException(
+            "Duplicate authoritative saved ObjectId mapping: " +
+            std::to_string(id));
+    }
+    if (_stagedRuntimeObjectGraph) {
+        auto staged = _stagedRuntimeObjectGraph->objectBySavedId.find(id);
+        if (staged != _stagedRuntimeObjectGraph->objectBySavedId.end() &&
+            staged->second.lock().get() != object.get()) {
             throw ValidationException(
                 "Duplicate authoritative saved ObjectId mapping: " +
                 std::to_string(id));
         }
     }
-    auto reverse = _savedIdsByObject.find(object.get());
-    if (reverse != _savedIdsByObject.end() &&
-        !reverse->second.count(id)) {
+    const auto &reverseMap = _stagedRuntimeObjectGraph
+                                 ? _stagedRuntimeObjectGraph->savedIdsByObject
+                                 : _savedIdsByObject;
+    auto reverse = reverseMap.find(object.get());
+    if (reverse != reverseMap.end() && !reverse->second.count(id)) {
         auto creature = std::dynamic_pointer_cast<Creature>(object);
         if (!creature || !_party.rosterIdentity(*creature)) {
             throw ValidationException("Runtime object has multiple saved ObjectIds");
         }
     }
-    auto &aliases = _savedIdsByObject[object.get()];
+    auto &savedMap = _stagedRuntimeObjectGraph
+                         ? _stagedRuntimeObjectGraph->objectBySavedId
+                         : _objectBySavedId;
+    savedMap[id] = object;
+    auto &aliases = _stagedRuntimeObjectGraph
+                        ? _stagedRuntimeObjectGraph->savedIdsByObject[object.get()]
+                        : _savedIdsByObject[object.get()];
     aliases.insert(id);
     // The first authoritative view remains the object's serialization
     // provenance. Additional roster views are resolution aliases only.
@@ -5397,8 +5505,8 @@ void Game::consoleSpawnCreature(const ConsoleArgs &args) {
         if (getObjectById(id.value())) {
             throw std::runtime_error("Object already exists");
         }
-        creature = std::make_shared<Creature>(id.value(), kSceneMain, *this, _services);
-        _objectById.insert(std::make_pair(creature->id(), creature));
+        creature = newObjectAtId<Creature>(
+            id.value(), false, kSceneMain, *this, _services);
     } else {
         creature = newCreature();
     }
@@ -5428,8 +5536,8 @@ void Game::consoleSpawnCompanion(const ConsoleArgs &args) {
         if (getObjectById(id.value())) {
             throw std::runtime_error("Object already exists");
         }
-        companion = std::make_shared<Creature>(id.value(), kSceneMain, *this, _services);
-        _objectById.insert(std::make_pair(companion->id(), companion));
+        companion = newObjectAtId<Creature>(
+            id.value(), false, kSceneMain, *this, _services);
     } else {
         companion = newCreature();
     }

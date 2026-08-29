@@ -388,6 +388,35 @@ public:
     // Objects
 
     std::shared_ptr<Object> getObjectById(uint32_t id) const;
+    bool isRuntimeObjectLive(const Object &object) const;
+
+    // End the semantic lifetime of this exact object and every runtime object
+    // it owns. Registry and saved-identity cleanup are pointer guarded, so a
+    // stale owner can never invalidate a newer object using the same number.
+    void destroyRuntimeObjectGraph(const std::shared_ptr<Object> &object);
+
+    // Build replacement children outside the live registry, publish ownership
+    // with a no-throw swap, then atomically publish the candidates and retire
+    // obsolete children. A failed build leaves the old graph and all saved-ID
+    // bindings untouched.
+    template <class Build, class Publish>
+    void replaceRuntimeObjectGraph(
+        std::vector<std::shared_ptr<Object>> &obsoleteObjects,
+        Build &&build,
+        Publish &&publish) {
+        static_assert(
+            noexcept(std::declval<Publish &>()()),
+            "runtime object graph publication must not throw");
+        beginRuntimeObjectGraphReplacement(obsoleteObjects);
+        try {
+            build();
+            publish();
+            commitRuntimeObjectGraphReplacement(obsoleteObjects);
+        } catch (...) {
+            abortRuntimeObjectGraphReplacement();
+            throw;
+        }
+    }
 
     inline std::shared_ptr<Module> newModule() {
         return newObject<Module>(*this, _services);
@@ -561,6 +590,8 @@ public:
     template <class T, class... Args>
     inline std::shared_ptr<T> newObject(Args &&...args) {
         while (_objectById.count(_nextObjectId) ||
+               (_stagedRuntimeObjectGraph &&
+                _stagedRuntimeObjectGraph->objectById.count(_nextObjectId)) ||
                _reservedSavedObjectIds.count(_nextObjectId)) {
             ++_nextObjectId;
         }
@@ -759,6 +790,15 @@ private:
     // A logical roster creature may be the target of more than one serialized
     // view. Saved IDs remain unique; the reverse side therefore records aliases.
     std::map<const Object *, std::set<uint32_t>> _savedIdsByObject;
+    struct StagedRuntimeObjectGraph {
+        uint32_t initialNextObjectId {kFirstRuntimeObjectId};
+        std::map<uint32_t, std::shared_ptr<Object>> objectById;
+        std::map<uint32_t, std::weak_ptr<Object>> objectBySavedId;
+        std::map<const Object *, std::set<uint32_t>> savedIdsByObject;
+        std::set<const Object *> replaceableObjects;
+        std::set<uint32_t> reservedSavedObjectIdsToRelease;
+    };
+    std::optional<StagedRuntimeObjectGraph> _stagedRuntimeObjectGraph;
     std::set<uint32_t> _reservedSavedObjectIds;
     std::optional<std::string> _reservedSavedIdentityNamespace;
     std::map<uint32_t, std::string> _reservedSavedObjectIdClaims;
@@ -931,6 +971,12 @@ private:
     void registerObject(
         const std::shared_ptr<Object> &object,
         bool allowReserved);
+    void beginRuntimeObjectGraphReplacement(
+        const std::vector<std::shared_ptr<Object>> &obsoleteObjects);
+    void commitRuntimeObjectGraphReplacement(
+        const std::vector<std::shared_ptr<Object>> &obsoleteObjects);
+    void abortRuntimeObjectGraphReplacement();
+    void unregisterRuntimeObject(const std::shared_ptr<Object> &object);
 
     template <class T, class... Args>
     inline std::shared_ptr<T> newObjectAtId(

@@ -185,6 +185,9 @@ void ContainerGUI::onItemDoubleClick(const std::string &tag) {
         _container->addItem(newItem);
         itemId = newItem->id();
     }
+    if (last) {
+        _game.destroyRuntimeObjectGraph(item);
+    }
 
     // Repopulate the list after the number of items changes.
     int offset = _controls.LB_ITEMS->getItemOffset();

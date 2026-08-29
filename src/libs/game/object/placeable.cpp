@@ -152,21 +152,11 @@ void Placeable::deserializeAll(
     gff.readBool(_isCorpse, "IsCorpse");
     gff.readBool(_commandable, "Commandable");
 
-    if (identityContext.isSerializedState()) {
-        _items.clear();
-    }
-    for (const auto &itemGff : gff.getList("ItemList")) {
-        std::shared_ptr<Item> item = _game.newOwnedItem(*itemGff, identityContext);
-        item->deserialize(*itemGff, identityContext);
-        if (identityContext.isSerializedState()) {
-            item->captureSaveRecord(
-                *itemGff,
-                identityContext,
-                {SaveRecordOriginKind::PlaceableItem, std::to_string(_id)});
-        }
-        item->setDropable(true);
-        addItem(item);
-    }
+    deserializeOwnedItems(
+        gff,
+        identityContext,
+        SaveRecordOriginKind::PlaceableItem,
+        true);
 
     // FIXME: deserialize EffectList, ActionList
 }

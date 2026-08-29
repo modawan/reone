@@ -137,6 +137,11 @@ public:
 
     const std::vector<std::shared_ptr<Item>> &items() const { return _items; }
 
+    // Runtime children whose semantic lifetime is owned by this object. New
+    // nested game-object types participate in registry finalization by
+    // extending this list; Game does not need to know their concrete type.
+    virtual std::vector<std::shared_ptr<Object>> ownedRuntimeObjects() const;
+
     // END Inventory
 
     // Effects
@@ -276,6 +281,7 @@ public:
     // END Scripts
 
 protected:
+    friend class Game;
     friend class ModuleSnapshotBuilder;
     friend class TestGameModule;
     struct DelayedAction {
@@ -370,6 +376,13 @@ protected:
 
     virtual void updateTransform();
     virtual bool canExecuteActions() const { return true; }
+
+    void deserializeOwnedItems(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext,
+        SaveRecordOriginKind originKind,
+        bool forceDropable = false,
+        std::string originOwner = {});
 
     // Actions
 

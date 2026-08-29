@@ -30,7 +30,7 @@ namespace reone {
 
 namespace game {
 
-void tryUnlockDoorWithKey(Door &door, Object &actor, Party &party) {
+void tryUnlockDoorWithKey(Game &game, Door &door, Object &actor, Party &party) {
     if (!door.isLocked() || !door.isKeyRequired() || door.keyName().empty()) {
         return;
     }
@@ -48,8 +48,11 @@ void tryUnlockDoorWithKey(Door &door, Object &actor, Party &party) {
     }
     door.setLocked(false);
     if (door.isAutoRemoveKey()) {
-        bool last;
+        bool last = false;
         keyOwner->removeItem(key, last);
+        if (last) {
+            game.destroyRuntimeObjectGraph(key);
+        }
     }
 }
 

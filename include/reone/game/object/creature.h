@@ -210,6 +210,7 @@ public:
     CreatureWieldType getWieldType() const;
 
     const std::map<int, std::shared_ptr<Item>> &equipment() const { return _equipment; }
+    std::vector<std::shared_ptr<Object>> ownedRuntimeObjects() const override;
 
     // END Equipment
 
@@ -573,7 +574,7 @@ private:
     void deserializeAttributes(const resource::Gff &gff);
     void deserializeClass(const resource::Gff &gff);
     void deserializePerception(const resource::Gff &gff);
-    void deserializeEquipItems(
+    void deserializeOwnedItemsAndEquipment(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
     // END Blueprint

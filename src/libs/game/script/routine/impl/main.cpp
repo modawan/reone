@@ -2500,6 +2500,18 @@ static Variable DestroyObject(const std::vector<Variable> &args, const RoutineCo
     // Transform
 
     // Execute
+    if (auto item = dyn_cast<Item>(oDestroy)) {
+        uint32_t ownerId = item->owner();
+        if (ownerId != 0 && ownerId != kObjectInvalid) {
+            if (auto owner = ctx.game.getObjectById(ownerId)) {
+                if (auto creature = dyn_cast<Creature>(owner);
+                    creature && item->isEquipped()) {
+                    creature->unequip(item);
+                }
+                owner->removeItemStack(item);
+            }
+        }
+    }
     ctx.game.module()->area()->destroyObject(*oDestroy);
     return Variable::ofNull();
 }
