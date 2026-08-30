@@ -1378,12 +1378,23 @@ bool Game::loadPreparedModule(
                     SerializedIdentityContext::moduleGraph(name),
                     SerializedGraphRoot::ModuleIfo);
             }
-            _module = restoringSavedWorld ? newSavedModule() : newModule();
-            if (restoringSavedWorld) {
-                registerSavedModuleReferenceTarget(
-                    _module,
-                    SerializedIdentityContext::moduleGraph(name));
-            }
+            std::shared_ptr<Module> destinationModule;
+            std::vector<std::shared_ptr<Object>> noObsolete;
+            replaceRuntimeObjectGraph(
+                noObsolete,
+                [&]() {
+                    destinationModule = restoringSavedWorld
+                                            ? newSavedModule()
+                                            : newModule();
+                    if (restoringSavedWorld) {
+                        registerSavedModuleReferenceTarget(
+                            destinationModule,
+                            SerializedIdentityContext::moduleGraph(name));
+                    }
+                },
+                [&]() noexcept {
+                    _module = std::move(destinationModule);
+                });
             _module->load(
                 name,
                 *ifo,
@@ -1628,6 +1639,7 @@ void Game::retireRuntimeSession() {
         unregisterRuntimeObject(_objectById.begin()->second);
     }
     retireSavedObjectGraph();
+    _publishedRuntimeObjectIds.clear();
     _nextObjectId = kFirstRuntimeObjectId;
     _effectIds.reset();
     _worldTimeMilliseconds = 0;
@@ -2542,6 +2554,19 @@ bool Game::isRuntimeObjectLive(const Object &object) const {
     return found != _objectById.end() && found->second.get() == &object;
 }
 
+bool Game::isRuntimeObjectAttachable(const Object &object) const {
+    if (isRuntimeObjectLive(object)) {
+        return true;
+    }
+    if (object._runtimeState != Object::RuntimeState::Constructing ||
+        !_stagedRuntimeObjectGraph) {
+        return false;
+    }
+    auto found = _stagedRuntimeObjectGraph->objectById.find(object.id());
+    return found != _stagedRuntimeObjectGraph->objectById.end() &&
+           found->second.get() == &object;
+}
+
 void Game::unregisterRuntimeObject(const std::shared_ptr<Object> &object) {
     if (!object) {
         return;
@@ -2626,6 +2651,7 @@ void Game::discardStagedRuntimeObjects(
             }
         }
         staged.savedIdByObject.erase(object.get());
+        staged.publishedRuntimeObjectIds.erase(object->id());
         staged.reservedSavedObjectIdsToRelease.erase(object->id());
         object->_runtimeState = Object::RuntimeState::Retired;
     }
@@ -2663,6 +2689,7 @@ void Game::commitRuntimeObjectGraphReplacement(
         unregisterRuntimeObject(*it);
     }
     _objectById.merge(staged.objectById);
+    _publishedRuntimeObjectIds.merge(staged.publishedRuntimeObjectIds);
     _objectBySavedId.merge(staged.objectBySavedId);
     _savedIdByObject.merge(staged.savedIdByObject);
     for (const auto &object : staged.candidateObjects) {
@@ -2678,7 +2705,9 @@ void Game::commitRuntimeObjectGraphReplacement(
 
     // All collisions are rejected while staging. A non-empty source here
     // would mean the supposedly atomic publication silently lost a node.
-    if (!staged.objectById.empty() || !staged.objectBySavedId.empty() ||
+    if (!staged.objectById.empty() ||
+        !staged.publishedRuntimeObjectIds.empty() ||
+        !staged.objectBySavedId.empty() ||
         !staged.savedIdByObject.empty()) {
         std::terminate();
     }
@@ -2726,11 +2755,21 @@ void Game::registerObject(
         object->_runtimeIncarnation != 0) {
         throw ValidationException("Runtime object storage cannot be republished");
     }
-    object->_runtimeIncarnation = _nextRuntimeIncarnation++;
     if (_objectById.count(id) != 0) {
         throw ValidationException("Duplicate runtime ObjectId: " + std::to_string(id));
     }
+    if (_publishedRuntimeObjectIds.count(id) != 0) {
+        throw ValidationException(
+            "Runtime ObjectId was already published in this session: " +
+            std::to_string(id));
+    }
+    object->_runtimeIncarnation = _nextRuntimeIncarnation++;
     if (_stagedRuntimeObjectGraph) {
+        if (!_stagedRuntimeObjectGraph->publishedRuntimeObjectIds.insert(id).second) {
+            throw ValidationException(
+                "Runtime ObjectId was already staged in this session: " +
+                std::to_string(id));
+        }
         if (!_stagedRuntimeObjectGraph->objectById.emplace(id, object).second) {
             throw ValidationException(
                 "Duplicate staged runtime ObjectId: " + std::to_string(id));
@@ -2738,6 +2777,7 @@ void Game::registerObject(
         _stagedRuntimeObjectGraph->candidateObjects.push_back(object);
         _stagedRuntimeObjectGraph->reservedSavedObjectIdsToRelease.insert(id);
     } else {
+        _publishedRuntimeObjectIds.insert(id);
         _objectById.emplace(id, object);
         object->_runtimeState = Object::RuntimeState::Live;
         _reservedSavedObjectIds.erase(id);
@@ -2812,7 +2852,14 @@ void Game::registerSavedModuleReferenceTarget(
         throw ValidationException(
             "Saved ObjectId 0 collides with the structural Module target");
     }
-    auto [found, inserted] = _objectBySavedId.emplace(
+    auto existing = getObjectBySavedId(kSavedRuntimeModuleObjectId);
+    if (existing && existing.get() != module.get()) {
+        throw ValidationException("Duplicate saved structural Module target");
+    }
+    auto &savedMap = _stagedRuntimeObjectGraph
+                         ? _stagedRuntimeObjectGraph->objectBySavedId
+                         : _objectBySavedId;
+    auto [found, inserted] = savedMap.emplace(
         kSavedRuntimeModuleObjectId, module);
     if (!inserted) {
         auto existing = found->second.lock();
@@ -2865,8 +2912,15 @@ std::shared_ptr<Area> Game::newSavedArea(
     uint32_t id,
     const SerializedIdentityContext &identityContext,
     std::string sceneName) {
-    auto area = newArea(std::move(sceneName));
-    registerSavedObjectIdentity(id, area, identityContext);
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    std::shared_ptr<Area> area;
+    replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            area = newArea(std::move(sceneName));
+            registerSavedObjectIdentity(id, area, identityContext);
+        },
+        []() noexcept {});
     return area;
 }
 

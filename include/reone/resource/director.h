@@ -49,6 +49,7 @@ class IPaths;
 class IResources;
 class IScripts;
 class ITwoDAs;
+class PreparedModuleLoadTestFactory;
 
 /**
  * A module mount and its required structural records, prepared without
@@ -60,6 +61,19 @@ class ITwoDAs;
  */
 class PreparedModuleLoad {
 public:
+    const std::string &moduleName() const { return _moduleName; }
+    const std::shared_ptr<Gff> &moduleIfo() const { return _moduleIfo; }
+    const std::shared_ptr<Gff> &areaAre() const { return _areaAre; }
+    const std::shared_ptr<Gff> &areaGit() const { return _areaGit; }
+    bool structurallyValidated() const { return _structurallyValidated; }
+
+private:
+    friend class ResourceDirector;
+    friend class PreparedModuleLoadTestFactory;
+
+    // Test fixtures may supply already-decoded records, but production code
+    // can only obtain a validated candidate through ResourceDirector's L
+    // discovery, mount and structural-validation path.
     PreparedModuleLoad(
         std::string moduleName,
         std::shared_ptr<Gff> moduleIfo,
@@ -71,15 +85,6 @@ public:
         _areaGit(std::move(areaGit)),
         _structurallyValidated(true) {
     }
-
-    const std::string &moduleName() const { return _moduleName; }
-    const std::shared_ptr<Gff> &moduleIfo() const { return _moduleIfo; }
-    const std::shared_ptr<Gff> &areaAre() const { return _areaAre; }
-    const std::shared_ptr<Gff> &areaGit() const { return _areaGit; }
-    bool structurallyValidated() const { return _structurallyValidated; }
-
-private:
-    friend class ResourceDirector;
 
     PreparedModuleLoad(
         std::string moduleName,

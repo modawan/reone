@@ -227,7 +227,7 @@ struct SaveFixture : Test {
             .WillRepeatedly(Invoke([this](
                                        const std::string &name,
                                        std::shared_ptr<const SaveWorkingState>) {
-                return std::make_unique<PreparedModuleLoad>(
+                return PreparedModuleLoadTestFactory::validated(
                     name, destinationIfo, destinationAre, destinationGit);
             }));
 
@@ -858,7 +858,7 @@ struct LoadTransactionFixture : TestWithParam<GameID> {
 
     std::unique_ptr<PreparedModuleLoad> preparedDestination(
         const std::string &name = "module_b") {
-        return std::make_unique<PreparedModuleLoad>(
+        return PreparedModuleLoadTestFactory::validated(
             name, destinationIfo, destinationAre, destinationGit);
     }
 

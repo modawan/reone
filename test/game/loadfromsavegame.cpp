@@ -90,7 +90,7 @@ struct LoadFromSaveGameFixture : TestWithParam<GameID> {
             .WillRepeatedly(Invoke([this](
                                        const std::string &name,
                                        std::shared_ptr<const SaveWorkingState>) {
-                return std::make_unique<PreparedModuleLoad>(
+                return PreparedModuleLoadTestFactory::validated(
                     name, destinationIfo, destinationAre, destinationGit);
             }));
     }

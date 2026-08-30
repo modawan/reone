@@ -491,7 +491,7 @@ void Object::retireAreaRuntimeState(
     }
     _savedReferenceIds = std::move(retainedReferenceIds);
     _savedReferences = std::move(retainedReferences);
-    _lastHostileActor = script::kObjectInvalid;
+    _lastHostileActor.reset();
 }
 
 void Object::resolveSavedReferences(
@@ -507,6 +507,19 @@ void Object::resolveSavedReferences(
 std::shared_ptr<Object> Object::savedReference(std::string_view field) const {
     auto found = _savedReferences.find(std::string(field));
     return found == _savedReferences.end() ? nullptr : found->second.resolve();
+}
+
+uint32_t Object::getLastHostileActor() const {
+    auto actor = _lastHostileActor.resolve();
+    return actor ? actor->id() : script::kObjectInvalid;
+}
+
+void Object::setLastHostileActor(uint32_t actor) {
+    if (actor == script::kObjectInvalid) {
+        _lastHostileActor.reset();
+        return;
+    }
+    _lastHostileActor = _game.getObjectById(actor);
 }
 
 void Object::clearAllActions(bool force) {

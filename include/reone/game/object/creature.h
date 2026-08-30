@@ -307,7 +307,10 @@ public:
     std::shared_ptr<Object> getAttackTarget() const {
         return _combatState.attackTarget.resolve();
     }
-    uint32_t getLastHostileTarget() const { return _lastHostileTarget; }
+    uint32_t getLastHostileTarget() const {
+        auto target = _lastHostileTarget.resolve();
+        return target ? target->id() : script::kObjectInvalid;
+    }
     ActionType getLastAttackAction() const { return _lastAttackAction; }
     FeatType getLastCombatFeat() const { return _lastCombatFeat; }
     AttackResultType getLastAttackResult() const { return _lastAttackResult; }
@@ -489,7 +492,7 @@ private:
 
     bool _movementRestricted {false};
     CombatState _combatState;
-    uint32_t _lastHostileTarget {script::kObjectInvalid};
+    RuntimeObjectRef<Object> _lastHostileTarget;
     ActionType _lastAttackAction {ActionType::QueueEmpty};
     FeatType _lastCombatFeat {FeatType::Invalid};
     AttackResultType _lastAttackResult {AttackResultType::Invalid};

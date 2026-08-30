@@ -337,6 +337,7 @@ private:
     void applySceneProperties();
     void attachRoomToSceneGraph(Room &room);
     void attachObjectToSceneGraph(const std::shared_ptr<Object> &object);
+    void detachObjectRuntime(const std::shared_ptr<Object> &object);
 
     void doDestroyObject(uint32_t objectId, bool destroyRuntimeObject = true);
     void doDestroyObjects();

@@ -23,6 +23,7 @@
 #include "reone/game/game.h"
 #include "reone/game/object.h"
 #include "reone/game/object/area.h"
+#include "reone/system/exception/validation.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -67,6 +68,32 @@ TEST(Area, get_object_by_tag_should_partition_by_is_dead) {
     EXPECT_EQ(alive2, area->getObjectByTag(tag, 1));
     EXPECT_EQ(dead1, area->getObjectByTag(tag, 2));
     EXPECT_EQ(dead3, area->getObjectByTag(tag, 3));
+}
+
+TEST(Area, failed_room_attachment_rolls_back_area_ownership) {
+    TestEngine &engine = testEngine();
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    ON_CALL(engine.sceneModule().graphs(), get(_))
+        .WillByDefault(ReturnRef(sceneGraph));
+    EXPECT_CALL(sceneGraph, testElevation(_, _))
+        .WillOnce(Throw(ValidationException("injected room attachment failure")));
+
+    auto area = game.newArea();
+    auto item = game.newItem();
+    item->setTag("attachment_failure");
+    const size_t registrySize = engine.gameModule().objectRegistrySize(game);
+
+    EXPECT_THROW(area->add(item), ValidationException);
+
+    EXPECT_TRUE(item->isRuntimeLive());
+    EXPECT_EQ(item, game.getObjectById(item->id()));
+    EXPECT_EQ(registrySize, engine.gameModule().objectRegistrySize(game));
+    EXPECT_TRUE(area->getObjectsByType(ObjectType::Item).empty());
+    EXPECT_FALSE(area->getObjectByTag("attachment_failure", 0));
+    EXPECT_EQ(nullptr, item->room());
 }
 
 } // namespace

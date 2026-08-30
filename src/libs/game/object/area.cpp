@@ -53,6 +53,7 @@
 #include "reone/scene/collision.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
+#include "reone/system/exception/validation.h"
 #include "reone/scene/node/grass.h"
 #include "reone/scene/node/grasscluster.h"
 #include "reone/scene/node/model.h"
@@ -565,29 +566,63 @@ void Area::initCameras(const glm::vec3 &entryPosition, float entryFacing) {
 }
 
 void Area::add(const std::shared_ptr<Object> &object) {
-    _objects.push_back(object);
-    _objectsByType[object->type()].push_back(object);
-    _objectsByTag[object->tag()].push_back(object);
+    if (!object || !_game.isRuntimeObjectAttachable(*object)) {
+        throw ValidationException(
+            "Area can only own a published or staged runtime object");
+    }
+    if (std::any_of(
+            _objects.begin(), _objects.end(),
+            [&object](const auto &existing) {
+                return existing.get() == object.get();
+            })) {
+        throw ValidationException("Runtime object is already owned by this Area");
+    }
 
-    determineObjectRoom(*object);
-    attachObjectToSceneGraph(object);
+    try {
+        _objects.push_back(object);
+        _objectsByType[object->type()].push_back(object);
+        _objectsByTag[object->tag()].push_back(object);
 
-    if (auto door = dyn_cast<Door>(object)) {
-        if ((door->linkedToFlags() == 1 || door->linkedToFlags() == 2) &&
-            !door->linkedToModule().empty() &&
-            !door->linkedTo().empty() &&
-            !door->linkedTransitionGeometry().empty()) {
-            std::vector<std::shared_ptr<Object>> noObsolete;
-            std::shared_ptr<Trigger> trigger;
-            _game.replaceRuntimeObjectGraph(
-                noObsolete,
-                [&]() {
-                    trigger = _game.newTrigger(_sceneName);
-                    trigger->configureLinkedDoorTransition(door);
-                },
-                []() noexcept {});
-            add(trigger);
+        determineObjectRoom(*object);
+        attachObjectToSceneGraph(object);
+
+        if (auto door = dyn_cast<Door>(object)) {
+            if ((door->linkedToFlags() == 1 || door->linkedToFlags() == 2) &&
+                !door->linkedToModule().empty() &&
+                !door->linkedTo().empty() &&
+                !door->linkedTransitionGeometry().empty()) {
+                std::vector<std::shared_ptr<Object>> noObsolete;
+                std::shared_ptr<Trigger> trigger;
+                _game.replaceRuntimeObjectGraph(
+                    noObsolete,
+                    [&]() {
+                        trigger = _game.newTrigger(_sceneName);
+                        trigger->configureLinkedDoorTransition(door);
+                    },
+                    []() noexcept {});
+                try {
+                    add(trigger);
+                } catch (...) {
+                    if (trigger->isRuntimeLive()) {
+                        _game.destroyRuntimeObjectGraph(trigger);
+                    }
+                    throw;
+                }
+            }
         }
+    } catch (...) {
+        auto owned = std::find_if(
+            _objects.begin(), _objects.end(),
+            [&object](const auto &existing) {
+                return existing.get() == object.get();
+            });
+        if (owned != _objects.end()) {
+            // Area ownership is published only by a successful return. Undo
+            // any partially installed indexes/tenancy/presentation while
+            // leaving semantic object lifetime with the caller.
+            detachObjectRuntime(object);
+        }
+        throw;
     }
 }
 
@@ -658,34 +693,14 @@ void Area::doDestroyObjects() {
     _objectsToDestroy.clear();
 }
 
-void Area::doDestroyObject(uint32_t objectId, bool destroyRuntimeObject) {
-    auto object = _game.getObjectById(objectId);
-    if (!object) {
-        return;
-    }
-
-    if (auto door = dyn_cast<Door>(object)) {
-        std::vector<uint32_t> linkedTriggerIds;
-        for (auto &triggerObject : _objectsByType[ObjectType::Trigger]) {
-            auto trigger = std::static_pointer_cast<Trigger>(triggerObject);
-            if (trigger->detachLinkedDoorTransition(*door)) {
-                linkedTriggerIds.push_back(trigger->id());
-            }
-        }
-        for (auto triggerId : linkedTriggerIds) {
-            doDestroyObject(triggerId);
-        }
-    }
-
+void Area::detachObjectRuntime(const std::shared_ptr<Object> &object) {
     auto room = object->room();
     if (room) {
-        room->removeTenant(object.get());
+        object->setRoom(nullptr);
     }
 
-    // Drop the object from any trigger it was standing inside. A destroyed
-    // object never moves, so Trigger::update would otherwise keep it as a tenant
-    // indefinitely (leaking it and leaving the trigger stuck in the Inside
-    // state). Destruction is not an "exit", so no OnExit is fired.
+    // Drop the object from any trigger it was standing inside. Detachment is
+    // not an authored exit, so no OnExit is fired.
     for (auto &triggerObject : _objectsByType[ObjectType::Trigger]) {
         static_cast<Trigger &>(*triggerObject).removeTenant(object.get());
     }
@@ -723,14 +738,22 @@ void Area::doDestroyObject(uint32_t objectId, bool destroyRuntimeObject) {
         }
     }
 
-    auto maybeObject = std::find_if(_objects.begin(), _objects.end(), [&object](auto &o) { return o.get() == object.get(); });
+    auto maybeObject = std::find_if(
+        _objects.begin(), _objects.end(),
+        [&object](auto &candidate) {
+            return candidate.get() == object.get();
+        });
     if (maybeObject != _objects.end()) {
         _objects.erase(maybeObject);
     }
     auto maybeTagObjects = _objectsByTag.find(object->tag());
     if (maybeTagObjects != _objectsByTag.end()) {
         auto &tagObjects = maybeTagObjects->second;
-        auto maybeObjectByTag = std::find_if(tagObjects.begin(), tagObjects.end(), [&object](auto &o) { return o.get() == object.get(); });
+        auto maybeObjectByTag = std::find_if(
+            tagObjects.begin(), tagObjects.end(),
+            [&object](auto &candidate) {
+                return candidate.get() == object.get();
+            });
         if (maybeObjectByTag != tagObjects.end()) {
             tagObjects.erase(maybeObjectByTag);
         }
@@ -738,10 +761,17 @@ void Area::doDestroyObject(uint32_t objectId, bool destroyRuntimeObject) {
             _objectsByTag.erase(maybeTagObjects);
         }
     }
-    auto &typeObjects = _objectsByType.find(object->type())->second;
-    auto maybeObjectByType = std::find_if(typeObjects.begin(), typeObjects.end(), [&object](auto &o) { return o.get() == object.get(); });
-    if (maybeObjectByType != typeObjects.end()) {
-        typeObjects.erase(maybeObjectByType);
+    auto maybeTypeObjects = _objectsByType.find(object->type());
+    if (maybeTypeObjects != _objectsByType.end()) {
+        auto &typeObjects = maybeTypeObjects->second;
+        auto maybeObjectByType = std::find_if(
+            typeObjects.begin(), typeObjects.end(),
+            [&object](auto &candidate) {
+                return candidate.get() == object.get();
+            });
+        if (maybeObjectByType != typeObjects.end()) {
+            typeObjects.erase(maybeObjectByType);
+        }
     }
     if (_hilightedObject.get() == object.get()) {
         _hilightedObject.reset();
@@ -749,6 +779,28 @@ void Area::doDestroyObject(uint32_t objectId, bool destroyRuntimeObject) {
     if (_selectedObject.get() == object.get()) {
         _selectedObject.reset();
     }
+}
+
+void Area::doDestroyObject(uint32_t objectId, bool destroyRuntimeObject) {
+    auto object = _game.getObjectById(objectId);
+    if (!object) {
+        return;
+    }
+
+    if (auto door = dyn_cast<Door>(object)) {
+        std::vector<uint32_t> linkedTriggerIds;
+        for (auto &triggerObject : _objectsByType[ObjectType::Trigger]) {
+            auto trigger = std::static_pointer_cast<Trigger>(triggerObject);
+            if (trigger->detachLinkedDoorTransition(*door)) {
+                linkedTriggerIds.push_back(trigger->id());
+            }
+        }
+        for (auto triggerId : linkedTriggerIds) {
+            doDestroyObject(triggerId);
+        }
+    }
+
+    detachObjectRuntime(object);
     if (destroyRuntimeObject) {
         _game.destroyRuntimeObjectGraph(object);
     }

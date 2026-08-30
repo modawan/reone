@@ -176,6 +176,11 @@ uint32_t reone::game::TestGameModule::nextObjectId(const Game &game) {
     return game._nextObjectId;
 }
 
+std::shared_ptr<Item> reone::game::TestGameModule::newItemAtRuntimeId(
+    Game &game, uint32_t id) {
+    return game.newObjectAtId<Item>(id, false, game, game._services);
+}
+
 uint64_t reone::game::TestGameModule::runtimeSessionGeneration(const Game &game) {
     return game._runtimeSessionGeneration;
 }
@@ -1367,6 +1372,36 @@ TEST(RuntimeObjectLiveness, stale_reference_does_not_alias_reused_session_id) {
     EXPECT_NE(incarnation, second->runtimeIncarnation());
     EXPECT_FALSE(stale.resolve());
     EXPECT_EQ(second, game.getObjectById(reusedId));
+}
+
+TEST(RuntimeObjectLiveness, published_runtime_id_is_not_reused_within_session) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto observer = game.newCreature();
+    auto hostile = game.newCreature();
+    const uint32_t hostileId = hostile->id();
+    observer->setLastHostileActor(hostileId);
+
+    ASSERT_EQ(hostileId, observer->getLastHostileActor());
+    game.destroyRuntimeObjectGraph(hostile);
+
+    EXPECT_EQ(script::kObjectInvalid, observer->getLastHostileActor());
+    EXPECT_THROW(
+        TestGameModule::newItemAtRuntimeId(game, hostileId),
+        ValidationException);
+
+    auto ifo = resource::Gff::Builder()
+                   .field(resource::Gff::Field::newDword(
+                       "Mod_NextObjId0", hostileId))
+                   .build();
+    game.prepareSavedRuntimeNamespace(
+        *ifo, SerializedIdentityContext::moduleGraph("reuse_guard"));
+    auto replacement = game.newItem();
+
+    EXPECT_NE(hostileId, replacement->id());
+    EXPECT_EQ(replacement->id(), game.getObjectById(replacement->id())->id());
 }
 
 TEST(RuntimeObjectLiveness, effect_and_vm_event_references_fail_closed) {

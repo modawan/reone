@@ -28,6 +28,7 @@
 #include "action.h"
 #include "action/playanimation.h"
 #include "effect.h"
+#include "runtimeref.h"
 #include "saveprovenance.h"
 #include "savedruntime.h"
 #include "types.h"
@@ -230,9 +231,9 @@ public:
 
     // Combat
 
-    uint32_t getLastHostileActor() const { return _lastHostileActor; }
+    uint32_t getLastHostileActor() const;
 
-    void setLastHostileActor(uint32_t actor) { _lastHostileActor = actor; }
+    void setLastHostileActor(uint32_t actor);
 
     // END Combat
 
@@ -360,7 +361,7 @@ protected:
 
     // END Actions
 
-    uint32_t _lastHostileActor {script::kObjectInvalid};
+    RuntimeObjectRef<Object> _lastHostileActor;
 
     // Local variables
     std::map<std::string, uint32_t> _savedReferenceIds;

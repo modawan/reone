@@ -555,7 +555,7 @@ void Creature::retireAreaRuntime(
     _combatState.attackAction = ActionType::QueueEmpty;
     _combatState.combatFeat = FeatType::Invalid;
     _combatState.deactivationTimer.reset(0.0f);
-    _lastHostileTarget = script::kObjectInvalid;
+    _lastHostileTarget.reset();
     _lastAttackAction = ActionType::QueueEmpty;
     _lastCombatFeat = FeatType::Invalid;
     _lastAttackResult = AttackResultType::Invalid;
@@ -818,7 +818,7 @@ void Creature::updateCombat(float dt) {
         _combatState.attemptedAttackTarget.reset();
         _combatState.attackAction = ActionType::QueueEmpty;
         _combatState.combatFeat = FeatType::Invalid;
-        _lastHostileTarget = script::kObjectInvalid;
+        _lastHostileTarget.reset();
         _lastAttackAction = ActionType::QueueEmpty;
         _lastCombatFeat = FeatType::Invalid;
         setLastHostileActor(script::kObjectInvalid);
@@ -1448,9 +1448,9 @@ void Creature::setAttemptedAttackTarget(uint32_t target) {
 
 void Creature::finishCombatRound() {
     if (auto target = _combatState.attackTarget.resolve()) {
-        _lastHostileTarget = target->id();
+        _lastHostileTarget = target;
     } else {
-        _lastHostileTarget = script::kObjectInvalid;
+        _lastHostileTarget.reset();
     }
     _lastAttackAction = _combatState.attackAction;
     if (_combatState.combatFeat != FeatType::Invalid) {

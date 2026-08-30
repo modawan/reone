@@ -643,6 +643,7 @@ public:
     template <class T, class... Args>
     inline std::shared_ptr<T> newObject(Args &&...args) {
         while (_objectById.count(_nextObjectId) ||
+               _publishedRuntimeObjectIds.count(_nextObjectId) ||
                (_stagedRuntimeObjectGraph &&
                 _stagedRuntimeObjectGraph->objectById.count(_nextObjectId)) ||
                _reservedSavedObjectIds.count(_nextObjectId)) {
@@ -784,6 +785,7 @@ public:
     void deserializeInventory(resource::Gff &inventoryGff);
 
 private:
+    friend class Area;
     friend class TestGameModule;
     friend class ModuleSnapshotBuilder;
     friend class SaveWideSnapshotBuilder;
@@ -857,6 +859,10 @@ private:
     static constexpr uint32_t kFirstRuntimeObjectId = 2; // ids 0 and 1 are reserved
     uint32_t _nextObjectId {kFirstRuntimeObjectId};
     std::map<uint32_t, std::shared_ptr<Object>> _objectById;
+    // A numeric runtime ID names at most one incarnation during a runtime
+    // session. Saved cursors and developer-specified IDs may move allocation
+    // backwards, but cannot revive stale numeric gameplay references.
+    std::set<uint32_t> _publishedRuntimeObjectIds;
     std::map<uint32_t, std::weak_ptr<Object>> _objectBySavedId;
     // One authoritative graph object has one canonical saved identity. Roster
     // doubles live in detached graphs and never create cross-graph aliases.
@@ -864,6 +870,7 @@ private:
     struct StagedRuntimeObjectGraph {
         uint32_t initialNextObjectId {kFirstRuntimeObjectId};
         std::map<uint32_t, std::shared_ptr<Object>> objectById;
+        std::set<uint32_t> publishedRuntimeObjectIds;
         std::map<uint32_t, std::weak_ptr<Object>> objectBySavedId;
         std::map<const Object *, uint32_t> savedIdByObject;
         std::set<const Object *> replaceableObjects;
@@ -1017,6 +1024,7 @@ private:
         const std::vector<std::shared_ptr<Object>> &obsoleteObjects);
     void abortRuntimeObjectGraphReplacement();
     void unregisterRuntimeObject(const std::shared_ptr<Object> &object);
+    bool isRuntimeObjectAttachable(const Object &object) const;
     std::vector<std::shared_ptr<Object>> collectRuntimeObjectGraph(
         const std::vector<std::shared_ptr<Object>> &roots) const;
     void discardStagedRuntimeObjects(

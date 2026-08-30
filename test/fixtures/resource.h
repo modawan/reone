@@ -47,6 +47,21 @@ namespace reone {
 
 namespace resource {
 
+class PreparedModuleLoadTestFactory {
+public:
+    static std::unique_ptr<PreparedModuleLoad> validated(
+        std::string moduleName,
+        std::shared_ptr<Gff> moduleIfo,
+        std::shared_ptr<Gff> areaAre,
+        std::shared_ptr<Gff> areaGit) {
+        return std::unique_ptr<PreparedModuleLoad>(new PreparedModuleLoad(
+            std::move(moduleName),
+            std::move(moduleIfo),
+            std::move(areaAre),
+            std::move(areaGit)));
+    }
+};
+
 class MockGffs : public IGffs, boost::noncopyable {
 public:
     MOCK_METHOD(void, clear, (), (override));

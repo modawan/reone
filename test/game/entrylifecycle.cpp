@@ -228,7 +228,7 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
             .WillRepeatedly(Invoke([this](
                                        const std::string &name,
                                        std::shared_ptr<const SaveWorkingState>) {
-                return std::make_unique<PreparedModuleLoad>(
+                return PreparedModuleLoadTestFactory::validated(
                     name, moduleIfo, areaAre, areaGit);
             }));
         EXPECT_CALL(director, commitModuleLoad(_))

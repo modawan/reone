@@ -196,6 +196,7 @@ public:
     static size_t objectRegistrySize(const Game &game);
     static size_t loadedModuleCount(const Game &game);
     static uint32_t nextObjectId(const Game &game);
+    static std::shared_ptr<Item> newItemAtRuntimeId(Game &game, uint32_t id);
     static uint64_t runtimeSessionGeneration(const Game &game);
     static uint64_t savedGraphGeneration(const Game &game);
     static void registerSavedModuleReferenceTarget(

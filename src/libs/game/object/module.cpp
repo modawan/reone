@@ -163,22 +163,34 @@ void Module::loadArea(
     bool restoreSavedWorld) {
     reone::info("Load area '" + _info.entryArea + "'");
 
-    if (restoreSavedWorld) {
-        auto area = std::find_if(
-            ifo.Mod_Area_list.begin(),
-            ifo.Mod_Area_list.end(),
-            [this](const auto &entry) { return entry.Area_Name == _info.entryArea; });
-        uint32_t areaId = area == ifo.Mod_Area_list.end() ? 1 : area->ObjectId;
-        _area = _game.newSavedArea(
-            areaId, SerializedIdentityContext::moduleGraph(_name));
-    } else {
-        _area = _game.newArea();
-    }
-
     const auto identityContext = restoreSavedWorld
                                      ? SerializedIdentityContext::moduleGraph(_name)
                                      : SerializedIdentityContext::templateResource(_name);
-    _area->load(_info.entryArea, are, git, identityContext);
+    std::shared_ptr<Area> candidateArea;
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    _game.replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            if (restoreSavedWorld) {
+                auto area = std::find_if(
+                    ifo.Mod_Area_list.begin(),
+                    ifo.Mod_Area_list.end(),
+                    [this](const auto &entry) {
+                        return entry.Area_Name == _info.entryArea;
+                    });
+                uint32_t areaId = area == ifo.Mod_Area_list.end()
+                                      ? 1
+                                      : area->ObjectId;
+                candidateArea = _game.newSavedArea(areaId, identityContext);
+            } else {
+                candidateArea = _game.newArea();
+            }
+            candidateArea->load(
+                _info.entryArea, are, git, identityContext);
+        },
+        [&]() noexcept {
+            _area = std::move(candidateArea);
+        });
 
 }
 

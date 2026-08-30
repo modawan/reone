@@ -5083,9 +5083,15 @@ TEST(SavedRuntimeState, maps_structural_module_through_contextual_retail_slot_ze
     EXPECT_FALSE(module->serializedObjectIdentity());
     EXPECT_EQ(1u, engine.gameModule().objectRegistrySize(game));
 
+    const size_t registrySize = engine.gameModule().objectRegistrySize(game);
+    const uint32_t nextObjectId = TestGameModule::nextObjectId(game);
+
     EXPECT_THROW(
         game.newSavedArea(kSavedRuntimeModuleObjectId, testModuleIdentity()),
         ValidationException);
+    EXPECT_EQ(registrySize, engine.gameModule().objectRegistrySize(game));
+    EXPECT_EQ(nextObjectId, TestGameModule::nextObjectId(game));
+    EXPECT_EQ(module, game.getObjectBySavedId(kSavedRuntimeModuleObjectId));
 }
 
 TEST(SavedRuntimeState, rejects_an_owned_record_in_the_structural_module_slot) {
@@ -5109,6 +5115,38 @@ TEST(SavedRuntimeState, rejects_an_owned_record_in_the_structural_module_slot) {
             game, module, testModuleIdentity()),
         ValidationException);
     EXPECT_FALSE(game.getObjectBySavedId(kSavedRuntimeModuleObjectId));
+}
+
+TEST(SavedRuntimeState, stages_structural_module_identity_with_runtime_publication) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto occupied = game.newSavedModule();
+    TestGameModule::registerSavedModuleReferenceTarget(
+        game, occupied, testModuleIdentity());
+    const size_t registrySize = engine.gameModule().objectRegistrySize(game);
+    const uint32_t nextObjectId = TestGameModule::nextObjectId(game);
+    std::shared_ptr<Module> candidate;
+    std::vector<std::shared_ptr<Object>> noObsolete;
+
+    EXPECT_THROW(
+        game.replaceRuntimeObjectGraph(
+            noObsolete,
+            [&]() {
+                candidate = game.newSavedModule();
+                TestGameModule::registerSavedModuleReferenceTarget(
+                    game, candidate, testModuleIdentity());
+            },
+            []() noexcept {}),
+        ValidationException);
+
+    ASSERT_TRUE(candidate);
+    EXPECT_FALSE(candidate->isRuntimeLive());
+    EXPECT_EQ(registrySize, engine.gameModule().objectRegistrySize(game));
+    EXPECT_EQ(nextObjectId, TestGameModule::nextObjectId(game));
+    EXPECT_EQ(occupied, game.getObjectBySavedId(kSavedRuntimeModuleObjectId));
 }
 
 TEST(SavedRuntimeState, reserves_the_actual_retail_graph_before_owner_local_allocations) {
