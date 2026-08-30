@@ -215,7 +215,14 @@ public:
     // Equipment
 
     bool equip(const std::string &resRef);
+    /** Validate an equipment commit without changing ownership. */
+    bool canEquip(int slot, const std::shared_ptr<Item> &item) const;
     bool equip(int slot, const std::shared_ptr<Item> &item);
+    /** Validate an equipment replacement without changing ownership. */
+    bool canReplaceEquipment(
+        int slot,
+        const std::shared_ptr<Item> &item,
+        const Object &displacedReceiver) const;
     bool replaceEquipment(
         int slot,
         const std::shared_ptr<Item> &item,

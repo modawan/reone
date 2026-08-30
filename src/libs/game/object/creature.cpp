@@ -28,6 +28,7 @@
 #include "reone/game/d20/classes.h"
 #include "reone/game/debug.h"
 #include "reone/game/di/services.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/effect/acdecrease.h"
 #include "reone/game/effect/acincrease.h"
 #include "reone/game/effect/attackdecrease.h"
@@ -980,7 +981,9 @@ void Creature::updateDisguise() {
     }
 }
 
-bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
+bool Creature::canEquip(
+    int slot,
+    const std::shared_ptr<Item> &item) const {
     if (!item || (!item->isRuntimeLive() && !item->isPresentationOnly()) ||
         !item->isEquippable(getEquipabilitySlot(slot))) {
         return false;
@@ -1001,6 +1004,13 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
         return false;
     }
     if (previous && previous != item) return false;
+    return true;
+}
+
+bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
+    if (!canEquip(slot, item) || isActiveAreaOwnedItem(_game, item)) {
+        return false;
+    }
     _equipment[slot] = item;
     item->setEquipped(true);
     item->setOwner(_id);
@@ -1015,12 +1025,12 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
     return true;
 }
 
-bool Creature::replaceEquipment(
+bool Creature::canReplaceEquipment(
     int slot,
     const std::shared_ptr<Item> &item,
-    Object &displacedReceiver) {
+    const Object &displacedReceiver) const {
     auto previous = getEquippedItem(slot);
-    if (!previous || previous == item) return equip(slot, item);
+    if (!previous || previous == item) return canEquip(slot, item);
     if (!item || (!item->isRuntimeLive() && !item->isPresentationOnly()) ||
         !item->isEquippable(getEquipabilitySlot(slot)) ||
         std::find(_items.begin(), _items.end(), item) != _items.end() ||
@@ -1034,6 +1044,19 @@ bool Creature::replaceEquipment(
         (!displacedReceiver.isRuntimeLive() &&
          !displacedReceiver.isPresentationOnly()) ||
         (isPresentationOnly() != displacedReceiver.isPresentationOnly())) {
+        return false;
+    }
+    return true;
+}
+
+bool Creature::replaceEquipment(
+    int slot,
+    const std::shared_ptr<Item> &item,
+    Object &displacedReceiver) {
+    auto previous = getEquippedItem(slot);
+    if (!previous || previous == item) return equip(slot, item);
+    if (!canReplaceEquipment(slot, item, displacedReceiver) ||
+        isActiveAreaOwnedItem(_game, item)) {
         return false;
     }
 

@@ -38,7 +38,8 @@ void EquipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float
     } else if (_inventorySlot == InventorySlots::leftWeapon2) {
         equipabilitySlot = InventorySlots::leftWeapon;
     }
-    if (!candidate ||
+    if (!creature->isRuntimeLive() || !candidate ||
+        !candidate->isRuntimeLive() ||
         !candidate->isEquippable(equipabilitySlot)) {
         complete();
         return;
@@ -61,6 +62,11 @@ void EquipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float
 
     std::shared_ptr<Object> sourceOwner;
     uint32_t ownerId = candidate->owner();
+    bool areaOwned = isActiveAreaOwnedItem(_game, candidate);
+    if (areaOwned && ownerId != 0 && ownerId != script::kObjectInvalid) {
+        complete();
+        return;
+    }
     if (ownerId != 0 && ownerId != script::kObjectInvalid) {
         sourceOwner = _game.getObjectById(ownerId);
         if (!sourceOwner) {
@@ -73,6 +79,17 @@ void EquipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float
             candidate = equippedOwner->takeEquippedItem(candidate);
         } else {
             candidate = takeEquipmentCandidate(_game, *sourceOwner, candidate);
+        }
+    } else {
+        bool ready = previous && previous != candidate
+                         ? displacedReceiver &&
+                               creature->canReplaceEquipment(
+                                   _inventorySlot, candidate, *displacedReceiver)
+                         : creature->canEquip(_inventorySlot, candidate);
+        if (!ready || !areaOwned ||
+            !releaseAreaOwnedItem(_game, candidate)) {
+            complete();
+            return;
         }
     }
     bool equipped = candidate &&

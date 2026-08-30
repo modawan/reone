@@ -21,6 +21,7 @@
 #include <typeinfo>
 
 #include "reone/game/di/services.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
 #include "reone/game/object/item.h"
 #include "reone/game/script/savedsituation.h"
@@ -692,6 +693,10 @@ void Object::addItem(const std::shared_ptr<Item> &item) {
     if (item->isEquipped()) {
         throw ValidationException(
             "Cannot add an Item while it still has an equipment owner edge");
+    }
+    if (isActiveAreaOwnedItem(_game, item)) {
+        throw ValidationException(
+            "Cannot add an Item while it still has an Area ownership edge");
     }
     if (item->owner() != 0 && item->owner() != script::kObjectInvalid &&
         item->owner() != _id) {

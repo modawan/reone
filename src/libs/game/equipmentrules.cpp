@@ -232,6 +232,39 @@ std::shared_ptr<Item> takeEquipmentCandidate(
     return split;
 }
 
+static std::shared_ptr<Area> activeAreaOwningItem(
+    Game &game,
+    const std::shared_ptr<Item> &item) {
+    if (!item) return nullptr;
+    auto module = game.module();
+    auto area = module ? module->area() : nullptr;
+    if (!area) return nullptr;
+    auto owned = std::find_if(
+        area->objects().begin(), area->objects().end(),
+        [&item](const auto &candidate) {
+            return candidate.get() == item.get();
+        });
+    return owned == area->objects().end() ? nullptr : area;
+}
+
+bool isActiveAreaOwnedItem(
+    Game &game,
+    const std::shared_ptr<Item> &item) {
+    return static_cast<bool>(activeAreaOwningItem(game, item));
+}
+
+bool releaseAreaOwnedItem(
+    Game &game,
+    const std::shared_ptr<Item> &item) {
+    if (!item || !item->isRuntimeLive() || item->isPresentationOnly() ||
+        item->isEquipped() ||
+        (item->owner() != 0 && item->owner() != script::kObjectInvalid)) {
+        return false;
+    }
+    auto area = activeAreaOwningItem(game, item);
+    return area && area->releaseObject(item);
+}
+
 bool transferItemTo(
     Game &game,
     const std::shared_ptr<Item> &item,
@@ -256,9 +289,7 @@ bool transferItemTo(
                 receiver.items().end()) {
             return false;
         }
-        auto module = game.module();
-        auto area = module ? module->area() : nullptr;
-        if (!area || !area->releaseObject(item)) {
+        if (!releaseAreaOwnedItem(game, item)) {
             return false;
         }
         receiver.addItem(item);
