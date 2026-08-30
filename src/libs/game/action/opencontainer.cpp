@@ -39,7 +39,7 @@ void OpenContainerAction::execute(std::shared_ptr<Action> self, Object &actor, f
     }
 
     auto &creatureActor = cast<Creature>(actor);
-    bool reached = creatureActor.navigateTo(_object->position(), true, kDefaultMaxObjectDistance, dt);
+    bool reached = creatureActor.navigateToObject(*_object, true, kDefaultMaxObjectDistance, dt);
     if (reached) {
         _game.openContainer(_object);
         complete();
