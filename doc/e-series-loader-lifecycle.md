@@ -257,8 +257,9 @@ Registry removal cannot unregister a newer object that happens to use the same n
 Owning edges and non-owning gameplay references are different types of relationship.
 
 - Creature inventory, equipment, placeable/store contents, and Party inventory form owned runtime-object graphs.
-- Every live Item has one stable authoritative disposition: inventory/container ownership, one Creature equipment slot, another supported owned graph, presentation-only clone, or semantic retirement.
+- Every live Item has one stable authoritative disposition: Area/world residency, inventory/container ownership, one Creature equipment slot, another supported owned graph, presentation-only clone, or semantic retirement. `Item::owner` represents nested ownership, not Area residency.
 - Normal unequip explicitly moves `equipment -> receiver inventory`; cross-owner transfer explicitly detaches the previous equipment/inventory edge before the destination accepts the Item.
+- Moving a world Item into an owned graph first proves exact active-Area residency, then releases its Area indexes, Room/Trigger tenancy and scene attachment before installing the nested owner edge. `owner == 0` alone never makes an Item claimable.
 - Equipment replacement prevalidates equipability and the displaced receiver, then commits `new Item -> slot` and `old Item -> receiver`. Removing an equipment edge clears the previous owner relation.
 - KOTOR shared-inventory selection belongs to action/UI/gameplay policy. Generic `Creature` equipment ownership does not consult Party policy.
 - A stack merge finalizes the consumed object immediately.
@@ -481,7 +482,7 @@ These are three different scopes: pre-C5 failure preserves the old world; post-C
 | Logical roster member | `(RosterKind, PartyTable slot)` | Serialized representations may coexist | Logical Party state changes or session ends |
 | Runtime incarnation | Runtime ObjectId, exact Object, incarnation, and registry | Numeric ID is not reused within the session; exact incarnation never aliases | Semantic retirement |
 | Area residency | Area/Room/Trigger/Pathfinder and scene attachment | One live creature has at most one current residency | Full Area departure |
-| Owned nested Item | One inventory/container/equipment ownership edge plus runtime incarnation | A live Item has one stable ownership disposition | Transfer replaces the edge; consumption/owner retirement ends the Item as applicable |
+| Runtime Item | Exact Area residency or one inventory/container/equipment ownership edge, plus runtime incarnation | Area and nested ownership never coexist | Transfer replaces the disposition; consumption/owner retirement ends the Item as applicable |
 | Presentation | GUI/scene owner and presentation-only object ID | May display copied gameplay data | Presentation closes or detaches |
 
 The session-published runtime-ID history is allocator policy inside the runtime-incarnation row, not an eighth identity domain. It ends with full runtime-session retirement.
@@ -499,7 +500,7 @@ The implementation must preserve these invariants:
 - Area-owned state ends before Area owners die;
 - supported Party continuation is reconstructed from durable state rather than retaining outgoing live actions;
 - nested ownership replacement is all-old or all-new at its owner boundary;
-- each live Item has one stable ownership disposition;
+- each live Item has one stable ownership disposition, and Area residency cannot coexist with nested ownership;
 - semantic destruction immediately ends runtime resolvability;
 - an individual fallible object/Area graph cannot leave a live orphan or saved alias on failed construction;
 - pre-commit structural rejection does not replace a good world;

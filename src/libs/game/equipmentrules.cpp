@@ -19,8 +19,10 @@
 
 #include "reone/game/game.h"
 #include "reone/game/object.h"
+#include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
+#include "reone/game/object/module.h"
 #include "reone/game/types.h"
 
 namespace reone {
@@ -236,16 +238,32 @@ bool transferItemTo(
     Object &receiver) {
     if (!item || (!item->isRuntimeLive() && !item->isPresentationOnly()) ||
         (!receiver.isRuntimeLive() && !receiver.isPresentationOnly()) ||
-        (item->isPresentationOnly() != receiver.isPresentationOnly())) {
+        (item->isPresentationOnly() != receiver.isPresentationOnly()) ||
+        item.get() == &receiver) {
         return false;
     }
 
     uint32_t ownerId = item->owner();
     if (ownerId == receiver.id() && !item->isEquipped()) return true;
-    // owner() describes nested inventory/equipment ownership. An ownerless
-    // Item may instead be Area-owned, so this helper fails closed rather than
-    // inventing a second ownership edge without an explicit Area detach.
-    if (ownerId == 0 || ownerId == script::kObjectInvalid) return false;
+
+    if (ownerId == 0 || ownerId == script::kObjectInvalid) {
+        // owner() describes nested inventory/equipment ownership; it does not
+        // encode Area residency. Only an exact active-Area ownership edge makes
+        // an ownerless-numbered Item transferable. Everything else fails
+        // closed rather than treating owner()==0 as freely claimable.
+        if (item->isPresentationOnly() || item->isEquipped() ||
+            std::find(receiver.items().begin(), receiver.items().end(), item) !=
+                receiver.items().end()) {
+            return false;
+        }
+        auto module = game.module();
+        auto area = module ? module->area() : nullptr;
+        if (!area || !area->releaseObject(item)) {
+            return false;
+        }
+        receiver.addItem(item);
+        return true;
+    }
 
     auto owner = game.getObjectById(ownerId);
     if (!owner) return false;

@@ -131,6 +131,16 @@ public:
 
     std::shared_ptr<Object> createObject(ObjectType type, const std::string &blueprintResRef, const std::shared_ptr<Location> &location);
 
+    /**
+     * End this Area's ownership of an exact still-live runtime Object.
+     *
+     * This removes Area indexes, Room/Trigger tenancy and presentation
+     * attachment without firing authored exit behavior or ending semantic
+     * object lifetime. It is the transfer seam for a world object moving into
+     * another owning graph.
+     */
+    bool releaseObject(const std::shared_ptr<Object> &object);
+
     bool isObjectSeen(const Creature &subject, const Object &object) const;
 
     ObjectList &getObjectsByType(ObjectType type);

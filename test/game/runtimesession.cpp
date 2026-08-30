@@ -34,8 +34,11 @@
 #include "reone/game/object/store.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/room.h"
+#include "reone/game/script/routines.h"
 #include "reone/graphics/model.h"
 #include "reone/graphics/modelnode.h"
+#include "reone/script/executioncontext.h"
+#include "reone/script/variable.h"
 #include "reone/scene/collision.h"
 #include "reone/scene/node/model.h"
 #include "reone/resource/2da.h"
@@ -156,6 +159,22 @@ std::shared_ptr<resource::Gff> runtimeItem(
         builder.field(resource::Gff::Field::newDword("ObjectId", *savedId));
     }
     return builder.build();
+}
+
+void giveItemThroughRoutine(
+    TestEngine &engine,
+    Game &game,
+    const std::shared_ptr<Item> &item,
+    const std::shared_ptr<Object> &receiver) {
+    Routines routines(game.gameId(), &game, &engine.services());
+    routines.init();
+    script::ExecutionContext execution;
+    execution.routines = &routines;
+    routines.get(routines.getIndexByName("GiveItem"))
+        .invoke(
+            {script::Variable::ofObject(item->id()),
+             script::Variable::ofObject(receiver->id())},
+            execution);
 }
 
 } // namespace
@@ -1610,6 +1629,184 @@ TEST(RuntimeObjectOwnership, transfers_equipped_item_between_creatures) {
     EXPECT_EQ(receiver->id(), item->owner());
     EXPECT_FALSE(item->isEquipped());
     EXPECT_TRUE(item->isRuntimeLive());
+}
+
+TEST(RuntimeObjectOwnership, give_item_moves_created_world_item_into_inventory) {
+    TestEngine engine;
+    engine.init();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    configureRuntimeMocks(engine, sceneGraph);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    EXPECT_CALL(
+        engine.resourceModule().gffs(),
+        get("g_i_medeqpmnt04", resource::ResType::Uti))
+        .WillOnce(Return(runtimeItem("g_i_medeqpmnt04")));
+    StubConsole console;
+    Game game(resource::GameID::TSL, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    TestGameModule::setActiveModuleArea(game, area);
+    auto pc = game.newCreature();
+    ASSERT_TRUE(game.party().addMember(kNpcPlayer, pc));
+    game.party().setPlayer(pc);
+    game.party().setActualPlayer(pc);
+
+    auto created = area->createObject(
+        ObjectType::Item,
+        "g_i_medeqpmnt04",
+        game.newLocation(glm::vec3(1.0f, 2.0f, 3.0f), 0.0f));
+    auto item = std::dynamic_pointer_cast<Item>(created);
+    ASSERT_TRUE(item);
+    item->setStackSize(3);
+    ASSERT_NE(
+        area->objects().end(),
+        std::find(area->objects().begin(), area->objects().end(), item));
+
+    giveItemThroughRoutine(engine, game, item, pc);
+
+    ASSERT_EQ(1u, pc->items().size());
+    EXPECT_EQ(item, pc->items().front());
+    EXPECT_EQ(3, item->stackSize());
+    EXPECT_EQ(pc->id(), item->owner());
+    EXPECT_TRUE(item->isRuntimeLive());
+    EXPECT_EQ(item, game.getObjectById(item->id()));
+    EXPECT_EQ(
+        area->objects().end(),
+        std::find(area->objects().begin(), area->objects().end(), item));
+    EXPECT_TRUE(area->getObjectsByType(ObjectType::Item).empty());
+    EXPECT_FALSE(area->getObjectByTag("g_i_medeqpmnt04"));
+    EXPECT_EQ(nullptr, item->room());
+}
+
+TEST(RuntimeObjectOwnership, area_item_stack_merge_retires_only_incoming_item) {
+    TestEngine engine;
+    engine.init();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    configureRuntimeMocks(engine, sceneGraph);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    TestGameModule::setActiveModuleArea(game, area);
+    auto receiver = game.newCreature();
+    auto existing = game.newItem();
+    existing->deserialize(
+        *runtimeItem("world_stack"),
+        SerializedIdentityContext::templateResource());
+    existing->setStackSize(2);
+    receiver->addItem(existing);
+    auto incoming = game.newItem();
+    incoming->deserialize(
+        *runtimeItem("world_stack"),
+        SerializedIdentityContext::templateResource());
+    incoming->setStackSize(3);
+    area->add(incoming);
+    const uint32_t incomingId = incoming->id();
+
+    ASSERT_TRUE(transferItemTo(game, incoming, *receiver));
+
+    ASSERT_EQ(1u, receiver->items().size());
+    EXPECT_EQ(existing, receiver->items().front());
+    EXPECT_EQ(5, existing->stackSize());
+    EXPECT_EQ(receiver->id(), existing->owner());
+    EXPECT_TRUE(existing->isRuntimeLive());
+    EXPECT_FALSE(incoming->isRuntimeLive());
+    EXPECT_FALSE(game.getObjectById(incomingId));
+    EXPECT_EQ(
+        area->objects().end(),
+        std::find(area->objects().begin(), area->objects().end(), incoming));
+    EXPECT_TRUE(area->getObjectsByType(ObjectType::Item).empty());
+    EXPECT_FALSE(area->getObjectByTag("world_stack"));
+}
+
+TEST(RuntimeObjectOwnership, git_shaped_world_item_releases_every_area_edge) {
+    TestEngine engine;
+    engine.init();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    configureRuntimeMocks(engine, sceneGraph);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    TestGameModule::setActiveModuleArea(game, area);
+    auto trigger = game.newTrigger();
+    trigger->deserialize(
+        *resource::Gff::Builder().build(),
+        SerializedIdentityContext::templateResource());
+    area->add(trigger);
+    auto item = game.newItem(
+        *runtimeItem("git_world"),
+        SerializedIdentityContext::templateResource("test-area"));
+
+    auto root = std::make_shared<graphics::ModelNode>(
+        0, "world_item", glm::vec3(0.0f),
+        glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
+    auto model = std::make_unique<graphics::Model>(
+        "world_item", 0, root,
+        std::vector<std::shared_ptr<graphics::Animation>>(), "", 1.0f);
+    auto sceneNode = std::make_shared<scene::ModelSceneNode>(
+        *model, scene::ModelUsage::Placeable, sceneGraph,
+        engine.graphicsModule().services(),
+        engine.audioModule().services(),
+        engine.resourceModule().services());
+    TestGameModule::setAreaRuntimeSceneNode(*item, sceneNode);
+    EXPECT_CALL(sceneGraph, addRoot(sceneNode)).Times(1);
+    EXPECT_CALL(
+        sceneGraph,
+        removeRoot(A<scene::ModelSceneNode &>()))
+        .WillOnce([&sceneNode](scene::ModelSceneNode &removed) {
+            EXPECT_EQ(sceneNode.get(), &removed);
+        });
+    area->add(item);
+    Room room("world_room", glm::vec3(0.0f), nullptr, nullptr, nullptr);
+    item->setRoom(&room);
+    trigger->addTenant(item);
+    auto receiver = game.newCreature();
+
+    ASSERT_TRUE(transferItemTo(game, item, *receiver));
+
+    ASSERT_EQ(1u, receiver->items().size());
+    EXPECT_EQ(item, receiver->items().front());
+    EXPECT_EQ(receiver->id(), item->owner());
+    EXPECT_TRUE(item->isRuntimeLive());
+    EXPECT_EQ(nullptr, item->room());
+    EXPECT_FALSE(trigger->isTenant(item));
+    EXPECT_EQ(
+        area->objects().end(),
+        std::find(area->objects().begin(), area->objects().end(), item));
+    EXPECT_TRUE(area->getObjectsByType(ObjectType::Item).empty());
+    EXPECT_FALSE(area->getObjectByTag("git_world"));
+}
+
+TEST(RuntimeObjectOwnership, ownerless_nonresident_item_is_not_transferable) {
+    TestEngine engine;
+    engine.init();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    configureRuntimeMocks(engine, sceneGraph);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto area = game.newArea();
+    TestGameModule::setActiveModuleArea(game, area);
+    auto item = game.newItem();
+    item->deserialize(
+        *runtimeItem("unowned"),
+        SerializedIdentityContext::templateResource());
+    auto receiver = game.newCreature();
+
+    EXPECT_FALSE(transferItemTo(game, item, *receiver));
+
+    EXPECT_TRUE(receiver->items().empty());
+    EXPECT_EQ(0u, item->owner());
+    EXPECT_TRUE(item->isRuntimeLive());
+    EXPECT_EQ(item, game.getObjectById(item->id()));
 }
 
 TEST(RuntimeObjectOwnership, equip_action_moves_equipped_item_between_creatures) {

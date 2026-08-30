@@ -781,6 +781,23 @@ void Area::detachObjectRuntime(const std::shared_ptr<Object> &object) {
     }
 }
 
+bool Area::releaseObject(const std::shared_ptr<Object> &object) {
+    if (!object) {
+        return false;
+    }
+    auto owned = std::find_if(
+        _objects.begin(), _objects.end(),
+        [&object](const auto &candidate) {
+            return candidate.get() == object.get();
+        });
+    if (owned == _objects.end()) {
+        return false;
+    }
+
+    detachObjectRuntime(object);
+    return true;
+}
+
 void Area::doDestroyObject(uint32_t objectId, bool destroyRuntimeObject) {
     auto object = _game.getObjectById(objectId);
     if (!object) {
