@@ -446,18 +446,33 @@ void Object::updateDelayedActions(float dt) {
 }
 
 void Object::executeActions(float dt) {
-    if (_actions.empty()) {
-        return;
+    size_t maxActions = _actions.size();
+    for (size_t i = 0; i < maxActions; ++i) {
+        bool repeat = false;
+        for (std::shared_ptr<Action> action : _actions) {
+            if (action->isCompleted()) {
+                continue;
+            }
+
+            _executingAction = action;
+            try {
+                action->execute(action, *this, dt);
+            } catch (...) {
+                _executingAction.reset();
+                throw;
+            }
+
+            _executingAction.reset();
+
+            // Restart iteration from the beginning, because action execution
+            // could add more actions to the queue, and therefore reallocate it.
+            repeat = action->isCompleted();
+            break;
+        }
+        if (!repeat) {
+            break;
+        }
     }
-    std::shared_ptr<Action> action(_actions.front());
-    _executingAction = action;
-    try {
-        action->execute(action, *this, dt);
-    } catch (...) {
-        _executingAction.reset();
-        throw;
-    }
-    _executingAction.reset();
 }
 
 bool Object::hasUserActionsPending(const Action *excluded) const {
