@@ -95,6 +95,12 @@ std::shared_ptr<Item> takeEquipmentCandidate(
     Object &inventory,
     const std::shared_ptr<Item> &item);
 
+/** Move one complete runtime Item from its current owning edge to receiver. */
+bool transferItemTo(
+    Game &game,
+    const std::shared_ptr<Item> &item,
+    Object &receiver);
+
 } // namespace game
 
 } // namespace reone

@@ -995,33 +995,92 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
             return false;
         }
     }
-    if (item->owner() != 0 && item->owner() != script::kObjectInvalid &&
-        item->owner() != _id) {
+    auto previous = getEquippedItem(slot);
+    if (previous != item && item->owner() != 0 &&
+        item->owner() != script::kObjectInvalid) {
         return false;
     }
-
-    auto previous = getEquippedItem(slot);
-    if (previous && previous != item) {
-        previous->powerDown(_position);
-        previous->setEquipped(false);
-        _equipment.erase(slot);
-        previous->setOwner(0);
-        if (isPresentationOnly()) {
-            // Presentation data has no gameplay owner or registry lifetime.
-        } else {
-            auto self = _game.getObjectById(_id);
-            auto receiver = _game.party().sharedInventoryReceiver(self);
-            if (!receiver) {
-                throw ValidationException(
-                    "Equipped item has no inventory disposition");
-            }
-            receiver->addItem(previous);
-        }
-    }
+    if (previous && previous != item) return false;
     _equipment[slot] = item;
     item->setEquipped(true);
     item->setOwner(_id);
 
+    updateEquipmentPresentation();
+    if (_sceneNode && _combatState.active &&
+        (slot == InventorySlots::rightWeapon ||
+         slot == InventorySlots::leftWeapon)) {
+        setLightsabersPowered(true, true);
+    }
+
+    return true;
+}
+
+bool Creature::replaceEquipment(
+    int slot,
+    const std::shared_ptr<Item> &item,
+    Object &displacedReceiver) {
+    auto previous = getEquippedItem(slot);
+    if (!previous || previous == item) return equip(slot, item);
+    if (!item || (!item->isRuntimeLive() && !item->isPresentationOnly()) ||
+        !item->isEquippable(getEquipabilitySlot(slot)) ||
+        std::find(_items.begin(), _items.end(), item) != _items.end() ||
+        (item->owner() != 0 && item->owner() != script::kObjectInvalid)) {
+        return false;
+    }
+    for (const auto &[equippedSlot, equipped] : _equipment) {
+        if (equipped == item && equippedSlot != slot) return false;
+    }
+    if ((!previous->isRuntimeLive() && !previous->isPresentationOnly()) ||
+        (!displacedReceiver.isRuntimeLive() &&
+         !displacedReceiver.isPresentationOnly()) ||
+        (isPresentationOnly() != displacedReceiver.isPresentationOnly())) {
+        return false;
+    }
+
+    // All ordinary recoverable validation is complete. The remainder is one
+    // synchronous ownership move; only exceptional allocation failure remains.
+    previous->powerDown(_position);
+    previous->setEquipped(false);
+    previous->setOwner(0);
+    _equipment[slot] = item;
+    item->setEquipped(true);
+    item->setOwner(_id);
+    displacedReceiver.addItem(previous);
+    updateEquipmentPresentation();
+    return true;
+}
+
+std::shared_ptr<Item> Creature::takeEquippedItem(
+    const std::shared_ptr<Item> &item) {
+    auto equipped = std::find_if(
+        _equipment.begin(), _equipment.end(),
+        [&item](const auto &entry) { return entry.second == item; });
+    if (equipped == _equipment.end()) return nullptr;
+
+    auto result = equipped->second;
+    result->powerDown(_position);
+    result->setEquipped(false);
+    result->setOwner(0);
+    _equipment.erase(equipped);
+    updateEquipmentPresentation();
+    return result;
+}
+
+bool Creature::moveEquippedItemTo(
+    const std::shared_ptr<Item> &item,
+    Object &receiver) {
+    if (!item ||
+        (!receiver.isRuntimeLive() && !receiver.isPresentationOnly()) ||
+        (isPresentationOnly() != receiver.isPresentationOnly())) {
+        return false;
+    }
+    auto taken = takeEquippedItem(item);
+    if (!taken) return false;
+    receiver.addItem(taken);
+    return true;
+}
+
+void Creature::updateEquipmentPresentation() {
     uint32_t prevAppearance = _appearance;
     updateDisguise();
     if (_appearance != prevAppearance) {
@@ -1030,37 +1089,7 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
         // orphan it from the area scene graph.
         loadAppearanceProperties();
     }
-
-    if (_sceneNode) {
-        updateModel();
-
-        if (_combatState.active &&
-            (slot == InventorySlots::rightWeapon || slot == InventorySlots::leftWeapon)) {
-            setLightsabersPowered(true, true);
-        }
-    }
-
-    return true;
-}
-
-void Creature::unequip(const std::shared_ptr<Item> &item) {
-    for (auto &equipped : _equipment) {
-        if (equipped.second != item) {
-            continue;
-        }
-        item->powerDown(_position);
-        item->setEquipped(false);
-        _equipment.erase(equipped.first);
-        uint32_t prevAppearance = _appearance;
-        updateDisguise();
-        if (_appearance != prevAppearance) {
-            loadAppearanceProperties();
-        }
-        if (_sceneNode) {
-            updateModel();
-        }
-        break;
-    }
+    if (_sceneNode) updateModel();
 }
 
 std::shared_ptr<Item> Creature::getEquippedItem(int slot) const {

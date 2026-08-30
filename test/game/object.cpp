@@ -934,8 +934,7 @@ TEST(EquipmentStack, reequips_a_restored_offhand_lightsaber_after_inventory_merg
     ASSERT_TRUE(actor->equip(InventorySlots::leftWeapon, offHand));
     actor->addItem(inventorySaber);
 
-    actor->unequip(offHand);
-    actor->addItem(offHand);
+    ASSERT_TRUE(actor->moveEquippedItemTo(offHand, *actor));
 
     ASSERT_EQ(1u, actor->items().size());
     ASSERT_EQ(inventorySaber, actor->items().front());
@@ -4102,7 +4101,7 @@ TEST(Object, should_restore_saved_appearance_after_unequipping_loaded_disguise) 
     auto disguise = creature->getEquippedItem(InventorySlots::body);
     ASSERT_TRUE(disguise);
 
-    creature->unequip(disguise);
+    ASSERT_TRUE(creature->takeEquippedItem(disguise));
 
     EXPECT_EQ(creature->appearance(), 1);
 }

@@ -32,15 +32,9 @@ void UnequipItemAction::execute(std::shared_ptr<Action> self, Object &actor, flo
         complete();
         return;
     }
-    creature->unequip(_item);
-    _item->setOwner(0);
     auto receiver = _game.party().sharedInventoryReceiver(
         _game.getObjectById(actor.id()));
-    if (receiver) {
-        receiver->addItem(_item);
-    } else {
-        _game.destroyRuntimeObjectGraph(_item);
-    }
+    if (receiver) creature->moveEquippedItemTo(_item, *receiver);
     complete();
 }
 

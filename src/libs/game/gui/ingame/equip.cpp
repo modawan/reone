@@ -327,18 +327,25 @@ void Equipment::confirmCandidateItem(const std::string &item) {
                        decision.action == EquipmentCandidateAction::ClearMainHandAndOffHand;
     bool equipmentChanged = equipped != itemObj || pairedOffHand;
     if (equipmentChanged) {
-        if (equipped) {
-            partyLeader->unequip(equipped);
-            player->addItem(equipped);
-        }
-        if (pairedOffHand) {
-            partyLeader->unequip(pairedOffHand);
-            player->addItem(pairedOffHand);
-        }
         if (itemObj) {
             auto candidate = takeEquipmentCandidate(_game, *player, itemObj);
-            if (candidate && !partyLeader->equip(slot, candidate)) {
+            if (!candidate) return;
+            if (pairedOffHand) {
+                partyLeader->moveEquippedItemTo(pairedOffHand, *player);
+            }
+            bool equippedCandidate = equipped
+                                         ? partyLeader->replaceEquipment(
+                                               slot, candidate, *player)
+                                         : partyLeader->equip(slot, candidate);
+            if (!equippedCandidate) {
                 player->addItem(candidate);
+            }
+        } else {
+            if (equipped) {
+                partyLeader->moveEquippedItemTo(equipped, *player);
+            }
+            if (pairedOffHand) {
+                partyLeader->moveEquippedItemTo(pairedOffHand, *player);
             }
         }
     }

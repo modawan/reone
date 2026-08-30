@@ -676,6 +676,10 @@ void Object::addItem(const std::shared_ptr<Item> &item) {
     if (!item || (!item->isRuntimeLive() && !item->isPresentationOnly())) {
         throw ValidationException("Cannot own a non-live runtime item");
     }
+    if (item->isEquipped()) {
+        throw ValidationException(
+            "Cannot add an Item while it still has an equipment owner edge");
+    }
     if (item->owner() != 0 && item->owner() != script::kObjectInvalid &&
         item->owner() != _id) {
         throw ValidationException("Runtime item already has another owner");

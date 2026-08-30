@@ -21,6 +21,7 @@
 #include "reone/game/action/jumptolocation.h"
 #include "reone/game/action/jumptoobject.h"
 #include "reone/game/effect/visual.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/event.h"
 #include "reone/game/game.h"
 #include "reone/game/object/door.h"
@@ -2504,7 +2505,7 @@ static Variable DestroyObject(const std::vector<Variable> &args, const RoutineCo
             if (auto owner = ctx.game.getObjectById(ownerId)) {
                 if (auto creature = dyn_cast<Creature>(owner);
                     creature && item->isEquipped()) {
-                    creature->unequip(item);
+                    creature->takeEquippedItem(item);
                 }
                 owner->removeItemStack(item);
             }
@@ -2736,19 +2737,7 @@ static Variable GiveItem(const std::vector<Variable> &args, const RoutineContext
     auto item = checkItem(oItem);
 
     // Execute
-    uint32_t owner = item->owner();
-    if (owner && owner != kObjectInvalid) {
-        auto object = ctx.game.getObjectById(owner);
-        if (object) {
-            if (auto creature = dyn_cast<Creature>(object)) {
-                if (item->isEquipped()) {
-                    creature->unequip(item);
-                }
-            }
-            object->removeItemStack(item);
-        }
-    }
-    oGiveTo->addItem(item);
+    transferItemTo(ctx.game, item, *oGiveTo);
     return Variable::ofNull();
 }
 

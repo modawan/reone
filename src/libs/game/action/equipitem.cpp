@@ -32,25 +32,57 @@ void EquipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float
         return;
     }
     auto candidate = _item;
-    uint32_t ownerId = candidate->owner();
-    if (ownerId != 0 && ownerId != script::kObjectInvalid) {
-        auto owner = _game.getObjectById(ownerId);
-        if (!owner) {
+    int equipabilitySlot = _inventorySlot;
+    if (_inventorySlot == InventorySlots::rightWeapon2) {
+        equipabilitySlot = InventorySlots::rightWeapon;
+    } else if (_inventorySlot == InventorySlots::leftWeapon2) {
+        equipabilitySlot = InventorySlots::leftWeapon;
+    }
+    if (!candidate ||
+        !candidate->isEquippable(equipabilitySlot)) {
+        complete();
+        return;
+    }
+    for (const auto &[slot, equipped] : creature->equipment()) {
+        if (equipped == candidate && slot != _inventorySlot) {
             complete();
             return;
         }
-        if (auto equippedOwner = std::dynamic_pointer_cast<Creature>(owner);
+    }
+
+    auto actorObject = _game.getObjectById(actor.id());
+    auto displacedReceiver =
+        _game.party().sharedInventoryReceiver(actorObject);
+    auto previous = creature->getEquippedItem(_inventorySlot);
+    if (previous && previous != candidate && !displacedReceiver) {
+        complete();
+        return;
+    }
+
+    std::shared_ptr<Object> sourceOwner;
+    uint32_t ownerId = candidate->owner();
+    if (ownerId != 0 && ownerId != script::kObjectInvalid) {
+        sourceOwner = _game.getObjectById(ownerId);
+        if (!sourceOwner) {
+            complete();
+            return;
+        }
+        if (auto equippedOwner =
+                std::dynamic_pointer_cast<Creature>(sourceOwner);
             equippedOwner && candidate->isEquipped()) {
-            equippedOwner->unequip(candidate);
+            candidate = equippedOwner->takeEquippedItem(candidate);
         } else {
-            candidate = takeEquipmentCandidate(_game, *owner, candidate);
+            candidate = takeEquipmentCandidate(_game, *sourceOwner, candidate);
         }
     }
-    if (!candidate || !creature->equip(_inventorySlot, candidate)) {
-        if (candidate && candidate->owner() == 0) {
-            auto receiver = _game.party().sharedInventoryReceiver(
-                _game.getObjectById(actor.id()));
-            if (receiver) receiver->addItem(candidate);
+    bool equipped = candidate &&
+                    (previous && previous != candidate
+                         ? creature->replaceEquipment(
+                               _inventorySlot, candidate, *displacedReceiver)
+                         : creature->equip(_inventorySlot, candidate));
+    if (!equipped) {
+        if (candidate && candidate->owner() == 0 && sourceOwner) {
+            sourceOwner->addItem(candidate);
         }
         complete();
         return;

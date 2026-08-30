@@ -216,7 +216,16 @@ public:
 
     bool equip(const std::string &resRef);
     bool equip(int slot, const std::shared_ptr<Item> &item);
-    void unequip(const std::shared_ptr<Item> &item);
+    bool replaceEquipment(
+        int slot,
+        const std::shared_ptr<Item> &item,
+        Object &displacedReceiver);
+    /** Remove the equipment ownership edge for immediate transfer or retirement. */
+    std::shared_ptr<Item> takeEquippedItem(const std::shared_ptr<Item> &item);
+    /** Unequip an Item directly into an explicit owning inventory. */
+    bool moveEquippedItemTo(
+        const std::shared_ptr<Item> &item,
+        Object &receiver);
 
     bool isSlotEquipped(int slot) const;
 
@@ -528,6 +537,7 @@ private:
     // disguise item's appearance when one is equipped, and restore the original
     // appearance when none remains. Updates _appearance only; callers rebuild the model.
     void updateDisguise();
+    void updateEquipmentPresentation();
     void updateCombat(float dt);
     void setLightsabersPowered(bool powered, bool animate);
     void updateLightsaberSoundPositions();

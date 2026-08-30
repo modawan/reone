@@ -16,11 +16,13 @@
 
 #include "reone/game/action.h"
 #include "reone/game/action/castfakespellatobject.h"
+#include "reone/game/action/equipitem.h"
 #include "reone/game/effect.h"
 #include "reone/game/effect/assuredhit.h"
 #include "reone/game/effect/beam.h"
 #include "reone/game/effect/modifyattacks.h"
 #include "reone/game/event.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/conversation.h"
 #include "reone/game/gui/hud.h"
@@ -1511,7 +1513,8 @@ TEST(RuntimeObjectOwnership, equipment_replacement_disposes_previous_item) {
         SerializedIdentityContext::templateResource());
     ASSERT_TRUE(owner->equip(InventorySlots::body, first));
 
-    ASSERT_TRUE(owner->equip(InventorySlots::body, replacement));
+    ASSERT_TRUE(owner->replaceEquipment(
+        InventorySlots::body, replacement, *owner));
 
     EXPECT_EQ(replacement, owner->getEquippedItem(InventorySlots::body));
     EXPECT_EQ(owner->id(), replacement->owner());
@@ -1520,6 +1523,181 @@ TEST(RuntimeObjectOwnership, equipment_replacement_disposes_previous_item) {
     EXPECT_EQ(owner->id(), first->owner());
     EXPECT_FALSE(first->isEquipped());
     EXPECT_TRUE(first->isRuntimeLive());
+}
+
+TEST(RuntimeObjectOwnership, unequip_moves_item_to_explicit_receiver) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto owner = game.newCreature();
+    auto item = game.newItem();
+    item->deserialize(
+        *runtimeItem("unequip"),
+        SerializedIdentityContext::templateResource());
+    ASSERT_TRUE(owner->equip(InventorySlots::body, item));
+    EXPECT_THROW(owner->addItem(item), ValidationException);
+
+    ASSERT_TRUE(owner->moveEquippedItemTo(item, *owner));
+
+    EXPECT_FALSE(item->isEquipped());
+    EXPECT_EQ(owner->id(), item->owner());
+    EXPECT_FALSE(owner->getEquippedItem(InventorySlots::body));
+    ASSERT_EQ(1u, owner->items().size());
+    EXPECT_EQ(item, owner->items().front());
+}
+
+TEST(RuntimeObjectOwnership, transfers_equipped_item_between_creatures) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto source = game.newCreature();
+    auto receiver = game.newCreature();
+    auto item = game.newItem();
+    item->deserialize(
+        *runtimeItem("transfer"),
+        SerializedIdentityContext::templateResource());
+    ASSERT_TRUE(source->equip(InventorySlots::body, item));
+
+    ASSERT_TRUE(transferItemTo(game, item, *receiver));
+
+    EXPECT_FALSE(source->getEquippedItem(InventorySlots::body));
+    EXPECT_TRUE(source->items().empty());
+    ASSERT_EQ(1u, receiver->items().size());
+    EXPECT_EQ(item, receiver->items().front());
+    EXPECT_EQ(receiver->id(), item->owner());
+    EXPECT_FALSE(item->isEquipped());
+    EXPECT_TRUE(item->isRuntimeLive());
+}
+
+TEST(RuntimeObjectOwnership, equip_action_moves_equipped_item_between_creatures) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto source = game.newCreature();
+    auto receiver = game.newCreature();
+    auto item = game.newItem();
+    item->deserialize(
+        *runtimeItem("action_transfer"),
+        SerializedIdentityContext::templateResource());
+    ASSERT_TRUE(source->equip(InventorySlots::body, item));
+    auto action = game.newAction<EquipItemAction>(
+        item, InventorySlots::body, true);
+
+    action->execute(action, *receiver, 0.0f);
+
+    EXPECT_FALSE(source->getEquippedItem(InventorySlots::body));
+    EXPECT_EQ(item, receiver->getEquippedItem(InventorySlots::body));
+    EXPECT_EQ(receiver->id(), item->owner());
+    EXPECT_TRUE(item->isEquipped());
+}
+
+TEST(RuntimeObjectOwnership, rejected_replacement_preserves_original_graph) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto owner = game.newCreature();
+    auto original = game.newItem();
+    original->deserialize(
+        *runtimeItem("original"),
+        SerializedIdentityContext::templateResource());
+    auto rejected = game.newItem();
+    rejected->deserialize(
+        *runtimeItem("rejected"),
+        SerializedIdentityContext::templateResource());
+    ASSERT_TRUE(owner->equip(InventorySlots::body, original));
+    owner->addItem(rejected);
+
+    EXPECT_FALSE(owner->replaceEquipment(
+        InventorySlots::body, rejected, *owner));
+
+    EXPECT_EQ(original, owner->getEquippedItem(InventorySlots::body));
+    EXPECT_TRUE(original->isEquipped());
+    EXPECT_EQ(owner->id(), original->owner());
+    ASSERT_EQ(1u, owner->items().size());
+    EXPECT_EQ(rejected, owner->items().front());
+    EXPECT_EQ(owner->id(), rejected->owner());
+}
+
+TEST(RuntimeObjectOwnership, displaced_equipment_merges_and_is_finalized) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto owner = game.newCreature();
+    auto displaced = game.newItem();
+    displaced->deserialize(
+        *runtimeItem("stack"),
+        SerializedIdentityContext::templateResource());
+    auto retained = game.newItem();
+    retained->deserialize(
+        *runtimeItem("stack"),
+        SerializedIdentityContext::templateResource());
+    auto replacement = game.newItem();
+    replacement->deserialize(
+        *runtimeItem("replacement"),
+        SerializedIdentityContext::templateResource());
+    ASSERT_TRUE(owner->equip(InventorySlots::body, displaced));
+    owner->addItem(retained);
+
+    ASSERT_TRUE(owner->replaceEquipment(
+        InventorySlots::body, replacement, *owner));
+
+    EXPECT_EQ(replacement, owner->getEquippedItem(InventorySlots::body));
+    ASSERT_EQ(1u, owner->items().size());
+    EXPECT_EQ(retained, owner->items().front());
+    EXPECT_EQ(2, retained->stackSize());
+    EXPECT_FALSE(displaced->isRuntimeLive());
+    EXPECT_FALSE(game.getObjectById(displaced->id()));
+    EXPECT_EQ(0u, displaced->owner());
+}
+
+TEST(RuntimeObjectOwnership, repeated_equip_and_unequip_preserves_one_owner_edge) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto owner = game.newCreature();
+    auto item = game.newItem();
+    item->deserialize(
+        *runtimeItem("cycle"),
+        SerializedIdentityContext::templateResource());
+    owner->addItem(item);
+    const size_t registrySize = TestGameModule::objectRegistrySize(game);
+
+    for (int i = 0; i < 5; ++i) {
+        auto candidate = takeEquipmentCandidate(game, *owner, item);
+        ASSERT_EQ(item, candidate);
+        ASSERT_TRUE(owner->equip(InventorySlots::body, candidate));
+        ASSERT_TRUE(owner->moveEquippedItemTo(candidate, *owner));
+    }
+
+    EXPECT_EQ(registrySize, TestGameModule::objectRegistrySize(game));
+    ASSERT_EQ(1u, owner->items().size());
+    EXPECT_EQ(item, owner->items().front());
+    EXPECT_EQ(owner->id(), item->owner());
+    EXPECT_FALSE(item->isEquipped());
 }
 
 TEST(RuntimeObjectOwnership, failed_blueprint_equip_does_not_leak_item) {

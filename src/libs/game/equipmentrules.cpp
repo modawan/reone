@@ -230,6 +230,37 @@ std::shared_ptr<Item> takeEquipmentCandidate(
     return split;
 }
 
+bool transferItemTo(
+    Game &game,
+    const std::shared_ptr<Item> &item,
+    Object &receiver) {
+    if (!item || (!item->isRuntimeLive() && !item->isPresentationOnly()) ||
+        (!receiver.isRuntimeLive() && !receiver.isPresentationOnly()) ||
+        (item->isPresentationOnly() != receiver.isPresentationOnly())) {
+        return false;
+    }
+
+    uint32_t ownerId = item->owner();
+    if (ownerId == receiver.id() && !item->isEquipped()) return true;
+    // owner() describes nested inventory/equipment ownership. An ownerless
+    // Item may instead be Area-owned, so this helper fails closed rather than
+    // inventing a second ownership edge without an explicit Area detach.
+    if (ownerId == 0 || ownerId == script::kObjectInvalid) return false;
+
+    auto owner = game.getObjectById(ownerId);
+    if (!owner) return false;
+
+    if (auto creature = std::dynamic_pointer_cast<Creature>(owner);
+        creature && item->isEquipped()) {
+        if (!creature->takeEquippedItem(item)) return false;
+    } else if (!owner->removeItemStack(item)) {
+        return false;
+    }
+
+    receiver.addItem(item);
+    return true;
+}
+
 } // namespace game
 
 } // namespace reone
