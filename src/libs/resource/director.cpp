@@ -22,10 +22,15 @@
 #include "reone/graphics/types.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/exception/notfound.h"
+#include "reone/resource/format/gffreader.h"
+#include "reone/resource/format/lytreader.h"
 #include "reone/resource/modulediscovery.h"
 #include "reone/resource/modulemount.h"
 #include "reone/resource/modulepolicy.h"
 #include "reone/resource/mounttransaction.h"
+#include "reone/resource/parser/gff/are.h"
+#include "reone/resource/parser/gff/git.h"
+#include "reone/resource/parser/gff/ifo.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/dialogs.h"
 #include "reone/resource/provider/gffs.h"
@@ -36,6 +41,7 @@
 #include "reone/script/di/services.h"
 #include "reone/system/fileutil.h"
 #include "reone/system/logutil.h"
+#include "reone/system/stream/memoryinput.h"
 
 #include <array>
 
@@ -102,15 +108,8 @@ void ResourceDirector::init() {
  * to rebuild the installation or to leave the save that is loaded.
  */
 void ResourceDirector::onModuleLoad(const std::string &name) {
-    _dialogs.clear();
-    _paths.clear();
-    _scripts.clear();
-    _lips.clear();
-    _gffs.clear();
-    _resources.clearOwner(ResourceOwner::ActiveModule);
-    _resources.clearOwner(ResourceOwner::ActiveModuleState);
-
-    loadModuleResources(name);
+    commitModuleLoad(planModuleLoad(
+        name, _saveSession ? _saveSession->workingState() : nullptr));
 }
 
 /**
@@ -136,6 +135,116 @@ std::unique_ptr<SaveSessionState> ResourceDirector::prepareGameLoad(
 
 void ResourceDirector::commitGameLoad(std::unique_ptr<SaveSessionState> candidate) {
     commitSaveSession(std::move(candidate));
+}
+
+namespace {
+
+std::shared_ptr<Gff> decodeModuleGff(
+    std::optional<Resource> resource,
+    const std::string &description) {
+    if (!resource) {
+        throw ResourceNotFoundException(description + " not found");
+    }
+    MemoryInputStream stream(resource->data);
+    GffReader reader(stream);
+    reader.load();
+    return reader.root();
+}
+
+ModuleLoadPlan temporaryModulePlan(ModuleLoadPlan plan) {
+    for (auto &family : plan.families) {
+        for (auto &attempt : family.attempts) {
+            attempt.metadata.owner = ResourceOwner::TemporaryDiscovery;
+        }
+    }
+    plan.activeState.owner = ResourceOwner::TemporaryDiscovery;
+    plan.activeState.encapsulatedArchive.owner = ResourceOwner::TemporaryDiscovery;
+    plan.activeState.resourceImage.owner = ResourceOwner::TemporaryDiscovery;
+    return plan;
+}
+
+} // namespace
+
+std::unique_ptr<PreparedModuleLoad> ResourceDirector::prepareModuleLoad(
+    const std::string &name,
+    std::shared_ptr<const SaveWorkingState> workingState) {
+    auto candidate = planModuleLoad(name, std::move(workingState));
+
+    // The outgoing module stays mounted while the candidate is inspected.
+    // Candidate sources use their real buckets but a temporary owner; filtered
+    // lookup therefore sees globals/overrides plus the candidate, never the
+    // outgoing module's generic module.ifo.
+    ResourceMountTransaction transaction(_resources);
+    auto report = mountModuleLoad(*candidate, /*temporary=*/true);
+    if (report.outcome == ModuleLoadOutcome::Failed) {
+        throw ResourceNotFoundException(
+            "Module resources could not be prepared: " + candidate->_moduleName);
+    }
+
+    static const std::set<ResourceOwner> kOutgoingModuleOwners {
+        ResourceOwner::ActiveModule,
+        ResourceOwner::ActiveModuleState};
+    auto findCandidate = [this](const ResourceId &id) {
+        return _resources.findExcludingOwners(id, kOutgoingModuleOwners);
+    };
+
+    candidate->_moduleIfo = decodeModuleGff(
+        findCandidate(ResourceId("module", ResType::Ifo)),
+        "Module IFO");
+    auto ifo = generated::parseIFO(*candidate->_moduleIfo);
+    if (ifo.Mod_Entry_Area.empty()) {
+        throw ValidationException("Mod_Entry_Area must not be empty");
+    }
+
+    candidate->_areaAre = decodeModuleGff(
+        findCandidate(ResourceId(ifo.Mod_Entry_Area, ResType::Are)),
+        "Area ARE");
+    candidate->_areaGit = decodeModuleGff(
+        findCandidate(ResourceId(ifo.Mod_Entry_Area, ResType::Git)),
+        "Area GIT");
+    (void)generated::parseARE(*candidate->_areaAre);
+    (void)generated::parseGIT(*candidate->_areaGit);
+
+    auto layout = findCandidate(ResourceId(ifo.Mod_Entry_Area, ResType::Lyt));
+    if (!layout) {
+        throw ResourceNotFoundException(
+            "Area LYT not found: " + ifo.Mod_Entry_Area);
+    }
+    MemoryInputStream layoutStream(layout->data);
+    LytReader layoutReader;
+    layoutReader.load(layoutStream);
+
+    candidate->_structurallyValidated = true;
+    return candidate;
+}
+
+void ResourceDirector::commitModuleLoad(
+    std::unique_ptr<PreparedModuleLoad> candidate) {
+    if (!candidate) {
+        throw ValidationException("Prepared module load is missing");
+    }
+
+    _dialogs.clear();
+    _paths.clear();
+    _scripts.clear();
+    _lips.clear();
+    _gffs.clear();
+    _resources.clearOwner(ResourceOwner::ActiveModule);
+    _resources.clearOwner(ResourceOwner::ActiveModuleState);
+
+    ResourceMountTransaction transaction(_resources);
+    auto report = mountModuleLoad(*candidate, /*temporary=*/false);
+    if (report.outcome != ModuleLoadOutcome::Failed) {
+        transaction.commit();
+    } else if (candidate->_structurallyValidated) {
+        // Preparation already opened this exact plan. A failure now means the
+        // external resource changed across the commit boundary; the caller has
+        // already chosen replacement and must enter its terminal failure path.
+        throw ResourceNotFoundException(
+            "Prepared module resources changed before commit: " +
+            candidate->_moduleName);
+    }
+    logModuleMount(*candidate, report);
 }
 
 void ResourceDirector::commitSaveSession(std::unique_ptr<SaveSessionState> candidate) {
@@ -595,10 +704,6 @@ void ResourceDirector::loadGlobalResources() {
     loadLiveResources();
 }
 
-void ResourceDirector::loadModuleResources(const std::string &name) {
-    loadModuleResourcesFromPolicy(name);
-}
-
 std::vector<ModuleSearchRoot> ResourceDirector::moduleSearchRoots() {
     return resource::moduleSearchRoots(_gameId, _gamePath, _odysseyRoots);
 }
@@ -612,6 +717,7 @@ std::vector<ModuleSearchRoot> ResourceDirector::moduleSearchRoots() {
  * before the saved archive because the policy ranks it first.
  */
 void ResourceDirector::addStagedModuleSources(const std::string &moduleRoot,
+                                              const std::shared_ptr<const SaveWorkingState> &workingState,
                                               RuntimeModuleSourceIndex &index) {
     struct Probe {
         ResType type;
@@ -623,10 +729,9 @@ void ResourceDirector::addStagedModuleSources(const std::string &moduleRoot,
         {ResType::Sav, ModuleArchiveFamily::SavedArchive, ".sav"},
     }};
 
-    if (!_saveSession) {
+    if (!workingState) {
         return;
     }
-    auto workingState = _saveSession->workingState();
     for (const auto &probe : kProbes) {
         auto id = ResourceId(moduleRoot, probe.type);
         if (!workingState->contains(id)) {
@@ -666,7 +771,9 @@ bool ResourceDirector::includeModuleInSave(const std::string &moduleRoot) {
     return *include != 0;
 }
 
-void ResourceDirector::loadModuleResourcesFromPolicy(const std::string &name) {
+std::unique_ptr<PreparedModuleLoad> ResourceDirector::planModuleLoad(
+    const std::string &name,
+    std::shared_ptr<const SaveWorkingState> workingState) {
     auto discovered = discoverModuleSources(name, moduleSearchRoots());
     if (discovered.nameRejection) {
         throw ResourceNotFoundException("Not a supported module name: " + name);
@@ -680,7 +787,7 @@ void ResourceDirector::loadModuleResourcesFromPolicy(const std::string &name) {
     for (const auto &source : discovered.sources) {
         index.add(RuntimeModuleSource {source.candidate, source.path});
     }
-    addStagedModuleSources(discovered.moduleRoot, index);
+    addStagedModuleSources(discovered.moduleRoot, workingState, index);
 
     ModulePolicyRequest request;
     request.game = _gameId;
@@ -706,35 +813,29 @@ void ResourceDirector::loadModuleResourcesFromPolicy(const std::string &name) {
     request.savedMode = selection &&
                         selection->candidate.kind == ModulePrimaryKind::SavedArchive;
 
-    auto plan = planModuleLoad(request, inventory);
+    auto plan = resource::planModuleLoad(request, inventory);
+    return std::unique_ptr<PreparedModuleLoad>(new PreparedModuleLoad(
+        discovered.moduleRoot, std::move(index), std::move(plan)));
+}
 
-    // Mounting the module is one operation. Sources are mounted in phases and a
-    // later one can throw, which would otherwise leave the earlier phases in
-    // place: a module that is neither the old one nor the new one, still
-    // answering lookups. Whatever is mounted from here on goes away together if
-    // the load does not finish.
-    //
-    // This does not put the previous module back. Its sources were retired
-    // before this ran, and reinstating them would be a new load rather than an
-    // undo of this one; whether the caller can still use the module it had is
-    // its own question.
-    ResourceMountTransaction transaction(_resources);
+ModuleMountReport ResourceDirector::mountModuleLoad(
+    const PreparedModuleLoad &candidate,
+    bool temporary) {
+    auto plan = temporary
+                    ? temporaryModulePlan(candidate._plan)
+                    : candidate._plan;
+    ModuleMountExecutor executor(_resources, candidate._sources);
+    return executor.run(plan);
+}
 
-    ModuleMountExecutor executor(_resources, index);
-    auto report = executor.run(plan);
-
-    if (report.outcome != ModuleLoadOutcome::Failed) {
-        transaction.commit();
-    }
-
-    if (!plan.primary) {
-        warn("No primary source found for module '" + discovered.moduleRoot + "'");
+void ResourceDirector::logModuleMount(
+    const PreparedModuleLoad &candidate,
+    const ModuleMountReport &report) const {
+    if (!candidate._plan.primary) {
+        warn("No primary source found for module '" + candidate._moduleName + "'");
     }
     if (report.requiredFailure) {
-        warn("Module '" + discovered.moduleRoot + "' had a required source fail to mount");
-    }
-    for (const auto &file : discovered.rejected) {
-        debug("Ignoring unsupported module file: " + file.filename);
+        warn("Module '" + candidate._moduleName + "' had a required source fail to mount");
     }
     // Which source supplied a resource is not recoverable from the payload, so
     // record the sequence that was actually mounted.

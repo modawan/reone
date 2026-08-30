@@ -94,6 +94,13 @@ class Texture;
 
 }
 
+namespace resource {
+
+class PreparedModuleLoad;
+class SaveWorkingState;
+
+}
+
 namespace game {
 
 enum class ModuleLoadContext {
@@ -326,7 +333,16 @@ public:
     // Load a savegame. The slot is the durable identity discovered by
     // discoverSavedGames(); it is mounted verbatim rather than re-resolved, so
     // the slot the player picked is the slot that gets loaded.
-    void loadGame(const resource::SaveSlotDescriptor &slot);
+    bool loadGame(const resource::SaveSlotDescriptor &slot);
+
+    struct PreparedDestinationModule {
+        std::string name;
+        std::unique_ptr<resource::PreparedModuleLoad> resources;
+        std::shared_ptr<resource::Gff> ifo;
+        std::shared_ptr<resource::Gff> are;
+        std::shared_ptr<resource::Gff> git;
+        ModuleLoadContext context {ModuleLoadContext::FreshModule};
+    };
 
     /**
      * Candidate save load, resolved and validated but not yet committed.
@@ -341,9 +357,9 @@ public:
         resource::NFO nfo;
         std::shared_ptr<resource::Gff> saveInfo;
         std::shared_ptr<resource::Gff> globalVars;
-        std::shared_ptr<resource::Gff> moduleIfo;
         std::shared_ptr<resource::Gff> partyTable;
         std::shared_ptr<resource::Gff> inventory;
+        PreparedDestinationModule destination;
     };
 
     std::vector<SavedGame> savedGames() const;
@@ -717,7 +733,20 @@ public:
         const resource::Gff &ifoGff) const;
     void replaceCustomTokens(std::map<int, std::string> tokens);
     PreparedSaveLoad prepareSaveLoad(const resource::SaveSlotDescriptor &slot);
-    void restoreSaveLoad(PreparedSaveLoad prepared);
+    PreparedDestinationModule prepareDestinationModule(
+        const std::string &name,
+        bool initialSaveRestore,
+        std::shared_ptr<const resource::SaveWorkingState> workingState);
+    bool restoreSaveLoad(PreparedSaveLoad prepared);
+    bool loadPreparedModule(
+        PreparedDestinationModule prepared,
+        std::string entry,
+        bool initialSaveRestore,
+        bool resourcesCommitted,
+        std::shared_ptr<const resource::SaveWorkingState> sourceWorkingState = nullptr);
+    void validatePreparedDestination(
+        const PreparedDestinationModule &prepared) const;
+    void validatePartyLoad(const resource::Gff *partyTable) const;
     void retireToMainMenu();
 
     void deserializeGlobalVariables(resource::Gff &gvtGff);
@@ -950,7 +979,8 @@ private:
 
     void advanceWorldTime(float dt);
     void advancePlayedTime(float dt);
-    bool storeCurrentModuleForTransition();
+    std::shared_ptr<const resource::SaveWorkingState>
+    prepareCurrentModuleWorkingState();
     void processPendingSave();
     void finalizeSaveRequest(const SaveRequest &request, SaveResult result);
     SaveResult executeSave(SaveRequest request);

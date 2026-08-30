@@ -89,8 +89,9 @@ void reone::game::TestGameModule::processPendingSave(Game &game) {
     game.processPendingSave();
 }
 
-bool reone::game::TestGameModule::storeCurrentModuleForTransition(Game &game) {
-    return game.storeCurrentModuleForTransition();
+std::shared_ptr<const SaveWorkingState>
+reone::game::TestGameModule::prepareCurrentModuleWorkingState(Game &game) {
+    return game.prepareCurrentModuleWorkingState();
 }
 
 void reone::game::TestGameModule::setSnapshotModuleName(
@@ -193,6 +194,21 @@ struct SaveFixture : Test {
             .Times(AnyNumber())
             .WillRepeatedly(Return(std::set<std::string> {}));
 
+        destinationIfo = Gff::Builder()
+                             .field(Gff::Field::newResRef(
+                                 "Mod_Entry_Area", "area_b"))
+                             .build();
+        destinationAre = Gff::Builder().build();
+        destinationGit = Gff::Builder().build();
+        EXPECT_CALL(director, prepareModuleLoad(_, _))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([this](
+                                       const std::string &name,
+                                       std::shared_ptr<const SaveWorkingState>) {
+                return std::make_unique<PreparedModuleLoad>(
+                    name, destinationIfo, destinationAre, destinationGit);
+            }));
+
         SaveOrchestrationSeams seams;
         seams.captureModule = [this](const Game &, const std::string &group) {
             capturedGroups.push_back(group);
@@ -260,6 +276,9 @@ struct SaveFixture : Test {
     uint8_t snapshotSequence {0};
     bool publicationFailure {false};
     bool cleanupPending {false};
+    std::shared_ptr<Gff> destinationIfo;
+    std::shared_ptr<Gff> destinationAre;
+    std::shared_ptr<Gff> destinationGit;
 };
 
 TEST_F(SaveFixture, first_unsaved_manual_save_is_deferred_and_adopted_without_reload) {
@@ -610,11 +629,17 @@ TEST_F(SaveFixture, screenshot_capture_failure_is_nonfatal_and_never_reuses_stal
 
 TEST_F(SaveFixture, transition_working_state_is_normalized_across_a_b_a_without_disk) {
     TestGameModule::setSnapshotModuleName(*game, "module_a");
-    ASSERT_TRUE(TestGameModule::storeCurrentModuleForTransition(*game));
+    committed = TestGameModule::prepareCurrentModuleWorkingState(*game);
+    ASSERT_TRUE(committed);
+    engine.resourceModule().director().adoptSaveWorkingState(committed);
     TestGameModule::setSnapshotModuleName(*game, "module_b");
-    ASSERT_TRUE(TestGameModule::storeCurrentModuleForTransition(*game));
+    committed = TestGameModule::prepareCurrentModuleWorkingState(*game);
+    ASSERT_TRUE(committed);
+    engine.resourceModule().director().adoptSaveWorkingState(committed);
     TestGameModule::setSnapshotModuleName(*game, "module_a");
-    ASSERT_TRUE(TestGameModule::storeCurrentModuleForTransition(*game));
+    committed = TestGameModule::prepareCurrentModuleWorkingState(*game);
+    ASSERT_TRUE(committed);
+    engine.resourceModule().director().adoptSaveWorkingState(committed);
 
     EXPECT_EQ(3, workingAdoptions);
     EXPECT_TRUE(committed->contains({"module_a", ResType::Sav}));
@@ -640,6 +665,39 @@ TEST_F(SaveFixture, transition_snapshot_failure_aborts_before_source_teardown) {
     EXPECT_EQ(sourceModule, game->module());
     EXPECT_TRUE(game->hasPlayableRuntimeSession());
     EXPECT_EQ(0, workingAdoptions);
+}
+
+TEST_F(SaveFixture, invalid_destination_is_rejected_before_source_exit_or_snapshot) {
+    auto sourceModule = game->module();
+    auto sourcePlayer = game->party().player();
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareModuleLoad("module_b", _))
+        .WillOnce(Throw(ResourceNotFoundException("destination missing")));
+    EXPECT_CALL(director, commitModuleLoad(_)).Times(0);
+
+    EXPECT_FALSE(game->loadModule("module_b"));
+
+    EXPECT_TRUE(capturedGroups.empty());
+    EXPECT_EQ(0, workingAdoptions);
+    EXPECT_EQ(sourceModule, game->module());
+    EXPECT_EQ(sourcePlayer, game->party().player());
+    EXPECT_EQ(sourcePlayer, game->getObjectById(sourcePlayer->id()));
+    EXPECT_TRUE(game->hasPlayableRuntimeSession());
+}
+
+TEST_F(SaveFixture, failed_destination_commit_does_not_adopt_source_working_state) {
+    engine.options().graphics.sceneRender = false;
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, commitModuleLoad(_))
+        .WillOnce(Throw(ResourceNotFoundException(
+            "prepared module changed before commit")));
+
+    EXPECT_FALSE(game->loadModule("module_b"));
+
+    EXPECT_EQ(0, workingAdoptions);
+    EXPECT_EQ(Game::Screen::MainMenu, game->currentScreen());
+    EXPECT_FALSE(game->module());
+    EXPECT_FALSE(game->hasPlayableRuntimeSession());
 }
 
 TEST_F(SaveFixture, reconstruction_is_distinct_from_an_absent_playable_session) {
@@ -759,6 +817,41 @@ struct LoadTransactionFixture : TestWithParam<GameID> {
     std::shared_ptr<Creature> player;
     std::vector<Portrait> portraitRows;
     SaveSlotDescriptor slot;
+    std::shared_ptr<Gff> destinationIfo;
+    std::shared_ptr<Gff> destinationAre;
+    std::shared_ptr<Gff> destinationGit;
+
+    std::unique_ptr<PreparedModuleLoad> preparedDestination(
+        const std::string &name = "module_b") {
+        return std::make_unique<PreparedModuleLoad>(
+            name, destinationIfo, destinationAre, destinationGit);
+    }
+
+    void writeRequiredMetadata() {
+        auto nfo = Gff::Builder()
+                       .field(Gff::Field::newCExoString(
+                           "LASTMODULE", "module_b"))
+                       .field(Gff::Field::newCExoString(
+                           "AREANAME", "module_b"))
+                       .build();
+        auto nfoBytes = GffWriter(
+                            GffFileFormat::v32("NFO "), *nfo)
+                            .toBytes();
+        std::ofstream nfoFile(
+            slot.directory / "savenfo.res", std::ios::binary);
+        nfoFile.write(
+            nfoBytes.data(), static_cast<std::streamsize>(nfoBytes.size()));
+
+        auto globals = Gff::Builder().build();
+        auto globalBytes = GffWriter(
+                               GffFileFormat::v32("GVT "), *globals)
+                               .toBytes();
+        std::ofstream globalFile(
+            slot.directory / "globalvars.res", std::ios::binary);
+        globalFile.write(
+            globalBytes.data(),
+            static_cast<std::streamsize>(globalBytes.size()));
+    }
 
     void SetUp() override {
         engine.init();
@@ -785,6 +878,41 @@ struct LoadTransactionFixture : TestWithParam<GameID> {
         std::filesystem::create_directories(directory);
         test::writeErf(directory / "SAVEGAME.sav", ErfWriter::FileType::ERF, {});
         slot = SaveSlotDescriptor {directory, directory / "SAVEGAME.sav"};
+
+        auto playerRecord = Gff::Builder()
+                                .field(Gff::Field::newDword("ObjectId", 100))
+                                .build();
+        auto areaRecord = Gff::Builder()
+                              .field(Gff::Field::newResRef(
+                                  "Area_Name", "module_b"))
+                              .field(Gff::Field::newDword("ObjectId", 101))
+                              .build();
+        destinationIfo = Gff::Builder()
+                             .field(Gff::Field::newResRef(
+                                 "Mod_Entry_Area", "module_b"))
+                             .field(Gff::Field::newByte("Mod_IsSaveGame", 1))
+                             .field(Gff::Field::newDword(
+                                 "Mod_NextObjId0", 2))
+                             .field(Gff::Field::newDword64(
+                                 "Mod_Effect_NxtId", 1))
+                             .field(Gff::Field::newList(
+                                 "Mod_PlayerList", {playerRecord}))
+                             .field(Gff::Field::newList(
+                                 "Mod_Area_list", {areaRecord}))
+                             .build();
+        destinationAre = Gff::Builder().build();
+        destinationGit = Gff::Builder().build();
+
+        auto &director = engine.resourceModule().director();
+        EXPECT_CALL(director, prepareModuleLoad(_, _))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([this](
+                                       const std::string &name,
+                                       std::shared_ptr<const SaveWorkingState>) {
+                return preparedDestination(name);
+            }));
+        EXPECT_CALL(director, commitModuleLoad(_))
+            .Times(AnyNumber());
     }
 };
 
@@ -837,6 +965,105 @@ TEST_P(LoadTransactionFixture, aMissingRequiredSaveRecordFailsBeforeTheCommitBou
     // then
     EXPECT_EQ(generation, TestGameModule::runtimeSessionGeneration(*game));
     EXPECT_EQ(modulePtr, game->module().get());
+}
+
+TEST_P(LoadTransactionFixture, invalidDestinationStructureLeavesTheRunningWorldUntouched) {
+    writeRequiredMetadata();
+    destinationGit.reset();
+
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareGameLoad(_))
+        .WillOnce(Invoke([](const SaveSlotDescriptor &descriptor) {
+            return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, commitGameLoad(_)).Times(0);
+    EXPECT_CALL(director, onNewGame()).Times(0);
+
+    auto generation = TestGameModule::runtimeSessionGeneration(*game);
+    auto moduleBefore = game->module();
+    auto playerBefore = game->party().player();
+    auto screenBefore = game->currentScreen();
+
+    EXPECT_THROW(game->loadGame(slot), ResourceNotFoundException);
+
+    EXPECT_EQ(generation, TestGameModule::runtimeSessionGeneration(*game));
+    EXPECT_EQ(moduleBefore, game->module());
+    EXPECT_EQ(playerBefore, game->party().player());
+    EXPECT_EQ(playerBefore, game->getObjectById(playerBefore->id()));
+    EXPECT_EQ(screenBefore, game->currentScreen());
+}
+
+TEST_P(LoadTransactionFixture, duplicateSavedIdentityFailsBeforeSessionPublication) {
+    writeRequiredMetadata();
+    auto duplicatePlayer = Gff::Builder()
+                               .field(Gff::Field::newDword("ObjectId", 101))
+                               .build();
+    auto duplicateArea = Gff::Builder()
+                             .field(Gff::Field::newResRef(
+                                 "Area_Name", "module_b"))
+                             .field(Gff::Field::newDword("ObjectId", 101))
+                             .build();
+    destinationIfo = Gff::Builder()
+                         .field(Gff::Field::newResRef(
+                             "Mod_Entry_Area", "module_b"))
+                         .field(Gff::Field::newByte("Mod_IsSaveGame", 1))
+                         .field(Gff::Field::newList(
+                             "Mod_PlayerList", {duplicatePlayer}))
+                         .field(Gff::Field::newList(
+                             "Mod_Area_list", {duplicateArea}))
+                         .build();
+
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareGameLoad(_))
+        .WillOnce(Invoke([](const SaveSlotDescriptor &descriptor) {
+            return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, commitGameLoad(_)).Times(0);
+    EXPECT_CALL(director, onNewGame()).Times(0);
+
+    auto generation = TestGameModule::runtimeSessionGeneration(*game);
+    auto moduleBefore = game->module();
+    auto playerBefore = game->party().player();
+
+    EXPECT_THROW(game->loadGame(slot), ValidationException);
+
+    EXPECT_EQ(generation, TestGameModule::runtimeSessionGeneration(*game));
+    EXPECT_EQ(moduleBefore, game->module());
+    EXPECT_EQ(playerBefore, game->party().player());
+}
+
+TEST_P(LoadTransactionFixture, invalidPartyCandidateDoesNotMutatePublishedParty) {
+    writeRequiredMetadata();
+    auto partyTable = Gff::Builder()
+                          .field(Gff::Field::newInt(
+                              "PT_CONTROLLED_NP", 999))
+                          .build();
+    auto partyBytes = GffWriter(
+                          GffFileFormat::v32("PT  "), *partyTable)
+                          .toBytes();
+    std::ofstream partyFile(
+        slot.directory / "partytable.res", std::ios::binary);
+    partyFile.write(
+        partyBytes.data(),
+        static_cast<std::streamsize>(partyBytes.size()));
+    partyFile.close();
+
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareGameLoad(_))
+        .WillOnce(Invoke([](const SaveSlotDescriptor &descriptor) {
+            return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, commitGameLoad(_)).Times(0);
+    EXPECT_CALL(director, onNewGame()).Times(0);
+
+    auto generation = TestGameModule::runtimeSessionGeneration(*game);
+    auto playerBefore = game->party().player();
+
+    EXPECT_THROW(game->loadGame(slot), ValidationException);
+
+    EXPECT_EQ(generation, TestGameModule::runtimeSessionGeneration(*game));
+    EXPECT_EQ(playerBefore, game->party().player());
+    EXPECT_EQ(playerBefore, game->getObjectById(playerBefore->id()));
 }
 
 TEST_P(LoadTransactionFixture, preparationConsumesTheDiscoveredDescriptorVerbatim) {
@@ -901,11 +1128,11 @@ TEST_P(LoadTransactionFixture, aPostCommitFailureLandsOnADeliberateScreen) {
             return std::make_unique<SaveSessionState>(descriptor);
         }));
     EXPECT_CALL(director, commitGameLoad(_)).Times(1);
-    EXPECT_CALL(director, onModuleLoad(_))
-        .WillRepeatedly(Throw(ResourceNotFoundException("module not found")));
+    EXPECT_CALL(director, commitModuleLoad(_))
+        .WillOnce(Throw(ResourceNotFoundException("module changed before commit")));
 
     // when the failure lands after the commit boundary
-    EXPECT_NO_THROW(game->loadGame(slot));
+    EXPECT_FALSE(game->loadGame(slot));
 
     // then nothing of either session is left half-built, and the engine is not
     // sitting on the blank screen an abandoned session renders as
@@ -913,6 +1140,51 @@ TEST_P(LoadTransactionFixture, aPostCommitFailureLandsOnADeliberateScreen) {
     EXPECT_NE(Game::Screen::None, game->currentScreen());
     EXPECT_FALSE(game->module());
     EXPECT_FALSE(game->hasPlayableRuntimeSession());
+}
+
+TEST_P(LoadTransactionFixture, saveResourceCommitFailureAlsoLandsOnADeliberateScreen) {
+    writeRequiredMetadata();
+
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareGameLoad(_))
+        .WillOnce(Invoke([](const SaveSlotDescriptor &descriptor) {
+            return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, commitGameLoad(_))
+        .WillOnce(Throw(ResourceNotFoundException(
+            "candidate save changed before commit")));
+    EXPECT_CALL(director, commitModuleLoad(_)).Times(0);
+
+    EXPECT_FALSE(game->loadGame(slot));
+
+    EXPECT_EQ(Game::Screen::MainMenu, game->currentScreen());
+    EXPECT_FALSE(game->module());
+    EXPECT_FALSE(game->hasPlayableRuntimeSession());
+}
+
+TEST_P(LoadTransactionFixture, installedModuleFallbackRemainsValidAtPreflight) {
+    writeRequiredMetadata();
+    destinationIfo = Gff::Builder()
+                         .field(Gff::Field::newResRef(
+                             "Mod_Entry_Area", "module_b"))
+                         .build();
+
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareGameLoad(_))
+        .WillOnce(Invoke([](const SaveSlotDescriptor &descriptor) {
+            return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, commitGameLoad(_)).Times(1);
+    EXPECT_CALL(director, commitModuleLoad(_))
+        .WillOnce(Throw(ResourceNotFoundException(
+            "stop after proving optional module snapshot acceptance")));
+
+    auto generation = TestGameModule::runtimeSessionGeneration(*game);
+
+    EXPECT_FALSE(game->loadGame(slot));
+
+    EXPECT_NE(generation, TestGameModule::runtimeSessionGeneration(*game));
+    EXPECT_EQ(Game::Screen::MainMenu, game->currentScreen());
 }
 
 TEST_P(LoadTransactionFixture, aCommittedLoadReplacesTheRunningSessionInOrder) {
@@ -942,6 +1214,7 @@ TEST_P(LoadTransactionFixture, aCommittedLoadReplacesTheRunningSessionInOrder) {
     // InSequence expectation would reject.
     int step = 0;
     int prepared = 0;
+    int modulePrepared = 0;
     int retired = 0;
     int committed = 0;
 
@@ -950,6 +1223,13 @@ TEST_P(LoadTransactionFixture, aCommittedLoadReplacesTheRunningSessionInOrder) {
         .WillOnce(Invoke([&](const SaveSlotDescriptor &descriptor) {
             prepared = ++step;
             return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, prepareModuleLoad("module_b", _))
+        .WillOnce(Invoke([&](
+                               const std::string &name,
+                               std::shared_ptr<const SaveWorkingState>) {
+            modulePrepared = ++step;
+            return preparedDestination(name);
         }));
     EXPECT_CALL(director, onNewGame())
         .Times(AnyNumber())
@@ -962,11 +1242,11 @@ TEST_P(LoadTransactionFixture, aCommittedLoadReplacesTheRunningSessionInOrder) {
         .WillOnce(Invoke([&](std::unique_ptr<SaveSessionState>) {
             committed = ++step;
         }));
-    EXPECT_CALL(director, onModuleLoad(_))
-        .WillRepeatedly(Throw(ResourceNotFoundException("module not found")));
-
+    EXPECT_CALL(director, commitModuleLoad(_))
+        .WillOnce(Throw(ResourceNotFoundException(
+            "stop after observing session publication")));
     // when the load reaches the commit boundary
-    EXPECT_NO_THROW(game->loadGame(slot));
+    EXPECT_FALSE(game->loadGame(slot));
 
     // then the session that was running has genuinely been replaced rather
     // than merely disturbed
@@ -975,9 +1255,11 @@ TEST_P(LoadTransactionFixture, aCommittedLoadReplacesTheRunningSessionInOrder) {
 
     // validation precedes retirement, retirement precedes publication
     ASSERT_GT(prepared, 0);
+    ASSERT_GT(modulePrepared, 0);
     ASSERT_GT(retired, 0);
     ASSERT_GT(committed, 0);
     EXPECT_LT(prepared, retired);
+    EXPECT_LT(modulePrepared, retired);
     EXPECT_LT(retired, committed);
 }
 

@@ -534,18 +534,19 @@ SaveResult Game::executeSave(SaveRequest request) {
     return result;
 }
 
-bool Game::storeCurrentModuleForTransition() {
+std::shared_ptr<const resource::SaveWorkingState>
+Game::prepareCurrentModuleWorkingState() {
     auto committed = _services.resource.director.committedSaveWorkingState();
     if (!committed || !_module) {
         error("Module transition has no committed save working state");
-        return false;
+        return nullptr;
     }
     auto captured = _saveSeams.captureModule
                         ? _saveSeams.captureModule(*this, _module->name())
                         : ModuleSnapshotBuilder(*this, _module->name()).build();
     if (!captured) {
         error("Unable to snapshot source module for transition: " + captured.message);
-        return false;
+        return nullptr;
     }
     try {
         auto candidate = resource::SaveWorkingStateCandidate::fromCommitted(
@@ -559,13 +560,12 @@ bool Game::storeCurrentModuleForTransition() {
         if (!validation) {
             error("Unable to validate transition working state: " +
                   validation.errors.front());
-            return false;
+            return nullptr;
         }
-        _services.resource.director.adoptSaveWorkingState(candidate.freeze());
-        return true;
+        return candidate.freeze();
     } catch (const std::exception &e) {
-        error("Unable to commit transition working state: " + std::string(e.what()));
-        return false;
+        error("Unable to prepare transition working state: " + std::string(e.what()));
+        return nullptr;
     }
 }
 

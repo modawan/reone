@@ -67,6 +67,32 @@ static bool canBashPlaceable(const Placeable &placeable, const Creature &actor, 
 }
 
 void Module::load(std::string name, const Gff &ifo, bool restoreSavedWorld) {
+    auto parsed = resource::generated::parseIFO(ifo);
+    if (parsed.Mod_Entry_Area.empty()) {
+        throw ValidationException("Mod_Entry_Area must not be empty");
+    }
+    auto are = _services.resource.gffs.get(parsed.Mod_Entry_Area, ResType::Are);
+    if (!are) {
+        throw ResourceNotFoundException(
+            "Area ARE not found: " + parsed.Mod_Entry_Area);
+    }
+    auto git = _services.resource.gffs.get(parsed.Mod_Entry_Area, ResType::Git);
+    if (!git) {
+        throw ResourceNotFoundException(
+            "Area GIT not found: " + parsed.Mod_Entry_Area);
+    }
+    load(std::move(name), ifo, *are, *git, restoreSavedWorld);
+    if (!restoreSavedWorld) {
+        runSpawnScripts();
+    }
+}
+
+void Module::load(
+    std::string name,
+    const Gff &ifo,
+    const Gff &are,
+    const Gff &git,
+    bool restoreSavedWorld) {
     _name = std::move(name);
     if (restoreSavedWorld) {
         _game.captureSaveResourceShadow(
@@ -88,15 +114,12 @@ void Module::load(std::string name, const Gff &ifo, bool restoreSavedWorld) {
         _savedEventLive.clear();
     }
     loadInfo(ifoParsed);
-    loadArea(ifoParsed, restoreSavedWorld);
+    loadArea(ifoParsed, are, git, restoreSavedWorld);
 
     _area->initCameras(_info.entryPosition, _info.entryFacing);
 
     loadPlayer();
 
-    if (!restoreSavedWorld) {
-        _area->runSpawnScripts();
-    }
 }
 
 void Module::activate() {
@@ -133,7 +156,11 @@ void Module::loadInfo(const resource::generated::IFO &ifo) {
     _info.onModStart = boost::to_lower_copy(ifo.Mod_OnModStart);
 }
 
-void Module::loadArea(const resource::generated::IFO &ifo, bool restoreSavedWorld) {
+void Module::loadArea(
+    const resource::generated::IFO &ifo,
+    const Gff &are,
+    const Gff &git,
+    bool restoreSavedWorld) {
     reone::info("Load area '" + _info.entryArea + "'");
 
     if (restoreSavedWorld) {
@@ -148,21 +175,15 @@ void Module::loadArea(const resource::generated::IFO &ifo, bool restoreSavedWorl
         _area = _game.newArea();
     }
 
-    std::shared_ptr<Gff> are(_services.resource.gffs.get(_info.entryArea, ResType::Are));
-    if (!are) {
-        throw ResourceNotFoundException("Area ARE not found: " + _info.entryArea);
-    }
-
-    std::shared_ptr<Gff> git(_services.resource.gffs.get(_info.entryArea, ResType::Git));
-    if (!git) {
-        throw ResourceNotFoundException("Area GIT not found: " + _info.entryArea);
-    }
-
     const auto identityContext = restoreSavedWorld
                                      ? SerializedIdentityContext::moduleGraph(_name)
                                      : SerializedIdentityContext::templateResource(_name);
-    _area->load(_info.entryArea, *are, *git, identityContext);
+    _area->load(_info.entryArea, are, git, identityContext);
 
+}
+
+void Module::runSpawnScripts() {
+    _area->runSpawnScripts();
 }
 void Module::loadLimboCreatures(const resource::Gff &ifo) {
     _limboCreatures.clear();

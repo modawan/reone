@@ -59,6 +59,9 @@ public:
 
     Resource get(const ResourceId &id) override;
     std::optional<Resource> find(const ResourceId &id) override;
+    std::optional<Resource> findExcludingOwners(
+        const ResourceId &id,
+        const std::set<ResourceOwner> &excludedOwners) override;
 
 private:
     std::unique_ptr<IResources> _backend;

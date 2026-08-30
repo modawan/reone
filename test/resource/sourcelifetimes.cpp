@@ -428,6 +428,11 @@ public:
 
     Resource get(const ResourceId &id) override { return _backend->get(id); }
     std::optional<Resource> find(const ResourceId &id) override { return _backend->find(id); }
+    std::optional<Resource> findExcludingOwners(
+        const ResourceId &id,
+        const std::set<ResourceOwner> &excludedOwners) override {
+        return _backend->findExcludingOwners(id, excludedOwners);
+    }
 
 private:
     void reject(const std::filesystem::path &path) const {

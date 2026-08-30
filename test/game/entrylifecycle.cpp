@@ -190,6 +190,18 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
                       .build();
         areaGit = Gff::Builder().build();
 
+        auto &director = engine.resourceModule().director();
+        EXPECT_CALL(director, prepareModuleLoad("module_b", _))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([this](
+                                       const std::string &name,
+                                       std::shared_ptr<const SaveWorkingState>) {
+                return std::make_unique<PreparedModuleLoad>(
+                    name, moduleIfo, areaAre, areaGit);
+            }));
+        EXPECT_CALL(director, commitModuleLoad(_))
+            .Times(AnyNumber());
+
         auto &gffs = engine.resourceModule().gffs();
         EXPECT_CALL(gffs, get(_, _))
             .Times(AnyNumber())
@@ -456,11 +468,13 @@ TEST_P(EntryLifecycleFixture, failed_destination_retires_attached_session_creatu
     EXPECT_FALSE(failedTrigger->isTenant(expectedLeader));
     const auto &creatures = failedArea->getObjectsByType(ObjectType::Creature);
     EXPECT_EQ(creatures.end(), std::find(creatures.begin(), creatures.end(), expectedLeader));
-    EXPECT_EQ(expectedLeader, game->party().player());
-    EXPECT_EQ(expectedLeader, game->getObjectById(expectedLeader->id()));
+    EXPECT_EQ(Game::Screen::MainMenu, game->currentScreen());
+    EXPECT_FALSE(game->party().player());
+    EXPECT_FALSE(game->isRuntimeObjectLive(*expectedLeader));
+    EXPECT_FALSE(game->getObjectById(expectedLeader->id()));
 
     if (controlled) {
-        EXPECT_EQ(controlled, game->party().rosterCreature({RosterKind::Npc, 0}));
+        EXPECT_FALSE(game->party().rosterCreature({RosterKind::Npc, 0}));
         EXPECT_EQ(nullptr, player->room())
             << "the parked canonical PC was never attached to the candidate";
     }
@@ -469,14 +483,13 @@ TEST_P(EntryLifecycleFixture, failed_destination_retires_attached_session_creatu
         EXPECT_FALSE(candidateRoom.tenants().count(puppet.get()));
         EXPECT_FALSE(TestGameModule::hasAreaRuntimePath(*puppet));
         EXPECT_FALSE(failedTrigger->isTenant(puppet));
-        EXPECT_EQ(puppet, game->party().rosterCreature({RosterKind::Puppet, 0}));
+        EXPECT_FALSE(game->party().rosterCreature({RosterKind::Puppet, 0}));
+        EXPECT_FALSE(game->isRuntimeObjectLive(*puppet));
         EXPECT_EQ(creatures.end(), std::find(creatures.begin(), creatures.end(), puppet));
     }
 
     // A later whole-session retirement sees already-detached objects and is
     // intentionally harmless.
-    EXPECT_CALL(engine.audioModule().mixer(), stopAll()).Times(1);
-    EXPECT_CALL(sharedSceneGraph(), clear()).Times(AnyNumber());
     game->retireRuntimeSession();
 }
 
@@ -498,8 +511,10 @@ TEST_P(EntryLifecycleFixture, failed_destination_before_party_placement_is_harml
     EXPECT_EQ(nullptr, player->room());
     EXPECT_FALSE(candidateRoom.tenants().count(player.get()));
     EXPECT_TRUE(failedArea->getObjectsByType(ObjectType::Creature).empty());
-    EXPECT_EQ(player, game->party().player());
-    EXPECT_EQ(player, game->getObjectById(player->id()));
+    EXPECT_EQ(Game::Screen::MainMenu, game->currentScreen());
+    EXPECT_FALSE(game->party().player());
+    EXPECT_FALSE(game->isRuntimeObjectLive(*player));
+    EXPECT_FALSE(game->getObjectById(player->id()));
 }
 
 // The predicates that decide what gets restored keep their own meaning; only

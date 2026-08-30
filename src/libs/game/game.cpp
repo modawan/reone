@@ -1008,7 +1008,120 @@ bool Game::handleMouseButtonUp(const input::MouseButtonEvent &event) {
     return false;
 }
 
-bool Game::loadModule(const std::string &name, std::string entry, bool initialSaveRestore) {
+Game::PreparedDestinationModule Game::prepareDestinationModule(
+    const std::string &name,
+    bool initialSaveRestore,
+    std::shared_ptr<const resource::SaveWorkingState> workingState) {
+    PreparedDestinationModule prepared;
+    prepared.resources = _services.resource.director.prepareModuleLoad(
+        name, std::move(workingState));
+    if (!prepared.resources || !prepared.resources->structurallyValidated()) {
+        throw ValidationException("Destination module was not structurally validated");
+    }
+    prepared.ifo = prepared.resources->moduleIfo();
+    prepared.are = prepared.resources->areaAre();
+    prepared.git = prepared.resources->areaGit();
+    prepared.name = prepared.resources->moduleName();
+    prepared.context = resolveModuleLoadContext(
+        initialSaveRestore,
+        prepared.ifo && prepared.ifo->getBool("Mod_IsSaveGame"));
+    validatePreparedDestination(prepared);
+    return prepared;
+}
+
+void Game::validatePreparedDestination(
+    const PreparedDestinationModule &prepared) const {
+    if (!prepared.ifo || !prepared.are || !prepared.git) {
+        throw ResourceNotFoundException(
+            "Prepared destination is missing IFO/ARE/GIT state");
+    }
+    auto ifo = resource::generated::parseIFO(*prepared.ifo);
+    if (ifo.Mod_Entry_Area.empty()) {
+        throw ValidationException("Mod_Entry_Area must not be empty");
+    }
+    (void)resource::generated::parseARE(*prepared.are);
+    (void)resource::generated::parseGIT(*prepared.git);
+
+    // Initial disk restoration may legitimately fall back to an installed
+    // module when the save has no archived current-module graph (#325). Only a
+    // record that declares itself saved owns the authoritative ModuleGraph ID
+    // namespace; template-local numbers must not be validated as saved IDs.
+    if (!restoresSavedWorld(prepared.context) ||
+        !prepared.ifo->getBool("Mod_IsSaveGame")) {
+        return;
+    }
+
+    const auto identityContext = SerializedIdentityContext::moduleGraph(
+        prepared.resources->moduleName());
+    std::map<uint32_t, std::string> claims;
+    auto validateClaims = [&](const resource::Gff &record,
+                              SerializedGraphRoot root,
+                              const std::string &prefix) {
+        for (auto claim : collectSerializedObjectIdClaims(
+                 record, identityContext, root)) {
+            if (claim.id == kSavedRuntimeModuleObjectId ||
+                claim.id == std::numeric_limits<uint32_t>::max()) {
+                throw ValidationException(
+                    "Invalid authoritative saved ObjectId " +
+                    std::to_string(claim.id) + " at " + prefix + claim.path);
+            }
+            auto [found, inserted] = claims.emplace(
+                claim.id, prefix + claim.path);
+            if (!inserted) {
+                throw ValidationException(
+                    "Duplicate authoritative saved ObjectId " +
+                    std::to_string(claim.id) + " at " + found->second +
+                    " and " + prefix + claim.path);
+            }
+        }
+    };
+    validateClaims(
+        *prepared.ifo, SerializedGraphRoot::ModuleIfo, "module/");
+    validateClaims(
+        *prepared.git, SerializedGraphRoot::AreaGit, "area/");
+
+    uint32_t nextObjectId = kFirstRuntimeObjectId;
+    if (prepared.ifo->readDword(nextObjectId, "Mod_NextObjId0") &&
+        nextObjectId != 0 && nextObjectId < kFirstRuntimeObjectId) {
+        throw ValidationException("Invalid Mod_NextObjId0");
+    }
+    uint64_t nextEffectId = 0;
+    if (prepared.ifo->readDword64(nextEffectId, "Mod_Effect_NxtId") &&
+        (nextEffectId == kUnassignedEffectId ||
+         nextEffectId == std::numeric_limits<EffectId>::max())) {
+        throw ValidationException("Invalid Mod_Effect_NxtId");
+    }
+}
+
+bool Game::loadModule(
+    const std::string &name,
+    std::string entry,
+    bool initialSaveRestore) {
+    info("Preparing module '" + name + "'");
+    PreparedDestinationModule prepared;
+    try {
+        prepared = prepareDestinationModule(
+            name,
+            initialSaveRestore,
+            _services.resource.director.committedSaveWorkingState());
+    } catch (const std::exception &e) {
+        error("Failed preparing module '" + name + "': " + e.what());
+        return false;
+    }
+    return loadPreparedModule(
+        std::move(prepared),
+        std::move(entry),
+        initialSaveRestore,
+        /*resourcesCommitted=*/false);
+}
+
+bool Game::loadPreparedModule(
+    PreparedDestinationModule prepared,
+    std::string entry,
+    bool initialSaveRestore,
+    bool resourcesCommitted,
+    std::shared_ptr<const resource::SaveWorkingState> sourceWorkingState) {
+    const std::string name = prepared.name;
     info("Loading module '" + name + "'");
     _transitionInProgress = true;
     struct TransitionGuard {
@@ -1025,46 +1138,9 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
         ~LoadFromSaveGuard() { value = false; }
     } loadFromSaveGuard {_loadingFromSaveGame};
 
-    // A module transition is a technical Pazaak abort. It must not manufacture
-    // a result or invoke the pending continuation.
-    abortPazaak();
-
-    // Tear down an active race before the current area (and its camera/scene)
-    // is unloaded, so no dangling references survive the transition.
-    if (_swoopRace.isActive()) {
-        _swoopRace.stop();
-        _cameraType = _savedCameraType;
-    }
-    if (_turret.isActive()) {
-        _turret.stop();
-        _cameraType = _savedCameraType;
-    }
-    // A direct module load (e.g. warp) while a lifecycle session is pending
-    // means the player navigated away; abandon the pending return.
-    // (Lifecycle-managed loads clear the session beforehand, so this only fires
-    // on external loads.)
-    if (_swoopLifecycle.active) {
-        _swoopLifecycle = MinigameLifecycle();
-    }
-    if (_turretLifecycle.active) {
-        _turretLifecycle = MinigameLifecycle();
-    }
-    // Likewise a scheduled turret session is only good for the module it named:
-    // any other load means the transition was superseded, and keeping the
-    // request would block startturretgame until the game was reset.
-    if (_pendingTurret.active && !boost::iequals(_pendingTurret.targetModule, name)) {
-        debug(str(boost::format("turret: scheduled session for '%s' dropped, loading '%s' instead")
-                  % _pendingTurret.targetModule % name));
-        _pendingTurret = PendingTurretRequest();
-    }
-
-    if (_screen == Screen::Conversation && _conversation) {
-        _conversation->cleanupForModuleTransition();
-    }
-
-    // Exit scripts are part of the source module's last observable state.
-    // Freeze that state before party/object teardown or destination mounting.
-    // A capture failure aborts with the source runtime graph still alive.
+    // Exit scripts are part of the source module's last observable state. The
+    // resulting working state remains a candidate until the resource/runtime
+    // commit below; a capture failure leaves the source graph authoritative.
     if (_module) {
         try {
             _module->area()->runOnExitScript();
@@ -1072,17 +1148,72 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
             error("Source module exit script failed: " + std::string(e.what()));
             return false;
         }
-        if (!storeCurrentModuleForTransition()) {
+        sourceWorkingState = prepareCurrentModuleWorkingState();
+        if (!sourceWorkingState) {
             return false;
+        }
+
+        // Re-entering the same module must inspect the snapshot just captured,
+        // not the previously committed visit. Other destinations are
+        // unaffected because the candidate changed only the source archive.
+        if (boost::iequals(_module->name(), name)) {
+            try {
+                prepared = prepareDestinationModule(
+                    name, initialSaveRestore, sourceWorkingState);
+            } catch (const std::exception &e) {
+                error("Failed preparing snapshotted module '" + name +
+                      "': " + e.what());
+                return false;
+            }
         }
     }
 
     bool loaded = false;
 
-    withLoadingScreen("load_" + name, [this, &name, &entry, initialSaveRestore, &loaded]() {
-        loadInGameMenus();
-
+    const auto sourceScreen = _screen;
+    bool commitStarted = false;
+    try {
+        withLoadingScreen("load_" + name, [this,
+                                            &prepared,
+                                            &name,
+                                            &entry,
+                                            initialSaveRestore,
+                                            resourcesCommitted,
+                                            &sourceWorkingState,
+                                            &commitStarted,
+                                            &loaded]() {
         try {
+            commitStarted = true;
+            // Destination structure and the source snapshot are both viable.
+            // Technical teardown belongs on the commit side of that boundary:
+            // a rejected destination or failed snapshot must not abort an
+            // otherwise valid gameplay session.
+            abortPazaak();
+            if (_swoopRace.isActive()) {
+                _swoopRace.stop();
+                _cameraType = _savedCameraType;
+            }
+            if (_turret.isActive()) {
+                _turret.stop();
+                _cameraType = _savedCameraType;
+            }
+            if (_swoopLifecycle.active) {
+                _swoopLifecycle = MinigameLifecycle();
+            }
+            if (_turretLifecycle.active) {
+                _turretLifecycle = MinigameLifecycle();
+            }
+            if (_pendingTurret.active &&
+                !boost::iequals(_pendingTurret.targetModule, name)) {
+                debug(str(boost::format(
+                              "turret: scheduled session for '%s' dropped, loading '%s' instead")
+                          % _pendingTurret.targetModule % name));
+                _pendingTurret = PendingTurretRequest();
+            }
+            if (_screen == Screen::Conversation && _conversation) {
+                _conversation->cleanupForModuleTransition();
+            }
+
             if (_module) {
                 // The source snapshot is already frozen. Module retirement
                 // now owns the full Area-departure boundary itself.
@@ -1098,7 +1229,20 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
                 _hud->resetStatusSummaryPresentation();
             }
 
-            _services.resource.director.onModuleLoad(name);
+            if (!resourcesCommitted) {
+                _services.resource.director.commitModuleLoad(
+                    std::move(prepared.resources));
+            }
+
+            // Resource publication is the only fallible destination commit.
+            // Adopt the frozen source snapshot only after it succeeds, so a
+            // destination that never publishes does not alter working state.
+            if (sourceWorkingState) {
+                _services.resource.director.adoptSaveWorkingState(
+                    std::move(sourceWorkingState));
+            }
+
+            loadInGameMenus();
 
             if (_loadScreen) {
                 _loadScreen->setProgress(50);
@@ -1107,13 +1251,8 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
 
             _services.scene.graphs.get(kSceneMain).clear();
 
-            std::shared_ptr<Gff> ifo(_services.resource.gffs.get("module", ResType::Ifo));
-            if (!ifo) {
-                throw ResourceNotFoundException("Module IFO not found");
-            }
-            ModuleLoadContext context = resolveModuleLoadContext(
-                initialSaveRestore,
-                ifo->getBool("Mod_IsSaveGame"));
+            const auto &ifo = prepared.ifo;
+            ModuleLoadContext context = prepared.context;
             bool restoringSavedWorld = restoresSavedWorld(context);
             bool restoringSavedSession = restoresSavedSession(context);
 
@@ -1137,8 +1276,21 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
                     _module,
                     SerializedIdentityContext::moduleGraph(name));
             }
-            _module->load(name, *ifo, restoringSavedWorld);
+            _module->load(
+                name,
+                *ifo,
+                *prepared.are,
+                *prepared.git,
+                restoringSavedWorld);
             _loadedModules.insert(std::make_pair(name, _module));
+
+            // Structural construction is complete and the destination module
+            // is now the authoritative script caller. Authored gameplay begins
+            // here; failures from this point are terminal rather than rolled
+            // back as if arbitrary NWScript mutation were transactional.
+            if (!restoringSavedWorld) {
+                _module->runSpawnScripts();
+            }
 
             if (_party.isEmpty()) {
                 loadDefaultParty();
@@ -1169,19 +1321,34 @@ bool Game::loadModule(const std::string &name, std::string entry, bool initialSa
             loaded = true;
         } catch (const std::exception &e) {
             error("Failed loading module '" + name + "': " + std::string(e.what()));
-            if (initialSaveRestore) {
-                // Restoring a save has already retired the session that was
-                // running, so there is nothing to fall back to. Retiring alone
-                // leaves Screen::None, which renders as a black window over a
-                // still-updating engine; send the player somewhere deliberate.
-                retireRuntimeSession();
+            // Source retirement is the commit boundary for an ordinary
+            // transition, just as resetGame is for a disk load. Authored or
+            // otherwise post-commit failure cannot resurrect the old world;
+            // retire the partial destination and land somewhere deliberate.
+            retireToMainMenu();
+        }
+        });
+    } catch (const std::exception &e) {
+        error("Module load escaped its failure boundary for '" + name +
+              "': " + e.what());
+        if (!commitStarted) {
+            // Loading-screen preparation precedes runtime/resource commit. Its
+            // presentation work is reversible without a parallel scene: the
+            // authoritative source world remains the current session.
+            _screen = sourceScreen;
+        } else {
+            // A terminal-path dependency failed while retiring the published
+            // destination. Do not expose a blank or resurrected old world.
+            try {
                 retireToMainMenu();
-            } else {
-                retireActiveModuleRuntime();
-                _screen = Screen::None;
+            } catch (const std::exception &terminalError) {
+                error("Failed entering Main Menu after load failure: " +
+                      std::string(terminalError.what()));
+                _screen = Screen::MainMenu;
             }
         }
-    });
+        return false;
+    }
 
     // However long that took, none of it was time the game world lived
     // through. Whoever drives the frame clock has to start a new epoch before
@@ -1383,23 +1550,28 @@ Game::PreparedSaveLoad Game::prepareSaveLoad(const resource::SaveSlotDescriptor 
     if (!prepared.globalVars) {
         throw ResourceNotFoundException("globalvars.res not found");
     }
+    (void)resource::parseGVT(*prepared.globalVars);
 
-    // The remaining records are optional to the loader. Decode what the slot
-    // carries so restoration does not read it again, but do not invent a
-    // requirement: a module IFO absent from the archive still resolves from the
-    // module itself once mounted, and rejecting the save here would refuse one
-    // that loads correctly today.
-    prepared.moduleIfo = decodeSaveGff(
-        prepared.session->findWorking(ResourceId("module", ResType::Ifo)));
+    // Save-wide records remain optional where retail permits them, but any
+    // record supplied by the slot is decoded while the candidate is private.
     prepared.partyTable = decodeSaveGff(
         prepared.session->findMetadata(ResourceId("partytable", ResType::Res)));
     prepared.inventory = decodeSaveGff(
         prepared.session->findWorking(ResourceId("inventory", ResType::Res)));
 
+    prepared.destination = prepareDestinationModule(
+        prepared.nfo.lastModule,
+        /*initialSaveRestore=*/true,
+        prepared.session->workingState());
+    // #325 deliberately permits an installed module IFO when no archived
+    // module graph exists. Do not make Mod_PlayerList a new mandatory save
+    // record; validate only PartyTable state that restoration will consume.
+    validatePartyLoad(prepared.partyTable.get());
+
     return prepared;
 }
 
-void Game::loadGame(const resource::SaveSlotDescriptor &slot) {
+bool Game::loadGame(const resource::SaveSlotDescriptor &slot) {
     info(str(boost::format("Loading savegame '%s'") % slot.directory.filename().string()));
 
     // Resolve and validate the replacement before anything is given up. A
@@ -1407,14 +1579,13 @@ void Game::loadGame(const resource::SaveSlotDescriptor &slot) {
     // player keeps playing instead of being left with nothing to render.
     auto prepared = prepareSaveLoad(slot);
 
-    // Commit. The old runtime and the old mounts retire together, and only
-    // then does the candidate become authoritative: no runtime ever observes
-    // the other session's resources.
-    resetGame();
-    _services.resource.director.commitGameLoad(std::move(prepared.session));
-
     try {
-        restoreSaveLoad(std::move(prepared));
+        // Commit. The old runtime and the old mounts retire together, and only
+        // then does the candidate become authoritative: no runtime ever
+        // observes the other session's resources.
+        resetGame();
+        _services.resource.director.commitGameLoad(std::move(prepared.session));
+        return restoreSaveLoad(std::move(prepared));
     } catch (const std::exception &e) {
         // Past the commit boundary the previous session no longer exists and
         // cannot be restored. Retire whatever was half-built and land on a
@@ -1422,20 +1593,27 @@ void Game::loadGame(const resource::SaveSlotDescriptor &slot) {
         // leaves behind.
         error("Failed restoring savegame '" +
               slot.directory.filename().string() + "': " + std::string(e.what()));
-        retireToMainMenu();
-        return;
+        try {
+            retireToMainMenu();
+        } catch (const std::exception &terminalError) {
+            error("Failed entering Main Menu after save-load failure: " +
+                  std::string(terminalError.what()));
+            _screen = Screen::MainMenu;
+        }
+        return false;
     }
 }
 
-void Game::restoreSaveLoad(PreparedSaveLoad prepared) {
+bool Game::restoreSaveLoad(PreparedSaveLoad prepared) {
     const NFO &nfo = prepared.nfo;
     _cheatUsed = nfo.cheatUsed;
     captureSaveResourceShadow({SaveResourceKind::Nfo, {}}, *prepared.saveInfo);
 
-    // Add module files to resource resolution. Since all savegame files are
-    // already in scope, this is going to resolve to the last module from the
-    // save game.
-    _services.resource.director.onModuleLoad(nfo.lastModule);
+    // The exact plan inspected before reset now replaces the active module
+    // owners. A file changing between preparation and this point is a
+    // post-commit failure and follows #325's deliberate terminal policy.
+    _services.resource.director.commitModuleLoad(
+        std::move(prepared.destination.resources));
 
     // Restore the save-wide faction table before any module objects can query
     // disposition. A missing or malformed optional FAC starts from fresh base
@@ -1461,31 +1639,23 @@ void Game::restoreSaveLoad(PreparedSaveLoad prepared) {
     // still unpublished.
     deserializeGlobalVariables(*prepared.globalVars);
 
-    // Deserialize party. The archive usually carries its own module IFO; when
-    // it does not, the mounted module still supplies one.
-    std::shared_ptr<Gff> ifo = prepared.moduleIfo
-                                   ? prepared.moduleIfo
-                                   : _services.resource.gffs.get("module", ResType::Ifo);
-    if (!ifo) {
-        throw ResourceNotFoundException("Module IFO not found");
-    }
-    captureSaveResourceShadow({SaveResourceKind::ModuleIfo, nfo.lastModule}, *ifo);
+    // Deserialize party from the exact IFO/GIT records inspected before the
+    // old session was retired, rather than looking them up a second time from
+    // a resource set that could have changed.
+    const auto &ifo = prepared.destination.ifo;
+    captureSaveResourceShadow(
+        {SaveResourceKind::ModuleIfo, prepared.destination.name}, *ifo);
     replaceCustomTokens(parseCustomTokens(*ifo));
     const auto moduleIdentityContext =
-        SerializedIdentityContext::moduleGraph(nfo.lastModule);
+        SerializedIdentityContext::moduleGraph(prepared.destination.name);
     prepareSavedRuntimeNamespace(*ifo, moduleIdentityContext);
 
     // Detached save-wide records are deliberately not traversed here: their
     // ObjectId fields do not claim identities in the active module graph.
-    const std::string entryArea = ifo->getString("Mod_Entry_Area");
-    if (!entryArea.empty()) {
-        if (auto git = _services.resource.gffs.get(entryArea, ResType::Git)) {
-            reserveSavedObjectIds(
-                *git,
-                moduleIdentityContext,
-                SerializedGraphRoot::AreaGit);
-        }
-    }
+    reserveSavedObjectIds(
+        *prepared.destination.git,
+        moduleIdentityContext,
+        SerializedGraphRoot::AreaGit);
     deserializeParty(*ifo, prepared.partyTable, moduleIdentityContext);
 
     // Once the player is loaded, deserialize player's inventory.
@@ -1495,8 +1665,53 @@ void Game::restoreSaveLoad(PreparedSaveLoad prepared) {
         deserializeInventory(*prepared.inventory);
     }
 
-    // Warp to the last module.
-    loadModule(nfo.lastModule, /*entry=*/"", /*fromSave=*/true);
+    return loadPreparedModule(
+        std::move(prepared.destination),
+        /*entry=*/"",
+        /*initialSaveRestore=*/true,
+        /*resourcesCommitted=*/true);
+}
+
+void Game::validatePartyLoad(const resource::Gff *partyTable) const {
+    if (!partyTable) {
+        return;
+    }
+
+    const auto state = parsePartyTable(*partyTable);
+    const auto validNpc = [this](int npc) {
+        const int count = isTSL()
+                              ? static_cast<int>(Party::kK2NpcCount)
+                              : static_cast<int>(Party::kK1NpcCount);
+        return npc >= 0 && npc < count;
+    };
+    if (state.controlledNpc != -1 && !validNpc(state.controlledNpc)) {
+        throw ValidationException("PartyTable controlled NPC is out of range");
+    }
+
+    std::set<int> members;
+    for (int npc : state.memberIds) {
+        if (npc != kNpcPlayer && !validNpc(npc)) {
+            throw ValidationException("PartyTable member is out of range");
+        }
+        if (!members.insert(npc).second) {
+            throw ValidationException("PartyTable contains a duplicate member");
+        }
+    }
+    if (state.leader != -1 && state.leader != kNpcPlayer &&
+        members.count(state.leader) == 0) {
+        throw ValidationException("PartyTable leader is not an active member");
+    }
+
+    std::set<int> puppets;
+    for (int puppet : state.puppetIds) {
+        if (!isTSL() || puppet < 0 ||
+            puppet >= static_cast<int>(Party::kMaxPuppetCount)) {
+            throw ValidationException("PartyTable puppet is out of range");
+        }
+        if (!puppets.insert(puppet).second) {
+            throw ValidationException("PartyTable contains a duplicate puppet");
+        }
+    }
 }
 
 std::map<int, std::string> Game::parseCustomTokens(

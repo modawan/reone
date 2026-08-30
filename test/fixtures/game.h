@@ -46,6 +46,7 @@ namespace reone {
 namespace resource {
 
 class Gff;
+class SaveWorkingState;
 
 }
 
@@ -277,7 +278,8 @@ public:
     static void configureSaveOrchestration(
         Game &game, SaveOrchestrationSeams seams);
     static void processPendingSave(Game &game);
-    static bool storeCurrentModuleForTransition(Game &game);
+    static std::shared_ptr<const resource::SaveWorkingState>
+    prepareCurrentModuleWorkingState(Game &game);
     static void setSnapshotModuleName(Game &game, std::string name);
     static bool hasPendingSave(const Game &game);
     static void setRuntimeSessionPlayable(Game &game, bool playable);

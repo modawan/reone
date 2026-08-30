@@ -190,7 +190,16 @@ Resource ExtractResources::get(const ResourceId &id) {
 }
 
 std::optional<Resource> ExtractResources::find(const ResourceId &id) {
+    return findExcludingOwners(id, {});
+}
+
+std::optional<Resource> ExtractResources::findExcludingOwners(
+    const ResourceId &id,
+    const std::set<ResourceOwner> &excludedOwners) {
     for (auto &source : _sources) {
+        if (excludedOwners.count(source.owner) != 0) {
+            continue;
+        }
         auto data = source.find(id);
         if (data) {
             return Resource {std::move(*data)};
