@@ -228,6 +228,8 @@ struct SnapshotFixture : Test {
     void captureResourceShadows() {
         auto ifo = Gff::Builder().type(0xffffffff)
             .field(Gff::Field::newDword("Mod_NextObjId0", 50))
+            .field(Gff::Field::newDword("Mod_CalendarDay", 99))
+            .field(Gff::Field::newDword("Mod_TimeOfDay", 99))
             .field(Gff::Field::newCExoString("FutureIfo", "preserve-ifo"))
             .build();
         auto are = Gff::Builder().type(0xffffffff)
@@ -236,6 +238,7 @@ struct SnapshotFixture : Test {
         auto staleDoor = Gff::Builder().type(8)
             .field(Gff::Field::newDword("ObjectId", 999)).build();
         auto git = Gff::Builder().type(0xffffffff)
+            .field(Gff::Field::newByte("UseTemplates", 1))
             .field(Gff::Field::newCExoString("FutureGit", "preserve-git"))
             .field(Gff::Field::newList("Door List", {staleDoor})).build();
         game.captureSaveResourceShadow(
@@ -1388,6 +1391,7 @@ TEST_F(SnapshotFixture, play_animation_is_a_supported_transition_snapshot_action
 
     auto result = ModuleSnapshotBuilder(game, "module003").build();
     ASSERT_TRUE(result) << result.message;
+    EXPECT_EQ(result.snapshot->git->getUint("UseTemplates"), 0u);
     auto ifo = readGff(result.snapshot->ifoBytes);
     auto playerRecord = ifo->getList("Mod_PlayerList").front();
     ASSERT_EQ(playerRecord->getList("ActionList").size(), 1);
@@ -1926,7 +1930,7 @@ TEST_F(SnapshotFixture, due_delay_is_inert_on_restore_and_delivered_exactly_once
     EXPECT_EQ(game.module()->pendingSavedEventCount(), 0u);
 }
 
-TEST_F(SnapshotFixture, writes_a_normalized_calendar_pair_split_from_the_absolute_clock) {
+TEST_F(SnapshotFixture, writes_the_normalized_retail_pause_pair) {
     // The runtime clock is absolute milliseconds; the IFO stores a day and a
     // time of day. The split happens here, at the serialization boundary, so
     // every record written is normalized regardless of where the clock stands.
@@ -1941,13 +1945,15 @@ TEST_F(SnapshotFixture, writes_a_normalized_calendar_pair_split_from_the_absolut
     auto ifo = readGff(result.snapshot->ifoBytes);
 
     EXPECT_EQ(ifo->getUint("Mod_MinPerHour"), kMinutesPerHour);
-    EXPECT_EQ(ifo->getUint("Mod_CalendarDay"), 7u);
-    EXPECT_EQ(ifo->getUint("Mod_TimeOfDay"), 2000u);
-    EXPECT_LT(ifo->getUint("Mod_TimeOfDay"), millisecondsPerDay);
+    EXPECT_EQ(ifo->getUint("Mod_PauseDay"), 7u);
+    EXPECT_EQ(ifo->getUint("Mod_PauseTime"), 2000u);
+    EXPECT_LT(ifo->getUint("Mod_PauseTime"), millisecondsPerDay);
+    EXPECT_FALSE(ifo->has("Mod_CalendarDay"));
+    EXPECT_FALSE(ifo->has("Mod_TimeOfDay"));
     // And the pair recomposes to exactly the clock that produced it.
-    EXPECT_EQ(static_cast<uint64_t>(ifo->getUint("Mod_CalendarDay")) *
+    EXPECT_EQ(static_cast<uint64_t>(ifo->getUint("Mod_PauseDay")) *
                       millisecondsPerDay +
-                  ifo->getUint("Mod_TimeOfDay"),
+                  ifo->getUint("Mod_PauseTime"),
               game.worldTimeMilliseconds());
 }
 

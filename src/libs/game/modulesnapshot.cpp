@@ -1568,6 +1568,10 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
         result = emptyRecord(std::numeric_limits<uint32_t>::max());
     }
 
+    // A runtime snapshot is an authoritative instance graph even when its
+    // shadow originated in an installed template GIT.
+    put(*result, Gff::Field::newByte("UseTemplates", 0));
+
     std::map<std::string, std::vector<std::shared_ptr<Gff>>> lists {
         {"Creature List", {}}, {"Door List", {}}, {"Placeable List", {}},
         {"TriggerList", {}}, {"Encounter List", {}}, {"StoreList", {}},
@@ -1668,9 +1672,13 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildIfo(
     put(*result, Gff::Field::newFloat("Mod_Entry_Dir_X", -std::sin(module._info.entryFacing)));
     put(*result, Gff::Field::newFloat("Mod_Entry_Dir_Y", std::cos(module._info.entryFacing)));
     // Split the canonical clock into the retail pair. Records written here are
-    // therefore always normalized: Mod_TimeOfDay is below one day length.
-    put(*result, Gff::Field::newDword("Mod_CalendarDay", _game.worldTimeDay()));
-    put(*result, Gff::Field::newDword("Mod_TimeOfDay", _game.worldTimeOfDay()));
+    // therefore always normalized: Mod_PauseTime is below one day length.
+    // Remove fields emitted by the short-lived Reone naming mistake so a
+    // shadow merge cannot leave two competing clock representations.
+    removeSaveField(*result, "Mod_CalendarDay");
+    removeSaveField(*result, "Mod_TimeOfDay");
+    put(*result, Gff::Field::newDword("Mod_PauseDay", _game.worldTimeDay()));
+    put(*result, Gff::Field::newDword("Mod_PauseTime", _game.worldTimeOfDay()));
     put(*result, Gff::Field::newByte("Mod_MinPerHour", _game._minutesPerHour));
     put(*result, Gff::Field::newDword64("Mod_Effect_NxtId", _game._effectIds.nextId()));
     put(*result, Gff::Field::newStruct("SWVarTable", writeLocals(module)));

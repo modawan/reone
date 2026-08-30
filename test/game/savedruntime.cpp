@@ -881,8 +881,8 @@ TEST(SavedRuntimePublication, should_compare_event_due_times_on_the_absolute_clo
     ON_CALL(engine.sceneModule().graphs(), get(_)).WillByDefault(ReturnRef(sceneGraph));
 
     auto ifo = Gff::Builder()
-                   .field(Gff::Field::newDword("Mod_CalendarDay", 4))
-                   .field(Gff::Field::newDword("Mod_TimeOfDay", 0))
+                   .field(Gff::Field::newDword("Mod_PauseDay", 4))
+                   .field(Gff::Field::newDword("Mod_PauseTime", 0))
                    .field(Gff::Field::newDword("Mod_MinPerHour", 5))
                    .build();
     game.prepareSavedRuntimeNamespace(
@@ -1173,8 +1173,8 @@ TEST(SavedRuntimePublication, should_publish_supported_events_without_dispatchin
     ON_CALL(engine.sceneModule().graphs(), get(_)).WillByDefault(ReturnRef(sceneGraph));
 
     auto ifo = Gff::Builder()
-                   .field(Gff::Field::newDword("Mod_CalendarDay", 4))
-                   .field(Gff::Field::newDword("Mod_TimeOfDay", 100))
+                   .field(Gff::Field::newDword("Mod_PauseDay", 4))
+                   .field(Gff::Field::newDword("Mod_PauseTime", 100))
                    .field(Gff::Field::newDword("Mod_MinPerHour", 5))
                    .build();
     game.prepareSavedRuntimeNamespace(

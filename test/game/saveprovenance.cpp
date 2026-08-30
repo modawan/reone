@@ -613,8 +613,8 @@ TEST(EventSaveProvenance, loaded_delivery_cancellation_new_and_session_replaceme
         .WillByDefault(ReturnRef(sceneGraph));
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto clock = Gff::Builder()
-                     .field(Gff::Field::newDword("Mod_CalendarDay", 4))
-                     .field(Gff::Field::newDword("Mod_TimeOfDay", 100))
+                     .field(Gff::Field::newDword("Mod_PauseDay", 4))
+                     .field(Gff::Field::newDword("Mod_PauseTime", 100))
                      .field(Gff::Field::newDword("Mod_MinPerHour", 5))
                      .build();
     game.prepareSavedRuntimeNamespace(

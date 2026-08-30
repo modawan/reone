@@ -68,6 +68,7 @@
 #include "reone/resource/format/gffreader.h"
 #include "reone/resource/format/gffwriter.h"
 #include "reone/resource/parser/gff/gvt.h"
+#include "reone/resource/parser/gff/git.h"
 #include "reone/resource/parser/gff/nfo.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/audioclips.h"
@@ -120,7 +121,9 @@ ModuleLoadContext resolveModuleLoadContext(
     bool savedModuleSnapshot) {
 
     if (initialSaveRestore) {
-        return ModuleLoadContext::InitialSaveRestore;
+        return savedModuleSnapshot
+                   ? ModuleLoadContext::InitialSaveRestore
+                   : ModuleLoadContext::InitialTemplateRestore;
     }
     return savedModuleSnapshot
                ? ModuleLoadContext::SavedModuleTransition
@@ -128,10 +131,16 @@ ModuleLoadContext resolveModuleLoadContext(
 }
 
 bool restoresSavedWorld(ModuleLoadContext context) {
-    return context != ModuleLoadContext::FreshModule;
+    return context == ModuleLoadContext::InitialSaveRestore ||
+           context == ModuleLoadContext::SavedModuleTransition;
 }
 
 bool restoresSavedSession(ModuleLoadContext context) {
+    return context == ModuleLoadContext::InitialTemplateRestore ||
+           context == ModuleLoadContext::InitialSaveRestore;
+}
+
+bool preservesSavedPlacement(ModuleLoadContext context) {
     return context == ModuleLoadContext::InitialSaveRestore;
 }
 
@@ -1022,9 +1031,14 @@ Game::PreparedDestinationModule Game::prepareDestinationModule(
     prepared.are = prepared.resources->areaAre();
     prepared.git = prepared.resources->areaGit();
     prepared.name = prepared.resources->moduleName();
+    // GIT.UseTemplates is the retail world-representation discriminator.
+    // Mod_IsSaveGame describes the surrounding IFO but cannot turn a
+    // template GIT into an authoritative instance graph (or vice versa).
+    const bool authoritativeSavedWorld =
+        prepared.git &&
+        resource::generated::parseGIT(*prepared.git).UseTemplates == 0;
     prepared.context = resolveModuleLoadContext(
-        initialSaveRestore,
-        prepared.ifo && prepared.ifo->getBool("Mod_IsSaveGame"));
+        initialSaveRestore, authoritativeSavedWorld);
     validatePreparedDestination(prepared);
     return prepared;
 }
@@ -1044,10 +1058,9 @@ void Game::validatePreparedDestination(
 
     // Initial disk restoration may legitimately fall back to an installed
     // module when the save has no archived current-module graph (#325). Only a
-    // record that declares itself saved owns the authoritative ModuleGraph ID
-    // namespace; template-local numbers must not be validated as saved IDs.
-    if (!restoresSavedWorld(prepared.context) ||
-        !prepared.ifo->getBool("Mod_IsSaveGame")) {
+    // non-template GIT owns the authoritative ModuleGraph namespace;
+    // template-local numbers are not saved identities.
+    if (!restoresSavedWorld(prepared.context)) {
         return;
     }
 
@@ -1254,7 +1267,6 @@ bool Game::loadPreparedModule(
             const auto &ifo = prepared.ifo;
             ModuleLoadContext context = prepared.context;
             bool restoringSavedWorld = restoresSavedWorld(context);
-            bool restoringSavedSession = restoresSavedSession(context);
 
             const auto identityContext =
                 restoringSavedWorld
@@ -1296,16 +1308,20 @@ bool Game::loadPreparedModule(
                 loadDefaultParty();
             }
 
+            // Retail makes restored effects, actions and events visible before
+            // authored OnLoad/OnEnter scripts inspect or mutate them. Binding
+            // remains explicit and graph-local; only publication moves ahead
+            // of the entry hooks.
+            bindSavedRuntimeState();
+            publishSavedRuntimeState();
+
             // Whether the world came from persisted state decides what gets
             // restored, not whether the module's authored entry hook runs.
             // Content relies on that hook every time it is entered, including
             // when revisiting a module whose world state is restored.
             _module->runOnLoadScript();
 
-            _module->loadParty(entry, restoringSavedSession);
-
-            bindSavedRuntimeState();
-            publishSavedRuntimeState();
+            _module->loadParty(entry, preservesSavedPlacement(context));
 
             info("Module '" + name + "' loaded successfully");
 
@@ -1558,14 +1574,33 @@ Game::PreparedSaveLoad Game::prepareSaveLoad(const resource::SaveSlotDescriptor 
         prepared.session->findMetadata(ResourceId("partytable", ResType::Res)));
     prepared.inventory = decodeSaveGff(
         prepared.session->findWorking(ResourceId("inventory", ResType::Res)));
-
     prepared.destination = prepareDestinationModule(
         prepared.nfo.lastModule,
         /*initialSaveRestore=*/true,
         prepared.session->workingState());
-    // #325 deliberately permits an installed module IFO when no archived
-    // module graph exists. Do not make Mod_PlayerList a new mandatory save
-    // record; validate only PartyTable state that restoration will consume.
+    if (prepared.destination.context ==
+        ModuleLoadContext::InitialTemplateRestore) {
+        prepared.playerInfo = decodeSaveGff(
+            prepared.session->findMetadata(ResourceId("pifo", ResType::Ifo)));
+        if (!prepared.playerInfo ||
+            prepared.playerInfo->getList("Mod_PlayerList").empty()) {
+            throw ValidationException(
+                "Template-world save restore requires pifo.ifo player state");
+        }
+        auto params = prepared.saveInfo->findStruct("AUTOSAVEPARAMS");
+        if (!params) {
+            throw ValidationException(
+                "Template-world save restore requires AUTOSAVEPARAMS");
+        }
+        PreparedSaveLoad::AutosaveRestoreState autosave;
+        autosave.startWaypoint = params->getString("STARTWAYPOINT");
+        if (autosave.startWaypoint == "*") {
+            autosave.startWaypoint.clear();
+        }
+        autosave.pauseDay = params->getUint("TIME_PAUSEDAY");
+        autosave.pauseTime = params->getUint("TIME_PAUSETIME");
+        prepared.autosave = std::move(autosave);
+    }
     validatePartyLoad(prepared.partyTable.get());
 
     return prepared;
@@ -1639,24 +1674,40 @@ bool Game::restoreSaveLoad(PreparedSaveLoad prepared) {
     // still unpublished.
     deserializeGlobalVariables(*prepared.globalVars);
 
-    // Deserialize party from the exact IFO/GIT records inspected before the
-    // old session was retired, rather than looking them up a second time from
-    // a resource set that could have changed.
+    // Deserialize party from records inspected before the old session was
+    // retired. A disk restore and a saved module graph are independent: retail
+    // transition autosaves restore save-wide state while constructing the
+    // module world from installed templates and the player from pifo.ifo.
     const auto &ifo = prepared.destination.ifo;
-    captureSaveResourceShadow(
-        {SaveResourceKind::ModuleIfo, prepared.destination.name}, *ifo);
     replaceCustomTokens(parseCustomTokens(*ifo));
-    const auto moduleIdentityContext =
-        SerializedIdentityContext::moduleGraph(prepared.destination.name);
-    prepareSavedRuntimeNamespace(*ifo, moduleIdentityContext);
+    std::string entry;
+    if (restoresSavedWorld(prepared.destination.context)) {
+        captureSaveResourceShadow(
+            {SaveResourceKind::ModuleIfo, prepared.destination.name}, *ifo);
+        const auto moduleIdentityContext =
+            SerializedIdentityContext::moduleGraph(prepared.destination.name);
+        prepareSavedRuntimeNamespace(*ifo, moduleIdentityContext);
 
-    // Detached save-wide records are deliberately not traversed here: their
-    // ObjectId fields do not claim identities in the active module graph.
-    reserveSavedObjectIds(
-        *prepared.destination.git,
-        moduleIdentityContext,
-        SerializedGraphRoot::AreaGit);
-    deserializeParty(*ifo, prepared.partyTable, moduleIdentityContext);
+        // Detached save-wide records are deliberately not traversed here:
+        // their ObjectId fields do not claim identities in the module graph.
+        reserveSavedObjectIds(
+            *prepared.destination.git,
+            moduleIdentityContext,
+            SerializedGraphRoot::AreaGit);
+        deserializeParty(*ifo, prepared.partyTable, moduleIdentityContext);
+    } else {
+        if (!prepared.autosave || !prepared.playerInfo) {
+            throw ValidationException(
+                "Template-world save restore state was not prepared");
+        }
+        restoreWorldTime(
+            *ifo, prepared.autosave->pauseDay, prepared.autosave->pauseTime);
+        deserializeParty(
+            *prepared.playerInfo,
+            prepared.partyTable,
+            SerializedIdentityContext::detachedRecord("pifo.ifo"));
+        entry = prepared.autosave->startWaypoint;
+    }
 
     // Once the player is loaded, deserialize player's inventory.
     if (prepared.inventory) {
@@ -1667,7 +1718,7 @@ bool Game::restoreSaveLoad(PreparedSaveLoad prepared) {
 
     return loadPreparedModule(
         std::move(prepared.destination),
-        /*entry=*/"",
+        std::move(entry),
         /*initialSaveRestore=*/true,
         /*resourcesCommitted=*/true);
 }
@@ -1818,7 +1869,9 @@ void Game::publishPartyRuntimeState(
     auto modulePlayer = newCreature(*players.front(), moduleIdentityContext);
     modulePlayer->captureSaveRecord(
         *players.front(), moduleIdentityContext, {SaveRecordOriginKind::ModulePlayer, {}});
-    modulePlayer->setTag(kObjectTagPlayer);
+    if (modulePlayer->tag().empty()) {
+        modulePlayer->setTag(kObjectTagPlayer);
+    }
 
     auto actualPlayer = modulePlayer;
     const auto &partyState = _party.persistedState();
@@ -2788,9 +2841,28 @@ void Game::prepareSavedRuntimeNamespace(
             throw ValidationException("Invalid Mod_Effect_NxtId");
         }
     }
-    // Mod_MinPerHour first: it defines the day length that Mod_TimeOfDay is
+
+    uint64_t pauseDay = 0;
+    uint64_t pauseTime = 0;
+    if (ifo.has("Mod_PauseDay") || ifo.has("Mod_PauseTime")) {
+        pauseDay = ifo.getUint("Mod_PauseDay");
+        pauseTime = ifo.getUint("Mod_PauseTime");
+    } else {
+        // Read-only compatibility for saves written by the short-lived Reone
+        // field-name mistake. New snapshots always emit the retail fields.
+        pauseDay = ifo.getUint("Mod_CalendarDay");
+        pauseTime = ifo.getUint("Mod_TimeOfDay");
+    }
+    restoreWorldTime(ifo, pauseDay, pauseTime);
+}
+
+void Game::restoreWorldTime(
+    const resource::Gff &moduleIfo,
+    uint64_t pauseDay,
+    uint64_t pauseTime) {
+    // Mod_MinPerHour first: it defines the day length that Mod_PauseTime is
     // measured against.
-    uint32_t minutesPerHour = ifo.getUint("Mod_MinPerHour");
+    uint32_t minutesPerHour = moduleIfo.getUint("Mod_MinPerHour");
     if (minutesPerHour > std::numeric_limits<uint8_t>::max()) {
         throw ValidationException("Invalid Mod_MinPerHour");
     }
@@ -2804,9 +2876,8 @@ void Game::prepareSavedRuntimeNamespace(
     // became Mod_MinPerHour-derived hold a time of day on the old fixed
     // 24-hour scale, and must still load. Both fields are Dwords, so the
     // composition cannot overflow the 64-bit clock.
-    uint64_t day = ifo.getUint("Mod_CalendarDay");
-    uint64_t timeOfDay = ifo.getUint("Mod_TimeOfDay");
-    _worldTimeMilliseconds = day * millisecondsPerWorldDay() + timeOfDay;
+    _worldTimeMilliseconds =
+        pauseDay * millisecondsPerWorldDay() + pauseTime;
     _worldTimeFraction = 0.0;
 }
 

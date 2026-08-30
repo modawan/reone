@@ -105,6 +105,7 @@ namespace game {
 
 enum class ModuleLoadContext {
     FreshModule,
+    InitialTemplateRestore,
     InitialSaveRestore,
     SavedModuleTransition,
 };
@@ -115,6 +116,7 @@ ModuleLoadContext resolveModuleLoadContext(
 
 bool restoresSavedWorld(ModuleLoadContext context);
 bool restoresSavedSession(ModuleLoadContext context);
+bool preservesSavedPlacement(ModuleLoadContext context);
 
 struct SavedObjectReference;
 struct SerializedScriptSituation;
@@ -353,12 +355,20 @@ public:
      * published.
      */
     struct PreparedSaveLoad {
+        struct AutosaveRestoreState {
+            std::string startWaypoint;
+            uint32_t pauseDay {0};
+            uint32_t pauseTime {0};
+        };
+
         std::unique_ptr<resource::SaveSessionState> session;
         resource::NFO nfo;
         std::shared_ptr<resource::Gff> saveInfo;
         std::shared_ptr<resource::Gff> globalVars;
         std::shared_ptr<resource::Gff> partyTable;
         std::shared_ptr<resource::Gff> inventory;
+        std::shared_ptr<resource::Gff> playerInfo;
+        std::optional<AutosaveRestoreState> autosave;
         PreparedDestinationModule destination;
     };
 
@@ -538,6 +548,10 @@ public:
     std::shared_ptr<Store> newStore(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
     void prepareSavedRuntimeNamespace(const resource::Gff &ifo, const SerializedIdentityContext &identityContext);
+    void restoreWorldTime(
+        const resource::Gff &moduleIfo,
+        uint64_t pauseDay,
+        uint64_t pauseTime);
     void reserveSavedObjectIds(const resource::Gff &gff, const SerializedIdentityContext &identityContext, SerializedGraphRoot graphRoot);
     void resolveSavedObjectReferences();
     void bindSavedRuntimeState();

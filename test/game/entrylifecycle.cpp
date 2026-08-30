@@ -68,6 +68,33 @@ std::shared_ptr<ScriptProgram> delayedSelfMutation(Routines &routines) {
     return program;
 }
 
+std::shared_ptr<Gff> savedPermanentEffect() {
+    return Gff::Builder()
+        .type(0x1111)
+        .field(Gff::Field::newDword64("Id", 10))
+        .field(Gff::Field::newWord("Type", 68))
+        .field(Gff::Field::newWord(
+            "SubType", static_cast<uint16_t>(DurationType::Permanent)))
+        .field(Gff::Field::newDword(
+            "CreatorId", kSavedEffectInvalidObjectId))
+        .build();
+}
+
+std::shared_ptr<Gff> savedWaitAction() {
+    auto seconds = Gff::Builder()
+                       .type(1)
+                       .field(Gff::Field::newDword("Type", 2))
+                       .field(Gff::Field::newFloat("Value", 1.0f))
+                       .build();
+    return Gff::Builder()
+        .type(0)
+        .field(Gff::Field::newDword("ActionId", 30))
+        .field(Gff::Field::newWord("GroupActionId", 7))
+        .field(Gff::Field::newWord("NumParams", 1))
+        .field(Gff::Field::newList("Paramaters", {seconds}))
+        .build();
+}
+
 /**
  * What a module's authored entry hooks observe when the world is built.
  *
@@ -393,6 +420,60 @@ TEST_P(EntryLifecycleFixture, a_restored_module_owns_and_executes_its_delayed_on
     EXPECT_EQ(0u, TestGameModule::delayedActionCount(*restored));
 }
 
+TEST_P(EntryLifecycleFixture, restored_runtime_state_is_visible_to_onload_and_stays_cleared) {
+    serveModule(/*savedModuleSnapshot=*/true);
+    auto savedRuntime = Gff::Builder()
+                            .field(Gff::Field::newList(
+                                "EffectList", {savedPermanentEffect()}))
+                            .field(Gff::Field::newList(
+                                "ActionList", {savedWaitAction()}))
+                            .build();
+    player->deserializeRuntimeState(
+        *savedRuntime,
+        SerializedIdentityContext::moduleGraph("module_b"));
+    ASSERT_TRUE(player->effects().empty());
+    ASSERT_TRUE(player->actions().empty());
+
+    EXPECT_CALL(engine.resourceModule().scripts(), get(std::string(kOnLoadScript)))
+        .WillOnce(Invoke([this](const std::string &resRef)
+                             -> std::shared_ptr<ScriptProgram> {
+            dispatched.push_back({resRef, game->isLoadingFromSaveGame()});
+            EXPECT_EQ(1u, player->effects().size());
+            EXPECT_EQ(1u, player->actions().size());
+            player->clearAllEffects();
+            player->clearAllActions();
+            return nullptr;
+        }));
+
+    ASSERT_TRUE(game->loadModule("module_b", "", /*initialSaveRestore=*/true));
+    EXPECT_TRUE(player->effects().empty());
+    EXPECT_TRUE(player->actions().empty());
+}
+
+TEST_P(EntryLifecycleFixture, restored_runtime_state_is_visible_to_onenter) {
+    serveModule(/*savedModuleSnapshot=*/true);
+    auto savedRuntime = Gff::Builder()
+                            .field(Gff::Field::newList(
+                                "EffectList", {savedPermanentEffect()}))
+                            .field(Gff::Field::newList(
+                                "ActionList", {savedWaitAction()}))
+                            .build();
+    player->deserializeRuntimeState(
+        *savedRuntime,
+        SerializedIdentityContext::moduleGraph("module_b"));
+
+    EXPECT_CALL(engine.resourceModule().scripts(), get(std::string(kOnEnterScript)))
+        .WillOnce(Invoke([this](const std::string &resRef)
+                             -> std::shared_ptr<ScriptProgram> {
+            dispatched.push_back({resRef, game->isLoadingFromSaveGame()});
+            EXPECT_EQ(1u, player->effects().size());
+            EXPECT_EQ(1u, player->actions().size());
+            return nullptr;
+        }));
+
+    ASSERT_TRUE(game->loadModule("module_b", "", /*initialSaveRestore=*/true));
+}
+
 // Fresh and restored entry scripts use the same caller contract. This guards
 // the already-working side while the restored-world discriminator above pins
 // down the regression.
@@ -517,16 +598,22 @@ TEST_P(EntryLifecycleFixture, failed_destination_before_party_placement_is_harml
     EXPECT_FALSE(game->getObjectById(player->id()));
 }
 
-// The predicates that decide what gets restored keep their own meaning; only
-// the authored hooks were wrongly hanging off them.
-TEST(EntryLifecycleContexts, restoration_predicates_are_unchanged) {
+// Session restoration, saved-world identity and placement are independent.
+TEST(EntryLifecycleContexts, restoration_predicates_are_orthogonal) {
     EXPECT_FALSE(restoresSavedWorld(ModuleLoadContext::FreshModule));
+    EXPECT_FALSE(restoresSavedWorld(ModuleLoadContext::InitialTemplateRestore));
     EXPECT_TRUE(restoresSavedWorld(ModuleLoadContext::SavedModuleTransition));
     EXPECT_TRUE(restoresSavedWorld(ModuleLoadContext::InitialSaveRestore));
 
     EXPECT_FALSE(restoresSavedSession(ModuleLoadContext::FreshModule));
     EXPECT_FALSE(restoresSavedSession(ModuleLoadContext::SavedModuleTransition));
+    EXPECT_TRUE(restoresSavedSession(ModuleLoadContext::InitialTemplateRestore));
     EXPECT_TRUE(restoresSavedSession(ModuleLoadContext::InitialSaveRestore));
+
+    EXPECT_FALSE(preservesSavedPlacement(ModuleLoadContext::FreshModule));
+    EXPECT_FALSE(preservesSavedPlacement(ModuleLoadContext::InitialTemplateRestore));
+    EXPECT_FALSE(preservesSavedPlacement(ModuleLoadContext::SavedModuleTransition));
+    EXPECT_TRUE(preservesSavedPlacement(ModuleLoadContext::InitialSaveRestore));
 }
 
 INSTANTIATE_TEST_SUITE_P(

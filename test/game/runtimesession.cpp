@@ -563,20 +563,29 @@ TEST(RuntimeSession, saved_session_can_publish_repeated_ordinary_module_transiti
 
 TEST(ModuleLoadContext, separates_saved_world_provenance_from_session_placement) {
     auto fresh = resolveModuleLoadContext(false, false);
+    auto initialTemplate = resolveModuleLoadContext(true, false);
     auto initialRestore = resolveModuleLoadContext(true, true);
     auto savedTransition = resolveModuleLoadContext(false, true);
 
     EXPECT_EQ(ModuleLoadContext::FreshModule, fresh);
     EXPECT_FALSE(restoresSavedWorld(fresh));
     EXPECT_FALSE(restoresSavedSession(fresh));
+    EXPECT_FALSE(preservesSavedPlacement(fresh));
+
+    EXPECT_EQ(ModuleLoadContext::InitialTemplateRestore, initialTemplate);
+    EXPECT_FALSE(restoresSavedWorld(initialTemplate));
+    EXPECT_TRUE(restoresSavedSession(initialTemplate));
+    EXPECT_FALSE(preservesSavedPlacement(initialTemplate));
 
     EXPECT_EQ(ModuleLoadContext::InitialSaveRestore, initialRestore);
     EXPECT_TRUE(restoresSavedWorld(initialRestore));
     EXPECT_TRUE(restoresSavedSession(initialRestore));
+    EXPECT_TRUE(preservesSavedPlacement(initialRestore));
 
     EXPECT_EQ(ModuleLoadContext::SavedModuleTransition, savedTransition);
     EXPECT_TRUE(restoresSavedWorld(savedTransition));
     EXPECT_FALSE(restoresSavedSession(savedTransition));
+    EXPECT_FALSE(preservesSavedPlacement(savedTransition));
 }
 
 TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_room) {

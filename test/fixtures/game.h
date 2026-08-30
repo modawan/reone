@@ -46,6 +46,7 @@ namespace reone {
 namespace resource {
 
 class Gff;
+struct SaveSlotDescriptor;
 class SaveWorkingState;
 
 }
@@ -227,9 +228,24 @@ public:
         resource::Gff &ifoGff,
         const std::shared_ptr<resource::Gff> &ptGff,
         const std::shared_ptr<resource::Gff> &pcGff);
+    static void publishPartyRuntimeState(
+        Game &game,
+        resource::Gff &ifoGff,
+        const std::shared_ptr<resource::Gff> &ptGff,
+        const std::shared_ptr<resource::Gff> &pcGff,
+        const SerializedIdentityContext &identityContext);
     static void deserializeInventory(Game &game, resource::Gff &gff);
     static void deserializeCustomTokens(Game &game, const resource::Gff &gff);
     static void deserializeGlobalVariables(Game &game, resource::Gff &gff);
+    static void inspectPreparedSaveLoad(
+        Game &game,
+        const resource::SaveSlotDescriptor &slot,
+        int &context,
+        std::string &playerTag,
+        bool &playerHasObjectId,
+        std::string &startWaypoint,
+        uint32_t &pauseDay,
+        uint32_t &pauseTime);
     static void replaceJournal(Game &game, const resource::Gff &gff);
     static void replaceInventory(Game &game, resource::Gff &gff);
     static void configureModuleSnapshot(
@@ -259,6 +275,11 @@ public:
     static void setSnapshotMinutesPerHour(Game &game, uint8_t minutesPerHour);
     static void advanceWorldTime(Game &game, float dt);
     static void prepareWorldTimeFromIfo(Game &game, const resource::Gff &ifo);
+    static void restoreAutosaveWorldTime(
+        Game &game,
+        const resource::Gff &moduleIfo,
+        uint32_t pauseDay,
+        uint32_t pauseTime);
     static void deserializeSnapshotRuntimeState(
         Object &object, const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);

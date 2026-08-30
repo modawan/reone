@@ -570,7 +570,7 @@ TEST(SaveWideSnapshot,
     auto area = game.newArea();
     auto controlled = game.newCreature();
     controlled->setName("T3-M4");
-    controlled->setTag(kObjectTagPlayer);
+    controlled->setTag("t3m4");
     controlled->setMaxHitPoints(30);
     controlled->setCurrentHitPoints(24);
     auto controlledShadow =
@@ -635,7 +635,7 @@ TEST(SaveWideSnapshot,
     EXPECT_EQ("Ta'ahn Kaast", pc->getString("FirstName"));
     EXPECT_FALSE(pc->has("ObjectId"));
     ASSERT_EQ(1u, module.snapshot->ifo->getList("Mod_PlayerList").size());
-    EXPECT_EQ(kObjectTagPlayer,
+    EXPECT_EQ("t3m4",
               module.snapshot->ifo->getList("Mod_PlayerList")[0]->getString("Tag"));
 
     Game reloaded(GameID::TSL, "", engine.options(), engine.services(), console);
@@ -662,7 +662,7 @@ TEST(SaveWideSnapshot,
     ASSERT_TRUE(reloaded.party().player());
     ASSERT_TRUE(reloaded.party().actualPlayer());
     EXPECT_NE(reloaded.party().player(), reloaded.party().actualPlayer());
-    EXPECT_EQ(kObjectTagPlayer, reloaded.party().player()->tag());
+    EXPECT_EQ("t3m4", reloaded.party().player()->tag());
     EXPECT_EQ("T3-M4", reloaded.party().player()->name());
     EXPECT_EQ("canonical_pc", reloaded.party().actualPlayer()->tag());
     EXPECT_EQ("Ta'ahn Kaast", reloaded.party().actualPlayer()->name());
@@ -687,7 +687,7 @@ TEST(SaveWideSnapshot,
     EXPECT_TRUE(rebuiltParty->getList("PT_MEMBERS").empty());
     EXPECT_EQ("Ta'ahn Kaast", rebuiltPc->getString("FirstName"));
     ASSERT_EQ(1u, rebuiltModule.snapshot->ifo->getList("Mod_PlayerList").size());
-    EXPECT_EQ(kObjectTagPlayer,
+    EXPECT_EQ("t3m4",
               rebuiltModule.snapshot->ifo->getList("Mod_PlayerList")[0]->getString("Tag"));
 }
 
