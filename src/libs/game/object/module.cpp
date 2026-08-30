@@ -453,6 +453,18 @@ size_t Module::enqueueSaveEvent(SavedEventRecord event) {
     return _savedEventQueue.events.size() - 1;
 }
 
+size_t Module::enqueueBoundSaveEvent(
+    SavedEventRecord event, bool referencesBound) {
+    // Ordinary travel captures Party timers while the source registry still
+    // owns their reference domain. The record already carries C4 exact-
+    // incarnation handles; looking its numeric carriers up again after the
+    // destination publishes could alias an unrelated object.
+    _savedEventQueue.events.push_back(std::move(event));
+    _savedEventLive.push_back(true);
+    _savedEventReferencesBound.push_back(referencesBound);
+    return _savedEventQueue.events.size() - 1;
+}
+
 bool Module::cancelSaveEvent(size_t index) {
     if (index >= _savedEventLive.size() || !_savedEventLive[index]) {
         return false;

@@ -15,6 +15,9 @@
 #include "../fixtures/scene.h"
 
 #include "reone/game/game.h"
+#include "reone/game/action/attackobject.h"
+#include "reone/game/action/docommand.h"
+#include "reone/game/action/wait.h"
 #include "reone/game/object/area.h"
 #include "reone/game/types.h"
 #include "reone/game/object/creature.h"
@@ -28,6 +31,7 @@
 #include "reone/scene/collision.h"
 #include "reone/scene/node/camera.h"
 #include "reone/script/executioncontext.h"
+#include "reone/script/executionstate.h"
 #include "reone/script/program.h"
 
 using namespace reone;
@@ -43,7 +47,8 @@ constexpr char kOnLoadScript[] = "hook_onload";
 constexpr char kOnEnterScript[] = "hook_onenter";
 constexpr int kDelayedMutationLocal = 42;
 
-std::shared_ptr<ScriptProgram> delayedSelfMutation(Routines &routines) {
+std::shared_ptr<ScriptProgram> delayedSelfMutation(
+    Routines &routines, float delaySeconds = 0.0f) {
     auto program = std::make_shared<ScriptProgram>(kOnLoadScript);
 
     // This is the compiled shape of:
@@ -61,7 +66,7 @@ std::shared_ptr<ScriptProgram> delayedSelfMutation(Routines &routines) {
     program->add(Instruction::newACTION(
         routines.getIndexByName("SetLocalBoolean"), 3));
     program->add(Instruction(InstructionType::RETN));
-    program->add(Instruction::newCONSTF(0.0f));
+    program->add(Instruction::newCONSTF(delaySeconds));
     program->add(Instruction::newACTION(
         routines.getIndexByName("DelayCommand"), 2));
     program->add(Instruction(InstructionType::RETN));
@@ -499,6 +504,137 @@ TEST_P(EntryLifecycleFixture, a_fresh_module_owns_and_executes_its_delayed_onloa
 
     EXPECT_TRUE(fresh->getLocalBoolean(kDelayedMutationLocal));
     EXPECT_EQ(0u, TestGameModule::delayedActionCount(*fresh));
+}
+
+TEST_P(EntryLifecycleFixture, ordinary_transition_reconstructs_party_action_queue_once) {
+    serveModule(/*savedModuleSnapshot=*/false);
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    auto outgoing = game->newAction<WaitAction>(5.0f);
+    player->addAction(outgoing);
+    ASSERT_EQ(1u, player->actions().size());
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    ASSERT_EQ(1u, player->actions().size());
+    EXPECT_TRUE(outgoing->isCancelled());
+    EXPECT_NE(outgoing, player->actions().front());
+    ASSERT_TRUE(player->actions().front()->originalSavedAction());
+    EXPECT_EQ(30u, player->actions().front()->originalSavedAction()->actionId);
+
+    // A second transition snapshots the reconstructed queue rather than
+    // appending another copy of the first transition's record.
+    ASSERT_TRUE(game->loadModule("module_b"));
+    ASSERT_EQ(1u, player->actions().size());
+    ASSERT_TRUE(player->actions().front()->originalSavedAction());
+    EXPECT_EQ(30u, player->actions().front()->originalSavedAction()->actionId);
+}
+
+TEST_P(EntryLifecycleFixture, ordinary_transition_keeps_only_exact_live_action_target) {
+    serveModule(/*savedModuleSnapshot=*/false);
+    auto companion = game->newCreature();
+    ASSERT_TRUE(game->party().addAvailableMember(0, companion));
+    ASSERT_TRUE(game->party().addMember(0, companion));
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    auto outgoing = game->newAction<AttackObjectAction>(companion);
+    player->addAction(outgoing);
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    ASSERT_EQ(1u, player->actions().size());
+    auto restored = std::dynamic_pointer_cast<AttackObjectAction>(
+        player->actions().front());
+    ASSERT_TRUE(restored);
+    EXPECT_EQ(companion, restored->target());
+    EXPECT_TRUE(outgoing->isCancelled());
+}
+
+TEST_P(EntryLifecycleFixture, ordinary_transition_drops_outgoing_area_action_target) {
+    serveModule(/*savedModuleSnapshot=*/false);
+    ASSERT_TRUE(game->loadModule("module_b"));
+    auto outgoingTarget = game->newCreature();
+    game->module()->area()->add(outgoingTarget);
+    auto outgoing = game->newAction<AttackObjectAction>(outgoingTarget);
+    player->addAction(outgoing);
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    EXPECT_TRUE(outgoing->isCancelled());
+    EXPECT_FALSE(game->isRuntimeObjectLive(*outgoingTarget));
+    EXPECT_TRUE(player->actions().empty());
+}
+
+TEST_P(EntryLifecycleFixture, controlled_companion_uses_same_transition_continuity) {
+    serveModule(/*savedModuleSnapshot=*/false);
+    auto controlled = game->newCreature();
+    ASSERT_TRUE(game->party().addAvailableMember(0, controlled));
+    game->party().setControlledMember(0, controlled);
+    ASSERT_EQ(controlled, game->party().player());
+    ASSERT_EQ(player, game->party().actualPlayer());
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    auto outgoing = game->newAction<WaitAction>(5.0f);
+    controlled->addAction(outgoing);
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    EXPECT_EQ(controlled, game->party().player());
+    EXPECT_EQ(player, game->party().actualPlayer());
+    ASSERT_EQ(1u, controlled->actions().size());
+    EXPECT_TRUE(outgoing->isCancelled());
+    ASSERT_TRUE(controlled->actions().front()->originalSavedAction());
+    EXPECT_EQ(
+        30u,
+        controlled->actions().front()->originalSavedAction()->actionId);
+}
+
+TEST_P(EntryLifecycleFixture, k2_puppet_uses_same_transition_continuity) {
+    if (GetParam() != GameID::TSL) GTEST_SKIP();
+    serveModule(/*savedModuleSnapshot=*/false);
+    auto puppet = game->newCreature();
+    ASSERT_TRUE(game->party().addAvailablePuppet(0, puppet));
+    ASSERT_TRUE(game->party().addPuppet(0, puppet));
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    auto outgoing = game->newAction<WaitAction>(5.0f);
+    puppet->addAction(outgoing);
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    ASSERT_EQ(1u, puppet->actions().size());
+    EXPECT_TRUE(outgoing->isCancelled());
+    ASSERT_TRUE(puppet->actions().front()->originalSavedAction());
+    EXPECT_EQ(30u, puppet->actions().front()->originalSavedAction()->actionId);
+}
+
+TEST_P(EntryLifecycleFixture, ordinary_transition_preserves_party_delay_due_time) {
+    serveModule(/*savedModuleSnapshot=*/false);
+    ASSERT_TRUE(game->loadModule("module_b"));
+    TestGameModule::setSnapshotWorldTime(*game, 3, 1200, 2);
+
+    auto program = std::make_shared<ScriptProgram>("party_delay");
+    program->add(Instruction(InstructionType::RETN));
+    auto state = std::make_shared<ExecutionState>();
+    state->program = std::move(program);
+    state->insOffset = 13;
+    state->globals = {Variable::ofInt(7)};
+    auto context = std::make_shared<ExecutionContext>();
+    context->savedState = std::move(state);
+    player->delayAction(
+        game->newAction<DoCommandAction>(std::move(context)), 2.0f);
+    ASSERT_EQ(1u, TestGameModule::delayedActionCount(*player));
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    EXPECT_EQ(0u, TestGameModule::delayedActionCount(*player));
+    ASSERT_TRUE(game->module());
+    EXPECT_EQ(1u, game->module()->pendingSavedEventCount());
+
+    game->update(1.0f);
+    EXPECT_EQ(1u, game->module()->pendingSavedEventCount());
+    game->update(1.1f);
+    EXPECT_EQ(0u, game->module()->pendingSavedEventCount());
 }
 
 TEST_P(EntryLifecycleFixture, failed_destination_retires_attached_session_creatures_before_teardown) {

@@ -117,6 +117,8 @@ public:
     size_t pendingSavedEventCount() const;
     std::vector<SavedEventRecord> saveEventSnapshot() const;
     size_t enqueueSaveEvent(SavedEventRecord event);
+    size_t enqueueBoundSaveEvent(
+        SavedEventRecord event, bool referencesBound);
     bool cancelSaveEvent(size_t index);
 
     void deserializeSavedEventQueue(

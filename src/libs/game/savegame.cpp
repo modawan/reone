@@ -556,6 +556,31 @@ Game::prepareCurrentModuleWorkingState() {
             captured.snapshot->archiveBytes,
             resource::ResourceId(
                 captured.snapshot->target.resRef, resource::ResType::Rsv));
+
+        // Retail UpdateMembers(0) refreshes every bound NPC/PUP record while
+        // leaving its ActionList intact. Keep those detached snapshots in the
+        // same candidate as the source module: a rejected transition changes
+        // neither, while a committed transition adopts both together.
+        const size_t npcCount = isTSL() ? Party::kK2NpcCount
+                                        : Party::kK1NpcCount;
+        for (size_t npc = 0; npc < npcCount; ++npc) {
+            auto creature = _party.rosterCreature(
+                {RosterKind::Npc, static_cast<int>(npc)});
+            if (!creature) continue;
+            candidate.put(
+                {"availnpc" + std::to_string(npc), resource::ResType::Utc},
+                SaveWideSnapshotBuilder::availableNpcRecord(*this, *creature));
+        }
+        if (isTSL()) {
+            for (size_t puppet = 0; puppet < Party::kMaxPuppetCount; ++puppet) {
+                auto creature = _party.rosterCreature(
+                    {RosterKind::Puppet, static_cast<int>(puppet)});
+                if (!creature) continue;
+                candidate.put(
+                    {"availpup" + std::to_string(puppet), resource::ResType::Utc},
+                    SaveWideSnapshotBuilder::availableNpcRecord(*this, *creature));
+            }
+        }
         auto validation = candidate.validate();
         if (!validation) {
             error("Unable to validate transition working state: " +

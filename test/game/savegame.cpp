@@ -845,6 +845,7 @@ struct LoadTransactionFixture : TestWithParam<GameID> {
     std::shared_ptr<Layout> emptyLayout {std::make_shared<Layout>()};
     std::vector<std::shared_ptr<scene::CameraSceneNode>> cameraNodes;
     int spawnScriptLookups {0};
+    ByteBuffer activeNpcBytes;
 
     static std::shared_ptr<TwoDA> appearanceTable() {
         TwoDA::Builder builder;
@@ -972,6 +973,68 @@ struct LoadTransactionFixture : TestWithParam<GameID> {
             slot.directory / "partytable.res", std::ios::binary);
         partyFile.write(
             partyBytes.data(), static_cast<std::streamsize>(partyBytes.size()));
+    }
+
+    void writeActiveNpcWithSavedAction() {
+        auto playerMember = Gff::Builder()
+                                .field(Gff::Field::newInt(
+                                    "PT_MEMBER_ID", kNpcPlayer))
+                                .field(Gff::Field::newByte(
+                                    "PT_IS_LEADER", 1))
+                                .build();
+        auto npcMember = Gff::Builder()
+                             .field(Gff::Field::newInt("PT_MEMBER_ID", 0))
+                             .field(Gff::Field::newByte("PT_IS_LEADER", 0))
+                             .build();
+        auto available = Gff::Builder()
+                             .field(Gff::Field::newByte("PT_NPC_AVAIL", 1))
+                             .field(Gff::Field::newByte("PT_NPC_SELECT", 1))
+                             .build();
+        auto party = Gff::Builder()
+                         .field(Gff::Field::newInt("PT_CONTROLLED_NP", -1))
+                         .field(Gff::Field::newByte("PT_NUM_MEMBERS", 2))
+                         .field(Gff::Field::newList(
+                             "PT_MEMBERS", {playerMember, npcMember}))
+                         .field(Gff::Field::newList(
+                             "PT_AVAIL_NPCS", {available}))
+                         .build();
+        auto partyBytes = GffWriter(
+                              GffFileFormat::v32("PT  "), *party)
+                              .toBytes();
+        std::ofstream partyFile(
+            slot.directory / "partytable.res", std::ios::binary);
+        partyFile.write(
+            partyBytes.data(), static_cast<std::streamsize>(partyBytes.size()));
+        partyFile.close();
+
+        auto seconds = Gff::Builder()
+                           .type(1)
+                           .field(Gff::Field::newDword("Type", 2))
+                           .field(Gff::Field::newFloat("Value", 5.0f))
+                           .build();
+        auto wait = Gff::Builder()
+                        .type(0)
+                        .field(Gff::Field::newDword("ActionId", 30))
+                        .field(Gff::Field::newWord("GroupActionId", 1))
+                        .field(Gff::Field::newWord("NumParams", 1))
+                        .field(Gff::Field::newList("Paramaters", {seconds}))
+                        .build();
+        auto npc = Gff::Builder()
+                       .field(Gff::Field::newCExoString("Tag", "disk_npc"))
+                       .field(Gff::Field::newDword("Appearance_Type", 0))
+                       .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+                       .field(Gff::Field::newByte("BodyBag", 0xff))
+                       .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                       .field(Gff::Field::newList("ActionList", {wait}))
+                       .build();
+        activeNpcBytes = GffWriter(
+                             GffFileFormat::v32("UTC "), *npc)
+                             .toBytes();
+        test::writeErf(
+            slot.archive,
+            ErfWriter::FileType::ERF,
+            {{"availnpc0", ResType::Utc,
+              std::string(activeNpcBytes.begin(), activeNpcBytes.end())}});
     }
 
     void SetUp() override {
@@ -1463,6 +1526,41 @@ TEST_P(LoadTransactionFixture, retailShapedTemplateAutosaveRestoresAPlayableFres
     auto fresh = game->module()->area()->getObjectByTag("fresh_spawn");
     ASSERT_TRUE(fresh);
     EXPECT_FALSE(fresh->serializedObjectIdentity());
+}
+
+TEST_P(LoadTransactionFixture, diskRestoreClearsSpawnedDetachedNpcActions) {
+    writeTemplateAutosaveMetadata("player", "autosave_start", 7, 4321);
+    writeActiveNpcWithSavedAction();
+    destinationIfo = Gff::Builder()
+                         .field(Gff::Field::newResRef(
+                             "Mod_Entry_Area", "module_b"))
+                         .build();
+    destinationGit = Gff::Builder()
+                         .field(Gff::Field::newByte("UseTemplates", 1))
+                         .build();
+
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareGameLoad(_))
+        .WillOnce(Invoke([](const SaveSlotDescriptor &descriptor) {
+            return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, commitGameLoad(_)).Times(1);
+    EXPECT_CALL(director, findSaveWorking(_))
+        .Times(AnyNumber())
+        .WillRepeatedly(Invoke([this](const ResourceId &id)
+                                   -> std::optional<Resource> {
+            if (id != ResourceId("availnpc0", ResType::Utc)) {
+                return std::nullopt;
+            }
+            return Resource {activeNpcBytes};
+        }));
+
+    ASSERT_TRUE(game->loadGame(slot));
+
+    auto npc = game->party().getMemberByNPC(0);
+    ASSERT_TRUE(npc);
+    EXPECT_EQ("disk_npc", npc->tag());
+    EXPECT_TRUE(npc->actions().empty());
 }
 
 TEST_P(LoadTransactionFixture, aCommittedLoadReplacesTheRunningSessionInOrder) {

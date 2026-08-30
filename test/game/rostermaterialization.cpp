@@ -320,18 +320,75 @@ TEST(RosterBinding, availability_is_partytable_state_not_binding_presence) {
     EXPECT_FALSE(harness.game.party().persistedState().npcAvailable[0]);
 }
 
-TEST(RosterBinding, removing_inactive_availability_finalizes_runtime_binding) {
+TEST(RosterBinding, removing_availability_preserves_bound_runtime_representation) {
     RosterHarness harness;
+    auto area = harness.game.newArea();
     auto creature = harness.creature("companion");
-    ASSERT_TRUE(harness.game.party().addAvailableMember(0, creature));
+    area->add(creature);
+    Party::PersistedState state;
+    state.npcAvailable[0] = true;
+    harness.game.party().setPersistedState(state);
+    ASSERT_TRUE(harness.game.party().bindRosterCreature(
+        {RosterKind::Npc, 0}, creature));
     ASSERT_TRUE(harness.game.isRuntimeObjectLive(*creature));
 
     ASSERT_TRUE(harness.game.party().removeAvailableMember(0));
 
     EXPECT_FALSE(harness.game.party().isMemberAvailable(0));
     EXPECT_FALSE(harness.game.party().getAvailableMember(0));
+    EXPECT_EQ(
+        creature,
+        harness.game.party().rosterCreature({RosterKind::Npc, 0}));
+    EXPECT_TRUE(harness.game.isRuntimeObjectLive(*creature));
+    EXPECT_EQ(creature, harness.game.getObjectById(creature->id()));
+    const auto &areaCreatures = area->getObjectsByType(ObjectType::Creature);
+    EXPECT_NE(
+        areaCreatures.end(),
+        std::find(areaCreatures.begin(), areaCreatures.end(), creature));
+
+    EXPECT_TRUE(harness.game.killRosterCreature({RosterKind::Npc, 0}));
+    EXPECT_FALSE(harness.game.party().rosterCreature({RosterKind::Npc, 0}));
     EXPECT_FALSE(harness.game.isRuntimeObjectLive(*creature));
     EXPECT_FALSE(harness.game.getObjectById(creature->id()));
+    EXPECT_FALSE(harness.game.party().isMemberAvailable(0));
+}
+
+TEST(RosterBinding, removing_puppet_availability_preserves_binding_until_killed) {
+    RosterHarness harness;
+    auto puppet = harness.creature("remote");
+    ASSERT_TRUE(harness.game.party().addAvailablePuppet(0, puppet));
+
+    ASSERT_TRUE(harness.game.party().setRosterAvailable(
+        {RosterKind::Puppet, 0}, false));
+
+    EXPECT_FALSE(harness.game.party().isRosterAvailable(
+        {RosterKind::Puppet, 0}));
+    EXPECT_EQ(
+        puppet,
+        harness.game.party().rosterCreature({RosterKind::Puppet, 0}));
+    EXPECT_TRUE(harness.game.isRuntimeObjectLive(*puppet));
+
+    EXPECT_TRUE(harness.game.killRosterCreature({RosterKind::Puppet, 0}));
+    EXPECT_FALSE(harness.game.party().rosterCreature(
+        {RosterKind::Puppet, 0}));
+    EXPECT_FALSE(harness.game.isRuntimeObjectLive(*puppet));
+}
+
+TEST(RosterBinding, removing_availability_does_not_remove_active_membership) {
+    RosterHarness harness;
+    auto creature = harness.creature("active_companion");
+    ASSERT_TRUE(harness.game.party().addAvailableMember(0, creature));
+    ASSERT_TRUE(harness.game.party().addMember(0, creature));
+
+    ASSERT_TRUE(harness.game.party().removeAvailableMember(0));
+
+    EXPECT_FALSE(harness.game.party().isMemberAvailable(0));
+    EXPECT_TRUE(harness.game.party().isMember(0));
+    EXPECT_EQ(creature, harness.game.party().getMemberByNPC(0));
+    EXPECT_EQ(
+        creature,
+        harness.game.party().rosterCreature({RosterKind::Npc, 0}));
+    EXPECT_TRUE(harness.game.isRuntimeObjectLive(*creature));
 }
 
 TEST(RosterBinding, npc_selectability_is_distinct_persisted_partytable_state) {
@@ -536,6 +593,29 @@ TEST(RosterBinding, available_unbound_slot_materializes_from_detached_record) {
     EXPECT_EQ(
         SerializedIdentityDomain::DetachedRecord,
         creature->saveRecordProvenance()->identity->context.domain);
+}
+
+TEST(RosterBinding, removing_availability_keeps_lazy_detached_representation_bound) {
+    RosterHarness harness;
+    Party::PersistedState state;
+    state.npcAvailable[5] = true;
+    harness.game.party().setPersistedState(state);
+    auto bytes = encodeUtc(*creatureRecord("lazy_npc"));
+    EXPECT_CALL(
+        testEngine().resourceModule().director(),
+        findSaveWorking(ResourceId("availnpc5", ResType::Utc)))
+        .WillOnce(Return(Resource {bytes}));
+    auto creature = harness.game.party().getAvailableMember(5, true);
+    ASSERT_TRUE(creature);
+
+    ASSERT_TRUE(harness.game.party().removeAvailableMember(5));
+
+    EXPECT_FALSE(harness.game.party().isMemberAvailable(5));
+    EXPECT_FALSE(harness.game.party().getAvailableMember(5));
+    EXPECT_EQ(
+        creature,
+        harness.game.party().rosterCreature({RosterKind::Npc, 5}));
+    EXPECT_TRUE(harness.game.isRuntimeObjectLive(*creature));
 }
 
 TEST(RosterBinding, unavailable_stale_record_is_never_materialized) {

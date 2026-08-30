@@ -1151,6 +1151,18 @@ bool Game::loadPreparedModule(
         ~LoadFromSaveGuard() { value = false; }
     } loadFromSaveGuard {_loadingFromSaveGame};
 
+    struct PartyTransitionRuntimeState {
+        struct DelayedEvent {
+            SavedEventRecord event;
+            bool referencesBound {false};
+        };
+        RuntimeObjectRef<Creature> creature;
+        SavedActionQueue actions;
+        std::vector<bool> actionReferencesBound;
+        std::vector<DelayedEvent> delayedEvents;
+    };
+    std::vector<PartyTransitionRuntimeState> partyTransitionState;
+
     // Exit scripts are part of the source module's last observable state. The
     // resulting working state remains a candidate until the resource/runtime
     // commit below; a capture failure leaves the source graph authoritative.
@@ -1163,6 +1175,89 @@ bool Game::loadPreparedModule(
         }
         sourceWorkingState = prepareCurrentModuleWorkingState();
         if (!sourceWorkingState) {
+            return false;
+        }
+
+        // Retail serializes resident Party members before destroying their
+        // source representations. Reone retains the Creature storage, but the
+        // live action/timer objects still belong to the outgoing Area. Capture
+        // their existing save-facing forms now and reconstruct them only after
+        // the destination is authoritative.
+        try {
+            const auto &residentCreatures =
+                _module->area()->getObjectsByType(ObjectType::Creature);
+            std::set<const Creature *> captured;
+            for (const auto &object : _party.runtimeObjects()) {
+                auto creature = std::dynamic_pointer_cast<Creature>(object);
+                if (!creature || !captured.insert(creature.get()).second ||
+                    std::find(
+                        residentCreatures.begin(), residentCreatures.end(), creature) ==
+                        residentCreatures.end()) {
+                    continue;
+                }
+
+                PartyTransitionRuntimeState state;
+                state.creature = creature;
+                state.actions.actions = creature->saveActionSnapshot();
+                for (auto &action : state.actions.actions) {
+                    // Bind while the source registry is authoritative. Copies of
+                    // these references retain exact C4 incarnation handles, never
+                    // a numeric promise that the destination may reinterpret.
+                    state.actionReferencesBound.push_back(
+                        action.bindObjectReferences(*this));
+                }
+
+                for (size_t index = 0; index < creature->_delayed.size(); ++index) {
+                    const auto &delayed = creature->_delayed[index];
+                    if (!delayed.action || delayed.action->isCompleted() ||
+                        delayed.action->isCancelled()) {
+                        continue;
+                    }
+                    auto savedAction = delayed.action->saveFacingState();
+                    if (!savedAction || savedAction->actionId != 37 ||
+                        savedAction->parameters.size() != 1) {
+                        throw ValidationException(
+                            "Party delayed action has no retail timed-event representation");
+                    }
+                    auto situation = std::get_if<SerializedScriptSituation>(
+                        &savedAction->parameters.front().payload);
+                    if (!situation) {
+                        throw ValidationException(
+                            "Party delayed DoCommand action lacks a script situation");
+                    }
+
+                    const double remainingSeconds = delayed.timer
+                                                        ? std::max(
+                                                              0.0f,
+                                                              delayed.timer->remaining())
+                                                        : 0.0f;
+                    const uint64_t absolute = _worldTimeMilliseconds +
+                        static_cast<uint64_t>(
+                            std::floor(remainingSeconds * 1000.0));
+                    const uint64_t millisecondsPerDay = millisecondsPerWorldDay();
+
+                    SavedEventRecord event;
+                    event.day = static_cast<uint32_t>(
+                        absolute / millisecondsPerDay);
+                    event.time = static_cast<uint32_t>(
+                        absolute % millisecondsPerDay);
+                    event.object =
+                        SavedObjectReference::fromRuntimeId(creature->id());
+                    event.caller =
+                        SavedObjectReference::fromRuntimeId(creature->id());
+                    event.eventId = static_cast<uint32_t>(SavedEventType::Timed);
+                    event.payload = *situation;
+                    const bool referencesBound =
+                        event.bindObjectReferences(*this);
+                    state.delayedEvents.push_back({
+                        std::move(event), referencesBound});
+                }
+                partyTransitionState.push_back(std::move(state));
+            }
+        } catch (const std::exception &e) {
+            error(
+                "Unable to snapshot Party transition state: " +
+                std::string(e.what()));
             return false;
         }
 
@@ -1193,6 +1288,7 @@ bool Game::loadPreparedModule(
                                             initialSaveRestore,
                                             resourcesCommitted,
                                             &sourceWorkingState,
+                                            &partyTransitionState,
                                             &commitStarted,
                                             &loaded]() {
         try {
@@ -1313,6 +1409,28 @@ bool Game::loadPreparedModule(
             // remains explicit and graph-local; only publication moves ahead
             // of the entry hooks.
             bindSavedRuntimeState();
+
+            for (auto &state : partyTransitionState) {
+                auto creature = state.creature.resolve();
+                if (!creature) continue;
+
+                // Source references were resolved while their graph was still
+                // authoritative. Publish those exact C4 incarnations without
+                // looking their serialized numbers up in the destination.
+                creature->_savedEffects.clear();
+                creature->_savedActionQueue = std::move(state.actions);
+                creature->_savedEffectReferencesBound.clear();
+                creature->_savedActionReferencesBound =
+                    std::move(state.actionReferencesBound);
+                creature->_savedRuntimeParsed = true;
+                creature->_savedRuntimePublished = false;
+                creature->_loadedSaveActionSlots.clear();
+
+                for (auto &delayed : state.delayedEvents) {
+                    _module->enqueueBoundSaveEvent(
+                        std::move(delayed.event), delayed.referencesBound);
+                }
+            }
             publishSavedRuntimeState();
 
             // Whether the world came from persisted state decides what gets
@@ -1707,6 +1825,30 @@ bool Game::restoreSaveLoad(PreparedSaveLoad prepared) {
             prepared.partyTable,
             SerializedIdentityContext::detachedRecord("pifo.ifo"));
         entry = prepared.autosave->startWaypoint;
+    }
+
+    // Retail CreateParty clears the detached NPC/PUP ActionList when it
+    // respawns those representations as part of a full disk restore. This is
+    // intentionally different from ordinary travel, whose UpdateMembers(0)
+    // queue is restored below. The module player is loaded through the IFO or
+    // pifo path and is not one of these spawned detached followers.
+    auto discardDetachedRosterActions = [](const std::shared_ptr<Creature> &creature) {
+        if (!creature) return;
+        creature->_savedActionQueue = SavedActionQueue {};
+        creature->_savedActionReferencesBound.clear();
+        creature->_loadedSaveActionSlots.clear();
+    };
+    for (const auto &member : _party.members()) {
+        if (member.creature && member.creature != _party.player() &&
+            member.creature != _party.actualPlayer()) {
+            discardDetachedRosterActions(member.creature);
+        }
+    }
+    if (isTSL()) {
+        for (int puppet : _party.persistedState().puppetIds) {
+            discardDetachedRosterActions(
+                _party.getAvailablePuppet(puppet, true));
+        }
     }
 
     // Once the player is loaded, deserialize player's inventory.
