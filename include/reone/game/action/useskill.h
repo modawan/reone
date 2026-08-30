@@ -37,6 +37,8 @@ public:
         _target(std::move(target)),
         _subSkill(subSkill),
         _itemUsed(std::move(itemUsed)) {
+        requireRuntimeObject(_target);
+        requireRuntimeObject(_itemUsed);
     }
 
     static bool classof(Action *from) {

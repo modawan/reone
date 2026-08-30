@@ -85,10 +85,10 @@ script::Variable objectVariable(const SavedObjectReference &reference) {
 }
 
 std::shared_ptr<Event> eventValue(const SavedScriptEvent &saved) {
-    std::vector<uint32_t> objects;
+    std::vector<std::shared_ptr<Object>> objects;
     objects.reserve(saved.objects.size());
     for (const auto &reference : saved.objects) {
-        objects.push_back(runtimeObjectId(reference));
+        objects.push_back(reference.boundObject());
     }
     return std::make_shared<Event>(
         saved.type,

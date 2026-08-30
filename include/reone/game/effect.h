@@ -26,6 +26,7 @@
 #include "reone/script/enginetype.h"
 
 #include "saveprovenance.h"
+#include "runtimeref.h"
 #include "types.h"
 
 namespace reone {
@@ -123,8 +124,8 @@ private:
     std::vector<int32_t> _saveFacingIntegers;
     std::array<float, 4> _saveFacingFloats {};
     std::array<std::string, 6> _saveFacingStrings {};
-    std::weak_ptr<Object> _saveFacingCreator;
-    std::array<std::weak_ptr<Object>, 4> _saveFacingObjects;
+    RuntimeObjectRef<Object> _saveFacingCreator;
+    std::array<RuntimeObjectRef<Object>, 4> _saveFacingObjects;
     bool _saveFacingRepresentable {true};
 };
 
@@ -162,8 +163,8 @@ struct EffectInstance {
         kSavedEffectInvalidObjectId,
         kSavedEffectInvalidObjectId,
     };
-    std::weak_ptr<Object> creator;
-    std::array<std::weak_ptr<Object>, 4> objectParameterObjects;
+    RuntimeObjectRef<Object> creator;
+    std::array<RuntimeObjectRef<Object>, 4> objectParameterObjects;
     std::optional<SerializedIdentityContext> serializedReferenceContext;
 
     static EffectInstance fromGff(
@@ -184,12 +185,8 @@ struct EffectInstance {
                expiryOrigin != EffectExpiryOrigin::None;
     }
 
-    std::shared_ptr<Object> boundCreator() const { return creator.lock(); }
-    std::shared_ptr<Object> boundObjectParameter(size_t index) const {
-        return index < objectParameterObjects.size()
-                   ? objectParameterObjects[index].lock()
-                   : nullptr;
-    }
+    std::shared_ptr<Object> boundCreator() const;
+    std::shared_ptr<Object> boundObjectParameter(size_t index) const;
 
     /**
      * Rebase live object bindings at an Area lifetime boundary.

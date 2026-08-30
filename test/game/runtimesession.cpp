@@ -15,10 +15,12 @@
 #include "../fixtures/engine.h"
 
 #include "reone/game/action.h"
+#include "reone/game/action/castfakespellatobject.h"
 #include "reone/game/effect.h"
 #include "reone/game/effect/assuredhit.h"
 #include "reone/game/effect/beam.h"
 #include "reone/game/effect/modifyattacks.h"
+#include "reone/game/event.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/conversation.h"
 #include "reone/game/gui/hud.h"
@@ -60,6 +62,34 @@ private:
     int &_executions;
 };
 
+class TargetCountingAction : public reone::game::Action {
+public:
+    TargetCountingAction(
+        Game &game,
+        ServicesView &services,
+        std::shared_ptr<Object> target,
+        int &executions) :
+        reone::game::Action(game, services, ActionType::Invalid),
+        _target(std::move(target)),
+        _executions(executions) {
+        requireRuntimeObject(_target);
+    }
+
+    void execute(
+        std::shared_ptr<reone::game::Action>,
+        Object &,
+        float) override {
+        ++_executions;
+        complete();
+    }
+
+private:
+    // Deliberately retain storage to prove strong ownership cannot confer
+    // gameplay liveness after semantic destruction.
+    std::shared_ptr<Object> _target;
+    int &_executions;
+};
+
 class SessionConversation : public Conversation {
 public:
     SessionConversation(Game &game, ServicesView &services) :
@@ -67,9 +97,9 @@ public:
     }
 
     void bindOwner(std::shared_ptr<Object> owner) {
-        _owner = std::move(owner);
+        _owner = owner;
         _dialog = std::make_shared<resource::Dialog>();
-        _owner->setIsInConversation(true);
+        owner->setIsInConversation(true);
     }
 
 protected:
@@ -1205,6 +1235,14 @@ TEST(RuntimeObjectIntegrity, area_destruction_ends_registry_and_saved_visibility
     engine.init();
     NiceMock<scene::MockSceneGraph> sceneGraph;
     configureRuntimeMocks(engine, sceneGraph);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeAppearances()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(
+        static_cast<MockPortraits &>(engine.services().game.portraits),
+        getTextureByAppearance(_))
+        .Times(AnyNumber());
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     auto area = game.newArea();
@@ -1262,6 +1300,305 @@ TEST(RuntimeObjectIntegrity, area_retirement_preserves_session_object_liveness) 
     EXPECT_EQ(retained, game.getObjectById(retained->id()));
     EXPECT_TRUE(game.isRuntimeObjectLive(*retained));
     EXPECT_TRUE(area->getObjectsByType(ObjectType::Creature).empty());
+}
+
+TEST(RuntimeObjectLiveness, destroyed_strong_action_target_cannot_execute) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto actor = game.newCreature();
+    auto target = game.newCreature();
+    int executions = 0;
+    auto action = game.newAction<TargetCountingAction>(target, executions);
+    actor->addAction(action);
+
+    game.destroyRuntimeObjectGraph(target);
+    ASSERT_TRUE(target);
+    EXPECT_FALSE(target->isRuntimeLive());
+    actor->update(0.0f);
+
+    EXPECT_EQ(0, executions);
+    EXPECT_TRUE(action->isCompleted());
+}
+
+TEST(RuntimeObjectLiveness, moved_action_target_still_tracks_exact_liveness) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    auto action = game.newAction<CastFakeSpellAtObjectAction>(
+        SpellType::AffectMind, target, ProjectilePathType::Default);
+
+    ASSERT_TRUE(action->runtimeDependenciesLive());
+    game.destroyRuntimeObjectGraph(target);
+
+    EXPECT_FALSE(action->runtimeDependenciesLive());
+}
+
+TEST(RuntimeObjectLiveness, stale_reference_does_not_alias_reused_session_id) {
+    TestEngine engine;
+    engine.init();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    configureRuntimeMocks(engine, sceneGraph);
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto first = game.newItem();
+    RuntimeObjectRef<Item> stale(first);
+    const uint32_t reusedId = first->id();
+    const uint64_t incarnation = first->runtimeIncarnation();
+
+    game.retireRuntimeSession();
+    auto second = game.newItem();
+
+    ASSERT_EQ(reusedId, second->id());
+    EXPECT_NE(incarnation, second->runtimeIncarnation());
+    EXPECT_FALSE(stale.resolve());
+    EXPECT_EQ(second, game.getObjectById(reusedId));
+}
+
+TEST(RuntimeObjectLiveness, effect_and_vm_event_references_fail_closed) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+
+    EffectInstance effect;
+    effect.creatorId = target->id();
+    effect.objectParameters[0] = target->id();
+    ASSERT_TRUE(game.bindEffectCreator(effect));
+    ASSERT_EQ(target, effect.boundCreator());
+    ASSERT_EQ(target, effect.boundObjectParameter(0));
+    Event event(1, {}, {}, {}, {target});
+
+    game.destroyRuntimeObjectGraph(target);
+
+    EXPECT_FALSE(effect.boundCreator());
+    EXPECT_FALSE(effect.boundObjectParameter(0));
+    EXPECT_EQ(
+        event.objects(),
+        (std::vector<uint32_t> {script::kObjectInvalid}));
+}
+
+TEST(RuntimeObjectLiveness, flat_saved_reference_fails_closed_after_target_death) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    const auto context =
+        SerializedIdentityContext::moduleGraph("flat_reference");
+    auto sourceRecord = resource::Gff::Builder()
+                            .field(resource::Gff::Field::newDword("ObjectId", 850))
+                            .field(resource::Gff::Field::newInt("BaseItem", 0))
+                            .field(resource::Gff::Field::newDword("CreatorId", 851))
+                            .build();
+    auto targetRecord = resource::Gff::Builder()
+                            .field(resource::Gff::Field::newDword("ObjectId", 851))
+                            .field(resource::Gff::Field::newInt("BaseItem", 0))
+                            .build();
+    auto source = game.newItem(*sourceRecord, context);
+    auto target = game.newItem(*targetRecord, context);
+    game.resolveSavedObjectReferences();
+    ASSERT_EQ(target, source->savedReference("CreatorId"));
+
+    game.destroyRuntimeObjectGraph(target);
+
+    EXPECT_FALSE(source->savedReference("CreatorId"));
+}
+
+TEST(RuntimeObjectIntegrity, gff_factory_failure_never_publishes_candidate) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeAppearances()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(
+        static_cast<MockPortraits &>(engine.services().game.portraits),
+        getTextureByAppearance(_))
+        .Times(AnyNumber());
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    const size_t registrySize = TestGameModule::objectRegistrySize(game);
+    const uint32_t nextId = TestGameModule::nextObjectId(game);
+    auto invalid = resource::Gff::Builder()
+                       .field(resource::Gff::Field::newDword("ObjectId", 840))
+                       .field(resource::Gff::Field::newList(
+                           "Equip_ItemList",
+                           {runtimeItem("candidate_a", 841, 1u << InventorySlots::body),
+                            runtimeItem("candidate_b", 842, 1u << InventorySlots::body)}))
+                       .build();
+
+    EXPECT_THROW(
+        game.newCreature(
+            *invalid,
+            SerializedIdentityContext::moduleGraph("factory_failure")),
+        ValidationException);
+
+    EXPECT_EQ(registrySize, TestGameModule::objectRegistrySize(game));
+    EXPECT_EQ(nextId, TestGameModule::nextObjectId(game));
+    EXPECT_FALSE(game.getObjectBySavedId(840));
+    EXPECT_FALSE(game.getObjectBySavedId(841));
+    EXPECT_FALSE(game.getObjectBySavedId(842));
+}
+
+TEST(RuntimeObjectOwnership, stack_merge_finalizes_consumed_item) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto owner = game.newCreature();
+    auto retained = game.newItem();
+    retained->deserialize(
+        *runtimeItem("stack"),
+        SerializedIdentityContext::templateResource());
+    auto consumed = game.newItem();
+    consumed->deserialize(
+        *runtimeItem("stack"),
+        SerializedIdentityContext::templateResource());
+    owner->addItem(retained);
+    const size_t registrySize = TestGameModule::objectRegistrySize(game);
+
+    owner->addItem(consumed);
+
+    ASSERT_EQ(1u, owner->items().size());
+    EXPECT_EQ(retained, owner->items().front());
+    EXPECT_EQ(2, retained->stackSize());
+    EXPECT_FALSE(consumed->isRuntimeLive());
+    EXPECT_FALSE(game.getObjectById(consumed->id()));
+    EXPECT_EQ(registrySize - 1, TestGameModule::objectRegistrySize(game));
+}
+
+TEST(RuntimeObjectOwnership, equipment_replacement_disposes_previous_item) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto owner = game.newCreature();
+    auto first = game.newItem();
+    first->deserialize(
+        *runtimeItem("first"),
+        SerializedIdentityContext::templateResource());
+    auto replacement = game.newItem();
+    replacement->deserialize(
+        *runtimeItem("replacement"),
+        SerializedIdentityContext::templateResource());
+    ASSERT_TRUE(owner->equip(InventorySlots::body, first));
+
+    ASSERT_TRUE(owner->equip(InventorySlots::body, replacement));
+
+    EXPECT_EQ(replacement, owner->getEquippedItem(InventorySlots::body));
+    EXPECT_EQ(owner->id(), replacement->owner());
+    ASSERT_EQ(1u, owner->items().size());
+    EXPECT_EQ(first, owner->items().front());
+    EXPECT_EQ(owner->id(), first->owner());
+    EXPECT_FALSE(first->isEquipped());
+    EXPECT_TRUE(first->isRuntimeLive());
+}
+
+TEST(RuntimeObjectOwnership, failed_blueprint_equip_does_not_leak_item) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(
+        engine.resourceModule().gffs(),
+        get("not_equipment", resource::ResType::Uti))
+        .WillOnce(Return(nullptr));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto owner = game.newCreature();
+    const size_t registrySize = TestGameModule::objectRegistrySize(game);
+
+    EXPECT_FALSE(owner->equip("not_equipment"));
+
+    EXPECT_EQ(registrySize, TestGameModule::objectRegistrySize(game));
+}
+
+TEST(RuntimeObjectOwnership, template_and_instance_item_graph_overlay_is_exact) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeAppearances()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(
+        static_cast<MockPortraits &>(engine.services().game.portraits),
+        getTextureByAppearance(_))
+        .Times(AnyNumber());
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto creature = game.newCreature();
+    auto templated = resource::Gff::Builder()
+                         .field(resource::Gff::Field::newList(
+                             "ItemList", {runtimeItem("template_item")}))
+                         .build();
+    creature->deserialize(
+        *templated, SerializedIdentityContext::templateResource("template"));
+    auto templateItem = creature->items().front();
+
+    auto noOverride = resource::Gff::Builder()
+                          .field(resource::Gff::Field::newDword("ObjectId", 860))
+                          .build();
+    creature->deserialize(
+        *noOverride, SerializedIdentityContext::moduleGraph("overlay"));
+    ASSERT_EQ(1u, creature->items().size());
+    EXPECT_EQ(templateItem, creature->items().front());
+
+    auto overrideRecord = resource::Gff::Builder()
+                              .field(resource::Gff::Field::newDword("ObjectId", 860))
+                              .field(resource::Gff::Field::newList(
+                                  "ItemList", {runtimeItem("instance_item", 861)}))
+                              .build();
+    creature->deserialize(
+        *overrideRecord, SerializedIdentityContext::moduleGraph("overlay"));
+
+    ASSERT_EQ(1u, creature->items().size());
+    EXPECT_EQ("instance_item", creature->items().front()->tag());
+    EXPECT_FALSE(templateItem->isRuntimeLive());
+    EXPECT_FALSE(game.getObjectById(templateItem->id()));
+}
+
+TEST(RuntimeObjectPresentation, preview_objects_never_enter_gameplay_registry) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto gameplayItem = game.newItem();
+    gameplayItem->setOwner(77);
+    const size_t registrySize = TestGameModule::objectRegistrySize(game);
+    for (int i = 0; i < 5; ++i) {
+        auto preview = game.newPresentationCreature("preview");
+        auto previewItem = game.newPresentationItem();
+        previewItem->clone(*gameplayItem);
+
+        EXPECT_TRUE(preview->isPresentationOnly());
+        EXPECT_TRUE(previewItem->isPresentationOnly());
+        EXPECT_FALSE(preview->isRuntimeLive());
+        EXPECT_FALSE(game.getObjectById(preview->id()));
+        EXPECT_FALSE(game.getObjectById(previewItem->id()));
+    }
+    EXPECT_EQ(registrySize, TestGameModule::objectRegistrySize(game));
+    EXPECT_EQ(77u, gameplayItem->owner());
 }
 
 TEST(AreaRuntimeRetirement, candidate_cleanup_handles_partial_party_placement_idempotently) {

@@ -92,12 +92,12 @@ EffectInstance Effect::saveFacingInstance() const {
     result.integerParameters = _saveFacingIntegers;
     result.floatParameters = _saveFacingFloats;
     result.stringParameters = _saveFacingStrings;
-    if (auto creator = _saveFacingCreator.lock()) {
+    if (auto creator = _saveFacingCreator.resolve()) {
         result.creatorId = creator->id();
         result.creator = creator;
     }
     for (size_t index = 0; index < _saveFacingObjects.size(); ++index) {
-        if (auto object = _saveFacingObjects[index].lock()) {
+        if (auto object = _saveFacingObjects[index].resolve()) {
             result.objectParameters[index] = object->id();
             result.objectParameterObjects[index] = object;
         }
@@ -264,6 +264,17 @@ DurationType EffectInstance::durationType() const {
     }
 }
 
+std::shared_ptr<Object> EffectInstance::boundCreator() const {
+    return creator.resolve();
+}
+
+std::shared_ptr<Object> EffectInstance::boundObjectParameter(
+    size_t index) const {
+    return index < objectParameterObjects.size()
+               ? objectParameterObjects[index].resolve()
+               : nullptr;
+}
+
 bool EffectInstance::bindCreator(const std::shared_ptr<Object> &object) {
     creator.reset();
     if (!object) {
@@ -289,9 +300,9 @@ bool EffectInstance::bindObjectParameter(
 void EffectInstance::retireAreaRuntimeBindings(
     const std::set<const Object *> &retainedObjects) {
     auto retain = [&retainedObjects](
-                      std::weak_ptr<Object> &binding,
+                      RuntimeObjectRef<Object> &binding,
                       uint32_t &identity) {
-        auto object = binding.lock();
+        auto object = binding.resolve();
         if (!object || retainedObjects.count(object.get()) == 0) {
             binding.reset();
             identity = kSavedEffectInvalidObjectId;

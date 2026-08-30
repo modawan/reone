@@ -174,7 +174,7 @@ public:
     }
 
     static std::shared_ptr<Creature> participantCreature(DialogGUI &gui, const std::string &tag) {
-        return gui._participantByTag.at(tag).creature;
+        return gui._participantByTag.at(tag).creature.resolve();
     }
 
     static std::shared_ptr<graphics::Model> participantModel(DialogGUI &gui, const std::string &tag) {
@@ -1356,7 +1356,8 @@ TEST(DialogGUI, should_hold_mixed_stunt_assignment_and_restore_on_drop_or_teardo
         engine.services().audio,
         engine.services().resource);
     auto modelNode = graph.newModel(*stuntModel, scene::ModelUsage::Creature);
-    auto player = std::make_shared<TestCreature>(1, "player", game, engine.services());
+    auto player = game.newObject<TestCreature>(
+        "player", game, engine.services());
     player->setSceneNode(modelNode);
     player->setPosition(glm::vec3(1.0f, 2.0f, 3.0f));
     player->setFacing(0.75f);
@@ -1504,7 +1505,9 @@ struct DialogAnimScene {
         uint32_t id,
         std::string tag,
         const std::shared_ptr<graphics::Model> &model) {
-        auto creature = std::make_shared<TestCreature>(id, std::move(tag), game, engine.services());
+        (void)id;
+        auto creature = game.newObject<TestCreature>(
+            std::move(tag), game, engine.services());
         creature->setSceneNode(graph.newModel(*model, scene::ModelUsage::Creature));
         return creature;
     }
@@ -4881,17 +4884,18 @@ TEST(OverlayAnimation, should_leave_the_action_queue_alone) {
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
     OverlayFixture fixture;
     setUpOverlay(fixture, engine);
-    TestCreature creature(1, "test", game, engine.services());
-    creature.setSceneNode(fixture.node);
-    creature.setMovementType(Creature::MovementType::Run);
+    auto creature = game.newObject<TestCreature>(
+        "test", game, engine.services());
+    creature->setSceneNode(fixture.node);
+    creature->setMovementType(Creature::MovementType::Run);
     auto pending = game.newAction<PlayAnimationAction>(AnimationType::LoopingPause, 1.0f, 0.0f);
-    creature.addAction(pending);
-    ASSERT_EQ(1u, creature.actions().size());
+    creature->addAction(pending);
+    ASSERT_EQ(1u, creature->actions().size());
 
-    creature.playOverlayAnimation(AnimationType::FireForgetDiveRoll);
+    creature->playOverlayAnimation(AnimationType::FireForgetDiveRoll);
 
-    EXPECT_EQ(1u, creature.actions().size());
-    EXPECT_EQ(pending, creature.getCurrentAction());
+    EXPECT_EQ(1u, creature->actions().size());
+    EXPECT_EQ(pending, creature->getCurrentAction());
     EXPECT_FALSE(pending->isCompleted());
 }
 
@@ -4997,6 +5001,8 @@ TEST(SavedRuntimeState, restores_explicit_object_identity_and_allocator_cursors)
     engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .WillRepeatedly(Return(makeBaseItemsTable()));
 
     auto ifo = Gff::Builder()
                    .field(Gff::Field::newDword("Mod_NextObjId0", 700))
@@ -5042,6 +5048,8 @@ TEST(SavedRuntimeState, accepts_retail_low_ids_but_rejects_invalid_and_duplicate
     engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .WillRepeatedly(Return(makeBaseItemsTable()));
 
     auto reserved = Gff::Builder()
                         .field(Gff::Field::newDword("ObjectId", 1))
@@ -5109,6 +5117,17 @@ TEST(SavedRuntimeState, reserves_the_actual_retail_graph_before_owner_local_allo
     engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    ON_CALL(engine.sceneModule().graphs(), get(_))
+        .WillByDefault(ReturnRef(sceneGraph));
+    TwoDA::Builder placeables;
+    placeables.columns({"modelname"});
+    placeables.row({""});
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("placeables"))
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(placeables.build())));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .WillRepeatedly(Return(makeBaseItemsTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
 
     auto area = Gff::Builder()
                     .field(Gff::Field::newDword("ObjectId", 1))
@@ -5196,6 +5215,8 @@ TEST(SavedRuntimeState, resolves_references_only_after_saved_graph_construction)
     engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .WillRepeatedly(Return(makeBaseItemsTable()));
 
     auto sourceGff = Gff::Builder()
                          .field(Gff::Field::newDword("ObjectId", 80))
@@ -5226,6 +5247,8 @@ TEST(SavedRuntimeState, preserves_and_binds_saved_encounter_runtime_state) {
     engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .WillRepeatedly(Return(makeBaseItemsTable()));
 
     auto areaObject = Gff::Builder()
                           .field(Gff::Field::newDword("AreaObject", 90))
@@ -5251,7 +5274,6 @@ TEST(SavedRuntimeState, preserves_and_binds_saved_encounter_runtime_state) {
                      .build();
 
     auto encounter = game.newEncounter(*saved, testModuleIdentity());
-    encounter->deserialize(*saved, testModuleIdentity());
     auto targetGff = Gff::Builder()
                          .field(Gff::Field::newDword("ObjectId", 90))
                          .build();
@@ -5298,7 +5320,6 @@ TEST(SavedRuntimeState, restores_saved_creature_death_from_current_hit_points) {
                      .field(Gff::Field::newByte("PerceptionRange", 0xff))
                      .build();
     auto creature = game.newCreature(*saved, testModuleIdentity());
-    creature->deserialize(*saved, testModuleIdentity());
 
     EXPECT_EQ(0, creature->currentHitPoints());
     EXPECT_TRUE(creature->isDead());
@@ -5329,7 +5350,6 @@ TEST(SavedRuntimeState, restores_retail_player_death_threshold_without_clamping_
 
     auto incapacitatedState = makeSavedPlayer(0, 0x7fffffff);
     auto incapacitated = game.newCreature(*incapacitatedState, testModuleIdentity());
-    incapacitated->deserialize(*incapacitatedState, testModuleIdentity());
     EXPECT_EQ(0, incapacitated->currentHitPoints());
     EXPECT_TRUE(incapacitated->isPC());
     EXPECT_FALSE(incapacitated->isDead());
@@ -5341,7 +5361,6 @@ TEST(SavedRuntimeState, restores_retail_player_death_threshold_without_clamping_
 
     auto deadState = makeSavedPlayer(-10, 0x7ffffffe);
     auto dead = game.newCreature(*deadState, testModuleIdentity());
-    dead->deserialize(*deadState, testModuleIdentity());
     EXPECT_EQ(-10, dead->currentHitPoints());
     EXPECT_TRUE(dead->isDead());
 }
@@ -5369,7 +5388,6 @@ TEST(SavedRuntimeState, k1_zero_hp_pc_is_dead_until_primary_player_publication) 
                      .field(Gff::Field::newByte("PerceptionRange", 0xff))
                      .build();
     auto player = game.newCreature(*saved, testModuleIdentity());
-    player->deserialize(*saved, testModuleIdentity());
 
     // K1 does not share K2's -10 incapacitation threshold. The saved creature
     // remains exact until the coordinator identifies it as the primary player.
@@ -5402,7 +5420,6 @@ TEST(SavedRuntimeState, keeps_min_one_hp_creature_alive_when_saved_at_zero) {
                      .field(Gff::Field::newByte("PerceptionRange", 0xff))
                      .build();
     auto creature = game.newCreature(*saved, testModuleIdentity());
-    creature->deserialize(*saved, testModuleIdentity());
 
     EXPECT_EQ(1, creature->currentHitPoints());
     EXPECT_FALSE(creature->isDead());

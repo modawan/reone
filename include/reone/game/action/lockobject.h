@@ -28,6 +28,7 @@ public:
     LockObjectAction(Game &game, ServicesView &services, std::shared_ptr<Object> target) :
         Action(game, services, ActionType::Lock),
         _target(std::move(target)) {
+        requireRuntimeObject(_target);
     }
 
     static bool classof(Action *from) {

@@ -1819,6 +1819,9 @@ TEST(PazaakGUIResources, MissingKotorOneOptionalControlsUseDevelopmentFallbacks)
 
 TEST(PazaakGameLifecycle, ResetAndTechnicalAbortDoNotInventResult) {
     GameFixture fixture;
+    testing::NiceMock<scene::MockSceneGraph> sceneGraph;
+    ON_CALL(fixture.engine.sceneModule().graphs(), get(testing::_))
+        .WillByDefault(testing::ReturnRef(sceneGraph));
     configure(fixture.game);
     ASSERT_TRUE(fixture.game.playPazaak(0, "", 0, false, fixture.opponent));
     fixture.game.abortPazaak();

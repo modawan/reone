@@ -78,8 +78,8 @@ static std::vector<script::Argument> makeScriptArgs(uint32_t callerId, const Par
 void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::shared_ptr<Object> &owner) {
     if (_dialog) {
         onFinish();
-        if (_owner) {
-            _owner->setIsInConversation(false);
+        if (auto oldOwner = _owner.resolve()) {
+            oldOwner->setIsInConversation(false);
         }
     }
     debug("Start " + dialog->resRef, LogChannel::Conversation);
@@ -88,8 +88,8 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
     _dialog = dialog;
     _owner = owner;
 
-    if (_owner) {
-        _owner->setIsInConversation(true);
+    if (owner) {
+        owner->setIsInConversation(true);
     }
 
     loadConversationBackground();
@@ -174,12 +174,18 @@ bool Conversation::isLinkActive(const Dialog::EntryReplyLink &link) {
 }
 
 bool Conversation::evaluateCondition(const std::string &scriptResRef, const Dialog::EntryReplyLink::ConditionParams &params) {
-    return _game.scriptRunner().run(scriptResRef, makeScriptArgs(_owner ? _owner->id() : 0, params)) != 0;
+    auto owner = _owner.resolve();
+    return _game.scriptRunner().run(
+               scriptResRef,
+               makeScriptArgs(owner ? owner->id() : 0, params)) != 0;
 }
 
 void Conversation::runScript(const std::string &scriptResRef, const Dialog::EntryReply::ActionParams &params) {
     if (!scriptResRef.empty()) {
-        _game.scriptRunner().run(scriptResRef, makeScriptArgs(_owner ? _owner->id() : 0, params));
+        auto owner = _owner.resolve();
+        _game.scriptRunner().run(
+            scriptResRef,
+            makeScriptArgs(owner ? owner->id() : 0, params));
     }
 }
 
@@ -207,12 +213,13 @@ void Conversation::finish() {
     }
 
     // Run EndConversation script
-    if (!_dialog->endScript.empty()) {
-        _game.scriptRunner().run(_dialog->endScript, _owner->id());
+    auto owner = _owner.resolve();
+    if (!_dialog->endScript.empty() && owner) {
+        _game.scriptRunner().run(_dialog->endScript, owner->id());
     }
 
-    if (_owner) {
-        _owner->setIsInConversation(false);
+    if (owner) {
+        owner->setIsInConversation(false);
     }
 }
 
@@ -230,8 +237,8 @@ void Conversation::cleanupForModuleTransition() {
     }
     _lipAnimation.reset();
     onFinish();
-    if (_owner) {
-        _owner->setIsInConversation(false);
+    if (auto owner = _owner.resolve()) {
+        owner->setIsInConversation(false);
     }
 }
 
@@ -496,6 +503,10 @@ bool Conversation::handleKeyUp(const input::KeyEvent &event) {
 }
 
 void Conversation::update(float dt) {
+    if (_dialog && !_owner.empty() && !_owner.resolve()) {
+        finish();
+        return;
+    }
     GameGUI::update(dt);
     if (!_entryEnded) {
         _endEntryTimer.update(dt);

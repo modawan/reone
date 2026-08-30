@@ -20,6 +20,7 @@
 #include "reone/gui/control/imagebutton.h"
 #include "reone/resource/provider/textures.h"
 #include "reone/resource/strings.h"
+#include "reone/system/exception/validation.h"
 
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
@@ -110,14 +111,22 @@ void ContainerGUI::populateItems(Object &source, bool onlyDropable, bool skipCre
 
 void ContainerGUI::open(std::shared_ptr<Object> container) {
     _controls.BTN_GIVEITEMS->setTextMessage(_giveItemMsg);
-    _container = std::move(container);
+    _container = container;
     _mode = Mode::ContainerToPlayer;
-    populateItems(*_container, /*onlyDropable=*/true, /*skipCredits=*/false);
+    populateItems(*container, /*onlyDropable=*/true, /*skipCredits=*/false);
 
-    auto placeable = dyn_cast<Placeable>(_container);
+    auto placeable = dyn_cast<Placeable>(container);
     if (placeable) {
         placeable->onOpen(_game.party().getLeader()->id());
     }
+}
+
+Object &ContainerGUI::container() const {
+    auto container = _container.resolve();
+    if (!container) {
+        throw ValidationException("Container is no longer a live runtime object");
+    }
+    return *container;
 }
 
 void ContainerGUI::close() {
@@ -135,17 +144,27 @@ void ContainerGUI::switchMode() {
     case Mode::PlayerToContainer: {
         _mode = Mode::ContainerToPlayer;
         _controls.BTN_GIVEITEMS->setTextMessage(_giveItemMsg);
-        populateItems(*_container, /*onlyDropable=*/true, /*skipCredits=*/false);
+        auto container = _container.resolve();
+        if (!container) {
+            close();
+            return;
+        }
+        populateItems(*container, /*onlyDropable=*/true, /*skipCredits=*/false);
         break;
     }
     }
 }
 
 void ContainerGUI::transferItemsToPlayer() {
+    auto container = _container.resolve();
+    if (!container) {
+        close();
+        return;
+    }
     std::shared_ptr<Creature> player = _game.party().player();
-    _container->moveDropableItemsTo(*player);
+    container->moveDropableItemsTo(*player);
 
-    auto placeable = dyn_cast<Placeable>(_container);
+    auto placeable = dyn_cast<Placeable>(container);
     if (placeable) {
         placeable->runOnInvDisturbed(player->id(), InventoryDisturbType::Removed, script::kObjectInvalid);
     }
@@ -156,6 +175,11 @@ void ContainerGUI::transferItemsToPlayer() {
 void ContainerGUI::onItemDoubleClick(const std::string &tag) {
     if (_mode == Mode::ContainerToPlayer) {
         // Do nothing for the player for now.
+        return;
+    }
+    auto container = _container.resolve();
+    if (!container) {
+        close();
         return;
     }
 
@@ -170,19 +194,18 @@ void ContainerGUI::onItemDoubleClick(const std::string &tag) {
 
     // Add item to the container if it does not exist.
     uint32_t itemId = script::kObjectInvalid;
-    for (const std::shared_ptr<Item> &containerItem : _container->items()) {
+    for (const std::shared_ptr<Item> &containerItem : container->items()) {
         if (containerItem->tag() == item->tag()) {
-            _container->addItem(containerItem);
+            container->addItem(containerItem);
             itemId = containerItem->id();
         }
     }
     if (itemId == script::kObjectInvalid) {
         // No existing item in the container. Clone the item instead of
         // adding it directly.
-        std::shared_ptr<Item> newItem = _game.newItem();
-        newItem->clone(*item);
+        std::shared_ptr<Item> newItem = _game.newItemClone(*item);
         newItem->setStackSize(1);
-        _container->addItem(newItem);
+        container->addItem(newItem);
         itemId = newItem->id();
     }
     if (last) {
@@ -198,7 +221,7 @@ void ContainerGUI::onItemDoubleClick(const std::string &tag) {
 
     // Execute a script for every item individually, because it only
     // supports a single InventoryDisturbItem.
-    auto placeable = dyn_cast<Placeable>(_container);
+    auto placeable = dyn_cast<Placeable>(container);
     if (placeable) {
         placeable->runOnInvDisturbed(player->id(), InventoryDisturbType::Added, itemId);
     }

@@ -17,13 +17,29 @@
 
 #include "reone/game/action.h"
 
+#include <algorithm>
+
 #include "reone/game/action/usefeat.h"
 #include "reone/game/attack.h"
+#include "reone/game/object.h"
 #include "reone/system/logutil.h"
 
 namespace reone {
 
 namespace game {
+
+void Action::requireRuntimeObject(const std::shared_ptr<Object> &object) {
+    if (object) {
+        _runtimeDependencies.emplace_back(object);
+    }
+}
+
+bool Action::runtimeDependenciesLive() const {
+    return std::all_of(
+        _runtimeDependencies.begin(),
+        _runtimeDependencies.end(),
+        [](const auto &reference) { return reference.resolve() != nullptr; });
+}
 
 void Action::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     warn("Action execution not implemented: " + std::to_string(static_cast<int>(_type)));

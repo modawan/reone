@@ -39,7 +39,9 @@ public:
                        bool passive = false) :
         Action(game, services, ActionType::AttackObject),
         _target(target),
-        _passive(passive), _services(services) {}
+        _passive(passive), _services(services) {
+        requireRuntimeObject(target);
+    }
 
     static bool classof(Action *from) {
         return from->type() == ActionType::AttackObject;

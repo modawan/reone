@@ -225,8 +225,7 @@ std::shared_ptr<Item> takeEquipmentCandidate(
         return item;
     }
 
-    auto split = game.newItem();
-    split->clone(*item);
+    auto split = game.newItemClone(*item);
     split->setStackSize(1);
     return split;
 }

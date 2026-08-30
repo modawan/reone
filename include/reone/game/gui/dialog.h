@@ -46,7 +46,7 @@ public:
 private:
     struct Participant {
         std::shared_ptr<graphics::Model> model;
-        std::shared_ptr<Creature> creature;
+        RuntimeObjectRef<Creature> creature;
         bool mixedStuntActive {false};
         glm::vec3 restorePosition {0.0f};
         float restoreFacing {0.0f};
@@ -69,14 +69,14 @@ private:
 
     Controls _controls;
 
-    std::shared_ptr<Object> _currentSpeaker;
+    RuntimeObjectRef<Object> _currentSpeaker;
     std::map<std::string, Participant> _participantByTag;
 
     /**
      * Ordinary creatures currently holding an authored cutscene pose. They keep
      * it until another authored animation replaces it or the dialogue ends.
      */
-    std::vector<std::shared_ptr<Creature>> _heldCutParticipants;
+    std::vector<RuntimeObjectRef<Creature>> _heldCutParticipants;
 
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;

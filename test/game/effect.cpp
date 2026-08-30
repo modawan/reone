@@ -244,7 +244,7 @@ TEST(EffectInstance, should_keep_unsupported_saved_effects_in_the_runtime_collec
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto object = std::make_shared<EffectTestObject>(2, game, engine.services());
+    auto object = game.newObject<EffectTestObject>(game, engine.services());
     EffectInstance effect = parsedSavedEffect();
     effect.id = 41;
 
@@ -258,7 +258,7 @@ TEST(EffectInstance, should_remove_every_member_of_a_shared_id_group) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto object = std::make_shared<EffectTestObject>(2, game, engine.services());
+    auto object = game.newObject<EffectTestObject>(game, engine.services());
     EffectInstance left = parsedSavedEffect(2);
     EffectInstance right = parsedSavedEffect(2);
     left.id = right.id = 77;
@@ -278,7 +278,7 @@ TEST(EffectInstance, should_preserve_ordinary_runtime_effect_application) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto object = std::make_shared<EffectTestObject>(2, game, engine.services());
+    auto object = game.newObject<EffectTestObject>(game, engine.services());
     auto effect = std::make_shared<CountingEffect>();
 
     object->applyEffect(effect, DurationType::Permanent);
@@ -293,7 +293,7 @@ TEST(EffectInstance, should_preserve_ordinary_instant_effect_application) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto object = std::make_shared<EffectTestObject>(2, game, engine.services());
+    auto object = game.newObject<EffectTestObject>(game, engine.services());
     auto effect = std::make_shared<CountingEffect>();
 
     object->applyEffect(effect, DurationType::Instant);
@@ -306,7 +306,7 @@ TEST(EffectInstance, should_expire_temporary_runtime_effects) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto object = std::make_shared<EffectTestObject>(2, game, engine.services());
+    auto object = game.newObject<EffectTestObject>(game, engine.services());
     auto effect = std::make_shared<CountingEffect>();
 
     object->applyEffect(effect, DurationType::Temporary, 0.5f);
@@ -322,7 +322,7 @@ TEST(EffectInstance, should_not_restore_skipped_or_equipped_records) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto object = std::make_shared<EffectTestObject>(2, game, engine.services());
+    auto object = game.newObject<EffectTestObject>(game, engine.services());
 
     EXPECT_FALSE(object->restoreEffect(parsedSavedEffect(1, true)));
     EXPECT_FALSE(object->restoreEffect(parsedSavedEffect(3)));

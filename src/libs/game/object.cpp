@@ -100,25 +100,46 @@ void Object::deserializeOwnedItems(
     bool forceDropable,
     std::string originOwner) {
     if (!identityContext.isSerializedState()) {
-        for (const auto &itemGff : gff.getList("ItemList")) {
-            auto item = _game.newOwnedItem(*itemGff, identityContext);
-            item->deserialize(*itemGff, identityContext);
-            if (forceDropable) {
-                item->setDropable(true);
-            }
-            addItem(item);
-        }
+        if (!gff.has("ItemList")) return;
+        std::vector<std::shared_ptr<Object>> obsolete(
+            _items.begin(), _items.end());
+        std::vector<std::shared_ptr<Item>> replacement;
+        ItemAttributes replacementAttributes;
+        auto creature = dynamic_cast<Creature *>(this);
+        _game.replaceRuntimeObjectGraph(
+            obsolete,
+            [&]() {
+                for (const auto &itemGff : gff.getList("ItemList")) {
+                    auto item = _game.newOwnedItem(*itemGff, identityContext);
+                    if (forceDropable) item->setDropable(true);
+                    item->setOwner(_id);
+                    replacement.push_back(std::move(item));
+                }
+                if (creature) {
+                    for (const auto &item : replacement) {
+                        replacementAttributes.addItem(item, _services.game);
+                    }
+                }
+            },
+            [&]() noexcept {
+                _items = std::move(replacement);
+                if (creature) {
+                    creature->itemAttributes() =
+                        std::move(replacementAttributes);
+                }
+            });
         return;
     }
 
     std::vector<std::shared_ptr<Object>> obsolete(_items.begin(), _items.end());
     std::vector<std::shared_ptr<Item>> replacement;
+    ItemAttributes replacementAttributes;
+    auto creature = dynamic_cast<Creature *>(this);
     _game.replaceRuntimeObjectGraph(
         obsolete,
         [&]() {
             for (const auto &itemGff : gff.getList("ItemList")) {
                 auto item = _game.newOwnedItem(*itemGff, identityContext);
-                item->deserialize(*itemGff, identityContext);
                 item->captureSaveRecord(
                     *itemGff,
                     identityContext,
@@ -130,18 +151,25 @@ void Object::deserializeOwnedItems(
                 item->setOwner(_id);
                 replacement.push_back(std::move(item));
             }
+            if (creature) {
+                for (const auto &item : replacement) {
+                    replacementAttributes.addItem(item, _services.game);
+                }
+            }
         },
-        [&]() noexcept { _items = std::move(replacement); });
-
-    if (Creature *creature = dynamic_cast<Creature *>(this)) {
-        creature->itemAttributes() = ItemAttributes();
-        for (const auto &item : _items) {
-            creature->itemAttributes().addItem(item, _services.game);
-        }
-    }
+        [&]() noexcept {
+            _items = std::move(replacement);
+            if (creature) {
+                creature->itemAttributes() =
+                    std::move(replacementAttributes);
+            }
+        });
 }
 
 void Object::update(float dt) {
+    if (!isRuntimeLive()) {
+        return;
+    }
     updateActions(dt);
     updateEffects(dt);
     if (!_dead && canExecuteActions()) {
@@ -454,9 +482,9 @@ void Object::retireAreaRuntimeState(
     // outgoing Area binding retires. A2 separately owns the saved-graph
     // namespace, translation, and generation.
     std::map<std::string, uint32_t> retainedReferenceIds;
-    std::map<std::string, std::weak_ptr<Object>> retainedReferences;
+    std::map<std::string, RuntimeObjectRef<Object>> retainedReferences;
     for (const auto &[field, binding] : _savedReferences) {
-        auto object = binding.lock();
+        auto object = binding.resolve();
         if (!object || retainedObjects.count(object.get()) == 0) continue;
         retainedReferenceIds.emplace(field, object->id());
         retainedReferences.emplace(field, object);
@@ -478,7 +506,7 @@ void Object::resolveSavedReferences(
 
 std::shared_ptr<Object> Object::savedReference(std::string_view field) const {
     auto found = _savedReferences.find(std::string(field));
-    return found == _savedReferences.end() ? nullptr : found->second.lock();
+    return found == _savedReferences.end() ? nullptr : found->second.resolve();
 }
 
 void Object::clearAllActions(bool force) {
@@ -518,14 +546,17 @@ void Object::clearAllActions(bool force) {
 }
 
 void Object::addAction(std::shared_ptr<Action> action) {
+    if (!isRuntimeLive()) return;
     _actions.push_back(std::move(action));
 }
 
 void Object::addActionOnTop(std::shared_ptr<Action> action) {
+    if (!isRuntimeLive()) return;
     _actions.push_front(std::move(action));
 }
 
 void Object::delayAction(std::shared_ptr<Action> action, float seconds) {
+    if (!isRuntimeLive()) return;
     DelayedAction delayed;
     delayed.action = std::move(action);
     delayed.timer = std::make_unique<Timer>(seconds);
@@ -572,6 +603,10 @@ void Object::executeActions(float dt) {
         return;
     }
     std::shared_ptr<Action> action(_actions.front());
+    if (!action->runtimeDependenciesLive()) {
+        action->complete();
+        return;
+    }
     _executingAction = action;
     try {
         action->execute(action, *this, dt);
@@ -608,33 +643,67 @@ std::shared_ptr<Item> Object::addItem(const std::string &resRef, int stackSize, 
         result->setStackSize(prevStackSize + stackSize);
 
     } else {
-        result = _game.newItem();
-        result->loadFromBlueprint(resRef);
-        result->setStackSize(stackSize);
-        result->setDropable(dropable);
-        result->setOwner(_id);
-
-        _items.push_back(result);
-
-        if (Creature *creature = dyn_cast<Creature>(this)) {
-            creature->itemAttributes().addItem(result, _services.game);
-        }
+        std::vector<std::shared_ptr<Object>> noObsolete;
+        std::vector<std::shared_ptr<Item>> replacement(_items);
+        ItemAttributes replacementAttributes;
+        auto creature = dyn_cast<Creature>(this);
+        if (creature) replacementAttributes = creature->itemAttributes();
+        _game.replaceRuntimeObjectGraph(
+            noObsolete,
+            [&]() {
+                result = _game.newItemFromBlueprint(resRef);
+                result->setStackSize(stackSize);
+                result->setDropable(dropable);
+                result->setOwner(_id);
+                replacement.push_back(result);
+                if (creature) {
+                    replacementAttributes.addItem(result, _services.game);
+                }
+            },
+            [&]() noexcept {
+                _items = std::move(replacement);
+                if (creature) {
+                    creature->itemAttributes() =
+                        std::move(replacementAttributes);
+                }
+            });
     }
 
     return result;
 }
 
 void Object::addItem(const std::shared_ptr<Item> &item) {
+    if (!item || (!item->isRuntimeLive() && !item->isPresentationOnly())) {
+        throw ValidationException("Cannot own a non-live runtime item");
+    }
+    if (item->owner() != 0 && item->owner() != script::kObjectInvalid &&
+        item->owner() != _id) {
+        throw ValidationException("Runtime item already has another owner");
+    }
     auto maybeItem = std::find_if(_items.begin(), _items.end(), [&item](auto &entry) { return entry->tag() == item->tag(); });
     if (maybeItem != _items.end()) {
         // Re-adding an owned stack restores one consumed item; transferred stacks merge fully.
         int stackSize = *maybeItem == item ? 1 : item->stackSize();
         (*maybeItem)->setStackSize((*maybeItem)->stackSize() + stackSize);
+        if (*maybeItem != item) {
+            item->setOwner(0);
+            if (item->isRuntimeLive()) {
+                _game.destroyRuntimeObjectGraph(item);
+            }
+        }
     } else {
-        _items.push_back(item);
+        std::vector<std::shared_ptr<Item>> replacement(_items);
+        replacement.push_back(item);
+        auto creature = dyn_cast<Creature>(this);
+        ItemAttributes replacementAttributes;
+        if (creature) {
+            replacementAttributes = creature->itemAttributes();
+            replacementAttributes.addItem(item, _services.game);
+        }
+        _items = std::move(replacement);
         item->setOwner(_id);
-        if (Creature *creature = dyn_cast<Creature>(this)) {
-            creature->itemAttributes().addItem(item, _services.game);
+        if (creature) {
+            creature->itemAttributes() = std::move(replacementAttributes);
         }
     }
 }
@@ -749,6 +818,7 @@ void Object::moveDropableItemsTo(Object &other) {
                 item->setOwner(0);
                 _game.destroyRuntimeObjectGraph(item);
             } else {
+                item->setOwner(0);
                 other.addItem(item);
             }
         } else {
@@ -758,6 +828,7 @@ void Object::moveDropableItemsTo(Object &other) {
 }
 
 void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration) {
+    if (!isRuntimeLive()) return;
     if (auto saved = std::dynamic_pointer_cast<SavedEffectValue>(effect)) {
         EffectInstance instance(saved->instance());
         if (instance.hasStableId()) {

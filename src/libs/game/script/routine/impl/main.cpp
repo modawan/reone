@@ -2896,7 +2896,7 @@ static Variable GetObjectSeen(const std::vector<Variable> &args, const RoutineCo
     auto source = checkCreature(oSource);
 
     // Execute
-    bool seen = source->perception().seen.count(oTarget->id()) > 0;
+    bool seen = source->perception().sees(oTarget->id());
     return Variable::ofInt(static_cast<int>(seen));
 }
 

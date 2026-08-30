@@ -106,6 +106,8 @@ std::shared_ptr<TwoDA> identityTestAppearances() {
 TEST(SerializedIdentityAuthority, same_structure_has_contextual_authority) {
     TestEngine &engine = testEngine();
     StubConsole console;
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .WillRepeatedly(Return(identityTestBaseItems()));
     auto record = Gff::Builder()
                       .field(Gff::Field::newDword("ObjectId", 136))
                       .build();
@@ -169,7 +171,6 @@ TEST(SavedIdentityTranslation, authoritative_nested_effect_reference_binds_to_fr
     game.reserveSavedObjectIds(*git, context, SerializedGraphRoot::AreaGit);
 
     auto creature = game.newCreature(*creatureRecord, context);
-    creature->deserialize(*creatureRecord, context);
     creature->captureSaveRecord(*creatureRecord, context);
     game.resolveSavedObjectReferences();
     creature->bindSavedRuntimeState();
@@ -439,7 +440,7 @@ TEST(EffectSaveProvenance, loaded_and_runtime_expiry_follow_live_collection) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto object = std::make_shared<SaveTestObject>(2, game, engine.services());
+    auto object = game.newObject<SaveTestObject>(game, engine.services());
 
     auto loaded = EffectInstance::fromGff(
         *savedEffect(),
@@ -469,7 +470,7 @@ TEST(ActionSaveProvenance, pending_loaded_cancelled_completed_and_new_waits) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto object = std::make_shared<SaveTestObject>(2, game, engine.services());
+    auto object = game.newObject<SaveTestObject>(game, engine.services());
 
     SavedActionRecord loaded = SavedActionRecord::fromGff(
         *savedWait(),
@@ -504,7 +505,7 @@ TEST(ActionSaveProvenance, play_animation_uses_retail_id_shape_and_live_state) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
-    auto object = std::make_shared<SaveTestObject>(2, game, engine.services());
+    auto object = game.newObject<SaveTestObject>(game, engine.services());
 
     auto pending = game.newAction<PlayAnimationAction>(
         AnimationType::LoopingPause, 1.25f, 10.0f);
@@ -567,7 +568,7 @@ TEST(ActionSaveProvenance, play_animation_import_is_inert_and_semantically_symme
     EXPECT_FLOAT_EQ(std::get<float>(exported->parameters[2].payload), 6.0f);
     EXPECT_EQ(std::get<int32_t>(exported->parameters[3].payload), 0);
 
-    auto object = std::make_shared<SaveTestObject>(2, game, engine.services());
+    auto object = game.newObject<SaveTestObject>(game, engine.services());
     object->addAction(runtime);
     object->addAction(game.newAction<WaitAction>(2.0f));
     object->tickActionQueue(5.0f);
@@ -583,7 +584,7 @@ TEST(ActionSaveProvenance, unsupported_loaded_record_is_live_until_queue_clear) 
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto object = std::make_shared<SaveTestObject>(2, game, engine.services());
+    auto object = game.newObject<SaveTestObject>(game, engine.services());
     auto unsupported = Gff::Builder()
                            .field(Gff::Field::newDword("ActionId", 0xdead))
                            .field(Gff::Field::newWord("NumParams", 0))

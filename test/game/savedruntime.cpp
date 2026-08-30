@@ -1255,6 +1255,11 @@ TEST(SavedObjectReference, should_bind_only_after_B_exists_and_never_rebind_A_in
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     NiceMock<scene::MockSceneGraph> sceneGraph;
     ON_CALL(engine.sceneModule().graphs(), get(_)).WillByDefault(ReturnRef(sceneGraph));
+    TwoDA::Builder appearances;
+    appearances.columns({"modeltype", "walkdist", "rundist", "footsteptype", "envmap", "race", "racetex"});
+    appearances.row({"S", "1", "1", "-1", "", "", ""});
+    ON_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillByDefault(Return(std::shared_ptr<TwoDA>(appearances.build())));
 
     auto savedCreature = Gff::Builder()
                              .field(Gff::Field::newDword("ObjectId", 2))
@@ -1300,6 +1305,11 @@ TEST(SavedObjectReference, serialized_identity_dies_with_its_module_graph) {
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     NiceMock<scene::MockSceneGraph> sceneGraph;
     ON_CALL(engine.sceneModule().graphs(), get(_)).WillByDefault(ReturnRef(sceneGraph));
+    TwoDA::Builder appearances;
+    appearances.columns({"modeltype", "walkdist", "rundist", "footsteptype", "envmap", "race", "racetex"});
+    appearances.row({"S", "1", "1", "-1", "", "", ""});
+    ON_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillByDefault(Return(std::shared_ptr<TwoDA>(appearances.build())));
 
     const auto identityContext =
         SerializedIdentityContext::moduleGraph("shared-module-name");

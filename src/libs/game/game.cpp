@@ -1320,7 +1320,12 @@ void Game::retireRuntimeSession() {
     _module.reset();
     _loadedModules.clear();
 
-    _objectById.clear();
+    // Storage retained by actions, effects or presentation holders remains
+    // allocated, but every exact runtime incarnation becomes semantically dead
+    // before the registry is emptied and numeric IDs may restart.
+    while (!_objectById.empty()) {
+        unregisterRuntimeObject(_objectById.begin()->second);
+    }
     retireSavedObjectGraph();
     _nextObjectId = kFirstRuntimeObjectId;
     _effectIds.reset();
@@ -1596,7 +1601,6 @@ void Game::publishPartyRuntimeState(
     }
 
     auto modulePlayer = newCreature(*players.front(), moduleIdentityContext);
-    modulePlayer->deserialize(*players.front(), moduleIdentityContext);
     modulePlayer->captureSaveRecord(
         *players.front(), moduleIdentityContext, {SaveRecordOriginKind::ModulePlayer, {}});
     modulePlayer->setTag(kObjectTagPlayer);
@@ -1609,7 +1613,6 @@ void Game::publishPartyRuntimeState(
         const auto pcIdentityContext =
             SerializedIdentityContext::detachedRecord("pc.utc");
         actualPlayer = newCreature(*pcGff, pcIdentityContext);
-        actualPlayer->deserialize(*pcGff, pcIdentityContext);
         actualPlayer->captureSaveRecord(
             *pcGff, pcIdentityContext, {SaveRecordOriginKind::PrimaryPlayerUtc, {}});
     }
@@ -1858,7 +1861,6 @@ std::shared_ptr<Creature> Game::materializeRosterCreature(
         SerializedIdentityContext::detachedRecord(name + ".utc");
     auto creature = newCreature(*record, context);
     try {
-        creature->deserialize(*record, context);
         creature->captureSaveRecord(
             *record,
             context,
@@ -2005,8 +2007,8 @@ void Game::loadDefaultParty() {
     _party.defaultMembers(member1, member2, member3);
 
     if (!member1.empty()) {
-        std::shared_ptr<Creature> player = newCreature();
-        player->loadFromBlueprint(member1);
+        std::shared_ptr<Creature> player =
+            newCreatureFromBlueprint(member1);
         player->setTag(kObjectTagPlayer);
         player->setImmortal(true);
         _party.addMember(kNpcPlayer, player);
@@ -2014,16 +2016,16 @@ void Game::loadDefaultParty() {
         _party.setActualPlayer(player);
     }
     if (!member2.empty()) {
-        std::shared_ptr<Creature> companion = newCreature();
-        companion->loadFromBlueprint(member2);
+        std::shared_ptr<Creature> companion =
+            newCreatureFromBlueprint(member2);
         companion->setImmortal(true);
         companion->equip("g_w_dblsbr001");
         _party.addAvailableMember(0, companion);
         _party.addMember(0, companion);
     }
     if (!member3.empty()) {
-        std::shared_ptr<Creature> companion = newCreature();
-        companion->loadFromBlueprint(member3);
+        std::shared_ptr<Creature> companion =
+            newCreatureFromBlueprint(member3);
         companion->setImmortal(true);
         _party.addAvailableMember(1, companion);
         _party.addMember(1, companion);
@@ -2123,6 +2125,9 @@ std::shared_ptr<Object> Game::getObjectById(uint32_t id) const {
 }
 
 bool Game::isRuntimeObjectLive(const Object &object) const {
+    if (!object.isRuntimeLive()) {
+        return false;
+    }
     auto found = _objectById.find(object.id());
     return found != _objectById.end() && found->second.get() == &object;
 }
@@ -2131,6 +2136,7 @@ void Game::unregisterRuntimeObject(const std::shared_ptr<Object> &object) {
     if (!object) {
         return;
     }
+    object->_runtimeState = Object::RuntimeState::Retired;
     if (auto creature = std::dynamic_pointer_cast<Creature>(object)) {
         // A PartyTable binding denotes a live runtime object, not storage
         // ownership. Pointer-guarded clearing cannot disturb a replacement
@@ -2159,7 +2165,17 @@ void Game::destroyRuntimeObjectGraph(const std::shared_ptr<Object> &object) {
     if (!object) {
         return;
     }
-    std::vector<std::shared_ptr<Object>> pending {object};
+    auto graph = collectRuntimeObjectGraph({object});
+    // Children cease to exist before their owner. The pointer guard makes this
+    // idempotent and protects a newer object if an explicit ID was reused.
+    for (auto it = graph.rbegin(); it != graph.rend(); ++it) {
+        unregisterRuntimeObject(*it);
+    }
+}
+
+std::vector<std::shared_ptr<Object>> Game::collectRuntimeObjectGraph(
+    const std::vector<std::shared_ptr<Object>> &roots) const {
+    std::vector<std::shared_ptr<Object>> pending(roots);
     std::set<const Object *> seen;
     std::vector<std::shared_ptr<Object>> graph;
     while (!pending.empty()) {
@@ -2173,10 +2189,35 @@ void Game::destroyRuntimeObjectGraph(const std::shared_ptr<Object> &object) {
             pending.push_back(std::move(owned));
         }
     }
-    // Children cease to exist before their owner. The pointer guard makes this
-    // idempotent and protects a newer object if an explicit ID was reused.
-    for (auto it = graph.rbegin(); it != graph.rend(); ++it) {
-        unregisterRuntimeObject(*it);
+    return graph;
+}
+
+void Game::discardStagedRuntimeObjects(
+    const std::vector<std::shared_ptr<Object>> &objects) {
+    if (!_stagedRuntimeObjectGraph) {
+        throw ValidationException("No staged runtime object graph is active");
+    }
+    auto &staged = *_stagedRuntimeObjectGraph;
+    for (const auto &object : objects) {
+        if (!object) {
+            continue;
+        }
+        auto byId = staged.objectById.find(object->id());
+        if (byId != staged.objectById.end() &&
+            byId->second.get() == object.get()) {
+            staged.objectById.erase(byId);
+        }
+        for (auto it = staged.objectBySavedId.begin();
+             it != staged.objectBySavedId.end();) {
+            if (it->second.lock().get() == object.get()) {
+                it = staged.objectBySavedId.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        staged.savedIdByObject.erase(object.get());
+        staged.reservedSavedObjectIdsToRelease.erase(object->id());
+        object->_runtimeState = Object::RuntimeState::Retired;
     }
 }
 
@@ -2188,23 +2229,15 @@ void Game::beginRuntimeObjectGraphReplacement(
     _stagedRuntimeObjectGraph.emplace();
     _stagedRuntimeObjectGraph->initialNextObjectId = _nextObjectId;
 
-    std::vector<std::shared_ptr<Object>> pending(obsoleteObjects);
-    while (!pending.empty()) {
-        auto object = std::move(pending.back());
-        pending.pop_back();
-        if (!object ||
-            !_stagedRuntimeObjectGraph->replaceableObjects.insert(
-                object.get()).second) {
-            continue;
-        }
-        for (auto &owned : object->ownedRuntimeObjects()) {
-            pending.push_back(std::move(owned));
-        }
+    _stagedRuntimeObjectGraph->obsoleteGraph =
+        collectRuntimeObjectGraph(obsoleteObjects);
+    for (const auto &object : _stagedRuntimeObjectGraph->obsoleteGraph) {
+        _stagedRuntimeObjectGraph->replaceableObjects.insert(object.get());
     }
 }
 
 void Game::commitRuntimeObjectGraphReplacement(
-    const std::vector<std::shared_ptr<Object>> &obsoleteObjects) {
+    const std::vector<std::shared_ptr<Object>> &) {
     if (!_stagedRuntimeObjectGraph) {
         throw ValidationException("No runtime object graph replacement is active");
     }
@@ -2212,16 +2245,32 @@ void Game::commitRuntimeObjectGraphReplacement(
     auto staged = std::move(*_stagedRuntimeObjectGraph);
     _stagedRuntimeObjectGraph.reset();
 
-    // Publication ownership has already changed through a no-throw swap. Old
-    // obsolete reverse mappings now retire before candidate nodes are merged.
-    for (const auto &object : obsoleteObjects) {
-        destroyRuntimeObjectGraph(object);
+    // The complete old graph was discovered before candidate construction and
+    // before the no-throw ownership publication. Nothing below walks ownership
+    // or allocates graph bookkeeping after that irreversible boundary.
+    for (auto it = staged.obsoleteGraph.rbegin();
+         it != staged.obsoleteGraph.rend(); ++it) {
+        unregisterRuntimeObject(*it);
     }
     _objectById.merge(staged.objectById);
     _objectBySavedId.merge(staged.objectBySavedId);
     _savedIdByObject.merge(staged.savedIdByObject);
+    for (const auto &object : staged.candidateObjects) {
+        auto found = _objectById.find(object->id());
+        if (found != _objectById.end() &&
+            found->second.get() == object.get()) {
+            object->_runtimeState = Object::RuntimeState::Live;
+        }
+    }
     for (uint32_t id : staged.reservedSavedObjectIdsToRelease) {
         _reservedSavedObjectIds.erase(id);
+    }
+
+    // All collisions are rejected while staging. A non-empty source here
+    // would mean the supposedly atomic publication silently lost a node.
+    if (!staged.objectById.empty() || !staged.objectBySavedId.empty() ||
+        !staged.savedIdByObject.empty()) {
+        std::terminate();
     }
 }
 
@@ -2229,13 +2278,20 @@ void Game::abortRuntimeObjectGraphReplacement() {
     if (!_stagedRuntimeObjectGraph) {
         return;
     }
+    for (const auto &object : _stagedRuntimeObjectGraph->candidateObjects) {
+        object->_runtimeState = Object::RuntimeState::Retired;
+    }
     _nextObjectId = _stagedRuntimeObjectGraph->initialNextObjectId;
     _stagedRuntimeObjectGraph.reset();
 }
 
 std::shared_ptr<Object> Game::getObjectBySavedId(uint32_t id) const {
     auto found = _objectBySavedId.find(id);
-    return found == _objectBySavedId.end() ? nullptr : found->second.lock();
+    if (found == _objectBySavedId.end()) {
+        return nullptr;
+    }
+    auto object = found->second.lock();
+    return object && isRuntimeObjectLive(*object) ? object : nullptr;
 }
 
 uint32_t Game::savedObjectId(const resource::Gff &gff) const {
@@ -2256,6 +2312,11 @@ void Game::registerObject(
     if (!allowReserved && id < kFirstRuntimeObjectId) {
         throw ValidationException("Reserved saved ObjectId: " + std::to_string(id));
     }
+    if (object->_runtimeState != Object::RuntimeState::Constructing ||
+        object->_runtimeIncarnation != 0) {
+        throw ValidationException("Runtime object storage cannot be republished");
+    }
+    object->_runtimeIncarnation = _nextRuntimeIncarnation++;
     if (_objectById.count(id) != 0) {
         throw ValidationException("Duplicate runtime ObjectId: " + std::to_string(id));
     }
@@ -2264,9 +2325,11 @@ void Game::registerObject(
             throw ValidationException(
                 "Duplicate staged runtime ObjectId: " + std::to_string(id));
         }
+        _stagedRuntimeObjectGraph->candidateObjects.push_back(object);
         _stagedRuntimeObjectGraph->reservedSavedObjectIdsToRelease.insert(id);
     } else {
         _objectById.emplace(id, object);
+        object->_runtimeState = Object::RuntimeState::Live;
         _reservedSavedObjectIds.erase(id);
     }
 }
@@ -2356,16 +2419,36 @@ std::shared_ptr<Item> Game::newItem(
     return newObjectFromGff<Item>(gff, identityContext, *this, _services);
 }
 
+std::shared_ptr<Item> Game::newItemFromBlueprint(const std::string &resRef) {
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    std::shared_ptr<Item> item;
+    replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            item = newItem();
+            item->loadFromBlueprint(resRef);
+        },
+        []() noexcept {});
+    return item;
+}
+
+std::shared_ptr<Item> Game::newItemClone(const Item &source) {
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    std::shared_ptr<Item> item;
+    replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            item = newItem();
+            item->clone(source);
+        },
+        []() noexcept {});
+    return item;
+}
+
 std::shared_ptr<Item> Game::newOwnedItem(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
-    auto item = newItem();
-    uint32_t id = 0;
-    if (identityContext.hasAuthoritativeObjectIds() &&
-        gff.readDword(id, "ObjectId")) {
-        registerSavedObjectIdentity(id, item, identityContext);
-    }
-    return item;
+    return newObjectFromGff<Item>(gff, identityContext, *this, _services);
 }
 
 std::shared_ptr<Area> Game::newSavedArea(
@@ -2385,12 +2468,42 @@ std::shared_ptr<Creature> Game::newCreature(
         gff, identityContext, std::move(sceneName), *this, _services);
 }
 
+std::shared_ptr<Creature> Game::newCreatureFromBlueprint(
+    const std::string &resRef,
+    std::string sceneName) {
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    std::shared_ptr<Creature> creature;
+    replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            creature = newCreature(std::move(sceneName));
+            creature->loadFromBlueprint(resRef);
+        },
+        []() noexcept {});
+    return creature;
+}
+
 std::shared_ptr<Placeable> Game::newPlaceable(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext,
     std::string sceneName) {
     return newObjectFromGff<Placeable>(
         gff, identityContext, std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Placeable> Game::newPlaceableFromBlueprint(
+    const std::string &resRef,
+    std::string sceneName) {
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    std::shared_ptr<Placeable> placeable;
+    replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            placeable = newPlaceable(std::move(sceneName));
+            placeable->loadFromBlueprint(resRef);
+        },
+        []() noexcept {});
+    return placeable;
 }
 
 std::shared_ptr<Door> Game::newDoor(
@@ -4438,7 +4551,8 @@ void Game::finishPazaak(PazaakCompletedResult result) {
 
     std::string continuation(_pazaakSession->continuationScript());
     uint32_t opponentId = _pazaakSession->opponentId();
-    std::shared_ptr<Object> continuationCaller(_pazaakContinuationCaller.lock());
+    std::shared_ptr<Object> continuationCaller(
+        _pazaakContinuationCaller.resolve());
     bool developmentLaunch = _pazaakDevelopmentLaunch;
     int wager = _pazaakSession->wager();
     bool callerValid = continuationCaller &&
@@ -5288,17 +5402,22 @@ void Game::consoleSpawnCreature(const ConsoleArgs &args) {
     auto leader = getConsoleLeader();
 
     std::shared_ptr<Creature> creature;
-    if (auto id = args.get<uint32_t>(2)) {
-        if (getObjectById(id.value())) {
+    if (auto explicitId = args.get<uint32_t>(2)) {
+        if (getObjectById(*explicitId)) {
             throw std::runtime_error("Object already exists");
         }
-        creature = newObjectAtId<Creature>(
-            id.value(), false, kSceneMain, *this, _services);
+        std::vector<std::shared_ptr<Object>> noObsolete;
+        replaceRuntimeObjectGraph(
+            noObsolete,
+            [&]() {
+                creature = newObjectAtId<Creature>(
+                    *explicitId, false, kSceneMain, *this, _services);
+                creature->loadFromBlueprint(res);
+            },
+            []() noexcept {});
     } else {
-        creature = newCreature();
+        creature = newCreatureFromBlueprint(res);
     }
-
-    creature->loadFromBlueprint(res);
     creature->setPosition(leader->position());
     creature->setFacing(leader->getFacing());
     creature->setFaction(Faction::Neutral);
@@ -5323,13 +5442,18 @@ void Game::consoleSpawnCompanion(const ConsoleArgs &args) {
         if (getObjectById(id.value())) {
             throw std::runtime_error("Object already exists");
         }
-        companion = newObjectAtId<Creature>(
-            id.value(), false, kSceneMain, *this, _services);
+        std::vector<std::shared_ptr<Object>> noObsolete;
+        replaceRuntimeObjectGraph(
+            noObsolete,
+            [&]() {
+                companion = newObjectAtId<Creature>(
+                    id.value(), false, kSceneMain, *this, _services);
+                companion->loadFromBlueprint(res);
+            },
+            []() noexcept {});
     } else {
-        companion = newCreature();
+        companion = newCreatureFromBlueprint(res);
     }
-
-    companion->loadFromBlueprint(res);
     companion->setPosition(leader->position());
     companion->setFacing(leader->getFacing());
     companion->setFaction(leader->faction());
@@ -5769,7 +5893,8 @@ void Game::consoleStartPazaak(const ConsoleArgs &args) {
         return;
     }
 
-    std::shared_ptr<Object> selected(_pazaakDevelopmentSelectedObjectOverride.lock());
+    std::shared_ptr<Object> selected(
+        _pazaakDevelopmentSelectedObjectOverride.resolve());
     if (!selected) {
         if (auto area = _module->area()) {
             selected = area->selectedObject();

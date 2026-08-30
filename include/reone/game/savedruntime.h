@@ -17,6 +17,7 @@
 #include "reone/resource/gff.h"
 
 #include "effect.h"
+#include "runtimeref.h"
 
 namespace reone {
 
@@ -57,11 +58,11 @@ struct SavedObjectReference {
     const std::optional<SerializedIdentityContext> &serializedIdentityContext() const {
         return _serializedIdentityContext;
     }
-    std::shared_ptr<Object> boundObject() const { return _object.lock(); }
+    std::shared_ptr<Object> boundObject() const;
 
 private:
     friend class Game;
-    std::weak_ptr<Object> _object;
+    RuntimeObjectRef<Object> _object;
     std::optional<uint64_t> _runtimeSession;
     std::optional<uint64_t> _savedGraph;
     std::optional<SerializedIdentityContext> _serializedIdentityContext;

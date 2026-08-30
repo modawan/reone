@@ -24,6 +24,7 @@
 #include "reone/gui/control/listbox.h"
 
 #include "../object.h"
+#include "../runtimeref.h"
 
 namespace reone {
 
@@ -38,7 +39,7 @@ public:
 
     void open(std::shared_ptr<Object> contanier);
 
-    Object &container() const { return *_container; }
+    Object &container() const;
 
 private:
     struct Controls {
@@ -57,7 +58,7 @@ private:
     };
 
     Mode _mode {Mode::ContainerToPlayer};
-    std::shared_ptr<Object> _container;
+    RuntimeObjectRef<Object> _container;
 
     std::string _giveItemMsg;
     std::string _getItemsMsg;

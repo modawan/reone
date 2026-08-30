@@ -40,6 +40,7 @@
 #include "reone/game/effect/savingthrowincrease.h"
 #include "reone/game/footstepsounds.h"
 #include "reone/game/game.h"
+#include "reone/game/party.h"
 #include "reone/game/portraits.h"
 #include "reone/game/script/runner.h"
 #include "reone/game/surfaces.h"
@@ -65,6 +66,7 @@
 #include "reone/script/types.h"
 #include "reone/system/clock.h"
 #include "reone/system/di/services.h"
+#include "reone/system/exception/validation.h"
 #include "reone/system/logutil.h"
 #include "reone/system/randomutil.h"
 #include "reone/system/timer.h"
@@ -549,7 +551,7 @@ void Creature::retireAreaRuntime(
 
     deactivateCombat(0.0f);
     _combatState.attackTarget.reset();
-    _combatState.attemptedAttackTarget = script::kObjectInvalid;
+    _combatState.attemptedAttackTarget.reset();
     _combatState.attackAction = ActionType::QueueEmpty;
     _combatState.combatFeat = FeatType::Invalid;
     _combatState.deactivationTimer.reset(0.0f);
@@ -813,7 +815,7 @@ void Creature::updateCombat(float dt) {
         _combatState.shouldDeactivate = false;
         _combatState.debilitated = false;
         _combatState.attackTarget.reset();
-        _combatState.attemptedAttackTarget = script::kObjectInvalid;
+        _combatState.attemptedAttackTarget.reset();
         _combatState.attackAction = ActionType::QueueEmpty;
         _combatState.combatFeat = FeatType::Invalid;
         _lastHostileTarget = script::kObjectInvalid;
@@ -935,8 +937,13 @@ void Creature::playAnimation(CombatAnimation anim, CreatureWieldType wield, int 
 }
 
 bool Creature::equip(const std::string &resRef) {
-    std::shared_ptr<Item> item = _game.newItem();
-    item->loadFromBlueprint(resRef);
+    std::shared_ptr<Item> item;
+    if (isPresentationOnly()) {
+        item = _game.newPresentationItem();
+        item->loadFromBlueprint(resRef);
+    } else {
+        item = _game.newItemFromBlueprint(resRef);
+    }
 
     bool equipped = false;
 
@@ -944,6 +951,10 @@ bool Creature::equip(const std::string &resRef) {
         equipped = equip(InventorySlots::body, item);
     } else if (item->isEquippable(InventorySlots::rightWeapon)) {
         equipped = equip(InventorySlots::rightWeapon, item);
+    }
+
+    if (!equipped && item->isRuntimeLive()) {
+        _game.destroyRuntimeObjectGraph(item);
     }
 
     return equipped;
@@ -970,7 +981,22 @@ void Creature::updateDisguise() {
 }
 
 bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
-    if (!item->isEquippable(getEquipabilitySlot(slot))) {
+    if (!item || (!item->isRuntimeLive() && !item->isPresentationOnly()) ||
+        !item->isEquippable(getEquipabilitySlot(slot))) {
+        return false;
+    }
+    if (std::find(_items.begin(), _items.end(), item) != _items.end()) {
+        // Inventory -> equipment is a transfer. Callers must first remove or
+        // split the candidate so one object never has two ownership edges.
+        return false;
+    }
+    for (const auto &[equippedSlot, equipped] : _equipment) {
+        if (equipped == item && equippedSlot != slot) {
+            return false;
+        }
+    }
+    if (item->owner() != 0 && item->owner() != script::kObjectInvalid &&
+        item->owner() != _id) {
         return false;
     }
 
@@ -978,6 +1004,19 @@ bool Creature::equip(int slot, const std::shared_ptr<Item> &item) {
     if (previous && previous != item) {
         previous->powerDown(_position);
         previous->setEquipped(false);
+        _equipment.erase(slot);
+        previous->setOwner(0);
+        if (isPresentationOnly()) {
+            // Presentation data has no gameplay owner or registry lifetime.
+        } else {
+            auto self = _game.getObjectById(_id);
+            auto receiver = _game.party().sharedInventoryReceiver(self);
+            if (!receiver) {
+                throw ValidationException(
+                    "Equipped item has no inventory disposition");
+            }
+            receiver->addItem(previous);
+        }
     }
     _equipment[slot] = item;
     item->setEquipped(true);
@@ -1237,7 +1276,7 @@ void Creature::stopTalking() {
 
 void Creature::setObjectSeen(const std::shared_ptr<Object> &object, bool seen) {
     if (seen) {
-        _perception.seen.insert(object->id());
+        _perception.seen[object->id()] = object;
     } else {
         _perception.seen.erase(object->id());
     }
@@ -1245,7 +1284,7 @@ void Creature::setObjectSeen(const std::shared_ptr<Object> &object, bool seen) {
 
 void Creature::setObjectHeard(const std::shared_ptr<Object> &object, bool heard) {
     if (heard) {
-        _perception.heard.insert(object->id());
+        _perception.heard[object->id()] = object;
     } else {
         _perception.heard.erase(object->id());
     }
@@ -1369,14 +1408,18 @@ std::shared_ptr<Item> Creature::getOffhandAttackWeapon() const {
 }
 
 void Creature::beginCombatAttack(std::shared_ptr<Object> target, FeatType feat) {
-    _combatState.attackTarget = std::move(target);
+    _combatState.attackTarget = target;
     _combatState.attackAction = ActionType::AttackObject;
     _combatState.combatFeat = feat;
 }
 
+void Creature::setAttemptedAttackTarget(uint32_t target) {
+    _combatState.attemptedAttackTarget = _game.getObjectById(target);
+}
+
 void Creature::finishCombatRound() {
-    if (_combatState.attackTarget) {
-        _lastHostileTarget = _combatState.attackTarget->id();
+    if (auto target = _combatState.attackTarget.resolve()) {
+        _lastHostileTarget = target->id();
     } else {
         _lastHostileTarget = script::kObjectInvalid;
     }
@@ -3255,104 +3298,164 @@ std::vector<std::shared_ptr<Object>> Creature::ownedRuntimeObjects() const {
 void Creature::deserializeOwnedItemsAndEquipment(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
+    const bool replaceItems = gff.has("ItemList");
+    const bool replaceEquipment = gff.has("Equip_ItemList");
+    if (!replaceItems && !replaceEquipment) return;
+
     if (!identityContext.isSerializedState()) {
-        deserializeOwnedItems(
-            gff, identityContext, SaveRecordOriginKind::ContainedItem);
-        for (const auto &itemGff : gff.getList("Equip_ItemList")) {
-            auto item = _game.newOwnedItem(*itemGff, identityContext);
-            item->deserialize(*itemGff, identityContext);
-            if (item->isEquippable(InventorySlots::body)) {
-                equip(InventorySlots::body, item);
-            } else if (item->isEquippable(InventorySlots::rightWeapon)) {
-                equip(InventorySlots::rightWeapon, item);
-            } else {
-                addItem(item);
-                warn(str(boost::format("item is not equippable: %s") % item->tag()));
+        std::vector<std::shared_ptr<Object>> obsolete;
+        if (replaceItems) {
+            obsolete.insert(obsolete.end(), _items.begin(), _items.end());
+        }
+        if (replaceEquipment) {
+            for (const auto &[_, item] : _equipment) {
+                obsolete.push_back(item);
             }
         }
+        std::vector<std::shared_ptr<Item>> replacementItems =
+            replaceItems ? std::vector<std::shared_ptr<Item>> {} : _items;
+        std::map<int, std::shared_ptr<Item>> replacementEquipment =
+            replaceEquipment
+                ? std::map<int, std::shared_ptr<Item>> {}
+                : _equipment;
+        ItemAttributes replacementAttributes;
+        _game.replaceRuntimeObjectGraph(
+            obsolete,
+            [&]() {
+                if (replaceItems) {
+                    for (const auto &itemGff : gff.getList("ItemList")) {
+                        auto item = _game.newOwnedItem(*itemGff, identityContext);
+                        item->setOwner(_id);
+                        replacementItems.push_back(std::move(item));
+                    }
+                }
+                if (replaceEquipment) {
+                    for (const auto &itemGff : gff.getList("Equip_ItemList")) {
+                        auto item = _game.newOwnedItem(*itemGff, identityContext);
+                        int slot = item->isEquippable(InventorySlots::body)
+                                       ? InventorySlots::body
+                                       : InventorySlots::rightWeapon;
+                        if (!item->isEquippable(getEquipabilitySlot(slot)) ||
+                            replacementEquipment.count(slot) != 0) {
+                            item->setOwner(_id);
+                            replacementItems.push_back(std::move(item));
+                            continue;
+                        }
+                        item->setOwner(_id);
+                        item->setEquipped(true);
+                        replacementEquipment.emplace(slot, std::move(item));
+                    }
+                }
+                for (const auto &item : replacementItems) {
+                    replacementAttributes.addItem(item, _services.game);
+                }
+            },
+            [&]() noexcept {
+                _items = std::move(replacementItems);
+                _equipment = std::move(replacementEquipment);
+                _itemAttributes = std::move(replacementAttributes);
+            });
         return;
     }
 
-    std::vector<std::shared_ptr<Object>> obsolete = ownedRuntimeObjects();
-    std::vector<std::shared_ptr<Item>> replacementItems;
-    std::map<int, std::shared_ptr<Item>> replacementEquipment;
+    std::vector<std::shared_ptr<Object>> obsolete;
+    if (replaceItems) {
+        obsolete.insert(obsolete.end(), _items.begin(), _items.end());
+    }
+    if (replaceEquipment) {
+        for (const auto &[_, item] : _equipment) {
+            obsolete.push_back(item);
+        }
+    }
+    std::vector<std::shared_ptr<Item>> replacementItems =
+        replaceItems ? std::vector<std::shared_ptr<Item>> {} : _items;
+    std::map<int, std::shared_ptr<Item>> replacementEquipment =
+        replaceEquipment
+            ? std::map<int, std::shared_ptr<Item>> {}
+            : _equipment;
+    ItemAttributes replacementAttributes;
     _game.replaceRuntimeObjectGraph(
         obsolete,
         [&]() {
-            for (const auto &itemGff : gff.getList("ItemList")) {
-                auto item = _game.newOwnedItem(*itemGff, identityContext);
-                item->deserialize(*itemGff, identityContext);
-                item->captureSaveRecord(
-                    *itemGff,
-                    identityContext,
-                    {SaveRecordOriginKind::ContainedItem, std::to_string(_id)});
-                item->setOwner(_id);
-                replacementItems.push_back(std::move(item));
-            }
-
-            for (const auto &itemGff : gff.getList("Equip_ItemList")) {
-                auto item = _game.newOwnedItem(*itemGff, identityContext);
-                item->deserialize(*itemGff, identityContext);
-                item->captureSaveRecord(
-                    *itemGff,
-                    identityContext,
-                    {SaveRecordOriginKind::EquippedItem, std::to_string(_id)});
-
-                std::optional<int> slot;
-                uint32_t slotMask = itemGff->type();
-                if (slotMask != 0 && (slotMask & (slotMask - 1)) == 0) {
-                    int value = 0;
-                    while ((slotMask >>= 1) != 0) {
-                        ++value;
-                    }
-                    if (item->isEquippable(getEquipabilitySlot(value))) {
-                        slot = value;
-                    }
-                }
-                if (!slot && item->isEquippable(InventorySlots::body)) {
-                    slot = InventorySlots::body;
-                } else if (!slot &&
-                           item->isEquippable(InventorySlots::rightWeapon)) {
-                    slot = InventorySlots::rightWeapon;
-                }
-
-                if (!slot) {
+            if (replaceItems) {
+                for (const auto &itemGff : gff.getList("ItemList")) {
+                    auto item = _game.newOwnedItem(*itemGff, identityContext);
+                    item->captureSaveRecord(
+                        *itemGff,
+                        identityContext,
+                        {SaveRecordOriginKind::ContainedItem, std::to_string(_id)});
                     item->setOwner(_id);
                     replacementItems.push_back(std::move(item));
-                    warn(str(boost::format("item is not equippable: %s") %
-                             replacementItems.back()->tag()));
-                    continue;
                 }
-                if (replacementEquipment.count(*slot) != 0) {
-                    throw ValidationException(
-                        "Multiple saved items occupy equipment slot " +
-                        std::to_string(*slot));
+            }
+
+            if (replaceEquipment) {
+                for (const auto &itemGff : gff.getList("Equip_ItemList")) {
+                    auto item = _game.newOwnedItem(*itemGff, identityContext);
+                    item->captureSaveRecord(
+                        *itemGff,
+                        identityContext,
+                        {SaveRecordOriginKind::EquippedItem, std::to_string(_id)});
+
+                    std::optional<int> slot;
+                    uint32_t slotMask = itemGff->type();
+                    if (slotMask != 0 && (slotMask & (slotMask - 1)) == 0) {
+                        int value = 0;
+                        while ((slotMask >>= 1) != 0) {
+                            ++value;
+                        }
+                        if (item->isEquippable(getEquipabilitySlot(value))) {
+                            slot = value;
+                        }
+                    }
+                    if (!slot && item->isEquippable(InventorySlots::body)) {
+                        slot = InventorySlots::body;
+                    } else if (!slot &&
+                               item->isEquippable(InventorySlots::rightWeapon)) {
+                        slot = InventorySlots::rightWeapon;
+                    }
+
+                    if (!slot) {
+                        item->setOwner(_id);
+                        replacementItems.push_back(std::move(item));
+                        warn(str(boost::format("item is not equippable: %s") %
+                                 replacementItems.back()->tag()));
+                        continue;
+                    }
+                    if (replacementEquipment.count(*slot) != 0) {
+                        throw ValidationException(
+                            "Multiple saved items occupy equipment slot " +
+                            std::to_string(*slot));
+                    }
+                    item->setOwner(_id);
+                    item->setEquipped(true);
+                    replacementEquipment.emplace(*slot, std::move(item));
                 }
-                item->setOwner(_id);
-                item->setEquipped(true);
-                replacementEquipment.emplace(*slot, std::move(item));
+            }
+            for (const auto &item : replacementItems) {
+                replacementAttributes.addItem(item, _services.game);
             }
         },
         [&]() noexcept {
-            for (auto &[_, item] : _equipment) {
-                if (item) {
-                    item->setEquipped(false);
-                    item->setOwner(0);
+            if (replaceEquipment) {
+                for (auto &[_, item] : _equipment) {
+                    if (item) {
+                        item->setEquipped(false);
+                        item->setOwner(0);
+                    }
                 }
             }
-            for (auto &item : _items) {
-                if (item) {
-                    item->setOwner(0);
+            if (replaceItems) {
+                for (auto &item : _items) {
+                    if (item) {
+                        item->setOwner(0);
+                    }
                 }
             }
             _items = std::move(replacementItems);
             _equipment = std::move(replacementEquipment);
+            _itemAttributes = std::move(replacementAttributes);
         });
-
-    _itemAttributes = ItemAttributes();
-    for (const auto &item : _items) {
-        _itemAttributes.addItem(item, _services.game);
-    }
     uint32_t previousAppearance = _appearance;
     updateDisguise();
     if (_appearance != previousAppearance) {

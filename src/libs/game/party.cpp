@@ -212,6 +212,20 @@ bool Party::setRosterAvailable(
                         : _persistedState.puppetAvailable[identity.slot];
     if (!available && !current) return false;
     current = available;
+    if (!available) {
+        auto bound = rosterCreature(identity);
+        const bool retainedAsActiveNpc =
+            identity.kind == RosterKind::Npc && bound &&
+            (bound == _player || bound == _actualPlayer || isMember(*bound));
+        if (bound && !retainedAsActiveNpc) {
+            // Availability and runtime existence are distinct. An inactive
+            // slot's binding is Party's ownership edge, so removing it must
+            // explicitly end that runtime representation rather than leave a
+            // registry-live orphan. Active members remain live until their
+            // separate membership/control operation releases them.
+            _game.killRosterCreature(identity);
+        }
+    }
     if (available && selectableWhenAdded) {
         bool &selectable = identity.kind == RosterKind::Npc
                                ? _persistedState.npcSelectable[identity.slot]
@@ -279,12 +293,12 @@ bool Party::addAvailableRosterRecord(
     const RosterIdentity &identity,
     const std::string &blueprint) {
     if (!isRosterIdentityValid(identity)) return false;
-    auto creature = _game.newCreature();
+    std::shared_ptr<Creature> creature;
     try {
-        creature->loadFromBlueprint(blueprint);
+        creature = _game.newCreatureFromBlueprint(blueprint);
         _game.saveRosterState(identity, *creature);
     } catch (const std::exception &e) {
-        _game.destroyRuntimeObjectGraph(creature);
+        if (creature) _game.destroyRuntimeObjectGraph(creature);
         warn("Party: could not add roster blueprint '" + blueprint +
              "': " + e.what());
         return false;

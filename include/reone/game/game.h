@@ -395,6 +395,13 @@ public:
         static_assert(
             noexcept(std::declval<Publish &>()()),
             "runtime object graph publication must not throw");
+        if (_stagedRuntimeObjectGraph) {
+            auto obsoleteGraph = collectRuntimeObjectGraph(obsoleteObjects);
+            build();
+            publish();
+            discardStagedRuntimeObjects(obsoleteGraph);
+            return;
+        }
         beginRuntimeObjectGraphReplacement(obsoleteObjects);
         try {
             build();
@@ -418,6 +425,9 @@ public:
     inline std::shared_ptr<Item> newItem() {
         return newObject<Item>(*this, _services);
     }
+    inline std::shared_ptr<Item> newPresentationItem() {
+        return newPresentationObject<Item>(*this, _services);
+    }
     // Items serialized inside an owning inventory/equipment record use an
     // owner-local identity scope. Their saved ObjectId can legitimately match
     // another owned item or an independently registered world object, so the
@@ -429,6 +439,8 @@ public:
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
     std::shared_ptr<Item> newItem(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    std::shared_ptr<Item> newItemFromBlueprint(const std::string &resRef);
+    std::shared_ptr<Item> newItemClone(const Item &source);
 
     inline std::shared_ptr<Area> newArea(std::string sceneName = kSceneMain) {
         return newObject<Area>(std::move(sceneName), *this, _services);
@@ -441,12 +453,23 @@ public:
     inline std::shared_ptr<Creature> newCreature(std::string sceneName = kSceneMain) {
         return newObject<Creature>(std::move(sceneName), *this, _services);
     }
+    inline std::shared_ptr<Creature> newPresentationCreature(
+        std::string sceneName) {
+        return newPresentationObject<Creature>(
+            std::move(sceneName), *this, _services);
+    }
     std::shared_ptr<Creature> newCreature(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
+    std::shared_ptr<Creature> newCreatureFromBlueprint(
+        const std::string &resRef,
+        std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Placeable> newPlaceable(std::string sceneName = kSceneMain) {
         return newObject<Placeable>(std::move(sceneName), *this, _services);
     }
     std::shared_ptr<Placeable> newPlaceable(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
+    std::shared_ptr<Placeable> newPlaceableFromBlueprint(
+        const std::string &resRef,
+        std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Door> newDoor(std::string sceneName = kSceneMain) {
         return newObject<Door>(std::move(sceneName), *this, _services);
@@ -596,6 +619,16 @@ public:
             ++_nextObjectId;
         }
         return newObjectAtId<T>(_nextObjectId++, false, std::forward<Args>(args)...);
+    }
+
+    /** Construct a presentation-only object outside the gameplay registry. */
+    template <class T, class... Args>
+    inline std::shared_ptr<T> newPresentationObject(Args &&...args) {
+        auto object = std::make_shared<T>(
+            _nextPresentationObjectId--, std::forward<Args>(args)...);
+        object->_runtimeState = Object::RuntimeState::Presentation;
+        object->_runtimeIncarnation = _nextRuntimeIncarnation++;
+        return object;
     }
 
     template <class T, class... Args>
@@ -792,8 +825,13 @@ private:
         std::map<const Object *, uint32_t> savedIdByObject;
         std::set<const Object *> replaceableObjects;
         std::set<uint32_t> reservedSavedObjectIdsToRelease;
+        std::vector<std::shared_ptr<Object>> obsoleteGraph;
+        std::vector<std::shared_ptr<Object>> candidateObjects;
     };
     std::optional<StagedRuntimeObjectGraph> _stagedRuntimeObjectGraph;
+    uint64_t _nextRuntimeIncarnation {1};
+    uint32_t _nextPresentationObjectId {
+        std::numeric_limits<uint32_t>::max() - 1};
     std::set<uint32_t> _reservedSavedObjectIds;
     std::optional<std::string> _reservedSavedIdentityNamespace;
     std::map<uint32_t, std::string> _reservedSavedObjectIdClaims;
@@ -853,7 +891,7 @@ private:
 
     std::unique_ptr<PazaakSession> _pazaakSession;
     std::optional<PazaakCompletedResult> _lastPazaakResult;
-    std::weak_ptr<Object> _pazaakContinuationCaller;
+    RuntimeObjectRef<Object> _pazaakContinuationCaller;
     Screen _pazaakOriginScreen {Screen::None};
     bool _pazaakGUIsReady {false};
     bool _pazaakDevelopmentLaunch {false};
@@ -870,7 +908,7 @@ private:
     bool _pazaakPaceAutomaticDraws {true};
     std::function<bool()> _pazaakGuiLoadOverride;
     std::function<void(const std::string &, uint32_t)> _pazaakContinuationOverride;
-    std::weak_ptr<Object> _pazaakDevelopmentSelectedObjectOverride;
+    RuntimeObjectRef<Object> _pazaakDevelopmentSelectedObjectOverride;
     std::optional<pazaak::SideDeck> _pazaakOpponentDeckOverride;
 
     std::unique_ptr<Map> _map;
@@ -935,6 +973,10 @@ private:
         const std::vector<std::shared_ptr<Object>> &obsoleteObjects);
     void abortRuntimeObjectGraphReplacement();
     void unregisterRuntimeObject(const std::shared_ptr<Object> &object);
+    std::vector<std::shared_ptr<Object>> collectRuntimeObjectGraph(
+        const std::vector<std::shared_ptr<Object>> &roots) const;
+    void discardStagedRuntimeObjects(
+        const std::vector<std::shared_ptr<Object>> &objects);
     void retireActiveAreaRuntime();
 
     template <class T, class... Args>
@@ -952,11 +994,19 @@ private:
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext,
         Args &&...args) {
-        auto object = newObject<T>(std::forward<Args>(args)...);
-        if (identityContext.hasAuthoritativeObjectIds()) {
-            registerSavedObjectIdentity(
-                savedObjectId(gff), object, identityContext);
-        }
+        std::vector<std::shared_ptr<Object>> noObsolete;
+        std::shared_ptr<T> object;
+        replaceRuntimeObjectGraph(
+            noObsolete,
+            [&]() {
+                object = newObject<T>(std::forward<Args>(args)...);
+                if (identityContext.hasAuthoritativeObjectIds()) {
+                    registerSavedObjectIdentity(
+                        savedObjectId(gff), object, identityContext);
+                }
+                object->deserialize(gff, identityContext);
+            },
+            []() noexcept {});
         return object;
     }
     void loadDefaultParty();

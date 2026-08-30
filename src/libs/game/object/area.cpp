@@ -332,7 +332,6 @@ void Area::loadProperties(const resource::generated::GIT &git) {
 void Area::loadCreatures(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (const auto &creatureGff : gff.getList("Creature List")) {
         auto creature = _game.newCreature(*creatureGff, identityContext, _sceneName);
-        creature->deserialize(*creatureGff, identityContext);
         if (identityContext.isSerializedState()) {
             creature->captureSaveRecord(*creatureGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
         }
@@ -344,7 +343,6 @@ void Area::loadCreatures(const resource::Gff &gff, const SerializedIdentityConte
 void Area::loadDoors(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &doorGff : gff.getList("Door List")) {
         auto door = _game.newDoor(*doorGff, identityContext, _sceneName);
-        door->deserialize(*doorGff, identityContext);
         if (identityContext.isSerializedState()) {
             door->captureSaveRecord(*doorGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
         }
@@ -355,7 +353,6 @@ void Area::loadDoors(const resource::Gff &gff, const SerializedIdentityContext &
 void Area::loadPlaceables(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &placeableGff : gff.getList("Placeable List")) {
         auto placeable = _game.newPlaceable(*placeableGff, identityContext, _sceneName);
-        placeable->deserialize(*placeableGff, identityContext);
         if (identityContext.isSerializedState()) {
             placeable->captureSaveRecord(*placeableGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
         }
@@ -366,7 +363,6 @@ void Area::loadPlaceables(const resource::Gff &gff, const SerializedIdentityCont
 void Area::loadWaypoints(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &waypointGff : gff.getList("WaypointList")) {
         auto waypoint = _game.newWaypoint(*waypointGff, identityContext, _sceneName);
-        waypoint->deserialize(*waypointGff, identityContext);
         if (identityContext.isSerializedState()) {
             waypoint->captureSaveRecord(*waypointGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
         }
@@ -377,7 +373,6 @@ void Area::loadWaypoints(const resource::Gff &gff, const SerializedIdentityConte
 void Area::loadTriggers(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &triggerGff : gff.getList("TriggerList")) {
         auto trigger = _game.newTrigger(*triggerGff, identityContext, _sceneName);
-        trigger->deserialize(*triggerGff, identityContext);
         if (identityContext.isSerializedState()) {
             trigger->captureSaveRecord(*triggerGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
         }
@@ -388,7 +383,6 @@ void Area::loadTriggers(const resource::Gff &gff, const SerializedIdentityContex
 void Area::loadSounds(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &soundGff : gff.getList("SoundList")) {
         auto sound = _game.newSound(*soundGff, identityContext, _sceneName);
-        sound->deserialize(*soundGff, identityContext);
         if (identityContext.isSerializedState()) {
             sound->captureSaveRecord(*soundGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
         }
@@ -398,8 +392,15 @@ void Area::loadSounds(const resource::Gff &gff, const SerializedIdentityContext 
 
 void Area::loadCameras(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &cameraGff : gff.getList("CameraList")) {
-        std::shared_ptr<StaticCamera> camera = _game.newStaticCamera(_sceneName);
-        camera->deserialize(*cameraGff);
+        std::vector<std::shared_ptr<Object>> noObsolete;
+        std::shared_ptr<StaticCamera> camera;
+        _game.replaceRuntimeObjectGraph(
+            noObsolete,
+            [&]() {
+                camera = _game.newStaticCamera(_sceneName);
+                camera->deserialize(*cameraGff);
+            },
+            []() noexcept {});
         if (identityContext.isSerializedState()) {
             camera->captureSaveRecord(*cameraGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
         }
@@ -410,7 +411,6 @@ void Area::loadCameras(const resource::Gff &gff, const SerializedIdentityContext
 void Area::loadEncounters(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &encounterGff : gff.getList("Encounter List")) {
         auto encounter = _game.newEncounter(*encounterGff, identityContext, _sceneName);
-        encounter->deserialize(*encounterGff, identityContext);
         if (identityContext.isSerializedState()) {
             encounter->captureSaveRecord(*encounterGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
         }
@@ -421,7 +421,6 @@ void Area::loadEncounters(const resource::Gff &gff, const SerializedIdentityCont
 void Area::loadStores(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &storeGff : gff.getList("StoreList")) {
         auto store = _game.newStore(*storeGff, identityContext, _sceneName);
-        store->deserialize(*storeGff, identityContext);
         if (identityContext.isSerializedState()) {
             store->captureSaveRecord(*storeGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
         }
@@ -433,7 +432,6 @@ void Area::loadStores(const resource::Gff &gff, const SerializedIdentityContext 
 void Area::loadItems(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &itemGff : gff.getList("List")) {
         auto item = _game.newItem(*itemGff, identityContext);
-        item->deserialize(*itemGff, identityContext);
         if (identityContext.isSerializedState()) {
             item->captureSaveRecord(*itemGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
         }
@@ -540,23 +538,30 @@ void Area::initCameras(const glm::vec3 &entryPosition, float entryFacing) {
     glm::vec3 position(entryPosition);
     position.z += 1.7f;
 
-    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    _game.replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            _firstPersonCamera = _game.newFirstPersonCamera(
+                glm::radians(kDefaultFieldOfView), _sceneName);
+            _firstPersonCamera->load();
+            _firstPersonCamera->setPosition(position);
+            _firstPersonCamera->setFacing(entryFacing);
 
-    _firstPersonCamera = _game.newFirstPersonCamera(glm::radians(kDefaultFieldOfView), _sceneName);
-    _firstPersonCamera->load();
-    _firstPersonCamera->setPosition(position);
-    _firstPersonCamera->setFacing(entryFacing);
+            _thirdPersonCamera = _game.newThirdPersonCamera(
+                _camStyleDefault, _sceneName);
+            _thirdPersonCamera->load();
+            _thirdPersonCamera->setTargetPosition(position);
+            _thirdPersonCamera->setFacing(entryFacing);
 
-    _thirdPersonCamera = _game.newThirdPersonCamera(_camStyleDefault, _sceneName);
-    _thirdPersonCamera->load();
-    _thirdPersonCamera->setTargetPosition(position);
-    _thirdPersonCamera->setFacing(entryFacing);
+            _dialogCamera = _game.newDialogCamera(
+                _camStyleDefault, _sceneName);
+            _dialogCamera->load();
 
-    _dialogCamera = _game.newDialogCamera(_camStyleDefault, _sceneName);
-    _dialogCamera->load();
-
-    _animatedCamera = _game.newAnimatedCamera(_sceneName);
-    _animatedCamera->load();
+            _animatedCamera = _game.newAnimatedCamera(_sceneName);
+            _animatedCamera->load();
+        },
+        []() noexcept {});
 }
 
 void Area::add(const std::shared_ptr<Object> &object) {
@@ -572,8 +577,15 @@ void Area::add(const std::shared_ptr<Object> &object) {
             !door->linkedToModule().empty() &&
             !door->linkedTo().empty() &&
             !door->linkedTransitionGeometry().empty()) {
-            auto trigger = _game.newTrigger(_sceneName);
-            trigger->configureLinkedDoorTransition(door);
+            std::vector<std::shared_ptr<Object>> noObsolete;
+            std::shared_ptr<Trigger> trigger;
+            _game.replaceRuntimeObjectGraph(
+                noObsolete,
+                [&]() {
+                    trigger = _game.newTrigger(_sceneName);
+                    trigger->configureLinkedDoorTransition(door);
+                },
+                []() noexcept {});
             add(trigger);
         }
     }
@@ -1479,22 +1491,22 @@ std::shared_ptr<Object> Area::createObject(ObjectType type, const std::string &b
     std::shared_ptr<Object> object;
     switch (type) {
     case ObjectType::Item: {
-        std::shared_ptr<Item> item = _game.newItem();
-        item->loadFromBlueprint(blueprintResRef);
+        std::shared_ptr<Item> item =
+            _game.newItemFromBlueprint(blueprintResRef);
         object = std::move(item);
         break;
     }
     case ObjectType::Creature: {
-        std::shared_ptr<Creature> creature = _game.newCreature();
-        creature->loadFromBlueprint(blueprintResRef);
+        std::shared_ptr<Creature> creature =
+            _game.newCreatureFromBlueprint(blueprintResRef);
         creature->setPosition(location->position());
         creature->setFacing(location->facing());
         object = std::move(creature);
         break;
     }
     case ObjectType::Placeable: {
-        std::shared_ptr<Placeable> placeable = _game.newPlaceable();
-        placeable->loadFromBlueprint(blueprintResRef);
+        std::shared_ptr<Placeable> placeable =
+            _game.newPlaceableFromBlueprint(blueprintResRef);
         object = std::move(placeable);
         break;
     }
@@ -1630,8 +1642,8 @@ static bool matchesPerception(const Creature &creature, const Object *target,
     }
     const Creature &targetCreature = static_cast<const Creature &>(*target);
 
-    bool seen = targetCreature.perception().seen.count(creature.id());
-    bool heard = targetCreature.perception().heard.count(creature.id());
+    bool seen = targetCreature.perception().sees(creature.id());
+    bool heard = targetCreature.perception().hears(creature.id());
 
     switch (perception) {
     case PerceptionType::SeenAndHeard:
@@ -1743,8 +1755,8 @@ void Area::doUpdatePerception() {
             }
 
             // Hearing
-            bool wasHeard = creature->perception().heard.count(other->id()) > 0;
-            bool wasSeen = creature->perception().seen.count(other->id()) > 0;
+            bool wasHeard = creature->perception().hears(other->id());
+            bool wasSeen = creature->perception().sees(other->id());
 
             if (wasHeard == heard && wasSeen == seen) {
                 continue; // no change in perception
@@ -1774,7 +1786,7 @@ void Area::updateMessageBus() {
         }
         Creature &creature = static_cast<Creature &>(*listener);
 
-        bool heard = creature.perception().heard.count(speakerId);
+        bool heard = creature.perception().hears(speakerId);
         if (!creature.isListening() || !heard) {
             return;
         }

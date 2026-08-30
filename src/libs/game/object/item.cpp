@@ -225,7 +225,7 @@ void Item::loadAmmunitionType() {
     _ammunitionType->impactSound2 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "impactsound1")));
 }
 
-void Item::clone(Item &from) {
+void Item::clone(const Item &from) {
     // Object
     _tag = from._tag;
     _name = from._name;

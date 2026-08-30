@@ -18,6 +18,7 @@
 #pragma once
 
 #include "savedruntime.h"
+#include "runtimeref.h"
 #include "types.h"
 
 namespace reone {
@@ -88,6 +89,12 @@ public:
         return _savedAction;
     }
 
+    /**
+     * True while every non-owning gameplay object used by this action still
+     * denotes the exact live incarnation captured by the action.
+     */
+    bool runtimeDependenciesLive() const;
+
 protected:
     const float kDefaultMaxObjectDistance = 2.0f;
     const float kDistanceWalk = 4.0f;
@@ -101,6 +108,9 @@ protected:
     bool _cancelled {false};
     bool _locked {false};
     std::optional<SavedActionRecord> _savedAction;
+    std::vector<RuntimeObjectRef<Object>> _runtimeDependencies;
+
+    void requireRuntimeObject(const std::shared_ptr<Object> &object);
 
     Action(
         Game &game,

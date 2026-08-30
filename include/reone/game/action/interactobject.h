@@ -29,6 +29,7 @@ public:
     InteractObjectAction(Game &game, ServicesView &services, std::shared_ptr<Placeable> placeable) :
         Action(game, services, ActionType::InteractObject),
         _placeable(std::move(placeable)) {
+        requireRuntimeObject(_placeable);
     }
 
     static bool classof(Action *from) {

@@ -120,7 +120,7 @@ private:
     // END Serializable
 
     std::set<std::shared_ptr<Object>> _tenants;
-    std::weak_ptr<Door> _linkedDoor;
+    RuntimeObjectRef<Door> _linkedDoor;
     bool _linkedDoorTransition {false};
     float _debugTestAge {0.0f};
     float _debugInsideAge {0.0f};

@@ -50,6 +50,13 @@ class Room;
 
 class Object : public scene::IUser, boost::noncopyable {
 public:
+    enum class RuntimeState {
+        Constructing,
+        Live,
+        Retired,
+        Presentation,
+    };
+
     virtual ~Object() = default;
 
     static bool classof(Object *from) {
@@ -89,6 +96,11 @@ public:
     float getFacing() const { return glm::eulerAngles(_orientation).z; }
 
     uint32_t id() const { return _id; }
+    bool isRuntimeLive() const { return _runtimeState == RuntimeState::Live; }
+    bool isPresentationOnly() const {
+        return _runtimeState == RuntimeState::Presentation;
+    }
+    uint64_t runtimeIncarnation() const { return _runtimeIncarnation; }
     const std::string &tag() const { return _tag; }
     ObjectType type() const { return _type; }
     const std::string &blueprintResRef() const { return _blueprintResRef; }
@@ -292,6 +304,8 @@ protected:
     };
 
     uint32_t _id;
+    RuntimeState _runtimeState {RuntimeState::Constructing};
+    uint64_t _runtimeIncarnation {0};
     ObjectType _type;
     std::string _sceneName;
     Game &_game;
@@ -350,7 +364,7 @@ protected:
 
     // Local variables
     std::map<std::string, uint32_t> _savedReferenceIds;
-    std::map<std::string, std::weak_ptr<Object>> _savedReferences;
+    std::map<std::string, RuntimeObjectRef<Object>> _savedReferences;
     std::vector<EffectInstance> _savedEffects;
     SavedActionQueue _savedActionQueue;
     SerializedIdentityContext _savedRuntimeIdentityContext;

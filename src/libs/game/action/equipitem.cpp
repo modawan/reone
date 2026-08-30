@@ -16,7 +16,10 @@
  */
 
 #include "reone/game/action/equipitem.h"
+#include "reone/game/equipmentrules.h"
+#include "reone/game/game.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/item.h"
 
 namespace reone {
 
@@ -28,7 +31,30 @@ void EquipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float
         complete();
         return;
     }
-    creature->equip(_inventorySlot, _item);
+    auto candidate = _item;
+    uint32_t ownerId = candidate->owner();
+    if (ownerId != 0 && ownerId != script::kObjectInvalid) {
+        auto owner = _game.getObjectById(ownerId);
+        if (!owner) {
+            complete();
+            return;
+        }
+        if (auto equippedOwner = std::dynamic_pointer_cast<Creature>(owner);
+            equippedOwner && candidate->isEquipped()) {
+            equippedOwner->unequip(candidate);
+        } else {
+            candidate = takeEquipmentCandidate(_game, *owner, candidate);
+        }
+    }
+    if (!candidate || !creature->equip(_inventorySlot, candidate)) {
+        if (candidate && candidate->owner() == 0) {
+            auto receiver = _game.party().sharedInventoryReceiver(
+                _game.getObjectById(actor.id()));
+            if (receiver) receiver->addItem(candidate);
+        }
+        complete();
+        return;
+    }
     creature->playAnimation(CombatAnimation::Draw, creature->getWieldType());
     complete();
 }

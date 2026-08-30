@@ -251,7 +251,7 @@ bool Trigger::isActive() const {
     if (!_linkedDoorTransition) {
         return true;
     }
-    auto door = _linkedDoor.lock();
+    auto door = _linkedDoor.resolve();
     return door && door->isOpen();
 }
 
@@ -271,7 +271,7 @@ bool Trigger::acceptsTransitionActivator(const std::shared_ptr<Object> &activato
 }
 
 bool Trigger::detachLinkedDoorTransition(const Door &door) {
-    auto linkedDoor = _linkedDoor.lock();
+    auto linkedDoor = _linkedDoor.resolve();
     if (!_linkedDoorTransition || linkedDoor.get() != &door) {
         return false;
     }

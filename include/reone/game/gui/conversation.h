@@ -25,6 +25,7 @@
 
 #include "../gui.h"
 #include "../object.h"
+#include "../runtimeref.h"
 #include "../types.h"
 
 namespace reone {
@@ -63,8 +64,9 @@ public:
     void setAutoSkip(AutoSkip *skip) { _autoSkip = skip; }
 
 protected:
+    std::shared_ptr<Object> owner() const { return _owner.resolve(); }
     std::shared_ptr<resource::Dialog> _dialog;
-    std::shared_ptr<Object> _owner;
+    RuntimeObjectRef<Object> _owner;
     std::shared_ptr<graphics::Model> _cameraModel;
     std::shared_ptr<graphics::LipAnimation> _lipAnimation;
     const resource::Dialog::EntryReply *_currentEntry {nullptr};

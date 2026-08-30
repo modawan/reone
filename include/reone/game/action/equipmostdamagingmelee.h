@@ -29,6 +29,7 @@ public:
         Action(game, services, ActionType::EquipMostDamagingMelee),
         _versus(std::move(versus)),
         _offHand(offHand) {
+        requireRuntimeObject(_versus);
     }
 
     static bool classof(Action *from) {

@@ -351,24 +351,31 @@ void CharacterGeneration::finish() {
         // generation runtime. Retire them before publishing the new game.
         _game.retireRuntimeSession();
 
-        std::shared_ptr<Creature> player = _game.newCreature();
-        player->setTag(kObjectTagPlayer);
-        player->setName(_character.name);
-        player->setGender(_character.gender);
-        player->setAppearance(_character.appearance);
-        player->loadAppearance();
-        player->setFaction(Faction::Friendly1);
-        player->setImmortal(true);
-        player->attributes() = _character.attributes;
+        std::vector<std::shared_ptr<Object>> noObsolete;
+        std::shared_ptr<Creature> player;
+        _game.replaceRuntimeObjectGraph(
+            noObsolete,
+            [&]() {
+                player = _game.newCreature();
+                player->setTag(kObjectTagPlayer);
+                player->setName(_character.name);
+                player->setGender(_character.gender);
+                player->setAppearance(_character.appearance);
+                player->loadAppearance();
+                player->setFaction(Faction::Friendly1);
+                player->setImmortal(true);
+                player->attributes() = _character.attributes;
 
-        player->setOnHeartbeat("k_hen_heartbt01");
-        player->setOnSpawn("k_hen_spawn01");
-        player->setOnNotice("k_hen_percept01");
-        player->setOnEndRound("k_hen_combend01");
-        player->setOnAttacked("k_hen_attacked01");
-        player->setOnDamaged("k_hen_damage01");
-        player->setOnBlocked("k_hen_blocked01");
-        player->setOnDialogue("k_hen_dialogue01");
+                player->setOnHeartbeat("k_hen_heartbt01");
+                player->setOnSpawn("k_hen_spawn01");
+                player->setOnNotice("k_hen_percept01");
+                player->setOnEndRound("k_hen_combend01");
+                player->setOnAttacked("k_hen_attacked01");
+                player->setOnDamaged("k_hen_damage01");
+                player->setOnBlocked("k_hen_blocked01");
+                player->setOnDialogue("k_hen_dialogue01");
+            },
+            []() noexcept {});
 
         Party &party = _game.party();
         party.reset();
@@ -421,7 +428,8 @@ void CharacterGeneration::reloadCharacterModel() {
 }
 
 std::shared_ptr<ModelSceneNode> CharacterGeneration::getCharacterModel(ISceneGraph &sceneGraph) {
-    std::shared_ptr<Creature> creature = _game.newCreature(sceneGraph.name());
+    std::shared_ptr<Creature> creature =
+        _game.newPresentationCreature(sceneGraph.name());
     creature->setFacing(-glm::half_pi<float>());
     creature->setAppearance(_character.appearance);
     creature->equip("g_a_clothes01");

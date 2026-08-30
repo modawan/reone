@@ -18,6 +18,7 @@
 #pragma once
 
 #include "../effect.h"
+#include "../object.h"
 
 namespace reone {
 
@@ -27,23 +28,24 @@ class ForceJumpEffect : public Effect {
 public:
     ForceJumpEffect(std::shared_ptr<Object> target, int advanced) :
         Effect(EffectType::ForceJump),
-        _target(std::move(target)),
+        _target(target),
         _advanced(advanced) {
         setSaveFacingInteger(0, advanced);
-        setSaveFacingObject(0, _target);
+        setSaveFacingObject(0, target);
     }
 
     void applyTo(Object &object) override {
     }
     void retireAreaRuntime(
         const std::set<const Object *> &retainedObjects) override {
-        if (_target && retainedObjects.count(_target.get()) == 0) {
+        auto target = _target.resolve();
+        if (!target || retainedObjects.count(target.get()) == 0) {
             _target.reset();
         }
     }
 
 private:
-    std::shared_ptr<Object> _target;
+    RuntimeObjectRef<Object> _target;
     int _advanced;
 };
 

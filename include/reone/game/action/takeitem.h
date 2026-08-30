@@ -31,6 +31,8 @@ public:
         Action(game, services, ActionType::TakeItem),
         _item(std::move(item)),
         _takeFrom(std::move(takeFrom)) {
+        requireRuntimeObject(_item);
+        requireRuntimeObject(_takeFrom);
     }
 
     static bool classof(Action *from) {

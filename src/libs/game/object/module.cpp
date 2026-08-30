@@ -169,7 +169,6 @@ void Module::loadLimboCreatures(const resource::Gff &ifo) {
     const auto identityContext = SerializedIdentityContext::moduleGraph(_name);
     for (const auto &creatureGff : ifo.getList("Creature List")) {
         auto creature = _game.newCreature(*creatureGff, identityContext);
-        creature->deserialize(*creatureGff, identityContext);
         creature->captureSaveRecord(
             *creatureGff,
             identityContext,

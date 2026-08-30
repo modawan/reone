@@ -28,6 +28,7 @@ public:
     EquipMostDamagingRangedAction(Game &game, ServicesView &services, std::shared_ptr<Object> versus) :
         Action(game, services, ActionType::EquipMostDamagingRanged),
         _versus(std::move(versus)) {
+        requireRuntimeObject(_versus);
     }
 
     static bool classof(Action *from) {

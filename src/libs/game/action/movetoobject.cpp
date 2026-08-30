@@ -38,6 +38,7 @@ MoveToObjectAction::MoveToObjectAction(
     _range(range),
     _force(force),
     _timeout(timeout) {
+    requireRuntimeObject(_moveTo);
     if (_moveTo) {
         _forcedState.destination = _moveTo->position();
     }
@@ -53,6 +54,7 @@ MoveToObjectAction::MoveToObjectAction(
     _force(true),
     _timeout(timeout),
     _forcedState(std::move(forcedState)) {
+    requireRuntimeObject(_moveTo);
 }
 
 void MoveToObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {

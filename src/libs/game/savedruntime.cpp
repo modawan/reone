@@ -27,6 +27,10 @@ namespace reone {
 
 namespace game {
 
+std::shared_ptr<Object> SavedObjectReference::boundObject() const {
+    return _object.resolve();
+}
+
 namespace {
 
 template <class... Visitors>

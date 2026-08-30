@@ -33,6 +33,7 @@
 #include "../d20/attributes.h"
 #include "../d20/itemattributes.h"
 #include "../object.h"
+#include "../runtimeref.h"
 #include "../pathfinder.h"
 
 #include "item.h"
@@ -74,16 +75,25 @@ public:
     struct Perception {
         float sightRange {0.0f};
         float hearingRange {0.0f};
-        std::set<uint32_t> seen;
-        std::set<uint32_t> heard;
+        std::map<uint32_t, RuntimeObjectRef<Object>> seen;
+        std::map<uint32_t, RuntimeObjectRef<Object>> heard;
+
+        bool sees(uint32_t id) const {
+            auto found = seen.find(id);
+            return found != seen.end() && found->second.resolve() != nullptr;
+        }
+        bool hears(uint32_t id) const {
+            auto found = heard.find(id);
+            return found != heard.end() && found->second.resolve() != nullptr;
+        }
     };
 
     struct CombatState {
         bool active {false};
         bool shouldDeactivate {false};
         bool debilitated {false};
-        std::shared_ptr<Object> attackTarget;
-        uint32_t attemptedAttackTarget {script::kObjectInvalid};
+        RuntimeObjectRef<Object> attackTarget;
+        RuntimeObjectRef<Object> attemptedAttackTarget;
         ActionType attackAction {ActionType::QueueEmpty};
         FeatType combatFeat {FeatType::Invalid};
         Timer deactivationTimer;
@@ -281,8 +291,13 @@ public:
     int forcePoints() const { return _forcePoints; }
     int currentForce() const { return _currentForce; }
 
-    uint32_t getAttemptedAttackTarget() const { return _combatState.attemptedAttackTarget; }
-    std::shared_ptr<Object> getAttackTarget() const { return _combatState.attackTarget; }
+    uint32_t getAttemptedAttackTarget() const {
+        auto target = _combatState.attemptedAttackTarget.resolve();
+        return target ? target->id() : script::kObjectInvalid;
+    }
+    std::shared_ptr<Object> getAttackTarget() const {
+        return _combatState.attackTarget.resolve();
+    }
     uint32_t getLastHostileTarget() const { return _lastHostileTarget; }
     ActionType getLastAttackAction() const { return _lastAttackAction; }
     FeatType getLastCombatFeat() const { return _lastCombatFeat; }
@@ -315,9 +330,7 @@ public:
     void getMainHandDamage(int &min, int &max) const;
     void getOffhandDamage(int &min, int &max) const;
 
-    void setAttemptedAttackTarget(uint32_t target) {
-        _combatState.attemptedAttackTarget = target;
-    }
+    void setAttemptedAttackTarget(uint32_t target);
     void beginCombatAttack(std::shared_ptr<Object> target, FeatType feat);
     void finishCombatRound();
     void setLastAttackResult(AttackResultType result) { _lastAttackResult = result; }

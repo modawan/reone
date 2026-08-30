@@ -79,7 +79,7 @@ public:
     void deserialize(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
-    void clone(Item &from);
+    void clone(const Item &from);
 
     void update(float dt) override;
 

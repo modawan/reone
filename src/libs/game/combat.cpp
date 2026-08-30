@@ -119,7 +119,7 @@ static std::shared_ptr<Creature> findNearestEnemy(
         bool isEnemy = observer.id() == attacker.id()
                            ? reputes.getIsEnemy(attacker, *candidate)
                            : reputes.getIsEnemy(*candidate, attacker);
-        if (!isEnemy || observer.perception().seen.count(candidate->id()) == 0) {
+        if (!isEnemy || !observer.perception().sees(candidate->id())) {
             continue;
         }
 

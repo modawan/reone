@@ -320,6 +320,20 @@ TEST(RosterBinding, availability_is_partytable_state_not_binding_presence) {
     EXPECT_FALSE(harness.game.party().persistedState().npcAvailable[0]);
 }
 
+TEST(RosterBinding, removing_inactive_availability_finalizes_runtime_binding) {
+    RosterHarness harness;
+    auto creature = harness.creature("companion");
+    ASSERT_TRUE(harness.game.party().addAvailableMember(0, creature));
+    ASSERT_TRUE(harness.game.isRuntimeObjectLive(*creature));
+
+    ASSERT_TRUE(harness.game.party().removeAvailableMember(0));
+
+    EXPECT_FALSE(harness.game.party().isMemberAvailable(0));
+    EXPECT_FALSE(harness.game.party().getAvailableMember(0));
+    EXPECT_FALSE(harness.game.isRuntimeObjectLive(*creature));
+    EXPECT_FALSE(harness.game.getObjectById(creature->id()));
+}
+
 TEST(RosterBinding, npc_selectability_is_distinct_persisted_partytable_state) {
     RosterHarness harness;
 

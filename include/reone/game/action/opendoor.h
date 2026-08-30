@@ -18,6 +18,7 @@
 #pragma once
 
 #include "../action.h"
+#include "../object/door.h"
 
 namespace reone {
 
@@ -32,6 +33,7 @@ public:
                    std::shared_ptr<Door> door) :
         Action(game, services, ActionType::OpenDoor),
         _door(std::move(door)) {
+        requireRuntimeObject(_door);
     }
 
     static bool classof(Action *from) {

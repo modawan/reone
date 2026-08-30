@@ -1260,8 +1260,12 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
             perception->deepCopy());
     }
     std::set<uint32_t> perceived;
-    perceived.insert(creature._perception.seen.begin(), creature._perception.seen.end());
-    perceived.insert(creature._perception.heard.begin(), creature._perception.heard.end());
+    for (const auto &[id, reference] : creature._perception.seen) {
+        if (reference.resolve()) perceived.insert(id);
+    }
+    for (const auto &[id, reference] : creature._perception.heard) {
+        if (reference.resolve()) perceived.insert(id);
+    }
     std::vector<std::shared_ptr<Gff>> perceptions;
     for (uint32_t id : perceived) {
         auto objectIt = _game._objectById.find(id);
@@ -1274,8 +1278,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
                               : emptyRecord(0);
         uint8_t data = static_cast<uint8_t>(
             perception->getUint("PerceptionData") & ~0x3u);
-        if (creature._perception.seen.count(id) != 0) data |= 0x1;
-        if (creature._perception.heard.count(id) != 0) data |= 0x2;
+        if (creature._perception.sees(id)) data |= 0x1;
+        if (creature._perception.hears(id)) data |= 0x2;
         put(*perception, Gff::Field::newDword("ObjectId", savedId));
         put(*perception, Gff::Field::newByte("PerceptionData", data));
         perceptions.push_back(std::move(perception));
