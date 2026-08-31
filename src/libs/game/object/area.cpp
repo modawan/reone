@@ -1861,19 +1861,16 @@ void Area::doUpdatePerception() {
 }
 
 void Area::updateMessageBus() {
-    _messageBus.update([this](uint32_t speakerId, uint32_t listenerId,
-                              int32_t number, TalkVolume volume) {
-        auto listener = _game.getObjectById(listenerId);
-        if (listener->type() != ObjectType::Creature) {
+    _messageBus.update([this](
+                           uint32_t speakerId,
+                           const std::shared_ptr<Creature> &listener,
+                           int32_t number,
+                           TalkVolume volume) {
+        bool heard = listener->perception().hears(speakerId);
+        if (!listener->isListening() || !heard) {
             return;
         }
-        Creature &creature = static_cast<Creature &>(*listener);
-
-        bool heard = creature.perception().hears(speakerId);
-        if (!creature.isListening() || !heard) {
-            return;
-        }
-        creature.runDialogueScript(speakerId, number);
+        listener->runDialogueScript(speakerId, number);
     });
 }
 

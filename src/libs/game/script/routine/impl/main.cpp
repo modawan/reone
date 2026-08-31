@@ -1860,7 +1860,7 @@ static Variable SetListenPattern(const std::vector<Variable> &args, const Routin
     auto creature = checkCreature(oObject);
 
     // Execute
-    ctx.game.module()->area()->messageBus().addListener(creature->id(), sPattern, nNumber);
+    ctx.game.module()->area()->messageBus().addListener(creature, sPattern, nNumber);
     return Variable::ofNull();
 }
 

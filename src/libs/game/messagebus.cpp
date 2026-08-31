@@ -17,20 +17,30 @@
 
 #include "reone/game/messagebus.h"
 
+#include <algorithm>
+
 #include "reone/game/object/creature.h"
 
 namespace reone {
 namespace game {
 
-void MessageBus::addListener(uint32_t listenerId, std::string pattern, int32_t number) {
+void MessageBus::addListener(
+    const std::shared_ptr<Creature> &listener,
+    std::string pattern,
+    int32_t number) {
+    if (!listener || !listener->isRuntimeLive()) {
+        return;
+    }
+
+    pruneDeadListeners();
     ListenerVec &vec = _listeners[pattern];
-    for (Listener &listener : vec) {
-        if (listenerId == listener.id) {
-            listener.number = number;
+    for (Listener &entry : vec) {
+        if (entry.object.resolve() == listener) {
+            entry.number = number;
             return;
         }
     }
-    vec.push_back({listenerId, number});
+    vec.push_back({RuntimeObjectRef<Creature>(listener), number});
 }
 
 void MessageBus::addMessage(uint32_t speakerId, std::string pattern, TalkVolume volume) {
@@ -38,18 +48,57 @@ void MessageBus::addMessage(uint32_t speakerId, std::string pattern, TalkVolume 
 }
 
 void MessageBus::update(OnMessage onMessage) {
+    pruneDeadListeners();
     while (!_pendingMessages.empty()) {
-        Message &msg = _pendingMessages.front();
+        Message msg = std::move(_pendingMessages.front());
+        _pendingMessages.pop();
 
         // Pattern may be a regexp (** for a sequence of any characters, *n for numbers, etc.)
         // KOTOR does not seem to have these yet, so we only match the whole string.
 
-        ListenerVec &vec = _listeners[msg.str];
-
-        for (Listener &listener : vec) {
-            onMessage(msg.speakerId, listener.id, listener.number, msg.volume);
+        auto found = _listeners.find(msg.str);
+        if (found == _listeners.end()) {
+            continue;
         }
-        _pendingMessages.pop();
+
+        // Scripts may add listeners or destroy this or another listener while
+        // handling a message. Iterate a snapshot so map/vector mutation cannot
+        // invalidate dispatch, and resolve every entry immediately before use.
+        const ListenerVec listeners = found->second;
+        for (const Listener &entry : listeners) {
+            auto listener = entry.object.resolve();
+            if (!listener) {
+                continue;
+            }
+            onMessage(msg.speakerId, listener, entry.number, msg.volume);
+        }
+        pruneDeadListeners();
+    }
+}
+
+size_t MessageBus::listenerCount() const {
+    size_t result = 0;
+    for (const auto &[_, listeners] : _listeners) {
+        result += listeners.size();
+    }
+    return result;
+}
+
+void MessageBus::pruneDeadListeners() {
+    for (auto found = _listeners.begin(); found != _listeners.end();) {
+        auto &listeners = found->second;
+        listeners.erase(
+            std::remove_if(
+                listeners.begin(), listeners.end(),
+                [](const Listener &entry) {
+                    return entry.object.resolve() == nullptr;
+                }),
+            listeners.end());
+        if (listeners.empty()) {
+            found = _listeners.erase(found);
+        } else {
+            ++found;
+        }
     }
 }
 
