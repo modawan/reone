@@ -123,10 +123,11 @@ void configureRuntimeMocks(
         .WillByDefault(ReturnRef(sceneGraph));
 }
 
-std::shared_ptr<resource::TwoDA> runtimeBaseItems() {
+std::shared_ptr<resource::TwoDA> runtimeBaseItems(int maxStack = 99) {
     resource::TwoDA::Builder builder;
-    builder.columns({"equipableslots", "itemclass", "ammunitiontype"});
-    builder.row({"2", "i_test", "0"});
+    builder.columns(
+        {"equipableslots", "itemclass", "ammunitiontype", "maxstack"});
+    builder.row({"2", "i_test", "0", std::to_string(maxStack)});
     return std::shared_ptr<resource::TwoDA>(builder.build());
 }
 
@@ -149,12 +150,15 @@ std::shared_ptr<resource::TwoDA> runtimeAppearances() {
 std::shared_ptr<resource::Gff> runtimeItem(
     std::string tag,
     std::optional<uint32_t> savedId = std::nullopt,
-    uint32_t structType = 0) {
+    uint32_t structType = 0,
+    uint16_t stackSize = 1,
+    uint8_t charges = 0) {
     resource::Gff::Builder builder;
     builder.type(structType)
         .field(resource::Gff::Field::newCExoString("Tag", std::move(tag)))
         .field(resource::Gff::Field::newInt("BaseItem", 0))
-        .field(resource::Gff::Field::newWord("StackSize", 1));
+        .field(resource::Gff::Field::newWord("StackSize", stackSize))
+        .field(resource::Gff::Field::newByte("Charges", charges));
     if (savedId) {
         builder.field(resource::Gff::Field::newDword("ObjectId", *savedId));
     }
@@ -1217,6 +1221,33 @@ TEST(RuntimeObjectIntegrity, savewide_party_inventory_replacement_retires_old_it
               player->items().front()->saveRecordProvenance()->origin.kind);
 }
 
+TEST(RuntimeObjectIntegrity, savewide_party_inventory_coalesces_records_without_object_ids) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().setActualPlayer(player);
+    auto inventory = resource::Gff::Builder()
+                         .field(resource::Gff::Field::newList(
+                             "ItemList",
+                             {runtimeItem("computer_spike", std::nullopt, 0, 2),
+                              runtimeItem("computer_spike", std::nullopt, 0, 3)}))
+                         .build();
+
+    TestGameModule::deserializeInventory(game, *inventory);
+
+    ASSERT_EQ(1u, player->items().size());
+    EXPECT_EQ(5, player->items().front()->stackSize());
+    EXPECT_EQ(player->id(), player->items().front()->owner());
+}
+
 TEST(RuntimeObjectIntegrity, failed_graph_replacement_preserves_old_graph_and_cursor) {
     TestEngine engine;
     engine.init();
@@ -1298,6 +1329,232 @@ TEST(RuntimeObjectIntegrity, store_and_placeable_replace_owned_items_immediately
     ASSERT_EQ(1u, placeable->items().size());
     EXPECT_EQ(placeable->items().front(),
               game.getObjectById(placeable->items().front()->id()));
+}
+
+TEST(RuntimeObjectIntegrity, staged_template_container_coalesces_item_records) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("placeables"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimePlaceables()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto placeable = game.newPlaceable();
+    const size_t registrySize = TestGameModule::objectRegistrySize(game);
+    auto record = resource::Gff::Builder()
+                      .field(resource::Gff::Field::newDword("Appearance", 0))
+                      .field(resource::Gff::Field::newList(
+                          "ItemList",
+                          {runtimeItem("computer_spike"),
+                           runtimeItem("computer_spike"),
+                           runtimeItem("computer_spike"),
+                           runtimeItem("computer_spike"),
+                           runtimeItem("computer_spike")}))
+                      .build();
+
+    placeable->deserialize(
+        *record,
+        SerializedIdentityContext::templateResource("endar_footlocker"));
+
+    ASSERT_EQ(1u, placeable->items().size());
+    EXPECT_EQ(5, placeable->items().front()->stackSize());
+    EXPECT_EQ(placeable->id(), placeable->items().front()->owner());
+    EXPECT_TRUE(placeable->items().front()->isRuntimeLive());
+    EXPECT_EQ(registrySize + 1, TestGameModule::objectRegistrySize(game));
+}
+
+TEST(RuntimeObjectIntegrity, staged_creature_and_detached_inventory_coalesce) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeAppearances()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(
+        static_cast<MockPortraits &>(engine.services().game.portraits),
+        getTextureByAppearance(_))
+        .Times(AnyNumber());
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto creature = game.newCreature();
+    auto record = resource::Gff::Builder()
+                      .field(resource::Gff::Field::newList(
+                          "ItemList",
+                          {runtimeItem("repair_part", std::nullopt, 0, 2),
+                           runtimeItem("repair_part", std::nullopt, 0, 3)}))
+                      .build();
+
+    creature->deserialize(
+        *record,
+        SerializedIdentityContext::detachedRecord("availnpc0.utc"));
+
+    ASSERT_EQ(1u, creature->items().size());
+    EXPECT_EQ(5, creature->items().front()->stackSize());
+    ASSERT_TRUE(creature->items().front()->saveRecordProvenance());
+    EXPECT_FALSE(creature->items().front()->serializedObjectIdentity());
+}
+
+TEST(RuntimeObjectIntegrity, staged_stack_coalescing_obeys_retail_maximum) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems(10)));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("placeables"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimePlaceables()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto load = [&](std::vector<std::shared_ptr<resource::Gff>> items) {
+        auto placeable = game.newPlaceable();
+        auto record = resource::Gff::Builder()
+                          .field(resource::Gff::Field::newDword("Appearance", 0))
+                          .field(resource::Gff::Field::newList(
+                              "ItemList", std::move(items)))
+                          .build();
+        placeable->deserialize(
+            *record,
+            SerializedIdentityContext::templateResource("max_stack"));
+        return placeable;
+    };
+
+    auto below = load(
+        {runtimeItem("parts", std::nullopt, 0, 4),
+         runtimeItem("parts", std::nullopt, 0, 5)});
+    ASSERT_EQ(1u, below->items().size());
+    EXPECT_EQ(9, below->items()[0]->stackSize());
+
+    auto exact = load(
+        {runtimeItem("parts", std::nullopt, 0, 4),
+         runtimeItem("parts", std::nullopt, 0, 6)});
+    ASSERT_EQ(1u, exact->items().size());
+    EXPECT_EQ(10, exact->items()[0]->stackSize());
+
+    auto above = load(
+        {runtimeItem("parts", std::nullopt, 0, 6),
+         runtimeItem("parts", std::nullopt, 0, 6),
+         runtimeItem("parts", std::nullopt, 0, 6)});
+    ASSERT_EQ(2u, above->items().size());
+    EXPECT_EQ(10, above->items()[0]->stackSize());
+    EXPECT_EQ(8, above->items()[1]->stackSize());
+
+    auto several = load(
+        {runtimeItem("parts", std::nullopt, 0, 6),
+         runtimeItem("parts", std::nullopt, 0, 6),
+         runtimeItem("parts", std::nullopt, 0, 6),
+         runtimeItem("parts", std::nullopt, 0, 6),
+         runtimeItem("parts", std::nullopt, 0, 6),
+         runtimeItem("parts", std::nullopt, 0, 1)});
+    ASSERT_EQ(4u, several->items().size());
+    EXPECT_EQ(10, several->items()[0]->stackSize());
+    EXPECT_EQ(10, several->items()[1]->stackSize());
+    EXPECT_EQ(10, several->items()[2]->stackSize());
+    EXPECT_EQ(1, several->items()[3]->stackSize());
+}
+
+TEST(RuntimeObjectIntegrity, staged_authoritative_item_identities_remain_distinct) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("placeables"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimePlaceables()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto placeable = game.newPlaceable();
+    auto record = resource::Gff::Builder()
+                      .field(resource::Gff::Field::newDword("Appearance", 0))
+                      .field(resource::Gff::Field::newList(
+                          "ItemList",
+                          {runtimeItem("saved_stack", 870),
+                           runtimeItem("saved_stack", 871)}))
+                      .build();
+
+    placeable->deserialize(
+        *record, SerializedIdentityContext::moduleGraph("saved_inventory"));
+
+    ASSERT_EQ(2u, placeable->items().size());
+    EXPECT_EQ(placeable->items()[0], game.getObjectBySavedId(870));
+    EXPECT_EQ(placeable->items()[1], game.getObjectBySavedId(871));
+    EXPECT_NE(placeable->items()[0], placeable->items()[1]);
+
+    auto detached = game.newPlaceable();
+    auto detachedRecord = resource::Gff::Builder()
+                              .field(resource::Gff::Field::newDword("Appearance", 0))
+                              .field(resource::Gff::Field::newList(
+                                  "ItemList",
+                                  {runtimeItem("detached_stack", 880),
+                                   runtimeItem("detached_stack", 881)}))
+                              .build();
+    const auto detachedContext =
+        SerializedIdentityContext::detachedRecord("inventory.res");
+
+    detached->deserialize(*detachedRecord, detachedContext);
+
+    ASSERT_EQ(2u, detached->items().size());
+    EXPECT_EQ(
+        detached->items()[0]->serializedObjectIdentity(),
+        std::optional<SerializedObjectIdentity>({detachedContext, 880}));
+    EXPECT_EQ(
+        detached->items()[1]->serializedObjectIdentity(),
+        std::optional<SerializedObjectIdentity>({detachedContext, 881}));
+    EXPECT_FALSE(game.getObjectBySavedId(880));
+    EXPECT_FALSE(game.getObjectBySavedId(881));
+}
+
+TEST(RuntimeObjectIntegrity, staged_stack_compatibility_preserves_distinct_state_and_equipment) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeAppearances()));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(
+        static_cast<MockPortraits &>(engine.services().game.portraits),
+        getTextureByAppearance(_))
+        .Times(AnyNumber());
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto creature = game.newCreature();
+    auto record = resource::Gff::Builder()
+                      .field(resource::Gff::Field::newList(
+                          "ItemList",
+                          {runtimeItem("same_tag", std::nullopt, 0, 1, 0),
+                           runtimeItem("same_tag", std::nullopt, 0, 1, 1)}))
+                      .field(resource::Gff::Field::newList(
+                          "Equip_ItemList",
+                          {runtimeItem(
+                              "same_tag",
+                              std::nullopt,
+                              1u << InventorySlots::body)}))
+                      .build();
+
+    creature->deserialize(
+        *record, SerializedIdentityContext::templateResource("creature_items"));
+
+    ASSERT_EQ(2u, creature->items().size());
+    ASSERT_TRUE(creature->getEquippedItem(InventorySlots::body));
+    EXPECT_TRUE(creature->getEquippedItem(InventorySlots::body)->isEquipped());
+    EXPECT_EQ(creature->id(), creature->getEquippedItem(InventorySlots::body)->owner());
 }
 
 TEST(RuntimeObjectIntegrity, area_destruction_ends_registry_and_saved_visibility) {
@@ -1581,6 +1838,37 @@ TEST(RuntimeObjectOwnership, stack_merge_finalizes_consumed_item) {
     EXPECT_FALSE(consumed->isRuntimeLive());
     EXPECT_FALSE(game.getObjectById(consumed->id()));
     EXPECT_EQ(registrySize - 1, TestGameModule::objectRegistrySize(game));
+}
+
+TEST(RuntimeObjectOwnership, runtime_stack_merge_uses_the_retail_maximum) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems(10)));
+    EXPECT_CALL(engine.resourceModule().textures(), get(_, _)).Times(AnyNumber());
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto owner = game.newCreature();
+    auto retained = game.newItem();
+    retained->deserialize(
+        *runtimeItem("stack", std::nullopt, 0, 8),
+        SerializedIdentityContext::templateResource());
+    auto remainder = game.newItem();
+    remainder->deserialize(
+        *runtimeItem("stack", std::nullopt, 0, 5),
+        SerializedIdentityContext::templateResource());
+    owner->addItem(retained);
+
+    owner->addItem(remainder);
+
+    ASSERT_EQ(2u, owner->items().size());
+    EXPECT_EQ(10, retained->stackSize());
+    EXPECT_EQ(3, remainder->stackSize());
+    EXPECT_EQ(owner->id(), retained->owner());
+    EXPECT_EQ(owner->id(), remainder->owner());
+    EXPECT_TRUE(retained->isRuntimeLive());
+    EXPECT_TRUE(remainder->isRuntimeLive());
 }
 
 TEST(RuntimeObjectOwnership, equipment_replacement_disposes_previous_item) {

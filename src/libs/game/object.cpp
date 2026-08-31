@@ -94,6 +94,35 @@ std::vector<std::shared_ptr<Object>> Object::ownedRuntimeObjects() const {
     return {_items.begin(), _items.end()};
 }
 
+std::shared_ptr<Item> Object::appendOwnedItemCandidate(
+    std::vector<std::shared_ptr<Item>> &items,
+    const std::shared_ptr<Item> &item,
+    bool preserveSerializedIdentities) {
+    if (!item) {
+        throw ValidationException("Cannot stage a null owned Item");
+    }
+    for (const auto &existing : items) {
+        if (!existing || existing.get() == item.get()) {
+            continue;
+        }
+        if (preserveSerializedIdentities &&
+            (existing->serializedObjectIdentity() ||
+             item->serializedObjectIdentity())) {
+            continue;
+        }
+        if (!existing->isStackCompatibleWith(*item)) {
+            continue;
+        }
+        if (existing->mergeStackFrom(*item)) {
+            item->setOwner(0);
+            _game.discardStagedRuntimeObjects({item});
+            return existing;
+        }
+    }
+    items.push_back(item);
+    return item;
+}
+
 void Object::deserializeOwnedItems(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext,
@@ -114,7 +143,8 @@ void Object::deserializeOwnedItems(
                     auto item = _game.newOwnedItem(*itemGff, identityContext);
                     if (forceDropable) item->setDropable(true);
                     item->setOwner(_id);
-                    replacement.push_back(std::move(item));
+                    appendOwnedItemCandidate(
+                        replacement, item, true);
                 }
                 if (creature) {
                     for (const auto &item : replacement) {
@@ -150,7 +180,8 @@ void Object::deserializeOwnedItems(
                     item->setDropable(true);
                 }
                 item->setOwner(_id);
-                replacement.push_back(std::move(item));
+                appendOwnedItemCandidate(
+                    replacement, item, true);
             }
             if (creature) {
                 for (const auto &item : replacement) {
@@ -647,41 +678,31 @@ std::shared_ptr<Action> Object::getCurrentAction() const {
 
 std::shared_ptr<Item> Object::addItem(const std::string &resRef, int stackSize, bool dropable) {
     std::shared_ptr<Item> result;
-
-    auto maybeItem = std::find_if(_items.begin(), _items.end(), [&resRef](auto &item) {
-        return item->tag() == resRef;
-    });
-    if (maybeItem != _items.end()) {
-        result = *maybeItem;
-        int prevStackSize = result->stackSize();
-        result->setStackSize(prevStackSize + stackSize);
-
-    } else {
-        std::vector<std::shared_ptr<Object>> noObsolete;
-        std::vector<std::shared_ptr<Item>> replacement(_items);
-        ItemAttributes replacementAttributes;
-        auto creature = dyn_cast<Creature>(this);
-        if (creature) replacementAttributes = creature->itemAttributes();
-        _game.replaceRuntimeObjectGraph(
-            noObsolete,
-            [&]() {
-                result = _game.newItemFromBlueprint(resRef);
-                result->setStackSize(stackSize);
-                result->setDropable(dropable);
-                result->setOwner(_id);
-                replacement.push_back(result);
-                if (creature) {
-                    replacementAttributes.addItem(result, _services.game);
-                }
-            },
-            [&]() noexcept {
-                _items = std::move(replacement);
-                if (creature) {
-                    creature->itemAttributes() =
-                        std::move(replacementAttributes);
-                }
-            });
-    }
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    std::vector<std::shared_ptr<Item>> replacement(_items);
+    ItemAttributes replacementAttributes;
+    auto creature = dyn_cast<Creature>(this);
+    if (creature) replacementAttributes = creature->itemAttributes();
+    _game.replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            auto candidate = _game.newItemFromBlueprint(resRef);
+            candidate->setStackSize(stackSize);
+            candidate->setDropable(dropable);
+            candidate->setOwner(_id);
+            result = appendOwnedItemCandidate(
+                replacement, candidate, false);
+            if (creature && result.get() == candidate.get()) {
+                replacementAttributes.addItem(candidate, _services.game);
+            }
+        },
+        [&]() noexcept {
+            _items = std::move(replacement);
+            if (creature) {
+                creature->itemAttributes() =
+                    std::move(replacementAttributes);
+            }
+        });
 
     return result;
 }
@@ -702,31 +723,36 @@ void Object::addItem(const std::shared_ptr<Item> &item) {
         item->owner() != _id) {
         throw ValidationException("Runtime item already has another owner");
     }
-    auto maybeItem = std::find_if(_items.begin(), _items.end(), [&item](auto &entry) { return entry->tag() == item->tag(); });
-    if (maybeItem != _items.end()) {
-        // Re-adding an owned stack restores one consumed item; transferred stacks merge fully.
-        int stackSize = *maybeItem == item ? 1 : item->stackSize();
-        (*maybeItem)->setStackSize((*maybeItem)->stackSize() + stackSize);
-        if (*maybeItem != item) {
+    auto alreadyOwned = std::find(_items.begin(), _items.end(), item);
+    if (alreadyOwned != _items.end()) {
+        // Re-adding an owned stack restores one consumed item.
+        if ((*alreadyOwned)->stackSize() < (*alreadyOwned)->maxStackSize()) {
+            (*alreadyOwned)->setStackSize((*alreadyOwned)->stackSize() + 1);
+        }
+        return;
+    }
+    for (const auto &existing : _items) {
+        if (!existing->isStackCompatibleWith(*item)) {
+            continue;
+        }
+        if (existing->mergeStackFrom(*item)) {
             item->setOwner(0);
-            if (item->isRuntimeLive()) {
-                _game.destroyRuntimeObjectGraph(item);
-            }
+            _game.destroyRuntimeObjectGraph(item);
+            return;
         }
-    } else {
-        std::vector<std::shared_ptr<Item>> replacement(_items);
-        replacement.push_back(item);
-        auto creature = dyn_cast<Creature>(this);
-        ItemAttributes replacementAttributes;
-        if (creature) {
-            replacementAttributes = creature->itemAttributes();
-            replacementAttributes.addItem(item, _services.game);
-        }
-        _items = std::move(replacement);
-        item->setOwner(_id);
-        if (creature) {
-            creature->itemAttributes() = std::move(replacementAttributes);
-        }
+    }
+    std::vector<std::shared_ptr<Item>> replacement(_items);
+    replacement.push_back(item);
+    auto creature = dyn_cast<Creature>(this);
+    ItemAttributes replacementAttributes;
+    if (creature) {
+        replacementAttributes = creature->itemAttributes();
+        replacementAttributes.addItem(item, _services.game);
+    }
+    _items = std::move(replacement);
+    item->setOwner(_id);
+    if (creature) {
+        creature->itemAttributes() = std::move(replacementAttributes);
     }
 }
 

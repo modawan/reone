@@ -3378,7 +3378,8 @@ void Creature::deserializeOwnedItemsAndEquipment(
                     for (const auto &itemGff : gff.getList("ItemList")) {
                         auto item = _game.newOwnedItem(*itemGff, identityContext);
                         item->setOwner(_id);
-                        replacementItems.push_back(std::move(item));
+                        appendOwnedItemCandidate(
+                            replacementItems, item, true);
                     }
                 }
                 if (replaceEquipment) {
@@ -3390,7 +3391,8 @@ void Creature::deserializeOwnedItemsAndEquipment(
                         if (!item->isEquippable(getEquipabilitySlot(slot)) ||
                             replacementEquipment.count(slot) != 0) {
                             item->setOwner(_id);
-                            replacementItems.push_back(std::move(item));
+                            appendOwnedItemCandidate(
+                                replacementItems, item, true);
                             continue;
                         }
                         item->setOwner(_id);
@@ -3437,7 +3439,8 @@ void Creature::deserializeOwnedItemsAndEquipment(
                         identityContext,
                         {SaveRecordOriginKind::ContainedItem, std::to_string(_id)});
                     item->setOwner(_id);
-                    replacementItems.push_back(std::move(item));
+                    appendOwnedItemCandidate(
+                        replacementItems, item, true);
                 }
             }
 
@@ -3469,7 +3472,8 @@ void Creature::deserializeOwnedItemsAndEquipment(
 
                     if (!slot) {
                         item->setOwner(_id);
-                        replacementItems.push_back(std::move(item));
+                        appendOwnedItemCandidate(
+                            replacementItems, item, true);
                         warn(str(boost::format("item is not equippable: %s") %
                                  replacementItems.back()->tag()));
                         continue;

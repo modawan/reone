@@ -299,6 +299,14 @@ protected:
     friend class Game;
     friend class ModuleSnapshotBuilder;
     friend class TestGameModule;
+
+    // Add one privately constructed Item to a candidate owned graph using the
+    // same stacking rules as runtime inventory insertion. Authoritative saved
+    // identities can be preserved as distinct records during restoration.
+    std::shared_ptr<Item> appendOwnedItemCandidate(
+        std::vector<std::shared_ptr<Item>> &items,
+        const std::shared_ptr<Item> &item,
+        bool preserveSerializedIdentities);
     struct DelayedAction {
         std::shared_ptr<Action> action;
         std::unique_ptr<Timer> timer;

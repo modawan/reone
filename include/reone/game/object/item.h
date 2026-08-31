@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <limits>
+
 #include "reone/audio/clip.h"
 #include "reone/audio/source.h"
 #include "reone/graphics/model.h"
@@ -91,6 +93,8 @@ public:
 
     bool isEquippable() const;
     bool isEquippable(int slot) const;
+    bool isStackCompatibleWith(const Item &other) const;
+    bool mergeStackFrom(Item &other);
     bool isCredits() const { return _itemClass == kCreditsItemClass; }
     bool isDropable() const { return _dropable; }
     bool isIdentified() const { return _identified; }
@@ -112,6 +116,7 @@ public:
     int modelVariation() const { return _modelVariation; }
     int numDice() const { return _numDice; }
     int stackSize() const { return _stackSize; }
+    int maxStackSize() const { return _maxStackSize; }
     int textureVariation() const { return _textureVariation; }
     std::shared_ptr<AmmunitionType> ammunitionType() const { return _ammunitionType; }
     std::shared_ptr<graphics::Texture> icon() const { return _icon; }
@@ -163,6 +168,10 @@ private:
     // END Serializable
 
     uint32_t _ownerId {0};
+
+    // baseitems.2da defines the retail repository limit. The permissive
+    // fallback preserves behavior for incomplete custom/test tables.
+    uint16_t _maxStackSize {std::numeric_limits<uint16_t>::max()};
 
     std::string _baseBodyVariation;
     std::string _itemClass;

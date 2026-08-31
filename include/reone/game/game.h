@@ -801,6 +801,7 @@ public:
 
 private:
     friend class Area;
+    friend class Object;
     friend class TestGameModule;
     friend class ModuleSnapshotBuilder;
     friend class SaveWideSnapshotBuilder;

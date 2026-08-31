@@ -2655,6 +2655,15 @@ void Game::discardStagedRuntimeObjects(
         staged.reservedSavedObjectIdsToRelease.erase(object->id());
         object->_runtimeState = Object::RuntimeState::Retired;
     }
+    staged.candidateObjects.erase(
+        std::remove_if(
+            staged.candidateObjects.begin(),
+            staged.candidateObjects.end(),
+            [&](const auto &candidate) {
+                return std::find(objects.begin(), objects.end(), candidate) !=
+                       objects.end();
+            }),
+        staged.candidateObjects.end());
 }
 
 void Game::beginRuntimeObjectGraphReplacement(
