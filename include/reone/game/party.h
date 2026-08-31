@@ -191,6 +191,13 @@ public:
 
     bool removeMember(int npc);
 
+    /**
+     * Persist and remove a TSL companion from the adventuring party before
+     * its runtime representation is retired by RemoveNPCFromPartyToBase.
+     * Logical availability and puppet assignment remain unchanged.
+     */
+    bool removeMemberToBase(int npc);
+
     bool isMember(int npc) const;
     bool isMember(const Object &object) const;
 

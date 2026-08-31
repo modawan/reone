@@ -800,6 +800,62 @@ bool Party::removeMember(int npc) {
     return false;
 }
 
+bool Party::removeMemberToBase(int npc) {
+    const RosterIdentity identity {RosterKind::Npc, npc};
+    if (!_game.isTSL() || !isRosterAvailable(identity)) {
+        return false;
+    }
+
+    auto creature = rosterCreature(identity);
+    if (!creature) {
+        return true;
+    }
+
+    // Retail RemoveMember returns early when the active member table is
+    // empty. RemoveNPCFromPartyToBase still proceeds to KillNPCObject, so the
+    // caller deliberately keeps that final retirement separate.
+    if (_members.empty()) {
+        return true;
+    }
+
+    // K2 removes transient effects before writing AVAILNPCn, but retains the
+    // supported action queue in the detached record. Runtime retirement later
+    // clears the old live execution state through the Area/C4 boundary.
+    creature->clearAllEffects();
+
+    const int puppet = creature->assignedPuppet();
+    if (puppet >= 0 && isPuppet(puppet)) {
+        if (auto puppetCreature = rosterCreature(
+                {RosterKind::Puppet, puppet})) {
+            puppetCreature->clearAllEffects();
+        }
+        if (!removePuppet(puppet)) {
+            return false;
+        }
+        _game.killRosterCreature({RosterKind::Puppet, puppet});
+    }
+
+    try {
+        _game.saveRosterState(identity, *creature);
+    } catch (const std::exception &e) {
+        warn("Party: could not persist NPC before base removal: " +
+             std::string(e.what()));
+        return false;
+    }
+
+    _members.erase(
+        std::remove_if(
+            _members.begin(), _members.end(),
+            [npc, &creature](const Member &member) {
+                return member.npc == npc || member.creature == creature;
+            }),
+        _members.end());
+    if (_members.empty()) {
+        _solo = false;
+    }
+    return true;
+}
+
 void Party::defaultMembers(std::string &member1, std::string &member2, std::string &member3) const {
     if (_game.isTSL()) {
         member1 = kBlueprintResRefAtton;

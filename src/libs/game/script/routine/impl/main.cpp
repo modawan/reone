@@ -7008,9 +7008,35 @@ static Variable RemoveNPCFromPartyToBase(const std::vector<Variable> &args, cons
     auto nNPC = getInt(args, 0);
 
     // Transform
+    if (nNPC < 0 || nNPC >= static_cast<int>(Party::kK2NpcCount)) {
+        return Variable::ofInt(0);
+    }
 
     // Execute
-    throw RoutineNotImplementedException("RemoveNPCFromPartyToBase");
+    Party &party = ctx.game.party();
+    const RosterIdentity identity {RosterKind::Npc, nNPC};
+    auto creature = party.rosterCreature(identity);
+    if (!creature) {
+        return Variable::ofInt(0);
+    }
+    const bool wasControlled = party.controlledNpc() == nNPC;
+    auto canonicalPlayer = party.actualPlayer();
+    if (wasControlled && canonicalPlayer.get() == creature.get()) {
+        // A malformed controlled-NPC topology has no canonical PC to resume.
+        // Fail closed instead of retiring the session's only controlled actor.
+        return Variable::ofInt(0);
+    }
+
+    if (party.isRosterAvailable(identity) &&
+        !party.removeMemberToBase(nNPC)) {
+        return Variable::ofInt(0);
+    }
+    const bool killed = ctx.game.killRosterCreature(identity);
+    if (killed && wasControlled && canonicalPlayer &&
+        !party.isMember(*canonicalPlayer)) {
+        party.addMember(kNpcPlayer, canonicalPlayer);
+    }
+    return Variable::ofInt(static_cast<int>(killed));
 }
 
 static Variable CreatureFlourishWeapon(const std::vector<Variable> &args, const RoutineContext &ctx) {

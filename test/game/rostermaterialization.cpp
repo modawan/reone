@@ -22,9 +22,12 @@
 #include "../fixtures/game.h"
 
 #include "reone/game/game.h"
+#include "reone/game/action/wait.h"
+#include "reone/game/effect.h"
 #include "reone/game/modulesnapshot.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/item.h"
 #include "reone/game/party.h"
 #include "reone/game/script/routines.h"
 #include "reone/resource/2da.h"
@@ -74,6 +77,21 @@ std::shared_ptr<TwoDA> creatureAppearanceTable() {
     return std::shared_ptr<TwoDA>(builder.build());
 }
 
+std::shared_ptr<TwoDA> itemBaseTable() {
+    TwoDA::Builder builder;
+    builder.columns({"equipableslots", "itemclass", "ammunitiontype"});
+    builder.row({"2", "i_test", "0"});
+    return std::shared_ptr<TwoDA>(builder.build());
+}
+
+std::shared_ptr<Gff> itemRecord(std::string tag) {
+    return Gff::Builder()
+        .field(Gff::Field::newCExoString("Tag", std::move(tag)))
+        .field(Gff::Field::newInt("BaseItem", 0))
+        .field(Gff::Field::newWord("StackSize", 1))
+        .build();
+}
+
 std::shared_ptr<Gff> decodeGff(const ByteBuffer &bytes) {
     ByteBuffer copy(bytes);
     MemoryInputStream stream(copy);
@@ -99,6 +117,11 @@ public:
         EXPECT_CALL(testEngine().resourceModule().twoDas(), get("soundset"))
             .Times(AnyNumber())
             .WillRepeatedly(Return(nullptr));
+        EXPECT_CALL(testEngine().resourceModule().twoDas(), get("baseitems"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(itemBaseTable()));
+        EXPECT_CALL(testEngine().resourceModule().textures(), get(_, _))
+            .Times(AnyNumber());
         EXPECT_CALL(
             testEngine().resourceModule().director(),
             committedSaveWorkingState())
@@ -1011,4 +1034,348 @@ TEST(RosterBinding, member_lifecycle_activates_and_kills_assigned_puppet) {
     ASSERT_TRUE(savedPuppet);
     EXPECT_EQ(271u, decodeGff(savedNpc->data)->getUint("Appearance_Type"));
     EXPECT_EQ(314u, decodeGff(savedPuppet->data)->getUint("Appearance_Type"));
+}
+
+TEST(RemoveNPCFromPartyToBase, persists_then_retires_the_exact_runtime_companion) {
+    RosterHarness harness;
+    auto player = harness.creature("player");
+    auto companion = harness.creature("companion");
+    auto area = harness.game.newArea();
+    TestGameModule::configureModuleSnapshot(
+        harness.game, area, player, "source", "source");
+    area->add(player);
+
+    companion->setCurrentHitPoints(17);
+    companion->setLocalNumber(7, 137);
+    companion->addAction(harness.game.newAction<WaitAction>(30.0f));
+    companion->applyEffect(
+        harness.game.newEffect<Effect>(EffectType::Haste),
+        DurationType::Temporary,
+        30.0f);
+    auto carried = harness.game.newItem(
+        *itemRecord("carried"),
+        SerializedIdentityContext::templateResource());
+    auto equipped = harness.game.newItem(
+        *itemRecord("equipped"),
+        SerializedIdentityContext::templateResource());
+    companion->addItem(carried);
+    ASSERT_TRUE(companion->equip(InventorySlots::body, equipped));
+    ASSERT_TRUE(harness.game.party().addAvailableMember(4, companion));
+    ASSERT_TRUE(harness.game.party().addMember(4, companion));
+    area->add(companion);
+
+    auto committed = std::make_shared<const SaveWorkingState>();
+    EXPECT_CALL(
+        testEngine().resourceModule().director(), committedSaveWorkingState())
+        .WillOnce(Invoke([&committed]() { return committed; }));
+    EXPECT_CALL(
+        testEngine().resourceModule().director(), adoptSaveWorkingState(_))
+        .WillOnce(Invoke(
+            [&committed](auto state) { committed = std::move(state); }));
+
+    const uint32_t oldId = companion->id();
+    Variable result = harness.call(
+        "RemoveNPCFromPartyToBase", {Variable::ofInt(4)});
+
+    EXPECT_EQ(1, result.intValue);
+    EXPECT_TRUE(harness.game.party().isMemberAvailable(4));
+    EXPECT_FALSE(harness.game.party().isMember(4));
+    EXPECT_FALSE(harness.game.party().getAvailableMember(4));
+    EXPECT_FALSE(harness.game.getObjectById(oldId));
+    EXPECT_FALSE(companion->isRuntimeLive());
+    EXPECT_EQ(nullptr, companion->room());
+    EXPECT_EQ(
+        area->objects().end(),
+        std::find(area->objects().begin(), area->objects().end(), companion));
+
+    auto savedResource = committed->find({"availnpc4", ResType::Utc});
+    ASSERT_TRUE(savedResource);
+    auto saved = decodeGff(savedResource->data);
+    EXPECT_EQ(17, saved->getInt("CurrentHitPoints"));
+    EXPECT_EQ(1u, saved->getList("ActionList").size());
+    EXPECT_TRUE(saved->getList("EffectList").empty());
+    EXPECT_EQ(1u, saved->getList("ItemList").size());
+    EXPECT_EQ(1u, saved->getList("Equip_ItemList").size());
+    EXPECT_FALSE(carried->isRuntimeLive());
+    EXPECT_FALSE(equipped->isRuntimeLive());
+}
+
+TEST(RemoveNPCFromPartyToBase, readding_materializes_one_fresh_representation) {
+    RosterHarness harness;
+    auto player = harness.creature("player");
+    auto companion = harness.creature("companion");
+    auto area = harness.game.newArea();
+    TestGameModule::configureModuleSnapshot(
+        harness.game, area, player, "source", "source");
+    area->add(player);
+    companion->setLocalNumber(7, 137);
+    ASSERT_TRUE(harness.game.party().addAvailableMember(4, companion));
+    ASSERT_TRUE(harness.game.party().addMember(4, companion));
+    area->add(companion);
+
+    auto committed = std::make_shared<const SaveWorkingState>();
+    EXPECT_CALL(
+        testEngine().resourceModule().director(), committedSaveWorkingState())
+        .WillOnce(Invoke([&committed]() { return committed; }));
+    EXPECT_CALL(
+        testEngine().resourceModule().director(), adoptSaveWorkingState(_))
+        .WillOnce(Invoke(
+            [&committed](auto state) { committed = std::move(state); }));
+    ASSERT_EQ(
+        1,
+        harness.call(
+                   "RemoveNPCFromPartyToBase", {Variable::ofInt(4)})
+            .intValue);
+
+    EXPECT_CALL(
+        testEngine().resourceModule().director(),
+        findSaveWorking(ResourceId("availnpc4", ResType::Utc)))
+        .WillOnce(Invoke([&committed]() {
+            auto saved = committed->find({"availnpc4", ResType::Utc});
+            return Resource {saved->data};
+        }));
+    auto replacement = harness.game.party().getAvailableMember(4, true);
+    ASSERT_TRUE(replacement);
+    ASSERT_NE(companion, replacement);
+    EXPECT_EQ(137, replacement->getLocalNumber(7));
+    EXPECT_TRUE(harness.game.party().addMember(4, replacement));
+    area->add(replacement);
+
+    EXPECT_EQ(replacement, harness.game.party().getMemberByNPC(4));
+    EXPECT_EQ(replacement, harness.game.party().getAvailableMember(4));
+    EXPECT_EQ(1u, std::count_if(
+                      harness.game.party().members().begin(),
+                      harness.game.party().members().end(),
+                      [](const Party::Member &member) {
+                          return member.npc == 4;
+                      }));
+}
+
+TEST(RemoveNPCFromPartyToBase, retires_the_active_assigned_puppet_but_keeps_assignment) {
+    RosterHarness harness;
+    auto player = harness.creature("player");
+    auto companion = harness.creature("bao_dur");
+    auto puppet = harness.creature("remote");
+    auto area = harness.game.newArea();
+    TestGameModule::configureModuleSnapshot(
+        harness.game, area, player, "source", "source");
+    area->add(player);
+    ASSERT_TRUE(harness.game.party().addAvailableMember(1, companion));
+    ASSERT_TRUE(harness.game.party().addAvailablePuppet(0, puppet));
+    ASSERT_TRUE(harness.game.party().assignPuppet(0, 1));
+    ASSERT_TRUE(harness.game.party().addMember(1, companion));
+    ASSERT_TRUE(harness.game.party().isPuppet(0));
+    area->add(companion);
+    area->add(puppet);
+
+    auto committed = std::make_shared<const SaveWorkingState>();
+    EXPECT_CALL(
+        testEngine().resourceModule().director(), committedSaveWorkingState())
+        .Times(2)
+        .WillRepeatedly(Invoke([&committed]() { return committed; }));
+    EXPECT_CALL(
+        testEngine().resourceModule().director(), adoptSaveWorkingState(_))
+        .Times(2)
+        .WillRepeatedly(Invoke(
+            [&committed](auto state) { committed = std::move(state); }));
+
+    EXPECT_EQ(
+        1,
+        harness.call(
+                   "RemoveNPCFromPartyToBase", {Variable::ofInt(1)})
+            .intValue);
+
+    EXPECT_TRUE(harness.game.party().isMemberAvailable(1));
+    EXPECT_TRUE(harness.game.party().isRosterAvailable(
+        {RosterKind::Puppet, 0}));
+    EXPECT_FALSE(harness.game.party().isPuppet(0));
+    EXPECT_FALSE(harness.game.party().getAvailablePuppet(0));
+    EXPECT_FALSE(harness.game.party().getAvailableMember(1));
+    EXPECT_FALSE(puppet->isRuntimeLive());
+    auto savedNpcResource = committed->find({"availnpc1", ResType::Utc});
+    ASSERT_TRUE(savedNpcResource);
+    EXPECT_EQ(0, decodeGff(savedNpcResource->data)->getInt("AssignedPup", -1));
+    EXPECT_TRUE(committed->find({"availpup0", ResType::Utc}).has_value());
+}
+
+TEST(RemoveNPCFromPartyToBase, controlled_companion_returns_control_to_the_canonical_pc) {
+    RosterHarness harness;
+    auto canonical = harness.creature("player");
+    auto controlled = harness.creature("controlled");
+    auto area = harness.game.newArea();
+    TestGameModule::configureModuleSnapshot(
+        harness.game, area, canonical, "source", "source");
+    area->add(canonical);
+    ASSERT_TRUE(harness.game.party().addAvailableMember(4, controlled));
+    harness.game.party().setControlledMember(4, controlled);
+    harness.game.party().setSoloMode(true);
+    area->add(controlled);
+    ASSERT_EQ(controlled, harness.game.party().player());
+
+    auto committed = std::make_shared<const SaveWorkingState>();
+    EXPECT_CALL(
+        testEngine().resourceModule().director(), committedSaveWorkingState())
+        .WillOnce(Invoke([&committed]() { return committed; }));
+    EXPECT_CALL(
+        testEngine().resourceModule().director(), adoptSaveWorkingState(_))
+        .WillOnce(Invoke(
+            [&committed](auto state) { committed = std::move(state); }));
+
+    EXPECT_EQ(
+        1,
+        harness.call(
+                   "RemoveNPCFromPartyToBase", {Variable::ofInt(4)})
+            .intValue);
+
+    EXPECT_EQ(kNpcPlayer, harness.game.party().controlledNpc());
+    EXPECT_EQ(canonical, harness.game.party().player());
+    EXPECT_EQ(canonical, harness.game.party().getLeader());
+    EXPECT_TRUE(harness.game.party().isMember(*canonical));
+    EXPECT_FALSE(harness.game.party().isSoloMode());
+    EXPECT_FALSE(harness.game.party().isMember(4));
+    EXPECT_FALSE(harness.game.party().getAvailableMember(4));
+    EXPECT_TRUE(canonical->isRuntimeLive());
+}
+
+TEST(RemoveNPCFromPartyToBase, repeated_board_and_selection_cycles_do_not_accumulate_representations) {
+    RosterHarness harness;
+    auto player = harness.creature("player");
+    auto first = harness.creature("first");
+    auto second = harness.creature("second");
+    auto area = harness.game.newArea();
+    TestGameModule::configureModuleSnapshot(
+        harness.game, area, player, "hawk_cycle", "hawk_cycle");
+    area->add(player);
+    ASSERT_TRUE(harness.game.party().addAvailableMember(0, first));
+    ASSERT_TRUE(harness.game.party().addAvailableMember(1, second));
+    ASSERT_TRUE(harness.game.party().addMember(0, first));
+    ASSERT_TRUE(harness.game.party().addMember(1, second));
+    area->add(first);
+    area->add(second);
+    const size_t stableRegistrySize =
+        TestGameModule::objectRegistrySize(harness.game);
+
+    auto committed = std::make_shared<const SaveWorkingState>();
+    EXPECT_CALL(
+        testEngine().resourceModule().director(), committedSaveWorkingState())
+        .Times(6)
+        .WillRepeatedly(Invoke([&committed]() { return committed; }));
+    EXPECT_CALL(
+        testEngine().resourceModule().director(), adoptSaveWorkingState(_))
+        .Times(6)
+        .WillRepeatedly(Invoke(
+            [&committed](auto state) { committed = std::move(state); }));
+    EXPECT_CALL(
+        testEngine().resourceModule().director(), findSaveWorking(_))
+        .Times(6)
+        .WillRepeatedly(Invoke([&committed](const ResourceId &id) {
+            auto saved = committed->find(id);
+            return Resource {saved->data};
+        }));
+
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        ASSERT_EQ(
+            1,
+            harness.call(
+                       "RemoveNPCFromPartyToBase", {Variable::ofInt(0)})
+                .intValue);
+        ASSERT_EQ(
+            1,
+            harness.call(
+                       "RemoveNPCFromPartyToBase", {Variable::ofInt(1)})
+                .intValue);
+        EXPECT_EQ(1, harness.game.party().getSize());
+        EXPECT_FALSE(harness.game.party().rosterCreature(
+            {RosterKind::Npc, 0}));
+        EXPECT_FALSE(harness.game.party().rosterCreature(
+            {RosterKind::Npc, 1}));
+
+        auto materializedFirst =
+            harness.game.party().getAvailableMember(0, true);
+        auto materializedSecond =
+            harness.game.party().getAvailableMember(1, true);
+        ASSERT_TRUE(materializedFirst);
+        ASSERT_TRUE(materializedSecond);
+        area->add(materializedFirst);
+        area->add(materializedSecond);
+        ASSERT_TRUE(harness.game.reconcilePartySelection({0, 1}));
+
+        EXPECT_TRUE(harness.game.isPartySelectionRealized({0, 1}));
+        EXPECT_EQ(3, harness.game.party().getSize());
+        EXPECT_EQ(
+            stableRegistrySize,
+            TestGameModule::objectRegistrySize(harness.game));
+        EXPECT_EQ(1u, std::count_if(
+                          area->objects().begin(), area->objects().end(),
+                          [&materializedFirst](const auto &object) {
+                              return object == materializedFirst;
+                          }));
+        EXPECT_EQ(1u, std::count_if(
+                          area->objects().begin(), area->objects().end(),
+                          [&materializedSecond](const auto &object) {
+                              return object == materializedSecond;
+                          }));
+    }
+}
+
+TEST(RemoveNPCFromPartyToBase, rejects_invalid_and_unbound_slots) {
+    RosterHarness harness;
+    Party::PersistedState state;
+    state.npcAvailable[4] = true;
+    harness.game.party().setPersistedState(state);
+
+    EXPECT_EQ(
+        0,
+        harness.call(
+                   "RemoveNPCFromPartyToBase", {Variable::ofInt(-1)})
+            .intValue);
+    EXPECT_EQ(
+        0,
+        harness.call(
+                   "RemoveNPCFromPartyToBase",
+                   {Variable::ofInt(static_cast<int>(Party::kK2NpcCount))})
+            .intValue);
+    EXPECT_EQ(
+        0,
+        harness.call(
+                   "RemoveNPCFromPartyToBase", {Variable::ofInt(3)})
+            .intValue);
+    EXPECT_EQ(
+        0,
+        harness.call(
+                   "RemoveNPCFromPartyToBase", {Variable::ofInt(4)})
+            .intValue);
+}
+
+TEST(RemoveNPCFromPartyToBase, retires_an_unavailable_but_still_bound_representation) {
+    RosterHarness harness;
+    auto companion = harness.creature("unavailable_bound");
+    ASSERT_TRUE(harness.game.party().addAvailableMember(4, companion));
+    ASSERT_TRUE(harness.game.party().removeAvailableMember(4));
+    ASSERT_FALSE(harness.game.party().isMemberAvailable(4));
+    ASSERT_EQ(companion, harness.game.party().rosterCreature(
+                             {RosterKind::Npc, 4}));
+
+    EXPECT_EQ(
+        1,
+        harness.call(
+                   "RemoveNPCFromPartyToBase", {Variable::ofInt(4)})
+            .intValue);
+
+    EXPECT_FALSE(harness.game.party().isMemberAvailable(4));
+    EXPECT_FALSE(harness.game.party().rosterCreature(
+        {RosterKind::Npc, 4}));
+    EXPECT_FALSE(companion->isRuntimeLive());
+}
+
+TEST(RemoveNPCFromPartyToBase, routine_is_tsl_only) {
+    RosterHarness tsl(GameID::TSL);
+    RosterHarness kotor(GameID::KotOR);
+
+    EXPECT_EQ(
+        846,
+        tsl.routines.getIndexByName("RemoveNPCFromPartyToBase"));
+    EXPECT_EQ(
+        -1,
+        kotor.routines.getIndexByName("RemoveNPCFromPartyToBase"));
 }
