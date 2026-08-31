@@ -54,7 +54,9 @@ public:
     }
 
     void loadFromBlueprint(const std::string &resRef);
-    void deserialize(const resource::Gff &gff);
+    void deserialize(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     void configureLinkedDoorTransition(const std::shared_ptr<Door> &door);
 
     void update(float dt) override;
@@ -118,13 +120,15 @@ private:
     // END Serializable
 
     std::set<std::shared_ptr<Object>> _tenants;
-    std::weak_ptr<Door> _linkedDoor;
+    RuntimeObjectRef<Door> _linkedDoor;
     bool _linkedDoorTransition {false};
     float _debugTestAge {0.0f};
     float _debugInsideAge {0.0f};
     float _debugEnterAge {0.0f};
 
-    void deserializeAll(const resource::Gff &gff);
+    void deserializeAll(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     void loadAppearance();
 
     void syncDebugVisual();

@@ -73,6 +73,9 @@ public:
 
     Resource get(const ResourceId &id) override;
     std::optional<Resource> find(const ResourceId &id) override;
+    std::optional<Resource> findExcludingOwners(
+        const ResourceId &id,
+        const std::set<ResourceOwner> &excludedOwners) override;
 
     size_t sourceCount() const { return _sources.size(); }
 

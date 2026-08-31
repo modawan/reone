@@ -33,6 +33,7 @@ public:
         Action(game, services, ActionType::UseFeat),
         _feat(feat),
         _target(std::move(target)) {
+        requireRuntimeObject(_target);
     }
 
     static bool classof(Action *from) {

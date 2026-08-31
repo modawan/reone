@@ -71,12 +71,22 @@ public:
     }
 
     void load(std::string name, const resource::Gff &ifo, bool restoreSavedWorld = false);
+    // Structural load from records already validated by Game. Fresh-world
+    // spawn scripts are deliberately dispatched later via runSpawnScripts(),
+    // after the destination has crossed its publication boundary.
+    void load(
+        std::string name,
+        const resource::Gff &ifo,
+        const resource::Gff &are,
+        const resource::Gff &git,
+        bool restoreSavedWorld = false);
     void activate();
     void loadParty(
         const std::string &entry = "",
         bool preserveSavedPlacement = false);
     void runOnLoadScript();
     void runOnStartScript();
+    void runSpawnScripts();
 
     bool handle(const input::Event &event);
     void update(float dt);
@@ -107,9 +117,13 @@ public:
     size_t pendingSavedEventCount() const;
     std::vector<SavedEventRecord> saveEventSnapshot() const;
     size_t enqueueSaveEvent(SavedEventRecord event);
+    size_t enqueueBoundSaveEvent(
+        SavedEventRecord event, bool referencesBound);
     bool cancelSaveEvent(size_t index);
 
-    void deserializeSavedEventQueue(const resource::Gff &ifo);
+    void deserializeSavedEventQueue(
+        const resource::Gff &ifo,
+        const SerializedIdentityContext &identityContext);
     void bindSavedEventQueue();
     void publishSavedEventQueue();
     void dispatchDueSavedEvents();
@@ -127,6 +141,7 @@ private:
     std::vector<std::shared_ptr<Creature>> _limboCreatures;
     SavedEventQueue _savedEventQueue;
     std::vector<bool> _savedEventLive;
+    std::vector<bool> _savedEventReferencesBound;
 
     struct PublishedSavedEvent {
         size_t savedIndex {0};
@@ -155,6 +170,8 @@ private:
     void loadInfo(const resource::generated::IFO &ifo);
     void loadArea(
         const resource::generated::IFO &ifo,
+        const resource::Gff &are,
+        const resource::Gff &git,
         bool restoreSavedWorld = false);
     void loadPlayer();
     void loadLimboCreatures(const resource::Gff &ifo);

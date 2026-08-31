@@ -534,18 +534,19 @@ SaveResult Game::executeSave(SaveRequest request) {
     return result;
 }
 
-bool Game::storeCurrentModuleForTransition() {
+std::shared_ptr<const resource::SaveWorkingState>
+Game::prepareCurrentModuleWorkingState() {
     auto committed = _services.resource.director.committedSaveWorkingState();
     if (!committed || !_module) {
         error("Module transition has no committed save working state");
-        return false;
+        return nullptr;
     }
     auto captured = _saveSeams.captureModule
                         ? _saveSeams.captureModule(*this, _module->name())
                         : ModuleSnapshotBuilder(*this, _module->name()).build();
     if (!captured) {
         error("Unable to snapshot source module for transition: " + captured.message);
-        return false;
+        return nullptr;
     }
     try {
         auto candidate = resource::SaveWorkingStateCandidate::fromCommitted(
@@ -555,17 +556,41 @@ bool Game::storeCurrentModuleForTransition() {
             captured.snapshot->archiveBytes,
             resource::ResourceId(
                 captured.snapshot->target.resRef, resource::ResType::Rsv));
+
+        // Retail UpdateMembers(0) refreshes every bound NPC/PUP record while
+        // leaving its ActionList intact. Keep those detached snapshots in the
+        // same candidate as the source module: a rejected transition changes
+        // neither, while a committed transition adopts both together.
+        const size_t npcCount = isTSL() ? Party::kK2NpcCount
+                                        : Party::kK1NpcCount;
+        for (size_t npc = 0; npc < npcCount; ++npc) {
+            auto creature = _party.rosterCreature(
+                {RosterKind::Npc, static_cast<int>(npc)});
+            if (!creature) continue;
+            candidate.put(
+                {"availnpc" + std::to_string(npc), resource::ResType::Utc},
+                SaveWideSnapshotBuilder::availableNpcRecord(*this, *creature));
+        }
+        if (isTSL()) {
+            for (size_t puppet = 0; puppet < Party::kMaxPuppetCount; ++puppet) {
+                auto creature = _party.rosterCreature(
+                    {RosterKind::Puppet, static_cast<int>(puppet)});
+                if (!creature) continue;
+                candidate.put(
+                    {"availpup" + std::to_string(puppet), resource::ResType::Utc},
+                    SaveWideSnapshotBuilder::availableNpcRecord(*this, *creature));
+            }
+        }
         auto validation = candidate.validate();
         if (!validation) {
             error("Unable to validate transition working state: " +
                   validation.errors.front());
-            return false;
+            return nullptr;
         }
-        _services.resource.director.adoptSaveWorkingState(candidate.freeze());
-        return true;
+        return candidate.freeze();
     } catch (const std::exception &e) {
-        error("Unable to commit transition working state: " + std::string(e.what()));
-        return false;
+        error("Unable to prepare transition working state: " + std::string(e.what()));
+        return nullptr;
     }
 }
 

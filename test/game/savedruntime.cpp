@@ -10,6 +10,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <map>
+
 #include "../fixtures/engine.h"
 #include "../fixtures/game.h"
 
@@ -33,6 +35,10 @@ using namespace reone::resource;
 using namespace testing;
 
 namespace {
+
+SerializedIdentityContext savedRuntimeIdentityContext() {
+    return SerializedIdentityContext::moduleGraph("test-module");
+}
 
 std::shared_ptr<Gff> valueParameter(uint32_t type, Gff::Field value) {
     return Gff::Builder()
@@ -180,8 +186,19 @@ std::shared_ptr<Gff> minimalEffect() {
         .field(Gff::Field::newWord("Type", 68))
         .field(Gff::Field::newWord("SubType", 1))
         .field(Gff::Field::newFloat("Duration", 2.0f))
-        .field(Gff::Field::newDword("CreatorId", 3))
+        .field(Gff::Field::newDword(
+            "CreatorId", kSavedEffectInvalidObjectId))
         .build();
+}
+
+void registerModuleIdentity(
+    Game &game,
+    uint32_t savedId,
+    const std::shared_ptr<Object> &object) {
+    game.registerSavedObjectIdentity(
+        savedId,
+        object,
+        SerializedIdentityContext::moduleGraph("test-module"));
 }
 
 TEST(SavedAction, should_preserve_retail_fields_parameter_types_and_order) {
@@ -199,7 +216,8 @@ TEST(SavedAction, should_preserve_retail_fields_parameter_types_and_order) {
                         {action(30, 0), action(37, 0xffff, std::move(parameters)), action(1, 0xfffe)}))
                     .build();
 
-    SavedActionQueue queue = SavedActionQueue::fromGff(*root);
+    SavedActionQueue queue = SavedActionQueue::fromGff(
+        *root, savedRuntimeIdentityContext());
 
     ASSERT_EQ(queue.actions.size(), 3);
     EXPECT_EQ(queue.actions[0].actionId, 30);
@@ -224,8 +242,10 @@ TEST(SavedAction, should_convert_only_a_proven_supported_reone_action) {
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto wait = SavedActionRecord::fromGff(
-        *action(30, 7, {valueParameter(2, Gff::Field::newFloat("Value", 1.5f))}));
-    auto unknown = SavedActionRecord::fromGff(*action(0xdead, 8));
+        *action(30, 7, {valueParameter(2, Gff::Field::newFloat("Value", 1.5f))}),
+        savedRuntimeIdentityContext());
+    auto unknown = SavedActionRecord::fromGff(
+        *action(0xdead, 8), savedRuntimeIdentityContext());
 
     auto runtime = wait.toRuntimeAction(game);
     ASSERT_TRUE(runtime);
@@ -254,7 +274,8 @@ TEST(SavedAction, follow_leader_uses_exact_parameterless_retail_shape_in_both_ti
         EXPECT_TRUE(exported->parameters.empty());
 
         auto encoded = action(exported->actionId, exported->groupActionId);
-        auto imported = SavedActionRecord::fromGff(*encoded);
+        auto imported = SavedActionRecord::fromGff(
+            *encoded, savedRuntimeIdentityContext());
         EXPECT_EQ(imported.executionSupport(), SavedExecutionSupport::Executable);
         auto restored = std::dynamic_pointer_cast<FollowLeaderAction>(
             imported.toRuntimeAction(game));
@@ -275,12 +296,14 @@ TEST(SavedAction, follow_leader_rejects_any_parameter_shape) {
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
 
     auto wrongCount = SavedActionRecord::fromGff(
-        *action(61, 7, {valueParameter(1, Gff::Field::newInt("Value", 0))}));
+        *action(61, 7, {valueParameter(1, Gff::Field::newInt("Value", 0))}),
+        savedRuntimeIdentityContext());
     EXPECT_EQ(wrongCount.executionSupport(),
               SavedExecutionSupport::RepresentableButUnsupported);
     EXPECT_FALSE(wrongCount.toRuntimeAction(game));
 
-    auto hiddenParameter = SavedActionRecord::fromGff(*action(61, 7));
+    auto hiddenParameter = SavedActionRecord::fromGff(
+        *action(61, 7), savedRuntimeIdentityContext());
     hiddenParameter.parameters.push_back(SavedActionParameter {
         static_cast<uint32_t>(SavedActionParameterType::Integer), int32_t {0}});
     EXPECT_EQ(hiddenParameter.executionSupport(),
@@ -294,7 +317,8 @@ TEST(SavedAction, restored_follow_leader_resolves_the_leader_only_at_execution) 
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
 
     ASSERT_TRUE(game.party().isEmpty());
-    auto record = SavedActionRecord::fromGff(*action(61, 9));
+    auto record = SavedActionRecord::fromGff(
+        *action(61, 9), savedRuntimeIdentityContext());
     auto restored = std::dynamic_pointer_cast<FollowLeaderAction>(
         record.toRuntimeAction(game));
     ASSERT_TRUE(restored);
@@ -353,7 +377,9 @@ TEST(SavedAction, attack_object_imports_bound_target_and_preserves_group) {
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
     auto target = game.newCreature();
-    auto record = SavedActionRecord::fromGff(*basicAttackAction(target->id(), 41));
+    registerModuleIdentity(game, target->id(), target);
+    auto record = SavedActionRecord::fromGff(
+        *basicAttackAction(target->id(), 41), savedRuntimeIdentityContext());
 
     ASSERT_EQ(record.executionSupport(), SavedExecutionSupport::Executable);
     ASSERT_TRUE(record.bindObjectReferences(game));
@@ -372,12 +398,14 @@ TEST(SavedAction, attack_object_rejects_malformed_special_or_missing_targets) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto record = SavedActionRecord::fromGff(*basicAttackAction(123456));
+    auto record = SavedActionRecord::fromGff(
+        *basicAttackAction(123456), savedRuntimeIdentityContext());
     EXPECT_FALSE(record.bindObjectReferences(game));
     EXPECT_FALSE(record.toRuntimeAction(game));
 
     auto target = game.newCreature();
-    record = SavedActionRecord::fromGff(*basicAttackAction(target->id()));
+    record = SavedActionRecord::fromGff(
+        *basicAttackAction(target->id()), savedRuntimeIdentityContext());
     record.parameters[6].payload = int32_t {1703936};
     EXPECT_EQ(record.executionSupport(),
               SavedExecutionSupport::RepresentableButUnsupported);
@@ -410,6 +438,7 @@ TEST(SavedRuntimePublication, attack_object_is_installed_inertly_ahead_of_later_
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
     auto target = game.newCreature();
+    registerModuleIdentity(game, target->id(), target);
     auto saved = Gff::Builder()
                      .field(Gff::Field::newList(
                          "ActionList",
@@ -421,7 +450,7 @@ TEST(SavedRuntimePublication, attack_object_is_installed_inertly_ahead_of_later_
                      .build();
     auto actor = game.newCreature();
 
-    actor->deserializeRuntimeState(*saved);
+    actor->deserializeRuntimeState(*saved, savedRuntimeIdentityContext());
     EXPECT_TRUE(actor->actions().empty());
     actor->bindSavedRuntimeState();
     EXPECT_TRUE(actor->actions().empty());
@@ -448,7 +477,8 @@ TEST(SavedAction, play_animation_rejects_malformed_parameter_shapes) {
         valueParameter(1, Gff::Field::newInt("Value", 1)),
         valueParameter(1, Gff::Field::newInt("Value", 0)),
     });
-    auto record = SavedActionRecord::fromGff(*valid);
+    auto record = SavedActionRecord::fromGff(
+        *valid, savedRuntimeIdentityContext());
     EXPECT_EQ(record.executionSupport(), SavedExecutionSupport::Executable);
     EXPECT_TRUE(record.toRuntimeAction(game));
 
@@ -474,6 +504,7 @@ TEST(SavedAction, move_to_object_uses_retail_action_17_shape_and_bound_target) {
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
     auto target = game.newCreature();
+    registerModuleIdentity(game, target->id(), target);
     auto saved = action(17, 13, {
         valueParameter(3, Gff::Field::newDword("Value", target->id())),
         valueParameter(1, Gff::Field::newInt("Value", 0)),
@@ -481,7 +512,8 @@ TEST(SavedAction, move_to_object_uses_retail_action_17_shape_and_bound_target) {
         valueParameter(2, Gff::Field::newFloat("Value", 0.5f)),
         valueParameter(1, Gff::Field::newInt("Value", 1)),
     });
-    auto record = SavedActionRecord::fromGff(*saved);
+    auto record = SavedActionRecord::fromGff(
+        *saved, savedRuntimeIdentityContext());
 
     EXPECT_EQ(record.executionSupport(), SavedExecutionSupport::Executable);
     EXPECT_TRUE(record.bindObjectReferences(game));
@@ -520,7 +552,8 @@ TEST(SavedAction, move_to_object_rejects_malformed_or_missing_target) {
         valueParameter(2, Gff::Field::newFloat("Value", 1.0f)),
         valueParameter(1, Gff::Field::newInt("Value", 1)),
     });
-    auto record = SavedActionRecord::fromGff(*saved);
+    auto record = SavedActionRecord::fromGff(
+        *saved, savedRuntimeIdentityContext());
     EXPECT_FALSE(record.bindObjectReferences(game));
     EXPECT_FALSE(record.toRuntimeAction(game));
 
@@ -543,6 +576,8 @@ TEST(SavedAction, forced_move_to_object_uses_retail_action_1_and_preserves_timin
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
     auto area = game.newArea();
     auto target = game.newCreature();
+    registerModuleIdentity(game, area->id(), area);
+    registerModuleIdentity(game, target->id(), target);
     auto saved = action(1, 13, {
         valueParameter(2, Gff::Field::newFloat("Value", 46.0f)),
         valueParameter(2, Gff::Field::newFloat("Value", 17.0f)),
@@ -558,7 +593,8 @@ TEST(SavedAction, forced_move_to_object_uses_retail_action_1_and_preserves_timin
         valueParameter(1, Gff::Field::newInt("Value", 0)),
         valueParameter(1, Gff::Field::newInt("Value", 0)),
     });
-    auto record = SavedActionRecord::fromGff(*saved);
+    auto record = SavedActionRecord::fromGff(
+        *saved, savedRuntimeIdentityContext());
     ASSERT_EQ(record.executionSupport(), SavedExecutionSupport::Executable);
     ASSERT_TRUE(record.bindObjectReferences(game));
     auto runtime = std::dynamic_pointer_cast<MoveToObjectAction>(record.toRuntimeAction(game));
@@ -629,8 +665,10 @@ TEST(SavedAction, move_to_location_imports_ordinary_pending_and_active_forced_ti
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
     auto area = game.newArea();
+    registerModuleIdentity(game, area->id(), area);
 
-    auto ordinaryRecord = SavedActionRecord::fromGff(*moveToPointAction(area->id()));
+    auto ordinaryRecord = SavedActionRecord::fromGff(
+        *moveToPointAction(area->id()), savedRuntimeIdentityContext());
     ASSERT_TRUE(ordinaryRecord.bindObjectReferences(game));
     auto ordinary = std::dynamic_pointer_cast<MoveToLocationAction>(
         ordinaryRecord.toRuntimeAction(game));
@@ -640,7 +678,8 @@ TEST(SavedAction, move_to_location_imports_ordinary_pending_and_active_forced_ti
     EXPECT_EQ(ordinary->destination()->position(), glm::vec3(12.0f, 34.0f, 5.0f));
 
     auto pendingRecord = SavedActionRecord::fromGff(
-        *moveToPointAction(area->id(), glm::vec3(4.0f), 5, 30.0f, 0, 0, 22));
+        *moveToPointAction(area->id(), glm::vec3(4.0f), 5, 30.0f, 0, 0, 22),
+        savedRuntimeIdentityContext());
     ASSERT_TRUE(pendingRecord.bindObjectReferences(game));
     auto pending = std::dynamic_pointer_cast<MoveToLocationAction>(
         pendingRecord.toRuntimeAction(game));
@@ -651,7 +690,8 @@ TEST(SavedAction, move_to_location_imports_ordinary_pending_and_active_forced_ti
     EXPECT_EQ(pending->originalSavedAction()->groupActionId, 22);
 
     auto activeRecord = SavedActionRecord::fromGff(
-        *moveToPointAction(area->id(), glm::vec3(8.0f), 1, 0.0f, 7, 12345));
+        *moveToPointAction(area->id(), glm::vec3(8.0f), 1, 0.0f, 7, 12345),
+        savedRuntimeIdentityContext());
     ASSERT_TRUE(activeRecord.bindObjectReferences(game));
     auto active = std::dynamic_pointer_cast<MoveToLocationAction>(
         activeRecord.toRuntimeAction(game));
@@ -674,7 +714,9 @@ TEST(SavedAction, move_to_location_rejects_malformed_semantics_and_invalid_area)
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto area = game.newArea();
-    auto record = SavedActionRecord::fromGff(*moveToPointAction(area->id()));
+    registerModuleIdentity(game, area->id(), area);
+    auto record = SavedActionRecord::fromGff(
+        *moveToPointAction(area->id()), savedRuntimeIdentityContext());
     ASSERT_TRUE(record.bindObjectReferences(game));
 
     record.parameters[6].payload = 1.0f;
@@ -689,11 +731,13 @@ TEST(SavedAction, move_to_location_rejects_malformed_semantics_and_invalid_area)
     record.parameters[0].payload = std::numeric_limits<float>::quiet_NaN();
     EXPECT_FALSE(record.toRuntimeAction(game));
 
-    auto missingArea = SavedActionRecord::fromGff(*moveToPointAction(123456));
+    auto missingArea = SavedActionRecord::fromGff(
+        *moveToPointAction(123456), savedRuntimeIdentityContext());
     EXPECT_FALSE(missingArea.bindObjectReferences(game));
     EXPECT_FALSE(missingArea.toRuntimeAction(game));
     auto invalidArea = SavedActionRecord::fromGff(
-        *moveToPointAction(kSavedRuntimeInvalidObjectId));
+        *moveToPointAction(kSavedRuntimeInvalidObjectId),
+        savedRuntimeIdentityContext());
     ASSERT_TRUE(invalidArea.bindObjectReferences(game));
     EXPECT_FALSE(invalidArea.toRuntimeAction(game));
     record.declaredParameterCount = 12;
@@ -705,6 +749,7 @@ TEST(SavedRuntimePublication, move_to_location_is_inert_and_blocks_later_action)
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
     auto area = game.newArea();
+    registerModuleIdentity(game, area->id(), area);
     auto saved = Gff::Builder()
                      .field(Gff::Field::newList(
                          "ActionList",
@@ -714,7 +759,7 @@ TEST(SavedRuntimePublication, move_to_location_is_inert_and_blocks_later_action)
                      .build();
     auto actor = game.newCreature();
 
-    actor->deserializeRuntimeState(*saved);
+    actor->deserializeRuntimeState(*saved, savedRuntimeIdentityContext());
     EXPECT_TRUE(actor->actions().empty());
     actor->bindSavedRuntimeState();
     EXPECT_TRUE(actor->actions().empty());
@@ -733,6 +778,8 @@ TEST(SavedAction, active_forced_move_preserves_absolute_world_time) {
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
     auto area = game.newArea();
     auto target = game.newCreature();
+    registerModuleIdentity(game, area->id(), area);
+    registerModuleIdentity(game, target->id(), target);
     auto saved = action(1, 27, {
         valueParameter(2, Gff::Field::newFloat("Value", 1.0f)), valueParameter(2, Gff::Field::newFloat("Value", 2.0f)),
         valueParameter(2, Gff::Field::newFloat("Value", 3.0f)), valueParameter(3, Gff::Field::newDword("Value", area->id())),
@@ -742,7 +789,8 @@ TEST(SavedAction, active_forced_move_preserves_absolute_world_time) {
         valueParameter(2, Gff::Field::newFloat("Value", 0.0f)), valueParameter(1, Gff::Field::newInt("Value", 4)),
         valueParameter(1, Gff::Field::newInt("Value", 12345)),
     });
-    auto record = SavedActionRecord::fromGff(*saved);
+    auto record = SavedActionRecord::fromGff(
+        *saved, savedRuntimeIdentityContext());
     ASSERT_TRUE(record.bindObjectReferences(game));
     auto runtime = std::dynamic_pointer_cast<MoveToObjectAction>(record.toRuntimeAction(game));
     ASSERT_TRUE(runtime);
@@ -798,12 +846,14 @@ TEST(SavedAction, forced_move_accepts_an_unnormalized_legacy_time_of_day) {
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto area = game.newArea();
+    registerModuleIdentity(game, area->id(), area);
     constexpr uint32_t kLegacyTimeOfDay = 24u * 60u * 60u * 1000u - 1u;
     ASSERT_GT(kLegacyTimeOfDay, game.millisecondsPerWorldDay());
 
     auto record = SavedActionRecord::fromGff(
         *moveToPointAction(area->id(), glm::vec3(8.0f), 1, 0.0f, 2,
-                           static_cast<int32_t>(kLegacyTimeOfDay)));
+                           static_cast<int32_t>(kLegacyTimeOfDay)),
+        savedRuntimeIdentityContext());
     ASSERT_TRUE(record.bindObjectReferences(game));
     auto restored = std::dynamic_pointer_cast<MoveToLocationAction>(
         record.toRuntimeAction(game));
@@ -831,20 +881,25 @@ TEST(SavedRuntimePublication, should_compare_event_due_times_on_the_absolute_clo
     ON_CALL(engine.sceneModule().graphs(), get(_)).WillByDefault(ReturnRef(sceneGraph));
 
     auto ifo = Gff::Builder()
-                   .field(Gff::Field::newDword("Mod_CalendarDay", 4))
-                   .field(Gff::Field::newDword("Mod_TimeOfDay", 0))
+                   .field(Gff::Field::newDword("Mod_PauseDay", 4))
+                   .field(Gff::Field::newDword("Mod_PauseTime", 0))
                    .field(Gff::Field::newDword("Mod_MinPerHour", 5))
                    .build();
-    game.prepareSavedRuntimeNamespace(*ifo);
+    game.prepareSavedRuntimeNamespace(
+        *ifo, SerializedIdentityContext::moduleGraph("test-module"));
     const uint32_t millisecondsPerDay = game.millisecondsPerWorldDay();
     auto module = game.newModule();
+    auto caller = game.newCreature();
+    registerModuleIdentity(game, 2, module);
+    registerModuleIdentity(game, 3, caller);
 
     auto queue = Gff::Builder()
                      .field(Gff::Field::newList(
                          "EventQueue",
                          {event(5, 4, 2u * millisecondsPerDay, minimalEffect())}))
                      .build();
-    module->deserializeSavedEventQueue(*queue);
+    module->deserializeSavedEventQueue(
+        *queue, savedRuntimeIdentityContext());
     module->bindSavedEventQueue();
     module->publishSavedEventQueue();
     ASSERT_EQ(module->pendingSavedEventCount(), 1);
@@ -951,7 +1006,8 @@ TEST(SavedAction, start_conversation_rejects_malformed_or_unbound_records) {
         valueParameter(4, Gff::Field::newCExoString("Value", "dialog")),
         valueParameter(1, Gff::Field::newInt("Value", 0)),
     });
-    auto record = SavedActionRecord::fromGff(*saved);
+    auto record = SavedActionRecord::fromGff(
+        *saved, savedRuntimeIdentityContext());
     EXPECT_FALSE(record.bindObjectReferences(game));
     EXPECT_FALSE(record.toRuntimeAction(game));
     record.declaredParameterCount = 2;
@@ -966,6 +1022,7 @@ TEST(SavedRuntimePublication, move_to_object_waits_for_publication_and_preserves
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
     auto target = game.newCreature();
+    registerModuleIdentity(game, target->id(), target);
     auto saved = Gff::Builder()
                      .field(Gff::Field::newList(
                          "ActionList",
@@ -981,7 +1038,7 @@ TEST(SavedRuntimePublication, move_to_object_waits_for_publication_and_preserves
                           })}))
                      .build();
     auto actor = game.newCreature();
-    actor->deserializeRuntimeState(*saved);
+    actor->deserializeRuntimeState(*saved, savedRuntimeIdentityContext());
 
     EXPECT_TRUE(actor->actions().empty());
     actor->bindSavedRuntimeState();
@@ -1017,7 +1074,7 @@ TEST(SavedRuntimePublication, should_separate_parse_bind_and_idempotent_publicat
                      .build();
     auto object = game.newCreature();
 
-    object->deserializeRuntimeState(*saved);
+    object->deserializeRuntimeState(*saved, savedRuntimeIdentityContext());
 
     ASSERT_EQ(object->savedEffects().size(), 1);
     ASSERT_EQ(object->savedActionQueue().actions.size(), 2);
@@ -1047,6 +1104,66 @@ TEST(SavedRuntimePublication, should_separate_parse_bind_and_idempotent_publicat
     EXPECT_EQ(object->actions().size(), 1);
 }
 
+TEST(SavedRuntimePublication, detached_state_never_binds_through_module_graph) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto moduleTarget = game.newCreature();
+    registerModuleIdentity(game, 77u, moduleTarget);
+    auto effect = minimalEffect();
+    replaceSaveField(
+        *effect, Gff::Field::newDword("CreatorId", 77u));
+    auto record = Gff::Builder()
+                      .field(Gff::Field::newList("EffectList", {effect}))
+                      .field(Gff::Field::newList(
+                          "ActionList", {basicAttackAction(77u)}))
+                      .build();
+    auto detached = game.newCreature();
+    detached->deserializeRuntimeState(
+        *record,
+        SerializedIdentityContext::detachedRecord("availnpc0.utc"));
+
+    detached->bindSavedRuntimeState();
+    detached->publishSavedRuntimeState();
+
+    ASSERT_EQ(detached->savedEffects().size(), 1u);
+    EXPECT_FALSE(detached->savedEffects().front().boundCreator());
+    EXPECT_TRUE(detached->effects().empty());
+    EXPECT_TRUE(detached->actions().empty());
+    EXPECT_NE(game.getObjectBySavedId(77u), nullptr);
+}
+
+TEST(SavedRuntimePublication, detached_state_binds_only_inside_exact_record) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    const auto context =
+        SerializedIdentityContext::detachedRecord("availnpc0.utc");
+    auto localTarget = game.newCreature();
+    localTarget->assignSerializedObjectIdentity({context, 77u});
+    auto effect = minimalEffect();
+    replaceSaveField(
+        *effect, Gff::Field::newDword("CreatorId", 77u));
+    auto record = Gff::Builder()
+                      .field(Gff::Field::newList("EffectList", {effect}))
+                      .field(Gff::Field::newList(
+                          "ActionList", {basicAttackAction(77u)}))
+                      .build();
+    auto detached = game.newCreature();
+    detached->deserializeRuntimeState(*record, context);
+
+    detached->bindSavedRuntimeState();
+    detached->publishSavedRuntimeState();
+
+    ASSERT_EQ(detached->effects().size(), 1u);
+    EXPECT_EQ(detached->effects().front().boundCreator(), localTarget);
+    ASSERT_EQ(detached->actions().size(), 1u);
+    auto attack = std::dynamic_pointer_cast<AttackObjectAction>(
+        detached->actions().front());
+    ASSERT_TRUE(attack);
+    EXPECT_EQ(attack->target(), localTarget);
+}
+
 
 TEST(SavedRuntimePublication, should_publish_supported_events_without_dispatching_them) {
     TestEngine &engine = testEngine();
@@ -1056,12 +1173,16 @@ TEST(SavedRuntimePublication, should_publish_supported_events_without_dispatchin
     ON_CALL(engine.sceneModule().graphs(), get(_)).WillByDefault(ReturnRef(sceneGraph));
 
     auto ifo = Gff::Builder()
-                   .field(Gff::Field::newDword("Mod_CalendarDay", 4))
-                   .field(Gff::Field::newDword("Mod_TimeOfDay", 100))
+                   .field(Gff::Field::newDword("Mod_PauseDay", 4))
+                   .field(Gff::Field::newDword("Mod_PauseTime", 100))
                    .field(Gff::Field::newDword("Mod_MinPerHour", 5))
                    .build();
-    game.prepareSavedRuntimeNamespace(*ifo);
+    game.prepareSavedRuntimeNamespace(
+        *ifo, SerializedIdentityContext::moduleGraph("test-module"));
     auto module = game.newModule();
+    auto caller = game.newCreature();
+    registerModuleIdentity(game, 2, module);
+    registerModuleIdentity(game, 3, caller);
 
     auto queue = Gff::Builder()
                      .field(Gff::Field::newList(
@@ -1070,7 +1191,8 @@ TEST(SavedRuntimePublication, should_publish_supported_events_without_dispatchin
                           event(11, 4, 101),
                           event(18, 4, 102)}))
                      .build();
-    module->deserializeSavedEventQueue(*queue);
+    module->deserializeSavedEventQueue(
+        *queue, savedRuntimeIdentityContext());
     module->bindSavedEventQueue();
     module->publishSavedEventQueue();
 
@@ -1105,7 +1227,8 @@ TEST(SavedRuntimePublication, should_publish_supported_events_without_dispatchin
 
 
 TEST(ScriptSituation, should_preserve_the_retail_snapshot_without_claiming_resume) {
-    SerializedScriptSituation situation = SerializedScriptSituation::fromGff(*savedSituation());
+    SerializedScriptSituation situation = SerializedScriptSituation::fromGff(
+        *savedSituation(), savedRuntimeIdentityContext());
 
     EXPECT_EQ(situation.codeSize, 4);
     EXPECT_EQ(situation.code, (ByteBuffer {1, 2, 3, 4}));
@@ -1132,27 +1255,101 @@ TEST(SavedObjectReference, should_bind_only_after_B_exists_and_never_rebind_A_in
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     NiceMock<scene::MockSceneGraph> sceneGraph;
     ON_CALL(engine.sceneModule().graphs(), get(_)).WillByDefault(ReturnRef(sceneGraph));
+    TwoDA::Builder appearances;
+    appearances.columns({"modeltype", "walkdist", "rundist", "footsteptype", "envmap", "race", "racetex"});
+    appearances.row({"S", "1", "1", "-1", "", "", ""});
+    ON_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillByDefault(Return(std::shared_ptr<TwoDA>(appearances.build())));
 
-    SavedObjectReference reference(2);
+    auto savedCreature = Gff::Builder()
+                             .field(Gff::Field::newDword("ObjectId", 2))
+                             .build();
+    auto git = Gff::Builder()
+                   .field(Gff::Field::newList("Creature List", {savedCreature}))
+                   .build();
+    const auto identityContext =
+        SerializedIdentityContext::moduleGraph("test-module");
+    game.reserveSavedObjectIds(
+        *git, identityContext, SerializedGraphRoot::AreaGit);
+
+    auto reference = SavedObjectReference::fromSerializedId(
+        2, identityContext);
     EXPECT_FALSE(game.bindSavedObjectReference(reference));
 
-    auto sessionA = game.newCreature();
-    ASSERT_EQ(sessionA->id(), 2);
+    auto sessionA = game.newCreature(*savedCreature, identityContext);
+    ASSERT_NE(sessionA->id(), 2);
     ASSERT_TRUE(game.bindSavedObjectReference(reference));
     EXPECT_EQ(reference.boundObject(), sessionA);
 
     game.retireRuntimeSession();
-    auto sessionB = game.newCreature();
-    ASSERT_EQ(sessionB->id(), 2);
+    game.reserveSavedObjectIds(
+        *git, identityContext, SerializedGraphRoot::AreaGit);
+    auto sessionB = game.newCreature(*savedCreature, identityContext);
+    ASSERT_NE(sessionB->id(), 2);
     EXPECT_FALSE(game.bindSavedObjectReference(reference));
     EXPECT_FALSE(reference.boundObject());
     EXPECT_NE(sessionA, sessionB);
 
-    SavedObjectReference parsedForB(2);
+    auto parsedForB = SavedObjectReference::fromSerializedId(
+        2, identityContext);
     EXPECT_TRUE(game.bindSavedObjectReference(parsedForB));
     EXPECT_EQ(parsedForB.boundObject(), sessionB);
-    SavedObjectReference invalid(kSavedRuntimeInvalidObjectId);
+    auto invalid = SavedObjectReference::fromSerializedId(
+        kSavedRuntimeInvalidObjectId, identityContext);
     EXPECT_FALSE(game.bindSavedObjectReference(invalid));
+}
+
+TEST(SavedObjectReference, serialized_identity_dies_with_its_module_graph) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    ON_CALL(engine.sceneModule().graphs(), get(_)).WillByDefault(ReturnRef(sceneGraph));
+    TwoDA::Builder appearances;
+    appearances.columns({"modeltype", "walkdist", "rundist", "footsteptype", "envmap", "race", "racetex"});
+    appearances.row({"S", "1", "1", "-1", "", "", ""});
+    ON_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillByDefault(Return(std::shared_ptr<TwoDA>(appearances.build())));
+
+    const auto identityContext =
+        SerializedIdentityContext::moduleGraph("shared-module-name");
+    auto savedCreature = Gff::Builder()
+                             .field(Gff::Field::newDword("ObjectId", 2))
+                             .build();
+    auto source = game.newCreature(*savedCreature, identityContext);
+    auto reference = SavedObjectReference::fromSerializedId(
+        2, identityContext);
+    ASSERT_TRUE(game.bindSavedObjectReference(reference));
+    ASSERT_EQ(reference.boundObject(), source);
+
+    game.retireActiveModuleRuntime();
+    auto destination = game.newCreature(*savedCreature, identityContext);
+    ASSERT_NE(source, destination);
+    EXPECT_FALSE(game.bindSavedObjectReference(reference));
+    EXPECT_FALSE(reference.boundObject());
+
+    auto destinationReference = SavedObjectReference::fromSerializedId(
+        2, identityContext);
+    EXPECT_TRUE(game.bindSavedObjectReference(destinationReference));
+    EXPECT_EQ(destinationReference.boundObject(), destination);
+}
+
+TEST(SavedObjectReference, runtime_identity_can_survive_an_ordinary_module_transition) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    auto player = game.newCreature();
+    game.party().addMember(kNpcPlayer, player);
+    game.party().setPlayer(player);
+    game.party().setActualPlayer(player);
+    auto reference = SavedObjectReference::fromRuntimeId(player->id());
+    ASSERT_TRUE(game.bindSavedObjectReference(reference));
+
+    game.retireActiveModuleRuntime();
+
+    EXPECT_TRUE(game.bindSavedObjectReference(reference));
+    EXPECT_EQ(reference.boundObject(), player);
 }
 
 TEST(SavedEventQueue, should_preserve_K1_and_K2_records_absolute_time_payload_and_order) {
@@ -1166,7 +1363,8 @@ TEST(SavedEventQueue, should_preserve_K1_and_K2_records_absolute_time_payload_an
                          event(99, 4, 104, Gff::Builder().field(Gff::Field::newInt("Value", 7)).build())}))
                     .build();
 
-    SavedEventQueue queue = SavedEventQueue::fromGff(*root);
+    SavedEventQueue queue = SavedEventQueue::fromGff(
+        *root, savedRuntimeIdentityContext());
 
     ASSERT_EQ(queue.events.size(), 5);
     EXPECT_EQ(queue.events[0].eventId, 1);
@@ -1192,7 +1390,10 @@ TEST(SavedEventQueue, should_bind_event_references_only_through_current_B_regist
 
     auto target = game.newCreature();
     auto caller = game.newCreature();
-    SavedEventRecord record = SavedEventRecord::fromGff(*event(1, 1, 2, savedSituation()));
+    registerModuleIdentity(game, 2, target);
+    registerModuleIdentity(game, 3, caller);
+    SavedEventRecord record = SavedEventRecord::fromGff(
+        *event(1, 1, 2, savedSituation()), savedRuntimeIdentityContext());
 
     EXPECT_TRUE(record.bindObjectReferences(game));
     EXPECT_EQ(record.object.boundObject(), target);
@@ -1248,7 +1449,8 @@ TEST(SavedEventQueue, should_preserve_observed_spell_body_bag_and_script_event_p
                         {event(8, 1, 10, spell), event(17, 1, 11, bodyBag), event(10, 1, 12, scriptEvent)}))
                     .build();
 
-    SavedEventQueue queue = SavedEventQueue::fromGff(*root);
+    SavedEventQueue queue = SavedEventQueue::fromGff(
+        *root, savedRuntimeIdentityContext());
 
     ASSERT_EQ(queue.events.size(), 3);
     const auto &savedSpell = std::get<SavedSpellImpact>(queue.events[0].payload);
@@ -1268,6 +1470,71 @@ TEST(SavedEventQueue, should_preserve_observed_spell_body_bag_and_script_event_p
     EXPECT_EQ(savedScriptEvent.strings, (std::vector<std::string> {"payload"}));
     ASSERT_EQ(savedScriptEvent.objects.size(), 1);
     EXPECT_EQ(savedScriptEvent.objects[0].id, 6);
+}
+
+TEST(SavedEventQueue, recovered_reference_bearing_payloads_bind_explicitly) {
+    auto aoo = Gff::Builder().type(0x3333)
+                   .field(Gff::Field::newDword("Value", 4)).build();
+    auto combat = Gff::Builder().type(0x2222)
+                      .field(Gff::Field::newDword("ReactObject", 5))
+                      .field(Gff::Field::newDword("AmmoItem", 6))
+                      .field(Gff::Field::newInt("AttackType", 17)).build();
+    auto feedbackObject1 = Gff::Builder().type(0xbaad)
+                               .field(Gff::Field::newDword("ObjectValue", 7)).build();
+    auto feedbackObject2 = Gff::Builder().type(0xbaad)
+                               .field(Gff::Field::newDword("ObjectValue", 8)).build();
+    auto feedback = Gff::Builder().type(0xcccc)
+                        .field(Gff::Field::newByte("Type", 9))
+                        .field(Gff::Field::newList(
+                            "ObjectIDList", {feedbackObject1, feedbackObject2})).build();
+    auto spell = Gff::Builder().type(0x6666)
+                     .field(Gff::Field::newDword("CasterId", 4))
+                     .field(Gff::Field::newDword("TargetId", 5))
+                     .field(Gff::Field::newDword("AreaId", 6))
+                     .field(Gff::Field::newDword("ItemId", 7)).build();
+    auto root = Gff::Builder().field(Gff::Field::newList(
+        "EventQueue",
+        {event(20, 1, 10, aoo),
+         event(15, 1, 11, combat),
+         event(21, 1, 12, combat),
+         event(22, 1, 13, feedback),
+         event(19, 1, 14, spell)})).build();
+
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    std::map<uint32_t, std::shared_ptr<Object>> objects;
+    for (uint32_t id = 2; id <= 8; ++id) {
+        objects.emplace(id, game.newCreature());
+        registerModuleIdentity(game, id, objects.at(id));
+    }
+    auto queue = SavedEventQueue::fromGff(
+        *root, savedRuntimeIdentityContext());
+
+    ASSERT_EQ(queue.events.size(), 5u);
+    for (auto &record : queue.events) {
+        EXPECT_TRUE(record.bindObjectReferences(game));
+    }
+    const auto &savedAoo = std::get<SavedBroadcastAoo>(
+        queue.events[0].payload);
+    EXPECT_EQ(savedAoo.target.boundObject(), objects.at(4));
+    const auto &melee = std::get<SavedCombatAttack>(
+        queue.events[1].payload);
+    EXPECT_EQ(melee.reactionObject.boundObject(), objects.at(5));
+    EXPECT_EQ(melee.ammoItem.boundObject(), objects.at(6));
+    const auto &projectile = std::get<SavedCombatAttack>(
+        queue.events[2].payload);
+    EXPECT_EQ(projectile.reactionObject.boundObject(), objects.at(5));
+    EXPECT_EQ(projectile.ammoItem.boundObject(), objects.at(6));
+    const auto &message = std::get<SavedFeedbackMessage>(
+        queue.events[3].payload);
+    ASSERT_EQ(message.objects.size(), 2u);
+    EXPECT_EQ(message.objects[0].boundObject(), objects.at(7));
+    EXPECT_EQ(message.objects[1].boundObject(), objects.at(8));
+    const auto &itemSpell = std::get<SavedSpellImpact>(
+        queue.events[4].payload);
+    EXPECT_EQ(itemSpell.caster.boundObject(), objects.at(4));
+    EXPECT_EQ(itemSpell.item.boundObject(), objects.at(7));
 }
 
 } // namespace

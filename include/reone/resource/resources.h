@@ -24,6 +24,8 @@
 #include "resource.h"
 #include "sourcelist.h"
 
+#include <set>
+
 namespace reone {
 
 namespace resource {
@@ -96,6 +98,19 @@ public:
 
     virtual Resource get(const ResourceId &id) = 0;
     virtual std::optional<Resource> find(const ResourceId &id) = 0;
+
+    /**
+     * Resolve through the normal lookup order while ignoring sources whose
+     * lifetime owner is excluded.
+     *
+     * Destination preflight uses this to inspect a temporarily mounted module
+     * beside the still-authoritative one. The candidate keeps its real bucket
+     * precedence (including loose overrides), while the outgoing module's
+     * generic resource names cannot satisfy the lookup accidentally.
+     */
+    virtual std::optional<Resource> findExcludingOwners(
+        const ResourceId &id,
+        const std::set<ResourceOwner> &excludedOwners) = 0;
 };
 
 class Resources : public IResources, boost::noncopyable {
@@ -144,6 +159,9 @@ public:
 
     Resource get(const ResourceId &id) override;
     std::optional<Resource> find(const ResourceId &id) override;
+    std::optional<Resource> findExcludingOwners(
+        const ResourceId &id,
+        const std::set<ResourceOwner> &excludedOwners) override;
 
     const ResourceContainerList &containers() const { return _containers; }
 

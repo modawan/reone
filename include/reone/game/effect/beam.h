@@ -18,6 +18,7 @@
 #pragma once
 
 #include "../effect.h"
+#include "../object.h"
 
 namespace reone {
 
@@ -32,16 +33,27 @@ public:
         bool missEffect) :
         Effect(EffectType::Beam),
         _beamVisualEffect(beamVisualEffect),
-        _effector(std::move(effector)),
+        _effector(effector),
         _bodyPart(bodyPart),
         _missEffect(missEffect) {
+        setSaveFacingInteger(0, beamVisualEffect);
+        setSaveFacingInteger(1, static_cast<int>(bodyPart));
+        setSaveFacingInteger(2, missEffect ? 1 : 0);
+        setSaveFacingObject(0, effector);
     }
 
     void applyTo(Object &object) override;
+    void retireAreaRuntime(
+        const std::set<const Object *> &retainedObjects) override {
+        auto effector = _effector.resolve();
+        if (!effector || retainedObjects.count(effector.get()) == 0) {
+            _effector.reset();
+        }
+    }
 
 private:
     int _beamVisualEffect;
-    std::shared_ptr<Object> _effector;
+    RuntimeObjectRef<Object> _effector;
     BodyNode _bodyPart;
     bool _missEffect;
 };

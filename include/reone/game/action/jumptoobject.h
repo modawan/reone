@@ -32,6 +32,7 @@ public:
         Action(game, services, ActionType::JumpToObject),
         _toJumpTo(std::move(toJumpTo)),
         _walkStraightLine(walkStraightLine) {
+        requireRuntimeObject(_toJumpTo);
     }
 
     static bool classof(Action *from) {

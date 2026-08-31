@@ -39,7 +39,9 @@
 #include "reone/resource/director.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/extractresources.h"
+#include "reone/resource/gff.h"
 #include "reone/resource/format/erfwriter.h"
+#include "reone/resource/format/gffwriter.h"
 #include "reone/resource/format/rimwriter.h"
 #include "reone/resource/resources.h"
 #include "reone/system/stream/fileoutput.h"
@@ -62,11 +64,38 @@ ByteBuffer bytes(std::string_view value) {
     return ByteBuffer(value.begin(), value.end());
 }
 
+std::string gffBlob(std::string_view signature, const Gff &gff) {
+    auto encoded = GffWriter(
+                       GffFileFormat::v32(std::string(signature)), gff)
+                       .toBytes();
+    return std::string(encoded.begin(), encoded.end());
+}
+
 struct NamedRes {
     std::string resRef;
     ResType type;
     std::string data;
 };
+
+std::vector<NamedRes> structuralModule(
+    const std::string &area,
+    std::string marker = {}) {
+    auto ifo = Gff::Builder()
+                   .field(Gff::Field::newResRef("Mod_Entry_Area", area))
+                   .build();
+    auto are = Gff::Builder().build();
+    auto git = Gff::Builder().build();
+    std::vector<NamedRes> result {
+        {"module", ResType::Ifo, gffBlob("IFO ", *ifo)},
+        {area, ResType::Are, gffBlob("ARE ", *are)},
+        {area, ResType::Git, gffBlob("GIT ", *git)},
+        {area, ResType::Lyt,
+         "beginlayout\nroomcount 0\ntrackcount 0\nobstaclecount 0\ndonelayout\n"}};
+    if (!marker.empty()) {
+        result.push_back({marker, ResType::Txt, marker});
+    }
+    return result;
+}
 
 ByteBuffer erfBytes(ErfWriter::FileType fileType, const std::vector<NamedRes> &resources) {
     ErfWriter writer;
@@ -1152,6 +1181,70 @@ TEST(ResourceDirectorActivation, places_both_games_in_the_raw_lookup_order) {
     // now evidenced, so neither game keeps the insertion-ordered stack.
     EXPECT_TRUE(usesBucketedLookup(GameID::TSL));
     EXPECT_TRUE(usesBucketedLookup(GameID::KotOR));
+}
+
+TEST_P(K2ModuleLoadingTest, prepared_module_is_private_until_exact_plan_commit) {
+    TmpDir game("reone_test_prepared_module_private");
+    TmpDir cwd("reone_test_prepared_module_private_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeRim(modules / "old.rim", structuralModule("oldarea", "old_marker"));
+    writeRim(modules / "next.rim", structuralModule("nextarea", "next_marker"));
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onModuleLoad("old");
+    ASSERT_EQ("old_marker", find("old_marker"));
+    ASSERT_FALSE(has("next_marker"));
+
+    auto prepared = director->prepareModuleLoad("next", nullptr);
+
+    ASSERT_TRUE(prepared);
+    EXPECT_TRUE(prepared->structurallyValidated());
+    EXPECT_EQ("next", prepared->moduleName());
+    EXPECT_EQ("nextarea", prepared->moduleIfo()->getString("Mod_Entry_Area"));
+    EXPECT_EQ("old_marker", find("old_marker"));
+    EXPECT_FALSE(has("next_marker"));
+
+    director->commitModuleLoad(std::move(prepared));
+
+    EXPECT_FALSE(has("old_marker"));
+    EXPECT_EQ("next_marker", find("next_marker"));
+}
+
+TEST_P(K2ModuleLoadingTest, rejected_module_structure_leaves_active_mounts_untouched) {
+    TmpDir game("reone_test_prepared_module_reject");
+    TmpDir cwd("reone_test_prepared_module_reject_cwd");
+    makeInstallation(game, cwd);
+
+    auto modules = game.path / "modules";
+    writeRim(modules / "old.rim", structuralModule("oldarea", "old_marker"));
+    auto malformed = structuralModule("brokenarea", "broken_marker");
+    malformed.erase(
+        std::remove_if(
+            malformed.begin(), malformed.end(),
+            [](const NamedRes &resource) {
+                return resource.type == ResType::Git;
+            }),
+        malformed.end());
+    writeRim(modules / "broken.rim", malformed);
+
+    auto director = makeDirector(game.path);
+    {
+        CwdGuard guard(cwd.path);
+        director->init();
+    }
+    director->onModuleLoad("old");
+
+    EXPECT_THROW(
+        (void)director->prepareModuleLoad("broken", nullptr),
+        ResourceNotFoundException);
+    EXPECT_EQ("old_marker", find("old_marker"));
+    EXPECT_FALSE(has("broken_marker"));
 }
 
 INSTANTIATE_TEST_SUITE_P(Backends,

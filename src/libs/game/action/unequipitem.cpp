@@ -17,13 +17,24 @@
 
 #include "reone/game/action/unequipitem.h"
 
+#include "reone/game/game.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/object/item.h"
+#include "reone/game/party.h"
+
 namespace reone {
 
 namespace game {
 
 void UnequipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    // TODO: implement
-
+    auto *creature = dyn_cast<Creature>(&actor);
+    if (!creature || !_item->isEquipped() || _item->owner() != actor.id()) {
+        complete();
+        return;
+    }
+    auto receiver = _game.party().sharedInventoryReceiver(
+        _game.getObjectById(actor.id()));
+    if (receiver) creature->moveEquippedItemTo(_item, *receiver);
     complete();
 }
 

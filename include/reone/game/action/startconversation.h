@@ -50,6 +50,7 @@ public:
         _barkX(barkX),
         _barkY(barkY),
         _dontClearAllActions(dontClearAllActions) {
+        requireRuntimeObject(_objectToConverse);
     }
 
     static bool classof(Action *from) {

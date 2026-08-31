@@ -100,6 +100,7 @@ TEST(PartyRoutines, get_party_leader_follows_a_companion_leader_not_the_canonica
     auto companion = harness.game().newCreature();
     ASSERT_NE(pc->id(), companion->id());
 
+    harness.game().party().addAvailableMember(kNpcCompanion, companion);
     harness.game().party().addMember(kNpcCompanion, companion);
     harness.game().party().addMember(kNpcPlayer, pc);
     harness.game().party().setPlayer(pc);

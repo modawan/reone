@@ -32,6 +32,7 @@ public:
         Action(game, services, ActionType::Follow),
         _follow(std::move(follow)),
         _followDistance(followDistance) {
+        requireRuntimeObject(_follow);
     }
 
     static bool classof(Action *from) {

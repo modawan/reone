@@ -19,8 +19,10 @@
 
 #include "reone/game/game.h"
 #include "reone/game/object.h"
+#include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
+#include "reone/game/object/module.h"
 #include "reone/game/types.h"
 
 namespace reone {
@@ -225,10 +227,87 @@ std::shared_ptr<Item> takeEquipmentCandidate(
         return item;
     }
 
-    auto split = game.newItem();
-    split->clone(*item);
+    auto split = game.newItemClone(*item);
     split->setStackSize(1);
     return split;
+}
+
+static std::shared_ptr<Area> activeAreaOwningItem(
+    Game &game,
+    const std::shared_ptr<Item> &item) {
+    if (!item) return nullptr;
+    auto module = game.module();
+    auto area = module ? module->area() : nullptr;
+    if (!area) return nullptr;
+    auto owned = std::find_if(
+        area->objects().begin(), area->objects().end(),
+        [&item](const auto &candidate) {
+            return candidate.get() == item.get();
+        });
+    return owned == area->objects().end() ? nullptr : area;
+}
+
+bool isActiveAreaOwnedItem(
+    Game &game,
+    const std::shared_ptr<Item> &item) {
+    return static_cast<bool>(activeAreaOwningItem(game, item));
+}
+
+bool releaseAreaOwnedItem(
+    Game &game,
+    const std::shared_ptr<Item> &item) {
+    if (!item || !item->isRuntimeLive() || item->isPresentationOnly() ||
+        item->isEquipped() ||
+        (item->owner() != 0 && item->owner() != script::kObjectInvalid)) {
+        return false;
+    }
+    auto area = activeAreaOwningItem(game, item);
+    return area && area->releaseObject(item);
+}
+
+bool transferItemTo(
+    Game &game,
+    const std::shared_ptr<Item> &item,
+    Object &receiver) {
+    if (!item || (!item->isRuntimeLive() && !item->isPresentationOnly()) ||
+        (!receiver.isRuntimeLive() && !receiver.isPresentationOnly()) ||
+        (item->isPresentationOnly() != receiver.isPresentationOnly()) ||
+        item.get() == &receiver) {
+        return false;
+    }
+
+    uint32_t ownerId = item->owner();
+    if (ownerId == receiver.id() && !item->isEquipped()) return true;
+
+    if (ownerId == 0 || ownerId == script::kObjectInvalid) {
+        // owner() describes nested inventory/equipment ownership; it does not
+        // encode Area residency. Only an exact active-Area ownership edge makes
+        // an ownerless-numbered Item transferable. Everything else fails
+        // closed rather than treating owner()==0 as freely claimable.
+        if (item->isPresentationOnly() || item->isEquipped() ||
+            std::find(receiver.items().begin(), receiver.items().end(), item) !=
+                receiver.items().end()) {
+            return false;
+        }
+        if (!releaseAreaOwnedItem(game, item)) {
+            return false;
+        }
+        receiver.addItem(item);
+        return true;
+    }
+
+    auto owner = game.getObjectById(ownerId);
+    if (!owner) return false;
+
+    if (auto creature = std::dynamic_pointer_cast<Creature>(owner);
+        creature && item->isEquipped()) {
+        if (!creature->takeEquippedItem(item)) return false;
+    } else if (!owner->removeItemStack(item)) {
+        return false;
+    }
+
+    receiver.addItem(item);
+    return true;
 }
 
 } // namespace game

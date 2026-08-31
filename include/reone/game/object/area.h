@@ -77,7 +77,11 @@ public:
         return from->type() == ObjectType::Area;
     }
 
-    void load(std::string name, const resource::Gff &are, const resource::Gff &git, bool fromSave = false);
+    void load(
+        std::string name,
+        const resource::Gff &are,
+        const resource::Gff &git,
+        const SerializedIdentityContext &identityContext);
     void activate();
 
     bool handle(const input::Event &event);
@@ -127,6 +131,22 @@ public:
 
     std::shared_ptr<Object> createObject(ObjectType type, const std::string &blueprintResRef, const std::shared_ptr<Location> &location);
 
+    /**
+     * End this Area's ownership of an exact still-live runtime Object.
+     *
+     * This removes Area indexes, Room/Trigger tenancy and presentation
+     * attachment without firing authored exit behavior or ending semantic
+     * object lifetime. It is the transfer seam for a world object moving into
+     * another owning graph.
+     */
+    bool releaseObject(const std::shared_ptr<Object> &object);
+
+    /** Whether this exact Object is currently owned by this Area. */
+    bool isObjectResident(const Object &object) const;
+
+    /** Whether this exact runtime Object is queued for semantic destruction. */
+    bool isObjectPendingDestruction(const Object &object) const;
+
     bool isObjectSeen(const Creature &subject, const Object &object) const;
 
     ObjectList &getObjectsByType(ObjectType type);
@@ -173,13 +193,23 @@ public:
 
     // Party
 
-    void unloadPartyMember(const std::shared_ptr<Creature> &member);
+    /** End one retained creature's current Area lifetime. */
+    void retireCreatureAreaRuntime(const std::shared_ptr<Creature> &creature);
+    void retirePartyMemberAreaRuntime(const std::shared_ptr<Creature> &member);
     void loadParty(
         const glm::vec3 &position,
         float facing,
         bool preserveSavedPlacement = false);
-    void unloadParty();
-    void reloadParty();
+    /** End every session-owned creature's residency in this Area. */
+    void retirePartyAreaRuntime();
+    /** Place a newly controlled actor without ending any existing Area lifetime. */
+    void placeControlledCreature(
+        const std::shared_ptr<Creature> &creature,
+        const glm::vec3 &position,
+        float facing);
+    /** Reconcile/position the selected party without ending this Area lifetime. */
+    void repositionParty(const glm::vec3 &position, float facing);
+    void repositionParty();
 
     // END Party
 
@@ -323,8 +353,9 @@ private:
     void applySceneProperties();
     void attachRoomToSceneGraph(Room &room);
     void attachObjectToSceneGraph(const std::shared_ptr<Object> &object);
+    void detachObjectRuntime(const std::shared_ptr<Object> &object);
 
-    void doDestroyObject(uint32_t objectId);
+    void doDestroyObject(uint32_t objectId, bool destroyRuntimeObject = true);
     void doDestroyObjects();
     void updateVisibility();
     void updateHeartbeat(float dt);
@@ -333,6 +364,9 @@ private:
         const std::shared_ptr<Creature> &member,
         int index,
         bool preserveSavedPlacement);
+    void repositionPartyMember(
+        const std::shared_ptr<Creature> &member,
+        int index);
     glm::vec3 findPartyPosition(const Creature &member, const glm::vec3 &position) const;
 
     struct CreatureCollision {
@@ -385,19 +419,22 @@ private:
 
     // Loading GIT
 
-    void loadGIT(const resource::generated::GIT &git, const resource::Gff &gff, bool fromSave);
+    void loadGIT(
+        const resource::generated::GIT &git,
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
 
     void loadProperties(const resource::generated::GIT &git);
-    void loadCreatures(const resource::Gff &gff, bool fromSave);
-    void loadDoors(const resource::Gff &gff, bool fromSave);
-    void loadPlaceables(const resource::Gff &gff, bool fromSave);
-    void loadWaypoints(const resource::Gff &gff, bool fromSave);
-    void loadTriggers(const resource::Gff &gff, bool fromSave);
-    void loadSounds(const resource::Gff &gff, bool fromSave);
-    void loadCameras(const resource::Gff &gff, bool fromSave);
-    void loadEncounters(const resource::Gff &gff, bool fromSave);
-    void loadStores(const resource::Gff &gff, bool fromSave);
-    void loadItems(const resource::Gff &gff, bool fromSave);
+    void loadCreatures(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadDoors(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadPlaceables(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadWaypoints(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadTriggers(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadSounds(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadCameras(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadEncounters(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadStores(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    void loadItems(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
 
     // END Loading GIT
 

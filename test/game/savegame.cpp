@@ -13,9 +13,12 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/object/module.h"
 #include "reone/graphics/format/tgareader.h"
+#include "reone/resource/2da.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/format/gffwriter.h"
+#include "reone/resource/layout.h"
 #include "reone/resource/saveworkingstate.h"
+#include "reone/scene/node/camera.h"
 #include "reone/system/stream/memoryinput.h"
 
 using namespace reone;
@@ -89,8 +92,9 @@ void reone::game::TestGameModule::processPendingSave(Game &game) {
     game.processPendingSave();
 }
 
-bool reone::game::TestGameModule::storeCurrentModuleForTransition(Game &game) {
-    return game.storeCurrentModuleForTransition();
+std::shared_ptr<const SaveWorkingState>
+reone::game::TestGameModule::prepareCurrentModuleWorkingState(Game &game) {
+    return game.prepareCurrentModuleWorkingState();
 }
 
 void reone::game::TestGameModule::setSnapshotModuleName(
@@ -128,6 +132,25 @@ void reone::game::TestGameModule::setTransitionInProgress(
 void reone::game::TestGameModule::setSaveInProgress(
     Game &game, bool inProgress) {
     game._saveInProgress = inProgress;
+}
+
+void reone::game::TestGameModule::inspectPreparedSaveLoad(
+    Game &game,
+    const SaveSlotDescriptor &slot,
+    int &context,
+    std::string &playerTag,
+    bool &playerHasObjectId,
+    std::string &startWaypoint,
+    uint32_t &pauseDay,
+    uint32_t &pauseTime) {
+    auto prepared = game.prepareSaveLoad(slot);
+    context = static_cast<int>(prepared.destination.context);
+    const auto &players = prepared.playerInfo->getList("Mod_PlayerList");
+    playerTag = players.front()->getString("Tag");
+    playerHasObjectId = players.front()->has("ObjectId");
+    startWaypoint = prepared.autosave->startWaypoint;
+    pauseDay = prepared.autosave->pauseDay;
+    pauseTime = prepared.autosave->pauseTime;
 }
 
 namespace {
@@ -192,6 +215,21 @@ struct SaveFixture : Test {
         EXPECT_CALL(director, saveNames())
             .Times(AnyNumber())
             .WillRepeatedly(Return(std::set<std::string> {}));
+
+        destinationIfo = Gff::Builder()
+                             .field(Gff::Field::newResRef(
+                                 "Mod_Entry_Area", "area_b"))
+                             .build();
+        destinationAre = Gff::Builder().build();
+        destinationGit = Gff::Builder().build();
+        EXPECT_CALL(director, prepareModuleLoad(_, _))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([this](
+                                       const std::string &name,
+                                       std::shared_ptr<const SaveWorkingState>) {
+                return PreparedModuleLoadTestFactory::validated(
+                    name, destinationIfo, destinationAre, destinationGit);
+            }));
 
         SaveOrchestrationSeams seams;
         seams.captureModule = [this](const Game &, const std::string &group) {
@@ -260,6 +298,9 @@ struct SaveFixture : Test {
     uint8_t snapshotSequence {0};
     bool publicationFailure {false};
     bool cleanupPending {false};
+    std::shared_ptr<Gff> destinationIfo;
+    std::shared_ptr<Gff> destinationAre;
+    std::shared_ptr<Gff> destinationGit;
 };
 
 TEST_F(SaveFixture, first_unsaved_manual_save_is_deferred_and_adopted_without_reload) {
@@ -610,11 +651,17 @@ TEST_F(SaveFixture, screenshot_capture_failure_is_nonfatal_and_never_reuses_stal
 
 TEST_F(SaveFixture, transition_working_state_is_normalized_across_a_b_a_without_disk) {
     TestGameModule::setSnapshotModuleName(*game, "module_a");
-    ASSERT_TRUE(TestGameModule::storeCurrentModuleForTransition(*game));
+    committed = TestGameModule::prepareCurrentModuleWorkingState(*game);
+    ASSERT_TRUE(committed);
+    engine.resourceModule().director().adoptSaveWorkingState(committed);
     TestGameModule::setSnapshotModuleName(*game, "module_b");
-    ASSERT_TRUE(TestGameModule::storeCurrentModuleForTransition(*game));
+    committed = TestGameModule::prepareCurrentModuleWorkingState(*game);
+    ASSERT_TRUE(committed);
+    engine.resourceModule().director().adoptSaveWorkingState(committed);
     TestGameModule::setSnapshotModuleName(*game, "module_a");
-    ASSERT_TRUE(TestGameModule::storeCurrentModuleForTransition(*game));
+    committed = TestGameModule::prepareCurrentModuleWorkingState(*game);
+    ASSERT_TRUE(committed);
+    engine.resourceModule().director().adoptSaveWorkingState(committed);
 
     EXPECT_EQ(3, workingAdoptions);
     EXPECT_TRUE(committed->contains({"module_a", ResType::Sav}));
@@ -640,6 +687,39 @@ TEST_F(SaveFixture, transition_snapshot_failure_aborts_before_source_teardown) {
     EXPECT_EQ(sourceModule, game->module());
     EXPECT_TRUE(game->hasPlayableRuntimeSession());
     EXPECT_EQ(0, workingAdoptions);
+}
+
+TEST_F(SaveFixture, invalid_destination_is_rejected_before_source_exit_or_snapshot) {
+    auto sourceModule = game->module();
+    auto sourcePlayer = game->party().player();
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareModuleLoad("module_b", _))
+        .WillOnce(Throw(ResourceNotFoundException("destination missing")));
+    EXPECT_CALL(director, commitModuleLoad(_)).Times(0);
+
+    EXPECT_FALSE(game->loadModule("module_b"));
+
+    EXPECT_TRUE(capturedGroups.empty());
+    EXPECT_EQ(0, workingAdoptions);
+    EXPECT_EQ(sourceModule, game->module());
+    EXPECT_EQ(sourcePlayer, game->party().player());
+    EXPECT_EQ(sourcePlayer, game->getObjectById(sourcePlayer->id()));
+    EXPECT_TRUE(game->hasPlayableRuntimeSession());
+}
+
+TEST_F(SaveFixture, failed_destination_commit_does_not_adopt_source_working_state) {
+    engine.options().graphics.sceneRender = false;
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, commitModuleLoad(_))
+        .WillOnce(Throw(ResourceNotFoundException(
+            "prepared module changed before commit")));
+
+    EXPECT_FALSE(game->loadModule("module_b"));
+
+    EXPECT_EQ(0, workingAdoptions);
+    EXPECT_EQ(Game::Screen::MainMenu, game->currentScreen());
+    EXPECT_FALSE(game->module());
+    EXPECT_FALSE(game->hasPlayableRuntimeSession());
 }
 
 TEST_F(SaveFixture, reconstruction_is_distinct_from_an_absent_playable_session) {
@@ -759,11 +839,242 @@ struct LoadTransactionFixture : TestWithParam<GameID> {
     std::shared_ptr<Creature> player;
     std::vector<Portrait> portraitRows;
     SaveSlotDescriptor slot;
+    std::shared_ptr<Gff> destinationIfo;
+    std::shared_ptr<Gff> destinationAre;
+    std::shared_ptr<Gff> destinationGit;
+    std::shared_ptr<Layout> emptyLayout {std::make_shared<Layout>()};
+    std::vector<std::shared_ptr<scene::CameraSceneNode>> cameraNodes;
+    int spawnScriptLookups {0};
+    ByteBuffer activeNpcBytes;
+
+    static std::shared_ptr<TwoDA> appearanceTable() {
+        TwoDA::Builder builder;
+        builder.columns({
+            "modeltype", "walkdist", "rundist", "footsteptype",
+            "envmap", "race", "racetex"});
+        builder.row({"S", "1", "1", "-1", "", "", ""});
+        return std::shared_ptr<TwoDA>(builder.build());
+    }
+
+    std::unique_ptr<PreparedModuleLoad> preparedDestination(
+        const std::string &name = "module_b") {
+        return PreparedModuleLoadTestFactory::validated(
+            name, destinationIfo, destinationAre, destinationGit);
+    }
+
+    void writeRequiredMetadata() {
+        auto nfo = Gff::Builder()
+                       .field(Gff::Field::newCExoString(
+                           "LASTMODULE", "module_b"))
+                       .field(Gff::Field::newCExoString(
+                           "AREANAME", "module_b"))
+                       .build();
+        auto nfoBytes = GffWriter(
+                            GffFileFormat::v32("NFO "), *nfo)
+                            .toBytes();
+        std::ofstream nfoFile(
+            slot.directory / "savenfo.res", std::ios::binary);
+        nfoFile.write(
+            nfoBytes.data(), static_cast<std::streamsize>(nfoBytes.size()));
+
+        auto globals = Gff::Builder().build();
+        auto globalBytes = GffWriter(
+                               GffFileFormat::v32("GVT "), *globals)
+                               .toBytes();
+        std::ofstream globalFile(
+            slot.directory / "globalvars.res", std::ios::binary);
+        globalFile.write(
+            globalBytes.data(),
+            static_cast<std::streamsize>(globalBytes.size()));
+    }
+
+    void writeTemplateAutosaveMetadata(
+        std::string playerTag = "jolee",
+        std::string startWaypoint = "autosave_start",
+        uint32_t pauseDay = 7,
+        uint32_t pauseTime = 4321) {
+        auto params = Gff::Builder()
+                          .field(Gff::Field::newCExoString(
+                              "STARTWAYPOINT", std::move(startWaypoint)))
+                          .field(Gff::Field::newDword(
+                              "TIME_PAUSEDAY", pauseDay))
+                          .field(Gff::Field::newDword(
+                              "TIME_PAUSETIME", pauseTime))
+                          .build();
+        auto nfo = Gff::Builder()
+                       .field(Gff::Field::newCExoString(
+                           "LASTMODULE", "module_b"))
+                       .field(Gff::Field::newCExoString(
+                           "AREANAME", "module_b"))
+                       .field(Gff::Field::newByte("PCAUTOSAVE", 1))
+                       .field(Gff::Field::newStruct(
+                           "AUTOSAVEPARAMS", params))
+                       .build();
+        auto nfoBytes = GffWriter(
+                            GffFileFormat::v32("NFO "), *nfo)
+                            .toBytes();
+        std::ofstream nfoFile(
+            slot.directory / "savenfo.res", std::ios::binary);
+        nfoFile.write(
+            nfoBytes.data(), static_cast<std::streamsize>(nfoBytes.size()));
+
+        auto globals = Gff::Builder().build();
+        auto globalBytes = GffWriter(
+                               GffFileFormat::v32("GVT "), *globals)
+                               .toBytes();
+        std::ofstream globalFile(
+            slot.directory / "globalvars.res", std::ios::binary);
+        globalFile.write(
+            globalBytes.data(),
+            static_cast<std::streamsize>(globalBytes.size()));
+
+        auto savedPlayer = Gff::Builder()
+                               .field(Gff::Field::newCExoString(
+                                   "Tag", std::move(playerTag)))
+                               .field(Gff::Field::newDword(
+                                   "Appearance_Type", 0))
+                               .field(Gff::Field::newWord(
+                                   "SoundSetFile", 0xffff))
+                               .field(Gff::Field::newByte(
+                                   "BodyBag", 0xff))
+                               .field(Gff::Field::newByte(
+                                   "PerceptionRange", 0xff))
+                               .build();
+        auto pifo = Gff::Builder()
+                        .field(Gff::Field::newList(
+                            "Mod_PlayerList", {savedPlayer}))
+                        .build();
+        auto pifoBytes = GffWriter(
+                             GffFileFormat::v32("IFO "), *pifo)
+                             .toBytes();
+        std::ofstream pifoFile(
+            slot.directory / "pifo.ifo", std::ios::binary);
+        pifoFile.write(
+            pifoBytes.data(), static_cast<std::streamsize>(pifoBytes.size()));
+
+        auto member = Gff::Builder()
+                          .field(Gff::Field::newInt(
+                              "PT_MEMBER_ID", kNpcPlayer))
+                          .field(Gff::Field::newByte(
+                              "PT_IS_LEADER", 1))
+                          .build();
+        auto party = Gff::Builder()
+                         .field(Gff::Field::newInt(
+                             "PT_CONTROLLED_NP", -1))
+                         .field(Gff::Field::newByte(
+                             "PT_NUM_MEMBERS", 1))
+                         .field(Gff::Field::newList(
+                             "PT_MEMBERS", {member}))
+                         .build();
+        auto partyBytes = GffWriter(
+                              GffFileFormat::v32("PT  "), *party)
+                              .toBytes();
+        std::ofstream partyFile(
+            slot.directory / "partytable.res", std::ios::binary);
+        partyFile.write(
+            partyBytes.data(), static_cast<std::streamsize>(partyBytes.size()));
+    }
+
+    void writeActiveNpcWithSavedAction() {
+        auto playerMember = Gff::Builder()
+                                .field(Gff::Field::newInt(
+                                    "PT_MEMBER_ID", kNpcPlayer))
+                                .field(Gff::Field::newByte(
+                                    "PT_IS_LEADER", 1))
+                                .build();
+        auto npcMember = Gff::Builder()
+                             .field(Gff::Field::newInt("PT_MEMBER_ID", 0))
+                             .field(Gff::Field::newByte("PT_IS_LEADER", 0))
+                             .build();
+        auto available = Gff::Builder()
+                             .field(Gff::Field::newByte("PT_NPC_AVAIL", 1))
+                             .field(Gff::Field::newByte("PT_NPC_SELECT", 1))
+                             .build();
+        auto party = Gff::Builder()
+                         .field(Gff::Field::newInt("PT_CONTROLLED_NP", -1))
+                         .field(Gff::Field::newByte("PT_NUM_MEMBERS", 2))
+                         .field(Gff::Field::newList(
+                             "PT_MEMBERS", {playerMember, npcMember}))
+                         .field(Gff::Field::newList(
+                             "PT_AVAIL_NPCS", {available}))
+                         .build();
+        auto partyBytes = GffWriter(
+                              GffFileFormat::v32("PT  "), *party)
+                              .toBytes();
+        std::ofstream partyFile(
+            slot.directory / "partytable.res", std::ios::binary);
+        partyFile.write(
+            partyBytes.data(), static_cast<std::streamsize>(partyBytes.size()));
+        partyFile.close();
+
+        auto seconds = Gff::Builder()
+                           .type(1)
+                           .field(Gff::Field::newDword("Type", 2))
+                           .field(Gff::Field::newFloat("Value", 5.0f))
+                           .build();
+        auto wait = Gff::Builder()
+                        .type(0)
+                        .field(Gff::Field::newDword("ActionId", 30))
+                        .field(Gff::Field::newWord("GroupActionId", 1))
+                        .field(Gff::Field::newWord("NumParams", 1))
+                        .field(Gff::Field::newList("Paramaters", {seconds}))
+                        .build();
+        auto npc = Gff::Builder()
+                       .field(Gff::Field::newCExoString("Tag", "disk_npc"))
+                       .field(Gff::Field::newDword("Appearance_Type", 0))
+                       .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+                       .field(Gff::Field::newByte("BodyBag", 0xff))
+                       .field(Gff::Field::newByte("PerceptionRange", 0xff))
+                       .field(Gff::Field::newList("ActionList", {wait}))
+                       .build();
+        activeNpcBytes = GffWriter(
+                             GffFileFormat::v32("UTC "), *npc)
+                             .toBytes();
+        test::writeErf(
+            slot.archive,
+            ErfWriter::FileType::ERF,
+            {{"availnpc0", ResType::Utc,
+              std::string(activeNpcBytes.begin(), activeNpcBytes.end())}});
+    }
 
     void SetUp() override {
         engine.init();
+        engine.options().graphics.sceneRender = false;
         ON_CALL(engine.sceneModule().graphs(), get(_))
             .WillByDefault(ReturnRef(sceneGraph));
+        ON_CALL(sceneGraph, newCamera())
+            .WillByDefault(Invoke([this]() {
+                auto node = std::make_shared<scene::CameraSceneNode>(
+                    sceneGraph,
+                    engine.services().graphics,
+                    engine.services().audio,
+                    engine.services().resource);
+                cameraNodes.push_back(node);
+                return node;
+            }));
+        EXPECT_CALL(engine.resourceModule().layouts(), get(_))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(emptyLayout));
+        EXPECT_CALL(engine.resourceModule().strings(), getText(_))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(std::string {}));
+        EXPECT_CALL(engine.resourceModule().twoDas(), get(_))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(nullptr));
+        EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(appearanceTable()));
+        EXPECT_CALL(engine.resourceModule().models(), get(_))
+            .Times(AnyNumber());
+        EXPECT_CALL(engine.resourceModule().scripts(), get(_))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([this](const std::string &resRef)
+                                       -> std::shared_ptr<script::ScriptProgram> {
+                if (resRef == "spawn_probe") {
+                    ++spawnScriptLookups;
+                }
+                return nullptr;
+            }));
         portraitRows.push_back({"po_live_player", 0, -1, -1, true, 0});
         EXPECT_CALL(engine.gameModule().portraits(), portraits())
             .Times(AnyNumber())
@@ -771,6 +1082,7 @@ struct LoadTransactionFixture : TestWithParam<GameID> {
 
         game = std::make_unique<Game>(
             GetParam(), root.path, engine.options(), engine.services(), console);
+        TestGameModule::initSnapshotLocalServices(*game);
         area = game->newArea();
         player = game->newCreature();
         TestGameModule::configureModuleSnapshot(
@@ -785,6 +1097,41 @@ struct LoadTransactionFixture : TestWithParam<GameID> {
         std::filesystem::create_directories(directory);
         test::writeErf(directory / "SAVEGAME.sav", ErfWriter::FileType::ERF, {});
         slot = SaveSlotDescriptor {directory, directory / "SAVEGAME.sav"};
+
+        auto playerRecord = Gff::Builder()
+                                .field(Gff::Field::newDword("ObjectId", 100))
+                                .build();
+        auto areaRecord = Gff::Builder()
+                              .field(Gff::Field::newResRef(
+                                  "Area_Name", "module_b"))
+                              .field(Gff::Field::newDword("ObjectId", 101))
+                              .build();
+        destinationIfo = Gff::Builder()
+                             .field(Gff::Field::newResRef(
+                                 "Mod_Entry_Area", "module_b"))
+                             .field(Gff::Field::newByte("Mod_IsSaveGame", 1))
+                             .field(Gff::Field::newDword(
+                                 "Mod_NextObjId0", 2))
+                             .field(Gff::Field::newDword64(
+                                 "Mod_Effect_NxtId", 1))
+                             .field(Gff::Field::newList(
+                                 "Mod_PlayerList", {playerRecord}))
+                             .field(Gff::Field::newList(
+                                 "Mod_Area_list", {areaRecord}))
+                             .build();
+        destinationAre = Gff::Builder().build();
+        destinationGit = Gff::Builder().build();
+
+        auto &director = engine.resourceModule().director();
+        EXPECT_CALL(director, prepareModuleLoad(_, _))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([this](
+                                       const std::string &name,
+                                       std::shared_ptr<const SaveWorkingState>) {
+                return preparedDestination(name);
+            }));
+        EXPECT_CALL(director, commitModuleLoad(_))
+            .Times(AnyNumber());
     }
 };
 
@@ -837,6 +1184,105 @@ TEST_P(LoadTransactionFixture, aMissingRequiredSaveRecordFailsBeforeTheCommitBou
     // then
     EXPECT_EQ(generation, TestGameModule::runtimeSessionGeneration(*game));
     EXPECT_EQ(modulePtr, game->module().get());
+}
+
+TEST_P(LoadTransactionFixture, invalidDestinationStructureLeavesTheRunningWorldUntouched) {
+    writeRequiredMetadata();
+    destinationGit.reset();
+
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareGameLoad(_))
+        .WillOnce(Invoke([](const SaveSlotDescriptor &descriptor) {
+            return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, commitGameLoad(_)).Times(0);
+    EXPECT_CALL(director, onNewGame()).Times(0);
+
+    auto generation = TestGameModule::runtimeSessionGeneration(*game);
+    auto moduleBefore = game->module();
+    auto playerBefore = game->party().player();
+    auto screenBefore = game->currentScreen();
+
+    EXPECT_THROW(game->loadGame(slot), ResourceNotFoundException);
+
+    EXPECT_EQ(generation, TestGameModule::runtimeSessionGeneration(*game));
+    EXPECT_EQ(moduleBefore, game->module());
+    EXPECT_EQ(playerBefore, game->party().player());
+    EXPECT_EQ(playerBefore, game->getObjectById(playerBefore->id()));
+    EXPECT_EQ(screenBefore, game->currentScreen());
+}
+
+TEST_P(LoadTransactionFixture, duplicateSavedIdentityFailsBeforeSessionPublication) {
+    writeRequiredMetadata();
+    auto duplicatePlayer = Gff::Builder()
+                               .field(Gff::Field::newDword("ObjectId", 101))
+                               .build();
+    auto duplicateArea = Gff::Builder()
+                             .field(Gff::Field::newResRef(
+                                 "Area_Name", "module_b"))
+                             .field(Gff::Field::newDword("ObjectId", 101))
+                             .build();
+    destinationIfo = Gff::Builder()
+                         .field(Gff::Field::newResRef(
+                             "Mod_Entry_Area", "module_b"))
+                         .field(Gff::Field::newByte("Mod_IsSaveGame", 1))
+                         .field(Gff::Field::newList(
+                             "Mod_PlayerList", {duplicatePlayer}))
+                         .field(Gff::Field::newList(
+                             "Mod_Area_list", {duplicateArea}))
+                         .build();
+
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareGameLoad(_))
+        .WillOnce(Invoke([](const SaveSlotDescriptor &descriptor) {
+            return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, commitGameLoad(_)).Times(0);
+    EXPECT_CALL(director, onNewGame()).Times(0);
+
+    auto generation = TestGameModule::runtimeSessionGeneration(*game);
+    auto moduleBefore = game->module();
+    auto playerBefore = game->party().player();
+
+    EXPECT_THROW(game->loadGame(slot), ValidationException);
+
+    EXPECT_EQ(generation, TestGameModule::runtimeSessionGeneration(*game));
+    EXPECT_EQ(moduleBefore, game->module());
+    EXPECT_EQ(playerBefore, game->party().player());
+}
+
+TEST_P(LoadTransactionFixture, invalidPartyCandidateDoesNotMutatePublishedParty) {
+    writeRequiredMetadata();
+    auto partyTable = Gff::Builder()
+                          .field(Gff::Field::newInt(
+                              "PT_CONTROLLED_NP", 999))
+                          .build();
+    auto partyBytes = GffWriter(
+                          GffFileFormat::v32("PT  "), *partyTable)
+                          .toBytes();
+    std::ofstream partyFile(
+        slot.directory / "partytable.res", std::ios::binary);
+    partyFile.write(
+        partyBytes.data(),
+        static_cast<std::streamsize>(partyBytes.size()));
+    partyFile.close();
+
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareGameLoad(_))
+        .WillOnce(Invoke([](const SaveSlotDescriptor &descriptor) {
+            return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, commitGameLoad(_)).Times(0);
+    EXPECT_CALL(director, onNewGame()).Times(0);
+
+    auto generation = TestGameModule::runtimeSessionGeneration(*game);
+    auto playerBefore = game->party().player();
+
+    EXPECT_THROW(game->loadGame(slot), ValidationException);
+
+    EXPECT_EQ(generation, TestGameModule::runtimeSessionGeneration(*game));
+    EXPECT_EQ(playerBefore, game->party().player());
+    EXPECT_EQ(playerBefore, game->getObjectById(playerBefore->id()));
 }
 
 TEST_P(LoadTransactionFixture, preparationConsumesTheDiscoveredDescriptorVerbatim) {
@@ -901,11 +1347,11 @@ TEST_P(LoadTransactionFixture, aPostCommitFailureLandsOnADeliberateScreen) {
             return std::make_unique<SaveSessionState>(descriptor);
         }));
     EXPECT_CALL(director, commitGameLoad(_)).Times(1);
-    EXPECT_CALL(director, onModuleLoad(_))
-        .WillRepeatedly(Throw(ResourceNotFoundException("module not found")));
+    EXPECT_CALL(director, commitModuleLoad(_))
+        .WillOnce(Throw(ResourceNotFoundException("module changed before commit")));
 
     // when the failure lands after the commit boundary
-    EXPECT_NO_THROW(game->loadGame(slot));
+    EXPECT_FALSE(game->loadGame(slot));
 
     // then nothing of either session is left half-built, and the engine is not
     // sitting on the blank screen an abandoned session renders as
@@ -913,6 +1359,208 @@ TEST_P(LoadTransactionFixture, aPostCommitFailureLandsOnADeliberateScreen) {
     EXPECT_NE(Game::Screen::None, game->currentScreen());
     EXPECT_FALSE(game->module());
     EXPECT_FALSE(game->hasPlayableRuntimeSession());
+}
+
+TEST_P(LoadTransactionFixture, saveResourceCommitFailureAlsoLandsOnADeliberateScreen) {
+    writeRequiredMetadata();
+
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareGameLoad(_))
+        .WillOnce(Invoke([](const SaveSlotDescriptor &descriptor) {
+            return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, commitGameLoad(_))
+        .WillOnce(Throw(ResourceNotFoundException(
+            "candidate save changed before commit")));
+    EXPECT_CALL(director, commitModuleLoad(_)).Times(0);
+
+    EXPECT_FALSE(game->loadGame(slot));
+
+    EXPECT_EQ(Game::Screen::MainMenu, game->currentScreen());
+    EXPECT_FALSE(game->module());
+    EXPECT_FALSE(game->hasPlayableRuntimeSession());
+}
+
+TEST_P(LoadTransactionFixture, installedModuleFallbackRemainsValidAtPreflight) {
+    writeTemplateAutosaveMetadata();
+    destinationIfo = Gff::Builder()
+                         .field(Gff::Field::newResRef(
+                             "Mod_Entry_Area", "module_b"))
+                         .build();
+    destinationGit = Gff::Builder()
+                         .field(Gff::Field::newByte("UseTemplates", 1))
+                         .build();
+
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareGameLoad(_))
+        .WillOnce(Invoke([](const SaveSlotDescriptor &descriptor) {
+            return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, commitGameLoad(_)).Times(1);
+    EXPECT_CALL(director, commitModuleLoad(_))
+        .WillOnce(Throw(ResourceNotFoundException(
+            "stop after proving optional module snapshot acceptance")));
+
+    auto generation = TestGameModule::runtimeSessionGeneration(*game);
+
+    EXPECT_FALSE(game->loadGame(slot));
+
+    EXPECT_NE(generation, TestGameModule::runtimeSessionGeneration(*game));
+    EXPECT_EQ(Game::Screen::MainMenu, game->currentScreen());
+}
+
+TEST_P(LoadTransactionFixture, templateAutosavePreparationSeparatesSessionAndWorldIdentity) {
+    writeTemplateAutosaveMetadata("jolee", "autosave_start", 7, 4321);
+    destinationIfo = Gff::Builder()
+                         .field(Gff::Field::newResRef(
+                             "Mod_Entry_Area", "module_b"))
+                         .field(Gff::Field::newByte("Mod_IsSaveGame", 1))
+                         .field(Gff::Field::newDword(
+                             "Mod_MinPerHour", 5))
+                         .build();
+    destinationGit = Gff::Builder()
+                         .field(Gff::Field::newByte("UseTemplates", 1))
+                         .build();
+
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareGameLoad(_))
+        .WillOnce(Invoke([](const SaveSlotDescriptor &descriptor) {
+            return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, commitGameLoad(_)).Times(0);
+    const auto generation = TestGameModule::runtimeSessionGeneration(*game);
+    const auto registrySize = TestGameModule::objectRegistrySize(*game);
+
+    int context = -1;
+    std::string playerTag;
+    bool playerHasObjectId = true;
+    std::string startWaypoint;
+    uint32_t pauseDay = 0;
+    uint32_t pauseTime = 0;
+    TestGameModule::inspectPreparedSaveLoad(
+        *game,
+        slot,
+        context,
+        playerTag,
+        playerHasObjectId,
+        startWaypoint,
+        pauseDay,
+        pauseTime);
+
+    EXPECT_EQ(static_cast<int>(ModuleLoadContext::InitialTemplateRestore),
+              context);
+    EXPECT_EQ("jolee", playerTag);
+    EXPECT_FALSE(playerHasObjectId);
+    EXPECT_EQ("autosave_start", startWaypoint);
+    EXPECT_EQ(7u, pauseDay);
+    EXPECT_EQ(4321u, pauseTime);
+    EXPECT_EQ(generation, TestGameModule::runtimeSessionGeneration(*game));
+    EXPECT_EQ(registrySize, TestGameModule::objectRegistrySize(*game));
+}
+
+TEST_P(LoadTransactionFixture, retailShapedTemplateAutosaveRestoresAPlayableFreshWorld) {
+    writeTemplateAutosaveMetadata("jolee", "autosave_start", 7, 4321);
+    destinationIfo = Gff::Builder()
+                         .field(Gff::Field::newResRef(
+                             "Mod_Entry_Area", "module_b"))
+                         .field(Gff::Field::newFloat("Mod_Entry_X", 11.0f))
+                         .field(Gff::Field::newFloat("Mod_Entry_Y", 22.0f))
+                         .field(Gff::Field::newDword(
+                             "Mod_MinPerHour", 2))
+                         .build();
+    auto spawned = Gff::Builder()
+                       .field(Gff::Field::newCExoString("Tag", "fresh_spawn"))
+                       .field(Gff::Field::newResRef(
+                           "ScriptSpawn", "spawn_probe"))
+                       .field(Gff::Field::newDword(
+                           "Appearance_Type", 0))
+                       .field(Gff::Field::newWord(
+                           "SoundSetFile", 0xffff))
+                       .field(Gff::Field::newByte("BodyBag", 0xff))
+                       .field(Gff::Field::newByte(
+                           "PerceptionRange", 0xff))
+                       .build();
+    auto startWaypoint = Gff::Builder()
+                             .field(Gff::Field::newCExoString(
+                                 "Tag", "autosave_start"))
+                             .field(Gff::Field::newFloat(
+                                 "XPosition", 33.0f))
+                             .field(Gff::Field::newFloat(
+                                 "YPosition", 44.0f))
+                             .field(Gff::Field::newFloat(
+                                 "XOrientation", 0.0f))
+                             .field(Gff::Field::newFloat(
+                                 "YOrientation", 1.0f))
+                             .build();
+    destinationGit = Gff::Builder()
+                         .field(Gff::Field::newByte("UseTemplates", 1))
+                         .field(Gff::Field::newList(
+                             "Creature List", {spawned}))
+                         .field(Gff::Field::newList(
+                             "WaypointList", {startWaypoint}))
+                         .build();
+
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareGameLoad(_))
+        .WillOnce(Invoke([](const SaveSlotDescriptor &descriptor) {
+            return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, commitGameLoad(_)).Times(1);
+
+    ASSERT_TRUE(game->loadGame(slot));
+
+    EXPECT_TRUE(game->hasPlayableRuntimeSession());
+    EXPECT_EQ(Game::Screen::InGame, game->currentScreen());
+    ASSERT_TRUE(game->module());
+    EXPECT_EQ("module_b", game->module()->name());
+    ASSERT_TRUE(game->party().player());
+    EXPECT_EQ("jolee", game->party().player()->tag());
+    EXPECT_FALSE(game->party().player()->serializedObjectIdentity());
+    EXPECT_EQ(game->party().player(),
+              game->module()->area()->getObjectByTag("jolee"));
+    EXPECT_EQ(7u, game->worldTimeDay());
+    EXPECT_EQ(4321u, game->worldTimeOfDay());
+    EXPECT_FLOAT_EQ(33.0f, game->party().player()->position().x);
+    EXPECT_FLOAT_EQ(44.0f, game->party().player()->position().y);
+    EXPECT_EQ(1, spawnScriptLookups);
+    auto fresh = game->module()->area()->getObjectByTag("fresh_spawn");
+    ASSERT_TRUE(fresh);
+    EXPECT_FALSE(fresh->serializedObjectIdentity());
+}
+
+TEST_P(LoadTransactionFixture, diskRestoreClearsSpawnedDetachedNpcActions) {
+    writeTemplateAutosaveMetadata("player", "autosave_start", 7, 4321);
+    writeActiveNpcWithSavedAction();
+    destinationIfo = Gff::Builder()
+                         .field(Gff::Field::newResRef(
+                             "Mod_Entry_Area", "module_b"))
+                         .build();
+    destinationGit = Gff::Builder()
+                         .field(Gff::Field::newByte("UseTemplates", 1))
+                         .build();
+
+    auto &director = engine.resourceModule().director();
+    EXPECT_CALL(director, prepareGameLoad(_))
+        .WillOnce(Invoke([](const SaveSlotDescriptor &descriptor) {
+            return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, commitGameLoad(_)).Times(1);
+    EXPECT_CALL(director, findSaveWorking(_))
+        .Times(AnyNumber())
+        .WillRepeatedly(Invoke([this](const ResourceId &id)
+                                   -> std::optional<Resource> {
+            if (id != ResourceId("availnpc0", ResType::Utc)) {
+                return std::nullopt;
+            }
+            return Resource {activeNpcBytes};
+        }));
+
+    ASSERT_TRUE(game->loadGame(slot));
+
+    auto npc = game->party().getMemberByNPC(0);
+    ASSERT_TRUE(npc);
+    EXPECT_EQ("disk_npc", npc->tag());
+    EXPECT_TRUE(npc->actions().empty());
 }
 
 TEST_P(LoadTransactionFixture, aCommittedLoadReplacesTheRunningSessionInOrder) {
@@ -942,6 +1590,7 @@ TEST_P(LoadTransactionFixture, aCommittedLoadReplacesTheRunningSessionInOrder) {
     // InSequence expectation would reject.
     int step = 0;
     int prepared = 0;
+    int modulePrepared = 0;
     int retired = 0;
     int committed = 0;
 
@@ -950,6 +1599,13 @@ TEST_P(LoadTransactionFixture, aCommittedLoadReplacesTheRunningSessionInOrder) {
         .WillOnce(Invoke([&](const SaveSlotDescriptor &descriptor) {
             prepared = ++step;
             return std::make_unique<SaveSessionState>(descriptor);
+        }));
+    EXPECT_CALL(director, prepareModuleLoad("module_b", _))
+        .WillOnce(Invoke([&](
+                               const std::string &name,
+                               std::shared_ptr<const SaveWorkingState>) {
+            modulePrepared = ++step;
+            return preparedDestination(name);
         }));
     EXPECT_CALL(director, onNewGame())
         .Times(AnyNumber())
@@ -962,11 +1618,11 @@ TEST_P(LoadTransactionFixture, aCommittedLoadReplacesTheRunningSessionInOrder) {
         .WillOnce(Invoke([&](std::unique_ptr<SaveSessionState>) {
             committed = ++step;
         }));
-    EXPECT_CALL(director, onModuleLoad(_))
-        .WillRepeatedly(Throw(ResourceNotFoundException("module not found")));
-
+    EXPECT_CALL(director, commitModuleLoad(_))
+        .WillOnce(Throw(ResourceNotFoundException(
+            "stop after observing session publication")));
     // when the load reaches the commit boundary
-    EXPECT_NO_THROW(game->loadGame(slot));
+    EXPECT_FALSE(game->loadGame(slot));
 
     // then the session that was running has genuinely been replaced rather
     // than merely disturbed
@@ -975,9 +1631,11 @@ TEST_P(LoadTransactionFixture, aCommittedLoadReplacesTheRunningSessionInOrder) {
 
     // validation precedes retirement, retirement precedes publication
     ASSERT_GT(prepared, 0);
+    ASSERT_GT(modulePrepared, 0);
     ASSERT_GT(retired, 0);
     ASSERT_GT(committed, 0);
     EXPECT_LT(prepared, retired);
+    EXPECT_LT(modulePrepared, retired);
     EXPECT_LT(retired, committed);
 }
 

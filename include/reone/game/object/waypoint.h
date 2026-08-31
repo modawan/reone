@@ -44,7 +44,9 @@ public:
     }
 
     void loadFromBlueprint(const std::string &resRef);
-    void deserialize(const resource::Gff &gff);
+    void deserialize(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
 
     bool isMapNoteEnabled() const { return _mapNoteEnabled; }
 
@@ -59,7 +61,9 @@ private:
     resource::LocString _locName;
     // END Serializable
 
-    void deserializeAll(const resource::Gff &gff);
+    void deserializeAll(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
 };
 
 } // namespace game

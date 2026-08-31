@@ -614,16 +614,26 @@ TEST(ReputesFac, save_switch_a_b_a_replaces_all_factions_and_pairs) {
     EXPECT_EQ(77, reputes->getReputation(kBeta, kGamma));
     EXPECT_EQ("save_a", reputes->factions()[4].name);
 }
-void reone::game::TestGameModule::deserializeAvailableNpcs(Game &game) {
-    game.deserializeAvailableNpcs();
+void reone::game::TestGameModule::publishPartyRuntimeState(
+    Game &game,
+    Gff &ifoGff,
+    const std::shared_ptr<Gff> &ptGff,
+    const std::shared_ptr<Gff> &pcGff) {
+    game.publishPartyRuntimeState(
+        ifoGff,
+        ptGff,
+        pcGff,
+        SerializedIdentityContext::moduleGraph("test-module"));
 }
 
 void reone::game::TestGameModule::publishPartyRuntimeState(
     Game &game,
     Gff &ifoGff,
     const std::shared_ptr<Gff> &ptGff,
-    const std::shared_ptr<Gff> &pcGff) {
-    game.publishPartyRuntimeState(ifoGff, ptGff, pcGff);
+    const std::shared_ptr<Gff> &pcGff,
+    const SerializedIdentityContext &identityContext) {
+    game.publishPartyRuntimeState(
+        ifoGff, ptGff, pcGff, identityContext);
 }
 
 void reone::game::TestGameModule::deserializeCustomTokens(
@@ -802,9 +812,15 @@ std::shared_ptr<Gff> savedPlayer(std::string tag, uint32_t id, bool primary) {
 }
 
 std::shared_ptr<Gff> emptyPartyTable(int controlledNpc = -1) {
+    std::vector<std::shared_ptr<Gff>> available;
+    for (int slot = 0; slot <= controlledNpc; ++slot) {
+        available.push_back(
+            availableNpc(slot == controlledNpc, slot == controlledNpc));
+    }
     return Gff::Builder()
         .field(Gff::Field::newInt("PT_CONTROLLED_NP", controlledNpc))
         .field(Gff::Field::newByte("PT_NUM_MEMBERS", 0))
+        .field(Gff::Field::newList("PT_AVAIL_NPCS", std::move(available)))
         .build();
 }
 
@@ -985,7 +1001,8 @@ TEST(SaveWideAvailableNpcs, a_b_a_replaces_indexed_working_state_records) {
                     findSaveWorking(ResourceId(
                         str(boost::format("availnpc%d") % index), ResType::Utc)))
             .WillOnce(Return(encodedCreature(std::move(tag))));
-        TestGameModule::deserializeAvailableNpcs(fixture.game);
+        EXPECT_TRUE(fixture.game.party().getAvailableMember(
+            static_cast<int>(index), true));
     };
 
     loadNpc(0, "npc_a");
@@ -1011,7 +1028,7 @@ TEST(SaveWideAvailableNpcs, malformed_optional_record_is_ignored) {
                 findSaveWorking(ResourceId("availnpc0", ResType::Utc)))
         .WillOnce(Return(Resource {{'b', 'a', 'd'}}));
 
-    TestGameModule::deserializeAvailableNpcs(fixture.game);
+    EXPECT_FALSE(fixture.game.party().getAvailableMember(0, true));
 
     EXPECT_FALSE(fixture.game.party().getAvailableMember(0));
 }
@@ -1033,9 +1050,10 @@ TEST(SaveWideAvailablePuppets, k2_materializes_available_puppet_resource) {
                 findSaveWorking(ResourceId("availpup0", ResType::Utc)))
         .WillOnce(Return(encodedCreature("puppet_a")));
 
-    TestGameModule::deserializeAvailableNpcs(fixture.game);
+    EXPECT_TRUE(fixture.game.party().getAvailablePuppet(0, true));
     ASSERT_TRUE(fixture.game.party().getAvailablePuppet(0));
     EXPECT_EQ("puppet_a", fixture.game.party().getAvailablePuppet(0)->tag());
+    EXPECT_TRUE(fixture.game.party().getAvailablePuppet(0)->isPuppet());
 }
 
 TEST(SavedPlayerRestoration, primary_module_player_does_not_duplicate_pc_utc) {
@@ -1048,7 +1066,7 @@ TEST(SavedPlayerRestoration, primary_module_player_does_not_duplicate_pc_utc) {
         .Times(AnyNumber());
 
     auto partyTable = emptyPartyTable();
-    auto player = savedPlayer("primary", 100, true);
+    auto player = savedPlayer("", 100, true);
     auto ifo = Gff::Builder()
                    .field(Gff::Field::newList("Mod_PlayerList", {player}))
                    .build();
@@ -1058,8 +1076,41 @@ TEST(SavedPlayerRestoration, primary_module_player_does_not_duplicate_pc_utc) {
 
     ASSERT_TRUE(fixture.game.party().player());
     EXPECT_EQ(fixture.game.party().player(), fixture.game.party().actualPlayer());
-    EXPECT_EQ(100u, fixture.game.party().player()->id());
+    EXPECT_EQ(kObjectTagPlayer, fixture.game.party().player()->tag());
+    EXPECT_NE(100u, fixture.game.party().player()->id());
+    EXPECT_EQ(
+        fixture.game.party().player(),
+        fixture.game.getObjectBySavedId(100));
     EXPECT_EQ(1, fixture.game.party().getSize());
+}
+
+TEST(SavedPlayerRestoration, autosave_pifo_player_uses_detached_identity) {
+    Fixture fixture(GameID::KotOR);
+    EXPECT_CALL(fixture.engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(appearanceTable()));
+    EXPECT_CALL(fixture.engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(fixture.engine.services().game.portraits),
+                getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto partyTable = emptyPartyTable();
+    auto player = savedPlayer("jolee", 777, true);
+    auto pifo = Gff::Builder()
+                    .field(Gff::Field::newList("Mod_PlayerList", {player}))
+                    .build();
+    const auto context =
+        SerializedIdentityContext::detachedRecord("pifo.ifo");
+
+    TestGameModule::publishPartyRuntimeState(
+        fixture.game, *pifo, partyTable, nullptr, context);
+
+    ASSERT_TRUE(fixture.game.party().player());
+    EXPECT_EQ("jolee", fixture.game.party().player()->tag());
+    EXPECT_NE(777u, fixture.game.party().player()->id());
+    EXPECT_FALSE(fixture.game.getObjectBySavedId(777));
+    EXPECT_EQ(
+        fixture.game.party().player()->serializedObjectIdentity(),
+        std::optional<SerializedObjectIdentity>({context, 777}));
 }
 
 TEST(SavedPlayerRestoration, controlled_companion_keeps_pc_utc_as_actual_player) {
@@ -1075,6 +1126,8 @@ TEST(SavedPlayerRestoration, controlled_companion_keeps_pc_utc_as_actual_player)
                           .field(Gff::Field::newInt("PT_CONTROLLED_NP", 0))
                           .field(Gff::Field::newByte("PT_NUM_MEMBERS", 1))
                           .field(Gff::Field::newList("PT_MEMBERS", {member(0, true)}))
+                          .field(Gff::Field::newList(
+                              "PT_AVAIL_NPCS", {availableNpc(true, true)}))
                           .build();
     auto pc = Gff::Builder()
                   .field(Gff::Field::newCExoString("Tag", "actual_pc"))
@@ -1094,12 +1147,55 @@ TEST(SavedPlayerRestoration, controlled_companion_keeps_pc_utc_as_actual_player)
     ASSERT_TRUE(fixture.game.party().player());
     ASSERT_TRUE(fixture.game.party().actualPlayer());
     EXPECT_NE(fixture.game.party().player(), fixture.game.party().actualPlayer());
-    EXPECT_EQ(101u, fixture.game.party().player()->id());
+    EXPECT_EQ("controlled", fixture.game.party().player()->tag());
+    EXPECT_NE(101u, fixture.game.party().player()->id());
+    EXPECT_EQ(
+        fixture.game.party().player(),
+        fixture.game.getObjectBySavedId(101));
     EXPECT_EQ(fixture.game.party().player(), fixture.game.party().getLeader());
     EXPECT_EQ("actual_pc", fixture.game.party().actualPlayer()->tag());
     EXPECT_EQ(fixture.game.party().actualPlayer(),
               fixture.game.party().getMemberByNPC(kNpcPlayer));
     EXPECT_EQ(2, fixture.game.party().getSize());
+}
+
+TEST(SavedPlayerRestoration, autosave_pifo_controlled_companion_keeps_authored_tag) {
+    Fixture fixture(GameID::TSL);
+    EXPECT_CALL(fixture.engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(appearanceTable()));
+    EXPECT_CALL(fixture.engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(static_cast<MockPortraits &>(fixture.engine.services().game.portraits),
+                getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto partyTable = Gff::Builder()
+                          .field(Gff::Field::newInt("PT_CONTROLLED_NP", 0))
+                          .field(Gff::Field::newByte("PT_NUM_MEMBERS", 1))
+                          .field(Gff::Field::newList(
+                              "PT_MEMBERS", {member(0, true)}))
+                          .field(Gff::Field::newList(
+                              "PT_AVAIL_NPCS", {availableNpc(true, true)}))
+                          .build();
+    auto canonical = savedPlayer("canonical_pc", 900, true);
+    auto controlled = savedPlayer("jolee", 777, true);
+    auto pifo = Gff::Builder()
+                    .field(Gff::Field::newList(
+                        "Mod_PlayerList", {controlled}))
+                    .build();
+    const auto context =
+        SerializedIdentityContext::detachedRecord("pifo.ifo");
+
+    TestGameModule::publishPartyRuntimeState(
+        fixture.game, *pifo, partyTable, canonical, context);
+
+    ASSERT_TRUE(fixture.game.party().player());
+    ASSERT_TRUE(fixture.game.party().actualPlayer());
+    EXPECT_EQ("jolee", fixture.game.party().player()->tag());
+    EXPECT_EQ("canonical_pc", fixture.game.party().actualPlayer()->tag());
+    EXPECT_NE(fixture.game.party().player(), fixture.game.party().actualPlayer());
+    EXPECT_EQ(fixture.game.party().player(),
+              fixture.game.party().rosterCreature({RosterKind::Npc, 0}));
+    EXPECT_FALSE(fixture.game.getObjectBySavedId(777));
 }
 
 TEST(SavedPlayerRestoration,
@@ -1128,10 +1224,18 @@ TEST(SavedPlayerRestoration,
     ASSERT_TRUE(fixture.game.party().player());
     ASSERT_TRUE(fixture.game.party().actualPlayer());
     EXPECT_NE(fixture.game.party().player(), fixture.game.party().actualPlayer());
-    EXPECT_EQ(kObjectTagPlayer, fixture.game.party().player()->tag());
-    EXPECT_EQ(330u, fixture.game.party().player()->id());
+    EXPECT_EQ("t3m4", fixture.game.party().player()->tag());
+    EXPECT_NE(330u, fixture.game.party().player()->id());
+    EXPECT_EQ(
+        fixture.game.party().player(),
+        fixture.game.getObjectBySavedId(330));
     EXPECT_EQ("canonical_pc", fixture.game.party().actualPlayer()->tag());
-    EXPECT_EQ(2147483646u, fixture.game.party().actualPlayer()->id());
+    EXPECT_NE(2147483646u, fixture.game.party().actualPlayer()->id());
+    EXPECT_EQ(
+        fixture.game.party().actualPlayer()->serializedObjectIdentity(),
+        std::optional<SerializedObjectIdentity>({
+            SerializedIdentityContext::detachedRecord("pc.utc"),
+            2147483646u}));
     EXPECT_EQ(fixture.game.party().player(), fixture.game.party().getLeader());
     EXPECT_EQ(fixture.game.party().player(),
               fixture.game.party().getMemberByNPC(8));

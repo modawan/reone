@@ -147,7 +147,7 @@ std::optional<SavedActionRecord> StartConversationAction::saveFacingState() cons
     result.parameters = {
         SavedActionParameter {
             static_cast<uint32_t>(SavedActionParameterType::Object),
-            SavedObjectReference {_objectToConverse->id()}},
+            SavedObjectReference::fromRuntimeId(_objectToConverse->id())},
         SavedActionParameter {
             static_cast<uint32_t>(SavedActionParameterType::String),
             _dialogResRef},

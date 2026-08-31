@@ -79,7 +79,16 @@ Resource Resources::get(const ResourceId &id) {
 }
 
 std::optional<Resource> Resources::find(const ResourceId &id) {
+    return findExcludingOwners(id, {});
+}
+
+std::optional<Resource> Resources::findExcludingOwners(
+    const ResourceId &id,
+    const std::set<ResourceOwner> &excludedOwners) {
     for (auto &container : _containers) {
+        if (excludedOwners.count(container.owner) != 0) {
+            continue;
+        }
         auto data = container.provider->findResourceData(id);
         if (data) {
             return Resource {*data};

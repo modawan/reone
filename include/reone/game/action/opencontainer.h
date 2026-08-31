@@ -30,6 +30,7 @@ public:
                         std::shared_ptr<Object> object) :
         Action(game, services, ActionType::OpenContainer),
         _object(std::move(object)) {
+        requireRuntimeObject(_object);
     }
 
     static bool classof(Action *from) {

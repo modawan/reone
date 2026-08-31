@@ -38,7 +38,12 @@ CastSpellAtObjectAction::CastSpellAtObjectAction(
     _target(std::move(target)),
     _item(std::move(item)),
     _schedule(_spell->conjTime, _spell->castTime),
-    _cheat(cheat) {}
+    _cheat(cheat) {
+    requireRuntimeObject(_target);
+    if (_item) {
+        requireRuntimeObject(*_item);
+    }
+}
 
 static void runScript(Game &game, const Spell &spell, const Object &target) {
     if (spell.impactScript.empty()) {
@@ -85,6 +90,9 @@ void CastSpellAtObjectAction::execute(std::shared_ptr<Action> self, Object &acto
                 // Cheats ignore all requirements and do not remove the item.
                 finish(caster);
                 return;
+            }
+            if (lastItem) {
+                _game.destroyRuntimeObjectGraph(_item.value());
             }
         }
 

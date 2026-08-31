@@ -568,6 +568,7 @@ enum class FeatType {
     ImprovedDueling = 114,
     MasterDueling = 115,
     ImprovedToughness = 123,
+    MasterToughness = 124,
 
     // TSL
 
@@ -641,6 +642,8 @@ enum class FeatType {
     ForceChain = 205,
     WarVeteran = 206,
     ComplexUnarmedAnims = 207,
+    ImprovedWookieEndurance = 224,
+    MasterWookieEndurance = 225,
     FightingSpirit = 236,
     HeroicResolve = 237,
     PreciseShot = 240,

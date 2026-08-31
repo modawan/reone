@@ -36,6 +36,8 @@ public:
     ~VisualEffect();
 
     void applyTo(Object &object) override;
+    void retireAreaRuntime(
+        const std::set<const Object *> &retainedObjects) override;
     void setLocation(glm::vec3 loc) { _location = loc; }
     float duration() const;
 

@@ -67,6 +67,32 @@ static bool canBashPlaceable(const Placeable &placeable, const Creature &actor, 
 }
 
 void Module::load(std::string name, const Gff &ifo, bool restoreSavedWorld) {
+    auto parsed = resource::generated::parseIFO(ifo);
+    if (parsed.Mod_Entry_Area.empty()) {
+        throw ValidationException("Mod_Entry_Area must not be empty");
+    }
+    auto are = _services.resource.gffs.get(parsed.Mod_Entry_Area, ResType::Are);
+    if (!are) {
+        throw ResourceNotFoundException(
+            "Area ARE not found: " + parsed.Mod_Entry_Area);
+    }
+    auto git = _services.resource.gffs.get(parsed.Mod_Entry_Area, ResType::Git);
+    if (!git) {
+        throw ResourceNotFoundException(
+            "Area GIT not found: " + parsed.Mod_Entry_Area);
+    }
+    load(std::move(name), ifo, *are, *git, restoreSavedWorld);
+    if (!restoreSavedWorld) {
+        runSpawnScripts();
+    }
+}
+
+void Module::load(
+    std::string name,
+    const Gff &ifo,
+    const Gff &are,
+    const Gff &git,
+    bool restoreSavedWorld) {
     _name = std::move(name);
     if (restoreSavedWorld) {
         _game.captureSaveResourceShadow(
@@ -78,23 +104,22 @@ void Module::load(std::string name, const Gff &ifo, bool restoreSavedWorld) {
     auto ifoParsed = resource::generated::parseIFO(ifo);
     _isSaveGame = restoreSavedWorld && ifoParsed.Mod_IsSaveGame != 0;
     if (restoreSavedWorld) {
-        deserializeRuntimeState(ifo);
-        deserializeSavedEventQueue(ifo);
+        const auto identityContext =
+            SerializedIdentityContext::moduleGraph(_name);
+        deserializeRuntimeState(ifo, identityContext);
+        deserializeSavedEventQueue(ifo, identityContext);
         loadLimboCreatures(ifo);
     } else {
         _savedEventQueue = SavedEventQueue {};
         _savedEventLive.clear();
     }
     loadInfo(ifoParsed);
-    loadArea(ifoParsed, restoreSavedWorld);
+    loadArea(ifoParsed, are, git, restoreSavedWorld);
 
     _area->initCameras(_info.entryPosition, _info.entryFacing);
 
     loadPlayer();
 
-    if (!restoreSavedWorld) {
-        _area->runSpawnScripts();
-    }
 }
 
 void Module::activate() {
@@ -131,40 +156,55 @@ void Module::loadInfo(const resource::generated::IFO &ifo) {
     _info.onModStart = boost::to_lower_copy(ifo.Mod_OnModStart);
 }
 
-void Module::loadArea(const resource::generated::IFO &ifo, bool restoreSavedWorld) {
+void Module::loadArea(
+    const resource::generated::IFO &ifo,
+    const Gff &are,
+    const Gff &git,
+    bool restoreSavedWorld) {
     reone::info("Load area '" + _info.entryArea + "'");
 
-    if (restoreSavedWorld) {
-        auto area = std::find_if(
-            ifo.Mod_Area_list.begin(),
-            ifo.Mod_Area_list.end(),
-            [this](const auto &entry) { return entry.Area_Name == _info.entryArea; });
-        uint32_t areaId = area == ifo.Mod_Area_list.end() ? 1 : area->ObjectId;
-        _area = _game.newSavedArea(areaId);
-    } else {
-        _area = _game.newArea();
-    }
+    const auto identityContext = restoreSavedWorld
+                                     ? SerializedIdentityContext::moduleGraph(_name)
+                                     : SerializedIdentityContext::templateResource(_name);
+    std::shared_ptr<Area> candidateArea;
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    _game.replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            if (restoreSavedWorld) {
+                auto area = std::find_if(
+                    ifo.Mod_Area_list.begin(),
+                    ifo.Mod_Area_list.end(),
+                    [this](const auto &entry) {
+                        return entry.Area_Name == _info.entryArea;
+                    });
+                uint32_t areaId = area == ifo.Mod_Area_list.end()
+                                      ? 1
+                                      : area->ObjectId;
+                candidateArea = _game.newSavedArea(areaId, identityContext);
+            } else {
+                candidateArea = _game.newArea();
+            }
+            candidateArea->load(
+                _info.entryArea, are, git, identityContext);
+        },
+        [&]() noexcept {
+            _area = std::move(candidateArea);
+        });
 
-    std::shared_ptr<Gff> are(_services.resource.gffs.get(_info.entryArea, ResType::Are));
-    if (!are) {
-        throw ResourceNotFoundException("Area ARE not found: " + _info.entryArea);
-    }
+}
 
-    std::shared_ptr<Gff> git(_services.resource.gffs.get(_info.entryArea, ResType::Git));
-    if (!git) {
-        throw ResourceNotFoundException("Area GIT not found: " + _info.entryArea);
-    }
-
-    _area->load(_info.entryArea, *are, *git, restoreSavedWorld);
-
+void Module::runSpawnScripts() {
+    _area->runSpawnScripts();
 }
 void Module::loadLimboCreatures(const resource::Gff &ifo) {
     _limboCreatures.clear();
+    const auto identityContext = SerializedIdentityContext::moduleGraph(_name);
     for (const auto &creatureGff : ifo.getList("Creature List")) {
-        auto creature = _game.newCreature(*creatureGff);
-        creature->deserialize(*creatureGff);
+        auto creature = _game.newCreature(*creatureGff, identityContext);
         creature->captureSaveRecord(
             *creatureGff,
+            identityContext,
             {SaveRecordOriginKind::ModuleLimboCreature, _name});
         _limboCreatures.push_back(std::move(creature));
     }
@@ -353,7 +393,7 @@ void Module::onDoorClick(const std::shared_ptr<Door> &door) {
     if (!door->linkedToModule().empty() && door->getOnOpen().empty()) {
         std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
         if (door->isLocked()) {
-            tryUnlockDoorWithKey(*door, *partyLeader, _game.party());
+            tryUnlockDoorWithKey(_game, *door, *partyLeader, _game.party());
         }
         if (door->isLocked()) {
             door->onFailToOpen(*partyLeader);
@@ -390,9 +430,12 @@ size_t Module::pendingSavedEventCount() const {
         _savedEventLive.begin(), _savedEventLive.end(), true));
 }
 
-void Module::deserializeSavedEventQueue(const resource::Gff &ifo) {
-    _savedEventQueue = SavedEventQueue::fromGff(ifo);
+void Module::deserializeSavedEventQueue(
+    const resource::Gff &ifo,
+    const SerializedIdentityContext &identityContext) {
+    _savedEventQueue = SavedEventQueue::fromGff(ifo, identityContext);
     _savedEventLive.clear();
+    _savedEventReferencesBound.clear();
     _savedEventLive.reserve(_savedEventQueue.events.size());
     for (const auto &event : _savedEventQueue.events) {
         _savedEventLive.push_back(event.shouldRestore());
@@ -415,9 +458,22 @@ std::vector<SavedEventRecord> Module::saveEventSnapshot() const {
 size_t Module::enqueueSaveEvent(SavedEventRecord event) {
     // New events bind through the current B registry before becoming visible to
     // a save snapshot; raw IDs never gain cross-session authority.
-    event.bindObjectReferences(_game);
+    const bool referencesBound = event.bindObjectReferences(_game);
     _savedEventQueue.events.push_back(std::move(event));
     _savedEventLive.push_back(true);
+    _savedEventReferencesBound.push_back(referencesBound);
+    return _savedEventQueue.events.size() - 1;
+}
+
+size_t Module::enqueueBoundSaveEvent(
+    SavedEventRecord event, bool referencesBound) {
+    // Ordinary travel captures Party timers while the source registry still
+    // owns their reference domain. The record already carries C4 exact-
+    // incarnation handles; looking its numeric carriers up again after the
+    // destination publishes could alias an unrelated object.
+    _savedEventQueue.events.push_back(std::move(event));
+    _savedEventLive.push_back(true);
+    _savedEventReferencesBound.push_back(referencesBound);
     return _savedEventQueue.events.size() - 1;
 }
 
@@ -435,10 +491,11 @@ bool Module::cancelSaveEvent(size_t index) {
 }
 
 void Module::bindSavedEventQueue() {
+    _savedEventReferencesBound.clear();
+    _savedEventReferencesBound.reserve(_savedEventQueue.events.size());
     for (auto &event : _savedEventQueue.events) {
-        if (event.shouldRestore()) {
-            event.bindObjectReferences(_game);
-        }
+        _savedEventReferencesBound.push_back(
+            !event.shouldRestore() || event.bindObjectReferences(_game));
     }
 }
 
@@ -453,6 +510,8 @@ void Module::publishSavedEventQueue() {
     for (size_t index = 0; index < _savedEventQueue.events.size(); ++index) {
         const auto &savedEvent = _savedEventQueue.events[index];
         if (!savedEvent.shouldRestore() ||
+            index >= _savedEventReferencesBound.size() ||
+            !_savedEventReferencesBound[index] ||
             savedEvent.executionSupport() != SavedExecutionSupport::Executable) {
             continue;
         }

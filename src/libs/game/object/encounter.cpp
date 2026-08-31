@@ -29,18 +29,23 @@ namespace reone {
 
 namespace game {
 
-void Encounter::deserialize(const resource::Gff &gff) {
+void Encounter::deserialize(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
     std::string templateRes;
-    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "TemplateResRef")) {
+    if (!identityContext.isSerializedState() &&
+        gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto ute = _services.resource.gffs.get(templateRes, ResType::Ute)) {
-            deserializeAll(*ute);
+            deserializeAll(*ute, SerializedIdentityContext::templateResource(templateRes));
         }
     }
-    deserializeAll(gff);
+    deserializeAll(gff, identityContext);
 }
 
-void Encounter::deserializeAll(const resource::Gff &gff) {
-    deserializeRuntimeState(gff);
+void Encounter::deserializeAll(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    deserializeRuntimeState(gff, identityContext);
     deserializeSavedRuntimeState(gff);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);

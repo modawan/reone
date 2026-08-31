@@ -21,6 +21,7 @@
 #include "reone/resource/format/gffreader.h"
 #include "reone/resource/format/gffwriter.h"
 #include "reone/resource/gff.h"
+#include "reone/resource/director.h"
 #include "reone/resource/parser/gff/gvt.h"
 #include "reone/resource/saveworkingstate.h"
 #include "reone/system/binarywriter.h"
@@ -567,7 +568,13 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildNfo() const {
 ByteBuffer SaveWideSnapshotBuilder::availableNpcRecord(
     const Game &game, const Creature &creature) {
     ModuleSnapshotBuilder records(game, {});
-    return encode("UTC ", *records.writeCreature(creature, 0xffffffff, std::nullopt));
+    return encode(
+        "UTC ",
+        *records.writeCreature(
+            creature,
+            0xffffffff,
+            std::nullopt,
+            SerializedIdentityContext::detachedRecord("available-npc-record")));
 }
 
 SaveWideSnapshotResult SaveWideSnapshotBuilder::build() const noexcept {
@@ -632,10 +639,29 @@ SaveWideSnapshotResult SaveWideSnapshotBuilder::build() const noexcept {
                                const std::shared_ptr<Creature> &creature,
                                bool sharedInventoryOwner = false) {
             if (!creature) {
-                throw ValidationException("available save-wide creature is missing");
+                // Retail keeps the last AVAILNPC/AVAILPUP record when its
+                // transient runtime object is killed. An available but unbound
+                // slot therefore persists that detached record unchanged.
+                auto working =
+                    _game._services.resource.director.committedSaveWorkingState();
+                auto prior = working
+                                 ? working->find({name, ResType::Utc})
+                                 : std::nullopt;
+                if (!prior) {
+                    throw ValidationException(
+                        "available roster slot has neither binding nor detached record");
+                }
+                add(
+                    {name, ResType::Utc},
+                    readGff(prior->data),
+                    "UTC ", false);
+                return;
             }
             auto utc = records.writeCreature(
-                *creature, 0xffffffff, std::nullopt);
+                *creature,
+                0xffffffff,
+                std::nullopt,
+                SerializedIdentityContext::detachedRecord(name + ".utc"));
             // Reone models the retail party repository as the actual player's
             // non-equipped ItemList. inventory.res owns that topology; pc.utc
             // retains equipment but must not duplicate the shared repository.

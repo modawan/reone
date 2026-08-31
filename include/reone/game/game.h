@@ -94,10 +94,18 @@ class Texture;
 
 }
 
+namespace resource {
+
+class PreparedModuleLoad;
+class SaveWorkingState;
+
+}
+
 namespace game {
 
 enum class ModuleLoadContext {
     FreshModule,
+    InitialTemplateRestore,
     InitialSaveRestore,
     SavedModuleTransition,
 };
@@ -108,6 +116,7 @@ ModuleLoadContext resolveModuleLoadContext(
 
 bool restoresSavedWorld(ModuleLoadContext context);
 bool restoresSavedSession(ModuleLoadContext context);
+bool preservesSavedPlacement(ModuleLoadContext context);
 
 struct SavedObjectReference;
 struct SerializedScriptSituation;
@@ -235,6 +244,21 @@ public:
     void notifyLevelUpPending(const Creature &creature);
     void openContainer(const std::shared_ptr<Object> &container);
     void openPartySelection(const PartySelectionContext &ctx);
+
+    /**
+     * Whether the current Area already contains one coherent live runtime
+     * representation for every requested logical NPC slot and no other
+     * selected companion.
+     */
+    bool isPartySelectionRealized(
+        const std::vector<int> &selectedNpcs) const;
+
+    /**
+     * Reconcile requested logical NPC slots with exact roster bindings and
+     * current-Area residency. A coherent unchanged selection is a no-op.
+     */
+    bool reconcilePartySelection(
+        const std::vector<int> &selectedNpcs);
     void openSaveLoad(SaveLoadMode mode);
     void openGalaxyMap(int initialPlanet);
     /** Whether the galaxy map may take the screen over from the given one. */
@@ -326,7 +350,16 @@ public:
     // Load a savegame. The slot is the durable identity discovered by
     // discoverSavedGames(); it is mounted verbatim rather than re-resolved, so
     // the slot the player picked is the slot that gets loaded.
-    void loadGame(const resource::SaveSlotDescriptor &slot);
+    bool loadGame(const resource::SaveSlotDescriptor &slot);
+
+    struct PreparedDestinationModule {
+        std::string name;
+        std::unique_ptr<resource::PreparedModuleLoad> resources;
+        std::shared_ptr<resource::Gff> ifo;
+        std::shared_ptr<resource::Gff> are;
+        std::shared_ptr<resource::Gff> git;
+        ModuleLoadContext context {ModuleLoadContext::FreshModule};
+    };
 
     /**
      * Candidate save load, resolved and validated but not yet committed.
@@ -337,13 +370,21 @@ public:
      * published.
      */
     struct PreparedSaveLoad {
+        struct AutosaveRestoreState {
+            std::string startWaypoint;
+            uint32_t pauseDay {0};
+            uint32_t pauseTime {0};
+        };
+
         std::unique_ptr<resource::SaveSessionState> session;
         resource::NFO nfo;
         std::shared_ptr<resource::Gff> saveInfo;
         std::shared_ptr<resource::Gff> globalVars;
-        std::shared_ptr<resource::Gff> moduleIfo;
         std::shared_ptr<resource::Gff> partyTable;
         std::shared_ptr<resource::Gff> inventory;
+        std::shared_ptr<resource::Gff> playerInfo;
+        std::optional<AutosaveRestoreState> autosave;
+        PreparedDestinationModule destination;
     };
 
     std::vector<SavedGame> savedGames() const;
@@ -376,6 +417,42 @@ public:
     // Objects
 
     std::shared_ptr<Object> getObjectById(uint32_t id) const;
+    bool isRuntimeObjectLive(const Object &object) const;
+
+    // End the semantic lifetime of this exact object and every runtime object
+    // it owns. Registry and saved-identity cleanup are pointer guarded, so a
+    // stale owner can never invalidate a newer object using the same number.
+    void destroyRuntimeObjectGraph(const std::shared_ptr<Object> &object);
+
+    // Build replacement children outside the live registry, publish ownership
+    // with a no-throw swap, then atomically publish the candidates and retire
+    // obsolete children. A failed build leaves the old graph and all saved-ID
+    // bindings untouched.
+    template <class Build, class Publish>
+    void replaceRuntimeObjectGraph(
+        std::vector<std::shared_ptr<Object>> &obsoleteObjects,
+        Build &&build,
+        Publish &&publish) {
+        static_assert(
+            noexcept(std::declval<Publish &>()()),
+            "runtime object graph publication must not throw");
+        if (_stagedRuntimeObjectGraph) {
+            auto obsoleteGraph = collectRuntimeObjectGraph(obsoleteObjects);
+            build();
+            publish();
+            discardStagedRuntimeObjects(obsoleteGraph);
+            return;
+        }
+        beginRuntimeObjectGraphReplacement(obsoleteObjects);
+        try {
+            build();
+            publish();
+            commitRuntimeObjectGraphReplacement(obsoleteObjects);
+        } catch (...) {
+            abortRuntimeObjectGraphReplacement();
+            throw;
+        }
+    }
 
     inline std::shared_ptr<Module> newModule() {
         return newObject<Module>(*this, _services);
@@ -389,6 +466,9 @@ public:
     inline std::shared_ptr<Item> newItem() {
         return newObject<Item>(*this, _services);
     }
+    inline std::shared_ptr<Item> newPresentationItem() {
+        return newPresentationObject<Item>(*this, _services);
+    }
     // Items serialized inside an owning inventory/equipment record use an
     // owner-local identity scope. Their saved ObjectId can legitimately match
     // another owned item or an independently registered world object, so the
@@ -396,44 +476,61 @@ public:
     inline std::shared_ptr<Item> newOwnedItem() {
         return newItem();
     }
-    std::shared_ptr<Item> newItem(const resource::Gff &gff);
+    std::shared_ptr<Item> newOwnedItem(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
+    std::shared_ptr<Item> newItem(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    std::shared_ptr<Item> newItemFromBlueprint(const std::string &resRef);
+    std::shared_ptr<Item> newItemClone(const Item &source);
 
     inline std::shared_ptr<Area> newArea(std::string sceneName = kSceneMain) {
         return newObject<Area>(std::move(sceneName), *this, _services);
     }
-    inline std::shared_ptr<Area> newSavedArea(uint32_t id, std::string sceneName = kSceneMain) {
-        return newObjectAtId<Area>(id, true, std::move(sceneName), *this, _services);
-    }
+    std::shared_ptr<Area> newSavedArea(
+        uint32_t id,
+        const SerializedIdentityContext &identityContext,
+        std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Creature> newCreature(std::string sceneName = kSceneMain) {
         return newObject<Creature>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Creature> newCreature(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    inline std::shared_ptr<Creature> newPresentationCreature(
+        std::string sceneName) {
+        return newPresentationObject<Creature>(
+            std::move(sceneName), *this, _services);
+    }
+    std::shared_ptr<Creature> newCreature(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
+    std::shared_ptr<Creature> newCreatureFromBlueprint(
+        const std::string &resRef,
+        std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Placeable> newPlaceable(std::string sceneName = kSceneMain) {
         return newObject<Placeable>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Placeable> newPlaceable(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    std::shared_ptr<Placeable> newPlaceable(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
+    std::shared_ptr<Placeable> newPlaceableFromBlueprint(
+        const std::string &resRef,
+        std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Door> newDoor(std::string sceneName = kSceneMain) {
         return newObject<Door>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Door> newDoor(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    std::shared_ptr<Door> newDoor(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Waypoint> newWaypoint(std::string sceneName = kSceneMain) {
         return newObject<Waypoint>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Waypoint> newWaypoint(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    std::shared_ptr<Waypoint> newWaypoint(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Trigger> newTrigger(std::string sceneName = kSceneMain) {
         return newObject<Trigger>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Trigger> newTrigger(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    std::shared_ptr<Trigger> newTrigger(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Sound> newSound(std::string sceneName = kSceneMain) {
         return newObject<Sound>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Sound> newSound(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    std::shared_ptr<Sound> newSound(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<AnimatedCamera> newAnimatedCamera(std::string sceneName = kSceneMain) {
         return newObject<AnimatedCamera>(std::move(sceneName), *this, _services);
@@ -458,15 +555,19 @@ public:
     inline std::shared_ptr<Encounter> newEncounter(std::string sceneName = kSceneMain) {
         return newObject<Encounter>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Encounter> newEncounter(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    std::shared_ptr<Encounter> newEncounter(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
     inline std::shared_ptr<Store> newStore(std::string sceneName = kSceneMain) {
         return newObject<Store>(std::move(sceneName), *this, _services);
     }
-    std::shared_ptr<Store> newStore(const resource::Gff &gff, std::string sceneName = kSceneMain);
+    std::shared_ptr<Store> newStore(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
 
-    void prepareSavedRuntimeNamespace(const resource::Gff &ifo);
-    void reserveSavedObjectIds(const resource::Gff &gff);
+    void prepareSavedRuntimeNamespace(const resource::Gff &ifo, const SerializedIdentityContext &identityContext);
+    void restoreWorldTime(
+        const resource::Gff &moduleIfo,
+        uint64_t pauseDay,
+        uint64_t pauseTime);
+    void reserveSavedObjectIds(const resource::Gff &gff, const SerializedIdentityContext &identityContext, SerializedGraphRoot graphRoot);
     void resolveSavedObjectReferences();
     void bindSavedRuntimeState();
     void publishSavedRuntimeState();
@@ -505,6 +606,18 @@ public:
      * is silently nothing to save.
      */
     void saveNpcState(int npc);
+
+    /** Persist one live creature as a detached PartyTable roster record. */
+    void saveRosterState(
+        const RosterIdentity &identity,
+        const Creature &creature);
+
+    /** Materialize an available, unbound slot from AVAILNPC/AVAILPUP. */
+    std::shared_ptr<Creature> materializeRosterCreature(
+        const RosterIdentity &identity);
+
+    /** End a bound roster representation without changing availability. */
+    bool killRosterCreature(const RosterIdentity &identity);
 
     /**
      * Length of a game day in world-time milliseconds.
@@ -545,10 +658,23 @@ public:
     template <class T, class... Args>
     inline std::shared_ptr<T> newObject(Args &&...args) {
         while (_objectById.count(_nextObjectId) ||
+               _publishedRuntimeObjectIds.count(_nextObjectId) ||
+               (_stagedRuntimeObjectGraph &&
+                _stagedRuntimeObjectGraph->objectById.count(_nextObjectId)) ||
                _reservedSavedObjectIds.count(_nextObjectId)) {
             ++_nextObjectId;
         }
         return newObjectAtId<T>(_nextObjectId++, false, std::forward<Args>(args)...);
+    }
+
+    /** Construct a presentation-only object outside the gameplay registry. */
+    template <class T, class... Args>
+    inline std::shared_ptr<T> newPresentationObject(Args &&...args) {
+        auto object = std::make_shared<T>(
+            _nextPresentationObjectId--, std::forward<Args>(args)...);
+        object->_runtimeState = Object::RuntimeState::Presentation;
+        object->_runtimeIncarnation = _nextRuntimeIncarnation++;
+        return object;
     }
 
     template <class T, class... Args>
@@ -569,6 +695,14 @@ public:
     size_t effectIdCount() const { return _effectIds.size(); }
     bool bindEffectCreator(EffectInstance &effect) const;
     bool bindSavedObjectReference(SavedObjectReference &reference) const;
+    std::shared_ptr<Object> resolveSerializedObjectReference(
+        uint32_t id,
+        const SerializedIdentityContext &identityContext) const;
+    std::shared_ptr<Object> getObjectBySavedId(uint32_t id) const;
+    void registerSavedObjectIdentity(
+        uint32_t id,
+        const std::shared_ptr<Object> &object,
+        const SerializedIdentityContext &identityContext);
 
     const SaveResourceShadows &saveResourceShadows() const {
         return _saveResourceShadows;
@@ -629,19 +763,35 @@ public:
         const resource::Gff &ifoGff) const;
     void replaceCustomTokens(std::map<int, std::string> tokens);
     PreparedSaveLoad prepareSaveLoad(const resource::SaveSlotDescriptor &slot);
-    void restoreSaveLoad(PreparedSaveLoad prepared);
+    PreparedDestinationModule prepareDestinationModule(
+        const std::string &name,
+        bool initialSaveRestore,
+        std::shared_ptr<const resource::SaveWorkingState> workingState);
+    bool restoreSaveLoad(PreparedSaveLoad prepared);
+    bool loadPreparedModule(
+        PreparedDestinationModule prepared,
+        std::string entry,
+        bool initialSaveRestore,
+        bool resourcesCommitted,
+        std::shared_ptr<const resource::SaveWorkingState> sourceWorkingState = nullptr);
+    void validatePreparedDestination(
+        const PreparedDestinationModule &prepared) const;
+    void validatePartyLoad(const resource::Gff *partyTable) const;
     void retireToMainMenu();
 
     void deserializeGlobalVariables(resource::Gff &gvtGff);
-    void deserializeParty(resource::Gff &ifoGff, const std::shared_ptr<resource::Gff> &ptGff);
+    void deserializeParty(
+        resource::Gff &ifoGff,
+        const std::shared_ptr<resource::Gff> &ptGff,
+        const SerializedIdentityContext &moduleIdentityContext);
     void publishPartyRuntimeState(
         resource::Gff &ifoGff,
         const std::shared_ptr<resource::Gff> &ptGff,
-        const std::shared_ptr<resource::Gff> &pcGff);
+        const std::shared_ptr<resource::Gff> &pcGff,
+        const SerializedIdentityContext &moduleIdentityContext);
     Party::PersistedState parsePartyTable(const resource::Gff &ptGff) const;
     void replacePartyTable(Party::PersistedState state);
     void deserializePazaakPartyTable(resource::Gff &ptGff);
-    void deserializeAvailableNpcs();
     void deserializeGalaxyMap(resource::Gff &ptGff);
     void resetGalaxyMap();
     void serializePazaakPartyTable(resource::Gff &ptGff) const;
@@ -650,6 +800,8 @@ public:
     void deserializeInventory(resource::Gff &inventoryGff);
 
 private:
+    friend class Area;
+    friend class Object;
     friend class TestGameModule;
     friend class ModuleSnapshotBuilder;
     friend class SaveWideSnapshotBuilder;
@@ -723,11 +875,37 @@ private:
     static constexpr uint32_t kFirstRuntimeObjectId = 2; // ids 0 and 1 are reserved
     uint32_t _nextObjectId {kFirstRuntimeObjectId};
     std::map<uint32_t, std::shared_ptr<Object>> _objectById;
+    // A numeric runtime ID names at most one incarnation during a runtime
+    // session. Saved cursors and developer-specified IDs may move allocation
+    // backwards, but cannot revive stale numeric gameplay references.
+    std::set<uint32_t> _publishedRuntimeObjectIds;
+    std::map<uint32_t, std::weak_ptr<Object>> _objectBySavedId;
+    // One authoritative graph object has one canonical saved identity. Roster
+    // doubles live in detached graphs and never create cross-graph aliases.
+    std::map<const Object *, uint32_t> _savedIdByObject;
+    struct StagedRuntimeObjectGraph {
+        uint32_t initialNextObjectId {kFirstRuntimeObjectId};
+        std::map<uint32_t, std::shared_ptr<Object>> objectById;
+        std::set<uint32_t> publishedRuntimeObjectIds;
+        std::map<uint32_t, std::weak_ptr<Object>> objectBySavedId;
+        std::map<const Object *, uint32_t> savedIdByObject;
+        std::set<const Object *> replaceableObjects;
+        std::set<uint32_t> reservedSavedObjectIdsToRelease;
+        std::vector<std::shared_ptr<Object>> obsoleteGraph;
+        std::vector<std::shared_ptr<Object>> candidateObjects;
+    };
+    std::optional<StagedRuntimeObjectGraph> _stagedRuntimeObjectGraph;
+    uint64_t _nextRuntimeIncarnation {1};
+    uint32_t _nextPresentationObjectId {
+        std::numeric_limits<uint32_t>::max() - 1};
     std::set<uint32_t> _reservedSavedObjectIds;
+    std::optional<std::string> _reservedSavedIdentityNamespace;
+    std::map<uint32_t, std::string> _reservedSavedObjectIdClaims;
     EffectIdNamespace _effectIds;
     bool _runtimeSessionPlayable {false};
     bool _cheatUsed {false};
     uint64_t _runtimeSessionGeneration {1};
+    uint64_t _savedGraphGeneration {1};
     bool _loadingFromSaveGame {false};
     uint64_t _worldTimeMilliseconds {0};
     uint8_t _minutesPerHour {5};
@@ -779,7 +957,7 @@ private:
 
     std::unique_ptr<PazaakSession> _pazaakSession;
     std::optional<PazaakCompletedResult> _lastPazaakResult;
-    std::weak_ptr<Object> _pazaakContinuationCaller;
+    RuntimeObjectRef<Object> _pazaakContinuationCaller;
     Screen _pazaakOriginScreen {Screen::None};
     bool _pazaakGUIsReady {false};
     bool _pazaakDevelopmentLaunch {false};
@@ -796,7 +974,7 @@ private:
     bool _pazaakPaceAutomaticDraws {true};
     std::function<bool()> _pazaakGuiLoadOverride;
     std::function<void(const std::string &, uint32_t)> _pazaakContinuationOverride;
-    std::weak_ptr<Object> _pazaakDevelopmentSelectedObjectOverride;
+    RuntimeObjectRef<Object> _pazaakDevelopmentSelectedObjectOverride;
     std::optional<pazaak::SideDeck> _pazaakOpponentDeckOverride;
 
     std::unique_ptr<Map> _map;
@@ -838,7 +1016,8 @@ private:
 
     void advanceWorldTime(float dt);
     void advancePlayedTime(float dt);
-    bool storeCurrentModuleForTransition();
+    std::shared_ptr<const resource::SaveWorkingState>
+    prepareCurrentModuleWorkingState();
     void processPendingSave();
     void finalizeSaveRequest(const SaveRequest &request, SaveResult result);
     SaveResult executeSave(SaveRequest request);
@@ -848,9 +1027,25 @@ private:
     std::optional<ByteBuffer> captureSaveScreenshot();
 
     uint32_t savedObjectId(const resource::Gff &gff) const;
+    void retireSavedObjectGraph();
+    void registerSavedModuleReferenceTarget(
+        const std::shared_ptr<Module> &module,
+        const SerializedIdentityContext &identityContext);
     void registerObject(
         const std::shared_ptr<Object> &object,
         bool allowReserved);
+    void beginRuntimeObjectGraphReplacement(
+        const std::vector<std::shared_ptr<Object>> &obsoleteObjects);
+    void commitRuntimeObjectGraphReplacement(
+        const std::vector<std::shared_ptr<Object>> &obsoleteObjects);
+    void abortRuntimeObjectGraphReplacement();
+    void unregisterRuntimeObject(const std::shared_ptr<Object> &object);
+    bool isRuntimeObjectAttachable(const Object &object) const;
+    std::vector<std::shared_ptr<Object>> collectRuntimeObjectGraph(
+        const std::vector<std::shared_ptr<Object>> &roots) const;
+    void discardStagedRuntimeObjects(
+        const std::vector<std::shared_ptr<Object>> &objects);
+    void retireActiveAreaRuntime();
 
     template <class T, class... Args>
     inline std::shared_ptr<T> newObjectAtId(
@@ -865,11 +1060,22 @@ private:
     template <class T, class... Args>
     inline std::shared_ptr<T> newObjectFromGff(
         const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext,
         Args &&...args) {
-        return newObjectAtId<T>(
-            savedObjectId(gff),
-            true,
-            std::forward<Args>(args)...);
+        std::vector<std::shared_ptr<Object>> noObsolete;
+        std::shared_ptr<T> object;
+        replaceRuntimeObjectGraph(
+            noObsolete,
+            [&]() {
+                object = newObject<T>(std::forward<Args>(args)...);
+                if (identityContext.hasAuthoritativeObjectIds()) {
+                    registerSavedObjectIdentity(
+                        savedObjectId(gff), object, identityContext);
+                }
+                object->deserialize(gff, identityContext);
+            },
+            []() noexcept {});
+        return object;
     }
     void loadDefaultParty();
     bool loadParty();

@@ -19,6 +19,7 @@
 #include "reone/game/object/creature.h"
 #include "reone/game/savegame.h"
 #include "reone/game/script/routines.h"
+#include "reone/resource/gff.h"
 #include "reone/resource/saveworkingstate.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/variable.h"
@@ -77,6 +78,21 @@ struct LoadFromSaveGameFixture : TestWithParam<GameID> {
         EXPECT_CALL(director, saveNames())
             .Times(AnyNumber())
             .WillRepeatedly(Return(std::set<std::string> {}));
+
+        destinationIfo = Gff::Builder()
+                             .field(Gff::Field::newResRef(
+                                 "Mod_Entry_Area", "area_b"))
+                             .build();
+        destinationAre = Gff::Builder().build();
+        destinationGit = Gff::Builder().build();
+        EXPECT_CALL(director, prepareModuleLoad(_, _))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([this](
+                                       const std::string &name,
+                                       std::shared_ptr<const SaveWorkingState>) {
+                return PreparedModuleLoadTestFactory::validated(
+                    name, destinationIfo, destinationAre, destinationGit);
+            }));
     }
 
     /** The routine's answer, the way a compiled script asks for it. */
@@ -122,6 +138,9 @@ struct LoadFromSaveGameFixture : TestWithParam<GameID> {
         std::make_shared<const SaveWorkingState>()};
     SaveSlotDescriptor sourceSlot;
     std::optional<bool> observed;
+    std::shared_ptr<Gff> destinationIfo;
+    std::shared_ptr<Gff> destinationAre;
+    std::shared_ptr<Gff> destinationGit;
 };
 
 } // namespace

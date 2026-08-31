@@ -47,6 +47,21 @@ namespace reone {
 
 namespace resource {
 
+class PreparedModuleLoadTestFactory {
+public:
+    static std::unique_ptr<PreparedModuleLoad> validated(
+        std::string moduleName,
+        std::shared_ptr<Gff> moduleIfo,
+        std::shared_ptr<Gff> areaAre,
+        std::shared_ptr<Gff> areaGit) {
+        return std::unique_ptr<PreparedModuleLoad>(new PreparedModuleLoad(
+            std::move(moduleName),
+            std::move(moduleIfo),
+            std::move(areaAre),
+            std::move(areaGit)));
+    }
+};
+
 class MockGffs : public IGffs, boost::noncopyable {
 public:
     MOCK_METHOD(void, clear, (), (override));
@@ -69,6 +84,10 @@ public:
 
     MOCK_METHOD(Resource, get, (const ResourceId &id), (override));
     MOCK_METHOD(std::optional<Resource>, find, (const ResourceId &id), (override));
+    MOCK_METHOD(std::optional<Resource>, findExcludingOwners,
+                (const ResourceId &id,
+                 const std::set<ResourceOwner> &excludedOwners),
+                (override));
 };
 
 class MockResourceReplacements : public IResourceReplacements, boost::noncopyable {
@@ -194,6 +213,12 @@ public:
                 (const SaveSlotDescriptor &slot), (override));
     MOCK_METHOD(void, commitGameLoad,
                 (std::unique_ptr<SaveSessionState> candidate), (override));
+    MOCK_METHOD(std::unique_ptr<PreparedModuleLoad>, prepareModuleLoad,
+                (const std::string &name,
+                 std::shared_ptr<const SaveWorkingState> workingState),
+                (override));
+    MOCK_METHOD(void, commitModuleLoad,
+                (std::unique_ptr<PreparedModuleLoad> candidate), (override));
     MOCK_METHOD(std::optional<Resource>, findSaveMetadata, (const ResourceId &id), (override));
     MOCK_METHOD(std::optional<Resource>, findSaveWorking, (const ResourceId &id), (override));
     MOCK_METHOD(std::unordered_set<ResourceId>, saveWorkingResourceIds, (), (const, override));

@@ -63,8 +63,9 @@ protected:
 
         _leader = _game->newCreature();
         _leader->setFaction(kLeaderFaction);
-        _game->party().addMember(0, _leader);
+        _game->party().addMember(kNpcPlayer, _leader);
         _game->party().setPlayer(_leader);
+        _game->party().setActualPlayer(_leader);
 
         _other = _game->newCreature();
         _other->setFaction(kOtherFaction);

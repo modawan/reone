@@ -37,22 +37,27 @@ void Waypoint::loadFromBlueprint(const std::string &resRef) {
     if (!utw) {
         return;
     }
-    deserialize(*utw);
+    deserialize(*utw, SerializedIdentityContext::templateResource(resRef));
 }
 
-void Waypoint::deserialize(const resource::Gff &gff) {
+void Waypoint::deserialize(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
     std::string templateRes;
-    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "TemplateResRef")) {
+    if (!identityContext.isSerializedState() &&
+        gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto utw = _services.resource.gffs.get(templateRes, ResType::Utw)) {
-            deserializeAll(*utw);
+            deserializeAll(*utw, SerializedIdentityContext::templateResource(templateRes));
         }
     }
-    deserializeAll(gff);
+    deserializeAll(gff, identityContext);
     updateTransform();
 }
 
-void Waypoint::deserializeAll(const resource::Gff &gff) {
-    deserializeRuntimeState(gff);
+void Waypoint::deserializeAll(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    deserializeRuntimeState(gff, identityContext);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
     }

@@ -49,21 +49,26 @@ namespace reone {
 
 namespace game {
 
-void Door::deserialize(const resource::Gff &gff) {
+void Door::deserialize(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
     std::string templateRes;
-    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "TemplateResRef")) {
+    if (!identityContext.isSerializedState() &&
+        gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto utd = _services.resource.gffs.get(templateRes, ResType::Utd)) {
-            deserializeAll(*utd);
+            deserializeAll(*utd, SerializedIdentityContext::templateResource(templateRes));
         }
     }
-    deserializeAll(gff);
+    deserializeAll(gff, identityContext);
     loadAppearance();
     applyRestingState();
     updateTransform();
 }
 
-void Door::deserializeAll(const resource::Gff &gff) {
-    deserializeRuntimeState(gff);
+void Door::deserializeAll(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    deserializeRuntimeState(gff, identityContext);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
     }
@@ -114,7 +119,7 @@ void Door::deserializeAll(const resource::Gff &gff) {
         _maxHitPoints = _hitPoints;
     }
     gff.readShort(_currentHitPoints, "CurrentHP");
-    if (gff.has("ObjectId") && gff.has("CurrentHP")) {
+    if (identityContext.isSerializedState() && gff.has("CurrentHP")) {
         _dead = _currentHitPoints <= 0;
     }
     gff.readBool(_plot, "Plot");

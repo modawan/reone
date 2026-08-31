@@ -373,7 +373,7 @@ void InGameMenu::refreshK2Footer() {
     _controls.LBL_TOP_CLASS2LEVEL->setVisible(true);
     _controls.LBL_TOP_CLASS2LEVEL->setTextMessage(describeLevel(attributes.getLevelByPosition(2)));
 
-    int hitPoints = leader->hitPoints();
+    int hitPoints = leader->maxHitPoints();
     int vitalityPercent = hitPoints > 0
         ? std::clamp(100 * leader->currentHitPoints() / hitPoints, 0, 100)
         : 0;

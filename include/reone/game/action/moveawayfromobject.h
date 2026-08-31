@@ -34,6 +34,7 @@ public:
         _fleeFrom(std::move(fleeFrom)),
         _run(run),
         _moveAwayRange(moveAwayRange) {
+        requireRuntimeObject(_fleeFrom);
     }
 
     static bool classof(Action *from) {

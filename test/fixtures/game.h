@@ -46,13 +46,20 @@ namespace reone {
 namespace resource {
 
 class Gff;
+struct SaveSlotDescriptor;
+class SaveWorkingState;
 
+}
+
+namespace scene {
+class SceneNode;
 }
 
 namespace game {
 
 class Area;
 class Creature;
+struct Pathfinder;
 class Door;
 class Game;
 class Item;
@@ -62,6 +69,7 @@ class Conversation;
 class Object;
 class StaticCamera;
 class Trigger;
+struct SerializedIdentityContext;
 struct SaveOrchestrationSeams;
 struct SaveResult;
 
@@ -188,7 +196,13 @@ public:
     static size_t objectRegistrySize(const Game &game);
     static size_t loadedModuleCount(const Game &game);
     static uint32_t nextObjectId(const Game &game);
+    static std::shared_ptr<Item> newItemAtRuntimeId(Game &game, uint32_t id);
     static uint64_t runtimeSessionGeneration(const Game &game);
+    static uint64_t savedGraphGeneration(const Game &game);
+    static void registerSavedModuleReferenceTarget(
+        Game &game,
+        const std::shared_ptr<Module> &module,
+        const SerializedIdentityContext &identityContext);
     static void bindConversation(Game &game, Conversation &conversation);
     static bool hasConversation(const Game &game);
     static void bindHUDSelection(Game &game, std::shared_ptr<Object> object);
@@ -215,10 +229,24 @@ public:
         resource::Gff &ifoGff,
         const std::shared_ptr<resource::Gff> &ptGff,
         const std::shared_ptr<resource::Gff> &pcGff);
-    static void deserializeAvailableNpcs(Game &game);
+    static void publishPartyRuntimeState(
+        Game &game,
+        resource::Gff &ifoGff,
+        const std::shared_ptr<resource::Gff> &ptGff,
+        const std::shared_ptr<resource::Gff> &pcGff,
+        const SerializedIdentityContext &identityContext);
     static void deserializeInventory(Game &game, resource::Gff &gff);
     static void deserializeCustomTokens(Game &game, const resource::Gff &gff);
     static void deserializeGlobalVariables(Game &game, resource::Gff &gff);
+    static void inspectPreparedSaveLoad(
+        Game &game,
+        const resource::SaveSlotDescriptor &slot,
+        int &context,
+        std::string &playerTag,
+        bool &playerHasObjectId,
+        std::string &startWaypoint,
+        uint32_t &pauseDay,
+        uint32_t &pauseTime);
     static void replaceJournal(Game &game, const resource::Gff &gff);
     static void replaceInventory(Game &game, resource::Gff &gff);
     static void configureModuleSnapshot(
@@ -235,6 +263,12 @@ public:
     static void dispatchSnapshotEvents(Module &module);
     static void clearSnapshotDelayed(Object &object);
     static size_t delayedActionCount(const Object &object);
+    static void setAreaRuntimePath(Creature &creature, Pathfinder &pathfinder);
+    static bool hasAreaRuntimePath(const Creature &creature);
+    static size_t seenObjectCount(const Creature &creature);
+    static size_t heardObjectCount(const Creature &creature);
+    static void setAreaRuntimeSceneNode(
+        Object &object, std::shared_ptr<scene::SceneNode> sceneNode);
     static void initSnapshotLocalServices(Game &game);
     static void setSnapshotWorldTime(
         Game &game, uint32_t day, uint32_t time, uint8_t minutesPerHour);
@@ -242,8 +276,14 @@ public:
     static void setSnapshotMinutesPerHour(Game &game, uint8_t minutesPerHour);
     static void advanceWorldTime(Game &game, float dt);
     static void prepareWorldTimeFromIfo(Game &game, const resource::Gff &ifo);
+    static void restoreAutosaveWorldTime(
+        Game &game,
+        const resource::Gff &moduleIfo,
+        uint32_t pauseDay,
+        uint32_t pauseTime);
     static void deserializeSnapshotRuntimeState(
-        Object &object, const resource::Gff &gff);
+        Object &object, const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     static void setSnapshotObjectId(Object &object, uint32_t objectId);
     static void setSnapshotEquipment(
         Creature &creature, int slot, std::shared_ptr<Item> item);
@@ -260,7 +300,8 @@ public:
     static void configureSaveOrchestration(
         Game &game, SaveOrchestrationSeams seams);
     static void processPendingSave(Game &game);
-    static bool storeCurrentModuleForTransition(Game &game);
+    static std::shared_ptr<const resource::SaveWorkingState>
+    prepareCurrentModuleWorkingState(Game &game);
     static void setSnapshotModuleName(Game &game, std::string name);
     static bool hasPendingSave(const Game &game);
     static void setRuntimeSessionPlayable(Game &game, bool playable);
@@ -311,6 +352,7 @@ public:
         return *_services;
     }
 
+    MockClasses &classes() { return *_classes; }
     MockSpells &spells() { return *_spells; }
     MockPortraits &portraits() { return *_portraits; }
 

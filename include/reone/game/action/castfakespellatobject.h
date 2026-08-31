@@ -35,6 +35,7 @@ public:
         _spell(spell),
         _target(std::move(target)),
         _projectilePathType(projectilePathType) {
+        requireRuntimeObject(_target);
     }
 
     static bool classof(Action *from) {

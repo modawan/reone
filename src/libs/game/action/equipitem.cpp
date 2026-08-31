@@ -16,7 +16,10 @@
  */
 
 #include "reone/game/action/equipitem.h"
+#include "reone/game/equipmentrules.h"
+#include "reone/game/game.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/item.h"
 
 namespace reone {
 
@@ -28,7 +31,79 @@ void EquipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float
         complete();
         return;
     }
-    creature->equip(_inventorySlot, _item);
+    auto candidate = _item;
+    int equipabilitySlot = _inventorySlot;
+    if (_inventorySlot == InventorySlots::rightWeapon2) {
+        equipabilitySlot = InventorySlots::rightWeapon;
+    } else if (_inventorySlot == InventorySlots::leftWeapon2) {
+        equipabilitySlot = InventorySlots::leftWeapon;
+    }
+    if (!creature->isRuntimeLive() || !candidate ||
+        !candidate->isRuntimeLive() ||
+        !candidate->isEquippable(equipabilitySlot)) {
+        complete();
+        return;
+    }
+    for (const auto &[slot, equipped] : creature->equipment()) {
+        if (equipped == candidate && slot != _inventorySlot) {
+            complete();
+            return;
+        }
+    }
+
+    auto actorObject = _game.getObjectById(actor.id());
+    auto displacedReceiver =
+        _game.party().sharedInventoryReceiver(actorObject);
+    auto previous = creature->getEquippedItem(_inventorySlot);
+    if (previous && previous != candidate && !displacedReceiver) {
+        complete();
+        return;
+    }
+
+    std::shared_ptr<Object> sourceOwner;
+    uint32_t ownerId = candidate->owner();
+    bool areaOwned = isActiveAreaOwnedItem(_game, candidate);
+    if (areaOwned && ownerId != 0 && ownerId != script::kObjectInvalid) {
+        complete();
+        return;
+    }
+    if (ownerId != 0 && ownerId != script::kObjectInvalid) {
+        sourceOwner = _game.getObjectById(ownerId);
+        if (!sourceOwner) {
+            complete();
+            return;
+        }
+        if (auto equippedOwner =
+                std::dynamic_pointer_cast<Creature>(sourceOwner);
+            equippedOwner && candidate->isEquipped()) {
+            candidate = equippedOwner->takeEquippedItem(candidate);
+        } else {
+            candidate = takeEquipmentCandidate(_game, *sourceOwner, candidate);
+        }
+    } else {
+        bool ready = previous && previous != candidate
+                         ? displacedReceiver &&
+                               creature->canReplaceEquipment(
+                                   _inventorySlot, candidate, *displacedReceiver)
+                         : creature->canEquip(_inventorySlot, candidate);
+        if (!ready || !areaOwned ||
+            !releaseAreaOwnedItem(_game, candidate)) {
+            complete();
+            return;
+        }
+    }
+    bool equipped = candidate &&
+                    (previous && previous != candidate
+                         ? creature->replaceEquipment(
+                               _inventorySlot, candidate, *displacedReceiver)
+                         : creature->equip(_inventorySlot, candidate));
+    if (!equipped) {
+        if (candidate && candidate->owner() == 0 && sourceOwner) {
+            sourceOwner->addItem(candidate);
+        }
+        complete();
+        return;
+    }
     creature->playAnimation(CombatAnimation::Draw, creature->getWieldType());
     complete();
 }

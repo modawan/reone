@@ -18,8 +18,11 @@
 #include "reone/game/script/routines.h"
 
 #include "reone/game/di/services.h"
+#include "reone/game/effect.h"
+#include "reone/game/game.h"
 #include "reone/game/script/routine/context.h"
 #include "reone/game/types.h"
+#include "reone/script/executioncontext.h"
 #include "reone/script/variable.h"
 
 using namespace reone::resource;
@@ -89,14 +92,31 @@ void Routines::insert(
         break;
     }
 
+    const bool constructsEffect =
+        retType == VariableType::Effect && name.rfind("Effect", 0) == 0;
     _routines[index] = Routine(
         std::move(name),
         retType,
         std::move(defRetValue),
         std::move(argTypes),
-        [this, fn](auto &args, auto &execution) {
+        [this, fn, retType, constructsEffect](auto &args, auto &execution) {
             RoutineContext ctx(*_game, *_services, execution);
-            return fn(args, std::move(ctx));
+            auto result = fn(args, std::move(ctx));
+            // Retail stamps VM-created CGameEffect values with OBJECT_SELF.
+            // Keep that save-facing creator independently of executable
+            // subclass behavior so delayed continuations can serialize it.
+            if (constructsEffect) {
+                auto effect = std::dynamic_pointer_cast<Effect>(result.engineType);
+                if (effect) {
+                    effect->captureSaveFacingScriptArguments(args, *_game);
+                }
+                auto caller = execution.findArg(ArgKind::Caller);
+                if (effect && caller) {
+                    effect->setSaveFacingCreator(
+                        _game->getObjectById(caller->objectId));
+                }
+            }
+            return result;
         });
 }
 

@@ -159,7 +159,9 @@ RichState configureRich(Game &game, bool tsl) {
                          .field(Gff::Field::newShort("CurrentHitPoints", 1))
                          .build();
     result.npc->captureSaveRecord(
-        *npcShadow, {SaveRecordOriginKind::AvailableNpc, "0"});
+        *npcShadow,
+        SerializedIdentityContext::detachedRecord("availnpc0.utc"),
+        {SaveRecordOriginKind::AvailableNpc, "0"});
     result.npc->setCurrentHitPoints(19);
     game.party().addAvailableMember(0, result.npc);
     game.party().clear();
@@ -173,7 +175,9 @@ RichState configureRich(Game &game, bool tsl) {
                                     "FuturePuppet", "puppet-shadow"))
                                 .build();
         result.puppet->captureSaveRecord(
-            *puppetShadow, {SaveRecordOriginKind::AvailablePuppet, "0"});
+            *puppetShadow,
+            SerializedIdentityContext::detachedRecord("availpup0.utc"),
+            {SaveRecordOriginKind::AvailablePuppet, "0"});
         game.party().addAvailablePuppet(0, result.puppet);
     }
 
@@ -187,8 +191,10 @@ RichState configureRich(Game &game, bool tsl) {
                               "FutureItem", "item-shadow"))
                           .build();
     result.item->setStackSize(3);
-    result.item->captureOwnerLocalSaveRecord(
-        *itemShadow, {SaveRecordOriginKind::PartyInventoryItem, "inventory"});
+    result.item->captureSaveRecord(
+        *itemShadow,
+        SerializedIdentityContext::detachedRecord("inventory.res"),
+        {SaveRecordOriginKind::PartyInventoryItem, "inventory"});
     result.player->addItem(result.item);
 
     game.journal().restoreEntry("tat17_landing", 30, 4, 500);
@@ -256,6 +262,62 @@ void configureReputes(TestEngine &engine) {
         .WillRepeatedly(Return(factionState()));
 }
 
+std::shared_ptr<Gff> freshNewGamePartyTable(GameID gameId) {
+    auto &engine = testEngine();
+    configureReputes(engine);
+    StubConsole console;
+    Game game(gameId, "", engine.options(), engine.services(), console);
+
+    // Storage reset is deliberately not new-game initialization. This is the
+    // same final reset/install order used by CharacterGeneration::finish().
+    game.party().reset();
+    EXPECT_FALSE(game.party().hasValidPazaakData());
+    game.party().initializeNewGameState();
+
+    auto area = game.newArea();
+    auto player = game.newCreature();
+    TestGameModule::configureModuleSnapshot(
+        game,
+        area,
+        player,
+        gameId == GameID::TSL ? "001ebo" : "end_m01aa",
+        gameId == GameID::TSL ? "001ebo" : "end_m01aa");
+
+    auto saved = SaveWideSnapshotBuilder(
+                     game, metadata(gameId == GameID::TSL))
+                     .build();
+    EXPECT_TRUE(saved) << saved.message;
+    if (!saved) return nullptr;
+    return readGff(
+        saved.snapshot->looseSlotResources.at({"partytable", ResType::Res}));
+}
+
+std::shared_ptr<Gff> savedPazaakTable(
+    size_t cardCount,
+    int firstCardCount,
+    int ninthCardCount) {
+    std::vector<std::shared_ptr<Gff>> cards;
+    for (size_t card = 0; card < cardCount; ++card) {
+        int count = card == 0 ? firstCardCount
+                              : card == 8 ? ninthCardCount : 0;
+        cards.push_back(
+            Gff::Builder()
+                .field(Gff::Field::newByte("PT_PAZAAKCOUNT", count))
+                .build());
+    }
+    std::vector<std::shared_ptr<Gff>> sideDeck;
+    for (size_t slot = 0; slot < Party::kK1PazaakSideDeckSize; ++slot) {
+        sideDeck.push_back(
+            Gff::Builder()
+                .field(Gff::Field::newInt("PT_PAZSIDECARD", -1))
+                .build());
+    }
+    return Gff::Builder()
+        .field(Gff::Field::newList("PT_PAZAAKCARDS", std::move(cards)))
+        .field(Gff::Field::newList("PT_PAZSIDELIST", std::move(sideDeck)))
+        .build();
+}
+
 struct TempArchive {
     std::filesystem::path path;
 
@@ -281,6 +343,85 @@ struct TempArchive {
 };
 
 } // namespace
+
+TEST(SaveWideSnapshot, party_reset_remains_distinct_from_new_game_initialization) {
+    auto &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    game.party().initializeNewGameState();
+    ASSERT_TRUE(game.party().hasValidPazaakData());
+    game.party().reset();
+
+    EXPECT_FALSE(game.party().hasValidPazaakData());
+}
+
+TEST(SaveWideSnapshot, fresh_k1_party_has_saveable_title_defaults) {
+    auto party = freshNewGamePartyTable(GameID::KotOR);
+
+    ASSERT_TRUE(party);
+    const auto &cards = party->getList("PT_PAZAAKCARDS");
+    const auto &sideDeck = party->getList("PT_PAZSIDELIST");
+    ASSERT_EQ(Party::kK1PazaakCardCount, cards.size());
+    ASSERT_EQ(Party::kK1PazaakSideDeckSize, sideDeck.size());
+    for (size_t card = 0; card < cards.size(); ++card) {
+        EXPECT_EQ(card < 5 ? 2 : 0, cards[card]->getInt("PT_PAZAAKCOUNT"));
+    }
+    for (const auto &slot : sideDeck) {
+        EXPECT_EQ(-1, slot->getInt("PT_PAZSIDECARD"));
+    }
+}
+
+TEST(SaveWideSnapshot, fresh_k2_party_has_saveable_title_defaults) {
+    auto party = freshNewGamePartyTable(GameID::TSL);
+
+    ASSERT_TRUE(party);
+    const auto &cards = party->getList("PT_PAZAAKCARDS");
+    const auto &sideDeck = party->getList("PT_PAZSIDELIST");
+    ASSERT_EQ(Party::kK2PazaakCardCount, cards.size());
+    ASSERT_EQ(Party::kK1PazaakSideDeckSize, sideDeck.size());
+    for (size_t card = 0; card < cards.size(); ++card) {
+        EXPECT_EQ(card < 5 ? 2 : 0, cards[card]->getInt("PT_PAZAAKCOUNT"));
+    }
+    for (const auto &slot : sideDeck) {
+        EXPECT_EQ(-1, slot->getInt("PT_PAZSIDECARD"));
+    }
+}
+
+TEST(SaveWideSnapshot, restored_pazaak_state_remains_authoritative) {
+    auto &engine = testEngine();
+    configureReputes(engine);
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto party = savedPazaakTable(Party::kK1PazaakCardCount, 7, 3);
+
+    game.party().reset();
+    TestGameModule::deserializePartyTable(game, *party);
+    ASSERT_TRUE(game.party().hasValidPazaakData());
+    EXPECT_EQ(7, game.party().pazaakCardCounts()[0]);
+    EXPECT_EQ(3, game.party().pazaakCardCounts()[8]);
+
+    auto area = game.newArea();
+    auto player = game.newCreature();
+    TestGameModule::configureModuleSnapshot(
+        game, area, player, "end_m01aa", "end_m01aa");
+    auto saved = SaveWideSnapshotBuilder(game, metadata(false)).build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto roundTripped = readGff(
+        saved.snapshot->looseSlotResources.at({"partytable", ResType::Res}));
+    ASSERT_EQ(
+        Party::kK1PazaakCardCount,
+        roundTripped->getList("PT_PAZAAKCARDS").size());
+    EXPECT_EQ(
+        7,
+        roundTripped->getList("PT_PAZAAKCARDS")[0]->getInt(
+            "PT_PAZAAKCOUNT"));
+    EXPECT_EQ(
+        3,
+        roundTripped->getList("PT_PAZAAKCARDS")[8]->getInt(
+            "PT_PAZAAKCOUNT"));
+}
 
 TEST(SaveWideSnapshot, rich_k1_round_trips_all_common_state_and_shadows) {
     auto &engine = testEngine();
@@ -428,11 +569,15 @@ TEST(SaveWideSnapshot, thirteen_item_inventory_round_trip_is_singular_and_semant
             .field(Gff::Field::newWord("StackSize", index + 1))
             .field(Gff::Field::newCExoString("Tag", "roundtrip_" + std::to_string(index)))
             .build();
-        item->deserializeRuntimeState(*record);
+        item->deserializeRuntimeState(
+            *record,
+            SerializedIdentityContext::detachedRecord("inventory.res"));
         item->setTag("roundtrip_" + std::to_string(index));
         item->setStackSize(index + 1);
-        item->captureOwnerLocalSaveRecord(
-            *record, {SaveRecordOriginKind::PartyInventoryItem, "inventory"});
+        item->captureSaveRecord(
+            *record,
+            SerializedIdentityContext::detachedRecord("inventory.res"),
+            {SaveRecordOriginKind::PartyInventoryItem, "inventory"});
         rich.player->addItem(item);
         expectedStacks.push_back(index + 1);
     }
@@ -534,8 +679,6 @@ TEST(SaveWideSnapshot, rich_k2_writes_title_specific_party_pc_puppet_and_nfo) {
     loadedPc->setMaxHitPoints(pc->getInt("MaxHitPoints"));
     loadedPc->setCurrentHitPoints(pc->getInt("CurrentHitPoints"));
     EXPECT_EQ(loadedPc->currentHitPoints(), 17);
-    loadedPc->restorePrimaryPlayerHitPoints();
-    EXPECT_EQ(loadedPc->currentHitPoints(), loadedPc->maxHitPoints());
     auto puppet = readGff(saved.snapshot->outerWorkingResources.at({"availpup0", ResType::Utc}));
     EXPECT_EQ(puppet->getString("FuturePuppet"), "puppet-shadow");
 
@@ -560,17 +703,19 @@ TEST(SaveWideSnapshot,
     auto area = game.newArea();
     auto controlled = game.newCreature();
     controlled->setName("T3-M4");
-    TestGameModule::setSnapshotObjectId(*controlled, 330);
-    controlled->setTag(kObjectTagPlayer);
+    controlled->setTag("t3m4");
     controlled->setMaxHitPoints(30);
     controlled->setCurrentHitPoints(24);
     auto controlledShadow =
         Gff::Builder()
             .type(0xffffffff)
+            .field(Gff::Field::newDword("ObjectId", 330))
             .field(Gff::Field::newCExoLocString("FirstName", -1, "T3-M4"))
             .build();
     controlled->captureSaveRecord(
-        *controlledShadow, {SaveRecordOriginKind::ModulePlayer, {}});
+        *controlledShadow,
+        SerializedIdentityContext::moduleGraph("106per"),
+        {SaveRecordOriginKind::ModulePlayer, {}});
     TestGameModule::configureModuleSnapshot(
         game, area, controlled, "106per", "106per");
 
@@ -585,7 +730,9 @@ TEST(SaveWideSnapshot,
             .field(Gff::Field::newCExoLocString("FirstName", -1, "Ta'ahn Kaast"))
             .build();
     canonical->captureSaveRecord(
-        *canonicalShadow, {SaveRecordOriginKind::PrimaryPlayerUtc, {}});
+        *canonicalShadow,
+        SerializedIdentityContext::detachedRecord("pc.utc"),
+        {SaveRecordOriginKind::PrimaryPlayerUtc, {}});
 
     Party::PersistedState state;
     state.pcName = "Ta'ahn Kaast";
@@ -598,11 +745,12 @@ TEST(SaveWideSnapshot,
     Party::PazaakSideDeck sideDeck;
     sideDeck.fill(-1);
     game.party().setPazaakData(cards, sideDeck, Party::kK2PazaakCardCount);
-    game.party().addAvailableMember(8, controlled);
-    game.party().clear();
-    game.party().addMember(8, controlled);
-    game.party().setPlayer(controlled);
     game.party().setActualPlayer(canonical);
+    ASSERT_TRUE(game.party().addAvailableMember(8, controlled));
+    game.party().clear();
+    ASSERT_TRUE(game.party().addMember(8, controlled));
+    game.party().setPlayer(controlled);
+    ASSERT_EQ(controlled, game.party().getAvailableMember(8));
 
     auto module = ModuleSnapshotBuilder(game, "game13").build();
     auto saved = SaveWideSnapshotBuilder(game, metadata(true)).build();
@@ -620,7 +768,7 @@ TEST(SaveWideSnapshot,
     EXPECT_EQ("Ta'ahn Kaast", pc->getString("FirstName"));
     EXPECT_FALSE(pc->has("ObjectId"));
     ASSERT_EQ(1u, module.snapshot->ifo->getList("Mod_PlayerList").size());
-    EXPECT_EQ(kObjectTagPlayer,
+    EXPECT_EQ("t3m4",
               module.snapshot->ifo->getList("Mod_PlayerList")[0]->getString("Tag"));
 
     Game reloaded(GameID::TSL, "", engine.options(), engine.services(), console);
@@ -639,9 +787,7 @@ TEST(SaveWideSnapshot,
     EXPECT_CALL(
         engine.resourceModule().director(),
         findSaveWorking(ResourceId("availnpc8", ResType::Utc)))
-        .WillOnce(Return(Resource {ByteBuffer(
-            saved.snapshot->outerWorkingResources.at(
-                {"availnpc8", ResType::Utc}))}));
+        .Times(0);
     auto reloadedIfo = readGff(module.snapshot->ifoBytes);
     TestGameModule::publishPartyRuntimeState(
         reloaded, *reloadedIfo, party, pc);
@@ -649,7 +795,7 @@ TEST(SaveWideSnapshot,
     ASSERT_TRUE(reloaded.party().player());
     ASSERT_TRUE(reloaded.party().actualPlayer());
     EXPECT_NE(reloaded.party().player(), reloaded.party().actualPlayer());
-    EXPECT_EQ(kObjectTagPlayer, reloaded.party().player()->tag());
+    EXPECT_EQ("t3m4", reloaded.party().player()->tag());
     EXPECT_EQ("T3-M4", reloaded.party().player()->name());
     EXPECT_EQ("canonical_pc", reloaded.party().actualPlayer()->tag());
     EXPECT_EQ("Ta'ahn Kaast", reloaded.party().actualPlayer()->name());
@@ -674,7 +820,7 @@ TEST(SaveWideSnapshot,
     EXPECT_TRUE(rebuiltParty->getList("PT_MEMBERS").empty());
     EXPECT_EQ("Ta'ahn Kaast", rebuiltPc->getString("FirstName"));
     ASSERT_EQ(1u, rebuiltModule.snapshot->ifo->getList("Mod_PlayerList").size());
-    EXPECT_EQ(kObjectTagPlayer,
+    EXPECT_EQ("t3m4",
               rebuiltModule.snapshot->ifo->getList("Mod_PlayerList")[0]->getString("Tag"));
 }
 

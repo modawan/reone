@@ -134,7 +134,7 @@ void CharacterMenu::refreshControls() {
         _controls.LBL_LEVEL2->setTextMessage(toStringOrEmptyIfZero(attributes.getLevelByPosition(2)));
     }
 
-    _controls.LBL_VITALITY_STAT->setTextMessage(str(boost::format("%d/%d") % partyLeader->currentHitPoints() % partyLeader->hitPoints()));
+    _controls.LBL_VITALITY_STAT->setTextMessage(str(boost::format("%d/%d") % partyLeader->currentHitPoints() % partyLeader->maxHitPoints()));
     _controls.LBL_DEFENSE_STAT->setTextMessage(std::to_string(partyLeader->getDefense()));
     _controls.LBL_FORCE_STAT->setTextMessage("");
 
@@ -203,15 +203,19 @@ void CharacterMenu::refresh3D() {
 std::shared_ptr<ModelSceneNode> CharacterMenu::getSceneModel(ISceneGraph &sceneGraph) const {
     auto partyLeader = _game.party().getLeader();
 
-    std::shared_ptr<Creature> character = _game.newCreature(sceneGraph.name());
+    std::shared_ptr<Creature> character =
+        _game.newPresentationCreature(sceneGraph.name());
     character->setFacing(-glm::half_pi<float>());
     character->setAppearance(partyLeader->appearance());
 
     for (auto &item : partyLeader->equipment()) {
         switch (item.first) {
-        case InventorySlots::body:
-            character->equip(item.first, item.second);
+        case InventorySlots::body: {
+            auto previewItem = _game.newPresentationItem();
+            previewItem->clone(*item.second);
+            character->equip(item.first, previewItem);
             break;
+        }
         default:
             break;
         }

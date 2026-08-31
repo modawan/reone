@@ -32,6 +32,8 @@ public:
     }
 
     void applyTo(Object &object) override;
+    void retireAreaRuntime(
+        const std::set<const Object *> &retainedObjects) override;
 
 private:
     std::shared_ptr<Effect> _childEffect;

@@ -17,11 +17,14 @@
 
 #pragma once
 
+#include "reone/game/runtimeref.h"
 #include "reone/game/types.h"
 
 namespace reone {
 
 namespace game {
+
+class Creature;
 
 /**
  * MessageBus implements a queue of messages for SpeakString and
@@ -33,18 +36,27 @@ public:
      * Adds a listener object for a pattern. The same object may listen for
      * multiple patterns, as long as it uses a different number for each.
      */
-    void addListener(uint32_t listenerId, std::string pattern, int32_t number);
+    void addListener(
+        const std::shared_ptr<Creature> &listener,
+        std::string pattern,
+        int32_t number);
 
     void addMessage(uint32_t speakerId, std::string msg, TalkVolume volume);
 
-    using OnMessage = std::function<void(uint32_t speakerId, uint32_t listenerId,
-                                         int32_t number, TalkVolume volume)>;
+    using OnMessage = std::function<void(
+        uint32_t speakerId,
+        const std::shared_ptr<Creature> &listener,
+        int32_t number,
+        TalkVolume volume)>;
 
     /**
      * Process accumulated messages and call onMessage for each "matched"
      * listener.
      */
     void update(OnMessage onMessage);
+
+    /** Number of live listener-pattern registrations currently retained. */
+    size_t listenerCount() const;
 
 private:
     struct Message {
@@ -54,7 +66,7 @@ private:
     };
 
     struct Listener {
-        uint32_t id;
+        RuntimeObjectRef<Creature> object;
         int32_t number;
     };
 
@@ -63,6 +75,8 @@ private:
 private:
     std::queue<Message> _pendingMessages;
     std::unordered_map<std::string, ListenerVec> _listeners;
+
+    void pruneDeadListeners();
 };
 
 } // namespace game

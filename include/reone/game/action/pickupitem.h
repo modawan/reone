@@ -31,6 +31,7 @@ public:
                      std::shared_ptr<Item> item) :
         Action(game, services, ActionType::PickUpItem),
         _item(std::move(item)) {
+        requireRuntimeObject(_item);
     }
 
     static bool classof(Action *from) {

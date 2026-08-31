@@ -53,6 +53,7 @@
 #include "reone/scene/collision.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
+#include "reone/system/exception/validation.h"
 #include "reone/scene/node/grass.h"
 #include "reone/scene/node/grasscluster.h"
 #include "reone/scene/node/model.h"
@@ -168,9 +169,13 @@ void Area::init() {
     _objectsByType.insert(std::make_pair(ObjectType::Sound, ObjectList()));
 }
 
-void Area::load(std::string name, const Gff &are, const Gff &git, bool fromSave) {
+void Area::load(
+    std::string name,
+    const Gff &are,
+    const Gff &git,
+    const SerializedIdentityContext &identityContext) {
     _name = std::move(name);
-    if (fromSave) {
+    if (identityContext.isSerializedState()) {
         _game.captureSaveResourceShadow(
             {SaveResourceKind::AreaAre, _name}, are);
         _game.captureSaveResourceShadow(
@@ -179,11 +184,11 @@ void Area::load(std::string name, const Gff &are, const Gff &git, bool fromSave)
 
     auto areParsed = resource::generated::parseARE(are);
     auto gitParsed = resource::generated::parseGIT(git);
-    deserializeRuntimeState(are);
+    deserializeRuntimeState(are, identityContext);
 
     loadARE(areParsed);
     loadLYT();
-    loadGIT(gitParsed, git, fromSave);
+    loadGIT(gitParsed, git, identityContext);
     loadVIS();
 }
 
@@ -299,18 +304,22 @@ void Area::applySceneProperties() {
     sceneGraph.setFog(fogProperties);
 }
 
-void Area::loadGIT(const resource::generated::GIT &git, const resource::Gff &gff, bool fromSave) {
+void Area::loadGIT(
+    const resource::generated::GIT &git,
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    _game.reserveSavedObjectIds(gff, identityContext, SerializedGraphRoot::AreaGit);
     loadProperties(git);
-    loadCreatures(gff, fromSave);
-    loadDoors(gff, fromSave);
-    loadPlaceables(gff, fromSave);
-    loadWaypoints(gff, fromSave);
-    loadTriggers(gff, fromSave);
-    loadSounds(gff, fromSave);
-    loadCameras(gff, fromSave);
-    loadEncounters(gff, fromSave);
-    loadStores(gff, fromSave);
-    loadItems(gff, fromSave);
+    loadCreatures(gff, identityContext);
+    loadDoors(gff, identityContext);
+    loadPlaceables(gff, identityContext);
+    loadWaypoints(gff, identityContext);
+    loadTriggers(gff, identityContext);
+    loadSounds(gff, identityContext);
+    loadCameras(gff, identityContext);
+    loadEncounters(gff, identityContext);
+    loadStores(gff, identityContext);
+    loadItems(gff, identityContext);
 }
 
 void Area::loadProperties(const resource::generated::GIT &git) {
@@ -321,103 +330,112 @@ void Area::loadProperties(const resource::generated::GIT &git) {
     }
 }
 
-void Area::loadCreatures(const resource::Gff &gff, bool fromSave) {
+void Area::loadCreatures(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (const auto &creatureGff : gff.getList("Creature List")) {
-        std::shared_ptr<Creature> creature = fromSave ? _game.newCreature(*creatureGff, _sceneName)
-                                                     : _game.newCreature(_sceneName);
-        creature->deserialize(*creatureGff);
-        if (fromSave) creature->captureSaveRecord(*creatureGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto creature = _game.newCreature(*creatureGff, identityContext, _sceneName);
+        if (identityContext.isSerializedState()) {
+            creature->captureSaveRecord(*creatureGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         landObject(*creature);
         add(creature);
     }
 }
 
-void Area::loadDoors(const resource::Gff &gff, bool fromSave) {
+void Area::loadDoors(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &doorGff : gff.getList("Door List")) {
-        std::shared_ptr<Door> door = fromSave ? _game.newDoor(*doorGff, _sceneName)
-                                             : _game.newDoor(_sceneName);
-        door->deserialize(*doorGff);
-        if (fromSave) door->captureSaveRecord(*doorGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto door = _game.newDoor(*doorGff, identityContext, _sceneName);
+        if (identityContext.isSerializedState()) {
+            door->captureSaveRecord(*doorGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(door);
     }
 }
 
-void Area::loadPlaceables(const resource::Gff &gff, bool fromSave) {
+void Area::loadPlaceables(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &placeableGff : gff.getList("Placeable List")) {
-        std::shared_ptr<Placeable> placeable = fromSave ? _game.newPlaceable(*placeableGff, _sceneName)
-                                                       : _game.newPlaceable(_sceneName);
-        placeable->deserialize(*placeableGff);
-        if (fromSave) placeable->captureSaveRecord(*placeableGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto placeable = _game.newPlaceable(*placeableGff, identityContext, _sceneName);
+        if (identityContext.isSerializedState()) {
+            placeable->captureSaveRecord(*placeableGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(placeable);
     }
 }
 
-void Area::loadWaypoints(const resource::Gff &gff, bool fromSave) {
+void Area::loadWaypoints(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &waypointGff : gff.getList("WaypointList")) {
-        std::shared_ptr<Waypoint> waypoint = fromSave ? _game.newWaypoint(*waypointGff, _sceneName)
-                                                     : _game.newWaypoint(_sceneName);
-        waypoint->deserialize(*waypointGff);
-        if (fromSave) waypoint->captureSaveRecord(*waypointGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto waypoint = _game.newWaypoint(*waypointGff, identityContext, _sceneName);
+        if (identityContext.isSerializedState()) {
+            waypoint->captureSaveRecord(*waypointGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(waypoint);
     }
 }
 
-void Area::loadTriggers(const resource::Gff &gff, bool fromSave) {
+void Area::loadTriggers(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &triggerGff : gff.getList("TriggerList")) {
-        std::shared_ptr<Trigger> trigger = fromSave ? _game.newTrigger(*triggerGff, _sceneName)
-                                                   : _game.newTrigger(_sceneName);
-        trigger->deserialize(*triggerGff);
-        if (fromSave) trigger->captureSaveRecord(*triggerGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto trigger = _game.newTrigger(*triggerGff, identityContext, _sceneName);
+        if (identityContext.isSerializedState()) {
+            trigger->captureSaveRecord(*triggerGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(trigger);
     }
 }
 
-void Area::loadSounds(const resource::Gff &gff, bool fromSave) {
+void Area::loadSounds(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &soundGff : gff.getList("SoundList")) {
-        std::shared_ptr<Sound> sound = fromSave ? _game.newSound(*soundGff, _sceneName)
-                                               : _game.newSound(_sceneName);
-        sound->deserialize(*soundGff);
-        if (fromSave) sound->captureSaveRecord(*soundGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto sound = _game.newSound(*soundGff, identityContext, _sceneName);
+        if (identityContext.isSerializedState()) {
+            sound->captureSaveRecord(*soundGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(sound);
     }
 }
 
-void Area::loadCameras(const resource::Gff &gff, bool fromSave) {
+void Area::loadCameras(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &cameraGff : gff.getList("CameraList")) {
-        std::shared_ptr<StaticCamera> camera = _game.newStaticCamera(_sceneName);
-        camera->deserialize(*cameraGff);
-        if (fromSave) camera->captureSaveRecord(*cameraGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        std::vector<std::shared_ptr<Object>> noObsolete;
+        std::shared_ptr<StaticCamera> camera;
+        _game.replaceRuntimeObjectGraph(
+            noObsolete,
+            [&]() {
+                camera = _game.newStaticCamera(_sceneName);
+                camera->deserialize(*cameraGff);
+            },
+            []() noexcept {});
+        if (identityContext.isSerializedState()) {
+            camera->captureSaveRecord(*cameraGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(camera);
     }
 }
 
-void Area::loadEncounters(const resource::Gff &gff, bool fromSave) {
+void Area::loadEncounters(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &encounterGff : gff.getList("Encounter List")) {
-        std::shared_ptr<Encounter> encounter = fromSave ? _game.newEncounter(*encounterGff, _sceneName)
-                                                       : _game.newEncounter(_sceneName);
-        encounter->deserialize(*encounterGff);
-        if (fromSave) encounter->captureSaveRecord(*encounterGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto encounter = _game.newEncounter(*encounterGff, identityContext, _sceneName);
+        if (identityContext.isSerializedState()) {
+            encounter->captureSaveRecord(*encounterGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(encounter);
     }
 }
 
-void Area::loadStores(const resource::Gff &gff, bool fromSave) {
+void Area::loadStores(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &storeGff : gff.getList("StoreList")) {
-        std::shared_ptr<Store> store = fromSave ? _game.newStore(*storeGff, _sceneName)
-                                               : _game.newStore(_sceneName);
-        store->deserialize(*storeGff);
-        if (fromSave) store->captureSaveRecord(*storeGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto store = _game.newStore(*storeGff, identityContext, _sceneName);
+        if (identityContext.isSerializedState()) {
+            store->captureSaveRecord(*storeGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(store);
     }
 }
 
 
-void Area::loadItems(const resource::Gff &gff, bool fromSave) {
+void Area::loadItems(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
     for (auto &itemGff : gff.getList("List")) {
-        std::shared_ptr<Item> item = fromSave ? _game.newItem(*itemGff)
-                                             : _game.newItem();
-        item->deserialize(*itemGff);
-        if (fromSave) item->captureSaveRecord(*itemGff, {SaveRecordOriginKind::ActiveGitObject, _name});
+        auto item = _game.newItem(*itemGff, identityContext);
+        if (identityContext.isSerializedState()) {
+            item->captureSaveRecord(*itemGff, identityContext, {SaveRecordOriginKind::ActiveGitObject, _name});
+        }
         add(item);
     }
 }
@@ -521,42 +539,90 @@ void Area::initCameras(const glm::vec3 &entryPosition, float entryFacing) {
     glm::vec3 position(entryPosition);
     position.z += 1.7f;
 
-    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    _game.replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            _firstPersonCamera = _game.newFirstPersonCamera(
+                glm::radians(kDefaultFieldOfView), _sceneName);
+            _firstPersonCamera->load();
+            _firstPersonCamera->setPosition(position);
+            _firstPersonCamera->setFacing(entryFacing);
 
-    _firstPersonCamera = _game.newFirstPersonCamera(glm::radians(kDefaultFieldOfView), _sceneName);
-    _firstPersonCamera->load();
-    _firstPersonCamera->setPosition(position);
-    _firstPersonCamera->setFacing(entryFacing);
+            _thirdPersonCamera = _game.newThirdPersonCamera(
+                _camStyleDefault, _sceneName);
+            _thirdPersonCamera->load();
+            _thirdPersonCamera->setTargetPosition(position);
+            _thirdPersonCamera->setFacing(entryFacing);
 
-    _thirdPersonCamera = _game.newThirdPersonCamera(_camStyleDefault, _sceneName);
-    _thirdPersonCamera->load();
-    _thirdPersonCamera->setTargetPosition(position);
-    _thirdPersonCamera->setFacing(entryFacing);
+            _dialogCamera = _game.newDialogCamera(
+                _camStyleDefault, _sceneName);
+            _dialogCamera->load();
 
-    _dialogCamera = _game.newDialogCamera(_camStyleDefault, _sceneName);
-    _dialogCamera->load();
-
-    _animatedCamera = _game.newAnimatedCamera(_sceneName);
-    _animatedCamera->load();
+            _animatedCamera = _game.newAnimatedCamera(_sceneName);
+            _animatedCamera->load();
+        },
+        []() noexcept {});
 }
 
 void Area::add(const std::shared_ptr<Object> &object) {
-    _objects.push_back(object);
-    _objectsByType[object->type()].push_back(object);
-    _objectsByTag[object->tag()].push_back(object);
+    if (!object || !_game.isRuntimeObjectAttachable(*object)) {
+        throw ValidationException(
+            "Area can only own a published or staged runtime object");
+    }
+    if (std::any_of(
+            _objects.begin(), _objects.end(),
+            [&object](const auto &existing) {
+                return existing.get() == object.get();
+            })) {
+        throw ValidationException("Runtime object is already owned by this Area");
+    }
 
-    determineObjectRoom(*object);
-    attachObjectToSceneGraph(object);
+    try {
+        _objects.push_back(object);
+        _objectsByType[object->type()].push_back(object);
+        _objectsByTag[object->tag()].push_back(object);
 
-    if (auto door = dyn_cast<Door>(object)) {
-        if ((door->linkedToFlags() == 1 || door->linkedToFlags() == 2) &&
-            !door->linkedToModule().empty() &&
-            !door->linkedTo().empty() &&
-            !door->linkedTransitionGeometry().empty()) {
-            auto trigger = _game.newTrigger(_sceneName);
-            trigger->configureLinkedDoorTransition(door);
-            add(trigger);
+        determineObjectRoom(*object);
+        attachObjectToSceneGraph(object);
+
+        if (auto door = dyn_cast<Door>(object)) {
+            if ((door->linkedToFlags() == 1 || door->linkedToFlags() == 2) &&
+                !door->linkedToModule().empty() &&
+                !door->linkedTo().empty() &&
+                !door->linkedTransitionGeometry().empty()) {
+                std::vector<std::shared_ptr<Object>> noObsolete;
+                std::shared_ptr<Trigger> trigger;
+                _game.replaceRuntimeObjectGraph(
+                    noObsolete,
+                    [&]() {
+                        trigger = _game.newTrigger(_sceneName);
+                        trigger->configureLinkedDoorTransition(door);
+                    },
+                    []() noexcept {});
+                try {
+                    add(trigger);
+                } catch (...) {
+                    if (trigger->isRuntimeLive()) {
+                        _game.destroyRuntimeObjectGraph(trigger);
+                    }
+                    throw;
+                }
+            }
         }
+    } catch (...) {
+        auto owned = std::find_if(
+            _objects.begin(), _objects.end(),
+            [&object](const auto &existing) {
+                return existing.get() == object.get();
+            });
+        if (owned != _objects.end()) {
+            // Area ownership is published only by a successful return. Undo
+            // any partially installed indexes/tenancy/presentation while
+            // leaving semantic object lifetime with the caller.
+            detachObjectRuntime(object);
+        }
+        throw;
     }
 }
 
@@ -627,34 +693,14 @@ void Area::doDestroyObjects() {
     _objectsToDestroy.clear();
 }
 
-void Area::doDestroyObject(uint32_t objectId) {
-    auto object = _game.getObjectById(objectId);
-    if (!object) {
-        return;
-    }
-
-    if (auto door = dyn_cast<Door>(object)) {
-        std::vector<uint32_t> linkedTriggerIds;
-        for (auto &triggerObject : _objectsByType[ObjectType::Trigger]) {
-            auto trigger = std::static_pointer_cast<Trigger>(triggerObject);
-            if (trigger->detachLinkedDoorTransition(*door)) {
-                linkedTriggerIds.push_back(trigger->id());
-            }
-        }
-        for (auto triggerId : linkedTriggerIds) {
-            doDestroyObject(triggerId);
-        }
-    }
-
+void Area::detachObjectRuntime(const std::shared_ptr<Object> &object) {
     auto room = object->room();
     if (room) {
-        room->removeTenant(object.get());
+        object->setRoom(nullptr);
     }
 
-    // Drop the object from any trigger it was standing inside. A destroyed
-    // object never moves, so Trigger::update would otherwise keep it as a tenant
-    // indefinitely (leaking it and leaving the trigger stuck in the Inside
-    // state). Destruction is not an "exit", so no OnExit is fired.
+    // Drop the object from any trigger it was standing inside. Detachment is
+    // not an authored exit, so no OnExit is fired.
     for (auto &triggerObject : _objectsByType[ObjectType::Trigger]) {
         static_cast<Trigger &>(*triggerObject).removeTenant(object.get());
     }
@@ -692,14 +738,22 @@ void Area::doDestroyObject(uint32_t objectId) {
         }
     }
 
-    auto maybeObject = std::find_if(_objects.begin(), _objects.end(), [&object](auto &o) { return o.get() == object.get(); });
+    auto maybeObject = std::find_if(
+        _objects.begin(), _objects.end(),
+        [&object](auto &candidate) {
+            return candidate.get() == object.get();
+        });
     if (maybeObject != _objects.end()) {
         _objects.erase(maybeObject);
     }
     auto maybeTagObjects = _objectsByTag.find(object->tag());
     if (maybeTagObjects != _objectsByTag.end()) {
         auto &tagObjects = maybeTagObjects->second;
-        auto maybeObjectByTag = std::find_if(tagObjects.begin(), tagObjects.end(), [&object](auto &o) { return o.get() == object.get(); });
+        auto maybeObjectByTag = std::find_if(
+            tagObjects.begin(), tagObjects.end(),
+            [&object](auto &candidate) {
+                return candidate.get() == object.get();
+            });
         if (maybeObjectByTag != tagObjects.end()) {
             tagObjects.erase(maybeObjectByTag);
         }
@@ -707,10 +761,79 @@ void Area::doDestroyObject(uint32_t objectId) {
             _objectsByTag.erase(maybeTagObjects);
         }
     }
-    auto &typeObjects = _objectsByType.find(object->type())->second;
-    auto maybeObjectByType = std::find_if(typeObjects.begin(), typeObjects.end(), [&object](auto &o) { return o.get() == object.get(); });
-    if (maybeObjectByType != typeObjects.end()) {
-        typeObjects.erase(maybeObjectByType);
+    auto maybeTypeObjects = _objectsByType.find(object->type());
+    if (maybeTypeObjects != _objectsByType.end()) {
+        auto &typeObjects = maybeTypeObjects->second;
+        auto maybeObjectByType = std::find_if(
+            typeObjects.begin(), typeObjects.end(),
+            [&object](auto &candidate) {
+                return candidate.get() == object.get();
+            });
+        if (maybeObjectByType != typeObjects.end()) {
+            typeObjects.erase(maybeObjectByType);
+        }
+    }
+    if (_hilightedObject.get() == object.get()) {
+        _hilightedObject.reset();
+    }
+    if (_selectedObject.get() == object.get()) {
+        _selectedObject.reset();
+    }
+}
+
+bool Area::releaseObject(const std::shared_ptr<Object> &object) {
+    if (!object) {
+        return false;
+    }
+    auto owned = std::find_if(
+        _objects.begin(), _objects.end(),
+        [&object](const auto &candidate) {
+            return candidate.get() == object.get();
+        });
+    if (owned == _objects.end()) {
+        return false;
+    }
+
+    detachObjectRuntime(object);
+    return true;
+}
+
+bool Area::isObjectResident(const Object &object) const {
+    return std::any_of(
+        _objects.begin(), _objects.end(),
+        [&object](const auto &candidate) {
+            return candidate.get() == &object;
+        });
+}
+
+bool Area::isObjectPendingDestruction(const Object &object) const {
+    auto live = _game.getObjectById(object.id());
+    return live.get() == &object &&
+           _objectsToDestroy.find(object.id()) != _objectsToDestroy.end();
+}
+
+void Area::doDestroyObject(uint32_t objectId, bool destroyRuntimeObject) {
+    auto object = _game.getObjectById(objectId);
+    if (!object) {
+        return;
+    }
+
+    if (auto door = dyn_cast<Door>(object)) {
+        std::vector<uint32_t> linkedTriggerIds;
+        for (auto &triggerObject : _objectsByType[ObjectType::Trigger]) {
+            auto trigger = std::static_pointer_cast<Trigger>(triggerObject);
+            if (trigger->detachLinkedDoorTransition(*door)) {
+                linkedTriggerIds.push_back(trigger->id());
+            }
+        }
+        for (auto triggerId : linkedTriggerIds) {
+            doDestroyObject(triggerId);
+        }
+    }
+
+    detachObjectRuntime(object);
+    if (destroyRuntimeObject) {
+        _game.destroyRuntimeObjectGraph(object);
     }
 }
 
@@ -867,16 +990,28 @@ void Area::loadPartyMember(const std::shared_ptr<Creature> &member, int index, b
     }
 }
 
-void Area::unloadPartyMember(const std::shared_ptr<Creature> &member) {
-    // Party creatures persist across modules, but combat does not. Reset it
-    // before rebuilding their models in the destination area so powered
-    // weapons do not leak their active state through a transition.
-    member->deactivateCombat(0.0f);
-    doDestroyObject(member->id());
+void Area::retireCreatureAreaRuntime(const std::shared_ptr<Creature> &creature) {
+    if (!creature ||
+        std::find(_objects.begin(), _objects.end(), creature) == _objects.end()) {
+        return;
+    }
 
-    // Party objects outlive this Area. Do not leave their semantic room
-    // membership pointing into the retiring module's room graph.
-    member->setRoom(nullptr);
+    auto runtimeObjects = _game.party().runtimeObjects();
+    std::set<const Object *> retainedObjects;
+    for (const auto &object : runtimeObjects) {
+        if (object) retainedObjects.insert(object.get());
+    }
+
+    // Creature-side handles must retire while Pathfinder and every referenced
+    // outgoing object are alive. Area-owned structural attachments follow,
+    // then the raw Room pointer is invalidated before Room destruction.
+    creature->retireAreaRuntime(_pathfinder, retainedObjects);
+    doDestroyObject(creature->id(), false);
+    creature->setRoom(nullptr);
+}
+
+void Area::retirePartyMemberAreaRuntime(const std::shared_ptr<Creature> &member) {
+    retireCreatureAreaRuntime(member);
 }
 
 void Area::loadParty(const glm::vec3 &position, float facing, bool preserveSavedPlacement) {
@@ -892,17 +1027,103 @@ void Area::loadParty(const glm::vec3 &position, float facing, bool preserveSaved
     for (int i = 1; i < party.getSize(); ++i) {
         loadPartyMember(party.getMember(i), i, preserveSavedPlacement);
     }
-}
-
-void Area::unloadParty() {
-    for (auto &member : _game.party().members()) {
-        unloadPartyMember(member.creature);
+    int formationIndex = party.getSize();
+    for (int puppet : party.persistedState().puppetIds) {
+        if (auto creature = party.getAvailablePuppet(puppet, true)) {
+            loadPartyMember(creature, formationIndex++, preserveSavedPlacement);
+        }
     }
 }
 
-void Area::reloadParty() {
+void Area::retirePartyAreaRuntime() {
+    auto runtimeObjects = _game.party().runtimeObjects();
+    for (const auto &object : runtimeObjects) {
+        if (object && object->type() == ObjectType::Creature) {
+            retireCreatureAreaRuntime(std::static_pointer_cast<Creature>(object));
+        }
+    }
+}
+
+void Area::repositionPartyMember(
+    const std::shared_ptr<Creature> &member,
+    int index) {
+
+    bool loaded = std::find(_objects.begin(), _objects.end(), member) != _objects.end();
+    if (index > 0) {
+        auto leader = _game.party().getLeader();
+        glm::vec3 position(leader->position());
+
+        if (index <= static_cast<int>(kPartyFormationOffsets.size())) {
+            glm::quat rotation(glm::angleAxis(
+                leader->getFacing(), glm::vec3(0.0f, 0.0f, 1.0f)));
+            position += rotation * kPartyFormationOffsets[index - 1];
+        }
+
+        member->setPosition(findPartyPosition(*member, position));
+        member->setFacing(leader->getFacing());
+    }
+
+    bool landed = landObject(*member);
+    if (index == 0 && !landed) {
+        glm::vec3 position(member->position());
+        glm::vec3 fallbackPosition(position);
+        fallbackPosition.z = scene::kElevationTestZ;
+
+        member->setPosition(fallbackPosition);
+        if (!landObject(*member)) {
+            member->setPosition(position);
+        }
+    }
+
+    if (loaded) {
+        determineObjectRoom(*member);
+        return;
+    }
+
+    add(member);
+    member->runSpawnScript();
+}
+
+void Area::placeControlledCreature(
+    const std::shared_ptr<Creature> &creature,
+    const glm::vec3 &position,
+    float facing) {
+
+    // Retail SwitchPlayerCharacter transfers control in the existing Area.
+    // Only the incoming actor inherits the outgoing leader's transform;
+    // unrelated followers and the parked actor retain their current runtime
+    // state and placement.
+    creature->setPosition(position);
+    creature->setFacing(facing);
+    repositionPartyMember(creature, 0);
+}
+
+void Area::repositionParty(const glm::vec3 &position, float facing) {
+    // This is a same-Area operation. It deliberately does not call
+    // retireCreatureAreaRuntime: action/delay/effect and Area-lifetime state
+    // remain authoritative while control or party composition changes.
+    Party &party = _game.party();
+    auto leader = party.getLeader();
+    if (!leader) return;
+
+    leader->setPosition(position);
+    leader->setFacing(facing);
+    repositionPartyMember(leader, 0);
+    for (int i = 1; i < party.getSize(); ++i) {
+        repositionPartyMember(party.getMember(i), i);
+    }
+    int formationIndex = party.getSize();
+    for (int puppet : party.persistedState().puppetIds) {
+        if (auto creature = party.getAvailablePuppet(puppet, true)) {
+            repositionPartyMember(creature, formationIndex++);
+        }
+    }
+}
+
+void Area::repositionParty() {
     auto leader = _game.party().getLeader();
-    loadParty(leader->position(), leader->getFacing());
+    if (!leader) return;
+    repositionParty(leader->position(), leader->getFacing());
 }
 
 bool Area::handle(const input::Event &event) {
@@ -1145,7 +1366,7 @@ glm::vec3 Area::getSelectableScreenCoords(const std::shared_ptr<Object> &object,
 
 void Area::update3rdPersonCameraFacing() {
     auto partyLeader = _game.party().getLeader();
-    if (!partyLeader) {
+    if (!partyLeader || !_thirdPersonCamera) {
         return;
     }
     _thirdPersonCamera->setFacing(partyLeader->getFacing());
@@ -1353,22 +1574,22 @@ std::shared_ptr<Object> Area::createObject(ObjectType type, const std::string &b
     std::shared_ptr<Object> object;
     switch (type) {
     case ObjectType::Item: {
-        std::shared_ptr<Item> item = _game.newItem();
-        item->loadFromBlueprint(blueprintResRef);
+        std::shared_ptr<Item> item =
+            _game.newItemFromBlueprint(blueprintResRef);
         object = std::move(item);
         break;
     }
     case ObjectType::Creature: {
-        std::shared_ptr<Creature> creature = _game.newCreature();
-        creature->loadFromBlueprint(blueprintResRef);
+        std::shared_ptr<Creature> creature =
+            _game.newCreatureFromBlueprint(blueprintResRef);
         creature->setPosition(location->position());
         creature->setFacing(location->facing());
         object = std::move(creature);
         break;
     }
     case ObjectType::Placeable: {
-        std::shared_ptr<Placeable> placeable = _game.newPlaceable();
-        placeable->loadFromBlueprint(blueprintResRef);
+        std::shared_ptr<Placeable> placeable =
+            _game.newPlaceableFromBlueprint(blueprintResRef);
         object = std::move(placeable);
         break;
     }
@@ -1504,8 +1725,8 @@ static bool matchesPerception(const Creature &creature, const Object *target,
     }
     const Creature &targetCreature = static_cast<const Creature &>(*target);
 
-    bool seen = targetCreature.perception().seen.count(creature.id());
-    bool heard = targetCreature.perception().heard.count(creature.id());
+    bool seen = targetCreature.perception().sees(creature.id());
+    bool heard = targetCreature.perception().hears(creature.id());
 
     switch (perception) {
     case PerceptionType::SeenAndHeard:
@@ -1617,8 +1838,8 @@ void Area::doUpdatePerception() {
             }
 
             // Hearing
-            bool wasHeard = creature->perception().heard.count(other->id()) > 0;
-            bool wasSeen = creature->perception().seen.count(other->id()) > 0;
+            bool wasHeard = creature->perception().hears(other->id());
+            bool wasSeen = creature->perception().sees(other->id());
 
             if (wasHeard == heard && wasSeen == seen) {
                 continue; // no change in perception
@@ -1640,19 +1861,16 @@ void Area::doUpdatePerception() {
 }
 
 void Area::updateMessageBus() {
-    _messageBus.update([this](uint32_t speakerId, uint32_t listenerId,
-                              int32_t number, TalkVolume volume) {
-        auto listener = _game.getObjectById(listenerId);
-        if (listener->type() != ObjectType::Creature) {
+    _messageBus.update([this](
+                           uint32_t speakerId,
+                           const std::shared_ptr<Creature> &listener,
+                           int32_t number,
+                           TalkVolume volume) {
+        bool heard = listener->perception().hears(speakerId);
+        if (!listener->isListening() || !heard) {
             return;
         }
-        Creature &creature = static_cast<Creature &>(*listener);
-
-        bool heard = creature.perception().heard.count(speakerId);
-        if (!creature.isListening() || !heard) {
-            return;
-        }
-        creature.runDialogueScript(speakerId, number);
+        listener->runDialogueScript(speakerId, number);
     });
 }
 

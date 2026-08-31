@@ -30,6 +30,7 @@ public:
                    std::shared_ptr<Object> target) :
         Action(game, services, ActionType::OpenLock),
         _target(std::move(target)) {
+        requireRuntimeObject(_target);
     }
 
     static bool classof(Action *from) {

@@ -18,6 +18,7 @@
 #pragma once
 
 #include "../action.h"
+#include "../object/item.h"
 
 namespace reone {
 
@@ -32,6 +33,7 @@ public:
         _item(std::move(item)),
         _inventorySlot(inventorySlot),
         _instant(instant) {
+        requireRuntimeObject(_item);
     }
 
     static bool classof(Action *from) {

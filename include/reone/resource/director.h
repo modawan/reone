@@ -42,12 +42,67 @@ struct ScriptServices;
 namespace resource {
 
 class IDialogs;
+class Gff;
 class IGffs;
 class ILips;
 class IPaths;
 class IResources;
 class IScripts;
 class ITwoDAs;
+class PreparedModuleLoadTestFactory;
+
+/**
+ * A module mount and its required structural records, prepared without
+ * retiring the active module's resource owners.
+ *
+ * The mount plan remains private to L. Game receives only the records it needs
+ * to validate and later construct the destination. Runtime objects, Party and
+ * scene state are intentionally not duplicated here.
+ */
+class PreparedModuleLoad {
+public:
+    const std::string &moduleName() const { return _moduleName; }
+    const std::shared_ptr<Gff> &moduleIfo() const { return _moduleIfo; }
+    const std::shared_ptr<Gff> &areaAre() const { return _areaAre; }
+    const std::shared_ptr<Gff> &areaGit() const { return _areaGit; }
+    bool structurallyValidated() const { return _structurallyValidated; }
+
+private:
+    friend class ResourceDirector;
+    friend class PreparedModuleLoadTestFactory;
+
+    // Test fixtures may supply already-decoded records, but production code
+    // can only obtain a validated candidate through ResourceDirector's L
+    // discovery, mount and structural-validation path.
+    PreparedModuleLoad(
+        std::string moduleName,
+        std::shared_ptr<Gff> moduleIfo,
+        std::shared_ptr<Gff> areaAre,
+        std::shared_ptr<Gff> areaGit) :
+        _moduleName(std::move(moduleName)),
+        _moduleIfo(std::move(moduleIfo)),
+        _areaAre(std::move(areaAre)),
+        _areaGit(std::move(areaGit)),
+        _structurallyValidated(true) {
+    }
+
+    PreparedModuleLoad(
+        std::string moduleName,
+        RuntimeModuleSourceIndex sources,
+        ModuleLoadPlan plan) :
+        _moduleName(std::move(moduleName)),
+        _sources(std::move(sources)),
+        _plan(std::move(plan)) {
+    }
+
+    std::string _moduleName;
+    RuntimeModuleSourceIndex _sources;
+    ModuleLoadPlan _plan;
+    std::shared_ptr<Gff> _moduleIfo;
+    std::shared_ptr<Gff> _areaAre;
+    std::shared_ptr<Gff> _areaGit;
+    bool _structurallyValidated {false};
+};
 
 /**
  * Whether a game's Odyssey sources are placed in the raw lookup order.
@@ -92,6 +147,18 @@ public:
 
     /** Publish a prepared candidate, retiring the previous save mounts. */
     virtual void commitGameLoad(std::unique_ptr<SaveSessionState> candidate) = 0;
+
+    /**
+     * Validate the destination module's effective IFO/ARE/GIT/LYT view while
+     * the current resource session remains authoritative.
+     */
+    virtual std::unique_ptr<PreparedModuleLoad> prepareModuleLoad(
+        const std::string &name,
+        std::shared_ptr<const SaveWorkingState> workingState) = 0;
+
+    /** Publish a previously prepared module mount. */
+    virtual void commitModuleLoad(
+        std::unique_ptr<PreparedModuleLoad> candidate) = 0;
     virtual std::optional<Resource> findSaveMetadata(const ResourceId &id) = 0;
     virtual std::optional<Resource> findSaveWorking(const ResourceId &id) = 0;
     virtual std::unordered_set<ResourceId> saveWorkingResourceIds() const = 0;
@@ -150,6 +217,11 @@ public:
     std::unique_ptr<SaveSessionState> prepareGameLoad(
         const SaveSlotDescriptor &slot) override;
     void commitGameLoad(std::unique_ptr<SaveSessionState> candidate) override;
+    std::unique_ptr<PreparedModuleLoad> prepareModuleLoad(
+        const std::string &name,
+        std::shared_ptr<const SaveWorkingState> workingState) override;
+    void commitModuleLoad(
+        std::unique_ptr<PreparedModuleLoad> candidate) override;
     std::optional<Resource> findSaveMetadata(const ResourceId &id) override;
     std::optional<Resource> findSaveWorking(const ResourceId &id) override;
     std::unordered_set<ResourceId> saveWorkingResourceIds() const override;
@@ -203,11 +275,21 @@ private:
     std::unique_ptr<SaveSessionState> buildSaveSession(const SaveSlotDescriptor &slot);
     void commitSaveSession(std::unique_ptr<SaveSessionState> candidate);
 
-    void loadModuleResources(const std::string &name);
-    void loadModuleResourcesFromPolicy(const std::string &name);
+    std::unique_ptr<PreparedModuleLoad> planModuleLoad(
+        const std::string &name,
+        std::shared_ptr<const SaveWorkingState> workingState);
+    ModuleMountReport mountModuleLoad(
+        const PreparedModuleLoad &candidate,
+        bool temporary);
+    void logModuleMount(
+        const PreparedModuleLoad &candidate,
+        const ModuleMountReport &report) const;
 
     std::vector<ModuleSearchRoot> moduleSearchRoots();
-    void addStagedModuleSources(const std::string &moduleRoot, RuntimeModuleSourceIndex &index);
+    void addStagedModuleSources(
+        const std::string &moduleRoot,
+        const std::shared_ptr<const SaveWorkingState> &workingState,
+        RuntimeModuleSourceIndex &index);
     bool includeModuleInSave(const std::string &moduleRoot);
 
 };

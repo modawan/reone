@@ -35,12 +35,20 @@ VisualEffect::VisualEffect(int visualEffectId, bool missEffect, ServicesView &se
     _missEffect(missEffect),
     _desc(services.game.visualEffects.get(visualEffectId).value_or(nullptr)),
     _services(services) {
+    setSaveFacingInteger(0, visualEffectId);
+    setSaveFacingInteger(2, missEffect ? 1 : 0);
 }
 
 VisualEffect::~VisualEffect() {
+    retireAreaRuntime({});
+}
+
+void VisualEffect::retireAreaRuntime(
+    const std::set<const Object *> &) {
     if (_node) {
         scene::ISceneGraph &graph = _node->graph();
         graph.removeRoot(*_node);
+        _node.reset();
     }
 }
 

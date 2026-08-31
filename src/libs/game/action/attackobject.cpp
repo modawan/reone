@@ -228,7 +228,7 @@ std::optional<SavedActionRecord> AttackObjectAction::saveFacingState() const {
     result.declaredParameterCount = 10;
     result.parameters = {
         {1, int32_t {0}},
-        {3, SavedObjectReference {_target->id()}},
+        {3, SavedObjectReference::fromRuntimeId(_target->id())},
         {1, int32_t {1}},
         {1, int32_t {10009}},
         {1, int32_t {1500}},

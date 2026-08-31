@@ -21,6 +21,8 @@
 #include "reone/input/event.h"
 
 #include <array>
+#include <optional>
+#include <tuple>
 
 namespace reone {
 
@@ -35,6 +37,29 @@ enum class XPSource {
     Combat,
     Stealth,
     Console
+};
+
+enum class RosterKind {
+    Npc,
+    Puppet,
+};
+
+/** Save-wide identity of a companion record, independent of every ObjectId. */
+struct RosterIdentity {
+    RosterKind kind {RosterKind::Npc};
+    int slot {-1};
+
+    bool operator<(const RosterIdentity &rhs) const {
+        return std::tie(kind, slot) < std::tie(rhs.kind, rhs.slot);
+    }
+
+    bool operator==(const RosterIdentity &rhs) const {
+        return kind == rhs.kind && slot == rhs.slot;
+    }
+
+    bool operator!=(const RosterIdentity &rhs) const {
+        return !operator==(rhs);
+    }
 };
 
 class Party {
@@ -148,6 +173,8 @@ public:
      */
     void setControlledMember(int npc, const std::shared_ptr<Creature> &creature);
     void setPersistedState(PersistedState state);
+    /** Retail LoadTableInfo semantics: persisted fields replace all bindings. */
+    void loadPersistedState(PersistedState state);
 
     void setPartyLeader(int npc);
     void setPartyLeaderByIndex(int index);
@@ -164,8 +191,21 @@ public:
 
     bool removeMember(int npc);
 
+    /**
+     * Persist and remove a TSL companion from the adventuring party before
+     * its runtime representation is retired by RemoveNPCFromPartyToBase.
+     * Logical availability and puppet assignment remain unchanged.
+     */
+    bool removeMemberToBase(int npc);
+
     bool isMember(int npc) const;
     bool isMember(const Object &object) const;
+
+    /**
+     * Whether this exact Creature is retained by Party/session lifetime across
+     * a module boundary instead of belonging to the outgoing module graph.
+     */
+    bool isRetainedRuntimeRepresentation(const Creature &creature) const;
 
     std::shared_ptr<Creature> getMemberByNPC(int npc) const;
     std::shared_ptr<Creature> getMember(int index) const;
@@ -173,21 +213,91 @@ public:
 
     // END Members
 
-    // Available members
+    // Roster state and runtime bindings
+
+    /** Whether this title owns the supplied logical roster slot. */
+    bool isRosterIdentityValid(const RosterIdentity &identity) const;
+
+    /** Persistent PartyTable availability; independent of runtime binding. */
+    bool isRosterAvailable(const RosterIdentity &identity) const;
+    bool setRosterAvailable(
+        const RosterIdentity &identity,
+        bool available,
+        bool selectableWhenAdded = true);
+
+    /** Persistent PartyTable selection policy for an available slot. */
+    bool isRosterSelectable(const RosterIdentity &identity) const;
+    bool setRosterSelectable(
+        const RosterIdentity &identity,
+        bool selectable);
+
+    /**
+     * Add or replace the detached persistent record from a live creature.
+     * Retail AddNPC/AddPUP does not implicitly bind the supplied module object.
+     */
+    bool addAvailableRosterRecord(
+        const RosterIdentity &identity,
+        const std::shared_ptr<Creature> &creature);
+
+    /** Copy an authored UTC into a detached persistent roster record. */
+    bool addAvailableRosterRecord(
+        const RosterIdentity &identity,
+        const std::string &blueprint);
 
     bool addAvailableMember(int npc, const std::string &blueprint);
+    /**
+     * Runtime-construction helper: make a slot available and bind this exact
+     * representation. Script AddAvailableNPCByObject deliberately uses
+     * addAvailableRosterRecord instead and does not bind its source object.
+     */
     bool addAvailableMember(int npc, std::shared_ptr<Creature> creature);
     bool removeAvailableMember(int npc);
 
     bool isMemberAvailable(int npc) const;
     std::shared_ptr<Creature> getAvailableMember(int npc) const;
+    std::shared_ptr<Creature> getAvailableMember(
+        int npc, bool loadIfMissing);
 
     // END Available members
 
     // Available puppets
 
+    /** K2 counterpart of the runtime-construction helper above. */
     bool addAvailablePuppet(int puppet, std::shared_ptr<Creature> creature);
     std::shared_ptr<Creature> getAvailablePuppet(int puppet) const;
+    std::shared_ptr<Creature> getAvailablePuppet(
+        int puppet, bool loadIfMissing);
+
+    /**
+     * Publish one materialized creature as the sole runtime binding for a
+     * logical roster slot. Existing active-member views of that slot follow
+     * the binding; another logical slot may never bind the same creature.
+     */
+    bool bindRosterCreature(
+        const RosterIdentity &identity,
+        const std::shared_ptr<Creature> &creature);
+    bool clearRosterCreature(
+        const RosterIdentity &identity,
+        const Creature *expected = nullptr);
+    bool clearRosterCreature(const Creature &creature);
+    std::shared_ptr<Creature> rosterCreature(
+        const RosterIdentity &identity) const;
+    std::shared_ptr<Creature> rosterCreature(
+        const RosterIdentity &identity,
+        bool loadIfMissing);
+    std::optional<RosterIdentity> rosterIdentity(
+        const Creature &creature) const;
+
+    /** K2 active-puppet and assignment operations. */
+    bool addPuppet(int puppet, const std::shared_ptr<Creature> &creature);
+    bool removePuppet(int puppet);
+    bool isPuppet(int puppet) const;
+    bool assignPuppet(int puppet, int npc);
+    std::optional<int> assignedNpcForPuppet(int puppet) const;
+    std::shared_ptr<Creature> puppetOwner(int puppet) const;
+
+    /** Complete live object graph retained by the session across Areas. */
+    std::vector<std::shared_ptr<Object>> runtimeObjects() const;
 
     // END Available puppets
 
@@ -221,8 +331,8 @@ public:
         PazaakSideDeck sideDeck,
         size_t cardCount = kK1PazaakCardCount);
     void setPazaakSideDeck(PazaakSideDeck sideDeck);
-    /// Authored starting collection: two copies each of +1 through +5.
-    void setDefaultPazaakData(size_t cardCount = kK1PazaakCardCount);
+    /** Establish title-correct durable Party defaults for a fresh new game. */
+    void initializeNewGameState();
 
     // Experience
     //
@@ -266,7 +376,7 @@ private:
 
     std::shared_ptr<Creature> _player;
     std::shared_ptr<Creature> _actualPlayer;
-    std::map<int, std::shared_ptr<Creature>> _availableMembers;
+    std::map<int, std::shared_ptr<Creature>> _npcBindings;
     std::vector<Member> _members;
     bool _solo {false};
     int _gold {0};
@@ -277,9 +387,12 @@ private:
     PazaakCardCounts _pazaakCardCounts {};
     PazaakSideDeck _pazaakSideDeck {};
     PersistedState _persistedState;
-    std::map<int, std::shared_ptr<Creature>> _availablePuppets;
+    std::map<int, std::shared_ptr<Creature>> _puppetBindings;
 
     bool handleKeyDown(const input::KeyEvent &event);
+    bool makeRosterAvailableAndBind(
+        const RosterIdentity &identity,
+        const std::shared_ptr<Creature> &creature);
 
     // Apply the party XP pool value to every current member's creature XP.
     void syncMembersXP();

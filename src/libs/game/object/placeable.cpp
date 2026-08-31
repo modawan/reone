@@ -51,23 +51,28 @@ void Placeable::loadFromBlueprint(const std::string &resRef) {
     if (!utp) {
         return;
     }
-    deserialize(*utp);
+    deserialize(*utp, SerializedIdentityContext::templateResource(resRef));
 }
 
-void Placeable::deserialize(const resource::Gff &gff) {
+void Placeable::deserialize(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
     std::string templateRes;
-    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "TemplateResRef")) {
+    if (!identityContext.isSerializedState() &&
+        gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto utp = _services.resource.gffs.get(templateRes, ResType::Utp)) {
-            deserializeAll(*utp);
+            deserializeAll(*utp, SerializedIdentityContext::templateResource(templateRes));
         }
     }
-    deserializeAll(gff);
+    deserializeAll(gff, identityContext);
     loadAppearance();
     updateTransform();
 }
 
-void Placeable::deserializeAll(const resource::Gff &gff) {
-    deserializeRuntimeState(gff);
+void Placeable::deserializeAll(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    deserializeRuntimeState(gff, identityContext);
     if (gff.readString(_tag, "Tag")) {
         boost::to_lower(_tag);
     }
@@ -97,7 +102,7 @@ void Placeable::deserializeAll(const resource::Gff &gff) {
     }
     gff.readShort(_currentHitPoints, "CurrentHP");
     gff.readByte(_hardness, "Hardness");
-    if (gff.has("ObjectId") && gff.has("CurrentHP")) {
+    if (identityContext.isSerializedState() && gff.has("CurrentHP")) {
         _dead = _currentHitPoints <= 0;
     }
     gff.readByte(_fort, "Fort");
@@ -147,20 +152,11 @@ void Placeable::deserializeAll(const resource::Gff &gff) {
     gff.readBool(_isCorpse, "IsCorpse");
     gff.readBool(_commandable, "Commandable");
 
-    if (gff.has("ObjectId")) {
-        _items.clear();
-    }
-    for (const auto &itemGff : gff.getList("ItemList")) {
-        std::shared_ptr<Item> item = _game.newOwnedItem();
-        item->deserialize(*itemGff);
-        if (gff.has("ObjectId")) {
-            item->captureOwnerLocalSaveRecord(
-                *itemGff,
-                {SaveRecordOriginKind::PlaceableItem, std::to_string(_id)});
-        }
-        item->setDropable(true);
-        addItem(item);
-    }
+    deserializeOwnedItems(
+        gff,
+        identityContext,
+        SaveRecordOriginKind::PlaceableItem,
+        true);
 
     // FIXME: deserialize EffectList, ActionList
 }

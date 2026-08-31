@@ -60,17 +60,20 @@ void Trigger::loadFromBlueprint(const std::string &resRef) {
     if (!utt) {
         return;
     }
-    deserialize(*utt);
+    deserialize(*utt, SerializedIdentityContext::templateResource(resRef));
 }
 
-void Trigger::deserialize(const resource::Gff &gff) {
+void Trigger::deserialize(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
     std::string templateRes;
-    if (!gff.has("ObjectId") && gff.readResRef(templateRes, "TemplateResRef")) {
+    if (!identityContext.isSerializedState() &&
+        gff.readResRef(templateRes, "TemplateResRef")) {
         if (auto utt = _services.resource.gffs.get(templateRes, ResType::Utt)) {
-            deserializeAll(*utt);
+            deserializeAll(*utt, SerializedIdentityContext::templateResource(templateRes));
         }
     }
-    deserializeAll(gff);
+    deserializeAll(gff, identityContext);
     loadAppearance();
     updateTransform();
 }
@@ -91,8 +94,10 @@ void Trigger::configureLinkedDoorTransition(const std::shared_ptr<Door> &door) {
     updateTransform();
 }
 
-void Trigger::deserializeAll(const resource::Gff &gff) {
-    deserializeRuntimeState(gff);
+void Trigger::deserializeAll(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    deserializeRuntimeState(gff, identityContext);
     gff.readResRef(_onHeartbeat, "ScriptHeartbeat");
     gff.readResRef(_onEnter, "ScriptOnEnter");
     gff.readResRef(_onExit, "ScriptOnExit");
@@ -246,7 +251,7 @@ bool Trigger::isActive() const {
     if (!_linkedDoorTransition) {
         return true;
     }
-    auto door = _linkedDoor.lock();
+    auto door = _linkedDoor.resolve();
     return door && door->isOpen();
 }
 
@@ -266,7 +271,7 @@ bool Trigger::acceptsTransitionActivator(const std::shared_ptr<Object> &activato
 }
 
 bool Trigger::detachLinkedDoorTransition(const Door &door) {
-    auto linkedDoor = _linkedDoor.lock();
+    auto linkedDoor = _linkedDoor.resolve();
     if (!_linkedDoorTransition || linkedDoor.get() != &door) {
         return false;
     }

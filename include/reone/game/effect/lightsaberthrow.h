@@ -18,6 +18,7 @@
 #pragma once
 
 #include "../effect.h"
+#include "../object.h"
 
 namespace reone {
 
@@ -31,18 +32,32 @@ public:
         std::shared_ptr<Object> target3,
         int advancedDamage) :
         Effect(EffectType::LightsaberThrow),
-        _target1(std::move(target1)),
-        _target2(std::move(target2)),
-        _target3(std::move(target3)),
+        _target1(target1),
+        _target2(target2),
+        _target3(target3),
         _advancedDamage(advancedDamage) {
+        // Retail accepts the fourth argument but does not persist it in the
+        // CGameEffect. The three object slots are the complete wire payload.
+        setSaveFacingObject(0, target1);
+        setSaveFacingObject(1, target2);
+        setSaveFacingObject(2, target3);
     }
 
     void applyTo(Object &object) override;
+    void retireAreaRuntime(
+        const std::set<const Object *> &retainedObjects) override {
+        for (auto *target : {&_target1, &_target2, &_target3}) {
+            auto object = target->resolve();
+            if (!object || retainedObjects.count(object.get()) == 0) {
+                target->reset();
+            }
+        }
+    }
 
 private:
-    std::shared_ptr<Object> _target1;
-    std::shared_ptr<Object> _target2;
-    std::shared_ptr<Object> _target3;
+    RuntimeObjectRef<Object> _target1;
+    RuntimeObjectRef<Object> _target2;
+    RuntimeObjectRef<Object> _target3;
     int _advancedDamage;
 };
 

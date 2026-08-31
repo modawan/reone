@@ -32,7 +32,16 @@ void reone::game::TestGameModule::advanceWorldTime(Game &game, float dt) {
 }
 
 void reone::game::TestGameModule::prepareWorldTimeFromIfo(Game &game, const Gff &ifo) {
-    game.prepareSavedRuntimeNamespace(ifo);
+    game.prepareSavedRuntimeNamespace(
+        ifo, SerializedIdentityContext::moduleGraph("test-module"));
+}
+
+void reone::game::TestGameModule::restoreAutosaveWorldTime(
+    Game &game,
+    const Gff &moduleIfo,
+    uint32_t pauseDay,
+    uint32_t pauseTime) {
+    game.restoreWorldTime(moduleIfo, pauseDay, pauseTime);
 }
 
 namespace {
@@ -202,10 +211,10 @@ TEST_P(WorldTimeFixture, temporary_effect_expiry_round_trips_as_a_real_duration)
     }
 }
 
-TEST_P(WorldTimeFixture, composes_the_canonical_clock_from_the_saved_calendar_pair) {
+TEST_P(WorldTimeFixture, composes_the_canonical_clock_from_the_retail_pause_pair) {
     auto ifo = Gff::Builder().type(0xffffffff)
-        .field(Gff::Field::newDword("Mod_CalendarDay", 3))
-        .field(Gff::Field::newDword("Mod_TimeOfDay", 1234u))
+        .field(Gff::Field::newDword("Mod_PauseDay", 3))
+        .field(Gff::Field::newDword("Mod_PauseTime", 1234u))
         .field(Gff::Field::newDword("Mod_MinPerHour", 2))
         .build();
 
@@ -224,8 +233,8 @@ TEST_P(WorldTimeFixture, out_of_range_saved_time_of_day_carries_into_the_calenda
     // CWorldTimer::GetWorldTime does, rather than rejecting the save.
     constexpr uint32_t kLegacyTimeOfDay = 24u * 60u * 60u * 1000u - 1u;
     auto ifo = Gff::Builder().type(0xffffffff)
-        .field(Gff::Field::newDword("Mod_CalendarDay", 3))
-        .field(Gff::Field::newDword("Mod_TimeOfDay", kLegacyTimeOfDay))
+        .field(Gff::Field::newDword("Mod_PauseDay", 3))
+        .field(Gff::Field::newDword("Mod_PauseTime", kLegacyTimeOfDay))
         .field(Gff::Field::newDword("Mod_MinPerHour", 2))
         .build();
 
@@ -249,14 +258,48 @@ TEST_P(WorldTimeFixture, calendar_pair_round_trips_across_a_day_boundary) {
 
     const uint64_t before = game.worldTimeMilliseconds();
     auto ifo = Gff::Builder().type(0xffffffff)
-        .field(Gff::Field::newDword("Mod_CalendarDay", game.worldTimeDay()))
-        .field(Gff::Field::newDword("Mod_TimeOfDay", game.worldTimeOfDay()))
+        .field(Gff::Field::newDword("Mod_PauseDay", game.worldTimeDay()))
+        .field(Gff::Field::newDword("Mod_PauseTime", game.worldTimeOfDay()))
         .field(Gff::Field::newDword("Mod_MinPerHour", game.minutesPerHour()))
         .build();
 
     ASSERT_NO_THROW(TestGameModule::prepareWorldTimeFromIfo(game, *ifo));
     EXPECT_EQ(game.worldTimeMilliseconds(), before)
         << "splitting on save and composing on load must be lossless";
+}
+
+TEST_P(WorldTimeFixture, reads_legacy_reone_clock_only_when_retail_fields_are_absent) {
+    auto legacy = Gff::Builder().type(0xffffffff)
+        .field(Gff::Field::newDword("Mod_CalendarDay", 3))
+        .field(Gff::Field::newDword("Mod_TimeOfDay", 1234u))
+        .field(Gff::Field::newDword("Mod_MinPerHour", 2))
+        .build();
+    ASSERT_NO_THROW(TestGameModule::prepareWorldTimeFromIfo(game, *legacy));
+    EXPECT_EQ(game.worldTimeMilliseconds(),
+              3ull * (2u * 60u * 1000u * 24u) + 1234ull);
+
+    auto retail = Gff::Builder().type(0xffffffff)
+        .field(Gff::Field::newDword("Mod_PauseDay", 4))
+        .field(Gff::Field::newDword("Mod_PauseTime", 5678u))
+        .field(Gff::Field::newDword("Mod_CalendarDay", 99))
+        .field(Gff::Field::newDword("Mod_TimeOfDay", 99u))
+        .field(Gff::Field::newDword("Mod_MinPerHour", 2))
+        .build();
+    ASSERT_NO_THROW(TestGameModule::prepareWorldTimeFromIfo(game, *retail));
+    EXPECT_EQ(game.worldTimeMilliseconds(),
+              4ull * (2u * 60u * 1000u * 24u) + 5678ull);
+}
+
+TEST_P(WorldTimeFixture, template_autosave_uses_pause_time_from_autosave_params) {
+    auto installedIfo = Gff::Builder().type(0xffffffff)
+                            .field(Gff::Field::newDword(
+                                "Mod_MinPerHour", 2))
+                            .build();
+    TestGameModule::restoreAutosaveWorldTime(
+        game, *installedIfo, 7, 4321);
+    EXPECT_EQ(game.minutesPerHour(), 2);
+    EXPECT_EQ(game.worldTimeMilliseconds(),
+              7ull * (2u * 60u * 1000u * 24u) + 4321ull);
 }
 
 INSTANTIATE_TEST_SUITE_P(

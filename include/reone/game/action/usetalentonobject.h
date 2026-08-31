@@ -31,6 +31,8 @@ public:
         _chosenTalent(std::move(chosenTalent)),
         _target(std::move(target)) {
 
+        requireRuntimeObject(_target);
+
         dispatchToAction();
     }
 

@@ -204,7 +204,7 @@ void DialogGUI::configureReplies() {
 }
 
 void DialogGUI::onStart() {
-    _currentSpeaker = _owner;
+    _currentSpeaker = owner();
     _heldCutParticipants.clear();
     loadStuntParticipants();
 
@@ -237,7 +237,7 @@ void DialogGUI::loadStuntParticipants() {
 
         if (_dialog->isAnimatedCutscene()) {
             creature->startStuntMode();
-            participant.creature->setIsInConversation(true);
+            creature->setIsInConversation(true);
         }
 
         _participantByTag.insert(std::make_pair(stunt.participant, std::move(participant)));
@@ -250,7 +250,7 @@ bool DialogGUI::hasStuntPresentation() const {
 
 std::shared_ptr<Creature> DialogGUI::resolveParticipantCreature(const std::string &participant) const {
     if (participant == kObjectTagOwner) {
-        return std::dynamic_pointer_cast<Creature>(_owner);
+        return std::dynamic_pointer_cast<Creature>(owner());
     }
     if (boost::iequals(participant, kObjectTagPlayer)) {
         return _game.party().player();
@@ -303,25 +303,30 @@ void DialogGUI::restoreInactiveStuntParticipants() {
 }
 
 bool DialogGUI::enterMixedStunt(Participant &participant, const std::shared_ptr<Animation> &animation, bool looping) {
-    if (!participant.mixedStuntActive && participant.creature->isStuntMode()) {
-        warn("Dialog: participant is already in stunt mode: " + participant.creature->tag());
+    auto creature = participant.creature.resolve();
+    if (!creature) {
+        participant.mixedStuntActive = false;
+        return false;
+    }
+    if (!participant.mixedStuntActive && creature->isStuntMode()) {
+        warn("Dialog: participant is already in stunt mode: " + creature->tag());
         return false;
     }
 
     AnimationProperties properties;
     properties.flags = AnimationFlags::propagate | (looping ? AnimationFlags::loop : 0);
     properties.scale = 1.0f;
-    if (!participant.creature->playExternalAnimation(animation, std::move(properties))) {
+    if (!creature->playExternalAnimation(animation, std::move(properties))) {
         return false;
     }
 
     if (!participant.mixedStuntActive) {
-        participant.restorePosition = participant.creature->position();
-        participant.restoreFacing = participant.creature->getFacing();
-        if (auto node = participant.creature->sceneNode()) {
+        participant.restorePosition = creature->position();
+        participant.restoreFacing = creature->getFacing();
+        if (auto node = creature->sceneNode()) {
             participant.restoreCulling = node->isCullingEnabled();
         }
-        participant.creature->startStuntMode();
+        creature->startStuntMode();
         participant.mixedStuntActive = true;
     }
     return true;
@@ -331,11 +336,16 @@ void DialogGUI::leaveMixedStunt(Participant &participant) {
     if (!participant.mixedStuntActive) {
         return;
     }
-    participant.creature->resumeStateDrivenAnimation();
-    participant.creature->setPosition(participant.restorePosition);
-    participant.creature->setFacing(participant.restoreFacing);
-    participant.creature->stopStuntMode();
-    if (auto node = participant.creature->sceneNode()) {
+    auto creature = participant.creature.resolve();
+    if (!creature) {
+        participant.mixedStuntActive = false;
+        return;
+    }
+    creature->resumeStateDrivenAnimation();
+    creature->setPosition(participant.restorePosition);
+    creature->setFacing(participant.restoreFacing);
+    creature->stopStuntMode();
+    if (auto node = creature->sceneNode()) {
         node->setCullingEnabled(participant.restoreCulling);
     }
     participant.mixedStuntActive = false;
@@ -349,12 +359,14 @@ void DialogGUI::loadCurrentSpeaker() {
         speaker = area->getObjectByTag(_currentEntry->speaker);
     }
     if (!speaker) {
-        speaker = _owner;
+        speaker = owner();
     }
 
     // Make previous speaker stop talking, if any
-    if (_currentSpeaker && _currentSpeaker != speaker) {
-        auto speakerCreature = std::dynamic_pointer_cast<Creature>(_currentSpeaker);
+    auto previousSpeaker = _currentSpeaker.resolve();
+    if (previousSpeaker && previousSpeaker != speaker) {
+        auto speakerCreature =
+            std::dynamic_pointer_cast<Creature>(previousSpeaker);
         if (speakerCreature) {
             speakerCreature->stopTalking();
         }
@@ -362,11 +374,11 @@ void DialogGUI::loadCurrentSpeaker() {
     _currentSpeaker = speaker;
 
     // Make current speaker face the player, and vice versa
-    if (_currentSpeaker) {
+    if (speaker) {
         std::shared_ptr<Creature> player(_game.party().player());
-        player->face(*_currentSpeaker);
+        player->face(*speaker);
 
-        auto speakerCreature = std::dynamic_pointer_cast<Creature>(_currentSpeaker);
+        auto speakerCreature = std::dynamic_pointer_cast<Creature>(speaker);
         if (speakerCreature) {
             speakerCreature->startTalking(_lipAnimation);
             speakerCreature->face(*player);
@@ -380,7 +392,9 @@ void DialogGUI::updateCamera() {
     if (_dialog->cameraModel.empty()) {
         std::shared_ptr<Creature> player(_game.party().player());
         glm::vec3 listenerPosition(player ? getTalkPosition(*player) : glm::vec3(0.0f));
-        glm::vec3 speakerPosition(_currentSpeaker ? getTalkPosition(*_currentSpeaker) : glm::vec3(0.0f));
+        auto speaker = _currentSpeaker.resolve();
+        glm::vec3 speakerPosition(
+            speaker ? getTalkPosition(*speaker) : glm::vec3(0.0f));
         auto camera = area->getCamera<DialogCamera>(CameraType::Dialog);
         camera->setListenerPosition(listenerPosition);
         camera->setSpeakerPosition(speakerPosition);
@@ -441,7 +455,10 @@ void DialogGUI::applyCutAnimation(const std::string &participant, const CutAnima
                 AnimationProperties properties;
                 properties.flags = AnimationFlags::propagate | (cut.looping ? AnimationFlags::loop : 0);
                 properties.scale = 1.0f;
-                stunt.creature->playExternalAnimation(animation, std::move(properties));
+                if (auto creature = stunt.creature.resolve()) {
+                    creature->playExternalAnimation(
+                        animation, std::move(properties));
+                }
             } else {
                 enterMixedStunt(stunt, animation, cut.looping);
             }
@@ -561,22 +578,29 @@ void DialogGUI::onFinish() {
     releaseHeldCutParticipants();
 
     // Make current speaker stop talking, if any
-    auto speakerCreature = std::dynamic_pointer_cast<Creature>(_currentSpeaker);
+    auto speakerCreature =
+        std::dynamic_pointer_cast<Creature>(_currentSpeaker.resolve());
     if (speakerCreature) {
         speakerCreature->stopTalking();
     }
 }
 
 void DialogGUI::holdCutParticipant(const std::shared_ptr<Creature> &creature) {
-    auto maybeHeld = std::find(_heldCutParticipants.begin(), _heldCutParticipants.end(), creature);
+    auto maybeHeld = std::find_if(
+        _heldCutParticipants.begin(), _heldCutParticipants.end(),
+        [&creature](const auto &held) {
+            return held.resolve() == creature;
+        });
     if (maybeHeld == _heldCutParticipants.end()) {
         _heldCutParticipants.push_back(creature);
     }
 }
 
 void DialogGUI::releaseHeldCutParticipants() {
-    for (auto &creature : _heldCutParticipants) {
-        creature->resumeStateDrivenAnimation();
+    for (auto &reference : _heldCutParticipants) {
+        if (auto creature = reference.resolve()) {
+            creature->resumeStateDrivenAnimation();
+        }
     }
     _heldCutParticipants.clear();
 }
@@ -590,9 +614,11 @@ void DialogGUI::releaseStuntParticipants() {
         return;
     }
     for (auto &participant : _participantByTag) {
-        participant.second.creature->resumeStateDrivenAnimation();
-        participant.second.creature->stopStuntMode();
-        participant.second.creature->setIsInConversation(false);
+        auto creature = participant.second.creature.resolve();
+        if (!creature) continue;
+        creature->resumeStateDrivenAnimation();
+        creature->stopStuntMode();
+        creature->setIsInConversation(false);
     }
     _participantByTag.clear();
 }
@@ -648,9 +674,10 @@ void DialogGUI::update(float dt) {
     Conversation::update(dt);
 
     // Dialog camera follows the current speaker, if any
-    if (_currentSpeaker && _game.cameraType() == CameraType::Dialog) {
+    auto speaker = _currentSpeaker.resolve();
+    if (speaker && _game.cameraType() == CameraType::Dialog) {
         auto camera = _game.module()->area()->getCamera<DialogCamera>(CameraType::Dialog);
-        camera->setSpeakerPosition(getTalkPosition(*_currentSpeaker));
+        camera->setSpeakerPosition(getTalkPosition(*speaker));
     }
 }
 

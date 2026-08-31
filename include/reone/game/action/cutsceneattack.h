@@ -30,7 +30,9 @@ public:
                          const std::shared_ptr<Object> &target,
                          int animation, AttackResultType result, int damage) :
         Action(game, services, ActionType::CutsceneAttack),
-        _target(target), _animation(animation), _result(result), _damage(damage) {}
+        _target(target), _animation(animation), _result(result), _damage(damage) {
+        requireRuntimeObject(target);
+    }
 
     static bool classof(Action *from) {
         return from->type() == ActionType::CutsceneAttack;

@@ -33,6 +33,8 @@
 #include "reone/resource/resources.h"
 #include "reone/resource/strings.h"
 
+#include <algorithm>
+
 using namespace reone::audio;
 using namespace reone::graphics;
 using namespace reone::resource;
@@ -44,45 +46,43 @@ namespace game {
 void Item::loadFromBlueprint(const std::string &resRef) {
     std::shared_ptr<Gff> uti(_services.resource.gffs.get(resRef, ResType::Uti));
     if (uti) {
-        deserialize(*uti);
+        deserialize(*uti, SerializedIdentityContext::templateResource(resRef));
         return;
     }
 }
 
-void Item::deserialize(const resource::Gff &gff) {
+void Item::deserialize(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
     std::string ref;
-    if (!gff.has("ObjectId") && gff.readResRef(ref, "EquippedRes")) {
+    if (!identityContext.isSerializedState() &&
+        gff.readResRef(ref, "EquippedRes")) {
         if (auto uti = _services.resource.gffs.get(ref, ResType::Uti)) {
-            deserializeAll(*uti);
+            deserializeAll(*uti, SerializedIdentityContext::templateResource(ref));
         }
     }
 
-    if (!gff.has("ObjectId") && gff.readResRef(ref, "InventoryRes")) {
+    if (!identityContext.isSerializedState() &&
+        gff.readResRef(ref, "InventoryRes")) {
         if (auto uti = _services.resource.gffs.get(ref, ResType::Uti)) {
-            deserializeAll(*uti);
+            deserializeAll(*uti, SerializedIdentityContext::templateResource(ref));
         }
     }
 
-    if (!gff.has("ObjectId") && gff.readResRef(ref, "TemplateResRef")) {
+    if (!identityContext.isSerializedState() &&
+        gff.readResRef(ref, "TemplateResRef")) {
         if (auto uti = _services.resource.gffs.get(ref, ResType::Uti)) {
-            deserializeAll(*uti);
+            deserializeAll(*uti, SerializedIdentityContext::templateResource(ref));
         }
     }
 
-    deserializeAll(gff);
+    deserializeAll(gff, identityContext);
 }
 
-void Item::captureOwnerLocalSaveRecord(
-    const resource::Gff &gff, SaveRecordOrigin origin) {
-    uint32_t savedId = 0;
-    _originalOwnerLocalObjectId = gff.readDword(savedId, "ObjectId")
-                                      ? std::optional<uint32_t>(savedId)
-                                      : std::nullopt;
-    captureSaveRecord(gff, std::move(origin));
-}
-
-void Item::deserializeAll(const resource::Gff &gff) {
-    Object::deserialize(gff);
+void Item::deserializeAll(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext) {
+    Object::deserialize(gff, identityContext);
 
     gff.readLocString(_localizedName, "LocalizedName", _services.resource.strings);
     gff.readLocString(_description, "Description", _services.resource.strings);
@@ -179,6 +179,13 @@ void Item::deserializeBase(const resource::Gff &gff) {
         baseItems->getInt(_baseItem, "focfeat", 0));
     _weaponSpecializationFeat = static_cast<FeatType>(
         baseItems->getInt(_baseItem, "specfeat", 0));
+    _maxStackSize = static_cast<uint16_t>(std::clamp(
+        baseItems->getInt(
+            _baseItem,
+            "maxstack",
+            std::numeric_limits<uint16_t>::max()),
+        1,
+        static_cast<int>(std::numeric_limits<uint16_t>::max())));
 
     _poweredItem = baseItems->getInt(_baseItem, "powereditem") != 0;
     if (_poweredItem) {
@@ -227,7 +234,7 @@ void Item::loadAmmunitionType() {
     _ammunitionType->impactSound2 = _services.resource.audioClips.get(boost::to_lower_copy(twoDa->getString(ammunitionIdx, "impactsound1")));
 }
 
-void Item::clone(Item &from) {
+void Item::clone(const Item &from) {
     // Object
     _tag = from._tag;
     _name = from._name;
@@ -252,6 +259,7 @@ void Item::clone(Item &from) {
 
     _baseBodyVariation = from._baseBodyVariation;
     _itemClass = from._itemClass;
+    _maxStackSize = from._maxStackSize;
 
     _icon = from._icon;
     _equipableSlots = from._equipableSlots;
@@ -362,6 +370,48 @@ bool Item::isEquippable() const {
 
 bool Item::isEquippable(int slot) const {
     return (_equipableSlots >> slot) & 1;
+}
+
+bool Item::isStackCompatibleWith(const Item &other) const {
+    auto sameProperty = [](const PropertyEntry &lhs, const PropertyEntry &rhs) {
+        return lhs.chanceAppear == rhs.chanceAppear &&
+               lhs.costTable == rhs.costTable &&
+               lhs.costValue == rhs.costValue &&
+               lhs.paramTable == rhs.paramTable &&
+               lhs.paramValue == rhs.paramValue &&
+               lhs.propertyName == rhs.propertyName &&
+               lhs.subtype == rhs.subtype &&
+               lhs.upgradeType == rhs.upgradeType;
+    };
+    return _maxStackSize > 1 &&
+           _baseItem == other._baseItem &&
+           _plot == other._plot &&
+           _charges == other._charges &&
+           _stolen == other._stolen &&
+           _modelVariation == other._modelVariation &&
+           _bodyVariation == other._bodyVariation &&
+           _textureVariation == other._textureVariation &&
+           _tag == other._tag &&
+           _localizedName.id() == other._localizedName.id() &&
+           _localizedName.str() == other._localizedName.str() &&
+           _properties.size() == other._properties.size() &&
+           std::equal(
+               _properties.begin(),
+               _properties.end(),
+               other._properties.begin(),
+               sameProperty);
+}
+
+bool Item::mergeStackFrom(Item &other) {
+    if (&other == this || !isStackCompatibleWith(other) ||
+        _stackSize >= _maxStackSize || other._stackSize == 0) {
+        return false;
+    }
+    const int moved = std::min<int>(
+        _maxStackSize - _stackSize, other._stackSize);
+    _stackSize += moved;
+    other._stackSize -= moved;
+    return other._stackSize == 0;
 }
 
 void Item::setDropable(bool dropable) {

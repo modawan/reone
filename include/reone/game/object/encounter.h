@@ -62,7 +62,9 @@ public:
         return from->type() == ObjectType::Encounter;
     }
 
-    void deserialize(const resource::Gff &gff);
+    void deserialize(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     const SavedRuntimeState &savedRuntimeState() const { return _savedRuntimeState; }
     std::shared_ptr<Object> savedAreaObject(size_t index) const;
 
@@ -106,7 +108,9 @@ private:
     SavedRuntimeState _savedRuntimeState;
     // END Serializable
 
-    void deserializeAll(const resource::Gff &gff);
+    void deserializeAll(
+        const resource::Gff &gff,
+        const SerializedIdentityContext &identityContext);
     void deserializeSavedRuntimeState(const resource::Gff &gff);
     void deserializeCreatures(const resource::Gff &gff);
     void deserializeGeometry(const resource::Gff &gff);

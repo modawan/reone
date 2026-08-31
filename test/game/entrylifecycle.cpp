@@ -15,16 +15,23 @@
 #include "../fixtures/scene.h"
 
 #include "reone/game/game.h"
+#include "reone/game/action/attackobject.h"
+#include "reone/game/action/docommand.h"
+#include "reone/game/action/wait.h"
 #include "reone/game/object/area.h"
 #include "reone/game/types.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/module.h"
+#include "reone/game/object/trigger.h"
 #include "reone/game/party.h"
+#include "reone/game/room.h"
 #include "reone/game/script/routines.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/layout.h"
+#include "reone/scene/collision.h"
 #include "reone/scene/node/camera.h"
 #include "reone/script/executioncontext.h"
+#include "reone/script/executionstate.h"
 #include "reone/script/program.h"
 
 using namespace reone;
@@ -40,7 +47,8 @@ constexpr char kOnLoadScript[] = "hook_onload";
 constexpr char kOnEnterScript[] = "hook_onenter";
 constexpr int kDelayedMutationLocal = 42;
 
-std::shared_ptr<ScriptProgram> delayedSelfMutation(Routines &routines) {
+std::shared_ptr<ScriptProgram> delayedSelfMutation(
+    Routines &routines, float delaySeconds = 0.0f) {
     auto program = std::make_shared<ScriptProgram>(kOnLoadScript);
 
     // This is the compiled shape of:
@@ -58,11 +66,38 @@ std::shared_ptr<ScriptProgram> delayedSelfMutation(Routines &routines) {
     program->add(Instruction::newACTION(
         routines.getIndexByName("SetLocalBoolean"), 3));
     program->add(Instruction(InstructionType::RETN));
-    program->add(Instruction::newCONSTF(0.0f));
+    program->add(Instruction::newCONSTF(delaySeconds));
     program->add(Instruction::newACTION(
         routines.getIndexByName("DelayCommand"), 2));
     program->add(Instruction(InstructionType::RETN));
     return program;
+}
+
+std::shared_ptr<Gff> savedPermanentEffect() {
+    return Gff::Builder()
+        .type(0x1111)
+        .field(Gff::Field::newDword64("Id", 10))
+        .field(Gff::Field::newWord("Type", 68))
+        .field(Gff::Field::newWord(
+            "SubType", static_cast<uint16_t>(DurationType::Permanent)))
+        .field(Gff::Field::newDword(
+            "CreatorId", kSavedEffectInvalidObjectId))
+        .build();
+}
+
+std::shared_ptr<Gff> savedWaitAction() {
+    auto seconds = Gff::Builder()
+                       .type(1)
+                       .field(Gff::Field::newDword("Type", 2))
+                       .field(Gff::Field::newFloat("Value", 1.0f))
+                       .build();
+    return Gff::Builder()
+        .type(0)
+        .field(Gff::Field::newDword("ActionId", 30))
+        .field(Gff::Field::newWord("GroupActionId", 7))
+        .field(Gff::Field::newWord("NumParams", 1))
+        .field(Gff::Field::newList("Paramaters", {seconds}))
+        .build();
 }
 
 /**
@@ -86,6 +121,14 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
         // than re-initializing mocks other suites already depend on.
         ON_CALL(engine.sceneModule().graphs(), get(_))
             .WillByDefault(ReturnRef(sharedSceneGraph()));
+        ON_CALL(sharedSceneGraph(), testElevation(_, _))
+            .WillByDefault(Invoke([this](
+                                      const glm::vec3 &position,
+                                      scene::Collision &collision) {
+                collision.intersection = position;
+                collision.user = &candidateRoom;
+                return true;
+            }));
         EXPECT_CALL(engine.gameModule().portraits(), portraits())
             .Times(AnyNumber())
             .WillRepeatedly(ReturnRef(portraitRows));
@@ -179,6 +222,18 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
                       .build();
         areaGit = Gff::Builder().build();
 
+        auto &director = engine.resourceModule().director();
+        EXPECT_CALL(director, prepareModuleLoad("module_b", _))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([this](
+                                       const std::string &name,
+                                       std::shared_ptr<const SaveWorkingState>) {
+                return PreparedModuleLoadTestFactory::validated(
+                    name, moduleIfo, areaAre, areaGit);
+            }));
+        EXPECT_CALL(director, commitModuleLoad(_))
+            .Times(AnyNumber());
+
         auto &gffs = engine.resourceModule().gffs();
         EXPECT_CALL(gffs, get(_, _))
             .Times(AnyNumber())
@@ -230,6 +285,7 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
     std::unique_ptr<Game> game;
     std::unique_ptr<Routines> routines;
     std::shared_ptr<Creature> player;
+    Room candidateRoom {"candidate", glm::vec3(0.0f), nullptr, nullptr, nullptr};
     std::vector<std::shared_ptr<scene::CameraSceneNode>> cameraNodes;
     std::shared_ptr<Layout> emptyLayout {std::make_shared<Layout>()};
     std::shared_ptr<Gff> moduleIfo;
@@ -317,6 +373,7 @@ TEST_P(EntryLifecycleFixture, neither_hook_is_dispatched_twice) {
 TEST_P(EntryLifecycleFixture, authored_entry_work_on_a_revisit_takes_effect) {
     serveModule(/*savedModuleSnapshot=*/true);
     auto companion = game->newCreature();
+    game->party().addAvailableMember(0, companion);
     game->party().addMember(0, companion);
     ASSERT_EQ(2, game->party().getSize());
 
@@ -368,6 +425,60 @@ TEST_P(EntryLifecycleFixture, a_restored_module_owns_and_executes_its_delayed_on
     EXPECT_EQ(0u, TestGameModule::delayedActionCount(*restored));
 }
 
+TEST_P(EntryLifecycleFixture, restored_runtime_state_is_visible_to_onload_and_stays_cleared) {
+    serveModule(/*savedModuleSnapshot=*/true);
+    auto savedRuntime = Gff::Builder()
+                            .field(Gff::Field::newList(
+                                "EffectList", {savedPermanentEffect()}))
+                            .field(Gff::Field::newList(
+                                "ActionList", {savedWaitAction()}))
+                            .build();
+    player->deserializeRuntimeState(
+        *savedRuntime,
+        SerializedIdentityContext::moduleGraph("module_b"));
+    ASSERT_TRUE(player->effects().empty());
+    ASSERT_TRUE(player->actions().empty());
+
+    EXPECT_CALL(engine.resourceModule().scripts(), get(std::string(kOnLoadScript)))
+        .WillOnce(Invoke([this](const std::string &resRef)
+                             -> std::shared_ptr<ScriptProgram> {
+            dispatched.push_back({resRef, game->isLoadingFromSaveGame()});
+            EXPECT_EQ(1u, player->effects().size());
+            EXPECT_EQ(1u, player->actions().size());
+            player->clearAllEffects();
+            player->clearAllActions();
+            return nullptr;
+        }));
+
+    ASSERT_TRUE(game->loadModule("module_b", "", /*initialSaveRestore=*/true));
+    EXPECT_TRUE(player->effects().empty());
+    EXPECT_TRUE(player->actions().empty());
+}
+
+TEST_P(EntryLifecycleFixture, restored_runtime_state_is_visible_to_onenter) {
+    serveModule(/*savedModuleSnapshot=*/true);
+    auto savedRuntime = Gff::Builder()
+                            .field(Gff::Field::newList(
+                                "EffectList", {savedPermanentEffect()}))
+                            .field(Gff::Field::newList(
+                                "ActionList", {savedWaitAction()}))
+                            .build();
+    player->deserializeRuntimeState(
+        *savedRuntime,
+        SerializedIdentityContext::moduleGraph("module_b"));
+
+    EXPECT_CALL(engine.resourceModule().scripts(), get(std::string(kOnEnterScript)))
+        .WillOnce(Invoke([this](const std::string &resRef)
+                             -> std::shared_ptr<ScriptProgram> {
+            dispatched.push_back({resRef, game->isLoadingFromSaveGame()});
+            EXPECT_EQ(1u, player->effects().size());
+            EXPECT_EQ(1u, player->actions().size());
+            return nullptr;
+        }));
+
+    ASSERT_TRUE(game->loadModule("module_b", "", /*initialSaveRestore=*/true));
+}
+
 // Fresh and restored entry scripts use the same caller contract. This guards
 // the already-working side while the restored-world discriminator above pins
 // down the regression.
@@ -395,16 +506,250 @@ TEST_P(EntryLifecycleFixture, a_fresh_module_owns_and_executes_its_delayed_onloa
     EXPECT_EQ(0u, TestGameModule::delayedActionCount(*fresh));
 }
 
-// The predicates that decide what gets restored keep their own meaning; only
-// the authored hooks were wrongly hanging off them.
-TEST(EntryLifecycleContexts, restoration_predicates_are_unchanged) {
+TEST_P(EntryLifecycleFixture, ordinary_transition_reconstructs_party_action_queue_once) {
+    serveModule(/*savedModuleSnapshot=*/false);
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    auto outgoing = game->newAction<WaitAction>(5.0f);
+    player->addAction(outgoing);
+    ASSERT_EQ(1u, player->actions().size());
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    ASSERT_EQ(1u, player->actions().size());
+    EXPECT_TRUE(outgoing->isCancelled());
+    EXPECT_NE(outgoing, player->actions().front());
+    ASSERT_TRUE(player->actions().front()->originalSavedAction());
+    EXPECT_EQ(30u, player->actions().front()->originalSavedAction()->actionId);
+
+    // A second transition snapshots the reconstructed queue rather than
+    // appending another copy of the first transition's record.
+    ASSERT_TRUE(game->loadModule("module_b"));
+    ASSERT_EQ(1u, player->actions().size());
+    ASSERT_TRUE(player->actions().front()->originalSavedAction());
+    EXPECT_EQ(30u, player->actions().front()->originalSavedAction()->actionId);
+}
+
+TEST_P(EntryLifecycleFixture, ordinary_transition_keeps_only_exact_live_action_target) {
+    serveModule(/*savedModuleSnapshot=*/false);
+    auto companion = game->newCreature();
+    ASSERT_TRUE(game->party().addAvailableMember(0, companion));
+    ASSERT_TRUE(game->party().addMember(0, companion));
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    auto outgoing = game->newAction<AttackObjectAction>(companion);
+    player->addAction(outgoing);
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    ASSERT_EQ(1u, player->actions().size());
+    auto restored = std::dynamic_pointer_cast<AttackObjectAction>(
+        player->actions().front());
+    ASSERT_TRUE(restored);
+    EXPECT_EQ(companion, restored->target());
+    EXPECT_TRUE(outgoing->isCancelled());
+}
+
+TEST_P(EntryLifecycleFixture, ordinary_transition_drops_outgoing_area_action_target) {
+    serveModule(/*savedModuleSnapshot=*/false);
+    ASSERT_TRUE(game->loadModule("module_b"));
+    auto outgoingTarget = game->newCreature();
+    game->module()->area()->add(outgoingTarget);
+    auto outgoing = game->newAction<AttackObjectAction>(outgoingTarget);
+    player->addAction(outgoing);
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    EXPECT_TRUE(outgoing->isCancelled());
+    EXPECT_FALSE(game->isRuntimeObjectLive(*outgoingTarget));
+    EXPECT_TRUE(player->actions().empty());
+}
+
+TEST_P(EntryLifecycleFixture, controlled_companion_uses_same_transition_continuity) {
+    serveModule(/*savedModuleSnapshot=*/false);
+    auto controlled = game->newCreature();
+    ASSERT_TRUE(game->party().addAvailableMember(0, controlled));
+    game->party().setControlledMember(0, controlled);
+    ASSERT_EQ(controlled, game->party().player());
+    ASSERT_EQ(player, game->party().actualPlayer());
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    auto outgoing = game->newAction<WaitAction>(5.0f);
+    controlled->addAction(outgoing);
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    EXPECT_EQ(controlled, game->party().player());
+    EXPECT_EQ(player, game->party().actualPlayer());
+    ASSERT_EQ(1u, controlled->actions().size());
+    EXPECT_TRUE(outgoing->isCancelled());
+    ASSERT_TRUE(controlled->actions().front()->originalSavedAction());
+    EXPECT_EQ(
+        30u,
+        controlled->actions().front()->originalSavedAction()->actionId);
+}
+
+TEST_P(EntryLifecycleFixture, k2_puppet_uses_same_transition_continuity) {
+    if (GetParam() != GameID::TSL) GTEST_SKIP();
+    serveModule(/*savedModuleSnapshot=*/false);
+    auto puppet = game->newCreature();
+    ASSERT_TRUE(game->party().addAvailablePuppet(0, puppet));
+    ASSERT_TRUE(game->party().addPuppet(0, puppet));
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    auto outgoing = game->newAction<WaitAction>(5.0f);
+    puppet->addAction(outgoing);
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    ASSERT_EQ(1u, puppet->actions().size());
+    EXPECT_TRUE(outgoing->isCancelled());
+    ASSERT_TRUE(puppet->actions().front()->originalSavedAction());
+    EXPECT_EQ(30u, puppet->actions().front()->originalSavedAction()->actionId);
+}
+
+TEST_P(EntryLifecycleFixture, ordinary_transition_preserves_party_delay_due_time) {
+    serveModule(/*savedModuleSnapshot=*/false);
+    ASSERT_TRUE(game->loadModule("module_b"));
+    TestGameModule::setSnapshotWorldTime(*game, 3, 1200, 2);
+
+    auto program = std::make_shared<ScriptProgram>("party_delay");
+    program->add(Instruction(InstructionType::RETN));
+    auto state = std::make_shared<ExecutionState>();
+    state->program = std::move(program);
+    state->insOffset = 13;
+    state->globals = {Variable::ofInt(7)};
+    auto context = std::make_shared<ExecutionContext>();
+    context->savedState = std::move(state);
+    player->delayAction(
+        game->newAction<DoCommandAction>(std::move(context)), 2.0f);
+    ASSERT_EQ(1u, TestGameModule::delayedActionCount(*player));
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    EXPECT_EQ(0u, TestGameModule::delayedActionCount(*player));
+    ASSERT_TRUE(game->module());
+    EXPECT_EQ(1u, game->module()->pendingSavedEventCount());
+
+    game->update(1.0f);
+    EXPECT_EQ(1u, game->module()->pendingSavedEventCount());
+    game->update(1.1f);
+    EXPECT_EQ(0u, game->module()->pendingSavedEventCount());
+}
+
+TEST_P(EntryLifecycleFixture, failed_destination_retires_attached_session_creatures_before_teardown) {
+    serveModule(/*savedModuleSnapshot=*/false);
+
+    std::shared_ptr<Creature> controlled;
+    std::shared_ptr<Creature> puppet;
+    if (GetParam() == GameID::TSL) {
+        controlled = game->newCreature();
+        ASSERT_TRUE(game->party().addAvailableMember(0, controlled));
+        game->party().setControlledMember(0, controlled);
+        ASSERT_EQ(controlled, game->party().player());
+
+        puppet = game->newCreature();
+        ASSERT_TRUE(game->party().addAvailablePuppet(0, puppet));
+        ASSERT_TRUE(game->party().addPuppet(0, puppet));
+    }
+
+    auto expectedLeader = game->party().player();
+    std::shared_ptr<Area> failedArea;
+    std::shared_ptr<Trigger> failedTrigger;
+    EXPECT_CALL(engine.resourceModule().scripts(), get(std::string(kOnEnterScript)))
+        .WillOnce(Invoke([this, &failedArea, &failedTrigger, expectedLeader, puppet](
+                             const std::string &resRef)
+                             -> std::shared_ptr<ScriptProgram> {
+            dispatched.push_back({resRef, game->isLoadingFromSaveGame()});
+            failedArea = game->module()->area();
+            TestGameModule::setAreaRuntimePath(
+                *expectedLeader, failedArea->pathfinder());
+            failedTrigger = game->newTrigger();
+            failedArea->add(failedTrigger);
+            failedTrigger->addTenant(expectedLeader);
+            if (puppet) {
+                TestGameModule::setAreaRuntimePath(
+                    *puppet, failedArea->pathfinder());
+                failedTrigger->addTenant(puppet);
+            }
+            throw std::runtime_error("injected Area OnEnter failure");
+        }));
+
+    ASSERT_FALSE(game->loadModule("module_b"));
+    ASSERT_TRUE(failedArea);
+    ASSERT_TRUE(failedTrigger);
+    EXPECT_FALSE(game->module());
+    EXPECT_EQ(nullptr, expectedLeader->room());
+    EXPECT_FALSE(candidateRoom.tenants().count(expectedLeader.get()));
+    EXPECT_FALSE(TestGameModule::hasAreaRuntimePath(*expectedLeader));
+    EXPECT_FALSE(failedTrigger->isTenant(expectedLeader));
+    const auto &creatures = failedArea->getObjectsByType(ObjectType::Creature);
+    EXPECT_EQ(creatures.end(), std::find(creatures.begin(), creatures.end(), expectedLeader));
+    EXPECT_EQ(Game::Screen::MainMenu, game->currentScreen());
+    EXPECT_FALSE(game->party().player());
+    EXPECT_FALSE(game->isRuntimeObjectLive(*expectedLeader));
+    EXPECT_FALSE(game->getObjectById(expectedLeader->id()));
+
+    if (controlled) {
+        EXPECT_FALSE(game->party().rosterCreature({RosterKind::Npc, 0}));
+        EXPECT_EQ(nullptr, player->room())
+            << "the parked canonical PC was never attached to the candidate";
+    }
+    if (puppet) {
+        EXPECT_EQ(nullptr, puppet->room());
+        EXPECT_FALSE(candidateRoom.tenants().count(puppet.get()));
+        EXPECT_FALSE(TestGameModule::hasAreaRuntimePath(*puppet));
+        EXPECT_FALSE(failedTrigger->isTenant(puppet));
+        EXPECT_FALSE(game->party().rosterCreature({RosterKind::Puppet, 0}));
+        EXPECT_FALSE(game->isRuntimeObjectLive(*puppet));
+        EXPECT_EQ(creatures.end(), std::find(creatures.begin(), creatures.end(), puppet));
+    }
+
+    // A later whole-session retirement sees already-detached objects and is
+    // intentionally harmless.
+    game->retireRuntimeSession();
+}
+
+TEST_P(EntryLifecycleFixture, failed_destination_before_party_placement_is_harmless) {
+    serveModule(/*savedModuleSnapshot=*/false);
+
+    std::shared_ptr<Area> failedArea;
+    EXPECT_CALL(engine.resourceModule().scripts(), get(std::string(kOnLoadScript)))
+        .WillOnce(Invoke([this, &failedArea](const std::string &resRef)
+                             -> std::shared_ptr<ScriptProgram> {
+            dispatched.push_back({resRef, game->isLoadingFromSaveGame()});
+            failedArea = game->module()->area();
+            throw std::runtime_error("injected Module OnLoad failure");
+        }));
+
+    ASSERT_FALSE(game->loadModule("module_b"));
+    ASSERT_TRUE(failedArea);
+    EXPECT_FALSE(game->module());
+    EXPECT_EQ(nullptr, player->room());
+    EXPECT_FALSE(candidateRoom.tenants().count(player.get()));
+    EXPECT_TRUE(failedArea->getObjectsByType(ObjectType::Creature).empty());
+    EXPECT_EQ(Game::Screen::MainMenu, game->currentScreen());
+    EXPECT_FALSE(game->party().player());
+    EXPECT_FALSE(game->isRuntimeObjectLive(*player));
+    EXPECT_FALSE(game->getObjectById(player->id()));
+}
+
+// Session restoration, saved-world identity and placement are independent.
+TEST(EntryLifecycleContexts, restoration_predicates_are_orthogonal) {
     EXPECT_FALSE(restoresSavedWorld(ModuleLoadContext::FreshModule));
+    EXPECT_FALSE(restoresSavedWorld(ModuleLoadContext::InitialTemplateRestore));
     EXPECT_TRUE(restoresSavedWorld(ModuleLoadContext::SavedModuleTransition));
     EXPECT_TRUE(restoresSavedWorld(ModuleLoadContext::InitialSaveRestore));
 
     EXPECT_FALSE(restoresSavedSession(ModuleLoadContext::FreshModule));
     EXPECT_FALSE(restoresSavedSession(ModuleLoadContext::SavedModuleTransition));
+    EXPECT_TRUE(restoresSavedSession(ModuleLoadContext::InitialTemplateRestore));
     EXPECT_TRUE(restoresSavedSession(ModuleLoadContext::InitialSaveRestore));
+
+    EXPECT_FALSE(preservesSavedPlacement(ModuleLoadContext::FreshModule));
+    EXPECT_FALSE(preservesSavedPlacement(ModuleLoadContext::InitialTemplateRestore));
+    EXPECT_FALSE(preservesSavedPlacement(ModuleLoadContext::SavedModuleTransition));
+    EXPECT_TRUE(preservesSavedPlacement(ModuleLoadContext::InitialSaveRestore));
 }
 
 INSTANTIATE_TEST_SUITE_P(

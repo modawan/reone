@@ -327,18 +327,25 @@ void Equipment::confirmCandidateItem(const std::string &item) {
                        decision.action == EquipmentCandidateAction::ClearMainHandAndOffHand;
     bool equipmentChanged = equipped != itemObj || pairedOffHand;
     if (equipmentChanged) {
-        if (equipped) {
-            partyLeader->unequip(equipped);
-            player->addItem(equipped);
-        }
-        if (pairedOffHand) {
-            partyLeader->unequip(pairedOffHand);
-            player->addItem(pairedOffHand);
-        }
         if (itemObj) {
             auto candidate = takeEquipmentCandidate(_game, *player, itemObj);
-            if (candidate && !partyLeader->equip(slot, candidate)) {
+            if (!candidate) return;
+            if (pairedOffHand) {
+                partyLeader->moveEquippedItemTo(pairedOffHand, *player);
+            }
+            bool equippedCandidate = equipped
+                                         ? partyLeader->replaceEquipment(
+                                               slot, candidate, *player)
+                                         : partyLeader->equip(slot, candidate);
+            if (!equippedCandidate) {
                 player->addItem(candidate);
+            }
+        } else {
+            if (equipped) {
+                partyLeader->moveEquippedItemTo(equipped, *player);
+            }
+            if (pairedOffHand) {
+                partyLeader->moveEquippedItemTo(pairedOffHand, *player);
             }
         }
     }
@@ -360,7 +367,7 @@ void Equipment::update() {
     auto partyLeader(_game.party().getLeader());
 
     if (!_game.isTSL()) {
-        std::string vitalityString(str(boost::format("%d/\n%d") % partyLeader->currentHitPoints() % partyLeader->hitPoints()));
+        std::string vitalityString(str(boost::format("%d/\n%d") % partyLeader->currentHitPoints() % partyLeader->maxHitPoints()));
         _controls.LBL_VITALITY->setTextMessage(vitalityString);
     }
     _controls.LBL_DEF->setTextMessage(std::to_string(partyLeader->getDefense()));

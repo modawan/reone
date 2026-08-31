@@ -80,6 +80,15 @@ std::optional<Resource> ReplacementResources::find(const ResourceId &id) {
     return replacement ? replacement : _backend->find(id);
 }
 
+std::optional<Resource> ReplacementResources::findExcludingOwners(
+    const ResourceId &id,
+    const std::set<ResourceOwner> &excludedOwners) {
+    auto replacement = _replacements.findResourceReplacement(id);
+    return replacement
+               ? replacement
+               : _backend->findExcludingOwners(id, excludedOwners);
+}
+
 } // namespace resource
 
 } // namespace reone
