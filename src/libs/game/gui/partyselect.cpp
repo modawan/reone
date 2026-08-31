@@ -57,19 +57,6 @@ static glm::vec3 g_kotorColorOn = {0.984314f, 1.0f, 0};
 static glm::vec3 g_kotorColorAdded = {0, 0.831373f, 0.090196f};
 static glm::vec3 g_tslColorAdded = {1.0f, 1.0f, 1.0f};
 
-static bool matchesPendingSelection(
-    const bool (&added)[kMaxNpcCount],
-    const bool (&baselineAdded)[kMaxNpcCount],
-    int npcCount) {
-
-    for (int i = 0; i < npcCount; ++i) {
-        if (added[i] != baselineAdded[i]) {
-            return false;
-        }
-    }
-    return true;
-}
-
 PartySelection::PartySelection(Game &game, ServicesView &services) :
     GameGUI(game, services) {
 
@@ -119,9 +106,13 @@ void PartySelection::bindEventHandlers() {
         onAcceptButtonClick();
     });
     _controls.BTN_DONE->setOnClick([this]() {
-        if (!matchesPendingSelection(_added, _baselineAdded, npcCount())) {
-            changeParty();
+        std::vector<int> selectedNpcs;
+        for (int npc = 0; npc < npcCount(); ++npc) {
+            if (_added[npc]) {
+                selectedNpcs.push_back(npc);
+            }
         }
+        _game.reconcilePartySelection(selectedNpcs);
         _game.openInGame();
         if (!_context.exitScript.empty()) {
             _game.scriptRunner().run(_context.exitScript);
@@ -184,7 +175,6 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
 
     for (int i = 0; i < kMaxNpcCount; ++i) {
         _added[i] = false;
-        _baselineAdded[i] = false;
     }
     for (int i = 0; i < npcCount(); ++i) {
         getNpcButton(i).setUseBorderColorOverride(false);
@@ -196,9 +186,6 @@ void PartySelection::prepare(const PartySelectionContext &ctx) {
         if (member.npc != kNpcPlayer) {
             addNpc(member.npc);
         }
-    }
-    for (int i = 0; i < npcCount(); ++i) {
-        _baselineAdded[i] = _added[i];
     }
     if (ctx.forceNpc1 >= 0) {
         addNpc(ctx.forceNpc1);
@@ -363,39 +350,6 @@ void PartySelection::refreshNpcButtons() {
             button.toggle();
         }
     }
-}
-
-void PartySelection::changeParty() {
-    Party &party = _game.party();
-    for (int i = 0; i < npcCount(); ++i) {
-        if (_added[i] && !party.isMemberAvailable(i)) {
-            warn("Party selection: NPC is not available: " + std::to_string(i));
-            return;
-        }
-    }
-
-    std::shared_ptr<Area> area(_game.module()->area());
-    for (const auto &member : party.members()) {
-        if (member.npc != kNpcPlayer && !_added[member.npc]) {
-            // This companion ceases to inhabit the current Area; unlike a
-            // control switch, party removal is a full Area-departure boundary.
-            area->retirePartyMemberAreaRuntime(member.creature);
-        }
-    }
-
-    party.clear();
-    const int controlled = party.controlledNpc();
-    party.addMember(
-        controlled == kNpcPlayer ? kNpcPlayer : controlled,
-        party.player());
-
-    for (int i = 0; i < npcCount(); ++i) {
-        if (!_added[i])
-            continue;
-        party.addMember(i, party.getAvailableMember(i, true));
-    }
-
-    area->repositionParty();
 }
 
 } // namespace game

@@ -141,6 +141,12 @@ public:
      */
     bool releaseObject(const std::shared_ptr<Object> &object);
 
+    /** Whether this exact Object is currently owned by this Area. */
+    bool isObjectResident(const Object &object) const;
+
+    /** Whether this exact runtime Object is queued for semantic destruction. */
+    bool isObjectPendingDestruction(const Object &object) const;
+
     bool isObjectSeen(const Creature &subject, const Object &object) const;
 
     ObjectList &getObjectsByType(ObjectType type);

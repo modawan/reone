@@ -100,7 +100,6 @@ private:
     PartySelectionContext _context;
     int _selectedNpc {-1};
     bool _added[kMaxNpcCount] {false};
-    bool _baselineAdded[kMaxNpcCount] {false};
     int _availableCount {0};
 
     void onGUILoaded() override;
@@ -164,7 +163,6 @@ private:
     }
 
     void addNpc(int npc);
-    void changeParty();
     void refreshAcceptButton();
     void refreshAvailableCount();
     void refreshNpcButtons();

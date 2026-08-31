@@ -798,6 +798,20 @@ bool Area::releaseObject(const std::shared_ptr<Object> &object) {
     return true;
 }
 
+bool Area::isObjectResident(const Object &object) const {
+    return std::any_of(
+        _objects.begin(), _objects.end(),
+        [&object](const auto &candidate) {
+            return candidate.get() == &object;
+        });
+}
+
+bool Area::isObjectPendingDestruction(const Object &object) const {
+    auto live = _game.getObjectById(object.id());
+    return live.get() == &object &&
+           _objectsToDestroy.find(object.id()) != _objectsToDestroy.end();
+}
+
 void Area::doDestroyObject(uint32_t objectId, bool destroyRuntimeObject) {
     auto object = _game.getObjectById(objectId);
     if (!object) {

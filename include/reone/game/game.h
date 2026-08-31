@@ -244,6 +244,21 @@ public:
     void notifyLevelUpPending(const Creature &creature);
     void openContainer(const std::shared_ptr<Object> &container);
     void openPartySelection(const PartySelectionContext &ctx);
+
+    /**
+     * Whether the current Area already contains one coherent live runtime
+     * representation for every requested logical NPC slot and no other
+     * selected companion.
+     */
+    bool isPartySelectionRealized(
+        const std::vector<int> &selectedNpcs) const;
+
+    /**
+     * Reconcile requested logical NPC slots with exact roster bindings and
+     * current-Area residency. A coherent unchanged selection is a no-op.
+     */
+    bool reconcilePartySelection(
+        const std::vector<int> &selectedNpcs);
     void openSaveLoad(SaveLoadMode mode);
     void openGalaxyMap(int initialPlanet);
     /** Whether the galaxy map may take the screen over from the given one. */

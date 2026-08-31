@@ -141,7 +141,193 @@ public:
     Routines routines;
 };
 
+class PartySelectionRuntimeHarness {
+public:
+    explicit PartySelectionRuntimeHarness(GameID gameId) :
+        roster(gameId) {
+        player = roster.creature("player");
+        area = roster.game.newArea();
+        TestGameModule::configureModuleSnapshot(
+            roster.game, area, player, "party_select", "party_select");
+        area->add(player);
+    }
+
+    std::shared_ptr<Creature> addSelected(int npc, std::string tag) {
+        auto creature = roster.creature(std::move(tag));
+        EXPECT_TRUE(roster.game.party().addAvailableMember(npc, creature));
+        EXPECT_TRUE(roster.game.party().addMember(npc, creature));
+        area->add(creature);
+        return creature;
+    }
+
+    void serveDetached(int npc, std::string tag) {
+        auto bytes = encodeUtc(*creatureRecord(std::move(tag)));
+        EXPECT_CALL(
+            testEngine().resourceModule().director(),
+            findSaveWorking(ResourceId(
+                "availnpc" + std::to_string(npc), ResType::Utc)))
+            .WillOnce(Return(Resource {std::move(bytes)}));
+    }
+
+    size_t partyOccurrences(int npc) {
+        return std::count_if(
+            roster.game.party().members().begin(),
+            roster.game.party().members().end(),
+            [npc](const Party::Member &member) {
+                return member.npc == npc;
+            });
+    }
+
+    size_t areaOccurrences(const Creature &creature) const {
+        return std::count_if(
+            area->objects().begin(), area->objects().end(),
+            [&creature](const auto &object) {
+                return object.get() == &creature;
+            });
+    }
+
+    RosterHarness roster;
+    std::shared_ptr<Area> area;
+    std::shared_ptr<Creature> player;
+};
+
+class PartySelectionRuntime : public TestWithParam<GameID> {};
+
 } // namespace
+
+TEST_P(PartySelectionRuntime, coherent_unchanged_selection_is_a_noop) {
+    PartySelectionRuntimeHarness harness(GetParam());
+    auto companion = harness.addSelected(0, "companion");
+    companion->setPosition({91.0f, 72.0f, 0.0f});
+    const auto position = companion->position();
+    const auto registrySize = TestGameModule::objectRegistrySize(
+        harness.roster.game);
+
+    ASSERT_TRUE(harness.roster.game.isPartySelectionRealized({0}));
+    ASSERT_TRUE(harness.roster.game.reconcilePartySelection({0}));
+
+    EXPECT_EQ(companion, harness.roster.game.party().getMemberByNPC(0));
+    EXPECT_EQ(companion, harness.roster.game.party().rosterCreature(
+                             {RosterKind::Npc, 0}));
+    EXPECT_EQ(position, companion->position());
+    EXPECT_EQ(registrySize, TestGameModule::objectRegistrySize(
+                                harness.roster.game));
+    EXPECT_EQ(1u, harness.partyOccurrences(0));
+    EXPECT_EQ(1u, harness.areaOccurrences(*companion));
+}
+
+TEST_P(PartySelectionRuntime, unchanged_selection_repairs_missing_area_residency) {
+    PartySelectionRuntimeHarness harness(GetParam());
+    auto companion = harness.addSelected(0, "companion");
+    ASSERT_TRUE(harness.area->releaseObject(companion));
+    ASSERT_FALSE(harness.area->isObjectResident(*companion));
+
+    ASSERT_FALSE(harness.roster.game.isPartySelectionRealized({0}));
+    ASSERT_TRUE(harness.roster.game.reconcilePartySelection({0}));
+
+    EXPECT_EQ(companion, harness.roster.game.party().getMemberByNPC(0));
+    EXPECT_EQ(companion, harness.roster.game.party().rosterCreature(
+                             {RosterKind::Npc, 0}));
+    EXPECT_TRUE(harness.area->isObjectResident(*companion));
+    EXPECT_EQ(1u, harness.partyOccurrences(0));
+    EXPECT_EQ(1u, harness.areaOccurrences(*companion));
+}
+
+TEST(PartySelectionRuntimeTSL, unchanged_selection_replaces_pending_representations) {
+    PartySelectionRuntimeHarness harness(GameID::TSL);
+    auto oldA = harness.addSelected(0, "companion_a");
+    auto oldB = harness.addSelected(1, "companion_b");
+    harness.serveDetached(0, "companion_a");
+    harness.serveDetached(1, "companion_b");
+    harness.area->destroyObject(*oldA);
+    harness.area->destroyObject(*oldB);
+
+    ASSERT_FALSE(harness.roster.game.isPartySelectionRealized({0, 1}));
+    ASSERT_TRUE(harness.roster.game.reconcilePartySelection({0, 1}));
+    auto replacementA = harness.roster.game.party().getMemberByNPC(0);
+    auto replacementB = harness.roster.game.party().getMemberByNPC(1);
+    ASSERT_TRUE(replacementA);
+    ASSERT_TRUE(replacementB);
+    EXPECT_NE(oldA, replacementA);
+    EXPECT_NE(oldB, replacementB);
+    EXPECT_TRUE(harness.area->isObjectPendingDestruction(*oldA));
+    EXPECT_TRUE(harness.area->isObjectPendingDestruction(*oldB));
+    EXPECT_TRUE(harness.area->isObjectResident(*replacementA));
+    EXPECT_TRUE(harness.area->isObjectResident(*replacementB));
+
+    harness.area->update(0.0f);
+
+    EXPECT_FALSE(harness.roster.game.isRuntimeObjectLive(*oldA));
+    EXPECT_FALSE(harness.roster.game.isRuntimeObjectLive(*oldB));
+    EXPECT_TRUE(harness.roster.game.isRuntimeObjectLive(*replacementA));
+    EXPECT_TRUE(harness.roster.game.isRuntimeObjectLive(*replacementB));
+    EXPECT_EQ(replacementA, harness.roster.game.party().rosterCreature(
+                                {RosterKind::Npc, 0}));
+    EXPECT_EQ(replacementB, harness.roster.game.party().rosterCreature(
+                                {RosterKind::Npc, 1}));
+    EXPECT_EQ(1u, harness.partyOccurrences(0));
+    EXPECT_EQ(1u, harness.partyOccurrences(1));
+    EXPECT_EQ(1u, harness.areaOccurrences(*replacementA));
+    EXPECT_EQ(1u, harness.areaOccurrences(*replacementB));
+    EXPECT_TRUE(harness.roster.game.isPartySelectionRealized({0, 1}));
+}
+
+TEST(PartySelectionRuntimeTSL, destruction_before_confirmation_materializes_selection) {
+    PartySelectionRuntimeHarness harness(GameID::TSL);
+    auto obsolete = harness.addSelected(0, "companion");
+    harness.area->destroyObject(*obsolete);
+    harness.area->update(0.0f);
+    ASSERT_FALSE(harness.roster.game.party().rosterCreature(
+        {RosterKind::Npc, 0}));
+    harness.serveDetached(0, "companion");
+
+    ASSERT_TRUE(harness.roster.game.reconcilePartySelection({0}));
+
+    auto replacement = harness.roster.game.party().getMemberByNPC(0);
+    ASSERT_TRUE(replacement);
+    EXPECT_NE(obsolete, replacement);
+    EXPECT_TRUE(harness.roster.game.isRuntimeObjectLive(*replacement));
+    EXPECT_TRUE(harness.area->isObjectResident(*replacement));
+    EXPECT_EQ(1u, harness.partyOccurrences(0));
+    EXPECT_EQ(1u, harness.areaOccurrences(*replacement));
+}
+
+TEST(PartySelectionRuntimeTSL, missing_binding_is_materialized_for_unchanged_request) {
+    PartySelectionRuntimeHarness harness(GameID::TSL);
+    auto obsolete = harness.addSelected(0, "companion");
+    ASSERT_TRUE(harness.roster.game.party().clearRosterCreature(
+        {RosterKind::Npc, 0}, obsolete.get()));
+    harness.serveDetached(0, "companion");
+
+    ASSERT_TRUE(harness.roster.game.reconcilePartySelection({0}));
+
+    auto replacement = harness.roster.game.party().getMemberByNPC(0);
+    ASSERT_TRUE(replacement);
+    EXPECT_NE(obsolete, replacement);
+    EXPECT_TRUE(harness.area->isObjectResident(*replacement));
+    EXPECT_EQ(1u, harness.partyOccurrences(0));
+}
+
+TEST(PartySelectionRuntimeTSL, changed_selection_uses_normal_reconciliation) {
+    PartySelectionRuntimeHarness harness(GameID::TSL);
+    auto oldMember = harness.addSelected(0, "old_companion");
+    auto replacement = harness.roster.creature("new_companion");
+    ASSERT_TRUE(harness.roster.game.party().addAvailableMember(1, replacement));
+
+    ASSERT_TRUE(harness.roster.game.reconcilePartySelection({1}));
+
+    EXPECT_FALSE(harness.roster.game.party().isMember(0));
+    EXPECT_EQ(replacement, harness.roster.game.party().getMemberByNPC(1));
+    EXPECT_FALSE(harness.area->isObjectResident(*oldMember));
+    EXPECT_TRUE(harness.area->isObjectResident(*replacement));
+    EXPECT_TRUE(harness.roster.game.isRuntimeObjectLive(*oldMember));
+    EXPECT_EQ(1u, harness.partyOccurrences(1));
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    K1AndK2,
+    PartySelectionRuntime,
+    Values(GameID::KotOR, GameID::TSL));
 
 TEST(RosterBinding, same_tag_npc_puppet_and_module_creature_coexist) {
     RosterHarness harness;

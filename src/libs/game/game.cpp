@@ -4649,6 +4649,118 @@ void Game::openPartySelection(const PartySelectionContext &ctx) {
     changeScreen(Screen::PartySelection);
 }
 
+bool Game::isPartySelectionRealized(
+    const std::vector<int> &selectedNpcs) const {
+    if (!_module || !_module->area()) {
+        return false;
+    }
+    const auto &area = *_module->area();
+    std::array<bool, Party::kMaxNpcCount> requested {};
+    for (int npc : selectedNpcs) {
+        const RosterIdentity identity {RosterKind::Npc, npc};
+        if (!_party.isRosterIdentityValid(identity) || requested[npc]) {
+            return false;
+        }
+        requested[npc] = true;
+    }
+
+    std::array<bool, Party::kMaxNpcCount> realized {};
+    for (const auto &member : _party.members()) {
+        if (member.npc == kNpcPlayer) {
+            continue;
+        }
+        const RosterIdentity identity {RosterKind::Npc, member.npc};
+        if (!_party.isRosterIdentityValid(identity) ||
+            !requested[member.npc] || realized[member.npc] ||
+            !member.creature) {
+            return false;
+        }
+        auto bound = _party.rosterCreature(identity);
+        if (bound != member.creature ||
+            !isRuntimeObjectLive(*bound) ||
+            area.isObjectPendingDestruction(*bound) ||
+            !area.isObjectResident(*bound)) {
+            return false;
+        }
+        realized[member.npc] = true;
+    }
+
+    return realized == requested;
+}
+
+bool Game::reconcilePartySelection(
+    const std::vector<int> &selectedNpcs) {
+    if (!_module || !_module->area()) {
+        warn("Party selection: no active Area");
+        return false;
+    }
+
+    std::array<bool, Party::kMaxNpcCount> requested {};
+    for (int npc : selectedNpcs) {
+        const RosterIdentity identity {RosterKind::Npc, npc};
+        if (!_party.isRosterIdentityValid(identity) || requested[npc] ||
+            !_party.isRosterAvailable(identity)) {
+            warn("Party selection: NPC is not available: " +
+                 std::to_string(npc));
+            return false;
+        }
+        requested[npc] = true;
+    }
+    if (isPartySelectionRealized(selectedNpcs)) {
+        return true;
+    }
+
+    auto area = _module->area();
+
+    // A queued representation remains live and Area-resident until the next
+    // update, but it cannot satisfy a selection which must survive that
+    // update. Drop only its exact roster binding so detached Party state can
+    // materialize a new incarnation. The queued destruction remains aimed at
+    // the obsolete object and cannot clear the replacement binding.
+    for (int npc : selectedNpcs) {
+        const RosterIdentity identity {RosterKind::Npc, npc};
+        auto bound = _party.rosterCreature(identity);
+        if (bound &&
+            (!isRuntimeObjectLive(*bound) ||
+             area->isObjectPendingDestruction(*bound))) {
+            _party.clearRosterCreature(identity, bound.get());
+        }
+    }
+
+    const auto currentMembers = _party.members();
+    for (const auto &member : currentMembers) {
+        if (member.npc != kNpcPlayer &&
+            (member.npc < 0 ||
+             member.npc >= static_cast<int>(requested.size()) ||
+             !requested[member.npc])) {
+            // This companion ceases to inhabit the current Area; unlike a
+            // control switch, party removal is a full Area-departure boundary.
+            area->retirePartyMemberAreaRuntime(member.creature);
+        }
+    }
+
+    _party.clear();
+    const int controlled = _party.controlledNpc();
+    if (!_party.addMember(
+            controlled == kNpcPlayer ? kNpcPlayer : controlled,
+            _party.player())) {
+        warn("Party selection: could not restore the controlled character");
+        return false;
+    }
+
+    for (int npc : selectedNpcs) {
+        auto member = _party.getAvailableMember(npc, true);
+        if (!member || !_party.addMember(npc, member)) {
+            warn("Party selection: could not realize NPC: " +
+                 std::to_string(npc));
+            return false;
+        }
+    }
+
+    area->repositionParty();
+    return isPartySelectionRealized(selectedNpcs);
+}
+
 void Game::openSaveLoad(SaveLoadMode mode) {
     setRelativeMouseMode(false);
     setCursorType(CursorType::Default);
