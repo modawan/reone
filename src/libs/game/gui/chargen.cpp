@@ -345,6 +345,8 @@ void CharacterGeneration::finish() {
         _character.attributes.addClassLevels(clazz.get(), 1);
         std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
         partyLeader->attributes() = _character.attributes;
+        partyLeader->setMaxHitPoints(
+            partyLeader->hitPoints() + clazz->hitdie());
         _game.openInGame();
     } else {
         // Character preview objects belong to the pre-playable character-
@@ -365,6 +367,7 @@ void CharacterGeneration::finish() {
                 player->setFaction(Faction::Friendly1);
                 player->setImmortal(true);
                 player->attributes() = _character.attributes;
+                player->initializeGeneratedVitality();
 
                 player->setOnHeartbeat("k_hen_heartbt01");
                 player->setOnSpawn("k_hen_spawn01");
@@ -446,7 +449,8 @@ void CharacterGeneration::updateAttributes() {
     std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(_character.attributes.getEffectiveClass()));
     _controls.LBL_CLASS->setTextMessage(clazz->name());
 
-    int vitality = clazz->hitdie() + _character.attributes.getAbilityModifier(Ability::Constitution);
+    int vitality = _character.attributes.getPermanentMaxHitPoints(
+        _character.attributes.getAggregateHitDie());
     _controls.LBL_VIT->setTextMessage(std::to_string(vitality));
 
     int defense = _character.attributes.getDefense();
