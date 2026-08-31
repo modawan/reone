@@ -906,6 +906,41 @@ TEST(PartyTransferSpawn, repeated_transitions_never_respawn_the_same_party) {
     }
 }
 
+TEST(PartyTransferSpawn, k2_active_puppet_remains_single_across_transitions) {
+    PartyTransferHarness harness(resource::GameID::TSL);
+    auto puppet = harness.game->newCreature();
+    puppet->setTag("remote");
+    ASSERT_TRUE(harness.game->party().addAvailablePuppet(0, puppet));
+    ASSERT_TRUE(harness.game->party().addPuppet(0, puppet));
+    const auto puppetId = puppet->id();
+    auto *puppetObject = puppet.get();
+
+    for (int cycle = 0; cycle < 10; ++cycle) {
+        SCOPED_TRACE(cycle);
+        harness.transitionTo(
+            glm::vec3(static_cast<float>(cycle), 2.0f, 0.0f),
+            static_cast<float>(cycle) * 0.1f);
+
+        EXPECT_TRUE(harness.game->party().isPuppet(0));
+        EXPECT_EQ(
+            puppet,
+            harness.game->party().rosterCreature({RosterKind::Puppet, 0}));
+        EXPECT_EQ(puppetObject, puppet.get());
+        EXPECT_EQ(puppetId, puppet->id());
+        EXPECT_EQ(puppet, harness.game->getObjectById(puppetId));
+
+        const auto &creatures =
+            harness.area->getObjectsByType(ObjectType::Creature);
+        EXPECT_EQ(1, std::count(creatures.begin(), creatures.end(), puppet));
+        EXPECT_EQ(
+            1,
+            std::count_if(
+                creatures.begin(), creatures.end(), [](const auto &creature) {
+                    return creature && creature->tag() == "remote";
+                }));
+    }
+}
+
 TEST(PartyTransferSpawn, transferred_party_member_keeps_durable_not_area_execution_state) {
     for (auto gameId : {resource::GameID::KotOR, resource::GameID::TSL}) {
         PartyTransferHarness harness(gameId);

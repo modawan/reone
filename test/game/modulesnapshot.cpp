@@ -276,6 +276,33 @@ struct SnapshotFixture : Test {
     std::shared_ptr<Creature> player;
 };
 
+struct TslPartySnapshotFixture : Test {
+    TslPartySnapshotFixture() :
+        game(GameID::TSL, "", engine.options(), engine.services(), console) {
+    }
+
+    void SetUp() override {
+        area = game.newArea();
+        player = game.newCreature();
+        TestGameModule::configureModuleSnapshot(
+            game, area, player, "301nar", "301nar");
+        TestGameModule::addSnapshotObject(*area, player);
+        auto empty = Gff::Builder().type(0xffffffff).build();
+        game.captureSaveResourceShadow(
+            {SaveResourceKind::ModuleIfo, "301nar"}, *empty);
+        game.captureSaveResourceShadow(
+            {SaveResourceKind::AreaAre, "301nar"}, *empty);
+        game.captureSaveResourceShadow(
+            {SaveResourceKind::AreaGit, "301nar"}, *empty);
+    }
+
+    TestEngine &engine {testEngine()};
+    StubConsole console;
+    Game game;
+    std::shared_ptr<Area> area;
+    std::shared_ptr<Creature> player;
+};
+
 TEST(ModuleSnapshot, reports_no_playable_module_without_exposing_partial_bytes) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -288,6 +315,84 @@ TEST(ModuleSnapshot, reports_no_playable_module_without_exposing_partial_bytes) 
     EXPECT_EQ(result.error, ModuleSnapshotError::NoPlayableModule);
     EXPECT_FALSE(result.snapshot);
     EXPECT_EQ(TestGameModule::nextObjectId(game), before);
+}
+
+TEST_F(TslPartySnapshotFixture, retained_npc_and_puppet_are_not_git_creatures) {
+    auto npc = game.newCreature();
+    npc->setTag("remote");
+    ASSERT_TRUE(game.party().addAvailableMember(0, npc));
+    ASSERT_TRUE(game.party().addMember(0, npc));
+    TestGameModule::addSnapshotObject(*area, npc);
+
+    auto worldCreature = game.newCreature();
+    worldCreature->setTag("remote");
+    TestGameModule::addSnapshotObject(*area, worldCreature);
+
+    auto puppet = game.newCreature();
+    puppet->setTag("remote");
+    const auto puppetIdentity = SerializedObjectIdentity {
+        SerializedIdentityContext::detachedRecord("availpup0.utc"), 77u};
+    puppet->assignSerializedObjectIdentity(puppetIdentity);
+    ASSERT_TRUE(game.party().addAvailablePuppet(0, puppet));
+    ASSERT_TRUE(game.party().addPuppet(0, puppet));
+    TestGameModule::addSnapshotObject(*area, puppet);
+
+    ASSERT_TRUE(game.party().isRetainedRuntimeRepresentation(*npc));
+    ASSERT_TRUE(game.party().isRetainedRuntimeRepresentation(*puppet));
+    ASSERT_FALSE(game.party().isRetainedRuntimeRepresentation(*worldCreature));
+
+    for (int cycle = 0; cycle < 10; ++cycle) {
+        SCOPED_TRACE(cycle);
+        auto saved = ModuleSnapshotBuilder(game, "301nar").build();
+        ASSERT_TRUE(saved) << saved.message;
+
+        const auto &creatures = saved.snapshot->git->getList("Creature List");
+        ASSERT_EQ(1u, creatures.size());
+        EXPECT_EQ("remote", creatures.front()->getString("Tag"));
+        EXPECT_EQ(worldCreature->id(), creatures.front()->getUint("ObjectId"));
+        EXPECT_EQ(puppet->id(), saved.snapshot->ifo->getUint("Mod_NextObjId0"));
+
+        EXPECT_TRUE(game.party().isPuppet(0));
+        EXPECT_EQ(
+            puppet,
+            game.party().rosterCreature({RosterKind::Puppet, 0}));
+        EXPECT_EQ(puppetIdentity, puppet->serializedObjectIdentity());
+    }
+}
+
+TEST_F(TslPartySnapshotFixture, inactive_bound_puppet_remains_a_git_creature) {
+    auto inactive = game.newCreature();
+    inactive->setTag("inactive_remote");
+    ASSERT_TRUE(game.party().addAvailablePuppet(0, inactive));
+    ASSERT_FALSE(game.party().isPuppet(0));
+    TestGameModule::addSnapshotObject(*area, inactive);
+
+    EXPECT_FALSE(game.party().isRetainedRuntimeRepresentation(*inactive));
+
+    auto saved = ModuleSnapshotBuilder(game, "301nar").build();
+    ASSERT_TRUE(saved) << saved.message;
+    auto record = recordById(
+        *saved.snapshot->git, "Creature List", inactive->id());
+    ASSERT_TRUE(record);
+    EXPECT_EQ("inactive_remote", record->getString("Tag"));
+}
+
+TEST_F(SnapshotFixture, k1_active_member_exclusion_is_unchanged) {
+    auto member = game.newCreature();
+    member->setTag("same_tag");
+    ASSERT_TRUE(game.party().addAvailableMember(0, member));
+    ASSERT_TRUE(game.party().addMember(0, member));
+    TestGameModule::addSnapshotObject(*area, member);
+
+    auto worldCreature = game.newCreature();
+    worldCreature->setTag("same_tag");
+    TestGameModule::addSnapshotObject(*area, worldCreature);
+
+    auto saved = ModuleSnapshotBuilder(game, "module_k1_party").build();
+    ASSERT_TRUE(saved) << saved.message;
+    const auto &creatures = saved.snapshot->git->getList("Creature List");
+    ASSERT_EQ(1u, creatures.size());
+    EXPECT_EQ(worldCreature->id(), creatures.front()->getUint("ObjectId"));
 }
 
 TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) {

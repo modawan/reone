@@ -594,8 +594,10 @@ ModuleObjectIdContext ModuleSnapshotBuilder::buildObjectIdContext(
     addObject(module);
     addObject(area);
     for (const auto &object : area._objects) {
-        if (!object || area._objectsToDestroy.count(object->id()) != 0 ||
-            _game._party.isMember(*object)) continue;
+        if (!object || area._objectsToDestroy.count(object->id()) != 0) continue;
+        if (object->type() == ObjectType::Creature &&
+            _game._party.isRetainedRuntimeRepresentation(
+                *static_cast<const Creature *>(object.get()))) continue;
         if (ownsSavedObjectIdentity(object->type())) {
             addObject(*object);
         }
@@ -1579,7 +1581,9 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
     lists["CameraList"] = {};
     for (const auto &object : area._objects) {
         if (!object || area._objectsToDestroy.count(object->id()) != 0) continue;
-        if (object->type() == ObjectType::Creature && _game._party.isMember(*object)) continue;
+        if (object->type() == ObjectType::Creature &&
+            _game._party.isRetainedRuntimeRepresentation(
+                *static_cast<const Creature *>(object.get()))) continue;
         switch (object->type()) {
         case ObjectType::Creature:
             lists["Creature List"].push_back(writeCreature(

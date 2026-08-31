@@ -194,6 +194,12 @@ public:
     bool isMember(int npc) const;
     bool isMember(const Object &object) const;
 
+    /**
+     * Whether this exact Creature is retained by Party/session lifetime across
+     * a module boundary instead of belonging to the outgoing module graph.
+     */
+    bool isRetainedRuntimeRepresentation(const Creature &creature) const;
+
     std::shared_ptr<Creature> getMemberByNPC(int npc) const;
     std::shared_ptr<Creature> getMember(int index) const;
     int getNPCByMemberIndex(int index) const;

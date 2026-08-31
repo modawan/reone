@@ -664,6 +664,22 @@ bool Party::isMember(const Object &object) const {
     return false;
 }
 
+bool Party::isRetainedRuntimeRepresentation(const Creature &creature) const {
+    if (_player.get() == &creature || _actualPlayer.get() == &creature) {
+        return true;
+    }
+    if (isMember(creature)) {
+        return true;
+    }
+    for (int puppet : _persistedState.puppetIds) {
+        auto found = _puppetBindings.find(puppet);
+        if (found != _puppetBindings.end() && found->second.get() == &creature) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::shared_ptr<Object> Party::sharedInventoryReceiver(const std::shared_ptr<Object> &receiver) const {
     auto inventoryOwner = actualPlayer();
     // A party member's non-equipped items belong to the shared party inventory
