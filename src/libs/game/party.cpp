@@ -67,12 +67,17 @@ void Party::setPazaakSideDeck(PazaakSideDeck sideDeck) {
     _pazaakSideDeck = std::move(sideDeck);
 }
 
-void Party::setDefaultPazaakData(size_t cardCount) {
+void Party::initializeNewGameState() {
+    // Both titles start with two copies each of +1 through +5 and an empty
+    // side deck, but their PARTYTABLE ownership arrays have different sizes.
     PazaakCardCounts counts {};
     counts[0] = counts[1] = counts[2] = counts[3] = counts[4] = 2;
     PazaakSideDeck sideDeck;
     sideDeck.fill(-1);
-    setPazaakData(std::move(counts), std::move(sideDeck), cardCount);
+    setPazaakData(
+        std::move(counts),
+        std::move(sideDeck),
+        _game.isTSL() ? kK2PazaakCardCount : kK1PazaakCardCount);
 }
 
 bool Party::handle(const input::Event &event) {

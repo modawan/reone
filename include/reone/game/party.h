@@ -331,8 +331,8 @@ public:
         PazaakSideDeck sideDeck,
         size_t cardCount = kK1PazaakCardCount);
     void setPazaakSideDeck(PazaakSideDeck sideDeck);
-    /// Authored starting collection: two copies each of +1 through +5.
-    void setDefaultPazaakData(size_t cardCount = kK1PazaakCardCount);
+    /** Establish title-correct durable Party defaults for a fresh new game. */
+    void initializeNewGameState();
 
     // Experience
     //

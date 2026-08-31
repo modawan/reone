@@ -382,6 +382,7 @@ void CharacterGeneration::finish() {
 
         Party &party = _game.party();
         party.reset();
+        party.initializeNewGameState();
         party.addMember(kNpcPlayer, player);
         party.setPlayer(player);
         // The canonical PC has to exist before any script hands control to a

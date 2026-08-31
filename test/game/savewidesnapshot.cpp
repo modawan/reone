@@ -262,6 +262,62 @@ void configureReputes(TestEngine &engine) {
         .WillRepeatedly(Return(factionState()));
 }
 
+std::shared_ptr<Gff> freshNewGamePartyTable(GameID gameId) {
+    auto &engine = testEngine();
+    configureReputes(engine);
+    StubConsole console;
+    Game game(gameId, "", engine.options(), engine.services(), console);
+
+    // Storage reset is deliberately not new-game initialization. This is the
+    // same final reset/install order used by CharacterGeneration::finish().
+    game.party().reset();
+    EXPECT_FALSE(game.party().hasValidPazaakData());
+    game.party().initializeNewGameState();
+
+    auto area = game.newArea();
+    auto player = game.newCreature();
+    TestGameModule::configureModuleSnapshot(
+        game,
+        area,
+        player,
+        gameId == GameID::TSL ? "001ebo" : "end_m01aa",
+        gameId == GameID::TSL ? "001ebo" : "end_m01aa");
+
+    auto saved = SaveWideSnapshotBuilder(
+                     game, metadata(gameId == GameID::TSL))
+                     .build();
+    EXPECT_TRUE(saved) << saved.message;
+    if (!saved) return nullptr;
+    return readGff(
+        saved.snapshot->looseSlotResources.at({"partytable", ResType::Res}));
+}
+
+std::shared_ptr<Gff> savedPazaakTable(
+    size_t cardCount,
+    int firstCardCount,
+    int ninthCardCount) {
+    std::vector<std::shared_ptr<Gff>> cards;
+    for (size_t card = 0; card < cardCount; ++card) {
+        int count = card == 0 ? firstCardCount
+                              : card == 8 ? ninthCardCount : 0;
+        cards.push_back(
+            Gff::Builder()
+                .field(Gff::Field::newByte("PT_PAZAAKCOUNT", count))
+                .build());
+    }
+    std::vector<std::shared_ptr<Gff>> sideDeck;
+    for (size_t slot = 0; slot < Party::kK1PazaakSideDeckSize; ++slot) {
+        sideDeck.push_back(
+            Gff::Builder()
+                .field(Gff::Field::newInt("PT_PAZSIDECARD", -1))
+                .build());
+    }
+    return Gff::Builder()
+        .field(Gff::Field::newList("PT_PAZAAKCARDS", std::move(cards)))
+        .field(Gff::Field::newList("PT_PAZSIDELIST", std::move(sideDeck)))
+        .build();
+}
+
 struct TempArchive {
     std::filesystem::path path;
 
@@ -287,6 +343,85 @@ struct TempArchive {
 };
 
 } // namespace
+
+TEST(SaveWideSnapshot, party_reset_remains_distinct_from_new_game_initialization) {
+    auto &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+
+    game.party().initializeNewGameState();
+    ASSERT_TRUE(game.party().hasValidPazaakData());
+    game.party().reset();
+
+    EXPECT_FALSE(game.party().hasValidPazaakData());
+}
+
+TEST(SaveWideSnapshot, fresh_k1_party_has_saveable_title_defaults) {
+    auto party = freshNewGamePartyTable(GameID::KotOR);
+
+    ASSERT_TRUE(party);
+    const auto &cards = party->getList("PT_PAZAAKCARDS");
+    const auto &sideDeck = party->getList("PT_PAZSIDELIST");
+    ASSERT_EQ(Party::kK1PazaakCardCount, cards.size());
+    ASSERT_EQ(Party::kK1PazaakSideDeckSize, sideDeck.size());
+    for (size_t card = 0; card < cards.size(); ++card) {
+        EXPECT_EQ(card < 5 ? 2 : 0, cards[card]->getInt("PT_PAZAAKCOUNT"));
+    }
+    for (const auto &slot : sideDeck) {
+        EXPECT_EQ(-1, slot->getInt("PT_PAZSIDECARD"));
+    }
+}
+
+TEST(SaveWideSnapshot, fresh_k2_party_has_saveable_title_defaults) {
+    auto party = freshNewGamePartyTable(GameID::TSL);
+
+    ASSERT_TRUE(party);
+    const auto &cards = party->getList("PT_PAZAAKCARDS");
+    const auto &sideDeck = party->getList("PT_PAZSIDELIST");
+    ASSERT_EQ(Party::kK2PazaakCardCount, cards.size());
+    ASSERT_EQ(Party::kK1PazaakSideDeckSize, sideDeck.size());
+    for (size_t card = 0; card < cards.size(); ++card) {
+        EXPECT_EQ(card < 5 ? 2 : 0, cards[card]->getInt("PT_PAZAAKCOUNT"));
+    }
+    for (const auto &slot : sideDeck) {
+        EXPECT_EQ(-1, slot->getInt("PT_PAZSIDECARD"));
+    }
+}
+
+TEST(SaveWideSnapshot, restored_pazaak_state_remains_authoritative) {
+    auto &engine = testEngine();
+    configureReputes(engine);
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto party = savedPazaakTable(Party::kK1PazaakCardCount, 7, 3);
+
+    game.party().reset();
+    TestGameModule::deserializePartyTable(game, *party);
+    ASSERT_TRUE(game.party().hasValidPazaakData());
+    EXPECT_EQ(7, game.party().pazaakCardCounts()[0]);
+    EXPECT_EQ(3, game.party().pazaakCardCounts()[8]);
+
+    auto area = game.newArea();
+    auto player = game.newCreature();
+    TestGameModule::configureModuleSnapshot(
+        game, area, player, "end_m01aa", "end_m01aa");
+    auto saved = SaveWideSnapshotBuilder(game, metadata(false)).build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto roundTripped = readGff(
+        saved.snapshot->looseSlotResources.at({"partytable", ResType::Res}));
+    ASSERT_EQ(
+        Party::kK1PazaakCardCount,
+        roundTripped->getList("PT_PAZAAKCARDS").size());
+    EXPECT_EQ(
+        7,
+        roundTripped->getList("PT_PAZAAKCARDS")[0]->getInt(
+            "PT_PAZAAKCOUNT"));
+    EXPECT_EQ(
+        3,
+        roundTripped->getList("PT_PAZAAKCARDS")[8]->getInt(
+            "PT_PAZAAKCOUNT"));
+}
 
 TEST(SaveWideSnapshot, rich_k1_round_trips_all_common_state_and_shadows) {
     auto &engine = testEngine();

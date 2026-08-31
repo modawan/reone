@@ -2416,9 +2416,7 @@ bool Game::loadParty() {
 }
 
 void Game::loadDefaultParty() {
-    // A new game starts with the authored basic collection for the running title.
-    _party.setDefaultPazaakData(
-        isTSL() ? Party::kK2PazaakCardCount : Party::kK1PazaakCardCount);
+    _party.initializeNewGameState();
     std::string member1, member2, member3;
     _party.defaultMembers(member1, member2, member3);
 
