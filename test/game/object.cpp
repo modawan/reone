@@ -27,6 +27,8 @@
 #include "reone/game/action/opendoor.h"
 #include "reone/game/action/unlockobject.h"
 #include "reone/game/equipmentrules.h"
+#include "reone/game/d20/class.h"
+#include "reone/game/d20/classes.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/areatransition.h"
 #include "reone/game/gui/actionbar.h"
@@ -430,6 +432,82 @@ std::shared_ptr<TwoDA> makePlotTable() {
     builder.row({"dialog_plot", "1000"});
     builder.row({"explicit_plot", "500"});
     return std::shared_ptr<TwoDA>(builder.build());
+}
+
+struct VitalityTestClass {
+    NiceMock<MockStrings> strings;
+    NiceMock<MockTwoDAs> twoDas;
+    Classes classes {strings, twoDas};
+    std::shared_ptr<CreatureClass> clazz;
+
+    explicit VitalityTestClass(int hitDie) {
+        TwoDA::Builder skills;
+        auto skillsTable = std::shared_ptr<TwoDA>(skills.build());
+        TwoDA::Builder saves;
+        saves.columns({"level", "fortsave", "refsave", "willsave"})
+            .row({"1", "0", "0", "0"});
+        auto savesTable = std::shared_ptr<TwoDA>(saves.build());
+        TwoDA::Builder attacks;
+        attacks.columns({"bab"}).row({"0"});
+        auto attacksTable = std::shared_ptr<TwoDA>(attacks.build());
+
+        ON_CALL(twoDas, get("skills")).WillByDefault(Return(skillsTable));
+        ON_CALL(twoDas, get("save")).WillByDefault(Return(savesTable));
+        ON_CALL(twoDas, get("attack")).WillByDefault(Return(attacksTable));
+
+        TwoDA::Builder classesTable;
+        classesTable.columns({
+            "name", "description", "hitdie", "skillpointbase",
+            "str", "dex", "con", "int", "wis", "cha",
+            "skillstable", "savingthrowtable", "attackbonustable",
+            "featstable", "featgain", "spellgaintable"})
+            .row({
+                "0", "0", std::to_string(hitDie), "0",
+                "10", "10", "10", "10", "10", "10",
+                "unused", "save", "attack", "", "", ""});
+
+        clazz = std::make_shared<CreatureClass>(
+            ClassType::Soldier, classes, strings, twoDas);
+        clazz->load(*classesTable.build(), 0);
+    }
+};
+
+std::shared_ptr<Gff> vitalityCreatureRecord(
+    int baseHitPoints,
+    int serializedCurrentHitPoints,
+    int cachedMaxHitPoints,
+    int constitution,
+    int level,
+    std::vector<FeatType> feats = {},
+    bool isPC = false) {
+    auto classRecord = Gff::Builder()
+                           .field(Gff::Field::newInt(
+                               "Class", static_cast<int>(ClassType::Soldier)))
+                           .field(Gff::Field::newShort("ClassLevel", level))
+                           .build();
+    std::vector<std::shared_ptr<Gff>> featRecords;
+    for (auto feat : feats) {
+        featRecords.push_back(
+            Gff::Builder()
+                .field(Gff::Field::newWord(
+                    "Feat", static_cast<uint16_t>(feat)))
+                .build());
+    }
+    return Gff::Builder()
+        .field(Gff::Field::newDword("ObjectId", 82))
+        .field(Gff::Field::newShort("HitPoints", baseHitPoints))
+        .field(Gff::Field::newShort(
+            "CurrentHitPoints", serializedCurrentHitPoints))
+        .field(Gff::Field::newShort("MaxHitPoints", cachedMaxHitPoints))
+        .field(Gff::Field::newByte("IsPC", isPC))
+        .field(Gff::Field::newByte("Con", constitution))
+        .field(Gff::Field::newList("ClassList", {classRecord}))
+        .field(Gff::Field::newList("FeatList", std::move(featRecords)))
+        .field(Gff::Field::newDword("Appearance_Type", 0))
+        .field(Gff::Field::newWord("SoundSetFile", 0xffff))
+        .field(Gff::Field::newByte("BodyBag", 0xff))
+        .field(Gff::Field::newByte("PerceptionRange", 0xff))
+        .build();
 }
 
 std::shared_ptr<Gff> makeJournalWithPlotXP() {
@@ -5337,6 +5415,171 @@ TEST(SavedRuntimeState, preserves_and_binds_saved_encounter_runtime_state) {
     EXPECT_EQ(target, encounter->savedAreaObject(0));
 }
 
+TEST(CreatureVitality, restores_full_health_from_base_axis_with_permanent_bonuses) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    VitalityTestClass soldier(10);
+    EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
+        .WillRepeatedly(Return(soldier.clazz));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(
+        static_cast<MockPortraits &>(engine.services().game.portraits),
+        getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto record = vitalityCreatureRecord(
+        30, 30, 36, 12, 3, {FeatType::Toughness});
+    auto creature = game.newCreature(
+        *record, SerializedIdentityContext::templateResource("end_trask"));
+
+    EXPECT_EQ(30, creature->hitPoints());
+    EXPECT_EQ(36, creature->maxHitPoints());
+    EXPECT_EQ(36, creature->currentHitPoints());
+    EXPECT_EQ(30, creature->serializedCurrentHitPoints());
+}
+
+TEST(CreatureVitality, restores_and_serializes_genuine_damage_on_base_axis) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    VitalityTestClass soldier(10);
+    EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
+        .WillRepeatedly(Return(soldier.clazz));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(
+        static_cast<MockPortraits &>(engine.services().game.portraits),
+        getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto record = vitalityCreatureRecord(
+        30, 26, 36, 12, 3, {FeatType::Toughness});
+    auto creature = game.newCreature(*record, testModuleIdentity());
+
+    EXPECT_EQ(36, creature->maxHitPoints());
+    EXPECT_EQ(32, creature->currentHitPoints());
+    EXPECT_EQ(26, creature->serializedCurrentHitPoints());
+}
+
+TEST(CreatureVitality, restores_k1_and_k2_companion_witnesses_at_full_health) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game k1(GameID::KotOR, "", engine.options(), engine.services(), console);
+    Game k2(GameID::TSL, "", engine.options(), engine.services(), console);
+    VitalityTestClass soldier(10);
+    EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
+        .WillRepeatedly(Return(soldier.clazz));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(
+        static_cast<MockPortraits &>(engine.services().game.portraits),
+        getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto carth = k1.newCreature(
+        *vitalityCreatureRecord(40, 40, 44, 12, 4),
+        SerializedIdentityContext::templateResource("p_carth"));
+    auto mission = k1.newCreature(
+        *vitalityCreatureRecord(18, 18, 21, 12, 3),
+        SerializedIdentityContext::templateResource("p_mission"));
+    auto atton = k2.newCreature(
+        *vitalityCreatureRecord(18, 18, 24, 14, 3),
+        SerializedIdentityContext::templateResource("p_atton"));
+
+    EXPECT_EQ(44, carth->currentHitPoints());
+    EXPECT_EQ(44, carth->maxHitPoints());
+    EXPECT_EQ(21, mission->currentHitPoints());
+    EXPECT_EQ(21, mission->maxHitPoints());
+    EXPECT_EQ(24, atton->currentHitPoints());
+    EXPECT_EQ(24, atton->maxHitPoints());
+}
+
+TEST(CreatureVitality, permanent_bonus_changes_preserve_damage) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    VitalityTestClass soldier(10);
+    EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
+        .WillRepeatedly(Return(soldier.clazz));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(
+        static_cast<MockPortraits &>(engine.services().game.portraits),
+        getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto record = vitalityCreatureRecord(
+        30, 26, 36, 12, 3, {FeatType::Toughness});
+    auto creature = game.newCreature(*record, testModuleIdentity());
+    ASSERT_EQ(32, creature->currentHitPoints());
+
+    creature->attributes().setAbilityScore(Ability::Constitution, 14);
+    creature->recalculatePermanentVitality();
+    EXPECT_EQ(39, creature->maxHitPoints());
+    EXPECT_EQ(35, creature->currentHitPoints());
+    EXPECT_EQ(26, creature->serializedCurrentHitPoints());
+
+    creature->attributes().addFeat(FeatType::MasterToughness);
+    creature->recalculatePermanentVitality();
+    EXPECT_EQ(42, creature->maxHitPoints());
+    EXPECT_EQ(38, creature->currentHitPoints());
+    EXPECT_EQ(26, creature->serializedCurrentHitPoints());
+}
+
+TEST(CreatureVitality, generated_character_starts_at_full_derived_vitality) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    VitalityTestClass soldier(10);
+    auto creature = game.newCreature();
+    creature->attributes().addClassLevels(soldier.clazz.get(), 1);
+    creature->attributes().setAbilityScore(Ability::Constitution, 12);
+
+    creature->initializeGeneratedVitality();
+
+    EXPECT_EQ(10, creature->hitPoints());
+    EXPECT_EQ(11, creature->maxHitPoints());
+    EXPECT_EQ(11, creature->currentHitPoints());
+    EXPECT_EQ(10, creature->serializedCurrentHitPoints());
+}
+
+TEST(CreatureVitality, dead_serialized_creature_is_not_healed_by_derivation) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    VitalityTestClass soldier(10);
+    EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
+        .WillRepeatedly(Return(soldier.clazz));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(
+        static_cast<MockPortraits &>(engine.services().game.portraits),
+        getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto record = vitalityCreatureRecord(
+        30, 0, 36, 12, 3, {FeatType::Toughness});
+    auto creature = game.newCreature(*record, testModuleIdentity());
+
+    EXPECT_EQ(36, creature->maxHitPoints());
+    EXPECT_EQ(0, creature->currentHitPoints());
+    EXPECT_EQ(0, creature->serializedCurrentHitPoints());
+    EXPECT_TRUE(creature->isDead());
+}
+
 TEST(SavedRuntimeState, restores_saved_creature_death_from_current_hit_points) {
     TestEngine engine;
     engine.init();
@@ -5391,11 +5634,6 @@ TEST(SavedRuntimeState, restores_retail_player_death_threshold_without_clamping_
     EXPECT_TRUE(incapacitated->isPC());
     EXPECT_FALSE(incapacitated->isDead());
 
-    incapacitated->setMaxHitPoints(36);
-    incapacitated->restorePrimaryPlayerHitPoints();
-    EXPECT_EQ(36, incapacitated->currentHitPoints());
-    EXPECT_FALSE(incapacitated->isDead());
-
     auto deadState = makeSavedPlayer(-10, 0x7ffffffe);
     auto dead = game.newCreature(*deadState, testModuleIdentity());
     EXPECT_EQ(-10, dead->currentHitPoints());
@@ -5403,7 +5641,7 @@ TEST(SavedRuntimeState, restores_retail_player_death_threshold_without_clamping_
 }
 
 
-TEST(SavedRuntimeState, k1_zero_hp_pc_is_dead_until_primary_player_publication) {
+TEST(SavedRuntimeState, k1_zero_hp_pc_remains_dead_during_primary_player_publication) {
     TestEngine engine;
     engine.init();
     StubConsole console;
@@ -5426,15 +5664,10 @@ TEST(SavedRuntimeState, k1_zero_hp_pc_is_dead_until_primary_player_publication) 
                      .build();
     auto player = game.newCreature(*saved, testModuleIdentity());
 
-    // K1 does not share K2's -10 incapacitation threshold. The saved creature
-    // remains exact until the coordinator identifies it as the primary player.
+    // K1 does not share K2's -10 incapacitation threshold. Publication must
+    // preserve the saved state rather than healing the primary player.
     EXPECT_EQ(0, player->currentHitPoints());
     EXPECT_TRUE(player->isDead());
-
-    player->restorePrimaryPlayerHitPoints();
-
-    EXPECT_EQ(12, player->currentHitPoints());
-    EXPECT_FALSE(player->isDead());
 }
 TEST(SavedRuntimeState, keeps_min_one_hp_creature_alive_when_saved_at_zero) {
     TestEngine engine;
@@ -5556,8 +5789,41 @@ TEST(SavedRuntimeState, primary_health_publication_does_not_recover_unrelated_pc
     ASSERT_TRUE(actual);
     EXPECT_NE(moduleRuntime, actual);
     EXPECT_EQ(0, moduleRuntime->currentHitPoints());
-    EXPECT_EQ(36, actual->currentHitPoints());
+    EXPECT_EQ(0, actual->currentHitPoints());
     EXPECT_FALSE(actual->isDead());
+}
+
+TEST(CreatureVitality, primary_player_publication_preserves_saved_damage) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    VitalityTestClass soldier(10);
+    EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
+        .WillRepeatedly(Return(soldier.clazz));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(
+        static_cast<MockPortraits &>(engine.services().game.portraits),
+        getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto savedPlayer = vitalityCreatureRecord(
+        30, 26, 36, 12, 3, {FeatType::Toughness}, true);
+    auto ifo = Gff::Builder()
+                   .field(Gff::Field::newList(
+                       "Mod_PlayerList", {savedPlayer}))
+                   .build();
+
+    TestGameModule::publishPartyRuntimeState(
+        game, *ifo, nullptr, nullptr);
+
+    auto player = game.party().actualPlayer();
+    ASSERT_TRUE(player);
+    EXPECT_EQ(36, player->maxHitPoints());
+    EXPECT_EQ(32, player->currentHitPoints());
+    EXPECT_EQ(26, player->serializedCurrentHitPoints());
 }
 TEST(SavedRuntimeState, keeps_module_owned_items_authoritative_and_detached_inventory_local) {
     TestEngine engine;

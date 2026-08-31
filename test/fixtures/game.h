@@ -352,6 +352,7 @@ public:
         return *_services;
     }
 
+    MockClasses &classes() { return *_classes; }
     MockSpells &spells() { return *_spells; }
     MockPortraits &portraits() { return *_portraits; }
 

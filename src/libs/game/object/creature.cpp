@@ -580,6 +580,7 @@ void Creature::loadFromBlueprint(const std::string &resRef) {
     // deserialize() would re-read the self-referential TemplateResRef and
     // deserialize the same data twice, doubling accumulated class levels.
     deserializeAll(*utc, SerializedIdentityContext::templateResource(resRef));
+    restoreSerializedVitality();
     updateTransform();
     loadAppearance();
 }
@@ -756,9 +757,100 @@ void Creature::updateModelAnimation() {
     _animDirty = false;
 }
 
-void Creature::restorePrimaryPlayerHitPoints() {
-    _currentHitPoints = maxHitPoints();
-    _dead = false;
+int Creature::derivePermanentMaxHitPoints() const {
+    int result = _attributes.getPermanentMaxHitPoints(_hitPoints);
+    return std::clamp<int>(
+        result,
+        0,
+        std::numeric_limits<int16_t>::max());
+}
+
+void Creature::updateDeathFromCurrentHitPoints() {
+    if (_minOneHP && _currentHitPoints < 1) {
+        _currentHitPoints = 1;
+    }
+    _dead = _currentHitPoints <= (_game.isTSL() && _isPC ? -10 : 0);
+}
+
+void Creature::restoreSerializedVitality() {
+    // MaxHitPoints is a retail cache. HitPoints and CurrentHitPoints are both
+    // serialized on the base-vitality axis, so reconstruct the runtime value
+    // only after permanent attributes, levels and feats have been read.
+    if (_hitPoints <= 0 && _maxHitPoints > 0) {
+        // Preserve the long-standing tolerance for malformed/mod records that
+        // omit HitPoints but provide the cached maximum.
+        _hitPoints = _maxHitPoints;
+    }
+
+    const int serializedCurrent = _currentHitPoints;
+    _maxHitPoints = derivePermanentMaxHitPoints();
+    if (serializedCurrent > 0) {
+        const int damage = static_cast<int>(_hitPoints) - serializedCurrent;
+        _currentHitPoints = static_cast<int16_t>(std::clamp(
+            static_cast<int>(_maxHitPoints) - damage,
+            static_cast<int>(std::numeric_limits<int16_t>::min()),
+            static_cast<int>(std::numeric_limits<int16_t>::max())));
+    }
+    updateDeathFromCurrentHitPoints();
+}
+
+int Creature::serializedCurrentHitPoints() const {
+    if (_currentHitPoints <= 0) {
+        return _currentHitPoints;
+    }
+    const int damage = static_cast<int>(_maxHitPoints) - _currentHitPoints;
+    return std::clamp(
+        static_cast<int>(_hitPoints) - damage,
+        static_cast<int>(std::numeric_limits<int16_t>::min()),
+        static_cast<int>(std::numeric_limits<int16_t>::max()));
+}
+
+void Creature::recalculatePermanentVitality() {
+    const int oldMaximum = _maxHitPoints;
+    const int oldCurrent = _currentHitPoints;
+    _maxHitPoints = derivePermanentMaxHitPoints();
+    if (oldCurrent > 0) {
+        _currentHitPoints = static_cast<int16_t>(std::clamp(
+            oldCurrent + static_cast<int>(_maxHitPoints) - oldMaximum,
+            static_cast<int>(std::numeric_limits<int16_t>::min()),
+            static_cast<int>(std::numeric_limits<int16_t>::max())));
+    }
+    updateDeathFromCurrentHitPoints();
+}
+
+void Creature::setMaxHitPoints(int baseHitPoints) {
+    const int oldMaximum = _maxHitPoints;
+    const int oldCurrent = _currentHitPoints;
+    _hitPoints = static_cast<int16_t>(std::clamp(
+        baseHitPoints,
+        0,
+        static_cast<int>(std::numeric_limits<int16_t>::max())));
+    _maxHitPoints = derivePermanentMaxHitPoints();
+    if (oldCurrent > 0) {
+        _currentHitPoints = static_cast<int16_t>(std::clamp(
+            oldCurrent + static_cast<int>(_maxHitPoints) - oldMaximum,
+            static_cast<int>(std::numeric_limits<int16_t>::min()),
+            static_cast<int>(std::numeric_limits<int16_t>::max())));
+    }
+    updateDeathFromCurrentHitPoints();
+}
+
+void Creature::setCurrentHitPoints(int hitPoints) {
+    _currentHitPoints = static_cast<int16_t>(std::clamp(
+        hitPoints,
+        static_cast<int>(std::numeric_limits<int16_t>::min()),
+        static_cast<int>(std::numeric_limits<int16_t>::max())));
+    updateDeathFromCurrentHitPoints();
+}
+
+void Creature::initializeGeneratedVitality() {
+    _hitPoints = static_cast<int16_t>(std::clamp(
+        _attributes.getAggregateHitDie(),
+        0,
+        static_cast<int>(std::numeric_limits<int16_t>::max())));
+    _maxHitPoints = derivePermanentMaxHitPoints();
+    _currentHitPoints = _maxHitPoints;
+    updateDeathFromCurrentHitPoints();
 }
 
 void Creature::damage(int amount, uint32_t damager) {
@@ -3107,6 +3199,8 @@ void Creature::deserialize(
     }
     deserializeAll(gff, identityContext);
 
+    restoreSerializedVitality();
+
     updateTransform();
     loadAppearance();
 }
@@ -3118,17 +3212,9 @@ void Creature::deserializeAll(
 
     // Retail reads IsPC before post-processing hit points. A player character
     // remains an incapacitated, resumable runtime object through 0..-9 HP and
-    // becomes truly dead only at -10 HP. Preserve the saved HP verbatim; this
-    // distinction is runtime state, not a load-time recovery/clamp.
+    // becomes truly dead only at -10 HP.
     gff.readBool(_isPC, "IsPC");
     gff.readInt(_assignedPuppet, "AssignedPup");
-    if (identityContext.isSerializedState() && gff.has("CurrentHitPoints")) {
-        if (_minOneHP && _currentHitPoints < 1) {
-            _currentHitPoints = 1;
-        }
-        _dead = _currentHitPoints <= (_game.isTSL() && _isPC ? -10 : 0);
-    }
-
 
     // index into racialtypes.2da
     gff.readEnum(_race, "Race");

@@ -24,6 +24,8 @@
 #include "reone/game/game.h"
 #include "reone/game/action/wait.h"
 #include "reone/game/effect.h"
+#include "reone/game/d20/class.h"
+#include "reone/game/d20/classes.h"
 #include "reone/game/modulesnapshot.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
@@ -1149,6 +1151,69 @@ TEST(RemoveNPCFromPartyToBase, readding_materializes_one_fresh_representation) {
                       [](const Party::Member &member) {
                           return member.npc == 4;
                       }));
+}
+
+TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_rematerialization) {
+    RosterHarness harness;
+    NiceMock<MockStrings> strings;
+    NiceMock<MockTwoDAs> twoDas;
+    Classes classes(strings, twoDas);
+    auto soldier = std::make_shared<CreatureClass>(
+        ClassType::Soldier, classes, strings, twoDas);
+    EXPECT_CALL(testEngine().gameModule().classes(), get(ClassType::Soldier))
+        .WillRepeatedly(Return(soldier));
+
+    auto player = harness.creature("player");
+    auto companion = harness.creature("companion");
+    auto area = harness.game.newArea();
+    TestGameModule::configureModuleSnapshot(
+        harness.game, area, player, "source", "source");
+    area->add(player);
+    companion->attributes().addClassLevels(soldier.get(), 3);
+    companion->attributes().setAbilityScore(Ability::Constitution, 12);
+    companion->attributes().addFeat(FeatType::Toughness);
+    companion->setMaxHitPoints(30);
+    companion->setCurrentHitPoints(32);
+    ASSERT_TRUE(harness.game.party().addAvailableMember(4, companion));
+    ASSERT_TRUE(harness.game.party().addMember(4, companion));
+    EXPECT_EQ(36, companion->maxHitPoints());
+    EXPECT_EQ(32, companion->currentHitPoints());
+    area->add(companion);
+
+    auto committed = std::make_shared<const SaveWorkingState>();
+    EXPECT_CALL(
+        testEngine().resourceModule().director(), committedSaveWorkingState())
+        .WillOnce(Invoke([&committed]() { return committed; }));
+    EXPECT_CALL(
+        testEngine().resourceModule().director(), adoptSaveWorkingState(_))
+        .WillOnce(Invoke(
+            [&committed](auto state) { committed = std::move(state); }));
+    ASSERT_EQ(
+        1,
+        harness.call(
+                   "RemoveNPCFromPartyToBase", {Variable::ofInt(4)})
+            .intValue);
+
+    auto savedResource = committed->find({"availnpc4", ResType::Utc});
+    ASSERT_TRUE(savedResource);
+    auto saved = decodeGff(savedResource->data);
+    EXPECT_EQ(30, saved->getInt("HitPoints"));
+    EXPECT_EQ(36, saved->getInt("MaxHitPoints"));
+    EXPECT_EQ(26, saved->getInt("CurrentHitPoints"));
+
+    EXPECT_CALL(
+        testEngine().resourceModule().director(),
+        findSaveWorking(ResourceId("availnpc4", ResType::Utc)))
+        .WillOnce(Invoke([&committed]() {
+            auto record = committed->find({"availnpc4", ResType::Utc});
+            return Resource {record->data};
+        }));
+    auto replacement = harness.game.party().getAvailableMember(4, true);
+    ASSERT_TRUE(replacement);
+    EXPECT_EQ(30, replacement->hitPoints());
+    EXPECT_EQ(36, replacement->maxHitPoints());
+    EXPECT_EQ(32, replacement->currentHitPoints());
+    EXPECT_EQ(26, replacement->serializedCurrentHitPoints());
 }
 
 TEST(RemoveNPCFromPartyToBase, retires_the_active_assigned_puppet_but_keeps_assignment) {

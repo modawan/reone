@@ -544,8 +544,6 @@ TEST(SaveWideSnapshot, rich_k2_writes_title_specific_party_pc_puppet_and_nfo) {
     loadedPc->setMaxHitPoints(pc->getInt("MaxHitPoints"));
     loadedPc->setCurrentHitPoints(pc->getInt("CurrentHitPoints"));
     EXPECT_EQ(loadedPc->currentHitPoints(), 17);
-    loadedPc->restorePrimaryPlayerHitPoints();
-    EXPECT_EQ(loadedPc->currentHitPoints(), loadedPc->maxHitPoints());
     auto puppet = readGff(saved.snapshot->outerWorkingResources.at({"availpup0", ResType::Utc}));
     EXPECT_EQ(puppet->getString("FuturePuppet"), "puppet-shadow");
 

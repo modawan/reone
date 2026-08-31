@@ -1129,7 +1129,8 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::writeCreature(
     put(*result, Gff::Field::newByte("Gender", static_cast<uint8_t>(creature._gender)));
     put(*result, Gff::Field::newShort("HitPoints", creature._hitPoints));
     put(*result, Gff::Field::newShort("MaxHitPoints", creature._maxHitPoints));
-    put(*result, Gff::Field::newShort("CurrentHitPoints", creature._currentHitPoints));
+    put(*result, Gff::Field::newShort(
+        "CurrentHitPoints", creature.serializedCurrentHitPoints()));
     put(*result, Gff::Field::newByte("Dead", creature._dead));
     put(*result, Gff::Field::newShort("ForcePoints", creature._forcePoints));
     put(*result, Gff::Field::newShort("CurrentForce", creature._currentForce));

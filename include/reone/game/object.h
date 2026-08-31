@@ -199,12 +199,12 @@ public:
     // Maximum hit points, after considering all bonuses and penalties.
     int maxHitPoints() const { return _maxHitPoints; }
 
-    // Current hit points, not counting any bonuses.
+    // Current runtime hit points.
     int currentHitPoints() const { return _currentHitPoints; }
 
     void setMinOneHP(bool minOneHP) { _minOneHP = minOneHP; }
-    void setMaxHitPoints(int maxHitPoints) { _maxHitPoints = maxHitPoints; }
-    void setCurrentHitPoints(int hitPoints) { _currentHitPoints = hitPoints; }
+    virtual void setMaxHitPoints(int maxHitPoints) { _maxHitPoints = maxHitPoints; }
+    virtual void setCurrentHitPoints(int hitPoints) { _currentHitPoints = hitPoints; }
 
     // END Hit Points
 

@@ -59,6 +59,9 @@ public:
      */
     int getAggregateHitDie() const;
 
+    /** Derive permanent runtime vitality from a serialized base maximum. */
+    int getPermanentMaxHitPoints(int baseHitPoints) const;
+
     ClassType getEffectiveClass() const;
     int getClassLevel(ClassType clazz) const;
     int getAggregateAttackBonus() const;

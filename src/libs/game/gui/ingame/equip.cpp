@@ -367,7 +367,7 @@ void Equipment::update() {
     auto partyLeader(_game.party().getLeader());
 
     if (!_game.isTSL()) {
-        std::string vitalityString(str(boost::format("%d/\n%d") % partyLeader->currentHitPoints() % partyLeader->hitPoints()));
+        std::string vitalityString(str(boost::format("%d/\n%d") % partyLeader->currentHitPoints() % partyLeader->maxHitPoints()));
         _controls.LBL_VITALITY->setTextMessage(vitalityString);
     }
     _controls.LBL_DEF->setTextMessage(std::to_string(partyLeader->getDefense()));

@@ -385,7 +385,7 @@ void SelectionOverlay::renderHealthBar() {
     float healthBarHeight = kHealthBarHeight * titleScale;
     float x = opts.width * _selectedScreenCoords.x - barWidth / 2;
     float y = opts.height * (1.0f - _selectedScreenCoords.y) - _reticleHeight * scale / 2.0f - healthBarHeight - kOffsetToReticle * scale;
-    float w = glm::clamp(_selectedObject->currentHitPoints() / static_cast<float>(_selectedObject->hitPoints()), 0.0f, 1.0f) * barWidth;
+    float w = glm::clamp(_selectedObject->currentHitPoints() / static_cast<float>(_selectedObject->maxHitPoints()), 0.0f, 1.0f) * barWidth;
 
     if (_hasActions) {
         y -= (kActionHeight + 2 * kActionBarMargin) * scale;

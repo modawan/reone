@@ -2039,12 +2039,6 @@ void Game::publishPartyRuntimeState(
             *pcGff, pcIdentityContext, {SaveRecordOriginKind::PrimaryPlayerUtc, {}});
     }
 
-    // Retail K1 and K2 complete primary-player BIC publication by assigning
-    // the derived maximum HP after creature load. Keep this explicit and
-    // separate from generic creature deserialization: corpses, party NPCs and
-    // unrelated serialized PCs must retain their archived health state.
-    actualPlayer->restorePrimaryPlayerHitPoints();
-
     _party.setPlayer(modulePlayer);
     _party.setActualPlayer(actualPlayer);
     if (partyState.controlledNpc != -1 &&
@@ -6323,6 +6317,9 @@ void Game::consoleSetAbility(const ConsoleArgs &args) {
         throw std::runtime_error("Invalid value");
     }
     actor->attributes().setAbilityScore(ability.value(), value.value());
+    if (ability.value() == Ability::Constitution) {
+        actor->recalculatePermanentVitality();
+    }
 }
 
 void Game::consoleSetSkill(const ConsoleArgs &args) {
@@ -6354,6 +6351,7 @@ void Game::consoleAddOrRemoveFeat(const ConsoleArgs &args) {
     } else {
         attrs.removeFeat(feat.value());
     }
+    actor->recalculatePermanentVitality();
 }
 
 void Game::consoleAddOrRemoveSpell(const ConsoleArgs &args) {

@@ -24,6 +24,8 @@
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/effect.h"
+#include "reone/game/d20/class.h"
+#include "reone/game/d20/classes.h"
 #include "reone/game/game.h"
 #include "reone/game/modulesnapshot.h"
 #include "reone/game/object/area.h"
@@ -407,8 +409,8 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     area->setStealthXPDecrement(5);
     TestGameModule::setSnapshotWorldTime(game, 3, 1000, 5);
 
-    player->setCurrentHitPoints(17);
     player->setMaxHitPoints(35);
+    player->setCurrentHitPoints(17);
     player->setLocalBoolean(31, true);
     player->setLocalNumber(4, 23);
     player->applyEffect(game.newEffect<Effect>(EffectType::Haste), DurationType::Temporary, 30.0f);
@@ -662,6 +664,44 @@ TEST_F(SnapshotFixture, authoritative_membership_omits_deleted_shadow_records) {
     auto deleted = ModuleSnapshotBuilder(game, "module004").build();
     ASSERT_TRUE(deleted) << deleted.message;
     EXPECT_TRUE(deleted.snapshot->git->getList("Door List").empty());
+}
+
+TEST_F(SnapshotFixture, writes_creature_vitality_on_the_retail_base_axis) {
+    NiceMock<MockStrings> strings;
+    NiceMock<MockTwoDAs> twoDas;
+    Classes classes(strings, twoDas);
+    auto soldier = std::make_shared<CreatureClass>(
+        ClassType::Soldier, classes, strings, twoDas);
+
+    auto creature = game.newCreature();
+    creature->attributes().addClassLevels(soldier.get(), 3);
+    creature->attributes().setAbilityScore(Ability::Constitution, 12);
+    creature->attributes().addFeat(FeatType::Toughness);
+    creature->setMaxHitPoints(30);
+    creature->setCurrentHitPoints(32);
+    auto staleShadow = Gff::Builder()
+                           .field(Gff::Field::newDword(
+                               "ObjectId", creature->id()))
+                           .field(Gff::Field::newShort("HitPoints", 99))
+                           .field(Gff::Field::newShort("MaxHitPoints", 99))
+                           .field(Gff::Field::newShort(
+                               "CurrentHitPoints", 99))
+                           .build();
+    creature->captureSaveRecord(
+        *staleShadow,
+        SerializedIdentityContext::moduleGraph("tat_m17ab"),
+        {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
+    TestGameModule::addSnapshotObject(*area, creature);
+
+    auto saved = ModuleSnapshotBuilder(game, "tat_m17ab").build();
+
+    ASSERT_TRUE(saved) << saved.message;
+    auto record = recordById(
+        *saved.snapshot->git, "Creature List", creature->id());
+    ASSERT_TRUE(record);
+    EXPECT_EQ(30, record->getInt("HitPoints"));
+    EXPECT_EQ(36, record->getInt("MaxHitPoints"));
+    EXPECT_EQ(26, record->getInt("CurrentHitPoints"));
 }
 
 TEST_F(SnapshotFixture, linked_door_helpers_are_derived_not_saved_git_members) {

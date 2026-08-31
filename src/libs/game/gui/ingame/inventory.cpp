@@ -433,7 +433,7 @@ void InventoryMenu::refreshStats() {
     }
 
     if (_controls.LBL_VIT) {
-        _controls.LBL_VIT->setTextMessage(std::to_string(partyLeader->currentHitPoints()) + "/\n" + std::to_string(partyLeader->hitPoints()));
+        _controls.LBL_VIT->setTextMessage(std::to_string(partyLeader->currentHitPoints()) + "/\n" + std::to_string(partyLeader->maxHitPoints()));
         _controls.LBL_VIT->setVisible(true);
     }
     if (_controls.LBL_DEF) {

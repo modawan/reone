@@ -108,6 +108,38 @@ int CreatureAttributes::getAggregateHitDie() const {
     return result;
 }
 
+int CreatureAttributes::getPermanentMaxHitPoints(int baseHitPoints) const {
+    const int level = getAggregateLevel();
+    if (level <= 0) {
+        return std::max(0, baseHitPoints);
+    }
+
+    int featHitPointsPerLevel = 0;
+    if (hasFeat(FeatType::MasterToughness)) {
+        featHitPointsPerLevel += 2;
+    } else if (hasFeat(FeatType::Toughness)) {
+        featHitPointsPerLevel += 1;
+    }
+
+    if (hasFeat(FeatType::MasterWookieEndurance)) {
+        featHitPointsPerLevel += 4;
+    } else if (hasFeat(FeatType::ImprovedWookieEndurance)) {
+        featHitPointsPerLevel += 3;
+    } else if (hasFeat(FeatType::WookieEndurance)) {
+        featHitPointsPerLevel += 2;
+    }
+
+    int result = std::max(
+        level,
+        baseHitPoints +
+            getAbilityModifier(Ability::Constitution) * level);
+    result += featHitPointsPerLevel * level;
+    if (hasFeat(FeatType::WarVeteran)) {
+        result += 25;
+    }
+    return result;
+}
+
 int CreatureAttributes::getAggregateLevel() const {
     int result = 0;
     for (auto &pair : _classLevels) {

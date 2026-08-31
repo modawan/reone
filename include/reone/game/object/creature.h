@@ -174,13 +174,21 @@ public:
     void setAppearance(int appearance) { _appearance = appearance; }
     void setMovementType(MovementType type);
     void setFaction(Faction faction) { _faction = faction; }
+    /** Set the serialized base maximum and preserve the existing damage. */
+    void setMaxHitPoints(int baseHitPoints) override;
+    void setCurrentHitPoints(int hitPoints) override;
+
     /**
-     * Complete retail primary-player publication after saved creature data has
-     * been read. Both Odyssey titles refill the authoritative primary player
-     * to the derived maximum here; ordinary creatures and detached PCs never
-     * pass through this operation.
+     * Recalculate permanent vitality after attributes, levels or feats change,
+     * preserving the exact amount of damage already sustained.
      */
-    void restorePrimaryPlayerHitPoints();
+    void recalculatePermanentVitality();
+
+    /** Initialize a newly generated creature at full derived vitality. */
+    void initializeGeneratedVitality();
+
+    /** Current vitality translated back to the serialized base-HP axis. */
+    int serializedCurrentHitPoints() const;
     void setMovementRestricted(bool restricted) { _movementRestricted = restricted; }
     void setImmortal(bool immortal) { _immortal = immortal; }
     void setAIStyle(NPCAIStyle style) { _aiStyle = style; }
@@ -616,6 +624,9 @@ private:
     void deserializeOwnedItemsAndEquipment(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
+    int derivePermanentMaxHitPoints() const;
+    void restoreSerializedVitality();
+    void updateDeathFromCurrentHitPoints();
     // END Blueprint
 };
 
