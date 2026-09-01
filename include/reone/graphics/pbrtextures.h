@@ -83,7 +83,7 @@ public:
     void refresh();
 
     void requestEnvMapDerived(EnvMapDerivedRequest request) {
-        _envMapDerivedRequests.insert(std::move(request));
+        _envMapDerivedRequests.insert(request);
     }
 
     std::optional<int> findEnvMapDerivedLayer(const std::string &name) {
