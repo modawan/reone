@@ -29,9 +29,12 @@ public:
         Effect(EffectType::AttackDecrease),
         _penalty(penalty),
         _modifierType(modifierType) {
+        setSaveFacingInteger(0, penalty);
+        setSaveFacingInteger(1, static_cast<int>(modifierType));
+        setSaveFacingInteger(2, static_cast<int>(RacialType::All));
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object, const EffectInstance &instance) override;
 
     int penalty() const { return _penalty; }
     AttackBonus modifierType() const { return _modifierType; }

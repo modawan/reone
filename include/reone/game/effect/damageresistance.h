@@ -18,7 +18,6 @@
 #pragma once
 
 #include "../effect.h"
-#include "damageabsorption.h"
 
 namespace reone {
 
@@ -27,21 +26,13 @@ namespace game {
 class DamageResistanceEffect : public Effect {
 public:
     DamageResistanceEffect(DamageType damageType, int amount, int limit) :
-        Effect(EffectType::DamageResistance),
-        _damageType(damageType),
-        _absorption(amount, limit) {
+        Effect(EffectType::DamageResistance) {
+        setSaveFacingInteger(0, static_cast<int>(damageType));
+        setSaveFacingInteger(1, amount);
+        setSaveFacingInteger(2, limit);
     }
 
     void applyTo(Object &object) override;
-
-    DamageType damageType() const { return _damageType; }
-    int amount() const { return _absorption.amount(); }
-    int absorb(int damage) { return _absorption.absorb(damage); }
-    bool exhausted() const { return _absorption.exhausted(); }
-
-private:
-    DamageType _damageType;
-    DamageAbsorption _absorption;
 };
 
 } // namespace game

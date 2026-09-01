@@ -336,6 +336,10 @@ public:
         const Item *weapon,
         bool offHand) const;
     int getAttackBonus(bool offHand = false) const;
+    bool hasEffectImmunity(
+        ImmunityType immunityType,
+        const Creature *creator = nullptr) const;
+    int getAbilityEffectModifier(Ability ability) const;
     int getDefense(const Creature *attacker, int damageFlags) const;
     int getDefense() const;
     int getFortitudeSave(SavingThrowType savingThrowType = SavingThrowType::All) const;

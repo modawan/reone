@@ -39,6 +39,7 @@
 #include "reone/game/effect/immunity.h"
 #include "reone/game/effect/savingthrowdecrease.h"
 #include "reone/game/effect/savingthrowincrease.h"
+#include "reone/game/effect/source.h"
 #include "reone/game/footstepsounds.h"
 #include "reone/game/game.h"
 #include "reone/game/party.h"
@@ -85,6 +86,7 @@ namespace game {
 static constexpr int kStrRefRemains = 38151;
 static constexpr int kMaximumDodgeBonus = 10;
 static constexpr int kMaximumSavingThrowModifier = 20;
+static constexpr int kMaximumDamageEffectModifier = 36;
 static constexpr int kAllSavingThrows = 0;
 static constexpr int kFortitudeSavingThrow = 1;
 static constexpr int kSituationalAttackBonus = 10;
@@ -1600,6 +1602,43 @@ Alignment Creature::alignment() const {
     return Alignment::Neutral;
 }
 
+bool Creature::hasEffectImmunity(
+    ImmunityType immunityType, const Creature *creator) const {
+    for (const EffectInstance &applied : effects()) {
+        if (applied.type() == EffectType::Immunity &&
+            applied.integerParameter(0) == static_cast<int>(immunityType) &&
+            applied.appliesVersus(creator)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int Creature::getAbilityEffectModifier(Ability ability) const {
+    static constexpr int kMaximumAbilityEffectModifier = 30;
+    EffectModifierReducer reducer;
+    int subtype = static_cast<int>(ability);
+
+    for (const EffectInstance &applied : effects()) {
+        if (applied.integerParameter(0, -1) != subtype) {
+            continue;
+        }
+        int amount = applied.integerParameter(1);
+        switch (applied.type()) {
+        case EffectType::AbilityIncrease:
+            reducer.addIncrease(getEffectSourceKey(applied), subtype, amount);
+            break;
+        case EffectType::AbilityDecrease:
+            reducer.addDecrease(getEffectSourceKey(applied), subtype, amount);
+            break;
+        default:
+            break;
+        }
+    }
+    return reducer.totalIncrease(kMaximumAbilityEffectModifier) -
+           reducer.totalDecrease(kMaximumAbilityEffectModifier);
+}
+
 AttackBonusBreakdown Creature::getAttackBonusBreakdown(
     const Creature *target,
     const Item *weapon,
@@ -1640,25 +1679,42 @@ AttackBonusBreakdown Creature::getAttackBonusBreakdown(
 
     int modifierBonus = 0;
     int modifierPenalty = 0;
+    EffectModifierReducer miscModifierReducer;
 
     for (const auto &applied : effects()) {
-        if (!applied.effect) {
+        if (!applied.appliesVersus(target)) {
             continue;
         }
-        switch (applied.effect->type()) {
+        auto modifierType = static_cast<AttackBonus>(
+            applied.integerParameter(1));
+        switch (applied.type()) {
         case EffectType::AttackIncrease: {
-            const auto &effect = static_cast<const AttackIncreaseEffect &>(*applied.effect);
-            if (effect.bonus() > 0 &&
-                attackModifierApplies(effect.modifierType(), weapon, offHand)) {
-                modifierBonus += effect.bonus();
+            int bonus = applied.integerParameter(0);
+            if (bonus > 0 &&
+                attackModifierApplies(modifierType, weapon, offHand)) {
+                if (modifierType == AttackBonus::Misc) {
+                    miscModifierReducer.addIncrease(
+                        getEffectSourceKey(applied),
+                        static_cast<int>(AttackBonus::Misc),
+                        bonus);
+                } else {
+                    modifierBonus += bonus;
+                }
             }
             break;
         }
         case EffectType::AttackDecrease: {
-            const auto &effect = static_cast<const AttackDecreaseEffect &>(*applied.effect);
-            if (effect.penalty() > 0 &&
-                attackModifierApplies(effect.modifierType(), weapon, offHand)) {
-                modifierPenalty += effect.penalty();
+            int penalty = applied.integerParameter(0);
+            if (penalty > 0 &&
+                attackModifierApplies(modifierType, weapon, offHand)) {
+                if (modifierType == AttackBonus::Misc) {
+                    miscModifierReducer.addDecrease(
+                        getEffectSourceKey(applied),
+                        static_cast<int>(AttackBonus::Misc),
+                        penalty);
+                } else {
+                    modifierPenalty += penalty;
+                }
             }
             break;
         }
@@ -1666,6 +1722,9 @@ AttackBonusBreakdown Creature::getAttackBonusBreakdown(
             break;
         }
     }
+
+    modifierBonus += miscModifierReducer.totalIncrease(20);
+    modifierPenalty += miscModifierReducer.totalDecrease(20);
 
     for (const auto &[slot, item] : _equipment) {
         if (!item || !equippedItemAppliesToAttack(slot, *item, weapon, offHand)) {
@@ -1805,26 +1864,26 @@ int Creature::getDefense(const Creature *attacker, int damageFlags) const {
     std::array<int, kACBonusTypeCount> modifierPenalties {};
 
     for (const auto &applied : effects()) {
-        if (!applied.effect) {
+        if (!applied.appliesVersus(attacker)) {
             continue;
         }
-        switch (applied.effect->type()) {
+        switch (applied.type()) {
         case EffectType::ACIncrease: {
-            const auto &effect = static_cast<const ACIncreaseEffect &>(*applied.effect);
-            if (damageTypeMatches(effect.damageType(), damageFlags)) {
+            int effectDamageType = applied.integerParameter(5, kAllDamageTypeFlags);
+            if (damageTypeMatches(effectDamageType, damageFlags)) {
                 addDefenseModifier(
-                    effect.bonus(),
-                    effect.modifierType(),
+                    applied.integerParameter(1),
+                    static_cast<ACBonus>(applied.integerParameter(0)),
                     modifierBonuses);
             }
             break;
         }
         case EffectType::ACDecrease: {
-            const auto &effect = static_cast<const ACDecreaseEffect &>(*applied.effect);
-            if (damageTypeMatches(effect.damageType(), damageFlags)) {
+            int effectDamageType = applied.integerParameter(5, kAllDamageTypeFlags);
+            if (damageTypeMatches(effectDamageType, damageFlags)) {
                 addDefenseModifier(
-                    effect.penalty(),
-                    effect.modifierType(),
+                    applied.integerParameter(1),
+                    static_cast<ACBonus>(applied.integerParameter(0)),
                     modifierPenalties);
             }
             break;
@@ -1906,31 +1965,24 @@ int Creature::getDefense() const {
 int Creature::getFortitudeSave(SavingThrowType savingThrowType) const {
     int modifier = 0;
     for (const auto &applied : effects()) {
-        if (!applied.effect) {
-            continue;
-        }
-        switch (applied.effect->type()) {
+        switch (applied.type()) {
         case EffectType::SavingThrowIncrease: {
-            const auto &effect =
-                static_cast<const SavingThrowIncreaseEffect &>(*applied.effect);
             if (savingThrowModifierApplies(
-                    effect.save(),
-                    effect.savingThrowType(),
+                    applied.integerParameter(1),
+                    static_cast<SavingThrowType>(applied.integerParameter(2)),
                     kFortitudeSavingThrow,
                     savingThrowType)) {
-                modifier += effect.value();
+                modifier += applied.integerParameter(0);
             }
             break;
         }
         case EffectType::SavingThrowDecrease: {
-            const auto &effect =
-                static_cast<const SavingThrowDecreaseEffect &>(*applied.effect);
             if (savingThrowModifierApplies(
-                    effect.save(),
-                    effect.savingThrowType(),
+                    applied.integerParameter(1),
+                    static_cast<SavingThrowType>(applied.integerParameter(2)),
                     kFortitudeSavingThrow,
                     savingThrowType)) {
-                modifier -= effect.value();
+                modifier -= applied.integerParameter(0);
             }
             break;
         }
@@ -2339,28 +2391,33 @@ void Creature::addPhysicalDamageModifiers(
         }
     }
 
-    std::map<int, int> effectBonuses;
-    std::map<int, int> effectPenalties;
+    EffectModifierReducer effectModifierReducer;
     for (const auto &applied : effects()) {
-        if (!applied.effect) {
+        if (!applied.appliesVersus(target)) {
             continue;
         }
-        switch (applied.effect->type()) {
+        switch (applied.type()) {
         case EffectType::DamageIncrease: {
-            const auto &effect = static_cast<const DamageIncreaseEffect &>(*applied.effect);
-            if (effect.bonus() > 0) {
-                effectBonuses[static_cast<int>(getPrimaryDamageType(
-                    static_cast<int>(effect.damageType())))] +=
-                    criticalMultiplier * effect.bonus();
+            int bonus = applied.integerParameter(0);
+            if (bonus > 0) {
+                int type = static_cast<int>(getPrimaryDamageType(
+                    applied.integerParameter(1)));
+                effectModifierReducer.addIncrease(
+                    getEffectSourceKey(applied),
+                    type,
+                    criticalMultiplier * bonus);
             }
             break;
         }
         case EffectType::DamageDecrease: {
-            const auto &effect = static_cast<const DamageDecreaseEffect &>(*applied.effect);
-            if (effect.penalty() > 0) {
-                effectPenalties[static_cast<int>(getPrimaryDamageType(
-                    static_cast<int>(effect.damageType())))] +=
-                    criticalMultiplier * effect.penalty();
+            int penalty = applied.integerParameter(0);
+            if (penalty > 0) {
+                int type = static_cast<int>(getPrimaryDamageType(
+                    applied.integerParameter(1)));
+                effectModifierReducer.addDecrease(
+                    getEffectSourceKey(applied),
+                    type,
+                    criticalMultiplier * penalty);
             }
             break;
         }
@@ -2369,7 +2426,8 @@ void Creature::addPhysicalDamageModifiers(
         }
     }
 
-    for (const auto &[type, amount] : effectBonuses) {
+    for (const auto &[type, amount] :
+         effectModifierReducer.increasesBySubtype(kMaximumDamageEffectModifier)) {
         damage.add(amount, static_cast<DamageType>(type));
     }
     for (const DamageModifier &modifier : itemBonuses) {
@@ -2377,7 +2435,8 @@ void Creature::addPhysicalDamageModifiers(
             rollDamageModifier(modifier, criticalMultiplier),
             modifier.type);
     }
-    for (const auto &[type, amount] : effectPenalties) {
+    for (const auto &[type, amount] :
+         effectModifierReducer.decreasesBySubtype(kMaximumDamageEffectModifier)) {
         damage.add(-amount, static_cast<DamageType>(type));
     }
     for (const DamageModifier &modifier : itemPenalties) {

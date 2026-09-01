@@ -159,8 +159,6 @@ public:
 
     // Effects
 
-    using AppliedEffect = EffectInstance;
-
     void clearAllEffects();
     void removeEffect(const std::shared_ptr<Effect> &effect);
     void applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration = 0.0f);
@@ -168,6 +166,8 @@ public:
     size_t removeEffectsById(EffectId id);
 
     const std::deque<EffectInstance> &effects() const { return _effects; }
+    /** Find the canonical applied record for an exact executable payload. */
+    EffectInstance *findEffectInstance(const Effect &effect);
     std::vector<EffectInstance> saveEffectSnapshot() const;
     bool hasEffect(EffectType type) const;
     std::shared_ptr<Effect> getFirstEffect();

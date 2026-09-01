@@ -30,8 +30,8 @@ public:
         _attacks(attacks) {
     }
 
-    bool onApply(Object &object) override;
-    void onRemove(Object &object) override;
+    bool onApply(Object &object, const EffectInstance &instance) override;
+    void onRemove(Object &object, const EffectInstance &instance) override;
 
 private:
     int _attacks;

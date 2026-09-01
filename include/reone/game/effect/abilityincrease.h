@@ -29,9 +29,14 @@ public:
         Effect(EffectType::AbilityIncrease),
         _abilityToIncrease(abilityToIncrease),
         _modifyBy(modifyBy) {
+        setSaveFacingInteger(0, static_cast<int>(abilityToIncrease));
+        setSaveFacingInteger(1, modifyBy);
     }
 
     void applyTo(Object &object) override;
+
+    Ability ability() const { return _abilityToIncrease; }
+    int amount() const { return _modifyBy; }
 
 private:
     Ability _abilityToIncrease;

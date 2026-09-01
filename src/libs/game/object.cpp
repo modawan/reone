@@ -402,6 +402,16 @@ std::vector<EffectInstance> Object::saveEffectSnapshot() const {
     return {_effects.begin(), _effects.end()};
 }
 
+EffectInstance *Object::findEffectInstance(const Effect &effect) {
+    auto it = std::find_if(
+        _effects.begin(),
+        _effects.end(),
+        [&effect](const EffectInstance &instance) {
+            return instance.effect.get() == &effect;
+        });
+    return it != _effects.end() ? &*it : nullptr;
+}
+
 std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
     // Loaded slots retain original order. Executed/cancelled actions cease to
     // be live as soon as they leave (or complete within) the runtime queue.
@@ -899,10 +909,9 @@ void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType dur
         instance.expiryTime = 0;
         instance.skipOnLoad = false;
 
-        // The save-facing instance remains authoritative. Unsupported retail
-        // effects stay typed and queryable rather than pretending that the
-        // SavedEffectValue wrapper implements their gameplay behavior.
-        instance.effect.reset();
+        // The save-facing instance remains authoritative. Supported retail
+        // payloads execute through the canonical EffectInstance, while
+        // unsupported values remain typed and queryable with a null payload.
         restoreEffect(std::move(instance));
         return;
     }
@@ -910,7 +919,9 @@ void Object::applyEffect(const std::shared_ptr<Effect> &effect, DurationType dur
     EffectInstance instance = effect->saveFacingInstance();
     instance.effect = effect;
     instance.id = _game.allocateEffectId();
-    instance.subType = static_cast<uint16_t>(durationType);
+    instance.subType = static_cast<uint16_t>(
+        (instance.subType & ~static_cast<uint16_t>(0x7)) |
+        static_cast<uint16_t>(durationType));
     instance.duration = duration;
     if (durationType == DurationType::Temporary) {
         instance.remainingDuration = duration;
@@ -925,13 +936,14 @@ bool Object::restoreEffect(EffectInstance effect) {
         return false;
     }
     if (effect.durationType() == DurationType::Instant && effect.effect) {
-        if (effect.effect->onApply(*this)) {
-            effect.effect->onRemove(*this);
+        if (effect.effect->onApply(*this, effect)) {
+            effect.effect->onRemove(*this, effect);
         }
         return true;
     }
     _effects.push_back(std::move(effect));
-    if (_effects.back().effect && !_effects.back().effect->onApply(*this)) {
+    if (_effects.back().effect &&
+        !_effects.back().effect->onApply(*this, _effects.back())) {
         _effects.pop_back();
         return false;
     }
@@ -942,10 +954,10 @@ size_t Object::removeEffectsById(EffectId id) {
     size_t removed = 0;
     for (auto it = _effects.begin(); it != _effects.end();) {
         if (it->id == id) {
-            std::shared_ptr<Effect> removedEffect = it->effect;
+            EffectInstance removedEffect = std::move(*it);
             it = _effects.erase(it);
-            if (removedEffect) {
-                removedEffect->onRemove(*this);
+            if (removedEffect.effect) {
+                removedEffect.effect->onRemove(*this, removedEffect);
             }
             ++removed;
         } else {
@@ -963,10 +975,10 @@ void Object::updateEffects(float dt) {
             *effect.remainingDuration = glm::max(0.0f, *effect.remainingDuration - dt);
         }
         if (temporary && *effect.remainingDuration == 0.0f) {
-            std::shared_ptr<Effect> removedEffect = effect.effect;
+            EffectInstance removedEffect = std::move(effect);
             it = _effects.erase(it);
-            if (removedEffect) {
-                removedEffect->onRemove(*this);
+            if (removedEffect.effect) {
+                removedEffect.effect->onRemove(*this, removedEffect);
             }
         } else {
             ++it;
@@ -1049,17 +1061,17 @@ std::shared_ptr<Item> Object::getItemByTag(const std::string &tag) {
 }
 
 void Object::clearAllEffects() {
-    std::vector<std::shared_ptr<Effect>> removed;
+    std::vector<EffectInstance> removed;
     removed.reserve(_effects.size());
     for (EffectInstance &effect : _effects) {
         if (effect.effect) {
-            removed.push_back(std::move(effect.effect));
+            removed.push_back(std::move(effect));
         }
     }
     _effects.clear();
 
-    for (const std::shared_ptr<Effect> &effect : removed) {
-        effect->onRemove(*this);
+    for (const EffectInstance &effect : removed) {
+        effect.effect->onRemove(*this, effect);
     }
     onEffectsCleared();
 }
@@ -1067,9 +1079,9 @@ void Object::clearAllEffects() {
 void Object::removeEffect(const std::shared_ptr<Effect> &effect) {
     for (auto it = _effects.begin(); it != _effects.end(); ++it) {
         if (it->effect == effect) {
-            std::shared_ptr<Effect> removed = it->effect;
+            EffectInstance removed = std::move(*it);
             _effects.erase(it);
-            removed->onRemove(*this);
+            removed.effect->onRemove(*this, removed);
             return;
         }
     }
@@ -1080,7 +1092,7 @@ bool Object::hasEffect(EffectType type) const {
         _effects.begin(),
         _effects.end(),
         [type](const EffectInstance &applied) {
-            return applied.effect && applied.effect->type() == type;
+            return applied.type() == type;
         });
 }
 

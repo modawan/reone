@@ -42,6 +42,7 @@ struct Variable;
 namespace game {
 
 class Object;
+class Creature;
 class Game;
 
 using EffectId = uint64_t;
@@ -89,8 +90,8 @@ public:
     }
 
     virtual void applyTo(Object &object);
-    virtual bool onApply(Object &object);
-    virtual void onRemove(Object &object);
+    virtual bool onApply(Object &object, const EffectInstance &instance);
+    virtual void onRemove(Object &object, const EffectInstance &instance);
     /** Release executable payload owned by the outgoing Area lifetime. */
     virtual void retireAreaRuntime(
         const std::set<const Object *> &retainedObjects) {}
@@ -104,6 +105,9 @@ public:
      */
     virtual EffectInstance saveFacingInstance() const;
     void setSaveFacingCreator(const std::shared_ptr<Object> &creator);
+    void setSaveFacingSpellId(int32_t spellId);
+    bool setVersusAlignment(int lawChaos, int goodEvil);
+    bool setVersusRacialType(int racialType);
     void captureSaveFacingScriptArguments(
         const std::vector<script::Variable> &arguments,
         const Game &game);
@@ -126,6 +130,7 @@ private:
     std::array<std::string, 6> _saveFacingStrings {};
     RuntimeObjectRef<Object> _saveFacingCreator;
     std::array<RuntimeObjectRef<Object>, 4> _saveFacingObjects;
+    uint32_t _saveFacingSpellId {std::numeric_limits<uint32_t>::max()};
     bool _saveFacingRepresentable {true};
 };
 
@@ -172,6 +177,8 @@ struct EffectInstance {
         const SerializedIdentityContext &identityContext);
 
     DurationType durationType() const;
+    EffectType type() const;
+    int32_t integerParameter(size_t index, int32_t defaultValue = 0) const;
     uint16_t semanticSubType() const { return subType & 0x18; }
     bool hasStableId() const { return id != kUnassignedEffectId; }
     bool hasSerializedObjectReferences() const {
@@ -187,6 +194,7 @@ struct EffectInstance {
 
     std::shared_ptr<Object> boundCreator() const;
     std::shared_ptr<Object> boundObjectParameter(size_t index) const;
+    bool appliesVersus(const Creature *creature) const;
 
     /**
      * Rebase live object bindings at an Area lifetime boundary.

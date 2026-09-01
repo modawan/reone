@@ -29,6 +29,9 @@ public:
         Effect(EffectType::SkillDecrease),
         _skill(skill),
         _value(value) {
+        setSaveFacingInteger(0, static_cast<int>(skill));
+        setSaveFacingInteger(1, value);
+        setSaveFacingInteger(2, static_cast<int>(RacialType::All));
     }
 
     void applyTo(Object &object) override {

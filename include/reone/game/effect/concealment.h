@@ -28,6 +28,8 @@ public:
     ConcealmentEffect(int percentage) :
         Effect(EffectType::Concealment),
         _percentage(percentage) {
+        setSaveFacingInteger(0, percentage);
+        setSaveFacingInteger(1, 0);
     }
 
     void applyTo(Object &object) override {

@@ -29,7 +29,7 @@ void StunnedEffect::applyTo(Object &object) {
     }
 }
 
-void StunnedEffect::onRemove(Object &object) {
+void StunnedEffect::onRemove(Object &object, const EffectInstance &) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         if (creature->hasEffect(EffectType::Stunned)) {
             return;

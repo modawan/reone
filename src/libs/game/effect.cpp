@@ -20,8 +20,27 @@
 #include <stdexcept>
 
 #include "reone/game/game.h"
+#include "reone/game/effect/abilitydecrease.h"
+#include "reone/game/effect/abilityincrease.h"
+#include "reone/game/effect/acdecrease.h"
+#include "reone/game/effect/acincrease.h"
+#include "reone/game/effect/attackdecrease.h"
+#include "reone/game/effect/attackincrease.h"
+#include "reone/game/effect/concealment.h"
+#include "reone/game/effect/damagedecrease.h"
+#include "reone/game/effect/damageimmunitydecrease.h"
+#include "reone/game/effect/damageimmunityincrease.h"
+#include "reone/game/effect/damageincrease.h"
+#include "reone/game/effect/damagereduction.h"
+#include "reone/game/effect/damageresistance.h"
+#include "reone/game/effect/immunity.h"
+#include "reone/game/effect/savingthrowdecrease.h"
+#include "reone/game/effect/savingthrowincrease.h"
+#include "reone/game/effect/skilldecrease.h"
+#include "reone/game/effect/skillincrease.h"
 #include "reone/game/location.h"
 #include "reone/game/object.h"
+#include "reone/game/object/creature.h"
 #include "reone/resource/gff.h"
 #include "reone/script/variable.h"
 #include "reone/system/logutil.h"
@@ -29,6 +48,168 @@
 namespace reone {
 
 namespace game {
+
+namespace {
+
+struct VersusParameterIndices {
+    size_t race;
+    size_t lawChaos;
+    size_t goodEvil;
+};
+
+uint16_t retailEffectType(EffectType type) {
+    switch (type) {
+    case EffectType::DamageResistance: return 2;
+    case EffectType::AbilityIncrease: return 36;
+    case EffectType::AbilityDecrease: return 37;
+    case EffectType::AttackIncrease: return 10;
+    case EffectType::AttackDecrease: return 11;
+    case EffectType::DamageReduction: return 12;
+    case EffectType::DamageIncrease: return 13;
+    case EffectType::DamageDecrease: return 14;
+    case EffectType::DamageImmunityIncrease: return 16;
+    case EffectType::DamageImmunityDecrease: return 17;
+    case EffectType::Immunity: return 22;
+    case EffectType::SavingThrowIncrease: return 26;
+    case EffectType::SavingThrowDecrease: return 27;
+    case EffectType::Invisibility: return 47;
+    case EffectType::ACIncrease: return 48;
+    case EffectType::ACDecrease: return 49;
+    case EffectType::SkillIncrease: return 55;
+    case EffectType::SkillDecrease: return 56;
+    case EffectType::Sanctuary: return 63;
+    case EffectType::SeeInvisible: return 70;
+    case EffectType::Ultravision: return 71;
+    case EffectType::TrueSeeing: return 72;
+    case EffectType::Blindness: return 73;
+    case EffectType::Concealment: return 76;
+    default: return static_cast<uint16_t>(type);
+    }
+}
+
+EffectType runtimeEffectType(uint16_t retailType) {
+    switch (retailType) {
+    case 2: return EffectType::DamageResistance;
+    case 36: return EffectType::AbilityIncrease;
+    case 37: return EffectType::AbilityDecrease;
+    case 10: return EffectType::AttackIncrease;
+    case 11: return EffectType::AttackDecrease;
+    case 12: return EffectType::DamageReduction;
+    case 13: return EffectType::DamageIncrease;
+    case 14: return EffectType::DamageDecrease;
+    case 16: return EffectType::DamageImmunityIncrease;
+    case 17: return EffectType::DamageImmunityDecrease;
+    case 22: return EffectType::Immunity;
+    case 26: return EffectType::SavingThrowIncrease;
+    case 27: return EffectType::SavingThrowDecrease;
+    case 47: return EffectType::Invisibility;
+    case 48: return EffectType::ACIncrease;
+    case 49: return EffectType::ACDecrease;
+    case 55: return EffectType::SkillIncrease;
+    case 56: return EffectType::SkillDecrease;
+    case 63: return EffectType::Sanctuary;
+    case 70: return EffectType::SeeInvisible;
+    case 71: return EffectType::Ultravision;
+    case 72: return EffectType::TrueSeeing;
+    case 73: return EffectType::Blindness;
+    case 76: return EffectType::Concealment;
+    default: return static_cast<EffectType>(retailType);
+    }
+}
+
+std::optional<VersusParameterIndices> versusParameterIndices(uint16_t retailType) {
+    switch (retailType) {
+    case 10: // Attack Increase
+    case 11: // Attack Decrease
+    case 13: // Damage Increase
+    case 14: // Damage Decrease
+    case 48: // AC Increase
+    case 49: // AC Decrease
+    case 55: // Skill Increase
+    case 56: // Skill Decrease
+        return VersusParameterIndices {2, 3, 4};
+    case 22: // Immunity
+    case 76: // Concealment
+        return VersusParameterIndices {1, 2, 3};
+    case 26: // Saving Throw Increase
+    case 27: // Saving Throw Decrease
+        return VersusParameterIndices {3, 4, 5};
+    case 47: // Invisibility
+    case 63: // Sanctuary
+        return VersusParameterIndices {1, 2, 3};
+    default:
+        return std::nullopt;
+    }
+}
+
+std::shared_ptr<Effect> executableEffect(const EffectInstance &instance) {
+    auto integer = [&instance](size_t index, int32_t fallback = 0) {
+        return instance.integerParameter(index, fallback);
+    };
+    switch (instance.type()) {
+    case EffectType::AbilityIncrease:
+        return std::make_shared<AbilityIncreaseEffect>(
+            static_cast<Ability>(integer(0)), integer(1));
+    case EffectType::AbilityDecrease:
+        return std::make_shared<AbilityDecreaseEffect>(
+            static_cast<Ability>(integer(0)), integer(1));
+    case EffectType::AttackIncrease:
+        return std::make_shared<AttackIncreaseEffect>(
+            integer(0), static_cast<AttackBonus>(integer(1)));
+    case EffectType::AttackDecrease:
+        return std::make_shared<AttackDecreaseEffect>(
+            integer(0), static_cast<AttackBonus>(integer(1)));
+    case EffectType::DamageIncrease:
+        return std::make_shared<DamageIncreaseEffect>(
+            integer(0), static_cast<DamageType>(integer(1)));
+    case EffectType::DamageDecrease:
+        return std::make_shared<DamageDecreaseEffect>(
+            integer(0), static_cast<DamageType>(integer(1)));
+    case EffectType::ACIncrease:
+        return std::make_shared<ACIncreaseEffect>(
+            integer(1), static_cast<ACBonus>(integer(0)),
+            integer(5, kAllDamageTypeFlags));
+    case EffectType::ACDecrease:
+        return std::make_shared<ACDecreaseEffect>(
+            integer(1), static_cast<ACBonus>(integer(0)),
+            integer(5, kAllDamageTypeFlags));
+    case EffectType::SavingThrowIncrease:
+        return std::make_shared<SavingThrowIncreaseEffect>(
+            integer(1), integer(0),
+            static_cast<SavingThrowType>(integer(2)));
+    case EffectType::SavingThrowDecrease:
+        return std::make_shared<SavingThrowDecreaseEffect>(
+            integer(1), integer(0),
+            static_cast<SavingThrowType>(integer(2)));
+    case EffectType::SkillIncrease:
+        return std::make_shared<SkillIncreaseEffect>(
+            static_cast<SkillType>(integer(0)), integer(1));
+    case EffectType::SkillDecrease:
+        return std::make_shared<SkillDecreaseEffect>(
+            static_cast<SkillType>(integer(0)), integer(1));
+    case EffectType::Immunity:
+        return std::make_shared<ImmunityEffect>(
+            static_cast<ImmunityType>(integer(0)));
+    case EffectType::Concealment:
+        return std::make_shared<ConcealmentEffect>(integer(0));
+    case EffectType::DamageImmunityIncrease:
+        return std::make_shared<DamageImmunityIncreaseEffect>(
+            static_cast<DamageType>(integer(0)), integer(1));
+    case EffectType::DamageImmunityDecrease:
+        return std::make_shared<DamageImmunityDecreaseEffect>(
+            static_cast<DamageType>(integer(0)), integer(1));
+    case EffectType::DamageResistance:
+        return std::make_shared<DamageResistanceEffect>(
+            static_cast<DamageType>(integer(0)), integer(1), integer(2));
+    case EffectType::DamageReduction:
+        return std::make_shared<DamageReductionEffect>(
+            integer(0), static_cast<DamagePower>(integer(1)), integer(2));
+    default:
+        return nullptr;
+    }
+}
+
+} // namespace
 
 EffectId EffectIdNamespace::allocate() {
     while (_ids.count(_nextId) != 0) {
@@ -70,12 +251,12 @@ void Effect::applyTo(Object &object) {
     debug("Unsupported effect type: " + std::to_string(static_cast<int>(_type)));
 }
 
-bool Effect::onApply(Object &object) {
+bool Effect::onApply(Object &object, const EffectInstance &) {
     applyTo(object);
     return true;
 }
 
-void Effect::onRemove(Object &object) {
+void Effect::onRemove(Object &object, const EffectInstance &) {
 }
 
 EffectInstance Effect::saveFacingInstance() const {
@@ -84,11 +265,12 @@ EffectInstance Effect::saveFacingInstance() const {
             "live effect has no representable retail CGameEffect value");
     }
     EffectInstance result;
-    result.retailType = static_cast<uint16_t>(_type);
+    result.retailType = retailEffectType(_type);
     // Retail VM-created effects remain engine values until ApplyEffectToObject
     // supplies the duration bits. Bit 3 identifies that un-applied form.
     result.subType = 0x8;
     result.creatorId = kSavedEffectInvalidObjectId;
+    result.spellId = _saveFacingSpellId;
     result.integerParameters = _saveFacingIntegers;
     result.floatParameters = _saveFacingFloats;
     result.stringParameters = _saveFacingStrings;
@@ -107,6 +289,35 @@ EffectInstance Effect::saveFacingInstance() const {
 
 void Effect::setSaveFacingCreator(const std::shared_ptr<Object> &creator) {
     _saveFacingCreator = creator;
+}
+
+void Effect::setSaveFacingSpellId(int32_t spellId) {
+    // Retail uses an all-bits-set SpellId for an independently applied effect;
+    // zero is a valid semantic grouping value.
+    _saveFacingSpellId = static_cast<uint32_t>(spellId);
+}
+
+bool Effect::setVersusAlignment(int lawChaos, int goodEvil) {
+    auto indices = versusParameterIndices(retailEffectType(_type));
+    if (!indices) {
+        return false;
+    }
+    if (_saveFacingIntegers.size() <= indices->race) {
+        setSaveFacingInteger(
+            indices->race, static_cast<int>(RacialType::All));
+    }
+    setSaveFacingInteger(indices->lawChaos, lawChaos);
+    setSaveFacingInteger(indices->goodEvil, goodEvil);
+    return true;
+}
+
+bool Effect::setVersusRacialType(int racialType) {
+    auto indices = versusParameterIndices(retailEffectType(_type));
+    if (!indices) {
+        return false;
+    }
+    setSaveFacingInteger(indices->race, racialType);
+    return true;
 }
 
 void Effect::captureSaveFacingScriptArguments(
@@ -128,6 +339,20 @@ void Effect::captureSaveFacingScriptArguments(
         case script::VariableType::Int:
             if (_type == EffectType::Visual && integerIndex == 1) {
                 setSaveFacingInteger(2, argument.intValue);
+            } else if ((_type == EffectType::ACIncrease ||
+                        _type == EffectType::ACDecrease) &&
+                       integerIndex < 3) {
+                static constexpr std::array<size_t, 3> kACParameterOrder {1, 0, 5};
+                setSaveFacingInteger(
+                    kACParameterOrder[integerIndex], argument.intValue);
+                setSaveFacingInteger(2, static_cast<int>(RacialType::All));
+            } else if ((_type == EffectType::SavingThrowIncrease ||
+                        _type == EffectType::SavingThrowDecrease) &&
+                       integerIndex < 3) {
+                static constexpr std::array<size_t, 3> kSaveParameterOrder {1, 0, 2};
+                setSaveFacingInteger(
+                    kSaveParameterOrder[integerIndex], argument.intValue);
+                setSaveFacingInteger(3, static_cast<int>(RacialType::All));
             } else if (_type != EffectType::LightsaberThrow) {
                 setSaveFacingInteger(integerIndex, argument.intValue);
             }
@@ -244,6 +469,7 @@ EffectInstance EffectInstance::fromGff(
     for (size_t i = 0; i < glm::min(result.objectParameters.size(), objects.size()); ++i) {
         result.objectParameters[i] = objects[i]->getUint("Value", kSavedEffectInvalidObjectId);
     }
+    result.effect = executableEffect(result);
     return result;
 }
 
@@ -264,6 +490,17 @@ DurationType EffectInstance::durationType() const {
     }
 }
 
+EffectType EffectInstance::type() const {
+    return effect ? effect->type() : runtimeEffectType(retailType);
+}
+
+int32_t EffectInstance::integerParameter(
+    size_t index, int32_t defaultValue) const {
+    return index < integerParameters.size()
+               ? integerParameters[index]
+               : defaultValue;
+}
+
 std::shared_ptr<Object> EffectInstance::boundCreator() const {
     return creator.resolve();
 }
@@ -273,6 +510,32 @@ std::shared_ptr<Object> EffectInstance::boundObjectParameter(
     return index < objectParameterObjects.size()
                ? objectParameterObjects[index].resolve()
                : nullptr;
+}
+
+bool EffectInstance::appliesVersus(const Creature *creature) const {
+    auto indices = versusParameterIndices(retailType);
+    if (!indices) {
+        return true;
+    }
+
+    int race = integerParameter(
+        indices->race, static_cast<int>(RacialType::All));
+    int goodEvil = integerParameter(
+        indices->goodEvil, static_cast<int>(Alignment::All));
+    bool hasRace = retailType == 76
+                       ? race != 0
+                       : race != static_cast<int>(RacialType::All);
+    bool hasAlignment = goodEvil != static_cast<int>(Alignment::All);
+    if (!hasRace && !hasAlignment) {
+        return true;
+    }
+    if (!creature) {
+        return false;
+    }
+    if (hasRace && race != static_cast<int>(creature->racialType())) {
+        return false;
+    }
+    return !hasAlignment || goodEvil == static_cast<int>(creature->alignment());
 }
 
 bool EffectInstance::bindCreator(const std::shared_ptr<Object> &object) {
@@ -321,7 +584,7 @@ void EffectInstance::retireAreaRuntimeBindings(
 }
 
 SavedEffectValue::SavedEffectValue(EffectInstance instance) :
-    Effect(static_cast<EffectType>(instance.retailType)),
+    Effect(instance.type()),
     _instance(std::move(instance)) {
 }
 

@@ -125,7 +125,7 @@ static bool hasEffectImmunity(
     const Creature &target,
     ImmunityType immunityType) {
 
-    for (const Object::AppliedEffect &applied : target.effects()) {
+    for (const EffectInstance &applied : target.effects()) {
         if (!applied.effect) {
             continue;
         }

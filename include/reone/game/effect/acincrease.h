@@ -30,6 +30,10 @@ public:
         _value(value),
         _modifyType(modifyType),
         _damageType(damageType) {
+        setSaveFacingInteger(0, static_cast<int>(modifyType));
+        setSaveFacingInteger(1, value);
+        setSaveFacingInteger(2, static_cast<int>(RacialType::All));
+        setSaveFacingInteger(5, damageType);
     }
 
     void applyTo(Object &object) override;
