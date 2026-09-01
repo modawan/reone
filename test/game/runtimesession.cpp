@@ -21,6 +21,7 @@
 #include "reone/game/effect.h"
 #include "reone/game/effect/assuredhit.h"
 #include "reone/game/effect/beam.h"
+#include "reone/game/effect/damage.h"
 #include "reone/game/effect/modifyattacks.h"
 #include "reone/game/event.h"
 #include "reone/game/equipmentrules.h"
@@ -1816,6 +1817,67 @@ TEST(RuntimeObjectLiveness, published_runtime_id_is_not_reused_within_session) {
 
     EXPECT_NE(hostileId, replacement->id());
     EXPECT_EQ(replacement->id(), game.getObjectById(replacement->id())->id());
+}
+
+TEST(RuntimeObjectLiveness, last_damager_query_uses_exact_live_runtime_binding) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto victim = game.newCreature();
+    auto damager = game.newCreature();
+    auto unrelated = game.newCreature();
+    victim->setCurrentHitPoints(10);
+    auto damage = game.newEffect<DamageEffect>(
+        1, DamageType::Universal, DamagePower::Normal);
+    damage->setSaveFacingCreator(damager);
+    victim->applyEffect(damage, DurationType::Instant);
+    ASSERT_EQ(damager->id(), victim->getLastDamager());
+
+    Routines routines(resource::GameID::KotOR, &game, &engine.services());
+    routines.init();
+    script::ExecutionContext execution;
+    execution.routines = &routines;
+    execution.args.emplace_back(
+        script::ArgKind::Caller,
+        script::Variable::ofObject(victim->id()));
+    execution.args.emplace_back(
+        script::ArgKind::LastDamager,
+        script::Variable::ofObject(unrelated->id()));
+
+    EXPECT_EQ(
+        damager->id(),
+        routines.get(346).invoke({}, execution).objectId);
+
+    game.destroyRuntimeObjectGraph(damager);
+
+    EXPECT_EQ(script::kObjectInvalid, victim->getLastDamager());
+    EXPECT_EQ(
+        script::kObjectInvalid,
+        routines.get(346).invoke({}, execution).objectId);
+}
+
+TEST(RuntimeObjectLiveness, saved_last_damager_binds_once_to_restored_incarnation) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    const auto context =
+        SerializedIdentityContext::moduleGraph("last_damager");
+    auto victim = game.newCreature();
+    auto damager = game.newCreature();
+    auto record = resource::Gff::Builder()
+                      .field(resource::Gff::Field::newDword(
+                          "LastDamager", 851u))
+                      .build();
+    victim->deserializeRuntimeState(*record, context);
+    game.registerSavedObjectIdentity(851u, damager, context);
+
+    game.resolveSavedObjectReferences();
+
+    EXPECT_EQ(damager->id(), victim->getLastDamager());
+    game.destroyRuntimeObjectGraph(damager);
+    EXPECT_EQ(script::kObjectInvalid, victim->getLastDamager());
 }
 
 TEST(RuntimeObjectLiveness, effect_and_vm_event_references_fail_closed) {

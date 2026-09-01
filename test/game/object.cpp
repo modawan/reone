@@ -2147,7 +2147,7 @@ TEST(UnlockObjectAction, should_complete_safely_for_missing_destroyed_or_unsuppo
 
     auto actor = game.newCreature();
     auto destroyed = game.newPlaceable();
-    destroyed->damage(std::numeric_limits<int>::max(), actor->id());
+    destroyed->damage(std::numeric_limits<int>::max(), actor);
     destroyed->setLocked(true);
 
     auto missingAction = game.newAction<UnlockObjectAction>(std::shared_ptr<Object>());

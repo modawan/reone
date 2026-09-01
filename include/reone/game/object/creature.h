@@ -128,7 +128,9 @@ public:
     void update(float dt) override;
 
     void clearAllActions(bool force = false) override;
-    void damage(int amount, uint32_t damager) override;
+    void damage(
+        int amount,
+        const std::shared_ptr<Object> &damager) override;
 
     void giveXP(int amount);
     void setXP(int xp);
@@ -564,8 +566,8 @@ private:
     void setLightsabersPowered(bool powered, bool animate);
     void updateLightsaberSoundPositions();
 
-    void runDeathScript(uint32_t damagerId);
-    void runDamagedScript(uint32_t damagerId);
+    void runDeathScript();
+    void runDamagedScript();
 
     ModelType parseModelType(const std::string &s) const;
 

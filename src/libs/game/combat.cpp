@@ -49,10 +49,31 @@ bool CombatRound::canExecute(Action &action) const {
     assert(actions.size() <= 2 && "no more than 2 actors in a round");
     for (unsigned i = 0; i < actions.size(); ++i) {
         if (actions[i].action.get() == &action) {
-            return state == requiredState[i];
+            return actions[i].participantBindingsLive() &&
+                   actions[i].remainsInActorQueue() &&
+                   action.runtimeDependenciesLive() &&
+                   !action.isCompleted() &&
+                   !action.isCancelled() &&
+                   state == requiredState[i];
         }
     }
     return false;
+}
+
+bool CombatRound::RoundAction::participantBindingsLive() const {
+    return attacker.resolve() &&
+           (target.empty() || target.resolve());
+}
+
+bool CombatRound::RoundAction::remainsInActorQueue() const {
+    if (!actorQueueAssociated) {
+        return true;
+    }
+    auto actor = attacker.resolve();
+    return actor && std::find(
+                        actor->actions().begin(),
+                        actor->actions().end(),
+                        action) != actor->actions().end();
 }
 
 static std::shared_ptr<Object> getTarget(Action &action) {
@@ -138,11 +159,13 @@ static std::shared_ptr<Creature> findNearestEnemy(
 }
 
 CombatRound *Combat::findRoundForAction(
-    const std::shared_ptr<Action> &action, uint32_t attacker) {
+    const std::shared_ptr<Action> &action, const Creature &attacker) {
 
     for (auto &round : _rounds) {
         for (CombatRound::RoundAction &roundAction : round->actions) {
-            if (roundAction.attacker == attacker && roundAction.action == action) {
+            auto boundAttacker = roundAction.attacker.resolve();
+            if (boundAttacker.get() == &attacker &&
+                roundAction.action == action) {
                 return round.get();
             }
         }
@@ -153,7 +176,10 @@ CombatRound *Combat::findRoundForAction(
 // If there is an incomplete combat round where attacker and target roles
 // are reversed, append to that round.
 CombatRound *Combat::tryAppendAction(
-    const std::shared_ptr<Action> &action, uint32_t attacker, uint32_t target) {
+    const std::shared_ptr<Action> &action,
+    const std::shared_ptr<Creature> &attacker,
+    const std::shared_ptr<Object> &target,
+    bool actorQueueAssociated) {
 
     for (auto &round : _rounds) {
         if (round->state == CombatRound::Finished) {
@@ -163,8 +189,9 @@ CombatRound *Combat::tryAppendAction(
         }
 
         bool isReversed = false;
-        for (CombatRound::RoundAction &action : round->actions) {
-            if (action.attacker == target && action.target == attacker) {
+        for (CombatRound::RoundAction &roundAction : round->actions) {
+            if (roundAction.attacker.resolve().get() == target.get() &&
+                roundAction.target.resolve().get() == attacker.get()) {
                 isReversed = true;
                 break;
             }
@@ -175,7 +202,8 @@ CombatRound *Combat::tryAppendAction(
         }
 
         // Found a round to append.
-        round->actions.emplace_back(action, attacker, target);
+        round->actions.emplace_back(
+            action, attacker, target, actorQueueAssociated);
         round->duel = true;
         return round.get();
     }
@@ -183,8 +211,18 @@ CombatRound *Combat::tryAppendAction(
 }
 
 const CombatRound &Combat::addAction(const std::shared_ptr<Action> &action, Object &actor) {
+    auto attacker = _game.getObjectById<Creature>(actor.id());
+    if (!attacker || attacker.get() != &actor) {
+        throw std::logic_error(
+            "Combat action actor is not the live registered Creature");
+    }
+    bool actorQueueAssociated = std::find(
+                                    attacker->actions().begin(),
+                                    attacker->actions().end(),
+                                    action) != attacker->actions().end();
+
     // If attacker has already started a combat round, return it.
-    if (CombatRound *round = findRoundForAction(action, actor.id())) {
+    if (CombatRound *round = findRoundForAction(action, *attacker)) {
         return *round;
     }
 
@@ -192,7 +230,8 @@ const CombatRound &Combat::addAction(const std::shared_ptr<Action> &action, Obje
     // append the action to this round.
     std::shared_ptr<Object> target = getTarget(*action);
     if (target) {
-        if (CombatRound *round = tryAppendAction(action, actor.id(), target->id())) {
+        if (CombatRound *round = tryAppendAction(
+                action, attacker, target, actorQueueAssociated)) {
             recordCombatAction(actor, target, *action);
             debug(str(boost::format("Append attack: %s -> %s") % actor.tag() % target->tag()), LogChannel::Combat);
             return *round;
@@ -200,8 +239,8 @@ const CombatRound &Combat::addAction(const std::shared_ptr<Action> &action, Obje
     }
 
     // Otherwise, start a new combat round
-    uint32_t targetId = target ? target->id() : script::kObjectInvalid;
-    _rounds.emplace_back(std::make_unique<CombatRound>(action, actor.id(), targetId));
+    _rounds.emplace_back(std::make_unique<CombatRound>(
+        action, attacker, target, actorQueueAssociated));
     CombatRound &newRound = *_rounds.back();
 
     if (target) {
@@ -222,35 +261,62 @@ const CombatRound &Combat::addAction(const std::shared_ptr<Action> &action, Obje
 }
 
 void Combat::update(float dt) {
+    pruneInvalidRounds();
+
     for (auto &round : _rounds) {
         updateRound(*round, dt);
     }
 
-    retireCompletedRounds();
+    pruneInvalidRounds();
 }
 
-static bool isActionFinished(const CombatRound::RoundAction &action, const Game &game) {
-    return action.action->isCompleted() ||
-           action.action->isCancelled() ||
-           !game.getObjectById(action.attacker);
+static bool isActionFinished(const CombatRound::RoundAction &action) {
+    return action.action->isCompleted() || action.action->isCancelled();
 }
 
-void Combat::retireCompletedRounds() {
-    for (auto it = _rounds.begin(); it != _rounds.end();) {
-        CombatRound &round = **it;
-        if (round.state != CombatRound::Finished) {
-            ++it;
+void Combat::cancelRound(CombatRound &round) {
+    for (auto &roundAction : round.actions) {
+        if (roundAction.action->isCompleted()) {
             continue;
         }
+        if (roundAction.action->isCancelled()) {
+            roundAction.action->complete();
+            continue;
+        }
+        auto attacker = roundAction.attacker.resolve();
+        if (attacker) {
+            roundAction.action->cancel(roundAction.action, *attacker);
+        } else {
+            roundAction.action->complete();
+        }
+        roundAction.action->markCancelled();
+        if (!roundAction.action->isCompleted()) {
+            roundAction.action->complete();
+        }
+    }
+}
 
-        bool actionsFinished = std::all_of(
+void Combat::pruneInvalidRounds() {
+    for (auto it = _rounds.begin(); it != _rounds.end();) {
+        CombatRound &round = **it;
+        bool bindingsLive = std::all_of(
             round.actions.begin(),
             round.actions.end(),
-            [this](const CombatRound::RoundAction &action) {
-                return isActionFinished(action, _game);
+            [](const CombatRound::RoundAction &action) {
+                return action.participantBindingsLive() &&
+                       action.remainsInActorQueue() &&
+                       action.action->runtimeDependenciesLive();
             });
+        bool anyActionFinished = std::any_of(
+            round.actions.begin(), round.actions.end(), isActionFinished);
+        bool actionsFinished = std::all_of(
+            round.actions.begin(), round.actions.end(), isActionFinished);
 
-        if (actionsFinished) {
+        if (!bindingsLive ||
+            (round.state != CombatRound::Finished && anyActionFinished)) {
+            cancelRound(round);
+            it = _rounds.erase(it);
+        } else if (round.state == CombatRound::Finished && actionsFinished) {
             it = _rounds.erase(it);
         } else {
             ++it;
@@ -290,31 +356,41 @@ void Combat::updateRound(CombatRound &round, float dt) {
 }
 
 void Combat::finishRound(CombatRound &round) {
-    SmallSet<uint32_t, 4> objects;
-    SmallSet<uint32_t, 2> attackers;
+    SmallSet<Object *, 4> seenObjects;
+    SmallVector<RuntimeObjectRef<Object>, 4> objects;
+    SmallSet<Creature *, 2> seenAttackers;
+    SmallVector<RuntimeObjectRef<Creature>, 2> attackers;
     for (CombatRound::RoundAction &action : round.actions) {
-        objects.insert(action.attacker);
-        objects.insert(action.target);
-        if (isHostileAction(*action.action)) {
-            attackers.insert(action.attacker);
+        auto attacker = action.attacker.resolve();
+        auto target = action.target.resolve();
+        if (!attacker || (!action.target.empty() && !target)) {
+            continue;
+        }
+        if (seenObjects.insert(attacker.get()).second) {
+            objects.emplace_back(attacker);
+        }
+        if (target && seenObjects.insert(target.get()).second) {
+            objects.emplace_back(target);
+        }
+        if (isHostileAction(*action.action) &&
+            seenAttackers.insert(attacker.get()).second) {
+            attackers.emplace_back(attacker);
         }
 
         if (Logger::instance.isChannelEnabled(LogChannel::Combat)) {
-            if (auto attacker = _game.getObjectById<Creature>(action.attacker)) {
-                debug(str(boost::format("Finish round: %s") % attacker->tag()), LogChannel::Combat);
-            }
+            debug(str(boost::format("Finish round: %s") % attacker->tag()), LogChannel::Combat);
         }
     }
 
-    for (uint32_t id : attackers) {
-        if (auto attacker = _game.getObjectById<Creature>(id)) {
+    for (const auto &reference : attackers) {
+        if (auto attacker = reference.resolve()) {
             attacker->finishCombatRound();
         }
     }
 
     std::shared_ptr<Creature> leader = _game.party().getLeader();
-    for (uint32_t id : objects) {
-        std::shared_ptr<Object> object = _game.getObjectById(id);
+    for (const auto &reference : objects) {
+        std::shared_ptr<Object> object = reference.resolve();
         if (object && isa<Creature>(object)) {
             auto &participant = cast<Creature>(*object);
             if (!leader || participant.id() != leader->id()) {
@@ -324,12 +400,13 @@ void Combat::finishRound(CombatRound &round) {
         }
     }
 
-    if (!leader || isUnavailableAttackTarget(*leader)) {
+    if (!leader || !_game.isRuntimeObjectLive(*leader) ||
+        isUnavailableAttackTarget(*leader)) {
         return;
     }
 
     for (CombatRound::RoundAction &action : round.actions) {
-        if (action.attacker != leader->id()) {
+        if (action.attacker.resolve().get() != leader.get()) {
             continue;
         }
 
@@ -339,7 +416,7 @@ void Combat::finishRound(CombatRound &round) {
 
         std::shared_ptr<Module> module = _game.module();
 
-        std::shared_ptr<Object> target = _game.getObjectById(action.target);
+        std::shared_ptr<Object> target = action.target.resolve();
         auto targetCreature = target ? dyn_cast<Creature>(target) : nullptr;
         bool targetUnavailable = !targetCreature || isUnavailableAttackTarget(*targetCreature);
         if (!targetUnavailable) {

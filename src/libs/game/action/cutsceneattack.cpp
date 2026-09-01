@@ -141,7 +141,11 @@ void CutsceneAttackAction::execute(std::shared_ptr<Action> self, Object &actor, 
     }
     case AttackSchedule::Damage: {
         auto effect = _game.newEffect<DamageEffect>(
-            _damage, DamageType::Universal, DamagePower::Normal, attacker.id());
+            _damage, DamageType::Universal, DamagePower::Normal);
+        auto liveAttacker = _game.getObjectById(attacker.id());
+        if (liveAttacker.get() == &attacker) {
+            effect->setSaveFacingCreator(liveAttacker);
+        }
 
         _target->applyEffect(std::move(effect), DurationType::Instant);
         break;

@@ -279,11 +279,16 @@ void Object::deserializeRuntimeState(
 
     _savedReferenceIds.clear();
     _savedReferences.clear();
-    static const std::array<std::string_view, 9> referenceFields {
+    _lastDamager.reset();
+    _savedLastDamagerId.reset();
+    uint32_t lastDamagerId = 0;
+    if (gff.readDword(lastDamagerId, "LastDamager")) {
+        _savedLastDamagerId = lastDamagerId;
+    }
+    static const std::array<std::string_view, 8> referenceFields {
         "AreaId",
         "CreatorId",
         "LastAttacker",
-        "LastDamager",
         "LastHostileActor",
         "LastPerceived",
         "MasterID",
@@ -543,6 +548,15 @@ void Object::retireAreaRuntimeState(
     _savedReferenceIds = std::move(retainedReferenceIds);
     _savedReferences = std::move(retainedReferences);
     _lastHostileActor.reset();
+    auto lastDamager = _lastDamager.resolve();
+    if (!lastDamager || retainedObjects.count(lastDamager.get()) == 0) {
+        _lastDamager.reset();
+        if (_savedLastDamagerId) {
+            _savedLastDamagerId = script::kObjectInvalid;
+        }
+    } else {
+        _savedLastDamagerId = lastDamager->id();
+    }
 }
 
 void Object::resolveSavedReferences(
@@ -552,6 +566,11 @@ void Object::resolveSavedReferences(
         if (auto object = resolver(id)) {
             _savedReferences.emplace(field, object);
         }
+    }
+    _lastDamager.reset();
+    if (_savedLastDamagerId &&
+        *_savedLastDamagerId != script::kObjectInvalid) {
+        _lastDamager = resolver(*_savedLastDamagerId);
     }
 }
 
@@ -571,6 +590,18 @@ void Object::setLastHostileActor(uint32_t actor) {
         return;
     }
     _lastHostileActor = _game.getObjectById(actor);
+}
+
+uint32_t Object::getLastDamager() const {
+    auto damager = _lastDamager.resolve();
+    return damager ? damager->id() : script::kObjectInvalid;
+}
+
+void Object::setLastDamager(const std::shared_ptr<Object> &damager) {
+    _lastDamager = damager;
+    _savedLastDamagerId = damager
+                              ? damager->id()
+                              : script::kObjectInvalid;
 }
 
 void Object::clearAllActions(bool force) {
@@ -668,7 +699,11 @@ void Object::executeActions(float dt) {
     }
     std::shared_ptr<Action> action(_actions.front());
     if (!action->runtimeDependenciesLive()) {
-        action->complete();
+        action->cancel(action, *this);
+        action->markCancelled();
+        if (!action->isCompleted()) {
+            action->complete();
+        }
         return;
     }
     _executingAction = action;
@@ -1142,7 +1177,9 @@ int Object::applyDamageToHitPoints(int amount, int currentHitPoints) {
     return adjustedAmount;
 }
 
-void Object::damage(int amount, uint32_t damager) {
+void Object::damage(
+    int amount,
+    const std::shared_ptr<Object> &damager) {
 }
 
 void Object::startStuntMode() {

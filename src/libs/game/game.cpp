@@ -5597,8 +5597,7 @@ void Game::consoleKill(const ConsoleArgs &args) {
     auto effect = newEffect<DamageEffect>(
         100000,
         DamageType::Universal,
-        DamagePower::Normal,
-        /*damager=*/ 0);
+        DamagePower::Normal);
     object->applyEffect(std::move(effect), DurationType::Instant);
 }
 
@@ -6223,7 +6222,7 @@ void Game::consoleKillRoom(const ConsoleArgs &args) {
     }
 
     for (Creature *creature : targets) {
-        creature->damage(std::numeric_limits<int>::max(), 0);
+        creature->damage(std::numeric_limits<int>::max(), nullptr);
     }
 }
 

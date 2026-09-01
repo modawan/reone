@@ -75,31 +75,25 @@ class DamageEffect : public Effect {
 public:
     DamageEffect(int amount,
                  DamageType type,
-                 DamagePower power,
-                 uint32_t damager) :
+                 DamagePower power) :
         Effect(EffectType::Damage),
-        _damage(power),
-        _damager(damager) {
+        _damage(power) {
         _damage.add(amount, type);
         _damage.setDamageFlags(static_cast<int>(type));
     }
 
-    DamageEffect(DamagePacket damage, uint32_t damager) :
+    explicit DamageEffect(DamagePacket damage) :
         Effect(EffectType::Damage),
-        _damage(std::move(damage)),
-        _damager(damager) {
+        _damage(std::move(damage)) {
         if (!_damage.isResolved()) {
             throw std::invalid_argument("Damage packet has not been resolved");
         }
     }
 
-    void applyTo(Object &object) override;
-
-    uint32_t damager() const { return _damager; }
+    bool onApply(Object &object, const EffectInstance &instance) override;
 
 private:
     DamagePacket _damage;
-    uint32_t _damager;
 };
 
 } // namespace game

@@ -654,6 +654,57 @@ TEST_F(SnapshotFixture, rewrites_perception_shadow_ids_from_detached_namespace) 
     EXPECT_NE(rewritten, 77u);
 }
 
+TEST_F(SnapshotFixture, last_damager_round_trips_as_exact_saved_reference) {
+    auto victim = game.newCreature();
+    auto damager = game.newCreature();
+    victim->setCurrentHitPoints(10);
+    victim->damage(1, damager);
+    TestGameModule::addSnapshotObject(*area, victim);
+    TestGameModule::addSnapshotObject(*area, damager);
+
+    auto saved = ModuleSnapshotBuilder(game, "module003").build();
+    ASSERT_TRUE(saved) << saved.message;
+    auto git = readGff(saved.snapshot->gitBytes);
+    auto victimRecord = recordById(
+        *git, "Creature List", victim->id());
+    auto damagerRecord = recordById(
+        *git, "Creature List", damager->id());
+    ASSERT_TRUE(victimRecord);
+    ASSERT_TRUE(damagerRecord);
+    const uint32_t savedDamagerId =
+        damagerRecord->getUint("ObjectId");
+    EXPECT_EQ(savedDamagerId, victimRecord->getUint("LastDamager"));
+
+    StubConsole restoredConsole;
+    Game restored(
+        GameID::KotOR, "", engine.options(), engine.services(), restoredConsole);
+    const auto context =
+        SerializedIdentityContext::moduleGraph("module003");
+    auto restoredVictim = restored.newCreature();
+    auto restoredDamager = restored.newCreature();
+    restoredVictim->deserializeRuntimeState(*victimRecord, context);
+    restored.registerSavedObjectIdentity(
+        victimRecord->getUint("ObjectId"), restoredVictim, context);
+    restored.registerSavedObjectIdentity(
+        savedDamagerId, restoredDamager, context);
+    restored.resolveSavedObjectReferences();
+
+    EXPECT_EQ(restoredDamager->id(), restoredVictim->getLastDamager());
+
+    game.destroyRuntimeObjectGraph(damager);
+    ASSERT_EQ(script::kObjectInvalid, victim->getLastDamager());
+    auto afterRetirement =
+        ModuleSnapshotBuilder(game, "module003").build();
+    ASSERT_TRUE(afterRetirement) << afterRetirement.message;
+    auto retiredGit = readGff(afterRetirement.snapshot->gitBytes);
+    auto retiredVictimRecord = recordById(
+        *retiredGit, "Creature List", victim->id());
+    ASSERT_TRUE(retiredVictimRecord);
+    EXPECT_EQ(
+        kSavedRuntimeInvalidObjectId,
+        retiredVictimRecord->getUint("LastDamager"));
+}
+
 TEST_F(SnapshotFixture, authoritative_membership_omits_deleted_shadow_records) {
     auto door = addDoorWithShadow();
     auto present = ModuleSnapshotBuilder(game, "module004").build();

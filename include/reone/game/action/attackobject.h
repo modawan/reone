@@ -50,7 +50,7 @@ public:
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     void cancel(std::shared_ptr<Action> self, Object &actor) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
-    const std::shared_ptr<Object> &target() const { return _target; }
+    std::shared_ptr<Object> target() const { return _target.resolve(); }
 
     AttackResultType result() const { return _attacks.result(); }
 
@@ -59,7 +59,7 @@ private:
 
     void finish(Creature &attacker);
 
-    std::shared_ptr<Object> _target;
+    RuntimeObjectRef<Object> _target;
     bool _passive;
     ServicesView &_services;
 

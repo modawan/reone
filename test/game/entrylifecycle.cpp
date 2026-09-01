@@ -557,12 +557,15 @@ TEST_P(EntryLifecycleFixture, ordinary_transition_drops_outgoing_area_action_tar
     game->module()->area()->add(outgoingTarget);
     auto outgoing = game->newAction<AttackObjectAction>(outgoingTarget);
     player->addAction(outgoing);
+    game->combat().addAction(outgoing, *player);
+    ASSERT_EQ(1u, game->combat().roundCount());
 
     ASSERT_TRUE(game->loadModule("module_b"));
 
     EXPECT_TRUE(outgoing->isCancelled());
     EXPECT_FALSE(game->isRuntimeObjectLive(*outgoingTarget));
     EXPECT_TRUE(player->actions().empty());
+    EXPECT_EQ(0u, game->combat().roundCount());
 }
 
 TEST_P(EntryLifecycleFixture, controlled_companion_uses_same_transition_continuity) {

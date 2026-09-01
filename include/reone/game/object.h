@@ -69,8 +69,10 @@ public:
         const SerializedIdentityContext &identityContext);
 
     virtual void update(float dt);
-    virtual void damage(int amount, uint32_t damager);
-    void heal(int amount) { damage(-amount, 0); }
+    virtual void damage(
+        int amount,
+        const std::shared_ptr<Object> &damager);
+    void heal(int amount) { damage(-amount, nullptr); }
 
     void face(const Object &other);
     void face(const glm::vec3 &point);
@@ -235,6 +237,9 @@ public:
 
     void setLastHostileActor(uint32_t actor);
 
+    uint32_t getLastDamager() const;
+    void setLastDamager(const std::shared_ptr<Object> &damager);
+
     // END Combat
 
     // Local variables
@@ -372,6 +377,8 @@ protected:
     // END Actions
 
     RuntimeObjectRef<Object> _lastHostileActor;
+    RuntimeObjectRef<Object> _lastDamager;
+    std::optional<uint32_t> _savedLastDamagerId;
 
     // Local variables
     std::map<std::string, uint32_t> _savedReferenceIds;

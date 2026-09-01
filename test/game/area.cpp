@@ -61,8 +61,8 @@ TEST(Area, get_object_by_tag_should_partition_by_is_dead) {
     area->add(alive2);
     area->add(dead3);
 
-    dead1->damage(1, 0);
-    dead3->damage(1, 0);
+    dead1->damage(1, nullptr);
+    dead3->damage(1, nullptr);
 
     EXPECT_EQ(alive0, area->getObjectByTag(tag, 0));
     EXPECT_EQ(alive2, area->getObjectByTag(tag, 1));

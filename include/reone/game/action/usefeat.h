@@ -32,8 +32,8 @@ public:
                   std::shared_ptr<Object> target) :
         Action(game, services, ActionType::UseFeat),
         _feat(feat),
-        _target(std::move(target)) {
-        requireRuntimeObject(_target);
+        _target(target) {
+        requireRuntimeObject(target);
     }
 
     static bool classof(Action *from) {
@@ -44,7 +44,7 @@ public:
 
     void cancel(std::shared_ptr<Action> self, Object &actor) override;
 
-    const std::shared_ptr<Object> &target() const { return _target; }
+    std::shared_ptr<Object> target() const { return _target.resolve(); }
 
     AttackResultType result() const { return _attacks.result(); }
 
@@ -55,7 +55,7 @@ private:
     void finish(Creature &attacker);
 
     FeatType _feat;
-    std::shared_ptr<Object> _target;
+    RuntimeObjectRef<Object> _target;
 
     AttackSchedule _schedule;
     AttackBuffer _attacks;

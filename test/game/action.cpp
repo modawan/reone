@@ -18,12 +18,15 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <set>
 
 #include "../fixtures/engine.h"
+#include "reone/game/action/attackobject.h"
 #include "reone/game/action/followleader.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/action/usetalentonobject.h"
+#include "reone/game/action/usefeat.h"
 #include "reone/game/game.h"
 #include "reone/game/party.h"
 #include "reone/game/script/routines.h"
@@ -38,6 +41,153 @@
 using namespace reone;
 using namespace reone::game;
 using namespace testing;
+
+TEST(CombatRoundReferences, live_participants_resolve_and_reach_execution_state) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    auto action = game.newAction<AttackObjectAction>(target);
+
+    const CombatRound &round = game.combat().addAction(action, *attacker);
+    ASSERT_EQ(1u, round.actions.size());
+    EXPECT_EQ(attacker, round.actions.front().attacker.resolve());
+    EXPECT_EQ(target, round.actions.front().target.resolve());
+
+    game.combat().update(0.0f);
+
+    EXPECT_TRUE(round.canExecute(*action));
+    EXPECT_EQ(1u, game.combat().roundCount());
+}
+
+TEST(CombatRoundReferences, retired_target_prunes_round_and_cancels_without_damage) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    target->setCurrentHitPoints(12);
+    auto action = game.newAction<AttackObjectAction>(target);
+    const CombatRound &round = game.combat().addAction(action, *attacker);
+
+    game.destroyRuntimeObjectGraph(target);
+
+    ASSERT_TRUE(target);
+    EXPECT_FALSE(target->isRuntimeLive());
+    EXPECT_FALSE(round.actions.front().target.resolve());
+    game.combat().update(0.0f);
+
+    EXPECT_TRUE(action->isCancelled());
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_EQ(12, target->currentHitPoints());
+    EXPECT_EQ(0u, game.combat().roundCount());
+}
+
+TEST(CombatRoundReferences, retired_attacker_prunes_round_despite_strong_storage) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    auto action = game.newAction<AttackObjectAction>(target);
+    const CombatRound &round = game.combat().addAction(action, *attacker);
+
+    game.destroyRuntimeObjectGraph(attacker);
+
+    ASSERT_TRUE(attacker);
+    EXPECT_FALSE(attacker->isRuntimeLive());
+    EXPECT_FALSE(round.actions.front().attacker.resolve());
+    game.combat().update(0.0f);
+
+    EXPECT_TRUE(action->isCancelled());
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_EQ(0u, game.combat().roundCount());
+}
+
+TEST(CombatRoundReferences, dead_but_live_target_is_a_gameplay_condition) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    target->setCurrentHitPoints(1);
+    auto action = game.newAction<AttackObjectAction>(target);
+    const CombatRound &round = game.combat().addAction(action, *attacker);
+
+    target->damage(std::numeric_limits<int>::max(), attacker);
+    ASSERT_TRUE(target->isDead());
+    ASSERT_TRUE(target->isRuntimeLive());
+    game.combat().update(0.0f);
+
+    EXPECT_EQ(target, round.actions.front().target.resolve());
+    EXPECT_FALSE(action->isCancelled());
+    EXPECT_EQ(1u, game.combat().roundCount());
+}
+
+TEST(CombatRoundReferences, action_dependencies_cancel_attack_and_feat_targets) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto attackTarget = game.newCreature();
+    auto featTarget = game.newCreature();
+    auto attack = game.newAction<AttackObjectAction>(attackTarget);
+    auto feat = game.newAction<UseFeatAction>(FeatType::PowerAttack, featTarget);
+
+    game.destroyRuntimeObjectGraph(attackTarget);
+    game.destroyRuntimeObjectGraph(featTarget);
+    ASSERT_FALSE(attack->runtimeDependenciesLive());
+    ASSERT_FALSE(feat->runtimeDependenciesLive());
+
+    attack->execute(attack, *attacker, 0.0f);
+    feat->execute(feat, *attacker, 0.0f);
+
+    EXPECT_TRUE(attack->isCancelled());
+    EXPECT_TRUE(feat->isCancelled());
+    EXPECT_FALSE(attack->target());
+    EXPECT_FALSE(feat->target());
+}
+
+TEST(CombatRoundReferences, completed_or_dequeued_actions_do_not_keep_rounds_alive) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto queuedAttacker = game.newCreature();
+    auto queuedTarget = game.newCreature();
+    auto queued = game.newAction<AttackObjectAction>(queuedTarget);
+    queuedAttacker->addAction(queued);
+    game.combat().addAction(queued, *queuedAttacker);
+    ASSERT_EQ(1u, game.combat().roundCount());
+
+    queuedAttacker->clearAllActions(/*force=*/true);
+    game.combat().update(0.0f);
+
+    EXPECT_TRUE(queued->isCancelled());
+    EXPECT_TRUE(queued->isCompleted());
+    EXPECT_EQ(0u, game.combat().roundCount());
+
+    auto completedAttacker = game.newCreature();
+    auto completedTarget = game.newCreature();
+    auto completed = game.newAction<AttackObjectAction>(completedTarget);
+    game.combat().addAction(completed, *completedAttacker);
+    completed->complete();
+
+    game.combat().update(0.0f);
+
+    EXPECT_EQ(0u, game.combat().roundCount());
+
+    auto cancelledAttacker = game.newCreature();
+    auto cancelledTarget = game.newCreature();
+    auto cancelled = game.newAction<AttackObjectAction>(cancelledTarget);
+    game.combat().addAction(cancelled, *cancelledAttacker);
+    cancelled->markCancelled();
+
+    game.combat().update(0.0f);
+
+    EXPECT_TRUE(cancelled->isCompleted());
+    EXPECT_EQ(0u, game.combat().roundCount());
+}
 
 TEST(Action, use_talent_dispatch_to_use_feat) {
     TestEngine &engine = testEngine();

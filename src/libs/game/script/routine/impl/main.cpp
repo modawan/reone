@@ -3489,10 +3489,8 @@ static Variable GetTotalDamageDealt(const std::vector<Variable> &args, const Rou
 
 static Variable GetLastDamager(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    if (const Variable *damager = ctx.execution.findArg(ArgKind::LastDamager)) {
-        return *damager;
-    }
-    return Variable::ofObject(kObjectInvalid);
+    auto object = getCaller(ctx);
+    return Variable::ofObject(object->getLastDamager());
 }
 
 static Variable GetLastDisarmed(const std::vector<Variable> &args, const RoutineContext &ctx) {

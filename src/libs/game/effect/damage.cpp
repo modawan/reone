@@ -329,14 +329,17 @@ int DamagePacket::total() const {
     return result;
 }
 
-void DamageEffect::applyTo(Object &object) {
+bool DamageEffect::onApply(
+    Object &object,
+    const EffectInstance &instance) {
     if (!_damage.isResolved()) {
         _damage.resolve(object);
     }
 
     int amount = _damage.resolvedDamage();
     debug(str(boost::format("Damage taken: %s %d") % object.tag() % amount));
-    object.damage(amount, _damager);
+    object.damage(amount, instance.boundCreator());
+    return true;
 }
 
 } // namespace game

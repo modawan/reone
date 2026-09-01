@@ -38,8 +38,11 @@ struct ServicesView;
  */
 struct CombatRound {
     explicit CombatRound(const std::shared_ptr<Action> &action,
-                         uint32_t attacker, uint32_t target) {
-        actions.emplace_back(action, attacker, target);
+                         const std::shared_ptr<Creature> &attacker,
+                         const std::shared_ptr<Object> &target,
+                         bool actorQueueAssociated) {
+        actions.emplace_back(
+            action, attacker, target, actorQueueAssociated);
     }
 
     enum State {
@@ -51,13 +54,20 @@ struct CombatRound {
 
     struct RoundAction {
         RoundAction(const std::shared_ptr<Action> &action,
-                    uint32_t attacker, uint32_t target) :
+                    const std::shared_ptr<Creature> &attacker,
+                    const std::shared_ptr<Object> &target,
+                    bool actorQueueAssociated) :
             action(action),
-            attacker(attacker), target(target) {}
+            attacker(attacker), target(target),
+            actorQueueAssociated(actorQueueAssociated) {}
 
         std::shared_ptr<Action> action;
-        uint32_t attacker {0};
-        uint32_t target {0};
+        RuntimeObjectRef<Creature> attacker;
+        RuntimeObjectRef<Object> target;
+        bool actorQueueAssociated {false};
+
+        bool participantBindingsLive() const;
+        bool remainsInActorQueue() const;
     };
 
     SmallVector<RoundAction, 2> actions;
@@ -95,6 +105,7 @@ public:
 
     void update(float dt);
     void reset() { _rounds.clear(); }
+    size_t roundCount() const { return _rounds.size(); }
 
 private:
     using RoundQueue = std::deque<std::unique_ptr<CombatRound>>;
@@ -106,10 +117,17 @@ private:
 
     void updateRound(CombatRound &round, float dt);
     void finishRound(CombatRound &round);
-    void retireCompletedRounds();
+    void pruneInvalidRounds();
+    void cancelRound(CombatRound &round);
 
-    CombatRound *findRoundForAction(const std::shared_ptr<Action> &action, uint32_t attacker);
-    CombatRound *tryAppendAction(const std::shared_ptr<Action> &action, uint32_t attacker, uint32_t target);
+    CombatRound *findRoundForAction(
+        const std::shared_ptr<Action> &action,
+        const Creature &attacker);
+    CombatRound *tryAppendAction(
+        const std::shared_ptr<Action> &action,
+        const std::shared_ptr<Creature> &attacker,
+        const std::shared_ptr<Object> &target,
+        bool actorQueueAssociated);
 };
 
 } // namespace game

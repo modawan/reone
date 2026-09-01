@@ -282,7 +282,9 @@ bool Door::isSelectable() const {
     return !_static && !_open && !isOpening();
 }
 
-void Door::damage(int amount, uint32_t damager) {
+void Door::damage(
+    int amount,
+    const std::shared_ptr<Object> &damager) {
     if (_dead || _plot || _notBlastable) {
         return;
     }
@@ -290,16 +292,18 @@ void Door::damage(int amount, uint32_t damager) {
         return;
     }
 
+    setLastDamager(damager);
+    uint32_t damagerId = getLastDamager();
     int currentHitPoints = _currentHitPoints > 0 ? _currentHitPoints : _hitPoints;
     if (amount == std::numeric_limits<int>::max()) {
         _currentHitPoints = isMinOneHP() ? 1 : 0;
     } else {
         int adjustedAmount = applyDamageToHitPoints(amount, currentHitPoints);
-        _game.floatingText().addDamage(*this, amount, adjustedAmount, damager);
+        _game.floatingText().addDamage(
+            *this, amount, adjustedAmount, damagerId);
     }
 
-    damager = damager ? damager : script::kObjectInvalid;
-    runDamagedScript(damager);
+    runDamagedScript();
 
     if (_currentHitPoints > 0) {
         return;
@@ -308,8 +312,8 @@ void Door::damage(int amount, uint32_t damager) {
     _dead = true;
     _locked = false;
     open();
-    onOpen(damager);
-    runDeathScript(damager);
+    onOpen(damagerId);
+    runDeathScript();
 }
 
 void Door::open() {
@@ -422,26 +426,26 @@ void Door::onFailToOpen(const Object &triggerer) {
          {script::ArgKind::ClickingObject, Variable::ofObject(triggerer.id())}});
 }
 
-void Door::runDamagedScript(uint32_t damagerId) {
+void Door::runDamagedScript() {
     if (_onDamaged.empty()) {
         return;
     }
     _game.scriptRunner().run(
         _onDamaged,
         {{script::ArgKind::Caller, Variable::ofObject(_id)},
-         {script::ArgKind::LastAttacker, Variable::ofObject(damagerId)},
-         {script::ArgKind::LastDamager, Variable::ofObject(damagerId)}});
+         {script::ArgKind::LastAttacker, Variable::ofObject(getLastDamager())},
+         {script::ArgKind::LastDamager, Variable::ofObject(getLastDamager())}});
 }
 
-void Door::runDeathScript(uint32_t damagerId) {
+void Door::runDeathScript() {
     if (_onDeath.empty()) {
         return;
     }
     _game.scriptRunner().run(
         _onDeath,
         {{script::ArgKind::Caller, Variable::ofObject(_id)},
-         {script::ArgKind::LastAttacker, Variable::ofObject(damagerId)},
-         {script::ArgKind::LastDamager, Variable::ofObject(damagerId)}});
+         {script::ArgKind::LastAttacker, Variable::ofObject(getLastDamager())},
+         {script::ArgKind::LastDamager, Variable::ofObject(getLastDamager())}});
 }
 
 void Door::setLocked(bool locked) {

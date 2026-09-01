@@ -599,7 +599,11 @@ void AttackBuffer::applyEffects(Creature &attacker, Object &target, Game &game) 
         }
         if (!attack.damage.empty()) {
             auto effect = game.newEffect<DamageEffect>(
-                std::move(attack.damage), attacker.id());
+                std::move(attack.damage));
+            auto liveAttacker = game.getObjectById(attacker.id());
+            if (liveAttacker.get() == &attacker) {
+                effect->setSaveFacingCreator(liveAttacker);
+            }
             target.applyEffect(std::move(effect), DurationType::Instant);
         }
         if (attack.stunTarget) {

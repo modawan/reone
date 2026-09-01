@@ -151,22 +151,28 @@ void AttackObjectAction::addProjectiles(const Creature &creature) {
 
 void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     Creature &attacker = cast<Creature>(actor);
-    if (!_target || _target->id() == attacker.id()) {
+    if (!runtimeDependenciesLive()) {
+        cancel(self, actor);
+        markCancelled();
+        return;
+    }
+    auto target = _target.resolve();
+    if (!target || target->id() == attacker.id()) {
         finish(attacker);
         return;
     }
-    attacker.setAttemptedAttackTarget(_target->id());
+    attacker.setAttemptedAttackTarget(target->id());
 
-    if (_target->isDead()) {
+    if (target->isDead()) {
         finish(attacker);
         return;
     }
 
-    if (!navigateToAttackTarget(attacker, *_target, dt, _reachedTarget)) {
+    if (!navigateToAttackTarget(attacker, *target, dt, _reachedTarget)) {
         return;
     }
 
-    attacker.face(*_target);
+    attacker.face(*target);
 
     const CombatRound &round = _game.combat().addAction(self, actor);
     AttackSchedule::State state = _schedule.update(round, *self, dt);
@@ -178,14 +184,14 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         attacker.setMovementType(Creature::MovementType::None);
         attacker.setMovementRestricted(true);
 
-        attack(round, attacker, *_target, _services.game.animations, _attacks);
-        _attacks.resolve(attacker, *_target);
+        attack(round, attacker, *target, _services.game.animations, _attacks);
+        _attacks.resolve(attacker, *target);
 
         addProjectiles(attacker);
         return;
     }
     case AttackSchedule::Damage: {
-        _attacks.signal(_game, _services, attacker, *_target);
+        _attacks.signal(_game, _services, attacker, *target);
         break;
     }
     case AttackSchedule::Finish: {
@@ -202,7 +208,7 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
     case AttackSchedule::WaitDamage:
     case AttackSchedule::WaitFinish: {
         auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
-        _projectiles.update(dt, attacker, *_target, sceneGraph);
+        _projectiles.update(dt, attacker, *target, sceneGraph);
         break;
     }
     default:
@@ -216,7 +222,8 @@ void AttackObjectAction::cancel(std::shared_ptr<Action> self, Object &actor) {
 }
 
 std::optional<SavedActionRecord> AttackObjectAction::saveFacingState() const {
-    if (!_target) {
+    auto target = _target.resolve();
+    if (!target) {
         return std::nullopt;
     }
 
@@ -228,7 +235,7 @@ std::optional<SavedActionRecord> AttackObjectAction::saveFacingState() const {
     result.declaredParameterCount = 10;
     result.parameters = {
         {1, int32_t {0}},
-        {3, SavedObjectReference::fromRuntimeId(_target->id())},
+        {3, SavedObjectReference::fromRuntimeId(target->id())},
         {1, int32_t {1}},
         {1, int32_t {10009}},
         {1, int32_t {1500}},

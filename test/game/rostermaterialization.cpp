@@ -21,6 +21,7 @@
 #include "../fixtures/engine.h"
 #include "../fixtures/game.h"
 
+#include "reone/game/action/attackobject.h"
 #include "reone/game/game.h"
 #include "reone/game/action/wait.h"
 #include "reone/game/effect.h"
@@ -1080,6 +1081,13 @@ TEST(RemoveNPCFromPartyToBase, persists_then_retires_the_exact_runtime_companion
     ASSERT_TRUE(harness.game.party().addAvailableMember(4, companion));
     ASSERT_TRUE(harness.game.party().addMember(4, companion));
     area->add(companion);
+    auto companionAttack =
+        harness.game.newAction<AttackObjectAction>(player);
+    auto opponentAttack =
+        harness.game.newAction<AttackObjectAction>(companion);
+    harness.game.combat().addAction(companionAttack, *companion);
+    harness.game.combat().addAction(opponentAttack, *player);
+    ASSERT_EQ(1u, harness.game.combat().roundCount());
 
     auto committed = std::make_shared<const SaveWorkingState>();
     EXPECT_CALL(
@@ -1115,6 +1123,10 @@ TEST(RemoveNPCFromPartyToBase, persists_then_retires_the_exact_runtime_companion
     EXPECT_EQ(1u, saved->getList("Equip_ItemList").size());
     EXPECT_FALSE(carried->isRuntimeLive());
     EXPECT_FALSE(equipped->isRuntimeLive());
+    harness.game.combat().update(0.0f);
+    EXPECT_TRUE(companionAttack->isCancelled());
+    EXPECT_TRUE(opponentAttack->isCancelled());
+    EXPECT_EQ(0u, harness.game.combat().roundCount());
 }
 
 TEST(RemoveNPCFromPartyToBase, readding_materializes_one_fresh_representation) {
@@ -1264,6 +1276,13 @@ TEST(RemoveNPCFromPartyToBase, retires_the_active_assigned_puppet_but_keeps_assi
     ASSERT_TRUE(harness.game.party().isPuppet(0));
     area->add(companion);
     area->add(puppet);
+    auto puppetAttack =
+        harness.game.newAction<AttackObjectAction>(player);
+    auto opponentAttack =
+        harness.game.newAction<AttackObjectAction>(puppet);
+    harness.game.combat().addAction(puppetAttack, *puppet);
+    harness.game.combat().addAction(opponentAttack, *player);
+    ASSERT_EQ(1u, harness.game.combat().roundCount());
 
     auto committed = std::make_shared<const SaveWorkingState>();
     EXPECT_CALL(
@@ -1289,6 +1308,10 @@ TEST(RemoveNPCFromPartyToBase, retires_the_active_assigned_puppet_but_keeps_assi
     EXPECT_FALSE(harness.game.party().getAvailablePuppet(0));
     EXPECT_FALSE(harness.game.party().getAvailableMember(1));
     EXPECT_FALSE(puppet->isRuntimeLive());
+    harness.game.combat().update(0.0f);
+    EXPECT_TRUE(puppetAttack->isCancelled());
+    EXPECT_TRUE(opponentAttack->isCancelled());
+    EXPECT_EQ(0u, harness.game.combat().roundCount());
     auto savedNpcResource = committed->find({"availnpc1", ResType::Utc});
     ASSERT_TRUE(savedNpcResource);
     EXPECT_EQ(0, decodeGff(savedNpcResource->data)->getInt("AssignedPup", -1));
