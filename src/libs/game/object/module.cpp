@@ -629,47 +629,47 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
             actions.push_back(ContextAction(ActionType::AttackObject));
             auto weapon = leader->getEquippedItem(InventorySlots::rightWeapon);
             if (weapon && weapon->isRanged()) {
-                if (leader->attributes().hasFeat(FeatType::MasterPowerBlast)) {
+                if (leader->hasEffectiveFeat(FeatType::MasterPowerBlast)) {
                     actions.push_back(ContextAction(FeatType::MasterPowerBlast));
-                } else if (leader->attributes().hasFeat(FeatType::ImprovedPowerBlast)) {
+                } else if (leader->hasEffectiveFeat(FeatType::ImprovedPowerBlast)) {
                     actions.push_back(ContextAction(FeatType::ImprovedPowerBlast));
-                } else if (leader->attributes().hasFeat(FeatType::PowerBlast)) {
+                } else if (leader->hasEffectiveFeat(FeatType::PowerBlast)) {
                     actions.push_back(ContextAction(FeatType::PowerBlast));
                 }
-                if (leader->attributes().hasFeat(FeatType::MasterSniperShot)) {
+                if (leader->hasEffectiveFeat(FeatType::MasterSniperShot)) {
                     actions.push_back(ContextAction(FeatType::MasterSniperShot));
-                } else if (leader->attributes().hasFeat(FeatType::ImprovedSniperShot)) {
+                } else if (leader->hasEffectiveFeat(FeatType::ImprovedSniperShot)) {
                     actions.push_back(ContextAction(FeatType::ImprovedSniperShot));
-                } else if (leader->attributes().hasFeat(FeatType::SniperShot)) {
+                } else if (leader->hasEffectiveFeat(FeatType::SniperShot)) {
                     actions.push_back(ContextAction(FeatType::SniperShot));
                 }
-                if (leader->attributes().hasFeat(FeatType::MultiShot)) {
+                if (leader->hasEffectiveFeat(FeatType::MultiShot)) {
                     actions.push_back(ContextAction(FeatType::MultiShot));
-                } else if (leader->attributes().hasFeat(FeatType::ImprovedRapidShot)) {
+                } else if (leader->hasEffectiveFeat(FeatType::ImprovedRapidShot)) {
                     actions.push_back(ContextAction(FeatType::ImprovedRapidShot));
-                } else if (leader->attributes().hasFeat(FeatType::RapidShot)) {
+                } else if (leader->hasEffectiveFeat(FeatType::RapidShot)) {
                     actions.push_back(ContextAction(FeatType::RapidShot));
                 }
             } else {
-                if (leader->attributes().hasFeat(FeatType::MasterPowerAttack)) {
+                if (leader->hasEffectiveFeat(FeatType::MasterPowerAttack)) {
                     actions.push_back(ContextAction(FeatType::MasterPowerAttack));
-                } else if (leader->attributes().hasFeat(FeatType::ImprovedPowerAttack)) {
+                } else if (leader->hasEffectiveFeat(FeatType::ImprovedPowerAttack)) {
                     actions.push_back(ContextAction(FeatType::ImprovedPowerAttack));
-                } else if (leader->attributes().hasFeat(FeatType::PowerAttack)) {
+                } else if (leader->hasEffectiveFeat(FeatType::PowerAttack)) {
                     actions.push_back(ContextAction(FeatType::PowerAttack));
                 }
-                if (leader->attributes().hasFeat(FeatType::MasterCriticalStrike)) {
+                if (leader->hasEffectiveFeat(FeatType::MasterCriticalStrike)) {
                     actions.push_back(ContextAction(FeatType::MasterCriticalStrike));
-                } else if (leader->attributes().hasFeat(FeatType::ImprovedCriticalStrike)) {
+                } else if (leader->hasEffectiveFeat(FeatType::ImprovedCriticalStrike)) {
                     actions.push_back(ContextAction(FeatType::ImprovedCriticalStrike));
-                } else if (leader->attributes().hasFeat(FeatType::CriticalStrike)) {
+                } else if (leader->hasEffectiveFeat(FeatType::CriticalStrike)) {
                     actions.push_back(ContextAction(FeatType::CriticalStrike));
                 }
-                if (leader->attributes().hasFeat(FeatType::WhirlwindAttack)) {
+                if (leader->hasEffectiveFeat(FeatType::WhirlwindAttack)) {
                     actions.push_back(ContextAction(FeatType::WhirlwindAttack));
-                } else if (leader->attributes().hasFeat(FeatType::ImprovedFlurry)) {
+                } else if (leader->hasEffectiveFeat(FeatType::ImprovedFlurry)) {
                     actions.push_back(ContextAction(FeatType::ImprovedFlurry));
-                } else if (leader->attributes().hasFeat(FeatType::Flurry)) {
+                } else if (leader->hasEffectiveFeat(FeatType::Flurry)) {
                     actions.push_back(ContextAction(FeatType::Flurry));
                 }
             }

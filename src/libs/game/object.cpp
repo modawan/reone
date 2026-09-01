@@ -17,6 +17,7 @@
 
 #include "reone/game/object.h"
 
+#include <exception>
 #include <sstream>
 #include <typeinfo>
 
@@ -399,7 +400,15 @@ void Object::assignSerializedObjectIdentity(
 
 std::vector<EffectInstance> Object::saveEffectSnapshot() const {
     // Later orchestration calls this at a stable synchronous frame boundary.
-    return {_effects.begin(), _effects.end()};
+    std::vector<EffectInstance> result;
+    for (const EffectInstance &effect : _effects) {
+        // Equipped effects are derived from the authoritative equipment edge.
+        // Persisting them independently would duplicate them on reconstruction.
+        if (effect.durationType() != DurationType::Equipped) {
+            result.push_back(effect);
+        }
+    }
+    return result;
 }
 
 EffectInstance *Object::findEffectInstance(const Effect &effect) {
@@ -970,11 +979,15 @@ size_t Object::removeEffectsById(EffectId id) {
 void Object::updateEffects(float dt) {
     for (auto it = _effects.begin(); it != _effects.end();) {
         EffectInstance &effect = *it;
+        const bool retiredEquippedSource =
+            effect.durationType() == DurationType::Equipped &&
+            !effect.hasLiveRuntimeSource();
         bool temporary = effect.durationType() == DurationType::Temporary && effect.remainingDuration;
         if (temporary) {
             *effect.remainingDuration = glm::max(0.0f, *effect.remainingDuration - dt);
         }
-        if (temporary && *effect.remainingDuration == 0.0f) {
+        if (retiredEquippedSource ||
+            (temporary && *effect.remainingDuration == 0.0f)) {
             EffectInstance removedEffect = std::move(effect);
             it = _effects.erase(it);
             if (removedEffect.effect) {
@@ -1092,8 +1105,31 @@ bool Object::hasEffect(EffectType type) const {
         _effects.begin(),
         _effects.end(),
         [type](const EffectInstance &applied) {
-            return applied.type() == type;
+            return applied.hasLiveRuntimeSource() &&
+                   applied.type() == type;
         });
+}
+
+void Object::replaceEffectState(
+    std::deque<EffectInstance> replacement) noexcept {
+    auto containsId = [](const auto &effects, EffectId id) {
+        return std::any_of(
+            effects.begin(), effects.end(),
+            [id](const EffectInstance &effect) { return effect.id == id; });
+    };
+
+    for (const EffectInstance &effect : _effects) {
+        if (!containsId(replacement, effect.id) && effect.effect) {
+            effect.effect->onRemove(*this, effect);
+        }
+    }
+    _effects.swap(replacement);
+    for (const EffectInstance &effect : _effects) {
+        if (!containsId(replacement, effect.id) && effect.effect &&
+            !effect.effect->onApply(*this, effect)) {
+            std::terminate();
+        }
+    }
 }
 
 int Object::applyDamageToHitPoints(int amount, int currentHitPoints) {

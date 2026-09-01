@@ -340,6 +340,9 @@ public:
         ImmunityType immunityType,
         const Creature *creator = nullptr) const;
     int getAbilityEffectModifier(Ability ability) const;
+    int getEffectiveAbilityScore(Ability ability) const;
+    int getEffectiveAbilityModifier(Ability ability) const;
+    bool hasEffectiveFeat(FeatType feat) const;
     int getDefense(const Creature *attacker, int damageFlags) const;
     int getDefense() const;
     int getFortitudeSave(SavingThrowType savingThrowType = SavingThrowType::All) const;
@@ -348,9 +351,6 @@ public:
         SavingThrowType savingThrowType = SavingThrowType::All) const;
     int getPhysicalDamageBonus(const Item *weapon, bool offHand) const;
     int getMassiveCriticalDamage(const Item *weapon, bool criticalHit) const;
-    int getItemDamageImmunity(DamageType type) const;
-    int getItemDamageResistance(DamageType type) const;
-    void getItemDamageReduction(int &amount, DamagePower &power) const;
     int getDamageResistanceFeatBonus() const;
     void addPhysicalDamageModifiers(
         DamagePacket &damage,
@@ -628,6 +628,14 @@ private:
     void deserializeOwnedItemsAndEquipment(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
+    void appendEquippedItemEffects(
+        std::deque<EffectInstance> &effects,
+        int slot,
+        const std::shared_ptr<Item> &item) const;
+    std::deque<EffectInstance> effectsWithoutEquippedSource(
+        const Item *source) const;
+    std::deque<EffectInstance> rebuildEquippedItemEffects(
+        const std::map<int, std::shared_ptr<Item>> &equipment) const;
     int derivePermanentMaxHitPoints() const;
     void restoreSerializedVitality();
     void updateDeathFromCurrentHitPoints();

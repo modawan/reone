@@ -41,7 +41,6 @@ namespace game {
 static constexpr char kModelEventDetonate[] = "detonate";
 static constexpr float kProjectileSpeed = 16.0f;
 static constexpr int kUnarmedCriticalThreat = 1;
-static constexpr int kCriticalHitImmunityPropertySubtype = 8;
 static constexpr float kSpecialAttackDefensePenaltyDuration = 3.0f;
 static constexpr float kCriticalStrikeStunDuration = 6.0f;
 
@@ -126,6 +125,9 @@ static bool hasEffectImmunity(
     ImmunityType immunityType) {
 
     for (const EffectInstance &applied : target.effects()) {
+        if (!applied.hasLiveRuntimeSource()) {
+            continue;
+        }
         if (!applied.effect) {
             continue;
         }
@@ -143,29 +145,12 @@ static bool hasEffectImmunity(
 
 static bool hasStunImmunity(const Creature &target) {
     return hasEffectImmunity(target, ImmunityType::Stun) ||
-           target.attributes().hasFeat(FeatType::ForceImmunityStun) ||
-           target.attributes().hasFeat(FeatType::ForceImmunityParalysis);
+           target.hasEffectiveFeat(FeatType::ForceImmunityStun) ||
+           target.hasEffectiveFeat(FeatType::ForceImmunityParalysis);
 }
 
 static bool hasCriticalHitImmunity(const Creature &target) {
-    if (hasEffectImmunity(target, ImmunityType::CriticalHit)) {
-        return true;
-    }
-
-    for (const auto &[slot, item] : target.equipment()) {
-        if (!item ||
-            slot == InventorySlots::rightWeapon2 ||
-            slot == InventorySlots::leftWeapon2) {
-            continue;
-        }
-        if (hasActiveItemProperty(
-                *item,
-                ItemProperty::Immunity,
-                kCriticalHitImmunityPropertySubtype)) {
-            return true;
-        }
-    }
-    return false;
+    return hasEffectImmunity(target, ImmunityType::CriticalHit);
 }
 
 static int getBaseCriticalThreat(const Item *weapon) {
@@ -511,7 +496,7 @@ void AttackBuffer::resolveMeleeSpecialAttack(
 
     int difficultyClass =
         attacker.attributes().getAggregateLevel() +
-        attacker.attributes().getAbilityModifier(Ability::Strength);
+        attacker.getEffectiveAbilityModifier(Ability::Strength);
     if (!targetCreature->rollFortitudeSave(difficultyClass)) {
         _attacks.front().stunTarget = true;
     }

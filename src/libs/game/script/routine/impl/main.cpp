@@ -1581,7 +1581,7 @@ static Variable GetAbilityScore(const std::vector<Variable> &args, const Routine
     auto ability = static_cast<Ability>(nAbilityType);
 
     // Execute
-    return Variable::ofInt(creature->attributes().getAbilityScore(ability));
+    return Variable::ofInt(creature->getEffectiveAbilityScore(ability));
 }
 
 static Variable GetIsDead(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -2858,7 +2858,7 @@ static Variable GetHasFeat(const std::vector<Variable> &args, const RoutineConte
     auto creature = checkCreature(oCreature);
 
     // Execute
-    bool hasFeat = creature->attributes().hasFeat(feat);
+    bool hasFeat = creature->hasEffectiveFeat(feat);
     return Variable::ofInt(static_cast<int>(hasFeat));
 }
 

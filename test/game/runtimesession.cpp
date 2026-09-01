@@ -8,6 +8,7 @@
  */
 
 #include <algorithm>
+#include <set>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -163,6 +164,81 @@ std::shared_ptr<resource::Gff> runtimeItem(
         builder.field(resource::Gff::Field::newDword("ObjectId", *savedId));
     }
     return builder.build();
+}
+
+std::shared_ptr<resource::Gff> runtimeItemProperty(
+    ItemProperty type,
+    uint16_t subtype = 0,
+    uint8_t costTable = 0,
+    uint16_t costValue = 0) {
+    return resource::Gff::Builder()
+        .field(resource::Gff::Field::newWord(
+            "PropertyName", static_cast<uint16_t>(type)))
+        .field(resource::Gff::Field::newWord("Subtype", subtype))
+        .field(resource::Gff::Field::newByte("CostTable", costTable))
+        .field(resource::Gff::Field::newWord("CostValue", costValue))
+        .field(resource::Gff::Field::newByte("UpgradeType", 0))
+        .build();
+}
+
+std::shared_ptr<resource::Gff> runtimeEquippedItem(
+    std::string tag,
+    std::vector<std::shared_ptr<resource::Gff>> properties,
+    std::optional<uint32_t> savedId = std::nullopt) {
+    resource::Gff::Builder builder;
+    builder.type(1u << InventorySlots::body)
+        .field(resource::Gff::Field::newCExoString("Tag", std::move(tag)))
+        .field(resource::Gff::Field::newInt("BaseItem", 0))
+        .field(resource::Gff::Field::newWord("StackSize", 1))
+        .field(resource::Gff::Field::newByte("Charges", 0))
+        .field(resource::Gff::Field::newList(
+            "PropertiesList", std::move(properties)));
+    if (savedId) {
+        builder.field(resource::Gff::Field::newDword("ObjectId", *savedId));
+    }
+    return builder.build();
+}
+
+std::shared_ptr<resource::TwoDA> oneValueTable(
+    std::string column,
+    int value) {
+    resource::TwoDA::Builder builder;
+    builder.columns({std::move(column)});
+    builder.row({std::to_string(value)});
+    return std::shared_ptr<resource::TwoDA>(builder.build());
+}
+
+void configureEquipmentEffectTables(TestEngine &engine) {
+    resource::TwoDA::Builder costTables;
+    costTables.columns({"name"}).row({"iprp_test"});
+    auto costTable = std::shared_ptr<resource::TwoDA>(costTables.build());
+    resource::TwoDA::Builder damageTypes;
+    damageTypes.columns({"label"}).row({"bludgeoning"});
+    auto damageTypeTable =
+        std::shared_ptr<resource::TwoDA>(damageTypes.build());
+    resource::TwoDA::Builder protection;
+    protection.columns({"label"}).row({"normal"});
+    auto protectionTable =
+        std::shared_ptr<resource::TwoDA>(protection.build());
+
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("iprp_costtable"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(costTable));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("iprp_test"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(oneValueTable("value", 4)));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("iprp_resistcost"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(oneValueTable("amount", 5)));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("iprp_soakcost"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(oneValueTable("amount", 6)));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("iprp_damagetype"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(damageTypeTable));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("iprp_protection"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(protectionTable));
 }
 
 void giveItemThroughRoutine(
@@ -1261,9 +1337,16 @@ TEST(RuntimeObjectIntegrity, failed_graph_replacement_preserves_old_graph_and_cu
     auto creature = game.newCreature();
     auto oldEquipment = game.newItem();
     oldEquipment->deserialize(
-        *runtimeItem("old_equipment"),
+        *runtimeEquippedItem(
+            "old_equipment",
+            {runtimeItemProperty(
+                ItemProperty::BonusFeat,
+                static_cast<uint16_t>(FeatType::Toughness))}),
         SerializedIdentityContext::templateResource());
     ASSERT_TRUE(creature->equip(InventorySlots::body, oldEquipment));
+    ASSERT_TRUE(creature->hasEffectiveFeat(FeatType::Toughness));
+    ASSERT_EQ(1u, creature->effects().size());
+    const EffectId oldEffectId = creature->effects().front().id;
     const size_t registrySize = TestGameModule::objectRegistrySize(game);
     const uint32_t nextId = TestGameModule::nextObjectId(game);
 
@@ -1280,6 +1363,10 @@ TEST(RuntimeObjectIntegrity, failed_graph_replacement_preserves_old_graph_and_cu
 
     EXPECT_EQ(oldEquipment, creature->getEquippedItem(InventorySlots::body));
     EXPECT_EQ(oldEquipment, game.getObjectById(oldEquipment->id()));
+    ASSERT_TRUE(creature->hasEffectiveFeat(FeatType::Toughness));
+    ASSERT_EQ(1u, creature->effects().size());
+    EXPECT_EQ(oldEffectId, creature->effects().front().id);
+    EXPECT_EQ(oldEquipment, creature->effects().front().boundCreator());
     EXPECT_FALSE(game.getObjectBySavedId(820));
     EXPECT_FALSE(game.getObjectBySavedId(821));
     EXPECT_EQ(registrySize, TestGameModule::objectRegistrySize(game));
@@ -1613,6 +1700,9 @@ TEST(RuntimeObjectIntegrity, area_retirement_preserves_session_object_liveness) 
     engine.init();
     NiceMock<scene::MockSceneGraph> sceneGraph;
     configureRuntimeMocks(engine, sceneGraph);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
     StubConsole console;
     Game game(resource::GameID::TSL, "", engine.options(), engine.services(), console);
     auto area = game.newArea();
@@ -1620,12 +1710,25 @@ TEST(RuntimeObjectIntegrity, area_retirement_preserves_session_object_liveness) 
     game.party().addMember(kNpcPlayer, retained);
     game.party().setPlayer(retained);
     game.party().setActualPlayer(retained);
+    auto equipment = game.newItem();
+    equipment->deserialize(
+        *runtimeEquippedItem(
+            "retained_equipment",
+            {runtimeItemProperty(
+                ItemProperty::BonusFeat,
+                static_cast<uint16_t>(FeatType::Toughness))}),
+        SerializedIdentityContext::templateResource());
+    ASSERT_TRUE(retained->equip(InventorySlots::body, equipment));
     area->add(retained);
 
     area->retireCreatureAreaRuntime(retained);
 
     EXPECT_EQ(retained, game.getObjectById(retained->id()));
     EXPECT_TRUE(game.isRuntimeObjectLive(*retained));
+    EXPECT_TRUE(game.isRuntimeObjectLive(*equipment));
+    EXPECT_TRUE(retained->hasEffectiveFeat(FeatType::Toughness));
+    ASSERT_EQ(1u, retained->effects().size());
+    EXPECT_EQ(equipment, retained->effects().front().boundCreator());
     EXPECT_TRUE(area->getObjectsByType(ObjectType::Creature).empty());
 }
 
@@ -2152,7 +2255,11 @@ TEST(RuntimeObjectOwnership, equip_action_releases_area_item_before_equipping) {
         SerializedIdentityContext::templateResource());
     area->add(trigger);
     auto item = game.newItem(
-        *runtimeItem("world_equip"),
+        *runtimeEquippedItem(
+            "world_equip",
+            {runtimeItemProperty(
+                ItemProperty::BonusFeat,
+                static_cast<uint16_t>(FeatType::Toughness))}),
         SerializedIdentityContext::templateResource("test-area"));
     const auto runtimeId = item->id();
     const auto incarnation = item->runtimeIncarnation();
@@ -2197,6 +2304,9 @@ TEST(RuntimeObjectOwnership, equip_action_releases_area_item_before_equipping) {
     EXPECT_EQ(runtimeId, item->id());
     EXPECT_EQ(incarnation, item->runtimeIncarnation());
     EXPECT_EQ(item, game.getObjectById(runtimeId));
+    EXPECT_TRUE(actor->hasEffectiveFeat(FeatType::Toughness));
+    ASSERT_EQ(1u, actor->effects().size());
+    EXPECT_EQ(item, actor->effects().front().boundCreator());
 }
 
 TEST(RuntimeObjectOwnership, equip_action_replaces_slot_with_area_item) {
@@ -2394,6 +2504,202 @@ TEST(RuntimeObjectOwnership, rejected_replacement_preserves_original_graph) {
     ASSERT_EQ(1u, owner->items().size());
     EXPECT_EQ(rejected, owner->items().front());
     EXPECT_EQ(owner->id(), rejected->owner());
+}
+
+TEST(EquipmentCombatEffects, effective_stats_follow_exact_equipment_ownership) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    configureEquipmentEffectTables(engine);
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto owner = game.newCreature();
+    owner->attributes().setAbilityScore(Ability::Strength, 12);
+    auto item = game.newItem();
+    item->deserialize(
+        *runtimeEquippedItem(
+            "combat_belt",
+            {runtimeItemProperty(
+                 ItemProperty::AbilityBonus,
+                 static_cast<uint16_t>(Ability::Strength)),
+             runtimeItemProperty(
+                 ItemProperty::BonusFeat,
+                 static_cast<uint16_t>(FeatType::Toughness)),
+             runtimeItemProperty(
+                 ItemProperty::Immunity,
+                 static_cast<uint16_t>(ImmunityType::Stun)),
+             runtimeItemProperty(ItemProperty::DamageResistance),
+             runtimeItemProperty(ItemProperty::DamageReduction)}),
+        SerializedIdentityContext::templateResource());
+
+    EXPECT_EQ(12, owner->attributes().getAbilityScore(Ability::Strength));
+    EXPECT_EQ(12, owner->getEffectiveAbilityScore(Ability::Strength));
+    EXPECT_FALSE(owner->attributes().hasFeat(FeatType::Toughness));
+    EXPECT_FALSE(owner->hasEffectiveFeat(FeatType::Toughness));
+    ASSERT_TRUE(owner->equip(InventorySlots::body, item));
+
+    EXPECT_EQ(12, owner->attributes().getAbilityScore(Ability::Strength));
+    EXPECT_EQ(16, owner->getEffectiveAbilityScore(Ability::Strength));
+    EXPECT_FALSE(owner->attributes().hasFeat(FeatType::Toughness));
+    EXPECT_TRUE(owner->hasEffectiveFeat(FeatType::Toughness));
+    EXPECT_TRUE(owner->hasEffect(EffectType::Immunity));
+    EXPECT_TRUE(owner->hasEffect(EffectType::DamageResistance));
+    EXPECT_TRUE(owner->hasEffect(EffectType::DamageReduction));
+    ASSERT_EQ(5u, owner->effects().size());
+    std::set<EffectId> ids;
+    for (const EffectInstance &effect : owner->effects()) {
+        EXPECT_EQ(DurationType::Equipped, effect.durationType());
+        EXPECT_EQ(item, effect.boundCreator());
+        EXPECT_TRUE(ids.insert(effect.id).second);
+    }
+    EXPECT_TRUE(owner->saveEffectSnapshot().empty());
+
+    auto receiver = game.newCreature();
+    ASSERT_TRUE(owner->moveEquippedItemTo(item, *receiver));
+    EXPECT_FALSE(owner->getEquippedItem(InventorySlots::body));
+    EXPECT_EQ(12, owner->getEffectiveAbilityScore(Ability::Strength));
+    EXPECT_FALSE(owner->hasEffectiveFeat(FeatType::Toughness));
+    EXPECT_FALSE(owner->hasEffect(EffectType::Immunity));
+    EXPECT_TRUE(owner->effects().empty());
+    ASSERT_EQ(1u, receiver->items().size());
+    EXPECT_EQ(item, receiver->items().front());
+    EXPECT_FALSE(item->isEquipped());
+}
+
+TEST(EquipmentCombatEffects, replacement_rebinds_to_the_exact_item_incarnation) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto owner = game.newCreature();
+    auto receiver = game.newCreature();
+    auto itemA = game.newItem();
+    auto itemB = game.newItem();
+    auto rejected = game.newItem();
+    const auto property = [] {
+        return std::vector<std::shared_ptr<resource::Gff>> {
+            runtimeItemProperty(
+                ItemProperty::BonusFeat,
+                static_cast<uint16_t>(FeatType::Toughness))};
+    };
+    itemA->deserialize(
+        *runtimeEquippedItem("same_template", property()),
+        SerializedIdentityContext::templateResource());
+    itemB->deserialize(
+        *runtimeEquippedItem("same_template", property()),
+        SerializedIdentityContext::templateResource());
+    rejected->deserialize(
+        *runtimeEquippedItem("same_template", property()),
+        SerializedIdentityContext::templateResource());
+
+    ASSERT_TRUE(owner->equip(InventorySlots::body, itemA));
+    ASSERT_EQ(1u, owner->effects().size());
+    const EffectId firstEffectId = owner->effects().front().id;
+    EXPECT_EQ(itemA, owner->effects().front().boundCreator());
+
+    ASSERT_TRUE(owner->replaceEquipment(
+        InventorySlots::body, itemB, *receiver));
+    ASSERT_EQ(1u, owner->effects().size());
+    EXPECT_NE(firstEffectId, owner->effects().front().id);
+    EXPECT_EQ(itemB, owner->effects().front().boundCreator());
+    ASSERT_EQ(1u, receiver->items().size());
+    EXPECT_EQ(itemA, receiver->items().front());
+    EXPECT_TRUE(owner->hasEffectiveFeat(FeatType::Toughness));
+
+    owner->addItem(rejected);
+    EXPECT_FALSE(owner->replaceEquipment(
+        InventorySlots::body, rejected, *receiver));
+    ASSERT_EQ(1u, owner->effects().size());
+    EXPECT_EQ(itemB, owner->effects().front().boundCreator());
+    EXPECT_EQ(itemB, owner->getEquippedItem(InventorySlots::body));
+}
+
+TEST(EquipmentCombatEffects, retired_exact_source_fails_closed) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto owner = game.newCreature();
+    auto item = game.newItem();
+    item->deserialize(
+        *runtimeEquippedItem(
+            "retired_source",
+            {runtimeItemProperty(
+                ItemProperty::BonusFeat,
+                static_cast<uint16_t>(FeatType::Toughness))}),
+        SerializedIdentityContext::templateResource());
+    ASSERT_TRUE(owner->equip(InventorySlots::body, item));
+    ASSERT_TRUE(owner->hasEffectiveFeat(FeatType::Toughness));
+
+    game.destroyRuntimeObjectGraph(item);
+
+    EXPECT_FALSE(item->isRuntimeLive());
+    EXPECT_FALSE(owner->hasEffectiveFeat(FeatType::Toughness));
+    EXPECT_FALSE(owner->effects().front().boundCreator());
+    owner->update(0.0f);
+    EXPECT_TRUE(owner->effects().empty());
+}
+
+TEST(EquipmentCombatEffects, staged_template_and_saved_graphs_rebuild_once) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeAppearances()));
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto bonusFeat = [] {
+        return runtimeItemProperty(
+            ItemProperty::BonusFeat,
+            static_cast<uint16_t>(FeatType::Toughness));
+    };
+
+    auto templateCreature = game.newCreature();
+    auto templateRecord = resource::Gff::Builder()
+                              .field(resource::Gff::Field::newList(
+                                  "Equip_ItemList",
+                                  {runtimeEquippedItem(
+                                      "template_equipment", {bonusFeat()})}))
+                              .build();
+    templateCreature->deserialize(
+        *templateRecord,
+        SerializedIdentityContext::templateResource("template_creature"));
+    ASSERT_TRUE(templateCreature->hasEffectiveFeat(FeatType::Toughness));
+    ASSERT_EQ(1u, templateCreature->effects().size());
+    auto templateItem =
+        templateCreature->getEquippedItem(InventorySlots::body);
+    ASSERT_TRUE(templateItem);
+    EXPECT_EQ(templateItem, templateCreature->effects().front().boundCreator());
+    EXPECT_TRUE(templateCreature->saveEffectSnapshot().empty());
+
+    auto savedCreature = game.newCreature();
+    auto savedRecord = resource::Gff::Builder()
+                           .field(resource::Gff::Field::newList(
+                               "Equip_ItemList",
+                               {runtimeEquippedItem(
+                                   "saved_equipment", {bonusFeat()}, 4701)}))
+                           .build();
+    savedCreature->deserialize(
+        *savedRecord,
+        SerializedIdentityContext::moduleGraph("saved_creature"));
+    ASSERT_TRUE(savedCreature->hasEffectiveFeat(FeatType::Toughness));
+    ASSERT_EQ(1u, savedCreature->effects().size());
+    auto savedItem = savedCreature->getEquippedItem(InventorySlots::body);
+    ASSERT_TRUE(savedItem);
+    EXPECT_EQ(savedItem, savedCreature->effects().front().boundCreator());
+    EXPECT_TRUE(savedCreature->saveEffectSnapshot().empty());
+    EXPECT_EQ(savedItem, game.getObjectBySavedId(4701));
 }
 
 TEST(RuntimeObjectOwnership, displaced_equipment_merges_and_is_finalized) {

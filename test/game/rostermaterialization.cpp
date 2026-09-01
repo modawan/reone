@@ -86,12 +86,27 @@ std::shared_ptr<TwoDA> itemBaseTable() {
     return std::shared_ptr<TwoDA>(builder.build());
 }
 
-std::shared_ptr<Gff> itemRecord(std::string tag) {
-    return Gff::Builder()
-        .field(Gff::Field::newCExoString("Tag", std::move(tag)))
+std::shared_ptr<Gff> itemRecord(
+    std::string tag,
+    bool grantsMasterToughness = false) {
+    Gff::Builder builder;
+    builder.field(Gff::Field::newCExoString("Tag", std::move(tag)))
         .field(Gff::Field::newInt("BaseItem", 0))
-        .field(Gff::Field::newWord("StackSize", 1))
-        .build();
+        .field(Gff::Field::newWord("StackSize", 1));
+    if (grantsMasterToughness) {
+        auto property = Gff::Builder()
+                            .field(Gff::Field::newWord(
+                                "PropertyName",
+                                static_cast<uint16_t>(ItemProperty::BonusFeat)))
+                            .field(Gff::Field::newWord(
+                                "Subtype",
+                                static_cast<uint16_t>(FeatType::MasterToughness)))
+                            .field(Gff::Field::newByte("UpgradeType", 0))
+                            .build();
+        builder.field(Gff::Field::newList(
+            "PropertiesList", {std::move(property)}));
+    }
+    return builder.build();
 }
 
 std::shared_ptr<Gff> decodeGff(const ByteBuffer &bytes) {
@@ -1174,10 +1189,18 @@ TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_remateriali
     companion->attributes().addFeat(FeatType::Toughness);
     companion->setMaxHitPoints(30);
     companion->setCurrentHitPoints(32);
+    auto equipped = harness.game.newItem(
+        *itemRecord("equipped_toughness", true),
+        SerializedIdentityContext::templateResource());
+    ASSERT_TRUE(companion->equip(InventorySlots::body, equipped));
     ASSERT_TRUE(harness.game.party().addAvailableMember(4, companion));
     ASSERT_TRUE(harness.game.party().addMember(4, companion));
     EXPECT_EQ(36, companion->maxHitPoints());
     EXPECT_EQ(32, companion->currentHitPoints());
+    EXPECT_FALSE(companion->attributes().hasFeat(FeatType::MasterToughness));
+    EXPECT_TRUE(companion->hasEffectiveFeat(FeatType::MasterToughness));
+    ASSERT_EQ(1u, companion->effects().size());
+    EXPECT_EQ(equipped, companion->effects().front().boundCreator());
     area->add(companion);
 
     auto committed = std::make_shared<const SaveWorkingState>();
@@ -1200,6 +1223,8 @@ TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_remateriali
     EXPECT_EQ(30, saved->getInt("HitPoints"));
     EXPECT_EQ(36, saved->getInt("MaxHitPoints"));
     EXPECT_EQ(26, saved->getInt("CurrentHitPoints"));
+    EXPECT_TRUE(saved->getList("EffectList").empty());
+    EXPECT_EQ(1u, saved->getList("Equip_ItemList").size());
 
     EXPECT_CALL(
         testEngine().resourceModule().director(),
@@ -1214,6 +1239,13 @@ TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_remateriali
     EXPECT_EQ(36, replacement->maxHitPoints());
     EXPECT_EQ(32, replacement->currentHitPoints());
     EXPECT_EQ(26, replacement->serializedCurrentHitPoints());
+    EXPECT_FALSE(replacement->attributes().hasFeat(FeatType::MasterToughness));
+    EXPECT_TRUE(replacement->hasEffectiveFeat(FeatType::MasterToughness));
+    auto replacementItem =
+        replacement->getEquippedItem(InventorySlots::body);
+    ASSERT_TRUE(replacementItem);
+    ASSERT_EQ(1u, replacement->effects().size());
+    EXPECT_EQ(replacementItem, replacement->effects().front().boundCreator());
 }
 
 TEST(RemoveNPCFromPartyToBase, retires_the_active_assigned_puppet_but_keeps_assignment) {

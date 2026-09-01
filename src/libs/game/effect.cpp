@@ -26,6 +26,7 @@
 #include "reone/game/effect/acincrease.h"
 #include "reone/game/effect/attackdecrease.h"
 #include "reone/game/effect/attackincrease.h"
+#include "reone/game/effect/bonusfeat.h"
 #include "reone/game/effect/concealment.h"
 #include "reone/game/effect/damagedecrease.h"
 #include "reone/game/effect/damageimmunitydecrease.h"
@@ -83,6 +84,7 @@ uint16_t retailEffectType(EffectType type) {
     case EffectType::TrueSeeing: return 72;
     case EffectType::Blindness: return 73;
     case EffectType::Concealment: return 76;
+    case EffectType::BonusFeat: return 83;
     default: return static_cast<uint16_t>(type);
     }
 }
@@ -113,6 +115,7 @@ EffectType runtimeEffectType(uint16_t retailType) {
     case 72: return EffectType::TrueSeeing;
     case 73: return EffectType::Blindness;
     case 76: return EffectType::Concealment;
+    case 83: return EffectType::BonusFeat;
     default: return static_cast<EffectType>(retailType);
     }
 }
@@ -153,6 +156,9 @@ std::shared_ptr<Effect> executableEffect(const EffectInstance &instance) {
     case EffectType::AbilityDecrease:
         return std::make_shared<AbilityDecreaseEffect>(
             static_cast<Ability>(integer(0)), integer(1));
+    case EffectType::BonusFeat:
+        return std::make_shared<BonusFeatEffect>(
+            static_cast<FeatType>(integer(0)));
     case EffectType::AttackIncrease:
         return std::make_shared<AttackIncreaseEffect>(
             integer(0), static_cast<AttackBonus>(integer(1)));
@@ -274,9 +280,12 @@ EffectInstance Effect::saveFacingInstance() const {
     result.integerParameters = _saveFacingIntegers;
     result.floatParameters = _saveFacingFloats;
     result.stringParameters = _saveFacingStrings;
+    // Preserve the exact candidate binding even while its owner graph remains
+    // Constructing. Resolution intentionally begins to succeed only after the
+    // candidate incarnation is published Live.
+    result.creator = _saveFacingCreator;
     if (auto creator = _saveFacingCreator.resolve()) {
         result.creatorId = creator->id();
-        result.creator = creator;
     }
     for (size_t index = 0; index < _saveFacingObjects.size(); ++index) {
         if (auto object = _saveFacingObjects[index].resolve()) {
@@ -536,6 +545,11 @@ bool EffectInstance::appliesVersus(const Creature *creature) const {
         return false;
     }
     return !hasAlignment || goodEvil == static_cast<int>(creature->alignment());
+}
+
+bool EffectInstance::hasLiveRuntimeSource() const {
+    return durationType() != DurationType::Equipped ||
+           static_cast<bool>(boundCreator());
 }
 
 bool EffectInstance::bindCreator(const std::shared_ptr<Object> &object) {

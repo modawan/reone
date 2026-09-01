@@ -195,6 +195,8 @@ struct EffectInstance {
     std::shared_ptr<Object> boundCreator() const;
     std::shared_ptr<Object> boundObjectParameter(size_t index) const;
     bool appliesVersus(const Creature *creature) const;
+    /** Equipped effects stop contributing as soon as their exact Item retires. */
+    bool hasLiveRuntimeSource() const;
 
     /**
      * Rebase live object bindings at an Area lifetime boundary.

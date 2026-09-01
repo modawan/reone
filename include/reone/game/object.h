@@ -307,6 +307,8 @@ protected:
         std::vector<std::shared_ptr<Item>> &items,
         const std::shared_ptr<Item> &item,
         bool preserveSerializedIdentities);
+    /** Atomically replace canonical effect state and run exact lifecycle hooks. */
+    void replaceEffectState(std::deque<EffectInstance> replacement) noexcept;
     struct DelayedAction {
         std::shared_ptr<Action> action;
         std::unique_ptr<Timer> timer;

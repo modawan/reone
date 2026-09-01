@@ -27,6 +27,8 @@
 #include "reone/game/action/opendoor.h"
 #include "reone/game/action/unlockobject.h"
 #include "reone/game/equipmentrules.h"
+#include "reone/game/effect/abilityincrease.h"
+#include "reone/game/effect/bonusfeat.h"
 #include "reone/game/d20/class.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/game.h"
@@ -5499,6 +5501,68 @@ TEST(CreatureVitality, restores_k1_and_k2_companion_witnesses_at_full_health) {
     EXPECT_EQ(21, mission->currentHitPoints());
     EXPECT_EQ(21, mission->maxHitPoints());
     EXPECT_EQ(24, atton->currentHitPoints());
+    EXPECT_EQ(24, atton->maxHitPoints());
+}
+
+TEST(CreatureVitality, temporary_combat_stats_do_not_change_permanent_vitality) {
+    TestEngine engine;
+    engine.init();
+    StubConsole console;
+    Game k1(GameID::KotOR, "", engine.options(), engine.services(), console);
+    Game k2(GameID::TSL, "", engine.options(), engine.services(), console);
+    VitalityTestClass soldier(10);
+    EXPECT_CALL(engine.gameModule().classes(), get(ClassType::Soldier))
+        .WillRepeatedly(Return(soldier.clazz));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
+    EXPECT_CALL(
+        static_cast<MockPortraits &>(engine.services().game.portraits),
+        getTextureByAppearance(_))
+        .Times(AnyNumber());
+
+    auto trask = k1.newCreature(
+        *vitalityCreatureRecord(
+            30, 30, 36, 12, 3, {FeatType::Toughness}),
+        SerializedIdentityContext::templateResource("end_trask"));
+    auto carth = k1.newCreature(
+        *vitalityCreatureRecord(40, 40, 44, 12, 4),
+        SerializedIdentityContext::templateResource("p_carth"));
+    auto atton = k2.newCreature(
+        *vitalityCreatureRecord(18, 18, 24, 14, 3),
+        SerializedIdentityContext::templateResource("p_atton"));
+
+    auto traskCon = std::make_shared<AbilityIncreaseEffect>(
+        Ability::Constitution, 4);
+    auto carthToughness = std::make_shared<BonusFeatEffect>(
+        FeatType::MasterToughness);
+    auto attonCon = std::make_shared<AbilityIncreaseEffect>(
+        Ability::Constitution, 4);
+    trask->applyEffect(traskCon, DurationType::Temporary, 30.0f);
+    carth->applyEffect(carthToughness, DurationType::Temporary, 30.0f);
+    atton->applyEffect(attonCon, DurationType::Temporary, 30.0f);
+
+    EXPECT_EQ(12, trask->attributes().getAbilityScore(Ability::Constitution));
+    EXPECT_EQ(16, trask->getEffectiveAbilityScore(Ability::Constitution));
+    EXPECT_EQ(36, trask->maxHitPoints());
+    EXPECT_EQ(30, trask->serializedCurrentHitPoints());
+    EXPECT_FALSE(carth->attributes().hasFeat(FeatType::MasterToughness));
+    EXPECT_TRUE(carth->hasEffectiveFeat(FeatType::MasterToughness));
+    EXPECT_EQ(44, carth->maxHitPoints());
+    EXPECT_EQ(40, carth->serializedCurrentHitPoints());
+    EXPECT_EQ(14, atton->attributes().getAbilityScore(Ability::Constitution));
+    EXPECT_EQ(18, atton->getEffectiveAbilityScore(Ability::Constitution));
+    EXPECT_EQ(24, atton->maxHitPoints());
+    EXPECT_EQ(18, atton->serializedCurrentHitPoints());
+
+    trask->removeEffect(traskCon);
+    carth->removeEffect(carthToughness);
+    atton->removeEffect(attonCon);
+    EXPECT_EQ(12, trask->getEffectiveAbilityScore(Ability::Constitution));
+    EXPECT_FALSE(carth->hasEffectiveFeat(FeatType::MasterToughness));
+    EXPECT_EQ(14, atton->getEffectiveAbilityScore(Ability::Constitution));
+    EXPECT_EQ(36, trask->maxHitPoints());
+    EXPECT_EQ(44, carth->maxHitPoints());
     EXPECT_EQ(24, atton->maxHitPoints());
 }
 

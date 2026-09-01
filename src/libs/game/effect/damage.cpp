@@ -90,14 +90,11 @@ static int getDamageImmunity(const Object &object, DamageType damageType) {
 
         auto type = static_cast<DamageType>(typeFlag);
         int immunity = 0;
-        if (const auto *creature = dyn_cast<Creature>(&object)) {
-            immunity = std::clamp(
-                creature->getItemDamageImmunity(type),
-                -100,
-                100);
-        }
 
         for (const EffectInstance &applied : object.effects()) {
+            if (!applied.hasLiveRuntimeSource()) {
+                continue;
+            }
             switch (applied.type()) {
             case EffectType::DamageImmunityIncrease: {
                 if (damageTypeMatches(
@@ -163,12 +160,14 @@ static int applyDamageResistance(
     int resistance = 0;
     int featBonus = 0;
     if (const auto *creature = dyn_cast<Creature>(&object)) {
-        resistance = creature->getItemDamageResistance(damageType);
         featBonus = creature->getDamageResistanceFeatBonus();
     }
 
     std::shared_ptr<Effect> selectedEffect;
     for (const EffectInstance &applied : object.effects()) {
+        if (!applied.hasLiveRuntimeSource()) {
+            continue;
+        }
         if (applied.type() != EffectType::DamageResistance) {
             continue;
         }
@@ -216,12 +215,12 @@ static int applyDamageReduction(
 
     int reduction = 0;
     DamagePower requiredPower = DamagePower::Normal;
-    if (const auto *creature = dyn_cast<Creature>(&object)) {
-        creature->getItemDamageReduction(reduction, requiredPower);
-    }
 
     std::shared_ptr<Effect> selectedEffect;
     for (const EffectInstance &applied : object.effects()) {
+        if (!applied.hasLiveRuntimeSource()) {
+            continue;
+        }
         if (applied.type() != EffectType::DamageReduction) {
             continue;
         }
