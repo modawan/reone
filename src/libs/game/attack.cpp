@@ -17,6 +17,7 @@
 
 #include "reone/game/attack.h"
 
+#include "reone/game/animations.h"
 #include "reone/game/d20/feats.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/acdecrease.h"
@@ -591,29 +592,43 @@ void AttackBuffer::resolve(Creature &attacker, Object &target) {
     }
 }
 
-void AttackBuffer::applyEffects(Creature &attacker, Object &target, Game &game) {
-    for (Attack &attack : _attacks) {
-        // Failed ranged attacks do not produce floating miss text.
-        if (!attack.ranged && !isAttackSuccessful(attack.result)) {
-            game.floatingText().addMiss(attacker, target);
-        }
-        if (!attack.damage.empty()) {
-            auto effect = game.newEffect<DamageEffect>(
-                std::move(attack.damage));
-            auto liveAttacker = game.getObjectById(attacker.id());
-            if (liveAttacker.get() == &attacker) {
-                effect->setSaveFacingCreator(liveAttacker);
-            }
-            target.applyEffect(std::move(effect), DurationType::Instant);
-        }
-        if (attack.stunTarget) {
-            auto effect = game.newEffect<StunnedEffect>();
-            target.applyEffect(
-                std::move(effect),
-                DurationType::Temporary,
-                kCriticalStrikeStunDuration);
-        }
+void AttackBuffer::applyEffects(
+    Attack &attack,
+    Creature &attacker,
+    Object &target,
+    Game &game) {
+
+    // Failed ranged attacks do not produce floating miss text.
+    if (!attack.ranged && !isAttackSuccessful(attack.result)) {
+        game.floatingText().addMiss(attacker, target);
     }
+    if (!attack.damage.empty()) {
+        auto effect = game.newEffect<DamageEffect>(
+            std::move(attack.damage));
+        auto liveAttacker = game.getObjectById(attacker.id());
+        if (liveAttacker.get() == &attacker) {
+            effect->setSaveFacingCreator(liveAttacker);
+        }
+        target.applyEffect(std::move(effect), DurationType::Instant);
+    }
+    if (attack.stunTarget) {
+        auto effect = game.newEffect<StunnedEffect>();
+        target.applyEffect(
+            std::move(effect),
+            DurationType::Temporary,
+            kCriticalStrikeStunDuration);
+    }
+}
+
+void AttackBuffer::signalAttack(
+    Attack &attack,
+    Game &game,
+    ServicesView &services,
+    Creature &attacker,
+    Object &target) {
+
+    addCombatFeedback(game, services, attacker, target, attack);
+    applyEffects(attack, attacker, target, game);
 }
 
 void AttackBuffer::signal(
@@ -622,8 +637,102 @@ void AttackBuffer::signal(
     Creature &attacker,
     Object &target) {
 
-    addCombatFeedback(game, services, attacker, target);
-    applyEffects(attacker, target, game);
+    for (Attack &attack : _attacks) {
+        signalAttack(attack, game, services, attacker, target);
+    }
+}
+
+void AttackBuffer::prepareMeleeSequence(
+    const IAnimations &animations,
+    const std::vector<std::string> &attackAnimations) {
+
+    if (_attacks.empty()) {
+        throw std::logic_error("Physical attack buffer is empty");
+    }
+    if (std::any_of(
+            _attacks.begin(),
+            _attacks.end(),
+            [](const Attack &attack) { return attack.ranged; })) {
+        throw std::logic_error("Ranged attack in melee sequence");
+    }
+    if (attackAnimations.size() != _attacks.size()) {
+        throw std::logic_error(
+            "Melee attack animation count does not match attack count");
+    }
+
+    for (size_t index = 0; index < _attacks.size(); ++index) {
+        Attack &attack = _attacks[index];
+        attack.impactTimeMilliseconds =
+            animations.getMeleeImpactTime(attackAnimations[index], index);
+        attack.meleeSignaled = false;
+    }
+    _pendingMeleeAttacks = _attacks.size();
+    _meleeSequencePrepared = true;
+}
+
+size_t AttackBuffer::signalReadyMelee(
+    int elapsedMilliseconds,
+    Game &game,
+    ServicesView &services,
+    Creature &attacker,
+    Object &target) {
+
+    if (!_meleeSequencePrepared) {
+        throw std::logic_error("Melee attack sequence is not prepared");
+    }
+    if (!hasPendingMelee()) {
+        return 0;
+    }
+
+    std::vector<size_t> ready;
+    ready.reserve(_pendingMeleeAttacks);
+    for (size_t index = 0; index < _attacks.size(); ++index) {
+        const Attack &attack = _attacks[index];
+        if (!attack.meleeSignaled &&
+            elapsedMilliseconds >= attack.impactTimeMilliseconds) {
+            ready.push_back(index);
+        }
+    }
+    std::stable_sort(
+        ready.begin(),
+        ready.end(),
+        [this](size_t left, size_t right) {
+            return _attacks[left].impactTimeMilliseconds <
+                   _attacks[right].impactTimeMilliseconds;
+        });
+
+    for (size_t index : ready) {
+        Attack &attack = _attacks[index];
+        signalAttack(attack, game, services, attacker, target);
+        attack.meleeSignaled = true;
+        --_pendingMeleeAttacks;
+    }
+    return ready.size();
+}
+
+int AttackBuffer::latestMeleeImpactMilliseconds() const {
+    if (!_meleeSequencePrepared) {
+        throw std::logic_error("Melee attack sequence is not prepared");
+    }
+    int latest = 0;
+    for (const Attack &attack : _attacks) {
+        latest = std::max(latest, attack.impactTimeMilliseconds);
+    }
+    return latest;
+}
+
+void AttackBuffer::discardPendingMelee() {
+    if (!_meleeSequencePrepared) {
+        return;
+    }
+    for (Attack &attack : _attacks) {
+        attack.meleeSignaled = true;
+    }
+    _pendingMeleeAttacks = 0;
+}
+
+bool AttackBuffer::hasPendingMelee() const {
+    return _meleeSequencePrepared && _pendingMeleeAttacks != 0;
 }
 
 static constexpr float kCombatFeedbackRange2 = 900.0f;
@@ -680,7 +789,8 @@ void AttackBuffer::addCombatFeedback(
     Game &game,
     ServicesView &services,
     const Creature &attacker,
-    const Object &target) const {
+    const Object &target,
+    const Attack &attack) const {
 
     if (game.isTSL()) {
         return;
@@ -704,170 +814,168 @@ void AttackBuffer::addCombatFeedback(
     const std::string &attackerName = attacker.name();
     const std::string &targetName = target.name();
 
-    for (const Attack &attack : _attacks) {
-        bool successful = isAttackSuccessful(attack.result);
-        std::string feedback = getFeedbackString(
-            game,
-            services,
-            kStrRefAttackSummary,
-            {
-                {0, attackerName},
-                {1, services.resource.strings.getText(
-                        successful ? kStrRefAttackSuccessVerb : kStrRefAttackFailureVerb)},
-                {2, targetName},
-            });
-        feedback += ". ";
+    bool successful = isAttackSuccessful(attack.result);
+    std::string feedback = getFeedbackString(
+        game,
+        services,
+        kStrRefAttackSummary,
+        {
+            {0, attackerName},
+            {1, services.resource.strings.getText(
+                    successful ? kStrRefAttackSuccessVerb : kStrRefAttackFailureVerb)},
+            {2, targetName},
+        });
+    feedback += ". ";
 
-        if (isPhysicalAttackFeat(_feat)) {
-            auto feat = services.game.feats.get(_feat);
-            feedback += getFeedbackString(
-                game,
-                services,
-                kStrRefAttackFeat,
-                {{0, feat->name}});
-            feedback += ". ";
-        }
-
+    if (isPhysicalAttackFeat(_feat)) {
+        auto feat = services.game.feats.get(_feat);
         feedback += getFeedbackString(
             game,
             services,
-            kStrRefAttackRoll,
-            {
-                {0, services.resource.strings.getText(
-                        successful ? kStrRefAttackRollSuccess : kStrRefAttackRollFailure)},
-                {1, std::to_string(
-                        attack.roll + attack.attackBonusBreakdown.total())},
-                {2, std::to_string(attack.defense)},
-                {3, std::to_string(
-                        attack.damage.empty()
-                            ? 0
-                            : attack.damage.resolvedDamage())},
-            });
+            kStrRefAttackFeat,
+            {{0, feat->name}});
+        feedback += ". ";
+    }
 
-        for (int broadcast = 0; broadcast < broadcasts; ++broadcast) {
-            game.messageLog().add(
-                MessageLog::kFeedbackMessageType,
-                MessageLog::Style::Combat,
-                feedback);
-        }
+    feedback += getFeedbackString(
+        game,
+        services,
+        kStrRefAttackRoll,
+        {
+            {0, services.resource.strings.getText(
+                    successful ? kStrRefAttackRollSuccess : kStrRefAttackRollFailure)},
+            {1, std::to_string(
+                    attack.roll + attack.attackBonusBreakdown.total())},
+            {2, std::to_string(attack.defense)},
+            {3, std::to_string(
+                    attack.damage.empty()
+                        ? 0
+                        : attack.damage.resolvedDamage())},
+        });
 
-        const AttackBonusBreakdown &bonus = attack.attackBonusBreakdown;
-        std::string breakdown = getFeedbackString(
-            game,
-            services,
-            kStrRefAttackBreakdown,
-            {
-                {0, services.resource.strings.getText(
-                        attack.source == Source::Main
-                            ? kStrRefMainhand
-                            : kStrRefOffhand)},
-                {1, std::to_string(
-                        attack.roll + attack.attackBonusBreakdown.total())},
-            });
+    for (int broadcast = 0; broadcast < broadcasts; ++broadcast) {
+        game.messageLog().add(
+            MessageLog::kFeedbackMessageType,
+            MessageLog::Style::Combat,
+            feedback);
+    }
+
+    const AttackBonusBreakdown &bonus = attack.attackBonusBreakdown;
+    std::string breakdown = getFeedbackString(
+        game,
+        services,
+        kStrRefAttackBreakdown,
+        {
+            {0, services.resource.strings.getText(
+                    attack.source == Source::Main
+                        ? kStrRefMainhand
+                        : kStrRefOffhand)},
+            {1, std::to_string(
+                    attack.roll + attack.attackBonusBreakdown.total())},
+        });
+    breakdown += getFeedbackString(
+        game,
+        services,
+        kStrRefAttackRollComponent,
+        {{0, std::to_string(attack.roll)}});
+
+    if (!attack.assuredHit && attack.roll == 20) {
+        breakdown += " ";
+        breakdown += services.resource.strings.getText(kStrRefAutomaticHit);
+    } else if (!attack.assuredHit && attack.roll == 1) {
+        breakdown += " ";
+        breakdown += services.resource.strings.getText(kStrRefAutomaticMiss);
+    } else {
         breakdown += getFeedbackString(
             game,
             services,
-            kStrRefAttackRollComponent,
-            {{0, std::to_string(attack.roll)}});
+            kStrRefBaseAttackBonus,
+            {{0, std::to_string(bonus.baseAttackBonus)}});
 
-        if (!attack.assuredHit && attack.roll == 20) {
-            breakdown += " ";
-            breakdown += services.resource.strings.getText(kStrRefAutomaticHit);
-        } else if (!attack.assuredHit && attack.roll == 1) {
-            breakdown += " ";
-            breakdown += services.resource.strings.getText(kStrRefAutomaticMiss);
-        } else {
+        if (bonus.dualWieldPenalty != 0) {
             breakdown += getFeedbackString(
                 game,
                 services,
-                kStrRefBaseAttackBonus,
-                {{0, std::to_string(bonus.baseAttackBonus)}});
-
-            if (bonus.dualWieldPenalty != 0) {
-                breakdown += getFeedbackString(
-                    game,
-                    services,
-                    kStrRefDualWieldPenalty,
-                    {{0, std::to_string(bonus.dualWieldPenalty)}});
-            }
-            if (bonus.smallOffhandBonus != 0) {
-                breakdown += getFeedbackString(
-                    game,
-                    services,
-                    kStrRefSmallOffhandBonus,
-                    {{0, std::to_string(bonus.smallOffhandBonus)}});
-            }
-            if (_feat != FeatType::Invalid && bonus.featBonus != 0) {
-                auto feat = services.game.feats.get(_feat);
-                breakdown += getFeedbackString(
-                    game,
-                    services,
-                    kStrRefFeatAttackBonus,
-                    {
-                        {0, feat->name},
-                        {1, std::to_string(bonus.featBonus)},
-                    });
-            }
-            if (bonus.duelingBonus != 0) {
-                auto feat = services.game.feats.get(bonus.duelingFeat);
-                breakdown += getFeedbackString(
-                    game,
-                    services,
-                    kStrRefFeatAttackBonus,
-                    {
-                        {0, feat->name},
-                        {1, std::to_string(bonus.duelingBonus)},
-                    });
-            }
-            if (bonus.closeProximityRangedBonus != 0) {
-                breakdown += getFeedbackString(
-                    game,
-                    services,
-                    kStrRefCloseProximityRangedBonus,
-                    {{0, std::to_string(bonus.closeProximityRangedBonus)}});
-            }
-            if (bonus.meleeOnRangedBonus != 0) {
-                breakdown += getFeedbackString(
-                    game,
-                    services,
-                    kStrRefMeleeOnRangedBonus,
-                    {{0, std::to_string(bonus.meleeOnRangedBonus)}});
-            }
-            if (bonus.dexterityModifier != 0) {
-                breakdown += getFeedbackString(
-                    game,
-                    services,
-                    kStrRefDexterityModifier,
-                    {{0, std::to_string(bonus.dexterityModifier)}});
-            } else if (bonus.strengthModifier != 0) {
-                breakdown += getFeedbackString(
-                    game,
-                    services,
-                    kStrRefStrengthModifier,
-                    {{0, std::to_string(bonus.strengthModifier)}});
-            }
-            if (bonus.weaponFocusBonus != 0) {
-                breakdown += getFeedbackString(
-                    game,
-                    services,
-                    kStrRefWeaponFocusBonus,
-                    {{0, std::to_string(bonus.weaponFocusBonus)}});
-            }
-            if (bonus.effectBonus != 0) {
-                breakdown += getFeedbackString(
-                    game,
-                    services,
-                    kStrRefEffectBonus,
-                    {{0, std::to_string(bonus.effectBonus)}});
-            }
+                kStrRefDualWieldPenalty,
+                {{0, std::to_string(bonus.dualWieldPenalty)}});
         }
-
-        for (int broadcast = 0; broadcast < broadcasts; ++broadcast) {
-            game.messageLog().add(
-                MessageLog::kFeedbackMessageType,
-                MessageLog::Style::Normal,
-                breakdown);
+        if (bonus.smallOffhandBonus != 0) {
+            breakdown += getFeedbackString(
+                game,
+                services,
+                kStrRefSmallOffhandBonus,
+                {{0, std::to_string(bonus.smallOffhandBonus)}});
         }
+        if (_feat != FeatType::Invalid && bonus.featBonus != 0) {
+            auto feat = services.game.feats.get(_feat);
+            breakdown += getFeedbackString(
+                game,
+                services,
+                kStrRefFeatAttackBonus,
+                {
+                    {0, feat->name},
+                    {1, std::to_string(bonus.featBonus)},
+                });
+        }
+        if (bonus.duelingBonus != 0) {
+            auto feat = services.game.feats.get(bonus.duelingFeat);
+            breakdown += getFeedbackString(
+                game,
+                services,
+                kStrRefFeatAttackBonus,
+                {
+                    {0, feat->name},
+                    {1, std::to_string(bonus.duelingBonus)},
+                });
+        }
+        if (bonus.closeProximityRangedBonus != 0) {
+            breakdown += getFeedbackString(
+                game,
+                services,
+                kStrRefCloseProximityRangedBonus,
+                {{0, std::to_string(bonus.closeProximityRangedBonus)}});
+        }
+        if (bonus.meleeOnRangedBonus != 0) {
+            breakdown += getFeedbackString(
+                game,
+                services,
+                kStrRefMeleeOnRangedBonus,
+                {{0, std::to_string(bonus.meleeOnRangedBonus)}});
+        }
+        if (bonus.dexterityModifier != 0) {
+            breakdown += getFeedbackString(
+                game,
+                services,
+                kStrRefDexterityModifier,
+                {{0, std::to_string(bonus.dexterityModifier)}});
+        } else if (bonus.strengthModifier != 0) {
+            breakdown += getFeedbackString(
+                game,
+                services,
+                kStrRefStrengthModifier,
+                {{0, std::to_string(bonus.strengthModifier)}});
+        }
+        if (bonus.weaponFocusBonus != 0) {
+            breakdown += getFeedbackString(
+                game,
+                services,
+                kStrRefWeaponFocusBonus,
+                {{0, std::to_string(bonus.weaponFocusBonus)}});
+        }
+        if (bonus.effectBonus != 0) {
+            breakdown += getFeedbackString(
+                game,
+                services,
+                kStrRefEffectBonus,
+                {{0, std::to_string(bonus.effectBonus)}});
+        }
+    }
+
+    for (int broadcast = 0; broadcast < broadcasts; ++broadcast) {
+        game.messageLog().add(
+            MessageLog::kFeedbackMessageType,
+            MessageLog::Style::Normal,
+            breakdown);
     }
 }
 
@@ -1097,6 +1205,14 @@ AttackSchedule::State AttackSchedule::update(
     const CombatRound &round, Action &action, float dt) {
 
     _time += dt;
+    if (_melee && _state != AttackSchedule::WaitAttack) {
+        float elapsedMilliseconds =
+            dt * 1000.0f + _meleeElapsedRemainderMilliseconds;
+        int wholeMilliseconds = static_cast<int>(elapsedMilliseconds);
+        _meleeElapsedRemainderMilliseconds =
+            elapsedMilliseconds - wholeMilliseconds;
+        _meleeElapsedMilliseconds += wholeMilliseconds;
+    }
 
     switch (_state) {
     case AttackSchedule::WaitAttack: {
@@ -1106,11 +1222,18 @@ AttackSchedule::State AttackSchedule::update(
         break;
     }
     case AttackSchedule::Attack: {
-        _state = AttackSchedule::WaitDamage;
+        if (_melee &&
+            _meleeElapsedMilliseconds >= _meleeCompletionMilliseconds) {
+            _state = AttackSchedule::Damage;
+        } else {
+            _state = AttackSchedule::WaitDamage;
+        }
         break;
     }
     case AttackSchedule::WaitDamage: {
-        if (_time >= kAttackDamageDelay) {
+        if ((_melee &&
+             _meleeElapsedMilliseconds >= _meleeCompletionMilliseconds) ||
+            (!_melee && _time >= kAttackDamageDelay)) {
             _state = AttackSchedule::Damage;
         }
         break;
@@ -1131,6 +1254,23 @@ AttackSchedule::State AttackSchedule::update(
     }
 
     return _state;
+}
+
+void AttackSchedule::startMelee(int latestImpactMilliseconds) {
+    if (_state != AttackSchedule::Attack) {
+        throw std::logic_error("Melee attack schedule has not started");
+    }
+
+    // Standard physical attack actions use a 1500 ms pause. A malformed
+    // authored impact beyond it extends the execution window rather than
+    // dropping the pending hit.
+    static constexpr int kPhysicalAttackPauseMilliseconds = 1500;
+    _melee = true;
+    _meleeElapsedMilliseconds = 0;
+    _meleeCompletionMilliseconds = std::max(
+        kPhysicalAttackPauseMilliseconds,
+        latestImpactMilliseconds);
+    _meleeElapsedRemainderMilliseconds = 0.0f;
 }
 
 bool navigateToAttackTarget(Creature &attacker, Object &target, float dt, bool &reachedOnce) {

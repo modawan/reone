@@ -23,12 +23,15 @@
 #include "../fixtures/engine.h"
 
 #include "reone/game/action/closedoor.h"
+#include "reone/game/action/attackobject.h"
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/action/opendoor.h"
 #include "reone/game/action/unlockobject.h"
 #include "reone/game/equipmentrules.h"
 #include "reone/game/effect/abilityincrease.h"
 #include "reone/game/effect/bonusfeat.h"
+#include "reone/game/effect/invisibility.h"
+#include "reone/game/effect/trueseeing.h"
 #include "reone/game/d20/class.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/game.h"
@@ -269,6 +272,26 @@ std::pair<std::string, std::string> reone::game::TestGameModule::scheduledTransi
 void reone::game::TestGameModule::setActiveModuleArea(Game &game, std::shared_ptr<Area> area) {
     game._module = game.newModule();
     game._module->_area = std::move(area);
+}
+
+void reone::game::TestGameModule::setPerceptionRanges(
+    Creature &creature,
+    float sight,
+    float hearing) {
+
+    creature._perception.sightRange = sight;
+    creature._perception.hearingRange = hearing;
+}
+
+void reone::game::TestGameModule::setOnNotice(
+    Creature &creature,
+    std::string script) {
+
+    creature._onNotice = std::move(script);
+}
+
+void reone::game::TestGameModule::updatePerception(Area &area) {
+    area.doUpdatePerception();
 }
 
 std::pair<glm::vec3, float> reone::game::TestGameModule::resolveModuleEntry(
@@ -4287,6 +4310,47 @@ struct BlockedDoorFixtureBase {
     }
 };
 
+struct VisibilityFixture {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game {GameID::KotOR, "", engine.options(), engine.services(), console};
+    std::shared_ptr<Area> area;
+    std::shared_ptr<Creature> observer;
+    std::shared_ptr<Creature> target;
+
+    VisibilityFixture() {
+        game.initLocalServices();
+        testSceneGraph(engine);
+        area = game.newArea();
+        TestGameModule::setActiveModuleArea(game, area);
+        observer = makeMovingCreature(game, engine);
+        target = makeMovingCreature(game, engine);
+        observer->setMaxHitPoints(10);
+        observer->setCurrentHitPoints(10);
+        target->setMaxHitPoints(10);
+        target->setCurrentHitPoints(10);
+        observer->setPosition(glm::vec3(0.0f));
+        target->setPosition(glm::vec3(1.0f, 0.0f, 0.0f));
+        TestGameModule::setPerceptionRanges(*observer, 10.0f, 10.0f);
+        TestGameModule::setPerceptionRanges(*target, 10.0f, 10.0f);
+        TestGameModule::setOnNotice(*observer, "c5_notice");
+        area->add(observer);
+        area->add(target);
+
+        scriptRunCounts()["c5_notice"] = 0;
+        EXPECT_CALL(engine.resourceModule().scripts(), get("c5_notice"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Invoke([](const std::string &key) {
+                ++scriptRunCounts()[key];
+                return std::shared_ptr<script::ScriptProgram>();
+            }));
+    }
+
+    int noticeRuns() const {
+        return scriptRunCounts()["c5_notice"];
+    }
+};
+
 // A door that swaps its collision the instant it is told to open: makePlainDoor
 // gives it no model, so there is no opening animation to wait on.
 struct BlockedDoorFixture : BlockedDoorFixtureBase {
@@ -4328,6 +4392,77 @@ private:
 const glm::vec3 kFarDestination {0.0f, 10.0f, 0.0f};
 
 } // namespace
+
+TEST(CombatVisibility, invisibility_refreshes_sight_and_notices_only_transitions) {
+    VisibilityFixture fixture;
+    TestGameModule::updatePerception(*fixture.area);
+    ASSERT_TRUE(fixture.observer->perception().sees(fixture.target->id()));
+    EXPECT_EQ(1, fixture.noticeRuns());
+
+    auto first = std::make_shared<InvisibilityEffect>(InvisibilityType::Normal);
+    fixture.target->applyEffect(first, DurationType::Permanent);
+    EXPECT_FALSE(fixture.observer->perception().sees(fixture.target->id()));
+    EXPECT_TRUE(fixture.observer->perception().hears(fixture.target->id()));
+    EXPECT_EQ(2, fixture.noticeRuns());
+
+    auto second = std::make_shared<InvisibilityEffect>(InvisibilityType::Normal);
+    fixture.target->applyEffect(second, DurationType::Permanent);
+    EXPECT_EQ(2, fixture.noticeRuns());
+    fixture.target->removeEffect(first);
+    EXPECT_EQ(2, fixture.noticeRuns());
+
+    fixture.target->removeEffect(second);
+    EXPECT_TRUE(fixture.observer->perception().sees(fixture.target->id()));
+    EXPECT_EQ(3, fixture.noticeRuns());
+}
+
+TEST(CombatVisibility, true_seeing_gain_and_loss_refresh_effective_sight) {
+    VisibilityFixture fixture;
+    auto invisibility = std::make_shared<InvisibilityEffect>(
+        InvisibilityType::Improved);
+    fixture.target->applyEffect(invisibility, DurationType::Permanent);
+    TestGameModule::updatePerception(*fixture.area);
+    ASSERT_FALSE(fixture.observer->perception().sees(fixture.target->id()));
+    int before = fixture.noticeRuns();
+
+    auto trueSeeing = std::make_shared<TrueSeeingEffect>();
+    fixture.observer->applyEffect(trueSeeing, DurationType::Permanent);
+    EXPECT_TRUE(fixture.observer->perception().sees(fixture.target->id()));
+    EXPECT_EQ(before + 1, fixture.noticeRuns());
+
+    fixture.observer->removeEffect(trueSeeing);
+    EXPECT_FALSE(fixture.observer->perception().sees(fixture.target->id()));
+    EXPECT_EQ(before + 2, fixture.noticeRuns());
+}
+
+TEST(CombatVisibility, becoming_invisible_cancels_exact_hostile_actions) {
+    VisibilityFixture fixture;
+    TestGameModule::updatePerception(*fixture.area);
+    auto action = fixture.game.newAction<AttackObjectAction>(fixture.target);
+    fixture.observer->addAction(action);
+    ASSERT_EQ(1u, fixture.observer->actions().size());
+
+    fixture.target->applyEffect(
+        std::make_shared<InvisibilityEffect>(InvisibilityType::Normal),
+        DurationType::Permanent);
+
+    EXPECT_TRUE(action->isCancelled());
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_TRUE(fixture.observer->actions().empty());
+}
+
+TEST(CombatVisibility, retired_subject_does_not_remain_perceived) {
+    VisibilityFixture fixture;
+    TestGameModule::updatePerception(*fixture.area);
+    ASSERT_TRUE(fixture.observer->perception().sees(fixture.target->id()));
+    auto strongStorage = fixture.target;
+
+    fixture.game.destroyRuntimeObjectGraph(fixture.target);
+
+    ASSERT_TRUE(strongStorage);
+    EXPECT_FALSE(strongStorage->isRuntimeLive());
+    EXPECT_FALSE(fixture.observer->perception().sees(strongStorage->id()));
+}
 
 TEST(CreatureBlockedByDoor, should_record_the_door_that_obstructs_navigation) {
     BlockedDoorFixture fixture;

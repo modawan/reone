@@ -22,15 +22,18 @@
 #include <set>
 
 #include "../fixtures/engine.h"
+#include "reone/game/animations.h"
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/followleader.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/action/usetalentonobject.h"
 #include "reone/game/action/usefeat.h"
 #include "reone/game/game.h"
+#include "reone/game/attack.h"
 #include "reone/game/party.h"
 #include "reone/game/script/routines.h"
 #include "reone/resource/types.h"
+#include "reone/resource/2da.h"
 #include "reone/script/executioncontext.h"
 
 // Attack animation selection stays internal to the action implementation. The
@@ -565,4 +568,99 @@ TEST(AttackAnimation, duels_still_select_all_five_cinematic_variants) {
     }
 
     EXPECT_EQ((std::set<std::string> {"c10a1", "c10a2", "c10a3", "c10a4", "c10a5"}), unarmed);
+}
+
+namespace {
+
+std::shared_ptr<resource::TwoDA> retailImpactAnimations() {
+    resource::TwoDA::Builder builder;
+    builder.columns({"name", "attack"});
+    const std::map<int, std::string> attacks {
+        {87, "g1a1"},   // stun baton
+        {114, "f2a2"},  // Flurry
+        {122, "g2a1"},  // single weapon
+        {204, "g4a1"},  // dual wield
+        {247, "g8a1"},  // unarmed
+    };
+    for (int row = 0; row <= 247; ++row) {
+        auto found = attacks.find(row);
+        builder.row({
+            found == attacks.end()
+                ? "anim" + std::to_string(row)
+                : found->second,
+            found == attacks.end() ? "0" : "1",
+        });
+    }
+    return builder.build();
+}
+
+std::shared_ptr<resource::TwoDA> retailImpactTimes() {
+    resource::TwoDA::Builder builder;
+    builder.columns({"hits", "hit1", "hit2", "hit3"});
+    builder.row("87", {"1", "500", "", ""});
+    builder.row("114", {"1", "767", "", ""});
+    builder.row("122", {"1", "500", "", ""});
+    builder.row("204", {"1", "500", "", ""});
+    builder.row("247", {"1", "500", "", ""});
+    return builder.build();
+}
+
+Animations loadRetailImpactFixture(TestEngine &engine) {
+    auto animations = retailImpactAnimations();
+    auto combatAnimations = retailImpactTimes();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("animations"))
+        .WillOnce(Return(animations));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("combatanimations.2da"))
+        .WillOnce(Return(combatAnimations));
+    Animations result(engine.resourceModule().twoDas());
+    result.init();
+    return result;
+}
+
+} // namespace
+
+TEST(AttackImpactTiming, uses_retail_combat_animation_hit_columns) {
+    TestEngine &engine = testEngine();
+    Animations animations = loadRetailImpactFixture(engine);
+
+    // These values are shared by the shipped K1/K2 tables. The special feat
+    // row demonstrates that the animation, not the weapon base item, owns the
+    // timing authority.
+    EXPECT_EQ(500, animations.getMeleeImpactTime("g2a1", 0));
+    EXPECT_EQ(500, animations.getMeleeImpactTime("g4a1", 0));
+    EXPECT_EQ(500, animations.getMeleeImpactTime("g8a1", 0));
+    EXPECT_EQ(767, animations.getMeleeImpactTime("f2a2", 0));
+}
+
+TEST(AttackImpactTiming, missing_rows_and_shots_use_retail_zero_fallback) {
+    TestEngine &engine = testEngine();
+    Animations animations = loadRetailImpactFixture(engine);
+
+    EXPECT_EQ(0, animations.getMeleeImpactTime("not_authored", 0));
+    EXPECT_EQ(0, animations.getMeleeImpactTime("g2a1", 1));
+}
+
+TEST(AttackImpactTiming, melee_damage_waits_for_the_authored_impact) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    attacker->applyAssuredHit();
+    target->setCurrentHitPoints(20);
+
+    AttackBuffer attacks;
+    attacks.addPhysicalAttacks(*attacker, *target);
+    attacks.resolve(*attacker, *target);
+    NiceMock<MockAnimations> animations;
+    ON_CALL(animations, getMeleeImpactTime("g8a1", 0))
+        .WillByDefault(Return(500));
+    attacks.prepareMeleeSequence(animations, {"g8a1"});
+
+    EXPECT_EQ(0u, attacks.signalReadyMelee(
+        499, game, engine.services(), *attacker, *target));
+    EXPECT_EQ(20, target->currentHitPoints());
+    EXPECT_EQ(1u, attacks.signalReadyMelee(
+        500, game, engine.services(), *attacker, *target));
+    EXPECT_LT(target->currentHitPoints(), 20);
 }

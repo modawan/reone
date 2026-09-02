@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,35 +15,23 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/game/effect/invisibility.h"
+#pragma once
 
-#include "reone/game/object/creature.h"
-#include "reone/system/cast.h"
+#include "../effect.h"
 
 namespace reone {
 
 namespace game {
 
-bool InvisibilityEffect::onApply(
-    Object &object,
-    const EffectInstance &) {
-
-    auto *creature = dyn_cast<Creature>(&object);
-    if (!creature) {
-        return false;
+class UltravisionEffect : public Effect {
+public:
+    UltravisionEffect() :
+        Effect(EffectType::Ultravision) {
     }
-    creature->refreshVisibilityPerception();
-    return true;
-}
 
-void InvisibilityEffect::onRemove(
-    Object &object,
-    const EffectInstance &) {
-
-    if (auto *creature = dyn_cast<Creature>(&object)) {
-        creature->refreshVisibilityPerception();
-    }
-}
+    bool onApply(Object &object, const EffectInstance &instance) override;
+    void onRemove(Object &object, const EffectInstance &instance) override;
+};
 
 } // namespace game
 

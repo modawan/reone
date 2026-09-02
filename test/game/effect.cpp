@@ -16,9 +16,15 @@
 #include "reone/game/effect/attackdecrease.h"
 #include "reone/game/effect/attackincrease.h"
 #include "reone/game/effect/damage.h"
+#include "reone/game/effect/damageimmunityincrease.h"
+#include "reone/game/effect/damagereduction.h"
 #include "reone/game/effect/damageresistance.h"
 #include "reone/game/effect/immunity.h"
+#include "reone/game/effect/invisibility.h"
+#include "reone/game/effect/seeinvisible.h"
 #include "reone/game/effect/source.h"
+#include "reone/game/effect/trueseeing.h"
+#include "reone/game/effect/ultravision.h"
 #include "reone/game/game.h"
 #include "reone/game/object.h"
 #include "reone/game/object/creature.h"
@@ -527,6 +533,243 @@ TEST(CombatEffectRestore, absorption_updates_the_canonical_save_facing_state) {
 
     EXPECT_EQ(second.resolvedDamage(), 1);
     EXPECT_TRUE(creature->effects().empty());
+}
+
+TEST(CompositeDamage, single_type_mitigation_is_unchanged) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    target->applyEffect(
+        std::make_shared<DamageResistanceEffect>(DamageType::Fire, 5, 0),
+        DurationType::Permanent);
+
+    DamagePacket damage;
+    damage.add(12, DamageType::Fire);
+    damage.setDamageFlags(static_cast<int>(DamageType::Fire));
+    damage.resolve(*target);
+
+    EXPECT_EQ(7, damage.resolvedDamage());
+}
+
+TEST(CompositeDamage, resistance_applies_once_to_the_aggregate_packet) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    target->applyEffect(
+        std::make_shared<DamageResistanceEffect>(DamageType::Fire, 5, 0),
+        DurationType::Permanent);
+
+    DamagePacket damage;
+    damage.add(6, DamageType::Slashing);
+    damage.add(6, DamageType::Fire);
+    damage.setDamageFlags(
+        static_cast<int>(DamageType::Slashing) |
+        static_cast<int>(DamageType::Fire));
+    damage.resolve(*target);
+
+    EXPECT_EQ(7, damage.resolvedDamage());
+}
+
+TEST(CompositeDamage, least_immunity_governs_the_aggregate_packet) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    target->applyEffect(
+        std::make_shared<DamageImmunityIncreaseEffect>(DamageType::Fire, 50),
+        DurationType::Permanent);
+    target->applyEffect(
+        std::make_shared<DamageImmunityIncreaseEffect>(DamageType::Electrical, 25),
+        DurationType::Permanent);
+
+    DamagePacket damage;
+    damage.add(6, DamageType::Fire);
+    damage.add(6, DamageType::Electrical);
+    damage.setDamageFlags(
+        static_cast<int>(DamageType::Fire) |
+        static_cast<int>(DamageType::Electrical));
+    damage.resolve(*target);
+
+    EXPECT_EQ(9, damage.resolvedDamage());
+}
+
+TEST(CompositeDamage, physical_component_enables_one_aggregate_reduction) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    target->applyEffect(
+        std::make_shared<DamageReductionEffect>(
+            5, DamagePower::PlusOne, 0),
+        DurationType::Permanent);
+
+    DamagePacket damage;
+    damage.add(6, DamageType::Slashing);
+    damage.add(6, DamageType::Fire);
+    damage.setDamageFlags(
+        static_cast<int>(DamageType::Slashing) |
+        static_cast<int>(DamageType::Fire));
+    damage.resolve(*target);
+
+    EXPECT_EQ(7, damage.resolvedDamage());
+}
+
+TEST(CompositeDamage, universal_is_an_ordinary_damage_bit_in_a_packet) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    target->applyEffect(
+        std::make_shared<DamageImmunityIncreaseEffect>(
+            DamageType::Universal, 100),
+        DurationType::Permanent);
+
+    DamagePacket universal;
+    universal.add(5, DamageType::Universal);
+    universal.setDamageFlags(static_cast<int>(DamageType::Universal));
+    universal.resolve(*target);
+    EXPECT_EQ(0, universal.resolvedDamage());
+
+    DamagePacket mixed;
+    mixed.add(0, DamageType::Electrical);
+    mixed.add(5, DamageType::Universal);
+    mixed.add(5, DamageType::Fire);
+    mixed.setDamageFlags(
+        static_cast<int>(DamageType::Universal) |
+        static_cast<int>(DamageType::Fire));
+    mixed.resolve(*target);
+    EXPECT_EQ(10, mixed.resolvedDamage());
+}
+
+TEST(CompositeDamage, mitigation_clamps_at_zero) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    target->applyEffect(
+        std::make_shared<DamageResistanceEffect>(DamageType::Fire, 20, 0),
+        DurationType::Permanent);
+
+    DamagePacket damage;
+    damage.add(5, DamageType::Fire);
+    damage.setDamageFlags(static_cast<int>(DamageType::Fire));
+    damage.resolve(*target);
+    EXPECT_EQ(0, damage.resolvedDamage());
+}
+
+TEST(CombatVisibility, see_invisible_and_ultravision_counter_distinct_types) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto observer = game.newCreature();
+    auto normalTarget = game.newCreature();
+    auto darknessTarget = game.newCreature();
+    normalTarget->applyEffect(
+        std::make_shared<InvisibilityEffect>(InvisibilityType::Normal),
+        DurationType::Permanent);
+    darknessTarget->applyEffect(
+        std::make_shared<InvisibilityEffect>(InvisibilityType::Darkness),
+        DurationType::Permanent);
+
+    EXPECT_TRUE(normalTarget->isInvisibleTo(*observer));
+    EXPECT_TRUE(darknessTarget->isInvisibleTo(*observer));
+
+    auto seeInvisible = std::make_shared<SeeInvisibleEffect>();
+    observer->applyEffect(seeInvisible, DurationType::Permanent);
+    EXPECT_FALSE(normalTarget->isInvisibleTo(*observer));
+    EXPECT_TRUE(darknessTarget->isInvisibleTo(*observer));
+    observer->removeEffect(seeInvisible);
+
+    auto ultravision = std::make_shared<UltravisionEffect>();
+    observer->applyEffect(ultravision, DurationType::Permanent);
+    EXPECT_TRUE(normalTarget->isInvisibleTo(*observer));
+    EXPECT_FALSE(darknessTarget->isInvisibleTo(*observer));
+    observer->removeEffect(ultravision);
+    EXPECT_TRUE(darknessTarget->isInvisibleTo(*observer));
+}
+
+TEST(CombatVisibility, one_true_seeing_effect_counters_both_invisibility_families) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto observer = game.newCreature();
+    auto normalTarget = game.newCreature();
+    auto darknessTarget = game.newCreature();
+    normalTarget->applyEffect(
+        std::make_shared<InvisibilityEffect>(InvisibilityType::Improved),
+        DurationType::Permanent);
+    darknessTarget->applyEffect(
+        std::make_shared<InvisibilityEffect>(InvisibilityType::Darkness),
+        DurationType::Permanent);
+    auto trueSeeing = std::make_shared<TrueSeeingEffect>();
+
+    observer->applyEffect(trueSeeing, DurationType::Permanent);
+    EXPECT_FALSE(normalTarget->isInvisibleTo(*observer));
+    EXPECT_FALSE(darknessTarget->isInvisibleTo(*observer));
+
+    observer->removeEffect(trueSeeing);
+    EXPECT_TRUE(normalTarget->isInvisibleTo(*observer));
+    EXPECT_TRUE(darknessTarget->isInvisibleTo(*observer));
+}
+
+TEST(CombatVisibility, stacked_true_seeing_preserves_the_native_removal_quirk) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto observer = game.newCreature();
+    auto normalTarget = game.newCreature();
+    auto darknessTarget = game.newCreature();
+    normalTarget->applyEffect(
+        std::make_shared<InvisibilityEffect>(InvisibilityType::Normal),
+        DurationType::Permanent);
+    darknessTarget->applyEffect(
+        std::make_shared<InvisibilityEffect>(InvisibilityType::Darkness),
+        DurationType::Permanent);
+    auto first = std::make_shared<TrueSeeingEffect>();
+    auto second = std::make_shared<TrueSeeingEffect>();
+    observer->applyEffect(first, DurationType::Permanent);
+    observer->applyEffect(second, DurationType::Permanent);
+
+    observer->removeEffect(first);
+
+    // Native K2 clears bit 4 and sets bit 2 when another type-72 effect
+    // remains: ordinary invisibility returns, while Darkness stays visible.
+    EXPECT_TRUE(normalTarget->isInvisibleTo(*observer));
+    EXPECT_FALSE(darknessTarget->isInvisibleTo(*observer));
+}
+
+TEST(CombatVisibility, saved_true_seeing_rebuilds_executable_capability) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto observer = game.newCreature();
+    auto target = game.newCreature();
+    target->applyEffect(
+        std::make_shared<InvisibilityEffect>(InvisibilityType::Normal),
+        DurationType::Permanent);
+
+    auto saved = Gff::Builder()
+                     .type(2)
+                     .field(Gff::Field::newDword64("Id", 701))
+                     .field(Gff::Field::newWord("Type", 72))
+                     .field(Gff::Field::newWord(
+                         "SubType",
+                         static_cast<uint16_t>(DurationType::Permanent)))
+                     .field(Gff::Field::newDword(
+                         "CreatorId", kSavedEffectInvalidObjectId))
+                     .field(Gff::Field::newInt("NumIntegers", 0))
+                     .build();
+    EffectInstance restored = EffectInstance::fromGff(
+        *saved,
+        SerializedIdentityContext::moduleGraph("visibility-test"));
+
+    ASSERT_TRUE(observer->restoreEffect(std::move(restored)));
+    ASSERT_TRUE(observer->effects().front().effect);
+    EXPECT_FALSE(target->isInvisibleTo(*observer));
+    EXPECT_EQ(1u, observer->removeEffectsById(701));
+    EXPECT_TRUE(target->isInvisibleTo(*observer));
 }
 
 TEST(EffectInstance, should_preserve_ordinary_instant_effect_application) {

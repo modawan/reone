@@ -23,6 +23,7 @@
 #include "reone/audio/mixer.h"
 #include "reone/game/action.h"
 #include "reone/game/action/attackobject.h"
+#include "reone/game/action/usefeat.h"
 #include "reone/game/animationutil.h"
 #include "reone/game/attack.h"
 #include "reone/game/d20/classes.h"
@@ -44,12 +45,15 @@
 #include "reone/game/effect/damagereduction.h"
 #include "reone/game/effect/damageresistance.h"
 #include "reone/game/effect/immunity.h"
+#include "reone/game/effect/invisibility.h"
 #include "reone/game/effect/savingthrowdecrease.h"
 #include "reone/game/effect/savingthrowincrease.h"
 #include "reone/game/effect/source.h"
 #include "reone/game/effect/trueseeing.h"
 #include "reone/game/footstepsounds.h"
 #include "reone/game/game.h"
+#include "reone/game/object/area.h"
+#include "reone/game/object/module.h"
 #include "reone/game/party.h"
 #include "reone/game/portraits.h"
 #include "reone/game/script/runner.h"
@@ -685,6 +689,119 @@ bool Creature::isDebilitated() const {
 
 bool Creature::isTemporarilyDead() const {
     return _game.party().isMember(*this) && currentHitPoints() <= 0;
+}
+
+bool Creature::isInvisibleTo(const Creature &observer) const {
+    for (const EffectInstance &applied : effects()) {
+        if (!applied.hasLiveRuntimeSource() ||
+            applied.type() != EffectType::Invisibility ||
+            !applied.appliesVersus(&observer)) {
+            continue;
+        }
+
+        auto type = static_cast<InvisibilityType>(
+            applied.integerParameter(0));
+        switch (type) {
+        case InvisibilityType::Normal:
+        case InvisibilityType::Improved:
+            if (observer.hasVisibilityCounter(
+                    kSeeInvisibleCounter | kTrueSeeingCounter)) {
+                continue;
+            }
+            return true;
+        case InvisibilityType::Darkness:
+            if (observer.hasVisibilityCounter(
+                    kUltravisionCounter | kTrueSeeingCounter)) {
+                continue;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+void Creature::setVisibilityCounter(uint8_t bit) {
+    _visibilityCounterBits |= bit;
+}
+
+bool Creature::hasVisibilityCounter(uint8_t bits) const {
+    uint8_t effective = _visibilityCounterBits;
+    if (!hasEffect(EffectType::SeeInvisible)) {
+        effective &= ~kSeeInvisibleCounter;
+    }
+    if (!hasEffect(EffectType::TrueSeeing)) {
+        effective &= ~kTrueSeeingCounter;
+    }
+    if (!hasEffect(EffectType::Ultravision) &&
+        !_trueSeeingUltravisionQuirk) {
+        effective &= ~kUltravisionCounter;
+    }
+    return (effective & bits) != 0;
+}
+
+void Creature::restoreVisibilityCounter(
+    EffectType type,
+    uint8_t bit,
+    EffectId removedEffect,
+    bool trueSeeingRemovalQuirk) {
+
+    _visibilityCounterBits &= ~bit;
+    if (bit == kUltravisionCounter) {
+        _trueSeeingUltravisionQuirk = false;
+    }
+    bool another = std::any_of(
+        effects().begin(),
+        effects().end(),
+        [type, removedEffect](const EffectInstance &applied) {
+            return applied.id != removedEffect &&
+                   applied.hasLiveRuntimeSource() &&
+                   applied.type() == type;
+        });
+    if (another) {
+        if (trueSeeingRemovalQuirk) {
+            _visibilityCounterBits |= kUltravisionCounter;
+            _trueSeeingUltravisionQuirk = true;
+        } else {
+            _visibilityCounterBits |= bit;
+        }
+    }
+}
+
+void Creature::refreshVisibilityPerception() {
+    auto module = _game.module();
+    auto area = module ? module->area() : nullptr;
+    if (area && area->isObjectResident(*this)) {
+        area->refreshPerceptionFor(*this);
+    }
+}
+
+void Creature::clearHostileActionsAgainst(const Object &object) {
+    auto attackTarget = _combatState.attackTarget.resolve();
+    if (attackTarget.get() == &object) {
+        _combatState.attackTarget.reset();
+        _combatState.shouldDeactivate = true;
+    }
+
+    for (auto it = _actions.begin(); it != _actions.end();) {
+        const std::shared_ptr<Action> &action = *it;
+        std::shared_ptr<Object> target;
+        if (action && action->type() == ActionType::AttackObject) {
+            target = static_cast<AttackObjectAction &>(*action).target();
+        } else if (action && action->type() == ActionType::UseFeat) {
+            auto &featAction = static_cast<UseFeatAction &>(*action);
+            if (isPhysicalAttackFeat(featAction.feat())) {
+                target = featAction.target();
+            }
+        }
+
+        if (target.get() != &object) {
+            ++it;
+            continue;
+        }
+        action->cancel(action, *this);
+        action->markCancelled();
+        it = _actions.erase(it);
+    }
 }
 
 bool Creature::canExecuteActions() const {

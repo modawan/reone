@@ -2592,6 +2592,7 @@ TEST(EquipmentCombatEffects, effective_stats_follow_exact_equipment_ownership) {
              runtimeItemProperty(
                  ItemProperty::Immunity,
                  static_cast<uint16_t>(ImmunityType::Stun)),
+             runtimeItemProperty(ItemProperty::TrueSeeing),
              runtimeItemProperty(ItemProperty::DamageResistance),
              runtimeItemProperty(ItemProperty::DamageReduction)}),
         SerializedIdentityContext::templateResource());
@@ -2607,9 +2608,11 @@ TEST(EquipmentCombatEffects, effective_stats_follow_exact_equipment_ownership) {
     EXPECT_FALSE(owner->attributes().hasFeat(FeatType::Toughness));
     EXPECT_TRUE(owner->hasEffectiveFeat(FeatType::Toughness));
     EXPECT_TRUE(owner->hasEffect(EffectType::Immunity));
+    EXPECT_TRUE(owner->hasEffect(EffectType::TrueSeeing));
+    EXPECT_TRUE(owner->hasVisibilityCounter(Creature::kTrueSeeingCounter));
     EXPECT_TRUE(owner->hasEffect(EffectType::DamageResistance));
     EXPECT_TRUE(owner->hasEffect(EffectType::DamageReduction));
-    ASSERT_EQ(5u, owner->effects().size());
+    ASSERT_EQ(6u, owner->effects().size());
     std::set<EffectId> ids;
     for (const EffectInstance &effect : owner->effects()) {
         EXPECT_EQ(DurationType::Equipped, effect.durationType());
@@ -2624,6 +2627,7 @@ TEST(EquipmentCombatEffects, effective_stats_follow_exact_equipment_ownership) {
     EXPECT_EQ(12, owner->getEffectiveAbilityScore(Ability::Strength));
     EXPECT_FALSE(owner->hasEffectiveFeat(FeatType::Toughness));
     EXPECT_FALSE(owner->hasEffect(EffectType::Immunity));
+    EXPECT_FALSE(owner->hasVisibilityCounter(Creature::kTrueSeeingCounter));
     EXPECT_TRUE(owner->effects().empty());
     ASSERT_EQ(1u, receiver->items().size());
     EXPECT_EQ(item, receiver->items().front());
@@ -2695,16 +2699,19 @@ TEST(EquipmentCombatEffects, retired_exact_source_fails_closed) {
         *runtimeEquippedItem(
             "retired_source",
             {runtimeItemProperty(
-                ItemProperty::BonusFeat,
-                static_cast<uint16_t>(FeatType::Toughness))}),
+                 ItemProperty::BonusFeat,
+                 static_cast<uint16_t>(FeatType::Toughness)),
+             runtimeItemProperty(ItemProperty::TrueSeeing)}),
         SerializedIdentityContext::templateResource());
     ASSERT_TRUE(owner->equip(InventorySlots::body, item));
     ASSERT_TRUE(owner->hasEffectiveFeat(FeatType::Toughness));
+    ASSERT_TRUE(owner->hasVisibilityCounter(Creature::kTrueSeeingCounter));
 
     game.destroyRuntimeObjectGraph(item);
 
     EXPECT_FALSE(item->isRuntimeLive());
     EXPECT_FALSE(owner->hasEffectiveFeat(FeatType::Toughness));
+    EXPECT_FALSE(owner->hasVisibilityCounter(Creature::kTrueSeeingCounter));
     EXPECT_FALSE(owner->effects().front().boundCreator());
     owner->update(0.0f);
     EXPECT_TRUE(owner->effects().empty());
@@ -2726,19 +2733,25 @@ TEST(EquipmentCombatEffects, staged_template_and_saved_graphs_rebuild_once) {
             ItemProperty::BonusFeat,
             static_cast<uint16_t>(FeatType::Toughness));
     };
+    auto trueSeeing = [] {
+        return runtimeItemProperty(ItemProperty::TrueSeeing);
+    };
 
     auto templateCreature = game.newCreature();
     auto templateRecord = resource::Gff::Builder()
                               .field(resource::Gff::Field::newList(
                                   "Equip_ItemList",
                                   {runtimeEquippedItem(
-                                      "template_equipment", {bonusFeat()})}))
+                                      "template_equipment",
+                                      {bonusFeat(), trueSeeing()})}))
                               .build();
     templateCreature->deserialize(
         *templateRecord,
         SerializedIdentityContext::templateResource("template_creature"));
     ASSERT_TRUE(templateCreature->hasEffectiveFeat(FeatType::Toughness));
-    ASSERT_EQ(1u, templateCreature->effects().size());
+    ASSERT_TRUE(templateCreature->hasVisibilityCounter(
+        Creature::kTrueSeeingCounter));
+    ASSERT_EQ(2u, templateCreature->effects().size());
     auto templateItem =
         templateCreature->getEquippedItem(InventorySlots::body);
     ASSERT_TRUE(templateItem);
@@ -2750,13 +2763,17 @@ TEST(EquipmentCombatEffects, staged_template_and_saved_graphs_rebuild_once) {
                            .field(resource::Gff::Field::newList(
                                "Equip_ItemList",
                                {runtimeEquippedItem(
-                                   "saved_equipment", {bonusFeat()}, 4701)}))
+                                   "saved_equipment",
+                                   {bonusFeat(), trueSeeing()},
+                                   4701)}))
                            .build();
     savedCreature->deserialize(
         *savedRecord,
         SerializedIdentityContext::moduleGraph("saved_creature"));
     ASSERT_TRUE(savedCreature->hasEffectiveFeat(FeatType::Toughness));
-    ASSERT_EQ(1u, savedCreature->effects().size());
+    ASSERT_TRUE(savedCreature->hasVisibilityCounter(
+        Creature::kTrueSeeingCounter));
+    ASSERT_EQ(2u, savedCreature->effects().size());
     auto savedItem = savedCreature->getEquippedItem(InventorySlots::body);
     ASSERT_TRUE(savedItem);
     EXPECT_EQ(savedItem, savedCreature->effects().front().boundCreator());

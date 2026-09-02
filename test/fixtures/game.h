@@ -164,6 +164,7 @@ public:
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::string, getNameById, (uint32_t id), (const override));
     MOCK_METHOD(std::string, getAttackResult, (std::string attackAnim, CreatureWieldType targetWield, AttackResultType result), (const override));
+    MOCK_METHOD(int, getMeleeImpactTime, (const std::string &attackAnim, size_t attackIndex), (const override));
 };
 
 class MockVisualEffects : public IVisualEffects, boost::noncopyable {
@@ -224,6 +225,12 @@ public:
     // without the area/scene machinery a full load would need.
     static void loadModuleInfo(Module &module, std::string name, const resource::Gff &ifo);
     static void clickCreature(Module &module, const std::shared_ptr<Creature> &creature);
+    static void setPerceptionRanges(
+        Creature &creature,
+        float sight,
+        float hearing);
+    static void setOnNotice(Creature &creature, std::string script);
+    static void updatePerception(Area &area);
     static void publishPartyRuntimeState(
         Game &game,
         resource::Gff &ifoGff,

@@ -1688,6 +1688,8 @@ TEST_F(SnapshotFixture, use_feat_round_trips_exact_saved_target_and_fresh_execut
 
     auto restoredActor = restored.newCreature();
     restoredActor->addAction(restoredAction);
+    EXPECT_CALL(engine.resourceModule().strings(), getText(_))
+        .Times(AnyNumber());
     restoredAction->execute(restoredAction, *restoredActor, 0.0f);
     restored.combat().update(0.0f);
     restoredAction->execute(restoredAction, *restoredActor, 0.0f);

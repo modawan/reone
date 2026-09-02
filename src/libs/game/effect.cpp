@@ -35,10 +35,14 @@
 #include "reone/game/effect/damagereduction.h"
 #include "reone/game/effect/damageresistance.h"
 #include "reone/game/effect/immunity.h"
+#include "reone/game/effect/invisibility.h"
 #include "reone/game/effect/savingthrowdecrease.h"
 #include "reone/game/effect/savingthrowincrease.h"
+#include "reone/game/effect/seeinvisible.h"
 #include "reone/game/effect/skilldecrease.h"
 #include "reone/game/effect/skillincrease.h"
+#include "reone/game/effect/trueseeing.h"
+#include "reone/game/effect/ultravision.h"
 #include "reone/game/location.h"
 #include "reone/game/object.h"
 #include "reone/game/object/creature.h"
@@ -210,6 +214,15 @@ std::shared_ptr<Effect> executableEffect(const EffectInstance &instance) {
     case EffectType::DamageReduction:
         return std::make_shared<DamageReductionEffect>(
             integer(0), static_cast<DamagePower>(integer(1)), integer(2));
+    case EffectType::Invisibility:
+        return std::make_shared<InvisibilityEffect>(
+            static_cast<InvisibilityType>(integer(0)));
+    case EffectType::SeeInvisible:
+        return std::make_shared<SeeInvisibleEffect>();
+    case EffectType::Ultravision:
+        return std::make_shared<UltravisionEffect>();
+    case EffectType::TrueSeeing:
+        return std::make_shared<TrueSeeingEffect>();
     default:
         return nullptr;
     }

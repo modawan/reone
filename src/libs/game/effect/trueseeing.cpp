@@ -17,12 +17,98 @@
 
 #include "reone/game/effect/trueseeing.h"
 
+#include "reone/game/effect/seeinvisible.h"
+#include "reone/game/effect/ultravision.h"
+#include "reone/game/object/creature.h"
+#include "reone/system/cast.h"
+
 namespace reone {
 
 namespace game {
 
-void TrueSeeingEffect::applyTo(Object &object) {
-    // TODO: implement
+namespace {
+
+Creature *effectCreature(Object &object) {
+    return dyn_cast<Creature>(&object);
+}
+
+bool applyVisibilityCounter(Object &object, uint8_t bit) {
+    auto *creature = effectCreature(object);
+    if (!creature) {
+        return false;
+    }
+    creature->setVisibilityCounter(bit);
+    creature->refreshVisibilityPerception();
+    return true;
+}
+
+void removeVisibilityCounter(
+    Object &object,
+    const EffectInstance &instance,
+    EffectType type,
+    uint8_t bit,
+    bool trueSeeingRemovalQuirk = false) {
+
+    auto *creature = effectCreature(object);
+    if (!creature) {
+        return;
+    }
+    creature->restoreVisibilityCounter(
+        type,
+        bit,
+        instance.id,
+        trueSeeingRemovalQuirk);
+    creature->refreshVisibilityPerception();
+}
+
+} // namespace
+
+bool TrueSeeingEffect::onApply(Object &object, const EffectInstance &) {
+    return applyVisibilityCounter(object, Creature::kTrueSeeingCounter);
+}
+
+void TrueSeeingEffect::onRemove(
+    Object &object,
+    const EffectInstance &instance) {
+
+    // K2's native handler clears True Seeing and sets Ultravision while
+    // another True Seeing effect remains. Preserve that observable quirk.
+    removeVisibilityCounter(
+        object,
+        instance,
+        EffectType::TrueSeeing,
+        Creature::kTrueSeeingCounter,
+        true);
+}
+
+bool SeeInvisibleEffect::onApply(Object &object, const EffectInstance &) {
+    return applyVisibilityCounter(object, Creature::kSeeInvisibleCounter);
+}
+
+void SeeInvisibleEffect::onRemove(
+    Object &object,
+    const EffectInstance &instance) {
+
+    removeVisibilityCounter(
+        object,
+        instance,
+        EffectType::SeeInvisible,
+        Creature::kSeeInvisibleCounter);
+}
+
+bool UltravisionEffect::onApply(Object &object, const EffectInstance &) {
+    return applyVisibilityCounter(object, Creature::kUltravisionCounter);
+}
+
+void UltravisionEffect::onRemove(
+    Object &object,
+    const EffectInstance &instance) {
+
+    removeVisibilityCounter(
+        object,
+        instance,
+        EffectType::Ultravision,
+        Creature::kUltravisionCounter);
 }
 
 } // namespace game

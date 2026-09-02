@@ -78,8 +78,12 @@ std::string getStunBatonAttackAnim(int variant) {
     return str(boost::format("g1a%d") % variant);
 }
 
-static void attack(const CombatRound &round, Creature &attacker, Object &target,
-                   const IAnimations &anims, AttackBuffer &attacks) {
+static std::vector<std::string> attack(
+    const CombatRound &round,
+    Creature &attacker,
+    Object &target,
+    const IAnimations &anims,
+    AttackBuffer &attacks) {
     attacks.addPhysicalAttacks(attacker, target);
 
     scene::AnimationProperties animProp =
@@ -132,6 +136,11 @@ static void attack(const CombatRound &round, Creature &attacker, Object &target,
         std::string resultAnim = anims.getAttackResult(attackAnim, targetWield, attacks.result());
         opponent.playAnimation(resultAnim, animProp);
     }
+
+    size_t animationCount = isRangedWieldType(attackerWield)
+                                ? 1
+                                : attacks.attackCount();
+    return std::vector<std::string>(animationCount, attackAnim);
 }
 
 /**
@@ -163,7 +172,7 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
     }
     attacker.setAttemptedAttackTarget(target->id());
 
-    if (target->isDead()) {
+    if (target->isDead() && !_attacks.hasPendingMelee()) {
         finish(attacker);
         return;
     }
@@ -184,14 +193,53 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         attacker.setMovementType(Creature::MovementType::None);
         attacker.setMovementRestricted(true);
 
-        attack(round, attacker, *target, _services.game.animations, _attacks);
+        std::vector<std::string> attackAnimations = attack(
+            round,
+            attacker,
+            *target,
+            _services.game.animations,
+            _attacks);
         _attacks.resolve(attacker, *target);
+
+        if (!isRangedWieldType(attacker.getWieldType())) {
+            _attacks.prepareMeleeSequence(
+                _services.game.animations,
+                attackAnimations);
+            _schedule.startMelee(
+                _attacks.latestMeleeImpactMilliseconds());
+            _attacks.signalReadyMelee(
+                0,
+                _game,
+                _services,
+                attacker,
+                *target);
+        }
 
         addProjectiles(attacker);
         return;
     }
+    case AttackSchedule::WaitDamage: {
+        if (_schedule.isMelee()) {
+            _attacks.signalReadyMelee(
+                _schedule.meleeElapsedMilliseconds(),
+                _game,
+                _services,
+                attacker,
+                *target);
+        }
+        break;
+    }
     case AttackSchedule::Damage: {
-        _attacks.signal(_game, _services, attacker, *target);
+        if (_schedule.isMelee()) {
+            _attacks.signalReadyMelee(
+                _schedule.meleeElapsedMilliseconds(),
+                _game,
+                _services,
+                attacker,
+                *target);
+        } else {
+            _attacks.signal(_game, _services, attacker, *target);
+        }
         break;
     }
     case AttackSchedule::Finish: {
@@ -218,6 +266,7 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
 
 void AttackObjectAction::cancel(std::shared_ptr<Action> self, Object &actor) {
     Creature &attacker = cast<Creature>(actor);
+    _attacks.discardPendingMelee();
     finish(attacker);
 }
 

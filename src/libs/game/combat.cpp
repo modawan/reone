@@ -324,11 +324,6 @@ void Combat::pruneInvalidRounds() {
     }
 }
 
-static void setMovement(CombatRound &round, bool enabled) {
-    for (CombatRound::RoundAction &action : round.actions) {
-    }
-}
-
 void Combat::updateRound(CombatRound &round, float dt) {
     round.time += dt;
 

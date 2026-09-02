@@ -32,7 +32,8 @@ public:
         setSaveFacingInteger(1, static_cast<int>(RacialType::All));
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object, const EffectInstance &instance) override;
+    void onRemove(Object &object, const EffectInstance &instance) override;
 
 private:
     InvisibilityType _type;

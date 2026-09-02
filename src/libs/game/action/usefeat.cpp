@@ -97,9 +97,13 @@ static std::string getAttackAnim(FeatType feat, CreatureWieldType attackerWield)
     return str(boost::format(format) % static_cast<int>(attackerWield));
 }
 
-static void attack(FeatType feat, const CombatRound &round,
-                   Creature &attacker, Object &target,
-                   const IAnimations &anims, AttackBuffer &attacks) {
+static std::vector<std::string> attack(
+    FeatType feat,
+    const CombatRound &round,
+    Creature &attacker,
+    Object &target,
+    const IAnimations &anims,
+    AttackBuffer &attacks) {
     attacks.addPhysicalAttacks(attacker, target, feat);
 
     scene::AnimationProperties animProp =
@@ -122,6 +126,11 @@ static void attack(FeatType feat, const CombatRound &round,
         std::string resultAnim = anims.getAttackResult(attackAnim, targetWield, attacks.result());
         opponent.playAnimation(resultAnim, animProp);
     }
+
+    size_t animationCount = isRangedWieldType(attackerWield)
+                                ? 1
+                                : attacks.attackCount();
+    return std::vector<std::string>(animationCount, attackAnim);
 }
 
 void UseFeatAction::addProjectiles(const Creature &creature, FeatType feat) {
@@ -157,7 +166,7 @@ void UseFeatAction::execute(std::shared_ptr<Action> self, Object &actor, float d
         attacker.setAttemptedAttackTarget(target->id());
     }
 
-    if (target->isDead()) {
+    if (target->isDead() && !_attacks.hasPendingMelee()) {
         finish(attacker);
         return;
     }
@@ -178,15 +187,55 @@ void UseFeatAction::execute(std::shared_ptr<Action> self, Object &actor, float d
         attacker.setMovementType(Creature::MovementType::None);
         attacker.setMovementRestricted(true);
 
-        attack(_feat, round, attacker, *target, _services.game.animations, _attacks);
+        std::vector<std::string> attackAnimations = attack(
+            _feat,
+            round,
+            attacker,
+            *target,
+            _services.game.animations,
+            _attacks);
         _attacks.resolveMeleeSpecialAttack(_feat, attacker, *target, _game);
         _attacks.resolve(attacker, *target);
+
+        if (!isRangedWieldType(attacker.getWieldType())) {
+            _attacks.prepareMeleeSequence(
+                _services.game.animations,
+                attackAnimations);
+            _schedule.startMelee(
+                _attacks.latestMeleeImpactMilliseconds());
+            _attacks.signalReadyMelee(
+                0,
+                _game,
+                _services,
+                attacker,
+                *target);
+        }
 
         addProjectiles(attacker, _feat);
         return;
     }
+    case AttackSchedule::WaitDamage: {
+        if (_schedule.isMelee()) {
+            _attacks.signalReadyMelee(
+                _schedule.meleeElapsedMilliseconds(),
+                _game,
+                _services,
+                attacker,
+                *target);
+        }
+        break;
+    }
     case AttackSchedule::Damage: {
-        _attacks.signal(_game, _services, attacker, *target);
+        if (_schedule.isMelee()) {
+            _attacks.signalReadyMelee(
+                _schedule.meleeElapsedMilliseconds(),
+                _game,
+                _services,
+                attacker,
+                *target);
+        } else {
+            _attacks.signal(_game, _services, attacker, *target);
+        }
         break;
     }
     case AttackSchedule::Finish: {
@@ -215,6 +264,7 @@ void UseFeatAction::execute(std::shared_ptr<Action> self, Object &actor, float d
 
 void UseFeatAction::cancel(std::shared_ptr<Action> self, Object &actor) {
     Creature &attacker = static_cast<Creature &>(actor);
+    _attacks.discardPendingMelee();
     finish(attacker);
 }
 
