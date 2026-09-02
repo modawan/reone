@@ -218,6 +218,35 @@ void UseFeatAction::cancel(std::shared_ptr<Action> self, Object &actor) {
     finish(attacker);
 }
 
+std::optional<SavedActionRecord> UseFeatAction::saveFacingState() const {
+    auto target = _target.resolve();
+    if (!target || !isPhysicalAttackFeat(_feat)) {
+        return std::nullopt;
+    }
+
+    // K1 and K2 use the same retail ActionId 12 physical-attack command.
+    // Slot 6 is nSpecialAttack: zero denotes a basic attack and a physical
+    // feat identifier denotes the corresponding special attack. Live round,
+    // roll, schedule, animation and projectile state restart after restore.
+    SavedActionRecord result =
+        originalSavedAction().value_or(SavedActionRecord {});
+    result.actionId = 12;
+    result.declaredParameterCount = 10;
+    result.parameters = {
+        {1, int32_t {0}},
+        {3, SavedObjectReference::fromRuntimeId(target->id())},
+        {1, int32_t {1}},
+        {1, int32_t {10009}},
+        {1, int32_t {1500}},
+        {1, int32_t {1}},
+        {1, static_cast<int32_t>(_feat)},
+        {1, int32_t {0}},
+        {1, int32_t {4}},
+        {1, int32_t {0}},
+    };
+    return result;
+}
+
 void UseFeatAction::finish(Creature &attacker) {
     attacker.setMovementRestricted(false);
     _projectiles.reset();

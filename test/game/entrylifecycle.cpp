@@ -16,6 +16,7 @@
 
 #include "reone/game/game.h"
 #include "reone/game/action/attackobject.h"
+#include "reone/game/action/usefeat.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/wait.h"
 #include "reone/game/object/area.h"
@@ -550,12 +551,59 @@ TEST_P(EntryLifecycleFixture, ordinary_transition_keeps_only_exact_live_action_t
     EXPECT_TRUE(outgoing->isCancelled());
 }
 
+TEST_P(EntryLifecycleFixture, ordinary_transition_reconstructs_physical_feat_for_retained_target) {
+    serveModule(/*savedModuleSnapshot=*/false);
+    auto companion = game->newCreature();
+    ASSERT_TRUE(game->party().addAvailableMember(0, companion));
+    ASSERT_TRUE(game->party().addMember(0, companion));
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    auto outgoing = game->newAction<UseFeatAction>(
+        FeatType::ImprovedPowerAttack, companion);
+    player->addAction(outgoing);
+    game->combat().addAction(outgoing, *player);
+    ASSERT_EQ(1u, game->combat().roundCount());
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    ASSERT_EQ(1u, player->actions().size());
+    auto restored = std::dynamic_pointer_cast<UseFeatAction>(
+        player->actions().front());
+    ASSERT_TRUE(restored);
+    EXPECT_NE(restored, outgoing);
+    EXPECT_EQ(restored->target(), companion);
+    EXPECT_EQ(restored->feat(), FeatType::ImprovedPowerAttack);
+    EXPECT_EQ(restored->result(), AttackResultType::Invalid);
+    EXPECT_TRUE(restored->runtimeDependenciesLive());
+    EXPECT_TRUE(outgoing->isCancelled());
+    EXPECT_EQ(0u, game->combat().roundCount());
+}
+
 TEST_P(EntryLifecycleFixture, ordinary_transition_drops_outgoing_area_action_target) {
     serveModule(/*savedModuleSnapshot=*/false);
     ASSERT_TRUE(game->loadModule("module_b"));
     auto outgoingTarget = game->newCreature();
     game->module()->area()->add(outgoingTarget);
     auto outgoing = game->newAction<AttackObjectAction>(outgoingTarget);
+    player->addAction(outgoing);
+    game->combat().addAction(outgoing, *player);
+    ASSERT_EQ(1u, game->combat().roundCount());
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+
+    EXPECT_TRUE(outgoing->isCancelled());
+    EXPECT_FALSE(game->isRuntimeObjectLive(*outgoingTarget));
+    EXPECT_TRUE(player->actions().empty());
+    EXPECT_EQ(0u, game->combat().roundCount());
+}
+
+TEST_P(EntryLifecycleFixture, ordinary_transition_drops_physical_feat_with_area_only_target) {
+    serveModule(/*savedModuleSnapshot=*/false);
+    ASSERT_TRUE(game->loadModule("module_b"));
+    auto outgoingTarget = game->newCreature();
+    game->module()->area()->add(outgoingTarget);
+    auto outgoing = game->newAction<UseFeatAction>(
+        FeatType::PowerAttack, outgoingTarget);
     player->addAction(outgoing);
     game->combat().addAction(outgoing, *player);
     ASSERT_EQ(1u, game->combat().roundCount());

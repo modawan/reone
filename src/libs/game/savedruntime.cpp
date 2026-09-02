@@ -12,6 +12,7 @@
 #include <set>
 
 #include "reone/game/action/attackobject.h"
+#include "reone/game/action/usefeat.h"
 #include "reone/game/action/followleader.h"
 #include "reone/game/action/wait.h"
 #include "reone/game/action/playanimation.h"
@@ -40,6 +41,52 @@ struct Overloaded : Visitors... {
 
 template <class... Visitors>
 Overloaded(Visitors...) -> Overloaded<Visitors...>;
+
+struct SavedPhysicalAttack {
+    SavedObjectReference target;
+    FeatType feat {FeatType::Invalid};
+};
+
+std::optional<SavedPhysicalAttack> decodePhysicalAttack(
+    const SavedActionRecord &record) {
+    if (record.actionId != 12 || record.declaredParameterCount != 10 ||
+        record.parameters.size() != 10) {
+        return std::nullopt;
+    }
+    static constexpr std::array<uint32_t, 10> types {
+        1, 3, 1, 1, 1, 1, 1, 1, 1, 1};
+    for (size_t index = 0; index < types.size(); ++index) {
+        if (record.parameters[index].type != types[index]) {
+            return std::nullopt;
+        }
+    }
+    if (!std::holds_alternative<int32_t>(record.parameters[0].payload) ||
+        !std::holds_alternative<SavedObjectReference>(
+            record.parameters[1].payload)) {
+        return std::nullopt;
+    }
+    for (size_t index = 2; index < record.parameters.size(); ++index) {
+        if (!std::holds_alternative<int32_t>(
+                record.parameters[index].payload)) {
+            return std::nullopt;
+        }
+    }
+    auto parameter = [&record](size_t index) {
+        return std::get<int32_t>(record.parameters[index].payload);
+    };
+    if ((parameter(0) != 0 && parameter(0) != 1) ||
+        parameter(2) != 1 || parameter(3) != 10009 ||
+        parameter(4) != 1500 || parameter(5) != 1 ||
+        parameter(7) != 0 || parameter(8) != 4 || parameter(9) != 0) {
+        return std::nullopt;
+    }
+    auto feat = static_cast<FeatType>(parameter(6));
+    if (feat != FeatType::Invalid && !isPhysicalAttackFeat(feat)) {
+        return std::nullopt;
+    }
+    return SavedPhysicalAttack {
+        std::get<SavedObjectReference>(record.parameters[1].payload), feat};
+}
 
 SavedField savedFieldFromGff(const resource::Gff::Field &field) {
     SavedField result;
@@ -519,34 +566,8 @@ SavedExecutionSupport SavedActionRecord::executionSupport() const {
     if (actionId == 61 && declaredParameterCount == 0 && parameters.empty()) {
         return SavedExecutionSupport::Executable;
     }
-    if (actionId == 12 && declaredParameterCount == 10 && parameters.size() == 10) {
-        static constexpr std::array<uint32_t, 10> types {
-            1, 3, 1, 1, 1, 1, 1, 1, 1, 1};
-        for (size_t i = 0; i < types.size(); ++i) {
-            if (parameters[i].type != types[i]) {
-                return SavedExecutionSupport::RepresentableButUnsupported;
-            }
-        }
-        bool payloads =
-            std::holds_alternative<int32_t>(parameters[0].payload) &&
-            std::holds_alternative<SavedObjectReference>(parameters[1].payload);
-        for (size_t i = 2; i < parameters.size(); ++i) {
-            payloads = payloads &&
-                       std::holds_alternative<int32_t>(parameters[i].payload);
-        }
-        if (!payloads) {
-            return SavedExecutionSupport::RepresentableButUnsupported;
-        }
-        auto parameter = [this](size_t index) {
-            return std::get<int32_t>(parameters[index].payload);
-        };
-        bool ordinaryBasicAttack =
-            (parameter(0) == 0 || parameter(0) == 1) &&
-            parameter(2) == 1 && parameter(3) == 10009 &&
-            parameter(4) == 1500 && parameter(5) == 1 &&
-            parameter(6) == 0 && parameter(7) == 0 &&
-            parameter(8) == 4 && parameter(9) == 0;
-        return ordinaryBasicAttack
+    if (actionId == 12) {
+        return decodePhysicalAttack(*this)
                    ? SavedExecutionSupport::Executable
                    : SavedExecutionSupport::RepresentableButUnsupported;
     }
@@ -619,11 +640,21 @@ std::shared_ptr<Action> SavedActionRecord::toRuntimeAction(
         return action;
     }
     if (actionId == 12) {
-        auto target = std::get<SavedObjectReference>(parameters[1].payload).boundObject();
+        auto decoded = decodePhysicalAttack(*this);
+        if (!decoded) {
+            return nullptr;
+        }
+        auto target = decoded->target.boundObject();
         if (!target) {
             return nullptr;
         }
-        auto action = game.newAction<AttackObjectAction>(std::move(target));
+        std::shared_ptr<Action> action;
+        if (decoded->feat == FeatType::Invalid) {
+            action = game.newAction<AttackObjectAction>(std::move(target));
+        } else {
+            action = game.newAction<UseFeatAction>(
+                decoded->feat, std::move(target));
+        }
         action->attachSavedAction(*this);
         return action;
     }
