@@ -28,6 +28,7 @@
 #include "reone/game/d20/feats.h"
 #include "reone/game/d20/skills.h"
 #include "reone/game/d20/spells.h"
+#include "reone/game/difficultyoptions.h"
 #include "reone/game/footstepsounds.h"
 #include "reone/game/gui/sounds.h"
 #include "reone/game/options.h"
@@ -83,6 +84,21 @@ class MockClasses : public IClasses, boost::noncopyable {
 public:
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::shared_ptr<CreatureClass>, get, (ClassType key), (override));
+};
+
+class StubDifficultyOptions : public IDifficultyOptions, boost::noncopyable {
+public:
+    const DifficultyOption &get(int difficulty) const override {
+        return _options.at(difficulty);
+    }
+
+private:
+    std::vector<DifficultyOption> _options {
+        {-1, "Easy", 0.5f},
+        {-1, "Normal", 1.0f},
+        {-1, "Difficult", 1.5f},
+        {-1, "Default", 1.0f},
+    };
 };
 
 class MockFeats : public IFeats, boost::noncopyable {
@@ -327,6 +343,7 @@ public:
     void init() {
         _cameraStyles = std::make_unique<MockCameraStyles>();
         _classes = std::make_unique<MockClasses>();
+        _difficultyOptions = std::make_unique<StubDifficultyOptions>();
         _feats = std::make_unique<MockFeats>();
         _footstepSounds = std::make_unique<MockFootstepSounds>();
         _guiSounds = std::make_unique<MockGUISounds>();
@@ -342,6 +359,7 @@ public:
         _services = std::make_unique<GameServices>(
             *_cameraStyles,
             *_classes,
+            *_difficultyOptions,
             *_feats,
             *_footstepSounds,
             *_guiSounds,
@@ -366,6 +384,7 @@ public:
 private:
     std::unique_ptr<MockCameraStyles> _cameraStyles;
     std::unique_ptr<MockClasses> _classes;
+    std::unique_ptr<StubDifficultyOptions> _difficultyOptions;
     std::unique_ptr<MockFeats> _feats;
     std::unique_ptr<MockFootstepSounds> _footstepSounds;
     std::unique_ptr<MockGUISounds> _guiSounds;

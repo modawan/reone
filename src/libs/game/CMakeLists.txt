@@ -87,6 +87,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/d20/spell.h
     ${GAME_INCLUDE_DIR}/d20/spells.h
     ${GAME_INCLUDE_DIR}/debug.h
+    ${GAME_INCLUDE_DIR}/difficultyoptions.h
     ${GAME_INCLUDE_DIR}/di/module.h
     ${GAME_INCLUDE_DIR}/di/services.h
     ${GAME_INCLUDE_DIR}/effect.h
@@ -411,6 +412,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/d20/skills.cpp
     ${GAME_SOURCE_DIR}/d20/spells.cpp
     ${GAME_SOURCE_DIR}/debug.cpp
+    ${GAME_SOURCE_DIR}/difficultyoptions.cpp
     ${GAME_SOURCE_DIR}/di/module.cpp
     ${GAME_SOURCE_DIR}/effect/abilitydecrease.cpp
     ${GAME_SOURCE_DIR}/effect/abilityincrease.cpp

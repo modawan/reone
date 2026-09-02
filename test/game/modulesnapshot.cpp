@@ -24,6 +24,7 @@
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/action/usefeat.h"
+#include "reone/game/action/usetalentonobject.h"
 #include "reone/game/effect.h"
 #include "reone/game/d20/class.h"
 #include "reone/game/d20/classes.h"
@@ -1756,6 +1757,44 @@ TEST_F(SnapshotFixture, use_feat_save_is_observational_across_runtime_phases) {
     EXPECT_TRUE(action->locked());
     EXPECT_FALSE(action->isCancelled());
     EXPECT_FALSE(action->isCompleted());
+}
+
+TEST_F(SnapshotFixture, physical_feat_talent_dispatcher_exports_its_canonical_action) {
+    auto target = game.newCreature();
+    target->assignSerializedObjectIdentity({
+        SerializedIdentityContext::moduleGraph("module003"), 701u});
+    TestGameModule::addSnapshotObject(*area, target);
+    auto talent = game.newTalent(
+        TalentType::Feat,
+        static_cast<int>(FeatType::PowerAttack));
+    auto action = game.newAction<UseTalentOnObjectAction>(
+        std::move(talent),
+        target);
+    player->addAction(action);
+
+    action->execute(action, *player, 0.0f);
+    ASSERT_TRUE(action->subAction());
+    ASSERT_FALSE(action->subAction()->isCompleted());
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+
+    ASSERT_TRUE(result) << result.message;
+    auto ifo = readGff(result.snapshot->ifoBytes);
+    auto playerRecord = ifo->getList("Mod_PlayerList").front();
+    ASSERT_EQ(playerRecord->getList("ActionList").size(), 1u);
+    auto saved = SavedActionRecord::fromGff(
+        *playerRecord->getList("ActionList").front(),
+        snapshotIdentityContext());
+    EXPECT_EQ(saved.actionId, 12u);
+    ASSERT_EQ(saved.parameters.size(), 10u);
+    EXPECT_EQ(
+        std::get<SavedObjectReference>(saved.parameters[1].payload).id,
+        701u);
+    EXPECT_EQ(
+        std::get<int32_t>(saved.parameters[6].payload),
+        static_cast<int32_t>(FeatType::PowerAttack));
+    EXPECT_FALSE(action->isCompleted());
+    EXPECT_FALSE(action->isCancelled());
 }
 
 TEST_F(SnapshotFixture, nonphysical_use_feat_remains_an_unsupported_live_state) {

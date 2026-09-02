@@ -850,7 +850,8 @@ void AttackBuffer::addCombatFeedback(
             {3, std::to_string(
                     attack.damage.empty()
                         ? 0
-                        : attack.damage.resolvedDamage())},
+                        : game.scaleDamageForDifficulty(
+                              attack.damage.resolvedDamage(), target))},
         });
 
     for (int broadcast = 0; broadcast < broadcasts; ++broadcast) {

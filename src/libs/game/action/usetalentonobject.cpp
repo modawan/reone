@@ -60,6 +60,13 @@ void UseTalentOnObjectAction::execute(std::shared_ptr<Action> self, Object &acto
     }
 }
 
+std::optional<SavedActionRecord> UseTalentOnObjectAction::saveFacingState() const {
+    // ActionUseTalentOnObject is a runtime dispatcher. Physical feats already
+    // have the canonical retail ActionId 12 representation on the dispatched
+    // action; spells and unsupported talents continue to fail closed.
+    return _action ? _action->saveFacingState() : std::nullopt;
+}
+
 } // namespace game
 
 } // namespace reone

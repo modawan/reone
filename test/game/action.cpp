@@ -18,6 +18,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <limits>
 #include <set>
 
@@ -35,6 +36,7 @@
 #include "reone/resource/types.h"
 #include "reone/resource/2da.h"
 #include "reone/script/executioncontext.h"
+#include "reone/system/randomutil.h"
 
 // Attack animation selection stays internal to the action implementation. The
 // variant is rolled inside the action, so calling these helpers is the only way
@@ -203,6 +205,7 @@ TEST(Action, use_talent_dispatch_to_use_feat) {
     auto action = game.newAction<UseTalentOnObjectAction>(std::move(talent), target);
     auto subAction = action->subAction();
     ASSERT_TRUE(subAction);
+    EXPECT_TRUE(action->saveFacingState());
 
     EXPECT_FALSE(action->isCompleted());
     EXPECT_FALSE(subAction->isCompleted());
@@ -237,6 +240,7 @@ TEST(Action, use_talent_dispatch_to_cast_spell) {
     auto action = game.newAction<UseTalentOnObjectAction>(std::move(talent), target);
     auto subAction = action->subAction();
     ASSERT_TRUE(subAction);
+    EXPECT_FALSE(action->saveFacingState());
 
     EXPECT_FALSE(action->isCompleted());
     EXPECT_FALSE(subAction->isCompleted());
@@ -572,6 +576,17 @@ TEST(AttackAnimation, duels_still_select_all_five_cinematic_variants) {
 
 namespace {
 
+AttackResultType rollUnarmedAttack(
+    const Creature &attacker,
+    const Object &target,
+    uint32_t seed) {
+
+    setRandomSeed(seed);
+    AttackBuffer attacks;
+    attacks.addPhysicalAttacks(attacker, target);
+    return attacks.result();
+}
+
 std::shared_ptr<resource::TwoDA> retailImpactAnimations() {
     resource::TwoDA::Builder builder;
     builder.columns({"name", "attack"});
@@ -618,6 +633,63 @@ Animations loadRetailImpactFixture(TestEngine &engine) {
 }
 
 } // namespace
+
+TEST(PhysicalAttackResolution, natural_one_and_twenty_override_totals) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    target->setObjectSeen(attacker, true);
+
+    attacker->attributes().setAbilityScore(Ability::Strength, 100);
+    target->attributes().setAbilityScore(Ability::Dexterity, 10);
+    EXPECT_EQ(
+        AttackResultType::Miss,
+        rollUnarmedAttack(*attacker, *target, 1)); // First d20: 1.
+
+    attacker->attributes().setAbilityScore(Ability::Strength, 3);
+    target->attributes().setAbilityScore(Ability::Dexterity, 100);
+    EXPECT_EQ(
+        AttackResultType::HitSuccessful,
+        rollUnarmedAttack(*attacker, *target, 121395)); // d20s: 20, 1.
+}
+
+TEST(PhysicalAttackResolution, ordinary_rolls_compare_against_defense) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    attacker->attributes().setAbilityScore(Ability::Strength, 10);
+    target->attributes().setAbilityScore(Ability::Dexterity, 10);
+    target->setObjectSeen(attacker, true);
+
+    EXPECT_EQ(
+        AttackResultType::Miss,
+        rollUnarmedAttack(*attacker, *target, 51110)); // First d20: 9.
+    EXPECT_EQ(
+        AttackResultType::HitSuccessful,
+        rollUnarmedAttack(*attacker, *target, 57498)); // First d20: 10.
+}
+
+TEST(PhysicalAttackResolution, critical_threat_requires_confirmation) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    attacker->attributes().setAbilityScore(Ability::Strength, 10);
+    target->attributes().setAbilityScore(Ability::Dexterity, 10);
+    target->setObjectSeen(attacker, true);
+
+    EXPECT_EQ(
+        AttackResultType::CriticalHit,
+        rollUnarmedAttack(*attacker, *target, 121406)); // d20s: 20, 10.
+    EXPECT_EQ(
+        AttackResultType::HitSuccessful,
+        rollUnarmedAttack(*attacker, *target, 121398)); // d20s: 20, 9.
+}
 
 TEST(AttackImpactTiming, uses_retail_combat_animation_hit_columns) {
     TestEngine &engine = testEngine();

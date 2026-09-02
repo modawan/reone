@@ -2278,12 +2278,31 @@ int Creature::getDefense(const Creature *attacker, int damageFlags) const {
         }
     }
 
+    int defenseModifier = getDefenseModifier(
+        modifierBonuses,
+        modifierPenalties);
+    if (attacker) {
+        int dodgeModifier = std::min(
+            modifierBonuses[static_cast<int>(ACBonus::Dodge)] -
+                modifierPenalties[static_cast<int>(ACBonus::Dodge)],
+            kMaximumDodgeBonus);
+        bool invisible = attacker->isInvisibleTo(*this);
+        bool seen = _perception.sees(attacker->id());
+        if (invisible) {
+            defenseModifier -= dodgeModifier;
+            dexterityModifier = std::min(dexterityModifier, 0);
+        } else if (!seen) {
+            defenseModifier -= dodgeModifier;
+            dexterityModifier = 0;
+        }
+    }
+
     int defense = 10 +
                   _attributes.getAggregateDefenseBonus() +
                   armorDefense +
                   _naturalAC +
                   dexterityModifier +
-                  getDefenseModifier(modifierBonuses, modifierPenalties) +
+                  defenseModifier +
                   getDuelingBonus();
 
     return defense - (isDebilitated() ? 4 : 0);

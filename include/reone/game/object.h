@@ -99,6 +99,7 @@ public:
     float getFacing() const { return glm::eulerAngles(_orientation).z; }
 
     uint32_t id() const { return _id; }
+    Game &game() const { return _game; }
     bool isRuntimeLive() const { return _runtimeState == RuntimeState::Live; }
     bool isPresentationOnly() const {
         return _runtimeState == RuntimeState::Presentation;

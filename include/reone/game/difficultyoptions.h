@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,34 +17,45 @@
 
 #pragma once
 
-#include "reone/audio/options.h"
-#include "reone/system/types.h"
-#include "reone/graphics/options.h"
+#include <string>
+#include <vector>
 
 namespace reone {
 
+namespace resource {
+
+class ITwoDAs;
+
+} // namespace resource
+
 namespace game {
 
-struct GameOptions {
-    std::filesystem::path path;
-    bool developer {false};
-    bool neo {false};
-    uint8_t clientDifficulty {1}; // Easy=0, Normal=1, Difficult=2, Default=3
+struct DifficultyOption {
+    int nameStrRef {-1};
+    std::string description;
+    float damageMultiplier {1.0f};
 };
 
-struct OptionsView {
-    GameOptions &game;
-    graphics::GraphicsOptions &graphics;
-    audio::AudioOptions &audio;
+class IDifficultyOptions {
+public:
+    virtual ~IDifficultyOptions() = default;
 
-    OptionsView(
-        GameOptions &game,
-        graphics::GraphicsOptions &graphics,
-        audio::AudioOptions &audio) :
-        game(game),
-        graphics(graphics),
-        audio(audio) {
+    virtual const DifficultyOption &get(int difficulty) const = 0;
+};
+
+class DifficultyOptions : public IDifficultyOptions, boost::noncopyable {
+public:
+    explicit DifficultyOptions(resource::ITwoDAs &twoDas) :
+        _twoDas(twoDas) {
     }
+
+    void init();
+
+    const DifficultyOption &get(int difficulty) const override;
+
+private:
+    resource::ITwoDAs &_twoDas;
+    std::vector<DifficultyOption> _options;
 };
 
 } // namespace game

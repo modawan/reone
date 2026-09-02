@@ -37,6 +37,7 @@
 #include "reone/game/d20/spells.h"
 #include "reone/game/debug.h"
 #include "reone/game/di/services.h"
+#include "reone/game/difficultyoptions.h"
 #include "reone/game/gui/hud.h"
 #include "reone/game/gui/sounds.h"
 #include "reone/game/location.h"
@@ -2536,6 +2537,20 @@ std::shared_ptr<Object> Game::getObjectById(uint32_t id) const {
         return it != _objectById.end() ? it->second : nullptr;
     }
     }
+}
+
+int Game::scaleDamageForDifficulty(
+    int damage,
+    const Object &target) const {
+    if (damage <= 0 || !_party.isMember(target)) {
+        return damage;
+    }
+
+    const DifficultyOption &difficulty =
+        _services.game.difficultyOptions.get(
+            static_cast<int>(_options.game.clientDifficulty));
+    return static_cast<int>(
+        static_cast<float>(damage) * difficulty.damageMultiplier);
 }
 
 bool Game::isRuntimeObjectLive(const Object &object) const {

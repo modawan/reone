@@ -13,6 +13,7 @@
 #include "../fixtures/engine.h"
 
 #include "reone/game/effect.h"
+#include "reone/game/effect/acincrease.h"
 #include "reone/game/effect/attackdecrease.h"
 #include "reone/game/effect/attackincrease.h"
 #include "reone/game/effect/damage.h"
@@ -25,6 +26,7 @@
 #include "reone/game/effect/source.h"
 #include "reone/game/effect/trueseeing.h"
 #include "reone/game/effect/ultravision.h"
+#include "reone/game/difficultyoptions.h"
 #include "reone/game/game.h"
 #include "reone/game/object.h"
 #include "reone/game/object/creature.h"
@@ -535,6 +537,51 @@ TEST(CombatEffectRestore, absorption_updates_the_canonical_save_facing_state) {
     EXPECT_TRUE(creature->effects().empty());
 }
 
+TEST(CombatDifficulty, loads_retail_damage_multipliers_once) {
+    NiceMock<MockTwoDAs> twoDas;
+    TwoDA::Builder builder;
+    builder.columns({"name", "desc", "multiplier"})
+        .row({"10", "Easy", "0.5"})
+        .row({"11", "Normal", "1.0"})
+        .row({"12", "Difficult", "1.5"})
+        .row({"13", "Default", ""});
+    auto table = std::shared_ptr<TwoDA>(builder.build());
+    EXPECT_CALL(twoDas, get("difficultyopt")).WillOnce(Return(table));
+
+    DifficultyOptions options(twoDas);
+    options.init();
+
+    EXPECT_FLOAT_EQ(0.5f, options.get(0).damageMultiplier);
+    EXPECT_FLOAT_EQ(1.0f, options.get(1).damageMultiplier);
+    EXPECT_FLOAT_EQ(1.5f, options.get(2).damageMultiplier);
+    EXPECT_FLOAT_EQ(1.0f, options.get(3).damageMultiplier);
+}
+
+TEST(CombatDifficulty, scales_only_party_damage_and_uses_the_scaled_amount) {
+    TestEngine engine;
+    engine.init();
+    engine.options().game.clientDifficulty = 0;
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto partyTarget = game.newCreature();
+    auto nonPartyTarget = game.newCreature();
+    ASSERT_TRUE(game.party().addMember(kNpcPlayer, partyTarget));
+    game.party().setPlayer(partyTarget);
+
+    EXPECT_EQ(4, game.scaleDamageForDifficulty(9, *partyTarget));
+    EXPECT_EQ(9, game.scaleDamageForDifficulty(9, *nonPartyTarget));
+    EXPECT_EQ(0, game.scaleDamageForDifficulty(0, *partyTarget));
+
+    partyTarget->setCurrentHitPoints(20);
+    auto damage = game.newEffect<DamageEffect>(
+        9, DamageType::Universal, DamagePower::Normal);
+    partyTarget->applyEffect(damage, DurationType::Instant);
+    EXPECT_EQ(16, partyTarget->currentHitPoints());
+
+    engine.options().game.clientDifficulty = 2;
+    EXPECT_EQ(13, game.scaleDamageForDifficulty(9, *partyTarget));
+}
+
 TEST(CompositeDamage, single_type_mitigation_is_unchanged) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -688,6 +735,41 @@ TEST(CombatVisibility, see_invisible_and_ultravision_counter_distinct_types) {
     EXPECT_FALSE(darknessTarget->isInvisibleTo(*observer));
     observer->removeEffect(ultravision);
     EXPECT_TRUE(darknessTarget->isInvisibleTo(*observer));
+}
+
+TEST(CombatVisibility, unseen_and_invisible_attackers_remove_dexterity_and_dodge_defense) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto defender = game.newCreature();
+    defender->attributes().setAbilityScore(Ability::Dexterity, 18);
+    defender->applyEffect(
+        std::make_shared<ACIncreaseEffect>(
+            3, ACBonus::Dodge, kAllDamageTypeFlags),
+        DurationType::Permanent);
+    defender->applyEffect(
+        std::make_shared<ACIncreaseEffect>(
+            2, ACBonus::Deflection, kAllDamageTypeFlags),
+        DurationType::Permanent);
+
+    defender->setObjectSeen(attacker, true);
+    EXPECT_EQ(19, defender->getDefense(attacker.get(), 0));
+
+    auto invisibility = std::make_shared<InvisibilityEffect>(
+        InvisibilityType::Normal);
+    attacker->applyEffect(invisibility, DurationType::Permanent);
+    EXPECT_EQ(12, defender->getDefense(attacker.get(), 0));
+    attacker->removeEffect(invisibility);
+    EXPECT_EQ(19, defender->getDefense(attacker.get(), 0));
+
+    defender->setObjectSeen(attacker, false);
+    EXPECT_EQ(12, defender->getDefense(attacker.get(), 0));
+
+    defender->setObjectSeen(attacker, true);
+    game.destroyRuntimeObjectGraph(attacker);
+    ASSERT_FALSE(attacker->isRuntimeLive());
+    EXPECT_EQ(12, defender->getDefense(attacker.get(), 0));
 }
 
 TEST(CombatVisibility, one_true_seeing_effect_counters_both_invisibility_families) {

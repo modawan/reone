@@ -417,6 +417,7 @@ public:
     // Objects
 
     std::shared_ptr<Object> getObjectById(uint32_t id) const;
+    int scaleDamageForDifficulty(int damage, const Object &target) const;
     bool isRuntimeObjectLive(const Object &object) const;
 
     // End the semantic lifetime of this exact object and every runtime object

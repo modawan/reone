@@ -21,6 +21,7 @@
 
 #include "reone/game/effect/damageimmunitydecrease.h"
 #include "reone/game/effect/damageimmunityincrease.h"
+#include "reone/game/game.h"
 #include "reone/game/object.h"
 #include "reone/game/object/creature.h"
 
@@ -336,7 +337,8 @@ bool DamageEffect::onApply(
         _damage.resolve(object);
     }
 
-    int amount = _damage.resolvedDamage();
+    int amount = object.game().scaleDamageForDifficulty(
+        _damage.resolvedDamage(), object);
     debug(str(boost::format("Damage taken: %s %d") % object.tag() % amount));
     object.damage(amount, instance.boundCreator());
     return true;

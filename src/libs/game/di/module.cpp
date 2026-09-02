@@ -24,6 +24,7 @@ namespace game {
 void GameModule::init() {
     _cameraStyles = std::make_unique<CameraStyles>(_resource.twoDas());
     _classes = std::make_unique<Classes>(_resource.strings(), _resource.twoDas());
+    _difficultyOptions = std::make_unique<DifficultyOptions>(_resource.twoDas());
     _feats = std::make_unique<Feats>(_resource.textures(), _resource.strings(), _resource.twoDas());
     _footstepSounds = std::make_unique<FootstepSounds>(_resource.audioClips(), _resource.twoDas());
     _guiSounds = std::make_unique<GUISounds>(_resource.audioClips(), _resource.twoDas());
@@ -39,6 +40,7 @@ void GameModule::init() {
     _services = std::make_unique<GameServices>(
         *_cameraStyles,
         *_classes,
+        *_difficultyOptions,
         *_feats,
         *_footstepSounds,
         *_guiSounds,
@@ -52,6 +54,7 @@ void GameModule::init() {
         *_visualEffects);
 
     _cameraStyles->init();
+    _difficultyOptions->init();
     _guiSounds->init();
     _portraits->init();
     _reputes->init();
@@ -75,6 +78,7 @@ void GameModule::deinit() {
     _guiSounds.reset();
     _footstepSounds.reset();
     _feats.reset();
+    _difficultyOptions.reset();
     _classes.reset();
     _cameraStyles.reset();
 }
