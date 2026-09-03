@@ -3219,11 +3219,15 @@ static Variable SetLocked(const std::vector<Variable> &args, const RoutineContex
     auto bLocked = getInt(args, 1);
 
     // Transform
-    auto target = checkDoor(oTarget);
     bool locked = static_cast<bool>(bLocked);
 
     // Execute
-    target->setLocked(locked);
+    if (auto door = dyn_cast<Door>(oTarget)) {
+        door->setLocked(locked);
+    } else if (auto placeable = dyn_cast<Placeable>(oTarget)) {
+        placeable->setLocked(locked);
+    }
+
     return Variable::ofNull();
 }
 

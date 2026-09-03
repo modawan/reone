@@ -66,7 +66,7 @@ public:
     // Scripts
 
     void onOpen(uint32_t triggererId);
-    void runOnUsed(std::shared_ptr<Object> usedBy);
+    void runOnUsed(uint32_t usedBy);
     void runOnInvDisturbed(uint32_t triggerrer, InventoryDisturbType type, uint32_t item);
 
     // END Scripts

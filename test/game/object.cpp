@@ -5655,7 +5655,7 @@ TEST(RemoveHeartbeat, should_leave_the_other_event_scripts_on_the_object_alone) 
     fixture.tickHeartbeat();
     ASSERT_TRUE(placeable->getOnHeartbeat().empty());
 
-    placeable->runOnUsed(nullptr);
+    placeable->runOnUsed(0);
 
     EXPECT_EQ(1, dispatchesOf("k_plc_used"));
 }

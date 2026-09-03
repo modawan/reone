@@ -374,14 +374,12 @@ void Module::onPlaceableClick(const std::shared_ptr<Placeable> &placeable) {
 
     if (placeable->hasInventory()) {
         partyLeader->clearAllActions();
-        if (!placeable->isLocked()) {
-            partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
-        }
+        partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
     } else if (!placeable->conversation().empty()) {
         partyLeader->clearAllActions();
         partyLeader->addAction(_game.newAction<StartConversationAction>(placeable, ""));
     } else {
-        placeable->runOnUsed(std::move(partyLeader));
+        placeable->runOnUsed(partyLeader->id());
     }
 }
 
