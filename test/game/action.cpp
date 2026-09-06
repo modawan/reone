@@ -576,10 +576,35 @@ TEST(AttackAnimation, duels_still_select_all_five_cinematic_variants) {
 
 namespace {
 
+constexpr uint32_t kD20SeedSearchLimit = 1'000'000;
+
+uint32_t findD20Seed(int firstRoll, int secondRoll = 0) {
+    for (uint32_t seed = 0; seed < kD20SeedSearchLimit; ++seed) {
+        setRandomSeed(seed);
+        if (randomInt(1, 20) != firstRoll) {
+            continue;
+        }
+        if (secondRoll == 0 || randomInt(1, 20) == secondRoll) {
+            return seed;
+        }
+    }
+    return std::numeric_limits<uint32_t>::max();
+}
+
 AttackResultType rollUnarmedAttack(
     const Creature &attacker,
     const Object &target,
-    uint32_t seed) {
+    int firstRoll,
+    int secondRoll = 0) {
+
+    // std::default_random_engine and uniform_int_distribution do not provide a
+    // portable seed-to-roll mapping, so locate a suitable seed for this STL.
+    uint32_t seed = findD20Seed(firstRoll, secondRoll);
+    if (seed == std::numeric_limits<uint32_t>::max()) {
+        ADD_FAILURE() << "Could not find seed for d20 sequence "
+                      << firstRoll << ", " << secondRoll;
+        return AttackResultType::Invalid;
+    }
 
     setRandomSeed(seed);
     AttackBuffer attacks;
@@ -646,13 +671,13 @@ TEST(PhysicalAttackResolution, natural_one_and_twenty_override_totals) {
     target->attributes().setAbilityScore(Ability::Dexterity, 10);
     EXPECT_EQ(
         AttackResultType::Miss,
-        rollUnarmedAttack(*attacker, *target, 1)); // First d20: 1.
+        rollUnarmedAttack(*attacker, *target, 1));
 
     attacker->attributes().setAbilityScore(Ability::Strength, 3);
     target->attributes().setAbilityScore(Ability::Dexterity, 100);
     EXPECT_EQ(
         AttackResultType::HitSuccessful,
-        rollUnarmedAttack(*attacker, *target, 121395)); // d20s: 20, 1.
+        rollUnarmedAttack(*attacker, *target, 20, 1));
 }
 
 TEST(PhysicalAttackResolution, ordinary_rolls_compare_against_defense) {
@@ -667,10 +692,10 @@ TEST(PhysicalAttackResolution, ordinary_rolls_compare_against_defense) {
 
     EXPECT_EQ(
         AttackResultType::Miss,
-        rollUnarmedAttack(*attacker, *target, 51110)); // First d20: 9.
+        rollUnarmedAttack(*attacker, *target, 9));
     EXPECT_EQ(
         AttackResultType::HitSuccessful,
-        rollUnarmedAttack(*attacker, *target, 57498)); // First d20: 10.
+        rollUnarmedAttack(*attacker, *target, 10));
 }
 
 TEST(PhysicalAttackResolution, critical_threat_requires_confirmation) {
@@ -685,10 +710,10 @@ TEST(PhysicalAttackResolution, critical_threat_requires_confirmation) {
 
     EXPECT_EQ(
         AttackResultType::CriticalHit,
-        rollUnarmedAttack(*attacker, *target, 121406)); // d20s: 20, 10.
+        rollUnarmedAttack(*attacker, *target, 20, 10));
     EXPECT_EQ(
         AttackResultType::HitSuccessful,
-        rollUnarmedAttack(*attacker, *target, 121398)); // d20s: 20, 9.
+        rollUnarmedAttack(*attacker, *target, 20, 9));
 }
 
 TEST(AttackImpactTiming, uses_retail_combat_animation_hit_columns) {
