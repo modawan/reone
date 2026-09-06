@@ -1300,6 +1300,10 @@ bool Area::isObjectSeen(const Creature &subject, const Object &object) const {
     if (!object.visible()) {
         return false;
     }
+    const auto *creature = dyn_cast<Creature>(&object);
+    if (creature && creature->isInvisibleTo(subject)) {
+        return false;
+    }
 
     auto &sceneGraph = _services.scene.graphs.get(_sceneName);
 
@@ -1818,46 +1822,81 @@ void Area::doUpdatePerception() {
             continue;
 
         auto creature = std::static_pointer_cast<Creature>(object);
-        float hearingRange2 = creature->perception().hearingRange * creature->perception().hearingRange;
-        float sightRange2 = creature->perception().sightRange * creature->perception().sightRange;
 
         for (auto &other : creatures) {
             // Skip self
             if (other == object)
                 continue;
 
-            bool heard = false;
-            bool seen = false;
-
-            float distance2 = creature->getSquareDistanceTo(*other);
-            if (distance2 <= hearingRange2) {
-                heard = true;
-            }
-            if (distance2 <= sightRange2) {
-                seen = isObjectSeen(*creature, *other);
-            }
-
-            // Hearing
-            bool wasHeard = creature->perception().hears(other->id());
-            bool wasSeen = creature->perception().sees(other->id());
-
-            if (wasHeard == heard && wasSeen == seen) {
-                continue; // no change in perception
-            }
-
-            if (wasHeard != heard) {
-                debug(str(boost::format("%s %s %s") % other->tag() % (heard ? "heard by" : "inaudible by") % creature->tag()), LogChannel::Perception);
-                creature->setObjectHeard(other, heard);
-            }
-
-            if (wasSeen != seen) {
-                debug(str(boost::format("%s %s %s") % other->tag() % (seen ? "seen by" : "vanished from") % creature->tag()), LogChannel::Perception);
-                creature->setObjectSeen(other, seen);
-            }
-
-            creature->runOnNotice(*other, heard, seen);
+            updatePerceptionPair(
+                creature,
+                std::static_pointer_cast<Creature>(other));
         }
     }
+}
+
+void Area::refreshPerceptionFor(Creature &changed) {
+    ObjectList &creatures = getObjectsByType(ObjectType::Creature);
+    auto changedIt = std::find_if(
+        creatures.begin(),
+        creatures.end(),
+        [&changed](const std::shared_ptr<Object> &object) {
+            return object.get() == &changed;
+        });
+    if (changedIt == creatures.end()) {
+        return;
+    }
+
+    auto changedCreature = std::static_pointer_cast<Creature>(*changedIt);
+    for (const auto &object : creatures) {
+        if (object.get() == &changed) {
+            continue;
+        }
+        auto other = std::static_pointer_cast<Creature>(object);
+        updatePerceptionPair(other, changedCreature);
+        updatePerceptionPair(changedCreature, other);
+    }
+}
+
+void Area::updatePerceptionPair(
+    const std::shared_ptr<Creature> &observer,
+    const std::shared_ptr<Creature> &target) {
+
+    if (!observer || !target || observer == target || observer->isDead()) {
+        return;
+    }
+
+    float distance2 = observer->getSquareDistanceTo(*target);
+    float hearingRange = observer->perception().hearingRange;
+    float sightRange = observer->perception().sightRange;
+    bool heard = distance2 <= hearingRange * hearingRange;
+    bool seen = distance2 <= sightRange * sightRange &&
+                isObjectSeen(*observer, *target);
+
+    bool wasHeard = observer->perception().hears(target->id());
+    bool wasSeen = observer->perception().sees(target->id());
+    if (wasHeard == heard && wasSeen == seen) {
+        return;
+    }
+
+    if (wasSeen && !seen && target->isInvisibleTo(*observer)) {
+        observer->clearHostileActionsAgainst(*target);
+    }
+    if (wasHeard != heard) {
+        debug(
+            str(boost::format("%s %s %s") % target->tag() %
+                (heard ? "heard by" : "inaudible by") % observer->tag()),
+            LogChannel::Perception);
+        observer->setObjectHeard(target, heard);
+    }
+    if (wasSeen != seen) {
+        debug(
+            str(boost::format("%s %s %s") % target->tag() %
+                (seen ? "seen by" : "vanished from") % observer->tag()),
+            LogChannel::Perception);
+        observer->setObjectSeen(target, seen);
+    }
+    observer->runOnNotice(*target, heard, seen);
 }
 
 void Area::updateMessageBus() {

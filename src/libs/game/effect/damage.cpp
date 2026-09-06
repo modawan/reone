@@ -21,8 +21,7 @@
 
 #include "reone/game/effect/damageimmunitydecrease.h"
 #include "reone/game/effect/damageimmunityincrease.h"
-#include "reone/game/effect/damagereduction.h"
-#include "reone/game/effect/damageresistance.h"
+#include "reone/game/game.h"
 #include "reone/game/object.h"
 #include "reone/game/object/creature.h"
 
@@ -31,6 +30,30 @@ namespace reone {
 namespace game {
 
 static constexpr int kDamageTypeCount = 15;
+
+struct AbsorptionResult {
+    int prevented {0};
+    bool exhausted {false};
+};
+
+static AbsorptionResult absorbDamage(
+    EffectInstance &effect,
+    int damage,
+    size_t amountParameter,
+    size_t limitParameter) {
+    int amount = effect.integerParameter(amountParameter);
+    int limit = effect.integerParameter(limitParameter);
+    if (damage <= 0 || amount <= 0) {
+        return {};
+    }
+    if (limit <= 0) {
+        return {std::min(damage, amount), false};
+    }
+
+    int prevented = std::min({damage, amount, limit});
+    effect.integerParameters[limitParameter] = std::max(0, limit - damage);
+    return {prevented, effect.integerParameters[limitParameter] == 0};
+}
 
 DamageType getPrimaryDamageType(int damageFlags) {
     assert(damageFlags > 0);
@@ -68,39 +91,29 @@ static int getDamageImmunity(const Object &object, DamageType damageType) {
 
         auto type = static_cast<DamageType>(typeFlag);
         int immunity = 0;
-        if (const auto *creature = dyn_cast<Creature>(&object)) {
-            immunity = std::clamp(
-                creature->getItemDamageImmunity(type),
-                -100,
-                100);
-        }
 
-        for (const Object::AppliedEffect &applied : object.effects()) {
-            if (!applied.effect) {
+        for (const EffectInstance &applied : object.effects()) {
+            if (!applied.hasLiveRuntimeSource()) {
                 continue;
             }
-            switch (applied.effect->type()) {
+            switch (applied.type()) {
             case EffectType::DamageImmunityIncrease: {
-                const auto &effect =
-                    static_cast<const DamageImmunityIncreaseEffect &>(*applied.effect);
                 if (damageTypeMatches(
-                        static_cast<int>(effect.damageType()),
+                        applied.integerParameter(0),
                         static_cast<int>(type))) {
                     immunity = std::clamp(
-                        immunity + effect.percentImmunity(),
+                        immunity + applied.integerParameter(1),
                         -100,
                         100);
                 }
                 break;
             }
             case EffectType::DamageImmunityDecrease: {
-                const auto &effect =
-                    static_cast<const DamageImmunityDecreaseEffect &>(*applied.effect);
                 if (damageTypeMatches(
-                        static_cast<int>(effect.damageType()),
+                        applied.integerParameter(0),
                         static_cast<int>(type))) {
                     immunity = std::clamp(
-                        immunity - effect.percentImmunity(),
+                        immunity - applied.integerParameter(1),
                         -100,
                         100);
                 }
@@ -148,36 +161,39 @@ static int applyDamageResistance(
     int resistance = 0;
     int featBonus = 0;
     if (const auto *creature = dyn_cast<Creature>(&object)) {
-        resistance = creature->getItemDamageResistance(damageType);
         featBonus = creature->getDamageResistanceFeatBonus();
     }
 
-    std::shared_ptr<DamageResistanceEffect> selectedEffect;
-    for (const Object::AppliedEffect &applied : object.effects()) {
-        if (!applied.effect) {
+    std::shared_ptr<Effect> selectedEffect;
+    for (const EffectInstance &applied : object.effects()) {
+        if (!applied.hasLiveRuntimeSource()) {
             continue;
         }
-        if (applied.effect->type() != EffectType::DamageResistance) {
+        if (applied.type() != EffectType::DamageResistance) {
             continue;
         }
-
-        auto effect = std::static_pointer_cast<DamageResistanceEffect>(applied.effect);
+        int amount = applied.integerParameter(1);
         if (!damageTypeMatches(
-                static_cast<int>(effect->damageType()),
+                applied.integerParameter(0),
                 static_cast<int>(damageType)) ||
-            effect->amount() <= resistance) {
+            amount <= resistance) {
             continue;
         }
 
-        resistance = effect->amount();
-        selectedEffect = std::move(effect);
+        resistance = amount;
+        selectedEffect = applied.effect;
     }
 
-    int prevented = selectedEffect
-                        ? selectedEffect->absorb(damage)
-                        : std::min(damage, resistance);
-    if (selectedEffect && selectedEffect->exhausted()) {
-        object.removeEffect(selectedEffect);
+    int prevented = std::min(damage, resistance);
+    if (selectedEffect) {
+        EffectInstance *instance = object.findEffectInstance(*selectedEffect);
+        if (instance) {
+            AbsorptionResult absorption = absorbDamage(*instance, damage, 1, 2);
+            prevented = absorption.prevented;
+            if (absorption.exhausted) {
+                object.removeEffect(selectedEffect);
+            }
+        }
     }
 
     return std::max(0, damage - prevented - featBonus);
@@ -200,34 +216,36 @@ static int applyDamageReduction(
 
     int reduction = 0;
     DamagePower requiredPower = DamagePower::Normal;
-    if (const auto *creature = dyn_cast<Creature>(&object)) {
-        creature->getItemDamageReduction(reduction, requiredPower);
+
+    std::shared_ptr<Effect> selectedEffect;
+    for (const EffectInstance &applied : object.effects()) {
+        if (!applied.hasLiveRuntimeSource()) {
+            continue;
+        }
+        if (applied.type() != EffectType::DamageReduction) {
+            continue;
+        }
+        int amount = applied.integerParameter(0);
+        if (amount <= reduction) {
+            continue;
+        }
+
+        reduction = amount;
+        requiredPower = static_cast<DamagePower>(
+            applied.integerParameter(1));
+        selectedEffect = applied.effect;
     }
 
-    std::shared_ptr<DamageReductionEffect> selectedEffect;
-    for (const Object::AppliedEffect &applied : object.effects()) {
-        if (!applied.effect) {
-            continue;
+    int prevented = std::min(damage, reduction);
+    if (selectedEffect) {
+        EffectInstance *instance = object.findEffectInstance(*selectedEffect);
+        if (instance) {
+            AbsorptionResult absorption = absorbDamage(*instance, damage, 0, 2);
+            prevented = absorption.prevented;
+            if (absorption.exhausted) {
+                object.removeEffect(selectedEffect);
+            }
         }
-        if (applied.effect->type() != EffectType::DamageReduction) {
-            continue;
-        }
-
-        auto effect = std::static_pointer_cast<DamageReductionEffect>(applied.effect);
-        if (effect->amount() <= reduction) {
-            continue;
-        }
-
-        reduction = effect->amount();
-        requiredPower = effect->damagePower();
-        selectedEffect = std::move(effect);
-    }
-
-    int prevented = selectedEffect
-                        ? selectedEffect->absorb(damage)
-                        : std::min(damage, reduction);
-    if (selectedEffect && selectedEffect->exhausted()) {
-        object.removeEffect(selectedEffect);
     }
 
     if (static_cast<int>(damagePower) >= static_cast<int>(requiredPower)) {
@@ -312,14 +330,18 @@ int DamagePacket::total() const {
     return result;
 }
 
-void DamageEffect::applyTo(Object &object) {
+bool DamageEffect::onApply(
+    Object &object,
+    const EffectInstance &instance) {
     if (!_damage.isResolved()) {
         _damage.resolve(object);
     }
 
-    int amount = _damage.resolvedDamage();
+    int amount = object.game().scaleDamageForDifficulty(
+        _damage.resolvedDamage(), object);
     debug(str(boost::format("Damage taken: %s %d") % object.tag() % amount));
-    object.damage(amount, _damager);
+    object.damage(amount, instance.boundCreator());
+    return true;
 }
 
 } // namespace game

@@ -211,6 +211,8 @@ enum class EffectType {
     MindTrick = 80,
     DroidScramble = 81,
 
+    BonusFeat = 0x123,
+
     Damage = 0x100,
     Heal = 0x101,
     Death = 0x102,

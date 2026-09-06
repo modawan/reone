@@ -115,6 +115,10 @@ void Routines::insert(
                     effect->setSaveFacingCreator(
                         _game->getObjectById(caller->objectId));
                 }
+                auto spell = execution.findArg(ArgKind::SpellId);
+                if (effect && spell) {
+                    effect->setSaveFacingSpellId(spell->intValue);
+                }
             }
             return result;
         });

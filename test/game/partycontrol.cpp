@@ -9,6 +9,7 @@
 #include "../fixtures/game.h"
 #include "../fixtures/scene.h"
 #include "reone/game/action.h"
+#include "reone/game/action/attackobject.h"
 #include "reone/game/effect.h"
 #include "reone/game/effect/modifyattacks.h"
 #include "reone/game/game.h"
@@ -307,6 +308,10 @@ TEST_P(PartyControl, sameAreaControlSwitchPreservesRuntimeExecutionAndEffects) {
 
     player->applyEffect(
         std::make_shared<ModifyAttacksEffect>(1), DurationType::Permanent);
+    auto combatAction =
+        harness.game().newAction<AttackObjectAction>(companion);
+    harness.game().combat().addAction(combatAction, *player);
+    ASSERT_EQ(1u, harness.game().combat().roundCount());
     EffectInstance referencedEffect;
     referencedEffect.effect = std::make_shared<Effect>(EffectType::Invalid);
     referencedEffect.id = harness.game().allocateEffectId();
@@ -336,6 +341,8 @@ TEST_P(PartyControl, sameAreaControlSwitchPreservesRuntimeExecutionAndEffects) {
     ASSERT_EQ(2u, player->effects().size());
     EXPECT_EQ(companion, player->effects()[1].boundCreator());
     EXPECT_EQ(companion, player->effects()[1].boundObjectParameter(0));
+    EXPECT_EQ(1u, harness.game().combat().roundCount());
+    EXPECT_FALSE(combatAction->isCancelled());
 
     player->update(0.5f);
     EXPECT_EQ(1, queuedExecutions);

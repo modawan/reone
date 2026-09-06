@@ -97,19 +97,46 @@ static std::vector<CombatAnimColumn> parseCombatAnimColumns(TwoDA &combatAnimDa)
 }
 
 void Animations::parseCombatAnim(TwoDA &combatAnimDa) {
+    const auto &columnNames = combatAnimDa.columns();
+    if (columnNames.empty() || columnNames.front() != "hits") {
+        throw ValidationException("combatanimations.2da: missing hits column");
+    }
+
     std::vector<CombatAnimColumn> columns = parseCombatAnimColumns(combatAnimDa);
-
-    // Rows of combatanimations.2da match the order of attack animations from
-    // animations.2da.
-    int row = 0;
-    for (const Anim &attackAnim : _anims) {
-        if (row == combatAnimDa.getRowCount()) {
-            return;
+    const auto &rows = combatAnimDa.rows();
+    for (int row = 0; row < combatAnimDa.getRowCount(); ++row) {
+        const std::string &rowLabel = rows[row].label;
+        size_t parsedLength = 0;
+        unsigned long animationId = 0;
+        try {
+            animationId = std::stoul(rowLabel, &parsedLength, 10);
+        } catch (const std::exception &) {
+            throw ValidationException(
+                "combatanimations.2da: invalid animation row " + rowLabel);
+        }
+        if (parsedLength != rowLabel.size() || animationId >= _anims.size()) {
+            throw ValidationException(
+                "combatanimations.2da: invalid animation row " + rowLabel);
         }
 
+        const Anim &attackAnim = _anims[animationId];
         if (!attackAnim.attack) {
-            continue;
+            throw ValidationException(
+                "combatanimations.2da: non-attack animation row " + rowLabel);
         }
+
+        int hits = std::max(0, combatAnimDa.getInt(row, "hits", 0));
+        std::vector<int> impactTimes;
+        impactTimes.reserve(hits);
+        for (int hit = 1; hit <= hits; ++hit) {
+            impactTimes.push_back(std::max(
+                0,
+                combatAnimDa.getInt(
+                    row,
+                    "hit" + std::to_string(hit),
+                    0)));
+        }
+        _meleeImpactTimes[attackAnim.name] = std::move(impactTimes);
 
         // Parse animations that follow an attack: parry, dodge, damage.
         for (const CombatAnimColumn &column : columns) {
@@ -134,8 +161,6 @@ void Animations::parseCombatAnim(TwoDA &combatAnimDa) {
                 break;
             }
         }
-
-        ++row;
     }
 }
 
@@ -158,6 +183,21 @@ void Animations::init() {
 void Animations::clear() {
     _anims.clear();
     _attackResults.clear();
+    _meleeImpactTimes.clear();
+}
+
+int Animations::getMeleeImpactTime(
+    const std::string &attackAnim,
+    size_t attackIndex) const {
+
+    auto found = _meleeImpactTimes.find(attackAnim);
+    if (found == _meleeImpactTimes.end() ||
+        attackIndex >= found->second.size()) {
+        // Retail initializes the output to zero before the 2DA lookup. Missing
+        // rows and shots therefore deliver at the start of the melee phase.
+        return 0;
+    }
+    return found->second[attackIndex];
 }
 
 std::string Animations::getNameById(uint32_t id) const {

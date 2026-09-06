@@ -29,8 +29,8 @@ public:
         Effect(EffectType::SeeInvisible) {
     }
 
-    void applyTo(Object &object) override {
-    }
+    bool onApply(Object &object, const EffectInstance &instance) override;
+    void onRemove(Object &object, const EffectInstance &instance) override;
 };
 
 } // namespace game

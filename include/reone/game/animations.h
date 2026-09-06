@@ -23,7 +23,7 @@ namespace reone {
 
 namespace resource {
 
-class TwoDAs;
+class ITwoDAs;
 class TwoDA;
 
 } // namespace resource
@@ -37,11 +37,12 @@ public:
 
     virtual std::string getNameById(uint32_t id) const = 0;
     virtual std::string getAttackResult(std::string attackAnim, CreatureWieldType targetWield, AttackResultType result) const = 0;
+    virtual int getMeleeImpactTime(const std::string &attackAnim, size_t attackIndex) const = 0;
 };
 
 class Animations : public IAnimations {
 public:
-    Animations(resource::TwoDAs &twoDas) :
+    Animations(resource::ITwoDAs &twoDas) :
         _twoDas(twoDas) {}
 
     void init();
@@ -49,6 +50,7 @@ public:
 
     std::string getNameById(uint32_t id) const override;
     std::string getAttackResult(std::string attackAnim, CreatureWieldType targetWield, AttackResultType result) const override;
+    int getMeleeImpactTime(const std::string &attackAnim, size_t attackIndex) const override;
 
 private:
     struct Anim {
@@ -69,9 +71,10 @@ private:
 
     using AttackResultMap = std::map<std::pair<std::string, CreatureWieldType>, AttackResult>;
 
-    resource::TwoDAs &_twoDas;
+    resource::ITwoDAs &_twoDas;
     std::vector<Anim> _anims;
     AttackResultMap _attackResults;
+    std::map<std::string, std::vector<int>> _meleeImpactTimes;
 };
 
 } // namespace game

@@ -87,6 +87,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/d20/spell.h
     ${GAME_INCLUDE_DIR}/d20/spells.h
     ${GAME_INCLUDE_DIR}/debug.h
+    ${GAME_INCLUDE_DIR}/difficultyoptions.h
     ${GAME_INCLUDE_DIR}/di/module.h
     ${GAME_INCLUDE_DIR}/di/services.h
     ${GAME_INCLUDE_DIR}/effect.h
@@ -103,6 +104,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/effect/blasterdeflectiondecrease.h
     ${GAME_INCLUDE_DIR}/effect/blasterdeflectionincrease.h
     ${GAME_INCLUDE_DIR}/effect/blind.h
+    ${GAME_INCLUDE_DIR}/effect/bonusfeat.h
     ${GAME_INCLUDE_DIR}/effect/bodyfuel.h
     ${GAME_INCLUDE_DIR}/effect/choke.h
     ${GAME_INCLUDE_DIR}/effect/concealment.h
@@ -112,7 +114,6 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/effect/cutsceneparalyze.h
     ${GAME_INCLUDE_DIR}/effect/cutscenestunned.h
     ${GAME_INCLUDE_DIR}/effect/damage.h
-    ${GAME_INCLUDE_DIR}/effect/damageabsorption.h
     ${GAME_INCLUDE_DIR}/effect/damagedecrease.h
     ${GAME_INCLUDE_DIR}/effect/damageforcepoints.h
     ${GAME_INCLUDE_DIR}/effect/damageimmunitydecrease.h
@@ -411,6 +412,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/d20/skills.cpp
     ${GAME_SOURCE_DIR}/d20/spells.cpp
     ${GAME_SOURCE_DIR}/debug.cpp
+    ${GAME_SOURCE_DIR}/difficultyoptions.cpp
     ${GAME_SOURCE_DIR}/di/module.cpp
     ${GAME_SOURCE_DIR}/effect/abilitydecrease.cpp
     ${GAME_SOURCE_DIR}/effect/abilityincrease.cpp
@@ -477,6 +479,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/effect/vpregenmodifier.cpp
     ${GAME_SOURCE_DIR}/effect/whirlwind.cpp
     ${GAME_SOURCE_DIR}/effect.cpp
+    ${GAME_SOURCE_DIR}/effect/source.cpp
     ${GAME_SOURCE_DIR}/event.cpp
     ${GAME_SOURCE_DIR}/equipmentrules.cpp
     ${GAME_SOURCE_DIR}/footstepsounds.cpp

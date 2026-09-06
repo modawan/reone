@@ -28,9 +28,12 @@ public:
     InvisibilityEffect(InvisibilityType type) :
         Effect(EffectType::Invisibility),
         _type(type) {
+        setSaveFacingInteger(0, static_cast<int>(type));
+        setSaveFacingInteger(1, static_cast<int>(RacialType::All));
     }
 
-    void applyTo(Object &object) override;
+    bool onApply(Object &object, const EffectInstance &instance) override;
+    void onRemove(Object &object, const EffectInstance &instance) override;
 
 private:
     InvisibilityType _type;

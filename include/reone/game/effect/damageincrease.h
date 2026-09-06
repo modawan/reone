@@ -29,6 +29,9 @@ public:
         Effect(EffectType::DamageIncrease),
         _bonus(bonus),
         _damageType(damageType) {
+        setSaveFacingInteger(0, bonus);
+        setSaveFacingInteger(1, static_cast<int>(damageType));
+        setSaveFacingInteger(2, static_cast<int>(RacialType::All));
     }
 
     void applyTo(Object &object) override;

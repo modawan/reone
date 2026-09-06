@@ -21,6 +21,8 @@
 #include "../fixtures/engine.h"
 #include "../fixtures/game.h"
 
+#include "reone/game/action/attackobject.h"
+#include "reone/game/action/usefeat.h"
 #include "reone/game/game.h"
 #include "reone/game/action/wait.h"
 #include "reone/game/effect.h"
@@ -86,12 +88,27 @@ std::shared_ptr<TwoDA> itemBaseTable() {
     return std::shared_ptr<TwoDA>(builder.build());
 }
 
-std::shared_ptr<Gff> itemRecord(std::string tag) {
-    return Gff::Builder()
-        .field(Gff::Field::newCExoString("Tag", std::move(tag)))
+std::shared_ptr<Gff> itemRecord(
+    std::string tag,
+    bool grantsMasterToughness = false) {
+    Gff::Builder builder;
+    builder.field(Gff::Field::newCExoString("Tag", std::move(tag)))
         .field(Gff::Field::newInt("BaseItem", 0))
-        .field(Gff::Field::newWord("StackSize", 1))
-        .build();
+        .field(Gff::Field::newWord("StackSize", 1));
+    if (grantsMasterToughness) {
+        auto property = Gff::Builder()
+                            .field(Gff::Field::newWord(
+                                "PropertyName",
+                                static_cast<uint16_t>(ItemProperty::BonusFeat)))
+                            .field(Gff::Field::newWord(
+                                "Subtype",
+                                static_cast<uint16_t>(FeatType::MasterToughness)))
+                            .field(Gff::Field::newByte("UpgradeType", 0))
+                            .build();
+        builder.field(Gff::Field::newList(
+            "PropertiesList", {std::move(property)}));
+    }
+    return builder.build();
 }
 
 std::shared_ptr<Gff> decodeGff(const ByteBuffer &bytes) {
@@ -1049,7 +1066,9 @@ TEST(RemoveNPCFromPartyToBase, persists_then_retires_the_exact_runtime_companion
 
     companion->setCurrentHitPoints(17);
     companion->setLocalNumber(7, 137);
-    companion->addAction(harness.game.newAction<WaitAction>(30.0f));
+    auto companionAttack = harness.game.newAction<UseFeatAction>(
+        FeatType::PowerAttack, player);
+    companion->addAction(companionAttack);
     companion->applyEffect(
         harness.game.newEffect<Effect>(EffectType::Haste),
         DurationType::Temporary,
@@ -1065,6 +1084,11 @@ TEST(RemoveNPCFromPartyToBase, persists_then_retires_the_exact_runtime_companion
     ASSERT_TRUE(harness.game.party().addAvailableMember(4, companion));
     ASSERT_TRUE(harness.game.party().addMember(4, companion));
     area->add(companion);
+    auto opponentAttack =
+        harness.game.newAction<AttackObjectAction>(companion);
+    harness.game.combat().addAction(companionAttack, *companion);
+    harness.game.combat().addAction(opponentAttack, *player);
+    ASSERT_EQ(1u, harness.game.combat().roundCount());
 
     auto committed = std::make_shared<const SaveWorkingState>();
     EXPECT_CALL(
@@ -1094,12 +1118,25 @@ TEST(RemoveNPCFromPartyToBase, persists_then_retires_the_exact_runtime_companion
     ASSERT_TRUE(savedResource);
     auto saved = decodeGff(savedResource->data);
     EXPECT_EQ(17, saved->getInt("CurrentHitPoints"));
-    EXPECT_EQ(1u, saved->getList("ActionList").size());
+    ASSERT_EQ(1u, saved->getList("ActionList").size());
+    auto savedAction = saved->getList("ActionList").front();
+    EXPECT_EQ(12u, savedAction->getUint("ActionId"));
+    ASSERT_EQ(10u, savedAction->getList("Paramaters").size());
+    EXPECT_EQ(
+        kSavedRuntimeInvalidObjectId,
+        savedAction->getList("Paramaters")[1]->getUint("Value"));
+    EXPECT_EQ(
+        static_cast<int32_t>(FeatType::PowerAttack),
+        savedAction->getList("Paramaters")[6]->getInt("Value"));
     EXPECT_TRUE(saved->getList("EffectList").empty());
     EXPECT_EQ(1u, saved->getList("ItemList").size());
     EXPECT_EQ(1u, saved->getList("Equip_ItemList").size());
     EXPECT_FALSE(carried->isRuntimeLive());
     EXPECT_FALSE(equipped->isRuntimeLive());
+    harness.game.combat().update(0.0f);
+    EXPECT_TRUE(companionAttack->isCancelled());
+    EXPECT_TRUE(opponentAttack->isCancelled());
+    EXPECT_EQ(0u, harness.game.combat().roundCount());
 }
 
 TEST(RemoveNPCFromPartyToBase, readding_materializes_one_fresh_representation) {
@@ -1174,10 +1211,18 @@ TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_remateriali
     companion->attributes().addFeat(FeatType::Toughness);
     companion->setMaxHitPoints(30);
     companion->setCurrentHitPoints(32);
+    auto equipped = harness.game.newItem(
+        *itemRecord("equipped_toughness", true),
+        SerializedIdentityContext::templateResource());
+    ASSERT_TRUE(companion->equip(InventorySlots::body, equipped));
     ASSERT_TRUE(harness.game.party().addAvailableMember(4, companion));
     ASSERT_TRUE(harness.game.party().addMember(4, companion));
     EXPECT_EQ(36, companion->maxHitPoints());
     EXPECT_EQ(32, companion->currentHitPoints());
+    EXPECT_FALSE(companion->attributes().hasFeat(FeatType::MasterToughness));
+    EXPECT_TRUE(companion->hasEffectiveFeat(FeatType::MasterToughness));
+    ASSERT_EQ(1u, companion->effects().size());
+    EXPECT_EQ(equipped, companion->effects().front().boundCreator());
     area->add(companion);
 
     auto committed = std::make_shared<const SaveWorkingState>();
@@ -1200,6 +1245,8 @@ TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_remateriali
     EXPECT_EQ(30, saved->getInt("HitPoints"));
     EXPECT_EQ(36, saved->getInt("MaxHitPoints"));
     EXPECT_EQ(26, saved->getInt("CurrentHitPoints"));
+    EXPECT_TRUE(saved->getList("EffectList").empty());
+    EXPECT_EQ(1u, saved->getList("Equip_ItemList").size());
 
     EXPECT_CALL(
         testEngine().resourceModule().director(),
@@ -1214,6 +1261,13 @@ TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_remateriali
     EXPECT_EQ(36, replacement->maxHitPoints());
     EXPECT_EQ(32, replacement->currentHitPoints());
     EXPECT_EQ(26, replacement->serializedCurrentHitPoints());
+    EXPECT_FALSE(replacement->attributes().hasFeat(FeatType::MasterToughness));
+    EXPECT_TRUE(replacement->hasEffectiveFeat(FeatType::MasterToughness));
+    auto replacementItem =
+        replacement->getEquippedItem(InventorySlots::body);
+    ASSERT_TRUE(replacementItem);
+    ASSERT_EQ(1u, replacement->effects().size());
+    EXPECT_EQ(replacementItem, replacement->effects().front().boundCreator());
 }
 
 TEST(RemoveNPCFromPartyToBase, retires_the_active_assigned_puppet_but_keeps_assignment) {
@@ -1232,6 +1286,14 @@ TEST(RemoveNPCFromPartyToBase, retires_the_active_assigned_puppet_but_keeps_assi
     ASSERT_TRUE(harness.game.party().isPuppet(0));
     area->add(companion);
     area->add(puppet);
+    auto puppetAttack = harness.game.newAction<UseFeatAction>(
+        FeatType::ImprovedFlurry, player);
+    puppet->addAction(puppetAttack);
+    auto opponentAttack =
+        harness.game.newAction<AttackObjectAction>(puppet);
+    harness.game.combat().addAction(puppetAttack, *puppet);
+    harness.game.combat().addAction(opponentAttack, *player);
+    ASSERT_EQ(1u, harness.game.combat().roundCount());
 
     auto committed = std::make_shared<const SaveWorkingState>();
     EXPECT_CALL(
@@ -1257,10 +1319,26 @@ TEST(RemoveNPCFromPartyToBase, retires_the_active_assigned_puppet_but_keeps_assi
     EXPECT_FALSE(harness.game.party().getAvailablePuppet(0));
     EXPECT_FALSE(harness.game.party().getAvailableMember(1));
     EXPECT_FALSE(puppet->isRuntimeLive());
+    harness.game.combat().update(0.0f);
+    EXPECT_TRUE(puppetAttack->isCancelled());
+    EXPECT_TRUE(opponentAttack->isCancelled());
+    EXPECT_EQ(0u, harness.game.combat().roundCount());
     auto savedNpcResource = committed->find({"availnpc1", ResType::Utc});
     ASSERT_TRUE(savedNpcResource);
     EXPECT_EQ(0, decodeGff(savedNpcResource->data)->getInt("AssignedPup", -1));
-    EXPECT_TRUE(committed->find({"availpup0", ResType::Utc}).has_value());
+    auto savedPuppetResource = committed->find({"availpup0", ResType::Utc});
+    ASSERT_TRUE(savedPuppetResource);
+    auto savedPuppet = decodeGff(savedPuppetResource->data);
+    ASSERT_EQ(1u, savedPuppet->getList("ActionList").size());
+    auto savedAction = savedPuppet->getList("ActionList").front();
+    EXPECT_EQ(12u, savedAction->getUint("ActionId"));
+    ASSERT_EQ(10u, savedAction->getList("Paramaters").size());
+    EXPECT_EQ(
+        kSavedRuntimeInvalidObjectId,
+        savedAction->getList("Paramaters")[1]->getUint("Value"));
+    EXPECT_EQ(
+        static_cast<int32_t>(FeatType::ImprovedFlurry),
+        savedAction->getList("Paramaters")[6]->getInt("Value"));
 }
 
 TEST(RemoveNPCFromPartyToBase, controlled_companion_returns_control_to_the_canonical_pc) {

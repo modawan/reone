@@ -22,6 +22,7 @@
 #include "reone/game/action/movetolocation.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/startconversation.h"
+#include "reone/game/action/usefeat.h"
 #include "reone/game/game.h"
 #include "reone/game/savedruntime.h"
 #include "reone/resource/gff.h"
@@ -119,9 +120,10 @@ std::shared_ptr<Gff> action(
     return builder.build();
 }
 
-std::shared_ptr<Gff> basicAttackAction(
+std::shared_ptr<Gff> physicalAttackAction(
     uint32_t target,
-    uint16_t group = 7) {
+    int32_t specialAttack,
+    uint16_t group) {
     return action(12, group, {
         valueParameter(1, Gff::Field::newInt("Value", 0)),
         valueParameter(3, Gff::Field::newDword("Value", target)),
@@ -129,11 +131,25 @@ std::shared_ptr<Gff> basicAttackAction(
         valueParameter(1, Gff::Field::newInt("Value", 10009)),
         valueParameter(1, Gff::Field::newInt("Value", 1500)),
         valueParameter(1, Gff::Field::newInt("Value", 1)),
-        valueParameter(1, Gff::Field::newInt("Value", 0)),
+        valueParameter(1, Gff::Field::newInt("Value", specialAttack)),
         valueParameter(1, Gff::Field::newInt("Value", 0)),
         valueParameter(1, Gff::Field::newInt("Value", 4)),
         valueParameter(1, Gff::Field::newInt("Value", 0)),
     });
+}
+
+std::shared_ptr<Gff> basicAttackAction(
+    uint32_t target,
+    uint16_t group = 7) {
+    return physicalAttackAction(target, 0, group);
+}
+
+std::shared_ptr<Gff> physicalFeatAction(
+    uint32_t target,
+    FeatType feat,
+    uint16_t group = 7) {
+    return physicalAttackAction(
+        target, static_cast<int32_t>(feat), group);
 }
 
 std::shared_ptr<Gff> moveToPointAction(
@@ -392,6 +408,178 @@ TEST(SavedAction, attack_object_imports_bound_target_and_preserves_group) {
     EXPECT_EQ(restored->originalSavedAction()->groupActionId, 41);
     EXPECT_FALSE(restored->isCompleted());
     EXPECT_FALSE(restored->isCancelled());
+}
+
+TEST(SavedAction, use_feat_exports_exact_retail_physical_attack_shape_in_both_titles) {
+    for (GameID id : {GameID::KotOR, GameID::TSL}) {
+        TestEngine &engine = testEngine();
+        StubConsole console;
+        Game game(id, "", engine.options(), engine.services(), console);
+        auto target = game.newCreature();
+        auto runtime = game.newAction<UseFeatAction>(
+            FeatType::MasterPowerAttack, target);
+        SavedActionRecord provenance;
+        provenance.groupActionId = 27;
+        runtime->attachSavedAction(provenance);
+
+        auto exported = runtime->saveFacingState();
+
+        ASSERT_TRUE(exported);
+        EXPECT_EQ(exported->actionId, 12u);
+        EXPECT_EQ(exported->groupActionId, 27);
+        EXPECT_EQ(exported->declaredParameterCount, 10);
+        ASSERT_EQ(exported->parameters.size(), 10);
+        std::array<uint32_t, 10> types {1, 3, 1, 1, 1, 1, 1, 1, 1, 1};
+        for (size_t index = 0; index < types.size(); ++index) {
+            EXPECT_EQ(exported->parameters[index].type, types[index]);
+        }
+        EXPECT_EQ(
+            std::get<SavedObjectReference>(
+                exported->parameters[1].payload).id,
+            target->id());
+        EXPECT_EQ(
+            std::get<int32_t>(exported->parameters[6].payload),
+            static_cast<int32_t>(FeatType::MasterPowerAttack));
+        std::array<int32_t, 8> constants {0, 1, 10009, 1500, 1, 0, 4, 0};
+        for (size_t index = 0, value = 0;
+             index < exported->parameters.size(); ++index) {
+            if (index == 1 || index == 6) continue;
+            EXPECT_EQ(
+                std::get<int32_t>(exported->parameters[index].payload),
+                constants[value++]);
+        }
+        EXPECT_EQ(
+            exported->executionSupport(), SavedExecutionSupport::Executable);
+    }
+}
+
+TEST(SavedAction, use_feat_imports_bound_target_feat_and_preserves_group) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    registerModuleIdentity(game, 811u, target);
+    auto record = SavedActionRecord::fromGff(
+        *physicalFeatAction(811u, FeatType::ImprovedFlurry, 43),
+        savedRuntimeIdentityContext());
+
+    ASSERT_EQ(record.executionSupport(), SavedExecutionSupport::Executable);
+    ASSERT_TRUE(record.bindObjectReferences(game));
+    auto restored = std::dynamic_pointer_cast<UseFeatAction>(
+        record.toRuntimeAction(game));
+
+    ASSERT_TRUE(restored);
+    EXPECT_EQ(restored->target(), target);
+    EXPECT_EQ(restored->feat(), FeatType::ImprovedFlurry);
+    EXPECT_TRUE(restored->runtimeDependenciesLive());
+    EXPECT_EQ(restored->result(), AttackResultType::Invalid);
+    ASSERT_TRUE(restored->originalSavedAction());
+    EXPECT_EQ(restored->originalSavedAction()->groupActionId, 43);
+}
+
+TEST(SavedAction, use_feat_missing_or_nonphysical_state_fails_closed) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto missing = SavedActionRecord::fromGff(
+        *physicalFeatAction(812u, FeatType::PowerAttack),
+        savedRuntimeIdentityContext());
+    EXPECT_EQ(missing.executionSupport(), SavedExecutionSupport::Executable);
+    EXPECT_FALSE(missing.bindObjectReferences(game));
+    EXPECT_FALSE(missing.toRuntimeAction(game));
+
+    auto target = game.newCreature();
+    auto unsupported = game.newAction<UseFeatAction>(
+        FeatType::AdvancedJediDefense, target);
+    EXPECT_FALSE(unsupported->saveFacingState());
+
+    auto malformed = SavedActionRecord::fromGff(
+        *physicalFeatAction(
+            target->id(), FeatType::AdvancedJediDefense),
+        savedRuntimeIdentityContext());
+    EXPECT_EQ(
+        malformed.executionSupport(),
+        SavedExecutionSupport::RepresentableButUnsupported);
+    EXPECT_FALSE(malformed.toRuntimeAction(game));
+}
+
+TEST(SavedAction, restored_use_feat_obeys_exact_target_and_actor_liveness) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    registerModuleIdentity(game, 813u, target);
+    auto targetRecord = SavedActionRecord::fromGff(
+        *physicalFeatAction(813u, FeatType::PowerAttack),
+        savedRuntimeIdentityContext());
+    ASSERT_TRUE(targetRecord.bindObjectReferences(game));
+    auto targetRetirement = std::dynamic_pointer_cast<UseFeatAction>(
+        targetRecord.toRuntimeAction(game));
+    ASSERT_TRUE(targetRetirement);
+    auto actor = game.newCreature();
+
+    game.destroyRuntimeObjectGraph(target);
+    targetRetirement->execute(targetRetirement, *actor, 0.0f);
+
+    EXPECT_TRUE(targetRetirement->isCancelled());
+    EXPECT_FALSE(targetRetirement->runtimeDependenciesLive());
+    EXPECT_EQ(0u, game.combat().roundCount());
+
+    auto liveTarget = game.newCreature();
+    registerModuleIdentity(game, 814u, liveTarget);
+    auto actorRecord = SavedActionRecord::fromGff(
+        *physicalFeatAction(814u, FeatType::PowerAttack),
+        savedRuntimeIdentityContext());
+    ASSERT_TRUE(actorRecord.bindObjectReferences(game));
+    auto actorRetirement = std::dynamic_pointer_cast<UseFeatAction>(
+        actorRecord.toRuntimeAction(game));
+    ASSERT_TRUE(actorRetirement);
+    auto retiringActor = game.newCreature();
+    retiringActor->addAction(actorRetirement);
+    game.combat().addAction(actorRetirement, *retiringActor);
+    ASSERT_EQ(1u, game.combat().roundCount());
+
+    game.destroyRuntimeObjectGraph(retiringActor);
+    game.combat().update(0.0f);
+
+    EXPECT_TRUE(actorRetirement->isCancelled());
+    EXPECT_TRUE(actorRetirement->isCompleted());
+    EXPECT_EQ(0u, game.combat().roundCount());
+}
+
+TEST(SavedAction, use_feat_saved_number_cannot_rebind_across_module_graphs) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto sourceTarget = game.newCreature();
+    registerModuleIdentity(game, 815u, sourceTarget);
+    auto sourceRecord = SavedActionRecord::fromGff(
+        *physicalFeatAction(815u, FeatType::MasterCriticalStrike),
+        savedRuntimeIdentityContext());
+    ASSERT_TRUE(sourceRecord.bindObjectReferences(game));
+    auto sourceAction = std::dynamic_pointer_cast<UseFeatAction>(
+        sourceRecord.toRuntimeAction(game));
+    ASSERT_TRUE(sourceAction);
+    ASSERT_EQ(sourceAction->target(), sourceTarget);
+
+    game.retireActiveModuleRuntime();
+    auto destinationTarget = game.newCreature();
+    registerModuleIdentity(game, 815u, destinationTarget);
+
+    EXPECT_FALSE(sourceAction->runtimeDependenciesLive());
+    EXPECT_FALSE(sourceAction->target());
+    EXPECT_FALSE(sourceRecord.bindObjectReferences(game));
+    EXPECT_FALSE(sourceRecord.toRuntimeAction(game));
+    EXPECT_NE(sourceTarget, destinationTarget);
+
+    auto destinationRecord = SavedActionRecord::fromGff(
+        *physicalFeatAction(815u, FeatType::MasterCriticalStrike),
+        savedRuntimeIdentityContext());
+    ASSERT_TRUE(destinationRecord.bindObjectReferences(game));
+    auto destinationAction = std::dynamic_pointer_cast<UseFeatAction>(
+        destinationRecord.toRuntimeAction(game));
+    ASSERT_TRUE(destinationAction);
+    EXPECT_EQ(destinationAction->target(), destinationTarget);
 }
 
 TEST(SavedAction, attack_object_rejects_malformed_special_or_missing_targets) {

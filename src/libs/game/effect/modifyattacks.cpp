@@ -23,7 +23,7 @@ namespace reone {
 
 namespace game {
 
-bool ModifyAttacksEffect::onApply(Object &object) {
+bool ModifyAttacksEffect::onApply(Object &object, const EffectInstance &) {
     auto *creature = dyn_cast<Creature>(&object);
     if (!creature) {
         return false;
@@ -33,7 +33,7 @@ bool ModifyAttacksEffect::onApply(Object &object) {
     return true;
 }
 
-void ModifyAttacksEffect::onRemove(Object &object) {
+void ModifyAttacksEffect::onRemove(Object &object, const EffectInstance &) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->adjustModifiedAttacks(-_attacks);
     }

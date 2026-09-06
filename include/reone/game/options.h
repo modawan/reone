@@ -29,6 +29,7 @@ struct GameOptions {
     std::filesystem::path path;
     bool developer {false};
     bool neo {false};
+    uint8_t clientDifficulty {1}; // Easy=0, Normal=1, Difficult=2, Default=3
 };
 
 struct OptionsView {

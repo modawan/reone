@@ -30,7 +30,7 @@ public:
     }
 
     void applyTo(Object &object) override;
-    void onRemove(Object &object) override;
+    void onRemove(Object &object, const EffectInstance &instance) override;
 };
 
 } // namespace game

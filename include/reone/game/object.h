@@ -69,8 +69,10 @@ public:
         const SerializedIdentityContext &identityContext);
 
     virtual void update(float dt);
-    virtual void damage(int amount, uint32_t damager);
-    void heal(int amount) { damage(-amount, 0); }
+    virtual void damage(
+        int amount,
+        const std::shared_ptr<Object> &damager);
+    void heal(int amount) { damage(-amount, nullptr); }
 
     void face(const Object &other);
     void face(const glm::vec3 &point);
@@ -97,6 +99,7 @@ public:
     float getFacing() const { return glm::eulerAngles(_orientation).z; }
 
     uint32_t id() const { return _id; }
+    Game &game() const { return _game; }
     bool isRuntimeLive() const { return _runtimeState == RuntimeState::Live; }
     bool isPresentationOnly() const {
         return _runtimeState == RuntimeState::Presentation;
@@ -159,8 +162,6 @@ public:
 
     // Effects
 
-    using AppliedEffect = EffectInstance;
-
     void clearAllEffects();
     void removeEffect(const std::shared_ptr<Effect> &effect);
     void applyEffect(const std::shared_ptr<Effect> &effect, DurationType durationType, float duration = 0.0f);
@@ -168,6 +169,8 @@ public:
     size_t removeEffectsById(EffectId id);
 
     const std::deque<EffectInstance> &effects() const { return _effects; }
+    /** Find the canonical applied record for an exact executable payload. */
+    EffectInstance *findEffectInstance(const Effect &effect);
     std::vector<EffectInstance> saveEffectSnapshot() const;
     bool hasEffect(EffectType type) const;
     std::shared_ptr<Effect> getFirstEffect();
@@ -234,6 +237,9 @@ public:
     uint32_t getLastHostileActor() const;
 
     void setLastHostileActor(uint32_t actor);
+
+    uint32_t getLastDamager() const;
+    void setLastDamager(const std::shared_ptr<Object> &damager);
 
     // END Combat
 
@@ -307,6 +313,8 @@ protected:
         std::vector<std::shared_ptr<Item>> &items,
         const std::shared_ptr<Item> &item,
         bool preserveSerializedIdentities);
+    /** Atomically replace canonical effect state and run exact lifecycle hooks. */
+    void replaceEffectState(std::deque<EffectInstance> replacement) noexcept;
     struct DelayedAction {
         std::shared_ptr<Action> action;
         std::unique_ptr<Timer> timer;
@@ -370,6 +378,8 @@ protected:
     // END Actions
 
     RuntimeObjectRef<Object> _lastHostileActor;
+    RuntimeObjectRef<Object> _lastDamager;
+    std::optional<uint32_t> _savedLastDamagerId;
 
     // Local variables
     std::map<std::string, uint32_t> _savedReferenceIds;

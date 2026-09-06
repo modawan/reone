@@ -148,6 +148,7 @@ public:
     bool isObjectPendingDestruction(const Object &object) const;
 
     bool isObjectSeen(const Creature &subject, const Object &object) const;
+    void refreshPerceptionFor(Creature &creature);
 
     ObjectList &getObjectsByType(ObjectType type);
     std::shared_ptr<Object> getObjectByTag(const std::string &tag, int nth = 0) const;
@@ -383,6 +384,9 @@ private:
         const Creature *ignoredCreature = nullptr) const;
 
     void doUpdatePerception();
+    void updatePerceptionPair(
+        const std::shared_ptr<Creature> &observer,
+        const std::shared_ptr<Creature> &target);
     void updateObjectSelection();
 
     bool matchesCriterias(const Creature &creature, const SearchCriteriaList &criterias, std::shared_ptr<Object> target = nullptr) const;

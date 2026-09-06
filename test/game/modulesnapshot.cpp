@@ -23,6 +23,8 @@
 #include "reone/game/action/movetolocation.h"
 #include "reone/game/action/movetoobject.h"
 #include "reone/game/action/startconversation.h"
+#include "reone/game/action/usefeat.h"
+#include "reone/game/action/usetalentonobject.h"
 #include "reone/game/effect.h"
 #include "reone/game/d20/class.h"
 #include "reone/game/d20/classes.h"
@@ -652,6 +654,57 @@ TEST_F(SnapshotFixture, rewrites_perception_shadow_ids_from_detached_namespace) 
                                ->getUint("ObjectId");
     EXPECT_EQ(rewritten, targetRecord->getUint("ObjectId"));
     EXPECT_NE(rewritten, 77u);
+}
+
+TEST_F(SnapshotFixture, last_damager_round_trips_as_exact_saved_reference) {
+    auto victim = game.newCreature();
+    auto damager = game.newCreature();
+    victim->setCurrentHitPoints(10);
+    victim->damage(1, damager);
+    TestGameModule::addSnapshotObject(*area, victim);
+    TestGameModule::addSnapshotObject(*area, damager);
+
+    auto saved = ModuleSnapshotBuilder(game, "module003").build();
+    ASSERT_TRUE(saved) << saved.message;
+    auto git = readGff(saved.snapshot->gitBytes);
+    auto victimRecord = recordById(
+        *git, "Creature List", victim->id());
+    auto damagerRecord = recordById(
+        *git, "Creature List", damager->id());
+    ASSERT_TRUE(victimRecord);
+    ASSERT_TRUE(damagerRecord);
+    const uint32_t savedDamagerId =
+        damagerRecord->getUint("ObjectId");
+    EXPECT_EQ(savedDamagerId, victimRecord->getUint("LastDamager"));
+
+    StubConsole restoredConsole;
+    Game restored(
+        GameID::KotOR, "", engine.options(), engine.services(), restoredConsole);
+    const auto context =
+        SerializedIdentityContext::moduleGraph("module003");
+    auto restoredVictim = restored.newCreature();
+    auto restoredDamager = restored.newCreature();
+    restoredVictim->deserializeRuntimeState(*victimRecord, context);
+    restored.registerSavedObjectIdentity(
+        victimRecord->getUint("ObjectId"), restoredVictim, context);
+    restored.registerSavedObjectIdentity(
+        savedDamagerId, restoredDamager, context);
+    restored.resolveSavedObjectReferences();
+
+    EXPECT_EQ(restoredDamager->id(), restoredVictim->getLastDamager());
+
+    game.destroyRuntimeObjectGraph(damager);
+    ASSERT_EQ(script::kObjectInvalid, victim->getLastDamager());
+    auto afterRetirement =
+        ModuleSnapshotBuilder(game, "module003").build();
+    ASSERT_TRUE(afterRetirement) << afterRetirement.message;
+    auto retiredGit = readGff(afterRetirement.snapshot->gitBytes);
+    auto retiredVictimRecord = recordById(
+        *retiredGit, "Creature List", victim->id());
+    ASSERT_TRUE(retiredVictimRecord);
+    EXPECT_EQ(
+        kSavedRuntimeInvalidObjectId,
+        retiredVictimRecord->getUint("LastDamager"));
 }
 
 TEST_F(SnapshotFixture, authoritative_membership_omits_deleted_shadow_records) {
@@ -1582,6 +1635,183 @@ TEST_F(SnapshotFixture, attack_object_is_a_supported_transition_snapshot_action)
         SerializedIdentityContext::moduleGraph("module003"));
     ASSERT_TRUE(saved.bindObjectReferences(game));
     EXPECT_TRUE(saved.toRuntimeAction(game));
+}
+
+TEST_F(SnapshotFixture, use_feat_round_trips_exact_saved_target_and_fresh_execution) {
+    auto target = game.newCreature();
+    target->assignSerializedObjectIdentity({
+        SerializedIdentityContext::moduleGraph("module003"), 700u});
+    TestGameModule::addSnapshotObject(*area, target);
+    auto action = game.newAction<UseFeatAction>(
+        FeatType::ImprovedCriticalStrike, target);
+    SavedActionRecord provenance;
+    provenance.groupActionId = 31;
+    action->attachSavedAction(provenance);
+    player->addAction(action);
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+
+    ASSERT_TRUE(result) << result.message;
+    auto ifo = readGff(result.snapshot->ifoBytes);
+    auto playerRecord = ifo->getList("Mod_PlayerList").front();
+    ASSERT_EQ(playerRecord->getList("ActionList").size(), 1);
+    auto saved = SavedActionRecord::fromGff(
+        *playerRecord->getList("ActionList").front(),
+        snapshotIdentityContext());
+    EXPECT_EQ(saved.actionId, 12u);
+    EXPECT_EQ(saved.groupActionId, 31);
+    ASSERT_EQ(saved.parameters.size(), 10);
+    EXPECT_EQ(
+        std::get<SavedObjectReference>(saved.parameters[1].payload).id,
+        700u);
+    EXPECT_NE(target->id(), 700u);
+    EXPECT_EQ(
+        std::get<int32_t>(saved.parameters[6].payload),
+        static_cast<int32_t>(FeatType::ImprovedCriticalStrike));
+
+    StubConsole restoredConsole;
+    Game restored(
+        GameID::KotOR, "", engine.options(), engine.services(), restoredConsole);
+    auto restoredTarget = restored.newCreature();
+    restored.registerSavedObjectIdentity(
+        700u, restoredTarget, snapshotIdentityContext());
+    ASSERT_TRUE(saved.bindObjectReferences(restored));
+    auto restoredAction = std::dynamic_pointer_cast<UseFeatAction>(
+        saved.toRuntimeAction(restored));
+
+    ASSERT_TRUE(restoredAction);
+    EXPECT_EQ(restoredAction->target(), restoredTarget);
+    EXPECT_NE(restoredAction->target(), target);
+    EXPECT_EQ(
+        restoredAction->feat(), FeatType::ImprovedCriticalStrike);
+    EXPECT_EQ(restoredAction->result(), AttackResultType::Invalid);
+    EXPECT_EQ(0u, restored.combat().roundCount());
+
+    auto restoredActor = restored.newCreature();
+    restoredActor->addAction(restoredAction);
+    EXPECT_CALL(engine.resourceModule().strings(), getText(_))
+        .Times(AnyNumber());
+    restoredAction->execute(restoredAction, *restoredActor, 0.0f);
+    restored.combat().update(0.0f);
+    restoredAction->execute(restoredAction, *restoredActor, 0.0f);
+
+    EXPECT_NE(restoredAction->result(), AttackResultType::Invalid);
+    EXPECT_EQ(1u, restored.combat().roundCount());
+}
+
+TEST_F(SnapshotFixture, use_feat_save_is_observational_across_runtime_phases) {
+    player->setFaction(Faction::Friendly1);
+    auto attacker = game.newCreature();
+    attacker->setFaction(Faction::Hostile1);
+    TestGameModule::addSnapshotObject(*area, attacker);
+    auto target = game.newCreature();
+    target->setFaction(Faction::Hostile1);
+    target->setCurrentHitPoints(100);
+    TestGameModule::addSnapshotObject(*area, target);
+    auto action = game.newAction<UseFeatAction>(FeatType::PowerAttack, target);
+    attacker->addAction(action);
+
+    auto expectCanonicalSnapshot = [&]() {
+        auto saved = attacker->saveActionSnapshot();
+        ASSERT_EQ(saved.size(), 1u);
+        EXPECT_EQ(saved.front().actionId, 12u);
+        ASSERT_EQ(saved.front().parameters.size(), 10u);
+        EXPECT_EQ(
+            std::get<SavedObjectReference>(
+                saved.front().parameters[1].payload).id,
+            target->id());
+        EXPECT_EQ(
+            std::get<int32_t>(saved.front().parameters[6].payload),
+            static_cast<int32_t>(FeatType::PowerAttack));
+    };
+
+    expectCanonicalSnapshot(); // queued, not started
+    action->execute(action, *attacker, 0.0f);
+    ASSERT_EQ(game.combat().roundCount(), 1u);
+    expectCanonicalSnapshot(); // started, awaiting the first attack slot
+
+    game.combat().update(0.0f);
+    action->execute(action, *attacker, 0.0f);
+    ASSERT_TRUE(action->locked());
+    ASSERT_NE(action->result(), AttackResultType::Invalid);
+    expectCanonicalSnapshot(); // rolled, before the impact phase
+
+    action->execute(action, *attacker, 0.0f);
+    expectCanonicalSnapshot(); // waiting for impact
+    action->execute(action, *attacker, 1.0f);
+    expectCanonicalSnapshot(); // buffered impacts are delivered atomically
+    action->execute(action, *attacker, 0.0f);
+    expectCanonicalSnapshot(); // near completion, awaiting the round boundary
+
+    const auto sourceResult = action->result();
+    const auto sourceHitPoints = target->currentHitPoints();
+    const auto sourceRoundCount = game.combat().roundCount();
+    const auto sourceQueue = attacker->actions();
+    auto snapshot = ModuleSnapshotBuilder(game, "module003").build();
+
+    ASSERT_TRUE(snapshot) << snapshot.message;
+    EXPECT_EQ(action->result(), sourceResult);
+    EXPECT_EQ(target->currentHitPoints(), sourceHitPoints);
+    EXPECT_EQ(game.combat().roundCount(), sourceRoundCount);
+    EXPECT_EQ(attacker->actions(), sourceQueue);
+    EXPECT_TRUE(action->locked());
+    EXPECT_FALSE(action->isCancelled());
+    EXPECT_FALSE(action->isCompleted());
+}
+
+TEST_F(SnapshotFixture, physical_feat_talent_dispatcher_exports_its_canonical_action) {
+    auto target = game.newCreature();
+    target->assignSerializedObjectIdentity({
+        SerializedIdentityContext::moduleGraph("module003"), 701u});
+    TestGameModule::addSnapshotObject(*area, target);
+    auto talent = game.newTalent(
+        TalentType::Feat,
+        static_cast<int>(FeatType::PowerAttack));
+    auto action = game.newAction<UseTalentOnObjectAction>(
+        std::move(talent),
+        target);
+    player->addAction(action);
+
+    action->execute(action, *player, 0.0f);
+    ASSERT_TRUE(action->subAction());
+    ASSERT_FALSE(action->subAction()->isCompleted());
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+
+    ASSERT_TRUE(result) << result.message;
+    auto ifo = readGff(result.snapshot->ifoBytes);
+    auto playerRecord = ifo->getList("Mod_PlayerList").front();
+    ASSERT_EQ(playerRecord->getList("ActionList").size(), 1u);
+    auto saved = SavedActionRecord::fromGff(
+        *playerRecord->getList("ActionList").front(),
+        snapshotIdentityContext());
+    EXPECT_EQ(saved.actionId, 12u);
+    ASSERT_EQ(saved.parameters.size(), 10u);
+    EXPECT_EQ(
+        std::get<SavedObjectReference>(saved.parameters[1].payload).id,
+        701u);
+    EXPECT_EQ(
+        std::get<int32_t>(saved.parameters[6].payload),
+        static_cast<int32_t>(FeatType::PowerAttack));
+    EXPECT_FALSE(action->isCompleted());
+    EXPECT_FALSE(action->isCancelled());
+}
+
+TEST_F(SnapshotFixture, nonphysical_use_feat_remains_an_unsupported_live_state) {
+    auto target = game.newCreature();
+    TestGameModule::addSnapshotObject(*area, target);
+    auto action = game.newAction<UseFeatAction>(
+        FeatType::AdvancedJediDefense, target);
+    player->addAction(action);
+
+    auto result = ModuleSnapshotBuilder(game, "module003").build();
+
+    EXPECT_FALSE(result);
+    EXPECT_EQ(result.error, ModuleSnapshotError::UnsupportedLiveState);
+    ASSERT_EQ(player->actions().size(), 1u);
+    EXPECT_EQ(player->actions().front(), action);
+    EXPECT_FALSE(action->isCancelled());
+    EXPECT_FALSE(action->isCompleted());
 }
 
 TEST_F(SnapshotFixture, move_to_location_is_a_supported_transition_snapshot_action) {

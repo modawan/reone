@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,25 +23,14 @@ namespace reone {
 
 namespace game {
 
-class AttackDecreaseEffect : public Effect {
+class UltravisionEffect : public Effect {
 public:
-    AttackDecreaseEffect(int penalty, AttackBonus modifierType) :
-        Effect(EffectType::AttackDecrease),
-        _penalty(penalty),
-        _modifierType(modifierType) {
-        setSaveFacingInteger(0, penalty);
-        setSaveFacingInteger(1, static_cast<int>(modifierType));
-        setSaveFacingInteger(2, static_cast<int>(RacialType::All));
+    UltravisionEffect() :
+        Effect(EffectType::Ultravision) {
     }
 
     bool onApply(Object &object, const EffectInstance &instance) override;
-
-    int penalty() const { return _penalty; }
-    AttackBonus modifierType() const { return _modifierType; }
-
-private:
-    int _penalty;
-    AttackBonus _modifierType;
+    void onRemove(Object &object, const EffectInstance &instance) override;
 };
 
 } // namespace game

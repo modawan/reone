@@ -1581,7 +1581,7 @@ static Variable GetAbilityScore(const std::vector<Variable> &args, const Routine
     auto ability = static_cast<Ability>(nAbilityType);
 
     // Execute
-    return Variable::ofInt(creature->attributes().getAbilityScore(ability));
+    return Variable::ofInt(creature->getEffectiveAbilityScore(ability));
 }
 
 static Variable GetIsDead(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -2858,7 +2858,7 @@ static Variable GetHasFeat(const std::vector<Variable> &args, const RoutineConte
     auto creature = checkCreature(oCreature);
 
     // Execute
-    bool hasFeat = creature->attributes().hasFeat(feat);
+    bool hasFeat = creature->hasEffectiveFeat(feat);
     return Variable::ofInt(static_cast<int>(hasFeat));
 }
 
@@ -3028,10 +3028,8 @@ static Variable GetEffectSpellId(const std::vector<Variable> &args, const Routin
     // Load
     auto eSpellEffect = getEffect(args, 0);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("GetEffectSpellId");
+    uint32_t spellId = eSpellEffect->saveFacingInstance().spellId;
+    return Variable::ofInt(static_cast<int32_t>(spellId));
 }
 
 static Variable GetCreatureHasTalent(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3491,10 +3489,8 @@ static Variable GetTotalDamageDealt(const std::vector<Variable> &args, const Rou
 
 static Variable GetLastDamager(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    if (const Variable *damager = ctx.execution.findArg(ArgKind::LastDamager)) {
-        return *damager;
-    }
-    return Variable::ofObject(kObjectInvalid);
+    auto object = getCaller(ctx);
+    return Variable::ofObject(object->getLastDamager());
 }
 
 static Variable GetLastDisarmed(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3556,10 +3552,10 @@ static Variable VersusAlignmentEffect(const std::vector<Variable> &args, const R
     auto nLawChaos = getIntOrElse(args, 1, 0);
     auto nGoodEvil = getIntOrElse(args, 2, 0);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("VersusAlignmentEffect");
+    if (eEffect && nLawChaos >= 0 && nLawChaos <= 3) {
+        eEffect->setVersusAlignment(nLawChaos, nGoodEvil);
+    }
+    return Variable::ofEffect(std::move(eEffect));
 }
 
 static Variable VersusRacialTypeEffect(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3567,10 +3563,12 @@ static Variable VersusRacialTypeEffect(const std::vector<Variable> &args, const 
     auto eEffect = getEffect(args, 0);
     auto nRacialType = getInt(args, 1);
 
-    // Transform
-
-    // Execute
-    throw RoutineNotImplementedException("VersusRacialTypeEffect");
+    if (eEffect &&
+        nRacialType >= static_cast<int>(RacialType::Unknown) &&
+        nRacialType <= static_cast<int>(RacialType::All)) {
+        eEffect->setVersusRacialType(nRacialType);
+    }
+    return Variable::ofEffect(std::move(eEffect));
 }
 
 static Variable VersusTrapEffect(const std::vector<Variable> &args, const RoutineContext &ctx) {

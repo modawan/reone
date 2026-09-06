@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,25 +23,15 @@ namespace reone {
 
 namespace game {
 
-class AttackDecreaseEffect : public Effect {
+/** Runtime-only feat grant; permanent feat storage remains untouched. */
+class BonusFeatEffect : public Effect {
 public:
-    AttackDecreaseEffect(int penalty, AttackBonus modifierType) :
-        Effect(EffectType::AttackDecrease),
-        _penalty(penalty),
-        _modifierType(modifierType) {
-        setSaveFacingInteger(0, penalty);
-        setSaveFacingInteger(1, static_cast<int>(modifierType));
-        setSaveFacingInteger(2, static_cast<int>(RacialType::All));
+    explicit BonusFeatEffect(FeatType feat) :
+        Effect(EffectType::BonusFeat) {
+        setSaveFacingInteger(0, static_cast<int>(feat));
     }
 
-    bool onApply(Object &object, const EffectInstance &instance) override;
-
-    int penalty() const { return _penalty; }
-    AttackBonus modifierType() const { return _modifierType; }
-
-private:
-    int _penalty;
-    AttackBonus _modifierType;
+    void applyTo(Object &) override {}
 };
 
 } // namespace game

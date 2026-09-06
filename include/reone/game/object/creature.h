@@ -128,7 +128,9 @@ public:
     void update(float dt) override;
 
     void clearAllActions(bool force = false) override;
-    void damage(int amount, uint32_t damager) override;
+    void damage(
+        int amount,
+        const std::shared_ptr<Object> &damager) override;
 
     void giveXP(int amount);
     void setXP(int xp);
@@ -296,6 +298,19 @@ public:
     void setObjectSeen(const std::shared_ptr<Object> &object, bool seen);
     void setObjectHeard(const std::shared_ptr<Object> &object, bool heard);
     void runOnNotice(const Object &object, bool heard, bool seen);
+    void refreshVisibilityPerception();
+
+    static constexpr uint8_t kSeeInvisibleCounter = 0x01;
+    static constexpr uint8_t kUltravisionCounter = 0x02;
+    static constexpr uint8_t kTrueSeeingCounter = 0x04;
+
+    void setVisibilityCounter(uint8_t bit);
+    void restoreVisibilityCounter(
+        EffectType type,
+        uint8_t bit,
+        EffectId removedEffect,
+        bool trueSeeingRemovalQuirk = false);
+    bool hasVisibilityCounter(uint8_t bits) const;
 
     const Perception &perception() const { return _perception; }
 
@@ -309,6 +324,8 @@ public:
     bool isInCombat() const { return _combatState.active; }
     bool isDebilitated() const;
     bool isTemporarilyDead() const;
+    bool isInvisibleTo(const Creature &observer) const;
+    void clearHostileActionsAgainst(const Object &object);
     bool isTwoWeaponFighting() const;
     std::shared_ptr<Item> getOffhandAttackWeapon() const;
 
@@ -336,6 +353,13 @@ public:
         const Item *weapon,
         bool offHand) const;
     int getAttackBonus(bool offHand = false) const;
+    bool hasEffectImmunity(
+        ImmunityType immunityType,
+        const Creature *creator = nullptr) const;
+    int getAbilityEffectModifier(Ability ability) const;
+    int getEffectiveAbilityScore(Ability ability) const;
+    int getEffectiveAbilityModifier(Ability ability) const;
+    bool hasEffectiveFeat(FeatType feat) const;
     int getDefense(const Creature *attacker, int damageFlags) const;
     int getDefense() const;
     int getFortitudeSave(SavingThrowType savingThrowType = SavingThrowType::All) const;
@@ -344,9 +368,6 @@ public:
         SavingThrowType savingThrowType = SavingThrowType::All) const;
     int getPhysicalDamageBonus(const Item *weapon, bool offHand) const;
     int getMassiveCriticalDamage(const Item *weapon, bool criticalHit) const;
-    int getItemDamageImmunity(DamageType type) const;
-    int getItemDamageResistance(DamageType type) const;
-    void getItemDamageReduction(int &amount, DamagePower &power) const;
     int getDamageResistanceFeatBonus() const;
     void addPhysicalDamageModifiers(
         DamagePacket &damage,
@@ -517,6 +538,8 @@ private:
     std::shared_ptr<resource::SoundSet> _soundSet;
     BodyBag _bodyBag;
     Perception _perception;
+    uint8_t _visibilityCounterBits {0};
+    bool _trueSeeingUltravisionQuirk {false};
     NPCAIStyle _aiStyle {NPCAIStyle::DefaultAttack};
 
     uint32_t _footstepType {0};
@@ -560,8 +583,8 @@ private:
     void setLightsabersPowered(bool powered, bool animate);
     void updateLightsaberSoundPositions();
 
-    void runDeathScript(uint32_t damagerId);
-    void runDamagedScript(uint32_t damagerId);
+    void runDeathScript();
+    void runDamagedScript();
 
     ModelType parseModelType(const std::string &s) const;
 
@@ -624,6 +647,14 @@ private:
     void deserializeOwnedItemsAndEquipment(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
+    void appendEquippedItemEffects(
+        std::deque<EffectInstance> &effects,
+        int slot,
+        const std::shared_ptr<Item> &item) const;
+    std::deque<EffectInstance> effectsWithoutEquippedSource(
+        const Item *source) const;
+    std::deque<EffectInstance> rebuildEquippedItemEffects(
+        const std::map<int, std::shared_ptr<Item>> &equipment) const;
     int derivePermanentMaxHitPoints() const;
     void restoreSerializedVitality();
     void updateDeathFromCurrentHitPoints();

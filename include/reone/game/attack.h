@@ -35,6 +35,7 @@ class Action;
 class CombatRound;
 class Creature;
 class Game;
+class IAnimations;
 class Item;
 class Object;
 class ProjectileSpec;
@@ -141,6 +142,20 @@ public:
         Creature &attacker,
         Object &target);
 
+    size_t attackCount() const { return _attacks.size(); }
+    void prepareMeleeSequence(
+        const IAnimations &animations,
+        const std::vector<std::string> &attackAnimations);
+    size_t signalReadyMelee(
+        int elapsedMilliseconds,
+        Game &game,
+        ServicesView &services,
+        Creature &attacker,
+        Object &target);
+    int latestMeleeImpactMilliseconds() const;
+    void discardPendingMelee();
+    bool hasPendingMelee() const;
+
     /**
      * Get the best result for a series of attacks collected in AttackBuffer.
      */
@@ -172,6 +187,8 @@ private:
         int defense;
         bool assuredHit;
         bool stunTarget {false};
+        int impactTimeMilliseconds {0};
+        bool meleeSignaled {false};
         DamagePacket damage;
     };
 
@@ -184,15 +201,28 @@ private:
         int attackThreatBonus,
         int damageBonus);
     void resolveDamage(Object &target);
-    void applyEffects(Creature &attacker, Object &target, Game &game);
+    void signalAttack(
+        Attack &attack,
+        Game &game,
+        ServicesView &services,
+        Creature &attacker,
+        Object &target);
+    void applyEffects(
+        Attack &attack,
+        Creature &attacker,
+        Object &target,
+        Game &game);
     void addCombatFeedback(
         Game &game,
         ServicesView &services,
         const Creature &attacker,
-        const Object &target) const;
+        const Object &target,
+        const Attack &attack) const;
 
     SmallVector<Attack, 8> _attacks;
     FeatType _feat {FeatType::Invalid};
+    size_t _pendingMeleeAttacks {0};
+    bool _meleeSequencePrepared {false};
 };
 
 /**
@@ -285,10 +315,18 @@ public:
     };
 
     State update(const CombatRound &round, Action &action, float dt);
+    void startMelee(int latestImpactMilliseconds);
+
+    bool isMelee() const { return _melee; }
+    int meleeElapsedMilliseconds() const { return _meleeElapsedMilliseconds; }
 
 private:
     State _state {WaitAttack};
     float _time {0.0f};
+    bool _melee {false};
+    int _meleeElapsedMilliseconds {0};
+    int _meleeCompletionMilliseconds {0};
+    float _meleeElapsedRemainderMilliseconds {0.0f};
 };
 
 bool navigateToAttackTarget(Creature &attacker, Object &actor, float dt, bool &reachedOnce);

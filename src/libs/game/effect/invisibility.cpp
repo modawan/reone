@@ -17,12 +17,32 @@
 
 #include "reone/game/effect/invisibility.h"
 
+#include "reone/game/object/creature.h"
+#include "reone/system/cast.h"
+
 namespace reone {
 
 namespace game {
 
-void InvisibilityEffect::applyTo(Object &object) {
-    // TODO: implement
+bool InvisibilityEffect::onApply(
+    Object &object,
+    const EffectInstance &) {
+
+    auto *creature = dyn_cast<Creature>(&object);
+    if (!creature) {
+        return false;
+    }
+    creature->refreshVisibilityPerception();
+    return true;
+}
+
+void InvisibilityEffect::onRemove(
+    Object &object,
+    const EffectInstance &) {
+
+    if (auto *creature = dyn_cast<Creature>(&object)) {
+        creature->refreshVisibilityPerception();
+    }
 }
 
 } // namespace game

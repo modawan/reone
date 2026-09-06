@@ -17,41 +17,45 @@
 
 #pragma once
 
-#include <algorithm>
+#include <string>
+#include <vector>
 
 namespace reone {
 
+namespace resource {
+
+class ITwoDAs;
+
+} // namespace resource
+
 namespace game {
 
-class DamageAbsorption {
+struct DifficultyOption {
+    int nameStrRef {-1};
+    std::string description;
+    float damageMultiplier {1.0f};
+};
+
+class IDifficultyOptions {
 public:
-    DamageAbsorption(int amount, int limit) :
-        _amount(amount),
-        _limit(limit),
-        _limited(limit > 0) {
+    virtual ~IDifficultyOptions() = default;
+
+    virtual const DifficultyOption &get(int difficulty) const = 0;
+};
+
+class DifficultyOptions : public IDifficultyOptions, boost::noncopyable {
+public:
+    explicit DifficultyOptions(resource::ITwoDAs &twoDas) :
+        _twoDas(twoDas) {
     }
 
-    int amount() const { return _amount; }
+    void init();
 
-    int absorb(int damage) {
-        if (damage <= 0 || _amount <= 0) {
-            return 0;
-        }
-        if (!_limited) {
-            return std::min(damage, _amount);
-        }
-
-        int remaining = _limit;
-        _limit = std::max(0, _limit - damage);
-        return std::min(damage, _limit == 0 ? remaining : _amount);
-    }
-
-    bool exhausted() const { return _limited && _limit == 0; }
+    const DifficultyOption &get(int difficulty) const override;
 
 private:
-    int _amount;
-    int _limit;
-    bool _limited;
+    resource::ITwoDAs &_twoDas;
+    std::vector<DifficultyOption> _options;
 };
 
 } // namespace game

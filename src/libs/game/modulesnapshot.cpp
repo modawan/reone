@@ -811,8 +811,8 @@ void ModuleSnapshotBuilder::writeObjectState(
     }
     put(record, Gff::Field::newList("ActionList", std::move(actions)));
 
-    static const std::array<std::string, 9> references {
-        "AreaId", "CreatorId", "LastAttacker", "LastDamager",
+    static const std::array<std::string, 8> references {
+        "AreaId", "CreatorId", "LastAttacker",
         "LastHostileActor", "LastPerceived", "MasterID", "OwnerId", "TargetId"};
     for (const auto &field : references) {
         if (object._savedReferenceIds.count(field) != 0 ||
@@ -824,6 +824,14 @@ void ModuleSnapshotBuilder::writeObjectState(
                     ? ids.objectId(*bound)
                     : kSavedRuntimeInvalidObjectId));
         }
+    }
+    if (object._savedLastDamagerId || !object._lastDamager.empty()) {
+        auto bound = object._lastDamager.resolve();
+        put(record, Gff::Field::newDword(
+            "LastDamager",
+            bound && ids.contains(*bound)
+                ? ids.objectId(*bound)
+                : kSavedRuntimeInvalidObjectId));
     }
 
     // PerceptionList is part of the same reference-bearing save shadow as the

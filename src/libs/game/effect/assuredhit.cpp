@@ -23,12 +23,12 @@ namespace reone {
 
 namespace game {
 
-bool AssuredHitEffect::onApply(Object &object) {
+bool AssuredHitEffect::onApply(Object &object, const EffectInstance &) {
     auto *creature = dyn_cast<Creature>(&object);
     return creature && creature->applyAssuredHit();
 }
 
-void AssuredHitEffect::onRemove(Object &object) {
+void AssuredHitEffect::onRemove(Object &object, const EffectInstance &) {
     if (auto *creature = dyn_cast<Creature>(&object)) {
         creature->removeAssuredHit();
     }

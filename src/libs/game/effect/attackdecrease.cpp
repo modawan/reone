@@ -17,12 +17,22 @@
 
 #include "reone/game/effect/attackdecrease.h"
 
+#include "reone/game/object/creature.h"
+
 namespace reone {
 
 namespace game {
 
-void AttackDecreaseEffect::applyTo(Object &object) {
-    // TODO: implement
+bool AttackDecreaseEffect::onApply(
+    Object &object, const EffectInstance &instance) {
+    auto *creature = dyn_cast<Creature>(&object);
+    if (!creature || _penalty <= 0 || creature->plotFlag()) {
+        return false;
+    }
+    auto creator = instance.boundCreator();
+    return !creature->hasEffectImmunity(
+        ImmunityType::AttackDecrease,
+        creator ? dyn_cast<Creature>(creator.get()) : nullptr);
 }
 
 } // namespace game

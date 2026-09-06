@@ -13,8 +13,24 @@
 #include "../fixtures/engine.h"
 
 #include "reone/game/effect.h"
+#include "reone/game/effect/acincrease.h"
+#include "reone/game/effect/attackdecrease.h"
+#include "reone/game/effect/attackincrease.h"
+#include "reone/game/effect/damage.h"
+#include "reone/game/effect/damageimmunityincrease.h"
+#include "reone/game/effect/damagereduction.h"
+#include "reone/game/effect/damageresistance.h"
+#include "reone/game/effect/immunity.h"
+#include "reone/game/effect/invisibility.h"
+#include "reone/game/effect/seeinvisible.h"
+#include "reone/game/effect/source.h"
+#include "reone/game/effect/trueseeing.h"
+#include "reone/game/effect/ultravision.h"
+#include "reone/game/difficultyoptions.h"
 #include "reone/game/game.h"
 #include "reone/game/object.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/object/item.h"
 #include "reone/resource/gff.h"
 #include "reone/script/variable.h"
 
@@ -87,6 +103,24 @@ EffectInstance parsedSavedEffect(
         SerializedIdentityContext::moduleGraph("test-module"));
 }
 
+std::shared_ptr<Gff> savedAbilityModifier() {
+    return Gff::Builder()
+        .type(2)
+        .field(Gff::Field::newDword64("Id", 91))
+        .field(Gff::Field::newWord(
+            "Type", 36))
+        .field(Gff::Field::newWord(
+            "SubType", static_cast<uint16_t>(DurationType::Permanent)))
+        .field(Gff::Field::newDword("CreatorId", kSavedEffectInvalidObjectId))
+        .field(Gff::Field::newDword(
+            "SpellId", std::numeric_limits<uint32_t>::max()))
+        .field(Gff::Field::newInt("NumIntegers", 2))
+        .field(Gff::Field::newList(
+            "IntList",
+            {intValue(static_cast<int>(Ability::Constitution)), intValue(4)}))
+        .build();
+}
+
 class CountingEffect : public Effect {
 public:
     CountingEffect() : Effect(EffectType::Haste) {}
@@ -94,6 +128,24 @@ public:
     void applyTo(Object &) override { ++applications; }
 
     int applications {0};
+};
+
+class LifecycleEffect : public Effect {
+public:
+    LifecycleEffect() : Effect(EffectType::Haste) {}
+
+    bool onApply(Object &object, const EffectInstance &) override {
+        visibleDuringApply =
+            object.effects().size() == 1 &&
+            object.effects().front().effect.get() == this &&
+            object.effects().front().hasStableId();
+        return true;
+    }
+
+    void onRemove(Object &, const EffectInstance &) override { ++removals; }
+
+    bool visibleDuringApply {false};
+    int removals {0};
 };
 
 class EffectTestObject : public Object {
@@ -285,8 +337,521 @@ TEST(EffectInstance, should_preserve_ordinary_runtime_effect_application) {
     ASSERT_EQ(object->effects().size(), 1);
     EXPECT_EQ(effect->applications, 1);
     EXPECT_TRUE(object->effects().front().hasStableId());
+    EXPECT_EQ(object->effects().front().semanticSubType(), 8);
     EXPECT_EQ(object->effects().front().durationType(), DurationType::Permanent);
     EXPECT_EQ(object->effects().front().effect, effect);
+}
+
+TEST(EffectInstance, application_and_removal_use_one_canonical_collection) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto object = game.newObject<EffectTestObject>(game, engine.services());
+    auto effect = std::make_shared<LifecycleEffect>();
+
+    object->applyEffect(effect, DurationType::Permanent);
+    ASSERT_EQ(object->effects().size(), 1);
+    EXPECT_TRUE(effect->visibleDuringApply);
+
+    object->removeEffect(effect);
+    EXPECT_TRUE(object->effects().empty());
+    EXPECT_EQ(effect->removals, 1);
+}
+
+TEST(CombatEffectSource, independent_effects_use_canonical_effect_ids) {
+    EffectInstance first;
+    first.id = 10;
+    EffectInstance second;
+    second.id = 11;
+    EffectModifierReducer reducer;
+
+    reducer.addIncrease(getEffectSourceKey(first), 0, 3);
+    reducer.addIncrease(getEffectSourceKey(second), 0, 4);
+
+    EXPECT_EQ(reducer.totalIncrease(20), 7);
+}
+
+TEST(CombatEffectSource, one_spell_groups_by_canonical_spell_id) {
+    EffectInstance weaker;
+    weaker.id = 10;
+    weaker.spellId = 42;
+    EffectInstance stronger;
+    stronger.id = 11;
+    stronger.spellId = 42;
+    EffectModifierReducer reducer;
+
+    reducer.addIncrease(getEffectSourceKey(weaker), 0, 3);
+    reducer.addIncrease(getEffectSourceKey(stronger), 0, 5);
+
+    EXPECT_EQ(reducer.totalIncrease(20), 5);
+}
+
+TEST(CombatEffectSource, item_grouping_uses_exact_runtime_incarnation) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newObject<EffectTestObject>(game, engine.services());
+    auto firstItem = game.newItem();
+    auto secondItem = game.newItem();
+
+    auto first = std::make_shared<AttackIncreaseEffect>(3, AttackBonus::Misc);
+    first->setSaveFacingCreator(firstItem);
+    target->applyEffect(first, DurationType::Permanent);
+    auto stronger = std::make_shared<AttackIncreaseEffect>(5, AttackBonus::Misc);
+    stronger->setSaveFacingCreator(firstItem);
+    target->applyEffect(stronger, DurationType::Permanent);
+    auto other = std::make_shared<AttackIncreaseEffect>(4, AttackBonus::Misc);
+    other->setSaveFacingCreator(secondItem);
+    target->applyEffect(other, DurationType::Permanent);
+
+    EffectModifierReducer reducer;
+    for (const EffectInstance &instance : target->effects()) {
+        reducer.addIncrease(
+            getEffectSourceKey(instance),
+            instance.integerParameter(1),
+            instance.integerParameter(0));
+    }
+    EXPECT_EQ(reducer.totalIncrease(20), 9);
+    EXPECT_EQ(target->effects()[0].boundCreator(), firstItem);
+    EXPECT_NE(
+        getEffectSourceKey(target->effects()[0]).value,
+        getEffectSourceKey(target->effects()[2]).value);
+}
+
+TEST(CombatEffectSource, retired_creator_fails_closed) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newObject<EffectTestObject>(game, engine.services());
+    auto item = game.newItem();
+    auto effect = std::make_shared<AttackIncreaseEffect>(3, AttackBonus::Misc);
+    effect->setSaveFacingCreator(item);
+    target->applyEffect(effect, DurationType::Permanent);
+    ASSERT_EQ(target->effects().front().boundCreator(), item);
+
+    game.destroyRuntimeObjectGraph(item);
+
+    EXPECT_FALSE(target->effects().front().boundCreator());
+    EXPECT_EQ(
+        getEffectSourceKey(target->effects().front()).kind,
+        EffectSourceKind::Independent);
+}
+
+TEST(CombatEffectSource, application_uses_the_canonical_creator_binding) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    auto creator = game.newCreature();
+    auto immunity = std::make_shared<ImmunityEffect>(
+        ImmunityType::AttackDecrease);
+    ASSERT_TRUE(immunity->setVersusRacialType(
+        static_cast<int>(RacialType::Unknown)));
+    target->applyEffect(immunity, DurationType::Permanent);
+    auto penalty = std::make_shared<AttackDecreaseEffect>(
+        2, AttackBonus::Misc);
+    penalty->setSaveFacingCreator(creator);
+
+    target->applyEffect(penalty, DurationType::Permanent);
+
+    ASSERT_EQ(target->effects().size(), 1);
+    EXPECT_EQ(target->effects().front().effect, immunity);
+}
+
+TEST(CombatEffectQualifier, canonical_parameters_drive_versus_filtering) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    auto effect = std::make_shared<AttackIncreaseEffect>(3, AttackBonus::Misc);
+    ASSERT_TRUE(effect->setVersusRacialType(static_cast<int>(RacialType::Unknown)));
+    ASSERT_TRUE(effect->setVersusAlignment(0, static_cast<int>(Alignment::DarkSide)));
+    EffectInstance instance = effect->saveFacingInstance();
+
+    EXPECT_TRUE(instance.appliesVersus(target.get()));
+    instance.integerParameters[2] = static_cast<int>(RacialType::Human);
+    EXPECT_FALSE(instance.appliesVersus(target.get()));
+    EXPECT_EQ(instance.retailType, 10);
+}
+
+TEST(CombatEffectRestore, saved_modifier_is_queryable_without_parallel_payload) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto creature = game.newCreature();
+    EffectInstance instance = EffectInstance::fromGff(
+        *savedAbilityModifier(),
+        SerializedIdentityContext::moduleGraph("test-module"));
+
+    ASSERT_TRUE(creature->restoreEffect(std::move(instance)));
+    ASSERT_TRUE(creature->effects().front().effect);
+    EXPECT_EQ(creature->getAbilityEffectModifier(Ability::Constitution), 4);
+
+    EXPECT_EQ(creature->removeEffectsById(91), 1);
+    EXPECT_EQ(creature->getAbilityEffectModifier(Ability::Constitution), 0);
+}
+
+TEST(CombatEffectRestore, saved_vm_value_reuses_the_canonical_executable_payload) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto creature = game.newCreature();
+    EffectInstance instance = EffectInstance::fromGff(
+        *savedAbilityModifier(),
+        SerializedIdentityContext::moduleGraph("test-module"));
+    auto value = std::make_shared<SavedEffectValue>(std::move(instance));
+
+    creature->applyEffect(value, DurationType::Permanent);
+
+    ASSERT_EQ(creature->effects().size(), 1);
+    EXPECT_EQ(creature->effects().front().retailType, 36);
+    EXPECT_EQ(creature->getAbilityEffectModifier(Ability::Constitution), 4);
+}
+
+TEST(CombatEffectRestore, absorption_updates_the_canonical_save_facing_state) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto creature = game.newCreature();
+    auto effect = std::make_shared<DamageResistanceEffect>(
+        DamageType::Fire, 5, 8);
+    creature->applyEffect(effect, DurationType::Permanent);
+
+    DamagePacket first;
+    first.add(6, DamageType::Fire);
+    first.setDamageFlags(static_cast<int>(DamageType::Fire));
+    first.resolve(*creature);
+
+    EXPECT_EQ(first.resolvedDamage(), 1);
+    ASSERT_EQ(creature->effects().size(), 1);
+    EXPECT_EQ(creature->effects().front().integerParameter(2), 2);
+    ASSERT_EQ(creature->saveEffectSnapshot().size(), 1);
+    EXPECT_EQ(creature->saveEffectSnapshot().front().integerParameter(2), 2);
+
+    DamagePacket second;
+    second.add(3, DamageType::Fire);
+    second.setDamageFlags(static_cast<int>(DamageType::Fire));
+    second.resolve(*creature);
+
+    EXPECT_EQ(second.resolvedDamage(), 1);
+    EXPECT_TRUE(creature->effects().empty());
+}
+
+TEST(CombatDifficulty, loads_retail_damage_multipliers_once) {
+    NiceMock<MockTwoDAs> twoDas;
+    TwoDA::Builder builder;
+    builder.columns({"name", "desc", "multiplier"})
+        .row({"10", "Easy", "0.5"})
+        .row({"11", "Normal", "1.0"})
+        .row({"12", "Difficult", "1.5"})
+        .row({"13", "Default", ""});
+    auto table = std::shared_ptr<TwoDA>(builder.build());
+    EXPECT_CALL(twoDas, get("difficultyopt")).WillOnce(Return(table));
+
+    DifficultyOptions options(twoDas);
+    options.init();
+
+    EXPECT_FLOAT_EQ(0.5f, options.get(0).damageMultiplier);
+    EXPECT_FLOAT_EQ(1.0f, options.get(1).damageMultiplier);
+    EXPECT_FLOAT_EQ(1.5f, options.get(2).damageMultiplier);
+    EXPECT_FLOAT_EQ(1.0f, options.get(3).damageMultiplier);
+}
+
+TEST(CombatDifficulty, scales_only_party_damage_and_uses_the_scaled_amount) {
+    TestEngine engine;
+    engine.init();
+    engine.options().game.clientDifficulty = 0;
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto partyTarget = game.newCreature();
+    auto nonPartyTarget = game.newCreature();
+    ASSERT_TRUE(game.party().addMember(kNpcPlayer, partyTarget));
+    game.party().setPlayer(partyTarget);
+
+    EXPECT_EQ(4, game.scaleDamageForDifficulty(9, *partyTarget));
+    EXPECT_EQ(9, game.scaleDamageForDifficulty(9, *nonPartyTarget));
+    EXPECT_EQ(0, game.scaleDamageForDifficulty(0, *partyTarget));
+
+    partyTarget->setCurrentHitPoints(20);
+    auto damage = game.newEffect<DamageEffect>(
+        9, DamageType::Universal, DamagePower::Normal);
+    partyTarget->applyEffect(damage, DurationType::Instant);
+    EXPECT_EQ(16, partyTarget->currentHitPoints());
+
+    engine.options().game.clientDifficulty = 2;
+    EXPECT_EQ(13, game.scaleDamageForDifficulty(9, *partyTarget));
+}
+
+TEST(CompositeDamage, single_type_mitigation_is_unchanged) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    target->applyEffect(
+        std::make_shared<DamageResistanceEffect>(DamageType::Fire, 5, 0),
+        DurationType::Permanent);
+
+    DamagePacket damage;
+    damage.add(12, DamageType::Fire);
+    damage.setDamageFlags(static_cast<int>(DamageType::Fire));
+    damage.resolve(*target);
+
+    EXPECT_EQ(7, damage.resolvedDamage());
+}
+
+TEST(CompositeDamage, resistance_applies_once_to_the_aggregate_packet) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    target->applyEffect(
+        std::make_shared<DamageResistanceEffect>(DamageType::Fire, 5, 0),
+        DurationType::Permanent);
+
+    DamagePacket damage;
+    damage.add(6, DamageType::Slashing);
+    damage.add(6, DamageType::Fire);
+    damage.setDamageFlags(
+        static_cast<int>(DamageType::Slashing) |
+        static_cast<int>(DamageType::Fire));
+    damage.resolve(*target);
+
+    EXPECT_EQ(7, damage.resolvedDamage());
+}
+
+TEST(CompositeDamage, least_immunity_governs_the_aggregate_packet) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    target->applyEffect(
+        std::make_shared<DamageImmunityIncreaseEffect>(DamageType::Fire, 50),
+        DurationType::Permanent);
+    target->applyEffect(
+        std::make_shared<DamageImmunityIncreaseEffect>(DamageType::Electrical, 25),
+        DurationType::Permanent);
+
+    DamagePacket damage;
+    damage.add(6, DamageType::Fire);
+    damage.add(6, DamageType::Electrical);
+    damage.setDamageFlags(
+        static_cast<int>(DamageType::Fire) |
+        static_cast<int>(DamageType::Electrical));
+    damage.resolve(*target);
+
+    EXPECT_EQ(9, damage.resolvedDamage());
+}
+
+TEST(CompositeDamage, physical_component_enables_one_aggregate_reduction) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    target->applyEffect(
+        std::make_shared<DamageReductionEffect>(
+            5, DamagePower::PlusOne, 0),
+        DurationType::Permanent);
+
+    DamagePacket damage;
+    damage.add(6, DamageType::Slashing);
+    damage.add(6, DamageType::Fire);
+    damage.setDamageFlags(
+        static_cast<int>(DamageType::Slashing) |
+        static_cast<int>(DamageType::Fire));
+    damage.resolve(*target);
+
+    EXPECT_EQ(7, damage.resolvedDamage());
+}
+
+TEST(CompositeDamage, universal_is_an_ordinary_damage_bit_in_a_packet) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    target->applyEffect(
+        std::make_shared<DamageImmunityIncreaseEffect>(
+            DamageType::Universal, 100),
+        DurationType::Permanent);
+
+    DamagePacket universal;
+    universal.add(5, DamageType::Universal);
+    universal.setDamageFlags(static_cast<int>(DamageType::Universal));
+    universal.resolve(*target);
+    EXPECT_EQ(0, universal.resolvedDamage());
+
+    DamagePacket mixed;
+    mixed.add(0, DamageType::Electrical);
+    mixed.add(5, DamageType::Universal);
+    mixed.add(5, DamageType::Fire);
+    mixed.setDamageFlags(
+        static_cast<int>(DamageType::Universal) |
+        static_cast<int>(DamageType::Fire));
+    mixed.resolve(*target);
+    EXPECT_EQ(10, mixed.resolvedDamage());
+}
+
+TEST(CompositeDamage, mitigation_clamps_at_zero) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto target = game.newCreature();
+    target->applyEffect(
+        std::make_shared<DamageResistanceEffect>(DamageType::Fire, 20, 0),
+        DurationType::Permanent);
+
+    DamagePacket damage;
+    damage.add(5, DamageType::Fire);
+    damage.setDamageFlags(static_cast<int>(DamageType::Fire));
+    damage.resolve(*target);
+    EXPECT_EQ(0, damage.resolvedDamage());
+}
+
+TEST(CombatVisibility, see_invisible_and_ultravision_counter_distinct_types) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto observer = game.newCreature();
+    auto normalTarget = game.newCreature();
+    auto darknessTarget = game.newCreature();
+    normalTarget->applyEffect(
+        std::make_shared<InvisibilityEffect>(InvisibilityType::Normal),
+        DurationType::Permanent);
+    darknessTarget->applyEffect(
+        std::make_shared<InvisibilityEffect>(InvisibilityType::Darkness),
+        DurationType::Permanent);
+
+    EXPECT_TRUE(normalTarget->isInvisibleTo(*observer));
+    EXPECT_TRUE(darknessTarget->isInvisibleTo(*observer));
+
+    auto seeInvisible = std::make_shared<SeeInvisibleEffect>();
+    observer->applyEffect(seeInvisible, DurationType::Permanent);
+    EXPECT_FALSE(normalTarget->isInvisibleTo(*observer));
+    EXPECT_TRUE(darknessTarget->isInvisibleTo(*observer));
+    observer->removeEffect(seeInvisible);
+
+    auto ultravision = std::make_shared<UltravisionEffect>();
+    observer->applyEffect(ultravision, DurationType::Permanent);
+    EXPECT_TRUE(normalTarget->isInvisibleTo(*observer));
+    EXPECT_FALSE(darknessTarget->isInvisibleTo(*observer));
+    observer->removeEffect(ultravision);
+    EXPECT_TRUE(darknessTarget->isInvisibleTo(*observer));
+}
+
+TEST(CombatVisibility, unseen_and_invisible_attackers_remove_dexterity_and_dodge_defense) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto defender = game.newCreature();
+    defender->attributes().setAbilityScore(Ability::Dexterity, 18);
+    defender->applyEffect(
+        std::make_shared<ACIncreaseEffect>(
+            3, ACBonus::Dodge, kAllDamageTypeFlags),
+        DurationType::Permanent);
+    defender->applyEffect(
+        std::make_shared<ACIncreaseEffect>(
+            2, ACBonus::Deflection, kAllDamageTypeFlags),
+        DurationType::Permanent);
+
+    defender->setObjectSeen(attacker, true);
+    EXPECT_EQ(19, defender->getDefense(attacker.get(), 0));
+
+    auto invisibility = std::make_shared<InvisibilityEffect>(
+        InvisibilityType::Normal);
+    attacker->applyEffect(invisibility, DurationType::Permanent);
+    EXPECT_EQ(12, defender->getDefense(attacker.get(), 0));
+    attacker->removeEffect(invisibility);
+    EXPECT_EQ(19, defender->getDefense(attacker.get(), 0));
+
+    defender->setObjectSeen(attacker, false);
+    EXPECT_EQ(12, defender->getDefense(attacker.get(), 0));
+
+    defender->setObjectSeen(attacker, true);
+    game.destroyRuntimeObjectGraph(attacker);
+    ASSERT_FALSE(attacker->isRuntimeLive());
+    EXPECT_EQ(12, defender->getDefense(attacker.get(), 0));
+}
+
+TEST(CombatVisibility, one_true_seeing_effect_counters_both_invisibility_families) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto observer = game.newCreature();
+    auto normalTarget = game.newCreature();
+    auto darknessTarget = game.newCreature();
+    normalTarget->applyEffect(
+        std::make_shared<InvisibilityEffect>(InvisibilityType::Improved),
+        DurationType::Permanent);
+    darknessTarget->applyEffect(
+        std::make_shared<InvisibilityEffect>(InvisibilityType::Darkness),
+        DurationType::Permanent);
+    auto trueSeeing = std::make_shared<TrueSeeingEffect>();
+
+    observer->applyEffect(trueSeeing, DurationType::Permanent);
+    EXPECT_FALSE(normalTarget->isInvisibleTo(*observer));
+    EXPECT_FALSE(darknessTarget->isInvisibleTo(*observer));
+
+    observer->removeEffect(trueSeeing);
+    EXPECT_TRUE(normalTarget->isInvisibleTo(*observer));
+    EXPECT_TRUE(darknessTarget->isInvisibleTo(*observer));
+}
+
+TEST(CombatVisibility, stacked_true_seeing_preserves_the_native_removal_quirk) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    auto observer = game.newCreature();
+    auto normalTarget = game.newCreature();
+    auto darknessTarget = game.newCreature();
+    normalTarget->applyEffect(
+        std::make_shared<InvisibilityEffect>(InvisibilityType::Normal),
+        DurationType::Permanent);
+    darknessTarget->applyEffect(
+        std::make_shared<InvisibilityEffect>(InvisibilityType::Darkness),
+        DurationType::Permanent);
+    auto first = std::make_shared<TrueSeeingEffect>();
+    auto second = std::make_shared<TrueSeeingEffect>();
+    observer->applyEffect(first, DurationType::Permanent);
+    observer->applyEffect(second, DurationType::Permanent);
+
+    observer->removeEffect(first);
+
+    // Native K2 clears bit 4 and sets bit 2 when another type-72 effect
+    // remains: ordinary invisibility returns, while Darkness stays visible.
+    EXPECT_TRUE(normalTarget->isInvisibleTo(*observer));
+    EXPECT_FALSE(darknessTarget->isInvisibleTo(*observer));
+}
+
+TEST(CombatVisibility, saved_true_seeing_rebuilds_executable_capability) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto observer = game.newCreature();
+    auto target = game.newCreature();
+    target->applyEffect(
+        std::make_shared<InvisibilityEffect>(InvisibilityType::Normal),
+        DurationType::Permanent);
+
+    auto saved = Gff::Builder()
+                     .type(2)
+                     .field(Gff::Field::newDword64("Id", 701))
+                     .field(Gff::Field::newWord("Type", 72))
+                     .field(Gff::Field::newWord(
+                         "SubType",
+                         static_cast<uint16_t>(DurationType::Permanent)))
+                     .field(Gff::Field::newDword(
+                         "CreatorId", kSavedEffectInvalidObjectId))
+                     .field(Gff::Field::newInt("NumIntegers", 0))
+                     .build();
+    EffectInstance restored = EffectInstance::fromGff(
+        *saved,
+        SerializedIdentityContext::moduleGraph("visibility-test"));
+
+    ASSERT_TRUE(observer->restoreEffect(std::move(restored)));
+    ASSERT_TRUE(observer->effects().front().effect);
+    EXPECT_FALSE(target->isInvisibleTo(*observer));
+    EXPECT_EQ(1u, observer->removeEffectsById(701));
+    EXPECT_TRUE(target->isInvisibleTo(*observer));
 }
 
 TEST(EffectInstance, should_preserve_ordinary_instant_effect_application) {

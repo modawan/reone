@@ -18,17 +18,25 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cstdint>
+#include <limits>
 #include <set>
 
 #include "../fixtures/engine.h"
+#include "reone/game/animations.h"
+#include "reone/game/action/attackobject.h"
 #include "reone/game/action/followleader.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/action/usetalentonobject.h"
+#include "reone/game/action/usefeat.h"
 #include "reone/game/game.h"
+#include "reone/game/attack.h"
 #include "reone/game/party.h"
 #include "reone/game/script/routines.h"
 #include "reone/resource/types.h"
+#include "reone/resource/2da.h"
 #include "reone/script/executioncontext.h"
+#include "reone/system/randomutil.h"
 
 // Attack animation selection stays internal to the action implementation. The
 // variant is rolled inside the action, so calling these helpers is the only way
@@ -38,6 +46,153 @@
 using namespace reone;
 using namespace reone::game;
 using namespace testing;
+
+TEST(CombatRoundReferences, live_participants_resolve_and_reach_execution_state) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    auto action = game.newAction<AttackObjectAction>(target);
+
+    const CombatRound &round = game.combat().addAction(action, *attacker);
+    ASSERT_EQ(1u, round.actions.size());
+    EXPECT_EQ(attacker, round.actions.front().attacker.resolve());
+    EXPECT_EQ(target, round.actions.front().target.resolve());
+
+    game.combat().update(0.0f);
+
+    EXPECT_TRUE(round.canExecute(*action));
+    EXPECT_EQ(1u, game.combat().roundCount());
+}
+
+TEST(CombatRoundReferences, retired_target_prunes_round_and_cancels_without_damage) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    target->setCurrentHitPoints(12);
+    auto action = game.newAction<AttackObjectAction>(target);
+    const CombatRound &round = game.combat().addAction(action, *attacker);
+
+    game.destroyRuntimeObjectGraph(target);
+
+    ASSERT_TRUE(target);
+    EXPECT_FALSE(target->isRuntimeLive());
+    EXPECT_FALSE(round.actions.front().target.resolve());
+    game.combat().update(0.0f);
+
+    EXPECT_TRUE(action->isCancelled());
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_EQ(12, target->currentHitPoints());
+    EXPECT_EQ(0u, game.combat().roundCount());
+}
+
+TEST(CombatRoundReferences, retired_attacker_prunes_round_despite_strong_storage) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    auto action = game.newAction<AttackObjectAction>(target);
+    const CombatRound &round = game.combat().addAction(action, *attacker);
+
+    game.destroyRuntimeObjectGraph(attacker);
+
+    ASSERT_TRUE(attacker);
+    EXPECT_FALSE(attacker->isRuntimeLive());
+    EXPECT_FALSE(round.actions.front().attacker.resolve());
+    game.combat().update(0.0f);
+
+    EXPECT_TRUE(action->isCancelled());
+    EXPECT_TRUE(action->isCompleted());
+    EXPECT_EQ(0u, game.combat().roundCount());
+}
+
+TEST(CombatRoundReferences, dead_but_live_target_is_a_gameplay_condition) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    target->setCurrentHitPoints(1);
+    auto action = game.newAction<AttackObjectAction>(target);
+    const CombatRound &round = game.combat().addAction(action, *attacker);
+
+    target->damage(std::numeric_limits<int>::max(), attacker);
+    ASSERT_TRUE(target->isDead());
+    ASSERT_TRUE(target->isRuntimeLive());
+    game.combat().update(0.0f);
+
+    EXPECT_EQ(target, round.actions.front().target.resolve());
+    EXPECT_FALSE(action->isCancelled());
+    EXPECT_EQ(1u, game.combat().roundCount());
+}
+
+TEST(CombatRoundReferences, action_dependencies_cancel_attack_and_feat_targets) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto attackTarget = game.newCreature();
+    auto featTarget = game.newCreature();
+    auto attack = game.newAction<AttackObjectAction>(attackTarget);
+    auto feat = game.newAction<UseFeatAction>(FeatType::PowerAttack, featTarget);
+
+    game.destroyRuntimeObjectGraph(attackTarget);
+    game.destroyRuntimeObjectGraph(featTarget);
+    ASSERT_FALSE(attack->runtimeDependenciesLive());
+    ASSERT_FALSE(feat->runtimeDependenciesLive());
+
+    attack->execute(attack, *attacker, 0.0f);
+    feat->execute(feat, *attacker, 0.0f);
+
+    EXPECT_TRUE(attack->isCancelled());
+    EXPECT_TRUE(feat->isCancelled());
+    EXPECT_FALSE(attack->target());
+    EXPECT_FALSE(feat->target());
+}
+
+TEST(CombatRoundReferences, completed_or_dequeued_actions_do_not_keep_rounds_alive) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto queuedAttacker = game.newCreature();
+    auto queuedTarget = game.newCreature();
+    auto queued = game.newAction<AttackObjectAction>(queuedTarget);
+    queuedAttacker->addAction(queued);
+    game.combat().addAction(queued, *queuedAttacker);
+    ASSERT_EQ(1u, game.combat().roundCount());
+
+    queuedAttacker->clearAllActions(/*force=*/true);
+    game.combat().update(0.0f);
+
+    EXPECT_TRUE(queued->isCancelled());
+    EXPECT_TRUE(queued->isCompleted());
+    EXPECT_EQ(0u, game.combat().roundCount());
+
+    auto completedAttacker = game.newCreature();
+    auto completedTarget = game.newCreature();
+    auto completed = game.newAction<AttackObjectAction>(completedTarget);
+    game.combat().addAction(completed, *completedAttacker);
+    completed->complete();
+
+    game.combat().update(0.0f);
+
+    EXPECT_EQ(0u, game.combat().roundCount());
+
+    auto cancelledAttacker = game.newCreature();
+    auto cancelledTarget = game.newCreature();
+    auto cancelled = game.newAction<AttackObjectAction>(cancelledTarget);
+    game.combat().addAction(cancelled, *cancelledAttacker);
+    cancelled->markCancelled();
+
+    game.combat().update(0.0f);
+
+    EXPECT_TRUE(cancelled->isCompleted());
+    EXPECT_EQ(0u, game.combat().roundCount());
+}
 
 TEST(Action, use_talent_dispatch_to_use_feat) {
     TestEngine &engine = testEngine();
@@ -50,6 +205,7 @@ TEST(Action, use_talent_dispatch_to_use_feat) {
     auto action = game.newAction<UseTalentOnObjectAction>(std::move(talent), target);
     auto subAction = action->subAction();
     ASSERT_TRUE(subAction);
+    EXPECT_TRUE(action->saveFacingState());
 
     EXPECT_FALSE(action->isCompleted());
     EXPECT_FALSE(subAction->isCompleted());
@@ -84,6 +240,7 @@ TEST(Action, use_talent_dispatch_to_cast_spell) {
     auto action = game.newAction<UseTalentOnObjectAction>(std::move(talent), target);
     auto subAction = action->subAction();
     ASSERT_TRUE(subAction);
+    EXPECT_FALSE(action->saveFacingState());
 
     EXPECT_FALSE(action->isCompleted());
     EXPECT_FALSE(subAction->isCompleted());
@@ -415,4 +572,192 @@ TEST(AttackAnimation, duels_still_select_all_five_cinematic_variants) {
     }
 
     EXPECT_EQ((std::set<std::string> {"c10a1", "c10a2", "c10a3", "c10a4", "c10a5"}), unarmed);
+}
+
+namespace {
+
+constexpr uint32_t kD20SeedSearchLimit = 1'000'000;
+
+uint32_t findD20Seed(int firstRoll, int secondRoll = 0) {
+    for (uint32_t seed = 0; seed < kD20SeedSearchLimit; ++seed) {
+        setRandomSeed(seed);
+        if (randomInt(1, 20) != firstRoll) {
+            continue;
+        }
+        if (secondRoll == 0 || randomInt(1, 20) == secondRoll) {
+            return seed;
+        }
+    }
+    return std::numeric_limits<uint32_t>::max();
+}
+
+AttackResultType rollUnarmedAttack(
+    const Creature &attacker,
+    const Object &target,
+    int firstRoll,
+    int secondRoll = 0) {
+
+    // std::default_random_engine and uniform_int_distribution do not provide a
+    // portable seed-to-roll mapping, so locate a suitable seed for this STL.
+    uint32_t seed = findD20Seed(firstRoll, secondRoll);
+    if (seed == std::numeric_limits<uint32_t>::max()) {
+        ADD_FAILURE() << "Could not find seed for d20 sequence "
+                      << firstRoll << ", " << secondRoll;
+        return AttackResultType::Invalid;
+    }
+
+    setRandomSeed(seed);
+    AttackBuffer attacks;
+    attacks.addPhysicalAttacks(attacker, target);
+    return attacks.result();
+}
+
+std::shared_ptr<resource::TwoDA> retailImpactAnimations() {
+    resource::TwoDA::Builder builder;
+    builder.columns({"name", "attack"});
+    const std::map<int, std::string> attacks {
+        {87, "g1a1"},   // stun baton
+        {114, "f2a2"},  // Flurry
+        {122, "g2a1"},  // single weapon
+        {204, "g4a1"},  // dual wield
+        {247, "g8a1"},  // unarmed
+    };
+    for (int row = 0; row <= 247; ++row) {
+        auto found = attacks.find(row);
+        builder.row({
+            found == attacks.end()
+                ? "anim" + std::to_string(row)
+                : found->second,
+            found == attacks.end() ? "0" : "1",
+        });
+    }
+    return builder.build();
+}
+
+std::shared_ptr<resource::TwoDA> retailImpactTimes() {
+    resource::TwoDA::Builder builder;
+    builder.columns({"hits", "hit1", "hit2", "hit3"});
+    builder.row("87", {"1", "500", "", ""});
+    builder.row("114", {"1", "767", "", ""});
+    builder.row("122", {"1", "500", "", ""});
+    builder.row("204", {"1", "500", "", ""});
+    builder.row("247", {"1", "500", "", ""});
+    return builder.build();
+}
+
+Animations loadRetailImpactFixture(TestEngine &engine) {
+    auto animations = retailImpactAnimations();
+    auto combatAnimations = retailImpactTimes();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("animations"))
+        .WillOnce(Return(animations));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("combatanimations.2da"))
+        .WillOnce(Return(combatAnimations));
+    Animations result(engine.resourceModule().twoDas());
+    result.init();
+    return result;
+}
+
+} // namespace
+
+TEST(PhysicalAttackResolution, natural_one_and_twenty_override_totals) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    target->setObjectSeen(attacker, true);
+
+    attacker->attributes().setAbilityScore(Ability::Strength, 100);
+    target->attributes().setAbilityScore(Ability::Dexterity, 10);
+    EXPECT_EQ(
+        AttackResultType::Miss,
+        rollUnarmedAttack(*attacker, *target, 1));
+
+    attacker->attributes().setAbilityScore(Ability::Strength, 3);
+    target->attributes().setAbilityScore(Ability::Dexterity, 100);
+    EXPECT_EQ(
+        AttackResultType::HitSuccessful,
+        rollUnarmedAttack(*attacker, *target, 20, 1));
+}
+
+TEST(PhysicalAttackResolution, ordinary_rolls_compare_against_defense) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    attacker->attributes().setAbilityScore(Ability::Strength, 10);
+    target->attributes().setAbilityScore(Ability::Dexterity, 10);
+    target->setObjectSeen(attacker, true);
+
+    EXPECT_EQ(
+        AttackResultType::Miss,
+        rollUnarmedAttack(*attacker, *target, 9));
+    EXPECT_EQ(
+        AttackResultType::HitSuccessful,
+        rollUnarmedAttack(*attacker, *target, 10));
+}
+
+TEST(PhysicalAttackResolution, critical_threat_requires_confirmation) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    attacker->attributes().setAbilityScore(Ability::Strength, 10);
+    target->attributes().setAbilityScore(Ability::Dexterity, 10);
+    target->setObjectSeen(attacker, true);
+
+    EXPECT_EQ(
+        AttackResultType::CriticalHit,
+        rollUnarmedAttack(*attacker, *target, 20, 10));
+    EXPECT_EQ(
+        AttackResultType::HitSuccessful,
+        rollUnarmedAttack(*attacker, *target, 20, 9));
+}
+
+TEST(AttackImpactTiming, uses_retail_combat_animation_hit_columns) {
+    TestEngine &engine = testEngine();
+    Animations animations = loadRetailImpactFixture(engine);
+
+    // These values are shared by the shipped K1/K2 tables. The special feat
+    // row demonstrates that the animation, not the weapon base item, owns the
+    // timing authority.
+    EXPECT_EQ(500, animations.getMeleeImpactTime("g2a1", 0));
+    EXPECT_EQ(500, animations.getMeleeImpactTime("g4a1", 0));
+    EXPECT_EQ(500, animations.getMeleeImpactTime("g8a1", 0));
+    EXPECT_EQ(767, animations.getMeleeImpactTime("f2a2", 0));
+}
+
+TEST(AttackImpactTiming, missing_rows_and_shots_use_retail_zero_fallback) {
+    TestEngine &engine = testEngine();
+    Animations animations = loadRetailImpactFixture(engine);
+
+    EXPECT_EQ(0, animations.getMeleeImpactTime("not_authored", 0));
+    EXPECT_EQ(0, animations.getMeleeImpactTime("g2a1", 1));
+}
+
+TEST(AttackImpactTiming, melee_damage_waits_for_the_authored_impact) {
+    TestEngine &engine = testEngine();
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto attacker = game.newCreature();
+    auto target = game.newCreature();
+    attacker->applyAssuredHit();
+    target->setCurrentHitPoints(20);
+
+    AttackBuffer attacks;
+    attacks.addPhysicalAttacks(*attacker, *target);
+    attacks.resolve(*attacker, *target);
+    NiceMock<MockAnimations> animations;
+    ON_CALL(animations, getMeleeImpactTime("g8a1", 0))
+        .WillByDefault(Return(500));
+    attacks.prepareMeleeSequence(animations, {"g8a1"});
+
+    EXPECT_EQ(0u, attacks.signalReadyMelee(
+        499, game, engine.services(), *attacker, *target));
+    EXPECT_EQ(20, target->currentHitPoints());
+    EXPECT_EQ(1u, attacks.signalReadyMelee(
+        500, game, engine.services(), *attacker, *target));
+    EXPECT_LT(target->currentHitPoints(), 20);
 }
