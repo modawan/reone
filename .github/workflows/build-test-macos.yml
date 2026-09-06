@@ -1,0 +1,13 @@
+name: Build and run tests on MacOS
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-macos
