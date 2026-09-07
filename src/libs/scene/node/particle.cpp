@@ -72,7 +72,13 @@ void ParticleSceneNode::updateAnimation(float dt) {
         factor = 0.0f;
     }
 
-    _frame = static_cast<int>(glm::ceil(_emitter.frameStart() + factor * (_emitter.frameEnd() - _emitter.frameStart())));
+    // A zero authored frame rate is a static atlas selection in Odyssey. It
+    // does not mean that the frame range should be spread over particle life.
+    if (_animLength > 0.0f) {
+        _frame = static_cast<int>(glm::ceil(_emitter.frameStart() + factor * (_emitter.frameEnd() - _emitter.frameStart())));
+    } else {
+        _frame = _emitter.frameStart();
+    }
     _size = glm::vec2(_emitter.getParticleSize(factor));
     _color = _emitter.getColor(factor);
     _alpha = _emitter.getAlpha(factor);

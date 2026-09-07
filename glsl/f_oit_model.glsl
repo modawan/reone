@@ -3,6 +3,7 @@
 
 #include "i_luma.glsl"
 #include "i_math.glsl"
+#include "i_lighting.glsl"
 #include "i_normalmap.glsl"
 #include "i_oit.glsl"
 
@@ -40,10 +41,6 @@ void main() {
     vec4 mainTexSample = texture(sMainTex, uv);
     vec3 diffuseColor = mainTexSample.rgb;
     float diffuseAlpha = mainTexSample.a;
-    if (isFeatureEnabled(FEATURE_PREMULALPHA)) {
-        diffuseAlpha = rgbToLuma(mainTexSample.rgb);
-        diffuseColor *= 1.0 / max(0.0001, diffuseAlpha);
-    }
 
     vec3 normal = getNormal(uv);
 
@@ -55,16 +52,37 @@ void main() {
         discard;
     }
 
-    vec3 lighting;
+    vec3 ambient = vec3(0.0);
+    vec3 diffuse = uSelfIllumColor.rgb;
     if (isFeatureEnabled(FEATURE_LIGHTMAP)) {
         vec4 lightmapSample = texture(sLightmap, fragUV2);
-        lighting = lightmapSample.rgb;
+        diffuse += lightmapSample.rgb;
         if (isFeatureEnabled(FEATURE_WATER)) {
-            lighting = mix(vec3(1.0), lighting, 0.2);
+            diffuse = mix(vec3(1.0), diffuse, 0.2);
         }
-    } else {
-        lighting = vec3(1.0);
+    } else if (!isFeatureEnabled(FEATURE_STATIC)) {
+        ambient += uAmbientColor.rgb * uWorldAmbientColor.rgb;
     }
+    for (int i = 0; i < uNumLights; ++i) {
+        if (isFeatureEnabled(FEATURE_STATIC) && uLights[i].dynamicType != LIGHT_DYNAMIC_TYPE_ALL) {
+            continue;
+        }
+        vec3 lightPos = uLights[i].position.xyz - fragPosWorld.xyz;
+        float lightDist = length(lightPos);
+        if (lightDist > uLights[i].radius * uLights[i].radius) {
+            continue;
+        }
+        vec3 lightDir = lightPos / max(1e-4, lightDist);
+        float diff = max(0.0, dot(normal, lightDir));
+        float attenuation = lightAttenuationQuadratic(uLights[i], lightDist);
+        vec3 lightColor = uLights[i].color.rgb;
+        if (uLights[i].ambientOnly) {
+            ambient += uLights[i].multiplier * attenuation * uAmbientColor.rgb * lightColor;
+        } else {
+            diffuse += uLights[i].multiplier * diff * attenuation * uDiffuseColor.rgb * lightColor;
+        }
+    }
+    vec3 lighting = min(vec3(1.0), ambient + max(vec3(0.0), diffuse));
 
     vec3 objectColor = lighting * uColor.rgb * diffuseColor;
     if (isFeatureEnabled(FEATURE_ENVMAP)) {
@@ -75,6 +93,17 @@ void main() {
     }
     if (isFeatureEnabled(FEATURE_WATER)) {
         objectColor *= uWaterAlpha;
+    }
+
+    if (isFeatureEnabled(FEATURE_PREMULALPHA)) {
+        // Convert the lit SRC_ALPHA contribution, not unlit texture RGB.
+        // Zero-light additive surfaces must contribute neither color nor opacity.
+        objectColor *= objectAlpha;
+        objectAlpha = clamp(rgbToLuma(objectColor), 0.0, 1.0);
+        if (objectAlpha == 0.0) {
+            discard;
+        }
+        objectColor /= objectAlpha;
     }
 
     float w = OIT_weight(gl_FragCoord.z, objectAlpha);

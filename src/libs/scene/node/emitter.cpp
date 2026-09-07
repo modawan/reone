@@ -41,6 +41,7 @@ namespace scene {
 
 void EmitterSceneNode::init() {
     _modelNode.floatValueAtTime(ControllerTypes::birthrate, 0.0f, _birthrate);
+    _modelNode.floatValueAtTime(ControllerTypes::randomBirthRate, 0.0f, _randomBirthrate);
     _modelNode.floatValueAtTime(ControllerTypes::lifeExp, 0.0f, _lifeExpectancy);
     _modelNode.floatValueAtTime(ControllerTypes::xSize, 0.0f, _size.x);
     _modelNode.floatValueAtTime(ControllerTypes::ySize, 0.0f, _size.y);
@@ -78,6 +79,9 @@ void EmitterSceneNode::init() {
     _modelNode.floatValueAtTime(ControllerTypes::alphaStart, 0.0f, _alpha.start);
     _modelNode.floatValueAtTime(ControllerTypes::alphaMid, 0.0f, _alpha.mid);
     _modelNode.floatValueAtTime(ControllerTypes::alphaEnd, 0.0f, _alpha.end);
+    _modelNode.floatValueAtTime(ControllerTypes::percentStart, 0.0f, _percentStart);
+    _modelNode.floatValueAtTime(ControllerTypes::percentMid, 0.0f, _percentMid);
+    _modelNode.floatValueAtTime(ControllerTypes::percentEnd, 0.0f, _percentEnd);
 
     if (_birthrate != 0.0f) {
         _birthInterval = 1.0f / _birthrate;
@@ -130,10 +134,13 @@ void EmitterSceneNode::spawnParticles(float dt) {
     switch (emitter->updateMode) {
     case ModelNode::Emitter::UpdateMode::Fountain:
         if (_birthrate != 0.0f) {
-            _birthTimer.update(dt);
-            if (_birthTimer.elapsed()) {
-                doSpawnParticle();
-                _birthTimer.reset(_birthInterval);
+            _particleAccumulator += dt;
+            if (_particleAccumulator >= _birthInterval) {
+                int count = fountainSpawnCount(_particleAccumulator);
+                for (int i = 0; i < count; ++i) {
+                    doSpawnParticle();
+                }
+                _particleAccumulator = 0.0f;
             }
         }
         break;
@@ -156,9 +163,12 @@ void EmitterSceneNode::spawnParticles(float dt) {
 }
 
 ParticleSceneNode *EmitterSceneNode::doSpawnParticle() {
-    // Take particle from the pool, if available
+    // kMaxParticles is the size of one GPU uniform batch, not an emitter
+    // population limit. Retail allocates another particle when its dead list is
+    // empty; SceneGraph likewise owns every particle allocated here and later
+    // splits a large emitter into kMaxParticles-sized draw batches.
     if (_particlePool.empty()) {
-        return nullptr;
+        _particlePool.push_back(_sceneGraph.newParticle(*this).get());
     }
     auto particle = static_cast<ParticleSceneNode *>(_particlePool.front());
     particle->setLifetime(0.0f);
@@ -187,6 +197,20 @@ ParticleSceneNode *EmitterSceneNode::doSpawnParticle() {
     return particle;
 }
 
+int EmitterSceneNode::fountainSpawnCount(float elapsed) {
+    float effectiveRate = _birthrate;
+    int randomRange = static_cast<int>(glm::round(_randomBirthrate));
+    if (randomRange > 0) {
+        bool add = randomInt(0, 1) != 0;
+        int variation = randomInt(0, randomRange - 1);
+        effectiveRate += add ? variation : -variation;
+        effectiveRate = glm::max(0.0f, effectiveRate);
+    }
+
+    int divisor = static_cast<int>(effectiveRate) + 1;
+    return divisor > 0 ? static_cast<int>(elapsed * effectiveRate) % divisor : 0;
+}
+
 void EmitterSceneNode::prewarmContinuousParticles() {
     auto emitter = _modelNode.emitter();
     if (!emitter || emitter->updateMode != ModelNode::Emitter::UpdateMode::Fountain) {
@@ -199,25 +223,26 @@ void EmitterSceneNode::prewarmContinuousParticles() {
     // Take the phase where a particle is born exactly as the scene opens. The
     // ones still alive behind it are then those emitted one, two, three birth
     // intervals ago, up to the last whose age is still short of the life
-    // expectancy: ceil(birthrate * lifeExpectancy) of them. The pool init()
-    // allocated bounds that, in which case the youngest are the ones seeded.
-    int count = glm::min(kMaxParticles, static_cast<int>(glm::ceil(_birthrate * _lifeExpectancy)));
-    for (int i = 0; i < count; ++i) {
-        auto particle = doSpawnParticle();
-        if (!particle) {
-            break;
+    // expectancy: ceil(birthrate * lifeExpectancy) of them.
+    int emissionSlots = static_cast<int>(glm::ceil(_birthrate * _lifeExpectancy));
+    for (int i = 0; i < emissionSlots; ++i) {
+        int count = fountainSpawnCount(_birthInterval);
+        for (int j = 0; j < count; ++j) {
+            auto particle = doSpawnParticle();
+            if (!particle) {
+                break;
+            }
+            // Age by whole birth intervals, not by an even share of the
+            // lifetime: the two agree only when birthrate times life
+            // expectancy is a whole number, and elsewhere an even share
+            // invents ages the authored cadence could never have produced.
+            particle->update(i * _birthInterval);
         }
-        // Age by whole birth intervals, not by an even share of the lifetime:
-        // the two agree only when birthrate times life expectancy happens to be
-        // a whole number, and elsewhere an even share invents ages the authored
-        // cadence could never have produced. The oldest lands strictly short of
-        // the life expectancy, so nothing is seeded already expired.
-        particle->update(i * _birthInterval);
     }
 
     // The next birth is a full interval away, so the field this leaves behind
     // is not immediately followed by an extra particle.
-    _birthTimer.reset(_birthInterval);
+    _particleAccumulator = 0.0f;
 }
 
 void EmitterSceneNode::spawnLightningParticles() {

@@ -64,9 +64,9 @@ public:
      */
     void prewarmContinuousParticles();
 
-    float getParticleSize(float time) const { return _particleSize.get(time); };
-    glm::vec3 getColor(float time) const { return _color.get(time); };
-    float getAlpha(float time) const { return _alpha.get(time); };
+    float getParticleSize(float time) const { return _particleSize.get(time, _percentStart, _percentMid, _percentEnd); };
+    glm::vec3 getColor(float time) const { return _color.get(time, _percentStart, _percentMid, _percentEnd); };
+    float getAlpha(float time) const { return _alpha.get(time, _percentStart, _percentMid, _percentEnd); };
 
     float lifeExpectancy() const { return _lifeExpectancy; }
     int frameStart() const { return _frameStart; }
@@ -80,12 +80,20 @@ private:
         T mid;
         T end;
 
-        T get(float factor) const {
-            if (factor < 0.5f) {
-                return glm::mix(start, mid, 2.0f * factor);
-            } else {
-                return glm::mix(mid, end, 2.0f * factor - 1.0f);
+        T get(float factor, float percentStart, float percentMid, float percentEnd) const {
+            percentStart = glm::clamp(percentStart, 0.0f, 1.0f);
+            percentMid = glm::clamp(percentMid, 0.0f, 1.0f);
+            percentEnd = glm::clamp(percentEnd, 0.0f, 1.0f);
+            if (factor <= percentStart) {
+                return start;
             }
+            if (percentMid > percentStart && factor < percentMid) {
+                return glm::mix(start, mid, (factor - percentStart) / (percentMid - percentStart));
+            }
+            if (factor < percentEnd && percentEnd > percentMid) {
+                return glm::mix(mid, end, (factor - percentMid) / (percentEnd - percentMid));
+            }
+            return end;
         }
     };
 
@@ -93,7 +101,12 @@ private:
     StartMidEnd<glm::vec3> _color;
     StartMidEnd<float> _alpha;
 
+    float _percentStart {0.0f};
+    float _percentMid {0.5f};
+    float _percentEnd {1.0f};
+
     float _birthrate {0.0f};      /**< rate of particle birth per second */
+    float _randomBirthrate {0.0f}; /**< integral random variation applied by Fountain emitters */
     float _lifeExpectancy {0.0f}; /**< life of each particle in seconds */
     glm::vec2 _size {0.0f};
     int _frameStart {0};
@@ -111,6 +124,7 @@ private:
     int _lightningSubDiv {0};
 
     float _birthInterval {0.0f};
+    float _particleAccumulator {0.0f};
     Timer _birthTimer;
     bool _spawned {false};
 
@@ -119,6 +133,7 @@ private:
     void spawnParticles(float dt);
     void removeExpiredParticles(float dt);
     ParticleSceneNode *doSpawnParticle();
+    int fountainSpawnCount(float elapsed);
     void spawnLightningParticles();
 };
 
