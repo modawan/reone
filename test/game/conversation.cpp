@@ -70,6 +70,10 @@ public:
         pickReply(index);
     }
 
+    void setGUIForTest(std::shared_ptr<gui::IGUI> gui) {
+        _gui = std::move(gui);
+    }
+
     void pauseOnFirstEntryLoad() {
         _pauseOnFirstEntryLoad = true;
     }
@@ -226,6 +230,33 @@ protected:
     std::unique_ptr<Game> _game;
     std::unique_ptr<TestConversation> _conversation;
 };
+
+TEST_F(ConversationTest, ordinary_static_dialogue_keeps_its_own_gui) {
+    auto dialog = makeDialog();
+    dialog->entries[0].cameraId = 1;
+    auto gui = std::make_shared<NiceMock<gui::MockGUI>>();
+    _conversation->setGUIForTest(gui);
+    EXPECT_CALL(_engine.guiModule().guis(), get(_, _)).Times(0);
+    _conversation->start(dialog, nullptr);
+    int cameraId = 0;
+    EXPECT_EQ(_conversation->getCamera(cameraId), CameraType::Static);
+    EXPECT_EQ(cameraId, 1);
+    EXPECT_CALL(*gui, render()).Times(1);
+    _conversation->render();
+}
+
+TEST_F(ConversationTest, animated_dialogue_keeps_its_own_gui) {
+    auto dialog = makeDialog();
+    dialog->cameraModel = "camera_model";
+    auto gui = std::make_shared<NiceMock<gui::MockGUI>>();
+    _conversation->setGUIForTest(gui);
+    EXPECT_CALL(_engine.guiModule().guis(), get(_, _)).Times(0);
+    _conversation->start(dialog, nullptr);
+    int cameraId = 0;
+    EXPECT_EQ(_conversation->getCamera(cameraId), CameraType::Animated);
+    EXPECT_CALL(*gui, render()).Times(1);
+    _conversation->render();
+}
 
 TEST_F(ConversationTest, game_pause_is_harmless_without_a_conversation) {
     EXPECT_FALSE(_game->isConversationActive());

@@ -35,6 +35,59 @@ static void setVisible(const std::shared_ptr<Label> &control, bool visible) {
     }
 }
 
+void ComputerGUI::init() {
+    Conversation::init();
+    _cameraGUI.init();
+}
+
+bool ComputerGUI::handle(const input::Event &event) {
+    if (_presentation == Presentation::Camera) {
+        return _cameraGUI.handle(event);
+    }
+    return Conversation::handle(event);
+}
+
+void ComputerGUI::update(float dt) {
+    Conversation::update(dt);
+    if (_presentation == Presentation::Camera) {
+        _cameraGUI.update(dt);
+    }
+}
+
+void ComputerGUI::render() {
+    if (_presentation == Presentation::Camera) {
+        _cameraGUI.render();
+    } else {
+        Conversation::render();
+    }
+}
+
+void ComputerGUI::onStart() {
+    _presentation = Presentation::Normal;
+}
+
+void ComputerGUI::onFinish() {
+    _presentation = Presentation::Normal;
+}
+
+void ComputerGUI::onLoadEntry() {
+    int cameraId = 0;
+    _presentation = getCamera(cameraId) == CameraType::Static ? Presentation::Camera : Presentation::Normal;
+    if (_presentation == Presentation::Camera) {
+        _cameraGUI.clearSelection();
+    }
+}
+
+void ComputerGUI::onEntryEnded() {
+    _presentation = Presentation::Normal;
+}
+
+void ComputerGUI::returnFromCamera() {
+    if (_presentation == Presentation::Camera) {
+        endCurrentEntry();
+    }
+}
+
 void ComputerGUI::preload(IGUI &gui) {
     GameGUI::preload(gui);
 }

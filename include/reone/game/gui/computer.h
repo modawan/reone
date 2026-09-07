@@ -20,6 +20,7 @@
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
 
+#include "computercam.h"
 #include "conversation.h"
 
 namespace reone {
@@ -29,11 +30,33 @@ namespace game {
 class ComputerGUI : public Conversation {
 public:
     ComputerGUI(Game &game, ServicesView &services) :
-        Conversation(game, services) {
+        Conversation(game, services),
+        _cameraGUI(game, services, [this]() { returnFromCamera(); }) {
         _resRef = guiResRef("computer");
     }
 
+    void init() override;
+    bool handle(const input::Event &event) override;
+    void update(float dt) override;
+    void render() override;
+
+protected:
+    void onStart() override;
+    void onFinish() override;
+    void onLoadEntry() override;
+    void onEntryEnded() override;
+
 private:
+    enum class Presentation {
+        Normal,
+        Camera
+    };
+
+    ComputerCamGUI _cameraGUI;
+    Presentation _presentation {Presentation::Normal};
+
+    void returnFromCamera();
+
     struct Controls {
         std::shared_ptr<gui::Label> LBL_BAR1;
         std::shared_ptr<gui::Label> LBL_BAR2;

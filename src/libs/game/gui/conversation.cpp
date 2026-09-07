@@ -454,6 +454,9 @@ bool Conversation::isNonPresentationalEntry() const {
 }
 
 void Conversation::endCurrentEntry() {
+    if (!_currentEntry || _entryEnded || _paused) {
+        return;
+    }
     _entryEnded = true;
 
     // Stop voice over, if any
