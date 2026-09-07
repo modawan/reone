@@ -17,6 +17,7 @@ set(GAME_INCLUDE_DIR ${REONE_INCLUDE_DIR}/reone/game)
 set(GAME_SOURCE_DIR ${CMAKE_SOURCE_DIR}/src/libs/game)
 
 set(GAME_HEADERS
+    ${GAME_INCLUDE_DIR}/menupresentation.h
     ${GAME_INCLUDE_DIR}/action.h
     ${GAME_INCLUDE_DIR}/action/attackobject.h
     ${GAME_INCLUDE_DIR}/action/barkstring.h
@@ -355,6 +356,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/visualeffects.h)
 
 set(GAME_SOURCES
+    ${GAME_SOURCE_DIR}/menupresentation.cpp
     ${GAME_SOURCE_DIR}/action.cpp
     ${GAME_SOURCE_DIR}/action/attackobject.cpp
     ${GAME_SOURCE_DIR}/action/barkstring.cpp

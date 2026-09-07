@@ -66,6 +66,7 @@ class Game;
 class Item;
 class Module;
 class SaveLoad;
+class MainMenu;
 class Conversation;
 class Object;
 class StaticCamera;
@@ -328,6 +329,7 @@ public:
     static void setSnapshotModuleName(Game &game, std::string name);
     static bool hasPendingSave(const Game &game);
     static void setRuntimeSessionPlayable(Game &game, bool playable);
+    static MainMenu &installMainMenu(Game &game);
     static void clearSnapshotModule(Game &game);
     static void clearSnapshotArea(Game &game);
     static void clearSnapshotPlayers(Game &game);

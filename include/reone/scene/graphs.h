@@ -49,6 +49,8 @@ public:
     virtual ~ISceneGraphs() = default;
 
     virtual void reserve(std::string name) = 0;
+    // Replace one scene, releasing its node arena as well as its roots.
+    virtual void reset(std::string name) = 0;
 
     virtual ISceneGraph &get(const std::string &name) = 0;
 
@@ -71,6 +73,7 @@ public:
     }
 
     void reserve(std::string name) override;
+    void reset(std::string name) override;
 
     ISceneGraph &get(const std::string &name) override;
 

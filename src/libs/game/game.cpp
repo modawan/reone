@@ -624,7 +624,7 @@ void Game::initConsole() {
     registerConsoleCommand("campos", "set free camera position", &Game::consoleCamPos);
     registerConsoleCommand("camlook", "aim free camera at a point", &Game::consoleCamLook);
     registerConsoleCommand("camstatus", "print free camera viewpoint commands", &Game::consoleCamStatus);
-    registerConsoleCommand("openmenu", "open an in-game menu tab", &Game::consoleOpenMenu);
+    registerConsoleCommand("openmenu", "open the main menu or an in-game menu tab", &Game::consoleOpenMenu);
     registerConsoleCommand("openchargen", "open a character-generation screen", &Game::consoleOpenCharacterGeneration);
     registerConsoleCommand("skipmovie", "skip the active movie", &Game::consoleSkipMovie);
     registerConsoleCommand("showbark", "show a timed HUD bark message", &Game::consoleShowBark);
@@ -3882,9 +3882,26 @@ void Game::retireToMainMenu() {
 }
 
 void Game::openMainMenu() {
+    // Only a committed playable session may replace the durable menu snapshot.
+    // Cold startup and recovery from a partial load must not erase it.
+    if (isTSL() && _runtimeSessionPlayable) {
+        MenuPresentation state;
+        state.selector = MenuPresentation::validateSelector(getGlobalNumber("GBL_MAIN_SITH_LORD"));
+        if (state.selector == 4) {
+            if (auto leader = _party.getLeader()) state.leader = leader->presentation();
+        }
+        _options.game.menuPresentation = state;
+        try {
+            state.save(_options.game.configurationPath);
+        } catch (const std::exception &ex) {
+            warn(std::string("Could not persist main menu presentation: ") + ex.what());
+        }
+    }
     resetGame();
     if (!_mainMenu) {
         _mainMenu = tryLoadGUI<MainMenu>();
+    } else {
+        _mainMenu->refreshScene();
     }
     if (!_mainMenu) {
         return;
@@ -5697,9 +5714,13 @@ void Game::consoleWarp(const ConsoleArgs &args) {
 }
 
 void Game::consoleOpenMenu(const ConsoleArgs &args) {
-    consoleCheckUsage(args, 1, 1, "equipment|equipment-items|inventory|character|abilities|party|messages|journal|map|options");
+    consoleCheckUsage(args, 1, 1, "main|equipment|equipment-items|inventory|character|abilities|party|messages|journal|map|options");
 
     std::string_view name(args[1].value());
+    if (boost::iequals(name, "main")) {
+        openMainMenu();
+        return;
+    }
     if (boost::iequals(name, "equipment-items")) {
         setCursorType(CursorType::Default);
         _inGame->openEquipmentItems();
