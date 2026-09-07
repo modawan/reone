@@ -7,6 +7,7 @@
 #include "reone/scene/node/emitter.h"
 #include "reone/scene/node/model.h"
 #include "reone/scene/node/particle.h"
+#include "reone/system/randomutil.h"
 #include "reone/gui/sceneinitializer.h"
 #include "../fixtures/audio.h"
 #include "../fixtures/graphics.h"
@@ -183,11 +184,11 @@ TEST(EmitterSceneNode, rearming_single_does_not_affect_fountain_emission) {
     ASSERT_TRUE(fountain);
 
     scene->update(0.05f);
-    ASSERT_EQ(1, fountain->children().size());
+    ASSERT_TRUE(fountain->children().empty());
     scene->update(0.05f);
     ASSERT_EQ(1, fountain->children().size());
     scene->update(0.05f);
-    EXPECT_EQ(2, fountain->children().size());
+    EXPECT_EQ(1, fountain->children().size());
 }
 
 namespace {
@@ -238,7 +239,8 @@ std::shared_ptr<Model> newEmitterModel(
     const std::string &name,
     ModelNode::Emitter::UpdateMode updateMode,
     float birthrate,
-    float lifeExpectancy) {
+    float lifeExpectancy,
+    float randomBirthrate = 0.0f) {
 
     auto rootNode = std::make_shared<ModelNode>(
         0, "root", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
@@ -251,6 +253,7 @@ std::shared_ptr<Model> newEmitterModel(
         1, "emitter", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, rootNode.get());
     emitterNode->setEmitter(emitter);
     emitterNode->floatTracks()[ControllerTypes::birthrate].add(0.0f, birthrate);
+    emitterNode->floatTracks()[ControllerTypes::randomBirthRate].add(0.0f, randomBirthrate);
     emitterNode->floatTracks()[ControllerTypes::lifeExp].add(0.0f, lifeExpectancy);
     // Authored appearance over a particle's life, so a seeded particle can be
     // checked against the point in that life it claims to be at.
@@ -262,6 +265,9 @@ std::shared_ptr<Model> newEmitterModel(
     emitterNode->floatTracks()[ControllerTypes::alphaStart].add(0.0f, 1.0f);
     emitterNode->floatTracks()[ControllerTypes::alphaMid].add(0.0f, 0.5f);
     emitterNode->floatTracks()[ControllerTypes::alphaEnd].add(0.0f, 0.0f);
+    emitterNode->floatTracks()[ControllerTypes::percentStart].add(0.0f, 0.0f);
+    emitterNode->floatTracks()[ControllerTypes::percentMid].add(0.0f, 0.5f);
+    emitterNode->floatTracks()[ControllerTypes::percentEnd].add(0.0f, 1.0f);
     emitterNode->vectorTracks()[ControllerTypes::colorStart].add(0.0f, glm::vec3(1.0f, 0.0f, 0.0f));
     emitterNode->vectorTracks()[ControllerTypes::colorMid].add(0.0f, glm::vec3(0.0f, 1.0f, 0.0f));
     emitterNode->vectorTracks()[ControllerTypes::colorEnd].add(0.0f, glm::vec3(0.0f, 0.0f, 1.0f));
@@ -353,7 +359,7 @@ TEST(EmitterPrewarm, a_seeded_particle_looks_like_one_that_lived_that_long) {
     auto oldest = oldestParticle(*emitter);
     ASSERT_TRUE(oldest);
     EXPECT_FLOAT_EQ(1.0f, oldest->lifetime());
-    EXPECT_EQ(5, oldest->frame());
+    EXPECT_EQ(0, oldest->frame());
     EXPECT_FLOAT_EQ(2.0f, oldest->size().x);
     EXPECT_FLOAT_EQ(0.5f, oldest->alpha());
     EXPECT_LT(glm::length(oldest->color() - glm::vec3(0.0f, 1.0f, 0.0f)), 1e-5f);
@@ -371,6 +377,70 @@ TEST(EmitterPrewarm, prewarming_leaves_a_single_emitter_alone) {
 
     scene.graph->update(0.0f);
     EXPECT_EQ(1u, emitter->children().size());
+}
+
+TEST(EmitterPrewarm, steady_state_population_can_exceed_one_gpu_particle_batch) {
+    PrewarmScene scene;
+    auto model = newEmitterModel("large_population", ModelNode::Emitter::UpdateMode::Fountain, 25.0f, 4.0f);
+
+    auto emitter = scene.build(*model, true);
+
+    ASSERT_TRUE(emitter);
+    EXPECT_EQ(100u, emitter->children().size());
+}
+
+TEST(EmitterPrewarm, appearance_uses_the_authored_lifecycle_percentages) {
+    PrewarmScene scene;
+    auto model = newEmitterModel("early_midpoint", ModelNode::Emitter::UpdateMode::Fountain, 1.0f, 10.0f);
+    auto sourceEmitter = model->rootNode()->children().front();
+    sourceEmitter->floatTracks().erase(ControllerTypes::percentMid);
+    sourceEmitter->floatTracks()[ControllerTypes::percentMid].add(0.0f, 0.1f);
+
+    auto emitter = scene.build(*model, true);
+
+    ASSERT_TRUE(emitter);
+    auto oneSecondOldIt = std::find_if(emitter->children().begin(), emitter->children().end(), [](auto child) {
+        return child->type() == SceneNodeType::Particle &&
+               static_cast<const ParticleSceneNode *>(child)->lifetime() == 1.0f;
+    });
+    ASSERT_NE(emitter->children().end(), oneSecondOldIt);
+    auto oneSecondOld = static_cast<const ParticleSceneNode *>(*oneSecondOldIt);
+    EXPECT_FLOAT_EQ(2.0f, oneSecondOld->size().x);
+    EXPECT_FLOAT_EQ(0.5f, oneSecondOld->alpha());
+    EXPECT_LT(glm::length(oneSecondOld->color() - glm::vec3(0.0f, 1.0f, 0.0f)), 1e-5f);
+}
+
+TEST(EmitterPrewarm, zero_fps_keeps_the_authored_start_frame) {
+    PrewarmScene scene;
+    auto model = newEmitterModel("static_atlas_frame", ModelNode::Emitter::UpdateMode::Fountain, 1.0f, 2.0f);
+    auto sourceEmitter = model->rootNode()->children().front();
+    sourceEmitter->floatTracks().erase(ControllerTypes::frameStart);
+    sourceEmitter->floatTracks()[ControllerTypes::frameStart].add(0.0f, 3.0f);
+    sourceEmitter->floatTracks()[ControllerTypes::fps].add(0.0f, 0.0f);
+
+    auto emitter = scene.build(*model, true);
+
+    ASSERT_TRUE(emitter);
+    auto oldest = oldestParticle(*emitter);
+    ASSERT_TRUE(oldest);
+    EXPECT_EQ(3, oldest->frame());
+}
+
+TEST(EmitterPrewarm, random_birthrate_changes_the_authored_fountain_population) {
+    setRandomSeed(0x4b324d4du);
+    PrewarmScene scene;
+    auto model = newEmitterModel(
+        "random_birthrate",
+        ModelNode::Emitter::UpdateMode::Fountain,
+        10.0f,
+        10.0f,
+        9.0f);
+
+    auto emitter = scene.build(*model, true);
+
+    ASSERT_TRUE(emitter);
+    EXPECT_GT(emitter->children().size(), 0u);
+    EXPECT_LT(emitter->children().size(), 100u);
 }
 
 TEST(EmitterPrewarm, emission_carries_on_at_the_authored_cadence_after_prewarming) {
