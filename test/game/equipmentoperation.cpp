@@ -66,9 +66,14 @@ std::shared_ptr<Item> makeItem(Game &game, std::string tag, int baseItem, int st
     return item;
 }
 
+class EquipmentEngine : public TestEngine {
+public:
+    EquipmentEngine() { init(); }
+};
+
 class EquipmentOperation : public Test {
 protected:
-    TestEngine &engine = testEngine();
+    EquipmentEngine engine;
     StubConsole console;
     Game game {GameID::KotOR, "", engine.options(), engine.services(), console};
     void SetUp() override {
