@@ -31,15 +31,21 @@ namespace reone {
 
 namespace game {
 
+class Creature;
+
 class MainMenu : public GameGUI {
 public:
     MainMenu(Game &game, ServicesView &services);
 
     void onModuleSelected(const std::string &name);
+    // Rebuild K2 from the durable options snapshot on every menu entry.
+    // Also callable after a host updates the persisted presentation state.
+    void refreshScene();
 
     const std::string &musicResRef() const { return _musicResRef; }
 
 private:
+    friend class MainMenuTestAccess;
     struct Controls {
         std::shared_ptr<gui::Button> BTN_EXIT;
         std::shared_ptr<gui::Button> BTN_LOADGAME;
@@ -62,6 +68,7 @@ private:
     Controls _controls;
 
     std::string _musicResRef;
+    std::shared_ptr<Creature> _leader;
 
 protected:
     void preload(gui::IGUI &gui) override;
