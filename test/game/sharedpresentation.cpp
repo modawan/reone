@@ -125,6 +125,50 @@ TEST_F(SharedPresentation, registration_and_availability_work_in_both_directions
     EXPECT_EQ(InGameMenuTab::Inventory, host.activeTab());
 }
 
+TEST_F(SharedPresentation, independent_hosts_refresh_supplied_k2_titles_and_footers_on_reopening) {
+    ScreenResources left(options, scene, graphics, resources), right(options, scene, graphics, resources);
+    auto first = items("First", 1, 2), second = items("Second", 1, 4);
+    auto inv1 = std::make_shared<InventoryMenu>(GameID::TSL, options, services(left), first, []() {});
+    auto inv2 = std::make_shared<InventoryMenu>(GameID::TSL, options, services(right), second, []() {});
+    inv1->init();
+    inv2->init();
+    inv1->k2InGameTitleControl()->setTextMessage("First title");
+    inv2->k2InGameTitleControl()->setTextMessage("Second title");
+    InGameMenuFooter a, b;
+    a.subjectPresent = b.subjectPresent = true;
+    a.name = "First subject";
+    b.name = "Second subject";
+    a.classes[0] = "First class";
+    a.levels[0] = "3";
+    a.vitalityPercent = 25;
+    b.classes[0] = "Second class";
+    b.levels[0] = "7";
+    b.vitalityPercent = 75;
+    InGameMenuHost host1(GameID::TSL, options, services(left), {}, [&]() { return a; });
+    InGameMenuHost host2(GameID::TSL, options, services(right), {}, [&]() { return b; });
+    host1.init();
+    host2.init();
+    host1.registerScreen(InGameMenuTab::Inventory, inv1);
+    host2.registerScreen(InGameMenuTab::Inventory, inv2);
+    host1.changeTab(InGameMenuTab::Inventory);
+    host2.changeTab(InGameMenuTab::Inventory);
+    auto text = [](ScreenResources &guis, const std::string &tag) { return guis.screens.at("top_p")->findControl(tag)->text().text; };
+    EXPECT_EQ("First title", text(left, "LBL_SECTITLE"));
+    EXPECT_EQ("Second title", text(right, "LBL_SECTITLE"));
+    EXPECT_EQ("First subject", text(left, "LBL_CHARNAME"));
+    EXPECT_EQ("7", text(right, "LBL_TOP_CLASS1LEVEL"));
+    a = {};
+    host1.changeTab(InGameMenuTab::None);
+    host1.update(0.016f);
+    EXPECT_FALSE(left.screens.at("top_p")->findControl("LBL_CHARNAME")->isVisible());
+    a = b;
+    a.name = "Replacement subject";
+    host1.changeTab(InGameMenuTab::Inventory);
+    host1.render();
+    EXPECT_EQ("Replacement subject", text(left, "LBL_CHARNAME"));
+    EXPECT_EQ("Second subject", text(right, "LBL_CHARNAME"));
+}
+
 class PresentationProbe : public PresentationGUI {
 public:
     PresentationProbe(GameID gameId, const GraphicsOptions &options, PresentationServices services) :
