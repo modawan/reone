@@ -33,6 +33,7 @@
 #include "../d20/attributes.h"
 #include "../d20/itemattributes.h"
 #include "../object.h"
+#include "../menupresentation.h"
 #include "../runtimeref.h"
 #include "../pathfinder.h"
 
@@ -151,6 +152,8 @@ public:
     Gender gender() const { return _gender; }
     ModelType modelType() const { return _modelType; }
     int appearance() const { return _appearance; }
+    CreaturePresentation presentation() const;
+    void setPresentation(const CreaturePresentation &presentation);
     uint16_t portraitId() const { return _portraitId; }
     std::shared_ptr<graphics::Texture> portrait() const { return _portrait; }
     float walkSpeed() const { return _walkSpeed; }
@@ -457,6 +460,7 @@ private:
     bool _noPermDeath {false};
     bool _notReorienting {false};
     uint8_t _bodyVariation {0};
+    std::optional<CreaturePresentation> _presentation;
     uint8_t _textureVar {0};
     bool _partyInteract {false};
     int32_t _walkRate {0};
