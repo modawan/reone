@@ -274,7 +274,6 @@ static constexpr char kDeveloperActorToggleHelp[] = "Ctrl+Shift+A";
 static constexpr char kDeveloperActorLongToggleHelp[] = "Ctrl+Shift+L";
 static constexpr char kDeveloperWatchToggleHelp[] = "Ctrl+Shift+W";
 static constexpr float kDeveloperActorLabelDistance = 32.0f;
-static constexpr float kCursorSizeScale = 0.5f;
 
 static std::shared_ptr<Gff> decodeSaveGff(std::optional<Resource> resource) {
     if (!resource) {
@@ -994,7 +993,7 @@ bool Game::handleDeveloperKeyDown(const input::KeyEvent &event) {
 }
 
 bool Game::handleMouseMotion(const input::MouseMotionEvent &event) {
-    _cursor->setPosition({event.x, event.y});
+    _pointer->setPosition({event.x, event.y});
     return false;
 }
 
@@ -1002,7 +1001,7 @@ bool Game::handleMouseButtonDown(const input::MouseButtonEvent &event) {
     if (event.button != input::MouseButton::Left) {
         return false;
     }
-    _cursor->setPressed(true);
+    _pointer->setPressed(true);
     if (_movie) {
         _movie->finish();
         return true;
@@ -1014,7 +1013,7 @@ bool Game::handleMouseButtonUp(const input::MouseButtonEvent &event) {
     if (event.button != input::MouseButton::Left) {
         return false;
     }
-    _cursor->setPressed(false);
+    _pointer->setPressed(false);
     return false;
 }
 
@@ -2448,15 +2447,7 @@ void Game::loadDefaultParty() {
 }
 
 void Game::setCursorType(CursorType type) {
-    if (_cursorType == type) {
-        return;
-    }
-    if (type == CursorType::None) {
-        _cursor.reset();
-    } else {
-        _cursor = _services.resource.cursors.get(type);
-    }
-    _cursorType = type;
+    _pointer->setType(type);
 }
 
 void Game::playVideo(const std::string &name) {
@@ -3222,12 +3213,7 @@ void Game::renderGUI() {
     if (_confirmPopup && _confirmPopup->isVisible()) {
         _confirmPopup->render();
     }
-    if (_cursor && !_relativeMouseMode) {
-        const auto &graphics = _options.graphics;
-        float cursorScale = std::min(graphics.width / 800.0f, graphics.height / 600.0f) *
-                            graphics.guiScale * kCursorSizeScale;
-        _cursor->render(cursorScale);
-    }
+    _pointer->render(_options.graphics, _relativeMouseMode);
     renderDeveloperOverlay();
 }
 

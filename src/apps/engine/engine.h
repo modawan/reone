@@ -85,6 +85,7 @@ private:
     std::unique_ptr<game::GameModule> _gameModule;
 
     std::unique_ptr<game::ServicesView> _services;
+    std::shared_ptr<game::PresentationPointer> _pointer;
     std::unique_ptr<game::Game> _game;
     std::unique_ptr<Profiler> _profiler;
     std::unique_ptr<Console> _console;
