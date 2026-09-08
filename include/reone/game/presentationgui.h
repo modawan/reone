@@ -19,9 +19,9 @@
 
 #include "reone/audio/source.h"
 #include "reone/graphics/options.h"
-#include "reone/resource/types.h"
 #include "reone/gui/gui.h"
 #include "reone/input/event.h"
+#include "reone/resource/types.h"
 
 #include "types.h"
 
@@ -34,9 +34,15 @@ class ListBox;
 
 } // namespace gui
 
-namespace audio { class IAudioMixer; }
-namespace resource { class ITextures; }
-namespace gui { class IGUIs; }
+namespace audio {
+class IAudioMixer;
+}
+namespace resource {
+class ITextures;
+}
+namespace gui {
+class IGUIs;
+}
 
 namespace game {
 
@@ -64,8 +70,9 @@ public:
     virtual void update(float dt);
     virtual void render();
 
-    void clearSelection() {
-        if (_gui) _gui->clearSelection();
+    virtual void clearSelection() {
+        if (_gui)
+            _gui->clearSelection();
     }
 
     std::shared_ptr<gui::Control> k2InGameTitleControl() const { return _k2InGameTitleControl; }

@@ -281,10 +281,13 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/generated/upgradeitems.h
     ${GAME_INCLUDE_DIR}/gui/generated/upgradesel.h
     ${GAME_INCLUDE_DIR}/gui/hud.h
+    ${GAME_INCLUDE_DIR}/gui/ingamehost.h
     ${GAME_INCLUDE_DIR}/gui/ingame.h
     ${GAME_INCLUDE_DIR}/gui/ingame/abilities.h
     ${GAME_INCLUDE_DIR}/gui/ingame/character.h
     ${GAME_INCLUDE_DIR}/gui/ingame/equip.h
+    ${GAME_INCLUDE_DIR}/gui/ingame/itemview.h
+    ${GAME_INCLUDE_DIR}/gui/ingame/itembacking.h
     ${GAME_INCLUDE_DIR}/gui/ingame/inventory.h
     ${GAME_INCLUDE_DIR}/gui/ingame/journal.h
     ${GAME_INCLUDE_DIR}/gui/ingame/map.h
@@ -517,11 +520,13 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/ingame/abilities.cpp
     ${GAME_SOURCE_DIR}/gui/ingame/character.cpp
     ${GAME_SOURCE_DIR}/gui/ingame/equip.cpp
+    ${GAME_SOURCE_DIR}/gui/ingame/itembacking.cpp
     ${GAME_SOURCE_DIR}/gui/ingame/inventory.cpp
     ${GAME_SOURCE_DIR}/gui/ingame/journal.cpp
     ${GAME_SOURCE_DIR}/gui/ingame/map.cpp
     ${GAME_SOURCE_DIR}/gui/ingame/messages.cpp
     ${GAME_SOURCE_DIR}/gui/ingame/options.cpp
+    ${GAME_SOURCE_DIR}/gui/ingamehost.cpp
     ${GAME_SOURCE_DIR}/gui/ingame.cpp
     ${GAME_SOURCE_DIR}/gui/loadscreen.cpp
     ${GAME_SOURCE_DIR}/presentationgui.cpp

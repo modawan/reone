@@ -17,15 +17,6 @@
 
 #include "reone/game/gui/ingame/equip.h"
 
-#include "reone/game/di/services.h"
-#include "reone/game/equipmentrules.h"
-#include "reone/game/equipmentoperation.h"
-#include "reone/game/game.h"
-#include "reone/game/gui/ingame.h"
-#include "reone/game/itemdescription.h"
-#include "reone/game/object/creature.h"
-#include "reone/game/object/item.h"
-#include "reone/game/party.h"
 #include "reone/resource/provider/textures.h"
 #include "reone/resource/strings.h"
 
@@ -104,7 +95,7 @@ void Equipment::onGUILoaded() {
         _lblBar.push_back(_controls.LBL_BAR5);
 
     for (auto &slotName : g_slotNames) {
-        if ((slotName.first == Slot::WeapL2 || slotName.first == Slot::WeapR2) && !_game.isTSL())
+        if ((slotName.first == Slot::WeapL2 || slotName.first == Slot::WeapR2) && !isTSL())
             continue;
         _lblInv[slotName.first] = findControl<Label>("LBL_INV_" + slotName.second);
         if (_lblInv[slotName.first]) {
@@ -119,7 +110,7 @@ void Equipment::onGUILoaded() {
     if (_controls.BTN_CHANGE2) {
         _controls.BTN_CHANGE2->setSelectable(false);
     }
-    if (_game.isTSL()) {
+    if (isTSL()) {
         useK2ShellTitle(_controls.LBL_TITLE);
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
         for (auto &button : {_controls.BTN_BACK, _controls.BTN_EQUIP, _controls.BTN_SWAPWEAPONS}) {
@@ -138,14 +129,14 @@ void Equipment::onGUILoaded() {
 
     _controls.BTN_EQUIP->setOnClick([this]() {
         if (_selectedSlot == Slot::None) {
-            _game.openInGame();
+            if (_onExit) _onExit();
         } else {
             confirmSelectedCandidate();
         }
     });
     _controls.BTN_BACK->setOnClick([this]() {
         if (_selectedSlot == Slot::None) {
-            _game.openInGame();
+            if (_onExit) _onExit();
         } else {
             selectSlot(Slot::None);
         }
@@ -154,10 +145,9 @@ void Equipment::onGUILoaded() {
     for (auto &slotButton : _btnInv) {
         auto slot = slotButton.first;
         slotButton.second->setOnClick([this, slot]() {
-            std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-            auto activation = evaluateEquipmentSlotActivation(*partyLeader, getInventorySlot(slot));
-            if (!activation.available) {
-                _controls.LBL_CANTEQUIP->setTextMessage(_services.resource.strings.getText(kStrRefBlockedByTwoHandedMainHand));
+            _view = _backing ? _backing->readEquipment(getInventorySlot(slot)) : EquipmentView {};
+            if (!_view.slotAvailable) {
+                _controls.LBL_CANTEQUIP->setTextMessage(_strings.getText(kStrRefBlockedByTwoHandedMainHand));
                 _controls.LBL_CANTEQUIP->setVisible(true);
                 return;
             }
@@ -174,7 +164,7 @@ void Equipment::onGUILoaded() {
 
             auto maybeStrRef = g_slotStrRefs.find(slot);
             if (maybeStrRef != g_slotStrRefs.end()) {
-                slotDesc = _services.resource.strings.getText(maybeStrRef->second);
+                slotDesc = _strings.getText(maybeStrRef->second);
             }
 
             _controls.LBL_SLOTNAME->setTextMessage(slotDesc);
@@ -189,7 +179,7 @@ void Equipment::configureItemsListBox() {
     // See InventoryMenu: K1's baked slot strip has a fractional period in
     // authored pixels, so the rows are repainted over it and this is a free
     // density knob. K2's equipment list uses its tighter two-pixel gap.
-    _controls.LB_ITEMS->setPadding(_game.isTSL() ? 2 : 8);
+    _controls.LB_ITEMS->setPadding(isTSL() ? 2 : 8);
     useBakedItemSlotArt(*_controls.LB_ITEMS);
     _controls.LB_ITEMS->setOnItemClick([this](const std::string &item) {
         onItemsListBoxItemClick(item);
@@ -200,7 +190,7 @@ void Equipment::configureItemsListBox() {
 
     auto &protoItem = _controls.LB_ITEMS->protoItem();
 
-    if (_game.isTSL()) {
+    if (isTSL()) {
         enableK2ButtonBodyFill(protoItem);
         protoItem.setBorderFill("uibit_fill_2wt");
         protoItem.setHilightFill("uibit_fill_2wt");
@@ -234,27 +224,8 @@ void Equipment::updateCandidateDescription() {
     if (selectedItemIdx < 0 || selectedItemIdx >= _controls.LB_ITEMS->getItemCount())
         return;
 
-    const ListBox::Item &lbItem = _controls.LB_ITEMS->getItemAt(selectedItemIdx);
-    if (lbItem.tag == kNoneItemTag)
-        return;
-
-    std::shared_ptr<Item> itemObj;
-    if (lbItem.tag == kEquippedItemTag) {
-        std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-        itemObj = partyLeader->getEquippedItem(getInventorySlot(_selectedSlot));
-    } else {
-        std::shared_ptr<Creature> player(_game.party().player());
-        for (auto &playerItem : player->items()) {
-            if (playerItem->tag() == lbItem.tag) {
-                itemObj = playerItem;
-                break;
-            }
-        }
-    }
-    if (!itemObj)
-        return;
-
-    _controls.LB_DESC->addTextLinesAsItems(joinItemDescriptionLines(buildItemDescriptionLines(*itemObj, _services)));
+    if (selectedItemIdx < static_cast<int>(_listedItems.size()))
+        _controls.LB_DESC->addTextLinesAsItems(_listedItems[selectedItemIdx].description);
 }
 
 static int getInventorySlot(Equipment::Slot slot) {
@@ -295,33 +266,31 @@ void Equipment::confirmSelectedCandidate() {
 }
 
 void Equipment::confirmCandidateItem(const std::string &item) {
-    if (_selectedSlot == Slot::None)
-        return;
-    if (item == kEquippedItemTag) {
-        selectSlot(Slot::None);
-        return;
-    }
+    if (_selectedSlot == Slot::None || !_backing || _awaitingRevision) return;
+    if (item == kEquippedItemTag) { selectSlot(Slot::None); return; }
+    auto index = _controls.LB_ITEMS->selectedItemIndex();
+    if (index < 0 || index >= static_cast<int>(_listedItems.size())) return;
+    _awaitingRevision = _view.revision;
+    _backing->equip(_view.revision, _listedItems[index].handle, getInventorySlot(_selectedSlot));
+    receiveEquipmentResult();
+}
 
-    std::shared_ptr<Creature> player(_game.party().player());
-    std::shared_ptr<Item> itemObj;
-    if (player && item != kNoneItemTag) {
-        for (auto &playerItem : player->items()) {
-            if (playerItem->tag() == item) {
-                itemObj = playerItem;
-                break;
-            }
-        }
-    }
-    if (!player || (item != kNoneItemTag && !itemObj))
-        return;
-    auto subject = _game.party().getLeader();
-    if (!subject)
-        return;
-    auto outcome = applyEquipmentOperation(_game, *subject, *player, itemObj, getInventorySlot(_selectedSlot));
-    if (outcome != EquipmentOperationOutcome::Rejected) {
-        updateEquipment();
-        selectSlot(Slot::None);
-    }
+void Equipment::receiveEquipmentResult() {
+    if (!_backing || !_awaitingRevision) return;
+    auto result = _backing->equipmentResult();
+    if (!result || result->revision != *_awaitingRevision) return;
+    _awaitingRevision.reset();
+    updateEquipment();
+    if (result->outcome != EquipmentRequestOutcome::Rejected) selectSlot(Slot::None);
+    else activateSlot(_selectedSlot);
+}
+
+void Equipment::setBacking(std::shared_ptr<IEquipmentMenuBacking> backing) {
+    _backing = std::move(backing);
+    _view = {};
+    _listedItems.clear();
+    _awaitingRevision.reset();
+    if (_gui) update();
 }
 
 void Equipment::onItemsListBoxItemClick(const std::string &item) {
@@ -329,21 +298,16 @@ void Equipment::onItemsListBoxItemClick(const std::string &item) {
 }
 
 void Equipment::update() {
-    updatePortraits();
     updateEquipment();
+    updatePortraits();
     selectSlot(Slot::None);
-
-    auto partyLeader(_game.party().getLeader());
-
-    if (!_game.isTSL()) {
-        std::string vitalityString(str(boost::format("%d/\n%d") % partyLeader->currentHitPoints() % partyLeader->maxHitPoints()));
-        _controls.LBL_VITALITY->setTextMessage(vitalityString);
-    }
-    _controls.LBL_DEF->setTextMessage(std::to_string(partyLeader->getDefense()));
+    if (!isTSL()) _controls.LBL_VITALITY->setTextMessage(_view.subject.vitality);
+    _controls.LBL_DEF->setTextMessage(_view.subject.defense);
 }
 
 void Equipment::update(float dt) {
-    GameGUI::update(dt);
+    PresentationGUI::update(dt);
+    receiveEquipmentResult();
     updateCandidateDescription();
 }
 
@@ -353,17 +317,10 @@ void Equipment::openItems() {
 }
 
 void Equipment::updatePortraits() {
-    if (_game.isTSL())
-        return;
-
-    Party &party = _game.party();
-    std::shared_ptr<Creature> partyLeader(party.getLeader());
-    std::shared_ptr<Creature> partyMember1(party.getMember(1));
-    std::shared_ptr<Creature> partyMember2(party.getMember(2));
-
-    _controls.LBL_PORTRAIT->setBorderFill(partyLeader->portrait());
-    _controls.BTN_CHANGE1->setBorderFill(partyMember1 ? partyMember1->portrait() : nullptr);
-    _controls.BTN_CHANGE2->setBorderFill(partyMember2 ? partyMember2->portrait() : nullptr);
+    if (isTSL()) return;
+    _controls.LBL_PORTRAIT->setBorderFill(_view.subject.portraits[0]);
+    _controls.BTN_CHANGE1->setBorderFill(_view.subject.portraits[1]);
+    _controls.BTN_CHANGE2->setBorderFill(_view.subject.portraits[2]);
 }
 
 void Equipment::selectSlot(Slot slot) {
@@ -380,7 +337,7 @@ void Equipment::selectSlot(Slot slot) {
     _controls.LBL_SLOTNAME->setVisible(noneSelected);
     updateK2LoadoutOverlayVisibility(noneSelected);
 
-    if (!_game.isTSL()) {
+    if (!isTSL()) {
         _controls.LBL_PORT_BORD->setVisible(noneSelected);
         _controls.LBL_PORTRAIT->setVisible(noneSelected);
         _controls.LBL_TXTBAR->setVisible(noneSelected);
@@ -394,7 +351,7 @@ void Equipment::selectSlot(Slot slot) {
 }
 
 void Equipment::tintK2LoadoutOverlay() {
-    if (!_game.isTSL())
+    if (!isTSL())
         return;
 
     // Preserve the muted K2 panel colours authored in equip_p.gui.
@@ -403,7 +360,7 @@ void Equipment::tintK2LoadoutOverlay() {
 }
 
 void Equipment::updateK2LoadoutOverlayVisibility(bool visible) {
-    if (!_game.isTSL())
+    if (!isTSL())
         return;
 
     auto setVisible = [visible](auto &control) {
@@ -442,50 +399,18 @@ void Equipment::activateSlot(Slot slot) {
 }
 
 void Equipment::updateEquipment() {
-    std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-    auto &equipment = partyLeader->equipment();
-
-    for (auto &lbl : _lblInv) {
-        int slot = getInventorySlot(lbl.first);
-        std::shared_ptr<Texture> fill;
-
-        auto equipped = equipment.find(slot);
-        if (equipped != equipment.end()) {
-            fill = equipped->second->icon();
-        } else {
-            fill = getEmptySlotIcon(lbl.first);
-        }
-
-        lbl.second->setBorderFill(fill);
+    _view = _backing ? _backing->readEquipment(_activeSlot == Slot::None ? -1 : getInventorySlot(_activeSlot)) : EquipmentView {};
+    for (auto &[slot, label] : _lblInv) {
+        auto equipped = _view.equipment.find(getInventorySlot(slot));
+        label->setBorderFill(equipped == _view.equipment.end() ? getEmptySlotIcon(slot) : equipped->second);
     }
-
-    int min, max;
-    partyLeader->getMainHandDamage(min, max);
-    _controls.LBL_ATKR->setTextMessage(str(boost::format("%d-%d") % min % max));
-
-    partyLeader->getOffhandDamage(min, max);
-    _controls.LBL_ATKL->setTextMessage(str(boost::format("%d-%d") % min % max));
-
-    auto formatAttackBonus = [](int attackBonus) {
-        std::string result(std::to_string(attackBonus));
-        if (attackBonus > 0) {
-            result.insert(0, "+");
-        }
-        return result;
-    };
-    _controls.LBL_TOHITL->setTextMessage(
-        formatAttackBonus(partyLeader->getAttackBonus(true)));
-    _controls.LBL_TOHITR->setTextMessage(
-        formatAttackBonus(partyLeader->getAttackBonus()));
+    _controls.LBL_ATKR->setTextMessage(_view.mainDamage);
+    _controls.LBL_ATKL->setTextMessage(_view.offDamage);
+    _controls.LBL_TOHITL->setTextMessage(_view.offAttack);
+    _controls.LBL_TOHITR->setTextMessage(_view.mainAttack);
 }
 
 std::shared_ptr<Texture> Equipment::getEmptySlotIcon(Slot slot) const {
-    static std::unordered_map<Slot, std::shared_ptr<Texture>> icons;
-
-    auto icon = icons.find(slot);
-    if (icon != icons.end())
-        return icon->second;
-
     std::string resRef;
     switch (slot) {
     case Slot::Implant:
@@ -521,82 +446,35 @@ std::shared_ptr<Texture> Equipment::getEmptySlotIcon(Slot slot) const {
         return nullptr;
     }
 
-    std::shared_ptr<Texture> texture(_services.resource.textures.get(resRef, TextureUsage::GUI));
-    auto pair = icons.insert(std::make_pair(slot, texture));
-
-    return pair.first->second;
+    return _presentation.textures.get(resRef, TextureUsage::GUI);
 }
 
 void Equipment::updateItems() {
     _controls.LB_ITEMS->clearItems();
     clearCandidateDescription();
-    std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-    std::shared_ptr<Item> equipped;
-    int activeInventorySlot = -1;
-
+    _view = _backing ? _backing->readEquipment(_activeSlot == Slot::None ? -1 : getInventorySlot(_activeSlot)) : EquipmentView {};
+    _listedItems.clear();
     if (_activeSlot != Slot::None) {
-        activeInventorySlot = getInventorySlot(_activeSlot);
-
-        ListBox::Item lbItem;
-        lbItem.tag = kNoneItemTag;
-        lbItem.text = _services.resource.strings.getText(kStrRefNone);
-        lbItem.iconTexture = _services.resource.textures.get("inone", TextureUsage::GUI);
-        lbItem.iconFrame = itemFrameTexture(1);
-
-        _controls.LB_ITEMS->addItem(std::move(lbItem));
-
-        auto activation = evaluateEquipmentSlotActivation(*partyLeader, activeInventorySlot);
-        if (!activation.available)
-            return;
-
-        equipped = partyLeader->getEquippedItem(activeInventorySlot);
-        if (equipped) {
-            ListBox::Item equippedItem;
-            equippedItem.tag = kEquippedItemTag;
-            equippedItem.text = equipped->localizedName() + kEquippedItemSuffix;
-            equippedItem.iconTexture = equipped->icon();
-            equippedItem.iconFrame = itemFrameTexture(equipped->stackSize());
-
-            if (equipped->stackSize() > 1) {
-                equippedItem.iconText = std::to_string(equipped->stackSize());
-            }
-            _controls.LB_ITEMS->addItem(std::move(equippedItem));
-        }
+        MenuItemView none;
+        none.name = _strings.getText(kStrRefNone);
+        none.icon = _presentation.textures.get("inone", TextureUsage::GUI);
+        _listedItems.push_back(std::move(none));
     }
-    std::shared_ptr<Creature> player(_game.party().player());
-
-    for (auto &item : player->items()) {
-        if (item == equipped)
-            continue;
-
-        EquipmentCandidateDecision decision;
-        bool hasDecision = false;
-        if (_activeSlot == Slot::None) {
-            if (!item->isEquippable())
-                continue;
-        } else {
-            decision = evaluateEquipmentCandidate(*partyLeader, activeInventorySlot, item.get());
-            hasDecision = true;
-            if (!decision.visible)
-                continue;
-        }
-        ListBox::Item lbItem;
-        lbItem.tag = item->tag();
-        lbItem.text = item->localizedName();
-        lbItem.iconTexture = item->icon();
-        lbItem.iconFrame = itemFrameTexture(item->stackSize());
-        if (hasDecision) {
-            lbItem.invalid = !decision.valid;
-        }
-
-        if (item->stackSize() > 1) {
-            lbItem.iconText = std::to_string(item->stackSize());
-        }
-        _controls.LB_ITEMS->addItem(std::move(lbItem));
+    if (_view.slotAvailable) _listedItems.insert(_listedItems.end(), _view.items.begin(), _view.items.end());
+    bool equipped = false;
+    for (const auto &item : _listedItems) {
+        ListBox::Item row;
+        row.tag = item.handle == 0 ? kNoneItemTag : (item.equipped ? kEquippedItemTag : std::to_string(item.handle));
+        row.text = item.name + (item.equipped ? kEquippedItemSuffix : "");
+        row.iconTexture = item.icon;
+        row.iconFrame = itemFrameTexture(item.stackSize);
+        row.invalid = !item.valid;
+        if (item.stackSize > 1) row.iconText = std::to_string(item.stackSize);
+        _controls.LB_ITEMS->addItem(std::move(row));
+        equipped = equipped || item.equipped;
     }
-    if (_selectedSlot != Slot::None) {
+    if (_selectedSlot != Slot::None && _view.slotAvailable)
         _controls.LB_ITEMS->setSelectedItemIndex(equipped ? 1 : 0);
-    }
 }
 
 } // namespace game

@@ -22,21 +22,15 @@
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
 
-#include "../../gui.h"
+#include "../../presentationgui.h"
+#include "itemview.h"
+#include "reone/resource/strings.h"
 
 namespace reone {
 
 namespace game {
 
-class Creature;
-
-}
-
-namespace game {
-
-class InGameMenu;
-
-class Equipment : public GameGUI {
+class Equipment : public PresentationGUI {
 public:
     enum class Slot {
         None,
@@ -53,15 +47,15 @@ public:
         WeapR2
     };
 
-    Equipment(
-        Game &game,
-        InGameMenu &inGameMenu,
-        ServicesView &services) :
-        GameGUI(game, services),
-        _inGameMenu(inGameMenu) {
+    Equipment(resource::GameID gameId, const graphics::GraphicsOptions &options,
+              PresentationServices services, resource::IStrings &strings,
+              std::shared_ptr<IEquipmentMenuBacking> backing, std::function<void()> onExit) :
+        PresentationGUI(gameId, options, services), _strings(strings),
+        _backing(std::move(backing)), _onExit(std::move(onExit)) {
         _resRef = guiResRef("equip");
     }
 
+    void setBacking(std::shared_ptr<IEquipmentMenuBacking> backing);
     void update();
     void update(float dt) override;
     void openItems();
@@ -136,7 +130,14 @@ private:
     std::unordered_map<Equipment::Slot, std::shared_ptr<gui::Label>> _lblInv;
     std::unordered_map<Equipment::Slot, std::shared_ptr<gui::Button>> _btnInv;
 
-    InGameMenu &_inGameMenu;
+    resource::IStrings &_strings;
+    std::shared_ptr<IEquipmentMenuBacking> _backing;
+    std::function<void()> _onExit;
+    EquipmentView _view;
+    std::vector<MenuItemView> _listedItems;
+    std::optional<uint64_t> _awaitingRevision;
+
+    void receiveEquipmentResult();
 
     Slot _selectedSlot {Slot::None};
     Slot _activeSlot {Slot::None};

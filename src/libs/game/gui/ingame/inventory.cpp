@@ -21,12 +21,6 @@
 #include "reone/gui/control/label.h"
 #include "reone/gui/control/listbox.h"
 
-#include "reone/game/di/services.h"
-#include "reone/game/game.h"
-#include "reone/game/itemdescription.h"
-#include "reone/game/object/creature.h"
-#include "reone/game/object/item.h"
-#include "reone/game/party.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/textures.h"
@@ -46,23 +40,6 @@ namespace game {
 static constexpr char kEquippedItemSuffix[] = " (equipped)";
 static constexpr char kK1InventoryTitlePrefix[] = "Party Inventory - ";
 
-static bool isInventoryListedEquipmentSlot(int slot) {
-    switch (slot) {
-    case InventorySlots::head:
-    case InventorySlots::body:
-    case InventorySlots::hands:
-    case InventorySlots::rightWeapon:
-    case InventorySlots::leftWeapon:
-    case InventorySlots::leftArm:
-    case InventorySlots::rightArm:
-    case InventorySlots::implant:
-    case InventorySlots::belt:
-        return true;
-    default:
-        return false;
-    }
-}
-
 static void tintK2PanelFill(const std::shared_ptr<ListBox> &listBox, const glm::vec3 &baseColor) {
     if (!listBox) {
         return;
@@ -76,129 +53,6 @@ static void enableBorderFillTint(const std::shared_ptr<Label> &label) {
         return;
     }
     label->setTintBorderFill(true);
-}
-
-struct BaseItemFilterInfo {
-    std::optional<int> itemType;
-    std::optional<int> storePanelSort;
-    std::optional<int> weaponType;
-};
-
-static BaseItemFilterInfo getBaseItemFilterInfo(ServicesView &services, const Item &item) {
-    BaseItemFilterInfo info;
-    auto baseItems = services.resource.twoDas.get("baseitems");
-    if (!baseItems) {
-        return info;
-    }
-
-    int baseItemType = item.baseItemType();
-    info.itemType = baseItems->getIntOpt(baseItemType, "itemtype");
-    info.storePanelSort = baseItems->getIntOpt(baseItemType, "storepanelsort");
-    info.weaponType = baseItems->getIntOpt(baseItemType, "weapontype");
-    return info;
-}
-
-static bool isDatapad(const Item &item, const BaseItemFilterInfo &baseItem) {
-    return baseItem.itemType == 24 || item.itemClass() == "i_datapad";
-}
-
-static bool isWeapon(const Item &item, const BaseItemFilterInfo &baseItem) {
-    if (item.weaponType() != WeaponType::None) {
-        return true;
-    }
-    if (baseItem.weaponType && *baseItem.weaponType != static_cast<int>(WeaponType::None)) {
-        return true;
-    }
-    if (baseItem.itemType) {
-        switch (*baseItem.itemType) {
-        case 0:
-        case 1:
-        case 2:
-        case 3:
-        case 4:
-        case 5:
-        case 39:
-        case 40:
-        case 41:
-            return true;
-        default:
-            break;
-        }
-    }
-    if (baseItem.storePanelSort) {
-        switch (*baseItem.storePanelSort) {
-        case 20:
-        case 25:
-        case 30:
-        case 35:
-        case 40:
-        case 45:
-            return true;
-        default:
-            break;
-        }
-    }
-    return false;
-}
-
-static bool isArmor(const Item &item, const BaseItemFilterInfo &baseItem) {
-    return item.isEquippable() && !isWeapon(item, baseItem);
-}
-
-static bool isUseable(const Item &item, const BaseItemFilterInfo &baseItem) {
-    if (item.activateSpell()) {
-        return true;
-    }
-    if (!baseItem.storePanelSort) {
-        return false;
-    }
-
-    switch (*baseItem.storePanelSort) {
-    case 1:
-    case 50:
-        return true;
-    case 80:
-        return !isDatapad(item, baseItem);
-    default:
-        return false;
-    }
-}
-
-static bool isUtility(const Item &item, const BaseItemFilterInfo &baseItem) {
-    if (item.plotFlag() || isWeapon(item, baseItem) || isArmor(item, baseItem) || isUseable(item, baseItem)) {
-        return false;
-    }
-    if (isDatapad(item, baseItem)) {
-        return true;
-    }
-    if (baseItem.storePanelSort) {
-        switch (*baseItem.storePanelSort) {
-        case 2:
-        case 85:
-        case 90:
-        case 95:
-            return true;
-        default:
-            break;
-        }
-    }
-    if (baseItem.itemType) {
-        switch (*baseItem.itemType) {
-        case 27:
-        case 28:
-        case 29:
-        case 30:
-        case 42:
-        case 43:
-        case 46:
-        case 50:
-        case 51:
-            return true;
-        default:
-            break;
-        }
-    }
-    return false;
 }
 
 static InventoryFilter nextK1Filter(InventoryFilter filter) {
@@ -262,7 +116,7 @@ void InventoryMenu::onGUILoaded() {
     }
     if (_controls.BTN_EXIT) {
         _controls.BTN_EXIT->setOnClick([this]() {
-            _game.openInGame();
+            if (_onExit) _onExit();
         });
     }
     if (_controls.BTN_ALL) {
@@ -271,7 +125,7 @@ void InventoryMenu::onGUILoaded() {
 
     configureItemsListBox();
     configureFilterControls();
-    if (_game.isTSL()) {
+    if (isTSL()) {
         fillK2SectionStrip(_controls.LBL_BAR1, _controls.LBL_BAR2);
         enableBorderFillTint(_controls.LBL_BAR1);
         enableBorderFillTint(_controls.LBL_BAR2);
@@ -284,7 +138,7 @@ void InventoryMenu::onGUILoaded() {
         _controls.LB_DESCRIPTION->setProtoMatchContent(true);
     }
 
-    if (!_game.isTSL()) {
+    if (!isTSL()) {
         if (_controls.BTN_CHANGE1) {
             _controls.BTN_CHANGE1->setSelectable(false);
         }
@@ -299,7 +153,7 @@ void InventoryMenu::configureItemsListBox() {
         return;
     }
 
-    if (_game.isTSL()) {
+    if (isTSL()) {
         tintK2PanelFill(_controls.LB_ITEMS, _baseColor);
         tintK2PanelFill(_controls.LB_DESCRIPTION, _baseColor);
     }
@@ -311,14 +165,14 @@ void InventoryMenu::configureItemsListBox() {
     // which no integer proto height plus padding can match. The rows are
     // repainted over that strip instead, which leaves this a free density
     // knob. K2 uses the five-pixel gap established by its menu layout.
-    _controls.LB_ITEMS->setPadding(_game.isTSL() ? 5 : 8);
+    _controls.LB_ITEMS->setPadding(isTSL() ? 5 : 8);
     useBakedItemSlotArt(*_controls.LB_ITEMS);
     _controls.LB_ITEMS->setOnItemClick([this](const std::string &) {
         updateItemDescription();
     });
 
     if (auto protoItem = _controls.LB_ITEMS->protoItemOrNull()) {
-        if (_game.isTSL()) {
+        if (isTSL()) {
             enableK2ButtonBodyFill(*protoItem);
             protoItem->setBorderFill("uibit_fill_2wt");
             protoItem->setHilightFill("uibit_fill_2wt");
@@ -331,7 +185,7 @@ void InventoryMenu::configureItemsListBox() {
 }
 
 void InventoryMenu::configureFilterControls() {
-    if (_game.isTSL()) {
+    if (isTSL()) {
         if (_controls.BTN_ALL) {
             _controls.BTN_ALL->setOnClick([this]() {
                 setFilter(InventoryFilter::All);
@@ -378,36 +232,27 @@ void InventoryMenu::configureFilterControls() {
 }
 
 void InventoryMenu::refreshPortraits() {
+    _view = _backing ? _backing->readInventory(_filter) : InventoryView {};
     refreshCredits();
     refreshStats();
-
-    if (!!_game.isTSL())
-        return;
-
-    Party &party = _game.party();
-    std::shared_ptr<Creature> partyLeader(party.getLeader());
-    std::shared_ptr<Creature> partyMember1(party.getMember(1));
-    std::shared_ptr<Creature> partyMember2(party.getMember(2));
-
-    _controls.LBL_PORT->setBorderFill(partyLeader->portrait());
-
-    _controls.BTN_CHANGE1->setBorderFill(partyMember1 ? partyMember1->portrait() : nullptr);
-    _controls.BTN_CHANGE1->setHilightFill(partyMember1 ? partyMember1->portrait() : nullptr);
-
-    _controls.BTN_CHANGE2->setBorderFill(partyMember2 ? partyMember2->portrait() : nullptr);
-    _controls.BTN_CHANGE2->setHilightFill(partyMember2 ? partyMember2->portrait() : nullptr);
+    if (isTSL()) return;
+    _controls.LBL_PORT->setBorderFill(_view.subject.portraits[0]);
+    _controls.BTN_CHANGE1->setBorderFill(_view.subject.portraits[1]);
+    _controls.BTN_CHANGE1->setHilightFill(_view.subject.portraits[1]);
+    _controls.BTN_CHANGE2->setBorderFill(_view.subject.portraits[2]);
+    _controls.BTN_CHANGE2->setHilightFill(_view.subject.portraits[2]);
 }
 
 void InventoryMenu::refreshCredits() {
     if (!_controls.LBL_CREDITS_VALUE) {
         return;
     }
-    _controls.LBL_CREDITS_VALUE->setTextMessage(std::to_string(_game.party().gold()));
+    _controls.LBL_CREDITS_VALUE->setTextMessage(_view.subject.credits);
     _controls.LBL_CREDITS_VALUE->setVisible(true);
 }
 
 void InventoryMenu::refreshStats() {
-    if (_game.isTSL()) {
+    if (isTSL()) {
         if (_controls.LBL_VIT) {
             _controls.LBL_VIT->setTextMessage("");
             _controls.LBL_VIT->setVisible(false);
@@ -419,8 +264,7 @@ void InventoryMenu::refreshStats() {
         return;
     }
 
-    std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-    if (!partyLeader) {
+    if (!_view.subject.present) {
         if (_controls.LBL_VIT) {
             _controls.LBL_VIT->setTextMessage("");
             _controls.LBL_VIT->setVisible(false);
@@ -433,11 +277,11 @@ void InventoryMenu::refreshStats() {
     }
 
     if (_controls.LBL_VIT) {
-        _controls.LBL_VIT->setTextMessage(std::to_string(partyLeader->currentHitPoints()) + "/\n" + std::to_string(partyLeader->maxHitPoints()));
+        _controls.LBL_VIT->setTextMessage(_view.subject.vitality);
         _controls.LBL_VIT->setVisible(true);
     }
     if (_controls.LBL_DEF) {
-        _controls.LBL_DEF->setTextMessage(std::to_string(partyLeader->getDefense()));
+        _controls.LBL_DEF->setTextMessage(_view.subject.defense);
         _controls.LBL_DEF->setVisible(true);
     }
 }
@@ -457,7 +301,7 @@ void InventoryMenu::setFilter(InventoryFilter filter) {
 }
 
 void InventoryMenu::updateFilterControls() {
-    if (_game.isTSL()) {
+    if (isTSL()) {
         updateK2FilterButton(_controls.BTN_ALL, _filter == InventoryFilter::All);
         updateK2FilterButton(_controls.BTN_DATAPADS, _filter == InventoryFilter::Datapad);
         updateK2FilterButton(_controls.BTN_WEAPONS, _filter == InventoryFilter::Weapon);
@@ -477,100 +321,29 @@ void InventoryMenu::updateFilterControls() {
     }
 }
 
-bool InventoryMenu::itemMatchesFilter(const Item &item) const {
-    BaseItemFilterInfo baseItem(getBaseItemFilterInfo(_services, item));
-    switch (_filter) {
-    case InventoryFilter::All:
-        return true;
-    case InventoryFilter::New:
-        // New item tracking is not retained by the runtime inventory yet.
-        return false;
-    case InventoryFilter::Quest:
-        return item.plotFlag();
-    case InventoryFilter::Equippable:
-        return item.isEquippable();
-    case InventoryFilter::Utility:
-        return isUtility(item, baseItem);
-    case InventoryFilter::Useable:
-        return isUseable(item, baseItem);
-    case InventoryFilter::Datapad:
-        return isDatapad(item, baseItem);
-    case InventoryFilter::Weapon:
-        return isWeapon(item, baseItem);
-    case InventoryFilter::Armor:
-        return isArmor(item, baseItem);
-    case InventoryFilter::Misc:
-        return !item.plotFlag() &&
-               !isDatapad(item, baseItem) &&
-               !isWeapon(item, baseItem) &&
-               !isArmor(item, baseItem) &&
-               !isUseable(item, baseItem);
-    default:
-        return true;
-    }
+void InventoryMenu::setBacking(std::shared_ptr<IInventoryMenuBacking> backing) {
+    _backing = std::move(backing);
+    _view = {};
+    _listedItems.clear();
+    if (_gui) { refreshPortraits(); refreshItems(); }
 }
 
 void InventoryMenu::refreshItems() {
-    if (!_controls.LB_ITEMS) {
-        return;
-    }
-
+    if (!_controls.LB_ITEMS) return;
+    _view = _backing ? _backing->readInventory(_filter) : InventoryView {};
     _controls.LB_ITEMS->clearItems();
-    _listedItems.clear();
+    _listedItems = _view.items;
     clearItemDescription();
-
-    std::shared_ptr<Creature> player(_game.party().player());
-    if (!player) {
-        return;
+    for (const auto &item : _listedItems) {
+        ListBox::Item row;
+        row.tag = std::to_string(item.handle);
+        row.text = item.name + (item.equipped ? kEquippedItemSuffix : "");
+        row.iconTexture = item.icon;
+        row.iconFrame = itemFrameTexture(item.stackSize);
+        if (item.stackSize > 1) row.iconText = std::to_string(item.stackSize);
+        _controls.LB_ITEMS->addItem(std::move(row));
     }
-
-    std::shared_ptr<Creature> activeCreature(_game.party().getLeader());
-    if (activeCreature) {
-        for (const auto &equipment : activeCreature->equipment()) {
-            if (!isInventoryListedEquipmentSlot(equipment.first)) {
-                continue;
-            }
-            std::shared_ptr<Item> equipped(equipment.second);
-            if (!equipped || !itemMatchesFilter(*equipped)) {
-                continue;
-            }
-
-            ListBox::Item equippedItem;
-            equippedItem.tag = equipped->tag();
-            equippedItem.text = equipped->localizedName() + kEquippedItemSuffix;
-            equippedItem.iconTexture = equipped->icon();
-            equippedItem.iconFrame = itemFrameTexture(equipped->stackSize());
-
-            if (equipped->stackSize() > 1) {
-                equippedItem.iconText = std::to_string(equipped->stackSize());
-            }
-            _controls.LB_ITEMS->addItem(std::move(equippedItem));
-            _listedItems.push_back(equipped);
-        }
-    }
-
-    for (auto &item : player->items()) {
-        if (!item || std::find(_listedItems.begin(), _listedItems.end(), item) != _listedItems.end()) {
-            continue;
-        }
-        if (!itemMatchesFilter(*item)) {
-            continue;
-        }
-
-        ListBox::Item lbItem;
-        lbItem.tag = item->tag();
-        lbItem.text = item->localizedName();
-        lbItem.iconTexture = item->icon();
-        lbItem.iconFrame = itemFrameTexture(item->stackSize());
-
-        if (item->stackSize() > 1) {
-            lbItem.iconText = std::to_string(item->stackSize());
-        }
-        _controls.LB_ITEMS->addItem(std::move(lbItem));
-        _listedItems.push_back(item);
-    }
-
-    if (_controls.LB_ITEMS->getItemCount() > 0) {
+    if (!_listedItems.empty()) {
         _controls.LB_ITEMS->setSelectedItemIndex(0);
         updateItemDescription();
     }
@@ -598,17 +371,8 @@ void InventoryMenu::updateItemDescription() {
         _controls.LB_DESCRIPTION->clearItems();
     }
 
-    std::shared_ptr<Item> itemObj(
-        selectedItemIdx >= 0 && selectedItemIdx < static_cast<int>(_listedItems.size())
-            ? _listedItems[selectedItemIdx]
-            : nullptr);
-    if (!itemObj) {
-        return;
-    }
-
-    if (_controls.LB_DESCRIPTION) {
-        _controls.LB_DESCRIPTION->addTextLinesAsItems(joinItemDescriptionLines(buildItemDescriptionLines(*itemObj, _services)));
-    }
+    if (selectedItemIdx >= 0 && selectedItemIdx < static_cast<int>(_listedItems.size()) && _controls.LB_DESCRIPTION)
+        _controls.LB_DESCRIPTION->addTextLinesAsItems(_listedItems[selectedItemIdx].description);
 }
 
 } // namespace game
