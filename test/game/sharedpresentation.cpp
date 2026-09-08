@@ -50,6 +50,14 @@ TEST_F(SharedPresentation, real_presenters_route_distinct_state_and_commands_wit
         // Completion is deliberately withheld: sending a request does not edit the read view.
         EXPECT_EQ("3", list(left, "equip")->getItemAt(1).iconText);
         EXPECT_EQ(3, first->equipment.items[0].stackSize);
+        second->equipment.items[0].valid = false;
+        equip2->openItems();
+        list(right, "equip")->setSelectedItemIndex(1);
+        right.screens.at("equip" + suffix)->findControl("BTN_EQUIP")->handleClick(0, 0);
+        EXPECT_TRUE(second->requests.empty());
+        EXPECT_EQ(1, list(right, "equip")->selectedItemIndex());
+        second->equipment.items[0].valid = true;
+        equip2->openItems();
         list(right, "equip")->setSelectedItemIndex(1);
         right.screens.at("equip" + suffix)->findControl("BTN_EQUIP")->handleClick(0, 0);
         ASSERT_EQ(1u, second->requests.size());

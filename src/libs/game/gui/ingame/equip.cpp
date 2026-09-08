@@ -269,7 +269,7 @@ void Equipment::confirmCandidateItem(const std::string &item) {
     if (_selectedSlot == Slot::None || !_backing || _awaitingRevision) return;
     if (item == kEquippedItemTag) { selectSlot(Slot::None); return; }
     auto index = _controls.LB_ITEMS->selectedItemIndex();
-    if (index < 0 || index >= static_cast<int>(_listedItems.size())) return;
+    if (index < 0 || index >= static_cast<int>(_listedItems.size()) || !_listedItems[index].valid) return;
     _awaitingRevision = _view.revision;
     _backing->equip(_view.revision, _listedItems[index].handle, getInventorySlot(_selectedSlot));
     receiveEquipmentResult();
