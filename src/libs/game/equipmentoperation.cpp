@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 The reone project contributors
+ * Copyright (c) 2020-2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -79,8 +79,8 @@ EquipmentOperationOutcome applyEquipmentOperation(
             return EquipmentOperationOutcome::Failed;
         }
         bool applied = equipped
-            ? subject.replaceEquipment(decision.actualSlot, candidate, sourceInventory)
-            : subject.equip(decision.actualSlot, candidate);
+                           ? subject.replaceEquipment(decision.actualSlot, candidate, sourceInventory)
+                           : subject.equip(decision.actualSlot, candidate);
         if (!applied) {
             sourceInventory.addItem(candidate);
             return EquipmentOperationOutcome::Failed;
