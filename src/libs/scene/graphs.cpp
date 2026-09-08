@@ -16,6 +16,8 @@
  */
 
 #include "reone/scene/graphs.h"
+#include "reone/graphics/context.h"
+#include "reone/graphics/di/services.h"
 
 namespace reone {
 
@@ -25,6 +27,10 @@ void SceneGraphs::reserve(std::string name) {
     if (_scenes.count(name) > 0) {
         return;
     }
+    reset(std::move(name));
+}
+
+void SceneGraphs::reset(std::string name) {
     auto scene = std::make_unique<SceneGraph>(
         name,
         _renderPipelineFactory,
@@ -33,7 +39,13 @@ void SceneGraphs::reserve(std::string name) {
         _audioSvc,
         _resourceSvc);
 
-    _scenes.insert(std::make_pair(name, std::move(scene)));
+    if (_scenes.count(name)) {
+        // The graphics context caches references to framebuffer objects. Drop
+        // those bindings before destroying a scene's render targets.
+        _graphicsSvc.context.resetReadFramebuffer();
+        _graphicsSvc.context.resetDrawFramebuffer();
+    }
+    _scenes[name] = std::move(scene);
 }
 
 ISceneGraph &SceneGraphs::get(const std::string &name) {

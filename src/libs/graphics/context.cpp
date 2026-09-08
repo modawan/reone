@@ -202,6 +202,7 @@ std::shared_ptr<Texture> Context::captureScreen(int width, int height) {
     pixels->resize(static_cast<size_t>(3) * width * height);
     // GUI scene controls render through child framebuffers and may leave one
     // bound for reading. A screenshot is the composed window back buffer.
+    _readFramebuffer.reset();
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glReadBuffer(GL_BACK);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);

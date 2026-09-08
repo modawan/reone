@@ -3351,6 +3351,35 @@ void Creature::finalizeModel(ModelSceneNode &body) {
     }
 }
 
+CreaturePresentation Creature::presentation() const {
+    if (_presentation) return *_presentation;
+    CreaturePresentation result;
+    result.gender = static_cast<int>(_gender);
+    result.appearance = _appearance;
+    auto body = getEquippedItem(InventorySlots::body);
+    if (body && !body->baseBodyVariation().empty()) {
+        auto variation = boost::to_lower_copy(body->baseBodyVariation());
+        result.bodyVariation = variation.front() - 'a';
+        result.textureVariation = body->textureVariation();
+    }
+    return result;
+}
+
+void Creature::setPresentation(const CreaturePresentation &presentation) {
+    if (!isPresentationOnly()) {
+        throw std::logic_error("Visual tuples require a presentation-only creature");
+    }
+    if (presentation.appearance < 0 || presentation.appearance > 65535 ||
+        presentation.gender < 0 || presentation.gender > static_cast<int>(Gender::None) ||
+        presentation.bodyVariation < 0 || presentation.bodyVariation >= 26 ||
+        presentation.textureVariation < 0 || presentation.textureVariation > 255) {
+        throw std::invalid_argument("Invalid creature presentation");
+    }
+    _presentation = presentation;
+    _appearance = presentation.appearance;
+    _gender = static_cast<Gender>(presentation.gender);
+}
+
 std::string Creature::getBodyModelName() const {
     std::string column;
 
@@ -3358,7 +3387,9 @@ std::string Creature::getBodyModelName() const {
         column = "model";
 
         std::shared_ptr<Item> bodyItem(getEquippedItem(InventorySlots::body));
-        if (bodyItem) {
+        if (_presentation) {
+            column += static_cast<char>('a' + _presentation->bodyVariation);
+        } else if (bodyItem) {
             std::string baseBodyVar(bodyItem->baseBodyVariation());
             column += baseBodyVar;
         } else {
@@ -3387,7 +3418,9 @@ std::string Creature::getBodyTextureName() const {
     if (_modelType == Creature::ModelType::Character) {
         column = "tex";
 
-        if (bodyItem) {
+        if (_presentation) {
+            column += static_cast<char>('a' + _presentation->bodyVariation);
+        } else if (bodyItem) {
             std::string baseBodyVar(bodyItem->baseBodyVariation());
             column += baseBodyVar;
         } else {
@@ -3408,8 +3441,9 @@ std::string Creature::getBodyTextureName() const {
 
     if (_modelType == Creature::ModelType::Character) {
         bool texFound = false;
-        if (bodyItem) {
-            std::string tmp(str(boost::format("%s%02d") % texName % bodyItem->textureVariation()));
+        if (_presentation || bodyItem) {
+            auto variation = _presentation ? _presentation->textureVariation : bodyItem->textureVariation();
+            std::string tmp(str(boost::format("%s%02d") % texName % variation));
             std::shared_ptr<Texture> texture(_services.resource.textures.get(tmp, TextureUsage::MainTex));
             if (texture) {
                 texName = std::move(tmp);
