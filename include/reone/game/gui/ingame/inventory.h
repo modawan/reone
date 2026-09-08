@@ -17,7 +17,8 @@
 
 #pragma once
 
-#include "../../gui.h"
+#include "../../presentationgui.h"
+#include "itemview.h"
 
 namespace reone {
 
@@ -37,27 +38,16 @@ class Texture;
 
 namespace game {
 
-class Item;
-
-enum class InventoryFilter {
-    All,
-    New,
-    Quest,
-    Equippable,
-    Utility,
-    Useable,
-    Datapad,
-    Weapon,
-    Armor,
-    Misc
-};
-
-class InventoryMenu : public GameGUI {
+class InventoryMenu : public PresentationGUI {
 public:
-    InventoryMenu(Game &game, ServicesView &services) :
-        GameGUI(game, services) {
+    InventoryMenu(resource::GameID gameId, const graphics::GraphicsOptions &options,
+                  PresentationServices services, std::shared_ptr<IInventoryMenuBacking> backing,
+                  std::function<void()> onExit) :
+        PresentationGUI(gameId, options, services), _backing(std::move(backing)), _onExit(std::move(onExit)) {
         _resRef = guiResRef("inventory");
     }
+
+    void setBacking(std::shared_ptr<IInventoryMenuBacking> backing);
 
     void refreshPortraits();
     void refreshItems();
@@ -98,7 +88,10 @@ private:
     Controls _controls;
     InventoryFilter _filter {InventoryFilter::All};
     int _selectedItemIdx {-1};
-    std::vector<std::shared_ptr<Item>> _listedItems;
+    std::vector<MenuItemView> _listedItems;
+    InventoryView _view;
+    std::shared_ptr<IInventoryMenuBacking> _backing;
+    std::function<void()> _onExit;
 
     void onGUILoaded() override;
     void configureItemsListBox();
@@ -108,7 +101,6 @@ private:
     void advanceK1Filter();
     void setFilter(InventoryFilter filter);
     void updateFilterControls();
-    bool itemMatchesFilter(const Item &item) const;
     void updateItemDescription();
     void clearItemDescription();
 

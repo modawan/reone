@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,20 +17,14 @@
 
 #pragma once
 
-#include "reone/game/di/services.h"
-#include "presentationgui.h"
+#include "itemview.h"
 
 namespace reone::game {
-
 class Game;
+struct ServicesView;
 
-/** Strong gameplay facade for existing screen constructors and subclasses. */
-class GameGUI : public PresentationGUI {
-protected:
-    Game &_game;
-    ServicesView &_services;
-
-    GameGUI(Game &game, ServicesView &services);
-};
+// The SP owner chooses the subject and inventory through current Party policy.
+std::shared_ptr<IInventoryMenuBacking> newInventoryMenuBacking(Game &game, ServicesView &services);
+std::shared_ptr<IEquipmentMenuBacking> newEquipmentMenuBacking(Game &game, ServicesView &services);
 
 } // namespace reone::game

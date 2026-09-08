@@ -30,6 +30,7 @@ set(TESTS_HEADERS
     ${TESTS_SOURCE_DIR}/fixtures/game.h
     ${TESTS_SOURCE_DIR}/fixtures/graphics.h
     ${TESTS_SOURCE_DIR}/fixtures/gui.h
+    ${TESTS_SOURCE_DIR}/fixtures/itempresentation.h
     ${TESTS_SOURCE_DIR}/fixtures/movie.h
     ${TESTS_SOURCE_DIR}/fixtures/resource.h
     ${TESTS_SOURCE_DIR}/fixtures/scene.h
@@ -56,6 +57,7 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/globalnumber.cpp
     ${TESTS_SOURCE_DIR}/game/mainmenu.cpp
     ${TESTS_SOURCE_DIR}/game/interaction.cpp
+    ${TESTS_SOURCE_DIR}/game/equipmentoperation.cpp
     ${TESTS_SOURCE_DIR}/game/effect.cpp
     ${TESTS_SOURCE_DIR}/game/entrylifecycle.cpp
     ${TESTS_SOURCE_DIR}/game/galaxymap.cpp
@@ -87,6 +89,9 @@ set(TESTS_SOURCES
     ${TESTS_SOURCE_DIR}/game/pathfinder.cpp
     ${TESTS_SOURCE_DIR}/game/reputes.cpp
     ${TESTS_SOURCE_DIR}/game/rostermaterialization.cpp
+    ${TESTS_SOURCE_DIR}/game/itemmenubacking.cpp
+    ${TESTS_SOURCE_DIR}/game/sharedpresentation.cpp
+    ${TESTS_SOURCE_DIR}/game/spitempresentation.cpp
     ${TESTS_SOURCE_DIR}/game/statussummary.cpp
     ${TESTS_SOURCE_DIR}/game/stringroutines.cpp
     ${TESTS_SOURCE_DIR}/game/timingepoch.cpp

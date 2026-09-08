@@ -16,6 +16,7 @@
  */
 
 #include "reone/game/gui/ingame.h"
+#include "reone/game/gui/ingame/itembacking.h"
 
 #include <algorithm>
 #include <array>
@@ -38,97 +39,10 @@ namespace reone {
 
 namespace game {
 
-static void tintK2TopNavigationIcon(const std::shared_ptr<ImageButton> &button, const glm::vec3 &baseColor) {
-    if (!button) {
-        return;
-    }
-    button->setBorderColor(baseColor);
-    button->setTintBorderFill(true);
-}
-
-static void configureTopNavigationIcon(const std::shared_ptr<ImageButton> &button) {
-    if (!button) {
-        return;
-    }
-    button->setSelectable(false);
-    button->setSharpenBorderFillAlpha(true);
-}
-
-void InGameMenu::preload(IGUI &gui) {
-    // Chain the base: without it this GUI - the top navigation icon strip
-    // among it - missed the game-wide scaled mode and floated unscaled over
-    // the scaled subscreens.
-    GameGUI::preload(gui);
-    if (_game.isTSL()) {
-        gui.setResolution(800, 600);
-    }
-}
-
-void InGameMenu::onGUILoaded() {
-    bindControls();
-
-    configureTopNavigationIcon(_controls.LBLH_EQU);
-    configureTopNavigationIcon(_controls.LBLH_INV);
-    configureTopNavigationIcon(_controls.LBLH_CHA);
-    configureTopNavigationIcon(_controls.LBLH_ABI);
-    configureTopNavigationIcon(_controls.LBLH_MSG);
-    configureTopNavigationIcon(_controls.LBLH_JOU);
-    configureTopNavigationIcon(_controls.LBLH_MAP);
-    configureTopNavigationIcon(_controls.LBLH_OPT);
-
-    if (_game.isTSL()) {
-        tintK2TopNavigationIcon(_controls.LBLH_EQU, _baseColor);
-        tintK2TopNavigationIcon(_controls.LBLH_INV, _baseColor);
-        tintK2TopNavigationIcon(_controls.LBLH_CHA, _baseColor);
-        tintK2TopNavigationIcon(_controls.LBLH_ABI, _baseColor);
-        tintK2TopNavigationIcon(_controls.LBLH_MSG, _baseColor);
-        tintK2TopNavigationIcon(_controls.LBLH_JOU, _baseColor);
-        tintK2TopNavigationIcon(_controls.LBLH_MAP, _baseColor);
-        tintK2TopNavigationIcon(_controls.LBLH_OPT, _baseColor);
-        _controls.LBL_SECTITLE->setBorderFill(std::string());
-        updateK2SectionTitle();
-        _controls.LBL_BACK1->setTintBorderFill(true);
-        refreshK2Footer();
-    }
-
-    // _controls.BTN_EQU->setVisible(false);
-    // _controls.BTN_INV->setVisible(false);
-    // _controls.BTN_CHAR->setVisible(false);
-    // _controls.BTN_ABI->setVisible(false);
-    // _controls.BTN_MSG->setVisible(false);
-    // _controls.BTN_JOU->setVisible(false);
-    // _controls.BTN_MAP->setVisible(false);
-    // _controls.BTN_OPT->setVisible(false);
-
-    _controls.BTN_EQU->setOnClick([this]() {
-        openEquipment();
-    });
-    _controls.BTN_INV->setOnClick([this]() {
-        openInventory();
-    });
-    _controls.BTN_CHAR->setOnClick([this]() {
-        openCharacter();
-    });
-    _controls.BTN_ABI->setOnClick([this]() {
-        openAbilities();
-    });
-    _controls.BTN_MSG->setOnClick([this]() {
-        if (_game.isTSL()) {
-            openPartySelection();
-        } else {
-            openMessages();
-        }
-    });
-    _controls.BTN_JOU->setOnClick([this]() {
-        openJournal();
-    });
-    _controls.BTN_MAP->setOnClick([this]() {
-        openMap();
-    });
-    _controls.BTN_OPT->setOnClick([this]() {
-        openOptions();
-    });
-
+void InGameMenu::init() {
+    _host = std::make_unique<InGameMenuHost>(_game.gameId(), _game.options().graphics,
+        _presentation, [this](InGameMenuTab tab) { navigate(tab); }, [this]() { return footer(); });
+    _host->init();
     loadEquipment();
     loadInventory();
     loadCharacter();
@@ -141,306 +55,161 @@ void InGameMenu::onGUILoaded() {
 }
 
 void InGameMenu::loadEquipment() {
-    _equip = std::make_unique<Equipment>(_game, *this, _services);
+    _equip = std::make_shared<Equipment>(_game.gameId(), _game.options().graphics,
+        _presentation, _services.resource.strings, newEquipmentMenuBacking(_game, _services),
+        [this]() { _game.openInGame(); });
     _equip->init();
+    _host->registerScreen(InGameMenuTab::Equipment, _equip);
 }
 
 void InGameMenu::loadInventory() {
-    _inventory = std::make_unique<InventoryMenu>(_game, _services);
+    _inventory = std::make_shared<InventoryMenu>(_game.gameId(), _game.options().graphics,
+        _presentation, newInventoryMenuBacking(_game, _services),
+        [this]() { _game.openInGame(); });
     _inventory->init();
+    _host->registerScreen(InGameMenuTab::Inventory, _inventory);
 }
 
 void InGameMenu::loadCharacter() {
-    _character = std::make_unique<CharacterMenu>(_game, *this, _services);
+    _character = std::make_shared<CharacterMenu>(_game, *this, _services);
     _character->init();
+    _host->registerScreen(InGameMenuTab::Character, _character);
 }
 
 void InGameMenu::loadAbilities() {
-    _abilities = std::make_unique<AbilitiesMenu>(_game, _services);
+    _abilities = std::make_shared<AbilitiesMenu>(_game, _services);
     _abilities->init();
+    _host->registerScreen(InGameMenuTab::Abilities, _abilities);
 }
 
 void InGameMenu::loadPartySelection() {
     if (!_game.isTSL()) {
         return;
     }
-    _partySelect = std::make_unique<PartySelection>(_game, _services);
+    _partySelect = std::make_shared<PartySelection>(_game, _services);
     _partySelect->init();
+    _host->registerScreen(InGameMenuTab::Party, _partySelect);
 }
 
 void InGameMenu::loadMessages() {
-    _messages = std::make_unique<MessagesMenu>(_game, _services);
+    _messages = std::make_shared<MessagesMenu>(_game, _services);
     _messages->init();
+    _host->registerScreen(InGameMenuTab::Messages, _messages);
 }
 
 void InGameMenu::loadJournal() {
-    _journal = std::make_unique<JournalMenu>(_game, _services);
+    _journal = std::make_shared<JournalMenu>(_game, _services);
     _journal->init();
+    _host->registerScreen(InGameMenuTab::Journal, _journal);
 }
 
 void InGameMenu::loadMap() {
-    _map = std::make_unique<MapMenu>(_game, _services);
+    _map = std::make_shared<MapMenu>(_game, _services);
     _map->init();
+    _host->registerScreen(InGameMenuTab::Map, _map);
 }
 
 void InGameMenu::loadOptions() {
-    _options = std::make_unique<OptionsMenu>(_game, _services);
+    _options = std::make_shared<OptionsMenu>(_game, _services);
     _options->init();
-}
-
-bool InGameMenu::handle(const input::Event &event) {
-    auto tabGui = getActiveTabGUI();
-    if (tabGui && tabGui->handle(event))
-        return true;
-
-    if (_gui->handle(event))
-        return true;
-
-    return false;
-}
-
-GameGUI *InGameMenu::getActiveTabGUI() const {
-    switch (_tab) {
-    case InGameMenuTab::Equipment:
-        return _equip.get();
-    case InGameMenuTab::Inventory:
-        return _inventory.get();
-    case InGameMenuTab::Character:
-        return _character.get();
-    case InGameMenuTab::Abilities:
-        return _abilities.get();
-    case InGameMenuTab::Party:
-        return _partySelect.get();
-    case InGameMenuTab::Messages:
-        return _messages.get();
-    case InGameMenuTab::Journal:
-        return _journal.get();
-    case InGameMenuTab::Map:
-        return _map.get();
-    case InGameMenuTab::Options:
-        return _options.get();
-    default:
-        return nullptr;
-    }
-}
-
-void InGameMenu::update(float dt) {
-    GameGUI::update(dt);
-
-    refreshK2Footer();
-
-    auto tabGui = getActiveTabGUI();
-    if (tabGui) {
-        tabGui->update(dt);
-    }
-}
-
-void InGameMenu::render() {
-    auto tabGui = getActiveTabGUI();
-    if (tabGui) {
-        tabGui->render();
-    }
-    GameGUI::render();
+    _host->registerScreen(InGameMenuTab::Options, _options);
 }
 
 void InGameMenu::openEquipment() {
     _equip->update();
-    changeTab(InGameMenuTab::Equipment);
+    _host->changeTab(InGameMenuTab::Equipment);
 }
 
 void InGameMenu::openEquipmentItems() {
     _equip->openItems();
-    changeTab(InGameMenuTab::Equipment);
-}
-
-void InGameMenu::changeTab(InGameMenuTab tab) {
-    auto gui = getActiveTabGUI();
-    if (gui) {
-        gui->clearSelection();
-    }
-    _tab = tab;
-    updateK2SectionTitle();
-    updateTabButtons();
-    refreshK2Footer();
-}
-
-void InGameMenu::updateK2SectionTitle() {
-    if (!_game.isTSL() || !_controls.LBL_SECTITLE) {
-        return;
-    }
-
-    auto border = _controls.LBL_SECTITLE->border();
-    border.edge = _services.resource.textures.get("uibit_brdr_16bet", TextureUsage::GUI);
-    border.corner = _services.resource.textures.get("uibit_brdr_16bct", TextureUsage::GUI);
-    border.fill.reset();
-    _controls.LBL_SECTITLE->setBorder(std::move(border));
-
-    auto activeTab = getActiveTabGUI();
-    auto titleControl = activeTab ? activeTab->k2InGameTitleControl() : nullptr;
-    if (titleControl) {
-        _controls.LBL_SECTITLE->setText(titleControl->text());
-    } else {
-        _controls.LBL_SECTITLE->setTextMessage(std::string());
-    }
-}
-
-void InGameMenu::refreshK2Footer() {
-    if (!_game.isTSL()) {
-        return;
-    }
-
-    auto hide = [](const auto &control) {
-        if (control) {
-            control->setVisible(false);
-        }
-    };
-
-    hide(_controls.BTN_CHANGE2);
-    hide(_controls.BTN_CHANGE3);
-    hide(_controls.LBL_LEFT_ARROW);
-    hide(_controls.LBL_RIGHT_ARROW);
-    hide(_controls.LBL_CMBTEFCTINC1);
-    hide(_controls.LBL_CMBTEFCTINC2);
-    hide(_controls.LBL_CMBTEFCTINC3);
-    hide(_controls.LBL_CMBTEFCTRED1);
-    hide(_controls.LBL_CMBTEFCTRED2);
-    hide(_controls.LBL_CMBTEFCTRED3);
-    hide(_controls.LBL_DEBILATATED1);
-    hide(_controls.LBL_DEBILATATED2);
-    hide(_controls.LBL_DEBILATATED3);
-    hide(_controls.LBL_DISABLE1);
-    hide(_controls.LBL_DISABLE2);
-    hide(_controls.LBL_DISABLE3);
-    hide(_controls.PB_FORCE1);
-
-    Party &party = _game.party();
-    std::array<std::shared_ptr<Label>, 3> backLabels {
-        _controls.LBL_BACK1,
-        _controls.LBL_BACK2,
-        _controls.LBL_BACK3};
-    std::array<std::shared_ptr<Label>, 3> portraitLabels {
-        _controls.LBL_CHAR1,
-        _controls.LBL_CHAR2,
-        _controls.LBL_CHAR3};
-    std::array<std::shared_ptr<Label>, 3> levelUpLabels {
-        _controls.LBL_LEVELUP1,
-        _controls.LBL_LEVELUP2,
-        _controls.LBL_LEVELUP3};
-
-    for (int i = 0; i < 3; ++i) {
-        auto member = party.getMember(i);
-        if (!member) {
-            hide(backLabels[i]);
-            hide(portraitLabels[i]);
-            hide(levelUpLabels[i]);
-            continue;
-        }
-
-        backLabels[i]->setVisible(true);
-        portraitLabels[i]->setVisible(true);
-        portraitLabels[i]->setBorderFill(member->portrait());
-        levelUpLabels[i]->setVisible(member->isLevelUpPending());
-    }
-
-    auto leader = party.getLeader();
-    if (!leader) {
-        hide(_controls.LBL_CHARNAME);
-        hide(_controls.LBL_TOP_CLASS1);
-        hide(_controls.LBL_TOP_CLASS1LEVEL);
-        hide(_controls.LBL_TOP_CLASS2);
-        hide(_controls.LBL_TOP_CLASS2LEVEL);
-        hide(_controls.PB_VIT1);
-        return;
-    }
-
-    _controls.LBL_CHARNAME->setVisible(true);
-    _controls.LBL_CHARNAME->setTextMessage(leader->name());
-
-    auto &attributes = leader->attributes();
-    auto describeClass = [this](ClassType clazz) {
-        return clazz == ClassType::Invalid ? std::string() : _services.game.classes.get(clazz)->name();
-    };
-    auto describeLevel = [](int level) {
-        return level == 0 ? std::string() : std::to_string(level);
-    };
-
-    _controls.LBL_TOP_CLASS1->setVisible(true);
-    _controls.LBL_TOP_CLASS1->setTextMessage(describeClass(attributes.getClassByPosition(1)));
-    _controls.LBL_TOP_CLASS1LEVEL->setVisible(true);
-    _controls.LBL_TOP_CLASS1LEVEL->setTextMessage(describeLevel(attributes.getLevelByPosition(1)));
-    _controls.LBL_TOP_CLASS2->setVisible(true);
-    _controls.LBL_TOP_CLASS2->setTextMessage(describeClass(attributes.getClassByPosition(2)));
-    _controls.LBL_TOP_CLASS2LEVEL->setVisible(true);
-    _controls.LBL_TOP_CLASS2LEVEL->setTextMessage(describeLevel(attributes.getLevelByPosition(2)));
-
-    int hitPoints = leader->maxHitPoints();
-    int vitalityPercent = hitPoints > 0
-        ? std::clamp(100 * leader->currentHitPoints() / hitPoints, 0, 100)
-        : 0;
-    _controls.PB_VIT1->setVisible(true);
-    _controls.PB_VIT1->setValue(vitalityPercent);
-}
-
-void InGameMenu::updateTabButtons() {
-    _controls.LBLH_EQU->setSelected(_tab == InGameMenuTab::Equipment);
-    _controls.LBLH_INV->setSelected(_tab == InGameMenuTab::Inventory);
-    _controls.LBLH_CHA->setSelected(_tab == InGameMenuTab::Character);
-    _controls.LBLH_ABI->setSelected(_tab == InGameMenuTab::Abilities);
-    _controls.LBLH_MSG->setSelected(_tab == (_game.isTSL() ? InGameMenuTab::Party : InGameMenuTab::Messages));
-    _controls.LBLH_JOU->setSelected(_tab == InGameMenuTab::Journal || (_game.isTSL() && _tab == InGameMenuTab::Messages));
-    _controls.LBLH_MAP->setSelected(_tab == InGameMenuTab::Map);
-    _controls.LBLH_OPT->setSelected(_tab == InGameMenuTab::Options);
+    _host->changeTab(InGameMenuTab::Equipment);
 }
 
 void InGameMenu::openInventory() {
     _inventory->refreshPortraits();
     _inventory->refreshItems();
-    changeTab(InGameMenuTab::Inventory);
+    _host->changeTab(InGameMenuTab::Inventory);
 }
 
 void InGameMenu::openCharacter() {
     _character->refreshControls();
-    changeTab(InGameMenuTab::Character);
+    _host->changeTab(InGameMenuTab::Character);
 }
 
 void InGameMenu::openAbilities() {
     _abilities->refreshControls();
-    changeTab(InGameMenuTab::Abilities);
+    _host->changeTab(InGameMenuTab::Abilities);
 }
 
 void InGameMenu::openPartySelection() {
     _partySelect->prepare(PartySelectionContext());
-    changeTab(InGameMenuTab::Party);
+    _host->changeTab(InGameMenuTab::Party);
 }
 
 void InGameMenu::openMessages() {
     _messages->refresh();
     _messages->resetFilter();
-    changeTab(InGameMenuTab::Messages);
+    _host->changeTab(InGameMenuTab::Messages);
 }
 
 void InGameMenu::openJournal() {
     _journal->refresh();
-    changeTab(InGameMenuTab::Journal);
+    _host->changeTab(InGameMenuTab::Journal);
 }
 
 void InGameMenu::openMap() {
     _map->refreshControls();
-    changeTab(InGameMenuTab::Map);
+    _host->changeTab(InGameMenuTab::Map);
 }
 
 void InGameMenu::openOptions() {
-    changeTab(InGameMenuTab::Options);
+    _host->changeTab(InGameMenuTab::Options);
 }
 
-std::shared_ptr<Button> InGameMenu::getBtnChange2() {
-    return _game.isTSL() ? findControl<Button>("BTN_CHANGE2") : nullptr;
+void InGameMenu::clearSelection() { if (_host) _host->clearSelection(); }
+
+bool InGameMenu::handle(const input::Event &event) { return _host->handle(event); }
+void InGameMenu::update(float dt) { _host->update(dt); }
+void InGameMenu::render() { _host->render(); }
+std::shared_ptr<Button> InGameMenu::getBtnChange2() { return _host->getBtnChange2(); }
+std::shared_ptr<Button> InGameMenu::getBtnChange3() { return _host->getBtnChange3(); }
+
+void InGameMenu::navigate(InGameMenuTab tab) {
+    switch (tab) {
+    case InGameMenuTab::Equipment: openEquipment(); break;
+    case InGameMenuTab::Inventory: openInventory(); break;
+    case InGameMenuTab::Character: openCharacter(); break;
+    case InGameMenuTab::Abilities: openAbilities(); break;
+    case InGameMenuTab::Party: openPartySelection(); break;
+    case InGameMenuTab::Messages: openMessages(); break;
+    case InGameMenuTab::Journal: openJournal(); break;
+    case InGameMenuTab::Map: openMap(); break;
+    case InGameMenuTab::Options: openOptions(); break;
+    default: break;
+    }
 }
 
-std::shared_ptr<Button> InGameMenu::getBtnChange3() {
-    return _game.isTSL() ? findControl<Button>("BTN_CHANGE3") : nullptr;
+InGameMenuFooter InGameMenu::footer() const {
+    InGameMenuFooter view;
+    for (int i = 0; i < 3; ++i) {
+        auto member = _game.party().getMember(i);
+        if (member) view.members[i] = {true, member->portrait(), member->isLevelUpPending()};
+    }
+    auto leader = _game.party().getLeader();
+    if (!leader) return view;
+    view.subjectPresent = true;
+    view.name = leader->name();
+    auto &attributes = leader->attributes();
+    for (int i = 0; i < 2; ++i) {
+        auto clazz = attributes.getClassByPosition(i + 1);
+        auto level = attributes.getLevelByPosition(i + 1);
+        view.classes[i] = clazz == ClassType::Invalid ? std::string() : _services.game.classes.get(clazz)->name();
+        view.levels[i] = level == 0 ? std::string() : std::to_string(level);
+    }
+    int hp = leader->maxHitPoints();
+    view.vitalityPercent = hp > 0 ? std::clamp(100 * leader->currentHitPoints() / hp, 0, 100) : 0;
+    return view;
 }
 
 } // namespace game
-
 } // namespace reone

@@ -182,6 +182,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/effect/visual.h
     ${GAME_INCLUDE_DIR}/effect/vpregenmodifier.h
     ${GAME_INCLUDE_DIR}/effect/whirlwind.h
+    ${GAME_INCLUDE_DIR}/equipmentoperation.h
     ${GAME_INCLUDE_DIR}/equipmentrules.h
     ${GAME_INCLUDE_DIR}/event.h
     ${GAME_INCLUDE_DIR}/runtimeref.h
@@ -190,6 +191,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/galaxymapstate.h
     ${GAME_INCLUDE_DIR}/game.h
     ${GAME_INCLUDE_DIR}/itemdescription.h
+    ${GAME_INCLUDE_DIR}/presentationgui.h
     ${GAME_INCLUDE_DIR}/gui.h
     ${GAME_INCLUDE_DIR}/gui/actionbar.h
     ${GAME_INCLUDE_DIR}/gui/actionslot.h
@@ -280,10 +282,13 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/gui/generated/upgradeitems.h
     ${GAME_INCLUDE_DIR}/gui/generated/upgradesel.h
     ${GAME_INCLUDE_DIR}/gui/hud.h
+    ${GAME_INCLUDE_DIR}/gui/ingamehost.h
     ${GAME_INCLUDE_DIR}/gui/ingame.h
     ${GAME_INCLUDE_DIR}/gui/ingame/abilities.h
     ${GAME_INCLUDE_DIR}/gui/ingame/character.h
     ${GAME_INCLUDE_DIR}/gui/ingame/equip.h
+    ${GAME_INCLUDE_DIR}/gui/ingame/itemview.h
+    ${GAME_INCLUDE_DIR}/gui/ingame/itembacking.h
     ${GAME_INCLUDE_DIR}/gui/ingame/inventory.h
     ${GAME_INCLUDE_DIR}/gui/ingame/journal.h
     ${GAME_INCLUDE_DIR}/gui/ingame/map.h
@@ -483,6 +488,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/effect.cpp
     ${GAME_SOURCE_DIR}/effect/source.cpp
     ${GAME_SOURCE_DIR}/event.cpp
+    ${GAME_SOURCE_DIR}/equipmentoperation.cpp
     ${GAME_SOURCE_DIR}/equipmentrules.cpp
     ${GAME_SOURCE_DIR}/footstepsounds.cpp
     ${GAME_SOURCE_DIR}/floatingtext.cpp
@@ -516,13 +522,16 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/gui/ingame/abilities.cpp
     ${GAME_SOURCE_DIR}/gui/ingame/character.cpp
     ${GAME_SOURCE_DIR}/gui/ingame/equip.cpp
+    ${GAME_SOURCE_DIR}/gui/ingame/itembacking.cpp
     ${GAME_SOURCE_DIR}/gui/ingame/inventory.cpp
     ${GAME_SOURCE_DIR}/gui/ingame/journal.cpp
     ${GAME_SOURCE_DIR}/gui/ingame/map.cpp
     ${GAME_SOURCE_DIR}/gui/ingame/messages.cpp
     ${GAME_SOURCE_DIR}/gui/ingame/options.cpp
+    ${GAME_SOURCE_DIR}/gui/ingamehost.cpp
     ${GAME_SOURCE_DIR}/gui/ingame.cpp
     ${GAME_SOURCE_DIR}/gui/loadscreen.cpp
+    ${GAME_SOURCE_DIR}/presentationgui.cpp
     ${GAME_SOURCE_DIR}/gui.cpp
     ${GAME_SOURCE_DIR}/gui/mainmenu.cpp
     ${GAME_SOURCE_DIR}/gui/map.cpp
