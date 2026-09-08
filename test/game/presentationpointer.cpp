@@ -15,16 +15,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
 #include "reone/game/presentationpointer.h"
 #include "reone/graphics/context.h"
 #include "reone/graphics/meshregistry.h"
-#include "reone/graphics/shaderregistry.h"
 #include "reone/graphics/shaderprogram.h"
+#include "reone/graphics/shaderregistry.h"
 #include "reone/graphics/statistic.h"
 #include "reone/graphics/texture.h"
 #include "reone/graphics/uniforms.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 using namespace reone;
 using namespace reone::game;
@@ -57,13 +57,18 @@ class CursorProvider : public ICursors {
 public:
     std::shared_ptr<Cursor> cursor;
     std::vector<CursorType> requests;
-    std::shared_ptr<Cursor> get(CursorType type) override { requests.push_back(type); return cursor; }
+    std::shared_ptr<Cursor> get(CursorType type) override {
+        requests.push_back(type);
+        return cursor;
+    }
 };
-}
+} // namespace
 
 TEST(PresentationPointer, uses_provider_and_preserves_visibility_position_pressed_state_and_scale_without_game) {
     GraphicsOptions options;
-    options.width = 1024; options.height = 768; options.guiScale = 1.0f;
+    options.width = 1024;
+    options.height = 768;
+    options.guiScale = 1.0f;
     RecordingContext context(options);
     Statistic statistic;
     MeshRegistry meshes(statistic);
@@ -77,13 +82,15 @@ TEST(PresentationPointer, uses_provider_and_preserves_visibility_position_presse
     CursorProvider provider;
     provider.cursor = std::make_shared<Cursor>(up, down, context, meshes, shaders, uniforms, statistic);
     PresentationPointer pointer(provider);
-    pointer.setPosition({5, 6}); pointer.setPressed(true);
+    pointer.setPosition({5, 6});
+    pointer.setPressed(true);
     pointer.render(options, false);
     EXPECT_TRUE(context.bound.empty());
     pointer.setType(CursorType::Default);
     pointer.setType(CursorType::Default);
     EXPECT_EQ((std::vector<CursorType> {CursorType::Default}), provider.requests);
-    pointer.setPosition({50, 60}); pointer.setPressed(false);
+    pointer.setPosition({50, 60});
+    pointer.setPressed(false);
     pointer.render(options, false);
     ASSERT_EQ(1u, context.bound.size());
     EXPECT_EQ(up.get(), context.bound.back());

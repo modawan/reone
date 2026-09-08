@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 The reone project contributors
+ * Copyright (c) 2020-2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,21 +20,25 @@
 namespace reone::game {
 
 void PresentationPointer::setType(resource::CursorType type) {
-    if (_type == type) return;
+    if (_type == type)
+        return;
     _cursor = type == resource::CursorType::None ? nullptr : _cursors.get(type);
     _type = type;
 }
 
 void PresentationPointer::setPosition(glm::ivec2 position) {
-    if (_cursor) _cursor->setPosition(position);
+    if (_cursor)
+        _cursor->setPosition(position);
 }
 
 void PresentationPointer::setPressed(bool pressed) {
-    if (_cursor) _cursor->setPressed(pressed);
+    if (_cursor)
+        _cursor->setPressed(pressed);
 }
 
 void PresentationPointer::render(const graphics::GraphicsOptions &options, bool relativeMouseMode) {
-    if (!_cursor || relativeMouseMode) return;
+    if (!_cursor || relativeMouseMode)
+        return;
     static constexpr float kCursorSizeScale = 0.5f;
     float scale = std::min(options.width / 800.0f, options.height / 600.0f) * options.guiScale * kCursorSizeScale;
     _cursor->render(scale);
@@ -43,10 +47,14 @@ void PresentationPointer::render(const graphics::GraphicsOptions &options, bool 
 resource::CursorType contextualCursor(ObjectType type, bool dead, bool hostile) {
     using resource::CursorType;
     switch (type) {
-    case ObjectType::Creature: return dead ? CursorType::Pickup : (hostile ? CursorType::Attack : CursorType::Talk);
-    case ObjectType::Door: return CursorType::Door;
-    case ObjectType::Placeable: return CursorType::Pickup;
-    default: return CursorType::Default;
+    case ObjectType::Creature:
+        return dead ? CursorType::Pickup : (hostile ? CursorType::Attack : CursorType::Talk);
+    case ObjectType::Door:
+        return CursorType::Door;
+    case ObjectType::Placeable:
+        return CursorType::Pickup;
+    default:
+        return CursorType::Default;
     }
 }
 
