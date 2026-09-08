@@ -83,6 +83,8 @@ void MenuPresentation::save(const std::filesystem::path &path) const {
         output << line;
         if (!input.eof()) output << '\n';
     }
+    // Windows cannot replace the configuration while our read handle is open.
+    if (input.is_open()) input.close();
     auto temporary = path;
     temporary += ".menu.tmp";
     std::ofstream file(temporary, std::ios::binary | std::ios::trunc);

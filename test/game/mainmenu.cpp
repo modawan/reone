@@ -158,6 +158,7 @@ TEST(MenuPresentation, round_trip_preserves_unrelated_configuration_bytes) {
     loaded.save(path);
     std::ifstream input(path, std::ios::binary);
     std::string content((std::istreambuf_iterator<char>(input)), {});
+    input.close(); // Release the Windows read handle before saving again.
     EXPECT_EQ(unrelated, content.substr(content.find("# user comment")));
     MenuPresentation {99, std::nullopt}.save(path);
     EXPECT_EQ(0, MenuPresentation::load(path).selector);
