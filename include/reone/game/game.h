@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "presentationpointer.h"
+
 #include "reone/audio/source.h"
 #include "reone/graphics/cursor.h"
 #include "reone/graphics/types.h"
@@ -149,7 +151,8 @@ public:
         std::filesystem::path path,
         OptionsView &options,
         ServicesView &services,
-        IConsole &console) :
+        IConsole &console,
+        std::shared_ptr<PresentationPointer> pointer = nullptr) :
         _gameId(gameId),
         _path(std::move(path)),
         _options(options),
@@ -160,7 +163,8 @@ public:
         _swoopRace(*this),
         _turret(*this, services),
         _journal(services.resource.gffs, services.resource.strings),
-        _floatingText(*this, services) {
+        _floatingText(*this, services),
+        _pointer(pointer ? std::move(pointer) : std::make_shared<PresentationPointer>(services.resource.cursors)) {
         initJournalNotifications();
     }
 
@@ -327,7 +331,7 @@ public:
     }
 
     resource::CursorType cursorType() const {
-        return _cursorType;
+        return _pointer->type();
     }
 
     bool relativeMouseMode() const {
@@ -860,8 +864,7 @@ private:
 
     std::shared_ptr<movie::IMovie> _movie;
     std::queue<std::string> _moduleTransitionMovies;
-    resource::CursorType _cursorType {resource::CursorType::None};
-    std::shared_ptr<graphics::Cursor> _cursor;
+    std::shared_ptr<PresentationPointer> _pointer;
     float _gameSpeed {1.0f};
     CameraType _cameraType {CameraType::ThirdPerson};
     CameraType _savedCameraType {CameraType::ThirdPerson};

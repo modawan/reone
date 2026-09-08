@@ -187,12 +187,14 @@ void Engine::init() {
     _console->init();
     initAutomationCommands();
 
+    _pointer = std::make_shared<PresentationPointer>(_services->resource.cursors);
     _game = std::make_unique<Game>(
         gameId,
         _options.game.path,
         *_optionsView,
         *_services,
-        *_console);
+        *_console,
+        _pointer);
     _game->init();
 }
 
@@ -200,6 +202,7 @@ void Engine::deinit() {
     _console.reset();
     _profiler.reset();
     _game.reset();
+    _pointer.reset();
     _services.reset();
 
     _gameModule.reset();
