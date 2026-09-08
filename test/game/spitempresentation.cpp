@@ -29,7 +29,8 @@ namespace {
 class SPItemPresentation : public SharedPresentation {};
 
 TEST_F(SPItemPresentation, sp_backing_applies_the_real_equipment_presenters_selection) {
-    auto &engine = testEngine();
+    TestEngine engine;
+    engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto baseItems = std::shared_ptr<TwoDA>(TwoDA::Builder()

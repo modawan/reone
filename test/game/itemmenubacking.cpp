@@ -69,9 +69,14 @@ std::shared_ptr<Item> makeItem(Game &game, std::string tag, int baseItem, int st
     return item;
 }
 
+class BackingEngine : public TestEngine {
+public:
+    BackingEngine() { init(); }
+};
+
 class ItemMenuBackingTest : public Test {
 protected:
-    TestEngine &engine = testEngine();
+    BackingEngine engine;
     StubConsole console;
     Game game {GameID::KotOR, "", engine.options(), engine.services(), console};
     std::shared_ptr<Creature> owner, subject;
