@@ -132,28 +132,30 @@ TEST_F(EquipmentOperation, clears_paired_hand_for_restricted_weapons_and_support
     for (int baseItem : {1, 6}) {
         for (auto slots : {std::pair {InventorySlots::rightWeapon, InventorySlots::leftWeapon},
                            std::pair {InventorySlots::rightWeapon2, InventorySlots::leftWeapon2}}) {
-            auto subject = game.newCreature();
-            auto owner = game.newCreature();
-            auto main = makeItem(game, "main", 8, 1);
-            auto off = makeItem(game, "off", 3, 1);
-            auto baton = makeItem(game, "restricted", baseItem, 1);
+            Game alternate(GameID::TSL, "", engine.options(), engine.services(), console);
+            Game &operationGame = slots.first == InventorySlots::rightWeapon2 ? alternate : game;
+            auto subject = operationGame.newCreature();
+            auto owner = operationGame.newCreature();
+            auto main = makeItem(operationGame, "main", 8, 1);
+            auto off = makeItem(operationGame, "off", 3, 1);
+            auto baton = makeItem(operationGame, "restricted", baseItem, 1);
             ASSERT_TRUE(subject->equip(slots.first, main));
             ASSERT_TRUE(subject->equip(slots.second, off));
             owner->addItem(baton);
             EXPECT_EQ(EquipmentOperationOutcome::Applied,
-                      applyEquipmentOperation(game, *subject, *owner, baton, slots.first));
+                      applyEquipmentOperation(operationGame, *subject, *owner, baton, slots.first));
             EXPECT_FALSE(subject->getEquippedItem(slots.second));
             EXPECT_EQ(baton, subject->getEquippedItem(slots.first));
             EXPECT_EQ(2u, owner->items().size());
             EXPECT_EQ(owner->id(), main->owner());
             EXPECT_EQ(owner->id(), off->owner());
             EXPECT_EQ(EquipmentOperationOutcome::Applied,
-                      applyEquipmentOperation(game, *subject, *owner, nullptr, slots.first));
+                      applyEquipmentOperation(operationGame, *subject, *owner, nullptr, slots.first));
             EXPECT_EQ(3u, owner->items().size());
             EXPECT_EQ(EquipmentOperationOutcome::Applied,
-                      applyEquipmentOperation(game, *subject, *owner, main, slots.first));
+                      applyEquipmentOperation(operationGame, *subject, *owner, main, slots.first));
             EXPECT_EQ(EquipmentOperationOutcome::Applied,
-                      applyEquipmentOperation(game, *subject, *owner, off, slots.second));
+                      applyEquipmentOperation(operationGame, *subject, *owner, off, slots.second));
             EXPECT_EQ(1u, owner->items().size());
             EXPECT_EQ(owner->id(), baton->owner());
         }
