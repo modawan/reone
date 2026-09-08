@@ -185,3 +185,34 @@ TEST_F(ItemMenuBackingTest, changed_stack_and_replaced_equipment_invalidate_sele
     EXPECT_EQ(EquipmentRequestOutcome::Rejected, backing->equipmentResult()->outcome);
     EXPECT_EQ(other, subject->getEquippedItem(InventorySlots::rightWeapon));
 }
+
+TEST_F(ItemMenuBackingTest, same_blueprint_keeps_effective_instance_overrides_separate) {
+    auto record = [](int charges, const std::string &description) {
+        return std::shared_ptr<Gff>(Gff::Builder()
+                                        .field(Gff::Field::newInt("BaseItem", 8))
+                                        .field(Gff::Field::newCExoString("Tag", "duplicate"))
+                                        .field(Gff::Field::newCExoLocString("LocalizedName", -1, "Same name"))
+                                        .field(Gff::Field::newCExoLocString("DescIdentified", -1, description))
+                                        .field(Gff::Field::newByte("Identified", 1))
+                                        .field(Gff::Field::newByte("Charges", charges))
+                                        .field(Gff::Field::newWord("StackSize", 2))
+                                        .build());
+    };
+    EXPECT_CALL(engine.resourceModule().gffs(), get("same_item", ResType::Uti))
+        .Times(2)
+        .WillRepeatedly(Return(record(1, "Authored description")));
+    auto first = game.newItemFromBlueprint("same_item");
+    auto second = game.newItemFromBlueprint("same_item");
+    second->deserialize(*record(7, "Saved instance description"),
+                        SerializedIdentityContext::detachedRecord("effective-item"));
+    owner->addItem(first);
+    owner->addItem(second);
+    ASSERT_EQ(2u, owner->items().size());
+    auto backing = newInventoryMenuBacking(game, engine.services());
+    auto view = backing->readInventory(InventoryFilter::All);
+    ASSERT_EQ(2u, view.items.size());
+    EXPECT_EQ(view.items[0].name, view.items[1].name);
+    EXPECT_NE(view.items[0].handle, view.items[1].handle);
+    EXPECT_NE(std::string::npos, view.items[0].description.find("Authored description"));
+    EXPECT_NE(std::string::npos, view.items[1].description.find("Saved instance description"));
+}
