@@ -17,17 +17,13 @@
 
 #include "reone/game/presentationgui.h"
 
-#include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
 #include "reone/game/gui/sounds.h"
-#include "reone/graphics/di/services.h"
 #include "reone/gui/control.h"
 #include "reone/gui/control/listbox.h"
 #include "reone/gui/guis.h"
-#include "reone/resource/di/services.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/textures.h"
-#include "reone/scene/di/services.h"
 #include "reone/scene/render/pass.h"
 
 #include <algorithm>
