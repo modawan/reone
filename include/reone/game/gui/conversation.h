@@ -77,6 +77,9 @@ protected:
 
     void pickReply(int index);
 
+    // Complete the active entry's presentation using the same path as expiry.
+    void endCurrentEntry();
+
     virtual void setReplyLines(std::vector<std::string> lines) = 0;
 
     // How a one-liner presents its entry, alongside setMessage/setReplyLines.
@@ -108,7 +111,6 @@ private:
     void refreshReplies();
 
     void finish();
-    void endCurrentEntry();
 
     int indexOfFirstActive(const std::vector<resource::Dialog::EntryReplyLink> &links);
 
