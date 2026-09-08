@@ -19,6 +19,7 @@
 
 #include "reone/game/di/services.h"
 #include "reone/game/equipmentrules.h"
+#include "reone/game/equipmentoperation.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/ingame.h"
 #include "reone/game/itemdescription.h"
@@ -303,7 +304,7 @@ void Equipment::confirmCandidateItem(const std::string &item) {
 
     std::shared_ptr<Creature> player(_game.party().player());
     std::shared_ptr<Item> itemObj;
-    if (item != kNoneItemTag) {
+    if (player && item != kNoneItemTag) {
         for (auto &playerItem : player->items()) {
             if (playerItem->tag() == item) {
                 itemObj = playerItem;
@@ -311,45 +312,13 @@ void Equipment::confirmCandidateItem(const std::string &item) {
             }
         }
     }
-    std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-    EquipmentCandidateDecision decision(evaluateEquipmentCandidate(*partyLeader, getInventorySlot(_selectedSlot), itemObj.get()));
-    if (!decision.valid)
+    if (!player || (item != kNoneItemTag && !itemObj))
         return;
-
-    int slot = decision.actualSlot;
-    std::shared_ptr<Item> equipped(partyLeader->getEquippedItem(slot));
-
-    bool clearPairedOffHand = decision.action == EquipmentCandidateAction::ClearMainHandAndOffHand ||
-                              decision.action == EquipmentCandidateAction::EquipAndClearOffHand;
-    std::shared_ptr<Item> pairedOffHand(clearPairedOffHand ? partyLeader->getEquippedItem(decision.pairedSlot) : nullptr);
-
-    bool clearAction = decision.action == EquipmentCandidateAction::ClearSlot ||
-                       decision.action == EquipmentCandidateAction::ClearMainHandAndOffHand;
-    bool equipmentChanged = equipped != itemObj || pairedOffHand;
-    if (equipmentChanged) {
-        if (itemObj) {
-            auto candidate = takeEquipmentCandidate(_game, *player, itemObj);
-            if (!candidate) return;
-            if (pairedOffHand) {
-                partyLeader->moveEquippedItemTo(pairedOffHand, *player);
-            }
-            bool equippedCandidate = equipped
-                                         ? partyLeader->replaceEquipment(
-                                               slot, candidate, *player)
-                                         : partyLeader->equip(slot, candidate);
-            if (!equippedCandidate) {
-                player->addItem(candidate);
-            }
-        } else {
-            if (equipped) {
-                partyLeader->moveEquippedItemTo(equipped, *player);
-            }
-            if (pairedOffHand) {
-                partyLeader->moveEquippedItemTo(pairedOffHand, *player);
-            }
-        }
-    }
-    if (equipmentChanged || clearAction) {
+    auto subject = _game.party().getLeader();
+    if (!subject)
+        return;
+    auto outcome = applyEquipmentOperation(_game, *subject, *player, itemObj, getInventorySlot(_selectedSlot));
+    if (outcome != EquipmentOperationOutcome::Rejected) {
         updateEquipment();
         selectSlot(Slot::None);
     }

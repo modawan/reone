@@ -181,6 +181,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/effect/visual.h
     ${GAME_INCLUDE_DIR}/effect/vpregenmodifier.h
     ${GAME_INCLUDE_DIR}/effect/whirlwind.h
+    ${GAME_INCLUDE_DIR}/equipmentoperation.h
     ${GAME_INCLUDE_DIR}/equipmentrules.h
     ${GAME_INCLUDE_DIR}/event.h
     ${GAME_INCLUDE_DIR}/runtimeref.h
@@ -482,6 +483,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/effect.cpp
     ${GAME_SOURCE_DIR}/effect/source.cpp
     ${GAME_SOURCE_DIR}/event.cpp
+    ${GAME_SOURCE_DIR}/equipmentoperation.cpp
     ${GAME_SOURCE_DIR}/equipmentrules.cpp
     ${GAME_SOURCE_DIR}/footstepsounds.cpp
     ${GAME_SOURCE_DIR}/floatingtext.cpp
