@@ -17,6 +17,8 @@
 
 #include "reone/graphics/walkmesh.h"
 
+#include <cmath>
+
 namespace reone {
 
 namespace graphics {
@@ -27,6 +29,16 @@ Raycast Walkmesh::raycast(
     const glm::vec3 &dir,
     float maxDistance,
     bool ignoreBackface) const {
+
+    // A degenerate or non-finite ray hits nothing, and a NaN direction would
+    // defeat the AABB slab test so the tree culls nothing. Negated `>` so a
+    // NaN takes this branch.
+    if (!(glm::dot(dir, dir) > 0.0f) || !std::isfinite(origin.x + origin.y + origin.z)) {
+        Raycast result = {0};
+        result.distance = FLT_MAX;
+        result.fail = RAYCAST_NO_INTERSECTION;
+        return result;
+    }
 
     // For area walkmeshes, find intersection via AABB tree
     if (_rootAabb) {
