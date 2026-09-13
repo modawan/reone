@@ -32,6 +32,7 @@
 #include "effect.h"
 #include "event.h"
 #include "floatingtext.h"
+#include "globalfade.h"
 #include "gui/chargen.h"
 #include "gui/computer.h"
 #include "gui/confirmpopup.h"
@@ -286,7 +287,11 @@ public:
     // END KotOR I Pazaak lifecycle
 
     void startCharacterGeneration();
-    void startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef);
+    void startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
+                     GlobalFade::DialogTicket admission = {});
+
+    GlobalFade &globalFade() { return _globalFade; }
+    const GlobalFade &globalFade() const { return _globalFade; }
 
     void pauseConversation();
     void resumeConversation();
@@ -867,6 +872,9 @@ private:
     CameraType _savedCameraType {CameraType::ThirdPerson};
     bool _paused {false};
     bool _timingDiscontinuity {false};
+    GlobalFade _globalFade;
+    GlobalFade::ArrivalTicket _fadeArrival;
+    std::weak_ptr<Module> _fadeArrivalModule;
     std::set<std::string> _moduleNames;
     std::set<std::string> _saveNames;
     bool _quitRequested {false};
@@ -1150,6 +1158,8 @@ private:
 
     void renderScene();
     void renderGUI();
+    void renderGlobalFade();
+    void settleFadeArrival();
     void renderDeveloperOverlay();
     void renderDeveloperBanner();
     void renderDeveloperTriggerOverlay(const glm::mat4 &projection, const glm::mat4 &view);

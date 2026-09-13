@@ -356,6 +356,9 @@ TEST(RuntimeSession, retirement_removes_all_gameplay_ownership_and_restarts_ids)
     configureRuntimeMocks(engine, sceneGraph);
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    game.globalFade().request(GlobalFade::Direction::Out);
+    game.globalFade().holdForDialog();
+    game.globalFade().lockUntilScript();
 
     TestGameModule::setActiveModule(game, true);
     TestGameModule::cacheActiveModule(game, "session_a");
@@ -377,6 +380,11 @@ TEST(RuntimeSession, retirement_removes_all_gameplay_ownership_and_restarts_ids)
     EXPECT_CALL(sceneGraph, clear()).Times(1);
     game.retireRuntimeSession();
 
+    EXPECT_FLOAT_EQ(0, game.globalFade().opacity());
+    EXPECT_FALSE(game.globalFade().heldForDialog());
+    EXPECT_FALSE(game.globalFade().locked());
+    EXPECT_FALSE(game.globalFade().dialogPending());
+    EXPECT_FALSE(game.globalFade().arrivalPending());
     EXPECT_FALSE(game.hasPlayableRuntimeSession());
     EXPECT_EQ(Game::Screen::None, game.currentScreen());
     EXPECT_FALSE(game.module());
@@ -557,6 +565,29 @@ TEST(RuntimeSession, scheduling_an_ordinary_module_transition_preserves_session_
     EXPECT_EQ(9, game.getGlobalNumber("SESSION"));
     EXPECT_EQ("transition", game.substituteCustomTokens("<CUSTOM31>"));
     EXPECT_TRUE(game.module());
+}
+
+TEST(RuntimeSession, new_game_entry_clears_transient_fade_hold_lock_and_old_tickets) {
+    TestEngine engine;
+    engine.init();
+    NiceMock<scene::MockSceneGraph> sceneGraph;
+    configureRuntimeMocks(engine, sceneGraph);
+    StubConsole console;
+    Game game(resource::GameID::TSL, "", engine.options(), engine.services(), console);
+    auto arrival = game.globalFade().beginArrival();
+    auto dialog = game.globalFade().admitDialog();
+    game.globalFade().lockUntilScript();
+    game.startCharacterGeneration(); // reset is required even if chargen GUI cannot load
+    EXPECT_FLOAT_EQ(0, game.globalFade().opacity());
+    EXPECT_FALSE(game.globalFade().heldForDialog());
+    EXPECT_FALSE(game.globalFade().locked());
+    EXPECT_FALSE(game.globalFade().dialogPending());
+    EXPECT_FALSE(game.globalFade().arrivalPending());
+    game.globalFade().holdForDialog();
+    game.globalFade().finishDialog(dialog);
+    game.globalFade().settleArrival(arrival);
+    EXPECT_TRUE(game.globalFade().heldForDialog());
+    EXPECT_FLOAT_EQ(0, game.globalFade().opacity());
 }
 
 TEST(RuntimeSession, full_game_reset_still_clears_logical_state) {

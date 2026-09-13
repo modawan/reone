@@ -51,6 +51,7 @@ public:
     bool handle(const input::Event &event) override;
     void update(float dt) override;
     void render() override;
+    void renderModal();
 
     BarkBubble &barkBubble() const { return *_barkBubble; }
 

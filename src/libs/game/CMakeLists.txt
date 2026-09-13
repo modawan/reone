@@ -189,6 +189,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/floatingtext.h
     ${GAME_INCLUDE_DIR}/galaxymapstate.h
     ${GAME_INCLUDE_DIR}/game.h
+    ${GAME_INCLUDE_DIR}/globalfade.h
     ${GAME_INCLUDE_DIR}/itemdescription.h
     ${GAME_INCLUDE_DIR}/gui.h
     ${GAME_INCLUDE_DIR}/gui/actionbar.h
@@ -489,6 +490,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/floatingtext.cpp
     ${GAME_SOURCE_DIR}/galaxymapstate.cpp
     ${GAME_SOURCE_DIR}/game.cpp
+    ${GAME_SOURCE_DIR}/globalfade.cpp
     ${GAME_SOURCE_DIR}/itemdescription.cpp
     ${GAME_SOURCE_DIR}/gui/actionbar.cpp
     ${GAME_SOURCE_DIR}/gui/actionslot.cpp

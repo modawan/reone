@@ -625,4 +625,125 @@ TEST_F(ConversationTest, one_liner_reply_action_starting_a_conversation_keeps_th
     EXPECT_EQ("second", _conversation->currentText());
 }
 
+TEST_F(ConversationTest, fade_hold_is_consumed_before_entry_action_and_not_after_it) {
+    auto &fade = _game->globalFade();
+    auto arrival = fade.beginArrival();
+    auto dialog = makeDialog();
+    dialog->entries[0].script = "authored_out";
+    EXPECT_CALL(_engine.resourceModule().scripts(), get("authored_out"))
+        .WillOnce(Invoke([&](const std::string &) {
+            EXPECT_FALSE(fade.heldForDialog());
+            EXPECT_LT(fade.opacity(), 1.0f); // in(0,1), including initial tenth
+            fade.request(GlobalFade::Direction::Out);
+            return nullptr;
+        }));
+    _conversation->start(dialog, nullptr);
+    fade.settleArrival(arrival);
+    fade.update(2);
+    EXPECT_FLOAT_EQ(1, fade.opacity());
+    EXPECT_EQ(1, _conversation->entryLoadCount());
+}
+
+TEST_F(ConversationTest, valid_empty_start_consumes_current_hold_without_a_timer) {
+    auto &fade = _game->globalFade();
+    fade.request(GlobalFade::Direction::Out);
+    fade.holdForDialog();
+    auto dialog = std::make_shared<Dialog>();
+    dialog->resRef = "empty_start";
+    _conversation->start(dialog, nullptr);
+    EXPECT_FALSE(fade.heldForDialog());
+    EXPECT_FALSE(fade.dialogPending());
+    fade.update(1);
+    EXPECT_FLOAT_EQ(0, fade.opacity());
+    EXPECT_EQ(1, _conversation->finishCount());
+}
+
+TEST_F(ConversationTest, same_resource_entry_replacement_does_not_execute_old_second_script) {
+    auto &fade = _game->globalFade();
+    auto dialog = makeDialog();
+    dialog->entries[0].script = "replace_same";
+    dialog->entries[0].script2 = "second_action";
+    bool replaced = false;
+    EXPECT_CALL(_engine.resourceModule().scripts(), get("replace_same"))
+        .Times(2).WillRepeatedly(Invoke([&](const std::string &) {
+            if (!replaced) {
+                replaced = true;
+                fade.holdForDialog();
+                _conversation->start(dialog, nullptr);
+                // A new hold belongs to the replacement, not the old stack.
+                fade.holdForDialog();
+                fade.request(GlobalFade::Direction::Out);
+            }
+            return nullptr;
+        }));
+    EXPECT_CALL(_engine.resourceModule().scripts(), get("second_action")).Times(1).WillOnce(Return(nullptr));
+    _conversation->start(dialog, nullptr);
+    EXPECT_EQ(1, _conversation->entryLoadCount());
+    EXPECT_TRUE(fade.heldForDialog());
+    EXPECT_FLOAT_EQ(1, fade.opacity());
+}
+
+TEST_F(ConversationTest, same_resource_start_condition_replacement_cannot_finish_new_start) {
+    auto &fade = _game->globalFade();
+    auto dialog = makeDialog();
+    dialog->startEntries[0].active = "replace_condition";
+    EXPECT_CALL(_engine.resourceModule().scripts(), get("replace_condition"))
+        .WillOnce(Invoke([&](const std::string &) {
+            // Same object identity, different invocation. The old false
+            // condition must not terminate the replacement's valid entry.
+            dialog->startEntries[0].active.clear();
+            _conversation->start(dialog, nullptr);
+            fade.holdForDialog();
+            fade.request(GlobalFade::Direction::Out);
+            return nullptr;
+        }));
+    fade.holdForDialog();
+    _conversation->start(dialog, nullptr);
+    EXPECT_EQ(1, _conversation->entryLoadCount());
+    EXPECT_EQ(1, _conversation->finishCount()); // replacing old startup only
+    EXPECT_TRUE(fade.heldForDialog());
+    EXPECT_TRUE(fade.dialogPending());
+    EXPECT_FLOAT_EQ(1, fade.opacity());
+}
+
+TEST_F(ConversationTest, reply_condition_replacement_cannot_consume_replacement_hold) {
+    auto dialog = makeDialog();
+    dialog->entries[0].replies[0].active = "replace_reply_condition";
+    auto &fade = _game->globalFade();
+    EXPECT_CALL(_engine.resourceModule().scripts(), get("replace_reply_condition"))
+        .WillOnce(Invoke([&](const std::string &) {
+            dialog->entries[0].replies[0].active.clear();
+            _conversation->start(dialog, nullptr);
+            fade.holdForDialog();
+            return nullptr;
+        }));
+    _conversation->start(dialog, nullptr);
+    EXPECT_EQ(1, _conversation->entryLoadCount());
+    EXPECT_TRUE(fade.heldForDialog());
+}
+
+TEST_F(ConversationTest, ordinary_close_and_bark_do_not_release_intentional_black_without_hold) {
+    auto &fade = _game->globalFade();
+    fade.request(GlobalFade::Direction::Out);
+    _conversation->start(makeOneLinerDialog("", ""), nullptr);
+    EXPECT_EQ(1, _conversation->barkCount());
+    EXPECT_FLOAT_EQ(1, fade.opacity());
+    startSilent();
+    _conversation->cleanupForModuleTransition();
+    EXPECT_FLOAT_EQ(1, fade.opacity());
+    EXPECT_FALSE(fade.heldForDialog());
+}
+
+TEST_F(ConversationTest, bark_consumes_hold_even_when_script_lock_rejects_reveal) {
+    auto &fade = _game->globalFade();
+    fade.request(GlobalFade::Direction::Out);
+    fade.holdForDialog();
+    fade.lockUntilScript();
+    _conversation->start(makeOneLinerDialog("", ""), nullptr);
+    EXPECT_EQ(1, _conversation->barkCount());
+    EXPECT_FALSE(fade.heldForDialog());
+    EXPECT_TRUE(fade.locked());
+    EXPECT_FLOAT_EQ(1, fade.opacity());
+}
+
 } // namespace

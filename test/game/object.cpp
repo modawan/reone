@@ -26,6 +26,7 @@
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/action/opendoor.h"
+#include "reone/game/action/startconversation.h"
 #include "reone/game/action/unlockobject.h"
 #include "reone/game/equipmentrules.h"
 #include "reone/game/effect/abilityincrease.h"
@@ -292,6 +293,16 @@ void reone::game::TestGameModule::setOnNotice(
 
 void reone::game::TestGameModule::updatePerception(Area &area) {
     area.doUpdatePerception();
+}
+
+void reone::game::TestGameModule::prepareFadeArrival(Game &game) {
+    game._fadeArrival = game._globalFade.beginArrival();
+    game._fadeArrivalModule = game._module;
+    game._globalFade.finishLoading(game._fadeArrival);
+}
+
+void reone::game::TestGameModule::setDialogGUI(Game &game, std::unique_ptr<DialogGUI> dialog) {
+    game._dialog = std::move(dialog);
 }
 
 std::pair<glm::vec3, float> reone::game::TestGameModule::resolveModuleEntry(
@@ -2545,7 +2556,10 @@ TEST(GUIListScale, should_change_row_density_without_changing_the_list_viewport)
 }
 
 TEST(GUIExternalRendererGeometry, should_scale_action_icons_to_their_button_rect) {
-    TestEngine &engine = testEngine();
+    // The throwing uniform callback captures this test's stack. Do not leave it
+    // on the shared engine for later loading/fade presentation to invoke.
+    TestEngine engine;
+    engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto gui = std::make_shared<NiceMock<gui::MockGUI>>();
@@ -6443,9 +6457,10 @@ namespace {
 struct StopMovementFixture {
     TestEngine &engine = testEngine();
     StubConsole console;
-    Game game {GameID::KotOR, "", engine.options(), engine.services(), console};
+    Game game;
 
-    StopMovementFixture() {
+    explicit StopMovementFixture(GameID gameId = GameID::KotOR) :
+        game(gameId, "", engine.options(), engine.services(), console) {
         testSceneGraph(engine);
     }
 
@@ -6456,6 +6471,10 @@ struct StopMovementFixture {
         TestGameModule::loadModulePlayer(*game.module());
 
         auto leader = makeMovingCreature(game, engine);
+        // This navigation-only template omits vitality. Keep this fixture alive
+        // when exercising the real Object::update/action path.
+        leader->setMaxHitPoints(10);
+        leader->setCurrentHitPoints(10);
         game.party().addMember(kNpcPlayer, leader);
         game.party().setPlayer(leader);
         area->add(leader);
@@ -6464,6 +6483,283 @@ struct StopMovementFixture {
 };
 
 } // namespace
+
+TEST(GlobalFadeArrival, module_update_settles_readiness_once_after_initial_occupancy) {
+    StopMovementFixture fixture;
+    fixture.bringUpModule();
+    auto &game = fixture.game;
+    TestGameModule::prepareFadeArrival(game);
+    game.globalFade().request(GlobalFade::Direction::In, 3, 1.5f, {}, GlobalFade::Source::Script);
+    game.openInGame();
+    game.update(.1f);
+    EXPECT_FALSE(game.globalFade().arrivalPending());
+    game.update(.9f);
+    EXPECT_NEAR(.5f, game.globalFade().opacity(), 1e-6f);
+    game.globalFade().request(GlobalFade::Direction::Out);
+    game.update(1);
+    EXPECT_FLOAT_EQ(1, game.globalFade().opacity());
+}
+
+TEST(GlobalFadeArrival, first_occupancy_admits_dialogue_before_default_reveal) {
+    StopMovementFixture fixture;
+    auto leader = fixture.bringUpModule();
+    auto &game = fixture.game;
+    game.initLocalServices();
+    auto trigger = game.newTrigger();
+    trigger->deserialize(*makeTransitionTriggerGff("", "", "fade_occupancy"), SerializedIdentityContext::templateResource());
+    game.module()->area()->add(trigger);
+    auto action = game.newAction<StartConversationAction>(nullptr, "missing");
+    EXPECT_CALL(fixture.engine.resourceModule().scripts(), get("fade_occupancy"))
+        .WillOnce(Invoke([&](const std::string &) {
+            leader->addAction(action);
+            return makeInertScript("fade_occupancy");
+        }));
+    TestGameModule::prepareFadeArrival(game);
+    game.openInGame();
+    game.update(.1f);
+    EXPECT_TRUE(trigger->isTenant(leader));
+    EXPECT_FALSE(game.globalFade().arrivalPending());
+    EXPECT_TRUE(game.globalFade().dialogPending());
+    EXPECT_TRUE(game.globalFade().heldForDialog());
+    EXPECT_FLOAT_EQ(1, game.globalFade().opacity());
+    game.update(.1f); // current failed action consumes H on the next object tick
+    EXPECT_FALSE(game.globalFade().heldForDialog());
+    EXPECT_FLOAT_EQ(.9f, game.globalFade().opacity());
+    game.update(1);
+    EXPECT_FLOAT_EQ(0, game.globalFade().opacity());
+}
+
+TEST(GlobalFadeArrival, replacement_during_occupancy_cannot_settle_the_new_module) {
+    StopMovementFixture fixture;
+    fixture.bringUpModule();
+    auto &game = fixture.game;
+    game.initLocalServices();
+    auto trigger = game.newTrigger();
+    trigger->deserialize(*makeTransitionTriggerGff("", "", "fade_replace"), SerializedIdentityContext::templateResource());
+    game.module()->area()->add(trigger);
+    EXPECT_CALL(fixture.engine.resourceModule().scripts(), get("fade_replace"))
+        .WillOnce(Invoke([&](const std::string &) {
+            fixture.bringUpModule();
+            TestGameModule::prepareFadeArrival(game);
+            return makeInertScript("fade_replace");
+        }));
+    TestGameModule::prepareFadeArrival(game);
+    game.openInGame();
+    game.update(.1f);
+    EXPECT_TRUE(game.globalFade().arrivalPending());
+    EXPECT_FLOAT_EQ(1, game.globalFade().opacity());
+    game.update(.1f);
+    EXPECT_FALSE(game.globalFade().arrivalPending());
+    game.update(1.5f);
+    EXPECT_FLOAT_EQ(0, game.globalFade().opacity());
+}
+
+namespace {
+
+// Keep the real Game -> action -> Conversation entry/reply path. Only GUI
+// controls and camera presentation are replaced, as in the conversation tests.
+class AdmissionDialogGUI : public DialogGUI {
+public:
+    AdmissionDialogGUI(Game &game, ServicesView &services) : DialogGUI(game, services) {
+        _gui = std::make_shared<NiceMock<gui::MockGUI>>();
+    }
+
+    void update(float dt) override { Conversation::update(dt); }
+    void chooseReply() { pickReply(0); }
+    int entries {0};
+
+private:
+    void onStart() override {}
+    void onFinish() override {}
+    void onLoadEntry() override { ++entries; }
+    void onEntryEnded() override {}
+    void setMessage(std::string) override {}
+    void setReplyLines(std::vector<std::string>) override {}
+};
+
+class GlobalFadeAdmission : public TestWithParam<GameID> {
+protected:
+    void SetUp() override {
+        fixture = std::make_unique<StopMovementFixture>(GetParam());
+        leader = fixture->bringUpModule();
+        auto &game = fixture->game;
+        game.initLocalServices();
+        auto gui = std::make_unique<AdmissionDialogGUI>(game, fixture->engine.services());
+        conversation = gui.get();
+        TestGameModule::setDialogGUI(game, std::move(gui));
+        dialog = std::make_shared<resource::Dialog>();
+        dialog->resRef = "fade_admission";
+        Dialog::EntryReplyLink link;
+        link.index = 0;
+        dialog->startEntries.push_back(link);
+        dialog->entries.resize(1);
+        dialog->entries[0].text = "A valid conversation";
+        dialog->entries[0].delay = 100;
+        dialog->entries[0].replies.push_back(link);
+        dialog->replies.resize(1);
+        dialog->replies[0].text = "Finish";
+        EXPECT_CALL(fixture->engine.resourceModule().gffs(), get("fade_admission", ResType::Dlg))
+            .Times(AnyNumber()).WillRepeatedly(Return(Gff::Builder().build()));
+        EXPECT_CALL(static_cast<resource::MockDialogs &>(fixture->engine.services().resource.dialogs), get("fade_admission"))
+            .Times(AnyNumber()).WillRepeatedly(Return(dialog));
+        game.openInGame();
+        game.globalFade().request(GlobalFade::Direction::Out);
+        game.globalFade().holdForDialog();
+        if (game.isTSL()) {
+            game.globalFade().lockUntilScript();
+        }
+    }
+
+    std::shared_ptr<StartConversationAction> queue(const std::shared_ptr<Creature> &actor) {
+        auto action = fixture->game.newAction<StartConversationAction>(
+            leader, "fade_admission", false, ConversationType::Cinematic, true);
+        actor->addAction(action);
+        return action;
+    }
+
+    std::unique_ptr<StopMovementFixture> fixture;
+    std::shared_ptr<Creature> leader;
+    std::shared_ptr<resource::Dialog> dialog;
+    AdmissionDialogGUI *conversation {nullptr};
+};
+
+INSTANTIATE_TEST_SUITE_P(BothGames, GlobalFadeAdmission,
+                        Values(GameID::KotOR, GameID::TSL));
+
+} // namespace
+
+TEST_P(GlobalFadeAdmission, destruction_retires_admission_while_storage_is_retained) {
+    auto &game = fixture->game;
+    auto area = game.module()->area();
+    auto actor = makeMovingCreature(game, fixture->engine);
+    area->add(actor);
+    auto action = queue(actor);
+    ASSERT_TRUE(game.globalFade().dialogPending());
+    ASSERT_TRUE(game.globalFade().heldForDialog());
+    ASSERT_FLOAT_EQ(1, game.globalFade().opacity());
+
+    area->destroyObject(*actor);
+    game.update(.1f); // destruction drains before any actor action executes
+    ASSERT_FALSE(game.getObjectById(actor->id()));
+    EXPECT_FALSE(actor->isRuntimeLive());
+    EXPECT_EQ(area->objects().end(), std::find(area->objects().begin(), area->objects().end(), actor));
+    EXPECT_TRUE(action->isCancelled());
+    // Storage can still retain the cancelled action; lifetime is logical.
+    EXPECT_EQ(action, actor->getCurrentAction());
+    EXPECT_EQ(0, conversation->entries);
+    EXPECT_FALSE(game.globalFade().dialogPending());
+    EXPECT_FALSE(game.globalFade().heldForDialog());
+    EXPECT_EQ(game.isTSL(), game.globalFade().locked());
+    EXPECT_FLOAT_EQ(game.isTSL() ? 1 : .9f, game.globalFade().opacity());
+    game.update(1);
+    EXPECT_FLOAT_EQ(game.isTSL() ? 1 : 0, game.globalFade().opacity());
+
+    auto replacement = queue(leader);
+    game.update(.1f);
+    EXPECT_FALSE(replacement->isCancelled());
+    ASSERT_EQ(1, conversation->entries);
+    EXPECT_TRUE(game.isConversationActive());
+    EXPECT_TRUE(leader->isInConversation());
+    // A rejected locked reveal is not replayed by the subsequent conversation.
+    EXPECT_FLOAT_EQ(game.isTSL() ? 1 : 0, game.globalFade().opacity());
+    game.globalFade().request(GlobalFade::Direction::In, 0, 1, {}, GlobalFade::Source::Script);
+    game.update(1);
+    EXPECT_FALSE(game.globalFade().locked());
+    EXPECT_FLOAT_EQ(0, game.globalFade().opacity());
+    conversation->chooseReply();
+    EXPECT_FALSE(game.isConversationActive());
+    EXPECT_FALSE(game.globalFade().dialogPending());
+}
+
+TEST_P(GlobalFadeAdmission, stale_destruction_and_cancellation_preserve_replacement_hold) {
+    auto &game = fixture->game;
+    auto area = game.module()->area();
+    auto actor = makeMovingCreature(game, fixture->engine);
+    area->add(actor);
+    auto stale = queue(actor);
+    dialog->entries[0].script = "fade_new_hold";
+    EXPECT_CALL(fixture->engine.resourceModule().scripts(), get("fade_new_hold"))
+        .WillOnce(Invoke([&](const std::string &) {
+            game.globalFade().holdForDialog();
+            game.globalFade().request(GlobalFade::Direction::Out);
+            return makeInertScript("fade_new_hold");
+        }));
+    // Same DLG resource, new accepted session; its entry establishes a new H.
+    game.startDialog(leader, "fade_admission");
+    ASSERT_EQ(1, conversation->entries);
+    area->destroyObject(*actor);
+    game.update(.1f);
+    EXPECT_TRUE(stale->isCancelled());
+    stale->cancel(stale, *actor); // a late duplicate callback also cannot consume H
+    EXPECT_TRUE(game.globalFade().heldForDialog());
+    EXPECT_TRUE(game.globalFade().dialogPending());
+    EXPECT_FLOAT_EQ(1, game.globalFade().opacity());
+    EXPECT_EQ(game.isTSL(), game.globalFade().locked());
+    conversation->chooseReply();
+    EXPECT_FALSE(game.globalFade().heldForDialog());
+    EXPECT_FALSE(game.globalFade().dialogPending());
+    EXPECT_FLOAT_EQ(game.isTSL() ? 1 : .9f, game.globalFade().opacity());
+}
+
+TEST_P(GlobalFadeAdmission, same_area_party_reposition_preserves_queued_conversation) {
+    auto &game = fixture->game;
+    auto area = game.module()->area();
+    auto action = queue(leader);
+    area->repositionParty(leader->position(), leader->getFacing());
+    ASSERT_EQ(leader, game.getObjectById(leader->id()));
+    ASSERT_EQ(action, leader->getCurrentAction());
+    EXPECT_FALSE(action->isCancelled());
+    EXPECT_TRUE(game.globalFade().heldForDialog());
+    EXPECT_TRUE(game.globalFade().dialogPending());
+    EXPECT_FLOAT_EQ(1, game.globalFade().opacity());
+    EXPECT_EQ(0, conversation->entries);
+
+    game.update(.1f);
+    EXPECT_FALSE(action->isCancelled());
+    EXPECT_TRUE(action->isCompleted());
+    ASSERT_EQ(1, conversation->entries);
+    EXPECT_TRUE(game.isConversationActive());
+    EXPECT_FALSE(game.globalFade().heldForDialog());
+    EXPECT_EQ(game.isTSL(), game.globalFade().locked());
+    EXPECT_FLOAT_EQ(game.isTSL() ? 1 : .9f, game.globalFade().opacity());
+    conversation->chooseReply();
+    EXPECT_FALSE(game.globalFade().dialogPending());
+}
+
+TEST_P(GlobalFadeAdmission, direct_runtime_retirement_releases_only_the_old_admission) {
+    auto &game = fixture->game;
+    auto actor = makeMovingCreature(game, fixture->engine);
+    auto action = queue(actor);
+    game.destroyRuntimeObjectGraph(actor);
+    ASSERT_FALSE(actor->isRuntimeLive());
+    EXPECT_TRUE(action->isCancelled());
+    EXPECT_FALSE(game.globalFade().dialogPending());
+    EXPECT_FALSE(game.globalFade().heldForDialog());
+    EXPECT_EQ(game.isTSL(), game.globalFade().locked());
+
+    game.globalFade().holdForDialog();
+    auto replacement = queue(leader);
+    game.destroyRuntimeObjectGraph(actor); // repeated stale retirement
+    action->cancel(action, *actor);
+    EXPECT_TRUE(game.globalFade().heldForDialog());
+    EXPECT_TRUE(game.globalFade().dialogPending());
+    EXPECT_FALSE(replacement->isCancelled());
+    game.update(.1f);
+    EXPECT_EQ(1, conversation->entries);
+    EXPECT_FALSE(game.globalFade().heldForDialog());
+}
+
+TEST_P(GlobalFadeAdmission, area_retirement_discards_admission_without_waiting_for_storage) {
+    auto &game = fixture->game;
+    auto action = queue(leader);
+    game.module()->area()->retirePartyMemberAreaRuntime(leader);
+    EXPECT_TRUE(leader->isRuntimeLive());
+    EXPECT_TRUE(action->isCancelled());
+    EXPECT_TRUE(leader->actions().empty());
+    EXPECT_FALSE(game.globalFade().dialogPending());
+    EXPECT_FALSE(game.globalFade().heldForDialog());
+    EXPECT_EQ(game.isTSL(), game.globalFade().locked());
+}
 
 // Between resetting the game and the destination module coming up there is no
 // module to stop anything on. Nothing is halted because nothing is moving, and

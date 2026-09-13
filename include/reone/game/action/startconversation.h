@@ -20,6 +20,7 @@
 #include "reone/resource/types.h"
 
 #include "../action.h"
+#include "../globalfade.h"
 
 namespace reone {
 
@@ -58,6 +59,8 @@ public:
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    void cancel(std::shared_ptr<Action> self, Object &actor) override;
+    void admit();
 
     std::optional<SavedActionRecord> saveFacingState() const override;
 
@@ -78,6 +81,8 @@ private:
     int _barkX;
     int _barkY;
     bool _dontClearAllActions;
+    bool _admitted {false};
+    GlobalFade::DialogTicket _fadeDialog;
 };
 
 } // namespace game

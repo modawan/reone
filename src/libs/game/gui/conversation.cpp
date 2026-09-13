@@ -75,9 +75,25 @@ static std::vector<script::Argument> makeScriptArgs(uint32_t callerId, const Par
     return args;
 }
 
-void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::shared_ptr<Object> &owner) {
+bool Conversation::isCurrent(uint64_t generation) const {
+    return generation == _generation && _game.globalFade().isCurrentDialog(_fadeDialog);
+}
+
+void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::shared_ptr<Object> &owner,
+                          GlobalFade::DialogTicket admission) {
+    if (!admission) {
+        admission = _game.globalFade().admitDialog(/*replace=*/true);
+    }
+    if (!_game.globalFade().isCurrentDialog(admission)) {
+        return;
+    }
+    auto generation = ++_generation;
+    _fadeDialog = std::move(admission);
     if (_dialog) {
         onFinish();
+        if (!isCurrent(generation)) {
+            return;
+        }
         if (auto oldOwner = _owner.resolve()) {
             oldOwner->setIsInConversation(false);
         }
@@ -95,7 +111,9 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
     loadConversationBackground();
     loadCameraModel();
     onStart();
-    loadStartEntry();
+    if (isCurrent(generation)) {
+        loadStartEntry();
+    }
 }
 
 static BackgroundType getBackgroundType(ComputerType compType) {
@@ -128,7 +146,12 @@ void Conversation::onStart() {
 }
 
 void Conversation::loadStartEntry() {
-    int entryIdx = indexOfFirstActive(_dialog->startEntries);
+    auto generation = _generation;
+    auto dialog = _dialog;
+    int entryIdx = indexOfFirstActive(dialog->startEntries);
+    if (!isCurrent(generation)) {
+        return;
+    }
     if (entryIdx == -1) {
         debug("Finish (no active start entry)", LogChannel::Conversation);
         finish();
@@ -138,8 +161,13 @@ void Conversation::loadStartEntry() {
 }
 
 int Conversation::indexOfFirstActive(const std::vector<Dialog::EntryReplyLink> &links) {
+    auto generation = _generation;
     for (auto &link : links) {
-        if (isLinkActive(link)) {
+        bool active = isLinkActive(link);
+        if (!isCurrent(generation)) {
+            return -1;
+        }
+        if (active) {
             return link.index;
         }
     }
@@ -147,9 +175,13 @@ int Conversation::indexOfFirstActive(const std::vector<Dialog::EntryReplyLink> &
 }
 
 bool Conversation::isLinkActive(const Dialog::EntryReplyLink &link) {
+    auto generation = _generation;
     std::optional<bool> active;
     if (!link.active.empty()) {
         active = evaluateCondition(link.active, link.params);
+        if (!isCurrent(generation)) {
+            return false;
+        }
         if (link.notActive) {
             active = !active.value();
         }
@@ -157,6 +189,9 @@ bool Conversation::isLinkActive(const Dialog::EntryReplyLink &link) {
     std::optional<bool> active2;
     if (!link.active2.empty()) {
         active2 = evaluateCondition(link.active2, link.params2);
+        if (!isCurrent(generation)) {
+            return false;
+        }
         if (link.notActive2) {
             active2 = !active2.value();
         }
@@ -190,8 +225,11 @@ void Conversation::runScript(const std::string &scriptResRef, const Dialog::Entr
 }
 
 void Conversation::runScripts(const Dialog::EntryReply &node) {
+    auto generation = _generation;
     runScript(node.script, node.actionParams);
-    runScript(node.script2, node.actionParams2);
+    if (isCurrent(generation)) {
+        runScript(node.script2, node.actionParams2);
+    }
 }
 
 void Conversation::applyStatusSummaryEntries(const Dialog::EntryReply &node) {
@@ -202,8 +240,17 @@ void Conversation::applyStatusSummaryEntries(const Dialog::EntryReply &node) {
 }
 
 void Conversation::finish() {
+    auto generation = ++_generation;
+    auto dialog = _dialog;
+    auto ownerRef = _owner;
+    _game.globalFade().finishDialog(_fadeDialog);
+    _fadeDialog.reset();
     _paused = false;
+    _entryEnded = true;
     onFinish();
+    if (_generation != generation) {
+        return;
+    }
 
     // A reply script can hand the screen to something else before the
     // conversation ends -- PlayPazaak opens the pazaak board from a dialogue
@@ -213,13 +260,16 @@ void Conversation::finish() {
     }
 
     // Run EndConversation script
-    auto owner = _owner.resolve();
-    if (!_dialog->endScript.empty() && owner) {
-        _game.scriptRunner().run(_dialog->endScript, owner->id());
+    if (auto owner = ownerRef.resolve()) {
+        if (!dialog->endScript.empty()) {
+            _game.scriptRunner().run(dialog->endScript, owner->id());
+        }
     }
 
-    if (owner) {
-        owner->setIsInConversation(false);
+    if (_generation == generation) {
+        if (auto owner = ownerRef.resolve()) {
+            owner->setIsInConversation(false);
+        }
     }
 }
 
@@ -227,7 +277,11 @@ void Conversation::onFinish() {
 }
 
 void Conversation::cleanupForModuleTransition() {
+    auto generation = ++_generation;
+    _game.globalFade().finishDialog(_fadeDialog);
+    _fadeDialog.reset();
     _paused = false;
+    _entryEnded = true;
     if (!_dialog) {
         return;
     }
@@ -237,12 +291,16 @@ void Conversation::cleanupForModuleTransition() {
     }
     _lipAnimation.reset();
     onFinish();
-    if (auto owner = _owner.resolve()) {
-        owner->setIsInConversation(false);
+    if (_generation == generation) {
+        if (auto owner = _owner.resolve()) {
+            owner->setIsInConversation(false);
+        }
     }
 }
 
 void Conversation::loadEntry(int index, bool start) {
+    auto generation = _generation;
+    auto dialog = _dialog; // retain nodes across callbacks, including conditions
     debug("Load entry " + std::to_string(index), LogChannel::Conversation);
     _currentEntry = &_dialog->getEntry(index);
 
@@ -251,15 +309,21 @@ void Conversation::loadEntry(int index, bool start) {
     std::string entryText(_game.substituteCustomTokens(_currentEntry->text));
     setMessage(entryText);
     loadReplies();
+    if (!isCurrent(generation)) {
+        return;
+    }
     loadVoiceOver();
+
+    // Entry publication consumes only the current handoff. An entry action
+    // below can immediately replace this automatic reveal with its own fade.
+    _game.globalFade().revealDialog(_fadeDialog);
 
     // Run entry scripts. An entry action can start another conversation, which
     // replaces this one outright. Holding the dialogue keeps this entry and its
     // replies alive for the script to act on, and tells us to stop rather than
     // carry on driving the new session with the old one's state.
-    auto dialog = _dialog;
     runScripts(*_currentEntry);
-    if (_dialog != dialog) {
+    if (!isCurrent(generation)) {
         return;
     }
 
@@ -276,6 +340,9 @@ void Conversation::loadEntry(int index, bool start) {
 
     scheduleEndOfEntry();
     onLoadEntry();
+    if (!isCurrent(generation)) {
+        return;
+    }
 
     if (oneLiner) {
         setBarkText(std::move(entryText), _entryDuration);
@@ -360,9 +427,15 @@ void Conversation::scheduleEndOfEntry() {
 }
 
 void Conversation::loadReplies() {
+    auto generation = _generation;
+    auto dialog = _dialog;
     _replies.clear();
     for (auto &link : _currentEntry->replies) {
-        if (isLinkActive(link)) {
+        bool active = isLinkActive(link);
+        if (!isCurrent(generation)) {
+            return;
+        }
+        if (active) {
             _replies.push_back(&_dialog->getReply(link.index));
         }
     }
@@ -388,6 +461,7 @@ void Conversation::refreshReplies() {
 }
 
 void Conversation::pickReply(int index) {
+    auto generation = _generation;
     debug("Pick reply " + std::to_string(index), LogChannel::Conversation);
     const Dialog::EntryReply &reply = *_replies[index];
 
@@ -399,11 +473,14 @@ void Conversation::pickReply(int index) {
 
     // A reply action can start another conversation, replacing this one. Going
     // on would advance or finish the new session in place of the old one.
-    if (_dialog != dialog) {
+    if (!isCurrent(generation)) {
         return;
     }
 
     int entryIdx = indexOfFirstActive(reply.entries);
+    if (!isCurrent(generation)) {
+        return;
+    }
     if (entryIdx == -1) {
         debug("Finish (no active entries)", LogChannel::Conversation);
         finish();
@@ -457,6 +534,7 @@ void Conversation::endCurrentEntry() {
     if (!_currentEntry || _entryEnded || _paused) {
         return;
     }
+    auto generation = _generation;
     _entryEnded = true;
 
     // Stop voice over, if any
@@ -466,6 +544,9 @@ void Conversation::endCurrentEntry() {
     }
 
     onEntryEnded();
+    if (!isCurrent(generation)) {
+        return;
+    }
 
     if (_autoPickFirstReply) {
         pickReply(0);

@@ -19,6 +19,7 @@
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/docommand.h"
 #include "reone/game/action/wait.h"
+#include "reone/game/action/startconversation.h"
 #include "reone/game/object/area.h"
 #include "reone/game/types.h"
 #include "reone/game/object/creature.h"
@@ -529,6 +530,66 @@ TEST_P(EntryLifecycleFixture, ordinary_transition_reconstructs_party_action_queu
     ASSERT_EQ(1u, player->actions().size());
     ASSERT_TRUE(player->actions().front()->originalSavedAction());
     EXPECT_EQ(30u, player->actions().front()->originalSavedAction()->actionId);
+}
+
+TEST_P(EntryLifecycleFixture, fade_hold_transfers_to_reconstructed_party_conversation) {
+    serveModule(/*savedModuleSnapshot=*/false);
+    ASSERT_TRUE(game->loadModule("module_b"));
+    game->globalFade().holdForDialog();
+    if (game->isTSL()) game->globalFade().lockUntilScript();
+    auto wait = game->newAction<WaitAction>(5.0f);
+    auto outgoing = game->newAction<StartConversationAction>(player, "fade_transfer");
+    player->addAction(wait);
+    player->addAction(outgoing);
+    ASSERT_TRUE(game->globalFade().dialogPending());
+
+    ASSERT_TRUE(game->loadModule("module_b"));
+    ASSERT_EQ(2u, player->actions().size());
+    EXPECT_TRUE(wait->isCancelled());
+    EXPECT_TRUE(outgoing->isCancelled());
+    auto incoming = std::dynamic_pointer_cast<StartConversationAction>(player->actions().back());
+    ASSERT_TRUE(incoming);
+    EXPECT_NE(outgoing, incoming);
+    EXPECT_EQ(player, incoming->target());
+    EXPECT_TRUE(game->globalFade().heldForDialog());
+    EXPECT_TRUE(game->globalFade().dialogPending());
+    EXPECT_EQ(game->isTSL(), game->globalFade().locked());
+
+    outgoing->cancel(outgoing, *player); // source storage outlives its transfer
+    game->update(.1f); // first occupancy must retain the destination's hold
+    EXPECT_TRUE(game->globalFade().heldForDialog());
+    EXPECT_TRUE(game->globalFade().dialogPending());
+    EXPECT_FLOAT_EQ(1, game->globalFade().opacity());
+    EXPECT_FALSE(incoming->isCancelled());
+    EXPECT_FALSE(incoming->isCompleted());
+
+    // Reentry reconstructs once more, without carrying a stale admission.
+    ASSERT_TRUE(game->loadModule("module_b"));
+    ASSERT_EQ(2u, player->actions().size());
+    EXPECT_TRUE(incoming->isCancelled());
+    incoming->cancel(incoming, *player);
+    EXPECT_TRUE(game->globalFade().heldForDialog());
+    EXPECT_TRUE(game->globalFade().dialogPending());
+}
+
+TEST_P(EntryLifecycleFixture, rejected_destination_preserves_source_fade_and_admission) {
+    serveModule(/*savedModuleSnapshot=*/false);
+    ASSERT_TRUE(game->loadModule("module_b"));
+    auto outgoing = game->newAction<StartConversationAction>(player, "fade_transfer");
+    player->addAction(outgoing);
+    game->globalFade().holdForDialog();
+    game->globalFade().request(GlobalFade::Direction::In, 3, 1);
+    auto source = game->module();
+    EXPECT_CALL(engine.resourceModule().director(), prepareModuleLoad("missing", _))
+        .WillOnce(Throw(std::runtime_error("injected preparation failure")));
+
+    EXPECT_FALSE(game->loadModule("missing"));
+    EXPECT_EQ(source, game->module());
+    EXPECT_FALSE(outgoing->isCancelled());
+    EXPECT_TRUE(game->globalFade().heldForDialog());
+    EXPECT_TRUE(game->globalFade().dialogPending());
+    game->globalFade().update(3.5f);
+    EXPECT_NEAR(.4f, game->globalFade().opacity(), .001f);
 }
 
 TEST_P(EntryLifecycleFixture, ordinary_transition_keeps_only_exact_live_action_target) {
