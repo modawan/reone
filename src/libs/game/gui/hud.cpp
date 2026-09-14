@@ -521,7 +521,9 @@ void HUD::render() {
     _select.render();
     _actionBar.render(_gui->scale());
     _game.floatingText().render();
+}
 
+void HUD::renderModal() {
     if (_statusSummary && _statusSummary->isVisible()) {
         _statusSummary->render();
     }

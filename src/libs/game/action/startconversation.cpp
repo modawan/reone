@@ -30,7 +30,31 @@ namespace game {
 
 static constexpr float kMaxConversationDistance = 4.0f;
 
+void StartConversationAction::admit() {
+    if (_admitted) {
+        return;
+    }
+    _admitted = true;
+    if (!_game.isConversationActive()) {
+        _fadeDialog = _game.globalFade().admitDialog();
+    }
+    if (!_fadeDialog) {
+        complete();
+    }
+}
+
+void StartConversationAction::cancel(std::shared_ptr<Action> self, Object &actor) {
+    _game.globalFade().finishDialog(_fadeDialog);
+    _fadeDialog.reset();
+}
+
 void StartConversationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    // Direct executors and restored queues use the same admission path.
+    admit();
+    if (!_game.globalFade().isCurrentDialog(_fadeDialog)) {
+        complete();
+        return;
+    }
     // A queued ActionStartConversation that comes up while a dialogue is
     // already running is discarded, not honored and not deferred.
     //
@@ -49,6 +73,7 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
     if (_game.isConversationActive()) {
         debug("Discarding StartConversation, a conversation is already active",
               LogChannel::Conversation);
+        cancel(self, actor);
         complete();
         return;
     }
@@ -66,6 +91,7 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
     // placeholder from starting a stray dialog.
     if (auto creatureActor = dyn_cast<Creature>(actorPtr)) {
         if (!_objectToConverse) {
+            cancel(self, actor);
             complete();
             return;
         }
@@ -121,11 +147,14 @@ void StartConversationAction::execute(std::shared_ptr<Action> self, Object &acto
     // does not block the queue, but do not dereference a null owner -
     // Area::startDialog reads owner->conversation() for an empty resref.
     if (!dialogOwner) {
+        cancel(self, actor);
         complete();
         return;
     }
 
-    _game.module()->area()->startDialog(dialogOwner, _dialogResRef);
+    _game.startDialog(dialogOwner, _dialogResRef.empty() ? dialogOwner->conversation() : _dialogResRef,
+                      _fadeDialog);
+    _fadeDialog.reset(); // successful startup is now owned by Conversation
     complete();
 }
 

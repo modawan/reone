@@ -21,6 +21,7 @@
 #include <sstream>
 #include <typeinfo>
 
+#include "reone/game/action/startconversation.h"
 #include "reone/game/di/services.h"
 #include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
@@ -515,6 +516,11 @@ void Object::retireAreaRuntimeState(
     // Discard rather than cancel: cancellation callbacks are live gameplay and
     // must not mutate the already-frozen outgoing world.
     for (auto &action : _actions) {
+        // Conversation cancellation only retires its presentation admission.
+        // Other actions are discarded without invoking gameplay callbacks.
+        if (auto conversation = dyn_cast<StartConversationAction>(action)) {
+            conversation->cancel(action, *this);
+        }
         if (action) action->markCancelled();
     }
     _actions.clear();
@@ -642,11 +648,17 @@ void Object::clearAllActions(bool force) {
 
 void Object::addAction(std::shared_ptr<Action> action) {
     if (!isRuntimeLive()) return;
+    if (auto conversation = dyn_cast<StartConversationAction>(action)) {
+        conversation->admit();
+    }
     _actions.push_back(std::move(action));
 }
 
 void Object::addActionOnTop(std::shared_ptr<Action> action) {
     if (!isRuntimeLive()) return;
+    if (auto conversation = dyn_cast<StartConversationAction>(action)) {
+        conversation->admit();
+    }
     _actions.push_front(std::move(action));
 }
 

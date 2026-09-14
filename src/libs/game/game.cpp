@@ -791,6 +791,9 @@ bool Game::consumeTimingDiscontinuity() {
 }
 
 void Game::update(float frameTime) {
+    // Presentation advances once, before callbacks can replace its request.
+    // The driver rebases frameTime after synchronous loading; movies suspend it.
+    _globalFade.update(frameTime);
     float dt = frameTime * _gameSpeed;
     if (_movie) {
         updateMovie(dt);
@@ -867,8 +870,17 @@ void Game::update(float frameTime) {
         _floatingText.update(dt);
         advanceWorldTime(dt);
         advancePlayedTime(dt);
-        _module->update(dt);
+        auto updatedModule = _module;
+        auto generation = _runtimeSessionGeneration;
+        updatedModule->update(dt);
         _combat.update(dt);
+        if (_module == updatedModule && _runtimeSessionGeneration == generation) {
+            settleFadeArrival();
+        }
+    }
+
+    if (_screen == Screen::SwoopRace || _screen == Screen::Turret) {
+        settleFadeArrival();
     }
 
     auto gui = getScreenGUI();
@@ -1294,6 +1306,7 @@ bool Game::loadPreparedModule(
                                             &loaded]() {
         try {
             commitStarted = true;
+            _globalFade.request(GlobalFade::Direction::Out);
             // Destination structure and the source snapshot are both viable.
             // Technical teardown belongs on the commit side of that boundary:
             // a rejected destination or failed snapshot must not abort an
@@ -1396,20 +1409,33 @@ bool Game::loadPreparedModule(
                 [&]() noexcept {
                     _module = std::move(destinationModule);
                 });
-            _module->load(
+            _fadeArrival = _globalFade.beginArrival();
+            _fadeArrivalModule = _module;
+            auto destination = _module;
+            auto arrival = _fadeArrival;
+            auto stillCurrent = [&]() {
+                return destination == _module && arrival == _fadeArrival;
+            };
+            destination->load(
                 name,
                 *ifo,
                 *prepared.are,
                 *prepared.git,
                 restoringSavedWorld);
-            _loadedModules.insert(std::make_pair(name, _module));
+            if (!stillCurrent()) {
+                return;
+            }
+            _loadedModules.insert(std::make_pair(name, destination));
 
             // Structural construction is complete and the destination module
             // is now the authoritative script caller. Authored gameplay begins
             // here; failures from this point are terminal rather than rolled
             // back as if arbitrary NWScript mutation were transactional.
             if (!restoringSavedWorld) {
-                _module->runSpawnScripts();
+                destination->runSpawnScripts();
+                if (!stillCurrent()) {
+                    return;
+                }
             }
 
             if (_party.isEmpty()) {
@@ -1449,9 +1475,15 @@ bool Game::loadPreparedModule(
             // restored, not whether the module's authored entry hook runs.
             // Content relies on that hook every time it is entered, including
             // when revisiting a module whose world state is restored.
-            _module->runOnLoadScript();
+            destination->runOnLoadScript();
+            if (!stillCurrent()) {
+                return;
+            }
 
-            _module->loadParty(entry, preservesSavedPlacement(context));
+            destination->loadParty(entry, preservesSavedPlacement(context));
+            if (!stillCurrent()) {
+                return;
+            }
 
             info("Module '" + name + "' loaded successfully");
 
@@ -1463,7 +1495,10 @@ bool Game::loadPreparedModule(
             std::string musicName(_module->area()->music());
             playMusic(musicName);
 
-            openInGame();
+            _globalFade.finishLoading(arrival);
+            if (!isConversationActive()) {
+                openInGame();
+            }
             loaded = true;
         } catch (const std::exception &e) {
             error("Failed loading module '" + name + "': " + std::string(e.what()));
@@ -1505,6 +1540,9 @@ bool Game::loadPreparedModule(
 }
 
 void Game::retireActiveModuleRuntime() {
+    _globalFade.invalidateModule();
+    _fadeArrival.reset();
+    _fadeArrivalModule.reset();
     _lastRenderedSceneOutput = nullptr;
     _runtimeSessionPlayable = false;
 
@@ -1567,6 +1605,9 @@ void Game::retireRuntimeSession() {
         finalizeSaveRequest(request, std::move(cancelled));
     }
     ++_runtimeSessionGeneration;
+    _globalFade.resetSession();
+    _fadeArrival.reset();
+    _fadeArrivalModule.reset();
     _runtimeSessionPlayable = false;
     _screen = Screen::None;
     _lastRenderedSceneOutput = nullptr;
@@ -2578,6 +2619,15 @@ void Game::unregisterRuntimeObject(const std::shared_ptr<Object> &object) {
     if (!object) {
         return;
     }
+    // Retained storage is no longer an action owner after this boundary.
+    // Retire only transient dialogue admissions: arbitrary cancellation scripts
+    // must not run while an outgoing or replaced graph is being retired.
+    for (const auto &action : object->actions()) {
+        if (auto conversation = dyn_cast<StartConversationAction>(action)) {
+            conversation->cancel(action, *object);
+            action->markCancelled();
+        }
+    }
     object->_runtimeState = Object::RuntimeState::Retired;
     if (auto creature = std::dynamic_pointer_cast<Creature>(object)) {
         // A PartyTable binding denotes a live runtime object, not storage
@@ -3204,20 +3254,25 @@ void Game::renderGUI() {
             0.0f, 0.0f, 100.0f);
         globals.projectionInv = glm::inverse(globals.projection);
     });
-    switch (_screen) {
-    case Screen::InGame:
+    bool gameplayHUD = _screen == Screen::InGame || _screen == Screen::SwoopRace || _screen == Screen::Turret;
+    if (_screen == Screen::InGame) {
         if (_cameraType == CameraType::ThirdPerson) {
             renderHUD();
         }
-        break;
-
-    default: {
+    } else if (gameplayHUD) {
+        if (auto gui = getScreenGUI()) {
+            gui->render();
+        }
+    }
+    renderGlobalFade();
+    if (_screen == Screen::InGame && _cameraType == CameraType::ThirdPerson && _hud) {
+        _hud->renderModal();
+    }
+    if (!gameplayHUD) {
         auto gui = getScreenGUI();
         if (gui) {
             gui->render();
         }
-        break;
-    }
     }
     if (_confirmPopup && _confirmPopup->isVisible()) {
         _confirmPopup->render();
@@ -3229,6 +3284,61 @@ void Game::renderGUI() {
         _cursor->render(cursorScale);
     }
     renderDeveloperOverlay();
+}
+
+void Game::renderGlobalFade() {
+    float alpha = _globalFade.opacity();
+    if (alpha <= 0.0f) {
+        return;
+    }
+    auto &graphics = _services.graphics;
+    auto &context = graphics.context;
+    GlobalUniforms previousGlobals;
+    LocalUniforms previousLocals;
+    graphics.uniforms.setGlobals([&](auto &globals) {
+        previousGlobals = globals;
+        globals.reset();
+        globals.projection = glm::ortho(0.0f, static_cast<float>(_options.graphics.width),
+                                        static_cast<float>(_options.graphics.height), 0.0f, 0.0f, 100.0f);
+        globals.projectionInv = glm::inverse(globals.projection);
+    });
+    graphics.uniforms.setLocals([&](auto &locals) { previousLocals = locals; });
+    context.withDepthTestMode(DepthTestMode::None, [&]() {
+        context.withDepthMask(false, [&]() {
+            context.withBlendMode(BlendMode::Normal, [&]() {
+                context.withFaceCullMode(FaceCullMode::None, [&]() {
+                    context.withPolygonMode(PolygonMode::Fill, [&]() {
+                        // Inherit the GUI viewport, including window/drawable
+                        // scaling. Logical GUI dimensions need not be pixels.
+                        // Compatibility approximation: color, then blackfill.
+                        for (auto color : {_globalFade.color(), glm::vec3(0.0f)}) {
+                            graphics.uniforms.setLocals([&](auto &locals) {
+                                locals.reset();
+                                locals.model = glm::scale(glm::mat4(1.0f),
+                                                          glm::vec3(_options.graphics.width, _options.graphics.height, 1.0f));
+                                locals.color = glm::vec4(color, alpha);
+                            });
+                            context.useProgram(graphics.shaderRegistry.get(ShaderProgramId::mvpColor));
+                            graphics.meshRegistry.get(MeshName::quad).draw(graphics.statistic);
+                        }
+                    });
+                });
+            });
+        });
+    });
+    graphics.uniforms.setLocals([&](auto &locals) { locals = previousLocals; });
+    graphics.uniforms.setGlobals([&](auto &globals) { globals = previousGlobals; });
+}
+
+void Game::settleFadeArrival() {
+    if (!_fadeArrival) {
+        return;
+    }
+    if (_fadeArrivalModule.lock() == _module && _module) {
+        _globalFade.settleArrival(_fadeArrival);
+    }
+    _fadeArrival.reset();
+    _fadeArrivalModule.reset();
 }
 
 void Game::renderDeveloperOverlay() {
@@ -3669,6 +3779,8 @@ bool Game::startVideo(const std::string &name) {
     _music.reset();
 
     _movie = _services.resource.movies.get(name);
+    _globalFade.setMovieOverride(static_cast<bool>(_movie));
+    _timingDiscontinuity = true;
     if (!_movie) {
         return false;
     }
@@ -3693,6 +3805,8 @@ void Game::updateMovie(float dt) {
 
     if (_movie->isFinished()) {
         _movie.reset();
+        _globalFade.setMovieOverride(false);
+        _timingDiscontinuity = true;
         playNextModuleTransitionMovie();
     }
 }
@@ -5299,13 +5413,34 @@ void Game::startCharacterGeneration() {
     });
 }
 
-void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef) {
+void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
+                       GlobalFade::DialogTicket admission) {
     if (_captureHUDPresentation) {
         return;
     }
-    std::shared_ptr<Gff> dlg(_services.resource.gffs.get(resRef, ResType::Dlg));
-    if (!dlg) {
-        warn("Game: conversation not found: " + resRef);
+    if (admission && !_globalFade.isCurrentDialog(admission)) {
+        return;
+    }
+    std::shared_ptr<resource::Dialog> dialog;
+    try {
+        if (_services.resource.gffs.get(resRef, ResType::Dlg)) {
+            dialog = _services.resource.dialogs.get(resRef);
+        }
+    } catch (const std::exception &e) {
+        warn("Game: conversation load failed: " + resRef + ": " + e.what());
+        _globalFade.finishDialog(admission);
+        return;
+    }
+    if (!dialog) {
+        warn("Game: conversation not found or invalid: " + resRef);
+        _globalFade.finishDialog(admission);
+        return;
+    }
+
+    bool computerConversation = dialog->conversationType == ConversationType::Computer;
+    auto conversation = computerConversation ? _computer.get() : static_cast<Conversation *>(_dialog.get());
+    if (!conversation) {
+        _globalFade.finishDialog(admission);
         return;
     }
 
@@ -5314,11 +5449,9 @@ void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     setCursorType(CursorType::Default);
     changeScreen(Screen::Conversation);
 
-    auto dialog = _services.resource.dialogs.get(resRef);
-    bool computerConversation = dialog->conversationType == ConversationType::Computer;
-    _conversation = computerConversation ? _computer.get() : static_cast<Conversation *>(_dialog.get());
+    _conversation = conversation;
     _conversation->setAutoSkip(&_conversationAutoSkip);
-    _conversation->start(dialog, owner);
+    _conversation->start(dialog, owner, std::move(admission));
 }
 
 void Game::resumeConversation() {

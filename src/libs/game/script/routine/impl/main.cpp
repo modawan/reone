@@ -5861,7 +5861,9 @@ static Variable SetGlobalFadeIn(const std::vector<Variable> &args, const Routine
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SetGlobalFadeIn");
+    ctx.game.globalFade().request(GlobalFade::Direction::In, fWait, fLength,
+                                  {fR, fG, fB}, GlobalFade::Source::Script);
+    return Variable::ofNull();
 }
 
 static Variable SetGlobalFadeOut(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -5875,7 +5877,9 @@ static Variable SetGlobalFadeOut(const std::vector<Variable> &args, const Routin
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SetGlobalFadeOut");
+    ctx.game.globalFade().request(GlobalFade::Direction::Out, fWait, fLength,
+                                  {fR, fG, fB}, GlobalFade::Source::Script);
+    return Variable::ofNull();
 }
 
 static Variable GetLastHostileTarget(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6245,7 +6249,8 @@ static Variable NoClicksFor(const std::vector<Variable> &args, const RoutineCont
 
 static Variable HoldWorldFadeInForDialog(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("HoldWorldFadeInForDialog");
+    ctx.game.globalFade().holdForDialog();
+    return Variable::ofNull();
 }
 
 static Variable ShipBuild(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -6350,7 +6355,8 @@ static Variable GetScriptParameter(const std::vector<Variable> &args, const Rout
 
 static Variable SetFadeUntilScript(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Execute
-    throw RoutineNotImplementedException("SetFadeUntilScript");
+    ctx.game.globalFade().lockUntilScript();
+    return Variable::ofNull();
 }
 
 static Variable GetItemComponent(const std::vector<Variable> &args, const RoutineContext &ctx) {

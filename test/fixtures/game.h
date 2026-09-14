@@ -68,6 +68,7 @@ class Module;
 class SaveLoad;
 class MainMenu;
 class Conversation;
+class DialogGUI;
 class Object;
 class StaticCamera;
 class Trigger;
@@ -201,10 +202,12 @@ public:
         std::function<void(const std::string &, uint32_t)> continuation);
     static void setCurrentScreen(Game &game, int screen);
     static void setConversation(Game &game, Conversation *conversation);
+    static void setDialogGUI(Game &game, std::unique_ptr<DialogGUI> dialog);
     static void raiseTimingDiscontinuity(Game &game);
     static void initConsole(Game &game);
     static void setActiveModule(Game &game, bool active);
     static void setActiveModuleArea(Game &game, std::shared_ptr<Area> area);
+    static void prepareFadeArrival(Game &game);
     static void cacheActiveModule(Game &game, std::string name);
     static std::pair<glm::vec3, float> resolveModuleEntry(
         Module &module,

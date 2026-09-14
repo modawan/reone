@@ -24,6 +24,7 @@
 #include "reone/system/timer.h"
 
 #include "../gui.h"
+#include "../globalfade.h"
 #include "../object.h"
 #include "../runtimeref.h"
 #include "../types.h"
@@ -43,7 +44,8 @@ public:
     bool handle(const input::Event &event) override;
     void update(float dt) override;
 
-    void start(const std::shared_ptr<resource::Dialog> &dialog, const std::shared_ptr<Object> &owner);
+    void start(const std::shared_ptr<resource::Dialog> &dialog, const std::shared_ptr<Object> &owner,
+               GlobalFade::DialogTicket admission = {});
     void cleanupForModuleTransition();
 
     CameraType getCamera(int &cameraId) const;
@@ -97,6 +99,10 @@ private:
     std::vector<const resource::Dialog::EntryReply *> _replies;
     bool _autoPickFirstReply {false};
     AutoSkip *_autoSkip {nullptr};
+    GlobalFade::DialogTicket _fadeDialog;
+    uint64_t _generation {0};
+
+    bool isCurrent(uint64_t generation) const;
 
     void loadConversationBackground();
     void loadCameraModel();
