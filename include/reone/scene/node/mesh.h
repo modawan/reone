@@ -65,6 +65,8 @@ public:
     void setSelfIllumColor(glm::vec3 color) { _selfIllumColor = std::move(color); }
 
 private:
+    friend class SaberHistoryTestAccess;
+
     struct NodeTextures {
         graphics::Texture *diffuse {nullptr};
         graphics::Texture *lightmap {nullptr};
@@ -91,6 +93,7 @@ private:
     struct SaberMesh {
         glm::vec3 displacement {0.0f};
         glm::vec3 prevWorldPos {0.0f};
+        bool hasHistory {false};
     } _saber;
 
     ModelSceneNode &_model;

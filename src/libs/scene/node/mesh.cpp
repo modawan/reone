@@ -17,6 +17,8 @@
 
 #include "reone/scene/node/mesh.h"
 
+#include <cmath>
+
 #include "reone/graphics/context.h"
 #include "reone/graphics/di/services.h"
 #include "reone/graphics/lumautil.h"
@@ -176,17 +178,67 @@ void MeshSceneNode::updateDanglyAnimation(float dt, const ModelNode::Danglymesh 
     _dangly.prevWorldPos = std::move(worldPos);
 }
 
+static bool isFinite(const glm::vec3 &value) {
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+static bool isFinite(const glm::vec4 &value) {
+    return isFinite(glm::vec3(value)) && std::isfinite(value.w);
+}
+
+static bool isFinite(const glm::mat4 &value) {
+    return isFinite(value[0]) && isFinite(value[1]) && isFinite(value[2]) && isFinite(value[3]);
+}
+
 void MeshSceneNode::updateSaberAnimation(float dt) {
+    // Authored off poses collapse the blade. Their cached inverse is unusable,
+    // even when the world origin is finite. Do not bridge that interval later.
+    if (!isFinite(_absTransform) || !isFinite(_absTransformInv) || !std::isfinite(dt) || dt < 0.0f) {
+        _saber = SaberMesh {};
+        return;
+    }
+
     glm::vec3 worldPos = _absTransform[3];
+    if (!_saber.hasHistory || !isFinite(_saber.prevWorldPos) || !isFinite(_saber.displacement)) {
+        _saber.displacement = glm::vec3 {0.0f};
+        _saber.prevWorldPos = worldPos;
+        _saber.hasHistory = true;
+        return;
+    }
+
     glm::vec3 deltaPos = worldPos - _saber.prevWorldPos;
     float deltaPosMag = glm::length(deltaPos);
-    if (deltaPosMag > 1.0f) {
-        _saber.displacement = glm::vec3 {0.0f};
-    } else if (deltaPosMag > 0.0f) {
-        glm::vec3 deltaLocal = _absTransformInv * glm::vec4 {deltaPos, 0.0f};
-        _saber.displacement += deltaLocal;
+    if (!isFinite(deltaPos) || !std::isfinite(deltaPosMag)) {
+        _saber = SaberMesh {};
+        return;
     }
-    _saber.displacement -= _saber.displacement * glm::min(8.0f * dt, 1.0f);
+
+    glm::vec3 displacement = _saber.displacement;
+    if (deltaPosMag > 1.0f) {
+        displacement = glm::vec3 {0.0f};
+    } else if (deltaPosMag > 0.0f) {
+        glm::vec4 deltaLocal = _absTransformInv * glm::vec4 {deltaPos, 0.0f};
+        if (!isFinite(deltaLocal)) {
+            _saber = SaberMesh {};
+            return;
+        }
+        displacement += glm::vec3(deltaLocal);
+    }
+
+    float damping = 8.0f * dt;
+    if (!isFinite(displacement) || !std::isfinite(damping)) {
+        _saber = SaberMesh {};
+        return;
+    }
+    displacement -= displacement * glm::min(damping, 1.0f);
+    if (!isFinite(displacement)) {
+        _saber = SaberMesh {};
+        return;
+    }
+
+    // Publish only a fully validated sample. Finite inverses of small or
+    // reflected scales remain valid; no determinant sign or epsilon cutoff.
+    _saber.displacement = displacement;
     _saber.prevWorldPos = worldPos;
 }
 
