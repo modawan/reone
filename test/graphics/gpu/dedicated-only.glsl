@@ -35,19 +35,24 @@ vec3 getNormal(vec2 uv) {
     }
 }
 
-void main() {
-    vec2 uv = vec2(uUV * vec3(fragUV1, 1.0));
+vec4 shadeModel(vec2 uv, vec4 mainTexSample) {
+    // Dedicated additive blades encode their contribution in texture RGB.
+    // Preserve their unlit, luma-derived coverage without extending that
+    // contract to lightmapped, reflective, water or normal-mapped materials.
+    if (isFeatureEnabled(FEATURE_SABER) &&
+        isFeatureEnabled(FEATURE_PREMULALPHA) &&
+        !isFeatureEnabled(FEATURE_LIGHTMAP) &&
+        !isFeatureEnabled(FEATURE_ENVMAP) &&
+        !isFeatureEnabled(FEATURE_WATER) &&
+        !isFeatureEnabled(FEATURE_NORMALMAP) &&
+        !isFeatureEnabled(FEATURE_BUMPMAP)) {
+        float coverage = rgbToLuma(mainTexSample.rgb);
+        return vec4(uColor.rgb * mainTexSample.rgb / max(0.0001, coverage),
+                    uColor.a * coverage);
+    }
 
-    vec4 mainTexSample = texture(sMainTex, uv);
     vec3 diffuseColor = mainTexSample.rgb;
     float diffuseAlpha = mainTexSample.a;
-    if (isFeatureEnabled(FEATURE_PREMULALPHA)) {
-        // Restore the pre-#343 additive contribution encoding for both ordinary
-        // meshes and specialized geometry. This is compatibility containment,
-        // not a claim that every additive material is an unlit retail material.
-        diffuseAlpha = rgbToLuma(mainTexSample.rgb);
-        diffuseColor *= 1.0 / max(0.0001, diffuseAlpha);
-    }
 
     vec3 normal = getNormal(uv);
 
@@ -90,17 +95,6 @@ void main() {
         }
     }
     vec3 lighting = min(vec3(1.0), ambient + max(vec3(0.0), diffuse));
-    if (isFeatureEnabled(FEATURE_PREMULALPHA)) {
-        // Roll back additive lighting together with its encoding. Retain the
-        // earlier lightmap/water behavior; ordinary alpha materials stay lit.
-        lighting = vec3(1.0);
-        if (isFeatureEnabled(FEATURE_LIGHTMAP)) {
-            lighting = texture(sLightmap, fragUV2).rgb;
-            if (isFeatureEnabled(FEATURE_WATER)) {
-                lighting = mix(vec3(1.0), lighting, 0.2);
-            }
-        }
-    }
 
     vec3 objectColor = lighting * uColor.rgb * diffuseColor;
     if (isFeatureEnabled(FEATURE_ENVMAP)) {
@@ -113,7 +107,28 @@ void main() {
         objectColor *= uWaterAlpha;
     }
 
-    float w = OIT_weight(gl_FragCoord.z, objectAlpha);
-    fragColor1 = vec4(objectColor * w, objectAlpha);
+    if (isFeatureEnabled(FEATURE_PREMULALPHA)) {
+        // Convert the lit SRC_ALPHA contribution, not unlit texture RGB.
+        // Zero-light additive surfaces must contribute neither color nor opacity.
+        objectColor *= objectAlpha;
+        objectAlpha = clamp(rgbToLuma(objectColor), 0.0, 1.0);
+        if (objectAlpha == 0.0) {
+            discard;
+        }
+        objectColor /= objectAlpha;
+    }
+
+    return vec4(objectColor, objectAlpha);
+}
+
+void main() {
+    vec2 uv = vec2(uUV * vec3(fragUV1, 1.0));
+    vec4 object = shadeModel(uv, texture(sMainTex, uv));
+    if (object.a == 0.0) {
+        discard;
+    }
+
+    float w = OIT_weight(gl_FragCoord.z, object.a);
+    fragColor1 = vec4(object.rgb * w, object.a);
     fragColor2 = vec4(w);
 }

@@ -3,7 +3,6 @@
 
 #include "i_luma.glsl"
 #include "i_math.glsl"
-#include "i_lighting.glsl"
 #include "i_normalmap.glsl"
 #include "i_oit.glsl"
 
@@ -42,9 +41,6 @@ void main() {
     vec3 diffuseColor = mainTexSample.rgb;
     float diffuseAlpha = mainTexSample.a;
     if (isFeatureEnabled(FEATURE_PREMULALPHA)) {
-        // Restore the pre-#343 additive contribution encoding for both ordinary
-        // meshes and specialized geometry. This is compatibility containment,
-        // not a claim that every additive material is an unlit retail material.
         diffuseAlpha = rgbToLuma(mainTexSample.rgb);
         diffuseColor *= 1.0 / max(0.0001, diffuseAlpha);
     }
@@ -59,47 +55,15 @@ void main() {
         discard;
     }
 
-    vec3 ambient = vec3(0.0);
-    vec3 diffuse = uSelfIllumColor.rgb;
+    vec3 lighting;
     if (isFeatureEnabled(FEATURE_LIGHTMAP)) {
         vec4 lightmapSample = texture(sLightmap, fragUV2);
-        diffuse += lightmapSample.rgb;
+        lighting = lightmapSample.rgb;
         if (isFeatureEnabled(FEATURE_WATER)) {
-            diffuse = mix(vec3(1.0), diffuse, 0.2);
+            lighting = mix(vec3(1.0), lighting, 0.2);
         }
-    } else if (!isFeatureEnabled(FEATURE_STATIC)) {
-        ambient += uAmbientColor.rgb * uWorldAmbientColor.rgb;
-    }
-    for (int i = 0; i < uNumLights; ++i) {
-        if (isFeatureEnabled(FEATURE_STATIC) && uLights[i].dynamicType != LIGHT_DYNAMIC_TYPE_ALL) {
-            continue;
-        }
-        vec3 lightPos = uLights[i].position.xyz - fragPosWorld.xyz;
-        float lightDist = length(lightPos);
-        if (lightDist > uLights[i].radius * uLights[i].radius) {
-            continue;
-        }
-        vec3 lightDir = lightPos / max(1e-4, lightDist);
-        float diff = max(0.0, dot(normal, lightDir));
-        float attenuation = lightAttenuationQuadratic(uLights[i], lightDist);
-        vec3 lightColor = uLights[i].color.rgb;
-        if (uLights[i].ambientOnly) {
-            ambient += uLights[i].multiplier * attenuation * uAmbientColor.rgb * lightColor;
-        } else {
-            diffuse += uLights[i].multiplier * diff * attenuation * uDiffuseColor.rgb * lightColor;
-        }
-    }
-    vec3 lighting = min(vec3(1.0), ambient + max(vec3(0.0), diffuse));
-    if (isFeatureEnabled(FEATURE_PREMULALPHA)) {
-        // Roll back additive lighting together with its encoding. Retain the
-        // earlier lightmap/water behavior; ordinary alpha materials stay lit.
+    } else {
         lighting = vec3(1.0);
-        if (isFeatureEnabled(FEATURE_LIGHTMAP)) {
-            lighting = texture(sLightmap, fragUV2).rgb;
-            if (isFeatureEnabled(FEATURE_WATER)) {
-                lighting = mix(vec3(1.0), lighting, 0.2);
-            }
-        }
     }
 
     vec3 objectColor = lighting * uColor.rgb * diffuseColor;

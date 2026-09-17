@@ -188,3 +188,36 @@ if(MSVC)
 endif()
 
 add_test(NAME UnitTests COMMAND tests)
+
+# Requires an OpenGL 4.0 context; unavailable GPUs fail, they never silently skip.
+option(BUILD_GPU_TESTS "build OpenGL framebuffer regression tests" OFF)
+if(BUILD_GPU_TESTS)
+    file(GLOB GPU_SHADER_INPUTS CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/glsl/*.glsl)
+    set(GPU_SHADER_DIR ${CMAKE_BINARY_DIR}/gpu-shaders)
+    add_custom_command(
+        OUTPUT ${GPU_SHADER_DIR}/prepared.stamp
+        COMMAND ${CMAKE_COMMAND}
+            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+            -DOUTPUT_DIR=${GPU_SHADER_DIR}
+            -DSHADERPACK=$<TARGET_FILE:shaderpack>
+            -P ${TESTS_SOURCE_DIR}/graphics/gpu/prepare.cmake
+        DEPENDS shaderpack ${GPU_SHADER_INPUTS}
+            ${TESTS_SOURCE_DIR}/graphics/gpu/pre343.glsl
+            ${TESTS_SOURCE_DIR}/graphics/gpu/post343.glsl
+            ${TESTS_SOURCE_DIR}/graphics/gpu/dedicated-only.glsl
+            ${TESTS_SOURCE_DIR}/graphics/gpu/prepare.cmake
+        VERBATIM)
+    add_custom_target(gpu-shader-fixtures DEPENDS ${GPU_SHADER_DIR}/prepared.stamp)
+    add_executable(shader-output-tests
+        ${TESTS_SOURCE_DIR}/graphics/gpu/shaderoutput.cpp
+        ${TESTS_SOURCE_DIR}/graphics/gpu/modelfixture.h
+        ${CMAKE_SOURCE_DIR}/src/apps/highperfgfx.cpp)
+    set_target_properties(shader-output-tests PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}$<$<CONFIG:Debug>:/debug>/bin)
+    target_precompile_headers(shader-output-tests PRIVATE ${CMAKE_SOURCE_DIR}/src/pch.h)
+    target_link_libraries(shader-output-tests PRIVATE game GTest::gmock)
+    target_compile_definitions(shader-output-tests PRIVATE REONE_GPU_SHADER_DIR="${GPU_SHADER_DIR}")
+    add_dependencies(shader-output-tests gpu-shader-fixtures)
+    add_test(NAME ShaderOutputTests COMMAND shader-output-tests)
+    set_tests_properties(ShaderOutputTests PROPERTIES LABELS "gpu;graphics" TIMEOUT 180)
+endif()

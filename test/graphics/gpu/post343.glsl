@@ -41,13 +41,6 @@ void main() {
     vec4 mainTexSample = texture(sMainTex, uv);
     vec3 diffuseColor = mainTexSample.rgb;
     float diffuseAlpha = mainTexSample.a;
-    if (isFeatureEnabled(FEATURE_PREMULALPHA)) {
-        // Restore the pre-#343 additive contribution encoding for both ordinary
-        // meshes and specialized geometry. This is compatibility containment,
-        // not a claim that every additive material is an unlit retail material.
-        diffuseAlpha = rgbToLuma(mainTexSample.rgb);
-        diffuseColor *= 1.0 / max(0.0001, diffuseAlpha);
-    }
 
     vec3 normal = getNormal(uv);
 
@@ -90,17 +83,6 @@ void main() {
         }
     }
     vec3 lighting = min(vec3(1.0), ambient + max(vec3(0.0), diffuse));
-    if (isFeatureEnabled(FEATURE_PREMULALPHA)) {
-        // Roll back additive lighting together with its encoding. Retain the
-        // earlier lightmap/water behavior; ordinary alpha materials stay lit.
-        lighting = vec3(1.0);
-        if (isFeatureEnabled(FEATURE_LIGHTMAP)) {
-            lighting = texture(sLightmap, fragUV2).rgb;
-            if (isFeatureEnabled(FEATURE_WATER)) {
-                lighting = mix(vec3(1.0), lighting, 0.2);
-            }
-        }
-    }
 
     vec3 objectColor = lighting * uColor.rgb * diffuseColor;
     if (isFeatureEnabled(FEATURE_ENVMAP)) {
@@ -111,6 +93,17 @@ void main() {
     }
     if (isFeatureEnabled(FEATURE_WATER)) {
         objectColor *= uWaterAlpha;
+    }
+
+    if (isFeatureEnabled(FEATURE_PREMULALPHA)) {
+        // Convert the lit SRC_ALPHA contribution, not unlit texture RGB.
+        // Zero-light additive surfaces must contribute neither color nor opacity.
+        objectColor *= objectAlpha;
+        objectAlpha = clamp(rgbToLuma(objectColor), 0.0, 1.0);
+        if (objectAlpha == 0.0) {
+            discard;
+        }
+        objectColor /= objectAlpha;
     }
 
     float w = OIT_weight(gl_FragCoord.z, objectAlpha);
