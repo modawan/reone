@@ -152,7 +152,9 @@ TEST_F(SharedPresentation, late_result_after_leaving_and_reopening_does_not_dism
 
 TEST_F(SharedPresentation, replacing_a_pending_backing_ignores_its_late_result_even_when_revisions_match) {
     for (auto gameId : {GameID::KotOR, GameID::TSL}) {
+      for (bool releaseFirst : {false, true}) {
         SCOPED_TRACE(static_cast<int>(gameId));
+        SCOPED_TRACE(releaseFirst);
         ScreenResources guis(options, scene, graphics, resources);
         auto oldBacking = items("Old", 71, 3);
         auto newBacking = items("New", 71, 7);
@@ -167,8 +169,10 @@ TEST_F(SharedPresentation, replacing_a_pending_backing_ignores_its_late_result_e
         gui->findControl("BTN_EQUIP")->handleClick(0, 0);
         ASSERT_EQ(1u, oldBacking->requests.size());
 
-        equipment->setBacking(nullptr);
-        EXPECT_EQ(0, list->getItemCount());
+        if (releaseFirst) {
+            equipment->setBacking(nullptr);
+            EXPECT_EQ(0, list->getItemCount());
+        }
         equipment->setBacking(newBacking);
         equipment->openItems();
         list->setSelectedItemIndex(1);
@@ -190,6 +194,7 @@ TEST_F(SharedPresentation, replacing_a_pending_backing_ignores_its_late_result_e
         equipment->update(0.016f);
         EXPECT_FALSE(description->isVisible());
         EXPECT_EQ("6", list->getItemAt(0).iconText);
+      }
     }
 }
 
