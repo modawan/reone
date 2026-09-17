@@ -298,6 +298,8 @@ void Equipment::onItemsListBoxItemClick(const std::string &item) {
 }
 
 void Equipment::update() {
+    // A fresh presentation session must not react to the previous session's result.
+    _awaitingRevision.reset();
     updateEquipment();
     updatePortraits();
     selectSlot(Slot::None);

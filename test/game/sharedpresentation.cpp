@@ -141,11 +141,76 @@ TEST_F(SharedPresentation, late_result_after_leaving_and_reopening_does_not_dism
         ASSERT_TRUE(description->isVisible());
         ASSERT_EQ(1, list->selectedItemIndex());
         ASSERT_EQ("Fresh", list->getItemAt(1).text);
+        auto descriptionList = std::static_pointer_cast<ListBox>(description);
+        ASSERT_GT(descriptionList->getItemCount(), 0);
+        const auto freshDescription = descriptionList->getItemAt(0).text;
 
+        // The delivered request survives reopening and can still complete in the backing.
+        ASSERT_EQ(1u, backing->requests.size());
+        EXPECT_EQ(oldRevision, backing->requests[0].revision);
+        EXPECT_EQ(71u, backing->requests[0].handle);
+        backing->equipment.items[0].stackSize = 2;
         backing->result = EquipmentRequestResult {oldRevision, EquipmentRequestOutcome::Applied};
         host.update(0.016f);
         EXPECT_TRUE(description->isVisible());
         EXPECT_EQ(1, list->selectedItemIndex());
+        ASSERT_GT(descriptionList->getItemCount(), 0);
+        EXPECT_EQ(freshDescription, descriptionList->getItemAt(0).text);
+        EXPECT_EQ("3", list->getItemAt(1).iconText);
+        EXPECT_EQ(1u, backing->requests.size());
+        EXPECT_EQ(2, backing->equipment.items[0].stackSize);
+        ASSERT_TRUE(backing->result);
+        EXPECT_EQ(EquipmentRequestOutcome::Applied, backing->result->outcome);
+
+        // A new request remains possible; the retained old result cannot complete it.
+        gui->findControl("BTN_EQUIP")->handleClick(0, 0);
+        ASSERT_EQ(2u, backing->requests.size());
+        EXPECT_EQ(oldRevision + 1, backing->requests[1].revision);
+        host.update(0.016f);
+        EXPECT_TRUE(description->isVisible());
+        EXPECT_EQ(1, list->selectedItemIndex());
+        backing->equipment.items[0].stackSize = 1;
+        backing->result = EquipmentRequestResult {backing->requests[1].revision, EquipmentRequestOutcome::Applied};
+        host.update(0.016f);
+        EXPECT_FALSE(description->isVisible());
+        EXPECT_EQ(-1, list->selectedItemIndex());
+        EXPECT_TRUE(list->getItemAt(0).iconText.empty()); // Single items have no count badge.
+        EXPECT_EQ(1, backing->equipment.items[0].stackSize);
+        EXPECT_EQ(2u, backing->requests.size());
+    }
+}
+
+TEST_F(SharedPresentation, delayed_result_in_same_session_refreshes_from_backing) {
+    for (auto gameId : {GameID::KotOR, GameID::TSL}) {
+        SCOPED_TRACE(static_cast<int>(gameId));
+        ScreenResources guis(options, scene, graphics, resources);
+        auto backing = items("Pending", 81, 3);
+        auto equipment = std::make_shared<Equipment>(gameId, options, services(guis),
+            resources.services().strings, backing, []() {});
+        equipment->init();
+        InGameMenuHost host(gameId, options, services(guis), {});
+        host.init();
+        host.registerScreen(InGameMenuTab::Equipment, equipment);
+        host.changeTab(InGameMenuTab::Equipment);
+        equipment->openItems();
+        auto gui = guis.screens.at(gameId == GameID::TSL ? "equip_p" : "equip");
+        auto list = std::static_pointer_cast<ListBox>(gui->findControl("LB_ITEMS"));
+        auto description = gui->findControl("LB_DESC");
+        list->setSelectedItemIndex(1);
+        gui->findControl("BTN_EQUIP")->handleClick(0, 0);
+        ASSERT_EQ(1u, backing->requests.size());
+        for (int i = 0; i < 3; ++i) {
+            host.update(0.016f);
+            EXPECT_TRUE(description->isVisible());
+            EXPECT_EQ(1, list->selectedItemIndex());
+            EXPECT_EQ("3", list->getItemAt(1).iconText);
+        }
+        backing->equipment.items[0].stackSize = 2;
+        backing->result = EquipmentRequestResult {81, EquipmentRequestOutcome::Applied};
+        host.update(0.016f);
+        EXPECT_FALSE(description->isVisible());
+        EXPECT_EQ(-1, list->selectedItemIndex());
+        EXPECT_EQ("2", list->getItemAt(0).iconText);
         EXPECT_EQ(1u, backing->requests.size());
     }
 }
