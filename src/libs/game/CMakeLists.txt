@@ -329,6 +329,7 @@ set(GAME_HEADERS
     ${GAME_INCLUDE_DIR}/object/trigger.h
     ${GAME_INCLUDE_DIR}/object/waypoint.h
     ${GAME_INCLUDE_DIR}/options.h
+    ${GAME_INCLUDE_DIR}/presentationpointer.h
     ${GAME_INCLUDE_DIR}/party.h
     ${GAME_INCLUDE_DIR}/pazaak.h
     ${GAME_INCLUDE_DIR}/pazaaksession.h
@@ -569,6 +570,7 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/party.cpp
     ${GAME_SOURCE_DIR}/pazaak.cpp
     ${GAME_SOURCE_DIR}/pazaaksession.cpp
+    ${GAME_SOURCE_DIR}/presentationpointer.cpp
     ${GAME_SOURCE_DIR}/pathfinder.cpp
     ${GAME_SOURCE_DIR}/player.cpp
     ${GAME_SOURCE_DIR}/portraits.cpp

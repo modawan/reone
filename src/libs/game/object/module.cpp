@@ -296,25 +296,9 @@ bool Module::handleMouseMotion(const input::MouseMotionEvent &event) {
         auto objectPtr = _game.getObjectById(object->id());
         _area->hilightObject(objectPtr);
 
-        switch (object->type()) {
-        case ObjectType::Creature: {
-            if (object->isDead()) {
-                cursor = CursorType::Pickup;
-            } else {
-                auto creature = static_cast<Creature *>(object);
-                cursor = isHostileToPartyLeader(*creature) ? CursorType::Attack : CursorType::Talk;
-            }
-            break;
-        }
-        case ObjectType::Door:
-            cursor = CursorType::Door;
-            break;
-        case ObjectType::Placeable:
-            cursor = CursorType::Pickup;
-            break;
-        default:
-            break;
-        }
+        bool hostile = object->type() == ObjectType::Creature && !object->isDead()
+            ? isHostileToPartyLeader(*static_cast<Creature *>(object)) : false;
+        cursor = contextualCursor(object->type(), object->isDead(), hostile);
     } else {
         _area->hilightObject(nullptr);
     }
