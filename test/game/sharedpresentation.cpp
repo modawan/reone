@@ -105,6 +105,94 @@ TEST_F(SharedPresentation, real_presenters_route_distinct_state_and_commands_wit
     }
 }
 
+TEST_F(SharedPresentation, late_result_after_leaving_and_reopening_does_not_dismiss_fresh_selection) {
+    for (auto gameId : {GameID::KotOR, GameID::TSL}) {
+        SCOPED_TRACE(static_cast<int>(gameId));
+        ScreenResources guis(options, scene, graphics, resources);
+        auto backing = items("Original", 71, 3);
+        auto equipment = std::make_shared<Equipment>(gameId, options, services(guis),
+            resources.services().strings, backing, []() {});
+        equipment->init();
+        InGameMenuHost host(gameId, options, services(guis), {});
+        host.init();
+        host.registerScreen(InGameMenuTab::Equipment, equipment);
+        host.changeTab(InGameMenuTab::Equipment);
+        equipment->openItems();
+        auto gui = guis.screens.at(gameId == GameID::TSL ? "equip_p" : "equip");
+        auto list = std::static_pointer_cast<ListBox>(gui->findControl("LB_ITEMS"));
+        auto description = gui->findControl("LB_DESC");
+        list->setSelectedItemIndex(1);
+        gui->findControl("BTN_EQUIP")->handleClick(0, 0);
+        ASSERT_EQ(1u, backing->requests.size());
+        const auto oldRevision = backing->requests.back().revision;
+        ASSERT_FALSE(backing->result);
+
+        host.changeTab(InGameMenuTab::None);
+        host.update(0.016f);
+        backing->equipment.revision = oldRevision + 1;
+        backing->equipment.items[0].name = "Fresh";
+        backing->equipment.items[0].description = "Fresh description";
+        // Same refresh and tab-entry calls as InGameMenu::openEquipment.
+        equipment->update();
+        host.changeTab(InGameMenuTab::Equipment);
+        gui->findControl("BTN_INV_BODY")->handleClick(0, 0);
+        list->setSelectedItemIndex(1);
+        host.update(0.016f);
+        ASSERT_TRUE(description->isVisible());
+        ASSERT_EQ(1, list->selectedItemIndex());
+        ASSERT_EQ("Fresh", list->getItemAt(1).text);
+
+        backing->result = EquipmentRequestResult {oldRevision, EquipmentRequestOutcome::Applied};
+        host.update(0.016f);
+        EXPECT_TRUE(description->isVisible());
+        EXPECT_EQ(1, list->selectedItemIndex());
+        EXPECT_EQ(1u, backing->requests.size());
+    }
+}
+
+TEST_F(SharedPresentation, replacing_a_pending_backing_ignores_its_late_result_even_when_revisions_match) {
+    for (auto gameId : {GameID::KotOR, GameID::TSL}) {
+        SCOPED_TRACE(static_cast<int>(gameId));
+        ScreenResources guis(options, scene, graphics, resources);
+        auto oldBacking = items("Old", 71, 3);
+        auto newBacking = items("New", 71, 7);
+        auto equipment = std::make_shared<Equipment>(gameId, options, services(guis),
+            resources.services().strings, oldBacking, []() {});
+        equipment->init();
+        equipment->openItems();
+        auto gui = guis.screens.at(gameId == GameID::TSL ? "equip_p" : "equip");
+        auto list = std::static_pointer_cast<ListBox>(gui->findControl("LB_ITEMS"));
+        auto description = gui->findControl("LB_DESC");
+        list->setSelectedItemIndex(1);
+        gui->findControl("BTN_EQUIP")->handleClick(0, 0);
+        ASSERT_EQ(1u, oldBacking->requests.size());
+
+        equipment->setBacking(nullptr);
+        EXPECT_EQ(0, list->getItemCount());
+        equipment->setBacking(newBacking);
+        equipment->openItems();
+        list->setSelectedItemIndex(1);
+        gui->findControl("BTN_EQUIP")->handleClick(0, 0);
+        ASSERT_EQ(1u, newBacking->requests.size());
+        ASSERT_EQ(oldBacking->requests[0].revision, newBacking->requests[0].revision);
+        oldBacking->result = EquipmentRequestResult {71, EquipmentRequestOutcome::Applied};
+        equipment->update(0.016f);
+        EXPECT_TRUE(description->isVisible());
+        EXPECT_EQ(1, list->selectedItemIndex());
+        EXPECT_EQ("New", list->getItemAt(1).text);
+        EXPECT_EQ("7", list->getItemAt(1).iconText);
+        std::weak_ptr<SuppliedItems> released = oldBacking;
+        oldBacking.reset();
+        EXPECT_TRUE(released.expired());
+
+        newBacking->equipment.items[0].stackSize = 6;
+        newBacking->result = EquipmentRequestResult {71, EquipmentRequestOutcome::Applied};
+        equipment->update(0.016f);
+        EXPECT_FALSE(description->isVisible());
+        EXPECT_EQ("6", list->getItemAt(0).iconText);
+    }
+}
+
 TEST_F(SharedPresentation, registration_and_availability_work_in_both_directions) {
     ScreenResources guis(options, scene, graphics, resources);
     auto backing = items("Item", 1, 1);
