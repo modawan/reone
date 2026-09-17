@@ -1,0 +1,147 @@
+/*
+ * Copyright (c) 2020-2023 The reone project contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+#pragma once
+
+#include "reone/audio/source.h"
+#include "reone/graphics/options.h"
+#include "reone/gui/gui.h"
+#include "reone/input/event.h"
+#include "reone/resource/types.h"
+
+#include "types.h"
+
+namespace reone {
+
+namespace gui {
+
+class Control;
+class ListBox;
+
+} // namespace gui
+
+namespace audio {
+class IAudioMixer;
+}
+namespace resource {
+class ITextures;
+}
+namespace gui {
+class IGUIs;
+}
+
+namespace game {
+
+class IGUISounds;
+
+/** Borrowed services. Each provider and the options must outlive its screens.
+ * Use a distinct GUIs provider for each independent presentation surface:
+ * GUI instances carry mutable controls and event listeners.
+ */
+struct PresentationServices {
+    gui::IGUIs &guis;
+    resource::ITextures &textures;
+    audio::IAudioMixer &mixer;
+    IGUISounds &sounds;
+};
+
+/** K1's combat font is substantially smaller than TSL's at the same GUI scale. */
+constexpr float kK1CombatTextScale = 2.0f;
+
+class PresentationGUI : public gui::IGUIEventListener, boost::noncopyable {
+public:
+    virtual void init();
+
+    virtual bool handle(const input::Event &event);
+    virtual void update(float dt);
+    virtual void render();
+
+    virtual void clearSelection() {
+        if (_gui)
+            _gui->clearSelection();
+    }
+
+    std::shared_ptr<gui::Control> k2InGameTitleControl() const { return _k2InGameTitleControl; }
+
+protected:
+    friend class HUDTestAccess;
+
+    const resource::GameID _gameId;
+    const graphics::GraphicsOptions &_graphicsOptions;
+    const PresentationServices _presentation;
+    std::string _resRef;
+
+    std::shared_ptr<gui::IGUI> _gui;
+    std::shared_ptr<audio::AudioSource> _audioSource;
+    std::shared_ptr<gui::Control> _k2InGameTitleControl;
+
+    glm::vec3 _baseColor {0.0f};
+    glm::vec3 _disabledColor {0.0f};
+    glm::vec3 _hilightColor {0.0f};
+
+    PresentationGUI(resource::GameID gameId, const graphics::GraphicsOptions &options, PresentationServices services);
+
+    bool isTSL() const { return _gameId == resource::GameID::TSL; }
+
+    virtual void preload(gui::IGUI &gui);
+    virtual void onGUILoaded() {}
+
+    void loadBackground(BackgroundType type);
+
+    /** Centers the root panel in its authored canvas and reapplies layout. */
+    void centerRootInCanvas(int canvasWidth, int canvasHeight);
+
+    /**
+     * Slot art for an item stack. Both games author three frames: a plain
+     * slot, one carrying a two-digit count plate, and one carrying a
+     * three-digit plate.
+     */
+    std::shared_ptr<graphics::Texture> itemFrameTexture(int stackSize) const;
+
+    /**
+     * Points an item list at the slot silhouettes baked into this GUI's own
+     * panel art, so the list can repaint them under its actual rows.
+     *
+     * K1's inventory and equipment panels share one authored slot strip and
+     * the same measured slot geometry. K2 bakes no slots and needs none of
+     * this; calling it there is a no-op.
+     */
+    void useBakedItemSlotArt(gui::ListBox &listBox);
+    void tintK2InGameFooter();
+    void tintK2InGameHeader();
+    void enableK2ButtonBodyFill(gui::Control &control);
+    void enableK2ButtonBodyFill(const std::shared_ptr<gui::Control> &control);
+    void fillK2SectionStrip(const std::shared_ptr<gui::Control> &topBar, const std::shared_ptr<gui::Control> &bottomBar);
+    void useK2ShellTitle(const std::shared_ptr<gui::Control> &control);
+    void updateK2FilterButton(const std::shared_ptr<gui::Control> &button, bool selected);
+
+    virtual void configureControls() {}
+    void onClick(const std::string &control) override;
+    void onSelectionChanged(const std::string &control, bool selected) override;
+
+    std::string guiResRef(const std::string &base) const;
+
+    template <class T>
+    std::shared_ptr<T> findControl(const std::string &tag) const {
+        auto ctrl = _gui->findControl(tag);
+        return std::static_pointer_cast<T>(ctrl);
+    }
+};
+
+} // namespace game
+
+} // namespace reone
