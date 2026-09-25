@@ -31,7 +31,7 @@ namespace game {
 void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     if (actor.type() == ObjectType::Creature) {
         auto &creature = static_cast<Creature &>(actor);
-        bool reached = creature.navigateTo(_door->position(), true, kDefaultMaxObjectDistance, dt);
+        bool reached = creature.navigateToObject(*_door, true, kDefaultMaxObjectDistance, dt);
         if (!reached) {
             return;
         }

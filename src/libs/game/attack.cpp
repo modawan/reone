@@ -1279,7 +1279,7 @@ bool navigateToAttackTarget(Creature &attacker, Object &target, float dt, bool &
         return true;
     }
 
-    if (!attacker.navigateTo(target.position(), true, attacker.getAttackRange(), dt)) {
+    if (!attacker.navigateToObject(target, true, attacker.getAttackRange(), dt)) {
         return false;
     }
 
