@@ -597,11 +597,12 @@ TEST_F(ConversationTest, one_liner_entry_action_starting_a_conversation_keeps_th
 
     _conversation->start(makeOneLinerDialog("one_entry", "one_reply"), nullptr);
 
-    // The new conversation is live and presented once by itself: the old one
-    // must not have gone on to bark, reload or otherwise drive it.
+    // The one-liner barked before its entry action ran. The new conversation
+    // is live and presented by itself: the old one must not have gone on to
+    // reload or otherwise drive it.
     EXPECT_EQ("first", _conversation->currentText());
-    EXPECT_EQ(1, _conversation->entryLoadCount());
-    EXPECT_EQ(0, _conversation->barkCount());
+    EXPECT_EQ(2, _conversation->entryLoadCount());
+    EXPECT_EQ(1, _conversation->barkCount());
     _conversation->update(1.0f);
     EXPECT_EQ("second", _conversation->currentText());
 }

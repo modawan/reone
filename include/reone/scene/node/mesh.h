@@ -17,9 +17,15 @@
 
 #pragma once
 
+#include "reone/graphics/mesh.h"
+
 #include "modelnode.h"
 
 namespace reone {
+
+namespace graphics {
+struct Material;
+}
 
 namespace scene {
 
@@ -49,6 +55,11 @@ public:
     void update(float dt) override;
 
     void render(IRenderPass &pass);
+    /**
+     * Draws the mesh pushed out along its normals by \p offset, in \p texture,
+     * over itself.
+     */
+    void renderBumpedOutShell(IRenderPass &pass, graphics::Texture &texture, float offset);
     void renderShadow(IRenderPass &pass);
 
     bool shouldRender() const;
@@ -63,8 +74,28 @@ public:
     void setEnvironmentMap(graphics::Texture *texture) override;
     void setAlpha(float alpha) { _alpha = alpha; }
     void setSelfIllumColor(glm::vec3 color) { _selfIllumColor = std::move(color); }
+    /**
+     * Draws this mesh as a beam: a translucent shadow its silhouette casts
+     * away from \p target, in place of the mesh itself.
+     */
+    void setProjectedBeamTarget(const SceneNode &target);
+    /** Leaves the beam without a target; it is not drawn until it has one. */
+    void clearProjectedBeamTarget();
 
 private:
+    /** A beam's target and the geometry it is rebuilt in each frame. */
+    struct ProjectedBeam {
+        std::optional<std::reference_wrapper<const SceneNode>> target;
+        std::unique_ptr<graphics::Mesh> mesh;
+        std::vector<glm::vec3> sourceVertices;
+        std::vector<float> faceSides;
+        std::vector<std::pair<uint16_t, uint16_t>> edges;
+        std::vector<bool> usedVertices;
+        std::vector<uint16_t> nearBySource;
+        std::vector<graphics::Mesh::Vertex> vertices;
+        std::vector<graphics::Mesh::Face> faces;
+    };
+
     struct NodeTextures {
         graphics::Texture *diffuse {nullptr};
         graphics::Texture *lightmap {nullptr};
@@ -103,12 +134,22 @@ private:
 
     float _windTime {0.0f};
 
+    std::unique_ptr<ProjectedBeam> _projectedBeam;
+
     void initTextures();
     void initDanglyMesh();
 
     void refreshAdditionalTextures();
 
     bool isLightingEnabled() const;
+    /** The skinning transforms of the bones, in this node's space. */
+    std::vector<glm::mat4> buildSkinBoneTransforms() const;
+    /** Draws the mesh, skinned or dangling as it is, with \p material. */
+    void drawWithMaterial(IRenderPass &pass, graphics::Material &material);
+    /** Sets the Force Sight look of the model on \p material. */
+    void applyForceSight(graphics::Material &material) const;
+    /** Rebuilds the beam geometry for where the target is now and draws it. */
+    void renderProjectedBeam(IRenderPass &pass);
 
     // Animation
 

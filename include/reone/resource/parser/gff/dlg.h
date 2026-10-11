@@ -75,7 +75,7 @@ struct DLG_EntryReplyList {
     std::vector<DLG_EntryReplyList_AnimList> AnimList;
     float CamFieldOfView {0.0f};
     float CamHeightOffset {0.0f};
-    int CamVidEffect {0};
+    int CamVidEffect {-1};
     uint32_t CameraAngle {0};
     uint16_t CameraAnimation {0};
     int CameraID {0};

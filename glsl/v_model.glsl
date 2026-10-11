@@ -63,6 +63,10 @@ void main() {
         fragPos = P;
     }
 
+    if (isFeatureEnabled(FEATURE_SHELL)) {
+        fragPos.xyz += normalize(N.xyz) * uShellOffset;
+    }
+
     fragPosWorld = uModel * fragPos;
 
     mat3 normalMatrix = transpose(mat3(uModelInv));

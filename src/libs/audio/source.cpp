@@ -145,6 +145,29 @@ void AudioSource::play() {
     _playing = true;
 }
 
+void AudioSource::pause() {
+    alSourcePause(_source);
+}
+
+// Only a source that is still playing, and paused or created paused, resumes:
+// one that was stopped, cancelled or ended stays so until the mixer drops it.
+// A source cancelled before it ever started still reads as not started, so its
+// own state decides.
+void AudioSource::resume() {
+    if (!_playing) {
+        return;
+    }
+    ALint state = 0;
+    alGetSourcei(_source, AL_SOURCE_STATE, &state);
+    if (state == AL_PAUSED || state == AL_INITIAL) {
+        alSourcePlay(_source);
+    }
+}
+
+void AudioSource::startPaused() {
+    _playing = true;
+}
+
 void AudioSource::stop() {
     _playing = false;
     if (!_source) {
@@ -165,6 +188,10 @@ void AudioSource::setPosition(glm::vec3 position) {
         alSource3f(_source, AL_POSITION, position.x, position.y, position.z);
     }
     _position = std::move(position);
+}
+
+void AudioSource::setGainScale(float scale) {
+    alSourcef(_source, AL_GAIN, _gain * scale);
 }
 
 } // namespace audio

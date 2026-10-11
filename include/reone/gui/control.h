@@ -105,6 +105,7 @@ public:
         std::shared_ptr<graphics::Font> font;
         glm::vec3 color {1.0f};
         TextAlign align {TextAlign::CenterCenter};
+        float opacity {1.0f};
     };
 
     static ControlType getType(const resource::generated::GUI_BASECONTROL &gui);
@@ -148,7 +149,7 @@ public:
     /** Applies text and frame scale without changing the control's rectangle. */
     void setPresentationScale(float layoutScale);
     /** Applies independent frame and text layout scales without changing the control's rectangle. */
-    void setPresentationScale(float frameLayoutScale, float textLayoutScale);
+    virtual void setPresentationScale(float frameLayoutScale, float textLayoutScale);
     const Extent &extent() const { return _extent; }
     const Border &hilight() const { return *_hilight; }
     const std::string &borderFillResRef() const { return _borderFillResRef; }
@@ -184,6 +185,8 @@ public:
     void setText(Text text);
     void setTextAlignment(TextAlign align);
     void setTextColor(glm::vec3 color);
+    /** Sets the alpha the text is drawn with. */
+    void setTextOpacity(float opacity) { _text.opacity = opacity; }
     void setTextMessage(std::string text);
     void setTextFont(std::shared_ptr<graphics::Font> font);
     void setTextPaddingLeft(int padding) { _textPaddingLeft = padding; }
@@ -307,6 +310,14 @@ protected:
                     scene::IRenderPass &pass);
 
     virtual const glm::vec3 &getBorderColor() const;
+
+    /** The border drawn while the control is not hilighted, if any. */
+    virtual const std::shared_ptr<Border> &shownBorder() const { return _border; }
+    /** The border drawn while the control is hilighted, if any. */
+    virtual const std::shared_ptr<Border> &shownHilight() const { return _hilight; }
+
+    /** Creates a border from its GUI resource fields. */
+    std::shared_ptr<Border> createBorder(const resource::generated::GUI_BORDER &gui) const;
 
 private:
     void loadExtent(const resource::generated::GUI_EXTENT &gui);

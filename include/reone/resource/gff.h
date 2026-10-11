@@ -209,6 +209,8 @@ public:
     bool readChar(int8_t &val, std::string_view label) const;
     bool readWord(uint16_t &val, std::string_view label) const;
     bool readShort(int16_t &val, std::string_view label) const;
+    /** Reads a short field into an int, as the signed 16-bit value it holds. */
+    bool readShort(int &val, std::string_view label) const;
     bool readDword(uint32_t &val, std::string_view label) const;
     bool readInt(int32_t &val, std::string_view label) const;
     bool readDword64(uint64_t &val, std::string_view label) const;

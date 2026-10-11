@@ -759,6 +759,10 @@ public:
     const std::map<std::string, std::shared_ptr<Location>, GVCompare> &globalLocations() const { return _globalLocations; }
 
     void setCustomToken(int token, std::string value);
+    /**
+     * Resolves the custom tokens of a talk-table string, dropping its {...}
+     * notes. "{{" stands for "{".
+     */
     std::string substituteCustomTokens(std::string str) const;
     std::string substituteCustomToken(std::string str, int token, std::string value) const;
 

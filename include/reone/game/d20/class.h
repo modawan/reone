@@ -73,6 +73,7 @@ public:
     const std::string &name() const { return _name; }
     const std::string &description() const { return _description; }
     int hitdie() const { return _hitdie; }
+    int forcedie() const { return _forcedie; }
     const CreatureAttributes &defaultAttributes() const { return _defaultAttributes; }
     int skillPointBase() const { return _skillPointBase; }
     int getFeatGain(int level) const;
@@ -88,6 +89,7 @@ private:
     std::string _name;
     std::string _description;
     int _hitdie {0};
+    int _forcedie {0};
     CreatureAttributes _defaultAttributes;
     int _skillPointBase {0};
     std::unordered_set<SkillType> _classSkills;

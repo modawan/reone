@@ -43,10 +43,19 @@ public:
     glm::mat3x4 uv {1.0f};
     glm::vec4 color {1.0f};
     int bumpMapFrame {0};
+    float shellOffset {0.0f};
 
     glm::vec3 ambientColor {1.0f};
     glm::vec3 diffuseColor {1.0f};
     glm::vec3 selfIllumColor {0.0f};
+
+    /** Under Force Sight, whether the surface glows. */
+    bool forceGlow {false};
+    /**
+     * Under Force Sight, the glow colour of a glowing surface, or the alpha
+     * the grey of any other surface is drawn with.
+     */
+    glm::vec4 forceSightColor {0.0f, 0.0f, 0.0f, 1.0f};
 
     bool staticObject {false};
     bool affectedByShadows {false};

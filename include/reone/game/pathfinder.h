@@ -51,6 +51,8 @@ struct Uniwalk {
     std::vector<glm::vec3> vertices;
     std::vector<Uniface> faces;
     std::vector<Uniroom> rooms;
+    /** Region of each face: faces joined through shared edges share one. */
+    std::vector<uint32_t> regions;
 };
 
 /// State of a face for A* algorithm.
@@ -102,6 +104,8 @@ void uniwalkLoadRoom(struct Uniwalk &wm, graphics::Walkmesh &data, std::set<uint
 void uniwalkFinalize(struct Uniwalk &uni);
 
 std::optional<Path> createPath(Pathfinder &pf, const glm::vec3 &from, const glm::vec3 &to);
+/** Whether the walkmesh joins two points, without holding a path. */
+bool pathExists(const Pathfinder &pf, const glm::vec3 &from, const glm::vec3 &to);
 bool updatePath(Pathfinder &pf, Path p, const glm::vec3 &current);
 void releasePath(Pathfinder &pf, Path path);
 

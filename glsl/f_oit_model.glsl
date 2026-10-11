@@ -1,6 +1,7 @@
 #include "u_globals.glsl"
 #include "u_locals.glsl"
 
+#include "i_forcesight.glsl"
 #include "i_luma.glsl"
 #include "i_math.glsl"
 #include "i_lighting.glsl"
@@ -85,14 +86,32 @@ void main() {
     vec3 lighting = min(vec3(1.0), ambient + max(vec3(0.0), diffuse));
 
     vec3 objectColor = lighting * uColor.rgb * diffuseColor;
-    if (isFeatureEnabled(FEATURE_ENVMAP)) {
-        vec3 I = normalize(fragPosWorld.xyz - uCameraPosition.xyz);
-        vec3 R = reflect(I, normal);
-        vec4 envmapSample = sampleEnvMap(sEnvMap, sEnvMapCube, R);
-        objectColor += envmapSample.rgb * (1.0 - diffuseAlpha);
+    if (uForceSight != 0 && isFeatureEnabled(FEATURE_FORCEGLOW)) {
+        // The glow is added over the scene: its own colour weighted by the
+        // texture's coverage.
+        objectAlpha = diffuseAlpha * FORCE_SIGHT_GLOW_ALPHA;
+        if (objectAlpha == 0.0) {
+            discard;
+        }
+        objectColor = forceSightGlow(diffuseColor, uForceSightColor) / objectAlpha;
+        float glowWeight = OIT_weight(gl_FragCoord.z, objectAlpha);
+        fragColor1 = vec4(objectColor * glowWeight, objectAlpha);
+        fragColor2 = vec4(glowWeight);
+        return;
     }
-    if (isFeatureEnabled(FEATURE_WATER)) {
-        objectColor *= uWaterAlpha;
+    if (uForceSight != 0) {
+        objectColor = forceSightGrey(objectColor);
+        objectAlpha *= uForceSightColor.a;
+    } else {
+        if (isFeatureEnabled(FEATURE_ENVMAP)) {
+            vec3 I = normalize(fragPosWorld.xyz - uCameraPosition.xyz);
+            vec3 R = reflect(I, normal);
+            vec4 envmapSample = sampleEnvMap(sEnvMap, sEnvMapCube, R);
+            objectColor += envmapSample.rgb * (1.0 - diffuseAlpha);
+        }
+        if (isFeatureEnabled(FEATURE_WATER)) {
+            objectColor *= uWaterAlpha;
+        }
     }
 
     if (isFeatureEnabled(FEATURE_PREMULALPHA)) {

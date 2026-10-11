@@ -32,14 +32,14 @@ class ISceneGraph;
 namespace game {
 
 class Action;
-class CombatRound;
+struct CombatRound;
 class Creature;
 class Game;
 class IAnimations;
 class Item;
 class Object;
-class ProjectileSpec;
-class ServicesView;
+struct ProjectileSpec;
+struct ServicesView;
 
 static constexpr float kAttackDamageDelay = 1.0f;
 

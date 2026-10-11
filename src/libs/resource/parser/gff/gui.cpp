@@ -158,6 +158,15 @@ static GUI_CONTROLS parseGUI_CONTROLS(const Gff &gff) {
     if (HILIGHT) {
         strct.HILIGHT = parseGUI_BORDER(*HILIGHT);
     }
+    auto HILIGHTSELECTED = gff.findStruct("HILIGHTSELECTED");
+    if (HILIGHTSELECTED) {
+        strct.HILIGHTSELECTED = parseGUI_BORDER(*HILIGHTSELECTED);
+    }
+    strct.ISSELECTED = gff.getUint("ISSELECTED");
+    auto SELECTED = gff.findStruct("SELECTED");
+    if (SELECTED) {
+        strct.SELECTED = parseGUI_BORDER(*SELECTED);
+    }
     strct.ID = gff.getInt("ID");
     strct.LEFTSCROLLBAR = gff.getUint("LEFTSCROLLBAR");
     strct.LOOPING = gff.getUint("LOOPING");

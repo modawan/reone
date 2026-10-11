@@ -17,6 +17,8 @@
 
 #include "reone/resource/2da.h"
 
+#include <limits>
+
 #include "reone/system/logutil.h"
 
 namespace reone {
@@ -28,7 +30,7 @@ static constexpr char kCellValueDeleted[] = "****";
 /**
  * ASCII case folding.
  *
- * Table keys are ASCII, and the original lookup folds case. A locale-aware
+ * Table keys are ASCII, and the game's lookup folds case. A locale-aware
  * conversion is deliberately avoided: it would make which row a table resolves
  * to depend on the environment the game happens to run in.
  */
@@ -156,6 +158,25 @@ std::optional<int> TwoDA::getIntOpt(int row, const std::string &column) const {
                        value[0] == '0' &&
                        (value[1] == 'x' || value[1] == 'X');
     return stoi(value, nullptr, hexadecimal ? 16 : 10);
+}
+
+uint32_t TwoDA::getUint(int row, const std::string &column, uint32_t defValue) const {
+    return getUintOpt(row, column).value_or(defValue);
+}
+
+std::optional<uint32_t> TwoDA::getUintOpt(int row, const std::string &column) const {
+    const std::string &value = getString(row, column);
+    if (value.empty()) {
+        return std::nullopt;
+    }
+    bool hexadecimal = value.size() > 2 &&
+                       value[0] == '0' &&
+                       (value[1] == 'x' || value[1] == 'X');
+    const unsigned long long number = std::stoull(value, nullptr, hexadecimal ? 16 : 10);
+    if (number > std::numeric_limits<uint32_t>::max()) {
+        throw std::out_of_range("2DA: unsigned value out of range: " + value);
+    }
+    return static_cast<uint32_t>(number);
 }
 
 uint32_t TwoDA::getHexInt(int row, const std::string &column, uint32_t defValue) const {

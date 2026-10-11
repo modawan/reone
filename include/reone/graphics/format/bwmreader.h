@@ -45,7 +45,6 @@ private:
     BinaryReader _bwm;
 
     WalkmeshType _type {WalkmeshType::WOK};
-    glm::vec3 _position {0.0f};
 
     uint32_t _numVertices {0};
     uint32_t _offVertices {0};
@@ -65,6 +64,8 @@ private:
 
     std::shared_ptr<Walkmesh> _walkmesh;
 
+    /** Reads three floats as a vector. */
+    glm::vec3 readVector();
     void loadVertices();
     void loadFaces();
     void loadMaterials();

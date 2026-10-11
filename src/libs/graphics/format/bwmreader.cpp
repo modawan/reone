@@ -29,13 +29,17 @@ void BwmReader::load() {
 
     _type = static_cast<WalkmeshType>(_bwm.readUint32());
 
-    std::vector<float> relUsePosition1(_bwm.readFloatArray(3));
-    std::vector<float> relUsePosition2(_bwm.readFloatArray(3));
-    std::vector<float> absUsePosition1(_bwm.readFloatArray(3));
-    std::vector<float> absUsePosition2(_bwm.readFloatArray(3));
-
-    std::vector<float> position(_bwm.readFloatArray(3));
-    _position = glm::make_vec3(&position[0]);
+    // The header, use points included, is kept even for a walkmesh without
+    // faces.
+    _walkmesh = std::make_shared<Walkmesh>();
+    _walkmesh->_area = _type == WalkmeshType::WOK;
+    for (auto &usePosition : _walkmesh->relativeUsePositions) {
+        usePosition = readVector();
+    }
+    for (auto &usePosition : _walkmesh->absoluteUsePositions) {
+        usePosition = readVector();
+    }
+    _walkmesh->position = readVector();
 
     _numVertices = _bwm.readUint32();
     if (_numVertices == 0) {
@@ -63,9 +67,6 @@ void BwmReader::load() {
         _offPerimeters = _bwm.readUint32();
     }
 
-    _walkmesh = std::make_shared<Walkmesh>();
-    _walkmesh->_area = _type == WalkmeshType::WOK;
-
     loadVertices();
     loadFaces();
     loadMaterials();
@@ -80,15 +81,23 @@ void BwmReader::load() {
     }
 }
 
+glm::vec3 BwmReader::readVector() {
+    auto values = _bwm.readFloatArray(3);
+    return glm::make_vec3(values.data());
+}
+
 void BwmReader::loadVertices() {
     _bwm.seek(_offVertices);
     auto &array = _walkmesh->vertices;
     array.reserve(_numVertices);
+    // A door or placeable walkmesh places its vertices by its position
+    // offset; an area walkmesh's vertices are already where they lie.
+    const glm::vec3 offset = _type == WalkmeshType::PWK_DWK ? _walkmesh->position : glm::vec3(0.0f);
     for (uint32_t i = 0; i < _numVertices; ++i) {
         float x = _bwm.readFloat();
         float y = _bwm.readFloat();
         float z = _bwm.readFloat();
-        array.emplace_back(x, y, z);
+        array.emplace_back(glm::vec3(x, y, z) + offset);
     }
 }
 

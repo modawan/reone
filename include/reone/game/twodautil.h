@@ -20,6 +20,8 @@
 #include <memory>
 #include <string>
 
+#include "types.h"
+
 namespace reone {
 
 namespace resource {
@@ -37,6 +39,20 @@ void validateTwoDARow(
     const resource::TwoDA &table,
     const std::string &resRef,
     int row);
+
+/**
+ * Throw unless \p row is a row of a table of \p rowCount rows.
+ *
+ * @param resRef the table's name, for the message
+ */
+void validateTwoDARowIndex(
+    const std::string &resRef,
+    int row,
+    int rowCount);
+
+/** A race's adjustment to an ability (racialtypes.2da); a blank one is zero. */
+int readRacialAbilityAdjustment(
+    const resource::TwoDA &table, int row, Ability ability);
 
 } // namespace game
 

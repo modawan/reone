@@ -34,6 +34,14 @@ public:
     virtual void render() = 0;
     virtual void stop(AudioType type) = 0;
     virtual void stopAll() = 0;
+    /**
+     * Holds every sound while a movie plays, or lets them go on. Movie audio
+     * keeps playing; every other source, music included, waits paused, and a
+     * source started while sounds are held starts held.
+     *
+     * @param held whether sounds are held for a movie
+     */
+    virtual void setSoundsHeldForMovie(bool held) = 0;
 
     virtual std::shared_ptr<AudioSource> play(
         std::shared_ptr<AudioClip> clip,
@@ -52,6 +60,7 @@ public:
     void render() override;
     void stop(AudioType type) override;
     void stopAll() override;
+    void setSoundsHeldForMovie(bool held) override;
 
     std::shared_ptr<AudioSource> play(
         std::shared_ptr<AudioClip> clip,
@@ -69,6 +78,7 @@ private:
     AudioOptions &_options;
 
     std::vector<ActiveSource> _sources;
+    bool _soundsHeldForMovie {false};
 
     float gainByType(AudioType type, float gain) const;
 };

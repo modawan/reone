@@ -36,6 +36,7 @@ void GameModule::init() {
     _projectiles = std::make_unique<Projectiles>(_resource.twoDas());
     _animations = std::make_unique<Animations>(_resource.twoDas());
     _visualEffects = std::make_unique<VisualEffects>(_resource.twoDas(), _resource.audioClips(), _resource.models());
+    _combatTables = std::make_unique<CombatTables>();
 
     _services = std::make_unique<GameServices>(
         *_cameraStyles,
@@ -51,7 +52,8 @@ void GameModule::init() {
         *_surfaces,
         *_projectiles,
         *_animations,
-        *_visualEffects);
+        *_visualEffects,
+        *_combatTables);
 
     _cameraStyles->init();
     _difficultyOptions->init();
@@ -62,14 +64,16 @@ void GameModule::init() {
     _skills->init();
     _spells->init();
     _surfaces->init();
-    _projectiles->init();
     _animations->init();
     _visualEffects->init();
+    _projectiles->init();
+    _combatTables->init(_resource.twoDas(), _gameId);
 }
 
 void GameModule::deinit() {
     _services.reset();
 
+    _combatTables.reset();
     _surfaces.reset();
     _spells.reset();
     _skills.reset();

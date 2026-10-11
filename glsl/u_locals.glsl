@@ -13,6 +13,8 @@ const int FEATURE_HASHEDALPHATEST = 1 << 11;
 const int FEATURE_PREMULALPHA = 1 << 12;
 const int FEATURE_ENVMAPCUBE = 1 << 13;
 const int FEATURE_STATIC = 1 << 14;
+const int FEATURE_SHELL = 1 << 15;
+const int FEATURE_FORCEGLOW = 1 << 16;
 
 layout(std140) uniform Locals {
     mat4 uModel;
@@ -22,11 +24,13 @@ layout(std140) uniform Locals {
     vec4 uAmbientColor;
     vec4 uDiffuseColor;
     vec4 uSelfIllumColor;
+    vec4 uForceSightColor;
     int uFeatureMask;
     int uBumpMapFrame;
     float uBumpMapScale;
     float uWaterAlpha;
     float uBillboardSize;
+    float uShellOffset;
 };
 
 uniform int uEnvMapDerivedLayer;

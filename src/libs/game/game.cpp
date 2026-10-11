@@ -2719,7 +2719,7 @@ void Game::beginRuntimeObjectGraphReplacement(
     if (_stagedRuntimeObjectGraph) {
         throw ValidationException("Nested runtime object graph replacement");
     }
-    _stagedRuntimeObjectGraph.emplace();
+    _stagedRuntimeObjectGraph.emplace(StagedRuntimeObjectGraph {});
     _stagedRuntimeObjectGraph->initialNextObjectId = _nextObjectId;
 
     _stagedRuntimeObjectGraph->obsoleteGraph =
@@ -3875,10 +3875,40 @@ void Game::setCustomToken(int token, std::string value) {
     _customTokens[token] = std::move(value);
 }
 
+// Text between "{" and "}" is dropped; "{{" stands for "{". A string with no
+// note is returned as it is.
+static std::string dropNotes(const std::string &text) {
+    if (text.find('{') == std::string::npos) {
+        return text;
+    }
+    std::string result;
+    size_t start = 0;
+    size_t i = 0;
+    while (i < text.size()) {
+        if (text[i] != '{') {
+            ++i;
+            continue;
+        }
+        if (i + 1 < text.size() && text[i + 1] == '{') {
+            result.append(text, start, i + 1 - start);
+            i += 2;
+            start = i;
+            continue;
+        }
+        result.append(text, start, i - start);
+        const size_t close = text.find('}', i + 1);
+        i = close == std::string::npos ? text.size() : close + 1;
+        start = i;
+    }
+    result.append(text, start, text.size() - start);
+    return result;
+}
+
 static std::string substituteCustomTokensFromMap(
     std::string str,
     const std::map<int, std::string> &customTokens) {
 
+    str = dropNotes(str);
     size_t start = 0;
     while ((start = str.find("<CUSTOM", start)) != std::string::npos) {
         size_t digitsStart = start + 7;

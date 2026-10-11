@@ -41,6 +41,8 @@ public:
         std::shared_ptr<graphics::Texture> iconTexture;
         std::shared_ptr<graphics::Texture> iconFrame;
         std::optional<glm::vec3> textColor;
+        /** A row drawn through a toggle-button prototype shows this state. */
+        std::optional<bool> on;
         bool invalid {false};
 
         std::vector<std::string> _textLines;
@@ -63,6 +65,8 @@ public:
 
     void clearItems();
     void addItem(Item &&item);
+    /** Change a row's on state without rebuilding the list. */
+    void setItemOn(int index, bool on) { _items.at(static_cast<size_t>(index)).on = on; }
     void addTextLinesAsItems(const std::string &text);
 
     void clearSelection();

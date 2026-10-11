@@ -25,6 +25,18 @@ namespace reone {
 
 namespace game {
 
+/**
+ * A location's facing, like a script's, turns counter-clockwise from +X. An
+ * object's facing is the yaw of its model, which turns from +Y: a quarter
+ * turn less.
+ */
+inline float scriptFacingFromObject(float objectFacing) {
+    return objectFacing + glm::half_pi<float>();
+}
+inline float objectFacingFromScript(float scriptFacing) {
+    return scriptFacing - glm::half_pi<float>();
+}
+
 class Location : public script::EngineType {
 public:
     Location(glm::vec3 position, float facing) :

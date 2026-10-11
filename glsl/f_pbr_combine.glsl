@@ -3,6 +3,7 @@
 
 #include "i_coords.glsl"
 #include "i_fog.glsl"
+#include "i_forcesight.glsl"
 #include "i_gamma.glsl"
 #include "i_gbuf.glsl"
 #include "i_lighting.glsl"
@@ -160,9 +161,13 @@ void main() {
     float selfillumed = max(selfillumstep.x, max(selfillumstep.y, selfillumstep.z));
 
     vec3 color = min(vec3(1.0), ao * ambientD + (1.0 - shadow) * (max(vec3(0.0), directD) + emission)) * albedo;
-    color += ao * ambientS;
-    color += (1.0 - selfillumed) * (1.0 - shadow) * max(vec3(0.0), directS);
-    color = linearToGamma(color);
+    if (uForceSight != 0) {
+        color = forceSightGrey(linearToGamma(color));
+    } else {
+        color += ao * ambientS;
+        color += (1.0 - selfillumed) * (1.0 - shadow) * max(vec3(0.0), directS);
+        color = linearToGamma(color);
+    }
     color = mix(color, uFogColor.rgb, fog);
 
     float alpha = step(0.0001, mainTexSample.a);

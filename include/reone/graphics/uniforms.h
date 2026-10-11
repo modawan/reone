@@ -53,6 +53,8 @@ struct UniformsFeatureFlags {
     static constexpr int premulalpha = 1 << 12;
     static constexpr int envmapcube = 1 << 13;
     static constexpr int staticobj = 1 << 14;
+    static constexpr int shell = 1 << 15;
+    static constexpr int forceglow = 1 << 16;
 };
 
 struct alignas(16) GlobalUniformsLight {
@@ -83,6 +85,7 @@ struct GlobalUniforms {
     float shadowRadius {0.0f};
     float fogNear {0.0f};
     float fogFar {0.0f};
+    int forceSight {0};
 
     void reset() {
         projection = glm::mat4(1.0f);
@@ -101,6 +104,7 @@ struct GlobalUniforms {
         shadowRadius = 0.0f;
         fogNear = 0.0f;
         fogFar = 0.0f;
+        forceSight = 0;
     }
 };
 
@@ -112,11 +116,13 @@ struct LocalUniforms {
     glm::vec4 ambientColor;
     glm::vec4 diffuseColor;
     glm::vec4 selfIllumColor;
+    glm::vec4 forceSightColor;
     int featureMask;
     int bumpMapFrame;
     float bumpMapScale;
     float waterAlpha;
     float billboardSize;
+    float shellOffset;
 
     LocalUniforms() {
         reset();
@@ -130,11 +136,13 @@ struct LocalUniforms {
         ambientColor = glm::vec4(1.0f);
         diffuseColor = glm::vec4(1.0f);
         selfIllumColor = glm::vec4(0.0f);
+        forceSightColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
         featureMask = 0;
         bumpMapFrame = 0;
         bumpMapScale = 1.0f;
         waterAlpha = 0.0f;
         billboardSize = 1.0f;
+        shellOffset = 0.0f;
     }
 };
 
@@ -199,6 +207,13 @@ struct ScreenEffectUniforms {
     float ssrPixelStride {4.0f};
     float ssrMaxSteps {32.0f};
     float sharpenAmount {0.25f};
+    float speedBlurRatio {0.0f};
+    float videoModulationR {1.0f};
+    float videoModulationG {1.0f};
+    float videoModulationB {1.0f};
+    float videoSaturation {1.0f};
+    float videoSaturationEnabled {0.0f};
+    float videoScanNoiseEnabled {0.0f};
 };
 
 class Context;

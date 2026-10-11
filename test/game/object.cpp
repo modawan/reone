@@ -6595,6 +6595,8 @@ protected:
         dialog->entries.resize(1);
         dialog->entries[0].text = "A valid conversation";
         dialog->entries[0].delay = 100;
+        // Two replies, so the conversation opens instead of barking a one-liner.
+        dialog->entries[0].replies.push_back(link);
         dialog->entries[0].replies.push_back(link);
         dialog->replies.resize(1);
         dialog->replies[0].text = "Finish";

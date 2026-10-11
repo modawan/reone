@@ -116,7 +116,18 @@ private:
 
     void refreshReplies();
 
-    void finish();
+    /**
+     * Ends the conversation.
+     *
+     * @param runsEndScript whether the conversation's end script runs now; a
+     *        one-liner has already run it, or runs none
+     */
+    void finish(bool runsEndScript = true);
+
+    /**
+     * Runs the conversation's end script, with the owner as the caller.
+     */
+    void runEndScript(const resource::Dialog &dialog, const Object &owner);
 
     int indexOfFirstActive(const std::vector<resource::Dialog::EntryReplyLink> &links);
 

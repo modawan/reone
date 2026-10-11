@@ -25,6 +25,7 @@
 
 #include "../animations.h"
 #include "../camerastyles.h"
+#include "../combattables.h"
 #include "../d20/classes.h"
 #include "../d20/feats.h"
 #include "../d20/skills.h"
@@ -96,6 +97,7 @@ private:
     std::unique_ptr<Projectiles> _projectiles;
     std::unique_ptr<Animations> _animations;
     std::unique_ptr<VisualEffects> _visualEffects;
+    std::unique_ptr<CombatTables> _combatTables;
 
     std::unique_ptr<GameServices> _services;
 };

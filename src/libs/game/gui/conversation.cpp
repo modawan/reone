@@ -239,7 +239,7 @@ void Conversation::applyStatusSummaryEntries(const Dialog::EntryReply &node) {
     _game.awardPlotXPByIndex(node.plotIndex, node.plotXPPercentage);
 }
 
-void Conversation::finish() {
+void Conversation::finish(bool runsEndScript) {
     auto generation = ++_generation;
     auto dialog = _dialog;
     auto ownerRef = _owner;
@@ -260,10 +260,8 @@ void Conversation::finish() {
     }
 
     // Run EndConversation script
-    if (auto owner = ownerRef.resolve()) {
-        if (!dialog->endScript.empty()) {
-            _game.scriptRunner().run(dialog->endScript, owner->id());
-        }
+    if (auto owner = ownerRef.resolve(); owner && runsEndScript) {
+        runEndScript(*dialog, *owner);
     }
 
     if (_generation == generation) {
@@ -274,6 +272,12 @@ void Conversation::finish() {
 }
 
 void Conversation::onFinish() {
+}
+
+void Conversation::runEndScript(const Dialog &dialog, const Object &owner) {
+    if (!dialog.endScript.empty()) {
+        _game.scriptRunner().run(dialog.endScript, owner.id());
+    }
 }
 
 void Conversation::cleanupForModuleTransition() {
@@ -304,13 +308,32 @@ void Conversation::loadEntry(int index, bool start) {
     debug("Load entry " + std::to_string(index), LogChannel::Conversation);
     _currentEntry = &_dialog->getEntry(index);
 
-    applyStatusSummaryEntries(*_currentEntry);
+    // A conversation is a one-liner when it opens on an entry with no replies,
+    // or with one reply that leads to no entry; the reply's text and condition
+    // play no part. Cinematic conversations can be one-liners, and so can
+    // computer ones in KotOR. A one-liner is barked instead of opened: it
+    // lists no replies, and neither its entry nor its reply adds a journal
+    // entry or plot experience.
+    bool oneLiner = false;
+    const ConversationType type = _dialog->conversationType;
+    if (start && (type == ConversationType::Cinematic || (type == ConversationType::Computer && !_game.isTSL()))) {
+        const auto &links = _currentEntry->replies;
+        oneLiner = links.empty() || (links.size() == 1ll && _dialog->getReply(links.front().index).entries.empty());
+    }
+
+    if (!oneLiner) {
+        applyStatusSummaryEntries(*_currentEntry);
+    }
 
     std::string entryText(_game.substituteCustomTokens(_currentEntry->text));
     setMessage(entryText);
-    loadReplies();
-    if (!isCurrent(generation)) {
-        return;
+    if (oneLiner) {
+        _replies.clear();
+    } else {
+        loadReplies();
+        if (!isCurrent(generation)) {
+            return;
+        }
     }
     loadVoiceOver();
 
@@ -318,21 +341,18 @@ void Conversation::loadEntry(int index, bool start) {
     // below can immediately replace this automatic reveal with its own fade.
     _game.globalFade().revealDialog(_fadeDialog);
 
-    // Run entry scripts. An entry action can start another conversation, which
-    // replaces this one outright. Holding the dialogue keeps this entry and its
-    // replies alive for the script to act on, and tells us to stop rather than
-    // carry on driving the new session with the old one's state.
-    runScripts(*_currentEntry);
-    if (!isCurrent(generation)) {
-        return;
+    // Run entry scripts; a one-liner runs them after its bark. An entry action
+    // can start another conversation, which replaces this one outright.
+    // Holding the dialogue keeps this entry and its replies alive for the
+    // script to act on, and tells us to stop rather than carry on driving the
+    // new session with the old one's state.
+    if (!oneLiner) {
+        runScripts(*_currentEntry);
+        if (!isCurrent(generation)) {
+            return;
+        }
     }
 
-    // Conversation is a one-liner if there is exactly one empty reply that has no entries
-    bool oneLiner = false;
-    if (start && _replies.size() == 1ll) {
-        const Dialog::EntryReply &reply = *_replies[0];
-        oneLiner = reply.text.empty() && reply.entries.empty();
-    }
     if (!oneLiner && isNonPresentationalEntry()) {
         pickReply(0);
         return;
@@ -345,18 +365,35 @@ void Conversation::loadEntry(int index, bool start) {
     }
 
     if (oneLiner) {
-        setBarkText(std::move(entryText), _entryDuration);
         debug("Dialog: finish (one-liner)");
 
-        // Barking the entry instead of opening the conversation GUI is a
-        // presentation choice, not a reason to drop the sole terminal reply's
-        // action. Resolving that reply through pickReply keeps the usual
-        // ordering and lets it terminate the conversation, so nothing here
-        // finishes it a second time. Ending the entry first stops the update
-        // timer from auto-picking the same reply again afterwards, and leaves
-        // a replacement conversation's own entry state untouched.
+        // A line with text is barked, and the conversation's end script runs
+        // then; a line without text shows nothing and runs no end script. The
+        // entry's actions follow, then the sole reply's, whether or not its
+        // condition holds, all with the owner as the caller. An action can
+        // start another conversation, which then stands. Ending the entry
+        // first stops the update timer from ending it again.
         _entryEnded = true;
-        pickReply(0);
+        if (!_currentEntry->text.empty()) {
+            setBarkText(std::move(entryText), _entryDuration);
+            if (auto owner = _owner.resolve()) {
+                runEndScript(*_dialog, *owner);
+                if (!isCurrent(generation)) {
+                    return;
+                }
+            }
+        }
+        runScripts(*_currentEntry);
+        if (!isCurrent(generation)) {
+            return;
+        }
+        if (!_currentEntry->replies.empty()) {
+            runScripts(_dialog->getReply(_currentEntry->replies.front().index));
+            if (!isCurrent(generation)) {
+                return;
+            }
+        }
+        finish(/*runsEndScript=*/false);
         return;
     }
 
@@ -440,14 +477,15 @@ void Conversation::loadReplies() {
         }
     }
 
-    // If there is only one empty reply, pick it automatically when the current entry ends
-    _autoPickFirstReply = _replies.size() == 1ll && _replies.front()->text.empty();
+    // A sole reply whose text resolves to nothing is taken when the entry ends.
+    _autoPickFirstReply = _replies.size() == 1ll && _game.substituteCustomTokens(_replies.front()->text).empty();
 
     refreshReplies();
 }
 
 static std::string getReplyText(const Dialog::EntryReply &reply, int index, const Game &game) {
-    return str(boost::format("%d. %s") % (index + 1) % (reply.text.empty() ? "[empty]" : game.substituteCustomTokens(reply.text)));
+    std::string text(game.substituteCustomTokens(reply.text));
+    return str(boost::format("%d. %s") % (index + 1) % (text.empty() ? "[empty]" : text));
 }
 
 void Conversation::refreshReplies() {

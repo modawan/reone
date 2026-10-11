@@ -51,6 +51,7 @@ void CreatureClass::load(const TwoDA &twoDa, int row) {
     _name = _strings.getText(twoDa.getInt(row, "name"));
     _description = _strings.getText(twoDa.getInt(row, "description"));
     _hitdie = twoDa.getInt(row, "hitdie");
+    _forcedie = twoDa.getInt(row, "forcedie");
     _skillPointBase = twoDa.getInt(row, "skillpointbase");
 
     _defaultAttributes.addClassLevels(this, 1);

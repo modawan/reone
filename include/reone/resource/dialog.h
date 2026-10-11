@@ -81,6 +81,7 @@ struct Dialog {
         int cameraAngle {0};
         int cameraAnimation {0};
         float camFieldOfView {0.0f};
+        int camVidEffect {-1}; /**< videoeffects row of the shot, -1 for none */
         std::vector<EntryReplyLink> replies;
         std::vector<EntryReplyLink> entries;
         std::vector<ParticipantAnimation> animations;
