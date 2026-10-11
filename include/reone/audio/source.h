@@ -44,7 +44,10 @@ public:
     void stop();
     /** Pauses a playing source; resume() continues it. */
     void pause();
-    /** Continues a paused source, or starts one that was created paused. */
+    /**
+     * Continues a paused source, or starts one that was created paused. A
+     * source that was stopped, cancelled or has ended is left as it is.
+     */
     void resume();
     /** Counts the source as playing without starting it; resume() starts it. */
     void startPaused();

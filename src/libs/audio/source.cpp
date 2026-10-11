@@ -149,9 +149,14 @@ void AudioSource::pause() {
     alSourcePause(_source);
 }
 
-// Only a paused source, or one created paused, resumes: one that was stopped,
-// or ended, stays so until the mixer drops it.
+// Only a source that is still playing, and paused or created paused, resumes:
+// one that was stopped, cancelled or ended stays so until the mixer drops it.
+// A source cancelled before it ever started still reads as not started, so its
+// own state decides.
 void AudioSource::resume() {
+    if (!_playing) {
+        return;
+    }
     ALint state = 0;
     alGetSourcei(_source, AL_SOURCE_STATE, &state);
     if (state == AL_PAUSED || state == AL_INITIAL) {

@@ -195,7 +195,9 @@ public:
 
     /**
      * Let the named layer blend out from where it is, as a finished layer
-     * does, leaving every other channel alone.
+     * does, leaving every other channel alone. The layer is erased once it
+     * has blended out; played again before then, it starts over and blends
+     * back in.
      *
      * @return true if a layer was found
      */

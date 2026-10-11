@@ -324,7 +324,9 @@ void ModelSceneNode::playAnimation(Animation &anim, std::shared_ptr<LipAnimation
 }
 
 // A layer goes on top of the other layers and removes nothing. A layer already
-// running the same animation is moved on top and goes on from where it is.
+// running the same animation is moved on top and goes on from where it is; one
+// that has finished and is blending out starts over and blends back in from
+// its current weight.
 void ModelSceneNode::playLayer(Animation &anim, std::shared_ptr<LipAnimation> lipAnim, AnimationProperties properties) {
     const size_t layers = layerCount();
     for (size_t i = 0; i < layers; ++i) {
@@ -333,6 +335,11 @@ void ModelSceneNode::playLayer(Animation &anim, std::shared_ptr<LipAnimation> li
         }
         AnimationChannel running = std::move(_animChannels[i]);
         _animChannels.erase(_animChannels.begin() + static_cast<std::ptrdiff_t>(i));
+        if (running.finished) {
+            running.time = 0.0f;
+            running.stateByNodeNumber.clear();
+            running.finished = false;
+        }
         running.lipAnim = std::move(lipAnim);
         running.properties = std::move(properties);
         _animChannels.push_front(std::move(running));
@@ -488,11 +495,11 @@ ModelSceneNode::AnimationBlendMode ModelSceneNode::getAnimationBlendMode(int fla
 }
 
 void ModelSceneNode::updateAnimations(float dt) {
-    // Erase finished layers once they have blended out
+    // Erase finished layers once they have blended out, whether they finished
+    // or were faded out: a layer never holds its last pose.
     const auto layersEnd = _animChannels.begin() + static_cast<std::ptrdiff_t>(layerCount());
     auto layersToErase = std::remove_if(_animChannels.begin(), layersEnd, [](auto &channel) {
-        return channel.finished && (channel.properties.flags & AnimationFlags::fireForget) &&
-               (channel.weight <= 0.0f || channel.anim->transitionTime() <= 0.0f);
+        return channel.finished && (channel.weight <= 0.0f || channel.anim->transitionTime() <= 0.0f);
     });
     _animChannels.erase(layersToErase, layersEnd);
     const size_t layers = layerCount();
