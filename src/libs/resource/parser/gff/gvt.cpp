@@ -58,7 +58,7 @@ static bool parseNumbers(const Gff &gff, std::vector<GVT::Number> &result) {
         if (i >= bytes.size()) {
             return false;
         }
-        // The game stores global numbers as signed bytes. Decode explicitly so
+        // Retail stores global numbers as signed bytes. Decode explicitly so
         // the result does not depend on the host compiler's plain-char mode.
         uint8_t raw = static_cast<uint8_t>(bytes[i++]);
         int value = raw <= 0x7f ? static_cast<int>(raw)

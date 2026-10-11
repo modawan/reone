@@ -76,7 +76,7 @@ std::vector<std::string> TwoDAReader::readTokens(int maxCount) {
     std::vector<std::string> tokens;
     StringBuilder str;
     for (auto ch = _reader.readChar();; ch = _reader.readChar()) {
-        // The game ships both delimiters for the same layout. The BIF copies of
+        // Retail ships both delimiters for the same layout. The BIF copies of
         // these tables separate labels with tabs; the copies K1 carries inside
         // global.rim separate them with NULs and are otherwise identical, down
         // to the row count that follows. Only a NUL with nothing accumulated

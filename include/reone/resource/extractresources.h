@@ -29,7 +29,7 @@ namespace resource {
  * container-based Resources: sources are searched newest-first, and
  * clearLocal/clearSave drop only sources mounted with the respective kind.
  *
- * This is a compatibility backend. extract::Installation search
+ * This is a compatibility backend. Native extract::Installation search
  * orders are deliberately not used here; adopting them is a separate,
  * behavior-changing step.
  */
