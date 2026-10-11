@@ -23,7 +23,7 @@ namespace reone {
 
 namespace game {
 
-class Spell;
+struct Spell;
 class Item;
 
 struct ContextAction {
