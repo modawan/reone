@@ -17,13 +17,17 @@
 
 #include "reone/game/effect/damage.h"
 
-#include "reone/system/logutil.h"
-
+#include "reone/game/effect/damageforcepoints.h"
 #include "reone/game/effect/damageimmunitydecrease.h"
 #include "reone/game/effect/damageimmunityincrease.h"
+#include "reone/game/effect/death.h"
+#include "reone/game/effect/heal.h"
+#include "reone/game/effect/healforcepoints.h"
+#include "reone/game/effect/resurrection.h"
 #include "reone/game/game.h"
 #include "reone/game/object.h"
 #include "reone/game/object/creature.h"
+#include "reone/system/logutil.h"
 
 namespace reone {
 
@@ -342,6 +346,26 @@ bool DamageEffect::onApply(
     debug(str(boost::format("Damage taken: %s %d") % object.tag() % amount));
     object.damage(amount, instance.boundCreator());
     return true;
+}
+
+void DeathEffect::applyTo(Object &object) {
+    object.damage(std::numeric_limits<int>::max(), nullptr);
+}
+
+void HealEffect::applyTo(Object &object) {
+    object.heal(_damageToHeal);
+}
+
+void ResurrectionEffect::applyTo(Object &object) {
+    // TODO: implement
+}
+
+void DamageForcePointsEffect::applyTo(Object &object) {
+    // TODO: implement
+}
+
+void HealForcePointsEffect::applyTo(Object &object) {
+    // TODO: implement
 }
 
 } // namespace game

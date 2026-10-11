@@ -184,9 +184,7 @@ void AudioSource::setPosition(glm::vec3 position) {
 }
 
 void AudioSource::setGainScale(float scale) {
-    if (_source) {
-        alSourcef(_source, AL_GAIN, _gain * scale);
-    }
+    alSourcef(_source, AL_GAIN, _gain * scale);
 }
 
 } // namespace audio

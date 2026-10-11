@@ -15,14 +15,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "reone/game/action/barkstring.h"
+#include "reone/game/action/pauseconversation.h"
+#include "reone/game/action/resumeconversation.h"
 #include "reone/game/action/startconversation.h"
-
-#include "reone/system/logutil.h"
-
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/party.h"
 #include "reone/game/savedruntime.h"
+#include "reone/system/logutil.h"
 
 namespace reone {
 
@@ -185,6 +186,22 @@ std::optional<SavedActionRecord> StartConversationAction::saveFacingState() cons
             static_cast<int32_t>(_privateConversation ? 1 : 0)},
     };
     return result;
+}
+
+void PauseConversationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    _game.pauseConversation();
+    complete();
+}
+
+void ResumeConversationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    _game.resumeConversation();
+    complete();
+}
+
+void BarkStringAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    // TODO: implement
+
+    complete();
 }
 
 } // namespace game

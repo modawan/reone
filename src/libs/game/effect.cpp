@@ -19,7 +19,6 @@
 
 #include <stdexcept>
 
-#include "reone/game/game.h"
 #include "reone/game/effect/abilitydecrease.h"
 #include "reone/game/effect/abilityincrease.h"
 #include "reone/game/effect/acdecrease.h"
@@ -36,6 +35,7 @@
 #include "reone/game/effect/damageresistance.h"
 #include "reone/game/effect/immunity.h"
 #include "reone/game/effect/invisibility.h"
+#include "reone/game/effect/linkeffects.h"
 #include "reone/game/effect/savingthrowdecrease.h"
 #include "reone/game/effect/savingthrowincrease.h"
 #include "reone/game/effect/seeinvisible.h"
@@ -43,6 +43,7 @@
 #include "reone/game/effect/skillincrease.h"
 #include "reone/game/effect/trueseeing.h"
 #include "reone/game/effect/ultravision.h"
+#include "reone/game/game.h"
 #include "reone/game/location.h"
 #include "reone/game/object.h"
 #include "reone/game/object/creature.h"
@@ -613,6 +614,20 @@ void EffectInstance::retireAreaRuntimeBindings(
 SavedEffectValue::SavedEffectValue(EffectInstance instance) :
     Effect(instance.type()),
     _instance(std::move(instance)) {
+}
+
+void LinkEffectsEffect::applyTo(Object &object) {
+    // TODO: implement
+}
+
+void LinkEffectsEffect::retireAreaRuntime(
+    const std::set<const Object *> &retainedObjects) {
+    if (_childEffect) {
+        _childEffect->retireAreaRuntime(retainedObjects);
+    }
+    if (_parentEffect) {
+        _parentEffect->retireAreaRuntime(retainedObjects);
+    }
 }
 
 } // namespace game

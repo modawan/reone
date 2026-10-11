@@ -236,6 +236,7 @@ void ListBox::render(const glm::ivec2 &screenSize,
         }
 
         auto toggle = item.on ? std::dynamic_pointer_cast<ToggleButton>(_protoItem) : nullptr;
+        bool originalOn = toggle && toggle->isOn();
         if (toggle) {
             toggle->setOn(*item.on);
         }
@@ -252,7 +253,7 @@ void ListBox::render(const glm::ivec2 &screenSize,
 
         _protoItem->setTextColor(originalTextColor);
         if (toggle) {
-            toggle->setOn(false);
+            toggle->setOn(originalOn);
         }
 
         // Round the accumulated authored stride, not every row separately.

@@ -16,18 +16,24 @@
  */
 
 #include "reone/game/action/docommand.h"
-
+#include "reone/game/action/playanimation.h"
+#include "reone/game/action/surrendertoenemies.h"
+#include "reone/game/action/wait.h"
+#include "reone/game/animationutil.h"
+#include "reone/game/modulesnapshot.h"
+#include "reone/game/object.h"
+#include "reone/game/savedruntime.h"
+#include "reone/game/script/savedsituation.h"
+#include "reone/graphics/animation.h"
+#include "reone/scene/animproperties.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/executionstate.h"
 #include "reone/script/program.h"
 #include "reone/script/virtualmachine.h"
-
-#include "reone/game/modulesnapshot.h"
-#include "reone/game/object.h"
-#include "reone/game/script/savedsituation.h"
 #include "reone/system/exception/validation.h"
 
 using namespace reone::script;
+using namespace reone::scene;
 
 namespace reone {
 
@@ -105,6 +111,96 @@ std::optional<SavedActionRecord> DoCommandAction::saveFacingState() const {
         static_cast<uint32_t>(SavedActionParameterType::ScriptSituation),
         std::move(*situation)}};
     return result;
+}
+
+void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    if (_playing) {
+        _timer.update(dt);
+        if (_timer.elapsed()) {
+            complete();
+        }
+        return;
+    }
+
+    bool looping = _looping.value_or(isAnimationLooping(_animation));
+    if (looping) {
+        // Looping animations never finish. Complete the action immediately to
+        // avoid stalling the action queue.
+        if (_durationSeconds < 0.0f) {
+            complete();
+        } else {
+            _timer.reset(_durationSeconds);
+        }
+    } else {
+        // Set the timer to match duration of the animation.
+        auto node = actor.sceneNode();
+        if (node->type() != SceneNodeType::Model) {
+            complete();
+            return;
+        }
+
+        const graphics::Model &model = std::static_pointer_cast<ModelSceneNode>(node)->model();
+        std::shared_ptr<graphics::Animation> anim = model.getAnimation(actor.getAnimationName(_animation));
+        if (!anim) {
+            complete();
+            return;
+        }
+
+        _timer.reset(anim->length());
+    }
+
+    AnimationProperties properties;
+    properties.speed = _speed;
+    properties.duration = _durationSeconds;
+    actor.playAnimation(_animation, std::move(properties));
+    _playing = true;
+}
+
+std::optional<SavedActionRecord> PlayAnimationAction::saveFacingState() const {
+    SavedActionRecord result = originalSavedAction().value_or(SavedActionRecord {});
+    result.actionId = 6;
+    result.declaredParameterCount = 5;
+    result.parameters = {
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Object),
+            SavedObjectReference::fromRuntimeId(
+                static_cast<uint32_t>(_animation))},
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Float), _speed},
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Float),
+            _playing ? _timer.remaining() : _durationSeconds},
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Integer),
+            static_cast<int32_t>(_playing ? 0 : 1)},
+        SavedActionParameter {
+            static_cast<uint32_t>(SavedActionParameterType::Integer),
+            static_cast<int32_t>(_looping.value_or(isAnimationLooping(_animation)) ? 1 : 0)},
+    };
+    return result;
+}
+
+void WaitAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    _timer.update(dt);
+    if (_timer.elapsed()) {
+        complete();
+    }
+}
+
+std::optional<SavedActionRecord> WaitAction::saveFacingState() const {
+    SavedActionRecord result = originalSavedAction().value_or(SavedActionRecord {});
+    result.actionId = 30;
+    result.declaredParameterCount = 1;
+    result.parameters = {SavedActionParameter {
+        static_cast<uint32_t>(SavedActionParameterType::Float),
+        _timer.remaining()}};
+    return result;
+}
+
+void SurrenderToEnemiesAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    // TODO: implement
+
+    complete();
 }
 
 } // namespace game

@@ -15,9 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/game/action/usetalentonobject.h"
 #include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/usefeat.h"
+#include "reone/game/action/usetalentonobject.h"
 #include "reone/game/game.h"
 
 namespace reone {

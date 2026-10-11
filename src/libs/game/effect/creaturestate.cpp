@@ -15,9 +15,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/game/effect/trueseeing.h"
-
+#include "reone/game/effect/blind.h"
+#include "reone/game/effect/entangle.h"
+#include "reone/game/effect/invisibility.h"
+#include "reone/game/effect/paralyze.h"
 #include "reone/game/effect/seeinvisible.h"
+#include "reone/game/effect/sleep.h"
+#include "reone/game/effect/stunned.h"
+#include "reone/game/effect/trueseeing.h"
 #include "reone/game/effect/ultravision.h"
 #include "reone/game/object/creature.h"
 #include "reone/system/cast.h"
@@ -25,6 +30,58 @@
 namespace reone {
 
 namespace game {
+
+void BlindEffect::applyTo(Object &object) {
+    // TODO: implement
+}
+
+void EntangleEffect::applyTo(Object &object) {
+    // TODO: implement
+}
+
+bool InvisibilityEffect::onApply(
+    Object &object,
+    const EffectInstance &) {
+
+    auto *creature = dyn_cast<Creature>(&object);
+    if (!creature) {
+        return false;
+    }
+    creature->refreshVisibilityPerception();
+    return true;
+}
+
+void InvisibilityEffect::onRemove(
+    Object &object,
+    const EffectInstance &) {
+
+    if (auto *creature = dyn_cast<Creature>(&object)) {
+        creature->refreshVisibilityPerception();
+    }
+}
+
+void ParalyzeEffect::applyTo(Object &object) {
+    // TODO: implement
+}
+
+void SleepEffect::applyTo(Object &object) {
+    // TODO: implement
+}
+
+void StunnedEffect::applyTo(Object &object) {
+    if (auto *creature = dyn_cast<Creature>(&object)) {
+        creature->setMovementType(Creature::MovementType::None);
+    }
+}
+
+void StunnedEffect::onRemove(Object &object, const EffectInstance &) {
+    if (auto *creature = dyn_cast<Creature>(&object)) {
+        if (creature->hasEffect(EffectType::Stunned)) {
+            return;
+        }
+        creature->resumeStateDrivenAnimation();
+    }
+}
 
 namespace {
 

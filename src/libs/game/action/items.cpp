@@ -16,14 +16,31 @@
  */
 
 #include "reone/game/action/equipitem.h"
+#include "reone/game/action/giveitem.h"
+#include "reone/game/action/switchweapons.h"
+#include "reone/game/action/takeitem.h"
+#include "reone/game/action/unequipitem.h"
 #include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
+#include "reone/game/party.h"
 
 namespace reone {
 
 namespace game {
+
+void GiveItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    // TODO: implement
+
+    complete();
+}
+
+void TakeItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    // TODO: implement
+
+    complete();
+}
 
 void EquipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto *creature = dyn_cast<Creature>(&actor);
@@ -105,6 +122,26 @@ void EquipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float
         return;
     }
     creature->playAnimation(CombatAnimation::Draw, creature->getWieldType());
+    complete();
+}
+
+void UnequipItemAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    auto *creature = dyn_cast<Creature>(&actor);
+    if (!creature || !_item->isEquipped() || _item->owner() != actor.id()) {
+        complete();
+        return;
+    }
+    auto receiver = _game.party().sharedInventoryReceiver(
+        _game.getObjectById(actor.id()));
+    if (receiver) {
+        creature->moveEquippedItemTo(_item, *receiver);
+    }
+    complete();
+}
+
+void SwitchWeaponsAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    // TODO: implement
+
     complete();
 }
 

@@ -367,47 +367,22 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/menupresentation.cpp
     ${GAME_SOURCE_DIR}/action.cpp
     ${GAME_SOURCE_DIR}/action/attackobject.cpp
-    ${GAME_SOURCE_DIR}/action/barkstring.cpp
     ${GAME_SOURCE_DIR}/action/castfakespellatlocation.cpp
     ${GAME_SOURCE_DIR}/action/castfakespellatobject.cpp
     ${GAME_SOURCE_DIR}/action/castspellatobject.cpp
-    ${GAME_SOURCE_DIR}/action/closedoor.cpp
+    ${GAME_SOURCE_DIR}/action/commands.cpp
+    ${GAME_SOURCE_DIR}/action/conversation.cpp
     ${GAME_SOURCE_DIR}/action/cutsceneattack.cpp
-    ${GAME_SOURCE_DIR}/action/commonactions.cpp
-    ${GAME_SOURCE_DIR}/action/docommand.cpp
-    ${GAME_SOURCE_DIR}/action/equipitem.cpp
+    ${GAME_SOURCE_DIR}/action/doors.cpp
     ${GAME_SOURCE_DIR}/action/equipmostdamagingmelee.cpp
     ${GAME_SOURCE_DIR}/action/equipmostdamagingranged.cpp
-    ${GAME_SOURCE_DIR}/action/follow.cpp
-    ${GAME_SOURCE_DIR}/action/followleader.cpp
-    ${GAME_SOURCE_DIR}/action/followowner.cpp
-    ${GAME_SOURCE_DIR}/action/giveitem.cpp
     ${GAME_SOURCE_DIR}/action/interactobject.cpp
-    ${GAME_SOURCE_DIR}/action/jumptolocation.cpp
-    ${GAME_SOURCE_DIR}/action/jumptoobject.cpp
-    ${GAME_SOURCE_DIR}/action/lockobject.cpp
-    ${GAME_SOURCE_DIR}/action/moveawayfromobject.cpp
-    ${GAME_SOURCE_DIR}/action/movetolocation.cpp
-    ${GAME_SOURCE_DIR}/action/movetoobject.cpp
-    ${GAME_SOURCE_DIR}/action/movetopoint.cpp
-    ${GAME_SOURCE_DIR}/action/opencontainer.cpp
-    ${GAME_SOURCE_DIR}/action/opendoor.cpp
-    ${GAME_SOURCE_DIR}/action/openlock.cpp
-    ${GAME_SOURCE_DIR}/action/pauseconversation.cpp
-    ${GAME_SOURCE_DIR}/action/playanimation.cpp
-    ${GAME_SOURCE_DIR}/action/randomwalk.cpp
-    ${GAME_SOURCE_DIR}/action/resumeconversation.cpp
-    ${GAME_SOURCE_DIR}/action/startconversation.cpp
-    ${GAME_SOURCE_DIR}/action/surrendertoenemies.cpp
-    ${GAME_SOURCE_DIR}/action/switchweapons.cpp
-    ${GAME_SOURCE_DIR}/action/takeitem.cpp
     ${GAME_SOURCE_DIR}/action.cpp
-    ${GAME_SOURCE_DIR}/action/unequipitem.cpp
-    ${GAME_SOURCE_DIR}/action/unlockobject.cpp
+    ${GAME_SOURCE_DIR}/action/items.cpp
+    ${GAME_SOURCE_DIR}/action/movement.cpp
     ${GAME_SOURCE_DIR}/action/usefeat.cpp
     ${GAME_SOURCE_DIR}/action/useskill.cpp
-    ${GAME_SOURCE_DIR}/action/usetalentonobject.cpp
-    ${GAME_SOURCE_DIR}/action/wait.cpp
+    ${GAME_SOURCE_DIR}/action/usetalent.cpp
     ${GAME_SOURCE_DIR}/animations.cpp
     ${GAME_SOURCE_DIR}/animationutil.cpp
     ${GAME_SOURCE_DIR}/attack.cpp
@@ -424,69 +399,21 @@ set(GAME_SOURCES
     ${GAME_SOURCE_DIR}/debug.cpp
     ${GAME_SOURCE_DIR}/difficultyoptions.cpp
     ${GAME_SOURCE_DIR}/di/module.cpp
-    ${GAME_SOURCE_DIR}/effect/abilitydecrease.cpp
-    ${GAME_SOURCE_DIR}/effect/abilityincrease.cpp
-    ${GAME_SOURCE_DIR}/effect/acdecrease.cpp
-    ${GAME_SOURCE_DIR}/effect/acincrease.cpp
-    ${GAME_SOURCE_DIR}/effect/assuredhit.cpp
-    ${GAME_SOURCE_DIR}/effect/attackdecrease.cpp
-    ${GAME_SOURCE_DIR}/effect/attackincrease.cpp
-    ${GAME_SOURCE_DIR}/effect/beam.cpp
-    ${GAME_SOURCE_DIR}/effect/blasterdeflectionincrease.cpp
-    ${GAME_SOURCE_DIR}/effect/blind.cpp
-    ${GAME_SOURCE_DIR}/effect/bodyfuel.cpp
     ${GAME_SOURCE_DIR}/effect/choke.cpp
+    ${GAME_SOURCE_DIR}/effect/creaturestate.cpp
     ${GAME_SOURCE_DIR}/effect/crush.cpp
     ${GAME_SOURCE_DIR}/effect/cutscenehorrified.cpp
     ${GAME_SOURCE_DIR}/effect/cutsceneparalyze.cpp
     ${GAME_SOURCE_DIR}/effect/cutscenestunned.cpp
     ${GAME_SOURCE_DIR}/effect/damage.cpp
-    ${GAME_SOURCE_DIR}/effect/damagedecrease.cpp
-    ${GAME_SOURCE_DIR}/effect/damageforcepoints.cpp
-    ${GAME_SOURCE_DIR}/effect/damageimmunityincrease.cpp
-    ${GAME_SOURCE_DIR}/effect/damageincrease.cpp
-    ${GAME_SOURCE_DIR}/effect/damageresistance.cpp
-    ${GAME_SOURCE_DIR}/effect/death.cpp
-    ${GAME_SOURCE_DIR}/effect/disguise.cpp
     ${GAME_SOURCE_DIR}/effect/droidscramble.cpp
     ${GAME_SOURCE_DIR}/effect/droidstun.cpp
-    ${GAME_SOURCE_DIR}/effect/entangle.cpp
-    ${GAME_SOURCE_DIR}/effect/factionmodifier.cpp
-    ${GAME_SOURCE_DIR}/effect/forcebody.cpp
-    ${GAME_SOURCE_DIR}/effect/forcefizzle.cpp
-    ${GAME_SOURCE_DIR}/effect/forcepushed.cpp
-    ${GAME_SOURCE_DIR}/effect/forcepushtargeted.cpp
-    ${GAME_SOURCE_DIR}/effect/forceresistanceincrease.cpp
-    ${GAME_SOURCE_DIR}/effect/forceresisted.cpp
-    ${GAME_SOURCE_DIR}/effect/forceshield.cpp
-    ${GAME_SOURCE_DIR}/effect/forcesight.cpp
-    ${GAME_SOURCE_DIR}/effect/fury.cpp
-    ${GAME_SOURCE_DIR}/effect/heal.cpp
-    ${GAME_SOURCE_DIR}/effect/healforcepoints.cpp
+    ${GAME_SOURCE_DIR}/effect/force.cpp
     ${GAME_SOURCE_DIR}/effect/horrified.cpp
-    ${GAME_SOURCE_DIR}/effect/immunity.cpp
-    ${GAME_SOURCE_DIR}/effect/invisibility.cpp
-    ${GAME_SOURCE_DIR}/effect/lightsaberthrow.cpp
-    ${GAME_SOURCE_DIR}/effect/linkeffects.cpp
     ${GAME_SOURCE_DIR}/effect/mindtrick.cpp
-    ${GAME_SOURCE_DIR}/effect/modifyattacks.cpp
-    ${GAME_SOURCE_DIR}/effect/movementspeeddecrease.cpp
-    ${GAME_SOURCE_DIR}/effect/movementspeedincrease.cpp
-    ${GAME_SOURCE_DIR}/effect/paralyze.cpp
+    ${GAME_SOURCE_DIR}/effect/modifiers.cpp
     ${GAME_SOURCE_DIR}/effect/poison.cpp
-    ${GAME_SOURCE_DIR}/effect/psychicstatic.cpp
-    ${GAME_SOURCE_DIR}/effect/regenerate.cpp
-    ${GAME_SOURCE_DIR}/effect/resurrection.cpp
-    ${GAME_SOURCE_DIR}/effect/savingthrowdecrease.cpp
-    ${GAME_SOURCE_DIR}/effect/savingthrowincrease.cpp
-    ${GAME_SOURCE_DIR}/effect/skillincrease.cpp
-    ${GAME_SOURCE_DIR}/effect/sleep.cpp
-    ${GAME_SOURCE_DIR}/effect/stunned.cpp
-    ${GAME_SOURCE_DIR}/effect/temporaryforcepoints.cpp
-    ${GAME_SOURCE_DIR}/effect/temporaryhitpoints.cpp
-    ${GAME_SOURCE_DIR}/effect/trueseeing.cpp
     ${GAME_SOURCE_DIR}/effect/visual.cpp
-    ${GAME_SOURCE_DIR}/effect/vpregenmodifier.cpp
     ${GAME_SOURCE_DIR}/effect/whirlwind.cpp
     ${GAME_SOURCE_DIR}/effect.cpp
     ${GAME_SOURCE_DIR}/effect/source.cpp
