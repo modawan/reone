@@ -59,6 +59,8 @@ public:
     float opacity() const { return _opacity; }
     const glm::vec3 &color() const { return _color; }
     bool heldForDialog() const { return _hold; }
+    /** A requested fade is still moving toward its end. */
+    bool fading() const { return _active && (_elapsed <= _wait || _elapsed - _wait < _length); }
     bool locked() const { return _locked; }
     bool dialogPending() const { return _hasDialog && !_dialog.expired(); }
     bool arrivalPending() const { return static_cast<bool>(_arrival); }

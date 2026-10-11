@@ -33,7 +33,6 @@ namespace game {
 
 static constexpr int kDefaultRepute = 50;
 static constexpr int kMinRepute = 0;
-static constexpr int kMaxRepute = 100;
 
 void Reputes::init() {
     replace(baseState());
@@ -132,7 +131,7 @@ std::optional<IReputes::State> Reputes::parse(const resource::Gff &gff) const {
         values[factionId2][factionId1] = std::clamp(
             static_cast<int64_t>(reputation),
             static_cast<int64_t>(kMinRepute),
-            static_cast<int64_t>(kMaxRepute));
+            static_cast<int64_t>(kMaxReputation));
     }
 
     return State {std::move(factions), std::move(labels), std::move(values)};
@@ -150,7 +149,7 @@ void Reputes::loadBase(
     size_t factionCount,
     std::vector<std::vector<int>> &values) const {
 
-    values.assign(factionCount, std::vector<int>(factionCount, kMaxRepute));
+    values.assign(factionCount, std::vector<int>(factionCount, kMaxReputation));
     size_t baseCount = std::min(factionCount, static_cast<size_t>(repute.getRowCount()));
     std::vector<std::string> baseLabels;
     baseLabels.reserve(baseCount);
@@ -199,7 +198,7 @@ void Reputes::adjustReputation(Faction sourceFaction, Faction targetFaction, int
 
     int64_t adjusted = static_cast<int64_t>(_factionValues[source][target]) + adjustment;
     _factionValues[source][target] = static_cast<int>(
-        std::clamp(adjusted, static_cast<int64_t>(kMinRepute), static_cast<int64_t>(kMaxRepute)));
+        std::clamp(adjusted, static_cast<int64_t>(kMinRepute), static_cast<int64_t>(kMaxReputation)));
 }
 
 bool Reputes::getIsEnemy(const Creature &source, const Creature &target) const {

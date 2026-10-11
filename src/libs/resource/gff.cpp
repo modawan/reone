@@ -56,6 +56,14 @@ bool Gff::readShort(int16_t &val, std::string_view label) const {
     return false;
 }
 
+bool Gff::readShort(int &val, std::string_view label) const {
+    if (const Field *field = get(label)) {
+        val = static_cast<int16_t>(field->intValue);
+        return true;
+    }
+    return false;
+}
+
 bool Gff::readDword(uint32_t &val, std::string_view label) const {
     if (const Field *field = get(label)) {
         val = field->uintValue;

@@ -117,6 +117,14 @@ enum class ArgKind {
     ScriptParam4,
     ScriptParam5,
     ScriptStringParam,
+    SpellTargetObject,
+    LastSpellCaster,
+    LastSpell,
+    LastSpellHarmful,
+    SpellCasterLevel,
+    SpellMetaMagic,
+    SpellForcePointCost,
+    LastDisarmed,
 };
 
 struct Argument {

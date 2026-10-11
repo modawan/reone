@@ -17,11 +17,12 @@
 
 #include "reone/game/difficultyoptions.h"
 
+#include <cassert>
+#include <utility>
+
 #include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 #include "reone/system/exception/validation.h"
-
-#include <utility>
 
 namespace reone {
 
@@ -62,12 +63,7 @@ void DifficultyOptions::init() {
 }
 
 const DifficultyOption &DifficultyOptions::get(int difficulty) const {
-    if (difficulty < 0 || difficulty >= static_cast<int>(_options.size())) {
-        throw ValidationException(
-            "difficultyopt.2da row out of range: " +
-            std::to_string(difficulty) + "/" +
-            std::to_string(_options.size()));
-    }
+    assert(difficulty >= 0 && difficulty < static_cast<int>(_options.size()) && "difficulty option out of range");
     return _options[difficulty];
 }
 

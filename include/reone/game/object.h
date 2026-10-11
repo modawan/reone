@@ -338,9 +338,9 @@ protected:
     bool _plot {false};
     bool _commandable {true};
     bool _interruptable {false};
-    int16_t _hitPoints {0};
-    int16_t _maxHitPoints {0};
-    int16_t _currentHitPoints {0};
+    int _hitPoints {0};
+    int _maxHitPoints {0};
+    int _currentHitPoints {0};
     glm::vec3 _position {0.0f};
     glm::quat _orientation {1.0f, 0.0f, 0.0f, 0.0f};
     std::vector<std::shared_ptr<Item>> _items; // FIXME: deserialize

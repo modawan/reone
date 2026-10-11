@@ -219,24 +219,33 @@ void Feats::init() {
     }
 
     for (int row = 0; row < feats->getRowCount(); ++row) {
-        std::string name(_strings.getText(feats->getInt(row, "name", -1)));
+        // A row without a name is not a feat.
+        const auto nameStrRef = feats->getIntOpt(row, "name");
+        if (!nameStrRef) {
+            continue;
+        }
+        std::string name(_strings.getText(*nameStrRef));
         std::string description(_strings.getText(feats->getInt(row, "description", -1)));
         std::shared_ptr<Texture> icon(_textures.get(feats->getString(row, "icon"), TextureUsage::GUI));
+        int category = feats->getInt(row, "category");
         uint32_t minCharLevel = feats->getInt(row, "mincharlevel");
         auto preReqFeat1 = static_cast<FeatType>(feats->getInt(row, "prereqfeat1"));
         auto preReqFeat2 = static_cast<FeatType>(feats->getInt(row, "prereqfeat2"));
         auto successor = static_cast<FeatType>(feats->getInt(row, "successor"));
         uint32_t pips = feats->getInt(row, "pips");
+        std::optional<int> spellId = feats->getIntOpt(row, "spellid");
 
         auto feat = std::make_shared<Feat>();
         feat->name = std::move(name);
         feat->description = std::move(description);
         feat->icon = std::move(icon);
+        feat->category = category;
         feat->minCharLevel = minCharLevel;
         feat->preReqFeat1 = preReqFeat1;
         feat->preReqFeat2 = preReqFeat2;
         feat->successor = successor;
         feat->pips = pips;
+        feat->spellId = spellId;
         _feats.insert(std::make_pair(static_cast<FeatType>(row), std::move(feat)));
     }
 }

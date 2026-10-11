@@ -47,6 +47,9 @@ public:
         std::vector<std::vector<int>> values;
     };
 
+    /** The friendliest reputation a faction can have toward another. */
+    static constexpr int kMaxReputation = 100;
+
     virtual ~IReputes() = default;
 
     virtual State baseState() const = 0;

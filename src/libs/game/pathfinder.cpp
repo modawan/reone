@@ -232,6 +232,31 @@ void uniwalkFinalize(struct Uniwalk &uni) {
         }
     }
 
+    // Faces joined through shared edges form one region; a path exists
+    // between two faces exactly when they share a region.
+    uni.regions.resize(uni.faces.size());
+    for (uint32_t i = 0; i < uni.faces.size(); ++i) {
+        uni.regions[i] = i;
+    }
+    auto root = [&uni](uint32_t face) {
+        while (uni.regions[face] != face) {
+            uni.regions[face] = uni.regions[uni.regions[face]];
+            face = uni.regions[face];
+        }
+        return face;
+    };
+    for (uint32_t i = 0; i < uni.faces.size(); ++i) {
+        for (uint32_t adj : uni.faces[i].adjecent) {
+            if (adj == UINT32_MAX) {
+                continue;
+            }
+            uni.regions[root(adj)] = root(i);
+        }
+    }
+    for (uint32_t i = 0; i < uni.faces.size(); ++i) {
+        uni.regions[i] = root(i);
+    }
+
     drawDebugUniwalk(uni);
 }
 
@@ -611,6 +636,15 @@ static bool findPath(AStarPath &path, AStarContext &astar, const Uniwalk &uni,
     path.active = true;
     path.nextPoint = funnelPath(path, uni, from);
     return true;
+}
+
+bool pathExists(const Pathfinder &pf, const glm::vec3 &from, const glm::vec3 &to) {
+    const uint32_t fromFace = findFaceAt(pf.uni, from);
+    const uint32_t toFace = findFaceAt(pf.uni, to);
+    if (fromFace == UINT32_MAX || toFace == UINT32_MAX) {
+        return false;
+    }
+    return pf.uni.regions[fromFace] == pf.uni.regions[toFace];
 }
 
 std::optional<Path> createPath(Pathfinder &pf, const glm::vec3 &from, const glm::vec3 &to) {

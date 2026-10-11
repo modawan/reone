@@ -44,6 +44,7 @@ class ISurfaces;
 class IProjectiles;
 class IAnimations;
 class IVisualEffects;
+class ICombatTables;
 
 struct GameServices {
     ICameraStyles &cameraStyles;
@@ -60,6 +61,7 @@ struct GameServices {
     IProjectiles &projectiles;
     IAnimations &animations;
     IVisualEffects &visualEffects;
+    ICombatTables &combatTables;
 
     GameServices(
         ICameraStyles &cameraStyles,
@@ -75,7 +77,8 @@ struct GameServices {
         ISurfaces &surfaces,
         IProjectiles &projectiles,
         IAnimations &animations,
-        IVisualEffects &visualEffects) :
+        IVisualEffects &visualEffects,
+        ICombatTables &combatTables) :
         cameraStyles(cameraStyles),
         classes(classes),
         difficultyOptions(difficultyOptions),
@@ -89,7 +92,8 @@ struct GameServices {
         surfaces(surfaces),
         projectiles(projectiles),
         animations(animations),
-        visualEffects(visualEffects) {
+        visualEffects(visualEffects),
+        combatTables(combatTables) {
     }
 };
 

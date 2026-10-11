@@ -44,11 +44,29 @@ void validateTwoDARow(
     const std::string &resRef,
     int row) {
 
-    if (row < 0 || row >= table.getRowCount()) {
+    validateTwoDARowIndex(resRef, row, table.getRowCount());
+}
+
+void validateTwoDARowIndex(
+    const std::string &resRef,
+    int row,
+    int rowCount) {
+
+    if (row < 0 || row >= rowCount) {
         throw ValidationException(str(boost::format(
-            "%s.2da row out of range: %d/%d") %
-            resRef % row % table.getRowCount()));
+                                          "%s.2da row out of range: %d/%d") %
+                                      resRef % row % rowCount));
     }
+}
+
+int readRacialAbilityAdjustment(
+    const TwoDA &table, int row, Ability ability) {
+    // By Ability.
+    static constexpr const char *kColumns[] = {
+        "stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"};
+    validateTwoDARow(table, "racialtypes", row);
+    // A blank adjustment is zero.
+    return table.getInt(row, kColumns[static_cast<int>(ability)], 0);
 }
 
 } // namespace game
