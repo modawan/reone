@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "reone/graphics/framebuffer.h"
 #include "reone/graphics/renderbuffer.h"
 #include "reone/graphics/texture.h"
@@ -57,6 +59,35 @@ enum class RendererType {
     PBR
 };
 
+/**
+ * A treatment of the whole finished frame: scan noise added from a noise
+ * texture, then desaturation toward luminance with a per-channel modulation.
+ * Force Sight also changes how the scene itself is drawn. The clairvoyance and
+ * fury overlays each lay their texture over a distorted low-resolution copy of
+ * the frame.
+ */
+struct VideoEffect {
+    std::shared_ptr<graphics::Texture> scanNoise;
+    bool saturation {false};
+    glm::vec3 modulation {1.0f};
+    float saturationAmount {1.0f};
+    bool forceSight {false};
+    std::shared_ptr<graphics::Texture> distortion;
+    std::shared_ptr<graphics::Texture> clairvoyance;
+    std::shared_ptr<graphics::Texture> fury;
+};
+
+/** The treatments laid over the whole finished frame. */
+struct FrameEffects {
+    /**
+     * The speed blur: each frame is blended with a 128x128 history of the
+     * earlier output, weighted by speedBlurRatio.
+     */
+    bool speedBlur {false};
+    float speedBlurRatio {0.75f};
+    std::optional<VideoEffect> videoEffect;
+};
+
 class IRenderPipeline {
 public:
     virtual ~IRenderPipeline() = default;
@@ -66,7 +97,8 @@ public:
     virtual void reset() = 0;
     virtual void inRenderPass(RenderPassName name, std::function<void(IRenderPass &)> block) = 0;
 
-    virtual graphics::Texture &render() = 0;
+    /** Renders the frame and lays \p effects over it. */
+    virtual graphics::Texture &render(const FrameEffects &effects) = 0;
 };
 
 class IRenderPipelineFactory {
@@ -111,6 +143,10 @@ protected:
     RenderPassName _passName {RenderPassName::None};
     std::map<RenderPassName, RenderPassCallback> _passCallbacks;
 
+    bool _previousFrameWasSpeed {false};
+    std::shared_ptr<graphics::Texture> _speedBlurHistoryColor;
+    std::unique_ptr<graphics::Framebuffer> _speedBlurHistory;
+
     RenderPipelineBase(glm::ivec2 targetSize,
                        graphics::GraphicsOptions &options,
                        graphics::Context &context,
@@ -134,6 +170,23 @@ protected:
     void applyMedianFilter(graphics::Texture &tex, graphics::Framebuffer &dst, const glm::ivec2 &size, bool strong = false);
     void applyFXAA(graphics::Texture &tex, graphics::Framebuffer &dst, const glm::ivec2 &size);
     void applySharpen(graphics::Texture &tex, graphics::Framebuffer &dst, const glm::ivec2 &size, float amount);
+    /**
+     * When \p effects has the speed blur, blends \p output with the history
+     * if the previous frame was blurred too, using \p scratch, then shrinks
+     * \p output into the history.
+     */
+    void applySpeedBlur(const FrameEffects &effects, graphics::Framebuffer &output, graphics::Texture &outputColor, graphics::Framebuffer &scratch);
+    /** The 128x128 copy of earlier output the speed blur and the overlays read. */
+    void initSpeedBlurHistory();
+    /** Lays \p overlay over \p output, showing the history distorted by \p distortion through it. */
+    void drawDistortionOverlay(graphics::Texture &distortion, graphics::Texture &overlay, graphics::Framebuffer &output, graphics::Texture &outputColor, graphics::Framebuffer &scratch);
+    /** Lays the video effect of \p effects, if any, over \p output through \p scratch. */
+    void applyVideoEffect(const FrameEffects &effects, graphics::Framebuffer &output, graphics::Texture &outputColor, graphics::Framebuffer &scratch);
+    /**
+     * Lays the clairvoyance and then the fury overlay of the video effect of
+     * \p effects, if any, over \p output through \p scratch.
+     */
+    void applyDistortionOverlays(const FrameEffects &effects, graphics::Framebuffer &output, graphics::Texture &outputColor, graphics::Framebuffer &scratch);
 };
 
 class RenderPipelineFactory : public IRenderPipelineFactory, boost::noncopyable {

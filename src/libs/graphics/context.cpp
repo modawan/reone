@@ -305,6 +305,18 @@ void Context::withScissorTest(const glm::ivec4 &bounds, const std::function<void
     glDisable(GL_SCISSOR_TEST);
 }
 
+void Context::withScissorTestNoClear(
+    const glm::ivec4 &bounds,
+    const std::function<void()> &block) {
+
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(bounds[0], bounds[1], bounds[2], bounds[3]);
+
+    block();
+
+    glDisable(GL_SCISSOR_TEST);
+}
+
 void Context::withDepthTestMode(DepthTestMode mode, const std::function<void()> &block) {
     if (_depthTestModes.top() == mode) {
         block();

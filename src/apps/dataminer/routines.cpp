@@ -183,10 +183,10 @@ static std::string evaluateConstant(const std::string &constStr, const std::map<
     }
 }
 
-static void writeReoneRoutineGetArgExpr(int idx,
-                                        const FunctionArgument &arg,
-                                        const std::map<std::string, Constant> &constants,
-                                        TextWriter &code) {
+static void writeRoutineArgumentReadExpression(int idx,
+                                               const FunctionArgument &arg,
+                                               const std::map<std::string, Constant> &constants,
+                                               TextWriter &code) {
     if (!arg.defVal.empty()) {
         auto evaluated = evaluateConstant(arg.defVal, constants);
         if (arg.type == "int") {
@@ -237,25 +237,25 @@ static void writeReoneRoutineGetArgExpr(int idx,
     }
 }
 
-static void writeReoneRoutineInitArgExpr(int idx,
-                                         const FunctionArgument &arg,
-                                         const std::map<std::string, Constant> &constants,
-                                         TextWriter &code) {
+static void writeRoutineArgumentInitialization(int idx,
+                                               const FunctionArgument &arg,
+                                               const std::map<std::string, Constant> &constants,
+                                               TextWriter &code) {
     code.write(kIndent + "auto " + arg.name + " = ");
-    writeReoneRoutineGetArgExpr(idx, arg, constants, code);
+    writeRoutineArgumentReadExpression(idx, arg, constants, code);
     code.write(";\n");
 }
 
-static void writeReoneRoutineImpl(const Function &func,
-                                  const std::map<std::string, Constant> &constants,
-                                  TextWriter &code) {
+static void writeRoutineImplementation(const Function &func,
+                                       const std::map<std::string, Constant> &constants,
+                                       TextWriter &code) {
     code.write(str(boost::format("static Variable %s(const std::vector<Variable> &args, const RoutineContext &ctx) {\n") % func.name));
     if (!func.args.empty()) {
         code.write(kIndent + "// Load\n");
     }
     for (size_t i = 0; i < func.args.size(); ++i) {
         auto &arg = func.args[i];
-        writeReoneRoutineInitArgExpr(i, arg, constants, code);
+        writeRoutineArgumentInitialization(i, arg, constants, code);
     }
     if (!func.args.empty()) {
         code.write("\n");
@@ -295,10 +295,10 @@ static std::string nssTypeToMacro(const std::string &type) {
     throw NotImplementedException(type);
 }
 
-static void writeReoneRegisterRoutinesFunc(const std::string &category,
-                                           const std::string &game,
-                                           const std::vector<std::tuple<int, Function>> &functions,
-                                           TextWriter &code) {
+static void writeRoutineRegistrationFunction(const std::string &category,
+                                             const std::string &game,
+                                             const std::vector<std::tuple<int, Function>> &functions,
+                                             TextWriter &code) {
     code.write(str(boost::format("void Routines::register%s%sRoutines() {\n") % category % game));
     for (auto &[idx, func] : functions) {
         auto retType = nssTypeToMacro(func.retType);
@@ -312,11 +312,11 @@ static void writeReoneRegisterRoutinesFunc(const std::string &category,
     code.write("}\n\n");
 }
 
-static void writeReoneRoutineImplFile(const std::string &category,
-                                      const std::map<std::string, Constant> &constants,
-                                      const std::vector<std::tuple<int, Function>> &k1functions,
-                                      const std::vector<std::tuple<int, Function>> &k2functions,
-                                      const std::filesystem::path &path) {
+static void writeRoutineImplementationFile(const std::string &category,
+                                           const std::map<std::string, Constant> &constants,
+                                           const std::vector<std::tuple<int, Function>> &k1functions,
+                                           const std::vector<std::tuple<int, Function>> &k2functions,
+                                           const std::filesystem::path &path) {
     auto stream = FileOutputStream(path);
     auto code = TextWriter(stream);
     code.write(kCopyrightNotice + "\n\n");
@@ -343,10 +343,10 @@ static void writeReoneRoutineImplFile(const std::string &category,
     code.write("namespace reone {\n\n");
     code.write("namespace game {\n\n");
     for (auto &[_, func] : k2functions) {
-        writeReoneRoutineImpl(func, constants, code);
+        writeRoutineImplementation(func, constants, code);
     }
-    writeReoneRegisterRoutinesFunc(category, "Kotor", k1functions, code);
-    writeReoneRegisterRoutinesFunc(category, "Tsl", k2functions, code);
+    writeRoutineRegistrationFunction(category, "Kotor", k1functions, code);
+    writeRoutineRegistrationFunction(category, "Tsl", k2functions, code);
     code.write("} // namespace game\n\n");
     code.write("} // namespace reone\n\n");
 }
@@ -414,19 +414,19 @@ void generateRoutines(const std::filesystem::path &k1Dir,
 
     auto mainCppPath = destDir;
     mainCppPath.append("main.cpp");
-    writeReoneRoutineImplFile("Main", k2constants, k1mainFunctions, k2mainFunctions, mainCppPath);
+    writeRoutineImplementationFile("Main", k2constants, k1mainFunctions, k2mainFunctions, mainCppPath);
 
     auto actionCppPath = destDir;
     actionCppPath.append("action.cpp");
-    writeReoneRoutineImplFile("Action", k2constants, k1actionFunctions, k2actionFunctions, actionCppPath);
+    writeRoutineImplementationFile("Action", k2constants, k1actionFunctions, k2actionFunctions, actionCppPath);
 
     auto effectCppPath = destDir;
     effectCppPath.append("effect.cpp");
-    writeReoneRoutineImplFile("Effect", k2constants, k1effectFunctions, k2effectFunctions, effectCppPath);
+    writeRoutineImplementationFile("Effect", k2constants, k1effectFunctions, k2effectFunctions, effectCppPath);
 
     auto minigameCppPath = destDir;
     minigameCppPath.append("minigame.cpp");
-    writeReoneRoutineImplFile("Minigame", k2constants, k1minigameFunctions, k2minigameFunctions, minigameCppPath);
+    writeRoutineImplementationFile("Minigame", k2constants, k1minigameFunctions, k2minigameFunctions, minigameCppPath);
 }
 
 } // namespace reone

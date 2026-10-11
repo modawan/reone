@@ -75,6 +75,10 @@ void SceneGraph::clear() {
     _modelRoots.clear();
     _walkmeshRoots.clear();
     _triggerRoots.clear();
+    // A sound leaves the scene silent.
+    for (auto &root : _soundRoots) {
+        root->stopSound();
+    }
     _soundRoots.clear();
     _grassRoots.clear();
     _activeLights.clear();
@@ -140,6 +144,7 @@ void SceneGraph::removeRoot(GrassSceneNode &node) {
 }
 
 void SceneGraph::removeRoot(SoundSceneNode &node) {
+    node.stopSound();
     auto it = std::remove_if(
         _soundRoots.begin(),
         _soundRoots.end(),
@@ -147,7 +152,10 @@ void SceneGraph::removeRoot(SoundSceneNode &node) {
     _soundRoots.erase(it, _soundRoots.end());
 }
 
+static constexpr float kForceSightPulsePeriod = 2.048f;
+
 void SceneGraph::update(float dt) {
+    _forceSightPhase = std::fmod(_forceSightPhase + dt, kForceSightPulsePeriod);
     if (_updateRoots) {
         for (auto &root : _modelRoots) {
             root->update(dt);
@@ -170,6 +178,11 @@ void SceneGraph::update(float dt) {
     updateSounds();
     prepareOpaqueLeafs();
     prepareTransparentLeafs();
+}
+
+// The glow pulses between half and full strength.
+float SceneGraph::forceSightPulse() const {
+    return 0.75f + 0.25f * std::sin(glm::two_pi<float>() * _forceSightPhase / kForceSightPulsePeriod);
 }
 
 void SceneGraph::cullRoots() {
@@ -272,7 +285,6 @@ void SceneGraph::updateSounds() {
 
     // For each sound, calculate its distance to the camera
     for (auto &root : _soundRoots) {
-        root->setAudible(false);
         if (!root->isEnabled()) {
             continue;
         }
@@ -300,15 +312,20 @@ void SceneGraph::updateSounds() {
         distances.erase(distances.begin() + kMaxSoundCount, distances.end());
     }
 
-    // Mark closest sounds as audible
-    for (auto &pair : distances) {
-        pair.first->setAudible(true);
+    // A sound is audible exactly when it is among the closest, so one that
+    // stays audible keeps playing.
+    for (auto &root : _soundRoots) {
+        bool audible = std::any_of(distances.begin(), distances.end(), [&root](auto &pair) {
+            return pair.first == root.get();
+        });
+        root->setAudible(audible);
     }
 }
 
 void SceneGraph::refresh() {
     _opaqueMeshes.clear();
     _transparentMeshes.clear();
+    _shellMeshes.clear();
     _shadowMeshes.clear();
     _lights.clear();
     _emitters.clear();
@@ -340,13 +357,17 @@ void SceneGraph::refreshFromNode(SceneNode &node) {
     case SceneNodeType::Mesh: {
         // For model nodes, determine whether they should be rendered and cast shadows
         auto &modelNode = static_cast<MeshSceneNode &>(node);
-        if (modelNode.shouldRender()) {
+        bool shouldRender = modelNode.shouldRender();
+        if (shouldRender) {
             // Sort model nodes into transparent and opaque
             if (modelNode.isTransparent()) {
                 _transparentMeshes.push_back(&modelNode);
             } else {
                 _opaqueMeshes.push_back(&modelNode);
             }
+        }
+        if (shouldRender && modelNode.model().hasBumpedOutShell()) {
+            _shellMeshes.push_back(&modelNode);
         }
         if (modelNode.shouldCastShadows()) {
             _shadowMeshes.push_back(&modelNode);
@@ -463,6 +484,9 @@ void SceneGraph::prepareTransparentLeafs() {
     }
 }
 
+static const glm::vec3 kForceSightFogLuminance {0.30f, 0.59f, 0.11f};
+static constexpr float kForceSightFogGrey = 0.65f;
+
 Texture &SceneGraph::render(const glm::ivec2 &dim) {
     if (!_renderPipeline) {
         auto rendererType = _graphicsOpt.pbr ? RendererType::PBR : RendererType::Retro;
@@ -504,10 +528,15 @@ Texture &SceneGraph::render(const glm::ivec2 &dim) {
                 globals.shadowStrength = shadowStrength();
                 globals.shadowRadius = shadowRadius();
             }
+            globals.forceSight = isForceSightEnabled() ? 1 : 0;
             if (isFogEnabled()) {
                 globals.fogNear = fogNear();
                 globals.fogFar = fogFar();
-                globals.fogColor = glm::vec4(fogColor(), 1.0f);
+                // Under Force Sight the fog turns to the darkened grey of its
+                // colour.
+                globals.fogColor = isForceSightEnabled()
+                                       ? glm::vec4(glm::vec3(glm::dot(fogColor(), kForceSightFogLuminance) * kForceSightFogGrey), 1.0f)
+                                       : glm::vec4(fogColor(), 1.0f);
             }
         });
         auto halfDim = dim / 2;
@@ -547,7 +576,7 @@ Texture &SceneGraph::render(const glm::ivec2 &dim) {
         });
     }
 
-    return pipeline.render();
+    return pipeline.render(_frameEffects);
 }
 
 void SceneGraph::renderShadows(IRenderPass &pass) {
@@ -613,6 +642,10 @@ void SceneGraph::renderTransparent(IRenderPass &pass) {
     // Draw transparent leafs (incl. meshes)
     for (auto &[node, leafs] : _transparentLeafs) {
         node->renderLeafs(pass, leafs);
+    }
+    for (auto &mesh : _shellMeshes) {
+        auto &model = mesh->model();
+        mesh->renderBumpedOutShell(pass, *model.bumpedOutShellTexture(), model.bumpedOutShellOffset());
     }
 }
 
@@ -867,6 +900,8 @@ bool SceneGraph::testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const 
     glm::vec3 dir(glm::normalize(originToDest));
     float maxDistance = glm::length(originToDest);
     float minDistance = std::numeric_limits<float>::max();
+    // The whole segment is tested, however long it is.
+    float reach = std::max(kMaxCollisionDistanceWalk, maxDistance);
 
     for (auto &root : _walkmeshRoots) {
         if (!root->isEnabled() || root->user() == excludeUser) {
@@ -874,13 +909,13 @@ bool SceneGraph::testWalk(const glm::vec3 &origin, const glm::vec3 &dest, const 
         }
         if (!root->walkmesh().isAreaWalkmesh()) {
             float distance2 = root->getSquareDistanceTo(origin);
-            if (distance2 > kMaxCollisionDistanceWalk2) {
+            if (distance2 > reach * reach) {
                 continue;
             }
         }
         glm::vec3 objSpaceOrigin(root->absoluteTransformInverse() * glm::vec4(origin, 1.0f));
         glm::vec3 objSpaceDir(root->absoluteTransformInverse() * glm::vec4(dir, 0.0f));
-        auto raycast = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, objSpaceDir, kMaxCollisionDistanceWalk, /*ignoreBackface=*/false);
+        auto raycast = root->walkmesh().raycast(_walkcheckSurfaces, objSpaceOrigin, objSpaceDir, reach, /*ignoreBackface=*/false);
         if (raycast.fail || raycast.distance > maxDistance || raycast.distance > minDistance) {
             continue;
         }

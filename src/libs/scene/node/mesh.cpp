@@ -192,7 +192,10 @@ void MeshSceneNode::updateSaberAnimation(float dt) {
 
 bool MeshSceneNode::shouldRender() const {
     auto mesh = _modelNode.mesh();
-    if (!mesh || !mesh->render || _alpha == 0.0f) {
+    if (_projectedBeam) {
+        return mesh && mesh->beaming && _projectedBeam->target;
+    }
+    if (!mesh || !mesh->render || _alpha * _model.fadeAlpha() == 0.0f) {
         return false;
     }
     // Renderability depends on the diffuse texture effectively bound to this node,
@@ -202,8 +205,15 @@ bool MeshSceneNode::shouldRender() const {
 }
 
 bool MeshSceneNode::shouldCastShadows() const {
+    if (_projectedBeam) {
+        return false;
+    }
     std::shared_ptr<ModelNode::TriangleMesh> mesh(_modelNode.mesh());
     if (!mesh) {
+        return false;
+    }
+    // A model faded out completely casts no shadow.
+    if (_model.fadeAlpha() == 0.0f) {
         return false;
     }
     if (_model.usage() == ModelUsage::Creature) {
@@ -216,6 +226,14 @@ bool MeshSceneNode::shouldCastShadows() const {
 }
 
 bool MeshSceneNode::isTransparent() const {
+    if (_projectedBeam) {
+        return true;
+    }
+    // Under Force Sight, glowing and see-through models are blended over the
+    // scene.
+    if (_sceneGraph.isForceSightEnabled() && _model.forceSightStyle() != ModelSceneNode::ForceSightStyle::Grey) {
+        return true;
+    }
     if (!_nodeTextures.diffuse) {
         return false;
     }
@@ -228,7 +246,7 @@ bool MeshSceneNode::isTransparent() const {
     default:
         break;
     }
-    if (_alpha < 1.0f) {
+    if (_alpha * _model.fadeAlpha() < 1.0f) {
         return true;
     }
     if (_nodeTextures.envmap || _nodeTextures.bumpmap) {
@@ -248,7 +266,142 @@ static bool isReceivingShadows(const ModelSceneNode &model, const MeshSceneNode 
     return model.usage() == ModelUsage::Room;
 }
 
+static constexpr float kProjectedBeamDepth = 20.0f;
+static constexpr glm::vec4 kProjectedBeamColor {0.0f, 0.0f, 0.0f, 0.2f};
+static constexpr uint16_t kNoAdjacentFace = 0xffff;
+
+void MeshSceneNode::setProjectedBeamTarget(const SceneNode &target) {
+    if (!_projectedBeam) {
+        _projectedBeam = std::make_unique<ProjectedBeam>();
+    }
+    _projectedBeam->target = target;
+}
+
+void MeshSceneNode::clearProjectedBeamTarget() {
+    _projectedBeam->target.reset();
+}
+
+// The beam is the shadow volume of the mesh's silhouette as seen from the
+// target: each silhouette edge is extruded away from the target, closed by a
+// fan from the node's origin at the near end and a point beyond the target at
+// the far end.
+void MeshSceneNode::renderProjectedBeam(IRenderPass &pass) {
+    auto &beam = *_projectedBeam;
+    const auto &sourceMesh = *_modelNode.mesh()->mesh;
+    const auto &sourceFaces = sourceMesh.faces();
+    bool deformed = _modelNode.isSkinMesh();
+    glm::vec3 targetLocal {_absTransformInv * glm::vec4 {beam.target->get().origin(), 1.0f}};
+
+    beam.sourceVertices.clear();
+    if (deformed) {
+        auto bones = buildSkinBoneTransforms();
+        for (const auto &vertex : sourceMesh.vertices()) {
+            glm::vec3 position {0.0f};
+            for (int i = 0; i < 4; ++i) {
+                int boneIndex = std::max(0, (*vertex.boneIndices)[i]);
+                position += glm::vec3 {bones[boneIndex] * glm::vec4 {vertex.position, 1.0f}} * (*vertex.boneWeights)[i];
+            }
+            beam.sourceVertices.push_back(position);
+        }
+    } else {
+        for (const auto &vertex : sourceMesh.vertices()) {
+            beam.sourceVertices.push_back(vertex.position);
+        }
+    }
+    const auto &sourceVertices = beam.sourceVertices;
+
+    beam.faceSides.clear();
+    for (const auto &face : sourceFaces) {
+        glm::vec3 normal = face.normal;
+        glm::vec3 centroid = face.centroid;
+        if (deformed) {
+            const glm::vec3 &a = sourceVertices[face.vertices[0]];
+            const glm::vec3 &b = sourceVertices[face.vertices[1]];
+            const glm::vec3 &c = sourceVertices[face.vertices[2]];
+            normal = glm::normalize(glm::cross(b - a, c - a));
+            centroid = (a + b + c) / 3.0f;
+        }
+        beam.faceSides.push_back(glm::dot(normal, targetLocal - centroid));
+    }
+
+    beam.edges.clear();
+    beam.usedVertices.assign(sourceVertices.size(), false);
+    for (size_t faceIndex = 0; faceIndex < sourceFaces.size(); ++faceIndex) {
+        if (beam.faceSides[faceIndex] < 0.0f) {
+            continue;
+        }
+        const auto &face = sourceFaces[faceIndex];
+        for (size_t edgeIndex = 0; edgeIndex < face.vertices.size(); ++edgeIndex) {
+            uint16_t adjacent = face.adjacentFaces[edgeIndex];
+            if (adjacent != kNoAdjacentFace && beam.faceSides[faceIndex] * beam.faceSides[adjacent] > 0.0f) {
+                continue;
+            }
+            uint16_t from = face.vertices[edgeIndex];
+            uint16_t to = face.vertices[(edgeIndex + 1) % face.vertices.size()];
+            beam.edges.emplace_back(from, to);
+            beam.usedVertices[from] = true;
+            beam.usedVertices[to] = true;
+        }
+    }
+
+    beam.vertices.clear();
+    beam.nearBySource.assign(sourceVertices.size(), 0);
+    for (size_t i = 0; i < sourceVertices.size(); ++i) {
+        if (!beam.usedVertices[i]) {
+            continue;
+        }
+        glm::vec3 direction {glm::normalize(sourceVertices[i] - targetLocal)};
+        beam.nearBySource[i] = static_cast<uint16_t>(beam.vertices.size());
+        beam.vertices.push_back(Mesh::VertexBuilder().position(sourceVertices[i]).build());
+        beam.vertices.push_back(Mesh::VertexBuilder().position(targetLocal + kProjectedBeamDepth * direction).build());
+    }
+    auto cap = static_cast<uint16_t>(beam.vertices.size());
+    beam.vertices.push_back(Mesh::VertexBuilder().position(glm::vec3 {0.0f}).build());
+    auto sink = static_cast<uint16_t>(beam.vertices.size());
+    beam.vertices.push_back(Mesh::VertexBuilder().position(targetLocal - kProjectedBeamDepth * glm::normalize(targetLocal)).build());
+
+    // Each edge is a strip of four triangles, consecutive edges wound in turn.
+    beam.faces.clear();
+    for (size_t edgeIndex = 0; edgeIndex < beam.edges.size(); ++edgeIndex) {
+        const auto &[from, to] = beam.edges[edgeIndex];
+        uint16_t nearFrom = beam.nearBySource[from];
+        uint16_t nearTo = beam.nearBySource[to];
+        auto farFrom = static_cast<uint16_t>(nearFrom + 1);
+        auto farTo = static_cast<uint16_t>(nearTo + 1);
+        std::array<uint16_t, 6> strip;
+        if (edgeIndex % 2 == 0) {
+            strip = {cap, nearFrom, nearTo, farFrom, farTo, sink};
+        } else {
+            strip = {sink, farTo, farFrom, nearTo, nearFrom, cap};
+        }
+        for (size_t i = 0; i < 4; ++i) {
+            if (i % 2 == 0) {
+                beam.faces.emplace_back(std::array<uint16_t, 3> {strip[i], strip[i + 1], strip[i + 2]});
+            } else {
+                beam.faces.emplace_back(std::array<uint16_t, 3> {strip[i + 1], strip[i], strip[i + 2]});
+            }
+        }
+    }
+
+    if (!beam.mesh) {
+        Mesh::VertexLayout layout;
+        layout.stride = 3 * sizeof(float);
+        layout.offPosition = 0;
+        beam.mesh = std::make_unique<Mesh>(beam.vertices, std::move(layout), beam.faces);
+        beam.mesh->init();
+    } else {
+        beam.mesh->update(beam.vertices, beam.faces);
+    }
+
+    pass.drawProjectedBeam(*beam.mesh, _absTransform, _absTransformInv, kProjectedBeamColor);
+}
+
 void MeshSceneNode::render(IRenderPass &pass) {
+    if (_projectedBeam) {
+        renderProjectedBeam(pass);
+        return;
+    }
+
     auto mesh = _modelNode.mesh();
     if (!mesh || !_nodeTextures.diffuse) {
         return;
@@ -280,10 +433,14 @@ void MeshSceneNode::render(IRenderPass &pass) {
         glm::vec4(1.0f, 0.0f, 0.0f, 0.0f),
         glm::vec4(0.0f, 1.0f, 0.0f, 0.0f),
         glm::vec4(_uvOffset.x, _uvOffset.y, 0.0f, 0.0f));
-    material.color = glm::vec4(1.0f, 1.0f, 1.0f, _alpha);
+    material.color = glm::vec4(1.0f, 1.0f, 1.0f, _alpha * _model.fadeAlpha());
     material.ambientColor = mesh->ambient;
     material.diffuseColor = mesh->diffuse;
     material.selfIllumColor = _selfIllumColor;
+    if (const auto &hilite = _model.hiliteColor()) {
+        material.diffuseColor *= *hilite;
+        material.selfIllumColor += *hilite;
+    }
     material.staticObject = _static;
     if (_sceneGraph.hasShadowLight() && isReceivingShadows(_model, *this)) {
         material.affectedByShadows = true;
@@ -292,26 +449,51 @@ void MeshSceneNode::render(IRenderPass &pass) {
         material.affectedByFog = true;
     }
     material.faceCulling = _nodeTextures.diffuse->features().decal ? FaceCullMode::None : FaceCullMode::Back;
+    applyForceSight(material);
+    drawWithMaterial(pass, material);
+}
+
+// Force Sight: a glowing model shows its glow colour, its alpha pulsing; a
+// see-through model is drawn grey at three quarters.
+static constexpr float kForceSightTranslucentAlpha = 0.75f;
+
+void MeshSceneNode::applyForceSight(Material &material) const {
+    if (!_sceneGraph.isForceSightEnabled()) {
+        return;
+    }
+    switch (_model.forceSightStyle()) {
+    case ModelSceneNode::ForceSightStyle::Glow: {
+        const glm::vec4 &glow = _model.forceGlowColor();
+        material.forceGlow = true;
+        material.forceSightColor = glm::vec4(glm::vec3(glow), glow.a * _sceneGraph.forceSightPulse());
+        break;
+    }
+    case ModelSceneNode::ForceSightStyle::Translucent:
+        material.forceSightColor = glm::vec4(0.0f, 0.0f, 0.0f, kForceSightTranslucentAlpha);
+        break;
+    default:
+        break;
+    }
+}
+
+void MeshSceneNode::renderBumpedOutShell(IRenderPass &pass, Texture &texture, float offset) {
+    Material material;
+    material.type = MaterialType::TransparentModel;
+    material.textures.insert({TextureUnits::mainTex, texture});
+    material.color = glm::vec4(1.0f);
+    material.ambientColor = glm::vec3(1.0f);
+    material.diffuseColor = glm::vec3(1.0f);
+    material.selfIllumColor = glm::vec3(1.0f);
+    material.shellOffset = offset;
+    material.faceCulling = texture.features().decal ? FaceCullMode::None : FaceCullMode::Back;
+    applyForceSight(material);
+    drawWithMaterial(pass, material);
+}
+
+void MeshSceneNode::drawWithMaterial(IRenderPass &pass, Material &material) {
+    auto mesh = _modelNode.mesh();
     if (_modelNode.isSkinMesh()) {
-        const auto &skin = *mesh->skin;
-        auto bones = std::vector<glm::mat4>(kMaxBones, glm::mat4(1.0f));
-        for (size_t i = 0; i < kMaxBones; ++i) {
-            if (i >= skin.boneNodeNumber.size()) {
-                break;
-            }
-            auto nodeNumber = skin.boneNodeNumber[i];
-            if (nodeNumber == 0xffff) {
-                continue;
-            }
-            auto bone = _model.getNodeByNumber(nodeNumber);
-            if (!bone) {
-                continue;
-            }
-            bones[i] = _modelNode.absoluteTransformInverse(); // convert bone transform in model space to bone transform in this model node space
-            bones[i] *= _model.absoluteTransformInverse();    // convert bone transform in world space to bone transform in model space
-            bones[i] *= bone->absoluteTransform();
-            bones[i] *= skin.boneMatrices[skin.boneSerial[i]]; // extract changes to the bone transform in this model node space
-        }
+        auto bones = buildSkinBoneTransforms();
         pass.drawSkinned(*mesh->mesh, material, _absTransform, _absTransformInv, std::move(bones));
     } else if (_modelNode.isDanglymesh()) {
         std::vector<glm::vec4> positions;
@@ -335,6 +517,29 @@ void MeshSceneNode::render(IRenderPass &pass) {
     }
 }
 
+std::vector<glm::mat4> MeshSceneNode::buildSkinBoneTransforms() const {
+    const auto &skin = *_modelNode.mesh()->skin;
+    auto bones = std::vector<glm::mat4>(kMaxBones, glm::mat4(1.0f));
+    for (size_t i = 0; i < kMaxBones; ++i) {
+        if (i >= skin.boneNodeNumber.size()) {
+            break;
+        }
+        uint16_t nodeNumber = skin.boneNodeNumber[i];
+        if (nodeNumber == 0xffff) {
+            continue;
+        }
+        auto bone = _model.getNodeByNumber(nodeNumber);
+        if (!bone) {
+            continue;
+        }
+        bones[i] = _modelNode.absoluteTransformInverse(); // convert bone transform in model space to bone transform in this model node space
+        bones[i] *= _model.absoluteTransformInverse();    // convert bone transform in world space to bone transform in model space
+        bones[i] *= bone->absoluteTransform();
+        bones[i] *= skin.boneMatrices[skin.boneSerial[i]]; // extract changes to the bone transform in this model node space
+    }
+    return bones;
+}
+
 void MeshSceneNode::renderShadow(IRenderPass &pass) {
     std::shared_ptr<ModelNode::TriangleMesh> mesh(_modelNode.mesh());
     if (!mesh) {
@@ -344,7 +549,7 @@ void MeshSceneNode::renderShadow(IRenderPass &pass) {
     material.type = _sceneGraph.isShadowLightDirectional()
                         ? MaterialType::DirLightShadow
                         : MaterialType::PointLightShadow;
-    material.color = glm::vec4(1.0f, 1.0f, 1.0f, _alpha);
+    material.color = glm::vec4(1.0f, 1.0f, 1.0f, _alpha * _model.fadeAlpha());
     pass.draw(*mesh->mesh, material, _absTransform, _absTransformInv);
 }
 

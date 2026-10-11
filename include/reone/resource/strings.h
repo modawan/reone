@@ -31,6 +31,7 @@ class IStrings {
 public:
     virtual ~IStrings() = default;
 
+    /** The talk-table text as written, its tokens and {...} notes included. */
     virtual std::string getText(int strRef) = 0;
     virtual std::string getSound(int strRef) = 0;
 };
@@ -53,9 +54,6 @@ private:
     std::array<std::shared_ptr<TalkTable>, kTalkTableSlotCount> _tables;
 
     const TalkTable::String *findString(int strRef) const;
-
-    void process(std::string &str);
-    void stripDeveloperNotes(std::string &str);
 };
 
 class LocString {

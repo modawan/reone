@@ -50,13 +50,19 @@ bool SoundSceneNode::isSoundPlaying() const {
     return _source && _source->isPlaying();
 }
 
+void SoundSceneNode::stopSound() {
+    if (_source) {
+        _source->stop();
+        _source.reset();
+    }
+}
+
 void SoundSceneNode::setAudible(bool audible) {
     if (_audible == audible) {
         return;
     }
-    if (!audible && _source) {
-        _source->stop();
-        _source.reset();
+    if (!audible) {
+        stopSound();
     }
     _audible = audible;
 }

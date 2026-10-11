@@ -23,8 +23,58 @@ namespace reone {
 
 namespace gui {
 
+void ToggleButton::load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem) {
+    Button::load(gui, protoItem);
+    if (protoItem) {
+        // A list prototype keeps its on frames for rows that carry a state;
+        // it starts off, since every row shares it.
+        auto &proto = static_cast<const resource::generated::GUI_CONTROLS_PROTOITEM &>(gui);
+        auto authored = [](const resource::generated::GUI_BORDER &border) {
+            return !border.FILL.empty() || !border.EDGE.empty() || !border.CORNER.empty();
+        };
+        if (authored(proto.SELECTED)) {
+            _onBorder = createBorder(proto.SELECTED);
+        }
+        if (authored(proto.HILIGHTSELECTED)) {
+            _onHilight = createBorder(proto.HILIGHTSELECTED);
+        }
+    } else {
+        auto &controlStruct = static_cast<const resource::generated::GUI_CONTROLS &>(gui);
+        if (controlStruct.SELECTED) {
+            _onBorder = createBorder(*controlStruct.SELECTED);
+        }
+        if (controlStruct.HILIGHTSELECTED) {
+            _onHilight = createBorder(*controlStruct.HILIGHTSELECTED);
+        }
+        _on = controlStruct.ISSELECTED != 0;
+    }
+    scaleOnFrames();
+}
+
+void ToggleButton::setPresentationScale(float frameLayoutScale, float textLayoutScale) {
+    Button::setPresentationScale(frameLayoutScale, textLayoutScale);
+    scaleOnFrames();
+}
+
+void ToggleButton::scaleOnFrames() {
+    if (_onBorder && _border) {
+        _onBorder->dimension = _border->dimension;
+    }
+    if (_onHilight && _hilight) {
+        _onHilight->dimension = _hilight->dimension;
+    }
+}
+
+const std::shared_ptr<Control::Border> &ToggleButton::shownBorder() const {
+    return _on && _onBorder ? _onBorder : _border;
+}
+
+const std::shared_ptr<Control::Border> &ToggleButton::shownHilight() const {
+    return _on && _onHilight ? _onHilight : _hilight;
+}
+
 const glm::vec3 &ToggleButton::getBorderColor() const {
-    return _on ? _onColor : Button::getBorderColor();
+    return _on && _onColor ? *_onColor : Button::getBorderColor();
 }
 
 void ToggleButton::toggle() {

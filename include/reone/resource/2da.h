@@ -80,7 +80,7 @@ public:
     }
 
     /**
-     * Find a row by its label, folding ASCII case as the original lookup does.
+     * Find a row by its label, folding ASCII case.
      * Distinct from a cell lookup: a table may be keyed by label alone, and a
      * label is not a column.
      *

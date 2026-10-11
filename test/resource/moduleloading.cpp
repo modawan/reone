@@ -1177,8 +1177,7 @@ TEST(OdysseyResourceRoots, resource_module_refreshes_only_a_derived_nwm_root) {
 }
 
 TEST(ResourceDirectorActivation, places_both_games_in_the_raw_lookup_order) {
-    // Both games are activated. K1's own startup and module registration are
-    // now evidenced, so neither game keeps the insertion-ordered stack.
+    // Both titles use source buckets rather than an insertion-ordered lookup stack.
     EXPECT_TRUE(usesBucketedLookup(GameID::TSL));
     EXPECT_TRUE(usesBucketedLookup(GameID::KotOR));
 }

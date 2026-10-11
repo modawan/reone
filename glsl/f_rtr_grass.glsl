@@ -2,6 +2,7 @@
 #include "u_grass.glsl"
 #include "u_locals.glsl"
 
+#include "i_forcesight.glsl"
 #include "i_hash.glsl"
 #include "i_hashedalpha.glsl"
 
@@ -29,6 +30,9 @@ void main() {
     if (isFeatureEnabled(FEATURE_LIGHTMAP)) {
         vec4 lightmapSample = texture(sLightmap, uGrassClusters[fragInstanceID].lightmapUV);
         color *= lightmapSample.rgb;
+    }
+    if (uForceSight != 0) {
+        color = forceSightGrey(color);
     }
     fragColor = vec4(color, 1.0);
     fragHilights = vec4(0.0);

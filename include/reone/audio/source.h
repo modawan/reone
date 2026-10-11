@@ -42,8 +42,16 @@ public:
 
     void play();
     void stop();
+    /** Pauses a playing source; resume() continues it. */
+    void pause();
+    /** Continues a paused source, or starts one that was created paused. */
+    void resume();
+    /** Counts the source as playing without starting it; resume() starts it. */
+    void startPaused();
 
     void setPosition(glm::vec3 position);
+    /** Scales the gain the source was created with; used to fade it out. */
+    void setGainScale(float scale);
 
     bool isPlaying() const { return _playing; }
 

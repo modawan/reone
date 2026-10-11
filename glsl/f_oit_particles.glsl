@@ -2,6 +2,7 @@
 #include "u_locals.glsl"
 #include "u_particles.glsl"
 
+#include "i_forcesight.glsl"
 #include "i_luma.glsl"
 #include "i_oit.glsl"
 
@@ -35,6 +36,9 @@ void main() {
         mainTexColor *= 1.0 / max(0.0001, mainTexAlpha);
     }
     vec3 objectColor = uParticles[fragInstanceID].color.rgb * mainTexColor;
+    if (uForceSight != 0) {
+        objectColor = forceSightGrey(objectColor);
+    }
     float objectAlpha = uParticles[fragInstanceID].color.a * mainTexAlpha;
     if (objectAlpha == 0.0) {
         discard;

@@ -46,7 +46,7 @@ void ErfReader::checkSignature() {
         throw ValidationException("Invalid binary resource size");
     }
     _signature = _erf.readString(8);
-    // One container family with three type tags. The engine's opener probes an
+    // One container family with three type tags. Opening a container probes an
     // exact basename across NWM, MOD, SAV, ERF and HAK and validates only the
     // four-character type, because everything after it is the same layout. HAK
     // is accepted here for that reason and no other: it carries no module

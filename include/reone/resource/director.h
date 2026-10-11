@@ -105,7 +105,7 @@ private:
 };
 
 /**
- * Whether a game's Odyssey sources are placed in the raw lookup order.
+ * Whether a game's data sources are placed in the raw lookup order.
  *
  * A source list is homogeneous, so anything mounting into the game's resource
  * list has to agree with the director about this. K2 is activated; K1 keeps the
@@ -263,13 +263,11 @@ private:
     void loadGlobalResources();
     void loadAuxiliaryResources();
     void loadStreamResources();
-    void loadK1StreamResources();
     void loadRimsDirectory();
     void loadGlobalRimResource();
     void loadOverrideTexturesResource();
     void loadTexturePackResources();
     void loadPlayerSupportResource();
-    void loadK1GlobalResources();
     void loadLiveResources();
     std::unique_ptr<SaveSessionState> buildSaveSession(std::string_view name);
     std::unique_ptr<SaveSessionState> buildSaveSession(const SaveSlotDescriptor &slot);

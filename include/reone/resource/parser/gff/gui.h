@@ -98,6 +98,9 @@ struct GUI_CONTROLS : public GUI_BASECONTROL {
     glm::vec3 COLOR {0.0f};
     int CURVALUE {0};
     std::optional<GUI_BORDER> HILIGHT;
+    std::optional<GUI_BORDER> HILIGHTSELECTED;
+    uint8_t ISSELECTED {0};
+    std::optional<GUI_BORDER> SELECTED;
     int ID {0};
     uint8_t LEFTSCROLLBAR {0};
     uint8_t LOOPING {0};

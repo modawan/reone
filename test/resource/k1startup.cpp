@@ -689,9 +689,8 @@ INSTANTIATE_TEST_SUITE_P(Backends,
 namespace {
 
 /**
- * A minimal binary 2DA holding one column and one row, with a chosen label
- * separator. Retail ships both: the BIF copies of these tables use tabs and the
- * copies inside K1's global.rim use NULs, and are otherwise the same layout.
+ * A minimal one-column, one-row 2DA with a selected label separator.
+ * Tab and NUL separators share the same remaining layout.
  */
 std::string twoDaBytes(const std::string &value, char separator) {
     std::string b("2DA V2.b\n");
@@ -730,7 +729,7 @@ TEST_P(K1StartupTest, the_global_image_supplies_the_two_da_that_the_key_table_al
     // The key table carries the ordinary tab-delimited copy...
     reone::test::writeKeyBif(game.path, "data/sample.bif",
                              {{"probe", ResType::TwoDA, twoDaBytes("keybif", '\t')}});
-    // ...and the global image carries the NUL-delimited one, as retail does.
+    // The global image carries the NUL-delimited copy.
     writeRim(game.mkdir("rims") / "global.rim",
              {{"probe", ResType::TwoDA, twoDaBytes("globalrim", '\0')}});
 

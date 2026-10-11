@@ -28,7 +28,7 @@ static constexpr char kCellValueDeleted[] = "****";
 /**
  * ASCII case folding.
  *
- * Table keys are ASCII, and the original lookup folds case. A locale-aware
+ * Table keys are ASCII, and the game's lookup folds case. A locale-aware
  * conversion is deliberately avoided: it would make which row a table resolves
  * to depend on the environment the game happens to run in.
  */

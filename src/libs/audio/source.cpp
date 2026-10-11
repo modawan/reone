@@ -145,6 +145,22 @@ void AudioSource::play() {
     _playing = true;
 }
 
+void AudioSource::pause() {
+    alSourcePause(_source);
+}
+
+// Only a playing source resumes: one that was stopped, or ended, stays so
+// until the mixer drops it.
+void AudioSource::resume() {
+    if (_playing) {
+        alSourcePlay(_source);
+    }
+}
+
+void AudioSource::startPaused() {
+    _playing = true;
+}
+
 void AudioSource::stop() {
     _playing = false;
     if (!_source) {
@@ -165,6 +181,12 @@ void AudioSource::setPosition(glm::vec3 position) {
         alSource3f(_source, AL_POSITION, position.x, position.y, position.z);
     }
     _position = std::move(position);
+}
+
+void AudioSource::setGainScale(float scale) {
+    if (_source) {
+        alSourcef(_source, AL_GAIN, _gain * scale);
+    }
 }
 
 } // namespace audio

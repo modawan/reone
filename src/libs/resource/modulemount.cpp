@@ -200,7 +200,7 @@ bool ModuleMountExecutor::runActiveState(const ModuleLoadPlan &plan, ModuleMount
         return false;
     }
 
-    // A successfully mounted saved archive is the original CURRENTGAME
+    // A successfully mounted saved archive is the game's CURRENTGAME
     // recovery route, including when it was already the selected primary.
     for (const auto &outcome : report.outcomes) {
         if (outcome.mounted &&

@@ -77,6 +77,7 @@ public:
 
     MOCK_METHOD(void, withViewport, (glm::ivec4, const std::function<void()> &), (override));
     MOCK_METHOD(void, withScissorTest, (const glm::ivec4 &, const std::function<void()> &), (override));
+    MOCK_METHOD(void, withScissorTestNoClear, (const glm::ivec4 &, const std::function<void()> &), (override));
     MOCK_METHOD(void, withDepthTestMode, (DepthTestMode, const std::function<void()> &), (override));
     MOCK_METHOD(void, withDepthMask, (bool, const std::function<void()> &), (override));
     MOCK_METHOD(void, withPolygonMode, (PolygonMode, const std::function<void()> &), (override));

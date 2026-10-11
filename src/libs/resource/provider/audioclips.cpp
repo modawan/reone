@@ -32,11 +32,10 @@ namespace resource {
 std::optional<Resource> AudioClips::findClipData(const std::string &resRef, ResType type) {
     auto id = ResourceId(resRef, type);
     // The streaming directories answer for a streamed asset before the ordinary
-    // sources do. The traced engine reaches them by path rather than through
-    // raw lookup, so the streaming location is authoritative for what it holds,
-    // and retail relies on it: a K2 installation ships hundreds of voice lines
-    // in both StreamVoice and the key tables, and the streamed copy is the one
-    // that must play.
+    // sources do. They are resolved by path rather than through raw lookup, so
+    // the streaming location is authoritative for what it holds: a K2
+    // installation ships hundreds of voice lines in both StreamVoice and the
+    // key tables, and the streamed copy is the one that must play.
     //
     // This is the streaming subsystem's own rule, not a bucket. It does mean an
     // ordinary source cannot shadow a streamed asset of the same name, which

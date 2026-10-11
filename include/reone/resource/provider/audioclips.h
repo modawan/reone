@@ -45,9 +45,9 @@ public:
  * Audio clips, read from the streamed audio directories first and from
  * ordinary resources second.
  *
- * The streaming directories are not part of the Odyssey raw lookup order, so
+ * The streaming directories are not part of the game's raw lookup order, so
  * they are held separately and consulted explicitly rather than being given a
- * bucket they have no evidence for. Format preference is unchanged: MP3 is
+ * raw-resource bucket. Format preference is unchanged: MP3 is
  * still preferred over WAV across both, not within each.
  */
 class AudioClips : public IAudioClips {

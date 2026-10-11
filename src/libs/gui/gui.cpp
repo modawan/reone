@@ -81,7 +81,7 @@ void GUI::load(const Gff &gui) {
 }
 
 float GUI::scaledFactor() const {
-    // KVP's retail draw-stream scaler uses the limiting axis: content is as
+    // KVP's draw-stream scaler uses the limiting axis: content is as
     // large as possible without cropping or changing its authored aspect.
     //
     // Background artwork is a separate cover layer drawn by renderBackground,
@@ -119,8 +119,7 @@ void GUI::positionRelativeToCenter(Control &control) {
     // Anchored controls - HUD icons, portraits, the minimap - scale like
     // everything else, uniformly and aspect-preserved, while keeping their
     // authored screen-edge attachment: the inset from the anchored edge
-    // scales with the same factor as the control itself. Before this they
-    // kept their native 800x600-era pixel sizes on any screen.
+    // scales with the same factor as the control itself.
     float s = scaledFactor();
     Control::Extent extent(control.authoredExtent());
     bool anchorRight = extent.left >= 0.5f * _resolutionX;

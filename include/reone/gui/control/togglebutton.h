@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "button.h"
 
 namespace reone {
@@ -38,17 +40,37 @@ public:
             resourceSvc) {
     }
 
+    /**
+     * Loads the button and the frames it shows while on: the SELECTED and
+     * HILIGHTSELECTED borders.
+     */
+    void load(const resource::generated::GUI_BASECONTROL &gui, bool protoItem = false) override;
+
+    using Button::setPresentationScale;
+    void setPresentationScale(float frameLayoutScale, float textLayoutScale) override;
+
     const glm::vec3 &getBorderColor() const override;
 
     void toggle();
+    /** Turns the button on or off. */
+    void setOn(bool on) { _on = on; }
 
     bool isOn() const { return _on; }
 
     void setOnColor(const glm::vec3 &color);
 
+protected:
+    const std::shared_ptr<Border> &shownBorder() const override;
+    const std::shared_ptr<Border> &shownHilight() const override;
+
 private:
     bool _on {false};
-    glm::vec3 _onColor {1.0f};
+    std::optional<glm::vec3> _onColor;
+    std::shared_ptr<Border> _onBorder;  /**< drawn while on, in place of the border */
+    std::shared_ptr<Border> _onHilight; /**< drawn while on, in place of the hilight */
+
+    /** Gives the on frames the presentation scale of the frames they replace. */
+    void scaleOnFrames();
 };
 
 } // namespace gui

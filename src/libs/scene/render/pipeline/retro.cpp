@@ -166,7 +166,7 @@ void RetroRenderPipeline::initRenderTargets() {
     _targets.output->init();
 }
 
-Texture &RetroRenderPipeline::render() {
+Texture &RetroRenderPipeline::render(const FrameEffects &effects) {
     auto pass = RetroRenderPass {_options,
                                  _context,
                                  _shaderRegistry,
@@ -192,7 +192,7 @@ Texture &RetroRenderPipeline::render() {
     }
 
     glm::ivec4 screenRect {0, 0, _targetSize};
-    _context.withViewport(screenRect, [this, &pass, &dirLightShadows, &pointLightShadows, &screenRect]() {
+    _context.withViewport(screenRect, [this, &pass, &dirLightShadows, &pointLightShadows, &screenRect, &effects]() {
         // Render opaque geometry
         _context.bindDrawFramebuffer(*_targets.opaque, {0, 1});
         _context.clearColorDepth();
@@ -278,6 +278,9 @@ Texture &RetroRenderPipeline::render() {
         if (_passCallbacks.count(RenderPassName::PostProcessing) > 0) {
             _passCallbacks.at(RenderPassName::PostProcessing)(pass);
         }
+        applySpeedBlur(effects, *_targets.output, *_targets.outputColor, *_targets.ping);
+        applyDistortionOverlays(effects, *_targets.output, *_targets.outputColor, *_targets.ping);
+        applyVideoEffect(effects, *_targets.output, *_targets.outputColor, *_targets.ping);
 
         // Draw debug elements (lines, points, etc.)
         _context.bindDrawFramebuffer(*_targets.output, {0});

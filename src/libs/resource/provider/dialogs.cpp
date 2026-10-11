@@ -102,6 +102,7 @@ Dialog::EntryReply Dialogs::getEntryReply(const resource::generated::DLG_EntryRe
     entry.cameraAngle = dlg.CameraAngle;
     entry.cameraAnimation = dlg.CameraAnimation;
     entry.camFieldOfView = dlg.CamFieldOfView;
+    entry.camVidEffect = dlg.CamVidEffect;
 
     boost::to_lower(entry.speaker);
     boost::to_lower(entry.listener);

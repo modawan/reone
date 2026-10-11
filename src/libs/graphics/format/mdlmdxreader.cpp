@@ -482,6 +482,7 @@ std::shared_ptr<ModelNode::TriangleMesh> MdlMdxReader::readMesh(int flags) {
     nodeMesh->danglymesh = std::move(danglymesh);
     nodeMesh->aabbTree = std::move(aabbTree);
     nodeMesh->saber = flags & MdlNodeFlags::saber;
+    nodeMesh->beaming = static_cast<bool>(beaming);
 
     return nodeMesh;
 }

@@ -69,9 +69,9 @@ using SelectionRank = std::tuple<int, std::uint32_t, std::uint32_t, std::uint32_
 /**
  * Rank of an eligible candidate. Lower wins.
  *
- * Within a numbered package the engine probes one package at a time and stops
+ * Within a numbered package the lookup probes one package at a time and stops
  * at the first hit, so package order outranks archive type. Within the ordinary
- * module location the engine exposes every root at once and tests MOD across
+ * module location every root is exposed at once and MOD is tested across
  * all of them before RIM, so archive type outranks root order there. Root order
  * is then consumed in selection-priority order, which runs opposite to the
  * configured order used when mounting, and the base location is the fallback.
@@ -94,11 +94,8 @@ SelectionRank selectionRank(int cls, const ModuleSourceCandidate &candidate, std
 }
 
 /**
- * Candidates of one family, in configured root order, base location last.
- *
- * Configured module roots are a K2 concept. K1 enumerates no such roots for
- * any family, so it never sees them here either; letting them through would
- * plan a mount K1 cannot reach, and would contradict the selection rules.
+ * Collect candidates in configured-root order, followed by the base location.
+ * Configured roots apply only to TSL; KotOR candidates use base locations.
  */
 std::vector<const ModuleSourceCandidate *> rootsThenBase(
     const std::vector<ModuleSourceCandidate> &inventory,
@@ -178,7 +175,7 @@ private:
 std::optional<ModuleSourceMetadata> mountMetadata(ModuleArchiveFamily family) {
     switch (family) {
     // Module archives, saved module state and the dialogue archive are all
-    // encapsulated class 2. Class 1 is evidence-backed and belongs to the
+    // encapsulated class 2. Class 1 is supported and belongs to the
     // global patch archive and package texture archives, none of which is a
     // module source, so no module family may claim it.
     case ModuleArchiveFamily::PrimaryMod:

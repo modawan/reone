@@ -164,8 +164,8 @@ void EmitterSceneNode::spawnParticles(float dt) {
 
 ParticleSceneNode *EmitterSceneNode::doSpawnParticle() {
     // kMaxParticles is the size of one GPU uniform batch, not an emitter
-    // population limit. Retail allocates another particle when its dead list is
-    // empty; SceneGraph likewise owns every particle allocated here and later
+    // population limit. The game allocates another particle when its dead list
+    // is empty; SceneGraph likewise owns every particle allocated here and later
     // splits a large emitter into kMaxParticles-sized draw batches.
     if (_particlePool.empty()) {
         _particlePool.push_back(_sceneGraph.newParticle(*this).get());

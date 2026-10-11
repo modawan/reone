@@ -2719,7 +2719,7 @@ void Game::beginRuntimeObjectGraphReplacement(
     if (_stagedRuntimeObjectGraph) {
         throw ValidationException("Nested runtime object graph replacement");
     }
-    _stagedRuntimeObjectGraph.emplace();
+    _stagedRuntimeObjectGraph.emplace(StagedRuntimeObjectGraph {});
     _stagedRuntimeObjectGraph->initialNextObjectId = _nextObjectId;
 
     _stagedRuntimeObjectGraph->obsoleteGraph =

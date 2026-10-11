@@ -42,8 +42,8 @@ using ResourceContainerList = ResourceSourceList<ResourceContainerPair>;
 /**
  * Facade over the sources game data is read from.
  *
- * Every mount takes an optional bucket. Passing none keeps the source in the
- * insertion order the engine has always used, which is what all current
+ * Every mount takes an optional bucket. Passing none keeps the source in
+ * insertion order, which is what all current
  * callers do; passing one places the source in the raw lookup order instead.
  * Which sources belong in which bucket is a decision for the callers, not for
  * this layer.

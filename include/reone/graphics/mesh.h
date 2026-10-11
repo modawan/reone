@@ -247,6 +247,12 @@ public:
     void init();
     void deinit();
 
+    /**
+     * Replaces the vertices and faces of an initialized mesh whose shape
+     * changes while it is drawn, and uploads them into its buffers.
+     */
+    void update(const std::vector<Vertex> &vertices, const std::vector<Face> &faces);
+
     void draw(IStatistic &statistic);
     void drawInstanced(int count, IStatistic &statistic);
 
@@ -256,6 +262,7 @@ public:
     std::optional<glm::vec2> tryFaceUV2(const Face &face, const glm::vec3 &baryPosition) const;
 
     int vertexCount() const { return _vertices.size(); }
+    const std::vector<Vertex> &vertices() const { return _vertices; }
     const std::vector<Face> &faces() const { return _faces; }
     const AABB &aabb() const { return _aabb; }
 

@@ -46,7 +46,7 @@ public:
 
     void init() override;
 
-    graphics::Texture &render() override;
+    graphics::Texture &render(const FrameEffects &effects) override;
 
 private:
     struct RenderTargets {

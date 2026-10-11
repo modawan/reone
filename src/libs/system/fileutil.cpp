@@ -40,8 +40,8 @@ static bool splitRelativePath(std::string_view relPath, std::vector<std::string>
  *  - An exact match wins. On the case-insensitive filesystems the games shipped
  *    for this is the only reachable outcome, so it is never ambiguous.
  *  - A unique case-folded match resolves to its real path. This is what the
- *    helper exists for: retail data ships under whatever casing the original
- *    installer used.
+ *    helper exists for: data may ship with casing that differs from the
+ *    requested resource name.
  *  - Several case-folded matches with no exact match is a genuine ambiguity.
  *    The requested name designates more than one filesystem entity and nothing
  *    at this layer can know which was meant.

@@ -207,6 +207,15 @@ public:
     }
 
     /**
+     * Destroy all elements without changing capacity. Unlike resize(), this
+     * does not require T to be default-constructible.
+     */
+    void clear() {
+        destroyRange(begin(), end());
+        _size = 0;
+    }
+
+    /**
      * Resize the vector. When \p newSize is greater than size(), new elements
      * are initialized by a default constructor. When \p newSize is less that
      * size(), exceeding elements at the end of the vector are destroyed.

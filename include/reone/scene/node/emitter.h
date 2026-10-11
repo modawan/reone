@@ -51,6 +51,12 @@ public:
 
     void renderLeafs(IRenderPass &pass, const std::vector<SceneNode *> &leafs) override;
 
+    /** An animation keys the birth rate of an emitter. */
+    void setBirthrate(float birthrate) {
+        _birthrate = birthrate;
+        _birthInterval = birthrate != 0.0f ? 1.0f / birthrate : 0.0f;
+    }
+
     void detonate();
     void rearmSingle();
 

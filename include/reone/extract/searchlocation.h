@@ -21,7 +21,7 @@ namespace reone {
 
 namespace extract {
 
-/// Mirrors PyKotor SearchLocation (installation.py) plus reone-only Executable.
+/// Mirrors PyKotor SearchLocation (installation.py), plus Executable.
 enum class SearchLocation {
     Override = 0,
     Modules = 1,

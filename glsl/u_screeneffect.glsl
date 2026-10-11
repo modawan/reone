@@ -16,4 +16,11 @@ layout(std140) uniform ScreenEffect {
     float uSSRPixelStride;
     float uSSRMaxSteps;
     float uSharpenAmount;
+    float uSpeedBlurRatio;
+    float uVideoModulationR;
+    float uVideoModulationG;
+    float uVideoModulationB;
+    float uVideoSaturation;
+    float uVideoSaturationEnabled;
+    float uVideoScanNoiseEnabled;
 };

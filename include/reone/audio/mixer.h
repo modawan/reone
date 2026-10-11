@@ -34,6 +34,11 @@ public:
     virtual void render() = 0;
     virtual void stop(AudioType type) = 0;
     virtual void stopAll() = 0;
+    /**
+     * Pauses or resumes every source except movie audio. Sources started while
+     * paused are held and begin when resumed.
+     */
+    virtual void setGameSoundsPaused(bool paused) = 0;
 
     virtual std::shared_ptr<AudioSource> play(
         std::shared_ptr<AudioClip> clip,
@@ -52,6 +57,7 @@ public:
     void render() override;
     void stop(AudioType type) override;
     void stopAll() override;
+    void setGameSoundsPaused(bool paused) override;
 
     std::shared_ptr<AudioSource> play(
         std::shared_ptr<AudioClip> clip,
@@ -69,6 +75,7 @@ private:
     AudioOptions &_options;
 
     std::vector<ActiveSource> _sources;
+    bool _gameSoundsPaused {false};
 
     float gainByType(AudioType type, float gain) const;
 };

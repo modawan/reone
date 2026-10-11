@@ -16,12 +16,10 @@
  */
 
 /**
- * Characterization tests for resource lookup precedence and scoping.
+ * Characterization cases for resource lookup precedence and scoping.
  *
- * These tests pin down the behavior of the current container-based resource
- * stack (Resources + ResourceDirector), so that a future lookup implementation
- * can be verified against the same contract. They describe what the engine
- * does today, which is not necessarily what the original game does.
+ * Pin the current container-based Resources and ResourceDirector behavior so replacement
+ * backends can be compared against the same contract.
  */
 
 #include <gmock/gmock.h>

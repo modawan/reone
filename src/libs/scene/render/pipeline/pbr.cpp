@@ -286,7 +286,7 @@ void PBRRenderPipeline::initSSAOSamples() {
     });
 }
 
-Texture &PBRRenderPipeline::render() {
+Texture &PBRRenderPipeline::render(const FrameEffects &effects) {
     auto pass = PBRRenderPass {_options,
                                _context,
                                _shaderRegistry,
@@ -297,7 +297,7 @@ Texture &PBRRenderPipeline::render() {
                                _uniforms};
 
     glm::ivec4 screenRect {0, 0, _targetSize.x, _targetSize.y};
-    _context.withViewport(screenRect, [this, &pass, &screenRect]() {
+    _context.withViewport(screenRect, [this, &pass, &screenRect, &effects]() {
         // Shadows pass
         if (_passCallbacks.count(RenderPassName::DirLightShadowsPass) > 0) {
             beginDirLightShadowsPass();
@@ -394,6 +394,9 @@ Texture &PBRRenderPipeline::render() {
                 *_targets.fbOutput,
                 screenRect, screenRect);
         }
+        applySpeedBlur(effects, *_targets.fbOutput, *_targets.cbOutput, *_targets.fbPing);
+        applyDistortionOverlays(effects, *_targets.fbOutput, *_targets.cbOutput, *_targets.fbPing);
+        applyVideoEffect(effects, *_targets.fbOutput, *_targets.cbOutput, *_targets.fbPing);
 
         // Draw debug elements (lines, points, etc.)
         beginDebugPass();

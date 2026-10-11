@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <array>
+
 #include "aabb.h"
 #include "types.h"
 
@@ -71,6 +73,18 @@ public:
 
     bool contains(const glm::vec2 &point) const;
 
+    /**
+     * Whether a face of one of the given materials lies within radius of the
+     * point horizontally while spanning part of the height band [minZ, maxZ].
+     * Coordinates are the walkmesh's own.
+     */
+    bool hasFaceWithin(
+        const std::set<uint32_t> &materials,
+        const glm::vec3 &point,
+        float radius,
+        float minZ,
+        float maxZ) const;
+
     bool isAreaWalkmesh() const { return _area; }
 
     Face getFace(uint32_t index) const {
@@ -93,10 +107,25 @@ public:
 
     void verify() const;
 
+    /** Vertices in the owner's coordinates, a door or placeable walkmesh's with its position offset applied. */
     std::vector<glm::vec3> vertices;
     std::vector<FaceVertices> faces;
     std::vector<glm::vec3> normals;
     std::vector<uint32_t> materials;
+
+    /**
+     * The two points a door or placeable is used from, each given twice: as
+     * placed relative to the object and as placed absolutely. Both are in the
+     * walkmesh's own coordinates, before the position offset.
+     */
+    std::array<glm::vec3, 2> relativeUsePositions {glm::vec3(0.0f), glm::vec3(0.0f)};
+    std::array<glm::vec3, 2> absoluteUsePositions {glm::vec3(0.0f), glm::vec3(0.0f)};
+
+    /**
+     * Offset of a door or placeable walkmesh's own coordinates from the object
+     * it belongs to. The vertices carry it; the use positions do not.
+     */
+    glm::vec3 position {0.0f};
 
 private:
     std::shared_ptr<AABB> _rootAabb;

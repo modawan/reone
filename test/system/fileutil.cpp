@@ -192,7 +192,7 @@ TEST(FileUtilities, resolves_case_clashing_entries_deterministically) {
 }
 
 TEST(FileUtilities, resolves_a_single_folded_match_to_its_real_path) {
-    // given retail data ships under whatever casing the installer used
+    // Given resource directories using the installation's existing casing.
     TmpCaseClash tree({"Saves"});
 
     // when

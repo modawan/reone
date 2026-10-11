@@ -218,7 +218,7 @@ void writeUint32At(ByteBuffer &buffer, size_t offset, uint32_t value) {
 } // namespace
 
 TEST(SaveWorkingStateBackingTest, source_archive_can_move_and_delete_while_reads_stay_lazy) {
-    TmpDir directory("reone_e3f0_detached_archive");
+    TmpDir directory("reone_detached_snapshot_detached_archive");
     auto source = directory.path / "SAVEGAME.sav";
     auto moved = directory.path / "old-savegame.sav";
     auto module = erfBytes(
@@ -249,7 +249,7 @@ TEST(SaveWorkingStateBackingTest, source_archive_can_move_and_delete_while_reads
 }
 
 TEST(SaveWorkingStateBackingTest, entire_loaded_slot_can_move_and_delete_while_session_stays_alive) {
-    TmpDir directory("reone_e3f0_detached_slot");
+    TmpDir directory("reone_detached_snapshot_detached_slot");
     auto target = directory.mkdir("slot");
     auto backup = directory.path / "backup";
     writeFile(target / "GLOBALVARS.res", "globals");
@@ -279,7 +279,7 @@ TEST(SaveWorkingStateBackingTest, entire_loaded_slot_can_move_and_delete_while_s
 }
 
 TEST(SaveWorkingStateBackingTest, candidate_and_frozen_overlay_share_detached_base_after_slot_deletion) {
-    TmpDir directory("reone_e3f0_detached_candidate");
+    TmpDir directory("reone_detached_snapshot_detached_candidate");
     auto target = directory.mkdir("slot");
     auto backup = directory.path / "backup";
     writeErf(
@@ -311,7 +311,7 @@ TEST(SaveWorkingStateBackingTest, candidate_and_frozen_overlay_share_detached_ba
 }
 
 TEST(SaveWorkingStateBackingTest, malformed_archives_fail_without_retaining_slot_handles) {
-    TmpDir directory("reone_e3f0_detached_failure");
+    TmpDir directory("reone_detached_snapshot_detached_failure");
     std::vector<ByteBuffer> malformed;
     malformed.push_back(bytes("not an archive"));
 
@@ -338,7 +338,7 @@ TEST(SaveWorkingStateBackingTest, malformed_archives_fail_without_retaining_slot
 }
 
 TEST(SaveWorkingStateCandidateTest, empty_candidate_over_empty_base) {
-    TmpDir directory("reone_e3a_empty");
+    TmpDir directory("reone_working_state_empty");
     auto base = makeWorkingState(directory, {});
     auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
 
@@ -347,7 +347,7 @@ TEST(SaveWorkingStateCandidateTest, empty_candidate_over_empty_base) {
 }
 
 TEST(SaveWorkingStateCandidateTest, accepts_exact_generated_gff_bytebuffer) {
-    TmpDir directory("reone_e3b_gff_candidate");
+    TmpDir directory("reone_snapshot_candidate_gff_candidate");
     auto base = makeWorkingState(directory, {});
     auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
     ResourceId id("globalvars", ResType::Res);
@@ -364,7 +364,7 @@ TEST(SaveWorkingStateCandidateTest, accepts_exact_generated_gff_bytebuffer) {
 }
 
 TEST(SaveWorkingStateCandidateTest, accepts_exact_generated_mod_bytebuffer) {
-    TmpDir directory("reone_e3b_mod_candidate");
+    TmpDir directory("reone_snapshot_candidate_mod_candidate");
     auto base = makeWorkingState(directory, {});
     auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
     ResourceId id("module", ResType::Sav);
@@ -382,7 +382,7 @@ TEST(SaveWorkingStateCandidateTest, accepts_exact_generated_mod_bytebuffer) {
 }
 
 TEST(SaveWorkingStateCandidateTest, writer_failure_does_not_mutate_base_or_candidate) {
-    TmpDir directory("reone_e3b_failure_candidate");
+    TmpDir directory("reone_snapshot_candidate_failure_candidate");
     ResourceId existing("globalvars", ResType::Res);
     auto base = makeWorkingState(directory, {{"globalvars", ResType::Res, "committed"}});
     auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
@@ -401,7 +401,7 @@ TEST(SaveWorkingStateCandidateTest, writer_failure_does_not_mutate_base_or_candi
 }
 
 TEST(SaveWorkingStateCandidateTest, erf_writer_consumes_a_borrowed_candidate_view_once) {
-    TmpDir directory("reone_e3b_lazy_candidate");
+    TmpDir directory("reone_snapshot_candidate_lazy_candidate");
     ResourceId sourceId("globalvars", ResType::Res);
     auto base = makeWorkingState(directory, {{"globalvars", ResType::Res, "borrowed bytes"}});
     auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
@@ -432,7 +432,7 @@ TEST(SaveWorkingStateCandidateTest, erf_writer_consumes_a_borrowed_candidate_vie
 }
 
 TEST(SaveWorkingStateCandidateTest, base_resource_lookup_is_borrowed_and_lazy) {
-    TmpDir directory("reone_e3a_base_lookup");
+    TmpDir directory("reone_working_state_base_lookup");
     ResourceId id("base", ResType::Txt);
     auto base = makeWorkingState(directory, {{"base", ResType::Txt, "original"}});
     auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
@@ -444,7 +444,7 @@ TEST(SaveWorkingStateCandidateTest, base_resource_lookup_is_borrowed_and_lazy) {
 }
 
 TEST(SaveWorkingStateCandidateTest, owned_replacement_wins_without_mutating_base) {
-    TmpDir directory("reone_e3a_replace");
+    TmpDir directory("reone_working_state_replace");
     ResourceId id("state", ResType::Res);
     auto base = makeWorkingState(directory, {{"state", ResType::Res, "old"}});
     auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
@@ -459,7 +459,7 @@ TEST(SaveWorkingStateCandidateTest, owned_replacement_wins_without_mutating_base
 }
 
 TEST(SaveWorkingStateCandidateTest, exact_deletion_tombstone_hides_only_candidate_entry) {
-    TmpDir directory("reone_e3a_tombstone");
+    TmpDir directory("reone_working_state_tombstone");
     ResourceId deleted("same", ResType::Txt);
     ResourceId retained("same", ResType::Res);
     auto base = makeWorkingState(
@@ -478,7 +478,7 @@ TEST(SaveWorkingStateCandidateTest, exact_deletion_tombstone_hides_only_candidat
 }
 
 TEST(SaveWorkingStateCandidateTest, replacement_after_tombstone_restores_resource) {
-    TmpDir directory("reone_e3a_replace_after_tombstone");
+    TmpDir directory("reone_working_state_replace_after_tombstone");
     ResourceId id("state", ResType::Txt);
     auto base = makeWorkingState(directory, {{"state", ResType::Txt, "old"}});
     auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
@@ -491,7 +491,7 @@ TEST(SaveWorkingStateCandidateTest, replacement_after_tombstone_restores_resourc
 }
 
 TEST(SaveWorkingStateCandidateTest, tombstone_after_replacement_removes_resource) {
-    TmpDir directory("reone_e3a_tombstone_after_replace");
+    TmpDir directory("reone_working_state_tombstone_after_replace");
     ResourceId id("state", ResType::Txt);
     auto base = makeWorkingState(directory, {{"state", ResType::Txt, "old"}});
     auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
@@ -505,7 +505,7 @@ TEST(SaveWorkingStateCandidateTest, tombstone_after_replacement_removes_resource
 }
 
 TEST(SaveWorkingStateCandidateTest, deterministic_enumeration_ignores_mutation_order) {
-    TmpDir directory("reone_e3a_deterministic");
+    TmpDir directory("reone_working_state_deterministic");
     auto base = makeWorkingState(directory, {{"middle", ResType::Txt, "m"}});
     auto first = SaveWorkingStateCandidate::fromCommitted(base);
     auto second = SaveWorkingStateCandidate::fromCommitted(base);
@@ -522,7 +522,7 @@ TEST(SaveWorkingStateCandidateTest, deterministic_enumeration_ignores_mutation_o
 }
 
 TEST(SaveWorkingStateCandidateTest, repeated_put_is_last_write_wins_without_duplicate_id) {
-    TmpDir directory("reone_e3a_repeated_put");
+    TmpDir directory("reone_working_state_repeated_put");
     ResourceId id("state", ResType::Txt);
     auto base = makeWorkingState(directory, {});
     auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
@@ -536,7 +536,7 @@ TEST(SaveWorkingStateCandidateTest, repeated_put_is_last_write_wins_without_dupl
 }
 
 TEST(SaveWorkingStateCandidateTest, owned_replacement_outlives_input_and_candidate) {
-    TmpDir directory("reone_e3a_owned_lifetime");
+    TmpDir directory("reone_working_state_owned_lifetime");
     ResourceId id("state", ResType::Txt);
     auto base = makeWorkingState(directory, {});
     std::optional<SaveResourceView> retainedView;
@@ -553,7 +553,7 @@ TEST(SaveWorkingStateCandidateTest, owned_replacement_outlives_input_and_candida
 }
 
 TEST(SaveWorkingStateCandidateTest, candidate_retains_detached_base_lifetime) {
-    TmpDir directory("reone_e3a_base_lifetime");
+    TmpDir directory("reone_working_state_base_lifetime");
     ResourceId id("state", ResType::Txt);
     auto base = makeWorkingState(directory, {{"state", ResType::Txt, "lazy"}});
     std::weak_ptr<const SaveWorkingState> lifetime = base;
@@ -571,7 +571,7 @@ TEST(SaveWorkingStateCandidateTest, candidate_retains_detached_base_lifetime) {
 }
 
 TEST(SaveWorkingStateCandidateTest, borrowed_view_retains_backing_after_candidate_destruction) {
-    TmpDir directory("reone_e3a_borrowed_view_lifetime");
+    TmpDir directory("reone_working_state_borrowed_view_lifetime");
     ResourceId id("state", ResType::Txt);
     auto base = makeWorkingState(directory, {{"state", ResType::Txt, "lazy"}});
     std::weak_ptr<const SaveWorkingState> lifetime = base;
@@ -591,7 +591,7 @@ TEST(SaveWorkingStateCandidateTest, borrowed_view_retains_backing_after_candidat
 }
 
 TEST(SaveWorkingStateCandidateTest, failed_discarded_candidate_needs_no_base_rollback) {
-    TmpDir directory("reone_e3a_failed_candidate");
+    TmpDir directory("reone_working_state_failed_candidate");
     ResourceId id("state", ResType::Txt);
     auto base = makeWorkingState(directory, {{"state", ResType::Txt, "old"}});
     {
@@ -610,7 +610,7 @@ TEST(SaveWorkingStateCandidateTest, failed_discarded_candidate_needs_no_base_rol
 }
 
 TEST(SaveWorkingStateCandidateTest, frozen_overlay_isolated_from_later_candidates) {
-    TmpDir directory("reone_e3a_freeze_isolation");
+    TmpDir directory("reone_working_state_freeze_isolation");
     ResourceId id("state", ResType::Txt);
     auto base = makeWorkingState(directory, {{"state", ResType::Txt, "base"}});
     auto first = SaveWorkingStateCandidate::fromCommitted(base);
@@ -628,7 +628,7 @@ TEST(SaveWorkingStateCandidateTest, frozen_overlay_isolated_from_later_candidate
 }
 
 TEST(SaveWorkingStateCandidateTest, frozen_overlay_retains_unchanged_base_backing) {
-    TmpDir directory("reone_e3a_frozen_backing");
+    TmpDir directory("reone_working_state_frozen_backing");
     ResourceId unchanged("unchanged", ResType::Txt);
     ResourceId added("added", ResType::Res);
     auto base = makeWorkingState(directory, {{"unchanged", ResType::Txt, "lazy"}});
@@ -642,7 +642,7 @@ TEST(SaveWorkingStateCandidateTest, frozen_overlay_retains_unchanged_base_backin
 }
 
 TEST(SaveWorkingStateCandidateTest, module_replacement_retains_inactive_neighbors_lazily) {
-    TmpDir directory("reone_e3a_module_retention");
+    TmpDir directory("reone_working_state_module_retention");
     ResourceId aSav("module_a", ResType::Sav);
     ResourceId bSav("module_b", ResType::Sav);
     ResourceId bRsv("module_b", ResType::Rsv);
@@ -682,7 +682,7 @@ TEST(SaveWorkingStateCandidateTest, module_replacement_retains_inactive_neighbor
 }
 
 TEST(SaveWorkingStateCandidateTest, module_replacement_requires_explicit_matching_ids) {
-    TmpDir directory("reone_e3a_module_identity");
+    TmpDir directory("reone_working_state_module_identity");
     auto base = makeWorkingState(directory, {});
     auto candidate = SaveWorkingStateCandidate::fromCommitted(base);
 
@@ -701,7 +701,7 @@ TEST(SaveWorkingStateCandidateTest, module_replacement_requires_explicit_matchin
 }
 
 TEST(SaveWorkingStateCandidateTest, validation_detects_broken_recorded_module_replacement) {
-    TmpDir directory("reone_e3a_module_validation");
+    TmpDir directory("reone_working_state_module_validation");
     ResourceId sav("module", ResType::Sav);
     ResourceId rsv("module", ResType::Rsv);
     auto base = makeWorkingState(
@@ -716,7 +716,7 @@ TEST(SaveWorkingStateCandidateTest, validation_detects_broken_recorded_module_re
 }
 
 TEST(SaveWorkingStateCandidateTest, base_and_candidate_support_alternating_synchronous_reads) {
-    TmpDir directory("reone_e3a_synchronous_reads");
+    TmpDir directory("reone_working_state_synchronous_reads");
     ResourceId unchanged("unchanged", ResType::Txt);
     ResourceId replaced("replaced", ResType::Txt);
     auto base = makeWorkingState(
@@ -762,7 +762,7 @@ TEST(SaveWorkingStateNormalizationTest, empty_backing_freezes_without_a_fake_arc
 }
 
 TEST(SaveWorkingStateNormalizationTest, normalized_freeze_releases_predecessors) {
-    TmpDir directory("reone_e3g0_predecessor_lifetime");
+    TmpDir directory("reone_snapshot_generation_predecessor_lifetime");
     ResourceId untouched("untouched", ResType::Txt);
     ResourceId a("module_a", ResType::Sav);
     ResourceId b("module_b", ResType::Sav);
@@ -803,7 +803,7 @@ TEST(SaveWorkingStateNormalizationTest, normalized_freeze_releases_predecessors)
 }
 
 TEST(SaveWorkingStateNormalizationTest, tombstones_carry_without_predecessor_state) {
-    TmpDir directory("reone_e3g0_tombstone_carry");
+    TmpDir directory("reone_snapshot_generation_tombstone_carry");
     ResourceId removed("removed", ResType::Txt);
     ResourceId changed("changed", ResType::Txt);
     auto base = makeWorkingState(
@@ -829,7 +829,7 @@ TEST(SaveWorkingStateNormalizationTest, tombstones_carry_without_predecessor_sta
 }
 
 TEST(SaveWorkingStateNormalizationTest, replacement_and_tombstone_precedence_crosses_freezes) {
-    TmpDir directory("reone_e3g0_cross_freeze_precedence");
+    TmpDir directory("reone_snapshot_generation_cross_freeze_precedence");
     ResourceId id("state", ResType::Txt);
     auto base = makeWorkingState(directory, {{"state", ResType::Txt, "backing"}});
 
@@ -901,7 +901,7 @@ TEST(SaveWorkingStateNormalizationTest, shadowed_replacement_payload_is_released
 }
 
 TEST(SaveWorkingStateNormalizationTest, module_replacement_and_rsv_tombstone_stay_flat) {
-    TmpDir directory("reone_e3g0_module_semantics");
+    TmpDir directory("reone_snapshot_generation_module_semantics");
     ResourceId bSav("module_b", ResType::Sav);
     ResourceId bRsv("module_b", ResType::Rsv);
     ResourceId otherRsv("other", ResType::Rsv);
@@ -949,7 +949,7 @@ TEST(SaveWorkingStateNormalizationTest, failed_freeze_leaves_normalized_base_unc
 }
 
 TEST(SaveWorkingStateNormalizationTest, one_thousand_freezes_remain_structurally_bounded) {
-    TmpDir directory("reone_e3g0_stress");
+    TmpDir directory("reone_snapshot_generation_stress");
     ResourceId removed("removed", ResType::Txt);
     ResourceId untouched("untouched", ResType::Txt);
     std::array<ResourceId, 4> ids {
@@ -1096,8 +1096,8 @@ protected:
 };
 
 TEST_P(SaveWorkingStateDirectorTest, replaces_complete_working_state_and_round_trips_a_b_a) {
-    TmpDir game("reone_e1_replace");
-    TmpDir cwd("reone_e1_replace_cwd");
+    TmpDir game("reone_save_archive_replace");
+    TmpDir cwd("reone_save_archive_replace_cwd");
     makeInstallation(game, cwd);
     writeSlot(game, "slot_a",
               {{"common", ResType::Txt, "a"}, {"a_only", ResType::Txt, "a"}});
@@ -1125,8 +1125,8 @@ TEST_P(SaveWorkingStateDirectorTest, replaces_complete_working_state_and_round_t
 }
 
 TEST_P(SaveWorkingStateDirectorTest, missing_archive_before_commit_leaves_a_active) {
-    TmpDir game("reone_e1_missing");
-    TmpDir cwd("reone_e1_missing_cwd");
+    TmpDir game("reone_save_archive_missing");
+    TmpDir cwd("reone_save_archive_missing_cwd");
     makeInstallation(game, cwd);
     writeSlot(game, "slot_a", {{"a_only", ResType::Txt, "a"}});
     auto broken = game.mkdir("saves/slot_b");
@@ -1142,8 +1142,8 @@ TEST_P(SaveWorkingStateDirectorTest, missing_archive_before_commit_leaves_a_acti
 }
 
 TEST_P(SaveWorkingStateDirectorTest, malformed_archive_before_commit_leaves_a_active) {
-    TmpDir game("reone_e1_malformed");
-    TmpDir cwd("reone_e1_malformed_cwd");
+    TmpDir game("reone_save_archive_malformed");
+    TmpDir cwd("reone_save_archive_malformed_cwd");
     makeInstallation(game, cwd);
     writeSlot(game, "slot_a", {{"a_only", ResType::Txt, "a"}});
     auto broken = game.mkdir("saves/slot_b");
@@ -1160,8 +1160,8 @@ TEST_P(SaveWorkingStateDirectorTest, malformed_archive_before_commit_leaves_a_ac
 }
 
 TEST_P(SaveWorkingStateDirectorTest, truncated_payload_before_commit_leaves_a_active) {
-    TmpDir game("reone_e1_truncated");
-    TmpDir cwd("reone_e1_truncated_cwd");
+    TmpDir game("reone_save_archive_truncated");
+    TmpDir cwd("reone_save_archive_truncated_cwd");
     makeInstallation(game, cwd);
     writeSlot(game, "slot_a", {{"a_only", ResType::Txt, "a"}});
     writeSlot(game, "slot_b", {{"b_only", ResType::Txt, "payload"}});
@@ -1178,8 +1178,8 @@ TEST_P(SaveWorkingStateDirectorTest, truncated_payload_before_commit_leaves_a_ac
 }
 
 TEST_P(SaveWorkingStateDirectorTest, loose_metadata_is_authoritative_over_outer_collisions) {
-    TmpDir game("reone_e1_metadata");
-    TmpDir cwd("reone_e1_metadata_cwd");
+    TmpDir game("reone_save_archive_metadata");
+    TmpDir cwd("reone_save_archive_metadata_cwd");
     makeInstallation(game, cwd);
     auto slot = game.mkdir("saves/slot_a");
     writeFile(slot / "savenfo.res", "loose nfo");
@@ -1201,8 +1201,8 @@ TEST_P(SaveWorkingStateDirectorTest, loose_metadata_is_authoritative_over_outer_
 }
 
 TEST_P(SaveWorkingStateDirectorTest, inventory_and_available_npc_use_working_state) {
-    TmpDir game("reone_e1_consumers");
-    TmpDir cwd("reone_e1_consumers_cwd");
+    TmpDir game("reone_save_archive_consumers");
+    TmpDir cwd("reone_save_archive_consumers_cwd");
     makeInstallation(game, cwd);
     writeSlot(game, "slot_a",
               {{"inventory", ResType::Res, "inventory"},
@@ -1218,8 +1218,8 @@ TEST_P(SaveWorkingStateDirectorTest, inventory_and_available_npc_use_working_sta
 }
 
 TEST_P(SaveWorkingStateDirectorTest, current_commit_not_raw_source_recency_decides_working_reads) {
-    TmpDir game("reone_e1_recency");
-    TmpDir cwd("reone_e1_recency_cwd");
+    TmpDir game("reone_save_archive_recency");
+    TmpDir cwd("reone_save_archive_recency_cwd");
     makeInstallation(game, cwd);
     writeSlot(game, "slot_a", {{"common", ResType::Txt, "a"}});
     writeSlot(game, "slot_b", {{"common", ResType::Txt, "b"}});
@@ -1239,8 +1239,8 @@ TEST_P(SaveWorkingStateDirectorTest, current_commit_not_raw_source_recency_decid
 }
 
 TEST_P(SaveWorkingStateDirectorTest, durable_outer_archive_is_not_a_raw_compatibility_source) {
-    TmpDir game("reone_e1_not_mounted");
-    TmpDir cwd("reone_e1_not_mounted_cwd");
+    TmpDir game("reone_save_archive_not_mounted");
+    TmpDir cwd("reone_save_archive_not_mounted_cwd");
     makeInstallation(game, cwd);
     writeSlot(game, "slot_a", {{"working_only", ResType::Txt, "state"}});
 
@@ -1255,8 +1255,8 @@ TEST_P(SaveWorkingStateDirectorTest, durable_outer_archive_is_not_a_raw_compatib
 }
 
 TEST_P(SaveWorkingStateDirectorTest, saved_resource_image_wins_saved_archive) {
-    TmpDir game("reone_e1_rsv");
-    TmpDir cwd("reone_e1_rsv_cwd");
+    TmpDir game("reone_save_archive_rsv");
+    TmpDir cwd("reone_save_archive_rsv_cwd");
     makeInstallation(game, cwd);
     writeRim(game.path / "modules" / "foo.rim", {{"state", ResType::Txt, "disk"}});
     writeSlot(game, "slot_a",
@@ -1274,8 +1274,8 @@ TEST_P(SaveWorkingStateDirectorTest, saved_resource_image_wins_saved_archive) {
 }
 
 TEST_P(SaveWorkingStateDirectorTest, saved_archive_works_without_saved_resource_image) {
-    TmpDir game("reone_e1_sav");
-    TmpDir cwd("reone_e1_sav_cwd");
+    TmpDir game("reone_save_archive_sav");
+    TmpDir cwd("reone_save_archive_sav_cwd");
     makeInstallation(game, cwd);
     writeRim(game.path / "modules" / "foo.rim", {{"state", ResType::Txt, "disk"}});
     writeSlot(game, "slot_a",
@@ -1292,8 +1292,8 @@ TEST_P(SaveWorkingStateDirectorTest, saved_archive_works_without_saved_resource_
 }
 
 TEST_P(SaveWorkingStateDirectorTest, no_saved_primary_falls_through_to_normal_loader) {
-    TmpDir game("reone_e1_fallthrough");
-    TmpDir cwd("reone_e1_fallthrough_cwd");
+    TmpDir game("reone_save_archive_fallthrough");
+    TmpDir cwd("reone_save_archive_fallthrough_cwd");
     makeInstallation(game, cwd);
     writeRim(game.path / "modules" / "foo.rim", {{"state", ResType::Txt, "disk"}});
     writeSlot(game, "slot_a", {{"unrelated", ResType::Txt, "state"}});
@@ -1307,8 +1307,8 @@ TEST_P(SaveWorkingStateDirectorTest, no_saved_primary_falls_through_to_normal_lo
 }
 
 TEST_P(SaveWorkingStateDirectorTest, module_transitions_do_not_destroy_whole_working_state) {
-    TmpDir game("reone_e1_module_transition");
-    TmpDir cwd("reone_e1_module_transition_cwd");
+    TmpDir game("reone_save_archive_module_transition");
+    TmpDir cwd("reone_save_archive_module_transition_cwd");
     makeInstallation(game, cwd);
     writeRim(game.path / "modules" / "a.rim", {{"state", ResType::Txt, "disk a"}});
     writeRim(game.path / "modules" / "b.rim", {{"state", ResType::Txt, "disk b"}});
@@ -1333,8 +1333,8 @@ TEST_P(SaveWorkingStateDirectorTest, module_transitions_do_not_destroy_whole_wor
 }
 
 TEST_P(SaveWorkingStateDirectorTest, save_commit_preserves_unrelated_global_and_separate_active_state) {
-    TmpDir game("reone_e1_lifetimes");
-    TmpDir cwd("reone_e1_lifetimes_cwd");
+    TmpDir game("reone_save_archive_lifetimes");
+    TmpDir cwd("reone_save_archive_lifetimes_cwd");
     makeInstallation(game, cwd);
     auto overridePath = game.mkdir("override");
     writeFile(overridePath / "global_only.txt", "global");
@@ -1357,8 +1357,8 @@ TEST_P(SaveWorkingStateDirectorTest, save_commit_preserves_unrelated_global_and_
 }
 
 TEST_P(SaveWorkingStateDirectorTest, enumeration_contains_working_state_not_loose_metadata) {
-    TmpDir game("reone_e1_enumeration");
-    TmpDir cwd("reone_e1_enumeration_cwd");
+    TmpDir game("reone_save_archive_enumeration");
+    TmpDir cwd("reone_save_archive_enumeration_cwd");
     makeInstallation(game, cwd);
     auto slot = game.mkdir("saves/slot_a");
     writeFile(slot / "savenfo.res", "metadata");
@@ -1378,8 +1378,8 @@ TEST_P(SaveWorkingStateDirectorTest, enumeration_contains_working_state_not_loos
 }
 
 TEST_P(SaveWorkingStateDirectorTest, loaded_session_keeps_no_rename_blocking_slot_handle) {
-    TmpDir game("reone_e3f0_director_detached");
-    TmpDir cwd("reone_e3f0_director_detached_cwd");
+    TmpDir game("reone_detached_snapshot_director_detached");
+    TmpDir cwd("reone_detached_snapshot_director_detached_cwd");
     makeInstallation(game, cwd);
     auto slot = game.mkdir("saves/slot_a");
     auto backup = game.path / "saves" / "slot_a_backup";
