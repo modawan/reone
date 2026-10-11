@@ -327,11 +327,15 @@ void Conversation::loadEntry(int index, bool start) {
         return;
     }
 
-    // Conversation is a one-liner if there is exactly one empty reply that has no entries
+    // A conversation is a one-liner when it opens on an entry with no replies,
+    // or with one reply that leads to no entry; the reply's text and condition
+    // play no part. Cinematic conversations can be one-liners, and so can
+    // computer ones in KotOR.
     bool oneLiner = false;
-    if (start && _replies.size() == 1ll) {
-        const Dialog::EntryReply &reply = *_replies[0];
-        oneLiner = reply.text.empty() && reply.entries.empty();
+    const ConversationType type = _dialog->conversationType;
+    if (start && (type == ConversationType::Cinematic || (type == ConversationType::Computer && !_game.isTSL()))) {
+        const auto &links = _currentEntry->replies;
+        oneLiner = links.empty() || (links.size() == 1ll && _dialog->getReply(links.front().index).entries.empty());
     }
     if (!oneLiner && isNonPresentationalEntry()) {
         pickReply(0);
@@ -354,9 +358,14 @@ void Conversation::loadEntry(int index, bool start) {
         // ordering and lets it terminate the conversation, so nothing here
         // finishes it a second time. Ending the entry first stops the update
         // timer from auto-picking the same reply again afterwards, and leaves
-        // a replacement conversation's own entry state untouched.
+        // a replacement conversation's own entry state untouched. An entry
+        // with no eligible reply ends the conversation.
         _entryEnded = true;
-        pickReply(0);
+        if (_replies.empty()) {
+            finish();
+        } else {
+            pickReply(0);
+        }
         return;
     }
 
@@ -440,14 +449,15 @@ void Conversation::loadReplies() {
         }
     }
 
-    // If there is only one empty reply, pick it automatically when the current entry ends
-    _autoPickFirstReply = _replies.size() == 1ll && _replies.front()->text.empty();
+    // A sole reply whose text resolves to nothing is taken when the entry ends.
+    _autoPickFirstReply = _replies.size() == 1ll && _game.substituteCustomTokens(_replies.front()->text).empty();
 
     refreshReplies();
 }
 
 static std::string getReplyText(const Dialog::EntryReply &reply, int index, const Game &game) {
-    return str(boost::format("%d. %s") % (index + 1) % (reply.text.empty() ? "[empty]" : game.substituteCustomTokens(reply.text)));
+    std::string text(game.substituteCustomTokens(reply.text));
+    return str(boost::format("%d. %s") % (index + 1) % (text.empty() ? "[empty]" : text));
 }
 
 void Conversation::refreshReplies() {

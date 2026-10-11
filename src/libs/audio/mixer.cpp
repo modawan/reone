@@ -53,16 +53,16 @@ void AudioMixer::stopAll() {
     _sources.clear();
 }
 
-void AudioMixer::setGameSoundsPaused(bool paused) {
-    if (_gameSoundsPaused == paused) {
+void AudioMixer::setSoundsHeldForMovie(bool held) {
+    if (_soundsHeldForMovie == held) {
         return;
     }
-    _gameSoundsPaused = paused;
+    _soundsHeldForMovie = held;
     for (auto &active : _sources) {
         if (active.type == AudioType::Movie) {
             continue;
         }
-        if (paused) {
+        if (held) {
             active.source->pause();
         } else {
             active.source->resume();
@@ -85,7 +85,7 @@ std::shared_ptr<AudioSource> AudioMixer::play(std::shared_ptr<AudioClip> clip,
         loop,
         std::move(position));
     source->init();
-    if (_gameSoundsPaused && type != AudioType::Movie) {
+    if (_soundsHeldForMovie && type != AudioType::Movie) {
         source->startPaused();
     } else {
         source->play();

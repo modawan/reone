@@ -274,7 +274,11 @@ TEST_P(ComputerGUITest, paused_entry_cannot_be_completed_by_return_or_timeout) {
 
 TEST_P(ComputerGUITest, finish_without_replies_clears_camera) {
     auto dialog = computerDialog();
-    dialog->entries[0].replies.clear();
+    // The entry keeps one reply, which is not eligible: an entry with no reply
+    // at all would open a KotOR computer conversation as a one-liner.
+    dialog->entries[0].replies.resize(1);
+    dialog->entries[0].replies[0].active = "no_reply";
+    dialog->entries[0].replies[0].notActive = true;
     computer->start(dialog, nullptr);
     expectRender(true);
     computer->handle(key(input::KeyCode::Return));
