@@ -1,46 +1,48 @@
 #include <gtest/gtest.h>
 
-#include <filesystem>
-#include <fstream>
-#include <iterator>
-#include <string>
-#include <string_view>
+#include <array>
 
 namespace {
 
-std::string readShader(std::string_view name) {
-    auto path = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "glsl" / name;
-    std::ifstream stream(path);
-    return std::string(
-        std::istreambuf_iterator<char>(stream),
-        std::istreambuf_iterator<char>());
+// GL_FUNC_ADD with RGB=(ONE,ONE), alpha=(ZERO,ONE_MINUS_SRC_ALPHA).
+// These are arbitrary already-encoded fragments: this checks the documented
+// accumulation/resolve contract, not a CPU copy of any material shader.
+// Actual shader output and model routing are covered by ShaderOutputTests.
+struct Fragment {
+    std::array<double, 3> weightedRGB;
+    double alpha;
+    double weight;
+};
+
+std::array<double, 3> composite(const std::array<Fragment, 2> &fragments) {
+    std::array<double, 3> accumulated {0.0, 0.0, 0.0};
+    double revealage = 1.0;
+    double weight = 0.0;
+    for (const auto &fragment : fragments) {
+        for (int channel = 0; channel < 3; ++channel) {
+            accumulated[channel] += fragment.weightedRGB[channel];
+        }
+        revealage *= 1.0 - fragment.alpha;
+        weight += fragment.weight;
+    }
+    const std::array<double, 3> background {0.1, 0.2, 0.3};
+    for (int channel = 0; channel < 3; ++channel) {
+        accumulated[channel] = (1.0 - revealage) * accumulated[channel] / weight
+                               + revealage * background[channel];
+    }
+    return accumulated;
 }
 
 } // namespace
 
-TEST(OITModelShader, transparent_material_keeps_authored_alpha_and_lighting) {
-    auto shader = readShader("f_oit_model.glsl");
-    ASSERT_FALSE(shader.empty());
-
-    auto textureAlpha = shader.find("float diffuseAlpha = mainTexSample.a;");
-    auto applyTextureAlpha = shader.find("objectAlpha *= diffuseAlpha;");
-    auto lightLoop = shader.find("for (int i = 0; i < uNumLights; ++i)");
-    auto litColor = shader.find("vec3 objectColor = lighting * uColor.rgb * diffuseColor;");
-    auto applyAuthoredAlpha = shader.find("objectColor *= objectAlpha;");
-    auto encodeContribution = shader.find("objectAlpha = clamp(rgbToLuma(objectColor), 0.0, 1.0);");
-
-    EXPECT_NE(std::string::npos, textureAlpha);
-    EXPECT_NE(std::string::npos, applyTextureAlpha);
-    EXPECT_NE(std::string::npos, lightLoop);
-    EXPECT_NE(std::string::npos, litColor);
-    EXPECT_NE(std::string::npos, applyAuthoredAlpha);
-    EXPECT_NE(std::string::npos, encodeContribution);
-    EXPECT_LT(textureAlpha, applyTextureAlpha);
-    EXPECT_LT(lightLoop, litColor);
-    EXPECT_LT(litColor, applyAuthoredAlpha);
-    EXPECT_LT(applyAuthoredAlpha, encodeContribution);
-
-    // The old path replaced texture alpha with RGB luminance before lighting,
-    // which made a blue additive texture visible even under zero light.
-    EXPECT_EQ(std::string::npos, shader.find("diffuseAlpha = rgbToLuma(mainTexSample.rgb);"));
+TEST(OITBlendContract, combines_encoded_fragments_and_background_independently_of_order) {
+    Fragment first {{{0.2, 0.1, 0.05}}, 0.25, 0.5};
+    Fragment second {{{0.0, 0.3, 0.4}}, 0.5, 0.75};
+    auto forward = composite({first, second});
+    auto reverse = composite({second, first});
+    const std::array<double, 3> expected {0.1375, 0.275, 0.3375};
+    for (int channel = 0; channel < 3; ++channel) {
+        EXPECT_NEAR(forward[channel], expected[channel], 1e-12);
+        EXPECT_NEAR(reverse[channel], expected[channel], 1e-12);
+    }
 }
