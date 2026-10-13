@@ -1,0 +1,28 @@
+name: 'Build and run tests on MacOS'
+runs:
+  using: "composite"
+  steps:
+      - name: Install dependencies
+        shell: bash
+        run: |-
+            brew install cmake boost sdl3 openal-soft wxwidgets mad pkg-config ffmpeg googletest
+
+      - name: Create Build Environment
+        shell: bash
+        working-directory: ${{github.workspace}}
+        run: cmake -E make_directory build
+
+      - name: Configure CMake
+        shell: bash
+        working-directory: ${{github.workspace}}/build
+        run: cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        shell: bash
+        working-directory: ${{github.workspace}}/build
+        run: cmake --build .
+
+      - name: Run Unit Tests
+        shell: bash
+        working-directory: ${{github.workspace}}/build
+        run: ctest -VV
