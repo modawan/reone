@@ -18,11 +18,9 @@
 #include "reone/resource/provider/cursors.h"
 
 #include "reone/graphics/cursor.h"
-#include "reone/graphics/format/curreader.h"
 #include "reone/graphics/texture.h"
-#include "reone/resource/exception/notfound.h"
+#include "reone/resource/provider/textures.h"
 #include "reone/resource/resources.h"
-#include "reone/system/stream/memoryinput.h"
 
 using namespace reone::graphics;
 
@@ -30,14 +28,14 @@ namespace reone {
 
 namespace resource {
 
-static std::unordered_map<CursorType, std::pair<uint32_t, uint32_t>> g_groupNamesByType {
-    {CursorType::Default, {1, 2}},
-    {CursorType::Talk, {11, 12}},
-    {CursorType::Door, {23, 24}},
-    {CursorType::Pickup, {25, 26}},
-    {CursorType::DisableMine, {33, 34}},
-    {CursorType::RecoverMine, {37, 38}},
-    {CursorType::Attack, {51, 52}}};
+static std::unordered_map<CursorType, std::pair<std::string, std::string>> g_groupNamesByType {
+    {CursorType::Default, {"gui_mp_defaultu", "gui_mp_defaultd"}},
+    {CursorType::Talk, {"gui_mp_talku", "gui_mp_talkd"}},
+    {CursorType::Door, {"gui_mp_dooru", "gui_mp_doord"}},
+    {CursorType::Pickup, {"gui_mp_useu", "gui_mp_used"}},
+    {CursorType::DisableMine, {"gui_mp_dismineu", "gui_mp_dismined"}},
+    {CursorType::RecoverMine, {"gui_mp_recmineu", "gui_mp_recmined"}},
+    {CursorType::Attack, {"gui_mp_killu", "gui_mp_killd"}}};
 
 void Cursors::deinit() {
     _cache.clear();
@@ -48,23 +46,23 @@ std::shared_ptr<Cursor> Cursors::get(CursorType type) {
     if (maybeCursor != _cache.end()) {
         return maybeCursor->second;
     }
-    const std::pair<uint32_t, uint32_t> &groupNames = getCursorGroupNames(type);
-    std::vector<uint32_t> cursorNamesUp(getCursorNamesFromCursorGroup(groupNames.first));
-    if (cursorNamesUp.empty()) {
-        return nullptr;
+
+    auto &upDown = g_groupNamesByType[type];
+    assert(!upDown.first.empty() && !upDown.second.empty());
+
+    std::shared_ptr<Texture> up = _textures.get(upDown.first, TextureUsage::GUI);
+    if (!up) {
+        return (type != CursorType::Default) ? get(CursorType::Default) : nullptr;
     }
-    std::vector<uint32_t> cursorNamesDown(getCursorNamesFromCursorGroup(groupNames.second));
-    if (cursorNamesDown.empty()) {
-        return nullptr;
+
+    std::shared_ptr<Texture> down = _textures.get(upDown.second, TextureUsage::GUI);
+    if (!down) {
+        return (type != CursorType::Default) ? get(CursorType::Default) : nullptr;
     }
-    std::shared_ptr<Texture> textureUp(newTextureFromCursor(cursorNamesUp.back()));
-    textureUp->init();
-    std::shared_ptr<Texture> textureDown(newTextureFromCursor(cursorNamesDown.back()));
-    textureDown->init();
 
     auto cursor = std::make_shared<Cursor>(
-        textureUp,
-        textureDown,
+        up,
+        down,
         _context,
         _meshRegistry,
         _shaderRegistry,
@@ -73,45 +71,6 @@ std::shared_ptr<Cursor> Cursors::get(CursorType type) {
     _cache.insert(std::make_pair(type, cursor));
 
     return cursor;
-}
-
-const std::pair<uint32_t, uint32_t> &Cursors::getCursorGroupNames(CursorType type) {
-    auto maybeGroupNames = g_groupNamesByType.find(type);
-    if (maybeGroupNames == g_groupNamesByType.end()) {
-        throw ResourceNotFoundException("Cursor group not found: " + std::to_string(static_cast<int>(type)));
-    }
-    return maybeGroupNames->second;
-}
-
-std::vector<uint32_t> Cursors::getCursorNamesFromCursorGroup(uint32_t name) {
-    auto res = _resources.find(ResourceId(std::to_string(name), ResType::CursorGroup));
-    if (!res) {
-        return std::vector<uint32_t>();
-    }
-    auto stream = MemoryInputStream(res->data);
-    auto reader = BinaryReader(stream);
-
-    reader.skipBytes(4); // Reserved, ResType
-    uint16_t resCount = reader.readUint16();
-
-    std::vector<uint32_t> cursorNames;
-    for (uint16_t i = 0; i < resCount; ++i) {
-        reader.skipBytes(12); // Cursor, Planes, BitCount, BytesInRes
-        uint16_t cursorId = reader.readUint16();
-        cursorNames.push_back(static_cast<uint32_t>(cursorId));
-    }
-
-    return cursorNames;
-}
-
-std::shared_ptr<Texture> Cursors::newTextureFromCursor(uint32_t name) {
-    auto [data] = _resources.get(ResourceId(std::to_string(name), ResType::Cursor));
-    auto stream = MemoryInputStream(data);
-
-    CurReader cur(stream);
-    cur.load();
-
-    return cur.texture();
 }
 
 } // namespace resource

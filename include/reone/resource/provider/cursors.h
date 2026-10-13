@@ -85,11 +85,6 @@ private:
     IResources &_resources;
 
     // END Services
-
-    std::shared_ptr<graphics::Texture> newTextureFromCursor(uint32_t name);
-
-    const std::pair<uint32_t, uint32_t> &getCursorGroupNames(CursorType type);
-    std::vector<uint32_t> getCursorNamesFromCursorGroup(uint32_t name);
 };
 
 } // namespace resource
