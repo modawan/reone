@@ -69,9 +69,9 @@ protected:
     }
 };
 
-TEST_F(SaveBrowserTest, discoversRetailAndReoneDirectorySlotsWithMetadata) {
+TEST_F(SaveBrowserTest, discoversDirectorySlotsWithMetadata) {
     addSlot("000014 - GAME14", "Retail Name", true);
-    addSlot("000003 Reone Name", "Reone Name");
+    addSlot("000003 Custom Name", "Custom Name");
 
     auto saves = discoverSavedGames(_root);
 
@@ -129,7 +129,7 @@ TEST_F(SaveBrowserTest, k2NfoSaveNumberControlsDisplayButNotDurableIdentity) {
     EXPECT_EQ(saves[0].descriptor.directory, directory);
 }
 
-TEST_F(SaveBrowserTest, reoneK1ManualSaveUsesRetailManualDisplaySequence) {
+TEST_F(SaveBrowserTest, k1ManualSaveUsesManualDisplaySequence) {
     addSlot("000998 - FINAL_K1_SAVE", "FINAL_K1_SAVE");
 
     auto saves = discoverSavedGames(_root);
@@ -266,9 +266,8 @@ protected:
 } // namespace
 
 TEST_F(SaveRootCasingTest, discoversSlotsUnderAnUppercaseSaveRoot) {
-    // given a retail installation that ships "Saves" rather than "saves", as
-    // K2 does. Spelling the directory instead of discovering it leaves the
-    // list empty on a case-sensitive filesystem.
+    // Discover the save-directory spelling from disk. A directory named Saves
+    // must also work on a case-sensitive filesystem.
     addSlot("Saves", "000002 - Game1");
 
     // when

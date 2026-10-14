@@ -58,7 +58,7 @@ constexpr const char *kGlobalsName = "GLOBALVARS.res";
 constexpr const char *kPartyName = "PARTYTABLE.res";
 constexpr const char *kNfoName = "savenfo.res";
 constexpr const char *kScreenshotName = "Screen.tga";
-constexpr const char *kMarkerMagic = "REONE_SAVE_TXN_V1";
+constexpr const char *kMarkerMagic = "SAVE_TRANSACTION";
 
 enum class TransactionPhase {
     CandidateValidated = 1,
@@ -180,7 +180,7 @@ std::filesystem::path markerPath(const SaveSlotDescriptor &target) {
     std::ostringstream hash;
     hash << std::hex << fnv1a(name.data(), name.size());
     return target.directory.parent_path() /
-           (".reone-save-txn-" + hash.str() + ".marker");
+           (".save-transaction-" + hash.str() + ".marker");
 }
 
 bool isSafeSiblingName(const std::string &name) {
@@ -334,7 +334,7 @@ void validatePassthrough(const std::map<std::string, ByteBuffer> &files) {
         (void)bytes;
         auto folded = lower(name);
         if (!isSafeSiblingName(name) || managed.count(folded) ||
-            folded.find(".reone-") != std::string::npos ||
+            folded.find(".save-") != std::string::npos ||
             !seen.insert(folded).second) {
             throw std::invalid_argument(
                 "Unsafe or managed loose passthrough filename: " + name);
@@ -550,10 +550,10 @@ void validateExpectedInput(const SaveSlotPackageInput &input) {
     auto factionCount = factions->getList("FactionList").size();
     std::set<std::pair<uint32_t, uint32_t>> pairs;
     for (const auto &entry : factions->getList("RepList")) {
-        auto target = entry->getUint("FactionID1", UINT32_MAX);
-        auto source = entry->getUint("FactionID2", UINT32_MAX);
-        if (target >= factionCount || source == 0 || source >= factionCount ||
-            !pairs.emplace(target, source).second) {
+        auto source = entry->getUint("FactionID1", UINT32_MAX);
+        auto target = entry->getUint("FactionID2", UINT32_MAX);
+        if (source >= factionCount || target == 0 || target >= factionCount ||
+            !pairs.emplace(source, target).second) {
             throw std::invalid_argument("FAC contains an invalid reputation reference");
         }
     }
@@ -790,9 +790,10 @@ ValidatedSlot validateSlot(
             !ordinaryIds.insert(areaObjectId).second) {
             throw std::runtime_error("Published active area has an invalid world ID");
         }
-        static const std::array<const char *, 9> lists {
+        static const std::array<const char *, 10> lists {
             "Creature List", "Door List", "Placeable List", "TriggerList",
-            "Encounter List", "StoreList", "WaypointList", "SoundList", "List"};
+            "Encounter List", "StoreList", "WaypointList", "SoundList", "List",
+            "AreaEffectList"};
         for (const char *label : lists) {
             for (const auto &record : git->getList(label)) {
                 addOrdinaryId(record, "GIT object");
@@ -910,8 +911,8 @@ TransactionMarker readMarker(const std::filesystem::path &path) {
         (!marker.backupName.empty() && !isSafeSiblingName(marker.backupName))) {
         throw std::runtime_error("Unsafe path in save transaction marker");
     }
-    auto candidatePrefix = "." + marker.targetName + ".reone-tmp-";
-    auto backupPrefix = "." + marker.targetName + ".reone-bak-";
+    auto candidatePrefix = "." + marker.targetName + ".save-staging-";
+    auto backupPrefix = "." + marker.targetName + ".save-backup-";
     if (marker.candidateName.rfind(candidatePrefix, 0) != 0) {
         throw std::runtime_error("Candidate path is not bound to marker target");
     }
@@ -1140,8 +1141,8 @@ SaveSlotPublishResult SaveSlotPublisher::publish(
         auto parent = input.target.directory.parent_path();
         auto suffix = uniqueSuffix();
         auto targetName = input.target.directory.filename().string();
-        candidatePath = parent / ("." + targetName + ".reone-tmp-" + suffix);
-        backupPath = parent / ("." + targetName + ".reone-bak-" + suffix);
+        candidatePath = parent / ("." + targetName + ".save-staging-" + suffix);
+        backupPath = parent / ("." + targetName + ".save-backup-" + suffix);
         if (std::filesystem::exists(candidatePath) ||
             std::filesystem::exists(backupPath) ||
             !std::filesystem::create_directory(candidatePath)) {

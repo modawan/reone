@@ -26,6 +26,15 @@ namespace reone {
 
 namespace game {
 
+/**
+ * PlayAnimation and ActionPlayAnimation. A negative duration plays the
+ * animation at once at its own speed, for the lower constants only.
+ * Otherwise a commandable caller queues it: behind its actions, or with
+ * replaceActions in place of them all. A speaker or listener of the running
+ * dialogue first shows its plain pause.
+ */
+void requestScriptAnimation(Game &game, Object &caller, int constant, float speed, float seconds, bool replaceActions);
+
 class PlayAnimationAction : public Action {
 public:
     PlayAnimationAction(Game &game,
@@ -64,6 +73,9 @@ public:
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
 
+    AnimationType animation() const { return _animation; }
+    float speed() const { return _speed; }
+
 private:
     AnimationType _animation;
     float _speed;
@@ -72,6 +84,7 @@ private:
     Timer _timer;
     std::optional<bool> _looping;
     bool _playing {false};
+    bool _shown {false}; /**< the clip was put on the actor since the action was made or loaded */
 };
 
 } // namespace game

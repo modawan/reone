@@ -290,7 +290,7 @@ void SceneGraph::updateSounds() {
         }
         float dist2 = root->getSquareDistanceTo(cameraPos);
         float maxDist2 = root->maxDistance() * root->maxDistance();
-        if (dist2 > maxDist2) {
+        if (root->isPositional() && dist2 > maxDist2) {
             continue;
         }
         distances.push_back(std::make_pair(root.get(), dist2));

@@ -26,25 +26,54 @@ namespace game {
 
 class UseTalentOnObjectAction : public Action {
 public:
-    UseTalentOnObjectAction(Game &game, ServicesView &services, std::shared_ptr<Talent> chosenTalent, std::shared_ptr<Object> target) :
+    UseTalentOnObjectAction(Game &game, ServicesView &services, std::shared_ptr<Talent> chosenTalent, std::shared_ptr<Object> target, Object &actor) :
         Action(game, services, ActionType::UseTalentOnObject),
         _chosenTalent(std::move(chosenTalent)),
         _target(std::move(target)) {
 
         requireRuntimeObject(_target);
 
-        dispatchToAction();
+        dispatchToAction(actor);
     }
 
     static bool classof(Action *from) {
         return from->type() == ActionType::UseTalentOnObject;
     }
 
-    void dispatchToAction();
+    /**
+     * Makes the action the talent stands for: a feat use, a skill use, or a
+     * spell cast or item use. A creature that cannot be commanded makes none.
+     */
+    void dispatchToAction(Object &actor);
+    void onQueued(Object &actor) override {
+        if (_action) {
+            _action->onQueued(actor);
+        }
+    }
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    bool cancel(std::shared_ptr<Action> self, Object &actor) override;
     std::optional<SavedActionRecord> saveFacingState() const override;
+    uint32_t serializedActionId() const override {
+        return _action ? _action->serializedActionId() : Action::serializedActionId();
+    }
+    bool suppressesEndRoundScript() const override { return _action && _action->suppressesEndRoundScript(); }
 
+    /** The action the talent stands for; none when it stands for nothing to do. */
     const std::shared_ptr<Action> &subAction() const { return _action; }
+    Action &combatAction() override { return _action ? _action->combatAction() : *this; }
+    const Action &combatAction() const override {
+        if (!_action) {
+            return *this;
+        }
+        const Action &action = *_action;
+        return action.combatAction();
+    }
+    bool holdsCombatRound() const override { return _action && _action->holdsCombatRound(); }
+    void retireCombatRound() override {
+        if (_action) {
+            _action->retireCombatRound();
+        }
+    }
 
 private:
     std::shared_ptr<Talent> _chosenTalent;

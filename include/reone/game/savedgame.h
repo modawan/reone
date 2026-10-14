@@ -41,7 +41,7 @@ struct SavedGame {
 /**
  * Resolve the installation's save root.
  *
- * Retail ships this directory under either casing, so it must be discovered
+ * The game ships this directory under either casing, so it must be discovered
  * rather than spelled. Indexing, deletion and writing all have to agree with
  * ResourceDirector on the one directory a slot lives in: resolving it
  * separately lets the list offer a save the loader cannot mount. Falls back to

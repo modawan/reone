@@ -50,7 +50,12 @@ class SilentSounds : public IGUISounds {
 public:
     std::shared_ptr<audio::AudioClip> getOnClick() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getOnEnter() const override { return nullptr; }
+    std::shared_ptr<audio::AudioClip> getActionAccepted() const override { return nullptr; }
+    std::shared_ptr<audio::AudioClip> getActionUnavailable() const override { return nullptr; }
     std::shared_ptr<audio::AudioClip> getOnLevelUpNotify() const override { return nullptr; }
+    std::shared_ptr<audio::AudioClip> getCheckboxCheck() const override { return nullptr; }
+    std::shared_ptr<audio::AudioClip> getInventorySelect() const override { return nullptr; }
+    std::shared_ptr<audio::AudioClip> getInventoryDrop() const override { return nullptr; }
 };
 
 // Real controls, layout, list rows and input, with a recording test renderer.

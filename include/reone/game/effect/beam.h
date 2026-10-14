@@ -24,14 +24,14 @@ namespace reone {
 
 namespace game {
 
-class BeamEffect : public Effect {
+class BeamEffect : public CopyableEffect<BeamEffect> {
 public:
     BeamEffect(
         int beamVisualEffect,
         std::shared_ptr<Object> effector,
         BodyNode bodyPart,
         bool missEffect) :
-        Effect(EffectType::Beam),
+        CopyableEffect(EffectType::Beam),
         _beamVisualEffect(beamVisualEffect),
         _effector(effector),
         _bodyPart(bodyPart),
@@ -42,7 +42,11 @@ public:
         setSaveFacingObject(0, effector);
     }
 
-    void applyTo(Object &object) override;
+    /**
+     * Shows the beam as a visual on a creature, a placeable or a door, and in
+     * TSL a trigger; the record is kept on any object.
+     */
+    EffectApplicationResult onApply(Object &object, EffectInstance &) override;
     void retireAreaRuntime(
         const std::set<const Object *> &retainedObjects) override {
         auto effector = _effector.resolve();

@@ -23,6 +23,7 @@ class Item;
 class Object;
 class Module;
 class Area;
+class AreaOfEffect;
 class Creature;
 class Door;
 class Placeable;
@@ -80,11 +81,12 @@ public:
     uint32_t objectId(const Object &object) const;
     bool contains(const Object &object) const;
     uint32_t nextId(uint32_t retainedCursor) const;
+    uint32_t nextCharacterId(uint32_t retainedCursor) const;
 
 private:
     SerializedIdentityContext _outputIdentityContext;
     std::set<uint32_t> _used;
-    std::set<uint32_t> _reservedPartyIds;
+    std::set<uint32_t> _characterIds;
     std::map<const Object *, uint32_t> _objectIds;
 };
 
@@ -123,6 +125,26 @@ private:
         resource::Gff &record,
         const Object &object,
         const ModuleObjectIdContext &ids) const;
+    /**
+     * Writes the object's combat round (CombatRoundData): its scheduled entries,
+     * its clock and its pause. An object with no round state has none.
+     */
+    void writeCombatRound(
+        resource::Gff &record,
+        const Object &object,
+        const ModuleObjectIdContext &ids) const;
+    /** Writes a creature's identity, hit and Force points, level history, flags and pose. */
+    void writeCreatureState(resource::Gff &record, const Creature &creature) const;
+    /** Writes a creature's ability scores, skills, feats, classes and special abilities. */
+    void writeCreatureAttributes(resource::Gff &record, const Creature &creature) const;
+    void writeCreatureScripts(resource::Gff &record, const Creature &creature) const;
+    /** Writes a creature's equipment and, when \p includeInventory is set, its other items. */
+    void writeCreatureItems(
+        resource::Gff &record, const Creature &creature,
+        const ModuleObjectIdContext &ids, bool includeInventory) const;
+    /** Writes the objects a creature sees or hears. */
+    void writeCreaturePerception(
+        resource::Gff &record, const Creature &creature, const ModuleObjectIdContext &ids) const;
     std::shared_ptr<resource::Gff> writeCreature(
         const Creature &creature, uint32_t structType,
         std::optional<uint32_t> serializedId,
@@ -145,6 +167,8 @@ private:
         const Trigger &trigger, const ModuleObjectIdContext &ids) const;
     std::shared_ptr<resource::Gff> writeEncounter(
         const Encounter &encounter, const ModuleObjectIdContext &ids) const;
+    std::shared_ptr<resource::Gff> writeAreaOfEffect(
+        const AreaOfEffect &areaOfEffect, const ModuleObjectIdContext &ids) const;
     std::shared_ptr<resource::Gff> writeStore(
         const Store &store, const ModuleObjectIdContext &ids) const;
     std::shared_ptr<resource::Gff> writeWaypoint(
@@ -164,10 +188,6 @@ private:
         SavedActionRecord &action, const ModuleObjectIdContext &ids) const;
     void normalizeEventReferences(
         SavedEventRecord &event, const ModuleObjectIdContext &ids) const;
-    void appendRuntimeDelayedEvents(
-        std::vector<SavedEventRecord> &events,
-        const Object &owner,
-        const ModuleObjectIdContext &ids) const;
     void validate(const SavedModuleSnapshot &snapshot) const;
 };
 

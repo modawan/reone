@@ -201,7 +201,7 @@ TEST(TurretAimRate, an_idle_axis_does_not_move) {
     EXPECT_FLOAT_EQ(rate.rate(), 0.0f);
 }
 
-TEST(TurretAimRate, a_full_turn_axis_reproduces_reone_turn_rates) {
+TEST(TurretAimRate, a_full_turn_axis_reproduces_keyboard_turn_rates) {
     TurretAimRate rate;
     rate.configure(glm::two_pi<float>());
 
@@ -1326,10 +1326,9 @@ TEST(TurretReturn, an_authored_destination_still_applies_with_no_captured_origin
     EXPECT_EQ(turretReturnModule("m12ab", ""), "ebo_m12aa");
 }
 
-// Launch parity. A session started in place (startturret) captures no origin;
-// one entered through a module transition (startturretgame) captures the module
-// it came from. Both are lifecycle sessions, so an outcome resolves the same
-// way for either - the entry route may only decide where the player lands.
+// Session entry paths: startturret has no origin, while startturretgame
+// captures the module it came from. Both resolve outcomes identically;
+// only the return destination depends on the entry path.
 
 TEST(TurretReturn, both_launch_routes_resolve_a_win_the_same_way) {
     const auto direct = turretReturnModule("m12ab", "");                 // startturret

@@ -55,6 +55,8 @@ public:
     void setPosition(glm::vec3 position);
     /** Scales the gain the source was created with; used to fade it out. */
     void setGainScale(float scale);
+    /** Plays the source at \p pitch times its own rate, which raises or lowers its pitch. */
+    void setPitch(float pitch);
 
     bool isPlaying() const { return _playing; }
 

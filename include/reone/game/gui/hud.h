@@ -56,6 +56,12 @@ public:
     BarkBubble &barkBubble() const { return *_barkBubble; }
 
     void activateStatusSummaryIndicator(StatusSummaryCategory category);
+    /**
+     * Present a combat-mode line. Idle and status lines stay until replaced;
+     * any other line fades out, after which the idle line returns. A fading
+     * line is not interrupted.
+     */
+    void setCombatMessage(int strref);
     void resetStatusSummaryPresentation();
 
     /** Exposes representative HUD state for the scripted gallery fixture. */
@@ -171,6 +177,9 @@ private:
     std::unique_ptr<AreaTransition> _areaTransition;
     StatusSummaryIndicator _journalIndicator;
     StatusSummaryIndicator _plotXPIndicator;
+    /** The time the shown combat-mode line lasts and the time it has left; zero for a line that stays. */
+    float _combatMessageDuration {0.0f};
+    float _combatMessageRemaining {0.0f};
     bool _capturePresentation {false};
     bool _captureCombatPresentation {false};
     bool _captureTransitionPresentation {false};
@@ -273,6 +282,8 @@ private:
     }
 
     void toggleCombat(bool enabled);
+    /** Fade the shown timed combat-mode line, then bring back the idle line. */
+    void updateCombatMessage(float dt);
     void refreshActionQueueItems() const;
     void updateTransitionPresentation();
     std::optional<TransitionPortal> currentTransitionCandidate() const;

@@ -23,14 +23,34 @@ namespace reone {
 
 namespace game {
 
-class UltravisionEffect : public Effect {
+/**
+ * Changes how the creature sees, at once; nothing is kept. Scripts have no
+ * effect type for it.
+ */
+class VisionEffect : public CopyableEffect<VisionEffect> {
 public:
-    UltravisionEffect() :
-        Effect(EffectType::Ultravision) {
+    /** The vision Ultravision gives. */
+    static constexpr int kUltravision = 3;
+    /** The vision blindness leaves. */
+    static constexpr int kBlind = 4;
+
+    explicit VisionEffect(int vision) :
+        CopyableEffect(EffectType::Invalid) {
+        setSaveFacingInteger(0, vision);
     }
 
-    bool onApply(Object &object, const EffectInstance &instance) override;
-    void onRemove(Object &object, const EffectInstance &instance) override;
+    EffectInstance saveFacingInstance() const override;
+    EffectApplicationResult onApply(Object &, EffectInstance &) override;
+};
+
+class UltravisionEffect : public CopyableEffect<UltravisionEffect> {
+public:
+    UltravisionEffect() :
+        CopyableEffect(EffectType::Ultravision) {
+    }
+
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
+    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
 };
 
 } // namespace game

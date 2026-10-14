@@ -142,7 +142,7 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildGlobals() const {
         numbers.size() > kMaxGlobalNumbers ||
         strings.size() > kMaxGlobalStrings ||
         locations.size() > kMaxGlobalLocations) {
-        throw ValidationException("global-variable category exceeds retail capacity");
+        throw ValidationException("global-variable category exceeds saved-format capacity");
     }
 
     ByteBuffer booleanValues(booleans.size() / 8 + 1, 0);
@@ -161,10 +161,10 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildGlobals() const {
     for (const auto &[name, value] : numbers) {
         (void)name;
         if (value < -128 || value > 127) {
-            throw ValidationException("global number is outside retail signed-byte range");
+            throw ValidationException("global number is outside the signed-byte range");
         }
         // Conversion to uint8_t is defined modulo 256 and therefore preserves
-        // the retail two's-complement byte for every validated signed value.
+        // the two's-complement byte for every validated signed value.
         numberValues.push_back(static_cast<uint8_t>(value));
     }
 
@@ -229,8 +229,8 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildPartyTable() const {
                 "PT_SWOOP" + std::to_string(i + 1), state.swoopUpgrades[i]));
         }
     } else {
-        static const std::array<const char *, 10> k2Only {
-            "PT_PCNAME", "PT_ITEM_COMPONEN", "PT_ITEM_COMPONENT",
+        static const std::array<const char *, 9> k2Only {
+            "PT_PCNAME", "PT_ITEM_COMPONEN",
             "PT_ITEM_CHEMICAL", "PT_SWOOP1", "PT_SWOOP2", "PT_SWOOP3",
             "PT_NUM_PUPPETS", "PT_PUPPETS", "PT_AVAIL_PUPS"};
         for (const char *field : k2Only) removeSaveField(*result, field);
@@ -284,7 +284,7 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildPartyTable() const {
         std::set<int> puppetIds;
         for (int puppet : state.puppetIds) {
             if (puppet < 0 || puppet >= static_cast<int>(Party::kMaxPuppetCount)) {
-                throw ValidationException("party puppet is outside retail range");
+                throw ValidationException("party puppet is outside the supported range");
             }
             if (!puppetIds.insert(puppet).second) {
                 throw ValidationException("party contains a duplicate active puppet");
@@ -320,8 +320,19 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildPartyTable() const {
         put(*result, Gff::Field::newInt("PT_DISABLEMAP", state.mapDisabled));
         put(*result, Gff::Field::newInt(
             "PT_DISABLEREGEN", state.regenerationDisabled));
+        put(*result, Gff::Field::newInt("FORFEITVIOL", state.forfeitViolation));
+        put(*result, Gff::Field::newInt("FORFEITCONDS", state.forfeitConditions));
     }
 
+    const size_t tutorialBytes = tsl ? Party::kTutorialShownBytes : Party::kK1TutorialShownBytes;
+    // Each tutorial shown is one bit of the field, by its row.
+    ByteBuffer tutorialsShown(tutorialBytes, 0);
+    for (int id : state.tutorialsShown) {
+        if (id / 8 < static_cast<int>(tutorialBytes)) {
+            tutorialsShown[id / 8] |= static_cast<char>(1 << (id % 8));
+        }
+    }
+    put(*result, Gff::Field::newVoid("PT_TUT_WND_SHOWN", std::move(tutorialsShown)));
     put(*result, Gff::Field::newInt("PT_AISTATE", state.aiState));
     put(*result, Gff::Field::newInt("PT_FOLLOWSTATE", state.followState));
     const auto &galaxyState = party.galaxyMap();
@@ -386,8 +397,9 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildPartyTable() const {
     }
     put(*result, Gff::Field::newList("JNL_Entries", std::move(journal)));
 
+    const MessageLog &log = _game._messageLog;
     std::vector<std::shared_ptr<Gff>> dialogMessages;
-    for (const auto &message : state.dialogMessages) {
+    for (const MessageLog::DialogEntry &message : log.dialogEntries()) {
         dialogMessages.push_back(Gff::Builder().type(0)
                                      .field(Gff::Field::newCExoString(
                                          "PT_DLG_MSG_SPKR", message.speaker))
@@ -396,22 +408,27 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildPartyTable() const {
                                      .build());
     }
     put(*result, Gff::Field::newList("PT_DLG_MSG_LIST", std::move(dialogMessages)));
-    auto logMessages = [](const auto &messages, const std::string &colorLabel) {
+    // The log holds the loaded lists and every line since. The saved colour is
+    // the highlight flag.
+    auto logMessages = [&log](MessageLog::Buffer buffer, const std::string &colorLabel) {
         std::vector<std::shared_ptr<Gff>> records;
-        for (const auto &message : messages) {
-            records.push_back(Gff::Builder().type(0)
-                                  .field(Gff::Field::newByte(colorLabel, message.color))
-                                  .field(Gff::Field::newDword("PT_FB_MSG_TYPE", message.type))
+        for (const MessageLog::Entry &entry : log.entries()) {
+            if (entry.buffer != buffer) {
+                continue;
+            }
+            records.push_back(Gff::Builder().type(0).field(Gff::Field::newByte(
+                                                               colorLabel, entry.style == MessageLog::Style::Combat ? 1 : 0))
+                                  .field(Gff::Field::newDword("PT_FB_MSG_TYPE", entry.type))
                                   .field(Gff::Field::newCExoString(
-                                      "PT_FB_MSG_MSG", message.text))
+                                      "PT_FB_MSG_MSG", entry.text))
                                   .build());
         }
         return records;
     };
     put(*result, Gff::Field::newList(
-        "PT_FB_MSG_LIST", logMessages(state.feedbackMessages, "PT_FB_MSG_COLOR")));
+                     "PT_FB_MSG_LIST", logMessages(MessageLog::Buffer::Messages, "PT_FB_MSG_COLOR")));
     if (tsl) {
-        auto combat = logMessages(state.combatMessages, "PT_COM_MSG_COOR");
+        auto combat = logMessages(MessageLog::Buffer::Combat, "PT_COM_MSG_COOR");
         for (auto &record : combat) {
             auto type = record->getUint("PT_FB_MSG_TYPE");
             auto text = record->getString("PT_FB_MSG_MSG");
@@ -455,22 +472,17 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildFactions() const {
             throw ValidationException("faction reputation matrix is not square");
         }
     }
-    // Retail FAC cannot apply records whose source faction is player (ID2=0),
-    // but the authored base table can legitimately give that runtime row
-    // non-100 values. Omit the derived base row; reject only an actual runtime
-    // mutation that a retail reload would lose.
+    // Player-target values come from the base table and are not stored in
+    // RepList. Reject changes to that column rather than losing them on reload.
     auto baseState = _game._services.game.reputes.baseState();
-    if (!state.values.empty()) {
-        for (size_t target = 0; target < state.values.front().size(); ++target) {
-            int baseReputation = 100;
-            if (!baseState.values.empty() &&
-                target < baseState.values.front().size()) {
-                baseReputation = baseState.values.front()[target];
-            }
-            if (state.values.front()[target] != baseReputation) {
-                throw ValidationException(
-                    "modified player-source reputation cannot be represented by retail FAC");
-            }
+    for (size_t source = 0; source < state.values.size(); ++source) {
+        int baseReputation = 100;
+        if (source < baseState.values.size() && !baseState.values[source].empty()) {
+            baseReputation = baseState.values[source].front();
+        }
+        if (state.values[source].front() != baseReputation) {
+            throw ValidationException(
+                "modified player-target reputation cannot be represented in FAC");
         }
     }
 
@@ -489,8 +501,8 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildFactions() const {
     put(*result, Gff::Field::newList("FactionList", std::move(factions)));
 
     std::vector<std::shared_ptr<Gff>> reputations;
-    for (size_t target = 0; target < state.factions.size(); ++target) {
-        for (size_t source = 1; source < state.factions.size(); ++source) {
+    for (size_t source = 0; source < state.factions.size(); ++source) {
+        for (size_t target = 1; target < state.factions.size(); ++target) {
             int reputation = state.values[source][target];
             if (reputation < 0 || reputation > 100) {
                 throw ValidationException("faction reputation is outside 0..100");
@@ -499,9 +511,9 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildFactions() const {
             reputations.push_back(Gff::Builder()
                                       .type(static_cast<uint32_t>(reputations.size()))
                                       .field(Gff::Field::newDword(
-                                          "FactionID1", static_cast<uint32_t>(target)))
+                                          "FactionID1", static_cast<uint32_t>(source)))
                                       .field(Gff::Field::newDword(
-                                          "FactionID2", static_cast<uint32_t>(source)))
+                                          "FactionID2", static_cast<uint32_t>(target)))
                                       .field(Gff::Field::newDword(
                                           "FactionRep", static_cast<uint32_t>(reputation)))
                                       .build());
@@ -543,11 +555,7 @@ std::shared_ptr<Gff> SaveWideSnapshotBuilder::buildNfo() const {
     if (_game.isTSL()) {
         removeSaveField(*result, "STORYHINT");
         put(*result, Gff::Field::newDword64("TIMESTAMP", _metadata.timestamp));
-        std::string pcName = state.pcName;
-        if (pcName.empty() && _game._party.actualPlayer()) {
-            pcName = _game._party.actualPlayer()->name();
-        }
-        put(*result, Gff::Field::newCExoString("PCNAME", pcName));
+        put(*result, Gff::Field::newCExoString("PCNAME", _game._party.playerCharacterName()));
         put(*result, Gff::Field::newDword("SAVENUMBER", _metadata.saveNumber));
         for (size_t i = 0; i < _metadata.storyHints.size(); ++i) {
             put(*result, Gff::Field::newByte(
@@ -639,7 +647,7 @@ SaveWideSnapshotResult SaveWideSnapshotBuilder::build() const noexcept {
                                const std::shared_ptr<Creature> &creature,
                                bool sharedInventoryOwner = false) {
             if (!creature) {
-                // Retail keeps the last AVAILNPC/AVAILPUP record when its
+                // The game keeps the last AVAILNPC/AVAILPUP record when its
                 // transient runtime object is killed. An available but unbound
                 // slot therefore persists that detached record unchanged.
                 auto working =
@@ -662,7 +670,7 @@ SaveWideSnapshotResult SaveWideSnapshotBuilder::build() const noexcept {
                 0xffffffff,
                 std::nullopt,
                 SerializedIdentityContext::detachedRecord(name + ".utc"));
-            // Reone models the retail party repository as the actual player's
+            // The party repository is modelled as the actual player's
             // non-equipped ItemList. inventory.res owns that topology; pc.utc
             // retains equipment but must not duplicate the shared repository.
             if (sharedInventoryOwner) removeSaveField(*utc, "ItemList");
@@ -823,10 +831,10 @@ void SaveWideSnapshotBuilder::validate(const SaveWideSnapshot &snapshot) const {
     std::set<std::pair<uint32_t, uint32_t>> pairs;
     const size_t factionCount = factions->getList("FactionList").size();
     for (const auto &entry : factions->getList("RepList")) {
-        uint32_t target = entry->getUint("FactionID1", UINT32_MAX);
-        uint32_t source = entry->getUint("FactionID2", UINT32_MAX);
-        if (target >= factionCount || source == 0 || source >= factionCount ||
-            !pairs.emplace(target, source).second) {
+        uint32_t source = entry->getUint("FactionID1", UINT32_MAX);
+        uint32_t target = entry->getUint("FactionID2", UINT32_MAX);
+        if (source >= factionCount || target == 0 || target >= factionCount ||
+            !pairs.emplace(source, target).second) {
             throw ValidationException("FAC contains an invalid or duplicate pair");
         }
     }

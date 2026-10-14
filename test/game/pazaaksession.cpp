@@ -26,7 +26,7 @@ PazaakSession makeSession(
     int maximumWager = 0,
     int credits = 0,
     PazaakSession::HandSelector playerSelector = firstFour,
-    std::vector<PazaakCollectionCard> collection = PazaakSession::temporaryK1TestCollection(),
+    std::vector<PazaakCollectionCard> collection = PazaakSession::makeDebugCollection(false),
     PazaakSession::HandSelector opponentSelector = firstFour,
     PazaakSession::MainDeckFactory mainDeckFactory = []() {
         return MainDeck::standardOrdered();
@@ -39,7 +39,7 @@ PazaakSession makeSession(
     params.playerName = "Player";
     params.opponentName = "Opponent";
     params.collection = std::move(collection);
-    params.opponentSideDeck = PazaakSession::temporaryK1OpponentSideDeck();
+    params.opponentSideDeck = PazaakSession::makeDebugOpponentSideDeck(false);
     return PazaakSession(
         std::move(params),
         std::move(playerSelector),
@@ -255,7 +255,7 @@ TEST(PazaakFlowBoard, ParticipantTwoCanStartAndEventsDrawExactlyOneCardAtATime) 
         0,
         0,
         firstFour,
-        PazaakSession::temporaryK1TestCollection(),
+        PazaakSession::makeDebugCollection(false),
         firstFour,
         []() { return makeMainDeck({8, 9}); },
         [](size_t) { return Participant::Two; }));
@@ -289,7 +289,7 @@ TEST(PazaakFlowBoard, AutoStandAtTwentyQueuesEachPlacementAndTurnOnce) {
         0,
         0,
         firstFour,
-        PazaakSession::temporaryK1TestCollection(),
+        PazaakSession::makeDebugCollection(false),
         firstFour,
         []() { return makeMainDeck({10, 1, 10}); }));
     chooseTen(session);
@@ -373,7 +373,7 @@ TEST(PazaakFlowBoard, SetCompletionAutoAdvancesAfterReadableIntervalAndPreserves
         0,
         0,
         firstFour,
-        PazaakSession::temporaryK1TestCollection(),
+        PazaakSession::makeDebugCollection(false),
         firstFour,
         []() { return makeMainDeck({10, 9}); },
         [](size_t) { return Participant::One; }));
@@ -409,7 +409,7 @@ TEST(PazaakFlowBoard, TiedSetAutoTransitionsWithoutPipOrInventedCue) {
         0,
         0,
         firstFour,
-        PazaakSession::temporaryK1TestCollection(),
+        PazaakSession::makeDebugCollection(false),
         firstFour,
         []() { return makeMainDeck({10, 10}); }));
     chooseTen(session);
@@ -444,7 +444,7 @@ TEST(PazaakFlowBoard, CompletedSetRejectsCommandsWithCompleteStateEquality) {
         0,
         0,
         firstFour,
-        PazaakSession::temporaryK1TestCollection(),
+        PazaakSession::makeDebugCollection(false),
         firstFour,
         []() { return makeMainDeck({10, 9}); }));
     chooseTen(session);
@@ -561,7 +561,7 @@ TEST(PazaakOpponentPolicy, ResultPresentationBlocksPolicyAndAdvancesOnlyAfterDur
         0,
         0,
         firstFour,
-        PazaakSession::temporaryK1TestCollection(),
+        PazaakSession::makeDebugCollection(false),
         firstFour,
         []() { return makeMainDeck({10, 9, 2}); }));
     chooseTen(session);
@@ -625,8 +625,8 @@ TEST(PazaakOpponentPolicy, DeterministicPolicyTerminatesACompleteMatch) {
 TEST(PazaakFlowBoard, CompletedRulesMatchProducesSemanticPlayerWin) {
     auto setNumber = std::make_shared<int>(0);
     PazaakSessionParams params;
-    params.collection = PazaakSession::temporaryK1TestCollection();
-    params.opponentSideDeck = PazaakSession::temporaryK1OpponentSideDeck();
+    params.collection = PazaakSession::makeDebugCollection(false);
+    params.opponentSideDeck = PazaakSession::makeDebugOpponentSideDeck(false);
     PazaakSession session(
         std::move(params),
         firstFour,

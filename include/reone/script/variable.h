@@ -30,7 +30,21 @@ struct ExecutionContext;
 class EngineType;
 class ScriptObject;
 
+/**
+ * Whether two effect values are the same effect: both none, or with the same
+ * identity (CopyableEngineType::scriptValueId), whichever copies they are.
+ */
+bool equalEffectValues(const std::shared_ptr<EngineType> &left,
+                       const std::shared_ptr<EngineType> &right);
+
 struct Variable {
+    Variable() = default;
+    /** Copying an effect variable copies its effect (CopyableEngineType::cloneForScript). */
+    Variable(const Variable &other);
+    Variable(Variable &&) noexcept = default;
+    Variable &operator=(const Variable &other);
+    Variable &operator=(Variable &&) noexcept = default;
+
     VariableType type {VariableType::Void};
     std::string strValue;
     glm::vec3 vecValue {0.0f};
@@ -50,7 +64,9 @@ struct Variable {
         return type == other.type &&
                strValue == other.strValue &&
                vecValue == other.vecValue &&
-               engineType == other.engineType &&
+               (type == VariableType::Effect
+                    ? equalEffectValues(engineType, other.engineType)
+                    : engineType == other.engineType) &&
                context == other.context &&
                intValue == other.intValue;
     }
@@ -89,9 +105,6 @@ enum class ArgKind {
     ScriptVar,
     UserDefinedEventNumber,
     ClickingObject,
-    EnteringObject,
-    ExitingObject,
-    BlockingDoor,
     LastClosedBy,
     LastOpenedBy,
     LastDisturbed,

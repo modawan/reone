@@ -94,6 +94,8 @@ struct Dialog {
     std::vector<EntryReply> entries;
     std::vector<EntryReply> replies;
     std::string endScript;
+    /** The script an interrupted conversation runs in place of endScript. */
+    std::string abortScript;
     int entryIndex {-1};
     bool animatedCutscene {false};
     std::vector<Stunt> stunts;

@@ -19,16 +19,15 @@
 
 #include <gmock/gmock.h>
 
-#include "reone/game/di/services.h"
-#include "reone/system/exception/notimplemented.h"
-
 #include "reone/game/animations.h"
 #include "reone/game/camerastyles.h"
 #include "reone/game/combattables.h"
+#include "reone/game/console.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/feats.h"
 #include "reone/game/d20/skills.h"
 #include "reone/game/d20/spells.h"
+#include "reone/game/di/services.h"
 #include "reone/game/difficultyoptions.h"
 #include "reone/game/footstepsounds.h"
 #include "reone/game/gui/sounds.h"
@@ -40,8 +39,7 @@
 #include "reone/game/surfaces.h"
 #include "reone/game/types.h"
 #include "reone/game/visualeffects.h"
-
-#include "reone/game/console.h"
+#include "reone/system/exception/notimplemented.h"
 
 namespace reone {
 
@@ -124,7 +122,12 @@ class MockGUISounds : public IGUISounds, boost::noncopyable {
 public:
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnClick, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnEnter, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionAccepted, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getActionUnavailable, (), (const override));
     MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getOnLevelUpNotify, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getCheckboxCheck, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventorySelect, (), (const override));
+    MOCK_METHOD(std::shared_ptr<audio::AudioClip>, getInventoryDrop, (), (const override));
 };
 
 class MockPortraits : public IPortraits, boost::noncopyable {
@@ -143,7 +146,6 @@ public:
     MOCK_METHOD(int, getReputation, (Faction sourceFaction, Faction targetFaction), (const override));
     MOCK_METHOD(void, adjustReputation, (Faction sourceFaction, Faction targetFaction, int adjustment), (override));
     MOCK_METHOD(bool, getIsEnemy, (const Creature &source, const Creature &target), (const override));
-    MOCK_METHOD(bool, getIsEnemy, (Faction sourceFaction, Faction targetFaction), (const override));
     MOCK_METHOD(bool, getIsFriend, (const Creature &source, const Creature &target), (const override));
     MOCK_METHOD(bool, getIsNeutral, (const Creature &source, const Creature &target), (const override));
 };
@@ -175,20 +177,26 @@ public:
 class MockProjectiles : public IProjectiles, boost::noncopyable {
 public:
     MOCK_METHOD(void, clear, (), (override));
-    MOCK_METHOD(ProjectileSpec *, get, (ProjectileAttackType attack, CreatureWieldType wield, int appearance), (override));
+    MOCK_METHOD(void, launchLightsaberThrow,
+                (Creature &, const EffectInstance &, Game &, ServicesView &),
+                (override));
+    MOCK_METHOD(void, update, (float, Game &, ServicesView &), (override));
+    MOCK_METHOD(void, retireAreaRuntime, (), (override));
+    MOCK_METHOD(std::optional<ProjectileSpec>, discharge, (int animation, const Creature &attacker), (const override));
 };
 
 class MockAnimations : public IAnimations, boost::noncopyable {
 public:
     MOCK_METHOD(void, clear, (), (override));
     MOCK_METHOD(std::string, getNameById, (uint32_t id), (const override));
-    MOCK_METHOD(std::string, getAttackResult, (std::string attackAnim, CreatureWieldType targetWield, AttackResultType result), (const override));
+    MOCK_METHOD(std::string, getReactionAnimation, (const std::string &attackAnim, CreatureWieldType targetWield, AttackReaction reaction), (const override));
     MOCK_METHOD(int, getMeleeImpactTime, (const std::string &attackAnim, size_t attackIndex), (const override));
 };
 
 class MockVisualEffects : public IVisualEffects, boost::noncopyable {
 public:
-    MOCK_METHOD(std::optional<const VisualEffectDesc *>, get, (uint32_t id), (const override));
+    MOCK_METHOD(std::optional<std::reference_wrapper<const VisualEffectDesc>>, get, (uint32_t id), (const override));
+    MOCK_METHOD(int, hitVisual, (int damageSlot, bool ranged), (const override));
 };
 
 class TestGameModule : boost::noncopyable {
@@ -315,6 +323,8 @@ public:
     static void setSnapshotObjectId(Object &object, uint32_t objectId);
     static void setSnapshotEquipment(
         Creature &creature, int slot, std::shared_ptr<Item> item);
+    /** Record the hit die each of the creature's levels granted. */
+    static void setLevelHitDice(Creature &creature, const std::vector<int> &hitDice);
     // Stand in for a save record that reports the creature as already spawned.
     static void markSpawnScriptFired(Creature &creature);
     static void setSnapshotDoorState(Door &door, DoorState state);

@@ -38,7 +38,7 @@ void Surfaces::init() {
         surface.walkcheck = surfacemat->getBool(row, "walkcheck");
         surface.lineOfSight = surfacemat->getBool(row, "lineofsight");
         surface.grass = surfacemat->getBool(row, "grass");
-        surface.sound = surfacemat->getString(row, "sound");
+        surface.name = surfacemat->getString(row, "name");
         _surfaces.push_back(std::move(surface));
     }
 }

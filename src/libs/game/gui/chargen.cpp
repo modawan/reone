@@ -450,8 +450,20 @@ void CharacterGeneration::updateAttributes() {
     std::shared_ptr<CreatureClass> clazz(_services.game.classes.get(_character.attributes.getEffectiveClass()));
     _controls.LBL_CLASS->setTextMessage(clazz->name());
 
-    int vitality = _character.attributes.getPermanentMaxHitPoints(
-        _character.attributes.getAggregateHitDie());
+    const auto &classLevels = _character.attributes.classLevels();
+    int vitality = _character.attributes.getLevelHistoryMaxHitPoints(
+        [&classLevels](int level) {
+            // Each class level records that class's hit die.
+            for (const auto &[levelClass, count] : classLevels) {
+                if (level < count) {
+                    return levelClass->hitdie();
+                }
+                level -= count;
+            }
+            return 0;
+        },
+        _character.attributes.getAbilityModifier(Ability::Constitution),
+        [this](FeatType feat) { return _character.attributes.hasFeat(feat); });
     _controls.LBL_VIT->setTextMessage(std::to_string(vitality));
 
     int defense = _character.attributes.getDefense();

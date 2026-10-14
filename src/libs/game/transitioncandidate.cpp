@@ -35,7 +35,7 @@ static float distanceToSegment2D(const glm::vec2 &point, const glm::vec2 &a, con
     return glm::distance(point, a + t * (b - a));
 }
 
-static bool isInPolygon2D(const glm::vec2 &point, const std::vector<glm::vec3> &points) {
+bool isInPolygon2D(const glm::vec2 &point, const std::vector<glm::vec3> &points) {
     bool inside = false;
     size_t count = points.size();
     for (size_t i = 0, j = count - 1; i < count; j = i++) {

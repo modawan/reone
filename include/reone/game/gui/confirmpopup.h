@@ -44,12 +44,17 @@ public:
         _resRef = guiResRef("confirm");
     }
 
-    void show(const std::string &message, std::shared_ptr<graphics::Texture> icon = nullptr);
+    void show(const std::string &message, std::shared_ptr<graphics::Texture> icon = nullptr,
+              std::function<void()> onConfirm = {});
     void showConfirm(
         const std::string &message,
         std::function<void()> onConfirm,
         std::function<void()> onCancel = {});
     void hide();
+    /** Close as its key would: cancelled when it offers Cancel, otherwise confirmed. */
+    void close();
+    /** Relabel OK until the next show. */
+    void setConfirmText(const std::string &text);
 
     bool isVisible() const { return _visible; }
 
@@ -64,14 +69,34 @@ private:
     bool _visible {false};
     std::function<void()> _onConfirm;
     std::function<void()> _onCancel;
+    std::string _defaultConfirmText;
 
     std::shared_ptr<gui::Control> _icon;
     gui::Control::Extent _messageExtent;
     int _iconSize {0};
     int _iconPadding {0};
 
+    // The box as loaded; every message is laid out again from it.
+    gui::Control::Extent _rootExtent;
+    gui::Control::Extent _listExtent;
+    gui::Control::Extent _okExtent;
+    gui::Control::Extent _cancelExtent;
+    gui::Control::Extent _scrollBarExtent;
+    gui::Control::Extent _iconExtent;
+
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;
+
+    /**
+     * Lays the message out in the box as loaded. A message that does not fit
+     * grows the box, wider and taller, up to a limit; only a message that
+     * still does not fit then shows the scroll bar, its text wrapped clear of
+     * it.
+     *
+     * @param text the message, its tokens resolved
+     * @param hasIcon whether an icon is shown left of the text
+     */
+    void layoutMessage(const std::string &text, bool hasIcon);
 
     void bindControls() {
         _controls.BTN_CANCEL = findControl<gui::Button>("BTN_CANCEL");

@@ -23,17 +23,18 @@ namespace reone {
 
 namespace game {
 
-class DamageImmunityDecreaseEffect : public Effect {
+class DamageImmunityDecreaseEffect : public CopyableEffect<DamageImmunityDecreaseEffect> {
 public:
     DamageImmunityDecreaseEffect(DamageType damageType, int percentImmunity) :
-        Effect(EffectType::DamageImmunityDecrease),
+        CopyableEffect(EffectType::DamageImmunityDecrease),
         _damageType(damageType),
         _percentImmunity(percentImmunity) {
         setSaveFacingInteger(0, static_cast<int>(damageType));
         setSaveFacingInteger(1, percentImmunity);
     }
 
-    bool onApply(Object &object, const EffectInstance &instance) override;
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
+    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
 
     DamageType damageType() const { return _damageType; }
     int percentImmunity() const { return _percentImmunity; }

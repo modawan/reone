@@ -18,16 +18,17 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "../fixtures/engine.h"
-
 #include "reone/game/action/movetopoint.h"
 #include "reone/game/game.h"
 #include "reone/game/location.h"
+#include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/placeable.h"
 #include "reone/game/party.h"
 #include "reone/game/script/routines.h"
 #include "reone/script/executioncontext.h"
+
+#include "../fixtures/engine.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -51,9 +52,18 @@ struct ActionActorFixture {
     StubConsole console;
     Game game {GameID::TSL, "", engine.options(), engine.services(), console};
     Routines routines {GameID::TSL, &game, &engine.services()};
+    std::shared_ptr<Area> area;
 
     ActionActorFixture() {
         routines.init();
+        // Actors act in the module's area.
+        auto sceneGraph = std::make_shared<NiceMock<scene::MockSceneGraph>>();
+        ON_CALL(engine.sceneModule().graphs(), get(_))
+            .WillByDefault([sceneGraph](const std::string &) -> scene::ISceneGraph & {
+                return *sceneGraph;
+            });
+        area = game.newArea();
+        TestGameModule::setActiveModuleArea(game, area);
     }
 
     // Queue an action the way a script does: through the routine, with the
@@ -84,6 +94,11 @@ struct ActionActorFixture {
         return std::make_shared<Location>(glm::vec3(kFarAway, 0.0f, 0.0f), 0.0f);
     }
 
+    // A script moves a creature only to an object standing in an area.
+    void placeInArea(const std::shared_ptr<Object> &object) {
+        area->add(object);
+    }
+
     // Give the object one update, which is what executes the head of its queue.
     void tick(const std::shared_ptr<Object> &object, float dt = 1.0f) {
         object->update(dt);
@@ -93,7 +108,11 @@ struct ActionActorFixture {
 // A placeable that owns a conversation is a perfectly ordinary action caller;
 // it just is not something that can walk.
 std::shared_ptr<Placeable> makeConversationOwner(Game &game) {
-    return game.newPlaceable();
+    // Intact: a placeable at 0 hit points is destroyed and runs no actions.
+    auto owner = game.newPlaceable();
+    owner->setMaxHitPoints(1);
+    owner->setCurrentHitPoints(1);
+    return owner;
 }
 
 } // namespace
@@ -101,9 +120,9 @@ std::shared_ptr<Placeable> makeConversationOwner(Game &game) {
 // -- Proven shipped shapes ---------------------------------------------------
 
 // A. The K2 a_kumus_free_2 / a_revan_act shape: a placeable-owned conversation
-// runs an action script that calls ActionMoveToObject, so the move is queued on
-// the placeable. The placeable executes its queue like any other object, finds
-// there is no creature to move, and drops the action.
+// runs an action script that calls ActionMoveToObject with the placeable as the
+// caller. Only a creature moves to an object, so nothing is queued and nothing
+// blocks whatever the placeable is asked to do next.
 TEST(ActionActor, move_to_object_queued_on_a_placeable_is_dropped) {
     ActionActorFixture fixture;
     auto owner = makeConversationOwner(fixture.game);
@@ -113,14 +132,8 @@ TEST(ActionActor, move_to_object_queued_on_a_placeable_is_dropped) {
                           {script::Variable::ofObject(target->id()),
                            script::Variable::ofInt(1),
                            script::Variable::ofFloat(1.0f)});
-    ASSERT_EQ(1u, owner->actions().size());
+    EXPECT_TRUE(owner->actions().empty());
 
-    fixture.tick(owner);
-
-    EXPECT_TRUE(owner->actions().front()->isCompleted());
-
-    // A completed action is reaped on the following update, so the queue drains
-    // rather than blocking whatever the placeable is asked to do next.
     fixture.tick(owner);
     EXPECT_TRUE(owner->actions().empty());
 }
@@ -138,11 +151,9 @@ TEST(ActionActor, follow_leader_queued_on_a_placeable_is_dropped) {
 
     auto owner = makeConversationOwner(fixture.game);
     fixture.queueAsCaller(owner, kActionFollowLeader);
-    ASSERT_EQ(1u, owner->actions().size());
+    // A placeable caller queues nothing.
+    EXPECT_TRUE(owner->actions().empty());
 
-    fixture.tick(owner);
-
-    EXPECT_TRUE(owner->actions().front()->isCompleted());
     // The leader was there the whole time: this is the actor guard, not #297's.
     EXPECT_TRUE(fixture.game.party().getLeader());
 }
@@ -203,6 +214,7 @@ TEST(ActionActor, a_creature_actor_keeps_moving_to_an_object) {
     ActionActorFixture fixture;
     auto walker = fixture.makeStuckCreature();
     auto target = fixture.makeDistantTarget();
+    fixture.placeInArea(target);
 
     fixture.queueAsCaller(walker, kActionMoveToObject,
                           {script::Variable::ofObject(target->id()),
@@ -219,6 +231,9 @@ TEST(ActionActor, a_creature_actor_completes_a_move_it_has_arrived_at) {
     ActionActorFixture fixture;
     auto walker = fixture.game.newCreature();
     auto target = fixture.game.newPlaceable();
+    // Use range is measured only between objects in the same area.
+    fixture.placeInArea(walker);
+    fixture.placeInArea(target);
     ASSERT_EQ(walker->position(), target->position());
 
     fixture.queueAsCaller(walker, kActionMoveToObject,
@@ -275,7 +290,28 @@ TEST(ActionActor, a_creature_actor_keeps_following_the_leader) {
     fixture.game.party().addMember(kNpcPlayer, leader);
 
     auto walker = fixture.makeStuckCreature();
+    // Only a party member follows the leader, and one at 0 hit points runs
+    // no actions.
+    walker->setMaxHitPoints(1);
+    walker->setCurrentHitPoints(1);
+    // A standing party member regenerates, with its Constitution modifier
+    // and healing skill, and searches for mines.
+    ON_CALL(fixture.engine.resourceModule().twoDas(), get("regeneration"))
+        .WillByDefault(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
+    ON_CALL(fixture.engine.resourceModule().twoDas(), get("skills"))
+        .WillByDefault(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
+    // A follower standing still glances at the leader within its head arc.
+    ON_CALL(fixture.engine.resourceModule().twoDas(), get("appearance"))
+        .WillByDefault(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().columns({"head_arc_h"}).row({"40"}).build())));
+    ON_CALL(fixture.engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                                                                   .row({"0", "0", "0", "0", "0", "0"})
+                                                                   .build())));
+    ASSERT_TRUE(fixture.game.party().addAvailableMember(0, walker));
+    ASSERT_TRUE(fixture.game.party().addMember(0, walker));
     fixture.queueAsCaller(walker, kActionFollowLeader);
+    ASSERT_EQ(1u, walker->actions().size());
     fixture.tick(walker);
 
     EXPECT_FALSE(walker->actions().front()->isCompleted());

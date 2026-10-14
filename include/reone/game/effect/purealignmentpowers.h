@@ -23,13 +23,19 @@ namespace reone {
 
 namespace game {
 
-class CutsceneHorrifiedEffect : public Effect {
+/**
+ * Pure Good or Pure Evil powers, held innately at the ends of the good/evil
+ * axis. The controlled creature gains a bonus per Jedi class; every holder
+ * shows the effect icon. The bonuses are children of the package, rebuilt
+ * whenever the powers are applied or restored and removed with them.
+ */
+class PureAlignmentPowersEffect : public CopyableEffect<PureAlignmentPowersEffect> {
 public:
-    CutsceneHorrifiedEffect() :
-        Effect(EffectType::CutSceneHorrified) {
+    explicit PureAlignmentPowersEffect(bool good) :
+        CopyableEffect(good ? EffectType::PureGoodPowers : EffectType::PureEvilPowers) {
     }
 
-    void applyTo(Object &object) override;
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
 };
 
 } // namespace game

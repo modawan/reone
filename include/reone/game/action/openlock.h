@@ -41,6 +41,7 @@ public:
 
 private:
     std::shared_ptr<Object> _target;
+    bool _working {false};
 };
 
 } // namespace game

@@ -15,8 +15,12 @@
 #include <vector>
 
 #include "reone/resource/gff.h"
+#include "reone/script/types.h"
 
+#include "attack.h"
+#include "combatfeedback.h"
 #include "effect.h"
+#include "effect/damage.h"
 #include "runtimeref.h"
 
 namespace reone {
@@ -29,7 +33,13 @@ class Object;
 class SavedScriptSituationImporter;
 
 constexpr uint32_t kSavedRuntimeInvalidObjectId = 0x7f000000;
-// Retail creates the structural Module before loading its saved object graph.
+/**
+ * Saved identities above the invalid ID form the character namespace. Player
+ * characters take them downward from this ceiling; ordinary objects stay below
+ * the invalid ID.
+ */
+constexpr uint32_t kSavedRuntimeMaxCharacterObjectId = 0x7fffffff;
+// The game creates the structural Module before loading its saved object graph.
 // Its contextual object-reference target is therefore slot 0 even though the
 // IFO contains no owned Module record or explicit Module ObjectId field.
 constexpr uint32_t kSavedRuntimeModuleObjectId = 0;
@@ -40,8 +50,9 @@ struct SavedObjectReference {
 
     SavedObjectReference() = default;
     explicit SavedObjectReference(uint32_t id) : id(id) {}
+    /** The runtime's invalid object is the saved invalid object. */
     static SavedObjectReference fromRuntimeId(uint32_t id) {
-        return SavedObjectReference(id);
+        return id == script::kObjectInvalid ? SavedObjectReference() : SavedObjectReference(id);
     }
     static SavedObjectReference fromSerializedId(
         uint32_t id,
@@ -50,8 +61,18 @@ struct SavedObjectReference {
         result._serializedIdentityContext = std::move(identityContext);
         return result;
     }
+    /**
+     * An object slot holding a value that names no object. It binds to
+     * nothing and is saved as the value itself.
+     */
+    static SavedObjectReference rawValue(uint32_t value) {
+        SavedObjectReference result(value);
+        result._rawValue = true;
+        return result;
+    }
 
     bool isInvalid() const { return id == kSavedRuntimeInvalidObjectId; }
+    bool isRawValue() const { return _rawValue; }
     bool isSerializedIdentity() const {
         return _serializedIdentityContext.has_value();
     }
@@ -66,58 +87,36 @@ private:
     std::optional<uint64_t> _runtimeSession;
     std::optional<uint64_t> _savedGraph;
     std::optional<SerializedIdentityContext> _serializedIdentityContext;
-};
-
-struct SavedLocString {
-    int32_t strRef {0};
-    std::string text;
-};
-
-struct SavedStruct;
-using SavedStructChildren = std::vector<std::shared_ptr<SavedStruct>>;
-using SavedFieldValue = std::variant<
-    int64_t,
-    uint64_t,
-    double,
-    std::string,
-    ByteBuffer,
-    glm::vec3,
-    glm::quat,
-    SavedLocString,
-    SavedStructChildren>;
-
-/**
- * Semantic GFF field fallback for a genuinely unsupported typed payload.
- * Known action/event/VM payloads use their concrete models below.
- */
-struct SavedField {
-    resource::Gff::FieldType type {resource::Gff::FieldType::Int};
-    std::string label;
-    SavedFieldValue value {int64_t {0}};
-};
-
-struct SavedStruct {
-    uint32_t type {0};
-    std::vector<SavedField> fields;
-
-    static SavedStruct fromGff(const resource::Gff &gff);
-};
-
-struct UnsupportedSavedPayload {
-    /**
-     * Opaque compatibility shadow only. Reone never executes it and never
-     * guesses that an arbitrary DWORD is an ObjectId. Consequently, a modded
-     * unknown payload that embeds an undocumented object reference can only be
-     * preserved numerically; it is not promised to survive graph renumbering.
-     * Once a structure is known to carry references it must receive a typed
-     * model and symmetric translation instead of remaining here.
-     */
-    SavedStruct data;
+    bool _rawValue {false};
 };
 
 struct SavedLocationValue {
     glm::vec3 position {0.0f};
     glm::vec3 orientation {0.0f};
+};
+
+/**
+ * The number of a script event a SignalEvent event delivers, as it is saved in
+ * the event's EventType.
+ */
+enum class SavedSignalEventType : uint16_t {
+    Heartbeat = 0,
+    SpellCastAt = 2,
+    Damaged = 4,
+    Death = 10,
+    UserDefined = 11,
+    Entered = 12,
+    Exited = 13,
+    ModuleLoaded = 17,
+    ItemActivated = 18,
+    ItemAcquired = 19,
+    ItemLost = 20,
+    EncounterExhausted = 21,
+    InventoryOpened = 22,
+    InventoryClosed = 23,
+    Used = 25,
+    Locked = 28,
+    FailToOpen = 34,
 };
 
 struct SavedScriptEvent {
@@ -128,7 +127,7 @@ struct SavedScriptEvent {
     std::vector<SavedObjectReference> objects;
 };
 
-/** Retail CScriptTalent game-defined VM structure (engine structure 3). */
+/** Game-defined talent value used by VM structure 3. */
 struct SavedTalentValue {
     int32_t id {-1};
     int32_t type {-1};
@@ -150,8 +149,9 @@ enum class SavedVmStackType : int8_t {
     Talent = 19,
 };
 
+/** A stack value of a type the stack does not hold is empty. */
 using SavedVmStackPayload = std::variant<
-    UnsupportedSavedPayload,
+    std::monostate,
     int32_t,
     float,
     std::string,
@@ -163,15 +163,15 @@ using SavedVmStackPayload = std::variant<
 
 struct SavedVmStackValue {
     int8_t type {0};
-    SavedVmStackPayload payload {UnsupportedSavedPayload {}};
+    SavedVmStackPayload payload;
 };
 
 enum class ScriptSituationResumeSupport {
-    UnsupportedRetailSnapshot,
+    UnsupportedSavedSnapshot,
     ValidatedImport,
 };
 
-/** Retail STORE_STATE continuation, kept separate from live ExecutionState. */
+/** The game STORE_STATE continuation, kept separate from live ExecutionState. */
 struct SerializedScriptSituation {
     int32_t codeSize {0};
     ByteBuffer code;
@@ -184,7 +184,6 @@ struct SerializedScriptSituation {
     int32_t stackPointer {0};
     int32_t totalSize {0};
     std::vector<SavedVmStackValue> stack;
-    std::vector<SavedField> unsupportedFields;
 
     static SerializedScriptSituation fromGff(
         const resource::Gff &gff,
@@ -198,7 +197,54 @@ struct SerializedScriptSituation {
 private:
     friend class SavedScriptSituationImporter;
     std::optional<uint64_t> _runtimeSession;
-    bool _referencesBound {false};
+};
+
+/**
+ * The type of a saved command: the ActionId an ActionList or a scheduled
+ * entry's Command records.
+ */
+enum class SavedActionType : uint32_t {
+    MoveToPoint = 1,
+    PlayAnimation = 6,
+    PickUpItem = 7,
+    EquipItem = 8,
+    PutDownItem = 9,
+    UnequipItem = 11,
+    /** A physical attack, with or without a combat feat. */
+    AttackObject = 12,
+    CastSpell = 15,
+    /** A move to an object that ends once it is within range. */
+    MoveToObject = 17,
+    OpenDoor = 20,
+    CloseDoor = 21,
+    StartConversation = 24,
+    DisarmMine = 25,
+    RecoverMine = 26,
+    FlagMine = 27,
+    ExamineMine = 28,
+    SetMine = 29,
+    Wait = 30,
+    DoCommand = 37,
+    OpenLock = 38,
+    Lock = 39,
+    OpenContainer = 40,
+    AnimalEmpathy = 41,
+    Rest = 42,
+    Taunt = 43,
+    ItemCastSpell = 46,
+    Counterspell = 50,
+    PickPocket = 54,
+    Follow = 55,
+    Heal = 56,
+    FollowLeader = 61,
+    /** The command that dispatches its creature's combat round. */
+    CombatDispatch = 63,
+    TotalDefense = 68,
+    Meditate = 69,
+    FollowOwner = 70,
+    SwitchWeapons = 71,
+    /** No command the save format represents. */
+    Invalid = 0xffff,
 };
 
 enum class SavedActionParameterType : uint32_t {
@@ -210,8 +256,9 @@ enum class SavedActionParameterType : uint32_t {
     ScriptSituation = 5,
 };
 
+/** A parameter of a type no command takes is empty. */
 using SavedActionParameterPayload = std::variant<
-    UnsupportedSavedPayload,
+    std::monostate,
     int32_t,
     float,
     SavedObjectReference,
@@ -220,7 +267,7 @@ using SavedActionParameterPayload = std::variant<
 
 struct SavedActionParameter {
     uint32_t type {0};
-    SavedActionParameterPayload payload {UnsupportedSavedPayload {}};
+    SavedActionParameterPayload payload;
 
     static SavedActionParameter fromGff(
         const resource::Gff &gff,
@@ -231,15 +278,265 @@ struct SavedActionParameter {
 enum class SavedExecutionSupport {
     Executable,
     RepresentableButUnsupported,
-    RetailDiscards,
+    Discarded,
 };
 
+struct SavedActionRecord;
+
+/**
+ * A physical attack order as the game saves it: the ten parameters of an
+ * AttackObject command. They name the target and either a combat feat or the
+ * values a cutscene attack forces; the rest are the same for every attack.
+ */
+struct SavedAttackCommand {
+    /** The attack animation and its length that the command and its round entry carry. */
+    static constexpr int kAnimation = 10009;
+    static constexpr int kAnimationMilliseconds = 1500;
+
+    SavedObjectReference target;
+    FeatType feat {FeatType::Invalid};
+    /** A cutscene attack's forced values; it carries no attack count and no feat. */
+    std::optional<CutsceneAttack> cutscene;
+
+    /** Reads the order from a command, or none when its parameters have another shape. */
+    static std::optional<SavedAttackCommand> fromAction(const SavedActionRecord &record);
+    /** Writes the order as the parameters of an AttackObject command. */
+    void toAction(SavedActionRecord &record) const;
+};
+
+/**
+ * A spell cast order as the game saves it: the twelve parameters of a
+ * CastSpell command. They name the spell, the class and caster level it is
+ * cast with, the object or point it is cast at, its projectile path, its
+ * associated feat, and whether the cast is fake or instant.
+ */
+struct SavedSpellCommand {
+    int spellId {-1};
+    SpellSelection selection;
+    /** The object the spell is cast at; invalid for a cast at a location. */
+    SavedObjectReference target;
+    glm::vec3 position {0.0f};
+    ProjectilePathType path {ProjectilePathType::Default};
+    std::optional<FeatType> associatedFeat;
+    bool fake {false};
+    bool instant {false};
+    /** The domain level a script gave the command. */
+    int domainLevel {0};
+    /** The meta type a talent gave the command. */
+    int metaType {0};
+    /** The command's spontaneous-cast parameter. */
+    int spontaneousCast {0};
+
+    /** Reads the order from a command, or none when its parameters have another shape. */
+    static std::optional<SavedSpellCommand> fromAction(const SavedActionRecord &record);
+    /** Writes the order as the parameters of a CastSpell command. */
+    void toAction(SavedActionRecord &record) const;
+};
+
+/**
+ * What a cast under way keeps beyond its command's parameters, saved beside
+ * them as CastState: how far the cast has got, the context it was paid with,
+ * a cheat order and an item use.
+ */
+struct SavedCastAction {
+    /** The item a cast uses, and what it uses of it. */
+    struct ItemUse {
+        SavedObjectReference item;
+        std::optional<int> property;
+        std::optional<int> casterLevel;
+        /** The item's base item type, kept for a use that outlives its item. */
+        std::optional<int> baseItemType;
+    };
+
+    /** The phase of the cast's schedule, the time spent in it, and the phase timings. */
+    int phase {0};
+    float elapsed {0.0f};
+    float conjureTime {0.0f};
+    float castTime {0.0f};
+    float catchTime {0.0f};
+    /** The flight time of the cast's projectile. */
+    float projectileTime {0.0f};
+    /** The presentation that shows the cast. */
+    uint64_t presentationId {0};
+    /** The cast context: caster level, metamagic, casting class and Force point cost. */
+    int casterLevel {0};
+    int metaMagic {255};
+    int castingClass {kUnselectedCastingClass};
+    int forceCost {0};
+    /**
+     * The cast was ordered with a casting class and level; otherwise it uses
+     * its caster's own, and the command's selection is not used.
+     */
+    bool hasSelection {true};
+    /** The cast was ordered as a cheat. */
+    bool cheat {false};
+    /** The cast passed its admission when it was first dispatched. */
+    bool admitted {false};
+    /** The caster is walking up to the range it was out of when the cast was dispatched. */
+    bool approaching {false};
+    bool started {false};
+    bool commitAttempted {false};
+    bool committed {false};
+    /** The cast's impact has been released. */
+    bool released {false};
+    /** The cast holds its caster's movement. */
+    bool movementOwned {false};
+    bool itemConsumed {false};
+    std::optional<ItemUse> itemUse;
+
+    static SavedCastAction fromGff(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    std::shared_ptr<resource::Gff> toGff() const;
+};
+
+/** The combat round a command holds: its clock, its pause and who engaged it. */
+struct SavedRoundClock {
+    uint64_t id {0};
+    int slot {0};
+    int state {0};
+    float elapsed {0.0f};
+    float duration {3.0f};
+    float pauseRemaining {0.0f};
+    SavedObjectReference pauseOwner;
+    SavedObjectReference master;
+    SavedObjectReference engaged;
+    /** The command took over the round from an earlier, finished command. */
+    bool joined {false};
+    /** Two creatures take their turns in the round. */
+    bool duel {false};
+    static SavedRoundClock fromGff(const resource::Gff &, const SerializedIdentityContext &);
+    std::shared_ptr<resource::Gff> toGff() const;
+};
+
+/** A creature's round that no queued command carries: its clock and whether it is a spell round. */
+struct SavedCreatureRound {
+    SavedRoundClock clock;
+    bool spellRound {false};
+};
+
+/** What a projectile shows: a spell's projectile, a thrown lightsaber's route, or a ranged attack's bolt. */
+enum class ProjectileKind {
+    Spell = 0,
+    LightsaberRoute = 1,
+    AttackBolt = 2
+};
+
+/**
+ * How a projectile moves along a leg: it jumps to the leg's end, homes in,
+ * falls under gravity, speeds up, closes a spiral, follows its target linked
+ * to it, bursts out to one side, or swings out into a spiral.
+ */
+enum class ProjectileMotion {
+    Jump = 0,
+    Homing = 1,
+    Ballistic = 2,
+    Accelerating = 5,
+    SpiralClose = 6,
+    Linked = 7,
+    Burst = 9,
+    SpiralOpen = 10
+};
+
+/** Presentation-only state. Gameplay hits are saved by the existing event queue. */
+struct SavedProjectile {
+    struct Leg {
+        SavedObjectReference source;
+        SavedObjectReference target;
+        glm::vec3 origin {0.0f};
+        glm::vec3 destination {0.0f};
+        float duration {0.0f};
+        bool reacted {false};
+        ProjectileMotion motion {ProjectileMotion::Homing};
+        glm::vec3 targetOffset {0.0f};
+        std::string targetHook;
+        bool ownsTargetHook {false};
+        float stopRadius {0.0f};
+    };
+    uint64_t id {0};
+    ProjectileKind kind {ProjectileKind::Spell};
+    SavedObjectReference caster;
+    SavedObjectReference weapon;
+    int spellId {-1};
+    int path {0};
+    std::string model;
+    std::vector<Leg> legs;
+    int leg {0};
+    bool released {false};
+    bool initialized {false};
+    bool clockwise {false};
+    float elapsed {0.0f};
+    glm::vec3 position {0.0f};
+    glm::vec3 velocity {0.0f};
+    glm::vec3 acceleration {0.0f};
+    bool parryBlocked {false};
+    float activationDelay {0.0f};
+    float travelRate {0.0f};
+    std::string sourceHook;
+    std::string targetHook {"impact"};
+    int combatResult {0};
+    int soundVariant {0};
+    int orientationMode {0};
+    glm::quat orientation {1.0f, 0.0f, 0.0f, 0.0f};
+    static SavedProjectile fromGff(const resource::Gff &, const SerializedIdentityContext &);
+    std::shared_ptr<resource::Gff> toGff() const;
+    bool bindObjectReferences(const Game &);
+};
+
+/**
+ * Item on-hit work of an attack. An attack's saved continuation also keeps
+ * the feedback its round has not yet released here.
+ */
+struct SavedWeaponImpact {
+    SavedObjectReference source;
+    std::vector<ItemOnHitApplication> applications;
+    std::vector<DeferredCombatFeedback> feedback;
+    static SavedWeaponImpact fromGff(const resource::Gff &, const SerializedIdentityContext &);
+    std::shared_ptr<resource::Gff> toGff() const;
+};
+
+/**
+ * An attack record: the attack data an attacked event and a ranged round
+ * carry, with the target that reacts and the ammunition used.
+ */
+struct SavedCombatAttack {
+    /** The struct type the record is saved with. */
+    static constexpr uint32_t kStructType = 0x2222;
+
+    /** Live event nodes borrow the attack record; loaded nodes own a new record. */
+    std::shared_ptr<AttackHistory> history {std::make_shared<AttackHistory>()};
+    std::shared_ptr<AttackEventFields> fields {std::make_shared<AttackEventFields>()};
+    SavedObjectReference reactionObject;
+    SavedObjectReference ammoItem;
+
+    static SavedCombatAttack fromGff(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
+    std::shared_ptr<resource::Gff> toGff() const;
+};
+
+/**
+ * The progress of a physical attack command: its round state, the sources and
+ * effects of its attacks and their attack records.
+ */
+struct SavedPhysicalAction {
+    std::shared_ptr<resource::Gff> state;
+    std::vector<SavedObjectReference> sources;
+    std::vector<std::vector<EffectInstance>> targetEffects;
+    std::vector<SavedCombatAttack> histories;
+    /** A ranged round's shared attack record. */
+    std::optional<SavedCombatAttack> roundRecord;
+    static SavedPhysicalAction fromGff(const resource::Gff &, const SerializedIdentityContext &);
+    std::shared_ptr<resource::Gff> toGff() const;
+};
+
+/** A saved command: the game's action record, with the progress of a command under way. */
 struct SavedActionRecord {
+    /** The command was issued by a scheduled round entry. */
+    bool scheduled {false};
     uint32_t actionId {0};
-    uint16_t groupActionId {0};
+    int groupActionId {0};
     uint16_t declaredParameterCount {0};
     std::vector<SavedActionParameter> parameters;
-    std::vector<SavedField> unsupportedFields;
+    std::optional<SavedCastAction> cast;
+    std::optional<SavedRoundClock> round;
+    std::optional<SavedPhysicalAction> physical;
 
     static SavedActionRecord fromGff(
         const resource::Gff &gff,
@@ -249,6 +546,47 @@ struct SavedActionRecord {
         Game &game,
         const SavedScriptSituationImporter *importer = nullptr) const;
     bool bindObjectReferences(const Game &game);
+
+    SavedActionType type() const { return static_cast<SavedActionType>(actionId); }
+};
+
+/**
+ * An entry of a combat round's scheduled list (SchedActionList): the game's
+ * fields, with the command it runs, whether it has been applied and the pause
+ * left on it.
+ */
+struct SavedScheduledAction {
+    /** The ActionType of an entry. */
+    static constexpr int kAttackType = 1;
+    /** A pause, which carries no command. */
+    static constexpr int kPauseType = 3;
+    static constexpr int kEquipType = 6;
+    static constexpr int kUnequipType = 7;
+    static constexpr int kCastSpellType = 9;
+    static constexpr int kItemCastSpellType = 10;
+    static constexpr int kFeatAttackType = 11;
+    /** A move to a point or to an object. */
+    static constexpr int kMoveType = 12;
+    static constexpr int kCombatStanceType = 13;
+    static constexpr int kSwitchWeaponsType = 14;
+
+    int32_t timer {0};
+    int animation {0};
+    int32_t animationTime {1500};
+    int32_t numAttacks {0};
+    int type {0};
+    SavedObjectReference target;
+    bool retargettable {true};
+    /** The equipment slot mask of an equip entry. */
+    uint32_t inventorySlot {0};
+    SavedObjectReference repository;
+    std::optional<SavedActionRecord> command;
+    bool applied {false};
+    float remainingPause {0.0f};
+
+    static SavedScheduledAction fromGff(const resource::Gff &, const SerializedIdentityContext &);
+    bool bindObjectReferences(const Game &game);
+    bool isEquipment() const { return type == kEquipType || type == kUnequipType; }
 };
 
 /** Parsed per-object queue; publication waits until B object registration. */
@@ -297,6 +635,11 @@ struct SavedBytePayload {
 struct SavedIntPayload {
     int32_t value {0};
 };
+/**
+ * A spell impact event: the spell, its caster, target, area and item, its
+ * script, where it lands and the Force points the cast cost. The impact reads
+ * the rest of the cast from its caster when it is delivered.
+ */
 struct SavedSpellImpact {
     int32_t spellId {0};
     SavedObjectReference caster;
@@ -306,6 +649,7 @@ struct SavedSpellImpact {
     std::string script;
     glm::vec3 targetPosition {0.0f};
     int32_t finalForceCost {0};
+    std::shared_ptr<resource::Gff> toGff() const;
 };
 
 struct SavedBodyBag {
@@ -313,45 +657,32 @@ struct SavedBodyBag {
     glm::vec3 position {0.0f};
 };
 
-/** Retail EVENT_BROADCAST_AOO stores an ObjectId in its generic DWORD Value. */
+/**
+ * An open-object event raised during play: the caller opens the target's
+ * inventory. The event is saved without data, so a loaded one opens nothing.
+ */
+struct SavedOpenObject {};
+
+/** The game EVENT_BROADCAST_AOO stores an ObjectId in its generic DWORD Value. */
 struct SavedBroadcastAoo {
     SavedObjectReference target;
 };
 
-/**
- * Partially modelled CSWSCombatAttackData.
- *
- * The complete combat payload remains a compatibility shadow, while its two
- * recovered ObjectId fields participate in normal graph translation.
- */
-struct SavedCombatAttack {
-    SavedStruct data;
-    SavedObjectReference reactionObject;
-    SavedObjectReference ammoItem;
-};
-
-/**
- * Partially modelled CSWCCMessageData used by EVENT_FEEDBACK_MESSAGE.
- * Non-reference fields remain preserved in data.
- */
-struct SavedFeedbackMessage {
-    SavedStruct data;
-    std::vector<SavedObjectReference> objects;
-};
-
+/** An event whose data is not read, or that carries none, is empty. */
 using SavedEventPayload = std::variant<
     std::monostate,
-    UnsupportedSavedPayload,
     SerializedScriptSituation,
     EffectInstance,
     SavedBytePayload,
     SavedIntPayload,
     SavedSpellImpact,
+    SavedWeaponImpact,
     SavedScriptEvent,
     SavedBodyBag,
+    SavedOpenObject,
     SavedBroadcastAoo,
     SavedCombatAttack,
-    SavedFeedbackMessage>;
+    CombatFeedbackMessage>;
 
 struct SavedEventRecord {
     /** Absolute world/game timestamp, never a wall-clock or derived delay. */
@@ -361,7 +692,6 @@ struct SavedEventRecord {
     SavedObjectReference caller;
     uint32_t eventId {0};
     SavedEventPayload payload;
-    std::vector<SavedField> unsupportedFields;
 
     static SavedEventRecord fromGff(
         const resource::Gff &gff,

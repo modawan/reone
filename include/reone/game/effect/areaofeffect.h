@@ -23,27 +23,21 @@ namespace reone {
 
 namespace game {
 
-class AreaOfEffectEffect : public Effect {
+/**
+ * Builds an area of effect around the creature it is applied to, from the
+ * vfx_persistent row in integer 0, with the scripts in strings 0 to 2 (enter,
+ * heartbeat, exit) replacing the row's. The area of effect goes with the
+ * effect.
+ */
+class AreaOfEffectEffect : public CopyableEffect<AreaOfEffectEffect> {
 public:
-    AreaOfEffectEffect(int areaEffectId,
-                       std::string onEnterScript,
-                       std::string heartbeatScript,
-                       std::string onExitScript) :
-        Effect(EffectType::AreaOfEffect),
-        _areaEffectId(areaEffectId),
-        _onEnterScript(std::move(onEnterScript)),
-        _heartbeatScript(std::move(heartbeatScript)),
-        _onExitScript(std::move(onExitScript)) {
+    AreaOfEffectEffect() :
+        CopyableEffect(EffectType::AreaOfEffect) {
     }
 
-    void applyTo(Object &object) override {
-    }
-
-private:
-    int _areaEffectId;
-    std::string _onEnterScript;
-    std::string _heartbeatScript;
-    std::string _onExitScript;
+    /** Only a creature carries one; the new area of effect is object parameter 0. */
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
+    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
 };
 
 } // namespace game

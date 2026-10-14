@@ -136,7 +136,7 @@ struct TempRoot {
     TempRoot() {
         static std::atomic<uint64_t> sequence {0};
         path = std::filesystem::temp_directory_path() /
-               ("reone_e3f_publisher_" + std::to_string(++sequence));
+               ("reone_slot_publisher_publisher_" + std::to_string(++sequence));
         std::filesystem::remove_all(path);
         std::filesystem::create_directory(path);
     }
@@ -287,7 +287,7 @@ struct PreparedSave {
 
 bool hasTransactionArtifact(const std::filesystem::path &parent) {
     for (const auto &entry : std::filesystem::directory_iterator(parent)) {
-        if (entry.path().filename().string().find(".reone-") != std::string::npos) {
+        if (entry.path().filename().string().find(".save-") != std::string::npos) {
             return true;
         }
     }
@@ -600,7 +600,7 @@ TEST(SaveSlotPublisher, stale_marker_with_valid_target_is_cleaned_safely) {
     ASSERT_TRUE(published.cleanupPending);
     for (const auto &entry :
          std::filesystem::directory_iterator(prepared.rootDirectory.path)) {
-        if (entry.path().filename().string().find(".reone-bak-") !=
+        if (entry.path().filename().string().find(".save-backup-") !=
             std::string::npos) {
             std::filesystem::remove_all(entry.path());
         }

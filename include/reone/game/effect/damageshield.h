@@ -23,16 +23,20 @@ namespace reone {
 
 namespace game {
 
-class DamageShieldEffect : public Effect {
+class DamageShieldEffect : public CopyableEffect<DamageShieldEffect> {
 public:
     DamageShieldEffect(int damageAmount, int randomAmount, DamageType damageType) :
-        Effect(EffectType::DamageShield),
+        CopyableEffect(EffectType::DamageShield),
         _damageAmount(damageAmount),
         _randomAmount(randomAmount),
         _damageType(damageType) {
+        setSaveFacingInteger(0, damageAmount);
+        setSaveFacingInteger(1, randomAmount);
+        setSaveFacingInteger(2, static_cast<int>(damageType));
     }
 
-    void applyTo(Object &object) override {
+    EffectApplicationResult onApply(Object &object, EffectInstance &) override {
+        return EffectApplicationResult::Retained;
     }
 
 private:

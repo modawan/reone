@@ -18,11 +18,16 @@
 #pragma once
 
 #include "../action.h"
+#include "../location.h"
 
 namespace reone {
 
 namespace game {
 
+/**
+ * Keeps a creature walking away from a location for as long as it is within
+ * the range of it.
+ */
 class MoveAwayFromLocation : public Action {
 public:
     MoveAwayFromLocation(Game &game,
@@ -40,9 +45,7 @@ public:
         return from->type() == ActionType::MoveAwayFromLocation;
     }
 
-    void execute(std::shared_ptr<Action> self, Object &actor, float dt) override {
-        complete();
-    }
+    void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
 private:
     std::shared_ptr<Location> _moveAwayFrom;

@@ -13,18 +13,18 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "../fixtures/engine.h"
-
 #include "reone/game/action.h"
-#include "reone/game/action/castfakespellatobject.h"
+#include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/equipitem.h"
+#include "reone/game/d20/spell.h"
 #include "reone/game/effect.h"
 #include "reone/game/effect/assuredhit.h"
 #include "reone/game/effect/beam.h"
 #include "reone/game/effect/damage.h"
 #include "reone/game/effect/modifyattacks.h"
-#include "reone/game/event.h"
+#include "reone/game/effect/spellimmunity.h"
 #include "reone/game/equipmentrules.h"
+#include "reone/game/event.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/conversation.h"
 #include "reone/game/gui/hud.h"
@@ -39,13 +39,15 @@
 #include "reone/game/script/routines.h"
 #include "reone/graphics/model.h"
 #include "reone/graphics/modelnode.h"
-#include "reone/script/executioncontext.h"
-#include "reone/script/variable.h"
-#include "reone/scene/collision.h"
-#include "reone/scene/node/model.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/gff.h"
+#include "reone/scene/collision.h"
+#include "reone/scene/node/model.h"
+#include "reone/script/executioncontext.h"
+#include "reone/script/variable.h"
 #include "reone/system/exception/validation.h"
+
+#include "../fixtures/engine.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -104,12 +106,17 @@ public:
     }
 
     void bindOwner(std::shared_ptr<Object> owner) {
-        _owner = owner;
-        _dialog = std::make_shared<resource::Dialog>();
-        owner->setIsInConversation(true);
+        auto dialog = std::make_shared<resource::Dialog>();
+        dialog->startEntries.push_back(resource::Dialog::EntryReplyLink {});
+        dialog->entries.emplace_back();
+        start(dialog, owner);
     }
 
 protected:
+    // Keeps the conversation open without presenting an entry.
+    void loadEntry(int index, bool start) override {
+    }
+
     void setReplyLines(std::vector<std::string> lines) override {
     }
 
@@ -128,7 +135,7 @@ void configureRuntimeMocks(
 std::shared_ptr<resource::TwoDA> runtimeBaseItems(int maxStack = 99) {
     resource::TwoDA::Builder builder;
     builder.columns(
-        {"equipableslots", "itemclass", "ammunitiontype", "maxstack"});
+        {"equipableslots", "itemclass", "ammunitiontype", "stacking"});
     builder.row({"2", "i_test", "0", std::to_string(maxStack)});
     return std::shared_ptr<resource::TwoDA>(builder.build());
 }
@@ -178,7 +185,7 @@ std::shared_ptr<resource::Gff> runtimeItemProperty(
         .field(resource::Gff::Field::newWord("Subtype", subtype))
         .field(resource::Gff::Field::newByte("CostTable", costTable))
         .field(resource::Gff::Field::newWord("CostValue", costValue))
-        .field(resource::Gff::Field::newByte("UpgradeType", 0))
+        .field(resource::Gff::Field::newByte("UpgradeType", 0xff))
         .build();
 }
 
@@ -210,8 +217,17 @@ std::shared_ptr<resource::TwoDA> oneValueTable(
 }
 
 void configureEquipmentEffectTables(TestEngine &engine) {
+    // The other combat tables are empty.
+    EXPECT_CALL(engine.resourceModule().twoDas(),
+                get(AnyOf(StartsWith("iprp_"), "gameeffects", "forceshields", "forceadjust",
+                          "excitedduration", "poison", "statescripts")))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder().build())));
     resource::TwoDA::Builder costTables;
-    costTables.columns({"name"}).row({"iprp_test"});
+    costTables.columns({"name"});
+    for (int row = 0; row <= 11; ++row) {
+        costTables.row({"iprp_test"});
+    }
     auto costTable = std::shared_ptr<resource::TwoDA>(costTables.build());
     resource::TwoDA::Builder damageTypes;
     damageTypes.columns({"label"}).row({"bludgeoning"});
@@ -240,6 +256,42 @@ void configureEquipmentEffectTables(TestEngine &engine) {
     EXPECT_CALL(engine.resourceModule().twoDas(), get("iprp_protection"))
         .Times(AnyNumber())
         .WillRepeatedly(Return(protectionTable));
+    // The combat tables are read when the game starts.
+    engine.gameModule().combatTables() = CombatTables();
+    engine.gameModule().combatTables().init(engine.resourceModule().twoDas(), resource::GameID::KotOR);
+}
+
+TEST(PassiveRegeneration, k1_uses_the_numeric_combat_rows_for_hit_points) {
+    TestEngine engine;
+    engine.init();
+    resource::TwoDA::Builder regeneration;
+    regeneration.columns({"healthregen", "forceregen"})
+        .row({"2", "0"})
+        .row({"10", "0"});
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("regeneration"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(
+            std::shared_ptr<resource::TwoDA>(regeneration.build())));
+
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Creatures update in the active module.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
+    auto creature = game.newCreature();
+    // Not a player character: its maximum is its base hit points.
+    creature->setPC(false);
+    game.party().addMember(kNpcPlayer, creature);
+    game.party().setPlayer(creature);
+    creature->setMaxHitPoints(100);
+    creature->setCurrentHitPoints(50);
+
+    creature->update(1.0f);
+    EXPECT_EQ(60, creature->currentHitPointsWithoutTemporary());
+
+    creature->setCurrentHitPoints(50);
+    creature->setCombatState(true, CombatActivation::Direct);
+    creature->update(1.0f);
+    EXPECT_EQ(52, creature->currentHitPointsWithoutTemporary());
 }
 
 void giveItemThroughRoutine(
@@ -611,7 +663,8 @@ TEST(RuntimeSession, full_game_reset_still_clears_logical_state) {
     game.resetGame();
 
     EXPECT_FALSE(game.getGlobalBoolean("BOOL"));
-    EXPECT_EQ("<CUSTOM31>", game.substituteCustomTokens("<CUSTOM31>"));
+    // An unset custom token reads as the parser's unrecognized token.
+    EXPECT_EQ("<UNRECOGNIZED TOKEN>", game.substituteCustomTokens("<CUSTOM31>"));
     EXPECT_TRUE(game.party().persistedState().pcName.empty());
     EXPECT_EQ(0, game.journal().getEntryState("old_plot"));
     EXPECT_EQ(0, TestGameModule::objectRegistrySize(game));
@@ -749,7 +802,7 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
     player->setPosition(glm::vec3(91.83f, 146.54f, 3.75f));
     player->setFacing(1.25f);
     player->setCurrentHitPoints(17);
-    auto effect = std::make_shared<Effect>(EffectType::Invalid);
+    auto effect = std::make_shared<SpellImmunityEffect>(SpellType::All);
     player->applyEffect(effect, DurationType::Permanent);
     int actionExecutions = 0;
     auto action = game.newAction<CountingAction>(actionExecutions);
@@ -911,6 +964,7 @@ struct PartyTransferHarness {
         game->party().setActualPlayer(player);
 
         companion = game->newCreature();
+        companion->setPC(false);
         companion->setOnSpawn("npc_spawn");
         game->party().addAvailableMember(0, companion);
         game->party().addMember(0, companion);
@@ -1061,7 +1115,7 @@ TEST(PartyTransferSpawn, transferred_party_member_keeps_durable_not_area_executi
         harness.companion->setCurrentHitPoints(19);
         harness.companion->setLocalBoolean(3, true);
         harness.companion->setLocalNumber(5, 42);
-        auto effect = std::make_shared<Effect>(EffectType::Invalid);
+        auto effect = std::make_shared<SpellImmunityEffect>(SpellType::All);
         harness.companion->applyEffect(effect, DurationType::Permanent);
         int executions = 0;
         auto action = harness.game->newAction<CountingAction>(executions);
@@ -1097,6 +1151,8 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
     configureRuntimeMocks(engine, sceneGraph);
     StubConsole console;
     Game game(resource::GameID::TSL, "", engine.options(), engine.services(), console);
+    // Combat and hostility are recorded in the active module.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
 
     auto area = game.newArea();
     auto retained = game.newCreature();
@@ -1136,7 +1192,7 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
     trigger->addTenant(retained);
     TestGameModule::setAreaRuntimePath(*retained, area->pathfinder());
 
-    retained->beginCombatAttack(outgoing, FeatType::Invalid);
+    retained->beginCombatAttack(*outgoing, FeatType::Invalid);
     retained->setAttemptedAttackTarget(outgoing->id());
     retained->setLastHostileActor(outgoing->id());
     retained->setObjectSeen(outgoing, true);
@@ -1146,9 +1202,7 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
 
     int executions = 0;
     auto action = game.newAction<CountingAction>(executions);
-    auto delayed = game.newAction<CountingAction>(executions);
     retained->addAction(action);
-    retained->delayAction(delayed, 30.0f);
 
     retained->setCurrentHitPoints(19);
     retained->setLocalBoolean(3, true);
@@ -1156,8 +1210,11 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
     retained->setAppearance(42);
     auto carried = game.newOwnedItem();
     retained->addItem(carried);
-    auto durableEffect = std::make_shared<Effect>(EffectType::Invalid);
-    retained->applyEffect(durableEffect, DurationType::Permanent);
+    auto durableEffect = std::make_shared<SpellImmunityEffect>(SpellType::All);
+    EffectInstance durable;
+    durable.effect = durableEffect;
+    durable.setDurationType(DurationType::Permanent);
+    retained->applyEffect(std::move(durable));
     retained->applyEffect(
         std::make_shared<ModifyAttacksEffect>(1), DurationType::Permanent);
     retained->applyEffect(
@@ -1171,12 +1228,13 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
     retained->applyEffect(beamEffect, DurationType::Permanent);
 
     EffectInstance areaBoundEffect;
-    areaBoundEffect.effect = std::make_shared<Effect>(EffectType::Invalid);
+    areaBoundEffect.effect = std::make_shared<SpellImmunityEffect>(SpellType::All);
     areaBoundEffect.id = game.allocateEffectId();
-    areaBoundEffect.subType = static_cast<uint16_t>(DurationType::Permanent);
+    areaBoundEffect.setDurationType(DurationType::Permanent);
     areaBoundEffect.creatorId = outgoing->id();
     areaBoundEffect.objectParameters[0] = outgoing->id();
     ASSERT_TRUE(game.bindEffectCreator(areaBoundEffect));
+    const auto areaBoundId = areaBoundEffect.id;
     ASSERT_TRUE(retained->restoreEffect(std::move(areaBoundEffect)));
 
     ASSERT_EQ(&room, retained->room());
@@ -1186,7 +1244,6 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
     ASSERT_TRUE(retained->getAttackTarget());
     ASSERT_EQ(1u, TestGameModule::seenObjectCount(*retained));
     ASSERT_EQ(1u, TestGameModule::heardObjectCount(*retained));
-    ASSERT_EQ(1u, TestGameModule::delayedActionCount(*retained));
     EXPECT_CALL(sceneGraph, removeRoot(A<scene::ModelSceneNode &>()))
         .WillOnce(Invoke([expected = sceneNode.get()](scene::ModelSceneNode &node) {
             EXPECT_EQ(expected, &node);
@@ -1209,7 +1266,6 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
     EXPECT_EQ(script::kObjectInvalid, retained->blockingDoorId());
     EXPECT_TRUE(retained->actions().empty());
     EXPECT_TRUE(action->isCancelled());
-    EXPECT_EQ(0u, TestGameModule::delayedActionCount(*retained));
     EXPECT_FALSE(retained->isStuntMode());
 
     EXPECT_EQ(19, retained->currentHitPoints());
@@ -1218,16 +1274,19 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
     EXPECT_EQ(42, retained->appearance());
     ASSERT_EQ(1u, retained->items().size());
     EXPECT_EQ(carried, retained->items().front());
-    ASSERT_EQ(5u, retained->effects().size());
+    // The beam carries its visual; effects are kept in save-type order.
+    ASSERT_EQ(6u, retained->effects().size());
     EXPECT_EQ(durableEffect, retained->effects().front().effect);
     EXPECT_EQ(1, retained->modifiedAttacks());
     EXPECT_TRUE(retained->hasAssuredHit());
-    EXPECT_FALSE(retained->effects().back().boundCreator());
-    EXPECT_EQ(kSavedEffectInvalidObjectId, retained->effects().back().creatorId);
-    EXPECT_FALSE(retained->effects().back().boundObjectParameter(0));
-    EXPECT_EQ(
-        kSavedEffectInvalidObjectId,
-        retained->effects().back().objectParameters[0]);
+    auto areaBound = std::find_if(
+        retained->effects().begin(), retained->effects().end(),
+        [&](const EffectInstance &effect) { return effect.id == areaBoundId; });
+    ASSERT_NE(retained->effects().end(), areaBound);
+    EXPECT_FALSE(areaBound->boundCreator());
+    EXPECT_EQ(kSavedEffectInvalidObjectId, areaBound->creatorId);
+    EXPECT_FALSE(areaBound->boundObjectParameter(0));
+    EXPECT_EQ(kSavedEffectInvalidObjectId, areaBound->objectParameters[0]);
     EXPECT_EQ(retained, game.party().rosterCreature({RosterKind::Npc, 0}));
 
     const auto &creatures = area->getObjectsByType(ObjectType::Creature);
@@ -1487,7 +1546,7 @@ TEST(RuntimeObjectIntegrity, staged_template_container_coalesces_item_records) {
     EXPECT_EQ(registrySize + 1, TestGameModule::objectRegistrySize(game));
 }
 
-TEST(RuntimeObjectIntegrity, staged_creature_and_detached_inventory_coalesce) {
+TEST(RuntimeObjectIntegrity, staged_creature_and_detached_inventory_keep_their_stacks) {
     TestEngine engine;
     engine.init();
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
@@ -1516,8 +1575,9 @@ TEST(RuntimeObjectIntegrity, staged_creature_and_detached_inventory_coalesce) {
         *record,
         SerializedIdentityContext::detachedRecord("availnpc0.utc"));
 
-    ASSERT_EQ(1u, creature->items().size());
-    EXPECT_EQ(5, creature->items().front()->stackSize());
+    ASSERT_EQ(2u, creature->items().size());
+    EXPECT_EQ(2, creature->items().front()->stackSize());
+    EXPECT_EQ(3, creature->items().back()->stackSize());
     ASSERT_TRUE(creature->items().front()->saveRecordProvenance());
     EXPECT_FALSE(creature->items().front()->serializedObjectIdentity());
 }
@@ -1790,8 +1850,9 @@ TEST(RuntimeObjectLiveness, moved_action_target_still_tracks_exact_liveness) {
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     auto target = game.newCreature();
-    auto action = game.newAction<CastFakeSpellAtObjectAction>(
-        SpellType::AffectMind, target, ProjectilePathType::Default);
+    auto action = game.newAction<CastSpellAtObjectAction>(
+        std::make_shared<Spell>(), target, /*item=*/std::nullopt, false, ProjectilePathType::Default,
+        false, std::nullopt, std::nullopt, std::nullopt, std::nullopt, /*fake=*/true);
 
     ASSERT_TRUE(action->runtimeDependenciesLive());
     game.destroyRuntimeObjectGraph(target);
@@ -1825,6 +1886,8 @@ TEST(RuntimeObjectLiveness, published_runtime_id_is_not_reused_within_session) {
     engine.init();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Combat and hostility are recorded in the active module.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     auto observer = game.newCreature();
     auto hostile = game.newCreature();
     const uint32_t hostileId = hostile->id();
@@ -2249,6 +2312,8 @@ TEST(RuntimeObjectOwnership, git_shaped_world_item_releases_every_area_edge) {
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
         .Times(AnyNumber())
         .WillRepeatedly(Return(runtimeBaseItems()));
+    // Triggers load their trap data where present.
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("traps")).Times(AnyNumber());
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     auto area = game.newArea();
@@ -2323,12 +2388,12 @@ TEST(RuntimeObjectOwnership, ownerless_nonresident_item_is_not_transferable) {
     EXPECT_FALSE(transferItemTo(game, item, *receiver));
 
     EXPECT_TRUE(receiver->items().empty());
-    EXPECT_EQ(0u, item->owner());
+    EXPECT_FALSE(item->isHeld());
     EXPECT_TRUE(item->isRuntimeLive());
     EXPECT_EQ(item, game.getObjectById(item->id()));
 }
 
-TEST(RuntimeObjectOwnership, equip_action_releases_area_item_before_equipping) {
+TEST(RuntimeObjectOwnership, equip_action_refuses_area_item_and_keeps_its_area_edges) {
     TestEngine engine;
     engine.init();
     NiceMock<scene::MockSceneGraph> sceneGraph;
@@ -2336,11 +2401,15 @@ TEST(RuntimeObjectOwnership, equip_action_releases_area_item_before_equipping) {
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
         .Times(AnyNumber())
         .WillRepeatedly(Return(runtimeBaseItems()));
+    // Triggers load their trap data where present.
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("traps")).Times(AnyNumber());
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     auto area = game.newArea();
     TestGameModule::setActiveModuleArea(game, area);
     auto actor = game.newCreature();
+    // Not a player character: no minimum equip level applies.
+    actor->setPC(false);
     area->add(actor);
     auto trigger = game.newTrigger();
     trigger->deserialize(
@@ -2370,10 +2439,7 @@ TEST(RuntimeObjectOwnership, equip_action_releases_area_item_before_equipping) {
         engine.resourceModule().services());
     TestGameModule::setAreaRuntimeSceneNode(*item, sceneNode);
     EXPECT_CALL(sceneGraph, addRoot(sceneNode)).Times(1);
-    EXPECT_CALL(sceneGraph, removeRoot(A<scene::ModelSceneNode &>()))
-        .WillOnce([&sceneNode](scene::ModelSceneNode &removed) {
-            EXPECT_EQ(sceneNode.get(), &removed);
-        });
+    EXPECT_CALL(sceneGraph, removeRoot(A<scene::ModelSceneNode &>())).Times(0);
     area->add(item);
     Room room("world_room", glm::vec3(0.0f), nullptr, nullptr, nullptr);
     item->setRoom(&room);
@@ -2381,28 +2447,28 @@ TEST(RuntimeObjectOwnership, equip_action_releases_area_item_before_equipping) {
     auto action = game.newAction<EquipItemAction>(
         item, InventorySlots::body, true);
 
+    // Equipping takes an item its possessor holds; one lying in the area is
+    // refused and keeps every area edge.
     action->execute(action, *actor, 0.0f);
 
-    EXPECT_EQ(item, actor->getEquippedItem(InventorySlots::body));
-    EXPECT_EQ(actor->id(), item->owner());
-    EXPECT_TRUE(item->isEquipped());
-    EXPECT_EQ(nullptr, item->room());
-    EXPECT_FALSE(trigger->isTenant(item));
-    EXPECT_EQ(
+    EXPECT_FALSE(actor->getEquippedItem(InventorySlots::body));
+    EXPECT_FALSE(item->isHeld());
+    EXPECT_FALSE(item->isEquipped());
+    EXPECT_EQ(&room, item->room());
+    EXPECT_TRUE(trigger->isTenant(item));
+    EXPECT_NE(
         area->objects().end(),
         std::find(area->objects().begin(), area->objects().end(), item));
-    EXPECT_TRUE(area->getObjectsByType(ObjectType::Item).empty());
-    EXPECT_FALSE(area->getObjectByTag("world_equip"));
+    EXPECT_EQ(item, area->getObjectByTag("world_equip"));
     EXPECT_TRUE(item->isRuntimeLive());
     EXPECT_EQ(runtimeId, item->id());
     EXPECT_EQ(incarnation, item->runtimeIncarnation());
     EXPECT_EQ(item, game.getObjectById(runtimeId));
-    EXPECT_TRUE(actor->hasEffectiveFeat(FeatType::Toughness));
-    ASSERT_EQ(1u, actor->effects().size());
-    EXPECT_EQ(item, actor->effects().front().boundCreator());
+    EXPECT_FALSE(actor->hasEffectiveFeat(FeatType::Toughness));
+    EXPECT_TRUE(actor->effects().empty());
 }
 
-TEST(RuntimeObjectOwnership, equip_action_replaces_slot_with_area_item) {
+TEST(RuntimeObjectOwnership, equip_action_refuses_area_item_for_an_occupied_slot) {
     TestEngine engine;
     engine.init();
     NiceMock<scene::MockSceneGraph> sceneGraph;
@@ -2415,6 +2481,8 @@ TEST(RuntimeObjectOwnership, equip_action_replaces_slot_with_area_item) {
     auto area = game.newArea();
     TestGameModule::setActiveModuleArea(game, area);
     auto actor = game.newCreature();
+    // Not a player character: no minimum equip level applies.
+    actor->setPC(false);
     area->add(actor);
     auto displaced = game.newItem();
     displaced->deserialize(
@@ -2429,20 +2497,19 @@ TEST(RuntimeObjectOwnership, equip_action_replaces_slot_with_area_item) {
     auto action = game.newAction<EquipItemAction>(
         incoming, InventorySlots::body, true);
 
+    // An item lying in the area is refused; the slot keeps what it holds.
     action->execute(action, *actor, 0.0f);
 
-    EXPECT_EQ(incoming, actor->getEquippedItem(InventorySlots::body));
-    EXPECT_EQ(actor->id(), incoming->owner());
-    EXPECT_TRUE(incoming->isEquipped());
-    EXPECT_EQ(
+    EXPECT_EQ(displaced, actor->getEquippedItem(InventorySlots::body));
+    EXPECT_EQ(actor->id(), displaced->owner());
+    EXPECT_TRUE(displaced->isEquipped());
+    EXPECT_TRUE(actor->items().empty());
+    EXPECT_FALSE(incoming->isHeld());
+    EXPECT_FALSE(incoming->isEquipped());
+    EXPECT_NE(
         area->objects().end(),
         std::find(area->objects().begin(), area->objects().end(), incoming));
-    EXPECT_TRUE(area->getObjectsByType(ObjectType::Item).empty());
-    ASSERT_EQ(1u, actor->items().size());
-    EXPECT_EQ(displaced, actor->items().front());
-    EXPECT_EQ(actor->id(), displaced->owner());
-    EXPECT_FALSE(displaced->isEquipped());
-    EXPECT_TRUE(displaced->isRuntimeLive());
+    EXPECT_TRUE(incoming->isRuntimeLive());
 }
 
 TEST(RuntimeObjectOwnership, rejected_area_item_equip_preserves_area_ownership) {
@@ -2458,6 +2525,8 @@ TEST(RuntimeObjectOwnership, rejected_area_item_equip_preserves_area_ownership) 
     auto area = game.newArea();
     TestGameModule::setActiveModuleArea(game, area);
     auto actor = game.newCreature();
+    // Not a player character: no minimum equip level applies.
+    actor->setPC(false);
     area->add(actor);
     auto item = game.newItem();
     item->deserialize(
@@ -2470,7 +2539,7 @@ TEST(RuntimeObjectOwnership, rejected_area_item_equip_preserves_area_ownership) 
     action->execute(action, *actor, 0.0f);
 
     EXPECT_FALSE(actor->getEquippedItem(InventorySlots::rightWeapon));
-    EXPECT_EQ(0u, item->owner());
+    EXPECT_FALSE(item->isHeld());
     EXPECT_FALSE(item->isEquipped());
     EXPECT_NE(
         area->objects().end(),
@@ -2493,6 +2562,8 @@ TEST(RuntimeObjectOwnership, equip_action_rejects_ownerless_nonresident_item) {
     auto area = game.newArea();
     TestGameModule::setActiveModuleArea(game, area);
     auto actor = game.newCreature();
+    // Not a player character: no minimum equip level applies.
+    actor->setPC(false);
     auto item = game.newItem();
     item->deserialize(
         *runtimeItem("unowned_equip"),
@@ -2503,7 +2574,7 @@ TEST(RuntimeObjectOwnership, equip_action_rejects_ownerless_nonresident_item) {
     action->execute(action, *actor, 0.0f);
 
     EXPECT_FALSE(actor->getEquippedItem(InventorySlots::body));
-    EXPECT_EQ(0u, item->owner());
+    EXPECT_FALSE(item->isHeld());
     EXPECT_FALSE(item->isEquipped());
     EXPECT_TRUE(item->isRuntimeLive());
     EXPECT_EQ(item, game.getObjectById(item->id()));
@@ -2533,7 +2604,7 @@ TEST(RuntimeObjectOwnership, direct_nested_ownership_rejects_area_item) {
 
     EXPECT_FALSE(actor->getEquippedItem(InventorySlots::body));
     EXPECT_TRUE(actor->items().empty());
-    EXPECT_EQ(0u, item->owner());
+    EXPECT_FALSE(item->isHeld());
     EXPECT_FALSE(item->isEquipped());
     EXPECT_NE(
         area->objects().end(),
@@ -2542,7 +2613,7 @@ TEST(RuntimeObjectOwnership, direct_nested_ownership_rejects_area_item) {
     EXPECT_EQ(item, area->getObjectsByType(ObjectType::Item).front());
 }
 
-TEST(RuntimeObjectOwnership, equip_action_moves_equipped_item_between_creatures) {
+TEST(RuntimeObjectOwnership, equip_action_refuses_another_creatures_equipped_item) {
     TestEngine engine;
     engine.init();
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
@@ -2552,6 +2623,8 @@ TEST(RuntimeObjectOwnership, equip_action_moves_equipped_item_between_creatures)
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     auto source = game.newCreature();
     auto receiver = game.newCreature();
+    // Not a player character: no minimum equip level applies.
+    receiver->setPC(false);
     auto item = game.newItem();
     item->deserialize(
         *runtimeItem("action_transfer"),
@@ -2560,11 +2633,13 @@ TEST(RuntimeObjectOwnership, equip_action_moves_equipped_item_between_creatures)
     auto action = game.newAction<EquipItemAction>(
         item, InventorySlots::body, true);
 
+    // Neither creature is in the party, so the receiver cannot take what
+    // the other wears.
     action->execute(action, *receiver, 0.0f);
 
-    EXPECT_FALSE(source->getEquippedItem(InventorySlots::body));
-    EXPECT_EQ(item, receiver->getEquippedItem(InventorySlots::body));
-    EXPECT_EQ(receiver->id(), item->owner());
+    EXPECT_EQ(item, source->getEquippedItem(InventorySlots::body));
+    EXPECT_FALSE(receiver->getEquippedItem(InventorySlots::body));
+    EXPECT_EQ(source->id(), item->owner());
     EXPECT_TRUE(item->isEquipped());
 }
 
@@ -2602,6 +2677,13 @@ TEST(RuntimeObjectOwnership, rejected_replacement_preserves_original_graph) {
 TEST(EquipmentCombatEffects, effective_stats_follow_exact_equipment_ownership) {
     TestEngine engine;
     engine.init();
+    // Effective abilities include the racial adjustments.
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                    .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                                                                    .row({"0", "0", "0", "0", "0", "0"})
+                                                                    .build())));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
         .Times(AnyNumber())
         .WillRepeatedly(Return(runtimeBaseItems()));
@@ -2620,9 +2702,8 @@ TEST(EquipmentCombatEffects, effective_stats_follow_exact_equipment_ownership) {
              runtimeItemProperty(
                  ItemProperty::BonusFeat,
                  static_cast<uint16_t>(FeatType::Toughness)),
-             runtimeItemProperty(
-                 ItemProperty::Immunity,
-                 static_cast<uint16_t>(ImmunityType::Stun)),
+             // Immunity subtypes are iprp_immunity rows; row 7 grants paralysis immunity.
+             runtimeItemProperty(ItemProperty::Immunity, 7),
              runtimeItemProperty(ItemProperty::TrueSeeing),
              runtimeItemProperty(ItemProperty::DamageResistance),
              runtimeItemProperty(ItemProperty::DamageReduction)}),
@@ -2663,6 +2744,36 @@ TEST(EquipmentCombatEffects, effective_stats_follow_exact_equipment_ownership) {
     ASSERT_EQ(1u, receiver->items().size());
     EXPECT_EQ(item, receiver->items().front());
     EXPECT_FALSE(item->isEquipped());
+}
+
+TEST(EquipmentCombatEffects, improved_force_resistance_follows_equipped_ownership) {
+    TestEngine engine;
+    engine.init();
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(runtimeBaseItems()));
+    configureEquipmentEffectTables(engine);
+    StubConsole console;
+    Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    auto owner = game.newCreature();
+    auto item = game.newItem();
+    item->deserialize(
+        *runtimeEquippedItem(
+            "force_resistance_belt",
+            {runtimeItemProperty(ItemProperty::ImprovedForceResistance)}),
+        SerializedIdentityContext::templateResource());
+
+    EXPECT_EQ(0, owner->forceResistance().value());
+    ASSERT_TRUE(owner->equip(InventorySlots::body, item));
+    EXPECT_EQ(4, owner->forceResistance().value());
+    ASSERT_EQ(1u, owner->effects().size());
+    EXPECT_EQ(EffectType::ForceResistanceIncrease, owner->effects().front().type());
+    EXPECT_EQ(item, owner->effects().front().boundCreator());
+
+    auto receiver = game.newCreature();
+    ASSERT_TRUE(owner->moveEquippedItemTo(item, *receiver));
+    EXPECT_EQ(0, owner->forceResistance().value());
+    EXPECT_TRUE(owner->effects().empty());
 }
 
 TEST(EquipmentCombatEffects, replacement_rebinds_to_the_exact_item_incarnation) {
@@ -2845,7 +2956,7 @@ TEST(RuntimeObjectOwnership, displaced_equipment_merges_and_is_finalized) {
     EXPECT_EQ(2, retained->stackSize());
     EXPECT_FALSE(displaced->isRuntimeLive());
     EXPECT_FALSE(game.getObjectById(displaced->id()));
-    EXPECT_EQ(0u, displaced->owner());
+    EXPECT_FALSE(displaced->isHeld());
 }
 
 TEST(RuntimeObjectOwnership, repeated_equip_and_unequip_preserves_one_owner_edge) {

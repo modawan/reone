@@ -44,6 +44,8 @@ public:
         return from->type() == ObjectType::Store;
     }
 
+    /** Loads the store's blueprint; a missing blueprint leaves the store as it is. */
+    void loadFromBlueprint(const std::string &resRef);
     void deserialize(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);

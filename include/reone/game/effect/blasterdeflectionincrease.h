@@ -23,14 +23,26 @@ namespace reone {
 
 namespace game {
 
-class BlasterDeflectionIncreaseEffect : public Effect {
+class BlasterDeflectionIncreaseEffect : public CopyableEffect<BlasterDeflectionIncreaseEffect> {
 public:
     BlasterDeflectionIncreaseEffect(int change) :
-        Effect(EffectType::BlasterDeflectionIncrease),
+        CopyableEffect(EffectType::BlasterDeflectionIncrease),
         _change(change) {
+        setSaveFacingInteger(0, change);
     }
 
-    void applyTo(Object &object) override;
+    /**
+     * The deflection roll reads integer 1; integer 0 carries the item
+     * property's subtype.
+     */
+    BlasterDeflectionIncreaseEffect(int subtype, int deflection) :
+        CopyableEffect(EffectType::BlasterDeflectionIncrease),
+        _change(subtype) {
+        setSaveFacingInteger(0, subtype);
+        setSaveFacingInteger(1, deflection);
+    }
+
+    EffectApplicationResult onApply(Object &object, EffectInstance &) override;
 
 private:
     int _change;

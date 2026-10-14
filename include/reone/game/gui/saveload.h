@@ -67,6 +67,12 @@ public:
 
     void setMode(SaveLoadMode mode);
 
+    /** Saves the list offers; valid after refresh(). */
+    size_t savedGameCount() const { return _saves.size(); }
+
+    /** Load the current character's most recent save; false when there is none to load. */
+    bool launchMostRecentSave();
+
     bool handle(const input::Event &event) override;
     void update(float dt) override;
     void render() override;

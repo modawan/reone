@@ -17,19 +17,17 @@
 
 #pragma once
 
-#include "../effect.h"
+#include "creaturestate.h"
 
 namespace reone {
 
 namespace game {
 
-class SleepEffect : public Effect {
+class SleepEffect : public CreatureStateEffect {
 public:
-    SleepEffect() :
-        Effect(EffectType::Sleep) {
-    }
+    SleepEffect();
 
-    void applyTo(Object &object) override;
+    std::shared_ptr<script::EngineType> cloneForScript() const override;
 };
 
 } // namespace game

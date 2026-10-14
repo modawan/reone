@@ -525,7 +525,7 @@ void VirtualMachine::executeEQUALTT(const Instruction &ins) {
 void VirtualMachine::executeEQUALEFFEFF(const Instruction &ins) {
     logOperands(2);
     withEffectsFromStack([this](auto &left, auto &right) {
-        _stack.push_back(Variable::ofInt(static_cast<int>(left == right)));
+        _stack.push_back(Variable::ofInt(static_cast<int>(equalEffectValues(left, right))));
     });
     logResults(1);
 }
@@ -607,7 +607,7 @@ void VirtualMachine::executeNEQUALTT(const Instruction &ins) {
 void VirtualMachine::executeNEQUALEFFEFF(const Instruction &ins) {
     logOperands(2);
     withEffectsFromStack([this](auto &left, auto &right) {
-        _stack.push_back(Variable::ofInt(static_cast<int>(left != right)));
+        _stack.push_back(Variable::ofInt(static_cast<int>(!equalEffectValues(left, right))));
     });
     logResults(1);
 }

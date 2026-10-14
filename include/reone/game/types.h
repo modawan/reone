@@ -68,7 +68,9 @@ enum class WeaponWield {
     DoubleBladedSword = 3,
     BlasterPistol = 4,
     BlasterRifle = 5,
-    HeavyWeapon = 6
+    HeavyWeapon = 6,
+    /** A weapon its user may wield whatever its size. */
+    AnySize = 8
 };
 
 enum class CreatureWieldType {
@@ -85,6 +87,18 @@ enum class CreatureWieldType {
     HandToHandComplex = 10,
 };
 
+/** The weapon or hand a physical attack is made with. */
+enum class PhysicalAttackKind {
+    /** Also creature weapons with an empty left creature slot, which attack with no weapon. */
+    None = 0,
+    MainHand = 1,
+    Offhand = 2,
+    CreatureWeapon = 3,
+    ExtraMainHand = 6,
+    Unarmed = 7,
+    ExtraUnarmed = 8,
+};
+
 enum class DamageType {
     Bludgeoning = 1,
     Piercing = 2,
@@ -99,7 +113,15 @@ enum class DamageType {
     DarkSide = 512,
     Sonic = 1024,
     Ion = 2048,
-    Blaster = 4096
+    Blaster = 4096,
+    Poison = 8192
+};
+
+/** How the dice of a damage amount are taken: rolled, or every die at its highest or lowest face. */
+enum class DamageDiceRoll {
+    Rolled,
+    Highest,
+    Lowest
 };
 
 enum class AttackResultType {
@@ -111,12 +133,15 @@ enum class AttackResultType {
     AttackResisted = 5,
     AttackFailed = 6,
     Parried = 8,
-    Deflected = 9
+    Deflected = 9,
+    ShieldHit = 10
 };
 
-enum class CameraStyleType {
-    Default,
-    Combat
+/** The reaction of an attack's target, by its animation id. */
+enum class AttackReaction {
+    Dodge = 10011,
+    Parry = 10012,
+    Damage = 10014,
 };
 
 enum class DurationType {
@@ -247,7 +272,16 @@ enum class EffectType {
     VPRegenModifier = 0x11f,
     Crush = 0x120,
     ForceSight = 0x121,
-    FactionModifier = 0x122
+    FactionModifier = 0x122,
+
+    // TSL
+
+    PureGoodPowers = 0x124,
+    PureEvilPowers = 0x125,
+    DestroyShields = 0x126,
+    Assassinate = 0x127
+
+    // END TSL
 };
 
 enum class ObjectType {
@@ -425,6 +459,7 @@ enum class ClassType {
 
 enum class Faction {
     Invalid = -1,
+    Player = 0,
     Hostile1 = 1,
     Friendly1 = 2,
     Hostile2 = 3,
@@ -522,7 +557,9 @@ enum class FeatType {
     WeaponSpecializationLightsaber = 50,
     WeaponSpecializationMeleeWeapons = 51,
     WeaponSpecializationSimpleWeapons = 52,
-    WhirlwindAttack = 53,
+    /** Feat 53 is Master Flurry in TSL and Whirlwind Attack in KotOR. */
+    MasterFlurry = 53,
+    WhirlwindAttack = MasterFlurry,
     GuardStance = 54,
     JediDefense = 55,
     UncannyDodge1 = 56,
@@ -564,11 +601,22 @@ enum class FeatType {
     ProficiencyAll = 93,
     BattleMeditation = 94,
     WookieEndurance = 95,
+    ForceImmunityFear = 98,
     ForceImmunityStun = 99,
     ForceImmunityParalysis = 100,
+    ForceJump = 101,
+    ForceJumpAdvanced = 102,
+    ForceJumpMastery = 103,
     Dueling = 113,
     ImprovedDueling = 114,
     MasterDueling = 115,
+    ForceSensitive = 116,
+    ImprovedCaution = 117,
+    MasterCaution = 118,
+    GearHeadAdept = 119,
+    GearHeadMaster = 120,
+    ImprovedEmpathy = 121,
+    MasterEmpathy = 122,
     ImprovedToughness = 123,
     MasterToughness = 124,
 
@@ -644,10 +692,22 @@ enum class FeatType {
     ForceChain = 205,
     WarVeteran = 206,
     ComplexUnarmedAnims = 207,
+    /** The first of three unarmed damage feats (209-211), each adding 1d4 to an unarmed hit. */
+    UnarmedDamageThreeRanks1 = 209,
+    /** The first of eight unarmed damage feats (212-219), each adding 1d4 to an unarmed hit. */
+    UnarmedDamageEightRanks1 = 212,
+    ShieldBreaker = 220,
     ImprovedWookieEndurance = 224,
     MasterWookieEndurance = 225,
+    WookieeRageI = 231,
+    WookieeRageII = 232,
+    WookieeRageIII = 233,
+    DroidTrick = 234,
+    DroidConfusion = 235,
     FightingSpirit = 236,
     HeroicResolve = 237,
+    MineImmunity = 238,
+    PartyMineImmunity = 239,
     PreciseShot = 240,
     ImprovedPreciseShot = 241,
     MasterPreciseShot = 242,
@@ -779,6 +839,17 @@ enum class SpellType {
     BeastTrick = 182,
     BeastConfusion = 184,
     DroidTrick = 201,
+    FormSaberIShiiCho = 258,
+    FormSaberIIMakashi = 259,
+    FormSaberIIISoresu = 260,
+    FormSaberIVAtaru = 261,
+    FormSaberVShien = 262,
+    FormSaberVINiman = 263,
+    FormSaberVIIJuyo = 264,
+    FormForceIChannel = 265,
+    FormForceIIPotency = 266,
+    FormForceIIIAffinity = 267,
+    FormForceIVMastery = 268,
     DroidConfusion = 269,
     BreathControl = 270,
     WookieeRageI = 271,
@@ -786,6 +857,42 @@ enum class SpellType {
     WookieeRageIII = 273
 
     // END TSL
+};
+
+/** How a creature takes part in combat: not at all, directly, or indirectly. */
+enum class CombatActivation {
+    None = 0,
+    Direct = 1,
+    Indirect = 2,
+};
+
+/** A TSL lightsaber or Force form, numbered as the spell that adopts it. */
+enum class CombatForm : uint32_t {
+    None = 0,
+    SaberIShiiCho = static_cast<uint32_t>(SpellType::FormSaberIShiiCho),
+    SaberIIMakashi = static_cast<uint32_t>(SpellType::FormSaberIIMakashi),
+    SaberIIISoresu = static_cast<uint32_t>(SpellType::FormSaberIIISoresu),
+    SaberIVAtaru = static_cast<uint32_t>(SpellType::FormSaberIVAtaru),
+    SaberVShien = static_cast<uint32_t>(SpellType::FormSaberVShien),
+    SaberVINiman = static_cast<uint32_t>(SpellType::FormSaberVINiman),
+    SaberVIIJuyo = static_cast<uint32_t>(SpellType::FormSaberVIIJuyo),
+    ForceIChannel = static_cast<uint32_t>(SpellType::FormForceIChannel),
+    ForceIIPotency = static_cast<uint32_t>(SpellType::FormForceIIPotency),
+    ForceIIIAffinity = static_cast<uint32_t>(SpellType::FormForceIIIAffinity),
+    ForceIVMastery = static_cast<uint32_t>(SpellType::FormForceIVMastery)
+};
+
+/** Whether a form is one of the seven lightsaber forms. */
+constexpr bool isSaberForm(CombatForm form) {
+    return form >= CombatForm::SaberIShiiCho &&
+           form <= CombatForm::SaberVIIJuyo;
+}
+
+/** A stance a creature holds instead of attacking. */
+enum class CombatStance {
+    None = -1,
+    TotalDefense = 0,
+    Meditative = 1
 };
 
 enum class CreatureType {
@@ -921,19 +1028,14 @@ enum class ActionType {
     UseSkill = 0x1016,
     UseTalentOnObject = 0x1017,
     UseTalentAtLocation = 0x1018,
-    InteractObject = 0x1019,
     MoveAwayFromLocation = 0x101a,
     SurrenderToEnemies = 0x101b,
-    EquipMostDamagingMelee = 0x101c,
-    EquipMostDamagingRanged = 0x101d,
     EquipMostEffectiveArmor = 0x101e,
-    CastFakeSpellAtObject = 0x1021,
-    CastFakeSpellAtLocation = 0x1022,
     BarkString = 0x1023,
     SwitchWeapons = 0x1024,
     PutDownItem = 0x1025,
-
-    CutsceneAttack = 0x5000,
+    CombatDispatch = 0x1026,
+    CombatStance = 0x1027,
 
     Invalid = 0xffff,
     QueueEmpty = 0xfffe
@@ -953,7 +1055,12 @@ enum class ProjectilePathType {
     Homing = 1,
     Ballistic = 2,
     HighBallistic = 3,
-    Accelerating = 4
+    Accelerating = 5,
+    Spiral = 6,
+    Linked = 7,
+    Bounce = 8,
+    Burst = 9,
+    Grenade = 11
 };
 
 enum class SubSkill {
@@ -968,6 +1075,21 @@ enum class TalentType {
     Feat = 1,
     Skill = 2,
     Invalid = 3
+};
+
+/** A saving throw, as scripts number it. */
+enum class SavingThrow {
+    None = 0,
+    Fortitude = 1,
+    Reflex = 2,
+    Will = 3
+};
+
+/** The outcome of a saving throw, as scripts number it. */
+enum class SavingThrowResult {
+    Failed = 0,
+    Saved = 1,
+    Immune = 2
 };
 
 enum class SavingThrowType {
@@ -1001,6 +1123,41 @@ enum class Shape {
     Sphere = 4
 };
 
+/** An event that can pause play, as the autopause options name it. */
+enum class AutoPauseReason {
+    EnemySighted,
+    EndOfCombatRound,
+    ActionMenu,
+    PartyKilled,
+    MineSighted,
+    NewTargetSelected
+};
+
+/** A perception change, in the order of its script event numbers. */
+enum class PerceptionEvent {
+    Heard,
+    Inaudible,
+    Seen,
+    Vanished
+};
+
+/**
+ * Why play is paused. The pause indicator shows only for the player's own
+ * pause and the autopauses; any other pause shows no indicator.
+ */
+enum class PauseReason {
+    Other,
+    Player,
+    EnemySighted,
+    EndOfCombatRound,
+    ActionMenu,
+    NewTargetSelected,
+    PartyKilled,
+    MineSighted,
+    /** A combat menu entry taken in combat mode during an autopause. */
+    CombatOrder
+};
+
 enum class InGameMenuTab {
     None,
     Equipment,
@@ -1017,7 +1174,9 @@ enum class InGameMenuTab {
 enum class SaveLoadMode {
     Save,
     LoadFromMainMenu,
-    LoadFromInGame
+    LoadFromInGame,
+    /** Loading instead of ending the game after the party has fallen; backing out ends it. */
+    LoadAfterDeath
 };
 
 enum class MovementSpeed {
@@ -1086,7 +1245,15 @@ enum class Alignment {
     All = 0,
     Neutral = 1,
     LightSide = 2,
-    DarkSide = 3
+    DarkSide = 3,
+
+    // TSL
+
+    /** Item limits only: a good-evil score of exactly 0 or 100. */
+    PureDarkSide = 4,
+    PureLightSide = 5
+
+    // END TSL
 };
 
 enum class ItemProperty {
@@ -1158,7 +1325,11 @@ enum class ItemProperty {
     LimitUseByPc = 62,
     DampenSound = 63,
     Doorcutting = 64,
-    Doorsabering = 65
+    Doorsabering = 65,
+    SniperBonus = 66,
+    RapidShotBonus = 67,
+    MaxDexterityBonus = 68,
+    LimitUseByAttribute = 69
 
     // END TSL
 };
@@ -1169,7 +1340,7 @@ enum class PersistentZone {
 };
 
 enum class ImmunityType {
-    None = 0,
+    All = 0,
     MindSpells = 1,
     Poison = 2,
     Disease = 3,
@@ -1205,6 +1376,11 @@ enum class ImmunityType {
     DroidConfused = 33
 };
 
+/** The number of immunity types, All included: TSL adds Droid Confused. */
+constexpr int immunityTypeCount(bool tsl) {
+    return static_cast<int>(ImmunityType::DroidConfused) + (tsl ? 1 : 0);
+}
+
 enum class InventoryDisturbType {
     Added = 0,
     Removed = 1,
@@ -1229,13 +1405,17 @@ enum class DoorAction {
 enum class DoorState {
     Closed = 0,
     Opened1 = 1,
-    Opened2 = 2
+    Opened2 = 2,
+    Destroyed = 3
 };
 
 /** Transition a door is playing towards its next resting state, if any. */
 enum class DoorTransition {
     None,
-    Opening,
+    /** Swinging open to the first side (Opened1). */
+    Opening1,
+    /** Swinging open to the second side (Opened2). */
+    Opening2,
     Closing
 };
 
@@ -1258,10 +1438,14 @@ enum class ACBonus {
     Deflection = 4
 };
 
+/** The attack an attack modifier effect is for. */
 enum class AttackBonus {
     Misc = 0,
     Onhand = 1,
-    Offhand = 2
+    Offhand = 2,
+    /** An attack with the left creature weapon. */
+    CreatureWeapon = 3,
+    Unarmed = 7
 };
 
 enum class BodyNode {
@@ -1316,6 +1500,9 @@ struct InventorySlots {
     static constexpr int cArmour = 17;
     static constexpr int rightWeapon2 = 18;
     static constexpr int leftWeapon2 = 19;
+
+    /** The number of inventory slots. */
+    static constexpr int count = 20;
 };
 
 struct Forfeit {
@@ -1333,6 +1520,39 @@ struct PartySelectionContext {
     std::string exitScript;
     int forceNpc1 {-1};
     int forceNpc2 {-2};
+};
+
+/**
+ * The class index a spell-like ability is cast through, and that of a spell
+ * whose class is left for the caster to choose, as scripts and saved commands
+ * give them.
+ */
+constexpr int kSpellLikeAbilityClass = 254;
+constexpr int kUnselectedCastingClass = 255;
+/** The caster level of a cast that leaves it to the caster. */
+constexpr int kUnspecifiedCasterLevel = 255;
+
+/** What a spell is cast through. */
+enum class CastingSourceKind {
+    Class,
+    SpellLikeAbility,
+    UnselectedClass,
+};
+
+/** What a spell cast through \p classIndex is cast through. */
+constexpr CastingSourceKind castingSourceKind(int classIndex) {
+    return classIndex == kSpellLikeAbilityClass    ? CastingSourceKind::SpellLikeAbility
+           : classIndex == kUnselectedCastingClass ? CastingSourceKind::UnselectedClass
+                                                   : CastingSourceKind::Class;
+}
+
+/** The class a spell is cast through and its caster level. */
+struct SpellSelection {
+    int classIndex {kUnselectedCastingClass};
+    int casterLevel {kUnspecifiedCasterLevel};
+
+    CastingSourceKind sourceKind() const { return castingSourceKind(classIndex); }
+    bool hasExplicitLevel() const { return casterLevel != kUnspecifiedCasterLevel; }
 };
 
 } // namespace game

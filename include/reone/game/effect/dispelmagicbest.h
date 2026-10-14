@@ -23,18 +23,19 @@ namespace reone {
 
 namespace game {
 
-class DispelMagicBestEffect : public Effect {
+/**
+ * Removes one magical temporary or permanent effect group from the target:
+ * the first group in the effect list whose roll succeeds, d20 plus the
+ * caster's level against 11. A group whose creator is a creature of level 0
+ * is passed over. The dispel itself is not retained.
+ */
+class DispelMagicBestEffect : public CopyableEffect<DispelMagicBestEffect> {
 public:
-    DispelMagicBestEffect(int casterLevel) :
-        Effect(EffectType::DispelMagicBest),
-        _casterLevel(casterLevel) {
+    DispelMagicBestEffect() :
+        CopyableEffect(EffectType::DispelMagicBest) {
     }
 
-    void applyTo(Object &object) override {
-    }
-
-private:
-    int _casterLevel;
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
 };
 
 } // namespace game

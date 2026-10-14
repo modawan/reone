@@ -59,7 +59,9 @@ protected:
     void SetUp() override {
         _engine.init();
         _game = std::make_unique<Game>(GameID::KotOR, std::filesystem::path {}, _engine.options(), _engine.services(), _console);
-        _module = _game->newModule();
+        // The context menu is the active module's.
+        TestGameModule::setActiveModuleArea(*_game, _game->newArea());
+        _module = _game->module();
 
         _leader = _game->newCreature();
         _leader->setFaction(kLeaderFaction);
@@ -123,12 +125,28 @@ TEST_F(CreatureInteractionTest, creature_that_is_hostile_to_the_leader_is_presen
     hostileOnly(kOtherFaction, kLeaderFaction);
 
     EXPECT_TRUE(_module->isHostileToPartyLeader(*_other));
-    EXPECT_EQ(ActionType::AttackObject, queuedActionType());
+    // The click orders an attack, which waits on the leader's round.
+    TestGameModule::clickCreature(*_module, _other);
+    EXPECT_EQ(std::optional<int>(1), _game->combat().nextScheduledKind(*_leader));
     EXPECT_THAT(contextActionTypes(), Contains(ActionType::AttackObject));
 }
 
 TEST_F(CreatureInteractionTest, dead_creatures_are_never_hostile_regardless_of_disposition) {
     hostileOnly(kOtherFaction, kLeaderFaction);
+    // Dying reads the effects death keeps and the body's destroy delay.
+    ON_CALL(_engine.resourceModule().twoDas(), get("removefxondeath"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"label", "effecttype"})
+                                                                   .row({"EFFECT_DISGUISE", "62"})
+                                                                   .row({"EFFECT_BEAM", "21"})
+                                                                   .build())));
+    ON_CALL(_engine.resourceModule().twoDas(), get("appearance"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"destroyobjectdelay"})
+                                                                   .row({""})
+                                                                   .build())));
+    // The body's destruction is queued on the active module.
+    TestGameModule::setActiveModuleArea(*_game, _game->newArea());
     // Dying renames the creature to its authored "remains" string.
     EXPECT_CALL(_engine.resourceModule().strings(), getText(_))
         .Times(AnyNumber())

@@ -48,8 +48,8 @@ void ContainerGUI::onGUILoaded() {
     bindControls();
     centerRootInCanvas(_game.isTSL() ? 800 : 640, _game.isTSL() ? 600 : 480);
 
-    _giveItemMsg = _services.resource.strings.getText(kSwitchToResRef) + " " + _services.resource.strings.getText(kGiveItemResRef);
-    _getItemsMsg = _services.resource.strings.getText(kSwitchToResRef) + " " + _services.resource.strings.getText(kGetItemsResRef);
+    _giveItemMsg = _game.getInterfaceText(kSwitchToResRef) + " " + _game.getInterfaceText(kGiveItemResRef);
+    _getItemsMsg = _game.getInterfaceText(kSwitchToResRef) + " " + _game.getInterfaceText(kGetItemsResRef);
 
     _controls.BTN_GIVEITEMS->setTextMessage(_giveItemMsg);
 
@@ -58,7 +58,6 @@ void ContainerGUI::onGUILoaded() {
 
     _controls.BTN_OK->setOnClick([this]() {
         transferItemsToPlayer();
-        _game.openInGame();
     });
     _controls.BTN_CANCEL->setOnClick([this]() {
         close();
@@ -75,7 +74,7 @@ void ContainerGUI::configureItemsListBox() {
 
     Control::Text text(protoItem.text());
     // Centre the name on the scaled glyphs; authored top alignment assumed
-    // the retail font filled the row.
+    // the font filled the row.
     text.align = Control::TextAlign::LeftCenter;
 
     protoItem.setText(text);
@@ -96,9 +95,14 @@ void ContainerGUI::populateItems(Object &source, bool onlyDropable, bool skipCre
             continue;
         }
 
+        // An entry names the stack it shows.
         ListBox::Item lbItem;
-        lbItem.tag = item->tag();
+        lbItem.tag = std::to_string(item->id());
         lbItem.text = item->localizedName();
+        // TSL shows item names with their actions hidden.
+        if (_game.isTSL()) {
+            lbItem.text = _game.substituteLogTokens(std::move(lbItem.text));
+        }
         lbItem.iconTexture = item->icon();
         lbItem.iconFrame = itemFrameTexture(item->stackSize());
         if (item->stackSize() > 1) {
@@ -113,11 +117,19 @@ void ContainerGUI::open(std::shared_ptr<Object> container) {
     _controls.BTN_GIVEITEMS->setTextMessage(_giveItemMsg);
     _container = container;
     _mode = Mode::ContainerToPlayer;
-    populateItems(*container, /*onlyDropable=*/true, /*skipCredits=*/false);
+    _controls.LB_ITEMS->clearItems();
+    _itemsListed = false;
+}
 
-    auto placeable = dyn_cast<Placeable>(container);
-    if (placeable) {
-        placeable->onOpen(_game.party().getLeader()->id());
+void ContainerGUI::update(float dt) {
+    GameGUI::update(dt);
+    if (_itemsListed) {
+        return;
+    }
+    _itemsListed = true;
+    // A container that its open script destroyed lists nothing.
+    if (auto container = _container.resolve()) {
+        populateItems(*container, /*onlyDropable=*/true, /*skipCredits=*/false);
     }
 }
 
@@ -129,8 +141,16 @@ Object &ContainerGUI::container() const {
     return *container;
 }
 
-void ContainerGUI::close() {
+// Every way out of the container closes its inventory.
+void ContainerGUI::close(bool takeAll) {
+    if (auto placeable = std::dynamic_pointer_cast<Placeable>(_container.resolve())) {
+        placeable->closeInventory(*_game.party().getLeader(), takeAll);
+    }
     _game.openInGame();
+}
+
+void ContainerGUI::closeTakingAll() {
+    close(true);
 }
 
 void ContainerGUI::switchMode() {
@@ -172,7 +192,10 @@ void ContainerGUI::transferItemsToPlayer() {
     close();
 }
 
-void ContainerGUI::onItemDoubleClick(const std::string &tag) {
+// Giving the container an item from a stack moves one of the stack there; a
+// stack of one moves whole. The container takes it into a matching stack of
+// its own where one has room.
+void ContainerGUI::onItemDoubleClick(const std::string &entry) {
     if (_mode == Mode::ContainerToPlayer) {
         // Do nothing for the player for now.
         return;
@@ -184,33 +207,22 @@ void ContainerGUI::onItemDoubleClick(const std::string &tag) {
     }
 
     std::shared_ptr<Creature> player = _game.party().player();
-    std::shared_ptr<Item> item = player->getItemByTag(tag);
-    if (!item) {
+    auto item = _game.getObjectById<Item>(static_cast<uint32_t>(std::stoul(entry)));
+    auto owner = item ? _game.getObjectById(item->owner()) : nullptr;
+    if (!owner) {
         return;
     }
 
-    bool last = false;
-    player->removeItem(item, last);
-
-    // Add item to the container if it does not exist.
-    uint32_t itemId = script::kObjectInvalid;
-    for (const std::shared_ptr<Item> &containerItem : container->items()) {
-        if (containerItem->tag() == item->tag()) {
-            container->addItem(containerItem);
-            itemId = containerItem->id();
-        }
+    std::shared_ptr<Item> given(item);
+    if (item->stackSize() > 1) {
+        given = _game.newItemClone(*item);
+        given->setStackSize(1);
+        item->setStackSize(item->stackSize() - 1);
+    } else {
+        owner->removeItemStack(item);
     }
-    if (itemId == script::kObjectInvalid) {
-        // No existing item in the container. Clone the item instead of
-        // adding it directly.
-        std::shared_ptr<Item> newItem = _game.newItemClone(*item);
-        newItem->setStackSize(1);
-        container->addItem(newItem);
-        itemId = newItem->id();
-    }
-    if (last) {
-        _game.destroyRuntimeObjectGraph(item);
-    }
+    auto held = container->addItem(given);
+    const uint32_t itemId = held ? held->id() : script::kObjectInvalid;
 
     // Repopulate the list after the number of items changes.
     int offset = _controls.LB_ITEMS->getItemOffset();

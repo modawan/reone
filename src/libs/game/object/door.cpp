@@ -20,6 +20,19 @@
 #include <algorithm>
 #include <limits>
 
+#include "reone/game/action/opendoor.h"
+#include "reone/game/animations.h"
+#include "reone/game/attack.h"
+#include "reone/game/di/services.h"
+#include "reone/game/event.h"
+#include "reone/game/game.h"
+#include "reone/game/object/area.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/object/module.h"
+#include "reone/game/object/trigger.h"
+#include "reone/game/party.h"
+#include "reone/game/reputes.h"
+#include "reone/game/script/runner.h"
 #include "reone/graphics/di/services.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
@@ -35,11 +48,6 @@
 #include "reone/scene/node/model.h"
 #include "reone/scene/types.h"
 
-#include "reone/game/di/services.h"
-#include "reone/game/game.h"
-#include "reone/game/object/creature.h"
-#include "reone/game/reputes.h"
-
 using namespace reone::graphics;
 using namespace reone::resource;
 using namespace reone::scene;
@@ -48,6 +56,13 @@ using namespace reone::script;
 namespace reone {
 
 namespace game {
+
+static constexpr int kDamagedEvent = static_cast<int>(SavedSignalEventType::Damaged);
+// The animations.2da row of a destroyed door's pose.
+static constexpr int kDestroyedAnimation = 330;
+// LinkedToFlags of a door linked to another door and to a waypoint.
+static constexpr int kLinkedToDoor = 1;
+static constexpr int kLinkedToWaypoint = 2;
 
 void Door::deserialize(
     const resource::Gff &gff,
@@ -76,7 +91,11 @@ void Door::deserializeAll(
         _name = _locName.str();
     }
 
-    gff.readDword(_appearance, "Appearance");
+    // Only the low byte of the appearance names the door's look.
+    uint32_t appearance = _appearance;
+    if (gff.readDword(appearance, "Appearance")) {
+        _appearance = static_cast<uint8_t>(appearance);
+    }
     gff.readByte(_genericType, "GenericType");
     {
         // OpenState names the resting state the door was authored in. Every K1
@@ -90,6 +109,9 @@ void Door::deserializeAll(
                 break;
             case 1:
                 _state = DoorState::Opened1;
+                break;
+            case 3:
+                _state = DoorState::Destroyed;
                 break;
             case 2:
                 _state = DoorState::Opened2;
@@ -119,10 +141,11 @@ void Door::deserializeAll(
         _maxHitPoints = _hitPoints;
     }
     gff.readShort(_currentHitPoints, "CurrentHP");
-    if (identityContext.isSerializedState() && gff.has("CurrentHP")) {
-        _dead = _currentHitPoints <= 0;
+    // An Invulnerable flag takes precedence over Plot, an explicit zero
+    // included.
+    if (!gff.readBool(_plot, "Invulnerable")) {
+        gff.readBool(_plot, "Plot");
     }
-    gff.readBool(_plot, "Plot");
     gff.readBool(_minOneHP, "Min1HP");
     if (gff.readString(_keyName, "KeyName")) {
         boost::to_lower(_keyName);
@@ -137,25 +160,20 @@ void Door::deserializeAll(
     gff.readResRef(_onClosed, "OnClosed");
     gff.readResRef(_onDamaged, "OnDamaged");
     gff.readResRef(_onDeath, "OnDeath");
-    gff.readResRef(_onDisarm, "OnDisarm");
     gff.readResRef(_onHeartbeat, "OnHeartbeat");
     gff.readResRef(_onLock, "OnLock");
     gff.readResRef(_onMeleeAttacked, "OnMeleeAttacked");
     gff.readResRef(_onOpen, "OnOpen");
     gff.readResRef(_onSpellCastAt, "OnSpellCastAt");
-    gff.readResRef(_onTrapTriggered, "OnTrapTriggered");
     gff.readResRef(_onUnlock, "OnUnlock");
     gff.readResRef(_onUserDefined, "OnUserDefined");
     gff.readResRef(_onClick, "OnClick");
     gff.readResRef(_onFailToOpen, "OnFailToOpen");
     gff.readResRef(_onDialog, "OnDialog");
-    gff.readByte(_trapType, "TrapType");
-    gff.readBool(_trapDisarmable, "TrapDisarmable");
-    gff.readBool(_trapDetectable, "TrapDetectable");
-    gff.readByte(_disarmDC, "DisarmDC");
-    gff.readByte(_trapDetectDC, "TrapDetectDC");
-    gff.readByte(_trapFlag, "TrapFlag");
-    gff.readBool(_trapOneShot, "TrapOneShot");
+    _trap.deserialize(gff);
+    // A saved door without a DC keeps the current one as shifted for difficulty.
+    // Placed doors take their DCs from the blueprint alone.
+    _trap.deserializeArming(gff, _game, identityContext.isSerializedState());
     gff.readBool(_locked, "Locked");
     gff.readBool(_lockable, "Lockable");
     gff.readByte(_linkedToFlags, "LinkedToFlags");
@@ -164,15 +182,31 @@ void Door::deserializeAll(
     gff.readWord(_loadScreenId, "LoadScreenID");
     gff.readLocString(_description, "Description", _services.resource.strings);
     gff.readBool(_static, "Static");
+    if (_static) {
+        _plot = true;
+    }
     gff.readBool(_notBlastable, "NotBlastable");
     gff.readLocString(_transitionDestin, "TransitionDestin", _services.resource.strings);
 
     // FIXME: deserialize EffectList, ActionList
 }
 
+// The appearance picks the door's look. A door with one takes
+// its model from doortypes and is never used precisely; one without takes both
+// from its generic type in genericdoors. The walkmeshes follow the model.
 void Door::loadAppearance() {
-    std::shared_ptr<TwoDA> doors(_services.resource.twoDas.get("genericdoors"));
-    std::string modelName(boost::to_lower_copy(doors->getString(_genericType, "modelname")));
+    std::string modelName;
+    if (_appearance != 0) {
+        std::shared_ptr<TwoDA> types(_services.resource.twoDas.get("doortypes"));
+        modelName = boost::to_lower_copy(types->getString(_appearance, "model"));
+        _preciseUse = false;
+        _blocksSight = types->getInt(_appearance, "blocksight", 1) != 0;
+    } else {
+        std::shared_ptr<TwoDA> doors(_services.resource.twoDas.get("genericdoors"));
+        modelName = boost::to_lower_copy(doors->getString(_genericType, "modelname"));
+        _preciseUse = doors->getInt(_genericType, "preciseuse", 0) != 0;
+        _blocksSight = doors->getInt(_genericType, "blocksight", 1) != 0;
+    }
 
     _linkedTransitionGeometry.clear();
     auto walkmeshClosed = _services.resource.walkmeshes.get(modelName + "0", ResType::Dwk);
@@ -188,6 +222,8 @@ void Door::loadAppearance() {
 
     auto modelSceneNode = sceneGraph.newModel(*model, ModelUsage::Door);
     modelSceneNode->setUser(*this);
+    // Under Force Sight a door is drawn see-through.
+    modelSceneNode->setForceSightStyle(scene::ModelSceneNode::ForceSightStyle::Translucent);
     // modelSceneNode->setDrawDistance(_game.options().graphics.drawDistance);
     _sceneNode = std::move(modelSceneNode);
 
@@ -250,6 +286,9 @@ void Door::applyRestingPose() {
     case DoorState::Opened2:
         model->playAnimation("opened2");
         break;
+    case DoorState::Destroyed:
+        model->playAnimation(_services.game.animations.getNameById(kDestroyedAnimation));
+        break;
     case DoorState::Closed:
     default:
         model->playAnimation("closed");
@@ -285,7 +324,7 @@ bool Door::isSelectable() const {
 void Door::damage(
     int amount,
     const std::shared_ptr<Object> &damager) {
-    if (_dead || _plot || _notBlastable) {
+    if (isDead() || _plot || _notBlastable) {
         return;
     }
     if (amount <= 0) {
@@ -294,29 +333,73 @@ void Door::damage(
 
     setLastDamager(damager);
     uint32_t damagerId = getLastDamager();
-    int currentHitPoints = _currentHitPoints > 0 ? _currentHitPoints : _hitPoints;
+    const int hitPointsBefore = currentHitPoints();
     if (amount == std::numeric_limits<int>::max()) {
         _currentHitPoints = isMinOneHP() ? 1 : 0;
     } else {
-        int adjustedAmount = applyDamageToHitPoints(amount, currentHitPoints);
+        int adjustedAmount = applyDamageToHitPoints(amount, hitPointsBefore);
         _game.floatingText().addDamage(
             *this, amount, adjustedAmount, damagerId);
     }
 
-    runDamagedScript();
+    _game.queueScriptEvent(*this, damager ? std::optional<std::reference_wrapper<const Object>>(*damager) : std::nullopt, Event(kDamagedEvent, {amount}, {}, {}, {}));
 
-    if (_currentHitPoints > 0) {
+    if (!isDead()) {
         return;
     }
 
-    _dead = true;
     _locked = false;
-    open();
+    if (damager) {
+        open(*damager);
+    } else {
+        open();
+    }
     onOpen(damagerId);
     runDeathScript();
 }
 
-void Door::open() {
+void Door::open(std::optional<std::reference_wrapper<const Object>> opener) {
+    // The front of a door is the side its local +Y axis points to.
+    const glm::vec3 front {_orientation * glm::vec3(0.0f, 1.0f, 0.0f)};
+    const bool inFront = opener && glm::dot(opener->get().position() - _position, front) > 0.0f;
+    const DoorTransition opening = inFront ? DoorTransition::Opening1 : DoorTransition::Opening2;
+    swingOpen(opening);
+    if (auto linked = linkedDoor()) {
+        linked->swingOpen(opening);
+    }
+}
+
+void Door::close() {
+    swingShut();
+    if (auto linked = linkedDoor()) {
+        linked->swingShut();
+    }
+}
+
+void Door::onClosed(uint32_t closerId) {
+    if (_onClosed.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(
+        _onClosed,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::LastClosedBy, Variable::ofObject(closerId)}});
+}
+
+std::shared_ptr<Door> Door::linkedDoor() {
+    if (_linkedToFlags != kLinkedToDoor && _linkedToFlags != kLinkedToWaypoint) {
+        return nullptr;
+    }
+    if (auto linked = _linkedDoor.resolve()) {
+        return linked;
+    }
+    auto linked = std::dynamic_pointer_cast<Door>(
+        spatialArea()->get().getObjectByTag(boost::to_lower_copy(_linkedTo)));
+    _linkedDoor = linked;
+    return linked;
+}
+
+void Door::swingOpen(DoorTransition opening) {
     if (isOpening()) {
         // Already swinging open. Restarting would rewind the leaf and re-run
         // whatever the caller does around the transition.
@@ -326,14 +409,14 @@ void Door::open() {
         return;
     }
 
-    // A door that is swinging aside is still in the doorway. Retail K2 will not
+    // A door that is swinging aside is still in the doorway. K2 will not
     // let the player through one until the opening animation has finished, so
     // the closed walkmesh stays enabled for the whole transition and only comes
     // off when the door has physically arrived at its opened pose.
-    beginTransition(DoorTransition::Opening);
+    beginTransition(opening);
 }
 
-void Door::close() {
+void Door::swingShut() {
     if (isClosing()) {
         return;
     }
@@ -375,7 +458,10 @@ void Door::finishTransition() {
 }
 
 void Door::update(float dt) {
+    // A dead door runs no heartbeat.
+    updateStampedHeartbeat(_onHeartbeat, !isDead());
     Object::update(dt);
+    updateMineBlast(dt);
 
     if (_transition != DoorTransition::None && isTransitionComplete()) {
         finishTransition();
@@ -395,12 +481,107 @@ bool Door::isTransitionComplete() const {
     return model->isAnimationFinished();
 }
 
-const char *Door::transitionAnimation(DoorTransition transition) {
-    return transition == DoorTransition::Opening ? "opening1" : "closing1";
+const char *Door::transitionAnimation(DoorTransition transition) const {
+    switch (transition) {
+    case DoorTransition::Opening1:
+        return "opening1";
+    case DoorTransition::Opening2:
+        return "opening2";
+    default:
+        return _state == DoorState::Opened2 ? "closing2" : "closing1";
+    }
 }
 
 DoorState Door::transitionTarget(DoorTransition transition) {
-    return transition == DoorTransition::Opening ? DoorState::Opened1 : DoorState::Closed;
+    switch (transition) {
+    case DoorTransition::Opening1:
+        return DoorState::Opened1;
+    case DoorTransition::Opening2:
+        return DoorState::Opened2;
+    default:
+        return DoorState::Closed;
+    }
+}
+
+DoorState Door::actionState() const {
+    return _transition == DoorTransition::None ? _state : transitionTarget(_transition);
+}
+
+std::optional<std::array<glm::vec3, 2>> Door::actionPoints(DoorState state) const {
+    std::shared_ptr<WalkmeshSceneNode> node;
+    switch (state) {
+    case DoorState::Closed:
+        node = _walkmeshClosed;
+        break;
+    case DoorState::Opened1:
+        node = _walkmeshOpen1;
+        break;
+    case DoorState::Opened2:
+        node = _walkmeshOpen2;
+        break;
+    default:
+        return std::nullopt;
+    }
+    // Without a walkmesh the points lie at the door's own origin.
+    std::array<glm::vec3, 2> points {_position, _position};
+    if (!node) {
+        return points;
+    }
+    const Walkmesh &walkmesh = node->walkmesh();
+    for (size_t i = 0; i < points.size(); ++i) {
+        // A point placed absolutely stands in for the relative one.
+        const glm::vec3 &absolute = walkmesh.absoluteUsePositions[i];
+        const glm::vec3 &local = absolute != glm::vec3(0.0f) ? absolute : walkmesh.relativeUsePositions[i];
+        points[i] = glm::vec3(_transform * glm::vec4(local + walkmesh.position, 1.0f));
+    }
+    return points;
+}
+
+// A door with no use point over walkable ground is used from the world
+// origin.
+glm::vec3 Door::nearestActionPoint(const glm::vec3 &from, bool closed) const {
+    // A point beyond this squared distance does not compete with a closed
+    // state point when the door's own state offers none.
+    static constexpr float kNoPointDistance2 = 1000.0f;
+
+    const Area &area = spatialArea()->get();
+    auto walkable = [&area](const glm::vec3 &point) {
+        return area.groundHeight(point).has_value();
+    };
+    auto distance2 = [&](const glm::vec3 &point) {
+        const glm::vec3 offset {from - point};
+        return glm::dot(offset, offset);
+    };
+
+    const DoorState state = closed ? DoorState::Closed : actionState();
+    glm::vec3 best {0.0f};
+    float bestDistance2 = kNoPointDistance2;
+    if (auto points = actionPoints(state)) {
+        const auto &[first, second] = *points;
+        const float firstDistance2 = distance2(first);
+        const float secondDistance2 = distance2(second);
+        if (secondDistance2 > firstDistance2) {
+            if (walkable(first)) {
+                best = first;
+                bestDistance2 = firstDistance2;
+            } else if (walkable(second)) {
+                best = second;
+                bestDistance2 = secondDistance2;
+            }
+        } else if (walkable(second)) {
+            best = second;
+            bestDistance2 = secondDistance2;
+        }
+    }
+    if (state != DoorState::Closed) {
+        const auto closedPoints = actionPoints(DoorState::Closed);
+        for (const glm::vec3 &point : *closedPoints) {
+            if (bestDistance2 > distance2(point) && walkable(point)) {
+                return point;
+            }
+        }
+    }
+    return best;
 }
 
 void Door::onOpen(uint32_t triggererId) {
@@ -411,19 +592,40 @@ void Door::onOpen(uint32_t triggererId) {
         _onOpen,
         {{script::ArgKind::Caller, Variable::ofObject(_id)},
          {script::ArgKind::LastOpenedBy, Variable::ofObject(triggererId)},
-         {script::ArgKind::ClickingObject, Variable::ofObject(triggererId)},
-         {script::ArgKind::EnteringObject, Variable::ofObject(triggererId)}});
+         {script::ArgKind::ClickingObject, Variable::ofObject(triggererId)}});
 }
 
-void Door::onFailToOpen(const Object &triggerer) {
-    if (_onFailToOpen.empty()) {
+void Door::onLocked() {
+    if (_onLock.empty()) {
         return;
     }
+    _game.scriptRunner().run(_onLock, {{script::ArgKind::Caller, Variable::ofObject(_id)}});
+}
 
-    _game.scriptRunner().run(
-        _onFailToOpen,
-        {{script::ArgKind::Caller, Variable::ofObject(_id)},
-         {script::ArgKind::ClickingObject, Variable::ofObject(triggerer.id())}});
+void Door::onFailToOpen(uint32_t openerId, bool quiet) {
+    _lastEnteredId = openerId;
+    if (!_onFailToOpen.empty()) {
+        _game.scriptRunner().run(
+            _onFailToOpen,
+            {{script::ArgKind::Caller, Variable::ofObject(_id)},
+             {script::ArgKind::ClickingObject, Variable::ofObject(openerId)}});
+    }
+    if (!_locked || quiet) {
+        return;
+    }
+    // A door with an order to open itself says nothing.
+    for (const auto &action : actions()) {
+        auto *opening = dyn_cast<OpenDoorAction>(action.get());
+        if (opening && opening->door().get() == this) {
+            return;
+        }
+    }
+    // Otherwise the creature the player controls hears the door is locked.
+    static constexpr int kLockedStrRef = 1437;
+    auto leader = _game.party().getLeader();
+    if (leader && leader->id() == openerId) {
+        _game.addFeedbackMessage(kLockedStrRef);
+    }
 }
 
 void Door::runDamagedScript() {
@@ -448,17 +650,42 @@ void Door::runDeathScript() {
          {script::ArgKind::LastDamager, Variable::ofObject(getLastDamager())}});
 }
 
+void Door::enterDestroyedState() {
+    _state = DoorState::Destroyed;
+    applyRestingState();
+}
+
+void Door::receiveDamagedSignal(const std::shared_ptr<Object> &damager) {
+    setLastDamager(damager);
+    setLastHostileActor(damager ? damager->id() : script::kObjectInvalid);
+    runDamagedScript();
+}
+
+void Door::receiveAttackEvent(uint32_t attackerId, std::optional<std::reference_wrapper<const AttackEventFields>> fields) {
+    recordReceivedAttack(attackerId, fields ? fields->get().weaponAttackType : 0);
+    if (!isRuntimeLive()) {
+        return;
+    }
+    // The melee-attacked script runs whether or not the object is destroyed.
+    _game.scriptRunner().run(_onMeleeAttacked, id());
+    _trap.springOnStrike(*this, _faction, attackerId);
+}
+
+void Door::receiveDeathSignal(uint32_t killerId) {
+    setLastKiller(killerId);
+    _game.scriptRunner().run(_onDeath, {{script::ArgKind::Caller, Variable::ofObject(_id)}});
+}
+
 void Door::setLocked(bool locked) {
     _locked = locked;
 }
 
-bool canBashDoor(const Door &door, const Creature &actor, const IReputes &reputes) {
+bool canBashDoor(const Door &door) {
     return door.isLocked() &&
            door.isSelectable() &&
            !door.isDead() &&
            !door.plotFlag() &&
            !door.isNotBlastable() &&
-           reputes.getIsEnemy(actor.faction(), door.faction()) &&
            (door.hitPoints() > 0 || door.currentHitPoints() > 0);
 }
 
@@ -475,6 +702,76 @@ void Door::updateTransform() {
         _walkmeshClosed->setLocalTransform(_transform);
     }
 }
+
+void Door::applyDamageEffect(
+    int amount,
+    const std::shared_ptr<Object> &damager,
+    std::optional<DamageReaction>) {
+    if (amount == 0) {
+        _game.floatingText().addDamage(*this, 0, 0, getLastDamager());
+        _game.queueScriptEvent(*this, damager ? std::optional<std::reference_wrapper<const Object>>(*damager) : std::nullopt, Event(kDamagedEvent, {amount}, {}, {}, {}));
+        return;
+    }
+
+    damage(amount, damager);
+}
+
+int Door::savingThrow(SavingThrow save) const {
+    switch (save) {
+    case SavingThrow::Fortitude:
+        return _fort;
+    case SavingThrow::Reflex:
+        return _ref;
+    case SavingThrow::Will:
+        return _will;
+    default:
+        return 0;
+    }
+}
+
+// Traps
+
+// A door whose lock a mine blew swings open this long after the blast.
+static constexpr float kMineOpenDelay = 1.0f;
+// The setter's Demolitions rank counts at half in a mine's blast at a door.
+static constexpr int kMineBlastRankDivisor = 2;
+
+void Door::triggerTrap(const std::shared_ptr<Creature> &caller, bool force) {
+    if (caller) {
+        _trap.spring(*this, _faction, *caller, force);
+    }
+}
+
+void Door::armMine(int trapType, int detectDC, int disarmDC, int ownerDemolitionsSkill,
+                   const std::shared_ptr<Trigger> &linkedMine,
+                   const std::shared_ptr<Creature> &setter, int blastBonus, bool blast) {
+    _trap.armMine(_game, _services.resource.twoDas, trapType, detectDC, disarmDC, ownerDemolitionsSkill,
+                  linkedMine, setter, blastBonus, blast);
+}
+
+// A blast that breaks the lock unlocks the door, which swings open a moment
+// later.
+void Door::updateMineBlast(float dt) {
+    if (_mineOpenDelay) {
+        *_mineOpenDelay -= dt;
+        if (*_mineOpenDelay < 0.0f) {
+            _mineOpenDelay.reset();
+            _locked = false;
+            open();
+        }
+    }
+    auto blast = _trap.updateMineBlast(dt, kMineBlastRankDivisor, _openLockDC);
+    if (!blast) {
+        return;
+    }
+    if (blast->opens) {
+        _mineOpenDelay = kMineOpenDelay;
+        _game.scriptRunner().run(_onUnlock, {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
+    }
+    _trap.reportMineBlast(_game, *blast);
+}
+
+// END Traps
 
 } // namespace game
 

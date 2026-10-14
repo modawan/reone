@@ -21,14 +21,26 @@
 
 #include "../object.h"
 
+#include "trap.h"
+
 namespace reone {
+
+namespace scene {
+class ModelSceneNode;
+}
 
 namespace game {
 
+class Creature;
 class Door;
 
 class Trigger : public Object {
 public:
+    /** The trigger type of an area transition. */
+    static constexpr int kAreaTransitionType = 1;
+    /** The trigger type of a trap. */
+    static constexpr int kTrapType = 2;
+
     enum class DebugState {
         Default,
         Tested,
@@ -54,12 +66,17 @@ public:
     }
 
     void loadFromBlueprint(const std::string &resRef);
+    Faction faction() const { return _faction; }
+    void setFaction(Faction faction) { _faction = faction; }
+
     void deserialize(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
     void configureLinkedDoorTransition(const std::shared_ptr<Door> &door);
 
     void update(float dt) override;
+    void resolveSavedReferences(
+        const std::function<std::shared_ptr<Object>(uint32_t)> &resolver) override;
 
     void addTenant(const std::shared_ptr<Object> &object);
 
@@ -69,10 +86,17 @@ public:
     // forever (leaking it and leaving the trigger stuck in the Inside state).
     void removeTenant(const Object *object);
 
-    bool isIn(const glm::vec2 &point) const;
+    /**
+     * Whether a point is inside the trigger: for a trap, within the trap
+     * radius of its position in three dimensions; otherwise inside its
+     * outline on the ground plane.
+     */
+    bool isIn(const glm::vec3 &point) const;
     bool isTenant(const std::shared_ptr<Object> &object) const;
     bool isActive() const;
     bool isLinkedDoorTransition() const { return _linkedDoorTransition; }
+    /** Whether the trigger's type makes it an area transition. */
+    bool isAreaTransition() const { return _triggerType == kAreaTransitionType; }
     bool acceptsTransitionActivator(const std::shared_ptr<Object> &activator) const;
     bool detachLinkedDoorTransition(const Door &door);
 
@@ -85,6 +109,70 @@ public:
 
     const std::string &getOnEnter() const { return _onEnter; }
     const std::string &getOnExit() const { return _onExit; }
+    /** The object that last came into the trigger, kept until the next one does. */
+    uint32_t lastEnteredId() const { return _lastEnteredId; }
+    /** The object that last left the trigger, kept until the next one does. */
+    uint32_t lastLeftId() const { return _lastLeftId; }
+
+    // Traps
+
+    bool isTrap() const { return _isTrap; }
+    bool isTrapped() const { return _isTrap; }
+    bool trapDisarmable() const { return _trap.isDisarmable(); }
+    bool trapDetectable() const { return _trap.isDetectable(); }
+    bool trapOneShot() const { return _trap.isOneShot(); }
+    int trapBaseType() const { return _trap.type(); }
+    const std::string &trapKeyTag() const { return _keyName; }
+    int trapDetectDC() const { return _trap.detectDC(_game); }
+    int trapDisarmDC() const { return _trap.disarmDC(_game); }
+    const Trap &trap() const { return _trap; }
+    /** A trigger's trap record; only a trap trigger is armed with it. */
+    std::optional<std::reference_wrapper<Trap>> findTrap() override { return std::ref(_trap); }
+    /** A trigger's trap record; only a trap trigger is armed with it. */
+    std::optional<std::reference_wrapper<const Trap>> findTrap() const override { return std::cref(_trap); }
+    TrapDetection &trapDetection() { return _trap.detection(); }
+    const TrapDetection &trapDetection() const { return _trap.detection(); }
+    /** A trap is hostile to a creature it regards at 89 or less that is not of its faction. */
+    bool isTrapHostileTo(const Creature &creature) const { return Trap::isHostileTo(*this, _faction, creature); }
+    /** Point of this trigger nearest to a position: the trap radius, or the polygon outline. */
+    glm::vec3 nearestPoint(const glm::vec3 &from) const;
+    std::shared_ptr<scene::ModelSceneNode> trapModel() const { return _trapModel; }
+    glm::vec3 getSelectablePosition() const override;
+
+    /** The creature that set this trap, or none. */
+    std::shared_ptr<Creature> trapCreator() const;
+    /** The creator's identity as recorded, whether or not it still exists. */
+    uint32_t trapCreatorId() const;
+    bool isSetByPlayerParty() const { return _setByPlayerParty; }
+    int ownerDemolitionsSkill() const { return _trap.ownerDemolitionsSkill(); }
+    /**
+     * Make this trigger a mine: a 4 m square around the position, with the
+     * type's script and name, the given DCs and its creator's side.
+     */
+    void initMine(
+        int trapType,
+        const glm::vec3 &position,
+        const std::shared_ptr<Object> &creator,
+        Faction faction,
+        int detectDC,
+        int disarmDC,
+        int ownerDemolitionsSkill);
+    /** A mine standing for a trapped door or placeable: neither seen nor disarmed on its own. */
+    void hideLinkedMine() { _trap.hide(); }
+    /** A creature steps on the trap. Forced firing skips the standing test. */
+    void fireMine(const std::shared_ptr<Creature> &creature, bool force);
+    /**
+     * Whether the mine goes off on the creature: without force, only on one
+     * that regards the mine's creator (or the mine itself) as an enemy and is
+     * not of its faction. A creature immune to traps, and in TSL one with the
+     * mine immunity feat or in a party whose leader has the party feat, walks
+     * over it.
+     */
+    bool canFireMineOn(const Creature &creature, bool force) const;
+    /** The trap is disarmed by the caller: its disarm script runs. */
+    void disarmTrap(const Object &caller) { _trap.runDisarmScript(*this, caller); }
+
+    // END Traps
 
     const std::string &linkedToModule() const { return _linkedToModule; }
     const std::string &linkedTo() const { return _linkedTo; }
@@ -97,11 +185,10 @@ private:
     // Serializable
     std::string _onEnter;
     std::string _onExit;
-    std::string _onDisarm;
-    std::string _onTrapTriggered;
+    uint32_t _lastEnteredId {script::kObjectInvalid};
+    uint32_t _lastLeftId {script::kObjectInvalid};
 
-    uint8_t _trapType {0};
-    bool _trapOneShot {true};
+    Trap _trap {Trap::Carrier::Trigger};
     std::string _linkedTo;
     uint8_t _linkedToFlags {0};
     std::string _linkedToModule;
@@ -109,8 +196,6 @@ private:
     resource::LocString _locName;
     Faction _faction {Faction::Invalid};
     std::string _keyName;
-    bool _trapDisarmable {false};
-    bool _trapDetectable {false};
     int32_t _triggerType {0};
     float _highlightHeight {0.1f};
     uint16_t _loadScreenId {0};
@@ -118,6 +203,13 @@ private:
     bool _setByPlayerParty {false};
     std::vector<glm::vec3> _geometry;
     // END Serializable
+
+    bool _isTrap {false};
+    /** The reach of a trap around its position, read when the trigger becomes a trap. */
+    float _trapRadius {0.0f};
+    SavedObjectReference _creator;
+    std::shared_ptr<scene::ModelSceneNode> _trapModel;
+    bool _trapShown {false};
 
     std::set<std::shared_ptr<Object>> _tenants;
     RuntimeObjectRef<Door> _linkedDoor;
@@ -130,6 +222,11 @@ private:
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
     void loadAppearance();
+    void loadTrapModel();
+    void updateTrapPresentation();
+    void setTrapCreator(const std::shared_ptr<Object> &creator);
+    /** Reads the reach of a trap around its position from ranges.2da. */
+    void loadTrapRadius();
 
     void syncDebugVisual();
 };

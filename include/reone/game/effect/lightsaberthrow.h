@@ -24,26 +24,27 @@ namespace reone {
 
 namespace game {
 
-class LightsaberThrowEffect : public Effect {
+class LightsaberThrowEffect : public CopyableEffect<LightsaberThrowEffect> {
 public:
     LightsaberThrowEffect(
         std::shared_ptr<Object> target1,
         std::shared_ptr<Object> target2,
         std::shared_ptr<Object> target3,
         int advancedDamage) :
-        Effect(EffectType::LightsaberThrow),
+        CopyableEffect(EffectType::LightsaberThrow),
         _target1(target1),
         _target2(target2),
         _target3(target3),
         _advancedDamage(advancedDamage) {
-        // Retail accepts the fourth argument but does not persist it in the
-        // CGameEffect. The three object slots are the complete wire payload.
+        // The fourth argument is accepted but not stored. The three object slots
+        // form the complete saved payload.
         setSaveFacingObject(0, target1);
         setSaveFacingObject(1, target2);
         setSaveFacingObject(2, target3);
     }
 
-    void applyTo(Object &object) override;
+    EffectApplicationResult onApply(Object &object, EffectInstance &) override;
+    EffectRemovalResult onRemove(Object &object, const EffectInstance &) override;
     void retireAreaRuntime(
         const std::set<const Object *> &retainedObjects) override {
         for (auto *target : {&_target1, &_target2, &_target3}) {

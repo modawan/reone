@@ -24,29 +24,34 @@ namespace reone {
 
 namespace game {
 
-class ForceJumpEffect : public Effect {
+/**
+ * Force Jump: the creature turns to face the target, and three tenths of a
+ * second later leaps at it. The record stays applied.
+ */
+class ForceJumpEffect : public CopyableEffect<ForceJumpEffect> {
 public:
     ForceJumpEffect(std::shared_ptr<Object> target, int advanced) :
-        Effect(EffectType::ForceJump),
-        _target(target),
-        _advanced(advanced) {
+        CopyableEffect(EffectType::ForceJump) {
         setSaveFacingInteger(0, advanced);
         setSaveFacingObject(0, target);
     }
 
-    void applyTo(Object &object) override {
-    }
-    void retireAreaRuntime(
-        const std::set<const Object *> &retainedObjects) override {
-        auto target = _target.resolve();
-        if (!target || retainedObjects.count(target.get()) == 0) {
-            _target.reset();
-        }
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
+};
+
+/**
+ * The leap of a Force jump: the creature is carried to just short of the
+ * target, or onto the target's own spot when the target would not fit there.
+ */
+class ForceJumpDelayedEffect : public CopyableEffect<ForceJumpDelayedEffect> {
+public:
+    explicit ForceJumpDelayedEffect(std::shared_ptr<Object> target) :
+        CopyableEffect(EffectType::Invalid) {
+        setSaveFacingObject(0, target);
     }
 
-private:
-    RuntimeObjectRef<Object> _target;
-    int _advanced;
+    EffectInstance saveFacingInstance() const override;
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
 };
 
 } // namespace game

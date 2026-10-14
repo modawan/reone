@@ -27,6 +27,14 @@ struct CameraStyle {
     float pitch {0.0f};
     float height {0.0f};
     float viewAngle {0.0f};
+    /** Free-look tilt speed, in degrees per second. */
+    float freeLookTiltSpeed {60.0f};
+    /** Free-look turn speed, in degrees per second. */
+    float freeLookRotateSpeed {60.0f};
+    /** How far free-look may pitch up, in degrees. */
+    float freeLookUp {0.0f};
+    /** How far free-look may pitch down, in degrees. */
+    float freeLookDown {0.0f};
 };
 
 } // namespace game

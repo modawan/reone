@@ -23,10 +23,10 @@ namespace reone {
 
 namespace game {
 
-class SkillIncreaseEffect : public Effect {
+class SkillIncreaseEffect : public CopyableEffect<SkillIncreaseEffect> {
 public:
     SkillIncreaseEffect(SkillType skill, int value) :
-        Effect(EffectType::SkillIncrease),
+        CopyableEffect(EffectType::SkillIncrease),
         _skill(skill),
         _value(value) {
         setSaveFacingInteger(0, static_cast<int>(skill));
@@ -34,7 +34,7 @@ public:
         setSaveFacingInteger(2, static_cast<int>(RacialType::All));
     }
 
-    void applyTo(Object &object) override;
+    EffectApplicationResult onApply(Object &object, EffectInstance &) override;
 
 private:
     SkillType _skill;

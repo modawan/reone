@@ -141,7 +141,7 @@ bool isManagedLooseFile(std::string name) {
     static const std::set<std::string> managed {
         "savegame.sav", "globalvars.res", "partytable.res", "savenfo.res",
         "screen.tga", "pifo.ifo"};
-    return managed.count(name) != 0 || name.find(".reone-") != std::string::npos;
+    return managed.count(name) != 0 || name.find(".save-") != std::string::npos;
 }
 
 ByteBuffer readLooseFile(const std::filesystem::path &path) {
@@ -399,7 +399,7 @@ resource::SaveSlotDescriptor Game::saveTarget(const SaveRequest &request) const 
     std::ostringstream prefix;
     prefix << std::setw(6) << std::setfill('0') << request.slot;
     auto saves = savedGamesDirectory(_path);
-    // Retail keeps the user-entered title in SAVEGAMENAME. Manual directory
+    // The game keeps the user-entered title in SAVEGAMENAME. Manual directory
     // suffixes use the allocation sequence after reserved quick/autosave slots.
     // Existing exact slot directories are retained below for overwrite identity.
     auto suffix = request.slot >= 2
@@ -557,9 +557,9 @@ Game::prepareCurrentModuleWorkingState() {
             resource::ResourceId(
                 captured.snapshot->target.resRef, resource::ResType::Rsv));
 
-        // Retail UpdateMembers(0) refreshes every bound NPC/PUP record while
-        // leaving its ActionList intact. Keep those detached snapshots in the
-        // same candidate as the source module: a rejected transition changes
+        // Every bound NPC/PUP record is refreshed as the creature stands when
+        // the module is left. Keep those detached snapshots in the same
+        // candidate as the source module: a rejected transition changes
         // neither, while a committed transition adopts both together.
         const size_t npcCount = isTSL() ? Party::kK2NpcCount
                                         : Party::kK1NpcCount;

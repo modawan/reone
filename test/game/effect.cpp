@@ -125,7 +125,12 @@ class CountingEffect : public Effect {
 public:
     CountingEffect() : Effect(EffectType::Haste) {}
 
-    void applyTo(Object &) override { ++applications; }
+    EffectApplicationResult onApply(Object &, EffectInstance &instance) override {
+        ++applications;
+        return instance.durationType() == DurationType::Instant
+                   ? EffectApplicationResult::Applied
+                   : EffectApplicationResult::Retained;
+    }
 
     int applications {0};
 };
@@ -134,17 +139,27 @@ class LifecycleEffect : public Effect {
 public:
     LifecycleEffect() : Effect(EffectType::Haste) {}
 
-    bool onApply(Object &object, const EffectInstance &) override {
-        visibleDuringApply =
-            object.effects().size() == 1 &&
-            object.effects().front().effect.get() == this &&
-            object.effects().front().hasStableId();
-        return true;
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override {
+        calledBeforeAdmission =
+            object.effects().empty() &&
+            instance.hasStableId() &&
+            instance.applicationOrder == 0;
+        if (nestedEffect) {
+            nestedAccepted = object.applyEffect(
+                nestedEffect, DurationType::Permanent);
+        }
+        return EffectApplicationResult::Retained;
     }
 
-    void onRemove(Object &, const EffectInstance &) override { ++removals; }
+    EffectRemovalResult onRemove(Object &, const EffectInstance &) override {
+        ++removals;
+        return removalResult;
+    }
 
-    bool visibleDuringApply {false};
+    std::shared_ptr<Effect> nestedEffect;
+    EffectRemovalResult removalResult {EffectRemovalResult::Removed};
+    bool calledBeforeAdmission {false};
+    bool nestedAccepted {false};
     int removals {0};
 };
 
@@ -161,10 +176,9 @@ TEST(SavedEffect, should_preserve_the_complete_observed_payload) {
     EffectInstance effect = parsedSavedEffect();
 
     EXPECT_EQ(effect.id, 0x100000002ULL);
-    EXPECT_EQ(effect.retailType, 68);
-    EXPECT_EQ(effect.subType, 0x11);
+    EXPECT_EQ(effect.serializedType, 68);
     EXPECT_EQ(effect.durationType(), DurationType::Temporary);
-    EXPECT_EQ(effect.semanticSubType(), 0x10);
+    EXPECT_EQ(effect.category(), EffectCategory::Supernatural);
     EXPECT_FLOAT_EQ(effect.duration, 12.5f);
     EXPECT_FALSE(effect.remainingDuration);
     EXPECT_EQ(effect.expiryDay, 123);
@@ -287,7 +301,8 @@ TEST(SavedEffect, linked_vm_value_matches_retails_flat_inert_encoding) {
 
     const auto saved = linked->saveFacingInstance();
 
-    EXPECT_EQ(saved.retailType, static_cast<uint16_t>(EffectType::LinkEffects));
+    // The saved type is the link's save type, 40.
+    EXPECT_EQ(saved.serializedType, 40);
     EXPECT_TRUE(saved.integerParameters.empty());
     EXPECT_EQ(saved.creatorId, kSavedEffectInvalidObjectId);
 }
@@ -302,7 +317,7 @@ TEST(EffectInstance, should_keep_unsupported_saved_effects_in_the_runtime_collec
 
     EXPECT_TRUE(object->restoreEffect(std::move(effect)));
     ASSERT_EQ(object->effects().size(), 1);
-    EXPECT_EQ(object->effects().front().retailType, 68);
+    EXPECT_EQ(object->effects().front().serializedType, 68);
     EXPECT_FALSE(object->effects().front().effect);
 }
 
@@ -337,25 +352,41 @@ TEST(EffectInstance, should_preserve_ordinary_runtime_effect_application) {
     ASSERT_EQ(object->effects().size(), 1);
     EXPECT_EQ(effect->applications, 1);
     EXPECT_TRUE(object->effects().front().hasStableId());
-    EXPECT_EQ(object->effects().front().semanticSubType(), 8);
+    // An engine-created effect starts with no category.
+    EXPECT_EQ(object->effects().front().category(), EffectCategory::None);
     EXPECT_EQ(object->effects().front().durationType(), DurationType::Permanent);
     EXPECT_EQ(object->effects().front().effect, effect);
 }
 
-TEST(EffectInstance, application_and_removal_use_one_canonical_collection) {
+TEST(EffectInstance, callbacks_follow_the_result_bearing_lifecycle_order) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto object = game.newObject<EffectTestObject>(game, engine.services());
     auto effect = std::make_shared<LifecycleEffect>();
+    auto nested = std::make_shared<CountingEffect>();
+    effect->nestedEffect = nested;
 
     object->applyEffect(effect, DurationType::Permanent);
-    ASSERT_EQ(object->effects().size(), 1);
-    EXPECT_TRUE(effect->visibleDuringApply);
+    ASSERT_EQ(object->effects().size(), 2);
+    EXPECT_TRUE(effect->calledBeforeAdmission);
+    EXPECT_TRUE(effect->nestedAccepted);
+    EXPECT_EQ(object->effects()[0].effect, nested);
+    EXPECT_EQ(object->effects()[1].effect, effect);
+    EXPECT_LT(
+        object->effects()[0].applicationOrder,
+        object->effects()[1].applicationOrder);
 
+    effect->removalResult = EffectRemovalResult::Retained;
     object->removeEffect(effect);
-    EXPECT_TRUE(object->effects().empty());
+    EXPECT_EQ(object->effects().size(), 2);
     EXPECT_EQ(effect->removals, 1);
+
+    effect->removalResult = EffectRemovalResult::Removed;
+    object->removeEffect(effect);
+    ASSERT_EQ(object->effects().size(), 1);
+    EXPECT_EQ(object->effects().front().effect, nested);
+    EXPECT_EQ(effect->removals, 2);
 }
 
 TEST(CombatEffectSource, independent_effects_use_canonical_effect_ids) {
@@ -468,10 +499,10 @@ TEST(CombatEffectQualifier, canonical_parameters_drive_versus_filtering) {
     ASSERT_TRUE(effect->setVersusAlignment(0, static_cast<int>(Alignment::DarkSide)));
     EffectInstance instance = effect->saveFacingInstance();
 
-    EXPECT_TRUE(instance.appliesVersus(target.get()));
+    EXPECT_TRUE(instance.appliesVersus(*target));
     instance.integerParameters[2] = static_cast<int>(RacialType::Human);
-    EXPECT_FALSE(instance.appliesVersus(target.get()));
-    EXPECT_EQ(instance.retailType, 10);
+    EXPECT_FALSE(instance.appliesVersus(*target));
+    EXPECT_EQ(instance.serializedType, 10);
 }
 
 TEST(CombatEffectRestore, saved_modifier_is_queryable_without_parallel_payload) {
@@ -504,7 +535,7 @@ TEST(CombatEffectRestore, saved_vm_value_reuses_the_canonical_executable_payload
     creature->applyEffect(value, DurationType::Permanent);
 
     ASSERT_EQ(creature->effects().size(), 1);
-    EXPECT_EQ(creature->effects().front().retailType, 36);
+    EXPECT_EQ(creature->effects().front().serializedType, 36);
     EXPECT_EQ(creature->getAbilityEffectModifier(Ability::Constitution), 4);
 }
 
@@ -738,7 +769,14 @@ TEST(CombatVisibility, see_invisible_and_ultravision_counter_distinct_types) {
 }
 
 TEST(CombatVisibility, unseen_and_invisible_attackers_remove_dexterity_and_dodge_defense) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
+    // Defense includes the racial Dexterity adjustment.
+    ON_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                                                                   .row({"0", "0", "0", "0", "0", "0"})
+                                                                   .build())));
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto attacker = game.newCreature();
@@ -754,22 +792,22 @@ TEST(CombatVisibility, unseen_and_invisible_attackers_remove_dexterity_and_dodge
         DurationType::Permanent);
 
     defender->setObjectSeen(attacker, true);
-    EXPECT_EQ(19, defender->getDefense(attacker.get(), 0));
+    EXPECT_EQ(19, defender->getDefense(*attacker, 0));
 
     auto invisibility = std::make_shared<InvisibilityEffect>(
         InvisibilityType::Normal);
     attacker->applyEffect(invisibility, DurationType::Permanent);
-    EXPECT_EQ(12, defender->getDefense(attacker.get(), 0));
+    EXPECT_EQ(12, defender->getDefense(*attacker, 0));
     attacker->removeEffect(invisibility);
-    EXPECT_EQ(19, defender->getDefense(attacker.get(), 0));
+    EXPECT_EQ(19, defender->getDefense(*attacker, 0));
 
     defender->setObjectSeen(attacker, false);
-    EXPECT_EQ(12, defender->getDefense(attacker.get(), 0));
+    EXPECT_EQ(12, defender->getDefense(*attacker, 0));
 
     defender->setObjectSeen(attacker, true);
     game.destroyRuntimeObjectGraph(attacker);
     ASSERT_FALSE(attacker->isRuntimeLive());
-    EXPECT_EQ(12, defender->getDefense(attacker.get(), 0));
+    EXPECT_EQ(12, defender->getDefense(*attacker, 0));
 }
 
 TEST(CombatVisibility, one_true_seeing_effect_counters_both_invisibility_families) {
@@ -796,7 +834,7 @@ TEST(CombatVisibility, one_true_seeing_effect_counters_both_invisibility_familie
     EXPECT_TRUE(darknessTarget->isInvisibleTo(*observer));
 }
 
-TEST(CombatVisibility, stacked_true_seeing_preserves_the_native_removal_quirk) {
+TEST(CombatVisibility, stacked_true_seeing_removal_clears_effect_bit) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
@@ -816,8 +854,8 @@ TEST(CombatVisibility, stacked_true_seeing_preserves_the_native_removal_quirk) {
 
     observer->removeEffect(first);
 
-    // Native K2 clears bit 4 and sets bit 2 when another type-72 effect
-    // remains: ordinary invisibility returns, while Darkness stays visible.
+    // In TSL, clearing bit 4 and setting bit 2 while another type-72 effect
+    // remains restores ordinary invisibility while keeping Darkness visible.
     EXPECT_TRUE(normalTarget->isInvisibleTo(*observer));
     EXPECT_FALSE(darknessTarget->isInvisibleTo(*observer));
 }
@@ -875,11 +913,14 @@ TEST(EffectInstance, should_expire_temporary_runtime_effects) {
     auto effect = std::make_shared<CountingEffect>();
 
     object->applyEffect(effect, DurationType::Temporary, 0.5f);
+    // Temporary effects expire on the world clock.
+    TestGameModule::advanceWorldTime(game, 0.25f);
     object->tickEffects(0.25f);
     ASSERT_EQ(object->effects().size(), 1);
     EXPECT_FLOAT_EQ(object->effects().front().duration, 0.5f);
     EXPECT_FLOAT_EQ(*object->effects().front().remainingDuration, 0.25f);
-    object->tickEffects(0.25f);
+    TestGameModule::advanceWorldTime(game, 0.26f);
+    object->tickEffects(0.26f);
     EXPECT_TRUE(object->effects().empty());
 }
 

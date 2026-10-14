@@ -34,9 +34,10 @@
 #include "reone/game/d20/spell.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
-#include "reone/game/object/creature.h"
+#include "reone/game/gui/sounds.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/camera.h"
+#include "reone/game/object/creature.h"
 #include "reone/game/object/module.h"
 #include "reone/game/party.h"
 
@@ -326,9 +327,17 @@ void HUD::update(float dt) {
     // Module/script work is updated before the HUD. Snapshotting here gives
     // all status events in that batch one deterministic coalescing boundary,
     // without a user-visible timer or synchronous popup from the mutation.
+    // A pending level-up chime plays when its batch is presented, or at once
+    // when the batch has nothing to show.
+    auto &summary = _game.statusSummary();
     if (_statusSummary && _statusSummary->presentPending()) {
         auto clip = _services.resource.audioClips.get("gui_quest");
         _audioSource = _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+        if (summary.displayed()->levelUpSound) {
+            _services.audio.mixer.play(_services.game.guiSounds.getOnLevelUpNotify(), AudioType::Sound);
+        }
+    } else if (summary.takeLevelUpSound()) {
+        _services.audio.mixer.play(_services.game.guiSounds.getOnLevelUpNotify(), AudioType::Sound);
     }
 
     Party &party = _game.party();
@@ -406,6 +415,7 @@ void HUD::update(float dt) {
         toggleCombat(false);
     }
 
+    updateCombatMessage(dt);
     _journalIndicator.update(dt);
     _plotXPIndicator.update(dt);
     _controls.LBL_JOURNAL->setVisible(_journalIndicator.visible());
@@ -543,6 +553,84 @@ void HUD::renderMinimap() {
     // it is not, so it has to be told.
     _game.map().render(Map::Mode::Minimap, bounds, _gui->scale());
 }
+
+// Combat-mode lines
+
+/** The seconds a timed combat-mode line is shown. */
+static constexpr float kCombatMessageDuration = 2.5f;
+static const glm::vec3 kCombatMessageColor {0.7f, 0.7f, 0.6f};
+
+/** The leader moves where the player sent it. */
+static constexpr int kMovingCombatMessage = 42476;
+/** Another line KotOR draws in the moving line's green. */
+static constexpr int kGreenCombatMessage = 42478;
+/** The leader cannot get around a creature in its way. */
+static constexpr int kCannotGetAroundCombatMessage = 47859;
+/** The leader and the rest of the party are all debilitated. */
+static constexpr int kLeaderDebilitatedCombatMessage = 47915;
+
+/** TSL draws every combat-mode line in one colour; KotOR colours it by line. */
+static glm::vec3 combatMessageColor(bool tsl, int strref, int idle) {
+    if (tsl) {
+        return kCombatMessageColor;
+    }
+    if (strref == idle) {
+        return {0.74f, 0.11f, 0.0f}; // red
+    }
+    switch (strref) {
+    case kLeaderDebilitatedCombatMessage:
+        return {0.98f, 0.45f, 0.0f}; // orange
+    case kMovingCombatMessage:
+    case kGreenCombatMessage:
+        return {0.28f, 0.92f, 0.11f}; // green
+    case kCannotGetAroundCombatMessage:
+        return {0.95f, 0.0f, 0.85f}; // purple
+    default:
+        return {0.0f, 0.66f, 0.98f}; // blue
+    }
+}
+
+void HUD::setCombatMessage(int strref) {
+    if (_combatMessageRemaining > 0.0f) {
+        return;
+    }
+    const int idle = _game.party().idleCombatMessage();
+    // Lines about the leader's movement give way to an autopause.
+    const bool movement = strref == kMovingCombatMessage ||
+                          strref == Party::kMovingToAttackCombatMessage ||
+                          strref == kCannotGetAroundCombatMessage;
+    if (movement && _game.isAutoPaused()) {
+        return;
+    }
+    const bool persistent = strref == idle ||
+                            strref == kLeaderDebilitatedCombatMessage ||
+                            strref == kMovingCombatMessage ||
+                            strref == Party::kMovingToAttackCombatMessage;
+    auto &label = *_controls.LBL_CMBTMODEMSG;
+    label.setTextColor(combatMessageColor(_game.isTSL(), strref, idle));
+    label.setTextMessage(_game.getInterfaceText(strref));
+    label.setTextOpacity(1.0f);
+    _combatMessageDuration = persistent ? 0.0f : kCombatMessageDuration;
+    _combatMessageRemaining = _combatMessageDuration;
+}
+
+// A timed line holds for half its time, fades over the rest, then yields to
+// the controlled character's idle line.
+void HUD::updateCombatMessage(float dt) {
+    if (_combatMessageRemaining <= 0.0f) {
+        return;
+    }
+    _combatMessageRemaining -= dt;
+    if (_combatMessageRemaining > 0.0f) {
+        _controls.LBL_CMBTMODEMSG->setTextOpacity(
+            std::min(1.0f, 2.0f * _combatMessageRemaining / _combatMessageDuration));
+        return;
+    }
+    _combatMessageRemaining = 0.0f;
+    setCombatMessage(_game.party().idleCombatMessage());
+}
+
+// END Combat-mode lines
 
 void HUD::toggleCombat(bool enabled) {
     _controls.BTN_CLEARALL->setVisible(enabled);

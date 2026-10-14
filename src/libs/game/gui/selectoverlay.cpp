@@ -203,6 +203,12 @@ bool SelectionOverlay::handleMouseButtonDown(const input::MouseButtonEvent &even
         action->setUserAction(true);
         leader->addAction(std::move(action));
     }
+    // Bashing or unlocking a door delays the next autopause.
+    const bool bash = ctxAction.type == ActionType::AttackObject;
+    const bool security = ctxAction.type == ActionType::UseSkill && ctxAction.skill == SkillType::Security;
+    if (selectedObject->type() == ObjectType::Door && (bash || security)) {
+        _game.delayNextEnemyAutoPause();
+    }
 
     return true;
 }
