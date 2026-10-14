@@ -12,6 +12,7 @@
 #include "reone/game/action/attackobject.h"
 #include "reone/game/effect.h"
 #include "reone/game/effect/modifyattacks.h"
+#include "reone/game/effect/spellimmunity.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
@@ -334,7 +335,7 @@ TEST_P(PartyControl, controlSwitchParksThePlayerAndKeepsItsEffects) {
     harness.game().combat().addAction(combatAction, *player);
     ASSERT_EQ(1u, harness.game().combat().roundCount());
     EffectInstance referencedEffect;
-    referencedEffect.effect = std::make_shared<Effect>(EffectType::Invalid);
+    referencedEffect.effect = std::make_shared<SpellImmunityEffect>(SpellType::All);
     referencedEffect.id = harness.game().allocateEffectId();
     referencedEffect.setDurationType(DurationType::Permanent);
     referencedEffect.creatorId = companion->id();

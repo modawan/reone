@@ -231,24 +231,45 @@ void CastSpellAction::execute(std::shared_ptr<Action> self, Object &actor, float
         finish(actor);
         return;
     }
-    if (!_started) {
-        if (!admitSpellCast(actor, *_spell, _cheat || _fake || _item.has_value(), _item.has_value(), _selection) ||
-            !itemAvailable()) {
+    // A placeable casts in full on its first update, whatever the distance:
+    // it neither approaches, conjures nor waits for its cast time.
+    if (!creature) {
+        _presentationId = _services.game.projectiles.beginSpell(actor, targetObject(), aimPosition(), *_spell,
+                                                                _projectilePathType, _game, _services);
+        if (commit(actor)) {
+            release(actor);
+        }
+        finish(actor);
+        return;
+    }
+    // A cast is admitted, and its range tested, once, as it is dispatched:
+    // its caster's uses and points are not tested again on the way to its
+    // target or as it pays, and a caster out of range walks up to it and
+    // casts wherever its walk ends. An instant cast has no range.
+    if (!_admitted) {
+        if (!admitSpellCast(actor, *_spell, _cheat || _fake || _item.has_value(), _item.has_value(), _selection)) {
             finish(actor);
             return;
         }
-        if (creature) {
-            actor.spellScriptContext().setActiveTarget(activeSpellTarget(actor));
-            _ownsSpellTarget = true;
+        _admitted = true;
+        _approaching = !_cheat && !_instantSpell && !withinSpellRange(actor, *_spell, aimPosition(), targetObject());
+    }
+    if (!_started) {
+        if (!itemAvailable()) {
+            finish(actor);
+            return;
         }
-        if (!_cheat && !withinSpellRange(actor, *_spell, aimPosition(), targetObject())) {
-            if (!creature || !creature->canMove()) {
+        actor.spellScriptContext().setActiveTarget(activeSpellTarget(actor));
+        _ownsSpellTarget = true;
+        if (_approaching) {
+            if (!creature->canMove()) {
                 finish(actor);
                 return;
             }
-            creature->navigateTo(aimPosition(), true, spellRange(actor, *_spell, targetObject()), dt);
-            // A target no path reaches fails the cast.
-            if (creature->navigationFailed()) {
+            if (creature->navigateTo(aimPosition(), true, spellRange(actor, *_spell, targetObject()), dt)) {
+                _approaching = false;
+            } else if (creature->navigationFailed()) {
+                // A target no path reaches fails the cast.
                 finish(actor);
             }
             return;
@@ -389,7 +410,7 @@ void CastSpellAction::publishSpellContext(Object &actor) {
     auto context = _castContext;
     if (!_committed) {
         int level = _itemCasterLevel.value_or(creature ? creature->spellCasterLevel(*_spell, _item.has_value()) : 0);
-        int castingClass = creature && !_cheat && !_item ? creature->spellCastingClass(*_spell) : kUnselectedCastingClass;
+        int castingClass = creature && !_cheat && !_item ? creature->spellCastingClass() : kUnselectedCastingClass;
         if (_selection && !_item) {
             castingClass = _selection->classIndex;
             if (_selection->hasExplicitLevel()) {
@@ -417,11 +438,8 @@ bool CastSpellAction::commit(Object &actor) {
     if (_committed) {
         return !isCompleted() && !isCancelled();
     }
-    // Once the cast has started, a target object may have stepped away: the
-    // cast goes on. A cast at a location stays bound to its range.
-    const bool rangeChecked = !_cheat && (!_started || !_target);
-    if (_commitAttempted || !itemAvailable() ||
-        (rangeChecked && !withinSpellRange(actor, *_spell, aimPosition(), targetObject())))
+    // The range was tested once, when the cast was dispatched.
+    if (_commitAttempted || !itemAvailable())
         return false;
     _commitAttempted = true;
     // A fake cast spends nothing and announces nothing.
@@ -429,7 +447,7 @@ bool CastSpellAction::commit(Object &actor) {
         _committed = true;
         return !isCompleted() && !isCancelled() && !actor.isDead();
     }
-    _committed = commitSpellCast(actor, *_spell, _cheat || _item.has_value(), _castContext, _item.has_value(), _selection);
+    _committed = commitSpellCast(actor, *_spell, _cheat || _item.has_value(), _instantSpell, _castContext, _selection);
     if (_committed && _item && _itemCasterLevel) {
         _castContext.casterLevel = *_itemCasterLevel;
         actor.setSpellCastContext(_castContext);
@@ -456,9 +474,11 @@ void CastSpellAction::release(Object &actor) {
             *_spell, actor.position(), aimPosition(), _projectilePathType, _game.isTSL()));
     const uint32_t projectileMilliseconds = actor.lastSpellProjectileMilliseconds();
     _projectileTime = projectileMilliseconds / 1000.0f;
-    const Location impactLocation {_location, scriptFacingFromObject(actor.getFacing())};
+    // An instant cast lands at the origin, which its target object's position
+    // replaces when the impact is delivered.
+    const glm::vec3 impactPosition = _instantSpell ? glm::vec3(0.0f) : _location;
     // A fake cast shows the projectile and has no impact.
-    _dispatched = _fake || queueSpellImpact(_game, *_spell, actor, _target, impactLocation, _castContext,
+    _dispatched = _fake || queueSpellImpact(_game, *_spell, actor, _target, impactPosition, _castContext,
                                             _item ? *_item : nullptr, projectileMilliseconds);
     if (!_dispatched) {
         finish(actor);
@@ -554,6 +574,9 @@ std::optional<SavedActionRecord> CastSpellAction::saveFacingState() const {
     command.associatedFeat = _associatedFeat;
     command.fake = _fake;
     command.instant = _instantSpell;
+    command.domainLevel = _domainLevel;
+    command.metaType = _metaType;
+    command.spontaneousCast = _spontaneousCast;
     command.toAction(record);
 
     SavedCastAction state;
@@ -566,6 +589,8 @@ std::optional<SavedActionRecord> CastSpellAction::saveFacingState() const {
     state.forceCost = _castContext.forcePointCost;
     state.cheat = _cheat;
     state.hasSelection = _selection.has_value();
+    state.admitted = _admitted;
+    state.approaching = _approaching;
     state.started = _started;
     state.commitAttempted = _commitAttempted;
     state.committed = _committed;
@@ -601,6 +626,8 @@ void CastSpellAction::restoreCastState(const SavedCastAction &state) {
     if (!state.hasSelection) {
         _selection.reset();
     }
+    _admitted = state.admitted;
+    _approaching = state.approaching;
     _started = state.started;
     _commitAttempted = state.commitAttempted;
     _committed = state.committed;

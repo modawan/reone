@@ -128,6 +128,11 @@ public:
     /** Row density relative to the authored layout. */
     float layoutScale() const { return _layoutScale; }
 
+    /**
+     * The width of a row: the list's width inside its frame and padding, less
+     * the scroll bar while it is enabled.
+     */
+    int getItemWidth() const;
     int getItemCount() const;
     const Item &getItemAt(int index) const;
     int getItemOffset() const { return _itemOffset; }
@@ -173,7 +178,6 @@ private:
     void updateItemsLayout();
     int getInnerHeight() const;
     float getItemPitch(const Item &item) const;
-    int getItemWidth() const;
     int getItemHeight(const Item &item) const;
     int getItemTextWidth() const;
     int getItemIndex(int y) const;

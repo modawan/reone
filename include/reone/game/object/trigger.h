@@ -86,7 +86,12 @@ public:
     // forever (leaking it and leaving the trigger stuck in the Inside state).
     void removeTenant(const Object *object);
 
-    bool isIn(const glm::vec2 &point) const;
+    /**
+     * Whether a point is inside the trigger: for a trap, within the trap
+     * radius of its position in three dimensions; otherwise inside its
+     * outline on the ground plane.
+     */
+    bool isIn(const glm::vec3 &point) const;
     bool isTenant(const std::shared_ptr<Object> &object) const;
     bool isActive() const;
     bool isLinkedDoorTransition() const { return _linkedDoorTransition; }
@@ -104,6 +109,10 @@ public:
 
     const std::string &getOnEnter() const { return _onEnter; }
     const std::string &getOnExit() const { return _onExit; }
+    /** The object that last came into the trigger, kept until the next one does. */
+    uint32_t lastEnteredId() const { return _lastEnteredId; }
+    /** The object that last left the trigger, kept until the next one does. */
+    uint32_t lastLeftId() const { return _lastLeftId; }
 
     // Traps
 
@@ -176,6 +185,8 @@ private:
     // Serializable
     std::string _onEnter;
     std::string _onExit;
+    uint32_t _lastEnteredId {script::kObjectInvalid};
+    uint32_t _lastLeftId {script::kObjectInvalid};
 
     Trap _trap {Trap::Carrier::Trigger};
     std::string _linkedTo;
@@ -194,6 +205,8 @@ private:
     // END Serializable
 
     bool _isTrap {false};
+    /** The reach of a trap around its position, read when the trigger becomes a trap. */
+    float _trapRadius {0.0f};
     SavedObjectReference _creator;
     std::shared_ptr<scene::ModelSceneNode> _trapModel;
     bool _trapShown {false};
@@ -212,6 +225,8 @@ private:
     void loadTrapModel();
     void updateTrapPresentation();
     void setTrapCreator(const std::shared_ptr<Object> &creator);
+    /** Reads the reach of a trap around its position from ranges.2da. */
+    void loadTrapRadius();
 
     void syncDebugVisual();
 };

@@ -582,10 +582,8 @@ void RegenerateEffect::onUpdate(Object &object, const EffectInstance &instance, 
     if (object.isDead()) {
         return;
     }
-    // Nothing regenerates while dying: in TSL a player character at no
-    // vitality, in KotOR a creature that is down.
-    if (creature && (game.isTSL() ? creature->isPC() && creature->currentHitPoints() <= 0
-                                  : creature->isTemporarilyDead())) {
+    // Nothing regenerates on a party member at no vitality.
+    if (creature && creature->isTemporarilyDead()) {
         return;
     }
     // A full pool regenerates no more.

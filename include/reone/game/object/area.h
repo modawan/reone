@@ -183,6 +183,30 @@ public:
         }
     }
     /**
+     * Visit the objects outward from \p origin in X order, alternately the
+     * next one below it and the next one above it. \p visit takes the object
+     * and whether it lies above \p origin, and returns false to stop going
+     * that way. Nothing is visited when \p origin is not in the area.
+     */
+    template <class Visit>
+    void forEachObjectOutwardInX(const Object &origin, Visit &&visit) const {
+        const auto found = std::find(_objectsByX.begin(), _objectsByX.end(), &origin);
+        if (found == _objectsByX.end()) {
+            return;
+        }
+        const size_t index = static_cast<size_t>(found - _objectsByX.begin());
+        bool down = index > 0;
+        bool up = index + 1 < _objectsByX.size();
+        for (size_t step = 1; down || up; ++step) {
+            if (down) {
+                down = visit(static_cast<const Object &>(*_objectsByX[index - step]), false) && index > step;
+            }
+            if (up) {
+                up = visit(static_cast<const Object &>(*_objectsByX[index + step]), true) && index + step + 1 < _objectsByX.size();
+            }
+        }
+    }
+    /**
      * The first or next object of one type (or of all types) standing inside
      * a persistent object: an area of effect, a trigger or an encounter. Each
      * persistent object keeps its own place in the X-ordered object list. An
@@ -201,9 +225,10 @@ public:
      * The first spot near position where the creature fits. The position
      * itself, dropped onto the ground, is tried first; then, when radius
      * exceeds a metre, square rings around it from one metre out, stepped by
-     * the creature's personal space, rows before columns. With clearLine, a
-     * ring spot must also be reachable in a straight line from the position
-     * whenever the position itself is walkable. Empty when nothing fits.
+     * the creature's personal space, rows before columns. With clearLine, and
+     * the position walkable and clear of any door, a row spot must also be
+     * reachable in a straight line from the position, but for other creatures,
+     * and no spot may lie across a door from it. Empty when nothing fits.
      */
     std::optional<glm::vec3> computeSafeLocation(
         const glm::vec3 &position, float radius, const Creature &creature, bool clearLine) const;
@@ -214,6 +239,13 @@ public:
      * space.
      */
     bool isSafeLocationPoint(const glm::vec3 &point, const Creature &creature) const;
+    /** Whether a straight line between two points meets the walls of a door as it stands. */
+    bool crossesDoor(const glm::vec3 &from, const glm::vec3 &to) const;
+    /**
+     * Whether a wall of a door as it stands lies within the creature's
+     * personal space of a point on the ground, up to the creature's height.
+     */
+    bool isNearDoorWall(const glm::vec3 &point, const Creature &creature) const;
     /** The ground height under a point searched down from it, if it stands over walkable ground. */
     std::optional<float> groundHeight(const glm::vec3 &position) const;
     /**
@@ -305,7 +337,11 @@ public:
     bool moveCreature(const std::shared_ptr<Creature> &creature, const glm::vec2 &dir, bool run, float dt,
                       float maxDistance = FLT_MAX, MoveFacing facing = MoveFacing::Turn);
     void determineObjectRoom(Object &object);
-    /** The TSL Force rating of the room whose walkmesh lies under a position; 0 in KotOR. */
+    /**
+     * The TSL Force rating of the first room whose WalkCheck walkmesh lies
+     * under a position; 0 in KotOR, over no room, or for a room without an
+     * ARE entry.
+     */
     int getRoomForceRating(const glm::vec3 &position) const;
 
     bool isUnescapable() const { return _unescapable; }
@@ -501,7 +537,8 @@ public:
     bool fogEnabled() const { return _fogEnabled; }
     float fogNear() const { return _fogNear; }
     float fogFar() const { return _fogFar; }
-    const glm::vec3 &fogColor() const { return _fogColor; }
+    /** The fog colour, red, green and blue from 0 to 1. */
+    glm::vec3 fogColor() const { return resource::Gff::colorFromUint32(_sunFogColor); }
 
     // END Fog
 
@@ -519,6 +556,10 @@ public:
      * answer is the one the event captured; the live answer is restored after.
      */
     void receiveEnteredSignal(const std::shared_ptr<Object> &entering, bool loadFromSaveGame);
+    /** The object the area's last enter event was for, kept until the next one. */
+    uint32_t lastEnteredId() const { return _lastEnteredId; }
+    /** The object the area's last exit event was for, kept until the next one. */
+    uint32_t lastLeftId() const { return _lastLeftId; }
 
     // END Scripts
 
@@ -555,8 +596,15 @@ private:
     CameraStyle _camStyleCombat;
     AmbientAudio _ambientAudio;
     bool _playerRestrictMode {false};
+    uint32_t _lastEnteredId {script::kObjectInvalid};
+    uint32_t _lastLeftId {script::kObjectInvalid};
     bool _transitionPending {false};
+    /** The ids of the pending transition's next and current steps. */
+    uint8_t _transitionPendingNextId {0};
+    uint8_t _transitionPendingCurrentId {0};
     bool _unescapable {false};
+    /** TSL: whether transit out of the area is disabled, as the area file says. */
+    bool _transitDisabled {false};
     Grass _grass;
     std::optional<MinigameSpec> _miniGameSpec;
     glm::vec3 _ambientColor {0.0f};
@@ -604,10 +652,13 @@ private:
     /** Where each persistent object's resident query resumes, by object id. */
     std::map<uint32_t, size_t> _persistentQueryIndex;
 
-    /** Where the next faction member step resumes in the creature list. */
+    /** Where the next faction member step resumes in the faction's members. */
     std::unordered_map<Faction, size_t> _factionMemberCursors;
 
-    /** The first creature of the faction and player-character flag from an index of the creature list on. */
+    /**
+     * The first creature with the player-character flag from a place on in
+     * the faction's members, which are in the order they joined.
+     */
     std::shared_ptr<Creature> findFactionMember(Faction faction, int pc, size_t from);
 
     /** Place an object in X order, before those at the same X, and make this its area. */
@@ -666,7 +717,8 @@ private:
     bool _fogEnabled {false};
     float _fogNear {0.0f};
     float _fogFar {0.0f};
-    glm::vec3 _fogColor {0.0f};
+    /** The fog colour as area files record it: red, green and blue bytes from the lowest. */
+    uint32_t _sunFogColor {0};
 
     // END Fog
 

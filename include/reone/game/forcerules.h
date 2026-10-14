@@ -150,10 +150,11 @@ inline int forcePointMaximum(int base, int level, int wisdomModifier, int charis
 /**
  * The ordinary Force points after healing \p amount: the healing is measured
  * against the whole pool, temporary points included, up to the maximum, and
- * written to the ordinary points, leaving the temporary ones as they were.
+ * written to the ordinary points, leaving the temporary ones as they were. A
+ * negative amount can leave the points below zero.
  */
 inline int healedForcePointPool(int base, int temporary, int amount, int maximum) {
-    return std::max(0, std::min(maximum, base + temporary + amount));
+    return std::min(maximum, base + temporary + amount);
 }
 
 /**
@@ -246,14 +247,11 @@ struct ForcePointPools {
 };
 
 /**
- * Pays \p charge from \p pools, temporary points first; false when the
- * creature cannot pay it. When temporary Force points cover the whole Force
- * share, the vitality share is not paid.
+ * Pays \p charge from \p pools, temporary points first, each pool stopping
+ * at zero: the payment never fails. When temporary Force points cover the
+ * whole Force share, the vitality share is not paid.
  */
-inline bool payForcePointCharge(ForcePointPools &pools, const ForcePointCharge &charge) {
-    if (!canPayForcePointCharge(charge, pools.force + pools.temporaryForce, pools.hitPoints + pools.temporaryHitPoints)) {
-        return false;
-    }
+inline void payForcePointCharge(ForcePointPools &pools, const ForcePointCharge &charge) {
     int remainder = consumeTemporaryResource(pools.temporaryForce, charge.spentForce);
     if (remainder > 0) {
         pools.force = std::max(0, pools.force - remainder);
@@ -262,7 +260,6 @@ inline bool payForcePointCharge(ForcePointPools &pools, const ForcePointCharge &
         int hpRemainder = consumeTemporaryResource(pools.temporaryHitPoints, charge.spentHitPoints);
         pools.hitPoints = std::max(0, pools.hitPoints - hpRemainder);
     }
-    return true;
 }
 
 } // namespace game

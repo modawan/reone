@@ -58,6 +58,7 @@
 #include "reone/game/action/wait.h"
 #include "reone/game/combat.h"
 #include "reone/game/d20/spells.h"
+#include "reone/game/effect/resurrection.h"
 #include "reone/game/equipmentoperation.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
@@ -340,21 +341,28 @@ static bool scriptCastSource(const Object &caller, const Spell &spell, bool chea
     return selection.has_value();
 }
 
-// A creature's cast goes on its round; a placeable's goes in its queue.
-static void submitScriptCast(Game &game, Object &caller, std::shared_ptr<Action> action) {
+// A creature's cast goes on its round; a placeable's goes in its queue, unless
+// it is aimed at an object in another area.
+static void submitScriptCast(Game &game, Object &caller, std::shared_ptr<CastSpellAction> action) {
     if (auto *creature = dyn_cast<Creature>(&caller)) {
         game.combat().scheduleCast(*creature, action);
-    } else {
-        caller.addAction(std::move(action));
+        return;
     }
+    const auto &target = action->target();
+    if (target && !isa<Area>(target.get()) && !isa<Module>(target.get()) && !target->sharesSpatialArea(caller)) {
+        return;
+    }
+    caller.addAction(std::move(action));
 }
 
 static Variable ActionCastSpellAtObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto nSpell = getInt(args, 0);
     auto oTarget = getObjectOrNull(args, 1, ctx);
-    // nMetaMagic (2) and nDomainLevel (4) change nothing.
+    // nMetaMagic (2) changes nothing; nDomainLevel (4) is only carried by the
+    // command.
     auto bCheat = getIntOrElse(args, 3, 0);
+    auto nDomainLevel = getIntOrElse(args, 4, 0);
     auto nProjectilePathType = getIntOrElse(args, 5, 0);
     auto bInstantSpell = getIntOrElse(args, 6, 0);
 
@@ -379,8 +387,11 @@ static Variable ActionCastSpellAtObject(const std::vector<Variable> &args, const
     if (!scriptCastSource(*caller, *spell, cheat, selection)) {
         return Variable::ofNull();
     }
+    // Only a creature's cast can be instant.
     auto action = ctx.game.newAction<CastSpellAtObjectAction>(std::move(spell), std::move(oTarget), /*item=*/std::nullopt,
-                                                              cheat, *projectilePathType, instantSpell, std::nullopt, std::nullopt, selection);
+                                                              cheat, *projectilePathType, instantSpell && isa<Creature>(caller.get()),
+                                                              std::nullopt, std::nullopt, selection);
+    action->setCommandParameters(nDomainLevel, 0, 0);
     submitScriptCast(ctx.game, *caller, std::move(action));
     return Variable::ofNull();
 }
@@ -487,6 +498,9 @@ static Variable ActionWait(const std::vector<Variable> &args, const RoutineConte
     return Variable::ofNull();
 }
 
+/** The share of its vitality a downed member stands up with when a TSL conversation starts. */
+static constexpr int kConversationRevivePercent = 2;
+
 static Variable ActionStartConversation(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
     auto oObjectToConverse = getObject(args, 0, ctx);
@@ -523,12 +537,43 @@ static Variable ActionStartConversation(const std::vector<Variable> &args, const
     // Execute
     // The party leader drops its actions and its orders, as the player's
     // controls clear them, even when the conversation is then refused.
-    if (auto leader = ctx.game.party().getLeader()) {
+    auto &party = ctx.game.party();
+    if (auto leader = party.getLeader()) {
         ctx.game.combat().clearAllOrders(*leader);
         leader->clearAllActions(true);
     }
+    // TSL refuses while a conversation runs or while nobody in the party
+    // stands: an empty first place counts as standing, an empty later one
+    // as down.
+    if (ctx.game.isTSL()) {
+        bool partyDown = true;
+        for (int slot = 0; slot < kPartyFollowSlots; ++slot) {
+            const auto member = party.getMember(slot);
+            if (member ? member->currentHitPoints() > 0 : slot == 0) {
+                partyDown = false;
+                break;
+            }
+        }
+        if (partyDown || ctx.game.isConversationActive()) {
+            return Variable::ofNull();
+        }
+    }
     if (refusesCommand(ctx)) {
         return Variable::ofNull();
+    }
+    // In TSL every downed member stands up before the conversation, at 2% of
+    // its vitality.
+    if (ctx.game.isTSL()) {
+        for (int slot = 0; slot < kPartyFollowSlots; ++slot) {
+            const auto member = party.getMember(slot);
+            if (!member || member->currentHitPoints() > 0) {
+                continue;
+            }
+            auto revive = ctx.game.newEffect<ResurrectionEffect>(kConversationRevivePercent);
+            revive->setCategory(EffectCategory::Magical);
+            revive->setSaveFacingCreator(caller);
+            member->applyEffect(std::move(revive), DurationType::Instant);
+        }
     }
     // Unless told not to, the caller drops what it was doing first.
     if (!dontClearAllActions) {

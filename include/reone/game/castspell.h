@@ -139,16 +139,19 @@ bool admitSpellCast(const Object &actor, const Spell &spell, bool freeCast, bool
                     std::optional<SpellSelection> selection = std::nullopt);
 /** How far \p actor can cast \p spell, at \p target if given. */
 float spellRange(const Object &actor, const Spell &spell, std::optional<std::reference_wrapper<const Object>> target = std::nullopt);
-/** Whether \p position, or \p target there, is within the spell's range; the actor itself always is. */
+/** Whether \p position, or \p target there, is within the spell's range in three dimensions; the actor itself always is. */
 bool withinSpellRange(const Object &actor, const Spell &spell, const glm::vec3 &position,
                       std::optional<std::reference_wrapper<const Object>> target = std::nullopt);
 /**
- * Admits the cast and pays for it, filling \p context with what it was cast
- * with. Returns whether the cast goes ahead.
+ * Pays for a cast admitted when it was dispatched, filling \p context with
+ * what it was cast with; the payment itself never fails. A free cast (a cheat
+ * or an item use) pays nothing and casts at the spell's innate level. An
+ * instant cast pays nothing, uses up no ability and leaves its caster's
+ * casting class as it was. Every creature cast records what its charge
+ * spends in Force points. Returns whether the cast goes ahead.
  */
-bool commitSpellCast(Object &actor, const Spell &spell, bool freeCast,
-                     SpellCastContext &context, bool itemCast = false,
-                     std::optional<SpellSelection> selection = std::nullopt);
+bool commitSpellCast(Object &actor, const Spell &spell, bool freeCast, bool instant,
+                     SpellCastContext &context, std::optional<SpellSelection> selection = std::nullopt);
 /** The path itself if a projectile can take it, otherwise the default path. */
 ProjectilePathType normalizeProjectilePath(ProjectilePathType path);
 /**
@@ -160,8 +163,8 @@ std::optional<ProjectilePathType> projectilePathFromScript(int value);
 /**
  * The casting source a script command picks for a creature: the first of its
  * first two classes that uses the Force, has uses of the spell left and can
- * cast it, else its spell-like ability for the spell. Without either the
- * command casts nothing.
+ * cast it, else its spell-like ability for the spell when that is ready.
+ * Without either the command casts nothing.
  */
 std::optional<SpellSelection> scriptCastingSource(const Creature &caster, const Spell &spell);
 /**
@@ -185,10 +188,11 @@ ProjectilePathType effectiveProjectilePath(const Spell &spell, ProjectilePathTyp
 
 /**
  * Queues the spell's impact on the module's event queue, \p delayMilliseconds
- * from now. Returns whether it was queued.
+ * from now, to land at \p position with the cost \p context records. Returns
+ * whether it was queued.
  */
 bool queueSpellImpact(Game &game, const Spell &spell, Object &caster,
-                      const std::shared_ptr<Object> &target, const Location &location,
+                      const std::shared_ptr<Object> &target, const glm::vec3 &position,
                       const SpellCastContext &context, const std::shared_ptr<Object> &item = nullptr,
                       uint32_t delayMilliseconds = 0);
 
@@ -386,8 +390,9 @@ private:
 };
 
 /**
- * An entangled caster's paid cast fails: the caster is posed and its
- * orientation released. Returns whether the cast was interrupted.
+ * An entangled caster's paid cast fails: the caster shows its combat-ready
+ * pose, in combat or not, and its orientation is released. Returns whether
+ * the cast was interrupted.
  */
 bool interruptEntangledCast(Creature &caster);
 

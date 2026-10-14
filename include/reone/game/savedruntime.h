@@ -320,6 +320,12 @@ struct SavedSpellCommand {
     std::optional<FeatType> associatedFeat;
     bool fake {false};
     bool instant {false};
+    /** The domain level a script gave the command. */
+    int domainLevel {0};
+    /** The meta type a talent gave the command. */
+    int metaType {0};
+    /** The command's spontaneous-cast parameter. */
+    int spontaneousCast {0};
 
     /** Reads the order from a command, or none when its parameters have another shape. */
     static std::optional<SavedSpellCommand> fromAction(const SavedActionRecord &record);
@@ -364,6 +370,10 @@ struct SavedCastAction {
     bool hasSelection {true};
     /** The cast was ordered as a cheat. */
     bool cheat {false};
+    /** The cast passed its admission when it was first dispatched. */
+    bool admitted {false};
+    /** The caster is walking up to the range it was out of when the cast was dispatched. */
+    bool approaching {false};
     bool started {false};
     bool commitAttempted {false};
     bool committed {false};
@@ -391,8 +401,16 @@ struct SavedRoundClock {
     SavedObjectReference engaged;
     /** The command took over the round from an earlier, finished command. */
     bool joined {false};
+    /** Two creatures take their turns in the round. */
+    bool duel {false};
     static SavedRoundClock fromGff(const resource::Gff &, const SerializedIdentityContext &);
     std::shared_ptr<resource::Gff> toGff() const;
+};
+
+/** A creature's round that no queued command carries: its clock and whether it is a spell round. */
+struct SavedCreatureRound {
+    SavedRoundClock clock;
+    bool spellRound {false};
 };
 
 /** What a projectile shows: a spell's projectile, a thrown lightsaber's route, or a ranged attack's bolt. */
@@ -617,7 +635,11 @@ struct SavedBytePayload {
 struct SavedIntPayload {
     int32_t value {0};
 };
-/** A spell impact event: the spell, its caster, target and item, and the cast context it was captured with. */
+/**
+ * A spell impact event: the spell, its caster, target, area and item, its
+ * script, where it lands and the Force points the cast cost. The impact reads
+ * the rest of the cast from its caster when it is delivered.
+ */
 struct SavedSpellImpact {
     int32_t spellId {0};
     SavedObjectReference caster;
@@ -627,16 +649,6 @@ struct SavedSpellImpact {
     std::string script;
     glm::vec3 targetPosition {0.0f};
     int32_t finalForceCost {0};
-    struct CapturedContext {
-        int32_t casterLevel {0};
-        int32_t metaMagic {255};
-        float targetFacing {0.0f};
-        int32_t castingClass {kUnselectedCastingClass};
-        int32_t itemCasterLevel {0};
-        std::optional<int> levelOverride;
-    };
-    /** Captured events carry these values; uncaptured events use the owner context. */
-    std::optional<CapturedContext> capturedContext;
     std::shared_ptr<resource::Gff> toGff() const;
 };
 

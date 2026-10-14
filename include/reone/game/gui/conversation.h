@@ -108,6 +108,8 @@ private:
     float _entryDuration {0.0f};
     std::vector<const resource::Dialog::EntryReply *> _replies;
     bool _autoPickFirstReply {false};
+    /** Whether the conversation has shown the entry it ends on. */
+    bool _endReached {false};
     AutoSkip *_autoSkip {nullptr};
     GlobalFade::DialogTicket _fadeDialog;
     uint64_t _generation {0};
@@ -140,8 +142,11 @@ private:
      *
      * @param runsEndScript whether the conversation's end script runs now; a
      *        one-liner has already run it, or runs none
+     * @param aborted whether the conversation was cut off before the entry it
+     *        ends on: its abort script then runs in place of the end script
+     *        and the end-dialogue scripts
      */
-    void finish(bool runsEndScript = true);
+    void finish(bool runsEndScript = true, bool aborted = false);
 
     /**
      * Runs the conversation's end script, with the owner as the caller.

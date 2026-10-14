@@ -76,8 +76,27 @@ private:
     int _iconSize {0};
     int _iconPadding {0};
 
+    // The box as loaded; every message is laid out again from it.
+    gui::Control::Extent _rootExtent;
+    gui::Control::Extent _listExtent;
+    gui::Control::Extent _okExtent;
+    gui::Control::Extent _cancelExtent;
+    gui::Control::Extent _scrollBarExtent;
+    gui::Control::Extent _iconExtent;
+
     void preload(gui::IGUI &gui) override;
     void onGUILoaded() override;
+
+    /**
+     * Lays the message out in the box as loaded. A message that does not fit
+     * grows the box, wider and taller, up to a limit; only a message that
+     * still does not fit then shows the scroll bar, its text wrapped clear of
+     * it.
+     *
+     * @param text the message, its tokens resolved
+     * @param hasIcon whether an icon is shown left of the text
+     */
+    void layoutMessage(const std::string &text, bool hasIcon);
 
     void bindControls() {
         _controls.BTN_CANCEL = findControl<gui::Button>("BTN_CANCEL");

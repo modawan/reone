@@ -478,7 +478,6 @@ static constexpr int kStealthWalkAnimationId = 10133;
 static constexpr int kDeadAnimationId = 10006;
 static constexpr int kDead1AnimationId = 10008;
 static constexpr int kDead3AnimationId = 10156;
-static constexpr int kProneAnimationId = 10139;
 static constexpr int kTalkNormalAnimationId = 10038;
 static constexpr int kHeadTurnLeftAnimationId = 10053;
 static constexpr int kHeadTurnRightAnimationId = 10054;
@@ -578,6 +577,10 @@ static constexpr char kVulnerabilityCostTable[] = "iprp_damvulcost";
 static constexpr char kDamageTypeTable[] = "iprp_damagetype";
 static constexpr char kProtectionTable[] = "iprp_protection";
 static constexpr int kImprovedForceResistanceCostTable = 11;
+/** The iprp_costtable row of the Decreased Ability Score amounts (iprp_neg10cost). */
+static constexpr int kDecreasedAbilityCostTable = 21;
+/** The iprp_costtable row of the Improved Saving Throw amounts (iprp_bonuscost). */
+static constexpr int kImprovedSavingThrowCostTable = 1;
 static constexpr int kItemLightVisualEffect = 5000;
 
 static std::string g_talkDummyNode("talkdummy");
@@ -598,23 +601,9 @@ static int getEquipabilitySlot(int slot) {
     }
 }
 
-static bool attackModifierApplies(
-    AttackBonus modifierType,
-    const std::shared_ptr<Item> &weapon,
-    bool offHand,
-    bool creatureWeapon) {
-
-    // A creature-weapon attack takes only miscellaneous hand-free modifiers.
-    switch (modifierType) {
-    case AttackBonus::Misc:
-        return true;
-    case AttackBonus::Onhand:
-        return weapon && !offHand && !creatureWeapon;
-    case AttackBonus::Offhand:
-        return weapon && offHand && !creatureWeapon;
-    default:
-        return false;
-    }
+/** Whether an attack modifier is for every attack or for attacks of \p attackType. */
+static bool attackModifierApplies(AttackBonus modifierType, AttackBonus attackType) {
+    return modifierType == AttackBonus::Misc || modifierType == attackType;
 }
 
 static bool racialTypeMatches(int racialType, const Creature &target) {
@@ -622,12 +611,16 @@ static bool racialTypeMatches(int racialType, const Creature &target) {
     return type == RacialType::All || type == target.racialType();
 }
 
-static bool attackAlignmentGroupMatches(int alignment, const Creature &target) {
+/**
+ * Whether an attack or damage property against an alignment group applies:
+ * one against every group or the Neutral group applies always, even without
+ * a target; another needs a target of its group.
+ */
+static bool attackAlignmentGroupMatches(int alignment, const OptionalCreature &target) {
     auto group = static_cast<Alignment>(alignment);
-    // An attack property against the Neutral group applies to every target.
     return group == Alignment::All ||
            group == Alignment::Neutral ||
-           group == target.alignment();
+           (target && group == target->get().alignment());
 }
 
 static bool defenseAlignmentGroupMatches(int alignment, const Creature &attacker) {
@@ -662,7 +655,7 @@ static bool attackPropertyApplies(
         return true;
     case ItemProperty::EnhancementBonusVsAlignmentGroup:
     case ItemProperty::AttackBonusVsAlignmentGroup:
-        return target && attackAlignmentGroupMatches(subtype, *target);
+        return attackAlignmentGroupMatches(subtype, target);
     case ItemProperty::EnhancementBonusVsRacialGroup:
     case ItemProperty::AttackBonusVsRacialGroup:
         return target && racialTypeMatches(subtype, *target);
@@ -731,6 +724,18 @@ static bool isCreatureWeaponAttack(const Creature &attacker, const std::shared_p
     return creatureWeapon && isAttackWeapon(weapon, *creatureWeapon);
 }
 
+/**
+ * Whether an attack without a weapon is one of a creature whose creature
+ * weapons are all in the right or bite slot, so that no item attacks. KotOR
+ * takes such an attack as a main-hand attack, TSL as an unarmed one.
+ */
+static bool isEmptyCreatureWeaponAttack(const Creature &attacker, const std::shared_ptr<Item> &weapon) {
+    return !weapon && !attacker.getEquippedItem(InventorySlots::rightWeapon) &&
+           !attacker.getEquippedItem(InventorySlots::leftWeapon) &&
+           !attacker.getEquippedItem(InventorySlots::cWeaponL) &&
+           (attacker.getEquippedItem(InventorySlots::cWeaponR) || attacker.getEquippedItem(InventorySlots::cWeaponB));
+}
+
 static bool isHandSpecificAttackModifierSlot(int slot) {
     switch (slot) {
     case InventorySlots::rightWeapon:
@@ -794,21 +799,25 @@ static bool savingThrowModifierApplies(
             modifierType == requestedType);
 }
 
+/**
+ * Whether a saving throw item property changes the requested save. Each of
+ * the four kinds changes the save its subtype numbers when that is
+ * Fortitude, Reflex or Will, and every save otherwise, against every kind of
+ * threat.
+ */
 static bool savingThrowPropertyApplies(
     ItemProperty propertyType,
     int subtype,
-    int requestedSave,
-    SavingThrowType requestedType) {
+    int requestedSave) {
 
     switch (propertyType) {
     case ItemProperty::ImprovedSavingThrow:
-        return requestedType != SavingThrowType::All &&
-               subtype == static_cast<int>(requestedType);
     case ItemProperty::ImprovedSavingThrowSpecific:
-    case ItemProperty::DecreasedSavingThrowsSpecific:
-        return subtype == requestedSave;
     case ItemProperty::DecreasedSavingThrows:
-        return true;
+    case ItemProperty::DecreasedSavingThrowsSpecific: {
+        const bool oneSave = subtype >= kFortitudeSavingThrow && subtype <= kWillSavingThrow;
+        return !oneSave || subtype == requestedSave;
+    }
     default:
         return false;
     }
@@ -849,25 +858,6 @@ static DamageModifier getDamageModifier(
     return result;
 }
 
-static std::optional<DamageModifier> getFlatDamageModifier(
-    ServicesView &services,
-    const std::string &resRef,
-    int costValue,
-    DamageType type) {
-
-    int value = getCostTableValue(
-        services,
-        resRef,
-        costValue,
-        CostColumn::Value,
-        0);
-    if (value == 0) {
-        return std::nullopt;
-    }
-
-    return DamageModifier {costValue, 0, 0, value, type, costValue, false};
-}
-
 static int rollDamageModifier(
     const DamageModifier &modifier,
     int multiplier,
@@ -888,36 +878,13 @@ static int rollDamageModifier(
     return result;
 }
 
-static int rollAttackDamageModifier(
+/** A hand-specific damage increase of an attack: its dice roll once a critical multiple, its flat amount once. */
+static int rollHandDamageModifier(
     const DamageModifier &modifier,
     int criticalMultiplier,
-    bool handSpecific,
-    bool tsl,
     DamageDiceRoll dice) {
 
-    // Hand-specific fixed bonuses skip the critical-dice loop in both games.
-    // K1 repeats miscellaneous bonuses on criticals; K2 rolls those once.
-    const int repeats = handSpecific
-                            ? (modifier.usesDice ? criticalMultiplier : 1)
-                            : (tsl ? 1 : criticalMultiplier);
-    // The lowest bound of a damage range lowers only hand-specific dice;
-    // miscellaneous dice keep their highest face.
-    if (dice == DamageDiceRoll::Lowest && !handSpecific) {
-        dice = DamageDiceRoll::Highest;
-    }
-    return rollDamageModifier(modifier, repeats, dice);
-}
-
-static void selectDamageModifier(
-    std::map<int, DamageModifier> &modifiers,
-    DamageModifier modifier) {
-
-    int type = static_cast<int>(modifier.type);
-    auto it = modifiers.find(type);
-    if (it == modifiers.end() ||
-        modifier.rank > it->second.rank) {
-        modifiers.insert_or_assign(type, std::move(modifier));
-    }
+    return rollDamageModifier(modifier, modifier.usesDice ? criticalMultiplier : 1, dice);
 }
 
 static bool damagePropertyApplies(
@@ -932,7 +899,7 @@ static bool damagePropertyApplies(
         return true;
     case ItemProperty::EnhancementBonusVsAlignmentGroup:
     case ItemProperty::DamageBonusVsAlignmentGroup:
-        return target && attackAlignmentGroupMatches(subtype, *target);
+        return attackAlignmentGroupMatches(subtype, target);
     case ItemProperty::EnhancementBonusVsRacialGroup:
     case ItemProperty::DamageBonusVsRacialGroup:
         return target && racialTypeMatches(subtype, *target);
@@ -941,91 +908,221 @@ static bool damagePropertyApplies(
     }
 }
 
-// Selects, per damage type, the strongest bonus and penalty granted by the
-// item's active damage properties. A property limited to an alignment or
-// racial group needs a matching target unless every group counts.
-static void selectItemDamageModifiers(
+static bool equippedItemPropertiesAreActive(int slot) {
+    return slot != InventorySlots::rightWeapon2 &&
+           slot != InventorySlots::leftWeapon2;
+}
+
+/** A damage increase or decrease that an item property or an effect gives an attack. */
+struct DamageModifierEntry {
+    bool increase {true};
+    /** An iprp_damagecost row from 6 up, else a flat amount. */
+    int code {0};
+    int flags {0};
+    /** For one kind of attack rather than every attack. */
+    bool handSpecific {false};
+    /** Whether it is for this attack and its target. */
+    bool applies {true};
+    /** Entries of one spell share a miscellaneous slot; an entry without one keeps its own. */
+    uint32_t spellId {std::numeric_limits<uint32_t>::max()};
+};
+
+/** An attack's damage modifiers after merging, increases before decreases. */
+struct MergedDamageModifiers {
+    std::vector<DamageModifierEntry> handIncreases;
+    /** The hand-specific decrease kept for each damage type. */
+    std::map<int, int> handDecreases;
+    std::vector<DamageModifierEntry> miscellaneousIncreases;
+    std::vector<DamageModifierEntry> miscellaneousDecreases;
+};
+
+/**
+ * The damage type a modifier's flags give it: the highest flag in KotOR; in
+ * TSL the flag nearest the logarithm of the flags, so mixed flags may round up.
+ */
+static DamageType getDamageModifierType(bool tsl, int flags) {
+    if (!tsl) {
+        return getPrimaryDamageType(flags);
+    }
+    const int index = static_cast<int>(std::log10(static_cast<float>(flags)) * 3.321928f + 0.5f);
+    return static_cast<DamageType>(1 << index);
+}
+
+/**
+ * Merges an attack's damage modifiers, increases before decreases, of those
+ * \p counts admits. Hand-specific increases are all kept, and each sets the
+ * rank the following entries are measured against. A hand-specific decrease
+ * takes its type's place only when that rank exceeds the rank of the decrease
+ * already there. A miscellaneous entry takes a slot of its own, unless one of
+ * the same spell and flags holds a slot, which it takes over only when that
+ * rank exceeds the slot's; KotOR has 36 slots each for increases and
+ * decreases, TSL 108.
+ */
+static MergedDamageModifiers mergeDamageModifiers(
+    ServicesView &services,
+    bool tsl,
+    const std::vector<DamageModifierEntry> &entries,
+    const std::function<bool(const DamageModifierEntry &)> &counts) {
+
+    const size_t slots = tsl ? 108 : 36;
+    const auto &tables = services.game.combatTables;
+    MergedDamageModifiers result;
+    int rank = 0;
+    for (const bool increases : {true, false}) {
+        for (const auto &entry : entries) {
+            if (entry.increase != increases || !counts(entry)) {
+                continue;
+            }
+            if (entry.handSpecific) {
+                if (entry.increase) {
+                    result.handIncreases.push_back(entry);
+                    rank = tables.damageCost(entry.code).rank;
+                    continue;
+                }
+                auto &kept = result.handDecreases[static_cast<int>(getDamageModifierType(tsl, entry.flags))];
+                if (rank > tables.damageCost(kept).rank) {
+                    kept = entry.code;
+                }
+                continue;
+            }
+            auto &list = entry.increase ? result.miscellaneousIncreases : result.miscellaneousDecreases;
+            if (entry.spellId != std::numeric_limits<uint32_t>::max()) {
+                auto shared = std::find_if(list.begin(), list.end(), [&](const DamageModifierEntry &held) {
+                    return held.spellId == entry.spellId && held.flags == entry.flags;
+                });
+                if (shared != list.end()) {
+                    if (rank > tables.damageCost(shared->code).rank) {
+                        shared->code = entry.code;
+                    }
+                    continue;
+                }
+            }
+            if (list.size() < slots) {
+                list.push_back(entry);
+            }
+        }
+    }
+    return result;
+}
+
+/**
+ * Whether the damage properties of an item worn in \p slot are for an attack
+ * of \p attackHand: those of a hand for its attacks, a double-bladed weapon's
+ * for both hands, the left creature weapon's for its attacks, and those of an
+ * item worn elsewhere for every attack.
+ */
+static bool itemDamageAppliesToHand(int slot, const Item &item, DamageBonusHand attackHand) {
+    switch (slot) {
+    case InventorySlots::rightWeapon:
+        return attackHand == DamageBonusHand::MainHand ||
+               (attackHand == DamageBonusHand::OffHand && item.weaponWield() == WeaponWield::DoubleBladedSword);
+    case InventorySlots::leftWeapon:
+        return attackHand == DamageBonusHand::OffHand;
+    case InventorySlots::hands:
+        return attackHand == DamageBonusHand::Unarmed;
+    case InventorySlots::cWeaponL:
+        return attackHand == DamageBonusHand::CreatureWeapon;
+    case InventorySlots::cWeaponR:
+    case InventorySlots::cWeaponB:
+    case InventorySlots::rightWeapon2:
+    case InventorySlots::leftWeapon2:
+        return false;
+    default:
+        return true;
+    }
+}
+
+/**
+ * Appends a damage modifier for each active damage property of an item: an
+ * enhancement or a damage decrease typed by the item's damage flags, a damage
+ * bonus typed by its property. One limited to an alignment or racial group
+ * applies against a target of that group only.
+ */
+static void appendItemDamageModifiers(
     ServicesView &services,
     const Item &item,
-    DamageType itemDamageType,
+    int itemFlags,
     const OptionalCreature &target,
-    bool anyGroup,
-    std::map<int, DamageModifier> &bonuses,
-    std::map<int, DamageModifier> &penalties) {
+    bool forAttack,
+    bool handSpecific,
+    std::vector<DamageModifierEntry> &entries) {
 
     for (const auto &property : item.properties()) {
         if (!item.isPropertyActive(property)) {
             continue;
         }
-
-        auto propertyType = property.type();
-        if (!anyGroup && !damagePropertyApplies(
-                             propertyType,
-                             property.subtype,
-                             target)) {
-            continue;
-        }
-
-        switch (propertyType) {
+        DamageModifierEntry entry;
+        entry.handSpecific = handSpecific;
+        entry.applies = forAttack && damagePropertyApplies(property.type(), property.subtype, target);
+        switch (property.type()) {
         case ItemProperty::EnhancementBonus:
         case ItemProperty::EnhancementBonusVsAlignmentGroup:
-        case ItemProperty::EnhancementBonusVsRacialGroup: {
-            auto modifier = getFlatDamageModifier(
-                services,
-                kMeleeCostTable,
-                property.costValue,
-                itemDamageType);
-            if (!modifier || modifier->flat <= 0) {
-                break;
-            }
-            selectDamageModifier(bonuses, getDamageModifier(
-                                              services, modifier->flat, modifier->type));
+        case ItemProperty::EnhancementBonusVsRacialGroup:
+            entry.code = getCostTableValue(services, kMeleeCostTable, property.costValue, CostColumn::Value, 0);
+            entry.flags = itemFlags;
             break;
-        }
-        case ItemProperty::DamageBonus: {
-            DamageType type = getItemPropertyDamageType(
-                services,
-                property.subtype);
-            auto modifier = getDamageModifier(
-                services,
-                property.costValue,
-                type);
-            selectDamageModifier(bonuses, modifier);
+        case ItemProperty::DamageBonus:
+            entry.code = property.costValue;
+            entry.flags = static_cast<int>(getItemPropertyDamageType(services, property.subtype));
             break;
-        }
         case ItemProperty::DamageBonusVsAlignmentGroup:
-        case ItemProperty::DamageBonusVsRacialGroup: {
-            DamageType type = getItemPropertyDamageType(
-                services,
-                property.paramValue);
-            auto modifier = getDamageModifier(
-                services,
-                property.costValue,
-                type);
-            selectDamageModifier(bonuses, modifier);
+        case ItemProperty::DamageBonusVsRacialGroup:
+            entry.code = property.costValue;
+            entry.flags = static_cast<int>(getItemPropertyDamageType(services, property.paramValue));
             break;
-        }
-        case ItemProperty::DecreasedDamage: {
-            auto modifier = getFlatDamageModifier(
-                services,
-                kDecreaseCostTable,
-                property.costValue,
-                itemDamageType);
-            if (!modifier) {
-                break;
-            }
-            selectDamageModifier(penalties, *modifier);
+        case ItemProperty::DecreasedDamage:
+            // The cost table holds the decrease as a negative value.
+            entry.increase = false;
+            entry.code = -getCostTableValue(services, kDecreaseCostTable, property.costValue, CostColumn::Value, 0);
+            entry.flags = itemFlags;
             break;
-        }
         default:
-            break;
+            continue;
+        }
+        if (entry.code != 0) {
+            entries.push_back(entry);
         }
     }
 }
 
-static bool equippedItemPropertiesAreActive(int slot) {
-    return slot != InventorySlots::rightWeapon2 &&
-           slot != InventorySlots::leftWeapon2;
+/**
+ * The damage modifiers of the creature's items and effects for an attack of
+ * \p attackHand against \p target, items before effects, each marked with
+ * whether it applies to that attack.
+ */
+static std::vector<DamageModifierEntry> collectDamageModifiers(
+    const Creature &creature,
+    const OptionalCreature &target,
+    DamageBonusHand attackHand) {
+
+    std::vector<DamageModifierEntry> entries;
+    // The weapon set not in use gives no modifiers.
+    for (const auto &[slot, item] : creature.equipment()) {
+        if (!item || !equippedItemPropertiesAreActive(slot)) {
+            continue;
+        }
+        // An unarmed attack types the gloves' modifiers as bludgeoning.
+        const int itemFlags = slot == InventorySlots::hands ? static_cast<int>(DamageType::Bludgeoning) : item->damageFlags();
+        appendItemDamageModifiers(creature.services(), *item, itemFlags, target,
+                                  itemDamageAppliesToHand(slot, *item, attackHand),
+                                  isHandSpecificAttackModifierSlot(slot), entries);
+    }
+    for (const auto &applied : creature.effects()) {
+        if (!applied.hasLiveRuntimeSource() ||
+            (applied.type() != EffectType::DamageIncrease && applied.type() != EffectType::DamageDecrease)) {
+            continue;
+        }
+        const auto hand = static_cast<DamageBonusHand>(applied.integerParameter(5));
+        DamageModifierEntry entry;
+        entry.increase = applied.type() == EffectType::DamageIncrease;
+        entry.code = applied.integerParameter(0);
+        entry.flags = applied.integerParameter(1);
+        entry.handSpecific = hand != DamageBonusHand::Misc;
+        entry.applies = applied.appliesVersus(target) && (hand == DamageBonusHand::Misc || hand == attackHand);
+        entry.spellId = applied.spellId;
+        entries.push_back(entry);
+    }
+    return entries;
 }
 
 static void applyDeathExperience(
@@ -1119,10 +1216,10 @@ void Creature::startUnsavedCounters() {
 }
 
 // The first heartbeat due after the creation script has run only starts the
-// interval over, without scripts. A TSL state the creature holds makes the
+// interval over, without scripts. A state the creature holds makes the
 // heartbeat due at once.
 void Creature::startUnstampedHeartbeat() {
-    if (_game.isTSL() && _internalStateEffectId != kUnassignedEffectId) {
+    if (_internalStateEffectId != kUnassignedEffectId) {
         _stateSupportTimer.reset(0.0f);
     } else if (_spawnScriptFired) {
         _heartbeatThrottle = 0;
@@ -1149,6 +1246,7 @@ void Creature::retireAreaRuntime(
     setMovementType(MovementType::None);
     _blockingDoorId = script::kObjectInvalid;
     _blockedEventDoorId = script::kObjectInvalid;
+    _lastBlockingDoorId = script::kObjectInvalid;
 
     setCombatState(false);
     // What the creature's record does not keep starts over, as it does for a
@@ -1255,7 +1353,7 @@ bool Creature::loadFromBlueprint(const std::string &blueprintResRef) {
     // deserialize the same data twice, doubling accumulated class levels.
     deserializeAll(*utc, SerializedIdentityContext::templateResource(resRef));
     restoreSerializedVitality();
-    deserializeOwnedItemsAndEquipment(*utc, SerializedIdentityContext::templateResource(resRef));
+    deserializeOwnedItemsAndEquipment(*utc, SerializedIdentityContext::templateResource(resRef), false);
     countLoadedItems();
     updateTransform();
     loadAppearance();
@@ -1281,6 +1379,7 @@ void Creature::loadAppearanceProperties() {
         static_cast<int>(CreatureSize::Invalid)));
     _footstepType = appearances->getInt(_appearance, "footsteptype", -1);
     _disableInjuredAnim = appearances->getInt(_appearance, "disableinjuredanim") != 0;
+    _abortOnParry = appearances->getInt(_appearance, "abortonparry") != 0;
     _groundTiltAppearance = appearances->getBool(_appearance, "groundtilt");
     _envmap = boost::to_lower_copy(appearances->getString(_appearance, "envmap"));
     _deathVisual = appearances->getIntOpt(_appearance, "deathvfx");
@@ -1409,7 +1508,7 @@ void Creature::presentSwingHit() {
         if (!creature) {
             return;
         }
-        if (creature->_modelType == ModelType::Creature && !creature->isUnableToReact()) {
+        if (creature->_modelType == ModelType::Creature && !creature->isDebilitated(true)) {
             creature->playOverlayAnimation(creature->getDamageFlinchAnimation());
         }
         // A living target the blow does not kill grunts in pain: the leader
@@ -1423,6 +1522,10 @@ void Creature::presentSwingHit() {
     case AttackResultType::Miss:
         if (creature && creature->isShowingParry()) {
             playHitSound(*target, true);
+            // An appearance that aborts on parry breaks off its swing.
+            if (_abortOnParry) {
+                cutOneShot();
+            }
         }
         return;
     default:
@@ -1651,24 +1754,32 @@ void Creature::perceiveAfresh() {
     _game.module()->area()->perceiveNow(_game.getObjectById<Creature>(_id));
 }
 
-// The hostile action groups removed when the object turns invisible: a cast
-// at it, which item casts share, or an item cast at it. A physical attack on
-// it is never removed; the attack stops once its target goes unseen.
+// The hostile action groups removed when the object turns invisible or the
+// creature is pacified: an attack, a cast or an item cast aimed at it.
 void Creature::clearHostileActionsAgainst(const Object &object) {
-    static constexpr uint32_t kCastSpellActionId = 15;
     std::vector<OrdinaryActionQueue::Node> nodes(_actions.nodes.begin(), _actions.nodes.end());
     detail::discardCombatActionGroups(nodes, _game.isTSL(), [](const auto &node) { return node->groupId; }, [](const auto &node) { return node->actionId; }, [&object](uint32_t action, const OrdinaryActionQueue::Node &node) {
-            if (action != kCastSpellActionId || !node->action) {
+            if (!node->action) {
                 return false;
             }
-            const auto *cast = dyn_cast<CastSpellAtObjectAction>(&node->action->combatAction());
-            return cast && cast->target().get() == &object; }, [this](const OrdinaryActionQueue::Node &node) { discardGroupNode(node); });
+            const auto type = static_cast<SavedActionType>(action);
+            auto &command = node->action->combatAction();
+            if (type == SavedActionType::AttackObject) {
+                if (const auto *attack = dyn_cast<AttackObjectAction>(&command)) {
+                    return attack->target().get() == &object;
+                }
+                const auto *feat = dyn_cast<UseFeatAction>(&command);
+                return feat && feat->target().get() == &object;
+            }
+            if (type == SavedActionType::CastSpell || type == SavedActionType::ItemCastSpell) {
+                const auto *cast = dyn_cast<CastSpellAction>(&command);
+                return cast && cast->target().get() == &object;
+            }
+            return false; }, [this](const OrdinaryActionQueue::Node &node) { discardGroupNode(node); });
 }
 
+// A Force push holds only the creature's moves, through its AI state.
 bool Creature::canExecuteActions() const {
-    if (isForcePushed()) {
-        return false;
-    }
     return !_dead && !isTemporarilyDead() && !hasEffect(EffectType::Stunned) &&
            !isImmobilizingState(static_cast<CreatureState>(_effectState));
 }
@@ -1839,6 +1950,8 @@ bool Creature::requestSwitchWeapons(bool immediate) {
 
 void Creature::beginSpellActivity(int spellId, bool itemCast, bool hostile, bool interrupts) {
     _roundActionKind = itemCast ? kItemCastRoundAction : kCastRoundAction;
+    // A cast round, a power or an item, is a spell-cast round.
+    _combatState.attackAction = ActionType::CastSpell;
     // The round remembers its power; an item use counts as power 0.
     _combatState.roundSpell = itemCast ? 0 : spellId;
     // A fake cast takes the round but interrupts nothing.
@@ -2808,6 +2921,8 @@ void Creature::playTopFireForgetAnimation() {
 // it ran; a loop still running under a layer carries on. A pose chosen
 // meanwhile goes through the pose path.
 void Creature::returnToStoredLoop() {
+    // Returning to the loop shows again the items a one-shot put away.
+    presentEquippedItems(_storedLoop ? _storedLoop->clip : getActiveAnimationName());
     if (_animDirty) {
         return;
     }
@@ -2858,6 +2973,10 @@ bool Creature::storeLoop(const std::string &clip, const AnimationProperties &pro
 void Creature::queueLoopTransition(int newId, int oldId, float speed) {
     const bool characterModel = _modelType != ModelType::Creature;
     const LoopTransition transition = loopTransition(newId, oldId, currentAnimationId(), characterModel);
+    if (transition.cutsOneShot) {
+        cutOneShot();
+        _animFireForget = false;
+    }
     const int row = loopTransitionRow(transition.clip, characterModel);
     if (row < 0) {
         return;
@@ -2957,6 +3076,12 @@ void Creature::abortFireForgetAnimation(bool clearLayers) {
     returnToStoredLoop();
 }
 
+void Creature::cutOneShot() {
+    if (_oneShot) {
+        _oneShot->remainingMilliseconds = 0.0f;
+    }
+}
+
 void Creature::flushFireForgetQueue() {
     _fireForgetQueue.clear();
 }
@@ -2999,7 +3124,9 @@ void Creature::refreshVitalityConstitution() {
 }
 
 bool Creature::hitPointsAtDeathThreshold() const {
-    return currentHitPoints() <= (_game.isTSL() && _isPC ? -10 : 0);
+    // A party member is never dead by its vitality alone; a player character
+    // dies at -10, any other creature at 0.
+    return !_game.party().isMember(*this) && currentHitPoints() <= (_isPC ? -10 : 0);
 }
 
 void Creature::updateDeathFromCurrentHitPoints() {
@@ -3385,9 +3512,9 @@ void Creature::updateForcePointRegeneration(float dt) {
     const auto table = getRequiredTwoDA(_services.resource.twoDas, "regeneration");
     const float time = regenerationValue(*table, "FPRegenTime");
     float rate;
+    // Niman needs a lightsaber in the right hand.
     const auto right = getEquippedItem(InventorySlots::rightWeapon);
-    const auto left = getEquippedItem(InventorySlots::leftWeapon);
-    const bool lightsaber = (right && right->isLightsaber()) || (left && left->isLightsaber());
+    const bool lightsaber = right && right->isLightsaber();
     if (!_combatState.active || _combatState.activationType == CombatActivation::Indirect) {
         rate = regenerationValue(*table, "OutOfCombatFPBase");
     } else if (_currentForm == CombatForm::SaberVINiman && lightsaber) {
@@ -3522,7 +3649,7 @@ void Creature::applyHitPointDamage(
         if (_dead) {
             return;
         }
-        _currentHitPoints = std::max(0, _currentHitPoints - remainingDamage);
+        _currentHitPoints -= remainingDamage;
         const int adjustedAmount = allowedDamage;
         if (amount > 0) {
             _game.floatingText().addDamage(
@@ -3864,7 +3991,9 @@ bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager,
     _game.combat().cancelActions(*this);
     _game.setLastPartyMemberTempKilled(*this);
     if (operation && shouldCheckDeathImmunity(operation->get().spellId, operation->get().category())) {
-        if (hasEffectImmunity(ImmunityType::Death, asCreature(operation->get().boundCreator()))) {
+        auto creator = operation->get().boundCreator();
+        if (hasEffectImmunity(ImmunityType::Death, asCreature(creator))) {
+            addLinkImmunityFeedback(_game, creator, *this, ImmunityType::Death);
             return false;
         }
     }
@@ -3878,7 +4007,6 @@ bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager,
         setLastDamageAmounts(amounts);
     }
     setLastKiller(damager ? damager->id() : script::kObjectInvalid);
-    setLastHostileActor(damager ? damager->id() : script::kObjectInvalid);
     // K2's third Death parameter suppresses both XP and fade-away. K1 has
     // no third-parameter XP gate.
     if (!_game.isTSL() || !noFadeAway) {
@@ -3923,13 +4051,13 @@ bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager,
     // a die clip ends the running one-shot at once; the fall into the third
     // dead pose waits for it.
     setMovementType(MovementType::None);
-    const bool prone = _storedLoop && _storedLoop->source.id == kProneAnimationId;
+    const int leftLoopId = _storedLoop ? _storedLoop->source.id : -1;
     if (_deathPose != DeathPose::Dead3) {
         _oneShot.reset();
     }
     flushFireForgetQueue();
     _storedLoop.reset();
-    playDieTransition(prone);
+    playDieTransition(leftLoopId);
     removeEffectsOnDeath();
     _currentHitPoints = std::min(-11, static_cast<int>(_currentHitPoints));
     _dead = true;
@@ -3965,12 +4093,11 @@ bool Creature::applyDeathEffect(const std::shared_ptr<Object> &damager,
             leaveEncounter();
         }
     }
-    // Destroyability is tested when the destruction is delivered.
-    if (partyDeath || noFadeAway) {
-        _game.cancelObjectDestruction(*this);
-    } else {
+    // Destroyability is tested when the destruction is delivered. A death
+    // leaves a destruction an earlier death queued pending.
+    if (!partyDeath && !noFadeAway) {
         const auto table = getRequiredTwoDA(_services.resource.twoDas, "appearance");
-        _game.queueObjectDestruction(*this, readDestroyObjectDelay(*table, _appearance));
+        _game.postObjectDestruction(*this, readDestroyObjectDelay(*table, _appearance));
     }
     return true;
 }
@@ -4024,7 +4151,7 @@ bool Creature::applyResurrectionEffect(int hpPercent) {
     if (!_dead) {
         _deathPose.reset();
     }
-    _game.cancelObjectDestruction(*this);
+    // A destruction its death queued still comes.
     clearAllActions(true);
     _game.combat().cancelActions(*this);
     finishCombatRound();
@@ -4448,6 +4575,12 @@ void Creature::showPauseReadyAnimation(bool pauseEnd) {
     refreshPauseAnimation();
 }
 
+void Creature::showReadyAnimation() {
+    _castAnimation.reset();
+    _injuredPause = false;
+    playAnimation(AnimationType::LoopingReady, AnimationProperties(), AnimationSource {kReadyAnimationId});
+}
+
 void Creature::refreshPauseAnimation() {
     _injuredIdle = false;
     _damageFlinchHeld = false;
@@ -4521,18 +4654,24 @@ bool Creature::showsPauseReadyAnimation() const {
            getActiveAnimationName() == getPauseAnimation(_injuredIdle && !isFreeLookLeader(_game, *this));
 }
 
-// A constant naming no animation of its own shows the pause. The rows its
-// animation ID names directly play as they are.
+// A constant naming no animation of its own shows the pause, and the pause
+// and the ready loop follow the creature's state. Any other animation ID shows
+// the animations.2da row it names on the creature's kind of model, the rows
+// below 10000 directly; a row that is not fire-and-forget plays as a loop. An
+// ID the model has no row for shows nothing, and is not fire-and-forget.
 Creature::ScriptAnimation Creature::getScriptAnimation(int constant) const {
     ScriptAnimation result;
-    const int id = scriptAnimationId(constant, _game.isTSL(), _modelType != ModelType::Creature);
-    if (id >= 0 && id < kPauseAnimationId) {
-        result.clip = _services.game.animations.getNameById(static_cast<uint32_t>(id));
-        result.loop = _services.game.animations.isLoopingById(static_cast<uint32_t>(id));
+    const bool characterModel = _modelType != ModelType::Creature;
+    const int id = scriptAnimationId(constant, _game.isTSL(), characterModel);
+    if (id == kPauseAnimationId || id == kReadyAnimationId) {
+        result.clip = getAnimationName(id == kPauseAnimationId ? AnimationType::LoopingPause : AnimationType::LoopingReady);
+        result.loop = true;
     } else {
-        const auto type = id == kPauseAnimationId ? AnimationType::LoopingPause : static_cast<AnimationType>(constant);
-        result.clip = getAnimationName(type);
-        result.loop = isAnimationLooping(type);
+        const int row = id < kPauseAnimationId ? id : scriptAnimationRow(id, characterModel);
+        if (row >= 0) {
+            result.clip = _services.game.animations.getNameById(static_cast<uint32_t>(row));
+        }
+        result.loop = row < 0 || !_services.game.animations.isFireForgetById(static_cast<uint32_t>(row));
     }
     if (id >= 0) {
         result.source = AnimationSource {id, isDialogAnimation(_services.resource.twoDas, id)};
@@ -4881,6 +5020,14 @@ bool Creature::isSlotEquipped(int slot) const {
     return _equipment.find(slot) != _equipment.end();
 }
 
+void Creature::setFaction(Faction faction) {
+    if (faction == _faction) {
+        return;
+    }
+    _faction = faction;
+    _factionJoinOrder = _game.nextFactionJoinOrder();
+}
+
 void Creature::setMovementType(MovementType type) {
     if (_movementType == type) {
         return;
@@ -4970,16 +5117,13 @@ void Creature::runSpawnScript() {
 }
 
 void Creature::runBlockedScript(uint32_t blockingDoorId) {
+    // The creature keeps the door until its next blocked event; every run
+    // asking for it, this one's continuations included, sees the latest.
+    _lastBlockingDoorId = blockingDoorId;
     if (_onBlocked.empty()) {
         return;
     }
-    // The obstructing door travels with the run as an argument, so every
-    // continuation and delayed action started from it goes on seeing the door
-    // this event was raised for, whatever the creature has run into since.
-    _game.scriptRunner().run(
-        _onBlocked,
-        {{script::ArgKind::Caller, Variable::ofObject(_id)},
-         {script::ArgKind::BlockingDoor, Variable::ofObject(blockingDoorId)}});
+    _game.scriptRunner().run(_onBlocked, _id);
 }
 
 void Creature::refreshCombatDecisionTimer() {
@@ -5028,7 +5172,7 @@ void Creature::playSound(SoundSetEntry entry, bool positional) {
     }
     std::optional<glm::vec3> position;
     if (positional) {
-        position = _position + glm::vec3 {0.0f, 0.0f, 1.7f};
+        position = _position;
     }
     // The creature speaks with one voice at a time.
     if (_audioSourceVoice) {
@@ -5515,10 +5659,17 @@ void Creature::restoreSavedPerception(const std::vector<uint8_t> &data) {
     }
 }
 
+/** The local number a TSL party member clears whenever it is set out of combat. */
+static constexpr int kCombatLocalNumber = 8;
+
 void Creature::setCombatState(bool active, CombatActivation activationType, bool holdExpiry) {
     // Faction 5 cannot enter combat. The TSL expiry-hold input does not lock a round.
     if (faction() == Faction::Neutral) {
         active = false;
+    }
+    // In TSL a party member set out of combat clears its local number 8.
+    if (_game.isTSL() && !active && isPartyMember()) {
+        setLocalNumber(kCombatLocalNumber, 0);
     }
     const bool wasActive = _combatState.active;
     // Entering combat state ends any head look.
@@ -5552,7 +5703,7 @@ void Creature::setCombatState(bool active, CombatActivation activationType, bool
         _combatState.attackAction = ActionType::QueueEmpty;
         _combatState.combatFeat = FeatType::Invalid;
         _lastHostileTarget.reset();
-        _lastAttackAction = ActionType::QueueEmpty;
+        _lastAttackAction = -1;
         _lastCombatFeat = FeatType::Invalid;
         _combatState.roundSpell.reset();
         _lastForcePowerUsed = -1;
@@ -5712,11 +5863,7 @@ AttackResultType Creature::currentCombatAttackResult() const {
 void Creature::beginCombatAttack(Object &targetObject, FeatType feat) {
     _roundActionKind = kAttackRoundAction;
     interruptActivities();
-    auto target = _game.getObjectById(targetObject.id());
-    if (target) {
-        removeCombatInvisibilityEffects();
-    }
-    _combatState.attackTarget = target;
+    _combatState.attackTarget = _game.getObjectById(targetObject.id());
     _combatState.attackAction = ActionType::AttackObject;
     _combatState.combatFeat = feat;
 }
@@ -5784,8 +5931,10 @@ void Creature::removeMindTrickEffects() {
     if (!_game.isTSL()) {
         return;
     }
-    std::vector<EffectId> packages;
-    for (const auto &effect : effects()) {
+    // The live list is walked by position, which moves on after a removal:
+    // a record that a removal shifts into the freed position is passed over.
+    for (size_t index = 0; index < effects().size(); ++index) {
+        const auto &effect = effects()[index];
         if (effect.serializedType > SavedEffectTypes::setState) {
             break;
         }
@@ -5796,11 +5945,7 @@ void Creature::removeMindTrickEffects() {
         if (state != CreatureState::MindTrick && state != CreatureState::DroidScramble) {
             continue;
         }
-        if (std::find(packages.begin(), packages.end(), effect.id) == packages.end()) {
-            packages.push_back(effect.id);
-        }
-    }
-    for (auto id : packages) {
+        const EffectId id = effect.id;
         removeEffectsById(id);
     }
 }
@@ -6056,7 +6201,8 @@ void Creature::finishCombatRound() {
     } else {
         _lastHostileTarget.reset();
     }
-    _lastAttackAction = _combatState.attackAction;
+    // A round without an action, as when leaving combat ends one, leaves -1.
+    _lastAttackAction = _combatState.attackAction == ActionType::QueueEmpty ? -1 : static_cast<int>(_combatState.attackAction);
     if (_combatState.combatFeat != FeatType::Invalid) {
         _lastCombatFeat = _combatState.combatFeat;
     }
@@ -6118,9 +6264,11 @@ bool Creature::isEffectLinkImmune(const Effect &effect) const {
     // a failed table lookup leaves it.
     const int count = immunityTypeCount(_game.isTSL());
     for (int immunity : _services.game.combatTables.gameEffectImmunities(*row)) {
-        // Query linked-effect immunity without an opposing creature.
-        // Keep the creator for application and feedback.
-        if (immunity < count && hasEffectImmunity(static_cast<ImmunityType>(immunity))) {
+        // Immunity is judged without an opposing creature; the creator is
+        // only told of it.
+        const auto type = static_cast<ImmunityType>(immunity);
+        if (immunity < count && hasEffectImmunity(type)) {
+            addLinkImmunityFeedback(_game, record.boundCreator(), *this, type);
             return true;
         }
     }
@@ -6284,9 +6432,10 @@ void Creature::appendEquippedItemEffects(
             break;
         }
         case ItemProperty::DecreasedAbilityScore: {
-            int amount = getItemPropertyValue(
-                _services, property, CostColumn::Value, 0);
-            if (amount > 0) {
+            // The cost table holds the decrease as a negative value.
+            const int amount = -costCell(_services.game.combatTables.costTableAt(kDecreasedAbilityCostTable),
+                                         property.costValue, CostColumn::Value, 0);
+            if (amount != 0) {
                 append(_game.newEffect<AbilityDecreaseEffect>(
                     static_cast<Ability>(property.subtype), amount));
             }
@@ -6559,6 +6708,11 @@ AttackBonusBreakdown Creature::getAttackBonusBreakdown(
     }
 
     const bool creatureWeapon = isCreatureWeaponAttack(*this, weapon);
+    // The kind of attack hand-specific modifiers must be for.
+    const auto attackType = creatureWeapon                                                 ? AttackBonus::CreatureWeapon
+                            : weapon                                                       ? (offHand ? AttackBonus::Offhand : AttackBonus::Onhand)
+                            : !_game.isTSL() && isEmptyCreatureWeaponAttack(*this, weapon) ? AttackBonus::Onhand
+                                                                                           : AttackBonus::Unarmed;
     int modifierBonus = 0;
     int modifierPenalty = 0;
     EffectModifierReducer miscModifierReducer;
@@ -6576,7 +6730,7 @@ AttackBonusBreakdown Creature::getAttackBonusBreakdown(
         case EffectType::AttackIncrease: {
             int bonus = applied.integerParameter(0);
             if (bonus > 0 &&
-                attackModifierApplies(modifierType, weapon, offHand, creatureWeapon)) {
+                attackModifierApplies(modifierType, attackType)) {
                 if (modifierType == AttackBonus::Misc) {
                     miscModifierReducer.addIncrease(
                         getEffectSourceKey(applied),
@@ -6591,7 +6745,7 @@ AttackBonusBreakdown Creature::getAttackBonusBreakdown(
         case EffectType::AttackDecrease: {
             int penalty = applied.integerParameter(0);
             if (penalty > 0 &&
-                attackModifierApplies(modifierType, weapon, offHand, creatureWeapon)) {
+                attackModifierApplies(modifierType, attackType)) {
                 if (modifierType == AttackBonus::Misc) {
                     miscModifierReducer.addDecrease(
                         getEffectSourceKey(applied),
@@ -7013,9 +7167,10 @@ DefenseBreakdown Creature::getDefenseBreakdown(std::optional<std::reference_wrap
                                      ? getEffectiveArmorMaxDexterityBonus(_game.isTSL(), armor->maxDexterityBonus(),
                                                                           armor->maxDexterityBonusAdjustment())
                                      : -1;
+    // Only armour drawn as the body model with an armour class limits Dexterity.
     if (isDebilitated(true)) {
         dexterityModifier = std::min(dexterityModifier, 0);
-    } else if (armorDefense > 0 && armorMaxDexterityBonus >= 0) {
+    } else if (armor && armor->bodyArmorClass() > 0 && armorMaxDexterityBonus >= 0) {
         dexterityModifier = std::min(
             dexterityModifier,
             armorMaxDexterityBonus);
@@ -7174,21 +7329,19 @@ int Creature::getSavingThrowEffectBonus(
             if (!savingThrowPropertyApplies(
                     propertyType,
                     property.subtype,
-                    save,
-                    savingThrowType)) {
+                    save)) {
                 continue;
             }
 
-            int value = getItemPropertyValue(
-                _services,
-                property,
-                CostColumn::Value,
-                0);
             if (propertyType == ItemProperty::ImprovedSavingThrow ||
                 propertyType == ItemProperty::ImprovedSavingThrowSpecific) {
+                const int value = costCell(_services.game.combatTables.costTableAt(kImprovedSavingThrowCostTable),
+                                           property.costValue, CostColumn::Value, 0);
                 modifierReducer.addIncrease(source, 0, value);
             } else {
-                modifierReducer.addDecrease(source, 0, value);
+                // The cost table holds the decrease as a negative value.
+                const int value = getCostTableValue(_services, kDecreaseCostTable, property.costValue, CostColumn::Value, 0);
+                modifierReducer.addDecrease(source, 0, -value);
             }
         }
     }
@@ -7384,6 +7537,8 @@ int Creature::getMassiveCriticalDamage(
         return 0;
     }
 
+    // KotOR takes the first Massive Criticals property; TSL adds them all.
+    int damage = 0;
     for (const auto &property : sourceItem->properties()) {
         if (!sourceItem->isPropertyActive(property) ||
             property.type() != ItemProperty::MassiveCriticals) {
@@ -7401,10 +7556,77 @@ int Creature::getMassiveCriticalDamage(
             modifier.flat = 0;
             modifier.die = cost.die;
         }
-        return rollDamageModifier(modifier, 1);
+        damage += rollDamageModifier(modifier, 1);
+        if (!_game.isTSL()) {
+            break;
+        }
     }
 
-    return 0;
+    return damage;
+}
+
+/** An attack's rolled damage modifiers. */
+struct RolledDamageModifiers {
+    /** The hand-specific increases and decreases by damage type. */
+    std::map<int, int> typedIncreases;
+    std::map<int, int> typedDecreases;
+    int miscellaneousIncrease {0};
+    int miscellaneousDecrease {0};
+    /** The hand-specific dice at their lowest face less at their highest. */
+    int lowestDifference {0};
+};
+
+/**
+ * Rolls the damage modifiers of one attack of \p attackHand against
+ * \p target. Hand-specific dice roll once a critical multiple, \p dice
+ * choosing a rolled or fixed face; hand-specific flat amounts and every
+ * decrease count once, and a decrease kept for a hand counts its flat value.
+ * A miscellaneous amount, its dice rolled once at their highest face for a
+ * fixed roll, counts towards the miscellaneous totals.
+ */
+static RolledDamageModifiers rollDamageModifiers(
+    const Creature &creature,
+    const OptionalCreature &target,
+    DamageBonusHand attackHand,
+    int criticalMultiplier,
+    DamageDiceRoll dice) {
+
+    auto &services = creature.services();
+    const bool tsl = creature.game().isTSL();
+    const auto merged = mergeDamageModifiers(
+        services, tsl, collectDamageModifiers(creature, target, attackHand),
+        [](const DamageModifierEntry &entry) { return entry.applies && entry.flags != 0; });
+
+    RolledDamageModifiers result;
+    for (const auto &entry : merged.handIncreases) {
+        const auto type = getDamageModifierType(tsl, entry.flags);
+        const auto modifier = getDamageModifier(services, entry.code, type);
+        result.typedIncreases[static_cast<int>(type)] += rollHandDamageModifier(modifier, criticalMultiplier, dice);
+        if (modifier.usesDice && dice == DamageDiceRoll::Highest) {
+            result.lowestDifference += modifier.numDice - modifier.numDice * modifier.die;
+        }
+    }
+    for (const auto &[type, code] : merged.handDecreases) {
+        if (code > 0) {
+            result.typedDecreases[type] = code;
+        }
+    }
+    auto rollMiscellaneous = [&](const DamageModifierEntry &entry) {
+        const auto modifier = getDamageModifier(services, entry.code, getDamageModifierType(tsl, entry.flags));
+        return rollDamageModifier(modifier, 1, dice == DamageDiceRoll::Rolled ? DamageDiceRoll::Rolled : DamageDiceRoll::Highest);
+    };
+    for (const auto &entry : merged.miscellaneousIncreases) {
+        result.miscellaneousIncrease += rollMiscellaneous(entry);
+    }
+    for (const auto &entry : merged.miscellaneousDecreases) {
+        result.miscellaneousDecrease += rollMiscellaneous(entry);
+    }
+    return result;
+}
+
+/** The cap on the summed damage increases, and on the decreases, of an attack's total. */
+static int getDamageModifierTotalCap(bool tsl) {
+    return tsl ? kMaximumElementalDamageBonus : kMaximumDamageEffectModifier;
 }
 
 int Creature::addPhysicalDamageModifiers(
@@ -7416,148 +7638,33 @@ int Creature::addPhysicalDamageModifiers(
     int criticalMultiplier,
     DamageDiceRoll dice) const {
 
-    struct SourcedDamageModifier {
-        EffectSourceKey source;
-        DamageModifier modifier;
-        bool handSpecific;
-    };
-    std::vector<SourcedDamageModifier> itemBonuses;
-    std::vector<SourcedDamageModifier> itemPenalties;
-
-    auto handItem = weapon
-                        ? std::shared_ptr<Item>()
-                        : getEquippedItem(InventorySlots::hands);
-    const Item *sourceItem = weapon ? weapon.get() : handItem.get();
-
-    for (const auto &[slot, item] : _equipment) {
-        if (!item || !equippedItemAppliesToAttack(slot, *item, weapon, offHand)) {
-            continue;
-        }
-
-        std::map<int, DamageModifier> bonuses;
-        std::map<int, DamageModifier> penalties;
-        selectItemDamageModifiers(
-            _services,
-            *item,
-            !weapon && item.get() == sourceItem
-                ? DamageType::Bludgeoning
-                : getPrimaryDamageType(item->damageFlags()),
-            target,
-            false,
-            bonuses,
-            penalties);
-
-        EffectSourceKey source {EffectSourceKind::Item, item->runtimeIncarnation()};
-        for (const auto &entry : bonuses) {
-            itemBonuses.push_back({source, entry.second,
-                                   isHandSpecificAttackModifierSlot(slot)});
-        }
-        for (const auto &entry : penalties) {
-            itemPenalties.push_back({source, entry.second,
-                                     isHandSpecificAttackModifierSlot(slot)});
-        }
-    }
-
-    // Select encoded effects by source/type and table Rank before rolling.
-    // Reducing the rolled values would choose a lucky roll, not the effect.
-    using ModifierKey = std::pair<EffectSourceKey, int>;
-    std::map<ModifierKey, DamageModifier> miscellaneousBonuses;
-    std::vector<SourcedDamageModifier> handBonuses;
-    EffectModifierReducer effectModifierReducer;
-    EffectModifierReducer miscellaneousReducer;
-    // In TSL, miscellaneous modifiers enter base damage separately.
-    // KotOR retains its subtype-based route.
-    auto &miscellaneousDestination = _game.isTSL() ? miscellaneousReducer : effectModifierReducer;
-    const auto attackHand = !weapon                                 ? DamageBonusHand::Unarmed
+    const bool emptyCreatureWeapons = !_game.isTSL() && isEmptyCreatureWeaponAttack(*this, weapon);
+    const auto attackHand = emptyCreatureWeapons                    ? DamageBonusHand::MainHand
+                            : !weapon                               ? DamageBonusHand::Unarmed
                             : isCreatureWeaponAttack(*this, weapon) ? DamageBonusHand::CreatureWeapon
                             : offHand                               ? DamageBonusHand::OffHand
                                                                     : DamageBonusHand::MainHand;
-    for (const auto &applied : effects()) {
-        if (!applied.hasLiveRuntimeSource() || !applied.appliesVersus(target)) {
-            continue;
-        }
-        switch (applied.type()) {
-        case EffectType::DamageIncrease: {
-            const auto sourceHand = static_cast<DamageBonusHand>(applied.integerParameter(5));
-            if (sourceHand != DamageBonusHand::Misc && sourceHand != attackHand) {
-                break;
-            }
-            const auto type = getPrimaryDamageType(applied.integerParameter(1));
-            auto modifier = getDamageModifier(_services, applied.integerParameter(0), type);
-            const auto source = getEffectSourceKey(applied);
-            if (sourceHand != DamageBonusHand::Misc) {
-                handBonuses.push_back({source, modifier, true});
-            } else {
-                ModifierKey key {source, static_cast<int>(type)};
-                auto found = miscellaneousBonuses.find(key);
-                if (found == miscellaneousBonuses.end() || modifier.rank > found->second.rank) {
-                    miscellaneousBonuses.insert_or_assign(key, modifier);
-                }
-            }
-            break;
-        }
-        case EffectType::DamageDecrease: {
-            int penalty = applied.integerParameter(0);
-            if (penalty > 0) {
-                int type = static_cast<int>(getPrimaryDamageType(
-                    applied.integerParameter(1)));
-                auto &destination = _game.isTSL() &&
-                                            applied.integerParameter(5) == static_cast<int>(DamageBonusHand::Misc)
-                                        ? miscellaneousReducer
-                                        : effectModifierReducer;
-                destination.addDecrease(getEffectSourceKey(applied), type,
-                                        criticalMultiplier * penalty);
-            }
-            break;
-        }
-        default:
-            break;
-        }
-    }
+    const auto rolled = rollDamageModifiers(*this, target, attackHand, criticalMultiplier, dice);
 
-    for (const auto &[key, modifier] : miscellaneousBonuses) {
-        miscellaneousDestination.addIncrease(key.first, key.second,
-                                             rollAttackDamageModifier(modifier, criticalMultiplier, false, _game.isTSL(), dice));
+    // The hand-specific amounts join the hit by type. KotOR's miscellaneous
+    // amounts never reach the hit; TSL adds them to its base damage.
+    auto addDamage = [&](int amount, DamageType type) {
+        damage.addBonus(amount, type);
+        breakdown.addRawDamage(amount, type);
+    };
+    for (const auto &[type, amount] : rolled.typedIncreases) {
+        if (amount > 0) {
+            addDamage(amount, static_cast<DamageType>(type));
+        }
     }
-    for (const auto &entry : handBonuses) {
-        effectModifierReducer.addIncrease(entry.source, static_cast<int>(entry.modifier.type),
-                                          rollAttackDamageModifier(entry.modifier, criticalMultiplier, true, _game.isTSL(), dice));
-    }
-    for (const auto &entry : itemBonuses) {
-        auto &destination = entry.handSpecific ? effectModifierReducer : miscellaneousDestination;
-        destination.addIncrease(
-            entry.source, static_cast<int>(entry.modifier.type),
-            rollAttackDamageModifier(entry.modifier, criticalMultiplier,
-                                     entry.handSpecific, _game.isTSL(), dice));
-    }
-    for (const auto &entry : itemPenalties) {
-        auto &destination = entry.handSpecific ? effectModifierReducer : miscellaneousDestination;
-        destination.addDecrease(
-            entry.source, static_cast<int>(entry.modifier.type),
-            std::abs(rollDamageModifier(entry.modifier, criticalMultiplier, dice)));
+    for (const auto &[type, amount] : rolled.typedDecreases) {
+        addDamage(-amount, static_cast<DamageType>(type));
     }
     int miscellaneous = 0;
     if (_game.isTSL()) {
-        // The miscellaneous output is written before the capped summary
-        // return. It neither writes elemental slots nor consumes their pools.
-        miscellaneous = miscellaneousReducer.totalIncrease(std::numeric_limits<int>::max()) -
-                        miscellaneousReducer.totalDecrease(std::numeric_limits<int>::max());
+        miscellaneous = rolled.miscellaneousIncrease - rolled.miscellaneousDecrease;
         damage.addPhysicalBase(miscellaneous, getPrimaryDamageType(damage.damageFlags()));
         breakdown.otherSpecialBonus += miscellaneous;
-    }
-    auto addDamage = [&](int amount, DamageType type) {
-        if (amount != 0) {
-            damage.addBonus(amount, type);
-            breakdown.addRawDamage(amount, type);
-        }
-    };
-    for (const auto &[type, amount] :
-         effectModifierReducer.increasesBySubtype(kMaximumDamageEffectModifier)) {
-        addDamage(amount, static_cast<DamageType>(type));
-    }
-    for (const auto &[type, amount] :
-         effectModifierReducer.decreasesBySubtype(kMaximumDamageEffectModifier)) {
-        addDamage(-amount, static_cast<DamageType>(type));
     }
     return miscellaneous;
 }
@@ -7643,102 +7750,55 @@ void Creature::evaluateWithEquipment(
 }
 
 int Creature::getMaximumElementalDamageBonus(Object &versus) const {
+    const bool tsl = _game.isTSL();
     const auto versusCreature = asCreature(versus);
-    const auto attackHand = getEquippedItem(InventorySlots::rightWeapon) ? DamageBonusHand::MainHand
-                                                                         : DamageBonusHand::Unarmed;
-    auto isPhysical = [](int flags) {
-        return (flags & static_cast<int>(DamageType::Physical)) != 0;
-    };
-    // A miscellaneous amount counts only for a type other than physical.
-    auto countsAsMiscellaneous = [](DamageType type) {
-        return static_cast<int>(type) >= static_cast<int>(DamageType::Universal);
-    };
+    // KotOR counts the main hand's modifiers; TSL those of the main hand
+    // with a right-hand weapon, else those of an unarmed attack.
+    const auto attackHand = !tsl || getEquippedItem(InventorySlots::rightWeapon) ? DamageBonusHand::MainHand
+                                                                                 : DamageBonusHand::Unarmed;
+    // A modifier without a physical type counts whoever it is against and
+    // whichever attack it is for; one that mixes in a physical type must apply.
+    const auto merged = mergeDamageModifiers(
+        _services, tsl, collectDamageModifiers(*this, versusCreature, attackHand),
+        [](const DamageModifierEntry &entry) {
+            const int physical = static_cast<int>(DamageType::Physical);
+            return entry.flags != 0 && ((entry.applies && entry.flags > physical) || (entry.flags & physical) == 0);
+        });
 
+    // Every die counts at its highest face. Typed amounts meet immunity and
+    // resistance of their own type, miscellaneous ones those of base damage.
     std::map<int, int> typedIncreases;
-    using ModifierKey = std::pair<EffectSourceKey, int>;
-    std::map<ModifierKey, DamageModifier> miscellaneousIncreases;
-    auto selectMiscellaneous = [&](EffectSourceKey source, const DamageModifier &modifier) {
-        ModifierKey key {source, static_cast<int>(modifier.type)};
-        auto found = miscellaneousIncreases.find(key);
-        if (found == miscellaneousIncreases.end() || modifier.rank > found->second.rank) {
-            miscellaneousIncreases.insert_or_assign(key, modifier);
-        }
-    };
-    int decrease = 0;
-
-    for (const auto &applied : effects()) {
-        if (!applied.hasLiveRuntimeSource() ||
-            (applied.type() != EffectType::DamageIncrease && applied.type() != EffectType::DamageDecrease)) {
-            continue;
-        }
-        const int flags = applied.integerParameter(1);
-        const auto sourceHand = static_cast<DamageBonusHand>(applied.integerParameter(5));
-        const bool miscellaneous = sourceHand == DamageBonusHand::Misc;
-        // A modifier without a physical type counts whoever it is against and
-        // whichever hand it is for; one that mixes in a physical type must match.
-        const bool matched = applied.appliesVersus(versusCreature) &&
-                             (miscellaneous || sourceHand == attackHand);
-        if (isPhysical(flags) && !(matched && flags > static_cast<int>(DamageType::Physical))) {
-            continue;
-        }
-        const auto type = getPrimaryDamageType(flags);
-        if (miscellaneous && !countsAsMiscellaneous(type)) {
-            continue;
-        }
-        if (applied.type() == EffectType::DamageDecrease) {
-            decrease += std::max(0, applied.integerParameter(0));
-            continue;
-        }
-        auto modifier = getDamageModifier(_services, applied.integerParameter(0), type);
-        if (miscellaneous) {
-            selectMiscellaneous(getEffectSourceKey(applied), modifier);
-        } else {
-            typedIncreases[static_cast<int>(type)] += rollDamageModifier(modifier, 1, DamageDiceRoll::Highest);
-        }
+    for (const auto &entry : merged.handIncreases) {
+        const auto type = getDamageModifierType(tsl, entry.flags);
+        typedIncreases[static_cast<int>(type)] +=
+            rollDamageModifier(getDamageModifier(_services, entry.code, type), 1, DamageDiceRoll::Highest);
     }
-
-    // Item damage properties count on every hand; those of hand slots are typed.
-    for (const auto &[slot, item] : _equipment) {
-        if (!item || !equippedItemPropertiesAreActive(slot)) {
-            continue;
-        }
-        std::map<int, DamageModifier> bonuses;
-        std::map<int, DamageModifier> penalties;
-        selectItemDamageModifiers(
-            _services, *item, getPrimaryDamageType(item->damageFlags()),
-            versusCreature, true, bonuses, penalties);
-        const bool handSpecific = isHandSpecificAttackModifierSlot(slot);
-        EffectSourceKey source {EffectSourceKind::Item, item->runtimeIncarnation()};
-        for (const auto &[type, modifier] : bonuses) {
-            if (isPhysical(type)) {
-                continue;
-            }
-            if (handSpecific) {
-                typedIncreases[type] += rollDamageModifier(modifier, 1, DamageDiceRoll::Highest);
-            } else if (countsAsMiscellaneous(modifier.type)) {
-                selectMiscellaneous(source, modifier);
-            }
-        }
-        for (const auto &[type, modifier] : penalties) {
-            if (!isPhysical(type) && (handSpecific || countsAsMiscellaneous(modifier.type))) {
-                decrease += std::abs(rollDamageModifier(modifier, 1, DamageDiceRoll::Highest));
-            }
-        }
-    }
-
-    // Typed amounts meet immunity and resistance of their own type,
-    // miscellaneous amounts those of base damage.
     int increase = 0;
     for (const auto &[type, amount] : typedIncreases) {
         if (amount > 0) {
             increase += simulateDamageBonusMitigation(versus, *this, type, amount);
         }
     }
-    for (const auto &[key, modifier] : miscellaneousIncreases) {
+    // Only a miscellaneous increase of a type other than physical counts, and
+    // in KotOR only one of dice.
+    for (const auto &entry : merged.miscellaneousIncreases) {
+        const auto type = getDamageModifierType(tsl, entry.flags);
+        const auto modifier = getDamageModifier(_services, entry.code, type);
+        if (static_cast<int>(type) < static_cast<int>(DamageType::Universal) || (!tsl && !modifier.usesDice)) {
+            continue;
+        }
         increase += simulateDamageBonusMitigation(
             versus, *this, kBaseDamageFlag, rollDamageModifier(modifier, 1, DamageDiceRoll::Highest));
     }
-    return std::min(increase, kMaximumElementalDamageBonus) - std::min(decrease, kMaximumElementalDamageBonus);
+    // Only the hand-specific decreases count.
+    int decrease = 0;
+    for (const auto &[type, code] : merged.handDecreases) {
+        if (code > 0) {
+            decrease += code;
+        }
+    }
+    const int cap = getDamageModifierTotalCap(tsl);
+    return std::min(increase, cap) - std::min(decrease, cap);
 }
 
 void Creature::getDamageRange(
@@ -7781,19 +7841,31 @@ void Creature::getDamageRange(
     }
 
     if (includeModifiers) {
-        // The item and effect modifiers of one hit against no target. They
-        // are those of the equipped hand, whichever weapon is shown.
+        // The item and effect modifiers of one hit against no target, every
+        // die at its highest face: the hand-specific and miscellaneous
+        // increases, capped, less the decreases, capped. The lowest bound
+        // takes the hand-specific dice at their lowest face. They are those of
+        // the equipped hand, whichever weapon is shown; in KotOR the main
+        // hand's whatever it holds.
         const auto handWeapon = offHand ? getEquippedOffhandWeapon() : getEquippedItem(InventorySlots::rightWeapon);
-        const int damageFlags = handWeapon ? handWeapon->damageFlags() : static_cast<int>(DamageType::Bludgeoning);
-        const auto modifierTotal = [&](DamageDiceRoll dice) {
-            DamagePacket modifiers;
-            DamageBreakdown breakdown;
-            modifiers.setDamageFlags(damageFlags);
-            addPhysicalDamageModifiers(modifiers, breakdown, std::nullopt, handWeapon, offHand, 1, dice);
-            return modifiers.total();
-        };
-        minimum += modifierTotal(DamageDiceRoll::Lowest);
-        maximum += modifierTotal(DamageDiceRoll::Highest);
+        const auto attackHand = offHand              ? DamageBonusHand::OffHand
+                                : !tsl || handWeapon ? DamageBonusHand::MainHand
+                                                     : DamageBonusHand::Unarmed;
+        const auto rolled = rollDamageModifiers(*this, std::nullopt, attackHand, 1, DamageDiceRoll::Highest);
+        int increase = rolled.miscellaneousIncrease;
+        for (const auto &[type, amount] : rolled.typedIncreases) {
+            if (amount > 0) {
+                increase += amount;
+            }
+        }
+        int decrease = rolled.miscellaneousDecrease;
+        for (const auto &[type, amount] : rolled.typedDecreases) {
+            decrease += amount;
+        }
+        const int cap = getDamageModifierTotalCap(tsl);
+        const int total = std::min(increase, cap) - std::min(decrease, cap);
+        minimum += total + rolled.lowestDifference;
+        maximum += total;
     }
 
     // Each bound shows at least one point.
@@ -7851,30 +7923,14 @@ void Creature::onEventSignalled(const std::string &name) {
     if (!sounds) {
         return;
     }
+    // A step sounds one of three variants of the surface's sound, named by the
+    // surface; a surface without a name is silent.
     const Surface &surface = _services.game.surfaces.getSurface(_walkmeshMaterial);
-    std::vector<std::shared_ptr<AudioClip>> materialSounds;
-    if (surface.sound == "DT") {
-        materialSounds = sounds->dirt;
-    } else if (surface.sound == "GR") {
-        materialSounds = sounds->grass;
-    } else if (surface.sound == "ST") {
-        materialSounds = sounds->stone;
-    } else if (surface.sound == "WD") {
-        materialSounds = sounds->wood;
-    } else if (surface.sound == "WT") {
-        materialSounds = sounds->water;
-    } else if (surface.sound == "CP") {
-        materialSounds = sounds->carpet;
-    } else if (surface.sound == "MT") {
-        materialSounds = sounds->metal;
-    } else if (surface.sound == "LV") {
-        materialSounds = sounds->leaves;
-    }
-    int index = randomInt(0, 3);
-    if (index >= static_cast<int>(materialSounds.size())) {
+    if (surface.name.empty()) {
         return;
     }
-    auto clip = materialSounds[index];
+    const auto cell = sounds->cells.find(boost::to_lower_copy(surface.name) + std::to_string(randomInt(0, 2)));
+    auto clip = cell != sounds->cells.end() ? _services.resource.audioClips.get(cell->second) : nullptr;
     // TSL's Dampen Sound silences a stealthed creature's steps.
     if (clip && _stealthMode && hasSilentMove()) {
         return;
@@ -7886,6 +7942,14 @@ void Creature::onEventSignalled(const std::string &name) {
             1.0f,
             false,
             _position);
+        // The step's pitch strays at random by the footstep type's offset: on
+        // one step in two up by as much, on the other down by half as much.
+        const float variance = std::clamp(sounds->pitchOffset, 0.0f, 1.0f);
+        if (_audioSourceFootstep && variance > 0.0f) {
+            const bool up = randomInt(0, 1) == 1;
+            const float stray = randomFloat(0.0f, variance);
+            _audioSourceFootstep->setPitch(up ? 1.0f + stray : 1.0f - 0.5f * stray);
+        }
     }
 }
 
@@ -8068,7 +8132,7 @@ bool Creature::isInUseRange(const Object &target, float extra) const {
         return false;
     }
     if (auto *trigger = dyn_cast<Trigger>(&target); trigger && trigger->isAreaTransition()) {
-        return trigger->isIn(glm::vec2(_position));
+        return trigger->isIn(_position);
     }
     const UseRange use = useRange(target);
     const glm::vec3 lift {0.0f, 0.0f, kUseLineHeight};
@@ -8288,49 +8352,41 @@ std::string Creature::getDieAnimation() const {
     return _deathPose == DeathPose::Dead1 ? "die1" : "die";
 }
 
-// Animation IDs of the clips around the dead poses.
-static constexpr int kKnockDownAnimationRow = 85;
-static constexpr int kCreatureKnockDownAnimationRow = 272;
-static constexpr int kThirdDieAnimationRow = 374;
+// Animation IDs of the die clips of the first two dead poses.
+static constexpr int kDieAnimationId = 10221;
+static constexpr int kDie1AnimationId = 10222;
 
-// The first two dead poses are reached through their die clip, as the
-// appearance's death visual goes off. The third is reached through its own
-// lead-in: a character lying prone falls straight into it, and after any
-// other fall is knocked down first, the fall then paced to end one knock-down
-// length later; a creature model is knocked down unless it lay prone.
-void Creature::playDieTransition(bool prone) {
+// Each dead pose is led into from the loop the creature stood in, as any loop
+// is. The first two go off with the appearance's death visual, and their die
+// clip, when that is the lead-in, plays at once. Any other lead-in waits
+// behind the dead pose, which is the loop from now on, so it survives; the
+// pose shows once a running one-shot ends, and the lead-in follows it.
+void Creature::playDieTransition(int leftLoopId) {
+    const int deadId = _deathPose == DeathPose::Dead1   ? kDead1AnimationId
+                       : _deathPose == DeathPose::Dead3 ? kDead3AnimationId
+                                                        : kDeadAnimationId;
     if (_deathPose != DeathPose::Dead3) {
         presentDeathVisual();
-        playAnimation(getDieAnimation());
-        return;
+        const LoopTransition transition = loopTransition(deadId, leftLoopId, currentAnimationId(), _modelType != ModelType::Creature);
+        if (transition.clip == kDieAnimationId || transition.clip == kDie1AnimationId) {
+            playAnimation(getDieAnimation());
+            return;
+        }
     }
-    // The dead pose is the loop from now on, so the lead-in queued behind it
-    // survives; the pose shows once a running one-shot ends, and the lead-in
-    // follows it.
     _animFireForget = false;
-    storeLoop(getDeadAnimation(), AnimationProperties(), true, AnimationSource {kDead3AnimationId});
+    storeLoop(getDeadAnimation(), AnimationProperties(), true, AnimationSource {deadId});
     _animDirty = true;
     updateModelAnimation();
-    if (_modelType == ModelType::Creature) {
-        if (!prone) {
-            addFireForgetAnimation("ckdbck", false, AnimationSource {kCreatureKnockDownAnimationRow});
-        }
-        return;
-    }
-    if (prone) {
-        addFireForgetAnimation("die3", false, AnimationSource {kThirdDieAnimationRow});
-        return;
-    }
-    queueTransitionPair("g1y1", kKnockDownAnimationRow, "die3", kThirdDieAnimationRow);
+    queueLoopTransition(deadId, leftLoopId, 1.0f);
 }
 
-// A character model shows the knock-down fall as a one-shot; a creature model
-// shows none.
+// In TSL a character model's knock-down fall waits in the one-shot queue. KotOR
+// shows no fall, nor does a creature model.
 void Creature::showKnockdownFall(int animationId) {
-    if (_modelType == ModelType::Creature) {
+    if (!_game.isTSL() || _modelType == ModelType::Creature) {
         return;
     }
-    playAnimation("g1y1", AnimationProperties(), AnimationSource {animationId});
+    addFireForgetAnimation("g1y1", false, AnimationSource {animationId});
 }
 
 // The visual is presentation only. It goes off where its node on the body
@@ -8967,13 +9023,18 @@ void Creature::deserialize(
     restoreSerializedVitality();
     if (utc) {
         deserializeOwnedItemsAndEquipment(
-            *utc, SerializedIdentityContext::templateResource(templateRes));
+            *utc, SerializedIdentityContext::templateResource(templateRes), true);
     }
-    deserializeOwnedItemsAndEquipment(gff, identityContext);
+    deserializeOwnedItemsAndEquipment(gff, identityContext, false);
     countLoadedItems();
-    // A reloaded corpse lies in the second dead pose without dying again.
+    // A reloaded corpse lies, without dying again, in the dead pose it was
+    // saved in; one saved in no dead pose lies in the second.
     if (_dead) {
-        _deathPose = DeathPose::Dead1;
+        int32_t animation = kDead1AnimationId;
+        gff.readInt(animation, "Animation");
+        _deathPose = animation == kDeadAnimationId    ? DeathPose::Dead
+                     : animation == kDead3AnimationId ? DeathPose::Dead3
+                                                      : DeathPose::Dead1;
     }
 
     updateTransform();
@@ -9042,6 +9103,7 @@ void Creature::deserializeAll(
     if (_isPC) {
         _faction = Faction::Player;
     }
+    _factionJoinOrder = _game.nextFactionJoinOrder();
 
     gff.readBool(_disarmable, "Disarmable");
     gff.readBool(_noPermDeath, "NoPermDeath");
@@ -9282,7 +9344,7 @@ std::vector<std::shared_ptr<Object>> Creature::ownedRuntimeObjects() const {
 // and refused body armour is remembered for the party's clothing.
 std::optional<int> Creature::admitLoadedEquipment(
     const Item &item, uint32_t slotMask,
-    const std::map<int, std::shared_ptr<Item>> &loaded, bool &bodyRefused) {
+    const std::map<int, std::shared_ptr<Item>> &loaded, bool &bodyRefused, bool reportRefusal) {
     const auto slot = equipmentSlotFromMask(slotMask);
     if (!slot) {
         return std::nullopt;
@@ -9291,6 +9353,11 @@ std::optional<int> Creature::admitLoadedEquipment(
     evaluateWithEquipment(loaded, [&]() { decision = evaluateEquipmentCandidate(*this, *slot, &item); });
     if (decision.valid) {
         return decision.action == EquipmentCandidateAction::Equip ? decision.actualSlot : *slot;
+    }
+    if (reportRefusal) {
+        if (auto strRef = equipmentRefusalFeedback(decision.reason)) {
+            _game.addFeedbackMessage(*strRef);
+        }
     }
     if (*slot == InventorySlots::body) {
         bodyRefused = true;
@@ -9370,7 +9437,8 @@ void Creature::countLoadedItems() {
 
 void Creature::deserializeOwnedItemsAndEquipment(
     const resource::Gff &gff,
-    const SerializedIdentityContext &identityContext) {
+    const SerializedIdentityContext &identityContext,
+    bool placedTemplate) {
     const bool replaceItems = gff.has("ItemList");
     const bool replaceEquipment = gff.has("Equip_ItemList");
     if (!replaceItems && !replaceEquipment) {
@@ -9396,14 +9464,37 @@ void Creature::deserializeOwnedItemsAndEquipment(
                 : _equipment;
         ItemAttributes replacementAttributes;
         std::deque<EffectInstance> replacementEffects;
+        // An entry is left out when the template it names does not exist. The
+        // template of a creature an area places names its list's template in
+        // each entry and takes only the entry's Dropable flag, unset when absent.
+        auto loadEntry = [&](const Gff &entry, const std::string &templateField) -> std::shared_ptr<Item> {
+            if (placedTemplate) {
+                std::string resRef;
+                if (!entry.readResRef(resRef, templateField) || !_services.resource.gffs.get(resRef, ResType::Uti)) {
+                    return nullptr;
+                }
+                auto item = _game.newItemFromBlueprint(resRef);
+                uint8_t dropable = 0;
+                entry.readByte(dropable, "Dropable");
+                item->setDropable((dropable & 1) != 0);
+                return item;
+            }
+            if (Item::namesMissingTemplate(entry, _services.resource.gffs)) {
+                return nullptr;
+            }
+            return _game.newOwnedItem(entry, identityContext);
+        };
         _game.replaceRuntimeObjectGraph(
             obsolete,
             [&]() {
                 // Refused equipment enters the inventory before the carried items.
                 if (replaceEquipment) {
                     for (const auto &itemGff : gff.getList("Equip_ItemList")) {
-                        auto item = _game.newOwnedItem(*itemGff, identityContext);
-                        const auto slot = admitLoadedEquipment(*item, itemGff->type(), replacementEquipment, bodyRefused);
+                        auto item = loadEntry(*itemGff, "EquippedRes");
+                        if (!item) {
+                            continue;
+                        }
+                        const auto slot = admitLoadedEquipment(*item, itemGff->type(), replacementEquipment, bodyRefused, false);
                         if (!slot || replacementEquipment.count(*slot) != 0) {
                             item->setOwner(_id);
                             appendOwnedItemCandidate(
@@ -9415,12 +9506,15 @@ void Creature::deserializeOwnedItemsAndEquipment(
                         replacementEquipment.emplace(*slot, std::move(item));
                     }
                 }
+                // Carried items keep their own stacks.
                 if (replaceItems) {
                     for (const auto &itemGff : gff.getList("ItemList")) {
-                        auto item = _game.newOwnedItem(*itemGff, identityContext);
+                        auto item = loadEntry(*itemGff, "InventoryRes");
+                        if (!item) {
+                            continue;
+                        }
                         item->setOwner(_id);
-                        appendOwnedItemCandidate(
-                            replacementItems, item, true);
+                        replacementItems.push_back(std::move(item));
                     }
                 }
                 for (const auto &item : replacementItems) {
@@ -9463,7 +9557,8 @@ void Creature::deserializeOwnedItemsAndEquipment(
     _game.replaceRuntimeObjectGraph(
         obsolete,
         [&]() {
-            // Refused equipment enters the inventory before the carried items.
+            // Refused equipment enters the inventory before the carried items
+            // and joins a stack it matches.
             if (replaceEquipment) {
                 for (const auto &itemGff : gff.getList("Equip_ItemList")) {
                     auto item = _game.newOwnedItem(*itemGff, identityContext);
@@ -9472,11 +9567,12 @@ void Creature::deserializeOwnedItemsAndEquipment(
                         identityContext,
                         {SaveRecordOriginKind::EquippedItem, std::to_string(_id)});
 
-                    const auto slot = admitLoadedEquipment(*item, itemGff->type(), replacementEquipment, bodyRefused);
+                    // A saved player character is told why it may no longer wear an item.
+                    const auto slot = admitLoadedEquipment(*item, itemGff->type(), replacementEquipment, bodyRefused, _isPC);
                     if (!slot) {
                         item->setOwner(_id);
                         appendOwnedItemCandidate(
-                            replacementItems, item, true);
+                            replacementItems, item, false);
                         continue;
                     }
                     if (replacementEquipment.count(*slot) != 0) {
@@ -9490,6 +9586,7 @@ void Creature::deserializeOwnedItemsAndEquipment(
                 }
             }
 
+            // Carried items keep their own stacks.
             if (replaceItems) {
                 for (const auto &itemGff : gff.getList("ItemList")) {
                     auto item = _game.newOwnedItem(*itemGff, identityContext);
@@ -9498,8 +9595,7 @@ void Creature::deserializeOwnedItemsAndEquipment(
                         identityContext,
                         {SaveRecordOriginKind::ContainedItem, std::to_string(_id)});
                     item->setOwner(_id);
-                    appendOwnedItemCandidate(
-                        replacementItems, item, true);
+                    replacementItems.push_back(std::move(item));
                 }
             }
             for (const auto &item : replacementItems) {
@@ -9593,7 +9689,9 @@ DamagePower Creature::calculateDamagePower(
                           weapon,
                           offHand)
                           .effectBonus;
-    return static_cast<DamagePower>(effectBonus);
+    // The power is the low byte of the bonus, so a net penalty becomes a
+    // power above every reduction's.
+    return static_cast<DamagePower>(static_cast<uint8_t>(effectBonus));
 }
 
 void Creature::getDamageResistanceFeatBonuses(
@@ -10009,12 +10107,10 @@ std::vector<ContextAction> Creature::behaviorMenuActions() {
     static constexpr int kSupportRow = 4;
     static constexpr uint32_t kGrenadierSupportName = 126053;
     const bool jedi = isForceUsingClass(_attributes.getEffectiveClass(), true);
-    // A blank cell keeps the value the row before it gave.
-    int nameStrRef = -1;
-    int state = -1;
+    // A blank cell reads as 0.
     for (int row = 0; row < table->getRowCount(); ++row) {
-        nameStrRef = table->getInt(row, "NAME_STRREF", nameStrRef);
-        state = table->getInt(row, "AISTATE", state);
+        int nameStrRef = table->getInt(row, "NAME_STRREF", 0);
+        const int state = table->getInt(row, "AISTATE", 0);
         const auto style = static_cast<NPCAIStyle>(state);
         if (style == NPCAIStyle::PartyDefense) {
             continue;
@@ -10044,15 +10140,12 @@ std::vector<ContextAction> Creature::behaviorMenuActions() {
     return actions;
 }
 
-int Creature::spellCastingClass(const Spell &spell) const {
+int Creature::spellCastingClass() const {
+    // Only the first two class positions cast from the power menu.
+    static constexpr size_t kMenuCastingClassCount = 2;
     const auto &classes = _attributes.classLevels();
-    for (size_t index = 0; index < classes.size(); ++index) {
-        const auto &[clazz, level] = classes[index];
-        if (!isForceUsingClass(clazz->type(), _game.isTSL())) {
-            continue;
-        }
-        const auto required = spell.getClassLevelRequirement(clazz->type());
-        if (level > 0 && required && *required >= 0 && *required != 0xff) {
+    for (size_t index = 0; index < classes.size() && index < kMenuCastingClassCount; ++index) {
+        if (isForceUsingClass(classes[index].first->type(), _game.isTSL())) {
             return static_cast<int>(index);
         }
     }
@@ -10065,11 +10158,6 @@ int Creature::spellLikeAbilityCasterLevel(int spellId) const {
             return ability.casterLevel;
         }
     return kUnspecifiedCasterLevel;
-}
-
-bool Creature::knowsSpellLikeAbility(SpellType spell) const {
-    return std::any_of(_spellLikeAbilities.begin(), _spellLikeAbilities.end(),
-                       [spell](const auto &ability) { return ability.spell == static_cast<int>(spell); });
 }
 
 int Creature::adjustedClassLevel(int classIndex) const {
@@ -10088,13 +10176,15 @@ int Creature::adjustedClassLevel(int classIndex) const {
 
 int Creature::spellCasterLevel(const Spell &spell, bool itemOrCheat) const {
     if (!itemOrCheat) {
-        for (const auto &[clazz, level] : _attributes.classLevels()) {
+        const auto &classes = _attributes.classLevels();
+        for (size_t index = 0; index < classes.size(); ++index) {
+            const auto &[clazz, level] = classes[index];
             if (!isForceUsingClass(clazz->type(), _game.isTSL())) {
                 continue;
             }
             const auto required = spell.getClassLevelRequirement(clazz->type());
             if (level > 0 && required && *required >= 0 && *required != 0xff) {
-                return level;
+                return adjustedClassLevel(static_cast<int>(index));
             }
         }
         return -1;
@@ -10145,22 +10235,22 @@ int Creature::forceBodyLevel() const {
 }
 
 bool Creature::canPaySpellForcePointCost(const Spell &spell) const {
-    ForcePointPools pools {_currentForce, _temporaryForcePoints, _currentHitPoints, _temporaryHitPoints};
-    return payForcePointCharge(pools, forcePointCharge(adjustedSpellForcePointCost(spell, isPartyMember()), forceBodyLevel()));
+    return canPayForcePointCharge(forcePointCharge(adjustedSpellForcePointCost(spell, isPartyMember()), forceBodyLevel()),
+                                  _currentForce + _temporaryForcePoints, _currentHitPoints + _temporaryHitPoints);
 }
 
-bool Creature::commitSpellForcePointCost(const Spell &spell, int &cost) {
-    cost = adjustedSpellForcePointCost(spell, isPartyMember());
+int Creature::recordedSpellForcePointCost(const Spell &spell) const {
+    return forcePointCharge(adjustedSpellForcePointCost(spell, isPartyMember()), forceBodyLevel()).spentForce;
+}
+
+void Creature::paySpellForcePointCost(const Spell &spell) {
     ForcePointPools pools {_currentForce, _temporaryForcePoints, _currentHitPoints, _temporaryHitPoints};
-    if (!payForcePointCharge(pools, forcePointCharge(cost, forceBodyLevel()))) {
-        return false;
-    }
+    payForcePointCharge(pools, forcePointCharge(adjustedSpellForcePointCost(spell, isPartyMember()), forceBodyLevel()));
     const int spentTemporaryHitPoints = _temporaryHitPoints - pools.temporaryHitPoints;
     _currentForce = pools.force;
     _temporaryForcePoints = pools.temporaryForce;
     _currentHitPoints = pools.hitPoints;
     consumeTemporaryHitPoints(spentTemporaryHitPoints);
-    return true;
 }
 
 void Creature::damageForcePoints(int amount) {
@@ -10234,7 +10324,9 @@ void Creature::removeTemporaryHitPoints(int amount) {
     const bool wasAlive = !_dead && currentHitPoints() > 0;
     // The pool does not fall below zero.
     _temporaryHitPoints = std::max(0, _temporaryHitPoints - amount);
+    // The creature bleeds as the loss kills it.
     if (wasAlive && currentHitPoints() <= 0 && !_immortal) {
+        applyBloodVisual(*this);
         (void)applyDeathEffect(nullptr, false);
     }
 }
@@ -10302,10 +10394,8 @@ void Creature::setInternalStateEffect(
     _effectState = state;
     _effectAmbientState = ambientState;
     _internalStateEffectId = effectId;
-    // In TSL a state makes the creature's heartbeat due at once.
-    if (_game.isTSL()) {
-        _stateSupportTimer.reset(0.0f);
-    }
+    // A state makes the creature's heartbeat due at once.
+    _stateSupportTimer.reset(0.0f);
     _animDirty = true;
 }
 

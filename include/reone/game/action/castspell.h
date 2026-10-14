@@ -54,6 +54,15 @@ public:
     void dropPresentation();
     /** Takes up the progress of a cast loaded from a save. */
     void restoreCastState(const SavedCastAction &state);
+    /**
+     * Sets the command's domain level, meta type and spontaneous-cast
+     * parameter, which a saved command carries.
+     */
+    void setCommandParameters(int domainLevel, int metaType, int spontaneousCast) {
+        _domainLevel = domainLevel;
+        _metaType = metaType;
+        _spontaneousCast = spontaneousCast;
+    }
 
     /** The cast has reached its end and no longer occupies its creature. */
     bool castEnded() const { return !_schedule.awaitingRelease(); }
@@ -87,6 +96,10 @@ protected:
     ProjectilePathType _projectilePathType;
     bool _instantSpell;
     bool _fake;
+    /** The command's domain level, meta type and spontaneous-cast parameter. */
+    int _domainLevel {0};
+    int _metaType {0};
+    int _spontaneousCast {0};
 
     SpellSchedule _schedule;
     CastPresenter _presenter;
@@ -97,6 +110,10 @@ protected:
     bool _itemConsumed {false};
     bool _ownsMovementRestriction {false};
     bool _ownsSpellTarget {false};
+    /** The cast passed its admission when it was first dispatched. */
+    bool _admitted {false};
+    /** The caster was out of range when the cast was dispatched and is walking up to it. */
+    bool _approaching {false};
     bool _started {false};
     bool _commitAttempted {false};
     bool _committed {false};

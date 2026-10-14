@@ -64,8 +64,9 @@ public:
     static constexpr uint32_t kFeedbackMessageType = 0x80;
 
     /**
-     * Writes a line to a list. With the combat list disabled, it goes to the
-     * message list. A full list drops its oldest line.
+     * Writes a line to a list. An empty line is not written. With the combat
+     * list disabled, it goes to the message list. A full list drops its oldest
+     * line.
      */
     void add(uint32_t type, Style style, std::string text, Buffer buffer = Buffer::Messages);
     /** A conversation line goes to the dialog list; one without text is not kept. */

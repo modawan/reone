@@ -68,8 +68,16 @@ public:
         const std::shared_ptr<Object> &damager) override;
     void update(float dt) override;
 
-    void open();
+    /**
+     * Swings the door open away from the opener: to its first side when the
+     * opener stands in front of the door, otherwise, or with no opener, to its
+     * second. A door linked to another door swings that door to the same side.
+     */
+    void open(std::optional<std::reference_wrapper<const Object>> opener = std::nullopt);
+    /** Swings the door shut, and the door it is linked to with it. */
     void close();
+    /** Runs the script for being closed, with the closer as the last to close the door. */
+    void onClosed(uint32_t closerId);
 
     /**
      * Resting state the door last physically reached. A door in transition
@@ -85,7 +93,7 @@ public:
      * True while the door is swinging open. It has not reached its opened pose
      * yet, so the doorway is still blocking and isOpen is still false.
      */
-    bool isOpening() const { return _transition == DoorTransition::Opening; }
+    bool isOpening() const { return _transition == DoorTransition::Opening1 || _transition == DoorTransition::Opening2; }
 
     /**
      * True while the door is swinging shut. It has not reached its closed pose
@@ -116,6 +124,15 @@ public:
 
     const std::string &getOnOpen() const { return _onOpen; }
     const std::string &getOnFailToOpen() const { return _onFailToOpen; }
+
+    /**
+     * The object the door last saw come at it: one it failed to open for, one
+     * that tried its lock, one that set off its trap or one that went through
+     * it to another area. Kept until the next such event.
+     */
+    uint32_t lastEnteredId() const { return _lastEnteredId; }
+    /** Keep \p objectId as the object that last came at this one. */
+    void setLastEnteredId(uint32_t objectId) { _lastEnteredId = objectId; }
 
     // Traps
 
@@ -238,6 +255,7 @@ private:
 
     Trap _trap {Trap::Carrier::Door};
     bool _locked {false};
+    uint32_t _lastEnteredId {script::kObjectInvalid};
     bool _lockable {false};
     uint8_t _linkedToFlags {0};
     std::string _linkedTo;
@@ -274,6 +292,8 @@ private:
      * which is what stops the superseded transition from ever completing.
      */
     DoorTransition _transition {DoorTransition::None};
+    /** The door this one is linked to, once found. */
+    RuntimeObjectRef<Door> _linkedDoor;
 
     void runDamagedScript();
     void runDeathScript();
@@ -289,10 +309,21 @@ private:
     void applyRestingState();
     void applyRestingPose();
     void enableStateWalkmeshes();
+    /** Swings this door alone open to the side the opening names. */
+    void swingOpen(DoorTransition opening);
+    /** Swings this door alone shut. */
+    void swingShut();
+    /**
+     * The door this one is linked to: for a door linked to a door or a
+     * waypoint, the first object of the linked tag in the module, if that is a
+     * door. It is looked up once and kept while it exists.
+     */
+    std::shared_ptr<Door> linkedDoor();
     void beginTransition(DoorTransition transition);
     void finishTransition();
     bool isTransitionComplete() const;
-    static const char *transitionAnimation(DoorTransition transition);
+    /** The animation of a transition; a closing door swings shut from the side it stands open on. */
+    const char *transitionAnimation(DoorTransition transition) const;
     static DoorState transitionTarget(DoorTransition transition);
     /** The state the door is in or, during a transition, is moving to. */
     DoorState actionState() const;

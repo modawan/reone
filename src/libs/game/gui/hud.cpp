@@ -34,9 +34,10 @@
 #include "reone/game/d20/spell.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
-#include "reone/game/object/creature.h"
+#include "reone/game/gui/sounds.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/camera.h"
+#include "reone/game/object/creature.h"
 #include "reone/game/object/module.h"
 #include "reone/game/party.h"
 
@@ -326,9 +327,17 @@ void HUD::update(float dt) {
     // Module/script work is updated before the HUD. Snapshotting here gives
     // all status events in that batch one deterministic coalescing boundary,
     // without a user-visible timer or synchronous popup from the mutation.
+    // A pending level-up chime plays when its batch is presented, or at once
+    // when the batch has nothing to show.
+    auto &summary = _game.statusSummary();
     if (_statusSummary && _statusSummary->presentPending()) {
         auto clip = _services.resource.audioClips.get("gui_quest");
         _audioSource = _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+        if (summary.displayed()->levelUpSound) {
+            _services.audio.mixer.play(_services.game.guiSounds.getOnLevelUpNotify(), AudioType::Sound);
+        }
+    } else if (summary.takeLevelUpSound()) {
+        _services.audio.mixer.play(_services.game.guiSounds.getOnLevelUpNotify(), AudioType::Sound);
     }
 
     Party &party = _game.party();

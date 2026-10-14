@@ -48,10 +48,10 @@ class Game;
 struct ServicesView;
 struct VisualEffectDesc;
 
-/** Wraps a body and its head and hand models in a bumped-out shell of \p texture. */
+/** Wraps a body, its head model and its worn head item in a bumped-out shell of \p texture. */
 void setShell(scene::ModelSceneNode &body, std::shared_ptr<graphics::Texture> texture);
 
-/** Takes the bumped-out shell off a body and its head and hand models. */
+/** Takes the bumped-out shell off a body, its head model and its worn head item. */
 void clearShell(scene::ModelSceneNode &body);
 
 /**
@@ -66,7 +66,7 @@ public:
     ~VisualEffect();
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
-    EffectRemovalResult onRemove(Object &object, const EffectInstance &) override;
+    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
     void onUpdate(Object &object, const EffectInstance &, float dt) override;
     void retireAreaRuntime(
         const std::set<const Object *> &retainedObjects) override;
@@ -93,7 +93,9 @@ private:
     /**
      * A model attached to one of the target's nodes: it plays its impact
      * animation, then its duration animation while the application is kept,
-     * or goes away when it is not.
+     * and its cessation animation, where it has one, when a kept application
+     * ends. When it is not kept, or once it has ended, the models stay a
+     * while after the first impact or cessation ends and then go together.
      */
     struct NodeModel {
         std::shared_ptr<scene::ModelSceneNode> model;
@@ -101,6 +103,8 @@ private:
         /** No hook: the model stands at a point in the world. */
         scene::SceneNode *hook {nullptr};
         bool followsPositionOnly {false};
+        /** The model's slot: 0 root, 1 impact, 2 head. */
+        int slot {0};
         float impactRemaining {0.0f};
     };
 
@@ -146,6 +150,25 @@ private:
     bool _kept {false};
     /** Time left in the impact program. */
     float _impactRemaining {0.0f};
+    /**
+     * Time left before the node models go, for an application that is not
+     * kept or a kept one that has ended in its cessation.
+     */
+    std::optional<float> _nodeModelsUnloadRemaining;
+    /** The kept application has ended and its node models play their cessation. */
+    bool _ceasing {false};
+    /** Which of the application's programs runs. */
+    enum class ProgramPhase {
+        None,
+        Impact,
+        Duration,
+        Cessation
+    };
+    ProgramPhase _programPhase {ProgramPhase::None};
+    /** The program a kept application runs as it ends, if its row has one. */
+    std::optional<int> _cessationProgram;
+    /** Time left in the cessation program; none while it runs until the presentation ends. */
+    std::optional<float> _cessationRemaining;
     /** The duration program that follows the impact program. */
     std::optional<int> _pendingDurationProgram;
 
@@ -155,9 +178,23 @@ private:
                           const VisualEffectDesc &desc, bool restoring);
     void startNodeModel(scene::ISceneGraph &graph, graphics::Model &model,
                         std::optional<std::reference_wrapper<scene::SceneNode>> hook, bool orientationOff,
-                        std::shared_ptr<scene::ModelSceneNode> owner, const glm::vec3 &position, bool restoring);
-    float nodeModelsImpactLength() const;
+                        std::shared_ptr<scene::ModelSceneNode> owner, const glm::vec3 &position, bool restoring,
+                        int slot);
+    /**
+     * How long the node models of an application that is not kept show: until
+     * the first impact ends, and the unload hold after it.
+     */
+    float nodeModelsPresentationLength() const;
     void updateNodeModels(float dt);
+    /** Takes every node model off its node or the scene. */
+    void removeNodeModels();
+    /**
+     * Plays the cessation animation of every node model that has one.
+     *
+     * @return how long the models then stay, from the first cessation and the
+     *         unload hold after it; none when no model has a cessation
+     */
+    std::optional<float> startNodeModelCessation();
     BeamEnds resolveBeamEnds(Object &object, const EffectInstance &instance);
     bool startProgram(int program, Object &object, const EffectInstance &instance);
     /** Ending a shell shows the latest shell left on \p holder, if given. */
@@ -169,6 +206,10 @@ private:
     void updateMotionBlurProgram(Object &object);
     float impactProgramLength(int program) const;
     void clearPresentation(std::optional<std::reference_wrapper<Object>> holder = std::nullopt);
+    /** Ends everything the application shows but its node models: sounds, beams and programs. */
+    void endPresentationButNodeModels(std::optional<std::reference_wrapper<Object>> holder);
+    /** Stops the duration sound and takes the beam and its end off the scene. */
+    void endSoundsAndBeams();
 };
 
 } // namespace game

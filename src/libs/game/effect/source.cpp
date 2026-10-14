@@ -63,14 +63,6 @@ int EffectModifierReducer::totalDecrease(int cap) const {
     return cappedTotal(_decreases, cap);
 }
 
-std::map<int, int> EffectModifierReducer::increasesBySubtype(int cap) const {
-    return cappedBySubtype(_increases, cap);
-}
-
-std::map<int, int> EffectModifierReducer::decreasesBySubtype(int cap) const {
-    return cappedBySubtype(_decreases, cap);
-}
-
 void EffectModifierReducer::add(
     Values &values,
     EffectSourceKey source,
@@ -92,28 +84,6 @@ int EffectModifierReducer::cappedTotal(const Values &values, int cap) {
         result = std::min(cap, result + amount);
         if (result == cap) {
             break;
-        }
-    }
-    return result;
-}
-
-std::map<int, int> EffectModifierReducer::cappedBySubtype(
-    const Values &values, int cap) {
-    std::map<int, int> totals;
-    for (const auto &[key, amount] : values) {
-        totals[key.second] += amount;
-    }
-
-    std::map<int, int> result;
-    int remaining = cap;
-    for (const auto &[subtype, amount] : totals) {
-        if (remaining <= 0) {
-            break;
-        }
-        int retained = std::min(remaining, amount);
-        if (retained > 0) {
-            result[subtype] = retained;
-            remaining -= retained;
         }
     }
     return result;

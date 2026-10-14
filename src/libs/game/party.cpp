@@ -24,9 +24,12 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include "reone/audio/mixer.h"
 #include "reone/game/di/services.h"
+#include "reone/game/effect/resurrection.h"
 #include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/sounds.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
@@ -40,6 +43,9 @@
 namespace reone {
 
 namespace game {
+
+/** The script a new leader runs when the lead changes hands. */
+static constexpr char kLeaderChangedScript[] = "k_hen_leadchng";
 
 static constexpr int kPlayerPerceptionRangeRow = 12;
 static constexpr int kPartyPerceptionRangeRow = 11;
@@ -129,7 +135,12 @@ bool Party::handleKeyDown(const input::KeyEvent &event) {
 
     switch (event.code) {
     case input::KeyCode::Tab:
+        // The change-character key sounds the accepted cue whether or not
+        // the lead moved.
         selectNextStandingMember();
+        if (auto clip = _game.services().game.guiSounds.getActionAccepted()) {
+            _game.services().audio.mixer.play(std::move(clip), audio::AudioType::Sound);
+        }
         return true;
     }
 
@@ -839,9 +850,9 @@ void Party::setXP(int xp) {
     syncMembersXP();
 }
 
-// A blank share pays in full.
+// A blank or missing share pays nothing.
 int Party::percentXP(int row) const {
-    return getRequiredTwoDA(_game.services().resource.twoDas, "npc")->getInt(row, "percentxp", kFullShare);
+    return getRequiredTwoDA(_game.services().resource.twoDas, "npc")->getInt(row, "percentxp", 0);
 }
 
 // A roster companion takes its npc.2da share and every recipient the
@@ -941,7 +952,13 @@ int Party::idleCombatMessage() const {
 }
 
 void Party::setCombatMessage(const Creature &creature, int strref) {
-    if (!_members.empty() && _members.front().creature.get() == &creature) {
+    auto member = std::find_if(_members.begin(), _members.end(),
+                               [&creature](const Member &entry) { return entry.creature.get() == &creature; });
+    if (member == _members.end()) {
+        return;
+    }
+    member->combatMessage = strref;
+    if (member == _members.begin()) {
         _game.presentCombatMessage(strref);
     }
 }
@@ -1025,6 +1042,7 @@ void Party::onLeaderChanged(const std::shared_ptr<Creature> &previous, bool soun
     // A new leader starts the trail over where it stands.
     if (leader && leader != previous) {
         resetFollowPath(area, leader->position(), leader->getFacing(), true);
+        _game.scriptRunner().run(kLeaderChangedScript, leader->id());
     }
 
     // A dead or downed leader makes no select sound, and nor does a place
@@ -1034,6 +1052,11 @@ void Party::onLeaderChanged(const std::shared_ptr<Creature> &previous, bool soun
     }
     auto lastTarget = _members[0].lastTarget.resolve();
     _game.setLastTarget(lastTarget ? lastTarget->id() : script::kObjectInvalid);
+    // A new leader in combat mode shows its own last combat-mode line again.
+    const auto &combatMessage = _members[0].combatMessage;
+    if (leader && leader->clientCombatMode() && combatMessage && *combatMessage != idleCombatMessage()) {
+        _game.presentCombatMessage(*combatMessage);
+    }
 
     // The new leader stops following; everyone else carries on.
     if (leader) {
@@ -1045,7 +1068,7 @@ void Party::onLeaderChanged(const std::shared_ptr<Creature> &previous, bool soun
 
 void Party::playLeaderSelectSound() {
     auto entry = static_cast<resource::SoundSetEntry>(static_cast<int>(resource::SoundSetEntry::Select1) + randomInt(0, 2));
-    _members[0].creature->playSound(entry, false);
+    _members[0].creature->playSound(entry);
 }
 
 std::shared_ptr<Creature> Party::getAvailableMember(int npc) const {
@@ -1221,7 +1244,24 @@ std::shared_ptr<Creature> Party::getLeader() const {
     return !_members.empty() ? _members[0].creature : nullptr;
 }
 
-void Party::setPartyLeader(int npc) {
+bool Party::setPartyLeader(int npc) {
+    if (npc == kNpcPlayer) {
+        // Handing the lead to the player character stands a downed player
+        // character up first, whether or not it already leads, and leaves it
+        // raiseable.
+        for (const auto &member : _members) {
+            const auto &creature = member.creature;
+            if (!creature || !creature->isPC()) {
+                continue;
+            }
+            if (creature->isTemporarilyDead()) {
+                creature->applyEffect(_game.newEffect<ResurrectionEffect>(0), DurationType::Instant);
+                creature->setRaiseable(true);
+            }
+        }
+        leadWithPlayerCharacter();
+        return true;
+    }
     int memberIdx = -1;
     for (int i = 0; i < static_cast<int>(_members.size()); ++i) {
         if (_members[i].npc == npc && _members[i].creature) {
@@ -1231,12 +1271,24 @@ void Party::setPartyLeader(int npc) {
     }
     if (memberIdx == -1) {
         warn("Party: NPC not found: " + std::to_string(npc));
-        return;
+        return false;
     }
-    if (memberIdx == 0)
-        return;
+    if (memberIdx > 0) {
+        setPartyLeaderByIndex(memberIdx);
+    }
+    return true;
+}
 
-    setPartyLeaderByIndex(memberIdx);
+void Party::leadWithPlayerCharacter() {
+    for (int i = 0; i < static_cast<int>(_members.size()); ++i) {
+        const auto &creature = _members[i].creature;
+        if (creature && creature->isPC()) {
+            if (i > 0) {
+                setPartyLeaderByIndex(i);
+            }
+            return;
+        }
+    }
 }
 
 void Party::setPartyLeaderByIndex(int index) {
@@ -1245,11 +1297,11 @@ void Party::setPartyLeaderByIndex(int index) {
 
     saveLeaderAttackTarget();
 
-    Member tmp(_members[0]);
-    _members[0] = _members[index];
-    _members[index] = tmp;
+    // The members ahead of the new leader move to the back in their order.
+    const auto previous = _members[0].creature;
+    std::rotate(_members.begin(), _members.begin() + index, _members.end());
 
-    onLeaderChanged(tmp.creature);
+    onLeaderChanged(previous);
 }
 
 void Party::setPlayer(const std::shared_ptr<Creature> &player) {
@@ -1456,19 +1508,21 @@ void Party::resetFollowPath(Area &area, const glm::vec3 &position, float facing,
     }
     _followHead = 0;
     _followCount = 0;
-    const auto leader = getLeader();
-    // The seeded spots are recorded nearest first, and while they are recorded
+    // An unseeded reset records no step. A seeded one records the seeded
+    // spots nearest first, then the position itself; while they are recorded
     // the trail is judged against the followers' points from before the reset.
-    if (seed && leader) {
-        const glm::vec3 back {forwardOf(facing) * -kSeedFollowerSpacing};
-        if (auto spot = area.computeSafeLocation(position + back, kSeedPlacementRadius, *leader, true)) {
-            recordLeaderStep(area, *spot, facing);
+    if (seed) {
+        if (const auto leader = getLeader()) {
+            const glm::vec3 back {forwardOf(facing) * -kSeedFollowerSpacing};
+            if (auto spot = area.computeSafeLocation(position + back, kSeedPlacementRadius, *leader, true)) {
+                recordLeaderStep(area, *spot, facing);
+            }
+            if (auto spot = area.computeSafeLocation(position + 2.0f * back, kSeedPlacementRadius, *leader, true)) {
+                recordLeaderStep(area, *spot, facing);
+            }
         }
-        if (auto spot = area.computeSafeLocation(position + 2.0f * back, kSeedPlacementRadius, *leader, true)) {
-            recordLeaderStep(area, *spot, facing);
-        }
+        recordLeaderStep(area, position, facing);
     }
-    recordLeaderStep(area, position, facing);
     for (auto &slot : _followSlots) {
         slot.point = position;
         slot.index = 0;
@@ -1578,17 +1632,21 @@ bool Party::pointBackFromStart(float distance, int slot, glm::vec3 &point, int &
     }
 }
 
-void Party::recalculateFollowPoints() {
+void Party::recalculateFollowPoints(std::optional<int> sightedStep) {
     const float range = followRange();
     glm::vec3 point {0.0f};
     int step = 0;
     if (pointBackFromStart(range - kFollowSpacing, 1, point, step)) {
         _followSlots[1].point = point;
         _followSlots[1].index = step;
+    } else if (sightedStep) {
+        _followSlots[1].index = *sightedStep;
     }
     if (pointBackFromStart(range + kFollowSpacing, 2, point, step)) {
         _followSlots[2].point = point;
         _followSlots[2].index = step;
+    } else if (sightedStep) {
+        _followSlots[2].index = *sightedStep;
     }
 }
 
@@ -1621,6 +1679,11 @@ float Party::followerLag2(int slot) const {
 void Party::smoothFollowPath(const Area &area) {
     const auto leader = getLeader();
     const int start = newestStep();
+    // In TSL, whether the leader can walk straight to the newest step: a
+    // follower whose point cannot be laid out afterwards then goes for that
+    // step.
+    bool clear = false;
+    const bool newestInSight = _game.isTSL() && isTrailLineClear(area, *leader, leader->position(), _followSteps[start].position, clear);
     int anchor = _followSlots[closestFollower()].index;
     if (anchor < 0 || anchor >= kFollowSteps) {
         anchor = 0;
@@ -1629,7 +1692,6 @@ void Party::smoothFollowPath(const Area &area) {
     std::vector<glm::vec3> corners {_followSteps[anchor].position};
     int last = stepAfter(anchor);
     int current = last;
-    bool clear = false;
     while (current != start && start != anchor && corners.size() < kFollowCorners) {
         const glm::vec3 &from = corners.back();
         const glm::vec3 &to = _followSteps[current].position;
@@ -1675,7 +1737,7 @@ void Party::smoothFollowPath(const Area &area) {
         _followHead = stepAfter(_followHead);
         base = placed;
     } while (next < corners.size());
-    recalculateFollowPoints();
+    recalculateFollowPoints(newestInSight ? std::optional<int>(start) : std::nullopt);
 }
 
 // When the nearest follower faces against the leader's newest step, the

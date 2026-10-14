@@ -53,6 +53,8 @@ struct ModuleInfo {
     std::string onAcquireItem;
     std::string onUnacquireItem;
     std::string onPlayerDeath;
+    /** The script run when the player's character enters the module. */
+    std::string onClientEnter;
     /** The hours the day starts and ends at; the hours outside them are night. */
     int dawnHour {0};
     int duskHour {0};
@@ -136,6 +138,8 @@ public:
     const ModuleItemEvents &itemEvents() const { return _itemEvents; }
     /** The party member whose death last reached the module's player-death script. */
     uint32_t lastPlayerDied() const { return _lastPlayerDied; }
+    /** The player's character as it last entered the module. */
+    uint32_t lastEnteredId() const { return _lastEnteredId; }
 
     /**
      * The module's localized name, as authored in the module IFO's Mod_Name.
@@ -196,6 +200,7 @@ private:
     ModuleInfo _info;
     ModuleItemEvents _itemEvents;
     uint32_t _lastPlayerDied {script::kObjectInvalid};
+    uint32_t _lastEnteredId {script::kObjectInvalid};
     std::shared_ptr<Area> _area;
     std::unique_ptr<Player> _player;
     bool _isSaveGame {false};
@@ -290,8 +295,15 @@ private:
     uint32_t spawnBodyBag(Object &source);
     void receiveItemEvent(const SavedScriptEvent &event, const SavedObjectReference &caller);
     void receivePlayerDeathEvent(const SavedObjectReference &caller);
+    /**
+     * Runs the module's load script, which is never told the module came from
+     * a save, then announces the arrival of the controlled creature with the
+     * load-from-save answer the loaded signal carries.
+     */
     void receiveLoadedSignal(bool loadFromSaveGame);
     void runOnLoadScript();
+    /** The player's character enters the module: it is kept as the entrant and the client-enter script runs. */
+    void receiveClientEntered(const Creature &player);
 
     // END Loading
 

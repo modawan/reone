@@ -76,14 +76,26 @@ constexpr uint32_t kScheduledActionStructType = 0xdaea;
 constexpr uint32_t kSpecialAbilityStructType = 4;
 // The struct type of an area's AreaProperties.
 constexpr uint32_t kAreaPropertiesStructType = 100;
+// The struct types of a queued event's data: an effect applied or removed, a
+// script event signalled, a creature summoned, an area transition and a
+// controller rumble.
+constexpr uint32_t kEffectEventStructType = 0x1111;
+constexpr uint32_t kSignalEventStructType = 0x4444;
+constexpr uint32_t kSummonCreatureEventStructType = 0xdddd;
+constexpr uint32_t kAreaTransitionEventStructType = 0xeeee;
+constexpr uint32_t kControllerRumbleEventStructType = 0xffff;
+// The struct type of each parameter in a script event's lists.
+constexpr uint32_t kScriptEventParameterStructType = 0x69;
+// The struct type of a script situation an action takes as a parameter.
+constexpr uint32_t kActionSituationStructType = 2;
 
-// The pose a saved creature was last given (its Animation): dead, a damage
-// flinch, ready in combat, the injured pause that ends a round pause, or the
-// ordinary pause.
-constexpr int kDeadAnimation = 10008;
+// The pose a saved creature was last given (its Animation): one of the three
+// dead poses, a damage flinch, ready in combat, or the pause, injured or not.
+constexpr int kDeadAnimation = 10006;
+constexpr int kDead1Animation = 10008;
+constexpr int kDead3Animation = 10156;
 constexpr int kDamageFlinchAnimation = 10302;
 constexpr int kReadyAnimation = 10001;
-constexpr int kInjuredPauseAnimation = 10092;
 constexpr int kPauseAnimation = 10000;
 
 // The bits of a perception record's PerceptionData that say the object is seen
@@ -177,17 +189,20 @@ std::shared_ptr<Gff> effectToGff(
 }
 
 std::shared_ptr<Gff> scriptEventToGff(const SavedScriptEvent &event) {
-    auto result = Gff::Builder().type(0x4444)
-        .field(Gff::Field::newWord("EventType", event.type)).build();
+    auto result = Gff::Builder().type(kSignalEventStructType).field(Gff::Field::newWord("EventType", event.type)).build();
     auto makeIntList = [](const std::vector<int32_t> &values) {
         std::vector<std::shared_ptr<Gff>> result;
-        for (auto value : values) result.push_back(Gff::Builder().type(0).field(Gff::Field::newInt("Parameter", value)).build());
+        for (auto value : values)
+            result.push_back(Gff::Builder().type(kScriptEventParameterStructType).field(Gff::Field::newInt("Parameter", value)).build());
         return result;
     };
     std::vector<std::shared_ptr<Gff>> floats, strings, objects;
-    for (auto value : event.floats) floats.push_back(Gff::Builder().type(0).field(Gff::Field::newFloat("Parameter", value)).build());
-    for (const auto &value : event.strings) strings.push_back(Gff::Builder().type(0).field(Gff::Field::newCExoString("Parameter", value)).build());
-    for (const auto &value : event.objects) objects.push_back(Gff::Builder().type(0).field(Gff::Field::newDword("Parameter", value.id)).build());
+    for (auto value : event.floats)
+        floats.push_back(Gff::Builder().type(kScriptEventParameterStructType).field(Gff::Field::newFloat("Parameter", value)).build());
+    for (const auto &value : event.strings)
+        strings.push_back(Gff::Builder().type(kScriptEventParameterStructType).field(Gff::Field::newCExoString("Parameter", value)).build());
+    for (const auto &value : event.objects)
+        objects.push_back(Gff::Builder().type(kScriptEventParameterStructType).field(Gff::Field::newDword("Parameter", value.id)).build());
     put(*result, Gff::Field::newList("IntList", makeIntList(event.integers)));
     put(*result, Gff::Field::newList("FloatList", std::move(floats)));
     put(*result, Gff::Field::newList("StringList", std::move(strings)));
@@ -296,11 +311,16 @@ std::shared_ptr<Gff> actionToGff(
         else if (auto value = std::get_if<SavedObjectReference>(&parameter.payload)) put(*record, Gff::Field::newDword("Value", value->id));
         else if (auto value = std::get_if<std::string>(&parameter.payload)) put(*record, Gff::Field::newCExoString("Value", *value));
         else if (auto value = std::get_if<SerializedScriptSituation>(&parameter.payload)) {
-            put(*record, Gff::Field::newStruct("Value", situationToGff(*value, game)));
+            auto situation = situationToGff(*value, game);
+            situation->setType(kActionSituationStructType);
+            put(*record, Gff::Field::newStruct("Value", std::move(situation)));
         }
         parameters.push_back(std::move(record));
     }
-    put(*result, Gff::Field::newList("Paramaters", std::move(parameters)));
+    // An action without parameters has no parameter list.
+    if (!parameters.empty()) {
+        put(*result, Gff::Field::newList("Paramaters", std::move(parameters)));
+    }
     return result;
 }
 
@@ -312,15 +332,26 @@ std::shared_ptr<Gff> eventToGff(
         data = situationToGff(*value, game);
     } else if (auto value = std::get_if<EffectInstance>(&event.payload)) {
         data = value->toGff();
+        data->setType(kEffectEventStructType);
     } else if (auto value = std::get_if<SavedBytePayload>(&event.payload))
         data = Gff::Builder().type(0x9999).field(Gff::Field::newByte("Value", value->value)).build();
-    else if (auto value = std::get_if<SavedIntPayload>(&event.payload)) data = Gff::Builder().type(0x3333).field(Gff::Field::newInt("Value", value->value)).build();
-    else if (auto value = std::get_if<SavedScriptEvent>(&event.payload)) data = scriptEventToGff(*value);
-    else if (auto value = std::get_if<SavedBodyBag>(&event.payload)) data = Gff::Builder().type(0x5555)
-        .field(Gff::Field::newDword("BodyBagId", value->object.id))
-        .field(Gff::Field::newFloat("PositionX", value->position.x))
-        .field(Gff::Field::newFloat("PositionY", value->position.y))
-        .field(Gff::Field::newFloat("PositionZ", value->position.z)).build();
+    else if (auto value = std::get_if<SavedIntPayload>(&event.payload)) {
+        const bool rumble = event.eventId == static_cast<uint32_t>(SavedEventType::ControllerRumble);
+        data = Gff::Builder().type(rumble ? kControllerRumbleEventStructType : 0x3333).field(Gff::Field::newInt("Value", value->value)).build();
+    } else if (auto value = std::get_if<SavedScriptEvent>(&event.payload)) {
+        data = scriptEventToGff(*value);
+        switch (static_cast<SavedEventType>(event.eventId)) {
+        case SavedEventType::SummonCreature:
+            data->setType(kSummonCreatureEventStructType);
+            break;
+        case SavedEventType::AreaTransition:
+            data->setType(kAreaTransitionEventStructType);
+            break;
+        default:
+            break;
+        }
+    } else if (auto value = std::get_if<SavedBodyBag>(&event.payload))
+        data = Gff::Builder().type(0x5555).field(Gff::Field::newDword("BodyBagId", value->object.id)).field(Gff::Field::newFloat("PositionX", value->position.x)).field(Gff::Field::newFloat("PositionY", value->position.y)).field(Gff::Field::newFloat("PositionZ", value->position.z)).build();
     else if (auto value = std::get_if<SavedBroadcastAoo>(&event.payload)) data = Gff::Builder().type(0x3333)
         .field(Gff::Field::newDword("Value", value->target.id)).build();
     else if (auto value = std::get_if<SavedCombatAttack>(&event.payload)) {
@@ -774,7 +805,9 @@ void ModuleSnapshotBuilder::writeCombatRound(
     // The hold an engagement put on a creature owning no round is its round's pause.
     const auto hold = _game.combat().savedOwnerHold(object);
     const float scheduledTime = _game.combat().scheduledTime(object);
-    if (scheduled.empty() && !weaponIneffectiveReported && !hold && scheduledTime == 0.0f) {
+    // The creature's rounds that no queued command carries are kept here.
+    auto rounds = _game.combat().saveRounds(object);
+    if (scheduled.empty() && !weaponIneffectiveReported && !hold && scheduledTime == 0.0f && rounds.empty()) {
         removeSaveField(record, "CombatRoundData");
         return;
     }
@@ -796,6 +829,16 @@ void ModuleSnapshotBuilder::writeCombatRound(
     put(*round, Gff::Field::newDword("RoundPausedBy",
                                      holder && ids.contains(*holder) ? ids.objectId(*holder) : kSavedRuntimeInvalidObjectId));
     put(*round, Gff::Field::newInt("PauseTimer", hold ? static_cast<int>(std::lround(hold->remaining * 1000.0f)) : 0));
+    std::vector<std::shared_ptr<Gff>> roundEntries;
+    for (auto &saved : rounds) {
+        saved.clock.pauseOwner.id = serializedReferenceId(saved.clock.pauseOwner, ids);
+        saved.clock.master.id = serializedReferenceId(saved.clock.master, ids);
+        saved.clock.engaged.id = serializedReferenceId(saved.clock.engaged, ids);
+        auto entry = saved.clock.toGff();
+        put(*entry, Gff::Field::newByte("SpellCastRound", saved.spellRound ? 1 : 0));
+        roundEntries.push_back(std::move(entry));
+    }
+    put(*round, Gff::Field::newList("RoundList", std::move(roundEntries)));
     put(record, Gff::Field::newStruct("CombatRoundData", std::move(round)));
 }
 
@@ -1107,11 +1150,20 @@ void ModuleSnapshotBuilder::writeCreatureState(Gff &record, const Creature &crea
     put(record, Gff::Field::newByte("PartyInteract", creature._partyInteract));
     // The ambient state and the pose the creature was last given.
     put(record, Gff::Field::newByte("AmbientAnimState", static_cast<uint8_t>(creature._effectAmbientState)));
+    const auto deadAnimation = [&creature]() {
+        switch (creature._deathPose.value_or(Creature::DeathPose::Dead)) {
+        case Creature::DeathPose::Dead1:
+            return kDead1Animation;
+        case Creature::DeathPose::Dead3:
+            return kDead3Animation;
+        default:
+            return kDeadAnimation;
+        }
+    };
     put(record, Gff::Field::newInt("Animation",
-                                   creature._dead                 ? kDeadAnimation
+                                   creature._dead                 ? deadAnimation()
                                    : creature._damageFlinchHeld   ? kDamageFlinchAnimation
                                    : creature._combatState.active ? kReadyAnimation
-                                   : creature._injuredPause       ? kInjuredPauseAnimation
                                                                   : kPauseAnimation));
     put(record, Gff::Field::newByte(
                     "CreatnScrptFird", creature._spawnScriptFired));
@@ -1640,9 +1692,6 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildAre(const Area &area) const {
         result = emptyRecord(std::numeric_limits<uint32_t>::max());
     }
     put(*result, Gff::Field::newCExoString("Tag", area._tag));
-    put(*result, Gff::Field::newByte("Unescapable", area._unescapable));
-    put(*result, Gff::Field::newByte("RestrictMode", area._playerRestrictMode));
-    put(*result, Gff::Field::newByte("TransPending", area._transitionPending));
     put(*result, Gff::Field::newByte("StealthXPEnabled", area._stealthXPEnabled));
     put(*result, Gff::Field::newDword("StealthXPMax", static_cast<uint32_t>(std::max(0, area._maxStealthXP))));
     put(*result, Gff::Field::newDword("StealthXPCurrent", static_cast<uint32_t>(std::max(0, area._currentStealthXP))));
@@ -1669,10 +1718,24 @@ std::shared_ptr<Gff> ModuleSnapshotBuilder::buildGit(
     // shadow originated in an installed template GIT.
     put(*result, Gff::Field::newByte("UseTemplates", 0));
 
-    // The area properties carry the music and ambient sound settings; what is
-    // playing is not saved.
+    // The pending transition is recorded at the top level too.
+    put(*result, Gff::Field::newByte("TransPending", area._transitionPending));
+    put(*result, Gff::Field::newByte("TransPendNextID", area._transitionPendingNextId));
+    put(*result, Gff::Field::newByte("TransPendCurrID", area._transitionPendingCurrentId));
+
+    // The area properties carry the music and ambient sound settings, then the
+    // area flags and the fog colour; what is playing is not saved.
     const auto &audio = area._ambientAudio;
     auto properties = Gff::Builder().type(kAreaPropertiesStructType).field(Gff::Field::newInt("MusicDelay", audio.musicDelay)).field(Gff::Field::newInt("MusicDay", audio.musicDay)).field(Gff::Field::newInt("MusicNight", audio.musicNight)).field(Gff::Field::newInt("MusicBattle", audio.musicBattle)).field(Gff::Field::newInt("AmbientSndDay", audio.ambientSoundDay)).field(Gff::Field::newInt("AmbientSndNight", audio.ambientSoundNight)).field(Gff::Field::newInt("AmbientSndDayVol", audio.ambientSoundDayVolume)).field(Gff::Field::newInt("AmbientSndNitVol", audio.ambientSoundNightVolume)).build();
+    put(*properties, Gff::Field::newByte("Unescapable", area._unescapable));
+    if (_game.isTSL()) {
+        put(*properties, Gff::Field::newByte("DisableTransit", area._transitDisabled));
+    }
+    put(*properties, Gff::Field::newByte("RestrictMode", area._playerRestrictMode));
+    put(*properties, Gff::Field::newByte("TransPending", area._transitionPending));
+    put(*properties, Gff::Field::newByte("TransPendNextID", area._transitionPendingNextId));
+    put(*properties, Gff::Field::newByte("TransPendCurrID", area._transitionPendingCurrentId));
+    put(*properties, Gff::Field::newDword("SunFogColor", area._sunFogColor));
     put(*result, Gff::Field::newStruct("AreaProperties", std::move(properties)));
 
     std::map<std::string, std::vector<std::shared_ptr<Gff>>> lists {

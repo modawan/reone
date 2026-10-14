@@ -352,9 +352,9 @@ TEST_P(EntryLifecycleFixture, revisiting_a_module_with_persisted_state_still_run
     EXPECT_THAT(observedDuring(kOnEnterScript), Optional(false));
 }
 
-// Restoring from disk runs the same hooks, and both are told what they are
-// being built into.
-TEST_P(EntryLifecycleFixture, a_disk_restore_runs_both_hooks_and_tells_them_so) {
+// Restoring from disk runs the same hooks. Only the area's OnEnter is told the
+// module came from a save; the module's load script runs after that has cleared.
+TEST_P(EntryLifecycleFixture, a_disk_restore_runs_both_hooks_and_tells_only_the_area_entry) {
     serveModule(/*savedModuleSnapshot=*/true);
 
     game->loadModule("module_b", "", /*initialSaveRestore=*/true);
@@ -364,7 +364,7 @@ TEST_P(EntryLifecycleFixture, a_disk_restore_runs_both_hooks_and_tells_them_so) 
 
     EXPECT_EQ(1, dispatchCount(kOnLoadScript));
     EXPECT_EQ(1, dispatchCount(kOnEnterScript));
-    EXPECT_THAT(observedDuring(kOnLoadScript), Optional(true));
+    EXPECT_THAT(observedDuring(kOnLoadScript), Optional(false));
     EXPECT_THAT(observedDuring(kOnEnterScript), Optional(true))
         << "the queued OnEnter reads the answer captured during the load";
 }

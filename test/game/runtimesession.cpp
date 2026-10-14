@@ -22,6 +22,7 @@
 #include "reone/game/effect/beam.h"
 #include "reone/game/effect/damage.h"
 #include "reone/game/effect/modifyattacks.h"
+#include "reone/game/effect/spellimmunity.h"
 #include "reone/game/equipmentrules.h"
 #include "reone/game/event.h"
 #include "reone/game/game.h"
@@ -801,7 +802,7 @@ TEST(RuntimeSession, ordinary_transition_repositions_live_party_and_rebinds_its_
     player->setPosition(glm::vec3(91.83f, 146.54f, 3.75f));
     player->setFacing(1.25f);
     player->setCurrentHitPoints(17);
-    auto effect = std::make_shared<Effect>(EffectType::Invalid);
+    auto effect = std::make_shared<SpellImmunityEffect>(SpellType::All);
     player->applyEffect(effect, DurationType::Permanent);
     int actionExecutions = 0;
     auto action = game.newAction<CountingAction>(actionExecutions);
@@ -1114,7 +1115,7 @@ TEST(PartyTransferSpawn, transferred_party_member_keeps_durable_not_area_executi
         harness.companion->setCurrentHitPoints(19);
         harness.companion->setLocalBoolean(3, true);
         harness.companion->setLocalNumber(5, 42);
-        auto effect = std::make_shared<Effect>(EffectType::Invalid);
+        auto effect = std::make_shared<SpellImmunityEffect>(SpellType::All);
         harness.companion->applyEffect(effect, DurationType::Permanent);
         int executions = 0;
         auto action = harness.game->newAction<CountingAction>(executions);
@@ -1209,8 +1210,11 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
     retained->setAppearance(42);
     auto carried = game.newOwnedItem();
     retained->addItem(carried);
-    auto durableEffect = std::make_shared<Effect>(EffectType::Invalid);
-    retained->applyEffect(durableEffect, DurationType::Permanent);
+    auto durableEffect = std::make_shared<SpellImmunityEffect>(SpellType::All);
+    EffectInstance durable;
+    durable.effect = durableEffect;
+    durable.setDurationType(DurationType::Permanent);
+    retained->applyEffect(std::move(durable));
     retained->applyEffect(
         std::make_shared<ModifyAttacksEffect>(1), DurationType::Permanent);
     retained->applyEffect(
@@ -1224,7 +1228,7 @@ TEST(AreaRuntimeRetirement, canonical_boundary_retires_every_area_owned_attachme
     retained->applyEffect(beamEffect, DurationType::Permanent);
 
     EffectInstance areaBoundEffect;
-    areaBoundEffect.effect = std::make_shared<Effect>(EffectType::Invalid);
+    areaBoundEffect.effect = std::make_shared<SpellImmunityEffect>(SpellType::All);
     areaBoundEffect.id = game.allocateEffectId();
     areaBoundEffect.setDurationType(DurationType::Permanent);
     areaBoundEffect.creatorId = outgoing->id();
@@ -1542,7 +1546,7 @@ TEST(RuntimeObjectIntegrity, staged_template_container_coalesces_item_records) {
     EXPECT_EQ(registrySize + 1, TestGameModule::objectRegistrySize(game));
 }
 
-TEST(RuntimeObjectIntegrity, staged_creature_and_detached_inventory_coalesce) {
+TEST(RuntimeObjectIntegrity, staged_creature_and_detached_inventory_keep_their_stacks) {
     TestEngine engine;
     engine.init();
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
@@ -1571,8 +1575,9 @@ TEST(RuntimeObjectIntegrity, staged_creature_and_detached_inventory_coalesce) {
         *record,
         SerializedIdentityContext::detachedRecord("availnpc0.utc"));
 
-    ASSERT_EQ(1u, creature->items().size());
-    EXPECT_EQ(5, creature->items().front()->stackSize());
+    ASSERT_EQ(2u, creature->items().size());
+    EXPECT_EQ(2, creature->items().front()->stackSize());
+    EXPECT_EQ(3, creature->items().back()->stackSize());
     ASSERT_TRUE(creature->items().front()->saveRecordProvenance());
     EXPECT_FALSE(creature->items().front()->serializedObjectIdentity());
 }

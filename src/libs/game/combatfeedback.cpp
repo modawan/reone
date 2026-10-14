@@ -62,7 +62,8 @@ static constexpr int kStrRefDamageResistance = 1454;
 static constexpr int kStrRefDamageReduction = 1455;
 static constexpr int kStrRefFiniteDamageResistance = 1456;
 static constexpr int kStrRefFiniteDamageReduction = 1457;
-static constexpr int kStrRefUnknownObject = 649;
+static constexpr int kStrRefUnknownObjectK1 = 0;
+static constexpr int kStrRefUnknownObjectTSL = 649;
 static constexpr int kStrRefUniversalDamage = 1422;
 static constexpr int kStrRefPhysicalDamage = 1423;
 static constexpr int kStrRefAcidDamage = 1440;
@@ -174,7 +175,7 @@ void addBlindnessImmunityFeedback(Game &game, const std::shared_ptr<Object> &cre
 }
 
 void addForceHealingFeedback(Game &game, const Creature &target, int amount) {
-    tellCombatObservers(game, {target}, [&] {
+    tellRecipients(game, {target}, MessageLog::Buffer::Combat, [&] {
         return game.getFeedbackText(kStrRefForceHealing, {{0, target.name()}, {1, std::to_string(amount)}});
     });
 }
@@ -264,6 +265,61 @@ void addStateImmunityFeedback(Game &game, const std::shared_ptr<Object> &creator
         return;
     }
     tellRecipients(game, {recipientOf(creator), target}, MessageLog::Buffer::Combat, [&] {
+        return game.getFeedbackText(*strRef, {{0, target.name()}});
+    });
+}
+
+// The line naming a creature immune to an effect, by the immunity that refused
+// it; none for the immunity types that report nothing.
+static std::optional<int> getLinkImmunityStrRef(ImmunityType immunity) {
+    switch (immunity) {
+    case ImmunityType::Disease:
+        return 1479;
+    case ImmunityType::CriticalHit:
+        return 1480;
+    case ImmunityType::Fear:
+        return 1481;
+    case ImmunityType::Knockdown:
+        return 1482;
+    case ImmunityType::Paralysis:
+        return 1483;
+    case ImmunityType::NegativeLevel:
+        return 1484;
+    case ImmunityType::MindSpells:
+        return 1485;
+    case ImmunityType::Poison:
+        return 1486;
+    case ImmunityType::Sleep:
+        return 1488;
+    case ImmunityType::Confused:
+    case ImmunityType::DroidConfused:
+        return 1489;
+    case ImmunityType::Stun:
+        return 1490;
+    case ImmunityType::Entangle:
+        return 1491;
+    case ImmunityType::Slow:
+        return 1492;
+    case ImmunityType::Blindness:
+    case ImmunityType::Deafness:
+    case ImmunityType::Silence:
+    case ImmunityType::Cursed:
+    case ImmunityType::Dazed:
+    case ImmunityType::Death:
+        return 0;
+    default:
+        return std::nullopt;
+    }
+}
+
+void addLinkImmunityFeedback(Game &game, const std::shared_ptr<Object> &creator, const Creature &target,
+                             ImmunityType immunity) {
+    const auto strRef = getLinkImmunityStrRef(immunity);
+    if (!strRef) {
+        return;
+    }
+    const Recipient creatorCreature = Creature::asCreature(creator) ? recipientOf(creator) : std::nullopt;
+    tellRecipients(game, {creatorCreature, target}, MessageLog::Buffer::Combat, [&] {
         return game.getFeedbackText(*strRef, {{0, target.name()}});
     });
 }
@@ -398,7 +454,8 @@ static void addMitigationLine(Game &game, Recipient damaged, Recipient other, co
     const auto buffer = feedback.type == MitigationFeedbackType::DamageImmunity ? MessageLog::Buffer::Combat
                                                                                 : MessageLog::Buffer::Messages;
     tellRecipients(game, {damaged, other}, buffer, [&] {
-        const auto damagedName = damaged ? damaged->get().name() : game.getFeedbackText(kStrRefUnknownObject);
+        const auto damagedName = damaged ? damaged->get().name()
+                                         : game.getFeedbackText(game.isTSL() ? kStrRefUnknownObjectTSL : kStrRefUnknownObjectK1);
         return getMitigationText(game, damagedName, feedback);
     });
 }

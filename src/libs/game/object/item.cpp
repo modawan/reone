@@ -51,6 +51,9 @@ static constexpr uint32_t kLightsaberForceItemMask = uint32_t {1} << 6;
 // The On Hit save DC of a cost value outside iprp_onhitdc.
 static constexpr int kDefaultOnHitDifficultyClass = 20;
 
+// The baseitems.2da model type of an item drawn as its wearer's body model.
+static constexpr int kBodyModelType = 1;
+
 // The length of a combat round.
 static constexpr float kRoundSeconds = 6.0f;
 
@@ -73,38 +76,38 @@ void Item::loadFromBlueprint(const std::string &resRef) {
     }
 }
 
-// An item's own record is complete; an entry that names a template is read
-// over that template.
+std::optional<std::string> Item::entryTemplate(const resource::Gff &entry) {
+    std::string resRef;
+    if (entry.readResRef(resRef, "EquippedRes") || entry.readResRef(resRef, "InventoryRes")) {
+        return resRef;
+    }
+    return std::nullopt;
+}
+
+bool Item::namesMissingTemplate(const resource::Gff &entry, resource::IGffs &gffs) {
+    const auto resRef = entryTemplate(entry);
+    return resRef && !gffs.get(*resRef, ResType::Uti);
+}
+
+// A saved item is its own record. Any other entry that names a template is
+// that template with the entry's Dropable flag, when it has one; an entry
+// naming none is a whole item record.
 void Item::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {
-    bool templated = false;
-    std::string ref;
-    if (!identityContext.isSerializedState() &&
-        gff.readResRef(ref, "EquippedRes")) {
-        if (auto uti = _services.resource.gffs.get(ref, ResType::Uti)) {
-            deserializeAll(*uti, SerializedIdentityContext::templateResource(ref), true);
-            templated = true;
+    if (!identityContext.isSerializedState()) {
+        if (auto resRef = entryTemplate(gff)) {
+            if (auto uti = _services.resource.gffs.get(*resRef, ResType::Uti)) {
+                deserializeAll(*uti, SerializedIdentityContext::templateResource(*resRef), true);
+            }
+            uint8_t dropable = 0;
+            if (gff.readByte(dropable, "Dropable")) {
+                _dropable = (dropable & 1) != 0;
+            }
+            return;
         }
     }
-
-    if (!identityContext.isSerializedState() &&
-        gff.readResRef(ref, "InventoryRes")) {
-        if (auto uti = _services.resource.gffs.get(ref, ResType::Uti)) {
-            deserializeAll(*uti, SerializedIdentityContext::templateResource(ref), true);
-            templated = true;
-        }
-    }
-
-    if (!identityContext.isSerializedState() &&
-        gff.readResRef(ref, "TemplateResRef")) {
-        if (auto uti = _services.resource.gffs.get(ref, ResType::Uti)) {
-            deserializeAll(*uti, SerializedIdentityContext::templateResource(ref), true);
-            templated = true;
-        }
-    }
-
-    deserializeAll(gff, identityContext, !templated);
+    deserializeAll(gff, identityContext, true);
 }
 
 void Item::deserializeAll(
@@ -183,10 +186,13 @@ void Item::deserializeProperties(const resource::Gff &gff) {
             case ItemProperty::ActivateItem: {
                 _activateSpell = static_cast<SpellType>(entry.subtype);
 
-                // A property used so many times a day without a record of its
-                // uses has them all.
-                if (isDailyUse(entry.costValue) && !entry.usesPerDay) {
-                    entry.usesPerDay = entry.costValue - kOneUsePerDay + 1;
+                // A property without a record of its uses is usable, and one
+                // used so many times a day has them all.
+                if (!entry.usesPerDay) {
+                    entry.usable = true;
+                    if (isDailyUse(entry.costValue)) {
+                        entry.usesPerDay = entry.costValue - kOneUsePerDay + 1;
+                    }
                 }
                 break;
             }
@@ -211,6 +217,7 @@ void Item::deserializeBase(const resource::Gff &gff) {
     _itemType = baseItems->getInt(_baseItem, "itemtype", 0);
     _attackRange = baseItems->getFloat(_baseItem, "maxattackrange", 0.0f);
     _baseDefense = baseItems->getInt(_baseItem, "baseac", 0);
+    _bodyModel = baseItems->getInt(_baseItem, "modeltype", 0) == kBodyModelType;
     _criticalHitMultiplier = baseItems->getInt(_baseItem, "crithitmult", 0);
     _criticalThreat = baseItems->getInt(_baseItem, "critthreat", 0);
     _damageFlags = baseItems->getInt(_baseItem, "damageflags", 0);
@@ -229,6 +236,7 @@ void Item::deserializeBase(const resource::Gff &gff) {
         static_cast<int>(ACBonus::Invalid)));
     _weaponType = static_cast<WeaponType>(
         baseItems->getInt(_baseItem, "weapontype", 0));
+    _rangedWeapon = baseItems->getInt(_baseItem, "rangedweapon", 0) != 0;
     _weaponWield = static_cast<WeaponWield>(
         baseItems->getInt(_baseItem, "weaponwield", 0));
     _weaponSize = static_cast<CreatureSize>(
@@ -248,6 +256,7 @@ void Item::deserializeBase(const resource::Gff &gff) {
     }
     _droidOrHuman = static_cast<DroidOrHuman>(baseItems->getInt(_baseItem, "droidorhuman", 0));
     _deniedSubraces = static_cast<uint32_t>(baseItems->getInt(_baseItem, "denysubrace", 0));
+    _container = baseItems->getInt(_baseItem, "container", 0) != 0;
     _maxStackSize = static_cast<uint16_t>(std::clamp(
         baseItems->getInt(
             _baseItem,
@@ -362,6 +371,7 @@ void Item::clone(const Item &from) {
     _weaponMaterialType = from._weaponMaterialType;
     _armorType = from._armorType;
     _weaponType = from._weaponType;
+    _rangedWeapon = from._rangedWeapon;
     _weaponWield = from._weaponWield;
     _weaponSize = from._weaponSize;
 
@@ -379,6 +389,7 @@ void Item::clone(const Item &from) {
     _weaponFocusFeat = from._weaponFocusFeat;
     _weaponSpecializationFeat = from._weaponSpecializationFeat;
     _baseDefense = from._baseDefense;
+    _bodyModel = from._bodyModel;
     _maxDexterityBonus = from._maxDexterityBonus;
     _acBonusType = from._acBonusType;
 
@@ -407,16 +418,22 @@ std::optional<size_t> Item::spellProperty(SpellType spell) const {
     return std::nullopt;
 }
 
+bool Item::isUseProperty(uint16_t propertyName) {
+    switch (static_cast<ItemProperty>(propertyName)) {
+    case ItemProperty::ActivateItem:
+    case ItemProperty::SecuritySpike:
+    case ItemProperty::Trap:
+    case ItemProperty::ComputerSpike:
+        return true;
+    default:
+        return false;
+    }
+}
+
 std::optional<size_t> Item::firstUseProperty() const {
     for (size_t i = 0; i < _properties.size(); ++i) {
-        switch (_properties[i].type()) {
-        case ItemProperty::ActivateItem:
-        case ItemProperty::SecuritySpike:
-        case ItemProperty::Trap:
-        case ItemProperty::ComputerSpike:
+        if (isUseProperty(_properties[i].propertyName)) {
             return i;
-        default:
-            break;
         }
     }
     return std::nullopt;
@@ -476,11 +493,14 @@ bool Item::consumeSpellUse(size_t index) {
                 other.usable = false;
             }
         }
-        // The item is spent unless the last property in its list is still
+        // The item is spent unless the last of its use properties is still
         // usable; then stims, medical kits and squad kits are spent, and
         // anything else once no charged use is usable, whatever its upgrade.
+        const auto lastUse = std::find_if(_properties.rbegin(), _properties.rend(), [](const PropertyEntry &entry) {
+            return isUseProperty(entry.propertyName);
+        });
         bool exhausted = false;
-        if (!_properties.back().usable) {
+        if (!lastUse->usable) {
             exhausted = _itemType == kStimItemType || _itemType == kMedicalItemType || _itemType == kSquadRecoveryItemType ||
                         std::none_of(_properties.begin(), _properties.end(), [&](const PropertyEntry &entry) {
                             return isChargeUse(entry) && entry.usable;
@@ -604,16 +624,14 @@ bool Item::isEquippable(int slot) const {
 
 bool Item::isStackCompatibleWith(const Item &other) const {
     auto sameProperty = [](const PropertyEntry &lhs, const PropertyEntry &rhs) {
-        return lhs.chanceAppear == rhs.chanceAppear &&
-               lhs.costTable == rhs.costTable &&
+        return lhs.costTable == rhs.costTable &&
                lhs.costValue == rhs.costValue &&
                lhs.paramTable == rhs.paramTable &&
                lhs.paramValue == rhs.paramValue &&
                lhs.propertyName == rhs.propertyName &&
                lhs.subtype == rhs.subtype &&
                lhs.upgradeType == rhs.upgradeType &&
-               lhs.usesPerDay == rhs.usesPerDay && lhs.usable == rhs.usable &&
-               lhs.usedDay == rhs.usedDay && lhs.usedTime == rhs.usedTime;
+               lhs.usesPerDay == rhs.usesPerDay;
     };
     return _maxStackSize > 1 &&
            _baseItem == other._baseItem &&

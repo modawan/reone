@@ -227,9 +227,10 @@ void swapWeaponSets(Game &game, Creature &creature) {
 }
 
 bool SwitchWeaponsAction::cancel(std::shared_ptr<Action>, Object &actor) {
-    // A swap cleared before it runs gives the pose back to the creature's state.
+    // A swap cleared before it runs gives the pose back to the creature's
+    // state; a one-shot still running plays on.
     if (auto *creature = dyn_cast<Creature>(&actor)) {
-        creature->resumeStateDrivenAnimation();
+        creature->refreshPauseAnimation();
     }
     return true;
 }

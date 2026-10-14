@@ -126,6 +126,24 @@ bool StatusSummaryAccumulator::submit(
     return true;
 }
 
+bool StatusSummaryAccumulator::submitLevelUpSound() {
+    // A suppression swallows the chime like any other report.
+    if (_suppressed > 0) {
+        --_suppressed;
+        return false;
+    }
+    _pending.levelUpSound = true;
+    return true;
+}
+
+bool StatusSummaryAccumulator::takeLevelUpSound() {
+    if (_displayed || _pending.requested || !_pending.levelUpSound) {
+        return false;
+    }
+    _pending.levelUpSound = false;
+    return true;
+}
+
 void StatusSummaryAccumulator::suppress(int count) {
     if (count >= 0) {
         _suppressed = count;

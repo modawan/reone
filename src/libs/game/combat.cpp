@@ -23,10 +23,12 @@
 #include <cmath>
 
 #include "reone/game/action/attackobject.h"
+#include "reone/game/action/castspellatlocation.h"
 #include "reone/game/action/castspellatobject.h"
 #include "reone/game/action/switchweapons.h"
 #include "reone/game/action/unequipitem.h"
 #include "reone/game/action/usefeat.h"
+#include "reone/game/action/wait.h"
 #include "reone/game/d20/spell.h"
 #include "reone/game/di/services.h"
 #include "reone/game/effect/creaturestate.h"
@@ -72,8 +74,8 @@ static bool isUnavailableAttackTarget(const Creature &creature) {
     return creature.isDead() || creature.isTemporarilyDead();
 }
 
-// A pause with no one behind it holds every entry. A knocked-down creature's
-// entry waits until it is up again.
+// A pause on the creature's round with no one behind it, or held by another,
+// holds its entry. A knocked-down creature's entry waits until it is up again.
 bool CombatRound::suspends(const Action &action) const {
     for (const auto &entry : actions) {
         if (entry.action.get() != &action && &entry.action->combatAction() != &action) {
@@ -83,13 +85,29 @@ bool CombatRound::suspends(const Action &action) const {
         if (attacker && attacker->isKnockedDown()) {
             return true;
         }
-        if (pauseRemaining <= 0.0f) {
+        if (entry.pauseRemaining <= 0.0f) {
             return false;
         }
-        auto owner = pauseOwner.resolve();
+        auto owner = entry.pauseOwner.resolve();
         return !owner || attacker != owner;
     }
-    return pauseRemaining > 0.0f;
+    return false;
+}
+
+float CombatRound::actionDelta(const Action &action, float dt) const {
+    for (const auto &entry : actions) {
+        if (entry.action.get() == &action || &entry.action->combatAction() == &action) {
+            return entry.actionDelta(dt);
+        }
+    }
+    return dt;
+}
+
+bool CombatRound::hasEnded(const Action &action) const {
+    return std::any_of(actions.begin(), actions.end(), [&action](const auto &entry) {
+        return (entry.action.get() == &action || &entry.action->combatAction() == &action) &&
+               entry.state == Finished;
+    });
 }
 
 bool CombatRound::canExecute(Action &action) const {
@@ -105,8 +123,8 @@ bool CombatRound::canExecute(Action &action) const {
                    action.runtimeDependenciesLive() &&
                    !action.isCompleted() &&
                    !action.isCancelled() &&
-                   state >= requiredState[actions[i].slot] &&
-                   state != CombatRound::Finished;
+                   actions[i].state >= requiredState[actions[i].slot] &&
+                   actions[i].state != CombatRound::Finished;
         }
     }
     return false;
@@ -128,10 +146,12 @@ bool CombatRound::RoundAction::remainsInActorQueue() const {
                         action) != actor->actions().end();
 }
 
-static std::shared_ptr<Object> getTarget(Action &queued) {
+// The target of \p actor's round command. A cast or item use takes its round
+// on whatever it is aimed at, hostile or not, unless that is \p actor itself.
+static std::shared_ptr<Object> getTarget(Action &queued, const Object &actor) {
     Action &action = queued.combatAction();
     if (auto *cast = dyn_cast<CastSpellAction>(&action)) {
-        return cast->spell()->hostile ? cast->target() : nullptr;
+        return cast->target().get() != &actor ? cast->target() : nullptr;
     }
     if (auto *attack = dyn_cast<AttackObjectAction>(&action)) {
         return attack->target();
@@ -156,7 +176,6 @@ static void recordCombatAction(
         return;
     }
 
-    target->setLastHostileActor(actor.id());
     if (auto *creature = dyn_cast<Creature>(&actor)) {
         if (spell) {
             creature->setAttemptedSpellTarget(target->id());
@@ -177,6 +196,13 @@ static bool isInstantCast(Action &command) {
     return false;
 }
 
+// A cast or item use, other than an instant cast, makes a spell round; a round
+// restored without its command keeps what it was.
+static bool isSpellRound(const CombatRound::RoundAction &entry) {
+    Action &command = entry.action->combatAction();
+    return entry.spellRound || (isa<CastSpellAction>(&command) && !isInstantCast(command));
+}
+
 static bool isHostileForContinuation(const Creature &source, const Creature &target) {
     return source.getReputationToward(target) <= kHighestHostileReputation;
 }
@@ -188,37 +214,35 @@ std::shared_ptr<Creature> Combat::findNearestEnemy(
     float maxDistance,
     std::optional<std::reference_wrapper<const Object>> excluded) {
 
-    std::shared_ptr<Creature> nearest;
+    std::optional<uint32_t> nearest;
     float nearestDistance = maxDistance;
-
-    for (const std::shared_ptr<Object> &object : area.getObjectsByType(ObjectType::Creature)) {
-        auto candidate = std::static_pointer_cast<Creature>(object);
-        if (candidate->id() == attacker.id() ||
-            candidate->id() == observer.id() ||
-            (excluded && candidate.get() == &excluded->get()) ||
-            isUnavailableAttackTarget(*candidate)) {
-            continue;
+    // The search walks the area's objects outward from the observer in X
+    // order, alternately below and above it. Line of sight is taken from the
+    // observer to those below it and from the attacker to those above it.
+    // Each way stops once the X gap from the observer exceeds the nearest
+    // distance found so far.
+    area.forEachObjectOutwardInX(observer, [&](const Object &object, bool above) {
+        if (object.id() == attacker.id() || (excluded && &object == &excluded->get())) {
+            return true;
         }
-
-        bool isEnemy = observer.id() == attacker.id()
-                           ? isHostileForContinuation(*candidate, attacker)
-                           : isHostileForContinuation(attacker, *candidate);
-        if (!isEnemy || !observer.perception().sees(candidate->id())) {
-            continue;
+        const auto *candidate = dyn_cast<const Creature>(&object);
+        if (candidate && !isUnavailableAttackTarget(*candidate)) {
+            const bool isEnemy = observer.id() == attacker.id()
+                                     ? isHostileForContinuation(*candidate, attacker)
+                                     : isHostileForContinuation(attacker, *candidate);
+            const float distance = attacker.getDistanceTo(*candidate) -
+                                   observer.creaturePersonalSpace() -
+                                   candidate->creaturePersonalSpace();
+            if (isEnemy && observer.perception().sees(candidate->id()) && distance < nearestDistance &&
+                area.isObjectSeen(above ? attacker : observer, *candidate)) {
+                nearest = candidate->id();
+                nearestDistance = distance;
+            }
         }
+        return std::abs(object.position().x - observer.position().x) <= nearestDistance;
+    });
 
-        float distance = attacker.getDistanceTo(*candidate) -
-                         observer.creaturePersonalSpace() -
-                         candidate->creaturePersonalSpace();
-        if (distance >= nearestDistance || !area.isObjectSeen(observer, *candidate)) {
-            continue;
-        }
-
-        nearest = std::move(candidate);
-        nearestDistance = distance;
-    }
-
-    return nearest;
+    return nearest ? attacker.game().getObjectById<Creature>(*nearest) : nullptr;
 }
 
 std::shared_ptr<CombatRound> Combat::findRoundForAction(
@@ -245,29 +269,30 @@ std::shared_ptr<CombatRound> Combat::tryAppendAction(
     bool actorQueueAssociated) {
 
     for (auto &round : _rounds) {
-        if (round->state == CombatRound::Finished) {
-            // Finished rounds may not be retired until all actions are
-            // completed. Do not consider them for new rounds.
+        if (round->actions.size() > 1) {
+            continue;
+        }
+        // A round whose creature's round has ended takes no one new.
+        const auto reversed = std::find_if(round->actions.begin(), round->actions.end(), [&](const auto &roundAction) {
+            return roundAction.running() && roundAction.attacker.resolve().get() == target.get() &&
+                   roundAction.target.resolve().get() == attacker.get();
+        });
+        if (reversed == round->actions.end()) {
             continue;
         }
 
-        bool isReversed = false;
-        for (CombatRound::RoundAction &roundAction : round->actions) {
-            if (!roundAction.retired && roundAction.attacker.resolve().get() == target.get() &&
-                roundAction.target.resolve().get() == attacker.get()) {
-                isReversed = true;
-                break;
-            }
-        }
-
-        if (!isReversed || round->actions.size() > 1) {
-            continue;
-        }
-
-        // Found a round to append.
+        // Found a round to append. The new side starts in step with the
+        // creature it answers, and its round goes on from there on its own.
+        const auto state = reversed->state;
+        const float time = reversed->time;
+        const float duration = reversed->duration;
         round->actions.emplace_back(
             action, attacker, target, actorQueueAssociated);
-        round->actions.back().slot = 1;
+        auto &appended = round->actions.back();
+        appended.slot = 1;
+        appended.state = state;
+        appended.time = time;
+        appended.duration = duration;
         round->duel = true;
         return round;
     }
@@ -289,40 +314,35 @@ const CombatRound &Combat::addAction(const std::shared_ptr<Action> &action, Obje
     }
 
     auto &command = action->combatAction();
-    std::shared_ptr<Object> target = getTarget(*action);
+    std::shared_ptr<Object> target = getTarget(*action, *attacker);
     // Physical activation belongs to accepted submission and attacked events,
-    // not to creating (or appending) a presentation round. Keep the separate
-    // spell/cutscene registration path outside that physical-command contract.
-    // Combat state is set before the round starts, so a creature that cannot
-    // enter combat leaves it without ending the round it is about to start.
+    // not to creating (or appending) a presentation round. Of the other
+    // commands only a hostile item use puts its user in combat; a cast's
+    // target enters combat when a harmful spell reaches it. Combat state is
+    // set before the round starts, so a creature that cannot enter combat
+    // leaves it without ending the round it is about to start.
     const auto *feat = dyn_cast<UseFeatAction>(&command);
     const bool physical = isa<AttackObjectAction>(&command) ||
                           (feat && isPhysicalAttackFeat(feat->feat()));
     auto activateCombat = [&]() {
-        if (physical || isa<CombatStanceAction>(&command)) {
-            return;
-        }
-        if (isHostileAction(command)) {
+        if (!physical && !isa<CombatStanceAction>(&command) && isHostileAction(command)) {
             attacker->setCombatState(true);
-        }
-        if (target && isa<Creature>(target)) {
-            cast<Creature>(target)->setCombatState(true, CombatActivation::Indirect);
         }
     };
 
     // A creature fights one round at a time. A round that an earlier command
     // began, and that command has finished with, is still the creature's.
     for (auto &round : _rounds) {
-        if (round->state == CombatRound::Finished) {
-            continue;
-        }
         for (auto &entry : round->actions) {
-            if (entry.retired || entry.attacker.resolve() != attacker || entry.action == action ||
+            if (!entry.running() || entry.attacker.resolve() != attacker || entry.action == action ||
                 !entry.action->isCompleted())
                 continue;
-            if (command.joinsRunningRound()) {
-                // A cast or item use takes its turn inside that round, which
-                // keeps its target, clock and engagement.
+            // A cast or item use takes its turn inside that round, which
+            // keeps its target, clock and engagement; so does a command aimed
+            // at the creature that masters the round, inside the side it
+            // started for this creature.
+            const auto master = round->master.resolve();
+            if (command.joinsRunningRound() || (target && master == target)) {
                 entry.action = action;
                 entry.actorQueueAssociated = actorQueueAssociated;
                 entry.joined = true;
@@ -509,10 +529,9 @@ std::optional<SavedActionRecord> CombatStanceAction::saveFacingState() const {
 
 bool Combat::ownsRound(const Creature &actor) const {
     return std::any_of(_rounds.begin(), _rounds.end(), [&actor](const auto &round) {
-        return round->state != CombatRound::Finished &&
-               std::any_of(round->actions.begin(), round->actions.end(), [&actor](const auto &entry) {
-                   return !entry.retired && entry.attacker.resolve().get() == &actor;
-               });
+        return std::any_of(round->actions.begin(), round->actions.end(), [&actor](const auto &entry) {
+            return entry.running() && entry.attacker.resolve().get() == &actor;
+        });
     });
 }
 
@@ -520,11 +539,8 @@ bool Combat::ownsDetachedRound(const Creature &actor) const {
     const auto &nodes = actor.actions().nodes;
     bool owned = false;
     for (const auto &round : _rounds) {
-        if (round->state == CombatRound::Finished) {
-            continue;
-        }
         for (const auto &entry : round->actions) {
-            if (entry.retired || entry.attacker.resolve().get() != &actor) {
+            if (!entry.running() || entry.attacker.resolve().get() != &actor) {
                 continue;
             }
             owned = true;
@@ -620,13 +636,13 @@ void Combat::readyAfterScheduledPause(Creature &actor) {
     std::vector<std::pair<std::shared_ptr<Creature>, bool>> posing;
     bool own = false;
     for (const auto &round : _rounds) {
-        if (round->state == CombatRound::Finished || round->actions.empty()) {
+        if (round->actions.empty()) {
             continue;
         }
         const auto &first = round->actions.front();
-        const bool master = round->duel && !first.retired && first.attacker.resolve().get() == &actor;
+        const bool master = round->duel && first.running() && first.attacker.resolve().get() == &actor;
         for (const auto &entry : round->actions) {
-            auto creature = entry.retired ? nullptr : entry.attacker.resolve();
+            auto creature = entry.running() ? entry.attacker.resolve() : nullptr;
             if (!creature || (creature.get() != &actor && !master)) {
                 continue;
             }
@@ -658,26 +674,24 @@ void Combat::reactToDamage(Creature &victim, const std::shared_ptr<Object> &dama
         return;
     }
     const int milliseconds = reaction.milliseconds;
-    std::shared_ptr<CombatRound> owned;
-    for (const auto &round : _rounds) {
-        if (round->state == CombatRound::Finished) {
-            continue;
-        }
-        for (const auto &entry : round->actions)
-            if (!entry.retired && entry.attacker.resolve().get() == &victim) {
-                owned = round;
-            }
-    }
     auto pausedBy = damager ? _game.getObjectById(damager->id()) : nullptr;
     const float seconds = std::max(0, milliseconds) / 1000.0f;
-    // A round already held keeps its pause.
-    if (owned) {
-        if (owned->pauseRemaining <= 0.0f) {
-            rescaleRound(*owned, std::max(0, milliseconds), false);
-            owned->pauseRemaining = seconds;
-            owned->pauseOwner = pausedBy;
+    // Only the victim's own round is held; a round already held keeps its pause.
+    bool owned = false;
+    for (const auto &round : _rounds) {
+        for (auto &entry : round->actions) {
+            if (!entry.running() || entry.attacker.resolve().get() != &victim) {
+                continue;
+            }
+            owned = true;
+            if (entry.pauseRemaining <= 0.0f) {
+                rescaleRound(entry, std::max(0, milliseconds), false);
+                entry.pauseRemaining = seconds;
+                entry.pauseOwner = pausedBy;
+            }
         }
-    } else {
+    }
+    if (!owned) {
         auto &pause = _ownerPauses[victim.id()];
         if (pause.remaining <= 0.0f) {
             pause.actor = _game.getObjectById<Creature>(victim.id());
@@ -716,31 +730,18 @@ bool Combat::isOwnerPaused(const Creature &actor) const {
     return paused != _ownerPauses.end() && paused->second.remaining > 0.0f;
 }
 
-// Going down replaces the pauses on the rounds only the creature takes part in,
-// and the one it has while owning no round.
+// Going down replaces the pause on the creature's own round, and the one it
+// has while owning no round; a partner's round is left alone.
 void Combat::holdKnockedDown(const Creature &creature) {
     _ownerPauses.erase(creature.id());
     for (auto &round : _rounds) {
-        if (round->state == CombatRound::Finished) {
-            continue;
-        }
-        bool own = false;
-        bool others = false;
-        for (const auto &entry : round->actions) {
-            if (entry.retired) {
+        for (auto &entry : round->actions) {
+            if (!entry.running() || entry.attacker.resolve().get() != &creature) {
                 continue;
             }
-            if (entry.attacker.resolve().get() == &creature) {
-                own = true;
-            } else {
-                others = true;
-            }
+            entry.pauseRemaining = 0.0f;
+            entry.pauseOwner.reset();
         }
-        if (!own || others) {
-            continue;
-        }
-        round->pauseRemaining = 0.0f;
-        round->pauseOwner.reset();
     }
 }
 
@@ -756,13 +757,13 @@ void Combat::settleRequested() {
             continue;
         }
         std::shared_ptr<CombatRound> settling;
+        size_t index = 0;
         for (const auto &round : _rounds) {
-            if (round->state == CombatRound::Finished) {
-                continue;
-            }
-            for (const auto &entry : round->actions) {
-                if (!entry.retired && (entry.action == action || &entry.action->combatAction() == action.get())) {
+            for (size_t candidate = 0; candidate < round->actions.size(); ++candidate) {
+                const auto &entry = round->actions[candidate];
+                if (entry.running() && (entry.action == action || &entry.action->combatAction() == action.get())) {
                     settling = round;
+                    index = candidate;
                 }
             }
             if (settling) {
@@ -776,7 +777,7 @@ void Combat::settleRequested() {
         // their pose once the pause is over, after any round end it brings.
         std::vector<std::pair<std::shared_ptr<Creature>, bool>> posing;
         for (const auto &entry : settling->actions) {
-            if (entry.retired) {
+            if (!entry.running()) {
                 continue;
             }
             const bool own = entry.action == action || &entry.action->combatAction() == action.get();
@@ -787,9 +788,10 @@ void Combat::settleRequested() {
                 posing.emplace_back(std::move(actor), isCutsceneRoundFor(*settling, entry));
             }
         }
-        // No time passes; only the end conditions are tested. The round is
-        // kept alive through its end scripts.
-        updateRound(*settling, 0.0f);
+        // No time passes; only the end conditions of the requester's round
+        // are tested, its target being down among them. The round is kept
+        // alive through its end scripts.
+        updateEntry(*settling, index, 0.0f, true);
         for (const auto &[actor, cutscene] : posing) {
             readyAfterRoundPause(*actor, cutscene);
         }
@@ -798,11 +800,11 @@ void Combat::settleRequested() {
 
 bool Combat::isEngaged(const Creature &creature) const {
     for (const auto &round : _rounds) {
-        if (round->state == CombatRound::Finished || !round->duel) {
+        if (!round->duel) {
             continue;
         }
         for (const auto &entry : round->actions)
-            if (!entry.retired && entry.attacker.resolve().get() == &creature) {
+            if (entry.running() && entry.attacker.resolve().get() == &creature) {
                 return true;
             }
     }
@@ -813,23 +815,20 @@ bool Combat::isEngaged(const Creature &creature) const {
 // none; otherwise a reaction fits while half a second of the round remains.
 bool Combat::hasReactionRoom(const Creature &creature, const Creature &attacker) const {
     for (const auto &round : _rounds) {
-        if (round->state == CombatRound::Finished) {
-            continue;
-        }
-        const bool owned = std::any_of(round->actions.begin(), round->actions.end(), [&](const auto &entry) {
-            return !entry.retired && entry.attacker.resolve().get() == &creature;
+        const auto owned = std::find_if(round->actions.begin(), round->actions.end(), [&](const auto &entry) {
+            return entry.running() && entry.attacker.resolve().get() == &creature;
         });
-        if (!owned) {
+        if (owned == round->actions.end()) {
             continue;
         }
-        if (round->pauseRemaining > 0.0f && round->pauseOwner.resolve().get() != &attacker) {
+        if (owned->pauseRemaining > 0.0f && owned->pauseOwner.resolve().get() != &attacker) {
             return false;
         }
-        if (round->state == CombatRound::Pending) {
+        if (owned->state == CombatRound::Pending) {
             return true;
         }
         static constexpr int kReactionRoomMilliseconds = 500;
-        const int remaining = static_cast<int>(round->duration * 1000.0f) - static_cast<int>(round->time * 1000.0f);
+        const int remaining = static_cast<int>(owned->duration * 1000.0f) - static_cast<int>(owned->time * 1000.0f);
         return remaining >= kReactionRoomMilliseconds;
     }
     const auto paused = _ownerPauses.find(creature.id());
@@ -964,8 +963,8 @@ bool Combat::scheduleEquipment(Object &object, const OrdinaryActionQueue::Node &
             }
             auto item = std::get_if<SavedObjectReference>(&previous->parameters[0].payload);
             auto oldSlot = std::get_if<int32_t>(&previous->parameters[1].payload);
+            // A queued equip takes the new request's item, slot and instant flag.
             if (item && oldSlot && (item->id == target.id || static_cast<uint32_t>(*oldSlot) == slot)) {
-                command->parameters[2] = previous->parameters[2];
                 auto replacement = command->toRuntimeAction(_game);
                 if (!replacement) {
                     return false;
@@ -1018,14 +1017,13 @@ bool Combat::scheduleEquipment(Object &object, const OrdinaryActionQueue::Node &
     }
     entry->saved.command = std::move(command);
     entry->referencesBound = entry->saved.bindObjectReferences(_game);
+    // Only the creature's own round is rescaled.
     for (const auto &round : _rounds) {
-        if (round->state == CombatRound::Finished) {
-            continue;
+        for (auto &action : round->actions) {
+            if (action.running() && action.attacker.resolve() == actor) {
+                rescaleRound(action, kEquipmentRoundMilliseconds, true);
+            }
         }
-        if (std::any_of(round->actions.begin(), round->actions.end(), [&](const auto &action) {
-                return !action.retired && action.attacker.resolve() == actor;
-            }))
-            rescaleRound(*round, kEquipmentRoundMilliseconds, true);
     }
     state->actions.push_front(std::move(entry));
     ensureDispatcher(*actor);
@@ -1039,12 +1037,9 @@ std::shared_ptr<Combat::ScheduledOwner> Combat::scheduledOwner(Creature &actor) 
         state = std::make_shared<ScheduledOwner>();
         state->actor = live;
         for (const auto &round : _rounds) {
-            if (round->state == CombatRound::Finished) {
-                continue;
-            }
             for (const auto &entry : round->actions)
-                if (!entry.retired && entry.attacker.resolve() == live) {
-                    state->time = round->time;
+                if (entry.running() && entry.attacker.resolve() == live) {
+                    state->time = entry.time;
                 }
         }
     }
@@ -1335,7 +1330,7 @@ void Combat::dispatchScheduled(Creature &actor, const ScheduledEntry &entry) {
     }
 }
 
-void Combat::rescaleRound(CombatRound &round, int milliseconds, bool force) {
+void Combat::rescaleRound(CombatRound::RoundAction &round, int milliseconds, bool force) {
     int length = static_cast<int>(round.duration * 1000.0f);
     if (length < milliseconds) {
         if (milliseconds - length <= 1000) {
@@ -1345,12 +1340,11 @@ void Combat::rescaleRound(CombatRound &round, int milliseconds, bool force) {
         }
     }
     const int next = length - milliseconds;
-    for (auto &[id, owner] : _scheduled) {
-        const auto actor = owner->actor.resolve();
-        if (!actor || !std::any_of(round.actions.begin(), round.actions.end(), [&](const auto &entry) {
-                return !entry.retired && entry.attacker.resolve() == actor;
-            }))
-            continue;
+    // The creature's scheduled entries are rescaled with its round.
+    const auto actor = round.attacker.resolve();
+    const auto found = actor ? _scheduled.find(actor->id()) : _scheduled.end();
+    if (found != _scheduled.end() && found->second->actor.resolve() == actor) {
+        const auto &owner = found->second;
         for (auto &entry : owner->actions) {
             entry->saved.timer = length > 0 ? static_cast<int>(static_cast<float>(entry->saved.timer) / length * next) : 0;
         }
@@ -1408,11 +1402,8 @@ bool Combat::awaitsRoundEnd(const Creature &actor, std::optional<std::reference_
         return true;
     }
     for (const auto &round : _rounds) {
-        if (round->state == CombatRound::Finished) {
-            continue;
-        }
         for (const auto &entry : round->actions) {
-            if (entry.retired || entry.attacker.resolve().get() != &actor) {
+            if (!entry.running() || entry.attacker.resolve().get() != &actor) {
                 continue;
             }
             if (self && (entry.action.get() == &self->get() || &entry.action->combatAction() == &self->get())) {
@@ -1423,7 +1414,7 @@ bool Combat::awaitsRoundEnd(const Creature &actor, std::optional<std::reference_
             }
             // A round that a finished command began holds the next one while
             // it is paused.
-            if (entry.action->isCompleted() && round->pauseRemaining > 0.0f) {
+            if (entry.action->isCompleted() && entry.pauseRemaining > 0.0f) {
                 return true;
             }
         }
@@ -1495,13 +1486,11 @@ void Combat::updateEquipment(float dt) {
         }
         float externalPause = 0.0f;
         for (const auto &round : _rounds) {
-            if (round->state == CombatRound::Finished || round->pauseRemaining <= 0.0f) {
-                continue;
+            for (const auto &entry : round->actions) {
+                if (entry.running() && entry.attacker.resolve() == actor) {
+                    externalPause = std::max(externalPause, entry.pauseRemaining);
+                }
             }
-            if (std::any_of(round->actions.begin(), round->actions.end(), [&](const auto &entry) {
-                    return !entry.retired && entry.attacker.resolve() == actor;
-                }))
-                externalPause = std::max(externalPause, round->pauseRemaining);
         }
         if (const auto paused = _ownerPauses.find(actor->id()); paused != _ownerPauses.end()) {
             externalPause = std::max(externalPause, paused->second.remaining);
@@ -1802,13 +1791,8 @@ void Combat::cancelActions(Object &actor) {
                 actions.push_back(entry.action);
         }
     }
-    // An action that cannot be cleared runs on and keeps the pauses it set.
-    const bool kept = std::any_of(actions.begin(), actions.end(), [](const auto &action) {
-        return !action->isCompleted() && !action->isCancelled() && !action->isClearable();
-    });
-    if (auto *creature = dyn_cast<Creature>(&actor); creature && !kept) {
-        releasePartner(*creature);
-    }
+    // An action that cannot be cleared runs on. The rounds and the pairs they
+    // make are left as they are.
     for (const auto &action : actions) {
         if (action->isCompleted() || action->isCancelled() || !action->isClearable()) {
             continue;
@@ -1818,16 +1802,35 @@ void Combat::cancelActions(Object &actor) {
     }
 }
 
+// The master's round end undoes its pair: the partner's round loses its
+// pause, whoever set it, as does the hold of a partner owning no round.
 void Combat::releasePartner(Creature &actor) {
+    std::vector<std::shared_ptr<Creature>> partners;
     for (const auto &round : _rounds) {
-        if (round->pauseOwner.resolve().get() == &actor) {
-            round->pauseOwner.reset();
-            round->pauseRemaining = 0.0f;
+        if (round->master.resolve().get() != &actor) {
+            continue;
         }
-        if (round->master.resolve().get() == &actor || round->engaged.resolve().get() == &actor) {
-            round->master.reset();
-            round->engaged.reset();
-            round->duel = false;
+        if (auto engaged = std::dynamic_pointer_cast<Creature>(round->engaged.resolve()); engaged && engaged.get() != &actor) {
+            partners.push_back(std::move(engaged));
+        }
+        for (const auto &entry : round->actions) {
+            if (auto partner = entry.attacker.resolve(); partner && partner.get() != &actor) {
+                partners.push_back(std::move(partner));
+            }
+        }
+        round->master.reset();
+        round->engaged.reset();
+        round->duel = false;
+    }
+    for (const auto &partner : partners) {
+        _ownerPauses.erase(partner->id());
+        for (const auto &round : _rounds) {
+            for (auto &entry : round->actions) {
+                if (entry.running() && entry.attacker.resolve() == partner) {
+                    entry.pauseRemaining = 0.0f;
+                    entry.pauseOwner.reset();
+                }
+            }
         }
     }
 }
@@ -1858,10 +1861,9 @@ void Combat::finishOwner(Creature &actor, int runEndRound, bool suppressScript) 
     if (leader.get() != &actor) {
         actor.setCombatMode(0);
     }
-    // TSL also withholds the script from a player character at zero vitality.
+    // The script is also withheld from a party member at zero vitality.
     if (runEndRound && !suppressScript && actor.currentSerializedActionId() != 1 &&
-        leader.get() != &actor && !actor.isDead() &&
-        (!_game.isTSL() || !actor.isPC() || actor.currentHitPoints() > 0))
+        leader.get() != &actor && !actor.isDead() && !actor.isTemporarilyDead())
         actor.runEndRoundScript();
     // The controlled leader's round end can pause play while it is fighting.
     if (runEndRound && leader.get() == &actor && actor.clientCombatMode()) {
@@ -1875,7 +1877,7 @@ void Combat::endRound(Creature &actor, int runEndRound) {
     actor.refreshBodyFuel();
     for (const auto &round : _rounds) {
         for (auto &entry : round->actions) {
-            if (entry.attacker.resolve().get() != &actor || entry.retired) {
+            if (entry.attacker.resolve().get() != &actor || !entry.running()) {
                 continue;
             }
             const bool cutscene = isCutsceneRoundFor(*round, entry);
@@ -1891,7 +1893,7 @@ void Combat::endRound(Creature &actor, int runEndRound) {
     finishOwner(actor, runEndRound, suppressed);
     if (runEndRound)
         for (const auto &[entry, cutscene] : finished) {
-            continueOwner(entry, cutscene);
+            continueOwner(entry, cutscene, false);
         }
 }
 
@@ -1923,27 +1925,18 @@ void Combat::update(float dt) {
         if (std::find(_rounds.begin(), _rounds.end(), round) == _rounds.end()) {
             continue;
         }
-        // A round waits while any of its attackers is held by a time stop.
-        if (std::any_of(round->actions.begin(), round->actions.end(), [this](const auto &entry) {
-                auto attacker = entry.attacker.resolve();
-                return !entry.retired && attacker && _game.isFrozenByTimeStop(*attacker);
-            }))
-            continue;
-        float equipmentPause = 0.0f;
-        for (const auto &entry : round->actions) {
-            if (auto actor = entry.attacker.resolve(); actor && !entry.retired) {
-                equipmentPause = std::max(equipmentPause, _equipmentTime[actor->id()]);
-            }
-        }
-        updateRound(*round, std::max(0.0f, dt - equipmentPause));
+        updateRound(*round, dt);
     }
     rounds.clear();
     _roundsBuffer = std::move(rounds);
     pruneInvalidRounds();
 }
 
-static bool isActionFinished(const CombatRound::RoundAction &action) {
-    return action.retired || action.action->isCompleted() || action.action->isCancelled();
+// The entry is done with: it has left the round, or its creature's round has
+// ended and its command is over.
+static bool isEntryDone(const CombatRound::RoundAction &entry) {
+    return entry.retired ||
+           (entry.state == CombatRound::Finished && (entry.action->isCompleted() || entry.action->isCancelled()));
 }
 
 void Combat::pruneInvalidRounds() {
@@ -1953,7 +1946,9 @@ void Combat::pruneInvalidRounds() {
         if (std::find(_rounds.begin(), _rounds.end(), round) == _rounds.end()) {
             continue;
         }
-        // Retire invalid owners independently; a live partner keeps its command.
+        // A command that is cleared, or whose objects are gone, is given up,
+        // but its creature's round runs on to its end; a creature that is gone
+        // leaves the round. A live partner keeps its command.
         SmallVector<CombatRound::RoundAction, 2> abandoned;
         for (auto &entry : round->actions) {
             if (entry.retired) {
@@ -1963,29 +1958,21 @@ void Combat::pruneInvalidRounds() {
                                                  !entry.participantBindingsLive() || !entry.remainsInActorQueue() ||
                                                  !entry.action->runtimeDependenciesLive())) {
                 abandoned.push_back(entry);
-                entry.retired = true;
+                if (!entry.attacker.resolve()) {
+                    entry.retired = true;
+                }
             }
         }
         for (const auto &entry : abandoned) {
             entry.action->retireCombatRound();
             auto actor = entry.attacker.resolve();
-            if (actor) {
-                releasePartner(*actor);
-                if (!entry.action->isCancelled()) {
-                    entry.action->cancel(entry.action, *actor);
-                }
+            if (actor && !entry.action->isCancelled()) {
+                entry.action->cancel(entry.action, *actor);
             }
             entry.action->markCancelled();
             entry.action->complete();
-            // A cleared command does not cancel the round: its owner still
-            // gets the round's end.
-            if (actor && actor->isRuntimeLive() && !ownsRound(*actor)) {
-                finishOwner(*actor, 1, entry.action->combatAction().suppressesEndRoundScript() || isCutsceneRoundFor(*round, entry));
-            }
         }
-        const bool retired = std::all_of(round->actions.begin(), round->actions.end(), [](const auto &e) { return e.retired; });
-        if (retired || (round->state == CombatRound::Finished &&
-                        std::all_of(round->actions.begin(), round->actions.end(), isActionFinished))) {
+        if (std::all_of(round->actions.begin(), round->actions.end(), isEntryDone)) {
             auto position = std::find(_rounds.begin(), _rounds.end(), round);
             if (position != _rounds.end()) {
                 _rounds.erase(position);
@@ -1997,86 +1984,79 @@ void Combat::pruneInvalidRounds() {
 }
 
 void Combat::updateRound(CombatRound &round, float dt) {
-    if (round.state == CombatRound::Finished) {
-        return;
-    }
-    // A round whose every owner is knocked down stands still.
-    bool owned = false;
-    bool standing = false;
-    for (const auto &entry : round.actions) {
-        auto actor = entry.retired ? nullptr : entry.attacker.resolve();
-        if (!actor) {
+    for (size_t index = 0; index < round.actions.size(); ++index) {
+        const auto &entry = round.actions[index];
+        auto actor = entry.running() ? entry.attacker.resolve() : nullptr;
+        // A creature held by a time stop keeps its round where it is.
+        if (!actor || _game.isFrozenByTimeStop(*actor)) {
             continue;
         }
-        owned = true;
-        standing = standing || !actor->isKnockedDown();
+        // The time the creature's scheduled entries took this frame is not
+        // its round's.
+        updateEntry(round, index, std::max(0.0f, dt - _equipmentTime[actor->id()]), false);
     }
-    if (owned && !standing) {
+}
+
+void Combat::updateEntry(CombatRound &round, size_t index, float dt, bool settling) {
+    auto &entry = round.actions[index];
+    auto actor = entry.attacker.resolve();
+    // A knocked-down creature's round stands still.
+    if (!entry.running() || !actor || actor->isKnockedDown()) {
         return;
     }
     float advance = std::max(0.0f, dt);
     // Whoever's round pause runs out comes back to its pose, after any round
-    // end the leftover time brings.
+    // end the leftover time brings: the creature, and the partner of a pair
+    // it masters.
     SmallVector<std::pair<std::shared_ptr<Creature>, bool>, 2> posing;
-    if (round.pauseRemaining > 0.0f) {
-        const float used = std::min(advance, round.pauseRemaining);
-        round.pauseRemaining -= used;
+    bool pauseEnded = false;
+    if (entry.pauseRemaining > 0.0f) {
+        const float used = std::min(advance, entry.pauseRemaining);
+        entry.pauseRemaining -= used;
         advance -= used;
-        if (round.pauseRemaining > 0.0f) {
+        if (entry.pauseRemaining > 0.0f) {
             return;
         }
-        round.pauseOwner.reset();
-        for (const auto &entry : round.actions) {
-            if (entry.retired) {
-                continue;
-            }
-            if (auto actor = entry.attacker.resolve()) {
-                posing.emplace_back(std::move(actor), isCutsceneRoundFor(round, entry));
+        entry.pauseOwner.reset();
+        pauseEnded = true;
+        const bool master = round.duel && round.master.resolve() == actor;
+        for (const auto &posed : round.actions) {
+            auto creature = posed.running() ? posed.attacker.resolve() : nullptr;
+            if (creature && (creature == actor || master)) {
+                posing.emplace_back(std::move(creature), isCutsceneRoundFor(round, posed));
             }
         }
     }
-    round.time += advance;
-    if (round.state == CombatRound::Pending) {
-        round.state = CombatRound::FirstAction;
+    entry.time += advance;
+    if (entry.state == CombatRound::Pending) {
+        entry.state = CombatRound::FirstAction;
     }
     // A timer driven below zero by a rescale ends the round at once.
-    const bool overdrawn = round.time < 0.0f;
-    if (round.state == CombatRound::FirstAction && (overdrawn || round.time >= 0.5f * round.duration)) {
-        round.state = CombatRound::SecondAction;
+    const bool overdrawn = entry.time < 0.0f;
+    if (entry.state == CombatRound::FirstAction && (overdrawn || entry.time >= 0.5f * entry.duration)) {
+        entry.state = CombatRound::SecondAction;
     }
-    bool held = false;
+    const bool held = blocksOwnerActions(*actor) || (!entry.action->isCancelled() && entry.action->holdsCombatRound());
+    // A round whose target is down ends early only as a pause on it runs out,
+    // or as an attack's pause ends; otherwise it runs to its end.
     bool targetDown = false;
-    for (const auto &entry : round.actions) {
-        auto actor = entry.attacker.resolve();
-        if (entry.retired || !actor) {
-            continue;
-        }
-        if (blocksOwnerActions(*actor) || (!entry.action->isCancelled() && entry.action->holdsCombatRound())) {
-            held = true;
-        }
+    if (pauseEnded || settling) {
         auto target = std::dynamic_pointer_cast<Creature>(entry.target.resolve());
-        if (target && isUnavailableAttackTarget(*target)) {
-            targetDown = true;
-        }
+        targetDown = target && isUnavailableAttackTarget(*target);
     }
-    // Once nothing holds it, a round whose target is down ends early.
-    const bool expired = round.state == CombatRound::SecondAction && (overdrawn || round.time >= round.duration);
+    const bool expired = entry.state == CombatRound::SecondAction && (overdrawn || entry.time >= entry.duration);
     if (!held && (expired || targetDown)) {
-        round.state = CombatRound::Finished;
-        finishRound(round);
+        finishEntry(round, index);
     }
-    for (const auto &[actor, cutscene] : posing) {
-        readyAfterRoundPause(*actor, cutscene);
+    for (const auto &[creature, cutscene] : posing) {
+        readyAfterRoundPause(*creature, cutscene);
     }
 }
 
 bool Combat::isActionPaused(const Action &action) const {
     for (const auto &round : _rounds) {
-        if (round->state == CombatRound::Finished) {
-            continue;
-        }
         for (const auto &entry : round->actions) {
-            if (!entry.retired && (entry.action.get() == &action || &entry.action->combatAction() == &action)) {
+            if (entry.running() && (entry.action.get() == &action || &entry.action->combatAction() == &action)) {
                 auto actor = entry.attacker.resolve();
                 return (actor && blocksOwnerActions(*actor)) || round->suspends(action);
             }
@@ -2087,9 +2067,9 @@ bool Combat::isActionPaused(const Action &action) const {
 
 bool Combat::isRoundMaster(const Creature &creature) const {
     for (const auto &round : _rounds) {
-        if (round->state != CombatRound::Finished && round->master.resolve().get() == &creature) {
+        if (round->master.resolve().get() == &creature &&
+            std::any_of(round->actions.begin(), round->actions.end(), [](const auto &entry) { return entry.running(); }))
             return true;
-        }
     }
     return false;
 }
@@ -2125,21 +2105,81 @@ bool Combat::engagePhysicalTarget(const Creature &attacker, Object &target, int 
     // it is in the party, or when the partner attacks no one, or attacks it
     // without mastering a round of its own.
     const auto partnerAttack = partner->getAttackTarget();
-    if (_game.party().isMember(attacker) || !partnerAttack ||
-        (partnerAttack.get() == &attacker && !isRoundMaster(*partner)))
+    const bool masters = _game.party().isMember(attacker) || !partnerAttack ||
+                         (partnerAttack.get() == &attacker && !isRoundMaster(*partner));
+    if (masters) {
         partner->setOrientationLock(attacker.id());
+    }
     // The attack's round is engaged with the partner, and the attacker masters
-    // it unless someone already does.
+    // it when it masters the exchange or no one else does.
+    std::shared_ptr<CombatRound> round;
     if (auto action = attacker.currentCombatAction()) {
-        if (auto round = findRoundForAction(action, attacker)) {
-            if (round->master.empty()) {
-                round->master = _game.getObjectById(attacker.id());
+        round = findRoundForAction(action, attacker);
+    }
+    if (round) {
+        if (masters || round->master.empty()) {
+            round->master = _game.getObjectById(attacker.id());
+        }
+        round->engaged = _game.getObjectById(partner->id());
+    }
+    // The master restarts its partner's round under it. A round the partner
+    // began, or one of its own, ends as it would at its end; a side the
+    // partner joined has not begun. A round the two share then starts again
+    // from the beginning for both; a partner whose round was its own is held
+    // below until it acts again.
+    if (masters) {
+        std::optional<size_t> shared;
+        if (round) {
+            for (size_t index = 0; index < round->actions.size(); ++index) {
+                const auto &entry = round->actions[index];
+                if (entry.running() && entry.attacker.resolve().get() == partner) {
+                    shared = index;
+                }
             }
-            round->engaged = _game.getObjectById(partner->id());
+        }
+        if (shared) {
+            const CombatRound::RoundAction ended = round->actions[*shared];
+            if (ended.slot == 0) {
+                const bool cutscene = isCutsceneRoundFor(*round, ended);
+                partner->refreshBodyFuel();
+                ended.action->retireCombatRound();
+                transferEquipment(*partner);
+                finishOwner(*partner, 1, ended.action->combatAction().suppressesEndRoundScript() || cutscene);
+                continueOwner(ended, cutscene, true);
+            }
+            for (auto &entry : round->actions) {
+                if (!entry.running()) {
+                    continue;
+                }
+                entry.state = CombatRound::Pending;
+                entry.time = 0.0f;
+                entry.duration = CombatRound::kDuration;
+                entry.pauseRemaining = 0.0f;
+                entry.pauseOwner.reset();
+            }
+        } else if (ownsRound(*partner)) {
+            endRound(*partner, 1);
+            // The partner's round starts again on the attacker's side, with no
+            // command yet, aimed at the attacker and held for the attack's
+            // pause; it runs out like any round.
+            if (round && round->actions.size() == 1) {
+                auto placeholder = _game.newAction<WaitAction>(0.0f);
+                placeholder->complete();
+                auto live = _game.getObjectById<Creature>(partner->id());
+                auto master = _game.getObjectById(attacker.id());
+                round->actions.emplace_back(placeholder, live, master, false);
+                auto &side = round->actions.back();
+                side.slot = 1;
+                side.pauseRemaining = pauseMilliseconds / 1000.0f;
+                side.pauseOwner = master;
+                round->duel = true;
+                partner->setRoundTarget(master);
+            }
         }
     }
     // Two halves of a shared round already keep its partners apart, and a
-    // partner busy in a round of its own keeps it.
+    // partner not mastered keeps a round of its own. A partner left with no
+    // round is held.
     if (ownsRound(*partner)) {
         return true;
     }
@@ -2153,11 +2193,8 @@ bool Combat::engagePhysicalTarget(const Creature &attacker, Object &target, int 
 }
 bool Combat::isRoundEngaged(const Action &action) const {
     for (const auto &round : _rounds) {
-        if (round->state == CombatRound::Finished) {
-            continue;
-        }
         for (const auto &entry : round->actions) {
-            if (!entry.retired && (entry.action.get() == &action || &entry.action->combatAction() == &action)) {
+            if (entry.running() && (entry.action.get() == &action || &entry.action->combatAction() == &action)) {
                 return round->duel || round->engaged.resolve() != nullptr;
             }
         }
@@ -2171,7 +2208,7 @@ void Combat::configureSpellPair(CombatRound &round, const std::shared_ptr<Action
     if (!cast || cast->instantSpell()) {
         return;
     }
-    auto target = std::dynamic_pointer_cast<Creature>(getTarget(*action));
+    auto target = std::dynamic_pointer_cast<Creature>(getTarget(*action, caster));
     const bool engaged = target && isEngagedBy(caster, *target);
     bool master = false;
     if (engaged) {
@@ -2181,7 +2218,8 @@ void Combat::configureSpellPair(CombatRound &round, const std::shared_ptr<Action
     }
     round.master = engaged ? (master ? _game.getObjectById(caster.id()) : std::static_pointer_cast<Object>(target)) : nullptr;
     round.engaged = engaged ? target : nullptr;
-    if (engaged && round.state == CombatRound::Pending && round.actions.size() == 2) {
+    if (engaged && round.actions.size() == 2 &&
+        std::all_of(round.actions.begin(), round.actions.end(), [](const auto &entry) { return entry.state == CombatRound::Pending; })) {
         auto masterObject = round.master.resolve();
         for (auto &entry : round.actions) {
             entry.slot = entry.attacker.resolve() == masterObject ? 0 : 1;
@@ -2191,15 +2229,19 @@ void Combat::configureSpellPair(CombatRound &round, const std::shared_ptr<Action
 }
 void Combat::beginCast(const std::shared_ptr<Action> &action, Creature &caster, float seconds, bool itemUse, bool fake) {
     const auto owner = findRoundForAction(action, caster);
-    if (!owner || owner->state == CombatRound::Finished) {
+    if (!owner) {
         return;
     }
-    const bool joined = std::any_of(owner->actions.begin(), owner->actions.end(), [&](const auto &entry) {
-        return !entry.retired && entry.action == action && entry.joined;
+    const auto own = std::find_if(owner->actions.begin(), owner->actions.end(), [&](const auto &entry) {
+        return entry.running() && entry.action == action;
     });
+    if (own == owner->actions.end()) {
+        return;
+    }
+    const bool joined = own->joined;
     // In a round its creature was already in, an item use neither holds nor
     // shortens the round, and a cast sets it up only while nothing holds it.
-    if (joined && (itemUse || owner->pauseRemaining > 0.0f)) {
+    if (joined && (itemUse || own->pauseRemaining > 0.0f)) {
         return;
     }
     std::shared_ptr<Creature> target;
@@ -2224,24 +2266,27 @@ void Combat::beginCast(const std::shared_ptr<Action> &action, Creature &caster, 
     if (target.get() == &caster) {
         target.reset();
     }
+    // The caster's round, and its partner's, are each held and shortened.
     const int pause = std::max(0, static_cast<int>(seconds * 1000.0f));
     bool partnerHeld = false;
     for (auto &candidate : _rounds) {
         auto &round = *candidate;
-        if (round.state == CombatRound::Finished) {
-            continue;
+        bool partnerHere = false;
+        for (auto &entry : round.actions) {
+            if (!entry.running()) {
+                continue;
+            }
+            const bool partner = target && entry.attacker.resolve() == target;
+            if (!partner && (&round != owner.get() || entry.action != action)) {
+                continue;
+            }
+            partnerHere = partnerHere || partner;
+            rescaleRound(entry, pause, false);
+            entry.pauseRemaining += pause / 1000.0f;
+            entry.pauseOwner = _game.getObjectById(caster.id());
         }
-        bool partner = target && std::any_of(round.actions.begin(), round.actions.end(), [&](const auto &entry) {
-                           return !entry.retired && entry.attacker.resolve() == target;
-                       });
-        if (&round != owner.get() && !partner) {
-            continue;
-        }
-        partnerHeld = partnerHeld || partner;
-        rescaleRound(round, pause, false);
-        round.pauseRemaining += pause / 1000.0f;
-        round.pauseOwner = _game.getObjectById(caster.id());
-        if (partner && &round != owner.get()) {
+        partnerHeld = partnerHeld || partnerHere;
+        if (partnerHere && &round != owner.get()) {
             round.master = owner->master;
             round.engaged = _game.getObjectById(caster.id());
         }
@@ -2271,32 +2316,62 @@ void Combat::beginInstantCast(const std::shared_ptr<Action> &action, Creature &c
     addAction(action, caster);
 }
 
+SavedRoundClock Combat::saveClock(const CombatRound &round, const CombatRound::RoundAction &entry) const {
+    // Each command keeps the clock of its own creature's round.
+    SavedRoundClock result;
+    result.id = round.id;
+    result.slot = entry.slot;
+    result.state = entry.state;
+    result.joined = entry.joined;
+    result.duel = round.duel;
+    result.elapsed = entry.time;
+    result.duration = entry.duration;
+    result.pauseRemaining = entry.pauseRemaining;
+    auto owner = entry.pauseOwner.resolve();
+    result.pauseOwner = SavedObjectReference::fromRuntimeId(owner ? owner->id() : script::kObjectInvalid);
+    _game.bindSavedObjectReference(result.pauseOwner);
+    auto master = round.master.resolve();
+    auto engaged = round.engaged.resolve();
+    result.master = SavedObjectReference::fromRuntimeId(master ? master->id() : script::kObjectInvalid);
+    result.engaged = SavedObjectReference::fromRuntimeId(engaged ? engaged->id() : script::kObjectInvalid);
+    _game.bindSavedObjectReference(result.master);
+    _game.bindSavedObjectReference(result.engaged);
+    return result;
+}
+
 std::optional<SavedRoundClock> Combat::saveRound(const Action &action) const {
     for (const auto &round : _rounds)
         for (const auto &entry : round->actions) {
             if (entry.action.get() != &action || entry.retired) {
                 continue;
             }
-            SavedRoundClock result;
-            result.id = round->id;
-            result.slot = entry.slot;
-            result.state = round->state;
-            result.joined = entry.joined;
-            result.elapsed = round->time;
-            result.duration = round->duration;
-            result.pauseRemaining = round->pauseRemaining;
-            auto owner = round->pauseOwner.resolve();
-            result.pauseOwner = SavedObjectReference::fromRuntimeId(owner ? owner->id() : script::kObjectInvalid);
-            _game.bindSavedObjectReference(result.pauseOwner);
-            auto master = round->master.resolve();
-            auto engaged = round->engaged.resolve();
-            result.master = SavedObjectReference::fromRuntimeId(master ? master->id() : script::kObjectInvalid);
-            result.engaged = SavedObjectReference::fromRuntimeId(engaged ? engaged->id() : script::kObjectInvalid);
-            _game.bindSavedObjectReference(result.master);
-            _game.bindSavedObjectReference(result.engaged);
-            return result;
+            return saveClock(*round, entry);
         }
     return std::nullopt;
+}
+
+std::vector<SavedCreatureRound> Combat::saveRounds(const Object &actor) const {
+    std::vector<SavedCreatureRound> result;
+    const auto &nodes = actor.actions().nodes;
+    for (const auto &round : _rounds) {
+        for (const auto &entry : round->actions) {
+            if (entry.retired || entry.attacker.resolve().get() != &actor) {
+                continue;
+            }
+            // A command still waiting in the queue carries its round itself.
+            const bool carried = std::any_of(nodes.begin(), nodes.end(), [&](const auto &node) {
+                return node->action == entry.action && !node->action->isCompleted() && !node->action->isCancelled();
+            });
+            if (carried) {
+                continue;
+            }
+            SavedCreatureRound saved;
+            saved.clock = saveClock(*round, entry);
+            saved.spellRound = isSpellRound(entry);
+            result.push_back(std::move(saved));
+        }
+    }
+    return result;
 }
 
 void Combat::restoreRound(const std::shared_ptr<Action> &action,
@@ -2308,63 +2383,67 @@ void Combat::restoreRound(const std::shared_ptr<Action> &action,
     if (isHostileAction(action->combatAction())) {
         actor->setCombatState(true);
     }
-    // The two commands of a shared round restore into the same round.
-    auto found = std::find_if(_rounds.begin(), _rounds.end(), [&](const auto &candidate) { return candidate->id == saved.id; });
-    std::shared_ptr<CombatRound> round = found != _rounds.end() ? *found : nullptr;
-    if (!round) {
-        round = std::make_shared<CombatRound>(action, actor, getTarget(*action), true);
-        _rounds.push_back(round);
-        round->id = saved.id;
-        round->state = static_cast<CombatRound::State>(saved.state);
-        round->time = saved.elapsed;
-        round->duration = saved.duration;
-        round->pauseOwner = saved.pauseOwner.boundObject();
-        round->master = saved.master.boundObject();
-        round->engaged = saved.engaged.boundObject();
-        round->pauseRemaining = round->pauseOwner.resolve() ? saved.pauseRemaining : 0.0f;
-        _nextRoundId = std::max(_nextRoundId, saved.id + 1);
-    } else {
-        round->actions.emplace_back(action, actor, getTarget(*action), true);
-    }
-    round->actions.back().slot = saved.slot;
-    round->actions.back().joined = saved.joined;
-    round->duel = round->actions.size() == 2;
-    if (round->duel && round->actions[0].slot > round->actions[1].slot) {
-        std::swap(round->actions[0], round->actions[1]);
-    }
+    restoreEntry(action, actor, getTarget(*action, *actor), saved, true, false);
     if (auto *cast = dyn_cast<CastSpellAction>(&action->combatAction()); cast && cast->target() && cast->spell()->hostile) {
         actor->setAttemptedSpellTarget(cast->target()->id());
     }
 }
 
-void Combat::finishRound(CombatRound &round) {
-    const std::vector<CombatRound::RoundAction> entries(round.actions.begin(), round.actions.end());
-    SmallSet<Creature *, 2> owners;
-    for (const auto &entry : entries) {
-        auto actor = entry.attacker.resolve();
-        if (!entry.retired && actor && owners.insert(actor.get()).second) {
-            actor->refreshBodyFuel();
-        }
+void Combat::restoreRound(const std::shared_ptr<Creature> &actor, const SavedCreatureRound &saved) {
+    // The round runs on with no command, a finished wait standing in for the
+    // one given up, and with no target; it keeps whether it is a spell round.
+    auto placeholder = _game.newAction<WaitAction>(0.0f);
+    placeholder->complete();
+    restoreEntry(placeholder, actor, nullptr, saved.clock, false, saved.spellRound);
+}
+
+void Combat::restoreEntry(const std::shared_ptr<Action> &action, const std::shared_ptr<Creature> &actor,
+                          const std::shared_ptr<Object> &target, const SavedRoundClock &saved, bool queued,
+                          bool spellRound) {
+    // The two sides of a shared round restore into the same round.
+    auto found = std::find_if(_rounds.begin(), _rounds.end(), [&](const auto &candidate) { return candidate->id == saved.id; });
+    std::shared_ptr<CombatRound> round = found != _rounds.end() ? *found : nullptr;
+    if (!round) {
+        round = std::make_shared<CombatRound>(action, actor, target, queued);
+        _rounds.push_back(round);
+        round->id = saved.id;
+        round->master = saved.master.boundObject();
+        round->engaged = saved.engaged.boundObject();
+        _nextRoundId = std::max(_nextRoundId, saved.id + 1);
+    } else {
+        round->actions.emplace_back(action, actor, target, queued);
     }
-    for (auto &entry : round.actions) {
-        if (!entry.retired) {
-            // The round's end clears its attack records without ending the
-            // action's queued lifetime. Undelivered events read the cleared records.
-            entry.action->retireCombatRound();
-        }
+    auto &restored = round->actions.back();
+    restored.slot = saved.slot;
+    restored.joined = saved.joined;
+    restored.spellRound = spellRound;
+    restored.state = static_cast<CombatRound::State>(saved.state);
+    restored.time = saved.elapsed;
+    restored.duration = saved.duration;
+    restored.pauseOwner = saved.pauseOwner.boundObject();
+    restored.pauseRemaining = restored.pauseOwner.resolve() ? saved.pauseRemaining : 0.0f;
+    round->duel = saved.duel;
+    if (round->actions.size() == 2 && round->actions[0].slot > round->actions[1].slot) {
+        std::swap(round->actions[0], round->actions[1]);
     }
-    owners.clear();
-    for (const auto &entry : entries) {
-        auto actor = entry.attacker.resolve();
-        if (!entry.retired && actor && owners.insert(actor.get()).second) {
-            releasePartner(*actor);
-            finishOwner(*actor, 1, entry.action->combatAction().suppressesEndRoundScript() || isCutsceneRoundFor(round, entry));
-        }
+}
+
+void Combat::finishEntry(CombatRound &round, size_t index) {
+    auto &entry = round.actions[index];
+    entry.state = CombatRound::Finished;
+    const CombatRound::RoundAction ended = entry;
+    const bool cutscene = isCutsceneRoundFor(round, ended);
+    auto actor = ended.attacker.resolve();
+    if (!actor) {
+        return;
     }
-    for (const auto &entry : entries)
-        if (!entry.retired) {
-            continueOwner(entry, isCutsceneRoundFor(round, entry));
-        }
+    actor->refreshBodyFuel();
+    // The round's end clears its attack records without ending the action's
+    // queued lifetime. Undelivered events read the cleared records.
+    ended.action->retireCombatRound();
+    releasePartner(*actor);
+    finishOwner(*actor, 1, ended.action->combatAction().suppressesEndRoundScript() || cutscene);
+    continueOwner(ended, cutscene, true);
 }
 
 // The leader's next attack is an entry on its round, as the player's orders are.
@@ -2378,9 +2457,11 @@ void Combat::scheduleContinuation(Creature &actor, const std::shared_ptr<Object>
     }
 }
 
-void Combat::continueOwner(const CombatRound::RoundAction &entry, bool cutsceneRound) {
+// A round that runs out hands the creature on whether or not its command was
+// cleared; a round ended early does so only for a command still standing.
+void Combat::continueOwner(const CombatRound::RoundAction &entry, bool cutsceneRound, bool ranOut) {
     auto actor = entry.attacker.resolve();
-    if (!actor || entry.action->isCancelled() ||
+    if (!actor || (entry.action->isCancelled() && !ranOut) ||
         isUnavailableAttackTarget(*actor) || cutsceneRound)
         return;
     // Only the controlled creature fights on into the next round.
@@ -2390,7 +2471,7 @@ void Combat::continueOwner(const CombatRound::RoundAction &entry, bool cutsceneR
     Action &command = entry.action->combatAction();
     auto *cast = dyn_cast<CastSpellAction>(&command);
     // A cast or item use makes a spell round; an instant cast does not.
-    const bool spellRound = cast && !isInstantCast(command);
+    const bool spellRound = isSpellRound(entry);
     // A cast's round is on the creature it is aimed at, unless that is the
     // caster; a cast at a location has none.
     std::shared_ptr<Object> roundTarget = entry.target.resolve();
@@ -2399,10 +2480,19 @@ void Combat::continueOwner(const CombatRound::RoundAction &entry, bool cutsceneR
     }
     auto roundCreature = std::dynamic_pointer_cast<Creature>(roundTarget);
     const bool died = roundCreature && isUnavailableAttackTarget(*roundCreature);
+    // A spell round cast at a location keeps that place, where the next round
+    // finds nothing to attack: the creature does nothing and keeps its modes.
+    if (cast && spellRound && !cast->item() && isa<CastSpellAtLocationAction>(cast) && !died) {
+        return;
+    }
     // A spell round is kept on its spell's target, the caster included; an item
-    // use leaves nothing to keep once it has ended. The round's end forgets a
-    // target that is down, and an opened door or container.
-    std::shared_ptr<Object> kept = spellRound ? (!cast->item() ? cast->target() : nullptr) : roundTarget;
+    // use leaves nothing to keep once it has ended. A spell round whose command
+    // is not kept is on the creature's attempted spell target. The round's end
+    // forgets a target that is down, and an opened door or container.
+    std::shared_ptr<Object> kept = roundTarget;
+    if (spellRound) {
+        kept = cast ? (!cast->item() ? cast->target() : nullptr) : actor->attemptedSpellTarget();
+    }
     if (const auto creature = std::dynamic_pointer_cast<Creature>(kept); creature && isUnavailableAttackTarget(*creature)) {
         kept.reset();
     } else if (const auto door = std::dynamic_pointer_cast<Door>(kept); door && !spellRound && door->state() != DoorState::Closed) {

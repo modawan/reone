@@ -50,6 +50,8 @@ public:
     virtual bool isOverlay(const std::string &) const { return false; }
     /** The row loops. */
     virtual bool isLoopingById(uint32_t) const { return false; }
+    /** The row plays once and then gives way to the loop. */
+    virtual bool isFireForgetById(uint32_t) const { return false; }
     /** The named row is a parry. */
     virtual bool isParry(const std::string &) const { return false; }
     /** The named row puts the equipped items away while it plays. */
@@ -69,6 +71,7 @@ public:
     int getMeleeImpactTime(const std::string &attackAnim, size_t attackIndex) const override;
     bool isOverlay(const std::string &name) const override;
     bool isLoopingById(uint32_t id) const override;
+    bool isFireForgetById(uint32_t id) const override;
     bool isParry(const std::string &name) const override;
     bool hidesEquippedItems(const std::string &name) const override;
 
@@ -78,6 +81,7 @@ private:
         bool attack {false};
         bool overlay {false};
         bool looping {false};
+        bool fireForget {false};
         bool parry {false};
         bool hidesEquippedItems {false};
     };

@@ -232,7 +232,7 @@ bool AreaOfEffect::contains(const glm::vec3 &point) const {
 
 void AreaOfEffect::update(float dt) {
     updateStampedHeartbeat(_onHeartbeat);
-    if (isCarried()) {
+    if (isCarried() && _shape == Shape::Circle) {
         followCarrier();
     }
     if (_durationType == DurationType::Temporary) {
@@ -245,15 +245,12 @@ void AreaOfEffect::update(float dt) {
     Object::update(dt);
 }
 
-// A carried area of effect goes when its carrier leaves the area. Only a
-// circle goes along with it; a rectangle stays where it was placed.
+// A carried circle goes along with its carrier, and goes when its carrier
+// leaves the area. A carried rectangle stays where it was placed.
 void AreaOfEffect::followCarrier() {
     auto carrier = this->carrier();
     if (!carrier || !carrier->sharesSpatialArea(*this)) {
         destroy();
-        return;
-    }
-    if (_shape != Shape::Circle) {
         return;
     }
     scanOccupants();
@@ -330,14 +327,12 @@ bool AreaOfEffect::isOccupantInside(const Object &object) const {
 
 void AreaOfEffect::receiveEnteredSignal(const std::shared_ptr<Object> &entering) {
     _lastEntered = referenceTo(entering);
-    _game.scriptRunner().run(_onEnter, {{script::ArgKind::Caller, script::Variable::ofObject(_id)},
-                                        {script::ArgKind::EnteringObject, script::Variable::ofObject(entering ? entering->id() : script::kObjectInvalid)}});
+    _game.scriptRunner().run(_onEnter, _id);
 }
 
 void AreaOfEffect::receiveExitedSignal(const std::shared_ptr<Object> &exiting) {
     _lastLeft = referenceTo(exiting);
-    _game.scriptRunner().run(_onExit, {{script::ArgKind::Caller, script::Variable::ofObject(_id)},
-                                       {script::ArgKind::ExitingObject, script::Variable::ofObject(exiting ? exiting->id() : script::kObjectInvalid)}});
+    _game.scriptRunner().run(_onExit, _id);
 }
 
 void AreaOfEffect::destroy() {

@@ -239,10 +239,12 @@ static Variable SetFacing(const std::vector<Variable> &args, const RoutineContex
 
     // Transform
 
-    // Execute: a creature's model turns to the new facing.
+    // Execute: a creature's model turns to the new facing, giving up any
+    // object it kept turning toward.
     auto caller = getCaller(ctx);
     const float facing = objectFacingFromScript(glm::radians(fDirection));
     if (auto creature = dyn_cast<Creature>(caller)) {
+        creature->setOrientationLock(script::kObjectInvalid);
         creature->turnTo(facing);
     } else {
         caller->setFacing(facing);
@@ -355,8 +357,7 @@ static Variable SetPartyLeader(const std::vector<Variable> &args, const RoutineC
     // Transform
 
     // Execute
-    ctx.game.party().setPartyLeader(nNPC);
-    return Variable::ofNull();
+    return Variable::ofInt(static_cast<int>(ctx.game.party().setPartyLeader(nNPC)));
 }
 
 static Variable SetAreaUnescapable(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -409,37 +410,54 @@ static Variable GetArea(const std::vector<Variable> &args, const RoutineContext 
 }
 
 static Variable GetEnteringObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    // An encounter or area of effect answers with whoever last entered it.
-    const Variable *caller = ctx.execution.findArg(ArgKind::Caller);
-    if (auto encounter = caller ? ctx.game.getObjectById<Encounter>(caller->objectId) : nullptr) {
-        return Variable::ofObject(getObjectIdOrInvalid(encounter->lastEntered()));
+    // Execute: the object that last came into, or at, the caller; only the
+    // module, areas, triggers, encounters, areas of effect, doors and
+    // placeables keep one.
+    const Variable *callerArg = ctx.execution.findArg(ArgKind::Caller);
+    auto caller = callerArg ? ctx.game.getObjectById(callerArg->objectId) : nullptr;
+    if (!caller) {
+        return Variable::ofObject(kObjectInvalid);
     }
-    if (auto areaOfEffect = caller ? ctx.game.getObjectById<AreaOfEffect>(caller->objectId) : nullptr) {
-        return Variable::ofObject(getObjectIdOrInvalid(areaOfEffect->lastEntered()));
+    switch (caller->type()) {
+    case ObjectType::Module:
+        return Variable::ofObject(static_cast<const Module &>(*caller).lastEnteredId());
+    case ObjectType::Area:
+        return Variable::ofObject(static_cast<const Area &>(*caller).lastEnteredId());
+    case ObjectType::Trigger:
+        return Variable::ofObject(static_cast<const Trigger &>(*caller).lastEnteredId());
+    case ObjectType::Encounter:
+        return Variable::ofObject(getObjectIdOrInvalid(static_cast<const Encounter &>(*caller).lastEntered()));
+    case ObjectType::AreaOfEffect:
+        return Variable::ofObject(getObjectIdOrInvalid(static_cast<const AreaOfEffect &>(*caller).lastEntered()));
+    case ObjectType::Door:
+        return Variable::ofObject(static_cast<const Door &>(*caller).lastEnteredId());
+    case ObjectType::Placeable:
+        return Variable::ofObject(static_cast<const Placeable &>(*caller).lastEnteredId());
+    default:
+        return Variable::ofObject(kObjectInvalid);
     }
-    if (const Variable *entering = ctx.execution.findArg(ArgKind::EnteringObject)) {
-        return *entering;
-    }
-
-    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetExitingObject(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    // An encounter or area of effect answers with whoever last left it.
-    const Variable *caller = ctx.execution.findArg(ArgKind::Caller);
-    if (auto encounter = caller ? ctx.game.getObjectById<Encounter>(caller->objectId) : nullptr) {
-        return Variable::ofObject(getObjectIdOrInvalid(encounter->lastLeft()));
+    // Execute: the object that last left the caller; only areas, triggers,
+    // encounters and areas of effect keep one.
+    const Variable *callerArg = ctx.execution.findArg(ArgKind::Caller);
+    auto caller = callerArg ? ctx.game.getObjectById(callerArg->objectId) : nullptr;
+    if (!caller) {
+        return Variable::ofObject(kObjectInvalid);
     }
-    if (auto areaOfEffect = caller ? ctx.game.getObjectById<AreaOfEffect>(caller->objectId) : nullptr) {
-        return Variable::ofObject(getObjectIdOrInvalid(areaOfEffect->lastLeft()));
+    switch (caller->type()) {
+    case ObjectType::Area:
+        return Variable::ofObject(static_cast<const Area &>(*caller).lastLeftId());
+    case ObjectType::Trigger:
+        return Variable::ofObject(static_cast<const Trigger &>(*caller).lastLeftId());
+    case ObjectType::Encounter:
+        return Variable::ofObject(getObjectIdOrInvalid(static_cast<const Encounter &>(*caller).lastLeft()));
+    case ObjectType::AreaOfEffect:
+        return Variable::ofObject(getObjectIdOrInvalid(static_cast<const AreaOfEffect &>(*caller).lastLeft()));
+    default:
+        return Variable::ofObject(kObjectInvalid);
     }
-    if (const Variable *exiting = ctx.execution.findArg(ArgKind::ExitingObject)) {
-        return *exiting;
-    }
-
-    return Variable::ofObject(kObjectInvalid);
 }
 
 static Variable GetPosition(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -1553,7 +1571,10 @@ static Variable getObjectInShape(
     glm::vec3 suppliedOrigin = getVectorOrElse(args, 5, glm::vec3(0.0f));
     (void)lineOfSight; // The argument is accepted but does not affect filtering.
 
-    auto shape = static_cast<Shape>(shapeValue);
+    // A shape number past the spell cone is tested as a sphere.
+    auto shape = shapeValue >= static_cast<int>(Shape::SpellCylinder) && shapeValue <= static_cast<int>(Shape::SpellCone)
+                     ? static_cast<Shape>(shapeValue)
+                     : Shape::Sphere;
     ShapeParams params = getShapeParams(size, target);
     glm::vec3 origin = getShapeOrigin(shape, suppliedOrigin, ctx);
     auto area = ctx.game.module()->area();
@@ -1683,9 +1704,10 @@ static Variable SetFacingPoint(const std::vector<Variable> &args, const RoutineC
 
     // Transform
 
-    // Execute
+    // Execute: a creature gives up any object it kept turning toward.
     auto caller = getCaller(ctx);
     if (auto creature = dyn_cast<Creature>(caller)) {
+        creature->setOrientationLock(script::kObjectInvalid);
         creature->turnToward(vTarget);
     } else {
         caller->face(vTarget);
@@ -2306,7 +2328,11 @@ static Variable CreateLocation(const std::vector<Variable> &args, const RoutineC
 }
 
 static Variable ApplyEffectAtLocation(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    auto duration = static_cast<DurationType>(getInt(args, 0));
+    // Any duration type but instant or temporary is permanent.
+    auto nDurationType = getInt(args, 0);
+    auto duration = nDurationType == static_cast<int>(DurationType::Instant)     ? DurationType::Instant
+                    : nDurationType == static_cast<int>(DurationType::Temporary) ? DurationType::Temporary
+                                                                                 : DurationType::Permanent;
     auto value = getEffect(args, 1);
     auto location = getLocationArgument(args, 2);
     float seconds = getFloatOrElse(args, 3, 0.0f);
@@ -3406,15 +3432,11 @@ static Variable GetDistanceToObject2D(const std::vector<Variable> &args, const R
 }
 
 static Variable GetBlockingDoor(const std::vector<Variable> &args, const RoutineContext &ctx) {
-    // Execute
-    // Captured when the blocked event was raised, so a continuation of that run
-    // reports the door the event was about rather than whatever obstructs the
-    // creature by the time the continuation asks. Validity is left to
-    // GetIsObjectValid, as for any other object a script holds on to.
-    if (const Variable *blockingDoor = ctx.execution.findArg(ArgKind::BlockingDoor)) {
-        return *blockingDoor;
-    }
-    return Variable::ofObject(kObjectInvalid);
+    // Execute: the door of the calling creature's last blocked event. Validity
+    // is left to GetIsObjectValid, as for any other object a script holds on to.
+    const Variable *caller = ctx.execution.findArg(ArgKind::Caller);
+    auto creature = caller ? ctx.game.getObjectById<Creature>(caller->objectId) : nullptr;
+    return Variable::ofObject(creature ? creature->lastBlockingDoorId() : kObjectInvalid);
 }
 
 static Variable GetIsDoorActionPossible(const std::vector<Variable> &args, const RoutineContext &ctx) {
@@ -3465,7 +3487,7 @@ static Variable DoDoorAction(const std::vector<Variable> &args, const RoutineCon
         // movement action that was blocked by this door stays in place and
         // resumes once the door stops obstructing.
         if (!targetDoor->isLocked()) {
-            targetDoor->open();
+            targetDoor->open(*caller);
             targetDoor->onOpen(caller->id());
         }
         break;
@@ -3710,7 +3732,7 @@ static Variable PlayPazaak(const std::vector<Variable> &args, const RoutineConte
     if (!oOpponent) {
         // K1's authored k_act_mispaz call omits the optional opponent. In
         // NWScript that argument defaults to OBJECT_INVALID; the script caller
-        // is the only authored identity/continuation context available.
+        // is the only authored identity available.
         oOpponent = getCaller(ctx);
     }
 
@@ -4079,17 +4101,25 @@ static Variable GetStartingLocation(const std::vector<Variable> &args, const Rou
 
 static Variable ChangeToStandardFaction(const std::vector<Variable> &args, const RoutineContext &ctx) {
     // Load
-    auto oCreatureToChange = getObject(args, 0, ctx);
+    auto oCreatureToChange = getObjectOrNull(args, 0, ctx);
     auto nStandardFaction = getInt(args, 1);
 
-    // Transform
-    if (nStandardFaction <= (int)Faction::Invalid || nStandardFaction >= (int)Faction::Last) {
-        throw RoutineArgumentException(str(boost::format("Invalid faction: %d") % nStandardFaction));
+    // Execute: only an NPC faction is taken, and a player character keeps
+    // its own. A placeable, and in TSL a trigger, takes the faction directly.
+    const size_t factionCount = ctx.game.services().game.reputes.state().factions.size();
+    if (!oCreatureToChange || nStandardFaction < 1 || static_cast<size_t>(nStandardFaction) >= factionCount) {
+        return Variable::ofNull();
     }
-
-    // Execute
-    auto creature = checkCreature(oCreatureToChange);
-    creature->setFaction((Faction)nStandardFaction);
+    const auto faction = static_cast<Faction>(nStandardFaction);
+    if (auto creature = dyn_cast<Creature>(oCreatureToChange)) {
+        if (!creature->isPC()) {
+            creature->setFaction(faction);
+        }
+    } else if (auto placeable = dyn_cast<Placeable>(oCreatureToChange)) {
+        placeable->setFaction(faction);
+    } else if (auto trigger = dyn_cast<Trigger>(oCreatureToChange); trigger && ctx.game.isTSL()) {
+        trigger->setFaction(faction);
+    }
     return Variable::ofNull();
 }
 
@@ -4394,7 +4424,8 @@ static Variable TakeGoldFromCreature(const std::vector<Variable> &args, const Ro
     auto &party = ctx.game.party();
     const int amount = std::min(nAmount, party.creatureGold(*creatureToTakeFrom));
     auto caller = getCaller(ctx);
-    if (amount <= 0) {
+    // Neither an area nor the module takes gold.
+    if (amount <= 0 || caller->type() == ObjectType::Area || caller->type() == ObjectType::Module) {
         return Variable::ofNull();
     }
 
@@ -4404,6 +4435,8 @@ static Variable TakeGoldFromCreature(const std::vector<Variable> &args, const Ro
             party.addCreatureGold(*creature, amount);
         } else if (auto *placeable = dyn_cast<Placeable>(caller.get()); placeable && placeable->hasInventory()) {
             placeable->addItem(Item::kCreditsResRef, amount);
+        } else if (auto *item = dyn_cast<Item>(caller.get()); item && item->isContainer()) {
+            item->addItem(Item::kCreditsResRef, amount);
         }
     }
     if (party.isMember(*creatureToTakeFrom)) {
@@ -5238,8 +5271,11 @@ static Variable GetLastHostileActor(const std::vector<Variable> &args, const Rou
     // Load
     auto oVictim = getObjectOrCaller(args, 0, ctx);
 
-    // Execute
+    // Execute: a plot victim reports no one and forgets its stored actor.
     if (oVictim->plotFlag()) {
+        if (oVictim->getLastHostileActor() != script::kObjectInvalid) {
+            oVictim->setLastHostileActor(script::kObjectInvalid, true);
+        }
         return Variable::ofObject(script::kObjectInvalid);
     }
     uint32_t actorId = oVictim->getLastHostileActor();
@@ -5979,7 +6015,7 @@ static Variable GetLastHostileTarget(const std::vector<Variable> &args, const Ro
 
 static Variable GetLastAttackAction(const std::vector<Variable> &args, const RoutineContext &ctx) {
     auto attacker = args.empty() ? dyn_cast<Creature>(getCaller(ctx)) : getCreatureOrNull(args, 0, ctx);
-    return Variable::ofInt(attacker ? static_cast<int>(attacker->getLastAttackAction()) : 0);
+    return Variable::ofInt(attacker ? attacker->getLastAttackAction() : 0);
 }
 
 static Variable GetLastForcePowerUsed(const std::vector<Variable> &args, const RoutineContext &ctx) {

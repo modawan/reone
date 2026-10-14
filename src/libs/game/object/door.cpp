@@ -60,6 +60,9 @@ namespace game {
 static constexpr int kDamagedEvent = static_cast<int>(SavedSignalEventType::Damaged);
 // The animations.2da row of a destroyed door's pose.
 static constexpr int kDestroyedAnimation = 330;
+// LinkedToFlags of a door linked to another door and to a waypoint.
+static constexpr int kLinkedToDoor = 1;
+static constexpr int kLinkedToWaypoint = 2;
 
 void Door::deserialize(
     const resource::Gff &gff,
@@ -346,12 +349,57 @@ void Door::damage(
     }
 
     _locked = false;
-    open();
+    if (damager) {
+        open(*damager);
+    } else {
+        open();
+    }
     onOpen(damagerId);
     runDeathScript();
 }
 
-void Door::open() {
+void Door::open(std::optional<std::reference_wrapper<const Object>> opener) {
+    // The front of a door is the side its local +Y axis points to.
+    const glm::vec3 front {_orientation * glm::vec3(0.0f, 1.0f, 0.0f)};
+    const bool inFront = opener && glm::dot(opener->get().position() - _position, front) > 0.0f;
+    const DoorTransition opening = inFront ? DoorTransition::Opening1 : DoorTransition::Opening2;
+    swingOpen(opening);
+    if (auto linked = linkedDoor()) {
+        linked->swingOpen(opening);
+    }
+}
+
+void Door::close() {
+    swingShut();
+    if (auto linked = linkedDoor()) {
+        linked->swingShut();
+    }
+}
+
+void Door::onClosed(uint32_t closerId) {
+    if (_onClosed.empty()) {
+        return;
+    }
+    _game.scriptRunner().run(
+        _onClosed,
+        {{script::ArgKind::Caller, Variable::ofObject(_id)},
+         {script::ArgKind::LastClosedBy, Variable::ofObject(closerId)}});
+}
+
+std::shared_ptr<Door> Door::linkedDoor() {
+    if (_linkedToFlags != kLinkedToDoor && _linkedToFlags != kLinkedToWaypoint) {
+        return nullptr;
+    }
+    if (auto linked = _linkedDoor.resolve()) {
+        return linked;
+    }
+    auto linked = std::dynamic_pointer_cast<Door>(
+        spatialArea()->get().getObjectByTag(boost::to_lower_copy(_linkedTo)));
+    _linkedDoor = linked;
+    return linked;
+}
+
+void Door::swingOpen(DoorTransition opening) {
     if (isOpening()) {
         // Already swinging open. Restarting would rewind the leaf and re-run
         // whatever the caller does around the transition.
@@ -365,10 +413,10 @@ void Door::open() {
     // let the player through one until the opening animation has finished, so
     // the closed walkmesh stays enabled for the whole transition and only comes
     // off when the door has physically arrived at its opened pose.
-    beginTransition(DoorTransition::Opening);
+    beginTransition(opening);
 }
 
-void Door::close() {
+void Door::swingShut() {
     if (isClosing()) {
         return;
     }
@@ -433,12 +481,26 @@ bool Door::isTransitionComplete() const {
     return model->isAnimationFinished();
 }
 
-const char *Door::transitionAnimation(DoorTransition transition) {
-    return transition == DoorTransition::Opening ? "opening1" : "closing1";
+const char *Door::transitionAnimation(DoorTransition transition) const {
+    switch (transition) {
+    case DoorTransition::Opening1:
+        return "opening1";
+    case DoorTransition::Opening2:
+        return "opening2";
+    default:
+        return _state == DoorState::Opened2 ? "closing2" : "closing1";
+    }
 }
 
 DoorState Door::transitionTarget(DoorTransition transition) {
-    return transition == DoorTransition::Opening ? DoorState::Opened1 : DoorState::Closed;
+    switch (transition) {
+    case DoorTransition::Opening1:
+        return DoorState::Opened1;
+    case DoorTransition::Opening2:
+        return DoorState::Opened2;
+    default:
+        return DoorState::Closed;
+    }
 }
 
 DoorState Door::actionState() const {
@@ -530,8 +592,7 @@ void Door::onOpen(uint32_t triggererId) {
         _onOpen,
         {{script::ArgKind::Caller, Variable::ofObject(_id)},
          {script::ArgKind::LastOpenedBy, Variable::ofObject(triggererId)},
-         {script::ArgKind::ClickingObject, Variable::ofObject(triggererId)},
-         {script::ArgKind::EnteringObject, Variable::ofObject(triggererId)}});
+         {script::ArgKind::ClickingObject, Variable::ofObject(triggererId)}});
 }
 
 void Door::onLocked() {
@@ -542,6 +603,7 @@ void Door::onLocked() {
 }
 
 void Door::onFailToOpen(uint32_t openerId, bool quiet) {
+    _lastEnteredId = openerId;
     if (!_onFailToOpen.empty()) {
         _game.scriptRunner().run(
             _onFailToOpen,

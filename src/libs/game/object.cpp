@@ -179,24 +179,7 @@ void Object::deserialize(
         _currentHitPoints = currentHitPoints;
     }
 
-    gff.readFloat(_position[0], "X");
-    gff.readFloat(_position[0], "XPosition");
-    gff.readFloat(_position[1], "Y");
-    gff.readFloat(_position[1], "YPosition");
-    gff.readFloat(_position[2], "Z");
-    gff.readFloat(_position[2], "ZPosition");
-
-    {
-        float cosine, sine;
-        if (gff.readFloat(cosine, "XOrientation") && gff.readFloat(sine, "YOrientation")) {
-            setFacing(-glm::atan(cosine, sine));
-        }
-
-        float bearing;
-        if (gff.readFloat(bearing, "Bearing")) {
-            setFacing(bearing);
-        }
-    }
+    deserializePlacement(gff);
 
     if (_type != ObjectType::Placeable && _type != ObjectType::Store &&
         _type != ObjectType::Item && dynamic_cast<Creature *>(this) == nullptr) {
@@ -204,6 +187,26 @@ void Object::deserialize(
             gff, identityContext, SaveRecordOriginKind::ContainedItem);
     }
     deserializeRuntimeState(gff, identityContext);
+}
+
+void Object::deserializePlacement(const resource::Gff &gff) {
+    gff.readFloat(_position[0], "X");
+    gff.readFloat(_position[0], "XPosition");
+    gff.readFloat(_position[1], "Y");
+    gff.readFloat(_position[1], "YPosition");
+    gff.readFloat(_position[2], "Z");
+    gff.readFloat(_position[2], "ZPosition");
+
+    float cosine, sine;
+    if (gff.readFloat(cosine, "XOrientation") && gff.readFloat(sine, "YOrientation")) {
+        setFacing(-glm::atan(cosine, sine));
+    }
+
+    float bearing;
+    if (gff.readFloat(bearing, "Bearing")) {
+        setFacing(bearing);
+    }
+    updateTransform();
 }
 
 std::vector<std::shared_ptr<Object>> Object::ownedRuntimeObjects() const {
@@ -256,6 +259,10 @@ void Object::deserializeOwnedItems(
             obsolete,
             [&]() {
                 for (const auto &itemGff : gff.getList("ItemList")) {
+                    // An entry naming a missing template makes no item.
+                    if (Item::namesMissingTemplate(*itemGff, _services.resource.gffs)) {
+                        continue;
+                    }
                     auto item = _game.newOwnedItem(*itemGff, identityContext);
                     if (forceDropable) item->setDropable(true);
                     item->setOwner(_id);
@@ -326,6 +333,7 @@ void Object::update(float dt) {
     }
     updateActions(dt);
     updateEffects(dt);
+    updateShownVisuals(dt);
     // An action that can no longer be cleared runs on whatever holds the object.
     const auto current = getCurrentAction();
     if (!isDead() && (canExecuteActions() || (current && !current->isClearable()))) {
@@ -386,6 +394,7 @@ void Object::deserializeRuntimeState(
     _savedScheduledTime = 0.0f;
     _savedOwnerHold = 0.0f;
     _savedOwnerHoldBy = SavedObjectReference {};
+    _savedRounds.clear();
     _savedRuntimeIdentityContext = identityContext;
     _savedActionReferencesBound.clear();
     _savedRuntimeParsed = gff.has("EffectList") || gff.has("ActionList") || gff.has("CombatRoundData");
@@ -394,6 +403,12 @@ void Object::deserializeRuntimeState(
         _savedScheduledTime = round->getInt("Timer") / 1000.0f;
         for (const auto &entry : round->getList("SchedActionList")) {
             _savedScheduledActions.push_back(SavedScheduledAction::fromGff(*entry, identityContext));
+        }
+        for (const auto &entry : round->getList("RoundList")) {
+            SavedCreatureRound saved;
+            saved.clock = SavedRoundClock::fromGff(*entry, identityContext);
+            saved.spellRound = entry->getUint("SpellCastRound") != 0;
+            _savedRounds.push_back(std::move(saved));
         }
         if (round->getUint("RoundPaused") != 0 && round->getInt("PauseTimer") > 0) {
             _savedOwnerHold = round->getInt("PauseTimer") / 1000.0f;
@@ -494,6 +509,11 @@ void Object::bindSavedRuntimeState() {
     }
     if (_savedOwnerHold > 0.0f) {
         _game.bindSavedObjectReference(_savedOwnerHoldBy);
+    }
+    for (auto &saved : _savedRounds) {
+        _game.bindSavedObjectReference(saved.clock.pauseOwner);
+        _game.bindSavedObjectReference(saved.clock.master);
+        _game.bindSavedObjectReference(saved.clock.engaged);
     }
 }
 
@@ -652,6 +672,7 @@ void Object::endEffectPresentations() {
             effect.effect->retireAreaRuntime({});
         }
     }
+    _shownVisuals.clear();
 }
 
 void Object::retireAreaRuntimeState(
@@ -675,6 +696,7 @@ void Object::retireAreaRuntimeState(
     _savedScheduledTime = 0.0f;
     _savedOwnerHold = 0.0f;
     _savedOwnerHoldBy = SavedObjectReference {};
+    _savedRounds.clear();
 
     for (auto &effect : _effects) {
         if (effect.effect) {
@@ -682,6 +704,7 @@ void Object::retireAreaRuntimeState(
         }
         effect.retireAreaRuntimeBindings(retainedObjects);
     }
+    _shownVisuals.clear();
     _savedEffects.clear();
     _savedRuntimeParsed = false;
     _savedRuntimePublished = false;
@@ -782,8 +805,12 @@ void Object::setLastHostileActor(uint32_t actor, bool force) {
         return;
     }
     auto object = _game.getObjectById(actor);
+    // An actor that is no object leaves the record as it is.
+    if (!object) {
+        return;
+    }
     // An area of effect acts for its creator.
-    if (object && object->type() == ObjectType::AreaOfEffect) {
+    if (object->type() == ObjectType::AreaOfEffect) {
         object = object->effectSource();
     }
     const auto *creature = object ? dyn_cast<Creature>(object.get()) : nullptr;
@@ -1011,6 +1038,32 @@ void Object::removeActionsBehind(const Action &action, const std::function<bool(
     ++position;
     while (position != nodes.end() && (*position)->action && matches(*(*position)->action)) {
         position = nodes.erase(position);
+    }
+}
+
+void Object::cancelActionGroups(const std::function<bool(const Action &)> &matches) {
+    auto &nodes = _actions.nodes;
+    std::vector<int> groups;
+    for (const auto &node : nodes) {
+        if (node->action && matches(*node->action)) {
+            groups.push_back(node->groupId);
+        }
+    }
+    const std::vector<OrdinaryActionQueue::Node> snapshot {nodes.begin(), nodes.end()};
+    for (const auto &node : snapshot) {
+        if (std::find(groups.begin(), groups.end(), node->groupId) == groups.end() ||
+            std::find(nodes.begin(), nodes.end(), node) == nodes.end() ||
+            (node->action && !node->action->isClearable()))
+            continue;
+        if (node->action) {
+            auto action = node->action;
+            action->cancel(action, *this);
+            action->markCancelled();
+        }
+        auto position = std::find(nodes.begin(), nodes.end(), node);
+        if (position != nodes.end()) {
+            nodes.erase(position);
+        }
     }
 }
 
@@ -1603,6 +1656,34 @@ void Object::updateEffects(float dt) {
             const EffectId id = effect.id;
             removeEffectsById(id);
         }
+    }
+}
+
+void Object::addShownVisual(const EffectInstance &visual, float seconds) {
+    ShownVisual shown {visual, seconds};
+    shown.visual.applicationOrder = _nextEffectApplicationOrder++;
+    _shownVisuals.push_back(std::move(shown));
+}
+
+std::vector<std::reference_wrapper<const EffectInstance>> Object::shownVisuals() const {
+    std::vector<std::reference_wrapper<const EffectInstance>> visuals;
+    for (const auto &shown : _shownVisuals) {
+        visuals.push_back(std::cref(shown.visual));
+    }
+    return visuals;
+}
+
+void Object::updateShownVisuals(float dt) {
+    for (size_t index = 0; index < _shownVisuals.size();) {
+        _shownVisuals[index].visual.effect->onUpdate(*this, _shownVisuals[index].visual, dt);
+        _shownVisuals[index].remaining -= dt;
+        if (_shownVisuals[index].remaining > 0.0f) {
+            ++index;
+            continue;
+        }
+        auto ended = std::move(_shownVisuals[index]);
+        _shownVisuals.erase(_shownVisuals.begin() + static_cast<std::ptrdiff_t>(index));
+        ended.visual.effect->onRemove(*this, ended.visual);
     }
 }
 

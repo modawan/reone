@@ -271,14 +271,12 @@ void Encounter::receiveEnteredSignal(const std::shared_ptr<Object> &entering) {
     _savedReferences[kLastEnteredReference] = entering;
     const uint32_t enteringId = entering ? entering->id() : script::kObjectInvalid;
     spawnIfAppropriate(enteringId);
-    _game.scriptRunner().run(_onEntered, {{script::ArgKind::Caller, script::Variable::ofObject(_id)},
-                                          {script::ArgKind::EnteringObject, script::Variable::ofObject(enteringId)}});
+    _game.scriptRunner().run(_onEntered, _id);
 }
 
 void Encounter::receiveExitedSignal(const std::shared_ptr<Object> &exiting) {
     _savedReferences[kLastLeftReference] = exiting;
-    _game.scriptRunner().run(_onExit, {{script::ArgKind::Caller, script::Variable::ofObject(_id)},
-                                       {script::ArgKind::ExitingObject, script::Variable::ofObject(exiting ? exiting->id() : script::kObjectInvalid)}});
+    _game.scriptRunner().run(_onExit, _id);
 }
 
 // A wave is chosen once per activation, when a creature hostile to the
@@ -370,13 +368,14 @@ void Encounter::chooseWaveByCount() {
                 if (wanted == 0) {
                     break;
                 }
-                if (!creature._singleSpawn) {
-                    for (int copy = 0; copy < creature._guaranteedCount; ++copy) {
-                        wave.push_back(creature.pendingSpawn());
-                        if (copy == wanted - 1) {
-                            filled = true;
-                            break;
-                        }
+                if (creature._singleSpawn) {
+                    continue;
+                }
+                for (int copy = 0; copy < creature._guaranteedCount; ++copy) {
+                    wave.push_back(creature.pendingSpawn());
+                    if (copy == wanted - 1) {
+                        filled = true;
+                        break;
                     }
                 }
                 if (filled) {

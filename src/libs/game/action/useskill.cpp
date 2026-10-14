@@ -439,12 +439,14 @@ void UseSkillAction::resolveSetMine(Creature &actor) {
     const int blastBonus = trapType >= 4 && trapType - 4 < static_cast<int>(std::size(kMineBlastBonus))
                                ? kMineBlastBonus[trapType - 4]
                                : 0;
-    // A blank cell counts as 0.
+    // A blank cell counts as 0. The DC, shifted by the difficulty in TSL, is
+    // at least 1.
     const auto row = Trap::typeRow(_services.resource.twoDas, trapType);
     int setDC = row.setDC.value_or(0);
     if (_game.isTSL()) {
-        setDC = std::max(1, setDC + _game.trapDifficultyModifier());
+        setDC += _game.trapDifficultyModifier();
     }
+    setDC = std::max(1, setDC);
 
     int rank = actor.getUnopposedSkillRank(SkillType::Demolitions);
     // KotOR rewards five trained ranks with two more.
@@ -524,10 +526,15 @@ void UseSkillAction::resolveSetMine(Creature &actor) {
 
 // END Demolitions
 
+// Clearing a mine's work or the work at a lock gives the pose back to the
+// creature's state; a one-shot still running plays on.
 bool UseSkillAction::cancel(std::shared_ptr<Action> self, Object &actor) {
+    if (_skill == SkillType::Security) {
+        resumePoseAfterLockWork(actor, _workingAtLock);
+    }
     if (_skill == SkillType::Demolitions && _phase == 1) {
         if (auto *creature = dyn_cast<Creature>(&actor)) {
-            creature->resumeStateDrivenAnimation();
+            creature->refreshPauseAnimation();
         }
         _phase = 0;
     }

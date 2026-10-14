@@ -26,6 +26,7 @@
 #include "reone/game/action/usefeat.h"
 #include "reone/game/action/usetalentonobject.h"
 #include "reone/game/effect.h"
+#include "reone/game/effect/spellimmunity.h"
 #include "reone/game/d20/class.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/game.h"
@@ -484,7 +485,7 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     player->setCurrentHitPoints(17);
     player->setLocalBoolean(31, true);
     player->setLocalNumber(4, 23);
-    player->applyEffect(game.newEffect<Effect>(EffectType::Haste), DurationType::Temporary, 30.0f);
+    player->applyEffect(game.newEffect<SpellImmunityEffect>(SpellType::All), DurationType::Temporary, 30.0f);
     player->addAction(game.newAction<WaitAction>(30.0f));
     player->update(10.0f);
     // Temporary effects expire on the world clock.
@@ -641,7 +642,7 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     ASSERT_EQ(e2Creature.savedEffects().size(), 1);
     ASSERT_EQ(e2Creature.savedActionQueue().actions.size(), 1);
 
-    EXPECT_TRUE(are->getBool("Unescapable"));
+    EXPECT_TRUE(git->findStruct("AreaProperties")->getBool("Unescapable"));
     EXPECT_EQ(are->getUint("StealthXPCurrent"), 30u);
     EXPECT_EQ(are->getString("FutureArea"), "preserve-area");
     EXPECT_EQ(git->getString("FutureGit"), "preserve-git");
@@ -658,7 +659,8 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     EXPECT_EQ(git->getList("List").front()->getUint("ObjectId"), worldItem->id());
     auto doorRecord = recordById(*git, "Door List", door->id());
     ASSERT_TRUE(doorRecord);
-    EXPECT_EQ(doorRecord->getUint("OpenState"), 1u);
+    // Opened with no opener, the door swings to its second side.
+    EXPECT_EQ(doorRecord->getUint("OpenState"), 2u);
     EXPECT_TRUE(doorRecord->getBool("Locked"));
     EXPECT_EQ(doorRecord->getString("FutureDoor"), "preserve-door");
     auto triggerRecord = recordById(*git, "TriggerList", trigger->id());

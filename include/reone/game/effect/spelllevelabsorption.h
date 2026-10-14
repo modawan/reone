@@ -25,6 +25,10 @@ namespace game {
 
 class SpellLevelAbsorptionEffect : public CopyableEffect<SpellLevelAbsorptionEffect> {
 public:
+    /**
+     * Absorbs spells up to \p maxSpellLevelAbsorbed, \p totalSpellLevelsAbsorbed
+     * levels in all, of \p spellSchool; a total of zero is marked unlimited.
+     */
     SpellLevelAbsorptionEffect(int maxSpellLevelAbsorbed, int totalSpellLevelsAbsorbed, int spellSchool) :
         CopyableEffect(EffectType::SpellLevelAbsorption),
         _maxSpellLevelAbsorbed(maxSpellLevelAbsorbed),
@@ -33,6 +37,8 @@ public:
         setSaveFacingInteger(0, maxSpellLevelAbsorbed);
         setSaveFacingInteger(1, totalSpellLevelsAbsorbed);
         setSaveFacingInteger(2, spellSchool);
+        // A total of zero absorbs without limit.
+        setSaveFacingInteger(3, totalSpellLevelsAbsorbed == 0 ? 1 : 0);
     }
 
     EffectApplicationResult onApply(Object &object, EffectInstance &) override {

@@ -1151,6 +1151,8 @@ TEST(RemoveNPCFromPartyToBase, persists_then_retires_the_exact_runtime_companion
     harness.game.combat().update(0.0f);
     EXPECT_TRUE(companionAttack->isCancelled());
     EXPECT_TRUE(opponentAttack->isCancelled());
+    // The opponent's round runs on to its end.
+    harness.game.combat().update(3.1f);
     EXPECT_EQ(0u, harness.game.combat().roundCount());
 }
 
@@ -1350,6 +1352,8 @@ TEST(RemoveNPCFromPartyToBase, retires_the_active_assigned_puppet_but_keeps_assi
     harness.game.combat().update(0.0f);
     EXPECT_TRUE(puppetAttack->isCancelled());
     EXPECT_TRUE(opponentAttack->isCancelled());
+    // The opponent's round runs on to its end.
+    harness.game.combat().update(3.1f);
     EXPECT_EQ(0u, harness.game.combat().roundCount());
     auto savedNpcResource = committed->find({"availnpc1", ResType::Utc});
     ASSERT_TRUE(savedNpcResource);

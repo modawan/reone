@@ -230,6 +230,10 @@ inline bool stateHasConsumer(CreatureState state) {
  * chooses the pose it holds. KotOR knows none of the TSL-only states.
  */
 inline int getStateAmbientCode(CreatureState state, bool tsl) {
+    // State 12, which has no name, holds the pose of ambient state 10.
+    if (static_cast<int>(state) == 12) {
+        return 10;
+    }
     switch (state) {
     case CreatureState::DroidStun:
         return 8;
@@ -247,6 +251,8 @@ inline int getStateAmbientCode(CreatureState state, bool tsl) {
         return 6;
     case CreatureState::ForcePushed:
         return 9;
+    case CreatureState::ForceJumpedOnto:
+        return 13;
     case CreatureState::Knockdown:
         // A knocked-down creature lies prone.
         return tsl ? 15 : 0;

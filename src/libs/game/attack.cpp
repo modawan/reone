@@ -79,7 +79,6 @@ static constexpr float kForceJumpMinimumDistance2 = 100.0f;
 static constexpr float kAttackEyeHeight = 1.5f;
 static constexpr float kAttackEyeOffset = 0.01f;
 static constexpr int kNoAttackSightStrRef = 1516;
-static constexpr int kNoAttackSightStrRefTSL = 1435;
 // Reach is measured with a tenth of a metre to spare in TSL.
 static constexpr float kAttackReachAllowance = 0.1f;
 // An attacker outside the party stands off unless the square of its distance
@@ -555,8 +554,8 @@ bool AttackBuffer::addPhysicalAttacks(Creature &attacker, Object &target,
     if (generation != _signalGeneration) {
         return false;
     }
-    // The wield type selects the round kind, as it does for the attack action.
-    if (main && isRangedWieldType(attacker.getWieldType())) {
+    // A ranged right-hand weapon makes the round ranged.
+    if (main && main->isRanged()) {
         return addRangedAttacks(attacker, target, main, attacker.getOffhandAttackWeapon(), mainHandAttacks);
     }
 
@@ -970,36 +969,6 @@ static std::optional<int> getItemOnHitEffectOutcomeType(
     return std::nullopt;
 }
 
-static bool hasItemOnHitImmunity(const Creature &target, ItemOnHitSubtype subtype,
-                                 const std::shared_ptr<Object> &source) {
-    const auto creator = Creature::asCreature(source);
-    switch (subtype) {
-    case ItemOnHitSubtype::Sleep:
-        return hasStateImmunity(target, CreatureState::Sleep, creator);
-    case ItemOnHitSubtype::Stun:
-        return hasStateImmunity(target, CreatureState::Stun, creator);
-    case ItemOnHitSubtype::Paralyze:
-        return hasStateImmunity(target, CreatureState::Paralysis, creator);
-    case ItemOnHitSubtype::Confusion:
-        return hasStateImmunity(target, CreatureState::Confusion, creator);
-    case ItemOnHitSubtype::Fear:
-        return hasStateImmunity(target, CreatureState::Fear, creator);
-    case ItemOnHitSubtype::Slow:
-        return hasSlowImmunity(target, creator);
-    case ItemOnHitSubtype::AbilityDrain:
-        return target.hasEffectImmunity(ImmunityType::AbilityDecrease, creator);
-    case ItemOnHitSubtype::ItemPoison:
-        return target.hasEffectImmunity(ImmunityType::Poison, creator);
-    case ItemOnHitSubtype::InstantDeath:
-        return target.hasEffectImmunity(ImmunityType::Death, creator);
-    case ItemOnHitSubtype::Knockdown:
-    case ItemOnHitSubtype::SlayRG:
-    case ItemOnHitSubtype::SlayAG:
-        return false;
-    }
-    return false;
-}
-
 static void applyStandalone(Object &target, const std::shared_ptr<Effect> &effect,
                             const std::shared_ptr<Object> &creator,
                             DurationType type, float duration = 0.0f) {
@@ -1050,8 +1019,8 @@ static void applyItemOnHitApplication(const ItemOnHitApplication &application, O
         applySlowPackage(target, application.duration, creator);
         break;
     case ItemOnHitSubtype::AbilityDrain: {
-        if (application.parameter < 0 || application.parameter > 5 ||
-            hasItemOnHitImmunity(*creature, application.subtype, creator))
+        // An immune target still shows the drain; the decrease refuses itself.
+        if (application.parameter < 0 || application.parameter > 5)
             return;
         const auto duration = static_cast<float>(kAbilityDrainSeconds);
         applyStandalone(target, std::make_shared<VisualEffectMarkerEffect>(kAbilityDrainVisual), creator,
@@ -1086,9 +1055,8 @@ static void applyItemOnHitApplication(const ItemOnHitApplication &application, O
         // save are still rolled.
         break;
     case ItemOnHitSubtype::InstantDeath:
-        if (!hasItemOnHitImmunity(*creature, application.subtype, creator)) {
-            applyStandalone(target, std::make_shared<DeathEffect>(false, true, false), creator, DurationType::Instant);
-        }
+        // The death is not magical, so death immunity does not stop it.
+        applyStandalone(target, std::make_shared<DeathEffect>(false, true, false), creator, DurationType::Instant);
         break;
     }
     if (state != CreatureState::None) {
@@ -1136,7 +1104,10 @@ bool AttackBuffer::addPhysicalAttack(
 
     const auto generation = _signalGeneration;
     const bool offHand = source == Source::Offhand;
-    const bool ranged = weapon && weapon->isRanged();
+    // Every attack of a round with a ranged right-hand weapon is ranged; a
+    // round with an empty right hand is melee.
+    const auto rightHand = attacker.getEquippedItem(InventorySlots::rightWeapon);
+    const bool ranged = rightHand && rightHand->isRanged();
     const bool tsl = attacker.game().isTSL();
     const auto targetCreature = Creature::asCreature(target);
     // A creature weapon threatens and multiplies as an empty hand does.
@@ -2094,7 +2065,8 @@ void AttackBuffer::returnDeflected(
         return;
     }
     // The returned bolt meets the shooter's resistance and immunity when it is
-    // released and strikes the shooter as the deflector's damage.
+    // released, and the deflector strikes the shooter with damage the shooter
+    // created.
     // The shooter is both the receiver and the damager of this resolution, so
     // its mitigation lines join the round's feedback, which the next discharge
     // released carries; after the last discharge they are never shown.
@@ -2106,7 +2078,7 @@ void AttackBuffer::returnDeflected(
     context.damageAmounts = attack.damage.resolution().damageAmounts;
     context.suppressDamageShields = true;
     auto effect = game.newEffect<DamageEffect>(std::move(attack.damage), std::move(context));
-    effect->setSaveFacingCreator(game.getObjectById(deflector.id()));
+    effect->setSaveFacingCreator(game.getObjectById(attacker.id()));
     auto instance = effect->saveFacingInstance();
     instance.effect = effect;
     instance.setDuration(DurationType::Instant, 0.0f);
@@ -2553,28 +2525,15 @@ static std::string getDamageBreakdown(
         return {};
     }
 
+    // Each damage slot with an amount is its own component. Energy and the
+    // three physical slots, in reverse, come first; the rest follow in slot
+    // order.
     const auto &slots = values.rawDamageSlots;
-    int physicalDamage = 0;
-    for (int slot = 0; slot != 3; ++slot) {
-        if (slots[slot] > 0) {
-            physicalDamage += slots[slot];
-        }
-    }
-
-    std::string breakdown;
-    appendDamageComponent(
-        game,
-        services,
-        breakdown,
-        kStrRefEnergyDamage,
-        slots[12]);
-    appendDamageComponent(
-        game,
-        services,
-        breakdown,
-        kStrRefPhysicalDamage,
-        physicalDamage);
     static constexpr std::pair<int, int> kDamageComponents[] {
+        {12, kStrRefEnergyDamage},
+        {2, kStrRefPhysicalDamage},
+        {1, kStrRefPhysicalDamage},
+        {0, kStrRefPhysicalDamage},
         {3, kStrRefUniversalDamage},
         {4, kStrRefAcidDamage},
         {5, kStrRefColdDamage},
@@ -2586,6 +2545,7 @@ static std::string getDamageBreakdown(
         {11, kStrRefIonDamage},
         {13, kStrRefPoisonDamage},
     };
+    std::string breakdown;
     for (const auto &[slot, strRef] : kDamageComponents) {
         appendDamageComponent(
             game,
@@ -3015,7 +2975,7 @@ AttackSchedule::State AttackSchedule::update(
     if (round.suspends(action)) {
         return _state;
     }
-    dt = round.actionDelta(dt);
+    dt = round.actionDelta(action, dt);
     _time += dt;
     if (clocked() && _state != AttackSchedule::WaitAttack) {
         float elapsedMilliseconds =
@@ -3055,7 +3015,7 @@ AttackSchedule::State AttackSchedule::update(
         break;
     }
     case AttackSchedule::WaitFinish: {
-        if (round.state == CombatRound::Finished) {
+        if (round.hasEnded(action)) {
             _state = AttackSchedule::Finish;
         }
         break;
@@ -3115,8 +3075,12 @@ AttackApproachStep approachAttackTarget(Creature &attacker, Object &target, floa
     const bool sight = area.isEyeLineClear(eye, targetEye, attacker, target, rightHand && rightHand->isRanged());
     if (sight) {
         attacker.clearBlockedAttackSight();
-    } else if (attacker.noteBlockedAttackSight() && game.party().getLeader().get() == &attacker) {
-        game.addFeedbackMessage(game.isTSL() ? kNoAttackSightStrRefTSL : kNoAttackSightStrRef);
+    } else if (attacker.noteBlockedAttackSight() && attacker.isPC()) {
+        // The player character gives up a target it cannot see; the line
+        // reaches the player only while controlling it.
+        if (game.party().getLeader().get() == &attacker) {
+            game.addFeedbackMessage(kNoAttackSightStrRef);
+        }
         attacker.clearBlockedAttackSight();
         attacker.clearCurrentAttackTarget();
         auto enemy = Combat::findNearestEnemy(area, attacker, attacker,

@@ -107,6 +107,11 @@ private:
     std::vector<std::string> _factionLabels;
     std::vector<std::vector<int>> _factionValues;
 
+    /**
+     * Fill the standings of \p factionCount factions from repute.2da: row r
+     * is faction r, and column c after the label column is the standing
+     * toward faction c. Standings the table does not give are 100.
+     */
     void loadBase(
         const resource::TwoDA &repute,
         size_t factionCount,

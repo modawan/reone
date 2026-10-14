@@ -546,7 +546,7 @@ bool interruptEntangledCast(Creature &caster) {
     if (!caster.hasEffect(EffectType::Entangle)) {
         return false;
     }
-    caster.showPauseReadyAnimation(false);
+    caster.showReadyAnimation();
     caster.setOrientationLock(script::kObjectInvalid);
     return true;
 }
@@ -838,7 +838,9 @@ std::optional<SpellSelection> scriptCastingSource(const Creature &caster, const 
             return SpellSelection {static_cast<int>(index), kUnspecifiedCasterLevel};
         }
     }
-    if (!caster.knowsSpellLikeAbility(spell.type)) {
+    // Only a ready spell-like ability casts.
+    int readyLevel {0};
+    if (!caster.readySpellLikeAbility(spell.type, readyLevel)) {
         return std::nullopt;
     }
     return SpellSelection {kSpellLikeAbilityClass, caster.spellLikeAbilityCasterLevel(static_cast<int>(spell.type))};
@@ -970,7 +972,7 @@ float spellRange(const Object &actor, const Spell &spell, std::optional<std::ref
 }
 
 bool withinSpellRange(const Object &actor, const Spell &spell, const glm::vec3 &position, std::optional<std::reference_wrapper<const Object>> target) {
-    return (target && &target->get() == &actor) || glm::distance(glm::vec2(actor.position()), glm::vec2(position)) <= spellRange(actor, spell, target);
+    return (target && &target->get() == &actor) || glm::distance(actor.position(), position) <= spellRange(actor, spell, target);
 }
 
 // A cast starts from its spell with no metamagic (these titles have none),
@@ -982,15 +984,16 @@ static void beginSpellCastContext(SpellCastContext &context, const Spell &spell)
     context.castingClass = kUnselectedCastingClass;
 }
 
-bool commitSpellCast(Object &actor, const Spell &spell, bool freeCast,
-                     SpellCastContext &context, bool itemCast, std::optional<SpellSelection> selection) {
-    if (!admitSpellCast(actor, spell, freeCast, itemCast, selection)) {
-        return false;
-    }
+bool commitSpellCast(Object &actor, const Spell &spell, bool freeCast, bool instant,
+                     SpellCastContext &context, std::optional<SpellSelection> selection) {
     beginSpellCastContext(context, spell);
     if (auto *creature = dyn_cast<Creature>(&actor)) {
         context.casterLevel = creature->spellCasterLevel(spell, freeCast);
-        if (!freeCast && selection) {
+        if (instant) {
+            // An instant cast pays nothing and uses up nothing; its caster
+            // keeps the casting class it last cast with.
+            context.castingClass = creature->spellCastContext().castingClass;
+        } else if (!freeCast && selection) {
             context.castingClass = selection->classIndex;
             switch (selection->sourceKind()) {
             case CastingSourceKind::SpellLikeAbility:
@@ -1002,9 +1005,7 @@ bool commitSpellCast(Object &actor, const Spell &spell, bool freeCast,
                 context.casterLevel = spell.innateCasterLevel();
                 break;
             case CastingSourceKind::Class:
-                if (!creature->commitSpellForcePointCost(spell, context.forcePointCost)) {
-                    return false;
-                }
+                creature->paySpellForcePointCost(spell);
                 context.casterLevel = creature->adjustedClassLevel(selection->classIndex);
                 break;
             }
@@ -1015,10 +1016,8 @@ bool commitSpellCast(Object &actor, const Spell &spell, bool freeCast,
             const bool knownForcePower = context.casterLevel >= 0 &&
                                          creature->attributes().hasSpell(spell.type);
             if (knownForcePower) {
-                if (!creature->commitSpellForcePointCost(spell, context.forcePointCost)) {
-                    return false;
-                }
-                context.castingClass = creature->spellCastingClass(spell);
+                creature->paySpellForcePointCost(spell);
+                context.castingClass = creature->spellCastingClass();
             } else {
                 if (!creature->readySpellLikeAbility(spell.type, context.casterLevel)) {
                     return false;
@@ -1027,6 +1026,9 @@ bool commitSpellCast(Object &actor, const Spell &spell, bool freeCast,
                 context.castingClass = kSpellLikeAbilityClass;
             }
         }
+        // Every creature cast records what its charge spends in Force points,
+        // whether or not it was paid.
+        context.forcePointCost = creature->recordedSpellForcePointCost(spell);
     } else if (isa<Placeable>(&actor)) {
         context.casterLevel = spell.innateCasterLevel();
     } else {
@@ -1050,15 +1052,17 @@ void useItemAtOnce(Game &game, Creature &user, const std::shared_ptr<Item> &item
         return;
     }
     const size_t index = static_cast<size_t>(property - properties.begin());
-    // The spell is aimed at the user and the origin, facing as the user does,
-    // and takes effect after the user's last measured spell flight.
+    // The spell is aimed at the user and the origin, and takes effect after
+    // the user's last measured spell flight. The use leaves the user's casting
+    // class and level override as they were.
     if (auto spell = user.services().game.spells.get(static_cast<SpellType>(property->subtype))) {
         SpellCastContext context;
         beginSpellCastContext(context, *spell);
+        context.castingClass = user.spellCastContext().castingClass;
         context.casterLevel = user.spellCasterLevel(*spell, true);
+        context.forcePointCost = user.recordedSpellForcePointCost(*spell);
         user.setSpellCastContext(context);
-        publishItemCastLevel(user);
-        queueSpellImpact(game, *spell, user, game.getObjectById(user.id()), Location(glm::vec3(0.0f), scriptFacingFromObject(user.getFacing())),
+        queueSpellImpact(game, *spell, user, game.getObjectById(user.id()), glm::vec3(0.0f),
                          context, item, user.lastSpellProjectileMilliseconds());
         // The impact goes out with the same release presentation as a cast.
         presentSpellRelease(user, *spell);
@@ -1102,7 +1106,7 @@ void presentFailedItemUse(Game &game, Object &user, bool noUseLeft) {
 }
 
 bool queueSpellImpact(Game &game, const Spell &spell, Object &caster,
-                      const std::shared_ptr<Object> &target, const Location &location,
+                      const std::shared_ptr<Object> &target, const glm::vec3 &position,
                       const SpellCastContext &context, const std::shared_ptr<Object> &item, uint32_t delayMilliseconds) {
     const auto module = game.module();
     if (!caster.isRuntimeLive()) {
@@ -1123,10 +1127,7 @@ bool queueSpellImpact(Game &game, const Spell &spell, Object &caster,
     impact.area = SavedObjectReference::fromRuntimeId(module->area()->id());
     impact.item = SavedObjectReference::fromRuntimeId(item ? item->id() : script::kObjectInvalid);
     impact.script = spell.impactScript;
-    impact.targetPosition = location.position();
-    impact.capturedContext = SavedSpellImpact::CapturedContext {
-        context.casterLevel, context.metaMagic, location.facing(), context.castingClass, 0,
-        caster.spellScriptContext().levelOverride};
+    impact.targetPosition = position;
     impact.finalForceCost = context.forcePointCost;
     event.payload = std::move(impact);
     const bool bound = event.bindObjectReferences(game);
@@ -1168,19 +1169,14 @@ void runSpellImpact(Game &game, const Spell &spell, Object &caster,
     std::vector<script::Argument> args {
         {script::ArgKind::Caller, script::Variable::ofObject(caster.id())},
     };
-    // The target knows the spell cast at it while the impact script runs.
+    // The caster knows the spell whose impact it is running while the impact
+    // script runs.
     struct RestoreSpell {
-        std::shared_ptr<Object> object;
+        Object &object;
         SpellType previous;
-        ~RestoreSpell() {
-            if (object) {
-                object->setSpellCast(previous);
-            }
-        }
-    } restore {target, target ? target->spellCast() : SpellType::All};
-    if (target) {
-        target->setSpellCast(spell.type);
-    }
+        ~RestoreSpell() { object.setSpellCast(previous); }
+    } restore {caster, caster.spellCast()};
+    caster.setSpellCast(spell.type);
     // The effects the caster makes carry the spell while its impact script
     // runs, and no longer.
     struct ClearEffectSpell {

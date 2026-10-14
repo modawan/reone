@@ -915,14 +915,14 @@ TEST(PazaakGameLifecycle, ConfirmedForfeitClearsBeforeOneShotContinuation) {
     EXPECT_EQ(PazaakCompletedResult::PlayerForfeited, *fixture.game.lastPazaakResult());
     EXPECT_EQ(1, continuationCount);
     EXPECT_EQ("after_pazaak", continuedScript);
-    EXPECT_EQ(fixture.opponent->id(), continuedOpponent);
+    EXPECT_EQ(script::kObjectInvalid, continuedOpponent);
 
     fixture.game.update(1.5f);
     fixture.game.abortPazaak();
     EXPECT_EQ(1, continuationCount);
 }
 
-TEST(PazaakGameLifecycle, DeletedContinuationCallerFailsSafely) {
+TEST(PazaakGameLifecycle, DeletedOpponentStillRunsContinuation) {
     GameFixture fixture;
     int continuationCount = 0;
     configure(
@@ -947,7 +947,7 @@ TEST(PazaakGameLifecycle, DeletedContinuationCallerFailsSafely) {
 
     fixture.game.update(1.5f);
     EXPECT_EQ(nullptr, fixture.game.pazaakSession());
-    EXPECT_EQ(0, continuationCount);
+    EXPECT_EQ(1, continuationCount);
     ASSERT_TRUE(fixture.game.lastPazaakResult().has_value());
     EXPECT_EQ(
         PazaakCompletedResult::PlayerForfeited,
@@ -2031,7 +2031,7 @@ TEST(PazaakK2Data, MalformedKotorTwoDeckRowFailsSafely) {
     configure(game);
     TestGameModule::useAuthoredPazaakDecks(game);
     auto table = pazaakDeckTable({
-        {"$$", "F1", "F2", "TT", "VV", "+1", "-1", "*1", "+2", "F9"},
+        {"$$", "F1", "F2", "TT", "VV", "+1", "-1", "*1", "+2", "+0"},
     });
     EXPECT_CALL(engine.resourceModule().twoDas(), get("pazaakdecks"))
         .Times(testing::AnyNumber())

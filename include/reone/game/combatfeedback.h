@@ -323,6 +323,21 @@ void addEntangleImmunityFeedback(Game &game, const std::shared_ptr<Object> &crea
  */
 void addStateImmunityFeedback(Game &game, const std::shared_ptr<Object> &creator, const Creature &target,
                               CreatureState state);
+/**
+ * The target's immunity to an effect, found by a link-immunity check: a line
+ * naming the target, chosen by the immunity type, told to a creator that is a
+ * creature and to the target, whichever is the controlled creature. A
+ * creature that is both is told twice. Blindness, deafness, silence, curses,
+ * dazing and death magic have StrRef 0; the other immunity types without a
+ * line of their own report nothing.
+ *
+ * @param game the game
+ * @param creator the creator of the effect, if it still exists
+ * @param target the immune creature
+ * @param immunity the immunity that refused the effect
+ */
+void addLinkImmunityFeedback(Game &game, const std::shared_ptr<Object> &creator, const Creature &target,
+                             ImmunityType immunity);
 
 /**
  * The spell-immunity line (1458): the target and the name of the spell it is
@@ -361,8 +376,8 @@ void addHitPointHealingFeedback(Game &game, const std::shared_ptr<Object> &creat
 void addBlindnessImmunityFeedback(Game &game, const std::shared_ptr<Object> &creator, const Creature &target);
 
 /**
- * The Force point healing line, shown when the target can receive combat
- * feedback.
+ * The Force point healing line, shown only to the player controlling the
+ * healed creature.
  *
  * @param game the game
  * @param target the healed creature

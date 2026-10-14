@@ -25,7 +25,9 @@
 #include "reone/game/messagelog.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/door.h"
 #include "reone/game/object/module.h"
+#include "reone/game/object/placeable.h"
 #include "reone/game/object/trigger.h"
 #include "reone/game/party.h"
 #include "reone/game/reputes.h"
@@ -63,15 +65,17 @@ static constexpr int kMineBlastDCToken = 6;
 
 // A door's detect DC takes the difficulty shift in full; its disarm DC and
 // both of a placeable's are bytes. A trap trigger's DCs come from its type and
-// are whole numbers. Doors and placeables can be found and disarmed unless
-// their record says otherwise; trap triggers only when it says so.
+// are whole numbers. A door's trap can be found and disarmed unless its record
+// says otherwise; a trap trigger's only when it says so. A placeable's trap is
+// neither detectable, disarmable nor one-shot unless its record says so.
 Trap::Trap(Carrier carrier) :
     _detectRule(carrier == Carrier::Door        ? DCRule::ClampedByte
                 : carrier == Carrier::Placeable ? DCRule::Byte
                                                 : DCRule::Whole),
     _disarmRule(carrier == Carrier::Trigger ? DCRule::Whole : DCRule::Byte),
-    _detectable(carrier != Carrier::Trigger),
-    _disarmable(carrier != Carrier::Trigger) {
+    _detectable(carrier == Carrier::Door),
+    _disarmable(carrier == Carrier::Door),
+    _oneShot(carrier != Carrier::Placeable) {
 }
 
 TrapTypeRow Trap::typeRow(ITwoDAs &twoDas, int type) {
@@ -177,8 +181,13 @@ void Trap::spring(Object &owner, Faction faction, const Creature &caller, bool f
         if (leader.get() == &caller) {
             reportTriggered(game);
         }
-        game.scriptRunner().run(_triggeredScript, {{script::ArgKind::Caller, script::Variable::ofObject(owner.id())},
-                                                   {script::ArgKind::EnteringObject, script::Variable::ofObject(caller.id())}});
+        // The door or placeable keeps the creature that set its trap off.
+        if (auto *door = dyn_cast<Door>(&owner)) {
+            door->setLastEnteredId(caller.id());
+        } else if (auto *placeable = dyn_cast<Placeable>(&owner)) {
+            placeable->setLastEnteredId(caller.id());
+        }
+        game.scriptRunner().run(_triggeredScript, owner.id());
         if (_oneShot) {
             _armed = false;
         }

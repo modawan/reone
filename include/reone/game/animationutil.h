@@ -42,6 +42,16 @@ bool isAnimationLooping(AnimationType animation);
 int scriptAnimationId(int constant, bool tsl, bool characterModel);
 
 /**
+ * The animations.2da row that an animation ID from 10000 a PlayAnimation
+ * constant stands for shows on a character or a creature model. The pause
+ * (10000) and the ready loop (10001) are not covered: they follow the
+ * creature's state.
+ *
+ * @return the row, or -1 when the model has none for the ID
+ */
+int scriptAnimationRow(int id, bool characterModel);
+
+/**
  * The animation ID plays as an overlay on the animation beneath, at its
  * natural speed.
  */
@@ -63,6 +73,8 @@ bool overlayFadesOut(int id);
 struct LoopTransition {
     int clip {-1};
     int follow {-1};
+    /** The transition cuts the running one-shot short. */
+    bool cutsOneShot {false};
 };
 
 /**

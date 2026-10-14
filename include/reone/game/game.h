@@ -287,6 +287,8 @@ public:
     MessageLog &messageLog() { return _messageLog; }
     FloatingText &floatingText() { return _floatingText; }
     ScriptRunner &scriptRunner() { return *_scriptRunner; }
+    /** The next place in the order in which creatures join their factions. */
+    uint32_t nextFactionJoinOrder() { return ++_factionJoinOrder; }
     Map &map() { return *_map; }
     script::IRoutines &routines() { return *_routines; }
 
@@ -395,8 +397,20 @@ public:
         std::function<void()> onConfirm = {});
     /** Close an open in-game popup as its key would. */
     void closeMessagePopup();
-    /** Pause play for a situation the player enabled in the autopause options. */
+    /**
+     * Pause play for a situation the player enabled in the autopause options.
+     * In the window after a door is opened, unlocked or bashed, the pause is
+     * deferred instead.
+     *
+     * @param reason the situation
+     */
     void requestAutoPause(AutoPauseReason reason);
+    /**
+     * Opens the window in which the next autopause waits a second, unless a
+     * deferred autopause is already waiting. Opening, unlocking or bashing a
+     * door opens it.
+     */
+    void delayNextEnemyAutoPause();
     const AutoPauseOptions &autoPauseOptions() const { return _options.game.autoPause; }
     bool isAutoPaused() const { return _autoPaused; }
     void setAutoPauseOptions(const AutoPauseOptions &options);
@@ -758,7 +772,7 @@ public:
     void clearOneAction();
     /**
      * Drop the leader's most recently scheduled round entry; with none
-     * pending, clear its actions.
+     * pending, force-clear its actions: only a cast not yet committed stays.
      */
     void clearOneCombatAction(Creature &leader);
     /**
@@ -784,7 +798,8 @@ public:
     /**
      * The bash menu entry, before the attack is sent: the first time through
      * its tutorial window. A door is bashed after the basher's actions and
-     * pending round entries are dropped. Returns whether the attack goes out.
+     * pending round entries are dropped, and opens the autopause delay
+     * window. Returns whether the attack goes out.
      */
     bool prepareMenuBash(Creature &basher, const std::shared_ptr<Object> &target);
     /**
@@ -904,6 +919,8 @@ public:
         return newObject<Waypoint>(std::move(sceneName), *this, _services);
     }
     std::shared_ptr<Waypoint> newWaypoint(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
+    /** A waypoint made from its blueprint; one whose blueprint is missing is made all the same. */
+    std::shared_ptr<Waypoint> newWaypointFromBlueprint(const std::string &resRef);
 
     inline std::shared_ptr<Trigger> newTrigger(std::string sceneName = kSceneMain) {
         return newObject<Trigger>(std::move(sceneName), *this, _services);
@@ -949,6 +966,8 @@ public:
         return newObject<Store>(std::move(sceneName), *this, _services);
     }
     std::shared_ptr<Store> newStore(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
+    /** A store made from its blueprint; one whose blueprint is missing is made all the same. */
+    std::shared_ptr<Store> newStoreFromBlueprint(const std::string &resRef);
 
     void prepareSavedRuntimeNamespace(const resource::Gff &ifo, const SerializedIdentityContext &identityContext);
     void restoreWorldTime(
@@ -978,6 +997,8 @@ public:
     void queueEffectRemoval(Object &target, EffectId id);
     /** Destroy the target after the delay, replacing a destruction already pending for it. */
     void queueObjectDestruction(Object &target, float delay);
+    /** Destroy the target after the delay, leaving a destruction already pending for it. */
+    void postObjectDestruction(Object &target, float delay);
     void cancelObjectDestruction(Object &target);
     /** World time after a script delay, or none when the delay is dropped. */
     std::optional<uint64_t> delayedWorldTime(float seconds) const;
@@ -1478,6 +1499,23 @@ private:
 
     // END Tutorial windows
     float _partyKilledAutoPauseDelay {0.0f};
+    /** Seconds left in which a requested autopause is deferred. */
+    float _autoPauseDelayWindow {0.0f};
+    /** Seconds until the deferred autopause pauses; none is waiting at 0 or less. */
+    float _deferredAutoPauseDelay {0.0f};
+    /** The reason of the deferred autopause. */
+    AutoPauseReason _deferredAutoPauseReason {AutoPauseReason::EnemySighted};
+
+    /**
+     * Pauses for \p reason over live play that is not paused already, or
+     * defers the pause while the delay window is open.
+     *
+     * @param reason the situation, already allowed by the autopause options
+     */
+    void autoPause(AutoPauseReason reason);
+    /** Counts the deferred autopause down and pauses when it is due, or else counts the delay window down. */
+    void updateDeferredAutoPause(float frameTime);
+
     bool _enemySighted {false};
     float _enemySightingHold {0.0f};
     bool _mineSighted {false};
@@ -1529,6 +1567,7 @@ private:
 
     static constexpr uint32_t kFirstRuntimeObjectId = 2; // ids 0 and 1 are reserved
     uint32_t _nextObjectId {kFirstRuntimeObjectId};
+    uint32_t _factionJoinOrder {0};
     std::map<uint32_t, std::shared_ptr<Object>> _objectById;
     // A numeric runtime ID names at most one incarnation during a runtime
     // session. Saved cursors and developer-specified IDs may move allocation
@@ -1634,7 +1673,6 @@ private:
 
     std::unique_ptr<PazaakSession> _pazaakSession;
     std::optional<PazaakCompletedResult> _lastPazaakResult;
-    RuntimeObjectRef<Object> _pazaakContinuationCaller;
     Screen _pazaakOriginScreen {Screen::None};
     bool _pazaakGUIsReady {false};
     bool _pazaakDevelopmentLaunch {false};
@@ -1891,7 +1929,6 @@ private:
     bool loadPazaakGUIs();
     bool startPazaakFlow(
         PazaakSessionParams params,
-        const std::shared_ptr<Object> &continuationCaller,
         bool developmentLaunch);
     bool startDevelopmentPazaak(std::string opponentName, int maximumWager = 0);
     void finishPazaak(PazaakCompletedResult result);

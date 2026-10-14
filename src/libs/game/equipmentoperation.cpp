@@ -68,7 +68,8 @@ bool canRunEquipmentCommand(Game &game, const Creature &subject) {
     return !subject.isDead() && (!game.party().isMember(subject) || subject.currentHitPoints() > 0);
 }
 
-// A weapon that newly fills a primary hand is drawn unless the change is instant.
+// A primary hand whose weapon changes, filled or emptied, is drawn unless the
+// change is instant.
 static void presentHandChange(Creature &subject, int slot, bool instant) {
     if (instant || (slot != InventorySlots::rightWeapon && slot != InventorySlots::leftWeapon)) {
         return;
@@ -170,6 +171,7 @@ static EquipmentOperationOutcome equipFrom(
 }
 
 // Removing a main-hand item promotes a weapon held in the paired off-hand slot.
+// A hand left with another weapon, or with none, is drawn anew.
 static EquipmentOperationOutcome unequipInto(
     Game &game, Creature &subject, const std::shared_ptr<Item> &item, Object &repository, bool instant) {
     if (!item->isEquipped() || item->owner() != subject.id()) {
@@ -199,8 +201,8 @@ static EquipmentOperationOutcome unequipInto(
         if (!moved || !subject.equip(slot, moved)) {
             return EquipmentOperationOutcome::Failed;
         }
-        presentHandChange(subject, slot, instant);
     }
+    presentHandChange(subject, slot, instant);
     return EquipmentOperationOutcome::Applied;
 }
 

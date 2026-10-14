@@ -17,28 +17,30 @@
 
 #pragma once
 
-#include "reone/audio/clip.h"
+#include <map>
+#include <memory>
+#include <string>
+#include <unordered_map>
 
 namespace reone {
 
 namespace resource {
 
-class AudioClips;
 class TwoDAs;
 
 } // namespace resource
 
 namespace game {
 
+/** A footstepsounds.2da row: the step sounds of one footstep type. */
 struct FootstepTypeSounds {
-    std::vector<std::shared_ptr<audio::AudioClip>> dirt;
-    std::vector<std::shared_ptr<audio::AudioClip>> grass;
-    std::vector<std::shared_ptr<audio::AudioClip>> stone;
-    std::vector<std::shared_ptr<audio::AudioClip>> wood;
-    std::vector<std::shared_ptr<audio::AudioClip>> water;
-    std::vector<std::shared_ptr<audio::AudioClip>> carpet;
-    std::vector<std::shared_ptr<audio::AudioClip>> metal;
-    std::vector<std::shared_ptr<audio::AudioClip>> leaves;
+    /**
+     * The row's cells by lower-case column name. A step sound's column is a
+     * surface name followed by its variant, 0 to 2: dirt0, puddles2.
+     */
+    std::map<std::string, std::string> cells;
+    /** How far a step's pitch may stray: up by as much, or down by half as much. */
+    float pitchOffset {0.0f};
 };
 
 class IFootstepSounds {
@@ -52,10 +54,7 @@ public:
 
 class FootstepSounds : public IFootstepSounds {
 public:
-    FootstepSounds(
-        resource::AudioClips &audioClips,
-        resource::TwoDAs &twoDas) :
-        _audioClips(audioClips),
+    FootstepSounds(resource::TwoDAs &twoDas) :
         _twoDas(twoDas) {
     }
 
@@ -73,7 +72,6 @@ public:
     }
 
 private:
-    resource::AudioClips &_audioClips;
     resource::TwoDAs &_twoDas;
 
     std::unordered_map<uint32_t, std::shared_ptr<FootstepTypeSounds>> _objects;

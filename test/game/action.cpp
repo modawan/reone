@@ -91,6 +91,8 @@ TEST(CombatRoundReferences, retired_target_prunes_round_and_cancels_without_dama
     EXPECT_TRUE(action->isCancelled());
     EXPECT_TRUE(action->isCompleted());
     EXPECT_EQ(12, target->currentHitPoints());
+    // The attacker's round runs on to its end.
+    game.combat().update(3.1f);
     EXPECT_EQ(0u, game.combat().roundCount());
 }
 
@@ -221,6 +223,9 @@ TEST(CombatRoundReferences, completed_or_dequeued_actions_do_not_keep_rounds_ali
     game.combat().update(0.0f);
 
     EXPECT_TRUE(cancelled->isCompleted());
+    // A cancelled command leaves its round running to its end too.
+    EXPECT_EQ(1u, game.combat().roundCount());
+    game.combat().update(3.1f);
     EXPECT_EQ(0u, game.combat().roundCount());
 }
 

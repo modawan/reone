@@ -47,6 +47,7 @@ void UseFeatAction::execute(std::shared_ptr<Action> self, Object &actor, float d
     _taken = true;
     // A creature carrying out an attack makes no new combat decision.
     attacker.refreshCombatDecisionTimer();
+    _game.party().setCombatMessage(attacker, _game.party().idleCombatMessage());
     if (!runtimeDependenciesLive()) {
         cancel(self, actor);
         markCancelled();
@@ -209,6 +210,10 @@ bool UseFeatAction::cancel(std::shared_ptr<Action> self, Object &actor) {
     _attacks.discardPending();
     _attacks.clearHistory();
     attacker.clearCurrentAttackTarget();
+    // Clearing a physical attack forgets its attempted target as well.
+    if (isPhysicalAttackFeat(_feat)) {
+        attacker.setAttemptedAttackTarget(script::kObjectInvalid);
+    }
     finish(attacker);
     return true;
 }

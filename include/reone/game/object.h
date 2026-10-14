@@ -110,6 +110,8 @@ public:
     void deserialize(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
+    /** Places the object at a record's position, facing its orientation or bearing. */
+    void deserializePlacement(const resource::Gff &gff);
 
     virtual void update(float dt);
     virtual void damage(
@@ -316,6 +318,13 @@ public:
     EffectPackageApplicationResult applyEffectPackage(const std::vector<EffectInstance> &members);
 
     const std::deque<EffectInstance> &effects() const { return _effects; }
+    /**
+     * Presents a visual shown once on the object for \p seconds. The visual
+     * is not one of the object's effects: it runs and ends on its own.
+     */
+    void addShownVisual(const EffectInstance &visual, float seconds);
+    /** The visuals shown once on the object that are still presenting, oldest first. */
+    std::vector<std::reference_wrapper<const EffectInstance>> shownVisuals() const;
     /** Find the canonical applied record for an exact executable payload. */
     EffectInstance *findEffectInstance(const Effect &effect);
     /** The applied effect record of \p applicationOrder, if it is still applied. */
@@ -394,6 +403,11 @@ public:
     bool addActionBefore(const Action &parent, std::shared_ptr<Action> action);
     /** Drops the actions queued directly behind one, while they match. */
     void removeActionsBehind(const Action &action, const std::function<bool(const Action &)> &matches);
+    /**
+     * Clears the action groups of the queued actions \p matches picks: each
+     * clearable action of such a group is cancelled and removed.
+     */
+    void cancelActionGroups(const std::function<bool(const Action &)> &matches);
     bool hasOrdinaryActionsPending() const { return !_actions.nodes.empty(); }
     uint32_t currentSerializedActionId() const {
         return _actions.nodes.empty() ? static_cast<uint32_t>(SavedActionType::Invalid) : _actions.nodes.front()->actionId;
@@ -432,7 +446,8 @@ public:
     /**
      * Record \p actor as the last hostile actor. Unless \p force is set, a
      * plot receiver, a non-creature, a dead actor or the receiver itself
-     * clears it, and a member of the receiver's own faction leaves it unchanged.
+     * clears it, and an id that names no object, or a member of the
+     * receiver's own faction, leaves it unchanged.
      */
     void setLastHostileActor(uint32_t actor, bool force = false);
     int forceAlwaysUpdate() const { return _forceAlwaysUpdate; }
@@ -605,6 +620,12 @@ protected:
     Area *_spatialArea {nullptr};
     Room *_room {nullptr};
     std::deque<EffectInstance> _effects;
+    /** A visual shown once on the object, and how long it has left to present. */
+    struct ShownVisual {
+        EffectInstance visual;
+        float remaining {0.0f};
+    };
+    std::vector<ShownVisual> _shownVisuals;
     uint64_t _nextEffectApplicationOrder {1};
     /** While a linked package is applied: nothing lasting has been kept yet. */
     bool _linkAwaitingLastingEffect {false};
@@ -648,6 +669,8 @@ protected:
     /** The round hold of a creature owning no round, in seconds, and who holds it. */
     float _savedOwnerHold {0.0f};
     SavedObjectReference _savedOwnerHoldBy;
+    /** The creature's saved rounds that no queued command carries. */
+    std::vector<SavedCreatureRound> _savedRounds;
     SerializedIdentityContext _savedRuntimeIdentityContext;
     std::vector<bool> _savedActionReferencesBound;
     bool _savedRuntimeParsed {false};
@@ -703,6 +726,8 @@ protected:
     /** Runs an effect's admission and keeps it in the effect list, ordered by saved type. */
     bool admitEffect(EffectInstance effect);
     void updateEffects(float dt);
+    /** Runs each visual shown once, and ends those whose time is up. */
+    void updateShownVisuals(float dt);
     virtual void onEffectsRestored() {}
 
     int applyDamageToHitPoints(int amount, int currentHitPoints);

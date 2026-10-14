@@ -90,9 +90,6 @@ public:
     int totalIncrease(int cap) const;
     int totalDecrease(int cap) const;
 
-    std::map<int, int> increasesBySubtype(int cap) const;
-    std::map<int, int> decreasesBySubtype(int cap) const;
-
 private:
     using Key = std::pair<EffectSourceKey, int>;
     using Values = std::map<Key, int>;
@@ -103,9 +100,6 @@ private:
         int subtype,
         int amount);
     static int cappedTotal(const Values &values, int cap);
-    static std::map<int, int> cappedBySubtype(
-        const Values &values,
-        int cap);
 
     Values _increases;
     Values _decreases;

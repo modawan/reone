@@ -806,7 +806,9 @@ void removeLinkedBlindness(Object &object, bool removeRoot) {
     }
 }
 
-void reapplyBlindness(Object &object) {
+// Removes and applies again each blinding of the object. With \p freshId each
+// is applied as a new effect, under an id of its own.
+void reapplyBlindness(Object &object, bool freshId) {
     // The walk goes on by index: removing and adding a blinding again can
     // change which blinding is next.
     for (size_t index = firstBlindness(object); index < object.effects().size(); ++index) {
@@ -821,6 +823,9 @@ void reapplyBlindness(Object &object) {
             continue;
         }
         effect.restoring = false;
+        if (freshId) {
+            effect.id = kUnassignedEffectId;
+        }
         object.applyEffect(std::move(effect));
     }
 }
@@ -832,8 +837,10 @@ void removeVisibilityCounter(Object &object, const EffectInstance &instance, Eff
         return;
     }
     creature->restoreVisibilityCounter(type, counter, instance.applicationOrder, trueSeeingGivesUltravision);
+    // Ultravision's blindings come back as new effects; True Seeing's keep
+    // their ids.
     if (type == EffectType::Ultravision || type == EffectType::TrueSeeing) {
-        reapplyBlindness(object);
+        reapplyBlindness(object, type == EffectType::Ultravision);
     }
     creature->refreshVisibilityPerception();
 }

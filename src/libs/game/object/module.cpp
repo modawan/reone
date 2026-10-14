@@ -144,9 +144,14 @@ std::shared_ptr<Spell> Module::mineForcePower(const Trigger &trigger, const Crea
     return nullptr;
 }
 
-// Mine kits the leader may set on a locked door or placeable (TSL).
+// Mine kits the leader may set on a locked door or placeable (TSL): trap kits
+// that are not plot items, whose first usable property (one that activates the
+// item, a security spike, a trap or a computer spike) is a mine type that can
+// be set on an object (types 3 to 8, 14 to 16, 19 to 22, 25 and 26).
 static void addMineKitActions(std::vector<ContextAction> &actions, Game &game, const Area &area,
                               const std::shared_ptr<Creature> &leader) {
+    static constexpr uint32_t kObjectMineTypes = 0x679c1f8;
+    static constexpr int kLastObjectMineType = 26;
     if (!game.isTSL() || !leader->attributes().hasSkill(SkillType::Demolitions)) {
         return;
     }
@@ -158,7 +163,20 @@ static void addMineKitActions(std::vector<ContextAction> &actions, Game &game, c
         return;
     }
     for (const auto &item : inventory->items()) {
-        if (item->isMineKit()) {
+        if (item->plotFlag() || item->itemType() != Item::kTrapKitItemType) {
+            continue;
+        }
+        const auto &properties = item->properties();
+        auto property = std::find_if(properties.begin(), properties.end(), [](const Item::PropertyEntry &entry) {
+            const ItemProperty type = entry.type();
+            return type == ItemProperty::ActivateItem || type == ItemProperty::SecuritySpike ||
+                   type == ItemProperty::Trap || type == ItemProperty::ComputerSpike;
+        });
+        if (property == properties.end()) {
+            continue;
+        }
+        const int mineType = property->subtype;
+        if (mineType <= kLastObjectMineType && ((kObjectMineTypes >> mineType) & 1) != 0) {
             actions.push_back(ContextAction(SkillType::Demolitions, 0, item));
         }
     }
@@ -286,6 +304,7 @@ void Module::loadInfo(const resource::generated::IFO &ifo) {
     _info.onAcquireItem = boost::to_lower_copy(ifo.Mod_OnAcquirItem);
     _info.onUnacquireItem = boost::to_lower_copy(ifo.Mod_OnUnAqreItem);
     _info.onPlayerDeath = boost::to_lower_copy(ifo.Mod_OnPlrDeath);
+    _info.onClientEnter = boost::to_lower_copy(ifo.Mod_OnClientEntr);
     _onHeartbeat = boost::to_lower_copy(ifo.Mod_OnHeartbeat);
 
     _info.dawnHour = ifo.Mod_DawnHour;
@@ -369,23 +388,36 @@ void Module::signalLoaded() {
                            Event(static_cast<int>(SavedSignalEventType::ModuleLoaded), {static_cast<int32_t>(_game.isLoadingFromSaveGame())}, {}, {}, {}));
 }
 
-// The load script runs with the load-from-save answer the event carries. The
-// arrival of the creature the player controls is then announced to the area
-// like any other entry, with the same answer, unless the load script has sent
-// the party on to another module.
+// The load script runs once the load is over, so it is never told the module
+// came from a save, and neither is the module's client-enter script that runs
+// next for the player character. The arrival of the creature the player
+// controls is then announced to the area like any other entry, with the
+// load-from-save answer the event carries, unless the load script has sent the
+// party on to another module.
 void Module::receiveLoadedSignal(bool loadFromSaveGame) {
     struct LoadFromSaveScope {
         Game &game;
         bool live;
         ~LoadFromSaveScope() { game.setLoadingFromSaveGame(live); }
     } scope {_game, _game.isLoadingFromSaveGame()};
-    _game.setLoadingFromSaveGame(loadFromSaveGame);
+    _game.setLoadingFromSaveGame(false);
     runOnLoadScript();
     if (_game.isModuleTransitionScheduled()) {
         return;
     }
+    if (auto player = _game.party().player()) {
+        receiveClientEntered(*player);
+    }
+    _game.setLoadingFromSaveGame(loadFromSaveGame);
     if (auto leader = _game.party().getLeader()) {
         _area->signalEntered(*leader);
+    }
+}
+
+void Module::receiveClientEntered(const Creature &player) {
+    _lastEnteredId = player.id();
+    if (!_info.onClientEnter.empty()) {
+        _game.scriptRunner().run(_info.onClientEnter, id());
     }
 }
 
@@ -548,7 +580,14 @@ void Module::onCreatureClick(const std::shared_ptr<Creature> &creature, bool sou
         if (!_game.canClick()) {
             return;
         }
-        partyLeader->clearAllActions();
+        // The clicked creature drops everything it was doing and, unless it
+        // keeps its facing or cannot be commanded, turns to the leader. The
+        // leader drops everything too and goes to talk.
+        creature->clearAllActions(true);
+        if (!creature->isNotReorienting() && creature->isCommandable()) {
+            creature->face(*partyLeader);
+        }
+        partyLeader->clearAllActions(true);
         partyLeader->addAction(_game.newAction<StartConversationAction>(creature, ""));
     }
 }
@@ -570,12 +609,14 @@ void Module::onDoorClick(const std::shared_ptr<Door> &door) {
             signalFailToOpen(*door, *partyLeader);
             return;
         }
+        door->setLastEnteredId(partyLeader->id());
         _game.scheduleModuleTransition(door->linkedToModule(), door->linkedTo());
         return;
     }
     if (!door->isOpen()) {
         std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
         partyLeader->addAction(_game.newAction<OpenDoorAction>(door));
+        _game.delayNextEnemyAutoPause();
     }
 }
 
@@ -935,33 +976,24 @@ void Module::deliverSpellImpact(const SavedEventRecord &savedEvent, Object &targ
     auto spell = *_services.game.spells.get(static_cast<SpellType>(impact->spellId));
     spell.impactScript = impact->script;
     auto spellTarget = impact->target.boundObject();
-    // Uncaptured spell events update spell, target, and cost while retaining
-    // the owner's metamagic and casting class. Only captured context replaces those
-    // values.
+    // The event updates the spell and its cost; the impact otherwise reads
+    // the caster as it is now: its caster level, metamagic, casting class,
+    // level override and facing.
     SpellCastContext context = caster->spellCastContext();
     context.spellId = impact->spellId;
     context.forcePointCost = impact->finalForceCost;
-    float targetFacing = scriptFacingFromObject(caster->getFacing());
-    if (impact->capturedContext) {
-        context.casterLevel = impact->capturedContext->casterLevel;
-        context.metaMagic = impact->capturedContext->metaMagic;
-        context.castingClass = impact->capturedContext->castingClass;
-        targetFacing = impact->capturedContext->targetFacing;
-        // A captured absence clears a later item's override.
-        // Uncaptured events retain the existing owner context.
-        caster->spellScriptContext().levelOverride = impact->capturedContext->levelOverride;
-    }
+    const float targetFacing = scriptFacingFromObject(caster->getFacing());
     auto position = impact->targetPosition;
     if (spellTarget && spellTarget->type() < ObjectType::Module &&
         caster->spatialArea() && caster->sharesSpatialArea(*spellTarget)) {
         position = spellTarget->position();
     }
     const auto item = impact->item.boundObject();
-    // Uncaptured item events use the zero-initialized item level.
-    // Captured events carry that value explicitly.
+    // An item's on-hit impact casts at the event's item level, which a spell
+    // impact event does not carry: zero.
     const std::optional<int> overrideLevel =
         savedEvent.eventId == static_cast<uint32_t>(SavedEventType::ItemOnHitSpellImpact)
-            ? std::optional<int>(impact->capturedContext ? impact->capturedContext->itemCasterLevel : 0)
+            ? std::optional<int>(0)
             : std::nullopt;
     // A creature's on-hit impact measures its flight again, on the default
     // path, to where the impact lands.
@@ -1212,16 +1244,8 @@ void Module::update(float dt) {
     // once a movie starts, the rest of the update waits for the next one
     // after the movie.
     auto held = [this]() { return static_cast<bool>(_game.movie()); };
-    // Process the module object's own action queue so commands assigned to
-    // the module by its scripts execute. Delayed commands are module events.
-    Object::update(dt);
-    if (held()) {
-        return;
-    }
-    updateStampedHeartbeat(_onHeartbeat);
-    if (held()) {
-        return;
-    }
+    // Due events are delivered before the world moves and again once it has
+    // moved. The module's own actions and heartbeat come last.
     dispatchDueSavedEvents();
     if (held()) {
         return;
@@ -1236,6 +1260,16 @@ void Module::update(float dt) {
         return;
     }
     dispatchDueSavedEvents();
+    if (held()) {
+        return;
+    }
+    // Process the module object's own action queue so commands assigned to
+    // the module by its scripts execute. Delayed commands are module events.
+    Object::update(dt);
+    if (held()) {
+        return;
+    }
+    updateStampedHeartbeat(_onHeartbeat);
 }
 
 // Item events (activated, acquired and lost) record their objects for the
@@ -1308,10 +1342,18 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
     case ObjectType::Creature: {
         auto creature = std::static_pointer_cast<Creature>(object);
         if (isHostileToPartyLeader(*creature)) {
-            actions.push_back(ContextAction(ActionType::AttackObject));
+            // In a restricted area neither the attack nor the combat feats are
+            // offered.
+            const bool restricted = _area->playerRestrictMode();
+            if (!restricted) {
+                actions.push_back(ContextAction(ActionType::AttackObject));
+            }
             auto weapon = leader->getEquippedItem(InventorySlots::rightWeapon);
             // Each attack feat chain offers the highest rank the leader holds.
             auto offerChain = [&](FeatType master, FeatType improved, FeatType basic) {
+                if (restricted) {
+                    return;
+                }
                 for (FeatType feat : {master, improved, basic}) {
                     if (leader->hasEffectiveFeat(feat)) {
                         actions.push_back(ContextAction(feat));
@@ -1327,7 +1369,7 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
                 offerChain(FeatType::MasterCriticalStrike, FeatType::ImprovedCriticalStrike, FeatType::CriticalStrike);
                 offerChain(FeatType::WhirlwindAttack, FeatType::ImprovedFlurry, FeatType::Flurry);
                 offerChain(FeatType::MasterPowerAttack, FeatType::ImprovedPowerAttack, FeatType::PowerAttack);
-                if (_game.isTSL() && leader->hasEffectiveFeat(FeatType::ShieldBreaker)) {
+                if (!restricted && _game.isTSL() && leader->hasEffectiveFeat(FeatType::ShieldBreaker)) {
                     actions.push_back(ContextAction(FeatType::ShieldBreaker));
                 }
             }

@@ -412,18 +412,18 @@ std::shared_ptr<TwoDA> makeLightsaberBaseItemsTable() {
     TwoDA::Builder builder;
     builder.columns({"maxattackrange", "crithitmult", "critthreat", "damageflags", "dietoroll",
                      "equipableslots", "itemclass", "numdice", "weapontype", "weaponwield",
-                     "ammunitiontype", "bodyvar"});
+                     "ammunitiontype", "bodyvar", "rangedweapon"});
     for (int i = 0; i <= 12; ++i) {
         if (i == 1) {
-            builder.row({"1.5", "2", "2", "2", "4", "48", "w_stunbaton", "1", "1", "1", "-1", ""});
+            builder.row({"1.5", "2", "2", "2", "4", "48", "w_stunbaton", "1", "1", "1", "-1", "", ""});
         } else if (i == 3) {
-            builder.row({"1.5", "2", "2", "2", "6", "48", "w_vbroswrd", "1", "1", "2", "-1", ""});
+            builder.row({"1.5", "2", "2", "2", "6", "48", "w_vbroswrd", "1", "1", "2", "-1", "", ""});
         } else if (i == 8) {
-            builder.row({"1.5", "2", "2", "2", "8", "48", "w_lghtsbr", "1", "1", "2", "-1", ""});
+            builder.row({"1.5", "2", "2", "2", "8", "48", "w_lghtsbr", "1", "1", "2", "-1", "", ""});
         } else if (i == 12) {
-            builder.row({"23", "2", "2", "2", "6", "48", "w_blstrpstl", "1", "4", "4", "-1", ""});
+            builder.row({"23", "2", "2", "2", "6", "48", "w_blstrpstl", "1", "4", "4", "-1", "", "1"});
         } else {
-            builder.row({"", "", "", "", "", "", "", "", "", "", "", ""});
+            builder.row({"", "", "", "", "", "", "", "", "", "", "", "", ""});
         }
     }
     return std::shared_ptr<TwoDA>(builder.build());
@@ -2835,7 +2835,7 @@ TEST(LinkedDoorTransition, should_derive_threshold_from_closed_dwk_and_follow_do
 
     EXPECT_TRUE(trigger->isActive());
     EXPECT_FALSE(door->isSelectable());
-    EXPECT_TRUE(trigger->isIn(glm::vec2(door->position())));
+    EXPECT_TRUE(trigger->isIn(door->position()));
     EXPECT_EQ(scheduledTransition(engine, game), std::make_pair(std::string(), std::string()));
 
     door->close();
@@ -3355,9 +3355,10 @@ TEST(LinkedDoorTransition, should_allow_normal_close_action_and_reactivate_when_
 
 namespace {
 
-// Every K1 and K2 door model carries these five animations. The three resting
-// poses are zero length in the shipped models; makeAnimation gives each a
-// length of one second, which is what lets the transitions be stepped.
+// A door model has the three resting poses and an opening and a closing for
+// each side. The resting poses are zero length in the shipped models;
+// makeAnimation gives each a length of one second, which is what lets the
+// transitions be stepped.
 struct DoorAnimations {
     bool opening {true};
     bool closing {true};
@@ -3370,9 +3371,11 @@ std::shared_ptr<graphics::Model> makeDoorModel(DoorAnimations present) {
         makeAnimation("opened2")};
     if (present.opening) {
         animations.push_back(makeAnimation("opening1"));
+        animations.push_back(makeAnimation("opening2"));
     }
     if (present.closing) {
         animations.push_back(makeAnimation("closing1"));
+        animations.push_back(makeAnimation("closing2"));
     }
     return makeModel("testdoor", std::move(animations));
 }
@@ -3509,7 +3512,7 @@ TEST(DoorLifecycle, should_keep_blocking_the_doorway_until_the_open_completes) {
     EXPECT_EQ(DoorState::Closed, door->state());
     EXPECT_FALSE(door->isOpen());
     EXPECT_TRUE(door->isOpening());
-    EXPECT_EQ("opening1", doorPose(*door));
+    EXPECT_EQ("opening2", doorPose(*door));
     EXPECT_TRUE(doorwayBlocks(*door));
     EXPECT_FALSE(door->walkmeshOpen1()->isEnabled());
     EXPECT_FALSE(door->walkmeshOpen2()->isEnabled());
@@ -3534,11 +3537,11 @@ TEST(DoorLifecycle, should_keep_blocking_the_doorway_until_the_open_completes) {
     stepDoor(*door, 0.4f);
     EXPECT_FALSE(door->isOpening());
     EXPECT_FALSE(doorwayBlocks(*door));
-    EXPECT_TRUE(door->walkmeshOpen1()->isEnabled());
-    EXPECT_FALSE(door->walkmeshOpen2()->isEnabled());
+    EXPECT_FALSE(door->walkmeshOpen1()->isEnabled());
+    EXPECT_TRUE(door->walkmeshOpen2()->isEnabled());
     EXPECT_TRUE(door->isOpen());
-    EXPECT_EQ(DoorState::Opened1, door->state());
-    EXPECT_EQ("opened1", doorPose(*door));
+    EXPECT_EQ(DoorState::Opened2, door->state());
+    EXPECT_EQ("opened2", doorPose(*door));
 }
 
 // C. The mirror image. A door that is swinging shut has not sealed the doorway
@@ -3640,9 +3643,9 @@ TEST(DoorLifecycle, should_discard_a_pending_close_when_the_door_reopens) {
     }
 
     EXPECT_EQ(DoorTransition::None, door->transition());
-    EXPECT_EQ(DoorState::Opened1, door->state());
-    EXPECT_TRUE(door->walkmeshOpen1()->isEnabled());
-    EXPECT_EQ("opened1", doorPose(*door));
+    EXPECT_EQ(DoorState::Opened2, door->state());
+    EXPECT_TRUE(door->walkmeshOpen2()->isEnabled());
+    EXPECT_EQ("opened2", doorPose(*door));
 }
 
 // F. A door with nothing to animate has to arrive anyway, in both directions.
@@ -3658,8 +3661,8 @@ TEST(DoorLifecycle, should_open_immediately_when_there_is_no_opening_animation) 
     EXPECT_FALSE(door->isOpening());
     EXPECT_FALSE(doorwayBlocks(*door));
     EXPECT_TRUE(door->isOpen());
-    EXPECT_EQ(DoorState::Opened1, door->state());
-    EXPECT_EQ("opened1", doorPose(*door));
+    EXPECT_EQ(DoorState::Opened2, door->state());
+    EXPECT_EQ("opened2", doorPose(*door));
 }
 
 TEST(DoorLifecycle, should_block_immediately_when_there_is_no_closing_animation) {
@@ -4546,9 +4549,8 @@ TEST(CombatVisibility, true_seeing_gain_and_loss_refresh_effective_sight) {
     EXPECT_EQ(before + 2, fixture.noticeRuns());
 }
 
-// The invisibility edge leaves a queued physical attack; the attack itself
-// stops once its target goes unseen.
-TEST(CombatVisibility, becoming_invisible_keeps_queued_physical_attacks) {
+// The invisibility edge drops a queued physical attack on the target.
+TEST(CombatVisibility, becoming_invisible_drops_queued_physical_attacks) {
     VisibilityFixture fixture;
     TestGameModule::updatePerception(*fixture.area);
     auto action = fixture.game.newAction<AttackObjectAction>(fixture.target);
@@ -4559,8 +4561,8 @@ TEST(CombatVisibility, becoming_invisible_keeps_queued_physical_attacks) {
         std::make_shared<InvisibilityEffect>(InvisibilityType::Normal),
         DurationType::Permanent);
 
-    EXPECT_FALSE(action->isCancelled());
-    EXPECT_EQ(1u, fixture.observer->actions().size());
+    EXPECT_TRUE(action->isCancelled());
+    EXPECT_EQ(0u, fixture.observer->actions().size());
 }
 
 TEST(CombatVisibility, retired_subject_does_not_remain_perceived) {
@@ -4751,16 +4753,15 @@ TEST(CreatureBlockedByDoor, should_ignore_obstructions_that_are_not_doors) {
     EXPECT_EQ(0, fixture.scriptRuns("k_def_blocked01"));
 }
 
-// Invoke GetBlockingDoor with the arguments a blocked-event run would carry.
+// Invoke GetBlockingDoor as the given caller.
 uint32_t callGetBlockingDoor(Routines &routines, const script::ExecutionContext &execution) {
     script::ExecutionContext copy(execution);
     return routines.get(336).invoke({}, copy).objectId;
 }
 
-script::ExecutionContext blockedEventContext(uint32_t callerId, uint32_t blockingDoorId) {
+script::ExecutionContext blockedEventContext(uint32_t callerId) {
     script::ExecutionContext execution;
     execution.args.emplace_back(script::ArgKind::Caller, script::Variable::ofObject(callerId));
-    execution.args.emplace_back(script::ArgKind::BlockingDoor, script::Variable::ofObject(blockingDoorId));
     return execution;
 }
 
@@ -4770,7 +4771,11 @@ TEST(BlockingDoorRoutines, get_blocking_door_reports_the_door_captured_by_the_ev
     Routines routines(GameID::KotOR, &fixture.game, &fixture.engine.services());
     routines.init();
 
-    auto execution = blockedEventContext(npc->id(), fixture.door->id());
+    {
+        ScopedWalkObstruction obstruction(*fixture.door);
+        navigationStep(*npc, kFarDestination);
+    }
+    auto execution = blockedEventContext(npc->id());
 
     EXPECT_EQ(fixture.door->id(), callGetBlockingDoor(routines, execution));
 }
@@ -4789,7 +4794,7 @@ TEST(BlockingDoorRoutines, get_blocking_door_reports_invalid_without_a_captured_
     EXPECT_EQ(script::kObjectInvalid, callGetBlockingDoor(routines, execution));
 }
 
-TEST(BlockingDoorRoutines, get_blocking_door_keeps_the_captured_door_when_the_obstruction_moves_on) {
+TEST(BlockingDoorRoutines, get_blocking_door_follows_the_latest_blocked_event) {
     BlockedDoorFixture fixture;
     auto npc = fixture.addCreature("k_def_blocked01");
     fixture.countScriptRuns("k_def_blocked01");
@@ -4804,7 +4809,7 @@ TEST(BlockingDoorRoutines, get_blocking_door_keeps_the_captured_door_when_the_ob
         navigationStep(*npc, kFarDestination);
     }
     ASSERT_EQ(fixture.door->id(), npc->blockingDoorId());
-    auto execution = blockedEventContext(npc->id(), fixture.door->id());
+    auto execution = blockedEventContext(npc->id());
 
     // The creature then runs into a different door entirely.
     {
@@ -4813,8 +4818,8 @@ TEST(BlockingDoorRoutines, get_blocking_door_keeps_the_captured_door_when_the_ob
     }
     ASSERT_EQ(other->id(), npc->blockingDoorId());
 
-    // The continuation still speaks for the event it came from.
-    EXPECT_EQ(fixture.door->id(), callGetBlockingDoor(routines, execution));
+    // The continuation sees the door of the latest blocked event.
+    EXPECT_EQ(other->id(), callGetBlockingDoor(routines, execution));
 }
 
 TEST(BlockingDoorRoutines, a_captured_door_that_is_destroyed_is_reported_but_not_valid) {
@@ -4823,7 +4828,11 @@ TEST(BlockingDoorRoutines, a_captured_door_that_is_destroyed_is_reported_but_not
     Routines routines(GameID::KotOR, &fixture.game, &fixture.engine.services());
     routines.init();
 
-    auto execution = blockedEventContext(npc->id(), fixture.door->id());
+    {
+        ScopedWalkObstruction obstruction(*fixture.door);
+        navigationStep(*npc, kFarDestination);
+    }
+    auto execution = blockedEventContext(npc->id());
     TestGameModule::removeObject(fixture.game, fixture.door->id());
 
     // GetBlockingDoor keeps no validity policy of its own: the captured id comes
@@ -5966,6 +5975,7 @@ TEST(SavedRuntimeState, restores_saved_creature_death_from_current_hit_points) {
 
     auto saved = Gff::Builder()
                      .field(Gff::Field::newDword("ObjectId", 82))
+                     .field(Gff::Field::newByte("IsPC", 0))
                      .field(Gff::Field::newShort("CurrentHitPoints", 0))
                      .field(Gff::Field::newDword("Appearance_Type", 0))
                      .field(Gff::Field::newWord("SoundSetFile", 0xffff))
@@ -6037,10 +6047,10 @@ TEST(SavedRuntimeState, k1_zero_hp_pc_remains_dead_during_primary_player_publica
                      .build();
     auto player = game.newCreature(*saved, testModuleIdentity());
 
-    // K1 does not share K2's -10 incapacitation threshold. Publication must
+    // A player character dies at -10 in K1 as in K2. Publication must
     // preserve the saved state rather than healing the primary player.
     EXPECT_EQ(0, player->currentHitPoints());
-    EXPECT_TRUE(player->isDead());
+    EXPECT_FALSE(player->isDead());
 }
 TEST(SavedRuntimeState, keeps_min_one_hp_creature_alive_when_saved_at_zero) {
     TestEngine engine;

@@ -195,12 +195,28 @@ std::vector<std::shared_ptr<Spell>> ISpells::getActionSpells(
     return result;
 }
 
-// Only CastAnim picks a spell's clips, compared as written; CatchAnim picks none.
-static SpellCastAnimation parseCastAnimation(const std::string &value) {
+/**
+ * The cast animation of a spells.2da CastAnim cell, compared in lower case.
+ * Only CastAnim picks a spell's clips; CatchAnim picks none. Fury, crush and
+ * monsterfury are TSL codes; in KotOR they, like any other cell, are Other.
+ */
+static SpellCastAnimation parseCastAnimation(const std::string &value, resource::GameID gameId) {
     static const std::map<std::string, SpellCastAnimation> kCodes {
-        {"self", SpellCastAnimation::Self}, {"dark", SpellCastAnimation::Dark}, {"up", SpellCastAnimation::Up}, {"area", SpellCastAnimation::Area}, {"point", SpellCastAnimation::Touch}, {"touch", SpellCastAnimation::Touch}, {"throw", SpellCastAnimation::Throw}, {"jump", SpellCastAnimation::Jump}, {"monster", SpellCastAnimation::Monster}, {"fury", SpellCastAnimation::Fury}, {"crush", SpellCastAnimation::Crush}, {"monsterfury", SpellCastAnimation::MonsterFury}};
-    const auto found = kCodes.find(value);
-    return found != kCodes.end() ? found->second : SpellCastAnimation::Other;
+        {"self", SpellCastAnimation::Self}, {"dark", SpellCastAnimation::Dark}, {"up", SpellCastAnimation::Up}, {"area", SpellCastAnimation::Area}, {"point", SpellCastAnimation::Touch}, {"touch", SpellCastAnimation::Touch}, {"throw", SpellCastAnimation::Throw}, {"jump", SpellCastAnimation::Jump}, {"monster", SpellCastAnimation::Monster}};
+    static const std::map<std::string, SpellCastAnimation> kTslCodes {
+        {"fury", SpellCastAnimation::Fury}, {"crush", SpellCastAnimation::Crush}, {"monsterfury", SpellCastAnimation::MonsterFury}};
+    const auto code = boost::algorithm::to_lower_copy(value);
+    const auto found = kCodes.find(code);
+    if (found != kCodes.end()) {
+        return found->second;
+    }
+    if (gameId == resource::GameID::TSL) {
+        const auto tslFound = kTslCodes.find(code);
+        if (tslFound != kTslCodes.end()) {
+            return tslFound->second;
+        }
+    }
+    return SpellCastAnimation::Other;
 }
 
 // The ranges.2da row of a spells.2da range tag, by its first letter; a
@@ -231,7 +247,7 @@ static std::optional<int> getSpellRangeRow(const std::string &range) {
     }
 }
 
-void Spells::init() {
+void Spells::init(resource::GameID gameId) {
     std::shared_ptr<TwoDA> spells(_twoDas.get("spells"));
     if (!spells)
         return;
@@ -295,7 +311,7 @@ void Spells::init() {
         }
         spell->category = category;
         spell->impactScript = impactScript;
-        spell->castAnimation = parseCastAnimation(castAnim);
+        spell->castAnimation = parseCastAnimation(castAnim, gameId);
         spell->castSound = castSound.empty() ? nullptr : _audioClips.get(castSound);
         spell->conjTime = conjTime;
         spell->castTime = castTime;
@@ -309,8 +325,8 @@ void Spells::init() {
         }
         spell->rangeTag = range;
         // Casting uses the primary range and the menu's minimum the secondary
-        // one. Only a range tag of a single letter has a minimum.
-        if (rangeRow && range.size() == 1) {
+        // one, both from the row of the tag's first letter.
+        if (rangeRow) {
             spell->minimumRange = ranges->getFloat(*rangeRow, "secondaryrange", 0.0f);
         }
         spell->formMask = formMask;

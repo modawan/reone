@@ -68,7 +68,9 @@ enum class WeaponWield {
     DoubleBladedSword = 3,
     BlasterPistol = 4,
     BlasterRifle = 5,
-    HeavyWeapon = 6
+    HeavyWeapon = 6,
+    /** A weapon its user may wield whatever its size. */
+    AnySize = 8
 };
 
 enum class CreatureWieldType {
@@ -1410,7 +1412,10 @@ enum class DoorState {
 /** Transition a door is playing towards its next resting state, if any. */
 enum class DoorTransition {
     None,
-    Opening,
+    /** Swinging open to the first side (Opened1). */
+    Opening1,
+    /** Swinging open to the second side (Opened2). */
+    Opening2,
     Closing
 };
 
@@ -1433,10 +1438,14 @@ enum class ACBonus {
     Deflection = 4
 };
 
+/** The attack an attack modifier effect is for. */
 enum class AttackBonus {
     Misc = 0,
     Onhand = 1,
-    Offhand = 2
+    Offhand = 2,
+    /** An attack with the left creature weapon. */
+    CreatureWeapon = 3,
+    Unarmed = 7
 };
 
 enum class BodyNode {

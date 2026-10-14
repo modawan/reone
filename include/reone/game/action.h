@@ -189,7 +189,8 @@ protected:
 };
 
 /**
- * Returns true for attacks, feats, some spells (force powers, grenades).
+ * The command puts its creature in combat: a physical attack, a physical
+ * attack feat, or the use of an item whose spell is hostile.
  */
 bool isHostileAction(Action &action);
 

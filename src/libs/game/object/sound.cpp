@@ -21,6 +21,7 @@
 #include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/provider/2das.h"
+#include "reone/resource/provider/audioclips.h"
 #include "reone/resource/provider/gffs.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
@@ -109,6 +110,7 @@ void Sound::loadAppearance() {
     sceneNode->setEnabled(_active);
     sceneNode->setPriority(_priority);
     sceneNode->setMaxDistance(_maxDistance);
+    sceneNode->setPositional(_positional);
     _sceneNode = std::move(sceneNode);
 }
 
@@ -118,9 +120,15 @@ void Sound::update(float dt) {
         return;
     }
     auto &sceneNode = static_cast<SoundSceneNode &>(*_sceneNode);
-    // Only an audible sound plays. One that stops being audible is stopped by
-    // the scene and starts again once it is audible again.
-    if (!sceneNode.auidible() || sceneNode.isSoundPlaying()) {
+    // Only an audible sound is heard, and one that stops being audible is
+    // stopped by the scene. A continuous clip loops while it is audible and
+    // waits while it is not. Any other clip keeps its own schedule, heard or
+    // not: the next one is due its length and the interval after it starts.
+    // Nothing starts before the scene has first told whether the sound is
+    // audible.
+    const bool audible = sceneNode.auidible();
+    const bool continuous = _sounds.size() == 1 && _continuous;
+    if (!sceneNode.isAudibilityKnown() || (continuous && (!audible || sceneNode.isSoundPlaying()))) {
         return;
     }
     if (_timeout > 0.0f) {
@@ -140,10 +148,16 @@ void Sound::update(float dt) {
             return;
         }
     }
-    float gain = _volume / 127.0f;
-    bool loop = soundCount == 1 && _continuous;
-    sceneNode.playSound(sounds[_soundIdx], gain, _positional, loop);
     _timeout = _interval / 1000.0f;
+    if (!continuous) {
+        if (auto clip = _services.resource.audioClips.get(sounds[_soundIdx])) {
+            _timeout += clip->duration();
+        }
+    }
+    if (audible) {
+        float gain = _volume / 127.0f;
+        sceneNode.playSound(sounds[_soundIdx], gain, _positional, continuous);
+    }
 }
 
 void Sound::updateTransform() {

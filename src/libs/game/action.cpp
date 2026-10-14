@@ -209,8 +209,11 @@ bool isHostileAction(Action &action) {
     case ActionType::UseFeat:
         return isPhysicalAttackFeat(static_cast<UseFeatAction &>(action).feat());
     case ActionType::CastSpellAtObject:
-    case ActionType::CastSpellAtLocation:
-        return static_cast<CastSpellAction &>(action).spell()->hostile;
+    case ActionType::CastSpellAtLocation: {
+        // Of the casts, only a hostile item use puts its user in combat.
+        auto &cast = static_cast<CastSpellAction &>(action);
+        return cast.item().has_value() && cast.spell()->hostile;
+    }
     default:
         break;
     }

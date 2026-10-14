@@ -10,6 +10,7 @@
 
 #include "reone/game/action/wait.h"
 #include "reone/game/action/playanimation.h"
+#include "reone/game/effect/spellimmunity.h"
 #include "reone/game/game.h"
 #include "reone/game/location.h"
 #include "reone/game/object/item.h"
@@ -453,7 +454,7 @@ TEST(EffectSaveProvenance, loaded_and_runtime_expiry_follow_live_collection) {
     object->clearAllEffects();
     EXPECT_TRUE(object->saveEffectSnapshot().empty());
 
-    auto runtime = std::make_shared<Effect>(EffectType::Damage);
+    auto runtime = std::make_shared<SpellImmunityEffect>(SpellType::All);
     object->applyEffect(runtime, DurationType::Temporary, 10.0f);
     ASSERT_EQ(object->saveEffectSnapshot().size(), 1);
     EXPECT_EQ(

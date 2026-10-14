@@ -35,6 +35,16 @@ static constexpr int kAuthoredCanvasHeight = 480;
 static constexpr int kIconSize = 32;
 static constexpr int kIconPadding = 6;
 
+// Message box growth, in authored units. A message that overflows widens the
+// box by kGrowWidth, while the box is at least kWidenMinHeight tall and
+// narrower than kMaxWidth, and heightens it by a line while it is lower than
+// kMaxHeight. The scroll bar is kScrollBarWidth wide.
+static constexpr int kGrowWidth = 40;
+static constexpr int kWidenMinHeight = 161;
+static constexpr int kMaxWidth = 440;
+static constexpr int kMaxHeight = 280;
+static constexpr int kScrollBarWidth = 16;
+
 void ConfirmPopup::preload(IGUI &gui) {
     GameGUI::preload(gui);
 
@@ -89,6 +99,15 @@ void ConfirmPopup::onGUILoaded() {
     icon->setVisible(false);
     _icon = std::shared_ptr<Control>(std::move(icon));
     _gui->addControlToFront(_icon, IGUI::ControlCoordinates::Screen);
+
+    _rootExtent = root.extent();
+    _listExtent = _controls.LB_MESSAGE->extent();
+    _okExtent = _controls.BTN_OK->extent();
+    _cancelExtent = _controls.BTN_CANCEL->extent();
+    if (auto scrollBar = _controls.LB_MESSAGE->scrollBarOrNull()) {
+        _scrollBarExtent = scrollBar->extent();
+    }
+    _iconExtent = _icon->extent();
 }
 
 void ConfirmPopup::show(const std::string &message, std::shared_ptr<graphics::Texture> icon,
@@ -97,26 +116,106 @@ void ConfirmPopup::show(const std::string &message, std::shared_ptr<graphics::Te
     _onCancel = {};
     _controls.BTN_CANCEL->setVisible(false);
     _controls.BTN_OK->setTextMessage(_defaultConfirmText);
-    // Reserve a gutter for the icon, if any, before the message is broken
-    // into lines.
     bool hasIcon = static_cast<bool>(icon);
-    Control::Extent textExtent(_messageExtent);
     if (hasIcon) {
-        int gutter = _iconSize + _iconPadding;
-        textExtent.left += gutter;
-        textExtent.width = std::max(0, textExtent.width - gutter);
         _icon->setBorderFill(std::move(icon));
     }
     _icon->setVisible(hasIcon);
-    _controls.LB_MESSAGE->protoItem().setExtent(std::move(textExtent));
 
     // A message box resolves the tokens of whatever message it is given.
-    // The message is laid out a line to a row, and scrolls when it runs
-    // past the list.
-    _controls.LB_MESSAGE->clearItems();
-    _controls.LB_MESSAGE->addTextLinesAsItems(_game.substituteCustomTokens(message));
+    layoutMessage(_game.substituteCustomTokens(message), hasIcon);
 
     _visible = true;
+}
+
+void ConfirmPopup::layoutMessage(const std::string &text, bool hasIcon) {
+    auto &root = _gui->rootControl();
+    auto &list = *_controls.LB_MESSAGE;
+    auto scrollBar = list.scrollBarOrNull();
+    const float scale = _gui->scale();
+    const auto scaled = [scale](int value) { return static_cast<int>(std::lround(value * scale)); };
+
+    auto rootExtent = _rootExtent;
+    auto listExtent = _listExtent;
+    auto okExtent = _okExtent;
+    auto cancelExtent = _cancelExtent;
+    auto iconExtent = _iconExtent;
+    // The scroll bar keeps its right edge at its own width.
+    auto barExtent = _scrollBarExtent;
+    const int barWidth = scaled(kScrollBarWidth);
+    barExtent.left += barExtent.width - barWidth;
+    barExtent.width = barWidth;
+    // A gutter for the icon, if any, is kept left of the text.
+    const int gutter = hasIcon ? _iconSize + _iconPadding : 0;
+    auto textExtent = _messageExtent;
+    textExtent.left += gutter;
+
+    // The message is laid out a line to a row across the list's inner width,
+    // less the scroll bar while it is enabled.
+    const auto wrap = [&]() {
+        root.setExtent(rootExtent);
+        list.setExtent(listExtent);
+        if (scrollBar) {
+            scrollBar->setExtent(barExtent);
+        }
+        textExtent.width = std::max(0, list.getItemWidth() - gutter);
+        list.protoItem().setExtent(textExtent);
+        list.clearItems();
+        list.addTextLinesAsItems(text);
+    };
+    const auto overflows = [&list]() { return list.getItemCount() > list.visibleItemCount(); };
+
+    // The text is first wrapped clear of the scroll bar, which is then hidden
+    // without wrapping the text again.
+    list.setScrollBarEnabled(true);
+    wrap();
+    list.setScrollBarEnabled(false);
+    if (overflows()) {
+        const auto &proto = list.protoItem();
+        const int lineHeight = static_cast<int>(std::lround(proto.text().font->height() * proto.scale()));
+        const int widen = scaled(kGrowWidth);
+        const int maxWidth = scaled(kMaxWidth);
+        const int maxHeight = scaled(kMaxHeight);
+        while (overflows() && (rootExtent.width < maxWidth || rootExtent.height < maxHeight)) {
+            if (rootExtent.height >= scaled(kWidenMinHeight) && rootExtent.width < maxWidth) {
+                // The box widens about its centre.
+                rootExtent.left -= widen / 2;
+                rootExtent.width += widen;
+                listExtent.left -= widen / 2;
+                listExtent.width += widen;
+                textExtent.left -= widen / 2;
+                iconExtent.left -= widen / 2;
+                barExtent.left += widen / 2;
+                wrap();
+                if (!overflows()) {
+                    break;
+                }
+            }
+            if (rootExtent.height < maxHeight) {
+                // The box grows a line about its centre; the buttons stay
+                // below the list.
+                rootExtent.top -= lineHeight / 2;
+                rootExtent.height += lineHeight;
+                listExtent.top -= lineHeight / 2;
+                listExtent.height += lineHeight;
+                textExtent.top -= lineHeight / 2;
+                iconExtent.top -= lineHeight / 2;
+                barExtent.top -= lineHeight / 2;
+                barExtent.height += lineHeight;
+                okExtent.top += lineHeight - lineHeight / 2;
+                cancelExtent.top += lineHeight - lineHeight / 2;
+                wrap();
+            }
+        }
+        // A message the largest box cannot hold scrolls, wrapped clear of the bar.
+        if (overflows()) {
+            list.setScrollBarEnabled(true);
+            wrap();
+        }
+    }
+    _icon->setExtent(std::move(iconExtent));
+    _controls.BTN_OK->setExtent(std::move(okExtent));
+    _controls.BTN_CANCEL->setExtent(std::move(cancelExtent));
 }
 
 void ConfirmPopup::showConfirm(

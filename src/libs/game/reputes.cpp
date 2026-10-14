@@ -161,24 +161,24 @@ void Reputes::loadBase(
     std::vector<std::vector<int>> &values) const {
 
     values.assign(factionCount, std::vector<int>(factionCount, kMaxReputation));
-    size_t baseCount = std::min(factionCount, static_cast<size_t>(repute.getRowCount()));
-    std::vector<std::string> baseLabels;
-    baseLabels.reserve(baseCount);
-    for (size_t index = 0; index < baseCount; ++index) {
-        baseLabels.push_back(boost::to_lower_copy(repute.getString(static_cast<int>(index), "label")));
-    }
-
-    // Preserve the established source-row/target-column runtime contract
-    // for authored base relationships. Cells outside the base table retain the
-    // faction-manager initialization value of 100.
-    for (size_t row = 0; row < baseCount; ++row) {
-        for (size_t column = 0; column < baseCount; ++column) {
-            const std::string &label = baseLabels[column];
-            if (label == "player" || label == "glb_xor") {
-                values[row][column] = kDefaultRepute;
-            } else {
-                values[row][column] = repute.getInt(
-                    static_cast<int>(row), label, kDefaultRepute);
+    // Row r holds faction r's standings and column c, after the label column,
+    // the standing toward faction c. A blank cell is read as 0 and ends the
+    // loading; cells beyond the factions are ignored.
+    const auto &columns = repute.columns();
+    for (int row = 0; row < repute.getRowCount(); ++row) {
+        for (size_t column = 0; column < columns.size(); ++column) {
+            if (column == 0) {
+                if (repute.getString(row, columns[column]).empty()) {
+                    return;
+                }
+                continue;
+            }
+            const auto reputation = repute.getIntOpt(row, columns[column]);
+            if (static_cast<size_t>(row) < factionCount && column < factionCount) {
+                values[row][column] = std::clamp(reputation.value_or(0), kMinRepute, kMaxReputation);
+            }
+            if (!reputation) {
+                return;
             }
         }
     }

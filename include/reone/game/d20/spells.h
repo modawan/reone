@@ -19,6 +19,8 @@
 
 #include <functional>
 
+#include "reone/resource/types.h"
+
 #include "../types.h"
 
 #include "spell.h"
@@ -111,7 +113,12 @@ public:
         _twoDas(twoDas) {
     }
 
-    void init();
+    /**
+     * Loads every spells.2da row.
+     *
+     * @param gameId the title, which decides the CastAnim codes it knows
+     */
+    void init(resource::GameID gameId);
 
     std::shared_ptr<Spell> get(SpellType type) const override;
     bool isLevelUpCandidate(

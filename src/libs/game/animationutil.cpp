@@ -91,6 +91,86 @@ int scriptAnimationId(int constant, bool tsl, bool characterModel) {
     return kPauseAnimationId;
 }
 
+int scriptAnimationRow(int id, bool characterModel) {
+    // An animation ID, and the rows it names on a character and on a creature
+    // model; -1 where the model has none.
+    struct ScriptAnimationRows {
+        int id;
+        int characterRow;
+        int creatureRow;
+    };
+    static constexpr std::array<ScriptAnimationRows, 63> kRows {{
+        {10006, 81, 275},  // dead / cdead
+        {10017, 63, -1},   // force cast
+        {10021, 310, 310}, // open
+        {10022, 333, 333}, // closed
+        {10023, 77, 268},  // spasm
+        {10028, 33, 263},  // taunt
+        {10029, 31, -1},   // greeting
+        {10030, 18, 18},   // listen
+        {10032, 24, -1},   // meditate
+        {10033, 24, -1},   // worship
+        {10034, 16, -1},   // salute
+        {10035, 19, -1},   // bow
+        {10038, 25, 261},  // the talk loops
+        {10039, 27, 261},
+        {10040, 26, 261},
+        {10041, 29, 261},
+        {10042, 28, 261},
+        {10044, 17, 260}, // victory
+        {10052, 7, 257},  // second pause
+        {10053, 11, 258}, // head turns
+        {10054, 10, 259},
+        {10055, 12, 256},  // scratching the head
+        {10056, 13, 256},  // bored
+        {10057, 14, 256},  // tired
+        {10058, 15, 256},  // drunk
+        {10059, 40, -1},   // getting from low
+        {10060, 41, -1},   // getting from waist height
+        {10070, 37, -1},   // inject
+        {10118, 270, 270}, // deactivated
+        {10120, 32, -1},   // flirt
+        {10121, 44, -1},   // using a computer
+        {10122, 53, -1},   // the dances
+        {10123, 54, -1},
+        {10124, 74, 74}, // horror
+        {10125, 43, 43}, // using a computer once
+        {10126, 68, -1}, // persuade
+        {10127, 38, -1}, // activate
+        {10128, 47, -1}, // unlocking a door
+        {10129, 57, -1}, // the throws
+        {10130, 58, -1},
+        {10133, 5, 253},   // stealth
+        {10137, 76, 267},  // sleep
+        {10139, 79, -1},   // prone
+        {10142, 346, 346}, // custom
+        {10150, 72, 264},  // choke
+        {10151, 359, -1},  // third pause
+        {10152, 360, 369}, // weld
+        {10154, 370, 372}, // injured talk
+        {10155, 371, 18},  // injured listen
+        {10156, 375, 275}, // lying dead
+        {10159, 34, -1},   // treating injuries
+        {10160, 35, -1},
+        {10163, 384, -1}, // talking on the knees
+        {10164, 385, -1},
+        {10165, 51, -1},  // checking a body
+        {10414, 461, -1}, // rage
+        {10418, 457, -1}, // sitting and meditating
+        {10419, 458, -1}, // meditating standing
+        {10424, 316, -1}, // the chair loops
+        {10425, 317, -1},
+        {10426, 318, -1},
+        {10427, 319, -1},
+        {10428, 320, -1},
+    }};
+    const auto found = std::find_if(kRows.begin(), kRows.end(), [id](const ScriptAnimationRows &rows) { return rows.id == id; });
+    if (found == kRows.end()) {
+        return -1;
+    }
+    return characterModel ? found->characterRow : found->creatureRow;
+}
+
 bool playsAsOverlay(int id, bool tsl) {
     switch (id) {
     case 10029: // greeting
@@ -161,6 +241,8 @@ LoopTransition loopTransition(int newId, int oldId, int currentId, bool characte
     static constexpr int kDeadLoop = 10006;
     static constexpr int kDeadProneLoop = 10156;
     static constexpr int kProneLoop = 10139;
+    static constexpr int kWhirlwindLoop = 10117;
+    static constexpr int kForcePushedLoop = 10400;
     LoopTransition transition;
     int &clip = transition.clip;
     // Meditating and worshipping are knelt into and risen from.
@@ -220,9 +302,12 @@ LoopTransition loopTransition(int newId, int oldId, int currentId, bool characte
     if (oldId == 10402) {
         clip = -1;
     }
-    if (oldId == 10405 || oldId == 10400) {
+    // Leaving the whirlwind or a push falls and gets up, cutting the running
+    // one-shot short.
+    if (oldId == kWhirlwindLoop || oldId == kForcePushedLoop) {
         clip = characterModel ? 85 : 272;
         transition.follow = characterModel ? 86 : 273;
+        transition.cutsOneShot = true;
     }
     if (newId == kDeadProneLoop) {
         if (oldId == kProneLoop) {

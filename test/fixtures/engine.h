@@ -75,7 +75,14 @@ public:
         // test that needs rows mocks the table itself.
         EXPECT_CALL(_resourceModule->twoDas(), get(testing::_)).Times(testing::AnyNumber());
         std::shared_ptr<resource::TwoDA> empty(resource::TwoDA::Builder().build());
-        for (const char *table : {"npc", "ranges", "traps", "skills", "animations", "dialoganimations", "tutorial",
+        // Every companion row and the general row pay experience in full.
+        resource::TwoDA::Builder fullShares;
+        fullShares.columns({"percentxp"});
+        for (int row = 0; row < 14; ++row) {
+            fullShares.row({"100"});
+        }
+        ON_CALL(_resourceModule->twoDas(), get(std::string("npc"))).WillByDefault(testing::Return(std::shared_ptr<resource::TwoDA>(fullShares.build())));
+        for (const char *table : {"ranges", "traps", "skills", "animations", "dialoganimations", "tutorial",
                                   "encdifficulty", "ambientmusic", "ambientsound", "prioritygroups"}) {
             ON_CALL(_resourceModule->twoDas(), get(std::string(table))).WillByDefault(testing::Return(empty));
         }

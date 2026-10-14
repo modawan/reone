@@ -90,7 +90,9 @@ private:
 
 /**
  * Combat round consists of either one or two actions. Second action is only
- * present when both combatants are creatures.
+ * present when both combatants are creatures. Each creature keeps its own
+ * round in its action: its clock, length and pause, which nothing done to
+ * the other creature moves.
  */
 struct CombatRound {
     /** The length of a round, in seconds, until something rescales it. */
@@ -103,7 +105,7 @@ struct CombatRound {
         Finished
     };
 
-    /** A creature's command in the round. */
+    /** A creature's command in the round, with the creature's own round. */
     struct RoundAction {
         RoundAction(const std::shared_ptr<Action> &action,
                     const std::shared_ptr<Creature> &attacker,
@@ -124,25 +126,33 @@ struct CombatRound {
          */
         bool joined {false};
         int slot {0};
+        /** How far the creature's round has got; Finished once it has ended. */
+        State state {Pending};
+        /** The seconds of the creature's round gone by. */
+        float time {0.0f};
+        /** The length of the creature's round, in seconds. */
+        float duration {kDuration};
+        /** The creature's round stands still for this many seconds, held by its pause owner. */
+        float pauseRemaining {0.0f};
+        RuntimeObjectRef<Object> pauseOwner;
+        /** The round, restored without its command, is a spell round. */
+        bool spellRound {false};
 
         /** The attacker and the target of the command are still the objects it was given. */
         bool participantBindingsLive() const;
         /** The command is still in its creature's queue, if it was put there. */
         bool remainsInActorQueue() const;
+        /** The command takes part in the round and the creature's round has not ended. */
+        bool running() const { return !retired && state != Finished; }
+        /** \p dt scaled from the length of the creature's round to a round of the usual length. */
+        float actionDelta(float dt) const { return duration > 0.0f ? dt * kDuration / duration : kDuration; }
     };
 
     SmallVector<RoundAction, 2> actions;
 
-    State state {Pending};
     /** Two creatures take their turns in the round. */
     bool duel {false};
-    /** The seconds of the round gone by. */
-    float time {0.0f};
     uint64_t id {0};
-    float duration {kDuration};
-    /** The round stands still for this many seconds, held by its pause owner. */
-    float pauseRemaining {0.0f};
-    RuntimeObjectRef<Object> pauseOwner;
     /** The creature that masters an engaged exchange, and the one it engages. */
     RuntimeObjectRef<Object> master;
     RuntimeObjectRef<Object> engaged;
@@ -155,10 +165,15 @@ struct CombatRound {
             action, attacker, target, actorQueueAssociated);
     }
 
-    /** The round keeps \p action from going on: it is paused, or its creature is down. */
+    /**
+     * The round keeps \p action from going on: its creature's round is paused
+     * by another or by no one, or its creature is down.
+     */
     bool suspends(const Action &action) const;
-    /** \p dt scaled from the round's duration to a round of the usual length. */
-    float actionDelta(float dt) const { return duration > 0.0f ? dt * kDuration / duration : kDuration; }
+    /** \p dt scaled from the length of the round of \p action's creature to a round of the usual length. */
+    float actionDelta(const Action &action, float dt) const;
+    /** The round of \p action's creature has ended. */
+    bool hasEnded(const Action &action) const;
 
     /** \p action may take its turn in the round now. */
     bool canExecute(Action &action) const;
@@ -213,8 +228,12 @@ public:
     static bool refusesAttack(const Creature &attacker);
     /**
      * The nearest living creature, other than attacker, observer and
-     * \p excluded, that is hostile to attacker and that observer sees in line
-     * of sight, closer than maxDistance beyond both personal spaces.
+     * \p excluded, that is hostile to attacker, that observer perceives and
+     * that is in line of sight, closer than maxDistance beyond both personal
+     * spaces. The search walks the area's objects outward from observer in X
+     * order; line of sight is taken from observer to those below it and from
+     * attacker to those above it. Nothing is found when observer is not in
+     * the area.
      */
     static std::shared_ptr<Creature> findNearestEnemy(
         Area &area,
@@ -238,8 +257,9 @@ public:
     /**
      * Adds an action to an existing combat round, or starts a new round, based
      * on attacker and target. A cast or item use takes its turn in a round its
-     * creature's earlier, finished command began; any other command gives such
-     * a round up, without its end, and starts afresh.
+     * creature's earlier, finished command began, as does a command aimed at
+     * the creature that masters that round; any other command gives such a
+     * round up, without its end, and starts afresh.
      */
     const CombatRound &addAction(const std::shared_ptr<Action> &action, Object &actor);
     /**
@@ -267,8 +287,12 @@ public:
     bool isEngagedBy(const Creature &attacker, const Creature &target) const;
     /**
      * Start a physical attack's exchange with its target and tell whether it
-     * is engaged. An engaged partner owning no round is held for the attack's
-     * pause.
+     * is engaged. An attacker that masters the exchange restarts its partner's
+     * round: a round the partner began, or one of its own, ends. A round the
+     * two share starts again from the beginning for both; a partner whose
+     * round was its own gets a side, with no command yet, in the attacker's
+     * round, held for the attack's pause. An engaged partner owning no round
+     * is held for the attack's pause.
      */
     bool engagePhysicalTarget(const Creature &attacker, Object &target, int pauseMilliseconds);
     /** The round the action runs in is engaged. */
@@ -291,9 +315,9 @@ public:
     /**
      * Ask to settle the round of an attack whose pause has just ended. The
      * request is taken as soon as the attack has finished executing, still
-     * inside its creature's update: when nothing holds the round and it has
-     * expired or its target is down, it ends then, before the events its last
-     * hits posted are delivered.
+     * inside its creature's update: when nothing holds the attacker's round
+     * and it has expired or its target is down, it ends then, before the
+     * events its last hits posted are delivered.
      */
     void requestSettle(const std::shared_ptr<Action> &action) { _settleRequests.push_back(action); }
     /** Settles the rounds requestSettle asked for. */
@@ -303,7 +327,10 @@ public:
      * \p runEndRound is zero, it runs its end-of-round script and fights on.
      */
     void endRound(Creature &actor, int runEndRound);
-    /** Cancels the creature's pending entries and the clearable commands of its rounds. */
+    /**
+     * Cancels the creature's pending entries and the clearable commands of its
+     * rounds. The rounds run on to their end, and their pairs stay.
+     */
     void cancelActions(Object &actor);
     /**
      * Damage other than a weapon hit, just taken. Electrical or dark side
@@ -314,9 +341,9 @@ public:
     /** The creature's round is held while it owns no round, or while it is knocked down. */
     bool isOwnerPaused(const Creature &actor) const;
     /**
-     * A creature has been knocked down: until it is up again its round stands
-     * still and its commands and pending entries wait. The pauses it had are
-     * replaced.
+     * A creature has been knocked down: until it is up again its own round
+     * stands still and its commands and pending entries wait. The pauses it
+     * had are replaced; a partner's round runs on.
      */
     void holdKnockedDown(const Creature &creature);
     /**
@@ -397,8 +424,18 @@ public:
 
     // Persistence
 
+    /** The clock of the round \p action runs in, kept with the command. */
     std::optional<SavedRoundClock> saveRound(const Action &action) const;
+    /**
+     * The creature's rounds that no command waiting in its queue carries: a
+     * round still running after its command was cleared or finished, and a
+     * side that has ended while its partner's runs on.
+     */
+    std::vector<SavedCreatureRound> saveRounds(const Object &actor) const;
+    /** Restores the round of a queued command; the two sides of a shared round meet again. */
     void restoreRound(const std::shared_ptr<Action> &action, const std::shared_ptr<Creature> &actor, const SavedRoundClock &saved);
+    /** Restores a round of the creature that no queued command carries; it comes back with no target. */
+    void restoreRound(const std::shared_ptr<Creature> &actor, const SavedCreatureRound &saved);
     std::vector<SavedScheduledAction> saveScheduled(const Object &actor) const;
     /** The time on the creature's schedule, in seconds. */
     float scheduledTime(const Object &actor) const;
@@ -487,12 +524,16 @@ private:
      */
     bool dispatchItemUse(Creature &actor, ScheduledEntry &entry);
     /**
-     * Rescales the scheduled entries of the round's owners and the round
-     * itself to what is left after \p milliseconds; with \p force the round
-     * may be shortened to that point.
+     * Rescales a creature's round, \p round, and its scheduled entries to what
+     * is left after \p milliseconds; with \p force the round may be shortened
+     * to that point. The round of its partner is left alone.
      */
-    void rescaleRound(CombatRound &round, int milliseconds, bool force);
-    /** Ends the round pauses \p actor owns and the pairs it takes part in. */
+    void rescaleRound(CombatRound::RoundAction &round, int milliseconds, bool force);
+    /**
+     * The end of \p actor's round undoes the pairs it masters: each partner's
+     * round loses its pause, whoever set it, and so does the hold of a partner
+     * owning no round.
+     */
     void releasePartner(Creature &actor);
     /**
      * Ends \p actor's round: its round target, spell target and movement are
@@ -500,17 +541,44 @@ private:
      * \p suppressScript, and the leader's round end may pause play.
      */
     void finishOwner(Creature &actor, int runEndRound, bool suppressScript);
-    /** The controlled creature fights on into the next round with the command of \p entry. */
-    void continueOwner(const CombatRound::RoundAction &entry, bool cutsceneRound);
+    /**
+     * The controlled creature fights on into the next round with the command
+     * of \p entry. A round that \p ranOut does so even when that command was
+     * cleared.
+     */
+    void continueOwner(const CombatRound::RoundAction &entry, bool cutsceneRound, bool ranOut);
     /** Schedules the leader's next attack on \p target as an entry on its round. */
     void scheduleContinuation(Creature &actor, const std::shared_ptr<Object> &target);
 
+    /** The saved clock of \p entry, \p round's side of its creature. */
+    SavedRoundClock saveClock(const CombatRound &round, const CombatRound::RoundAction &entry) const;
+    /**
+     * Restores \p actor's side of a round with \p action, into the round of the
+     * same id when its partner's side is already back; \p queued tells whether
+     * the action waits in the creature's queue, and \p spellRound whether a
+     * side without its command is a spell round.
+     */
+    void restoreEntry(const std::shared_ptr<Action> &action, const std::shared_ptr<Creature> &actor,
+                      const std::shared_ptr<Object> &target, const SavedRoundClock &saved, bool queued,
+                      bool spellRound);
+
     /** Makes the round of a cast a pair when the caster and its target are engaged. */
     void configureSpellPair(CombatRound &round, const std::shared_ptr<Action> &action, Creature &caster);
-    /** Advances \p round by \p dt seconds; a round whose owners are all knocked down stands still. */
+    /**
+     * Advances the round of each creature of \p round by \p dt seconds, less
+     * the time its scheduled entries took this frame; the round of a creature
+     * held by a time stop stands still.
+     */
     void updateRound(CombatRound &round, float dt);
-    /** Ends \p round for each of its owners. */
-    void finishRound(CombatRound &round);
+    /**
+     * Advances the round of the creature of entry \p index by \p dt seconds
+     * and ends it when it has run out. A knocked-down creature's round stands
+     * still. A round whose target is down also ends as a pause on it runs out,
+     * or, with \p settling, as its attack's pause ends.
+     */
+    void updateEntry(CombatRound &round, size_t index, float dt, bool settling);
+    /** Ends the round of the creature of entry \p index: its end-of-round script runs and it fights on. */
+    void finishEntry(CombatRound &round, size_t index);
     /** Retires the round entries whose command or participants are gone, and drops empty rounds. */
     void pruneInvalidRounds();
 

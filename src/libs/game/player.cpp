@@ -66,8 +66,11 @@ bool Player::handleKeyDown(const input::KeyEvent &event) {
         return true;
     }
     case input::KeyCode::X: {
-        std::shared_ptr<Creature> partyLeader(_party.getLeader());
-        partyLeader->flourishWeapons(true);
+        // The flourish answers the press only; holding the key repeats nothing.
+        if (!event.repeat) {
+            std::shared_ptr<Creature> partyLeader(_party.getLeader());
+            partyLeader->flourishWeapons(true);
+        }
         return true;
     }
     case input::KeyCode::B: {

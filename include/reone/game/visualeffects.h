@@ -169,10 +169,21 @@ struct VisualEffectDesc {
      */
     std::shared_ptr<graphics::Model> locationModel;
     std::shared_ptr<audio::AudioClip> soundImpact;
-    /** The visual program run on impact, or -1 for none. */
+    /**
+     * The visual program run on impact, or -1 for none. A visual that shows a
+     * root model on its target runs no programs.
+     */
     int progFXImpact {-1};
-    /** The visual program run for the effect's duration, or -1 for none. */
+    /**
+     * The visual program run for the effect's duration, or -1 for none. A
+     * visual that shows a root model on its target runs no programs.
+     */
     int progFXDuration {-1};
+    /**
+     * The visual program a kept application runs as it ends, or -1 for none.
+     * A visual that shows a root model on its target runs no programs.
+     */
+    int progFXCessation {-1};
     /** Type_FD "F": the row is only ever presented as an impact. */
     bool fireAndForget {false};
     std::shared_ptr<audio::AudioClip> soundDuration;

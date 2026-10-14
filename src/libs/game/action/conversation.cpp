@@ -57,9 +57,9 @@ static bool isPartyInteract(const Object &object) {
 }
 
 // The speaker first looks for the partner within use range, a metre further.
-// Out of it, the speaker runs to the partner's use point until that close, and
-// then starts the conversation if the partner is within ten metres, or sets
-// off again.
+// Out of it, the speaker runs to the partner's use point until that close, or
+// to a door's or placeable's use range, and then starts the conversation if
+// the partner is within ten metres, or sets off again.
 bool StartConversationAction::approach(Creature &speaker, float dt) {
     if (!_approaching) {
         if (speaker.isInUseRange(*_objectToConverse, kConversationUseRangeExtra)) {
@@ -68,7 +68,11 @@ bool StartConversationAction::approach(Creature &speaker, float dt) {
         _approaching = true;
     }
     const Creature::UseRange use = speaker.useRange(*_objectToConverse);
-    if (!speaker.navigateTo(use.point, true, use.range + kConversationUseRangeExtra, dt)) {
+    const ObjectType partnerType = _objectToConverse->type();
+    const float range = partnerType == ObjectType::Door || partnerType == ObjectType::Placeable
+                            ? use.range
+                            : use.range + kConversationUseRangeExtra;
+    if (!speaker.navigateTo(use.point, true, range, dt)) {
         return false;
     }
     const glm::vec3 offset {_objectToConverse->position() - speaker.position()};

@@ -149,7 +149,8 @@ uint16_t subTypeOf(DurationType durationType, EffectCategory category) {
 
 struct VersusParameterIndices {
     size_t race;
-    size_t lawChaos;
+    // Invisibility and sanctuary are limited by good and evil alone.
+    std::optional<size_t> lawChaos;
     size_t goodEvil;
     // The slot compared against the opposing creature's alignment.
     size_t alignmentFilter;
@@ -592,7 +593,7 @@ std::optional<VersusParameterIndices> versusParameterIndices(uint16_t serialized
         return VersusParameterIndices {3, 4, 5, 5};
     case SavedEffectTypes::invisibility:
     case SavedEffectTypes::sanctuary:
-        return VersusParameterIndices {1, 2, 3, 3};
+        return VersusParameterIndices {1, std::nullopt, 3, 3};
     default:
         return std::nullopt;
     }
@@ -858,9 +859,9 @@ std::shared_ptr<script::EngineType> Effect::cloneForScript() const {
     return std::make_shared<Effect>(*this);
 }
 
+// An effect of no type that applies is never kept.
 EffectApplicationResult Effect::onApply(Object &, EffectInstance &) {
-    debug("Unsupported effect type: " + std::to_string(static_cast<int>(_type)));
-    return EffectApplicationResult::Retained;
+    return EffectApplicationResult::Rejected;
 }
 
 EffectRemovalResult Effect::onRemove(Object &, const EffectInstance &) {
@@ -978,7 +979,9 @@ bool setAlignmentParameters(uint16_t type, std::vector<int32_t> &parameters,
     if (missingRace) {
         parameters[indices->race] = static_cast<int>(RacialType::All);
     }
-    parameters[indices->lawChaos] = lawChaos;
+    if (indices->lawChaos) {
+        parameters[*indices->lawChaos] = lawChaos;
+    }
     parameters[indices->goodEvil] = goodEvil;
     return true;
 }

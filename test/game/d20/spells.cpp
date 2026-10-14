@@ -73,7 +73,7 @@ protected:
             .Times(AnyNumber())
             .WillRepeatedly(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
         spells = std::make_unique<Spells>(textures, audioClips, models, strings, twoDas);
-        spells->init();
+        spells->init(GameID::KotOR);
     }
 
     CreatureClass &getGuardian() {

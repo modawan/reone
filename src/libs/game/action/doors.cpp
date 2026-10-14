@@ -110,6 +110,13 @@ bool workAtLock(Action &action, Object &target, Object &actor, bool &working, fl
     return false;
 }
 
+void resumePoseAfterLockWork(Object &actor, bool working) {
+    auto *creature = dyn_cast<Creature>(&actor);
+    if (creature && working) {
+        creature->refreshPauseAnimation();
+    }
+}
+
 void signalFailToOpen(Object &target, Object &actor, bool quiet) {
     actor.game().queueScriptEvent(
         target, actor, quiet ? Event(kFailToOpenEvent, {1}, {}, {}, {}) : Event(kFailToOpenEvent));
@@ -129,6 +136,7 @@ void unlockDoor(Door &door, Object &actor) {
     if (!door.isLocked()) {
         return;
     }
+    door.setLastEnteredId(actor.id());
     tryUnlockDoorWithKey(actor.game(), door, actor, actor.game().party());
     if (door.isLocked() && door.isKeyRequired()) {
         refuseKeyedLock(door, actor);
@@ -136,7 +144,7 @@ void unlockDoor(Door &door, Object &actor) {
     }
 
     door.setLocked(false);
-    door.open();
+    door.open(actor);
     door.onOpen(actor.id());
 }
 
@@ -144,6 +152,7 @@ void unlockPlaceable(Placeable &placeable, Object &actor) {
     if (!placeable.isLocked()) {
         return;
     }
+    placeable.setLastEnteredId(actor.id());
     if (placeable.isKeyRequired()) {
         refuseKeyedLock(placeable, actor);
         return;
@@ -225,7 +234,13 @@ void jumpToPositionFacing(Object &actor, const glm::vec3 &position,
 // After walking up to a locked door it steps right up to, a creature waits
 // this long, facing it, before it opens it.
 static constexpr float kPreciseOpenWait = 0.5f;
+// Having opened or closed a door, the actor holds this long before its next
+// action.
+static constexpr float kDoorMovedWait = 0.5f;
 
+// Anything but a creature opens the door outright, with no key or lock to get
+// past: a door told to open itself, or a placeable or trigger running a
+// script.
 void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     if (actor.type() == ObjectType::Creature) {
         auto &creature = static_cast<Creature &>(actor);
@@ -243,27 +258,17 @@ void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float 
             complete();
             return;
         }
+        tryUnlockDoorWithKey(_game, *_door, actor, _game.party());
+        if (_door->isLocked()) {
+            signalFailToOpen(*_door, actor);
+            complete();
+            return;
+        }
     }
 
-    // Allow a door to open itself, bypassing all requirements. This is used by
-    // scripts that assign actions to doors.
-    bool isObjectSelf = _door->id() == actor.id();
-    if (isObjectSelf) {
-        _door->open();
-        _door->onOpen(actor.id());
-        complete();
-        return;
-    }
-
-    tryUnlockDoorWithKey(_game, *_door, actor, _game.party());
-
-    if (!_door->isLocked()) {
-        _door->open();
-        _door->onOpen(actor.id());
-    } else {
-        signalFailToOpen(*_door, actor);
-    }
-
+    _door->open(actor);
+    _door->onOpen(actor.id());
+    actor.addActionBefore(*this, _game.newAction<WaitAction>(kDoorMovedWait));
     complete();
 }
 
@@ -273,6 +278,8 @@ void CloseDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float
     bool reached = !creatureActor || creatureActor->navigateToUse(*_door, 0.0f, dt);
     if (reached) {
         _door->close();
+        _door->onClosed(actor.id());
+        actor.addActionBefore(*this, _game.newAction<WaitAction>(kDoorMovedWait));
         complete();
     }
 }
@@ -288,6 +295,11 @@ void LockObjectAction::execute(std::shared_ptr<Action> self, Object &actor, floa
     }
     lockObject(*_target, actor);
     complete();
+}
+
+bool LockObjectAction::cancel(std::shared_ptr<Action> self, Object &actor) {
+    resumePoseAfterLockWork(actor, _working);
+    return true;
 }
 
 // An unlock is worked at from the object's use point; a trap on the object
@@ -316,6 +328,11 @@ void UnlockObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         break;
     }
     complete();
+}
+
+bool UnlockObjectAction::cancel(std::shared_ptr<Action> self, Object &actor) {
+    resumePoseAfterLockWork(actor, _working);
+    return true;
 }
 
 void OpenLockAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {

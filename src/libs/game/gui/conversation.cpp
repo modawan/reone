@@ -101,6 +101,7 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
     debug("Start " + dialog->resRef, LogChannel::Conversation);
 
     _paused = false;
+    _endReached = false;
     _dialog = dialog;
     _owner = owner;
     _partner = listener;
@@ -301,7 +302,7 @@ void Conversation::applyStatusSummaryEntries(const Dialog::EntryReply &node) {
     _game.awardPlotXPByIndex(node.plotIndex, node.plotXPPercentage);
 }
 
-void Conversation::finish(bool runsEndScript) {
+void Conversation::finish(bool runsEndScript, bool aborted) {
     auto generation = ++_generation;
     auto dialog = _dialog;
     auto ownerRef = _owner;
@@ -323,10 +324,17 @@ void Conversation::finish(bool runsEndScript) {
     // A conversation a companion handed on returns control to it.
     _game.finishPostDialogCharacterSwitch();
 
-    // Run EndConversation script
+    // Run EndConversation script, or EndConverAbort for a conversation cut
+    // off before its last entry
     if (auto owner = ownerRef.resolve(); owner && runsEndScript) {
-        runEndScript(*dialog, *owner);
-        runAreaEndDialogScripts(*owner);
+        if (aborted) {
+            if (!dialog->abortScript.empty()) {
+                _game.scriptRunner().run(dialog->abortScript, owner->id());
+            }
+        } else {
+            runEndScript(*dialog, *owner);
+            runAreaEndDialogScripts(*owner);
+        }
     }
 
     if (_generation == generation) {
@@ -395,6 +403,7 @@ void Conversation::loadEntry(int index, bool start) {
     setMessage(entryText);
     if (oneLiner) {
         _replies.clear();
+        _endReached = true;
     } else {
         loadReplies();
         if (!isCurrent(generation)) {
@@ -550,6 +559,9 @@ void Conversation::loadReplies() {
 
     // A sole reply whose text resolves to nothing is taken when the entry ends.
     _autoPickFirstReply = _replies.size() == 1ll && _game.substituteCustomTokens(_replies.front()->text).empty();
+    // The conversation ends on an entry with no reply, or whose sole reply
+    // leads nowhere.
+    _endReached = _replies.empty() || (_replies.size() == 1ll && _replies.front()->entries.empty());
 
     refreshReplies();
 }
@@ -727,7 +739,7 @@ void Conversation::stopParticipant(const Object &object) {
         return;
     }
     if (&object == dialogOwner.get()) {
-        finish();
+        finish(true, !_endReached);
         return;
     }
     auto found = std::find_if(_dialogParticipants.begin(), _dialogParticipants.end(),

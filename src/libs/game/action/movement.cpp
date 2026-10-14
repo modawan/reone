@@ -358,11 +358,20 @@ static void moveAwayFrom(Game &game, const Action &action, Creature &creature, c
 
 void MoveAwayFromObject::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto &creature = static_cast<Creature &>(actor);
-    // A creature that is dead, or down at no vitality, gives up; one is done
-    // when the object has left the area, when it is out of range of it, or
-    // when it has set off as often as it may.
-    if (creature.isDead() || creature.isTemporarilyDead() ||
-        !_game.module()->area()->isObjectResident(*_fleeFrom) ||
+    // A creature that is dead, or down at no vitality, gives up.
+    if (creature.isDead() || creature.isTemporarilyDead()) {
+        complete();
+        return;
+    }
+    // Every other move away from the same object queued for the creature is
+    // cleared with its group.
+    creature.cancelActionGroups([this](const Action &other) {
+        return &other != this && other.type() == ActionType::MoveAwayFromObject &&
+               static_cast<const MoveAwayFromObject &>(other)._fleeFrom == _fleeFrom;
+    });
+    // It is done when the object has left the area, when it is out of range
+    // of it, or when it has set off as often as it may.
+    if (!_game.module()->area()->isObjectResident(*_fleeFrom) ||
         creature.getSquareDistanceTo(*_fleeFrom) > _moveAwayRange * _moveAwayRange ||
         _attemptsLeft <= 0) {
         complete();

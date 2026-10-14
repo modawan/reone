@@ -30,6 +30,14 @@ namespace reone {
 
 namespace game {
 
+void Store::loadFromBlueprint(const std::string &resRef) {
+    std::shared_ptr<Gff> utm(_services.resource.gffs.get(resRef, ResType::Utm));
+    if (!utm) {
+        return;
+    }
+    deserializeAll(*utm, SerializedIdentityContext::templateResource(resRef));
+}
+
 void Store::deserialize(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext) {

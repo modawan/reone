@@ -37,18 +37,18 @@ std::shared_ptr<TwoDA> makeLightsaberBaseItemsTable() {
     TwoDA::Builder builder;
     builder.columns({"maxattackrange", "crithitmult", "critthreat", "damageflags", "dietoroll",
                      "equipableslots", "itemclass", "numdice", "weapontype", "weaponwield",
-                     "ammunitiontype", "bodyvar"});
+                     "ammunitiontype", "bodyvar", "rangedweapon"});
     for (int i = 0; i <= 12; ++i) {
         if (i == 1) {
-            builder.row({"1.5", "2", "2", "2", "4", "48", "w_stunbaton", "1", "1", "1", "-1", ""});
+            builder.row({"1.5", "2", "2", "2", "4", "48", "w_stunbaton", "1", "1", "1", "-1", "", ""});
         } else if (i == 3) {
-            builder.row({"1.5", "2", "2", "2", "6", "48", "w_vbroswrd", "1", "1", "2", "-1", ""});
+            builder.row({"1.5", "2", "2", "2", "6", "48", "w_vbroswrd", "1", "1", "2", "-1", "", ""});
         } else if (i == 8) {
-            builder.row({"1.5", "2", "2", "2", "8", "48", "w_lghtsbr", "1", "1", "2", "-1", ""});
+            builder.row({"1.5", "2", "2", "2", "8", "48", "w_lghtsbr", "1", "1", "2", "-1", "", ""});
         } else if (i == 12) {
-            builder.row({"23", "2", "2", "2", "6", "48", "w_blstrpstl", "1", "4", "4", "-1", ""});
+            builder.row({"23", "2", "2", "2", "6", "48", "w_blstrpstl", "1", "4", "4", "-1", "", "1"});
         } else {
-            builder.row({"", "", "", "", "", "", "", "", "", "", "", ""});
+            builder.row({"", "", "", "", "", "", "", "", "", "", "", "", ""});
         }
     }
     return std::shared_ptr<TwoDA>(builder.build());

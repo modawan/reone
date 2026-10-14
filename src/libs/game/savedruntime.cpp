@@ -174,18 +174,6 @@ SavedSpellImpact savedSpellImpactFromGff(
         gff.getFloat("TargetPosY"),
         gff.getFloat("TargetPosZ"));
     result.finalForceCost = gff.getInt("FinalForceCost");
-    if (const auto context = gff.findStruct("CastContext")) {
-        result.capturedContext = SavedSpellImpact::CapturedContext {};
-        auto &captured = *result.capturedContext;
-        context->readInt(captured.casterLevel, "CasterLevel");
-        context->readInt(captured.metaMagic, "MetaMagic");
-        context->readFloat(captured.targetFacing, "Facing");
-        context->readInt(captured.castingClass, "CastingClass");
-        context->readInt(captured.itemCasterLevel, "ItemCasterLevel");
-        if (context->getBool("OverrideActive")) {
-            captured.levelOverride = context->getInt("LevelOverride");
-        }
-    }
     return result;
 }
 
@@ -585,12 +573,7 @@ SavedWeaponImpact SavedWeaponImpact::fromGff(const resource::Gff &g, const Seria
 
 std::shared_ptr<resource::Gff> SavedSpellImpact::toGff() const {
     using resource::Gff;
-    auto result = Gff::Builder().type(kSpellImpactStructType).field(Gff::Field::newInt("SpellId", spellId)).field(Gff::Field::newDword("CasterId", caster.id)).field(Gff::Field::newDword("TargetId", target.id)).field(Gff::Field::newDword("AreaId", area.id)).field(Gff::Field::newDword("ItemId", item.id)).field(Gff::Field::newCExoString("Script", script)).field(Gff::Field::newFloat("TargetPosX", targetPosition.x)).field(Gff::Field::newFloat("TargetPosY", targetPosition.y)).field(Gff::Field::newFloat("TargetPosZ", targetPosition.z)).field(Gff::Field::newInt("FinalForceCost", finalForceCost)).build();
-    if (capturedContext) {
-        auto context = Gff::Builder().type(0).field(Gff::Field::newInt("CasterLevel", capturedContext->casterLevel)).field(Gff::Field::newInt("MetaMagic", capturedContext->metaMagic)).field(Gff::Field::newFloat("Facing", capturedContext->targetFacing)).field(Gff::Field::newInt("CastingClass", capturedContext->castingClass)).field(Gff::Field::newInt("ItemCasterLevel", capturedContext->itemCasterLevel)).field(Gff::Field::newByte("OverrideActive", capturedContext->levelOverride.has_value())).field(Gff::Field::newInt("LevelOverride", capturedContext->levelOverride.value_or(0))).build();
-        result->fields().push_back(Gff::Field::newStruct("CastContext", std::move(context)));
-    }
-    return result;
+    return Gff::Builder().type(kSpellImpactStructType).field(Gff::Field::newInt("SpellId", spellId)).field(Gff::Field::newDword("CasterId", caster.id)).field(Gff::Field::newDword("TargetId", target.id)).field(Gff::Field::newDword("AreaId", area.id)).field(Gff::Field::newDword("ItemId", item.id)).field(Gff::Field::newCExoString("Script", script)).field(Gff::Field::newFloat("TargetPosX", targetPosition.x)).field(Gff::Field::newFloat("TargetPosY", targetPosition.y)).field(Gff::Field::newFloat("TargetPosZ", targetPosition.z)).field(Gff::Field::newInt("FinalForceCost", finalForceCost)).build();
 }
 
 SavedCombatAttack SavedCombatAttack::fromGff(const resource::Gff &gff, const SerializedIdentityContext &identityContext) {
@@ -746,13 +729,16 @@ std::optional<SavedSpellCommand> SavedSpellCommand::fromAction(const SavedAction
         return std::nullopt;
     }
     const auto value = [&record](size_t index) { return integerParameter(record, index); };
-    // The domain level changes nothing about a cast. A metamagic or a skipped
-    // payment is not taken for another cast.
     const auto path = static_cast<uint32_t>(value(9));
-    if (value(3) != 0 || value(4) != 0 || (path & ~(kProjectilePathMask | kFakeCastBit | kInstantCastBit)) != 0) {
+    if ((path & ~(kProjectilePathMask | kFakeCastBit | kInstantCastBit)) != 0) {
         return std::nullopt;
     }
     SavedSpellCommand result;
+    // The domain level, the meta type and the spontaneous-cast parameter are
+    // carried as the command gave them.
+    result.domainLevel = value(2);
+    result.metaType = value(3);
+    result.spontaneousCast = value(4);
     result.spellId = value(0);
     // The class index and the caster level are byte values.
     result.selection = SpellSelection {static_cast<uint8_t>(value(1)), static_cast<uint8_t>(value(11))};
@@ -774,13 +760,12 @@ void SavedSpellCommand::toAction(SavedActionRecord &record) const {
     const uint32_t packedPath = static_cast<uint32_t>(path) | (fake ? kFakeCastBit : 0u) | (instant ? kInstantCastBit : 0u);
     record.actionId = static_cast<uint32_t>(SavedActionType::CastSpell);
     record.declaredParameterCount = kSpellCommandParameterCount;
-    // The domain level, the metamagic and the skipped payment are zero.
     record.parameters = {
         integer(spellId),
         integer(selection.classIndex),
-        integer(0),
-        integer(0),
-        integer(0),
+        integer(domainLevel),
+        integer(metaType),
+        integer(spontaneousCast),
         SavedActionParameter {static_cast<uint32_t>(Type::Object), target},
         real(position.x),
         real(position.y),
@@ -806,6 +791,8 @@ SavedCastAction SavedCastAction::fromGff(const resource::Gff &gff, const Seriali
     gff.readInt(result.forceCost, "ForceCost");
     gff.readBool(result.hasSelection, "HasSelection");
     gff.readBool(result.cheat, "Cheat");
+    gff.readBool(result.admitted, "Admitted");
+    gff.readBool(result.approaching, "Approaching");
     gff.readBool(result.started, "Started");
     gff.readBool(result.commitAttempted, "CommitAttempted");
     gff.readBool(result.committed, "Committed");
@@ -832,7 +819,7 @@ SavedCastAction SavedCastAction::fromGff(const resource::Gff &gff, const Seriali
 
 std::shared_ptr<resource::Gff> SavedCastAction::toGff() const {
     using G = resource::Gff;
-    auto result = G::Builder().type(0).field(G::Field::newInt("Phase", phase)).field(G::Field::newFloat("Elapsed", elapsed)).field(G::Field::newFloat("ConjureTime", conjureTime)).field(G::Field::newFloat("CastTime", castTime)).field(G::Field::newFloat("CatchTime", catchTime)).field(G::Field::newFloat("FlightTime", projectileTime)).field(G::Field::newDword64("Presentation", presentationId)).field(G::Field::newInt("CasterLevel", casterLevel)).field(G::Field::newInt("MetaMagic", metaMagic)).field(G::Field::newInt("CastingClass", castingClass)).field(G::Field::newInt("ForceCost", forceCost)).field(G::Field::newByte("HasSelection", hasSelection)).field(G::Field::newByte("Cheat", cheat)).field(G::Field::newByte("Started", started)).field(G::Field::newByte("CommitAttempted", commitAttempted)).field(G::Field::newByte("Committed", committed)).field(G::Field::newByte("Released", released)).field(G::Field::newByte("MovementOwned", movementOwned)).field(G::Field::newByte("ItemConsumed", itemConsumed)).build();
+    auto result = G::Builder().type(0).field(G::Field::newInt("Phase", phase)).field(G::Field::newFloat("Elapsed", elapsed)).field(G::Field::newFloat("ConjureTime", conjureTime)).field(G::Field::newFloat("CastTime", castTime)).field(G::Field::newFloat("CatchTime", catchTime)).field(G::Field::newFloat("FlightTime", projectileTime)).field(G::Field::newDword64("Presentation", presentationId)).field(G::Field::newInt("CasterLevel", casterLevel)).field(G::Field::newInt("MetaMagic", metaMagic)).field(G::Field::newInt("CastingClass", castingClass)).field(G::Field::newInt("ForceCost", forceCost)).field(G::Field::newByte("HasSelection", hasSelection)).field(G::Field::newByte("Cheat", cheat)).field(G::Field::newByte("Admitted", admitted)).field(G::Field::newByte("Approaching", approaching)).field(G::Field::newByte("Started", started)).field(G::Field::newByte("CommitAttempted", commitAttempted)).field(G::Field::newByte("Committed", committed)).field(G::Field::newByte("Released", released)).field(G::Field::newByte("MovementOwned", movementOwned)).field(G::Field::newByte("ItemConsumed", itemConsumed)).build();
     if (itemUse) {
         result->fields().push_back(G::Field::newDword("Item", itemUse->item.id));
         if (itemUse->property) {
@@ -850,7 +837,7 @@ std::shared_ptr<resource::Gff> SavedCastAction::toGff() const {
 
 SavedRoundClock SavedRoundClock::fromGff(const resource::Gff &g, const SerializedIdentityContext &ids) {
     requireFields(g, {"Id", "Slot", "State", "Elapsed", "Duration", "PauseRemaining", "PauseOwner", "Master",
-                      "Engaged", "Joined"});
+                      "Engaged", "Joined", "Duel"});
     SavedRoundClock s;
     s.id = g.getUint64("Id");
     s.slot = g.getInt("Slot");
@@ -862,11 +849,12 @@ SavedRoundClock SavedRoundClock::fromGff(const resource::Gff &g, const Serialize
     s.master = SavedObjectReference::fromSerializedId(g.getUint("Master"), ids);
     s.engaged = SavedObjectReference::fromSerializedId(g.getUint("Engaged"), ids);
     s.joined = g.getBool("Joined");
+    s.duel = g.getBool("Duel");
     return s;
 }
 std::shared_ptr<resource::Gff> SavedRoundClock::toGff() const {
     using G = resource::Gff;
-    return G::Builder().type(0).field(G::Field::newDword64("Id", id)).field(G::Field::newInt("Slot", slot)).field(G::Field::newInt("State", state)).field(G::Field::newFloat("Elapsed", elapsed)).field(G::Field::newFloat("Duration", duration)).field(G::Field::newFloat("PauseRemaining", pauseRemaining)).field(G::Field::newDword("PauseOwner", pauseOwner.id)).field(G::Field::newDword("Master", master.id)).field(G::Field::newDword("Engaged", engaged.id)).field(G::Field::newByte("Joined", joined ? 1 : 0)).build();
+    return G::Builder().type(0).field(G::Field::newDword64("Id", id)).field(G::Field::newInt("Slot", slot)).field(G::Field::newInt("State", state)).field(G::Field::newFloat("Elapsed", elapsed)).field(G::Field::newFloat("Duration", duration)).field(G::Field::newFloat("PauseRemaining", pauseRemaining)).field(G::Field::newDword("PauseOwner", pauseOwner.id)).field(G::Field::newDword("Master", master.id)).field(G::Field::newDword("Engaged", engaged.id)).field(G::Field::newByte("Joined", joined ? 1 : 0)).field(G::Field::newByte("Duel", duel ? 1 : 0)).build();
 }
 
 SavedProjectile SavedProjectile::fromGff(const resource::Gff &g, const SerializedIdentityContext &ids) {
@@ -1051,6 +1039,7 @@ std::shared_ptr<Action> restoreCastSpell(const SavedActionRecord &record, Game &
         auto action = game.newAction<CastSpellAtLocationAction>(spell, location, cheat, command->path,
                                                                 command->instant, item, itemProperty, itemCasterLevel, command->selection, command->associatedFeat,
                                                                 command->fake);
+        action->setCommandParameters(command->domainLevel, command->metaType, command->spontaneousCast);
         if (cast) {
             action->restoreCastState(*cast);
         }
@@ -1063,6 +1052,7 @@ std::shared_ptr<Action> restoreCastSpell(const SavedActionRecord &record, Game &
     auto action = game.newAction<CastSpellAtObjectAction>(spell, std::move(target), item, cheat, command->path,
                                                           command->instant, itemProperty, itemCasterLevel, command->selection, command->associatedFeat, command->fake);
     action->setCommandLocation(command->position);
+    action->setCommandParameters(command->domainLevel, command->metaType, command->spontaneousCast);
     if (cast) {
         action->restoreCastState(*cast);
     }

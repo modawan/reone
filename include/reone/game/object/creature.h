@@ -542,7 +542,10 @@ public:
      * another.
      */
     void restoreMovementAfterState();
-    /** Lays \p state with its ambient animation state, through the record \p id. */
+    /**
+     * Lays \p state with its ambient animation state, through the record
+     * \p id; the creature's heartbeat becomes due at once.
+     */
     void setInternalStateEffect(int state, int ambientState, EffectId id);
     /** The record \p id that laid the state ended: the creature is free of it. */
     void clearInternalStateEffect(EffectId id);
@@ -619,25 +622,32 @@ public:
      */
     bool hasAffordableSpell(const Spell &spell) const;
     /**
-     * Pays the cost of \p spell, temporary points first; false, paying nothing, when it
-     * cannot.
+     * Pays the cost of \p spell, temporary points first, whatever the
+     * creature has left: each pool stops at zero.
      */
-    bool commitSpellForcePointCost(const Spell &spell, int &cost);
+    void paySpellForcePointCost(const Spell &spell);
+    /**
+     * The Force points a cast of \p spell is recorded as costing: its
+     * adjusted cost, or under Force Body the share of it paid in vitality.
+     */
+    int recordedSpellForcePointCost(const Spell &spell) const;
     /** The equipment classes the creature wears, as the Force power equipment masks test them. */
     uint32_t forceItemMask() const;
     /** The level of the Force Body effect on the creature, -1 without one. */
     int forceBodyLevel() const;
     /**
-     * The caster level of \p spell: the level of the first Force class that knows it, -1
-     * without one; an item or cheat cast uses the spell's innate level.
+     * The caster level of \p spell: the level of the first Force class that
+     * knows it, less its negative levels, -1 without one; an item or cheat
+     * cast uses the spell's innate level.
      */
     int spellCasterLevel(const Spell &spell, bool itemOrCheat = false) const;
-    /** The position of the first Force class that knows \p spell. */
-    int spellCastingClass(const Spell &spell) const;
+    /**
+     * The class position a power cast from the menu uses: the first of the
+     * first two positions that holds a Jedi class, or none.
+     */
+    int spellCastingClass() const;
     /** The caster level of the spell-like ability \p spellId. */
     int spellLikeAbilityCasterLevel(int spellId) const;
-    /** The spell is one of the creature's spell-like abilities, ready or not. */
-    bool knowsSpellLikeAbility(SpellType spell) const;
     /** The level of the class at \p classIndex less its negative levels. */
     int adjustedClassLevel(int classIndex) const;
     /** Whether \p spell is a ready spell-like ability, giving its caster level. */
@@ -832,6 +842,8 @@ public:
     void setHealTarget(uint32_t target) { _healTarget = target; }
     int walkmeshMaterial() const { return _walkmeshMaterial; }
     bool isPC() const { return _isPC; }
+    /** Whether a click to talk leaves the creature facing the way it was. */
+    bool isNotReorienting() const { return _notReorienting; }
     /** The character was made by the player (TSL item limitation). */
     bool isPlayerCreated() const { return _playerCreated; }
     bool isPartyInteract() const { return _partyInteract; }
@@ -911,7 +923,10 @@ public:
     void setFirstAndLastName(resource::LocString firstName, resource::LocString lastName);
     void setAppearance(int appearance) { _appearance = appearance; }
     void setMovementType(MovementType type);
-    void setFaction(Faction faction) { _faction = faction; }
+    /** Join a faction; a creature joining a faction other than its own goes to the end of its members. */
+    void setFaction(Faction faction);
+    /** Where the creature stands in the order in which its faction's members joined. */
+    uint32_t factionJoinOrder() const { return _factionJoinOrder; }
     /** Set the serialized base maximum and preserve the existing damage. */
     void setMaxHitPoints(int baseHitPoints) override;
     int maxHitPoints() const override;
@@ -1053,6 +1068,8 @@ public:
      * injured creature out of combat state is given the injured pause.
      */
     void showPauseReadyAnimation(bool pauseEnd);
+    /** Shows the combat-ready loop, in combat state or not. */
+    void showReadyAnimation();
     /** Chooses the idle loop again, as when its pose is sent anew. */
     void refreshPauseAnimation();
     /**
@@ -1141,6 +1158,11 @@ public:
      * kept. clearLayers also takes every layer off the body model.
      */
     void abortFireForgetAnimation(bool clearLayers = false);
+    /**
+     * Cuts the running queued one-shot short: it ends at the next animation
+     * update, as if its time had run out.
+     */
+    void cutOneShot();
     /** Empties the fire-and-forget queue. The running one-shot goes on. */
     void flushFireForgetQueue();
     /** The pause becomes the loop, unless it shows already. */
@@ -1310,14 +1332,19 @@ public:
      *
      * This lives only to carry the obstruction from the collision test to the
      * blocked event raised after the step. It is not what scripts read:
-     * GetBlockingDoor answers from the argument captured when the event was
-     * raised, so it stays fixed for that run while this keeps changing.
+     * GetBlockingDoor answers from lastBlockingDoorId().
      */
     void setBlockingDoor(uint32_t doorId) { _blockingDoorId = doorId; }
 
     void clearBlockingDoor() { _blockingDoorId = script::kObjectInvalid; }
 
     uint32_t blockingDoorId() const { return _blockingDoorId; }
+
+    /**
+     * The door the last blocked event was raised for. Each blocked event
+     * replaces it and nothing else clears it, so later runs report it too.
+     */
+    uint32_t lastBlockingDoorId() const { return _lastBlockingDoorId; }
 
     /**
      * Edge-trigger ScriptOnBlocked for the door currently obstructing this
@@ -1447,7 +1474,11 @@ public:
     void broadcastCombatState(uint32_t opponent);
     /** Ends the ordinary invisibility and sanctuary effects an attack breaks. */
     void removeCombatInvisibilityEffects();
-    /** In TSL ends the mind trick and droid scramble states. */
+    /**
+     * In TSL ends the mind trick and droid scramble states, walking the
+     * effect list by position: a record a removal moves into the position it
+     * freed is passed over.
+     */
     void removeMindTrickEffects();
     uint32_t lastWeaponUsed() const { return _lastWeaponUsed; }
 
@@ -1476,8 +1507,13 @@ public:
     /** Whether the creature is in the party. */
     bool isPartyMember() const;
     bool isInvisibleTo(const Creature &observer) const;
+    /** Drops the queued action groups whose attack, cast or item cast is aimed at \p object. */
     void clearHostileActionsAgainst(const Object &object);
-    /** Whether an immunity of the creature refuses \p effect or any effect it links. */
+    /**
+     * Whether an immunity of the creature refuses \p effect or any effect it
+     * links. The first immunity found is reported to the effect's creator
+     * and to the creature.
+     */
     bool isEffectLinkImmune(const Effect &effect) const;
     bool isTwoWeaponFighting() const;
     std::shared_ptr<Item> getOffhandAttackWeapon() const;
@@ -1516,7 +1552,8 @@ public:
         auto target = _lastHostileTarget.resolve();
         return target ? target->id() : script::kObjectInvalid;
     }
-    ActionType getLastAttackAction() const { return _lastAttackAction; }
+    /** The action of the last combat round, or -1 before any and after leaving combat. */
+    int getLastAttackAction() const { return _lastAttackAction; }
     /** The power the last spell round ended with: 0 after an item use, -1 when none since leaving combat. */
     int lastForcePowerUsed() const { return _lastForcePowerUsed; }
     FeatType getLastCombatFeat() const { return _lastCombatFeat; }
@@ -1604,16 +1641,17 @@ public:
     void getDamageResistanceFeatBonuses(
         int damage,
         DamageResolution &resolution) const;
-    /** The damage power of an attack: its effect attack bonus. */
+    /** The damage power of an attack: the low byte of its effect attack bonus. */
     DamagePower calculateDamagePower(
         std::optional<std::reference_wrapper<const Creature>> target,
         const std::shared_ptr<Item> &weapon,
         bool offHand) const;
     /**
      * Adds the item and effect damage modifiers of one hit and returns the
-     * miscellaneous amount added to its base damage. \p dice chooses whether
-     * the modifier dice are rolled or taken at a fixed face; the lowest face
-     * applies to hand-specific dice only.
+     * miscellaneous amount added to its base damage, which KotOR never adds.
+     * The hand-specific modifiers are added by damage type, uncapped.
+     * \p dice chooses whether the modifier dice are rolled or taken at a
+     * fixed face; the lowest face applies to hand-specific dice only.
      */
     int addPhysicalDamageModifiers(
         DamagePacket &damage,
@@ -1980,6 +2018,7 @@ private:
     int32_t _assignedPuppet {-1};
     bool _puppet {false};
     Faction _faction {Faction::Invalid};
+    uint32_t _factionJoinOrder {0};
     bool _disarmable {false};
     bool _noPermDeath {false};
     std::optional<std::string> _livingName;
@@ -2053,6 +2092,7 @@ private:
     // destroyed while remembered simply resolves to no object.
     uint32_t _blockingDoorId {script::kObjectInvalid};
     uint32_t _blockedEventDoorId {script::kObjectInvalid};
+    uint32_t _lastBlockingDoorId {script::kObjectInvalid};
 
     resource::LocString _firstName;
     resource::LocString _lastName;
@@ -2160,7 +2200,7 @@ private:
     float _itemUseCooldown {0.0f};
     int _lastMeleeAttackVariant {-1};
     RuntimeObjectRef<Object> _lastHostileTarget;
-    ActionType _lastAttackAction {ActionType::QueueEmpty};
+    int _lastAttackAction {-1};
     FeatType _lastCombatFeat {FeatType::Invalid};
     int _lastForcePowerUsed {-1};
     AttackResultType _lastAttackResult {AttackResultType::Invalid};
@@ -2245,6 +2285,8 @@ private:
     bool _equipmentHidden {false};             /**< an animation that hides equipped items put the hand weapons away */
     SpellCastVisuals _spellCastVisuals;
     bool _disableInjuredAnim {false};
+    /** The appearance breaks off a swing that is parried. */
+    bool _abortOnParry {false};
     std::deque<FireForgetEntry> _fireForgetQueue;
     std::optional<RunningOneShot> _oneShot;
     std::optional<StoredLoop> _storedLoop;
@@ -2450,8 +2492,8 @@ private:
     std::string getDeadAnimation() const;
     std::string getDieAnimation() const;
     bool isInFallenLoop() const;
-    /** The clips that lead a dying creature into its dead pose. */
-    void playDieTransition(bool prone);
+    /** The clips that lead a dying creature into its dead pose from the loop \p leftLoopId, or -1 for none. */
+    void playDieTransition(int leftLoopId);
     /** The appearance's death visual, shown at its node on the body. */
     void presentDeathVisual();
     std::string getHeadTalkAnimation() const;
@@ -2499,12 +2541,27 @@ private:
     bool isStationaryForDetection() const;
     void reportStealthDetection(const Creature &target, int spotRoll, int hideRoll, int aware, int rank,
                                 int observerStill, int targetStill, int distance, int facing, int run, int combat) const;
+    /**
+     * The slot a loaded equipment record may take beside the equipment
+     * already loaded; none when the creature may not wear it.
+     *
+     * @param reportRefusal whether a refusal tells the player why
+     */
     std::optional<int> admitLoadedEquipment(
         const Item &item, uint32_t slotMask,
-        const std::map<int, std::shared_ptr<Item>> &loaded, bool &bodyRefused);
+        const std::map<int, std::shared_ptr<Item>> &loaded, bool &bodyRefused, bool reportRefusal);
+    /**
+     * Replaces the carried items and the equipment with those of the record's
+     * lists.
+     *
+     * @param placedTemplate whether the record is the template of a creature
+     *        an area places: each entry then names its list's template and
+     *        nothing more, and an entry without one is left out
+     */
     void deserializeOwnedItemsAndEquipment(
         const resource::Gff &gff,
-        const SerializedIdentityContext &identityContext);
+        const SerializedIdentityContext &identityContext,
+        bool placedTemplate);
     /** Credits, chemicals, components and pazaak cards read into the inventory are acquired as counts. */
     void countLoadedItems();
     /**
@@ -2522,6 +2579,10 @@ private:
         const std::map<int, std::shared_ptr<Item>> &equipment) const;
     void refreshVitalityConstitution();
     void followMaximumHitPoints(int previousMaximum);
+    /**
+     * Whether the creature's vitality makes it dead: never for a party member,
+     * at -10 or less for a player character, else at 0 or less.
+     */
     bool hitPointsAtDeathThreshold() const;
     void restoreSerializedVitality();
     void applyHitPointDamage(int amount, const std::shared_ptr<Object> &damager,

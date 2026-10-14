@@ -211,6 +211,14 @@ public:
     void onOpen(uint32_t triggererId);
     /** The placeable failed to open for the opener: its script for that runs. */
     void onFailToOpen(uint32_t openerId);
+    /**
+     * The object the placeable last saw come at it: one it failed to open
+     * for, one that tried its lock or one that set off its trap. Kept until
+     * the next such event.
+     */
+    uint32_t lastEnteredId() const { return _lastEnteredId; }
+    /** Keep \p objectId as the object that last came at this one. */
+    void setLastEnteredId(uint32_t objectId) { _lastEnteredId = objectId; }
     void onClosed(uint32_t closerId);
     void runOnUsed(std::shared_ptr<Object> usedBy);
     void runOnInvDisturbed(uint32_t triggerrer, InventoryDisturbType type, uint32_t item);
@@ -258,6 +266,7 @@ private:
     uint8_t _ref {0};
     bool _lockable {false};
     bool _locked {false};
+    uint32_t _lastEnteredId {script::kObjectInvalid};
     bool _hasInventory {false};
     bool _keyRequired {false};
     uint8_t _closeLockDC {0};

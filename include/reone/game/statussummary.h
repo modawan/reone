@@ -72,6 +72,8 @@ struct StatusSummaryBatch {
     std::array<StatusSummaryEntry, kStatusSummaryCategoryCount> entries;
     /** Something was reported, even when it shows no row. */
     bool requested {false};
+    /** The level-up chime plays when the batch is presented. */
+    bool levelUpSound {false};
 
     /** Whether nothing was reported. */
     bool empty() const;
@@ -94,8 +96,22 @@ class StatusSummaryAccumulator {
 public:
     /** Takes a report; false when a suppression swallowed it. */
     bool submit(StatusSummaryCategory category, int amount = 0, std::vector<std::string> items = {});
+    /**
+     * Queues the level-up chime for the next presentation.
+     *
+     * @return false when a suppression swallowed it
+     */
+    bool submitLevelUpSound();
     /** The next \p count reports are swallowed; a negative count changes nothing. */
     void suppress(int count);
+    /**
+     * Takes the level-up chime of a pending batch that has nothing else to
+     * present, while no batch is displayed. Such a batch plays its chime
+     * without being shown.
+     *
+     * @return true when the chime was taken and should play
+     */
+    bool takeLevelUpSound();
 
     bool beginPresentation();
     void acknowledge();

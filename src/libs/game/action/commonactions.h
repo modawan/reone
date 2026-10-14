@@ -46,6 +46,12 @@ void tryUnlockDoorWithKey(Game &game, Door &door, Object &actor, Party &party);
 bool workAtLock(Action &action, Object &target, Object &actor, bool &working, float dt);
 
 /**
+ * Clearing the work at a lock gives a creature's pose back to its state once
+ * the work has begun (\p working); a one-shot still running plays on.
+ */
+void resumePoseAfterLockWork(Object &actor, bool working);
+
+/**
  * Tell a door or placeable that it failed to open for the actor; quiet keeps a
  * locked door from saying so.
  */

@@ -196,12 +196,6 @@ const char *argKindToString(ArgKind kind) {
         return "UserDefinedEventNumber";
     case ArgKind::ClickingObject:
         return "ClickingObject";
-    case ArgKind::EnteringObject:
-        return "EnteringObject";
-    case ArgKind::ExitingObject:
-        return "ExitingObject";
-    case ArgKind::BlockingDoor:
-        return "BlockingDoor";
     case ArgKind::LastClosedBy:
         return "LastClosedBy";
     case ArgKind::LastOpenedBy:
@@ -299,15 +293,6 @@ Argument Argument::fromString(std::string str) {
     }
     if (kind == "ClickingObject") {
         return {ArgKind::ClickingObject, Variable::ofObject(std::stoul(value))};
-    }
-    if (kind == "EnteringObject") {
-        return {ArgKind::EnteringObject, Variable::ofObject(std::stoul(value))};
-    }
-    if (kind == "ExitingObject") {
-        return {ArgKind::ExitingObject, Variable::ofObject(std::stoul(value))};
-    }
-    if (kind == "BlockingDoor") {
-        return {ArgKind::BlockingDoor, Variable::ofObject(std::stoul(value))};
     }
     if (kind == "LastClosedBy") {
         return {ArgKind::LastClosedBy, Variable::ofObject(std::stoul(value))};
@@ -422,9 +407,6 @@ void Argument::verify() {
     switch (kind) {
     case ArgKind::Caller:
     case ArgKind::ClickingObject:
-    case ArgKind::EnteringObject:
-    case ArgKind::ExitingObject:
-    case ArgKind::BlockingDoor:
     case ArgKind::LastClosedBy:
     case ArgKind::LastOpenedBy:
     case ArgKind::LastDisturbed:

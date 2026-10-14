@@ -341,8 +341,9 @@ bool canUseItem(const Creature &creature, const Item &item, bool menuCheck) {
     if (creature.isPC() && creature.attributes().getAggregateLevel() < minimumEquipLevel(creature, item)) {
         return false;
     }
-    // A weapon may be at most one size larger than its user.
-    if (item.weaponType() != WeaponType::None &&
+    // A weapon may be at most one size larger than its user, unless it may be
+    // wielded at any size.
+    if (item.weaponType() != WeaponType::None && item.weaponWield() != WeaponWield::AnySize &&
         static_cast<int>(item.weaponSize()) - static_cast<int>(creature.size()) >= 2)
         return false;
     return !item.isEquippable() || hasEquipmentProficiency(creature, item);

@@ -693,9 +693,8 @@ EffectApplicationResult DamageEffect::onApply(Object &object, EffectInstance &in
     if (instance.restoring || object.isDead()) {
         return EffectApplicationResult::Applied;
     }
-    // In TSL a dying player character takes no more damage.
-    if (auto *creature = dyn_cast<Creature>(&object);
-        creature && object.game().isTSL() && creature->isPC() && creature->currentHitPoints() <= 0) {
+    // A party member at no vitality takes no more damage.
+    if (auto *creature = dyn_cast<Creature>(&object); creature && creature->isTemporarilyDead()) {
         return EffectApplicationResult::Applied;
     }
     // The application resolves a copy of the effect's amounts, so the effect
@@ -979,6 +978,24 @@ EffectApplicationResult HitPointChangeWhenDyingEffect::onApply(Object &object, E
     return EffectApplicationResult::Retained;
 }
 
+void applyBloodVisual(Creature &creature) {
+    const auto appearance = getRequiredTwoDA(creature.services().resource.twoDas, "appearance");
+    const auto blood = appearance->getString(creature.appearance(), "bloodcolr");
+    int visualId = 0;
+    if (blood == "R") {
+        visualId = kRedBloodVisual;
+    } else if (blood == "G") {
+        visualId = kGreenBloodVisual;
+    } else if (blood == "Y") {
+        visualId = kYellowBloodVisual;
+    }
+    auto effect = std::make_shared<VisualEffectMarkerEffect>(visualId);
+    auto child = effect->saveFacingInstance();
+    child.effect = effect;
+    child.setDuration(DurationType::Instant, 0.0f);
+    creature.applyEffect(std::move(child));
+}
+
 EffectRemovalResult HitPointChangeWhenDyingEffect::onRemove(Object &object, const EffectInstance &instance) {
     auto *creature = dyn_cast<Creature>(&object);
     // Anything but a creature has nothing to change.
@@ -990,22 +1007,7 @@ EffectRemovalResult HitPointChangeWhenDyingEffect::onRemove(Object &object, cons
         const int amount = creature->currentHitPointsWithoutTemporary() + (rate > 0.0f ? 1 : -1);
         creature->Object::setCurrentHitPoints(amount);
         if (!(rate > 0.0f)) {
-            // A creature of no blood colour shows visual 0.
-            const auto appearance = getRequiredTwoDA(object.services().resource.twoDas, "appearance");
-            const auto blood = appearance->getString(creature->appearance(), "bloodcolr");
-            int visualId = 0;
-            if (blood == "R") {
-                visualId = kRedBloodVisual;
-            } else if (blood == "G") {
-                visualId = kGreenBloodVisual;
-            } else if (blood == "Y") {
-                visualId = kYellowBloodVisual;
-            }
-            auto effect = std::make_shared<VisualEffectMarkerEffect>(visualId);
-            auto child = effect->saveFacingInstance();
-            child.effect = effect;
-            child.setDuration(DurationType::Instant, 0.0f);
-            object.applyEffect(std::move(child));
+            applyBloodVisual(*creature);
         }
     }
     if (creature->isDead() ||

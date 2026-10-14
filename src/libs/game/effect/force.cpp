@@ -222,6 +222,14 @@ EffectApplicationResult AssassinateEffect::onApply(Object &object, EffectInstanc
 }
 
 EffectApplicationResult BeamEffect::onApply(Object &object, EffectInstance &instance) {
+    // Only a creature, a placeable or a door shows the beam, and in TSL a
+    // trigger; the record is kept on any object.
+    const auto type = object.type();
+    const bool showsBeam = type == ObjectType::Creature || type == ObjectType::Placeable || type == ObjectType::Door ||
+                           (object.game().isTSL() && type == ObjectType::Trigger);
+    if (!showsBeam) {
+        return EffectApplicationResult::Retained;
+    }
     auto visual = std::make_shared<VisualEffect>(instance.integerParameter(0), instance.integerParameter(2) != 0, object.services());
     auto child = instance.linkedChild(visual);
     child.setIntegerParameter(1, instance.integerParameter(1));

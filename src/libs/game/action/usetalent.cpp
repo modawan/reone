@@ -73,8 +73,12 @@ void UseTalentOnObjectAction::dispatchToAction(Object &actor) {
         auto cast = _game.newAction<CastSpellAtObjectAction>(
             std::move(spell), _target, item, /*cheat=*/false,
             ProjectilePathType::Default, /*instantSpell=*/false, property, casterLevel, selection);
-        // The command carries where its target stands now.
+        // The command carries where its target stands now, and a power's
+        // command the talent's meta type.
         cast->setCommandLocation(_target->position());
+        if (!item) {
+            cast->setCommandParameters(0, _chosenTalent->metaType(), 0);
+        }
         _action = std::move(cast);
         break;
     }
@@ -163,8 +167,13 @@ void UseTalentAtLocationAction::dispatchToAction(Object &actor) {
         return;
     }
     const auto selection = item ? std::nullopt : std::optional<SpellSelection> {SpellSelection {_chosenTalent->castingClass(), _chosenTalent->casterLevel()}};
-    _action = _game.newAction<CastSpellAtLocationAction>(std::move(spell), _targetLocation,
-                                                         /*cheat=*/false, ProjectilePathType::Default, /*instantSpell=*/false, item, property, itemLevel, selection);
+    auto cast = _game.newAction<CastSpellAtLocationAction>(std::move(spell), _targetLocation,
+                                                           /*cheat=*/false, ProjectilePathType::Default, /*instantSpell=*/false, item, property, itemLevel, selection);
+    // A power's command carries the talent's meta type.
+    if (!item) {
+        cast->setCommandParameters(0, _chosenTalent->metaType(), 0);
+    }
+    _action = std::move(cast);
 }
 
 void UseTalentAtLocationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {

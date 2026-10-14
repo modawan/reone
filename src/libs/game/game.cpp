@@ -406,57 +406,63 @@ static std::optional<pazaak::CardDefinition> getPazaakCardDefinition(int cardId,
     return pazaak::CardDefinition::signSelectable(magnitude);
 }
 
+// The card a pazaakdecks.2da cell names. The first character picks the kind:
+// '-' and '*' for the negative and sign-selectable cards and, in KotOR II, '$'
+// for Double and T, F and V (in either case) for Tiebreaker, the Flip cards
+// (F1 is Flip 2&4, any other Flip 3&6) and Value Change. Any other first
+// character is a positive card. The second character is the card's value.
 static std::optional<pazaak::CardDefinition> parsePazaakDeckCard(
     const std::string &token, bool tsl) {
 
-    if (tsl) {
-        // KotOR II special-card tokens, from the card descriptions.
-        if (token == "$$") {
-            return pazaak::CardDefinition::doubleCard();
-        }
-        if (token == "F1") {
-            return pazaak::CardDefinition::flipTwoFour();
-        }
-        if (token == "F2") {
-            return pazaak::CardDefinition::flipThreeSix();
-        }
-        if (token == "TT") {
-            return pazaak::CardDefinition::tiebreaker();
-        }
-        if (token == "VV") {
-            return pazaak::CardDefinition::valueChange();
+    const char kind = token.empty() ? '\0' : token[0];
+    const char value = token.size() > 1 ? token[1] : '\0';
+    int cardId = value - '1';
+    if (kind == '-') {
+        cardId = value - '1' + 6;
+    } else if (kind == '*') {
+        cardId = value - '1' + 12;
+    } else if (tsl) {
+        switch (kind) {
+        case '$':
+            cardId = 19;
+            break;
+        case 'T':
+        case 't':
+            cardId = 18;
+            break;
+        case 'F':
+        case 'f':
+            cardId = value == '1' ? 20 : 21;
+            break;
+        case 'V':
+        case 'v':
+            cardId = 22;
+            break;
+        default:
+            break;
         }
     }
-    if (token.size() != 2 ||
-        (token[0] != '+' && token[0] != '-' && token[0] != '*') ||
-        token[1] < '1' || token[1] > '6') {
-        return std::nullopt;
-    }
-    int magnitude = token[1] - '0';
-    switch (token[0]) {
-    case '+':
-        return pazaak::CardDefinition::fixedPositive(magnitude);
-    case '-':
-        return pazaak::CardDefinition::fixedNegative(magnitude);
-    case '*':
-        return pazaak::CardDefinition::signSelectable(magnitude);
-    default:
-        return std::nullopt;
-    }
+    return getPazaakCardDefinition(cardId, tsl);
 }
 
+// The opponent's side deck is a row's first ten columns; a negative row is a
+// random one.
 static std::optional<pazaak::SideDeck> loadPazaakOpponentDeck(
     const resource::TwoDA &decks,
     int row, bool tsl) {
 
+    if (row < 0 && decks.getRowCount() > 0) {
+        row = randomInt(0, decks.getRowCount() - 1);
+    }
     if (row < 0 || row >= decks.getRowCount()) {
         return std::nullopt;
     }
+    const auto &columns = decks.columns();
     std::vector<pazaak::CardDefinition> cards;
     cards.reserve(pazaak::kSideDeckSize);
     for (size_t i = 0; i < pazaak::kSideDeckSize; ++i) {
         auto card = parsePazaakDeckCard(
-            decks.getString(row, "card" + std::to_string(i)), tsl);
+            i < columns.size() ? decks.getString(row, columns[i]) : std::string(), tsl);
         if (!card) {
             return std::nullopt;
         }
@@ -804,6 +810,7 @@ void Game::update(float frameTime) {
     // The driver rebases frameTime after synchronous loading; movies suspend it.
     _globalFade.update(frameTime * _deathTimeScale);
     _partyKilledAutoPauseDelay = std::max(0.0f, _partyKilledAutoPauseDelay - frameTime);
+    updateDeferredAutoPause(frameTime);
     float dt = frameTime * _gameSpeed * _deathTimeScale;
     if (_movie) {
         _worldClockSample.reset();
@@ -1616,7 +1623,11 @@ void Game::retireActiveModuleRuntime() {
     _fadeArrivalModule.reset();
     _lastTarget.reset();
     _nearestObjects.clear();
-    // Leaving a module forgets the mine sighting and both sighting holds, not the enemy sighting.
+    // Leaving a module forgets both sightings and both sighting holds, and the
+    // autopause delay window and any deferred autopause.
+    _autoPauseDelayWindow = 0.0f;
+    _deferredAutoPauseDelay = 0.0f;
+    _enemySighted = false;
     _mineSighted = false;
     _enemySightingHold = 0.0f;
     _mineSightingHold = 0.0f;
@@ -1698,7 +1709,6 @@ void Game::retireRuntimeSession() {
 
     abortPazaak();
     _lastPazaakResult.reset();
-    _pazaakContinuationCaller.reset();
     _pazaakDevelopmentSelectedObjectOverride.reset();
     if (_swoopRace.isActive()) {
         _swoopRace.stop();
@@ -3569,6 +3579,19 @@ std::shared_ptr<Waypoint> Game::newWaypoint(
         gff, identityContext, std::move(sceneName), *this, _services);
 }
 
+std::shared_ptr<Waypoint> Game::newWaypointFromBlueprint(const std::string &resRef) {
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    std::shared_ptr<Waypoint> waypoint;
+    replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            waypoint = newWaypoint();
+            waypoint->loadFromBlueprint(resRef);
+        },
+        []() noexcept {});
+    return waypoint;
+}
+
 std::shared_ptr<Trigger> Game::newTrigger(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext,
@@ -3607,6 +3630,19 @@ std::shared_ptr<Store> Game::newStore(
     std::string sceneName) {
     return newObjectFromGff<Store>(
         gff, identityContext, std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Store> Game::newStoreFromBlueprint(const std::string &resRef) {
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    std::shared_ptr<Store> store;
+    replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            store = newStore();
+            store->loadFromBlueprint(resRef);
+        },
+        []() noexcept {});
+    return store;
 }
 
 void Game::prepareSavedRuntimeNamespace(
@@ -3723,6 +3759,12 @@ void Game::publishSavedRuntimeState() {
                 _combat.restoreRound(action, actor, *saved->round);
             }
         }
+        // Rounds no queued command carries: one still running after its
+        // command was cleared, or a side ended while its partner's runs on.
+        for (const auto &saved : actor->_savedRounds) {
+            _combat.restoreRound(actor, saved);
+        }
+        actor->_savedRounds.clear();
     }
     for (const auto &[_, object] : _objectById) {
         auto actor = std::dynamic_pointer_cast<Creature>(object);
@@ -4032,11 +4074,18 @@ void Game::postObjectDestruction(Object &target, std::optional<std::reference_wr
 }
 
 void Game::queueObjectDestruction(Object &target, float delay) {
+    if (!delayedWorldTime(delay)) {
+        return;
+    }
+    cancelObjectDestruction(target);
+    postObjectDestruction(target, delay);
+}
+
+void Game::postObjectDestruction(Object &target, float delay) {
     const auto time = delayedWorldTime(delay);
     if (!time) {
         return;
     }
-    cancelObjectDestruction(target);
     SavedEventRecord event;
     event.day = static_cast<uint32_t>(*time / millisecondsPerWorldDay());
     event.time = static_cast<uint32_t>(*time % millisecondsPerWorldDay());
@@ -4788,8 +4837,138 @@ enum class StringTokenAction {
     StartHighlight = 21,
     EndStart = 22,
     PlayerName = 23,
-    Button = 24
+    Button = 24,
+    KeyName = 25,
+    MouseButton = 26,
+    Bounty = 27
 };
+
+// The mouse-button texts a MouseButton token picks by its default value.
+static constexpr std::array<int, 4> kMouseButtonStrRefsK1 {48483, 48482, 48485, 48484};
+static constexpr std::array<int, 4> kMouseButtonStrRefsTSL {48726, 48725, 48728, 48727};
+// The bounty token reads this global number and names that many times this
+// amount of credits.
+static constexpr char kBountyGlobal[] = "300NAR_Bounty";
+static constexpr int kBountyCreditsPerPoint = 500;
+
+// Keys are numbered from the mouse's, then the keyboard's from Return, in
+// bindablekeys.2da order, then the controller's. Key 0 names nothing.
+static constexpr int kFirstKeyboardKey = 6;
+static constexpr int kFirstControllerKey = 110;
+// What a key outside the keyboard reads, and a keyboard key without a name.
+static constexpr int kNonKeyboardKeyStrRefK1 = 48144;
+static constexpr int kNonKeyboardKeyStrRefTSL = 48724;
+static constexpr char kUnnamedKey[] = "N/A";
+// Input events numbered from this one take their keys from keymap.2da.
+static constexpr int kFirstMappedInputEvent = 200;
+
+/** An input event the engine defines itself, and the key it takes. */
+struct EngineInputEvent {
+    int event {0};
+    int key {0};
+};
+
+static constexpr std::array<EngineInputEvent, 24> kEngineInputEventsK1 {{
+    {0x03, 110},
+    {0x04, 111},
+    {0x07, 111},
+    {0x08, 110},
+    {0x0b, 124},
+    {0x0c, 113},
+    {0x0d, 114},
+    {0x17, 3},
+    {0x18, 4},
+    {0x19, 0},
+    {0x41, 3},
+    {0x42, 4},
+    {0x43, 0},
+    {0x44, 1},
+    {0x45, 2},
+    {0x46, 5},
+    {0x50, 38},
+    {0xb5, 6},
+    {0xb6, 9},
+    {0xb7, 10},
+    {0xb8, 7},
+    {0xb9, 8},
+    {0xbb, 88},
+    {0xbc, 89},
+}};
+static constexpr std::array<EngineInputEvent, 29> kEngineInputEventsTSL {{
+    {0x01, 125},
+    {0x03, 110},
+    {0x04, 111},
+    {0x07, 111},
+    {0x08, 110},
+    {0x0b, 122},
+    {0x0c, 113},
+    {0x0d, 114},
+    {0x17, 3},
+    {0x18, 4},
+    {0x19, 0},
+    {0x1a, 1},
+    {0x33, 111},
+    {0x34, 110},
+    {0x37, 117},
+    {0x38, 116},
+    {0x41, 3},
+    {0x42, 4},
+    {0x43, 0},
+    {0x44, 1},
+    {0x45, 2},
+    {0x46, 5},
+    {0x50, 38},
+    {0xb5, 6},
+    {0xb6, 9},
+    {0xb7, 10},
+    {0xb8, 7},
+    {0xb9, 8},
+    {0xbb, 88},
+}};
+
+// The key an input event takes by default, or none when no such event
+// exists. A two-key event takes its alternate key when asked for it.
+static std::optional<int> inputEventKey(resource::ITwoDAs &twoDas, bool tsl, int event, bool alternateKey) {
+    if (event >= kFirstMappedInputEvent) {
+        auto keymap = getRequiredTwoDA(twoDas, "keymap");
+        // A disabled row makes no event.
+        const auto enabledRow = [&keymap](const std::string &label) -> std::optional<int> {
+            const int row = keymap->indexByLabel(label);
+            if (row == -1 || keymap->getInt(row, "disabled", 0) == 1) {
+                return std::nullopt;
+            }
+            return row;
+        };
+        const std::string label = "action" + std::to_string(event);
+        if (auto row = enabledRow(label)) {
+            return keymap->getInt(*row, "language0", 0);
+        }
+        // A two-key event is made from its A and B rows when both name a key:
+        // the B key is its key and the A key its alternate. Only the A row can
+        // disable it.
+        const auto rowA = enabledRow(label + "a");
+        const int rowB = keymap->indexByLabel(label + "b");
+        if (!rowA || rowB == -1) {
+            return std::nullopt;
+        }
+        const int keyA = keymap->getInt(*rowA, "language0", -1);
+        const int keyB = keymap->getInt(rowB, "language0", -1);
+        if (keyA < 0 || keyB < 0) {
+            return std::nullopt;
+        }
+        return alternateKey ? keyA : keyB;
+    }
+    const auto find = [event](const auto &events) -> std::optional<int> {
+        auto it = std::find_if(events.begin(), events.end(), [event](const EngineInputEvent &engineEvent) {
+            return engineEvent.event == event;
+        });
+        if (it == events.end()) {
+            return std::nullopt;
+        }
+        return it->key;
+    };
+    return tsl ? find(kEngineInputEventsTSL) : find(kEngineInputEventsK1);
+}
 
 // Text between "<" and ">" names a token; "<<" and "{{" stand for "<" and
 // "{". Text between "{" and "}" is dropped, as is text that a StartAction or
@@ -4984,6 +5163,37 @@ std::string Game::getTokenValue(const std::string &name, const std::map<int, std
             break;
         case StringTokenAction::Button:
             value = std::string(1, static_cast<char>(defaultValue));
+            break;
+        case StringTokenAction::KeyName: {
+            // The name of the key bound to the input event the default names;
+            // a two-key event names its alternate key when strref1 is 2 or
+            // more. Without an event or a key it reads string 0. A keyboard
+            // key is named by its bindablekeys.2da text.
+            value = strings.getText(0);
+            const auto key = inputEventKey(_services.resource.twoDas, isTSL(), defaultValue, strRef(0) >= 2);
+            if (!key || *key == 0) {
+                break;
+            }
+            if (*key < kFirstKeyboardKey || *key >= kFirstControllerKey) {
+                value = strings.getText(isTSL() ? kNonKeyboardKeyStrRefTSL : kNonKeyboardKeyStrRefK1);
+                break;
+            }
+            auto keys = getRequiredTwoDA(_services.resource.twoDas, "bindablekeys");
+            const int keyRow = *key - kFirstKeyboardKey;
+            value = keyRow < keys->getRowCount() ? strings.getText(keys->getInt(keyRow, "keynamestrref", -1)) : kUnnamedKey;
+            break;
+        }
+        case StringTokenAction::MouseButton: {
+            // A default outside the four texts reads string 0.
+            const auto &mouseButtons = isTSL() ? kMouseButtonStrRefsTSL : kMouseButtonStrRefsK1;
+            const bool known = defaultValue >= 0 && defaultValue < static_cast<int>(mouseButtons.size());
+            value = strings.getText(known ? mouseButtons[defaultValue] : 0);
+            break;
+        }
+        case StringTokenAction::Bounty:
+            // Only TSL has the bounty token.
+            value = isTSL() ? std::to_string(getGlobalNumber(kBountyGlobal) * kBountyCreditsPerPoint)
+                            : kUnrecognizedToken;
             break;
         default:
             value = kUnrecognizedToken;
@@ -5245,6 +5455,10 @@ void Game::showSoloModeQuery(bool forStealth) {
 
 // The party-killed autopause comes at most once in this many seconds.
 static constexpr float kPartyKilledAutoPauseInterval = 2.0f;
+// After a door is opened, unlocked or bashed, an autopause requested within
+// this many seconds is deferred by the second constant.
+static constexpr float kAutoPauseDelayWindow = 5.0f;
+static constexpr float kDeferredAutoPauseDelay = 1.0f;
 
 void Game::requestAutoPause(AutoPauseReason reason) {
     const auto &options = _options.game.autoPause;
@@ -5269,8 +5483,27 @@ void Game::requestAutoPause(AutoPauseReason reason) {
         enabled = options.newTargetSelected;
         break;
     }
-    // Autopause applies only over live play and never stacks on an existing pause.
-    if (!enabled || _autoPaused || _paused || _screen != Screen::InGame) {
+    if (!enabled) {
+        return;
+    }
+    autoPause(reason);
+}
+
+void Game::autoPause(AutoPauseReason reason) {
+    // Autopause never stacks on an existing pause.
+    if (_autoPaused || _paused) {
+        return;
+    }
+    // Within the delay window the request is deferred, even one made during
+    // a conversation.
+    if (_autoPauseDelayWindow > 0.0f) {
+        _deferredAutoPauseDelay = kDeferredAutoPauseDelay;
+        _autoPauseDelayWindow = 0.0f;
+        _deferredAutoPauseReason = reason;
+        return;
+    }
+    // Autopause applies only over live play.
+    if (_screen != Screen::InGame) {
         return;
     }
     if (reason == AutoPauseReason::PartyKilled) {
@@ -5288,6 +5521,29 @@ void Game::requestAutoPause(AutoPauseReason reason) {
         {AutoPauseReason::NewTargetSelected, PauseReason::NewTargetSelected}};
     setPaused(true, kPauseReasons.at(reason));
     _autoPaused = true;
+}
+
+void Game::delayNextEnemyAutoPause() {
+    if (_deferredAutoPauseDelay <= 0.0f) {
+        _autoPauseDelayWindow = kAutoPauseDelayWindow;
+    }
+}
+
+// A deferred autopause is dropped when the leader is in combat mode once it
+// is due. TSL pauses for an enemy sighting first; otherwise the stored reason
+// pauses.
+void Game::updateDeferredAutoPause(float frameTime) {
+    if (_deferredAutoPauseDelay > 0.0f) {
+        _deferredAutoPauseDelay -= frameTime;
+        if (_deferredAutoPauseDelay <= 0.0f && !_clientCombatMode) {
+            if (isTSL()) {
+                autoPause(AutoPauseReason::EnemySighted);
+            }
+            autoPause(_deferredAutoPauseReason);
+        }
+    } else if (_autoPauseDelayWindow > 0.0f) {
+        _autoPauseDelayWindow -= frameTime;
+    }
 }
 
 void Game::setAutoPauseOptions(const AutoPauseOptions &options) {
@@ -5345,8 +5601,7 @@ bool Game::isTutorialWindowValid(int id) const {
 }
 
 bool Game::requestTutorialWindow(int id, uint32_t actor, uint32_t subject, uint32_t param) {
-    // Once the game is over no tutorial window opens.
-    if (_gameOver || !tutorialWindowsEnabled() || id < 0 || id > kLastTutorial) {
+    if (!tutorialWindowsEnabled() || id < 0 || id > kLastTutorial) {
         return false;
     }
     if (!isTSL() && id > kK1LastTutorial) {
@@ -5401,7 +5656,7 @@ bool Game::showTutorialPage() {
             "WHITEBUTTON", "STARTBUTTON", "XBUTTON", "YBUTTON", "Abutton", "Backbutton", "Bbutton",
             "Blbutton", "Whbutton", "Xbutton", "Ybutton", "uibut_Start", "uibut_X", "uibut_Y"};
         const bool glyph = isTSL() && std::any_of(controllerGlyphs.begin(), controllerGlyphs.end(), [&](const char *name) {
-                               return iconResRef == name;
+                               return boost::iequals(iconResRef, name);
                            });
         if (!glyph) {
             icon = _services.resource.textures.get(boost::to_lower_copy(iconResRef), TextureUsage::GUI);
@@ -5621,12 +5876,13 @@ void Game::clearOneAction() {
     clearOneCombatAction(*leader);
 }
 
-// The last pending round entry goes; without one, the leader's actions do.
+// The last pending round entry goes; without one, a forced clear takes the
+// leader's actions, the one its round has taken up included.
 void Game::clearOneCombatAction(Creature &leader) {
     if (_combat.removeLastScheduled(leader)) {
         return;
     }
-    _combat.clearActions(leader);
+    leader.clearAllActions(true);
 }
 
 void Game::cancelCombat() {
@@ -5686,6 +5942,7 @@ bool Game::prepareMenuBash(Creature &basher, const std::shared_ptr<Object> &targ
     // as the player's controls clear it.
     if (door) {
         _combat.clearAllOrders(basher);
+        delayNextEnemyAutoPause();
     }
     return true;
 }
@@ -5879,7 +6136,9 @@ std::vector<size_t> Game::collectNearestObjects(const Creature &leader, const Ar
 
 // Direct movement out of combat mode lets go of the target after half a second.
 void Game::releaseTargetOnMove(float frameTime) {
-    if (!_clientCombatMode && _lastTarget.resolve() && !_paused && _module->isPlayerMoving()) {
+    // A deferred autopause holds the target too.
+    if (!_clientCombatMode && _deferredAutoPauseDelay <= 0.0f && _lastTarget.resolve() && !_paused &&
+        _module->isPlayerMoving()) {
         _targetMoveTime += frameTime;
         if (_targetMoveTime >= kTargetMoveSpeedTime) {
             _targetMoveTime = 0.0f;
@@ -7103,6 +7362,7 @@ bool Game::reconcilePartySelection(
     }
 
     const auto currentMembers = _party.members();
+    bool leadHandedBack = false;
     for (const auto &member : currentMembers) {
         // The actor standing in for the player character is not a follower,
         // and a follower whose creature was destroyed is not on the screen to
@@ -7111,6 +7371,12 @@ bool Game::reconcilePartySelection(
             (member.npc < 0 ||
              member.npc >= static_cast<int>(requested.size()) ||
              !requested[member.npc])) {
+            // In TSL the player character takes the lead back before the
+            // first deselected companion leaves.
+            if (isTSL() && !leadHandedBack) {
+                _party.leadWithPlayerCharacter();
+                leadHandedBack = true;
+            }
             // A deselected companion leaves the party as any removed member
             // does: its effects are cleared, its record saved and its puppet
             // dismissed. Its creature stays where it stands.
@@ -7330,7 +7596,7 @@ bool Game::playPazaak(
             return false;
         }
     }
-    return startPazaakFlow(std::move(params), opponent, false);
+    return startPazaakFlow(std::move(params), false);
 }
 
 bool Game::startDevelopmentPazaak(std::string opponentName, int maximumWager) {
@@ -7352,12 +7618,11 @@ bool Game::startDevelopmentPazaak(std::string opponentName, int maximumWager) {
         params.collection = PazaakSession::makeDebugCollection(false);
         params.opponentSideDeck = PazaakSession::makeDebugOpponentSideDeck(false);
     }
-    return startPazaakFlow(std::move(params), nullptr, true);
+    return startPazaakFlow(std::move(params), true);
 }
 
 bool Game::startPazaakFlow(
     PazaakSessionParams params,
-    const std::shared_ptr<Object> &continuationCaller,
     bool developmentLaunch) {
 
     if (_pazaakSession) {
@@ -7365,7 +7630,6 @@ bool Game::startPazaakFlow(
     }
 
     _pazaakOriginScreen = _screen;
-    _pazaakContinuationCaller = continuationCaller;
     _pazaakDevelopmentLaunch = developmentLaunch;
     _pazaakSelectionPersisted = false;
     _pazaakSettlementApplied = false;
@@ -7532,14 +7796,8 @@ void Game::finishPazaak(PazaakCompletedResult result) {
     }
 
     std::string continuation(_pazaakSession->continuationScript());
-    uint32_t opponentId = _pazaakSession->opponentId();
-    std::shared_ptr<Object> continuationCaller(
-        _pazaakContinuationCaller.resolve());
     bool developmentLaunch = _pazaakDevelopmentLaunch;
     int wager = _pazaakSession->wager();
-    bool callerValid = continuationCaller &&
-                       continuationCaller->id() == opponentId &&
-                       getObjectById(opponentId) == continuationCaller;
     _lastPazaakResult = result;
 
     if (!developmentLaunch && !_pazaakSettlementApplied) {
@@ -7579,17 +7837,14 @@ void Game::finishPazaak(PazaakCompletedResult result) {
         }
     }
 
+    // The end script runs without a caller, whatever became of the opponent.
     if (continuation.empty()) {
         return;
     }
-    if (!callerValid) {
-        error("Pazaak continuation skipped because its caller is no longer valid");
-        return;
-    }
     if (_pazaakContinuationOverride) {
-        _pazaakContinuationOverride(continuation, opponentId);
+        _pazaakContinuationOverride(continuation, script::kObjectInvalid);
     } else if (_scriptRunner) {
-        _scriptRunner->run(continuation, opponentId);
+        _scriptRunner->run(continuation, script::kObjectInvalid);
     }
 }
 
@@ -7615,7 +7870,6 @@ void Game::releasePazaakFlow(bool restoreOrigin) {
     _pazaakSetup.reset();
     _pazaakBoard.reset();
     _pazaakGUIsReady = false;
-    _pazaakContinuationCaller.reset();
     _pazaakDevelopmentLaunch = false;
     _pazaakSelectionPersisted = false;
     _pazaakSettlementApplied = false;
@@ -7649,8 +7903,9 @@ void Game::notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable)
     if (!_party.isMember(creature)) {
         return;
     }
+    // The chime waits for the status summary.
     if (newlyAvailable) {
-        _services.audio.mixer.play(_services.game.guiSounds.getOnLevelUpNotify(), AudioType::Sound);
+        _statusSummary.submitLevelUpSound();
     }
     // Only the controlled creature is told.
     if (&creature != _party.getLeader().get()) {
@@ -7720,18 +7975,18 @@ void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     setCursorType(CursorType::Default);
     changeScreen(Screen::Conversation);
 
-    if (!isTSL() || !_keepStealthInDialog) {
+    // A computer conversation leaves everyone's stealth alone.
+    if (!computerConversation && (!isTSL() || !_keepStealthInDialog)) {
         if (auto creature = std::dynamic_pointer_cast<Creature>(owner)) {
             creature->setStealthMode(false);
         }
         if (auto leader = _party.getLeader()) {
             leader->setStealthMode(false);
         }
-        if (!computerConversation)
-            for (int i = 0; i < _party.getSize(); ++i)
-                if (auto member = _party.getMember(i)) {
-                    member->setStealthMode(false);
-                }
+        for (int i = 0; i < _party.getSize(); ++i)
+            if (auto member = _party.getMember(i)) {
+                member->setStealthMode(false);
+            }
     }
     _conversation = conversation;
     _conversation->setAutoSkip(&_conversationAutoSkip);
@@ -7826,11 +8081,10 @@ void Game::finishPostDialogCharacterSwitch() {
     if (!companion) {
         return;
     }
-    for (int i = 1; i < _party.getSize(); ++i) {
-        if (_party.getMember(i) == companion) {
-            _party.setPartyLeaderByIndex(i);
-            return;
-        }
+    // The lead passes to the next member, one step at a time, until the
+    // companion leads; each step is a leader change of its own.
+    for (int step = 0; step < _party.getSize() && _party.getLeader() != companion; ++step) {
+        _party.switchLeader(false);
     }
 }
 
@@ -8982,13 +9236,17 @@ void Game::consoleOpenCloseDoor(const ConsoleArgs &args) {
     }
 
     if (args[0].value() == "opendoor") {
-        target->open();
         if (triggerer) {
+            target->open(*triggerer);
             target->onOpen(triggerer->id());
+        } else {
+            target->open();
         }
     } else {
         target->close();
-        // There is no Door::onClose yet
+        if (triggerer) {
+            target->onClosed(triggerer->id());
+        }
     }
 }
 

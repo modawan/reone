@@ -213,7 +213,8 @@ private:
     bool _armed {false};
     bool _detectable;
     bool _disarmable;
-    bool _oneShot {true};
+    /** Whether the trap is spent once it goes off; the default depends on the carrier. */
+    bool _oneShot;
     int _detectDC {0};
     int _disarmDC {0};
     int _ownerDemolitionsSkill {0};

@@ -141,6 +141,8 @@ public:
         int npc {0};
         std::shared_ptr<Creature> creature;
         RuntimeObjectRef<Object> lastTarget;
+        /** The member's last combat-mode line; none is the idle line. */
+        std::optional<int> combatMessage;
     };
 
     Party(Game &game) :
@@ -181,7 +183,13 @@ public:
 
     /** The combat-mode line shown while no other combat message is being presented. */
     int idleCombatMessage() const;
-    /** Post a member's combat-mode line; only the controlled member's line is presented. */
+    /**
+     * Post a member's combat-mode line. Each member keeps its last line; only
+     * the controlled member's line is presented.
+     *
+     * @param creature the member the line is about
+     * @param strref the line's string reference
+     */
     void setCombatMessage(const Creature &creature, int strref);
 
     std::shared_ptr<Creature> player() const { return _player; }
@@ -227,7 +235,23 @@ public:
     /** Persisted party-table fields replace all bindings. */
     void loadPersistedState(PersistedState state);
 
-    void setPartyLeader(int npc);
+    /**
+     * Hand the lead to a member. For kNpcPlayer a downed player character is
+     * stood up first and made raiseable, even when it already leads.
+     *
+     * @param npc roster NPC number, or kNpcPlayer for the player character
+     * @return false when an NPC number names no member, true otherwise
+     */
+    bool setPartyLeader(int npc);
+    /**
+     * Hand the lead to the first member that is a player character; nothing
+     * changes when it already leads or no member is one.
+     */
+    void leadWithPlayerCharacter();
+    /**
+     * Hand the lead to the member at an index: the members ahead of it move
+     * to the back in their order.
+     */
     void setPartyLeaderByIndex(int index);
     void setPlayer(const std::shared_ptr<Creature> &player);
     void setActualPlayer(const std::shared_ptr<Creature> &player) { _actualPlayer = player; }
@@ -609,7 +633,7 @@ private:
     void syncMembersXP();
     /** Companions travelling with the party: neither the player character nor a companion standing in for it. */
     bool isCompanion(const Member &member) const;
-    /** PercentXP of an npc.2da row; a blank cell counts as 100. */
+    /** PercentXP of an npc.2da row; a blank or missing cell counts as 0. */
     int percentXP(int row) const;
     /** Pay a creature its share of an award. */
     void receiveExperience(Creature &creature, int amount);
@@ -637,7 +661,11 @@ private:
      * the slot's own step, and the step it lies on. False for a trail too short.
      */
     bool pointBackFromStart(float distance, int slot, glm::vec3 &point, int &step) const;
-    void recalculateFollowPoints();
+    /**
+     * Lay each follower slot's point back along the trail. A slot whose point
+     * cannot be laid out takes \p sightedStep as its step when one is given.
+     */
+    void recalculateFollowPoints(std::optional<int> sightedStep = std::nullopt);
     /** The follower slot whose point lies furthest back along the trail. */
     int furthestFollower() const;
     /** The follower slot whose point lies nearest the leader along the trail. */

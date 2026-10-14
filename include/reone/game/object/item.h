@@ -35,6 +35,10 @@ namespace resources {
 class Gff;
 }
 
+namespace resource {
+class IGffs;
+}
+
 namespace game {
 
 class Item : public Object {
@@ -146,9 +150,18 @@ public:
     }
 
     void loadFromBlueprint(const std::string &resRef);
+    /**
+     * Reads a saved item record whole. Any other entry that names a template
+     * (see entryTemplate) is that template with the entry's Dropable flag,
+     * when it has one; an entry naming none is a whole item record.
+     */
     void deserialize(
         const resource::Gff &gff,
         const SerializedIdentityContext &identityContext);
+    /** The template an inventory or equipment entry names: its EquippedRes, else its InventoryRes. */
+    static std::optional<std::string> entryTemplate(const resource::Gff &entry);
+    /** Whether an entry names a template that does not exist; such an entry makes no item. */
+    static bool namesMissingTemplate(const resource::Gff &entry, resource::IGffs &gffs);
     void clone(const Item &from);
 
     void update(float dt) override;
@@ -177,7 +190,8 @@ public:
     bool isIdentified() const { return _identified; }
     bool isEquipped() const { return _equipped; }
     bool isLightsaber() const { return _baseItem >= 8 && _baseItem <= 10; }
-    bool isRanged() const { return _weaponType == WeaponType::Ranged; }
+    /** Whether the base item is a ranged weapon (baseitems.2da RangedWeapon). */
+    bool isRanged() const { return _rangedWeapon; }
     /** A mine kit: a trap-kit base item carrying a usable Trap property. */
     bool isMineKit() const;
 
@@ -206,6 +220,8 @@ public:
     /** The charges a full item holds. */
     int maxCharges() const { return _maxCharges; }
     int maxStackSize() const { return _maxStackSize; }
+    /** Whether the base item holds other items. */
+    bool isContainer() const { return _container; }
     int textureVariation() const { return _textureVariation; }
     std::shared_ptr<AmmunitionType> ammunitionType() const { return _ammunitionType; }
     std::shared_ptr<graphics::Texture> icon() const { return _icon; }
@@ -223,6 +239,11 @@ public:
     FeatType weaponFocusFeat() const { return _weaponFocusFeat; }
     FeatType weaponSpecializationFeat() const { return _weaponSpecializationFeat; }
     int baseDefense() const { return _baseDefense; }
+    /**
+     * The armour class that limits its wearer's Dexterity: the base armour
+     * class of an item drawn as the wearer's body model, else none.
+     */
+    int bodyArmorClass() const { return _bodyModel ? _baseDefense : 0; }
     int maxDexterityBonus() const { return _maxDexterityBonus; }
     /** TSL: the sum of the cost values of the Max Dexterity Bonus properties in force; zero in KotOR. */
     int maxDexterityBonusAdjustment() const;
@@ -281,6 +302,8 @@ public:
     }
     /** Whether the item has a property of the type that its upgrades leave in force. */
     bool hasActiveProperty(ItemProperty type) const;
+    /** Whether an item is used through a property of this type: a cast spell, security spike, trap or computer spike. */
+    static bool isUseProperty(uint16_t propertyName);
     uint32_t upgrades() const { return _upgrades; }
 
     /** Latches set by applying an item property, which removing it does not clear. */
@@ -333,6 +356,7 @@ private:
     std::vector<FeatType> _requiredFeats;
     DroidOrHuman _droidOrHuman {DroidOrHuman::Anyone};
     uint32_t _deniedSubraces {0};
+    bool _container {false};
 
     // baseitems.2da defines the repository limit. The permissive
     // fallback preserves behavior for incomplete custom/test tables.
@@ -350,6 +374,8 @@ private:
     int _weaponMaterialType {0};
     std::string _armorType;
     WeaponType _weaponType {WeaponType::None};
+    /** The base item is a ranged weapon. */
+    bool _rangedWeapon {false};
     WeaponWield _weaponWield {WeaponWield::None};
     CreatureSize _weaponSize {CreatureSize::Invalid};
 
@@ -371,6 +397,8 @@ private:
     FeatType _weaponFocusFeat {FeatType::Invalid};
     FeatType _weaponSpecializationFeat {FeatType::Invalid};
     int _baseDefense {0};
+    /** The base item is drawn as the wearer's body model. */
+    bool _bodyModel {false};
     int _maxDexterityBonus {-1};
     ACBonus _acBonusType {ACBonus::Invalid};
 

@@ -278,6 +278,12 @@ inline int getTotalDamageAmounts(const std::array<int, 15> &amounts) {
 class Creature;
 
 /**
+ * Shows the blood of the creature's appearance (BLOODCOLR R, G or Y) as an
+ * instant visual on it; a creature of no blood colour shows visual 0.
+ */
+void applyBloodVisual(Creature &creature);
+
+/**
  * Reports at once the mitigation lines of damage resolved outside a weapon
  * hit, to the damaged object and to the creature that caused it, if any.
  */

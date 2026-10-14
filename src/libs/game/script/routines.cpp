@@ -75,6 +75,12 @@ EffectConstructorStamp getEffectConstructorStamp(const std::string &name) {
     return EffectConstructorStamp::MagicalWithCreator;
 }
 
+// Whether an effect constructor stamps an effect of no type it yields: a
+// creator-only constructor, EffectConcealment and EffectMissChance do not.
+bool stampsTypelessEffect(const std::string &name, EffectConstructorStamp stamp) {
+    return stamp != EffectConstructorStamp::CreatorOnly && name != "EffectConcealment" && name != "EffectMissChance";
+}
+
 } // namespace
 
 void Routines::init() {
@@ -138,32 +144,31 @@ void Routines::insert(
     const bool constructsEffect =
         retType == VariableType::Effect && name.rfind("Effect", 0) == 0;
     const auto stamp = constructsEffect ? getEffectConstructorStamp(name) : EffectConstructorStamp::None;
+    const bool stampsTypeless = stampsTypelessEffect(name, stamp);
     _routines[index] = Routine(
         std::move(name),
         retType,
         std::move(defRetValue),
         std::move(argTypes),
-        [this, fn, retType, constructsEffect, stamp](auto &args, auto &execution) {
+        [this, fn, retType, constructsEffect, stamp, stampsTypeless](auto &args, auto &execution) {
             RoutineContext ctx(*_game, *_services, execution);
             auto result = fn(args, std::move(ctx));
-            // An effect a script constructs is stamped with OBJECT_SELF.
+            // An effect a script constructs is stamped with OBJECT_SELF, unless
+            // it has no type and its constructor leaves such an effect as it is.
             if (constructsEffect) {
                 auto effect = std::dynamic_pointer_cast<Effect>(result.engineType);
+                const bool stamped = effect && (stampsTypeless || effect->type() != EffectType::Invalid);
                 if (effect) {
                     effect->setSaveFacingId(_game->allocateEffectId());
                     effect->captureSaveFacingScriptArguments(args, *_game);
                     // The constructed value itself becomes magical; linked members
                     // keep their own values until the link is applied.
-                    if (stamp == EffectConstructorStamp::MagicalWithCreator ||
-                        stamp == EffectConstructorStamp::MagicalWithCreatureCreator)
+                    if (stamped && (stamp == EffectConstructorStamp::MagicalWithCreator ||
+                                    stamp == EffectConstructorStamp::MagicalWithCreatureCreator))
                         effect->Effect::setCategory(EffectCategory::Magical);
                 }
                 auto caller = execution.findArg(ArgKind::Caller);
-                // A creator-only constructor that yields an effect of no type
-                // gives it no creator.
-                const bool typeless = effect && effect->type() == EffectType::Invalid;
-                if (effect && caller && stamp != EffectConstructorStamp::None &&
-                    !(stamp == EffectConstructorStamp::CreatorOnly && typeless)) {
+                if (stamped && caller && stamp != EffectConstructorStamp::None) {
                     auto creator = _game->getObjectById(caller->objectId);
                     if (stamp != EffectConstructorStamp::MagicalWithCreatureCreator ||
                         std::dynamic_pointer_cast<Creature>(creator)) {

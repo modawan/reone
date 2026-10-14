@@ -55,6 +55,8 @@ namespace game {
 
 // The ranges.2da row of a trap's radius.
 static constexpr int kTrapRadiusRange = 17;
+// The reach of a trap when ranges.2da gives none.
+static constexpr float kDefaultTrapRadius = 1.0f;
 // The animations.2da rows of a trap model hidden and shown.
 static constexpr int kTrapHiddenAnimation = 347;
 static constexpr int kTrapShownAnimation = 350;
@@ -98,6 +100,9 @@ void Trigger::deserialize(
         }
     }
     deserializeAll(gff, identityContext);
+    if (_isTrap) {
+        loadTrapRadius();
+    }
     loadAppearance();
     updateTransform();
 }
@@ -239,8 +244,7 @@ glm::vec3 Trigger::nearestPoint(const glm::vec3 &from) const {
         if (glm::dot(offset, offset) <= 1e-4f) {
             return from;
         }
-        const float radius = getRequiredTwoDA(_services.resource.twoDas, "ranges")->getFloat(kTrapRadiusRange, "primaryrange");
-        return _position + glm::normalize(offset) * radius;
+        return _position + glm::normalize(offset) * _trapRadius;
     }
     // Nearest point on the outline, edge by edge in vertex order.
     glm::vec3 nearest {0.0f};
@@ -303,6 +307,7 @@ void Trigger::initMine(
     int ownerDemolitionsSkill) {
     setTrapCreator(creator);
     _isTrap = true;
+    loadTrapRadius();
     // Saved as a trap trigger, so a reload keeps the mine.
     _triggerType = kTrapType;
     _trap.setUpMine(_services.resource.twoDas, trapType, detectDC, disarmDC, ownerDemolitionsSkill);
@@ -311,18 +316,24 @@ void Trigger::initMine(
         _locName = LocString(*nameStrRef, "", _services.resource.strings);
         _name = _locName.str();
     }
-    // A square four metres across, level with the ground under its centre.
+    // A square four metres across, each corner on the ground beneath it, or
+    // level with the mine where there is no ground or the ground is at height
+    // zero.
     _position = position;
-    float height = 0.0f;
-    Collision collision;
-    if (_services.scene.graphs.get(_sceneName).testElevation(position, collision)) {
-        height = collision.intersection.z - position.z;
-    }
+    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    auto corner = [&](float x, float y) {
+        glm::vec3 point {x, y, 0.0f};
+        Collision collision;
+        if (sceneGraph.testElevation(position + point, collision) && collision.intersection.z != 0.0f) {
+            point.z = collision.intersection.z - position.z;
+        }
+        return point;
+    };
     _geometry = {
-        glm::vec3(-kMineHalfSize, kMineHalfSize, height),
-        glm::vec3(-kMineHalfSize, -kMineHalfSize, height),
-        glm::vec3(kMineHalfSize, -kMineHalfSize, height),
-        glm::vec3(kMineHalfSize, kMineHalfSize, height)};
+        corner(-kMineHalfSize, kMineHalfSize),
+        corner(-kMineHalfSize, -kMineHalfSize),
+        corner(kMineHalfSize, -kMineHalfSize),
+        corner(kMineHalfSize, kMineHalfSize)};
     loadAppearance();
     updateTransform();
 }
@@ -395,11 +406,8 @@ void Trigger::fireMine(const std::shared_ptr<Creature> &creature, bool force) {
     if (_game.party().getLeader() == creature) {
         Trap::reportTriggered(_game);
     }
-    const std::vector<script::Argument> args {
-        {script::ArgKind::Caller, script::Variable::ofObject(_id)},
-        {script::ArgKind::EnteringObject, script::Variable::ofObject(creature->id())}};
-    _game.scriptRunner().run(_trap.triggeredScript(), args);
-    _game.scriptRunner().run(_onEnter, args);
+    _game.scriptRunner().run(_trap.triggeredScript(), _id);
+    _game.scriptRunner().run(_onEnter, _id);
     if (_trap.isOneShot()) {
         area->destroyObject(*this);
     }
@@ -441,14 +449,8 @@ void Trigger::update(float dt) {
         }
     }
     Object::update(dt);
-    if (_isTrap && !_creator.isInvalid()) {
-        if (!_creator.boundObject()) {
-            _game.bindSavedObjectReference(_creator);
-        }
-        // A mine takes its creator's side for as long as the creator exists.
-        if (auto creator = trapCreator()) {
-            _faction = creator->faction();
-        }
+    if (_isTrap && !_creator.isInvalid() && !_creator.boundObject()) {
+        _game.bindSavedObjectReference(_creator);
     }
     updateTrapPresentation();
 
@@ -464,24 +466,20 @@ void Trigger::update(float dt) {
 
     std::set<std::shared_ptr<Object>> tenantsToRemove;
     for (auto &tenant : _tenants) {
-        if (tenant) {
-            glm::vec2 position2d(tenant->position());
-            if (isIn(position2d))
-                continue;
+        if (tenant && isIn(tenant->position())) {
+            continue;
         }
         tenantsToRemove.insert(tenant);
     }
     for (auto &tenant : tenantsToRemove) {
         _tenants.erase(tenant);
+        _lastLeftId = tenant->id();
 
         if (_onExit.empty()) {
             continue;
         }
 
-        _game.scriptRunner().run(
-            _onExit,
-            {{script::ArgKind::Caller, script::Variable::ofObject(_id)},
-             {script::ArgKind::ExitingObject, script::Variable::ofObject(tenant->id())}});
+        _game.scriptRunner().run(_onExit, _id);
     }
 
     syncDebugVisual();
@@ -489,6 +487,7 @@ void Trigger::update(float dt) {
 
 void Trigger::addTenant(const std::shared_ptr<Object> &object) {
     _tenants.insert(object);
+    _lastEnteredId = object->id();
     syncDebugVisual();
     // Stepping on a trap goes through the trap, which runs the enter script itself.
     if (_isTrap) {
@@ -499,11 +498,7 @@ void Trigger::addTenant(const std::shared_ptr<Object> &object) {
         return;
     }
 
-    _game.scriptRunner().run(
-        _onEnter,
-        {{script::ArgKind::Caller, script::Variable::ofObject(_id)},
-         {script::ArgKind::EnteringObject,
-          script::Variable::ofObject(object->id())}});
+    _game.scriptRunner().run(_onEnter, _id);
 }
 
 void Trigger::removeTenant(const Object *object) {
@@ -517,9 +512,17 @@ void Trigger::removeTenant(const Object *object) {
     }
 }
 
-bool Trigger::isIn(const glm::vec2 &point) const {
+bool Trigger::isIn(const glm::vec3 &point) const {
+    if (_isTrap) {
+        const glm::vec3 offset {point - _position};
+        return glm::dot(offset, offset) <= _trapRadius * _trapRadius;
+    }
     auto sceneNode = std::static_pointer_cast<TriggerSceneNode>(_sceneNode);
-    return sceneNode && sceneNode->isIn(point);
+    return sceneNode && sceneNode->isIn(glm::vec2(point));
+}
+
+void Trigger::loadTrapRadius() {
+    _trapRadius = getRequiredTwoDA(_services.resource.twoDas, "ranges")->getFloat(kTrapRadiusRange, "primaryrange", kDefaultTrapRadius);
 }
 
 bool Trigger::isTenant(const std::shared_ptr<Object> &object) const {

@@ -69,8 +69,8 @@ static constexpr int kCloseAnimationId = 10076;
 // The animations.2da row of a destroyed placeable's pose.
 static constexpr int kDestroyedAnimation = 307;
 static constexpr int kDamagedEvent = static_cast<int>(SavedSignalEventType::Damaged);
-// A container broken open opens for the controlled creature within this reach,
-// this long after it breaks.
+// A container broken open opens for the controlled creature this long after it
+// breaks; in TSL only when that creature is within this reach.
 static constexpr float kBrokenOpenReach = 3.0f;
 static constexpr uint32_t kBrokenOpenDelayMilliseconds = 1000;
 
@@ -251,13 +251,13 @@ void Placeable::damage(
         return;
     }
 
-    // A container broken open becomes plot and unlocked. With the controlled
-    // creature close by, it swings open and opens for that creature a second
-    // later.
+    // A container broken open becomes plot and unlocked. It swings open and
+    // opens for the controlled creature a second later; in TSL only when that
+    // creature is close by.
     _plot = true;
     _locked = false;
     auto leader = _game.party().getLeader();
-    if (!leader || glm::distance(leader->position(), _position) >= kBrokenOpenReach) {
+    if (!leader || (_game.isTSL() && glm::distance(leader->position(), _position) >= kBrokenOpenReach)) {
         return;
     }
     setOpenStateAnimation(kOpenAnimationId);
@@ -283,6 +283,7 @@ void Placeable::onOpen(uint32_t triggererId) {
 }
 
 void Placeable::onFailToOpen(uint32_t openerId) {
+    _lastEnteredId = openerId;
     if (_onFailToOpen.empty()) {
         return;
     }

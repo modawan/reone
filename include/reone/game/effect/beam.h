@@ -42,6 +42,10 @@ public:
         setSaveFacingObject(0, effector);
     }
 
+    /**
+     * Shows the beam as a visual on a creature, a placeable or a door, and in
+     * TSL a trigger; the record is kept on any object.
+     */
     EffectApplicationResult onApply(Object &object, EffectInstance &) override;
     void retireAreaRuntime(
         const std::set<const Object *> &retainedObjects) override {

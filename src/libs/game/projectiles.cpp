@@ -436,8 +436,11 @@ static void initializeMotion(SavedProjectile &s, bool &burstWentLeft) {
         if (glm::length2(arrival) > 0.0f) {
             arrival = glm::normalize(arrival) * 7.5f;
         }
+        // Only the horizontal speed changes on the way: the height changes at
+        // a steady speed.
         s.velocity = 2.0f * delta / time - arrival;
         s.acceleration = (arrival - s.velocity) / time;
+        s.acceleration.z = 0.0f;
         return;
     }
     s.velocity = delta / time - 0.5f * s.acceleration * time;

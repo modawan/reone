@@ -43,6 +43,7 @@ void Animations::parseAnims(TwoDA &animDa) {
         anim.attack = animDa.getBool(row, "attack");
         anim.overlay = animDa.getBool(row, "overlay");
         anim.looping = animDa.getBool(row, "looping");
+        anim.fireForget = animDa.getBool(row, "fireforget");
         anim.parry = animDa.getBool(row, "parry");
         anim.hidesEquippedItems = animDa.getBool(row, "hideequippeditems");
         _animIndexByName.emplace(boost::to_lower_copy(anim.name), _anims.size());
@@ -243,6 +244,10 @@ int Animations::getMeleeImpactTime(
 
 bool Animations::isLoopingById(uint32_t id) const {
     return id < _anims.size() && _anims[id].looping;
+}
+
+bool Animations::isFireForgetById(uint32_t id) const {
+    return id < _anims.size() && _anims[id].fireForget;
 }
 
 bool Animations::isOverlay(const std::string &name) const {

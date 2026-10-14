@@ -277,7 +277,9 @@ bool AttackObjectAction::cancel(std::shared_ptr<Action> self, Object &actor) {
     _game.combat().transferEquipment(static_cast<Creature &>(actor));
     _attacks.discardPending();
     _attacks.clearHistory();
+    // Clearing an attack forgets both its current and its attempted target.
     attacker.clearCurrentAttackTarget();
+    attacker.setAttemptedAttackTarget(script::kObjectInvalid);
     finish(attacker);
     return true;
 }

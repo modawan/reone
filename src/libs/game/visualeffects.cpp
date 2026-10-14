@@ -41,12 +41,9 @@ static void parseEffects(const resource::TwoDA &twoDa,
     for (int row = 0; row < twoDa.getRowCount(); ++row) {
         VisualEffectDesc desc;
         desc.label = twoDa.getString(row, "label");
-        auto rootHuge = twoDa.getString(row, "imp_root_h_node");
-        auto rootLarge = twoDa.getString(row, "imp_root_l_node");
-        auto rootMedium = twoDa.getString(row, "imp_root_m_node");
-        desc.rootHugeModel = models.get(rootHuge);
-        desc.rootLargeModel = models.get(rootLarge);
-        desc.rootMediumModel = models.get(rootMedium);
+        desc.rootHugeModel = models.get(twoDa.getString(row, "imp_root_h_node"));
+        desc.rootLargeModel = models.get(twoDa.getString(row, "imp_root_l_node"));
+        desc.rootMediumModel = models.get(twoDa.getString(row, "imp_root_m_node"));
         desc.impactModel = models.get(twoDa.getString(row, "imp_impact_node"));
         desc.headModel = models.get(twoDa.getString(row, "imp_headcon_node"));
         desc.orientationOff = twoDa.getInt(row, "orientationoff", 0) != 0;
@@ -59,10 +56,9 @@ static void parseEffects(const resource::TwoDA &twoDa,
             }
         }
         desc.soundImpact = audioClips.get(twoDa.getString(row, "soundimpact"));
-        // A row with a root model runs no programs.
-        bool rooted = !rootHuge.empty() || !rootLarge.empty() || !rootMedium.empty();
-        desc.progFXImpact = rooted ? -1 : twoDa.getInt(row, "progfx_impact", -1);
-        desc.progFXDuration = rooted ? -1 : twoDa.getInt(row, "progfx_duration", -1);
+        desc.progFXImpact = twoDa.getInt(row, "progfx_impact", -1);
+        desc.progFXDuration = twoDa.getInt(row, "progfx_duration", -1);
+        desc.progFXCessation = twoDa.getInt(row, "progfx_cessation", -1);
         desc.fireAndForget = boost::iequals(twoDa.getString(row, "type_fd"), "F");
         desc.soundDuration = audioClips.get(twoDa.getString(row, "soundduration"));
         // Visual effects play no cessation sound, so soundcessastion is not read.

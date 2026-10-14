@@ -22,6 +22,10 @@ namespace reone {
 namespace game {
 
 void MessageLog::add(uint32_t type, Style style, std::string text, Buffer buffer) {
+    // An empty line is not written.
+    if (text.empty()) {
+        return;
+    }
     if (!_combatBufferEnabled) {
         buffer = Buffer::Messages;
     }
