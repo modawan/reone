@@ -29,6 +29,61 @@ enum class EquipmentOperationOutcome {
     Failed
 };
 
+/** Queued equipment commands fail for the dead and for party members without vitality. */
+bool canRunEquipmentCommand(Game &game, const Creature &subject);
+/** Body armour is neither put on nor taken off by a creature in direct combat. */
+bool isArmorChangeRefused(const Creature &subject);
+/** Report a refused armour change (1506 on, 1507 off) to the controlled creature. */
+void reportArmorChangeRefused(Game &game, const Creature &subject, bool removal);
+
+/**
+ * Equip an Item held in the subject's inventory, a container it owns, or the
+ * shared party inventory. Displaced occupants return to the subject's
+ * inventory owner before the candidate is taken, main hand before its pair.
+ * A weapon that newly fills a hand is drawn unless the change is instant.
+ */
+EquipmentOperationOutcome runEquip(
+    Game &game,
+    Creature &subject,
+    const std::shared_ptr<Item> &item,
+    int requestedSlot,
+    bool instant);
+
+/**
+ * Unequip an Item into an owned container, or into the subject's inventory
+ * owner when no container is given. Removing a main-hand item promotes a
+ * weapon held in the paired off-hand slot, which is drawn unless instant.
+ */
+EquipmentOperationOutcome runUnequip(
+    Game &game,
+    Creature &subject,
+    const std::shared_ptr<Item> &item,
+    const std::shared_ptr<Item> &container,
+    bool instant);
+
+/**
+ * Chooses the melee weapon, from the inventory and the weapon in the hand,
+ * that deals the most damage to \p versus and queues its equip. A ranged
+ * weapon in that hand returns to the inventory at once, the off-hand item with
+ * a main-hand one.
+ */
+void equipMostDamagingMeleeWeapon(
+    Game &game,
+    Creature &subject,
+    const std::shared_ptr<Object> &versus,
+    bool offHand);
+
+/**
+ * Chooses the ranged weapon with the best attack against \p versus and queues
+ * its equip into the main hand. Whenever the main hand holds anything the
+ * off-hand item returns to the inventory at once. False when no better ranged
+ * weapon than the one held was found.
+ */
+bool equipMostDamagingRangedWeapon(
+    Game &game,
+    Creature &subject,
+    const std::shared_ptr<Object> &versus);
+
 /**
  * Apply a selection using existing equipment and inventory operations.
  * A null item explicitly requests clearing the slot. All non-null objects must

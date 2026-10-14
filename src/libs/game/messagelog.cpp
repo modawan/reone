@@ -21,11 +21,36 @@ namespace reone {
 
 namespace game {
 
-void MessageLog::add(uint32_t type, Style style, std::string text) {
-    while (_entries.size() >= kMaxEntries) {
-        _entries.pop_front();
+void MessageLog::add(uint32_t type, Style style, std::string text, Buffer buffer) {
+    if (!_combatBufferEnabled) {
+        buffer = Buffer::Messages;
     }
-    _entries.push_back({type, style, std::move(text)});
+    std::size_t count = 0;
+    for (const Entry &entry : _entries) {
+        if (entry.buffer == buffer) {
+            ++count;
+        }
+    }
+    // A full list drops its own oldest line.
+    for (auto it = _entries.begin(); count >= kMaxEntries && it != _entries.end();) {
+        if (it->buffer == buffer) {
+            it = _entries.erase(it);
+            --count;
+        } else {
+            ++it;
+        }
+    }
+    _entries.push_back({type, style, std::move(text), buffer});
+}
+
+void MessageLog::addDialog(std::string speaker, std::string text) {
+    if (text.empty()) {
+        return;
+    }
+    if (_dialogEntries.size() >= kMaxEntries) {
+        _dialogEntries.pop_front();
+    }
+    _dialogEntries.push_back({std::move(speaker), std::move(text)});
 }
 
 } // namespace game

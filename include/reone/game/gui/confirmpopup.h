@@ -44,12 +44,17 @@ public:
         _resRef = guiResRef("confirm");
     }
 
-    void show(const std::string &message, std::shared_ptr<graphics::Texture> icon = nullptr);
+    void show(const std::string &message, std::shared_ptr<graphics::Texture> icon = nullptr,
+              std::function<void()> onConfirm = {});
     void showConfirm(
         const std::string &message,
         std::function<void()> onConfirm,
         std::function<void()> onCancel = {});
     void hide();
+    /** Close as its key would: cancelled when it offers Cancel, otherwise confirmed. */
+    void close();
+    /** Relabel OK until the next show. */
+    void setConfirmText(const std::string &text);
 
     bool isVisible() const { return _visible; }
 
@@ -64,6 +69,7 @@ private:
     bool _visible {false};
     std::function<void()> _onConfirm;
     std::function<void()> _onCancel;
+    std::string _defaultConfirmText;
 
     std::shared_ptr<gui::Control> _icon;
     gui::Control::Extent _messageExtent;

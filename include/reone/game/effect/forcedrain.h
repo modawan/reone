@@ -23,15 +23,16 @@ namespace reone {
 
 namespace game {
 
-class ForceDrainEffect : public Effect {
+class ForceDrainEffect : public CopyableEffect<ForceDrainEffect> {
 public:
     ForceDrainEffect(int damage) :
-        Effect(EffectType::ForceDrain),
+        CopyableEffect(EffectType::ForceDrain),
         _damage(damage) {
+        setSaveFacingInteger(0, damage);
     }
 
-    void applyTo(Object &object) override {
-    }
+    /** Drains the Force pool at once; nothing is retained. */
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
 
 private:
     int _damage;

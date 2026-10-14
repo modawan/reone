@@ -17,18 +17,14 @@
 
 #pragma once
 
-#include "../action.h"
-#include "../castspell.h"
-#include "../object.h"
-#include "../types.h"
+#include "castspell.h"
 
 namespace reone {
 
 namespace game {
-class Item;
-struct Spell;
 
-class CastSpellAtObjectAction : public Action {
+/** A spell cast or an item use aimed at an object. */
+class CastSpellAtObjectAction : public CastSpellAction {
 public:
     CastSpellAtObjectAction(
         Game &game,
@@ -36,25 +32,29 @@ public:
         std::shared_ptr<Spell> spell,
         std::shared_ptr<Object> target,
         std::optional<std::shared_ptr<Item>> item,
-        bool cheat = false);
+        bool cheat = false,
+        ProjectilePathType projectilePathType = ProjectilePathType::Default,
+        bool instantSpell = false,
+        std::optional<size_t> itemProperty = std::nullopt,
+        std::optional<int> itemCasterLevel = std::nullopt,
+        std::optional<SpellSelection> selection = std::nullopt,
+        std::optional<FeatType> associatedFeat = std::nullopt,
+        bool fake = false);
 
     static bool classof(Action *from) {
         return from->type() == ActionType::CastSpellAtObject;
     }
 
-    void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
-    void finish(Creature &caster);
+    /** The same item use, made at the command's location with no target. */
+    std::shared_ptr<Action> toLocationUse() const;
 
-    const std::shared_ptr<Spell> &spell() const { return _spell; }
-    const std::optional<std::shared_ptr<Item>> &item() const { return _item; }
-
-private:
-    std::shared_ptr<Spell> _spell;
-    std::shared_ptr<Object> _target;
-    std::optional<std::shared_ptr<Item>> _item;
-    SpellSchedule _schedule;
-    std::optional<Grenade> _grenade;
-    bool _cheat;
+    /**
+     * The location the command carries, which the spell's target location
+     * reports until the impact: none (the origin) for a script or menu cast,
+     * the target's position when the command was given for a talent or an
+     * item used at another creature.
+     */
+    void setCommandLocation(const glm::vec3 &location) { _location = location; }
 };
 
 } // namespace game

@@ -18,6 +18,7 @@
 #include "reone/game/floatingtext.h"
 
 #include <algorithm>
+#include <string>
 
 #include "reone/game/game.h"
 #include "reone/game/gui.h"
@@ -41,12 +42,15 @@ namespace game {
 
 static constexpr float kFloatingTextOffsetY = 32.0f;
 static constexpr float kFloatingTextDuration = 1.5f;
+static constexpr float kExperienceTextDuration = 3.0f;
 static constexpr int kMaxFloatingTextEntries = 5;
 static constexpr int kMissStrRef = 1373;
+static constexpr int kExperienceStrRef = 38551;
 
 static const glm::vec3 kDamageColor(0.74f, 0.11f, 0.0f);
 static const glm::vec3 kHealColor(0.28f, 0.92f, 0.11f);
 static const glm::vec3 kMissColor(1.0f);
+static const glm::vec3 kExperienceColor(0.95f, 0.0f, 0.85f);
 
 static glm::vec2 projectToScreen(
     const glm::vec3 &position,
@@ -65,10 +69,6 @@ static glm::vec2 projectToScreen(
 void FloatingText::addDamage(
     const Object &object, int amount, int adjustedAmount, uint32_t damager) {
 
-    if (_game.isTSL()) {
-        return;
-    }
-
     auto leader = _game.party().getLeader();
     if (!leader) {
         return;
@@ -82,7 +82,7 @@ void FloatingText::addDamage(
 }
 
 void FloatingText::addHeal(const Object &object, int amount) {
-    if (_game.isTSL() || !_game.party().isMember(object)) {
+    if (!_game.party().isMember(object) && _game.lastTarget() != object.id()) {
         return;
     }
 
@@ -90,10 +90,6 @@ void FloatingText::addHeal(const Object &object, int amount) {
 }
 
 void FloatingText::addMiss(const Creature &attacker, const Object &target) {
-    if (_game.isTSL()) {
-        return;
-    }
-
     auto leader = _game.party().getLeader();
     if (!leader || attacker.id() != leader->id()) {
         return;
@@ -101,11 +97,24 @@ void FloatingText::addMiss(const Creature &attacker, const Object &target) {
 
     add(
         target,
-        _services.resource.strings.getText(kMissStrRef),
+        _game.getInterfaceText(kMissStrRef),
         Style::Miss);
 }
 
+void FloatingText::addExperience(const Object &object, int amount) {
+    // The label, a space and the amount.
+    add(object, _game.getInterfaceText(kExperienceStrRef) + " " + std::to_string(amount), Style::Experience);
+}
+
+// Experience stays up twice as long as the other numbers.
+float FloatingText::getDuration(Style style) {
+    return style == Style::Experience ? kExperienceTextDuration : kFloatingTextDuration;
+}
+
 void FloatingText::add(const Object &object, std::string text, Style style) {
+    if (!_game.floatingTextEnabled()) {
+        return;
+    }
     for (Entry &entry : _entries) {
         if (entry.objectId == object.id()) {
             ++entry.stack;
@@ -144,7 +153,7 @@ void FloatingText::add(const Object &object, std::string text, Style style) {
     _entries.push_back({object.id(),
                         std::move(text),
                         style,
-                        kFloatingTextDuration,
+                        getDuration(style),
                         1,
                         std::move(anchorOffset)});
 }
@@ -161,12 +170,11 @@ void FloatingText::update(float dt) {
 }
 
 void FloatingText::render() {
-    if (_game.isTSL() || _entries.empty()) {
+    if (_entries.empty()) {
         return;
     }
     const auto &options = _game.options().graphics;
-    const std::string fontResRef(
-        options.width > 1279 ? "fnt_d16x16b" : "fnt_d16x16a");
+    const std::string fontResRef = _game.guiFontName("fnt_d16x16");
     if (!_font || _fontResRef != fontResRef) {
         _font = _services.resource.fonts.get(fontResRef);
         _fontResRef = fontResRef;
@@ -262,6 +270,9 @@ void FloatingText::render() {
                                         case Style::Heal:
                                             color = kHealColor;
                                             break;
+                                        case Style::Experience:
+                                            color = kExperienceColor;
+                                            break;
                                         case Style::Miss:
                                             color = kMissColor;
                                             break;
@@ -271,7 +282,7 @@ void FloatingText::render() {
                                         float y = screen.y + entry.anchorOffset->y -
                                                   kFloatingTextOffsetY * layoutScale -
                                                   (entry.stack - 0.5f) * lineHeight;
-                                        float alpha = entry.remaining / kFloatingTextDuration;
+                                        float alpha = entry.remaining / getDuration(entry.style);
 
                                         _font->render(
                                             entry.text,

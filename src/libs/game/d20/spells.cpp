@@ -17,15 +17,17 @@
 
 #include "reone/game/d20/spells.h"
 
+#include <boost/algorithm/string.hpp>
+
+#include "reone/game/d20/attributes.h"
+#include "reone/game/d20/class.h"
+#include "reone/game/twodautil.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/audioclips.h"
 #include "reone/resource/provider/models.h"
 #include "reone/resource/provider/textures.h"
 #include "reone/resource/strings.h"
-
-#include "reone/game/d20/attributes.h"
-#include "reone/game/d20/class.h"
 
 using namespace reone::graphics;
 using namespace reone::audio;
@@ -78,7 +80,7 @@ static std::vector<SpellType> parsePrerequisites(const std::string &value) {
 
 static bool isPickerVisible(const Spell &spell, const CreatureClass &clazz) {
     auto maybeRequirement = spell.getClassLevelRequirement(clazz.type());
-    return spell.userType == 1 && maybeRequirement && *maybeRequirement >= 0;
+    return spell.userType == kSpellUserTypeForcePower && maybeRequirement && *maybeRequirement >= 0;
 }
 
 static bool prerequisitesSatisfied(
@@ -148,11 +150,93 @@ static SpellType getChainRoot(
     return result;
 }
 
+// With merged tiers, a power of the higher slot of a pair takes the place of
+// an entry in the lower one.
+static constexpr int kLowerTierSlot1 = 16;
+static constexpr int kHigherTierSlot1 = 17;
+static constexpr int kLowerTierSlot2 = 20;
+static constexpr int kHigherTierSlot2 = 21;
+
+std::vector<std::shared_ptr<Spell>> ISpells::getActionSpells(
+    const std::vector<SpellType> &candidates, bool hostileMenu,
+    const std::function<bool(const Spell &)> &offered, bool mergeTiers) const {
+    struct Entry {
+        int slot;
+        std::shared_ptr<Spell> spell;
+    };
+    std::vector<Entry> entries;
+    for (SpellType type : candidates) {
+        auto spell = get(type);
+        if (!spell || !offered(*spell)) {
+            continue;
+        }
+        const int slot = hostileMenu ? spell->hostileSlot : spell->friendlySlot;
+        if (slot < 0) {
+            continue;
+        }
+        auto it = entries.begin();
+        for (; it != entries.end(); ++it) {
+            const bool higherTier = mergeTiers && ((slot == kHigherTierSlot2 && it->slot == kLowerTierSlot2) ||
+                                                   (slot == kHigherTierSlot1 && it->slot == kLowerTierSlot1));
+            if (higherTier || it->slot == slot || it->slot > slot) {
+                break;
+            }
+        }
+        if (it == entries.end() || it->slot > slot) {
+            entries.insert(it, Entry {slot, std::move(spell)});
+        } else if (it->slot != slot || spell->menuPriority > it->spell->menuPriority) {
+            *it = Entry {slot, std::move(spell)};
+        }
+    }
+    std::vector<std::shared_ptr<Spell>> result;
+    for (auto &entry : entries) {
+        result.push_back(std::move(entry.spell));
+    }
+    return result;
+}
+
+// Only CastAnim picks a spell's clips, compared as written; CatchAnim picks none.
+static SpellCastAnimation parseCastAnimation(const std::string &value) {
+    static const std::map<std::string, SpellCastAnimation> kCodes {
+        {"self", SpellCastAnimation::Self}, {"dark", SpellCastAnimation::Dark}, {"up", SpellCastAnimation::Up}, {"area", SpellCastAnimation::Area}, {"point", SpellCastAnimation::Touch}, {"touch", SpellCastAnimation::Touch}, {"throw", SpellCastAnimation::Throw}, {"jump", SpellCastAnimation::Jump}, {"monster", SpellCastAnimation::Monster}, {"fury", SpellCastAnimation::Fury}, {"crush", SpellCastAnimation::Crush}, {"monsterfury", SpellCastAnimation::MonsterFury}};
+    const auto found = kCodes.find(value);
+    return found != kCodes.end() ? found->second : SpellCastAnimation::Other;
+}
+
+// The ranges.2da row of a spells.2da range tag, by its first letter; a
+// personal range reads the touch row.
+static std::optional<int> getSpellRangeRow(const std::string &range) {
+    static constexpr int kTouchRangeRow = 1;
+    static constexpr int kShortRangeRow = 2;
+    static constexpr int kMediumRangeRow = 3;
+    static constexpr int kLongRangeRow = 4;
+    static constexpr int kThrowRangeRow = 19;
+    if (range.empty()) {
+        return std::nullopt;
+    }
+    switch (range.front()) {
+    case 'P':
+    case 'T':
+        return kTouchRangeRow;
+    case 'S':
+        return kShortRangeRow;
+    case 'M':
+        return kMediumRangeRow;
+    case 'L':
+        return kLongRangeRow;
+    case 'W':
+        return kThrowRangeRow;
+    default:
+        return std::nullopt;
+    }
+}
+
 void Spells::init() {
     std::shared_ptr<TwoDA> spells(_twoDas.get("spells"));
     if (!spells)
         return;
 
+    const auto ranges = getRequiredTwoDA(_twoDas, "ranges");
     for (int row = 0; row < spells->getRowCount(); ++row) {
         SpellType type = static_cast<SpellType>(row);
         std::string name(_strings.getText(spells->getInt(row, "name", -1)));
@@ -169,10 +253,28 @@ void Spells::init() {
         float conjTime = spells->getInt(row, "conjtime") / 1000.0f;
         float castTime = spells->getInt(row, "casttime") / 1000.0f;
         uint32_t itemTargeting = spells->getInt(row, "itemtargeting");
+        uint32_t formMask = static_cast<uint32_t>(
+            spells->getInt(row, "formmask"));
         bool hostile = spells->getBool(row, "hostilesetting");
         std::string projModel = spells->getString(row, "projmodel");
 
         auto spell = std::make_shared<Spell>();
+        spell->catchTime = spells->getInt(row, "catchtime") / 1000.0f;
+        spell->projectile = spells->getBool(row, "proj");
+        const auto path = boost::algorithm::to_lower_copy(spells->getString(row, "projtype"));
+        static const std::map<std::string, ProjectilePathType> paths {
+            {"homing", ProjectilePathType::Homing}, {"ballistic", ProjectilePathType::Ballistic}, {"highballistic", ProjectilePathType::HighBallistic}, {"accelerating", ProjectilePathType::Accelerating}, {"spiral", ProjectilePathType::Spiral}, {"linked", ProjectilePathType::Linked}, {"bounce", ProjectilePathType::Bounce}, {"burst", ProjectilePathType::Burst}, {"grenade", ProjectilePathType::Grenade}};
+        auto parsedPath = paths.find(path);
+        if (parsedPath != paths.end()) {
+            spell->projectilePath = parsedPath->second;
+        }
+        spell->projectileSpawn = boost::algorithm::to_lower_copy(spells->getString(row, "projspwnpoint"));
+        spell->projectileOrientation = boost::algorithm::to_lower_copy(spells->getString(row, "projorientation"));
+        spell->conjureVisuals = {spells->getString(row, "conjheadvisual"), spells->getString(row, "conjhandvisual"),
+                                 spells->getString(row, "conjgrndvisual")};
+        spell->castVisuals = {spells->getString(row, "castheadvisual"), spells->getString(row, "casthandvisual"),
+                              spells->getString(row, "castgrndvisual")};
+        spell->exclusion = spells->getHexInt(row, "exclusion");
         spell->type = type;
         spell->name = std::move(name);
         spell->description = std::move(description);
@@ -181,6 +283,10 @@ void Spells::init() {
         spell->prerequisites = std::move(prerequisites);
         spell->masterSpell = masterSpell;
         spell->userType = userType;
+        spell->innateLevel = spells->getInt(row, "inate", Spell::kBlankInnateLevel);
+        spell->forcePointCost = spells->getInt(row, "forcepoints", 0);
+        const std::string alignment = spells->getString(row, "goodevil");
+        spell->alignment = alignment.empty() ? 'N' : alignment.front();
         for (const auto &[clazz, column] : kClassLevelColumns) {
             auto maybeRequirement = spells->getIntOpt(row, column);
             if (maybeRequirement) {
@@ -189,12 +295,29 @@ void Spells::init() {
         }
         spell->category = category;
         spell->impactScript = impactScript;
-        spell->castAnim = castAnim;
+        spell->castAnimation = parseCastAnimation(castAnim);
         spell->castSound = castSound.empty() ? nullptr : _audioClips.get(castSound);
         spell->conjTime = conjTime;
         spell->castTime = castTime;
         spell->itemTargeting = itemTargeting;
+        spell->requireItemMask = static_cast<uint32_t>(spells->getInt(row, "requireitemmask", 0));
+        spell->forbidItemMask = static_cast<uint32_t>(spells->getInt(row, "forbiditemmask", 0));
+        const auto range = spells->getString(row, "range");
+        const auto rangeRow = getSpellRangeRow(range);
+        if (rangeRow) {
+            spell->range = ranges->getFloat(*rangeRow, "primaryrange", 0.0f);
+        }
+        spell->rangeTag = range;
+        // Casting uses the primary range and the menu's minimum the secondary
+        // one. Only a range tag of a single letter has a minimum.
+        if (rangeRow && range.size() == 1) {
+            spell->minimumRange = ranges->getFloat(*rangeRow, "secondaryrange", 0.0f);
+        }
+        spell->formMask = formMask;
         spell->hostile = hostile;
+        spell->hostileSlot = spells->getInt(row, "forcehostile", -1);
+        spell->friendlySlot = spells->getInt(row, "forcefriendly", -1);
+        spell->menuPriority = spells->getInt(row, "forcepriority");
         spell->projModel = projModel.empty() ? nullptr : _models.get(projModel);
         _spells.insert(std::make_pair(type, std::move(spell)));
     }

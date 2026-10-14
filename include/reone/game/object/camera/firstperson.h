@@ -19,11 +19,15 @@
 
 #include "reone/input/event.h"
 
+#include "../../camerastyle.h"
+#include "../../runtimeref.h"
 #include "../camera.h"
 
 namespace reone {
 
 namespace game {
+
+class Creature;
 
 class FirstPersonCamera : public Camera {
 public:
@@ -48,11 +52,19 @@ public:
     void stopMovement() override;
 
     void setPosition(const glm::vec3 &position);
-    void setFacing(float facing);
+    void setFacing(float facing) override;
     void setLookAt(const glm::vec3 &target);
 
     const glm::vec3 &position() const { return _position; }
     float pitch() const { return _pitch; }
+
+    /**
+     * Free-look: look from the creature's head, turning the creature itself
+     * and pitching within the style's limits; the creature stands still.
+     */
+    void attach(const std::shared_ptr<Creature> &creature, const CameraStyle &style);
+    void detach();
+    bool isAttached() const;
 
 private:
     enum class MovementDirection {
@@ -71,6 +83,24 @@ private:
     float _pitch {0.0f};
     float _multiplier {1.0f};
     MovementDirection _moveDir {MovementDirection::None};
+
+    RuntimeObjectRef<Creature> _attached;
+    CameraStyle _style;
+    float _lookPitch {0.0f}; /**< degrees above the horizontal */
+    float _mouseX {0.0f};
+    float _mouseY {0.0f};
+    float _mouseTilt {0.0f};
+    bool _turnLeft {false};
+    bool _turnRight {false};
+    float _turnVelocity {0.0f};
+    float _turnInput {0.0f};
+    bool _pitchUp {false};
+    bool _pitchDown {false};
+    float _tiltVelocity {0.0f};
+    float _tiltInput {0.0f};
+
+    bool handleAttached(const input::Event &event);
+    void updateAttached(Creature &creature, float dt);
 
     bool handleMouseMotion(const input::MouseMotionEvent &event);
     bool handleKeyDown(const input::KeyEvent &event);

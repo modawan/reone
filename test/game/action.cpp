@@ -23,18 +23,19 @@
 #include <set>
 
 #include "../fixtures/engine.h"
-#include "reone/game/animations.h"
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/followleader.h"
 #include "reone/game/action/startconversation.h"
-#include "reone/game/action/usetalentonobject.h"
 #include "reone/game/action/usefeat.h"
-#include "reone/game/game.h"
+#include "reone/game/action/usetalentonobject.h"
+#include "reone/game/animations.h"
 #include "reone/game/attack.h"
+#include "reone/game/game.h"
+#include "reone/game/object/area.h"
 #include "reone/game/party.h"
 #include "reone/game/script/routines.h"
-#include "reone/resource/types.h"
 #include "reone/resource/2da.h"
+#include "reone/resource/types.h"
 #include "reone/script/executioncontext.h"
 #include "reone/system/randomutil.h"
 
@@ -51,6 +52,8 @@ TEST(CombatRoundReferences, live_participants_resolve_and_reach_execution_state)
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Combat runs in the active module.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     auto attacker = game.newCreature();
     auto target = game.newCreature();
     auto action = game.newAction<AttackObjectAction>(target);
@@ -70,6 +73,8 @@ TEST(CombatRoundReferences, retired_target_prunes_round_and_cancels_without_dama
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Combat runs in the active module.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     auto attacker = game.newCreature();
     auto target = game.newCreature();
     target->setCurrentHitPoints(12);
@@ -93,6 +98,8 @@ TEST(CombatRoundReferences, retired_attacker_prunes_round_despite_strong_storage
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Combat runs in the active module.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     auto attacker = game.newCreature();
     auto target = game.newCreature();
     auto action = game.newAction<AttackObjectAction>(target);
@@ -111,9 +118,24 @@ TEST(CombatRoundReferences, retired_attacker_prunes_round_despite_strong_storage
 }
 
 TEST(CombatRoundReferences, dead_but_live_target_is_a_gameplay_condition) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
+    // Dying reads the effects death keeps and the body's destroy delay.
+    ON_CALL(engine.resourceModule().twoDas(), get("removefxondeath"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"label", "effecttype"})
+                                                                   .row({"EFFECT_DISGUISE", "62"})
+                                                                   .row({"EFFECT_BEAM", "21"})
+                                                                   .build())));
+    ON_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"destroyobjectdelay"})
+                                                                   .row({""})
+                                                                   .build())));
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    // The body's destruction is queued on the active module.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     auto attacker = game.newCreature();
     auto target = game.newCreature();
     target->setCurrentHitPoints(1);
@@ -158,6 +180,8 @@ TEST(CombatRoundReferences, completed_or_dequeued_actions_do_not_keep_rounds_ali
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Combat runs in the active module.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     auto queuedAttacker = game.newCreature();
     auto queuedTarget = game.newCreature();
     auto queued = game.newAction<AttackObjectAction>(queuedTarget);
@@ -170,6 +194,9 @@ TEST(CombatRoundReferences, completed_or_dequeued_actions_do_not_keep_rounds_ali
 
     EXPECT_TRUE(queued->isCancelled());
     EXPECT_TRUE(queued->isCompleted());
+    // A cleared command leaves its round running to its normal end.
+    EXPECT_EQ(1u, game.combat().roundCount());
+    game.combat().update(3.1f);
     EXPECT_EQ(0u, game.combat().roundCount());
 
     auto completedAttacker = game.newCreature();
@@ -179,6 +206,9 @@ TEST(CombatRoundReferences, completed_or_dequeued_actions_do_not_keep_rounds_ali
     completed->complete();
 
     game.combat().update(0.0f);
+    // A finished command does not end its round early either.
+    EXPECT_EQ(1u, game.combat().roundCount());
+    game.combat().update(3.1f);
 
     EXPECT_EQ(0u, game.combat().roundCount());
 
@@ -196,15 +226,26 @@ TEST(CombatRoundReferences, completed_or_dequeued_actions_do_not_keep_rounds_ali
 
 TEST(Action, use_talent_dispatch_to_use_feat) {
     TestEngine &engine = testEngine();
+    engine.init();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
 
+    auto sceneGraph = std::make_shared<NiceMock<scene::MockSceneGraph>>();
+    ON_CALL(engine.sceneModule().graphs(), get(_))
+        .WillByDefault([sceneGraph](const std::string &) -> scene::ISceneGraph & {
+            return *sceneGraph;
+        });
+    auto area = game.newArea();
     auto player = game.newCreature();
     auto target = game.newCreature();
+    area->add(player);
+    area->add(target);
     auto talent = game.newTalent(TalentType::Feat, static_cast<int>(FeatType::PowerAttack));
-    auto action = game.newAction<UseTalentOnObjectAction>(std::move(talent), target);
+    auto action = game.newAction<UseTalentOnObjectAction>(std::move(talent), target, *player);
     auto subAction = action->subAction();
     ASSERT_TRUE(subAction);
+    EXPECT_EQ(ActionType::UseFeat, subAction->type());
+    EXPECT_EQ(subAction.get(), &action->combatAction());
     EXPECT_TRUE(action->saveFacingState());
 
     EXPECT_FALSE(action->isCompleted());
@@ -212,7 +253,7 @@ TEST(Action, use_talent_dispatch_to_use_feat) {
 
     // Cycle through combat states
     for (int i = 0; i < 10; ++i) {
-        action->execute(action, *target, 1.0f);
+        action->execute(action, *player, 1.0f);
         game.combat().update(2.0f);
     }
 
@@ -222,6 +263,7 @@ TEST(Action, use_talent_dispatch_to_use_feat) {
 
 TEST(Action, use_talent_dispatch_to_cast_spell) {
     TestEngine &engine = testEngine();
+    engine.init();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
 
@@ -234,20 +276,37 @@ TEST(Action, use_talent_dispatch_to_cast_spell) {
         .Times(AnyNumber())
         .WillRepeatedly(Return(spell));
 
+    auto sceneGraph = std::make_shared<NiceMock<scene::MockSceneGraph>>();
+    ON_CALL(engine.sceneModule().graphs(), get(_))
+        .WillByDefault([sceneGraph](const std::string &) -> scene::ISceneGraph & {
+            return *sceneGraph;
+        });
+    auto area = game.newArea();
     auto player = game.newCreature();
     auto target = game.newCreature();
+    area->add(player);
+    area->add(target);
     auto talent = game.newTalent(TalentType::Spell, static_cast<int>(SpellType::LightSaberThrow));
-    auto action = game.newAction<UseTalentOnObjectAction>(std::move(talent), target);
+    auto action = game.newAction<UseTalentOnObjectAction>(std::move(talent), target, *player);
     auto subAction = action->subAction();
     ASSERT_TRUE(subAction);
-    EXPECT_FALSE(action->saveFacingState());
+    EXPECT_EQ(ActionType::CastSpellAtObject, subAction->type());
+    EXPECT_EQ(subAction.get(), &action->combatAction());
+    auto saved = action->saveFacingState();
+    ASSERT_TRUE(saved);
+    EXPECT_EQ(15u, saved->actionId);
+    ASSERT_TRUE(saved->cast);
+    const auto command = SavedSpellCommand::fromAction(*saved);
+    ASSERT_TRUE(command);
+    EXPECT_EQ(static_cast<int>(SpellType::LightSaberThrow), command->spellId);
+    EXPECT_EQ(target->id(), command->target.id);
 
     EXPECT_FALSE(action->isCompleted());
     EXPECT_FALSE(subAction->isCompleted());
 
     // Cycle through combat states
     for (int i = 0; i < 10; ++i) {
-        action->execute(action, *target, 1.0f);
+        action->execute(action, *player, 1.0f);
         game.combat().update(2.0f);
     }
 
@@ -325,6 +384,8 @@ TEST(Action, discarded_start_conversation_does_not_run_after_the_conversation_en
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(resource::GameID::TSL, "", engine.options(), engine.services(), console);
+    // Creatures update in the active module.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     EXPECT_CALL(engine.resourceModule().gffs(), get(_, resource::ResType::Dlg)).Times(0);
 
     auto speaker = makeApproachingSpeaker(game);
@@ -420,10 +481,12 @@ TEST(Action, follow_leader_is_discarded_when_the_party_has_no_leader) {
 }
 
 // F. The complement of E, and the check that the guard drops nothing it should
-// not: with a leader in the party the action survives and its follower sets
-// about the approach instead of being discarded.
+// not: with a leader in the party the action survives and its follower (a
+// party member, as only members follow) sets about the approach instead of
+// being discarded.
 TEST(Action, follow_leader_survives_when_the_party_has_a_leader) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
 
@@ -433,6 +496,12 @@ TEST(Action, follow_leader_survives_when_the_party_has_a_leader) {
     ASSERT_EQ(leader, game.party().getLeader());
 
     auto follower = makeApproachingSpeaker(game);
+    ASSERT_TRUE(game.party().addAvailableMember(0, follower));
+    ASSERT_TRUE(game.party().addMember(0, follower));
+    // A follower standing still glances at the leader within its head arc.
+    ON_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(
+            resource::TwoDA::Builder().columns({"head_arc_h"}).row({"40"}).build())));
 
     auto action = game.newAction<FollowLeaderAction>();
     action->execute(action, *follower, 1.0f);
@@ -440,9 +509,11 @@ TEST(Action, follow_leader_survives_when_the_party_has_a_leader) {
     EXPECT_FALSE(action->isCompleted());
 }
 
-// G. Leader-present completion is unchanged too: a follower already within
-// following distance of the leader finishes the action.
-TEST(Action, follow_leader_completes_once_the_follower_is_with_the_leader) {
+// G. Following does not finish on arrival: a party member already within
+// following distance of the leader keeps the action running, as the follow
+// command stays in progress while the member stands with the leader. (This
+// assertion replaces the earlier completion on arrival, which was withdrawn.)
+TEST(Action, follow_leader_keeps_running_once_the_follower_is_with_the_leader) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -450,12 +521,14 @@ TEST(Action, follow_leader_completes_once_the_follower_is_with_the_leader) {
     auto leader = game.newCreature();
     game.party().addMember(kNpcPlayer, leader);
     auto follower = game.newCreature();
+    ASSERT_TRUE(game.party().addAvailableMember(0, follower));
+    ASSERT_TRUE(game.party().addMember(0, follower));
     ASSERT_EQ(leader->position(), follower->position());
 
     auto action = game.newAction<FollowLeaderAction>();
     action->execute(action, *follower, 1.0f);
 
-    EXPECT_TRUE(action->isCompleted());
+    EXPECT_FALSE(action->isCompleted());
 }
 
 namespace {
@@ -592,8 +665,8 @@ uint32_t findD20Seed(int firstRoll, int secondRoll = 0) {
 }
 
 AttackResultType rollUnarmedAttack(
-    const Creature &attacker,
-    const Object &target,
+    Creature &attacker,
+    Object &target,
     int firstRoll,
     int secondRoll = 0) {
 
@@ -650,7 +723,7 @@ Animations loadRetailImpactFixture(TestEngine &engine) {
     auto combatAnimations = retailImpactTimes();
     EXPECT_CALL(engine.resourceModule().twoDas(), get("animations"))
         .WillOnce(Return(animations));
-    EXPECT_CALL(engine.resourceModule().twoDas(), get("combatanimations.2da"))
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("combatanimations"))
         .WillOnce(Return(combatAnimations));
     Animations result(engine.resourceModule().twoDas());
     result.init();
@@ -660,7 +733,14 @@ Animations loadRetailImpactFixture(TestEngine &engine) {
 } // namespace
 
 TEST(PhysicalAttackResolution, natural_one_and_twenty_override_totals) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
+    // Attack and defense include the racial ability adjustments.
+    ON_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                                                                   .row({"0", "0", "0", "0", "0", "0"})
+                                                                   .build())));
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     auto attacker = game.newCreature();
@@ -681,7 +761,14 @@ TEST(PhysicalAttackResolution, natural_one_and_twenty_override_totals) {
 }
 
 TEST(PhysicalAttackResolution, ordinary_rolls_compare_against_defense) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
+    // Attack and defense include the racial ability adjustments.
+    ON_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                                                                   .row({"0", "0", "0", "0", "0", "0"})
+                                                                   .build())));
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     auto attacker = game.newCreature();
@@ -699,7 +786,14 @@ TEST(PhysicalAttackResolution, ordinary_rolls_compare_against_defense) {
 }
 
 TEST(PhysicalAttackResolution, critical_threat_requires_confirmation) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
+    // Attack and defense include the racial ability adjustments.
+    ON_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                                                                   .row({"0", "0", "0", "0", "0", "0"})
+                                                                   .build())));
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     auto attacker = game.newCreature();
@@ -717,7 +811,8 @@ TEST(PhysicalAttackResolution, critical_threat_requires_confirmation) {
 }
 
 TEST(AttackImpactTiming, uses_retail_combat_animation_hit_columns) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
     Animations animations = loadRetailImpactFixture(engine);
 
     // These values are shared by the shipped K1/K2 tables. The special feat
@@ -730,7 +825,8 @@ TEST(AttackImpactTiming, uses_retail_combat_animation_hit_columns) {
 }
 
 TEST(AttackImpactTiming, missing_rows_and_shots_use_retail_zero_fallback) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
     Animations animations = loadRetailImpactFixture(engine);
 
     EXPECT_EQ(0, animations.getMeleeImpactTime("not_authored", 0));
@@ -738,9 +834,18 @@ TEST(AttackImpactTiming, missing_rows_and_shots_use_retail_zero_fallback) {
 }
 
 TEST(AttackImpactTiming, melee_damage_waits_for_the_authored_impact) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
+    // Attack and defense include the racial ability adjustments.
+    ON_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                                                                   .row({"0", "0", "0", "0", "0", "0"})
+                                                                   .build())));
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Combat runs in the active module.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     auto attacker = game.newCreature();
     auto target = game.newCreature();
     attacker->applyAssuredHit();
@@ -754,10 +859,17 @@ TEST(AttackImpactTiming, melee_damage_waits_for_the_authored_impact) {
         .WillByDefault(Return(500));
     attacks.prepareMeleeSequence(animations, {"g8a1"});
 
+    // The released hit's damage is an event of the module, due at once.
     EXPECT_EQ(0u, attacks.signalReadyMelee(
         499, game, engine.services(), *attacker, *target));
+    game.module()->dispatchDueSavedEvents();
+    EXPECT_EQ(20, target->currentHitPoints());
+    EXPECT_EQ(0u, attacks.signalReadyMelee(
+                      500, game, engine.services(), *attacker, *target));
+    game.module()->dispatchDueSavedEvents();
     EXPECT_EQ(20, target->currentHitPoints());
     EXPECT_EQ(1u, attacks.signalReadyMelee(
-        500, game, engine.services(), *attacker, *target));
+                      501, game, engine.services(), *attacker, *target));
+    game.module()->dispatchDueSavedEvents();
     EXPECT_LT(target->currentHitPoints(), 20);
 }

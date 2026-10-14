@@ -42,8 +42,15 @@ public:
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
+    const std::shared_ptr<Door> &door() const { return _door; }
+
 private:
     std::shared_ptr<Door> _door;
+    /**
+     * Whether the creature, having walked up to a locked door it steps right
+     * up to, waits before opening it.
+     */
+    bool _waitAfterApproach {false};
 };
 
 } // namespace game

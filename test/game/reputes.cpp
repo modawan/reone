@@ -112,21 +112,21 @@ TEST(Reputes, a_positive_adjustment_lifts_hostility_and_a_negative_one_restores_
 
     // This is the disguise shape: the source faction stops treating the target
     // as an enemy, then treats it as one again once the disguise is dropped.
-    EXPECT_TRUE(reputes->getIsEnemy(kBeta, kGamma));
+    EXPECT_TRUE(reputes->getReputation(kBeta, kGamma) <= 10);
 
     reputes->adjustReputation(kBeta, kGamma, 50);
-    EXPECT_FALSE(reputes->getIsEnemy(kBeta, kGamma));
+    EXPECT_FALSE(reputes->getReputation(kBeta, kGamma) <= 10);
 
     reputes->adjustReputation(kBeta, kGamma, -50);
-    EXPECT_TRUE(reputes->getIsEnemy(kBeta, kGamma));
+    EXPECT_TRUE(reputes->getReputation(kBeta, kGamma) <= 10);
 }
 
 TEST(Reputes, hostility_is_read_from_the_source_view_not_the_target_view) {
     TestEngine &engine = testEngine();
     auto reputes = makeReputes(engine);
 
-    EXPECT_TRUE(reputes->getIsEnemy(kBeta, kGamma));
-    EXPECT_FALSE(reputes->getIsEnemy(kGamma, kBeta));
+    EXPECT_TRUE(reputes->getReputation(kBeta, kGamma) <= 10);
+    EXPECT_FALSE(reputes->getReputation(kGamma, kBeta) <= 10);
 }
 
 TEST(Reputes, out_of_range_and_identical_factions_leave_the_matrix_untouched) {
@@ -176,8 +176,9 @@ TEST(AdjustReputationRoutine, adjusts_the_source_faction_view_of_the_target) {
     routines.init();
     script::ExecutionContext execution;
 
+    // The receiver's (target's) row is written: how kGamma regards kBeta.
     EXPECT_CALL(static_cast<MockReputes &>(engine.services().game.reputes),
-                adjustReputation(kBeta, kGamma, 50));
+                adjustReputation(kGamma, kBeta, 50));
 
     routines.get(209).invoke(
         {script::Variable::ofObject(target->id()),
@@ -209,7 +210,8 @@ TEST(AdjustReputationRoutine, a_non_creature_target_is_ignored) {
 }
 
 TEST(DirectedDispositionRoutines, query_the_source_view_of_the_target) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     auto target = game.newCreature();
@@ -221,11 +223,11 @@ TEST(DirectedDispositionRoutines, query_the_source_view_of_the_target) {
     script::ExecutionContext execution;
     auto &reputes = static_cast<MockReputes &>(engine.services().game.reputes);
 
-    // GetIsEnemy(oTarget, oSource) asks whether oSource's faction regards
-    // oTarget as an enemy, so oSource is the source of the query.
-    EXPECT_CALL(reputes, getIsEnemy(Ref(*source), Ref(*target))).WillOnce(Return(true));
-    EXPECT_CALL(reputes, getIsFriend(Ref(*source), Ref(*target))).WillOnce(Return(false));
-    EXPECT_CALL(reputes, getIsNeutral(Ref(*source), Ref(*target))).WillOnce(Return(false));
+    // GetIsEnemy(oTarget, oSource) asks how oTarget regards oSource: the
+    // target's faction is the source of the reputation lookup.
+    EXPECT_CALL(reputes, getReputation(kGamma, kBeta))
+        .Times(3)
+        .WillRepeatedly(Return(0));
 
     std::vector<script::Variable> args {
         script::Variable::ofObject(target->id()),
@@ -350,12 +352,12 @@ TEST(SaveWidePartyTable, parsing_is_separate_from_publication) {
     Fixture fixture(GameID::TSL);
     auto table = partyTableA();
 
-    Party::PersistedState candidate = fixture.game.parsePartyTable(*table);
+    Game::PartyTable candidate = fixture.game.parsePartyTable(*table);
 
     EXPECT_TRUE(fixture.game.party().persistedState().memberIds.empty());
     EXPECT_EQ("", fixture.game.party().persistedState().pcName);
-    EXPECT_EQ(std::vector<int>({1}), candidate.memberIds);
-    EXPECT_EQ("A", candidate.pcName);
+    EXPECT_EQ(std::vector<int>({1}), candidate.party.memberIds);
+    EXPECT_EQ("A", candidate.party.pcName);
 
     fixture.game.replacePartyTable(std::move(candidate));
     EXPECT_EQ(std::vector<int>({1}), fixture.game.party().persistedState().memberIds);
@@ -408,17 +410,20 @@ TEST(SaveWidePartyTable, k2_retains_puppet_influence_and_resource_state) {
     EXPECT_EQ(42, state.influence[0]);
     EXPECT_EQ(9u, state.itemComponent);
     EXPECT_EQ(5, state.followState);
-    ASSERT_EQ(1u, state.dialogMessages.size());
-    EXPECT_EQ("Carth", state.dialogMessages[0].speaker);
-    EXPECT_EQ("Dialog history", state.dialogMessages[0].text);
-    ASSERT_EQ(1u, state.feedbackMessages.size());
-    EXPECT_EQ(0u, state.feedbackMessages[0].color);
-    EXPECT_EQ(0x80u, state.feedbackMessages[0].type);
-    EXPECT_EQ("Feedback history", state.feedbackMessages[0].text);
-    ASSERT_EQ(1u, state.combatMessages.size());
-    EXPECT_EQ(1u, state.combatMessages[0].color);
-    EXPECT_EQ(0x80u, state.combatMessages[0].type);
-    EXPECT_EQ("Combat history", state.combatMessages[0].text);
+    // The saved message lists are published to the game's message log.
+    const auto &log = fixture.game.messageLog();
+    ASSERT_EQ(1u, log.dialogEntries().size());
+    EXPECT_EQ("Carth", log.dialogEntries()[0].speaker);
+    EXPECT_EQ("Dialog history", log.dialogEntries()[0].text);
+    ASSERT_EQ(2u, log.entries().size());
+    EXPECT_EQ(MessageLog::Style::Normal, log.entries()[0].style);
+    EXPECT_EQ(0x80u, log.entries()[0].type);
+    EXPECT_EQ("Feedback history", log.entries()[0].text);
+    EXPECT_EQ(MessageLog::Buffer::Messages, log.entries()[0].buffer);
+    EXPECT_EQ(MessageLog::Style::Combat, log.entries()[1].style);
+    EXPECT_EQ(0x80u, log.entries()[1].type);
+    EXPECT_EQ("Combat history", log.entries()[1].text);
+    EXPECT_EQ(MessageLog::Buffer::Combat, log.entries()[1].buffer);
     EXPECT_TRUE(fixture.game.party().isSoloMode());
 }
 
@@ -453,10 +458,12 @@ std::shared_ptr<Gff> makeFaction(
     return std::make_shared<Gff>(0, std::move(fields));
 }
 
-std::shared_ptr<Gff> makeRep(uint32_t target, uint32_t source, uint32_t value) {
+// A RepList pair: FactionID1 is the regarding (source) faction's row,
+// FactionID2 the regarded (target) faction's column.
+std::shared_ptr<Gff> makeRep(uint32_t source, uint32_t target, uint32_t value) {
     return Gff::Builder()
-        .field(Gff::Field::newDword("FactionID1", target))
-        .field(Gff::Field::newDword("FactionID2", source))
+        .field(Gff::Field::newDword("FactionID1", source))
+        .field(Gff::Field::newDword("FactionID2", target))
         .field(Gff::Field::newDword("FactionRep", value))
         .build();
 }
@@ -498,7 +505,7 @@ TEST(ReputesFac, parsing_is_separate_from_publication) {
     expectBaseLookup(engine);
     auto state = reputes->parse(*makeFac(
         fiveSavedFactions(),
-        {makeRep(2, 1, 77)}));
+        {makeRep(1, 2, 77)}));
 
     ASSERT_TRUE(state);
     EXPECT_EQ(0, reputes->getReputation(kBeta, kGamma));
@@ -546,7 +553,7 @@ TEST(ReputesFac, saved_pairs_win_and_sparse_dynamic_pairs_default_to_100) {
     expectBaseLookup(engine);
     auto state = reputes->parse(*makeFac(
         fiveSavedFactions(),
-        {makeRep(2, 1, 77)}));
+        {makeRep(1, 2, 77)}));
     ASSERT_TRUE(state);
     reputes->replace(std::move(*state));
 
@@ -561,9 +568,9 @@ TEST(ReputesFac, clamps_values_ignores_invalid_pairs_and_uses_last_duplicate) {
     expectBaseLookup(engine);
     auto state = reputes->parse(*makeFac(
         fiveSavedFactions(),
-        {makeRep(2, 1, 20),
-         makeRep(2, 1, 60),
-         makeRep(3, 2, std::numeric_limits<uint32_t>::max()),
+        {makeRep(1, 2, 20),
+         makeRep(1, 2, 60),
+         makeRep(2, 3, std::numeric_limits<uint32_t>::max()),
          makeRep(1, 0, 1),
          makeRep(99, 1, 1)}));
     ASSERT_TRUE(state);
@@ -578,7 +585,7 @@ TEST(ReputesFac, malformed_candidate_does_not_publish_or_retain_another_save) {
     auto reputes = makeReputes(engine);
 
     expectBaseLookup(engine);
-    auto stateA = reputes->parse(*makeFac(fiveSavedFactions("save_a"), {makeRep(2, 1, 77)}));
+    auto stateA = reputes->parse(*makeFac(fiveSavedFactions("save_a"), {makeRep(1, 2, 77)}));
     ASSERT_TRUE(stateA);
     reputes->replace(std::move(*stateA));
     ASSERT_EQ(77, reputes->getReputation(kBeta, kGamma));
@@ -599,7 +606,7 @@ TEST(ReputesFac, save_switch_a_b_a_replaces_all_factions_and_pairs) {
         expectBaseLookup(engine);
         auto state = reputes->parse(*makeFac(
             fiveSavedFactions(std::move(name)),
-            {makeRep(2, 1, value)}));
+            {makeRep(1, 2, value)}));
         ASSERT_TRUE(state);
         reputes->replace(std::move(*state));
     };
@@ -921,13 +928,16 @@ TEST(SavedCustomTokens, a_b_a_and_missing_lists_replace_without_contamination) {
     EXPECT_EQ("a/a-only", fixture.game.substituteCustomTokens("<CUSTOM31>/<CUSTOM32>"));
 
     TestGameModule::deserializeCustomTokens(fixture.game, *b);
-    EXPECT_EQ("b/<CUSTOM32>", fixture.game.substituteCustomTokens("<CUSTOM31>/<CUSTOM32>"));
+    // An unset custom token reads as the parser's unrecognized token.
+    EXPECT_EQ("b/<UNRECOGNIZED TOKEN>", fixture.game.substituteCustomTokens("<CUSTOM31>/<CUSTOM32>"));
 
     TestGameModule::deserializeCustomTokens(fixture.game, *a);
     EXPECT_EQ("a/a-only", fixture.game.substituteCustomTokens("<CUSTOM31>/<CUSTOM32>"));
 
     TestGameModule::deserializeCustomTokens(fixture.game, *missing);
-    EXPECT_EQ("<CUSTOM31>/<CUSTOM32>", fixture.game.substituteCustomTokens("<CUSTOM31>/<CUSTOM32>"));
+    EXPECT_EQ(
+        "<UNRECOGNIZED TOKEN>/<UNRECOGNIZED TOKEN>",
+        fixture.game.substituteCustomTokens("<CUSTOM31>/<CUSTOM32>"));
 }
 
 TEST(SavedCustomTokens, direct_script_style_assignment_remains_available) {
@@ -1154,9 +1164,9 @@ TEST(SavedPlayerRestoration, controlled_companion_keeps_pc_utc_as_actual_player)
         fixture.game.getObjectBySavedId(101));
     EXPECT_EQ(fixture.game.party().player(), fixture.game.party().getLeader());
     EXPECT_EQ("actual_pc", fixture.game.party().actualPlayer()->tag());
-    EXPECT_EQ(fixture.game.party().actualPlayer(),
-              fixture.game.party().getMemberByNPC(kNpcPlayer));
-    EXPECT_EQ(2, fixture.game.party().getSize());
+    // While a companion is controlled, the player character is no member.
+    EXPECT_FALSE(fixture.game.party().getMemberByNPC(kNpcPlayer));
+    EXPECT_EQ(1, fixture.game.party().getSize());
 }
 
 TEST(SavedPlayerRestoration, autosave_pifo_controlled_companion_keeps_authored_tag) {

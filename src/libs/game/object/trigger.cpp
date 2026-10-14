@@ -17,16 +17,31 @@
 
 #include "reone/game/object/trigger.h"
 
+#include "reone/game/animations.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/messagelog.h"
+#include "reone/game/object/area.h"
+#include "reone/game/object/creature.h"
 #include "reone/game/object/door.h"
+#include "reone/game/object/item.h"
+#include "reone/game/object/module.h"
+#include "reone/game/party.h"
+#include "reone/game/reputes.h"
 #include "reone/game/script/runner.h"
+#include "reone/game/twodautil.h"
+#include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
+#include "reone/resource/exception/notfound.h"
+#include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/gffs.h"
+#include "reone/resource/provider/models.h"
 #include "reone/resource/resources.h"
 #include "reone/resource/strings.h"
+#include "reone/scene/collision.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/graphs.h"
+#include "reone/scene/node/model.h"
 #include "reone/scene/node/trigger.h"
 #include "reone/system/logutil.h"
 
@@ -37,6 +52,15 @@ using namespace reone::scene;
 namespace reone {
 
 namespace game {
+
+// The ranges.2da row of a trap's radius.
+static constexpr int kTrapRadiusRange = 17;
+// The animations.2da rows of a trap model hidden and shown.
+static constexpr int kTrapHiddenAnimation = 347;
+static constexpr int kTrapShownAnimation = 350;
+// A mine goes off on a creature that regards its setter at this standing or below.
+static constexpr int kMineTriggerStanding = 10;
+static constexpr float kMineHalfSize = 2.0f;
 
 static constexpr float kDebugTestDuration = 0.25f;
 static constexpr float kDebugInsideDuration = 0.25f;
@@ -102,10 +126,7 @@ void Trigger::deserializeAll(
     gff.readResRef(_onEnter, "ScriptOnEnter");
     gff.readResRef(_onExit, "ScriptOnExit");
     gff.readResRef(_onUserDefined, "ScriptUserDefine");
-    gff.readResRef(_onTrapTriggered, "OnTrapTriggered");
-    gff.readResRef(_onDisarm, "OnDisarm");
-    gff.readByte(_trapType, "TrapType");
-    gff.readBool(_trapOneShot, "TrapOneShot");
+    _trap.deserialize(gff);
     if (gff.readString(_linkedTo, "LinkedTo")) {
         boost::to_lower(_linkedTo);
     }
@@ -120,9 +141,25 @@ void Trigger::deserializeAll(
     }
     gff.readEnum(_faction, "Faction");
     gff.readString(_keyName, "KeyName");
-    gff.readBool(_trapDisarmable, "TrapDisarmable");
-    gff.readBool(_trapDetectable, "TrapDetectable");
-    gff.readInt(_triggerType, "Type");
+    // The detect and disarm DCs come from traps.2da, not from the record.
+    _trap.loadTypeDCs(_services.resource.twoDas);
+    // An empty or "default" trap script means the trap type's own script.
+    static const std::string kDefaultTrapScript {"default"};
+    if (_trap.triggeredScript().empty() || _trap.triggeredScript() == kDefaultTrapScript) {
+        _trap.setTriggeredScript(Trap::typeRow(_services.resource.twoDas, _trap.type()).script);
+    }
+    uint32_t creatorId = 0;
+    if (gff.readDword(creatorId, "CreatorId")) {
+        _creator = SavedObjectReference::fromSerializedId(creatorId, identityContext);
+    }
+    int32_t triggerType = 0;
+    if (gff.readInt(triggerType, "Type")) {
+        _triggerType = triggerType;
+        // A trap stays a trap even if a later record gives another type.
+        if (triggerType == kTrapType) {
+            _isTrap = true;
+        }
+    }
     gff.readFloat(_highlightHeight, "HighlightHeight");
 
     gff.readFloat(_position[0], "XPosition");
@@ -131,7 +168,7 @@ void Trigger::deserializeAll(
 
     // Ignore XOrientation and YOrientation.
     //
-    // The vanilla engine applies orientation only when instantiating
+    // The game applies orientation only when instantiating
     // from a template, and it does not apply orientation when loading
     // from a savegame. It also uses script Facing only to the Trigger
     // object and not to the corresponding mesh.
@@ -172,10 +209,248 @@ void Trigger::loadAppearance() {
     }
     _sceneNode->setLocalTransform(glm::translate(_position));
     syncDebugVisual();
+    loadTrapModel();
+}
+
+void Trigger::loadTrapModel() {
+    if (!_isTrap || _trapModel) {
+        return;
+    }
+    // Every trap type names its model.
+    const std::string modelName = Trap::typeRow(_services.resource.twoDas, _trap.type()).model;
+    auto model = _services.resource.models.get(modelName);
+    if (!model) {
+        throw ResourceNotFoundException("Trap model not found: " + modelName);
+    }
+    auto &sceneGraph = _services.scene.graphs.get(_sceneName);
+    _trapModel = sceneGraph.newModel(*model, ModelUsage::Placeable);
+    _trapModel->setLocalTransform(glm::translate(_position));
+    _trapModel->setDrawDistance(_game.options().graphics.drawDistance);
+    _trapShown = false;
+    _trapModel->playAnimation(
+        _services.game.animations.getNameById(kTrapHiddenAnimation),
+        nullptr,
+        AnimationProperties::fromFlags(AnimationFlags::loop));
+}
+
+glm::vec3 Trigger::nearestPoint(const glm::vec3 &from) const {
+    if (_isTrap) {
+        const glm::vec3 offset {from - _position};
+        if (glm::dot(offset, offset) <= 1e-4f) {
+            return from;
+        }
+        const float radius = getRequiredTwoDA(_services.resource.twoDas, "ranges")->getFloat(kTrapRadiusRange, "primaryrange");
+        return _position + glm::normalize(offset) * radius;
+    }
+    // Nearest point on the outline, edge by edge in vertex order.
+    glm::vec3 nearest {0.0f};
+    float nearestDistance2 = 1e8f;
+    const size_t count = _geometry.size();
+    for (size_t i = 0; i < count; ++i) {
+        const glm::vec3 start {_position + _geometry[i]};
+        const glm::vec3 edge {_position + _geometry[(i + 1) % count] - start};
+        const float t = glm::dot(from - start, edge) / glm::dot(edge, edge);
+        glm::vec3 point {start};
+        if (t > 1.0f) {
+            point += edge;
+        } else if (t >= 0.0f) {
+            point += edge * t;
+        }
+        const glm::vec3 delta {from - point};
+        const float distance2 = glm::dot(delta, delta);
+        if (distance2 < nearestDistance2) {
+            nearestDistance2 = distance2;
+            nearest = point;
+        }
+    }
+    return nearest;
+}
+
+glm::vec3 Trigger::getSelectablePosition() const {
+    return _trapModel ? _trapModel->getWorldCenterOfAABB() : _position;
+}
+
+std::shared_ptr<Creature> Trigger::trapCreator() const {
+    return std::dynamic_pointer_cast<Creature>(_creator.boundObject());
+}
+
+uint32_t Trigger::trapCreatorId() const {
+    if (_creator.isInvalid()) {
+        return script::kObjectInvalid;
+    }
+    if (auto creator = _creator.boundObject()) {
+        return creator->id();
+    }
+    return _creator.isSerializedIdentity() ? script::kObjectInvalid : _creator.id;
+}
+
+void Trigger::setTrapCreator(const std::shared_ptr<Object> &creator) {
+    _creator = creator ? SavedObjectReference::fromRuntimeId(creator->id()) : SavedObjectReference {};
+    if (creator) {
+        _game.bindSavedObjectReference(_creator);
+    }
+    auto *creature = creator ? dyn_cast<Creature>(creator.get()) : nullptr;
+    _setByPlayerParty = creature && (_game.party().player().get() == creature || _game.party().isMember(*creature));
+}
+
+void Trigger::initMine(
+    int trapType,
+    const glm::vec3 &position,
+    const std::shared_ptr<Object> &creator,
+    Faction faction,
+    int detectDC,
+    int disarmDC,
+    int ownerDemolitionsSkill) {
+    setTrapCreator(creator);
+    _isTrap = true;
+    // Saved as a trap trigger, so a reload keeps the mine.
+    _triggerType = kTrapType;
+    _trap.setUpMine(_services.resource.twoDas, trapType, detectDC, disarmDC, ownerDemolitionsSkill);
+    _faction = faction;
+    if (auto nameStrRef = Trap::typeRow(_services.resource.twoDas, trapType).nameStrRef) {
+        _locName = LocString(*nameStrRef, "", _services.resource.strings);
+        _name = _locName.str();
+    }
+    // A square four metres across, level with the ground under its centre.
+    _position = position;
+    float height = 0.0f;
+    Collision collision;
+    if (_services.scene.graphs.get(_sceneName).testElevation(position, collision)) {
+        height = collision.intersection.z - position.z;
+    }
+    _geometry = {
+        glm::vec3(-kMineHalfSize, kMineHalfSize, height),
+        glm::vec3(-kMineHalfSize, -kMineHalfSize, height),
+        glm::vec3(kMineHalfSize, -kMineHalfSize, height),
+        glm::vec3(kMineHalfSize, kMineHalfSize, height)};
+    loadAppearance();
+    updateTransform();
+}
+
+bool Trigger::canFireMineOn(const Creature &creature, bool force) const {
+    bool fire = true;
+    if (!force) {
+        // How the creature regards the mine's creator, or the mine itself
+        // without one.
+        auto creator = trapCreator();
+        const Object &setter = creator ? static_cast<const Object &>(*creator) : *this;
+        fire = getObjectReputation(creature, setter, _game) <= kMineTriggerStanding &&
+               _faction != creature.faction();
+    }
+    if (creature.hasEffectImmunity(ImmunityType::Trap)) {
+        fire = false;
+    }
+    if (_game.isTSL()) {
+        if (creature.hasEffectiveFeat(FeatType::MineImmunity)) {
+            fire = false;
+        }
+        // A party walks over mines when its first character knows how.
+        auto first = _game.party().getLeader();
+        if (fire && _game.party().isMember(creature) && first && first->hasEffectiveFeat(FeatType::PartyMineImmunity)) {
+            fire = false;
+        }
+    }
+    return fire;
+}
+
+void Trigger::fireMine(const std::shared_ptr<Creature> &creature, bool force) {
+    if (!creature || !canFireMineOn(*creature, force)) {
+        return;
+    }
+    auto area = _game.module()->area();
+
+    // Carrying the trap's key disarms it instead. A party member's key may be
+    // anywhere in the party's inventory.
+    const std::string keyTag = boost::to_lower_copy(_keyName);
+    auto repository = _game.party().sharedInventoryReceiver(creature);
+    std::shared_ptr<Item> key = repository->getItemByTag(keyTag);
+    bool equippedKey = false;
+    if (!key) {
+        for (const auto &[slot, item] : creature->equipment()) {
+            if (item && item->tag() == keyTag) {
+                key = item;
+                equippedKey = true;
+                break;
+            }
+        }
+    }
+    if (key) {
+        if (_autoRemoveKey) {
+            if (equippedKey) {
+                creature->takeEquippedItem(key);
+                _game.destroyRuntimeObjectGraph(key);
+            } else {
+                bool last = false;
+                repository->removeItem(key, last);
+                if (last) {
+                    _game.destroyRuntimeObjectGraph(key);
+                }
+            }
+        }
+        disarmTrap(*creature);
+        area->destroyObject(*this);
+        return;
+    }
+
+    if (_game.party().getLeader() == creature) {
+        Trap::reportTriggered(_game);
+    }
+    const std::vector<script::Argument> args {
+        {script::ArgKind::Caller, script::Variable::ofObject(_id)},
+        {script::ArgKind::EnteringObject, script::Variable::ofObject(creature->id())}};
+    _game.scriptRunner().run(_trap.triggeredScript(), args);
+    _game.scriptRunner().run(_onEnter, args);
+    if (_trap.isOneShot()) {
+        area->destroyObject(*this);
+    }
+}
+
+void Trigger::updateTrapPresentation() {
+    if (!_isTrap || !_trapModel) {
+        return;
+    }
+    auto viewer = _game.party().getLeader();
+    const auto &detection = _trap.detection();
+    const bool shown = detection.flagged ||
+                       (viewer && (!isTrapHostileTo(*viewer) || detection.isDetectedBy(viewer->id())));
+    if (shown == _trapShown) {
+        return;
+    }
+    _trapShown = shown;
+    _trapModel->playAnimation(
+        _services.game.animations.getNameById(shown ? kTrapShownAnimation : kTrapHiddenAnimation),
+        nullptr,
+        AnimationProperties::fromFlags(AnimationFlags::loop));
+}
+
+void Trigger::resolveSavedReferences(
+    const std::function<std::shared_ptr<Object>(uint32_t)> &resolver) {
+    Object::resolveSavedReferences(resolver);
+    // The recorded creator binds with the rest of the loaded references.
+    if (!_creator.isInvalid()) {
+        _game.bindSavedObjectReference(_creator);
+    }
 }
 
 void Trigger::update(float dt) {
+    // A trigger runs every due heartbeat, the first check included.
+    if (isHeartbeatDueSince(_heartbeatDay, _heartbeatTime)) {
+        stampHeartbeat();
+        if (!_onHeartbeat.empty()) {
+            _game.scriptRunner().run(_onHeartbeat, _id);
+        }
+    }
     Object::update(dt);
+    if (_isTrap && !_creator.isInvalid()) {
+        if (!_creator.boundObject()) {
+            _game.bindSavedObjectReference(_creator);
+        }
+        // A mine takes its creator's side for as long as the creator exists.
+        if (auto creator = trapCreator()) {
+            _faction = creator->faction();
+        }
+    }
+    updateTrapPresentation();
 
     _debugTestAge = glm::max(0.0f, _debugTestAge - dt);
     _debugInsideAge = glm::max(0.0f, _debugInsideAge - dt);
@@ -215,6 +490,11 @@ void Trigger::update(float dt) {
 void Trigger::addTenant(const std::shared_ptr<Object> &object) {
     _tenants.insert(object);
     syncDebugVisual();
+    // Stepping on a trap goes through the trap, which runs the enter script itself.
+    if (_isTrap) {
+        fireMine(std::dynamic_pointer_cast<Creature>(object), false);
+        return;
+    }
     if (_onEnter.empty()) {
         return;
     }

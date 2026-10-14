@@ -16,13 +16,50 @@
  */
 
 #include "reone/script/variable.h"
+
+#include <cstring>
+
 #include "reone/game/location.h"
+#include "reone/script/enginetype.h"
 
 namespace reone {
 
 namespace script {
 
 std::atomic<uint64_t> g_id {0};
+
+// An effect variable holds a value scripts copy and compare by value; a
+// variable that holds anything else is a defect, reported as std::bad_cast.
+static const CopyableEngineType &effectValue(const EngineType &value) {
+    return dynamic_cast<const CopyableEngineType &>(value);
+}
+
+Variable::Variable(const Variable &other) :
+    type(other.type), strValue(other.strValue), vecValue(other.vecValue),
+    engineType(other.engineType), context(other.context), id(other.id) {
+    // Copy the scalar union's representation without reading an inactive member.
+    std::memcpy(&intValue, &other.intValue, sizeof(intValue));
+    if (type == VariableType::Effect && engineType) {
+        engineType = effectValue(*engineType).cloneForScript();
+    }
+}
+
+Variable &Variable::operator=(const Variable &other) {
+    if (this != &other) {
+        Variable copy(other);
+        *this = std::move(copy);
+    }
+    return *this;
+}
+
+bool equalEffectValues(const std::shared_ptr<EngineType> &left,
+                       const std::shared_ptr<EngineType> &right) {
+    if (!left || !right) {
+        return left == right;
+    }
+    // Effects compare by the identity their copies keep.
+    return effectValue(*left).scriptValueId() == effectValue(*right).scriptValueId();
+}
 
 Variable Variable::ofNull() {
     Variable result;

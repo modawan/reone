@@ -24,15 +24,28 @@ namespace reone {
 
 namespace game {
 
-class ForcePushTargetedEffect : public Effect {
+class ForcePushTargetedEffect : public CopyableEffect<ForcePushTargetedEffect> {
 public:
     ForcePushTargetedEffect(std::shared_ptr<Location> centre, bool ignoreTestDirectLine) :
-        Effect(EffectType::ForcePushTargeted),
+        CopyableEffect(EffectType::ForcePushTargeted),
         _centre(std::move(centre)),
         _ignoreTestDirectLine(ignoreTestDirectLine) {
+        setSaveFacingInteger(0, 1);
+        setSaveFacingInteger(1, ignoreTestDirectLine);
+        setSaveFacingFloat(0, _centre->position().x);
+        setSaveFacingFloat(1, _centre->position().y);
+        setSaveFacingFloat(2, _centre->position().z);
     }
 
-    void applyTo(Object &object) override;
+    ForcePushTargetedEffect(const ForcePushTargetedEffect &other) :
+        CopyableEffect(other),
+        _centre(std::make_shared<Location>(other._centre->position(),
+                                           other._centre->saveOrientation())),
+        _ignoreTestDirectLine(other._ignoreTestDirectLine) {
+    }
+
+    EffectApplicationResult onApply(Object &object, EffectInstance &) override;
+    EffectRemovalResult onRemove(Object &object, const EffectInstance &) override;
 
 private:
     std::shared_ptr<Location> _centre;

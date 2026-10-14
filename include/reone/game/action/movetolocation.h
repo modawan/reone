@@ -30,7 +30,7 @@ public:
         uint32_t areaId {kSavedRuntimeInvalidObjectId};
         bool active {false};
         /**
-         * Absolute deadline in world milliseconds. The retail record stores a
+         * Absolute deadline in world milliseconds. The saved record stores a
          * day/time pair; it is composed on restore and split again on save, so
          * the running action never rebuilds a calendar.
          */
@@ -68,6 +68,9 @@ public:
     static bool classof(Action *from) {
         return from->type() == ActionType::MoveToLocation;
     }
+
+    /** A move order releases the mover's orientation lock. */
+    void onQueued(Object &actor) override;
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
     std::optional<SavedActionRecord> saveFacingState() const override;

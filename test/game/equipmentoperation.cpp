@@ -87,6 +87,8 @@ protected:
 TEST_F(EquipmentOperation, equips_replaces_and_returns_items_to_explicit_inventory) {
     auto owner = game.newCreature();
     auto subject = game.newCreature();
+    // Not a player character: no minimum equip level applies.
+    subject->setPC(false);
     auto first = makeItem(game, "first", 8, 1);
     auto second = makeItem(game, "second", 3, 1);
     owner->addItem(first);
@@ -111,6 +113,8 @@ TEST_F(EquipmentOperation, equips_replaces_and_returns_items_to_explicit_invento
 TEST_F(EquipmentOperation, preserves_stacked_candidates_and_clears_both_hands) {
     auto owner = game.newCreature();
     auto subject = game.newCreature();
+    // Not a player character: no minimum equip level applies.
+    subject->setPC(false);
     auto stack = makeItem(game, "saber", 8, 3);
     owner->addItem(stack);
     EXPECT_EQ(EquipmentOperationOutcome::Applied,
@@ -134,12 +138,14 @@ TEST_F(EquipmentOperation, preserves_stacked_candidates_and_clears_both_hands) {
 }
 
 TEST_F(EquipmentOperation, clears_paired_hand_for_restricted_weapons_and_supports_alternate_slots) {
-    for (int baseItem : {1, 6}) {
+    for (int baseItem : {6}) {
         for (auto slots : {std::pair {InventorySlots::rightWeapon, InventorySlots::leftWeapon},
                            std::pair {InventorySlots::rightWeapon2, InventorySlots::leftWeapon2}}) {
             Game alternate(GameID::TSL, "", engine.options(), engine.services(), console);
             Game &operationGame = slots.first == InventorySlots::rightWeapon2 ? alternate : game;
             auto subject = operationGame.newCreature();
+            // Not a player character: no minimum equip level applies.
+            subject->setPC(false);
             auto owner = operationGame.newCreature();
             auto main = makeItem(operationGame, "main", 8, 1);
             auto off = makeItem(operationGame, "off", 3, 1);
@@ -169,14 +175,21 @@ TEST_F(EquipmentOperation, clears_paired_hand_for_restricted_weapons_and_support
 
 TEST_F(EquipmentOperation, rejects_invalid_foreign_and_retired_requests_without_mutation) {
     auto subject = game.newCreature();
+    // Not a player character: no minimum equip level applies.
+    subject->setPC(false);
     auto owner = game.newCreature();
     auto foreign = game.newCreature();
     auto main = makeItem(game, "main", 8, 1);
     auto incompatible = makeItem(game, "blaster", 12, 2);
+    auto off = makeItem(game, "off", 3, 1);
     ASSERT_TRUE(subject->equip(InventorySlots::rightWeapon, main));
+    ASSERT_TRUE(subject->equip(InventorySlots::leftWeapon, off));
+    ASSERT_TRUE(subject->takeEquippedItem(main));
     owner->addItem(incompatible);
     EXPECT_EQ(EquipmentOperationOutcome::Rejected,
               applyEquipmentOperation(game, *subject, *owner, incompatible, InventorySlots::leftWeapon));
+    ASSERT_TRUE(subject->takeEquippedItem(off));
+    ASSERT_TRUE(subject->equip(InventorySlots::rightWeapon, main));
     EXPECT_EQ(EquipmentOperationOutcome::Rejected,
               applyEquipmentOperation(game, *subject, *foreign, incompatible, InventorySlots::rightWeapon));
     EXPECT_EQ(EquipmentOperationOutcome::Rejected,

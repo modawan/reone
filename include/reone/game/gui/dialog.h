@@ -43,6 +43,9 @@ public:
     /** Selects, but does not activate, a reply for a scripted visual capture. */
     void selectReplyForCapture(int index);
 
+    /** The object is the current entry's speaker or listener. */
+    bool isSpeakerOrListener(const Object &object) const;
+
 private:
     struct Participant {
         std::shared_ptr<graphics::Model> model;
@@ -72,6 +75,13 @@ private:
     RuntimeObjectRef<Object> _currentSpeaker;
     std::map<std::string, Participant> _participantByTag;
 
+    /** The pair that turns to each other on each entry, and the pair before it. */
+    RuntimeObjectRef<Object> _pairSpeaker;
+    RuntimeObjectRef<Object> _pairListener;
+    RuntimeObjectRef<Object> _previousPairSpeaker;
+    RuntimeObjectRef<Object> _previousPairListener;
+    bool _pairStarted {false};
+
     /**
      * Ordinary creatures currently holding an authored cutscene pose. They keep
      * it until another authored animation replaces it or the dialogue ends.
@@ -92,6 +102,12 @@ private:
     void repositionMessage();
 
     void updateCamera();
+    /** Make \p speaker and the current entry's listener the pair that turns to each other. */
+    void updateSpeakerPair(const std::shared_ptr<Object> &speaker);
+    /** The object the current entry's listener tag names, if any. */
+    std::shared_ptr<Object> resolveEntryListener() const;
+    /** Release the pair's looks and forget the pair. */
+    void endSpeakerPair();
     void updateParticipantAnimations();
     void applyCutAnimation(const std::string &participant, const CutAnimation &cut);
     void applyDialogAnimation(const std::string &participant, int ordinal);

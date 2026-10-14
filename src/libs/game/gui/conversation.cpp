@@ -19,6 +19,12 @@
 
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
+#include "reone/game/di/services.h"
+#include "reone/game/game.h"
+#include "reone/game/object/area.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/object/placeable.h"
+#include "reone/game/script/runner.h"
 #include "reone/graphics/animation.h"
 #include "reone/graphics/di/services.h"
 #include "reone/gui/control/listbox.h"
@@ -27,10 +33,6 @@
 #include "reone/resource/provider/models.h"
 #include "reone/resource/resources.h"
 #include "reone/system/logutil.h"
-
-#include "reone/game/di/services.h"
-#include "reone/game/game.h"
-#include "reone/game/script/runner.h"
 
 using namespace reone::audio;
 
@@ -80,7 +82,7 @@ bool Conversation::isCurrent(uint64_t generation) const {
 }
 
 void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::shared_ptr<Object> &owner,
-                          GlobalFade::DialogTicket admission) {
+                         GlobalFade::DialogTicket admission, const std::shared_ptr<Object> &listener) {
     if (!admission) {
         admission = _game.globalFade().admitDialog(/*replace=*/true);
     }
@@ -94,18 +96,18 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
         if (!isCurrent(generation)) {
             return;
         }
-        if (auto oldOwner = _owner.resolve()) {
-            oldOwner->setIsInConversation(false);
-        }
+        releaseDialogParticipants(_owner.resolve());
     }
     debug("Start " + dialog->resRef, LogChannel::Conversation);
 
     _paused = false;
     _dialog = dialog;
     _owner = owner;
+    _partner = listener;
 
     if (owner) {
-        owner->setIsInConversation(true);
+        attachDialogParticipant(owner);
+        attachDialogParticipant(listener);
     }
 
     loadConversationBackground();
@@ -113,6 +115,66 @@ void Conversation::start(const std::shared_ptr<Dialog> &dialog, const std::share
     onStart();
     if (isCurrent(generation)) {
         loadStartEntry();
+    }
+}
+
+void Conversation::attachDialogParticipant(const std::shared_ptr<Object> &object) {
+    // A conversation without a listener, or an entry whose speaker tag names
+    // no object, attaches no one.
+    const auto dialogOwner = _owner.resolve();
+    if (!object || !dialogOwner) {
+        return;
+    }
+    const auto previous = object->dialogOwner();
+    // A speaker stays with another conversation that still owns it.
+    if (previous && previous != dialogOwner && previous->dialogOwner() == previous) {
+        return;
+    }
+    object->setDialogOwner(dialogOwner);
+    object->setIsInConversation(true);
+    const auto found = std::find_if(_dialogParticipants.begin(), _dialogParticipants.end(),
+                                    [&](const auto &ref) { return ref.resolve() == object; });
+    if (found == _dialogParticipants.end()) {
+        _dialogParticipants.emplace_back(object);
+    }
+}
+
+void Conversation::releaseDialogParticipants(const std::shared_ptr<Object> &dialogOwner) {
+    auto participants = std::move(_dialogParticipants);
+    _dialogParticipants.clear();
+    for (const auto &reference : participants) {
+        if (const auto object = reference.resolve(); object && object->dialogOwner() == dialogOwner) {
+            object->setDialogOwner(nullptr);
+            object->setIsInConversation(false);
+        }
+    }
+}
+
+// An object's end-dialogue script: a creature's or a placeable's. Other
+// objects have none.
+static void runObjectEndDialogScript(const std::shared_ptr<Object> &object) {
+    if (auto creature = std::dynamic_pointer_cast<Creature>(object)) {
+        creature->runEndDialogScript();
+    } else if (auto placeable = std::dynamic_pointer_cast<Placeable>(object)) {
+        placeable->runEndDialogScript();
+    }
+}
+
+void Conversation::runAreaEndDialogScripts(const Object &dialogOwner) {
+    // The end of a conversation runs the end-dialogue script of every creature
+    // and placeable in the owner's area, not only the speaker's. An owner in
+    // no area has none to run. The scripts may add or remove objects, so the
+    // area's objects are taken before any runs.
+    auto area = dialogOwner.spatialArea();
+    if (!area) {
+        return;
+    }
+    std::vector<RuntimeObjectRef<Object>> objects;
+    for (const auto &object : area->get().objects()) {
+        objects.emplace_back(object);
+    }
+    for (const auto &reference : objects) {
+        runObjectEndDialogScript(reference.resolve());
     }
 }
 
@@ -258,16 +320,17 @@ void Conversation::finish(bool runsEndScript) {
     if (_game.currentScreen() == Game::Screen::Conversation) {
         _game.openInGame();
     }
+    // A conversation a companion handed on returns control to it.
+    _game.finishPostDialogCharacterSwitch();
 
     // Run EndConversation script
     if (auto owner = ownerRef.resolve(); owner && runsEndScript) {
         runEndScript(*dialog, *owner);
+        runAreaEndDialogScripts(*owner);
     }
 
     if (_generation == generation) {
-        if (auto owner = ownerRef.resolve()) {
-            owner->setIsInConversation(false);
-        }
+        releaseDialogParticipants(ownerRef.resolve());
     }
 }
 
@@ -296,9 +359,7 @@ void Conversation::cleanupForModuleTransition() {
     _lipAnimation.reset();
     onFinish();
     if (_generation == generation) {
-        if (auto owner = _owner.resolve()) {
-            owner->setIsInConversation(false);
-        }
+        releaseDialogParticipants(_owner.resolve());
     }
 }
 
@@ -307,6 +368,11 @@ void Conversation::loadEntry(int index, bool start) {
     auto dialog = _dialog; // retain nodes across callbacks, including conditions
     debug("Load entry " + std::to_string(index), LogChannel::Conversation);
     _currentEntry = &_dialog->getEntry(index);
+    if (!_currentEntry->speaker.empty()) {
+        if (auto owner = _owner.resolve(); owner && owner->spatialArea()) {
+            attachDialogParticipant(owner->spatialArea()->get().getObjectByTag(_currentEntry->speaker));
+        }
+    }
 
     // A conversation is a one-liner when it opens on an entry with no replies,
     // or with one reply that leads to no entry; the reply's text and condition
@@ -368,7 +434,8 @@ void Conversation::loadEntry(int index, bool start) {
         debug("Dialog: finish (one-liner)");
 
         // A line with text is barked, and the conversation's end script runs
-        // then; a line without text shows nothing and runs no end script. The
+        // then, with the owner's own end-dialogue script but no other's; a
+        // line without text shows nothing and runs no end script. The
         // entry's actions follow, then the sole reply's, whether or not its
         // condition holds, all with the owner as the caller. An action can
         // start another conversation, which then stands. Ending the entry
@@ -378,6 +445,10 @@ void Conversation::loadEntry(int index, bool start) {
             setBarkText(std::move(entryText), _entryDuration);
             if (auto owner = _owner.resolve()) {
                 runEndScript(*_dialog, *owner);
+                if (!isCurrent(generation)) {
+                    return;
+                }
+                runObjectEndDialogScript(owner);
                 if (!isCurrent(generation)) {
                     return;
                 }
@@ -648,6 +719,26 @@ CameraType Conversation::getCamera(int &cameraId) const {
         return CameraType::Static;
     }
     return CameraType::Dialog;
+}
+
+void Conversation::stopParticipant(const Object &object) {
+    const auto dialogOwner = _owner.resolve();
+    if (!_dialog || _entryEnded || !dialogOwner || object.dialogOwner() != dialogOwner) {
+        return;
+    }
+    if (&object == dialogOwner.get()) {
+        finish();
+        return;
+    }
+    auto found = std::find_if(_dialogParticipants.begin(), _dialogParticipants.end(),
+                              [&](const auto &ref) { return ref.resolve().get() == &object; });
+    if (found == _dialogParticipants.end()) {
+        return;
+    }
+    const auto participant = found->resolve();
+    _dialogParticipants.erase(found);
+    participant->setDialogOwner(nullptr);
+    participant->setIsInConversation(false);
 }
 
 void Conversation::pause() {

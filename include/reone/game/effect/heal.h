@@ -23,14 +23,22 @@ namespace reone {
 
 namespace game {
 
-class HealEffect : public Effect {
+/**
+ * Heals vitality at once, or, when integer 1 selects them, Force points.
+ * Integer 2 makes the healing quiet.
+ */
+class HealEffect : public CopyableEffect<HealEffect> {
 public:
+    /** The resource selector of a heal or regeneration that restores Force points. */
+    static constexpr int kForcePointsResource = 54;
+
     HealEffect(int damageToHeal) :
-        Effect(EffectType::Heal),
+        CopyableEffect(EffectType::Heal),
         _damageToHeal(damageToHeal) {
+        setSaveFacingInteger(0, damageToHeal);
     }
 
-    void applyTo(Object &object) override;
+    EffectApplicationResult onApply(Object &object, EffectInstance &) override;
 
 private:
     int _damageToHeal;

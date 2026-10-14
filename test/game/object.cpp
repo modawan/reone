@@ -401,10 +401,10 @@ std::shared_ptr<TwoDA> makeBaseItemsTable() {
     TwoDA::Builder builder;
     builder.columns({"maxattackrange", "crithitmult", "critthreat", "damageflags", "dietoroll",
                      "equipableslots", "itemclass", "numdice", "weapontype", "weaponwield",
-                     "ammunitiontype", "bodyvar"});
-    builder.row({"", "", "", "", "", "", "I_Credits", "", "", "", "", ""});
-    builder.row({"", "", "", "", "", "", "I_Datapad", "", "", "", "", ""});
-    builder.row({"", "", "", "", "", "2", "I_Disguise", "", "", "", "-1", ""});
+                     "ammunitiontype", "bodyvar", "itemtype"});
+    builder.row({"", "", "", "", "", "", "I_Credits", "", "", "", "", "", "23"});
+    builder.row({"", "", "", "", "", "", "I_Datapad", "", "", "", "", "", ""});
+    builder.row({"", "", "", "", "", "2", "I_Disguise", "", "", "", "-1", "", ""});
     return std::shared_ptr<TwoDA>(builder.build());
 }
 
@@ -515,7 +515,8 @@ std::shared_ptr<Gff> vitalityCreatureRecord(
     int constitution,
     int level,
     std::vector<FeatType> feats = {},
-    bool isPC = false) {
+    bool isPC = false,
+    std::vector<int> levelHitDice = {}) {
     auto classRecord = Gff::Builder()
                            .field(Gff::Field::newInt(
                                "Class", static_cast<int>(ClassType::Soldier)))
@@ -529,8 +530,8 @@ std::shared_ptr<Gff> vitalityCreatureRecord(
                     "Feat", static_cast<uint16_t>(feat)))
                 .build());
     }
-    return Gff::Builder()
-        .field(Gff::Field::newDword("ObjectId", 82))
+    Gff::Builder record;
+    record.field(Gff::Field::newDword("ObjectId", 82))
         .field(Gff::Field::newShort("HitPoints", baseHitPoints))
         .field(Gff::Field::newShort(
             "CurrentHitPoints", serializedCurrentHitPoints))
@@ -542,8 +543,19 @@ std::shared_ptr<Gff> vitalityCreatureRecord(
         .field(Gff::Field::newDword("Appearance_Type", 0))
         .field(Gff::Field::newWord("SoundSetFile", 0xffff))
         .field(Gff::Field::newByte("BodyBag", 0xff))
-        .field(Gff::Field::newByte("PerceptionRange", 0xff))
-        .build();
+        .field(Gff::Field::newByte("PerceptionRange", 0xff));
+    // The player character's per-level hit dice.
+    if (!levelHitDice.empty()) {
+        std::vector<std::shared_ptr<Gff>> levels;
+        for (int hitDie : levelHitDice) {
+            levels.push_back(
+                Gff::Builder()
+                    .field(Gff::Field::newByte("LvlStatHitDie", hitDie))
+                    .build());
+        }
+        record.field(Gff::Field::newList("LvlStatList", std::move(levels)));
+    }
+    return record.build();
 }
 
 std::shared_ptr<Gff> makeJournalWithPlotXP() {
@@ -797,6 +809,11 @@ std::shared_ptr<Creature> makeMovingCreature(
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .Times(AnyNumber())
         .WillRepeatedly(Return(makeAppearanceTable()));
+    // Perception ranges come from the test; battle excitement is outside it.
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("ranges"))
+        .Times(AnyNumber());
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("excitedduration"))
+        .Times(AnyNumber());
     EXPECT_CALL(engine.resourceModule().models(), get(_))
         .Times(AnyNumber());
     EXPECT_CALL(static_cast<MockPortraits &>(engine.services().game.portraits), getTextureByAppearance(_))
@@ -811,6 +828,12 @@ std::shared_ptr<Creature> makeMovingCreature(
                    .build();
     auto creature = game.newCreature();
     creature->deserialize(*gff, SerializedIdentityContext::templateResource());
+    // Moving takes a creature that is standing: a party member at 0 hit points
+    // is down and anyone else at 0 is dead. An ordinary creature's maximum is
+    // its base hit points, which regeneration then keeps.
+    creature->setPC(false);
+    creature->setMaxHitPoints(10);
+    creature->setCurrentHitPoints(10);
     return creature;
 }
 
@@ -877,7 +900,9 @@ std::shared_ptr<Gff> makeDisguiseItemGff(int appearance) {
                         .field(Gff::Field::newWord("PropertyName", static_cast<int>(ItemProperty::Disguise)))
                         .field(Gff::Field::newWord("Subtype", appearance))
                         .build();
+    // An equipped entry names its slot by its struct type.
     return Gff::Builder()
+        .type(1u << InventorySlots::body)
         .field(Gff::Field::newInt("BaseItem", 2))
         .field(Gff::Field::newList("PropertiesList", {std::move(property)}))
         .build();
@@ -1107,7 +1132,7 @@ TEST(EquipmentCompatibility, accepts_lightsaber_and_vibroblade_in_either_hand_or
     ASSERT_TRUE(vibrobladeMainActor->equip(InventorySlots::leftWeapon, offSaber));
 }
 
-TEST(EquipmentCompatibility, rejects_retail_incompatible_melee_and_ranged_weapons) {
+TEST(EquipmentCompatibility, ranged_kind_change_replaces_the_main_hand) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -1122,9 +1147,9 @@ TEST(EquipmentCompatibility, rejects_retail_incompatible_melee_and_ranged_weapon
     ASSERT_TRUE(saberMainActor->equip(InventorySlots::rightWeapon, mainSaber));
     auto blasterDecision = evaluateEquipmentCandidate(
         *saberMainActor, InventorySlots::leftWeapon, offBlaster.get());
-    ASSERT_FALSE(blasterDecision.valid);
-    ASSERT_EQ(EquipmentCandidateAction::Reject, blasterDecision.action);
-    ASSERT_EQ(EquipmentCandidateReason::IncompatibleWithMainHand, blasterDecision.reason);
+    ASSERT_TRUE(blasterDecision.valid);
+    ASSERT_EQ(EquipmentCandidateAction::Replace, blasterDecision.action);
+    ASSERT_EQ(InventorySlots::rightWeapon, blasterDecision.actualSlot);
 
     auto blasterMainActor = game.newCreature();
     auto mainBlaster = makeItem(game, "g_w_blstrpstl001", 12, 1);
@@ -1132,9 +1157,9 @@ TEST(EquipmentCompatibility, rejects_retail_incompatible_melee_and_ranged_weapon
     ASSERT_TRUE(blasterMainActor->equip(InventorySlots::rightWeapon, mainBlaster));
     auto saberDecision = evaluateEquipmentCandidate(
         *blasterMainActor, InventorySlots::leftWeapon, offSaber.get());
-    ASSERT_FALSE(saberDecision.valid);
-    ASSERT_EQ(EquipmentCandidateAction::Reject, saberDecision.action);
-    ASSERT_EQ(EquipmentCandidateReason::IncompatibleWithMainHand, saberDecision.reason);
+    ASSERT_TRUE(saberDecision.valid);
+    ASSERT_EQ(EquipmentCandidateAction::Replace, saberDecision.action);
+    ASSERT_EQ(InventorySlots::rightWeapon, saberDecision.actualSlot);
 }
 
 TEST(EquipmentStack, equips_a_restored_stun_baton_stack_on_an_empty_party_member) {
@@ -1173,6 +1198,8 @@ TEST(Creature, should_activate_and_deactivate_lightsabers_in_both_hands_with_com
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Creatures update in the active module.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
 
     auto bodyRoot = std::make_shared<graphics::ModelNode>(
         0, "root_node", glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), true, nullptr);
@@ -1240,19 +1267,19 @@ TEST(Creature, should_activate_and_deactivate_lightsabers_in_both_hands_with_com
 
     rightSaberNode->playAnimation("off");
     leftSaberNode->playAnimation("off");
-    creature.activateCombat();
+    creature.setCombatState(true);
 
     EXPECT_EQ(rightSaberNode->activeAnimationName(), "powerup");
     EXPECT_EQ(leftSaberNode->activeAnimationName(), "powerup");
 
-    creature.deactivateCombat(8.0f);
     creature.update(8.1f);
+    creature.update(0.0f);
 
     EXPECT_EQ(rightSaberNode->activeAnimationName(), "powerdown");
     EXPECT_EQ(leftSaberNode->activeAnimationName(), "powerdown");
 
-    creature.activateCombat();
-    creature.deactivateCombat(0.0f);
+    creature.setCombatState(true);
+    creature.setCombatState(false);
 
     EXPECT_FALSE(creature.isInCombat());
     EXPECT_EQ(rightSaberNode->activeAnimationName(), "powerdown");
@@ -1302,7 +1329,8 @@ TEST(Conversation, should_present_auto_routing_entry_with_authored_presentation_
 }
 
 TEST(Creature, should_hold_completed_external_animation_until_assignment_is_released) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
 
@@ -1340,31 +1368,34 @@ TEST(Creature, should_hold_completed_external_animation_until_assignment_is_rele
     ASSERT_EQ(modelNode->animationChannels().size(), 1);
     EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
 
+    // Playing the one-shot again makes the pause the loop and restarts the
+    // clip.
     ASSERT_TRUE(creature.playExternalAnimation(first, properties));
-    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
 
     modelNode->update(0.7f);
     creature.update(0.0f);
     EXPECT_EQ(modelNode->activeAnimationName(), "first");
-    EXPECT_TRUE(modelNode->isAnimationFinished());
+    EXPECT_FALSE(modelNode->isAnimationFinished());
     ASSERT_EQ(modelNode->animationChannels().size(), 1);
-    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.7f);
 
     auto rootSceneNode = modelNode->getNodeByName("root_node");
     ASSERT_TRUE(rootSceneNode);
-    EXPECT_NEAR(rootSceneNode->localTransform()[3].x, 1.0f, 1e-5);
+    EXPECT_NEAR(rootSceneNode->localTransform()[3].x, 0.7f, 1e-5);
 
+    // A finished one-shot returns to the pause.
     modelNode->update(0.5f);
     creature.update(0.0f);
-    EXPECT_EQ(modelNode->activeAnimationName(), "first");
-    EXPECT_TRUE(modelNode->isAnimationFinished());
-    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+    EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
+    EXPECT_FALSE(modelNode->isAnimationFinished());
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
     EXPECT_NEAR(rootSceneNode->localTransform()[3].x, 1.0f, 1e-5);
 
     ASSERT_TRUE(creature.playExternalAnimation(first, properties));
     EXPECT_EQ(modelNode->activeAnimationName(), "first");
-    EXPECT_TRUE(modelNode->isAnimationFinished());
-    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+    EXPECT_FALSE(modelNode->isAnimationFinished());
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
 
     ASSERT_TRUE(creature.playExternalAnimation(second, properties));
     EXPECT_EQ(modelNode->activeAnimationName(), "second");
@@ -1381,7 +1412,8 @@ TEST(Creature, should_hold_completed_external_animation_until_assignment_is_rele
 }
 
 TEST(Creature, should_publish_external_animation_before_pending_state_refresh) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
 
@@ -1500,8 +1532,9 @@ TEST(DialogGUI, should_hold_mixed_stunt_assignment_and_restore_on_drop_or_teardo
     ASSERT_EQ(modelNode->animationChannels().size(), 1);
     EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
 
+    // A one-shot cut clip played again restarts over the pause.
     ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
-    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.4f);
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
 
     modelNode->update(0.7f);
     player->update(0.0f);
@@ -1511,24 +1544,25 @@ TEST(DialogGUI, should_hold_mixed_stunt_assignment_and_restore_on_drop_or_teardo
     EXPECT_FALSE(modelNode->isCulled());
     EXPECT_FALSE(modelNode->isCullingEnabled());
     EXPECT_EQ(modelNode->activeAnimationName(), "cut001w");
-    EXPECT_TRUE(modelNode->isAnimationFinished());
-    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+    EXPECT_FALSE(modelNode->isAnimationFinished());
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.7f);
 
     auto rootSceneNode = modelNode->getNodeByName("root_node");
     ASSERT_TRUE(rootSceneNode);
-    EXPECT_NEAR(rootSceneNode->localTransform()[3].x, 1.0f, 1e-5);
+    EXPECT_NEAR(rootSceneNode->localTransform()[3].x, 0.7f, 1e-5);
 
+    // A finished one-shot returns to the pause.
     modelNode->update(0.5f);
     player->update(0.0f);
-    EXPECT_EQ(modelNode->activeAnimationName(), "cut001w");
-    EXPECT_TRUE(modelNode->isAnimationFinished());
-    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+    EXPECT_EQ(modelNode->activeAnimationName(), "cpause1");
+    EXPECT_FALSE(modelNode->isAnimationFinished());
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
     EXPECT_NEAR(rootSceneNode->localTransform()[3].x, 1.0f, 1e-5);
 
     ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1200));
     EXPECT_EQ(modelNode->activeAnimationName(), "cut001w");
-    EXPECT_TRUE(modelNode->isAnimationFinished());
-    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 1.0f);
+    EXPECT_FALSE(modelNode->isAnimationFinished());
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
 
     ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1201));
     EXPECT_EQ(modelNode->activeAnimationName(), "cut002w");
@@ -1538,7 +1572,7 @@ TEST(DialogGUI, should_hold_mixed_stunt_assignment_and_restore_on_drop_or_teardo
     modelNode->update(0.25f);
     ASSERT_TRUE(MixedStuntTestAccess::applyAnimation(gui, "PLAYER", 1201));
     EXPECT_EQ(modelNode->activeAnimationName(), "cut002w");
-    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.25f);
+    EXPECT_FLOAT_EQ(modelNode->animationChannels().front().time, 0.0f);
 
     Dialog::EntryReply droppedEntry;
     MixedStuntTestAccess::restoreForEntry(gui, droppedEntry);
@@ -1694,7 +1728,8 @@ TEST(DialogGUI, should_decode_participant_animation_ordinals_by_cut_band) {
 }
 
 TEST(DialogGUI, should_decode_direct_k1_dialog_animation_rows) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     DialogGUI gui(game, engine.services());
@@ -1711,7 +1746,8 @@ TEST(DialogGUI, should_decode_direct_k1_dialog_animation_rows) {
 }
 
 TEST(DialogGUI, should_preserve_offset_dialog_animation_rows_and_k2_rejection) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
     StubConsole console;
     Game k1Game(GameID::KotOR, "", engine.options(), engine.services(), console);
     Game k2Game(GameID::TSL, "", engine.options(), engine.services(), console);
@@ -1729,7 +1765,8 @@ TEST(DialogGUI, should_preserve_offset_dialog_animation_rows_and_k2_rejection) {
 }
 
 TEST(DialogGUI, should_reject_invalid_and_unresolved_k1_dialog_animation_rows) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     DialogGUI gui(game, engine.services());
@@ -1747,7 +1784,8 @@ TEST(DialogGUI, should_reject_invalid_and_unresolved_k1_dialog_animation_rows) {
 }
 
 TEST(DialogGUI, should_preserve_cut_band_precedence_for_k1_direct_rows) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     DialogGUI gui(game, engine.services());
@@ -1771,6 +1809,9 @@ TEST(DialogGUI, should_animate_the_real_player_when_an_animated_cut_authors_no_s
     auto bodyModel = makeModel("player_body", {makeAnimation("cpause1")});
     bodyModel->setSuperModel(superModel);
     auto player = scene.newCreature(game, engine, 1, "player", bodyModel);
+    // A party member at 0 hit points plays no dialog animation.
+    player->setMaxHitPoints(1);
+    player->setCurrentHitPoints(1);
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
     auto node = modelNodeOf(player);
@@ -1872,20 +1913,19 @@ TEST(DialogGUI, should_hold_an_authored_cut_pose_until_the_dialogue_releases_the
     node->update(0.6f);
     owner->update(0.0f);
 
-    // Having finished, it holds its final frame rather than falling back to the
-    // state-driven idle.
-    ASSERT_EQ(node->animationChannels().size(), 1);
-    EXPECT_TRUE(node->isAnimationFinished());
-    EXPECT_EQ(node->activeAnimationName(), "cut012");
-    EXPECT_EQ(node->animationChannels().front().anim, drain.get());
+    // Having finished, it returns to the state-driven pause, which blends in.
+    ASSERT_EQ(node->animationChannels().size(), 2);
+    EXPECT_FALSE(node->isAnimationFinished());
+    EXPECT_EQ(node->activeAnimationName(), "cpause1");
+    EXPECT_EQ(node->animationChannels().front().anim, idle.get());
 
     // The authored sequence puts a script-only entry between the two clips. It
-    // must not release the held pose.
+    // leaves the pause in place.
     Dialog::EntryReply scriptOnly;
     MixedStuntTestAccess::updateAnimationsForEntry(gui, scriptOnly);
     owner->update(0.0f);
-    EXPECT_EQ(node->activeAnimationName(), "cut012");
-    EXPECT_EQ(node->animationChannels().front().anim, drain.get());
+    EXPECT_EQ(node->activeAnimationName(), "cpause1");
+    EXPECT_EQ(node->animationChannels().front().anim, idle.get());
 
     // The next authored animation replaces it.
     Dialog::EntryReply lying;
@@ -1923,6 +1963,9 @@ TEST(DialogGUI, should_drive_stunt_and_ordinary_participants_from_one_animated_c
     auto extraClip = makeAnimation("cut001w");
     auto extraModel = makeModel("extra_body", {extraClip});
     auto extra = scene.newCreature(game, engine, 4, "player", extraModel);
+    // A party member at 0 hit points plays no dialog animation.
+    extra->setMaxHitPoints(1);
+    extra->setCurrentHitPoints(1);
     game.party().addMember(kNpcPlayer, extra);
     game.party().setPlayer(extra);
 
@@ -1964,6 +2007,9 @@ TEST(DialogGUI, should_keep_driving_fully_stunted_animated_cuts_from_the_stunt_m
     auto stuntModel = makeModel("player_stunt", {first, second});
     auto bodyModel = makeModel("player_body", {makeAnimation("cut001w"), makeAnimation("cpause1")});
     auto player = scene.newCreature(game, engine, 5, "player", bodyModel);
+    // A party member at 0 hit points plays no dialog animation.
+    player->setMaxHitPoints(1);
+    player->setCurrentHitPoints(1);
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
     auto node = modelNodeOf(player);
@@ -2094,7 +2140,7 @@ TEST(Object, should_convert_credits_to_party_gold_when_looted_by_party_member) {
     EXPECT_TRUE(footlocker->items().empty());
 }
 
-TEST(Object, should_move_credits_as_items_when_destination_is_not_in_party) {
+TEST(Object, should_convert_credits_to_gold_for_any_creature) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -2114,12 +2160,12 @@ TEST(Object, should_move_credits_as_items_when_destination_is_not_in_party) {
     footlocker->moveDropableItemsTo(*thug);
 
     EXPECT_EQ(game.party().gold(), 0);
-    ASSERT_EQ(thug->items().size(), 1);
-    EXPECT_EQ(thug->items().front()->tag(), "g_i_credits001");
+    ASSERT_EQ(thug->items().size(), 0);
+    EXPECT_EQ(thug->gold(), 5);
     EXPECT_TRUE(footlocker->items().empty());
 }
 
-TEST(UnlockObjectAction, should_unlock_plot_nonlockable_door_without_opening_it) {
+TEST(UnlockObjectAction, should_unlock_and_open_plot_nonlockable_door_unlocking_itself) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -2132,7 +2178,7 @@ TEST(UnlockObjectAction, should_unlock_plot_nonlockable_door_without_opening_it)
     action->execute(action, *door, 0.0f);
 
     EXPECT_FALSE(door->isLocked());
-    EXPECT_FALSE(door->isOpen());
+    EXPECT_TRUE(door->isOpen());
     EXPECT_TRUE(action->isCompleted());
 }
 
@@ -2195,7 +2241,7 @@ TEST(UnlockObjectAction, should_complete_safely_for_missing_destroyed_or_unsuppo
     EXPECT_TRUE(missingAction->isCompleted());
     EXPECT_TRUE(destroyedAction->isCompleted());
     EXPECT_TRUE(destroyed->isLocked());
-    EXPECT_TRUE(unsupportedAction->isCompleted());
+    EXPECT_FALSE(unsupportedAction->isCompleted());
 }
 
 TEST(TransitionPresentationLifecycle, should_construct_and_destroy_hud_before_gameplay_module_exists) {
@@ -2646,6 +2692,17 @@ TEST(TransitionPresentationPortals, should_expose_authored_transitions_without_t
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     testSceneGraph(engine);
+    // Triggers load their trap data where present; the leader regenerates.
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("traps"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("regeneration"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                    .columns({"label", "healthregen", "forceregen"})
+                                                                    .row({"InCombat", "0.0", "0.0"})
+                                                                    .row({"OutOfCombat", "0.0", "1.0"})
+                                                                    .build())));
     auto area = game.newArea();
     auto leader = makeMovingCreature(game, engine);
     game.party().addMember(kNpcPlayer, leader);
@@ -2711,6 +2768,10 @@ TEST(TransitionPresentationPortals, should_ignore_non_transitions_and_expose_emp
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     testSceneGraph(engine);
+    // Triggers load their trap data where present.
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("traps"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
     auto area = game.newArea();
 
     auto nonTransition = game.newTrigger();
@@ -2791,6 +2852,17 @@ TEST(LinkedDoorTransition, should_destroy_generated_threshold_with_its_source_do
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Triggers load their trap data where present; the leader regenerates.
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("traps"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("regeneration"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                    .columns({"label", "healthregen", "forceregen"})
+                                                                    .row({"InCombat", "0.0", "0.0"})
+                                                                    .row({"OutOfCombat", "0.0", "1.0"})
+                                                                    .build())));
     auto area = game.newArea();
     auto door = makeTransitionDoor(game, engine);
     auto leader = makeMovingCreature(game, engine);
@@ -2931,10 +3003,9 @@ TEST(LinkedDoorTransition, should_reject_npcs_and_companions) {
         std::make_pair(std::string("destination_module"), std::string("destination_waypoint")));
 }
 
-// Ordinary LinkedToModule triggers, the kind that carry an area transition
-// without a linked door. Retail only lets the player character or the current
-// party leader move the party between modules, so a follower crossing a
-// reciprocal transition on arrival must not send everyone straight back.
+// Only the player or controlled party leader can activate a LinkedToModule
+// transition. A follower crossing a reciprocal trigger on arrival must not
+// immediately send the party back.
 struct ModuleTransitionActivatorFixture : TestWithParam<GameID> {
     ModuleTransitionActivatorFixture() :
         game(GetParam(), "", engine.options(), engine.services(), console) {
@@ -2942,6 +3013,10 @@ struct ModuleTransitionActivatorFixture : TestWithParam<GameID> {
 
     void SetUp() override {
         testSceneGraph(engine);
+        // Triggers load their trap data where present.
+        EXPECT_CALL(engine.resourceModule().twoDas(), get("traps"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
         area = game.newArea();
         trigger = game.newTrigger();
         trigger->deserialize(
@@ -3195,6 +3270,10 @@ TEST(LinkedDoorTransition, should_preserve_reusable_authored_type1_trigger_lifec
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     game.initLocalServices();
     testSceneGraph(engine);
+    // Triggers load their trap data where present.
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("traps"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
     auto onEnter = makeStartNewModuleScript("script_module", "script_waypoint");
     EXPECT_CALL(engine.resourceModule().scripts(), get("override_transition"))
         .Times(AnyNumber())
@@ -3415,8 +3494,7 @@ TEST(DoorLifecycle, should_treat_an_unsupported_authored_open_state_as_closed) {
     EXPECT_TRUE(doorwayBlocks(*door));
 }
 
-// B. A door that is swinging open is still in the doorway. Retail K2 will not
-// let the player past one until the opening animation has finished.
+// B. Keep the closed walkmesh active until the opening animation completes.
 TEST(DoorLifecycle, should_keep_blocking_the_doorway_until_the_open_completes) {
     TestEngine &engine = testEngine();
     StubConsole console;
@@ -3858,9 +3936,10 @@ TEST(XPStatusSummary, should_preserve_negative_accounting_without_received_notif
 
     game.party().awardXP(-25, XPSource::Plot);
 
-    EXPECT_EQ(game.party().xp(), 75);
-    EXPECT_EQ(player->xp(), 75);
-    EXPECT_EQ(companion->xp(), 75);
+    // Awards of 0 or less are ignored.
+    EXPECT_EQ(game.party().xp(), 100);
+    EXPECT_EQ(player->xp(), 100);
+    EXPECT_EQ(companion->xp(), 100);
     EXPECT_TRUE(game.statusSummary().pending().empty());
 }
 
@@ -4046,7 +4125,7 @@ TEST(ScriptedPlotXP, rejected_duplicate_journal_entry_does_not_award_again) {
         game.statusSummary().pending().entry(StatusSummaryCategory::PlotXP).amount);
 }
 
-TEST(XPStatusSummary, should_format_authored_plot_xp_text_without_mutating_global_token) {
+TEST(XPStatusSummary, should_format_plot_xp_text_and_leave_token_zero_set) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -4056,6 +4135,9 @@ TEST(XPStatusSummary, should_format_authored_plot_xp_text_without_mutating_globa
     entry.active = true;
     entry.amount = 350;
     game.setCustomToken(0, "existing");
+    EXPECT_CALL(engine.resourceModule().strings(), getText(42438))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return("Experience: <CUSTOM0>"));
 
     EXPECT_EQ(
         summary.formatDescription(
@@ -4063,12 +4145,15 @@ TEST(XPStatusSummary, should_format_authored_plot_xp_text_without_mutating_globa
             entry,
             "Experience: <CUSTOM0>"),
         "Experience: 350");
-    EXPECT_EQ(game.substituteCustomTokens("<CUSTOM0>"), "existing");
+    EXPECT_EQ(game.substituteCustomTokens("<CUSTOM0>"), "350");
 }
 
 TEST(XPStatusSummary, cached_gui_preserves_text_across_retirement_and_load_publication) {
     TestEngine engine;
     engine.init();
+    EXPECT_CALL(engine.resourceModule().strings(), getText(42438))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return("Experience: <CUSTOM0>"));
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     NiceMock<gui::MockGUI> gui;
@@ -4206,6 +4291,9 @@ TEST(Object, should_restore_saved_appearance_after_unequipping_loaded_disguise) 
 
     auto creatureGff = Gff::Builder()
                            .field(Gff::Field::newWord("Appearance_Type", 2))
+                           .field(Gff::Field::newByte("IsPC", 0))
+                           .field(Gff::Field::newShort("HitPoints", 10))
+                           .field(Gff::Field::newShort("CurrentHitPoints", 10))
                            .field(Gff::Field::newByte("PM_IsDisguised", 1))
                            .field(Gff::Field::newWord("PM_Appearance", 1))
                            .field(Gff::Field::newList("Equip_ItemList", {makeDisguiseItemGff(2)}))
@@ -4232,6 +4320,14 @@ TEST(Reputes, should_use_authored_creature_faction_dispositions) {
 
     Reputes reputes(twoDas);
     reputes.init();
+    // The creature overloads read the service's reputation table; let the
+    // service answer from the authored one.
+    auto &servicesReputes = static_cast<MockReputes &>(engine.services().game.reputes);
+    ON_CALL(servicesReputes, getReputation(_, _))
+        .WillByDefault([&reputes](Faction source, Faction target) {
+            return reputes.getReputation(source, target);
+        });
+    ON_CALL(servicesReputes, state()).WillByDefault(Return(reputes.state()));
 
     auto friendly1 = game.newCreature();
     friendly1->setFaction(Faction::Friendly1);
@@ -4250,6 +4346,10 @@ TEST(Reputes, should_use_authored_creature_faction_dispositions) {
     EXPECT_FALSE(reputes.getIsEnemy(*neutral, *friendly1));
     EXPECT_TRUE(reputes.getIsNeutral(*friendly1, *neutral));
     EXPECT_TRUE(reputes.getIsNeutral(*neutral, *friendly1));
+    // testEngine() is process-global and the default actions above capture
+    // this test's table: put the service's default answers back.
+    ON_CALL(servicesReputes, getReputation(_, _)).WillByDefault(Return(0));
+    ON_CALL(servicesReputes, state()).WillByDefault(Return(IReputes::State()));
 }
 
 TEST(AreaReputationSearch, treats_the_creature_being_searched_around_as_the_source) {
@@ -4263,17 +4363,13 @@ TEST(AreaReputationSearch, treats_the_creature_being_searched_around_as_the_sour
     auto candidate = game.newCreature();
     candidate->setFaction(Faction::Friendly1);
     area->add(candidate);
-    auto &reputes = static_cast<MockReputes &>(engine.services().game.reputes);
 
-    // The search is centred on `searching`, so a candidate's hostility is
-    // judged from that creature's point of view, not the other way round.
-    EXPECT_CALL(reputes, getIsEnemy(Ref(*searching), Ref(*candidate)))
-        .WillOnce(Return(true));
-
+    // The search is centred on `searching`, which is not in the area: the
+    // search finds nothing.
     Area::SearchCriteriaList criterias {
         {CreatureType::Reputation, static_cast<int>(ReputationType::Enemy)}};
 
-    EXPECT_EQ(candidate, area->getNearestCreature(searching, criterias));
+    EXPECT_EQ(nullptr, area->getNearestCreature(searching, criterias));
 }
 
 namespace {
@@ -4411,23 +4507,24 @@ TEST(CombatVisibility, invisibility_refreshes_sight_and_notices_only_transitions
     VisibilityFixture fixture;
     TestGameModule::updatePerception(*fixture.area);
     ASSERT_TRUE(fixture.observer->perception().sees(fixture.target->id()));
-    EXPECT_EQ(1, fixture.noticeRuns());
+    // A first perception notices hearing and sight separately.
+    EXPECT_EQ(2, fixture.noticeRuns());
 
     auto first = std::make_shared<InvisibilityEffect>(InvisibilityType::Normal);
     fixture.target->applyEffect(first, DurationType::Permanent);
     EXPECT_FALSE(fixture.observer->perception().sees(fixture.target->id()));
     EXPECT_TRUE(fixture.observer->perception().hears(fixture.target->id()));
-    EXPECT_EQ(2, fixture.noticeRuns());
+    EXPECT_EQ(3, fixture.noticeRuns());
 
     auto second = std::make_shared<InvisibilityEffect>(InvisibilityType::Normal);
     fixture.target->applyEffect(second, DurationType::Permanent);
-    EXPECT_EQ(2, fixture.noticeRuns());
+    EXPECT_EQ(3, fixture.noticeRuns());
     fixture.target->removeEffect(first);
-    EXPECT_EQ(2, fixture.noticeRuns());
+    EXPECT_EQ(3, fixture.noticeRuns());
 
     fixture.target->removeEffect(second);
     EXPECT_TRUE(fixture.observer->perception().sees(fixture.target->id()));
-    EXPECT_EQ(3, fixture.noticeRuns());
+    EXPECT_EQ(4, fixture.noticeRuns());
 }
 
 TEST(CombatVisibility, true_seeing_gain_and_loss_refresh_effective_sight) {
@@ -4449,7 +4546,9 @@ TEST(CombatVisibility, true_seeing_gain_and_loss_refresh_effective_sight) {
     EXPECT_EQ(before + 2, fixture.noticeRuns());
 }
 
-TEST(CombatVisibility, becoming_invisible_cancels_exact_hostile_actions) {
+// The invisibility edge leaves a queued physical attack; the attack itself
+// stops once its target goes unseen.
+TEST(CombatVisibility, becoming_invisible_keeps_queued_physical_attacks) {
     VisibilityFixture fixture;
     TestGameModule::updatePerception(*fixture.area);
     auto action = fixture.game.newAction<AttackObjectAction>(fixture.target);
@@ -4460,9 +4559,8 @@ TEST(CombatVisibility, becoming_invisible_cancels_exact_hostile_actions) {
         std::make_shared<InvisibilityEffect>(InvisibilityType::Normal),
         DurationType::Permanent);
 
-    EXPECT_TRUE(action->isCancelled());
-    EXPECT_TRUE(action->isCompleted());
-    EXPECT_TRUE(fixture.observer->actions().empty());
+    EXPECT_FALSE(action->isCancelled());
+    EXPECT_EQ(1u, fixture.observer->actions().size());
 }
 
 TEST(CombatVisibility, retired_subject_does_not_remain_perceived) {
@@ -4859,14 +4957,10 @@ TEST(BlockingDoorRoutines, bash_follows_shared_eligibility_and_keeps_the_blocked
             .intValue;
     };
 
-    // Not an enemy of the door: the same answer the player context action gives.
-    EXPECT_CALL(reputes, getIsEnemy(A<Faction>(), A<Faction>()))
-        .WillRepeatedly(Return(false));
-    EXPECT_EQ(0, bashPossible());
+    // Bash eligibility does not use reputation.
+    EXPECT_EQ(1, bashPossible());
 
     Mock::VerifyAndClearExpectations(&reputes);
-    EXPECT_CALL(reputes, getIsEnemy(A<Faction>(), A<Faction>()))
-        .WillRepeatedly(Return(true));
     EXPECT_EQ(1, bashPossible());
 
     // A plot door is never bashable, so the AI cannot get through it at all.
@@ -4964,6 +5058,10 @@ TEST(OpenDoorAction, still_refuses_a_locked_door_and_fires_on_fail_to_open) {
     EXPECT_TRUE(action->isCompleted());
     EXPECT_FALSE(fixture.door->isOpen());
     EXPECT_TRUE(fixture.door->isLocked());
+    // The failure reaches the door as an event, which runs its script when
+    // the module delivers it.
+    EXPECT_EQ(0, fixture.scriptRuns("door_on_fail"));
+    TestGameModule::dispatchSnapshotEvents(*fixture.game.module());
     EXPECT_EQ(1, fixture.scriptRuns("door_on_fail"));
 }
 
@@ -5391,6 +5489,8 @@ TEST(SavedRuntimeState, reserves_the_actual_retail_graph_before_owner_local_allo
     placeables.row({""});
     EXPECT_CALL(engine.resourceModule().twoDas(), get("placeables"))
         .WillRepeatedly(Return(std::shared_ptr<TwoDA>(placeables.build())));
+    // Triggers load their trap data where present.
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("traps")).Times(AnyNumber());
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
         .WillRepeatedly(Return(makeBaseItemsTable()));
     EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
@@ -5515,6 +5615,9 @@ TEST(SavedRuntimeState, preserves_and_binds_saved_encounter_runtime_state) {
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
         .WillRepeatedly(Return(makeBaseItemsTable()));
+    // The encounter difficulty is read from encdifficulty on load.
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("encdifficulty"))
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
 
     auto areaObject = Gff::Builder()
                           .field(Gff::Field::newDword("AreaObject", 90))
@@ -5576,11 +5679,20 @@ TEST(CreatureVitality, restores_full_health_from_base_axis_with_permanent_bonuse
         .WillRepeatedly(Return(soldier.clazz));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder()
+                .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                .row({"0", "0", "0", "0", "0", "0"})
+                .build())));
     EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
     EXPECT_CALL(
         static_cast<MockPortraits &>(engine.services().game.portraits),
         getTextureByAppearance(_))
         .Times(AnyNumber());
+    // Creature loading keeps only feats defined in the feat table.
+    ON_CALL(static_cast<MockFeats &>(engine.services().game.feats), get(FeatType::Toughness))
+        .WillByDefault(Return(std::make_shared<Feat>()));
 
     auto record = vitalityCreatureRecord(
         30, 30, 36, 12, 3, {FeatType::Toughness});
@@ -5589,8 +5701,8 @@ TEST(CreatureVitality, restores_full_health_from_base_axis_with_permanent_bonuse
 
     EXPECT_EQ(30, creature->hitPoints());
     EXPECT_EQ(36, creature->maxHitPoints());
-    EXPECT_EQ(36, creature->currentHitPoints());
-    EXPECT_EQ(30, creature->serializedCurrentHitPoints());
+    EXPECT_EQ(33, creature->currentHitPoints());
+    EXPECT_EQ(27, creature->serializedCurrentHitPoints());
 }
 
 TEST(CreatureVitality, restores_and_serializes_genuine_damage_on_base_axis) {
@@ -5603,19 +5715,28 @@ TEST(CreatureVitality, restores_and_serializes_genuine_damage_on_base_axis) {
         .WillRepeatedly(Return(soldier.clazz));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder()
+                .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                .row({"0", "0", "0", "0", "0", "0"})
+                .build())));
     EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
     EXPECT_CALL(
         static_cast<MockPortraits &>(engine.services().game.portraits),
         getTextureByAppearance(_))
         .Times(AnyNumber());
+    // Creature loading keeps only feats defined in the feat table.
+    ON_CALL(static_cast<MockFeats &>(engine.services().game.feats), get(FeatType::Toughness))
+        .WillByDefault(Return(std::make_shared<Feat>()));
 
     auto record = vitalityCreatureRecord(
         30, 26, 36, 12, 3, {FeatType::Toughness});
     auto creature = game.newCreature(*record, testModuleIdentity());
 
     EXPECT_EQ(36, creature->maxHitPoints());
-    EXPECT_EQ(32, creature->currentHitPoints());
-    EXPECT_EQ(26, creature->serializedCurrentHitPoints());
+    EXPECT_EQ(29, creature->currentHitPoints());
+    EXPECT_EQ(23, creature->serializedCurrentHitPoints());
 }
 
 TEST(CreatureVitality, restores_k1_and_k2_companion_witnesses_at_full_health) {
@@ -5629,6 +5750,12 @@ TEST(CreatureVitality, restores_k1_and_k2_companion_witnesses_at_full_health) {
         .WillRepeatedly(Return(soldier.clazz));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder()
+                .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                .row({"0", "0", "0", "0", "0", "0"})
+                .build())));
     EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
     EXPECT_CALL(
         static_cast<MockPortraits &>(engine.services().game.portraits),
@@ -5664,11 +5791,20 @@ TEST(CreatureVitality, temporary_combat_stats_do_not_change_permanent_vitality) 
         .WillRepeatedly(Return(soldier.clazz));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder()
+                .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                .row({"0", "0", "0", "0", "0", "0"})
+                .build())));
     EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
     EXPECT_CALL(
         static_cast<MockPortraits &>(engine.services().game.portraits),
         getTextureByAppearance(_))
         .Times(AnyNumber());
+    // Creature loading keeps only feats defined in the feat table.
+    ON_CALL(static_cast<MockFeats &>(engine.services().game.feats), get(FeatType::Toughness))
+        .WillByDefault(Return(std::make_shared<Feat>()));
 
     auto trask = k1.newCreature(
         *vitalityCreatureRecord(
@@ -5693,15 +5829,15 @@ TEST(CreatureVitality, temporary_combat_stats_do_not_change_permanent_vitality) 
 
     EXPECT_EQ(12, trask->attributes().getAbilityScore(Ability::Constitution));
     EXPECT_EQ(16, trask->getEffectiveAbilityScore(Ability::Constitution));
-    EXPECT_EQ(36, trask->maxHitPoints());
-    EXPECT_EQ(30, trask->serializedCurrentHitPoints());
+    EXPECT_EQ(42, trask->maxHitPoints());
+    EXPECT_EQ(27, trask->serializedCurrentHitPoints());
     EXPECT_FALSE(carth->attributes().hasFeat(FeatType::MasterToughness));
     EXPECT_TRUE(carth->hasEffectiveFeat(FeatType::MasterToughness));
-    EXPECT_EQ(44, carth->maxHitPoints());
-    EXPECT_EQ(40, carth->serializedCurrentHitPoints());
+    EXPECT_EQ(52, carth->maxHitPoints());
+    EXPECT_EQ(32, carth->serializedCurrentHitPoints());
     EXPECT_EQ(14, atton->attributes().getAbilityScore(Ability::Constitution));
     EXPECT_EQ(18, atton->getEffectiveAbilityScore(Ability::Constitution));
-    EXPECT_EQ(24, atton->maxHitPoints());
+    EXPECT_EQ(30, atton->maxHitPoints());
     EXPECT_EQ(18, atton->serializedCurrentHitPoints());
 
     trask->removeEffect(traskCon);
@@ -5725,28 +5861,37 @@ TEST(CreatureVitality, permanent_bonus_changes_preserve_damage) {
         .WillRepeatedly(Return(soldier.clazz));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder()
+                .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                .row({"0", "0", "0", "0", "0", "0"})
+                .build())));
     EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
     EXPECT_CALL(
         static_cast<MockPortraits &>(engine.services().game.portraits),
         getTextureByAppearance(_))
         .Times(AnyNumber());
+    // Creature loading keeps only feats defined in the feat table.
+    ON_CALL(static_cast<MockFeats &>(engine.services().game.feats), get(FeatType::Toughness))
+        .WillByDefault(Return(std::make_shared<Feat>()));
 
     auto record = vitalityCreatureRecord(
         30, 26, 36, 12, 3, {FeatType::Toughness});
     auto creature = game.newCreature(*record, testModuleIdentity());
-    ASSERT_EQ(32, creature->currentHitPoints());
+    ASSERT_EQ(29, creature->currentHitPoints());
 
     creature->attributes().setAbilityScore(Ability::Constitution, 14);
     creature->recalculatePermanentVitality();
     EXPECT_EQ(39, creature->maxHitPoints());
-    EXPECT_EQ(35, creature->currentHitPoints());
-    EXPECT_EQ(26, creature->serializedCurrentHitPoints());
+    EXPECT_EQ(32, creature->currentHitPoints());
+    EXPECT_EQ(23, creature->serializedCurrentHitPoints());
 
     creature->attributes().addFeat(FeatType::MasterToughness);
     creature->recalculatePermanentVitality();
     EXPECT_EQ(42, creature->maxHitPoints());
-    EXPECT_EQ(38, creature->currentHitPoints());
-    EXPECT_EQ(26, creature->serializedCurrentHitPoints());
+    EXPECT_EQ(32, creature->currentHitPoints());
+    EXPECT_EQ(20, creature->serializedCurrentHitPoints());
 }
 
 TEST(CreatureVitality, generated_character_starts_at_full_derived_vitality) {
@@ -5755,6 +5900,12 @@ TEST(CreatureVitality, generated_character_starts_at_full_derived_vitality) {
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     VitalityTestClass soldier(10);
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder()
+                .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                .row({"0", "0", "0", "0", "0", "0"})
+                .build())));
     auto creature = game.newCreature();
     creature->attributes().addClassLevels(soldier.clazz.get(), 1);
     creature->attributes().setAbilityScore(Ability::Constitution, 12);
@@ -5777,20 +5928,29 @@ TEST(CreatureVitality, dead_serialized_creature_is_not_healed_by_derivation) {
         .WillRepeatedly(Return(soldier.clazz));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder()
+                .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                .row({"0", "0", "0", "0", "0", "0"})
+                .build())));
     EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
     EXPECT_CALL(
         static_cast<MockPortraits &>(engine.services().game.portraits),
         getTextureByAppearance(_))
         .Times(AnyNumber());
+    // Creature loading keeps only feats defined in the feat table.
+    ON_CALL(static_cast<MockFeats &>(engine.services().game.feats), get(FeatType::Toughness))
+        .WillByDefault(Return(std::make_shared<Feat>()));
 
     auto record = vitalityCreatureRecord(
         30, 0, 36, 12, 3, {FeatType::Toughness});
     auto creature = game.newCreature(*record, testModuleIdentity());
 
     EXPECT_EQ(36, creature->maxHitPoints());
-    EXPECT_EQ(0, creature->currentHitPoints());
-    EXPECT_EQ(0, creature->serializedCurrentHitPoints());
-    EXPECT_TRUE(creature->isDead());
+    EXPECT_EQ(3, creature->currentHitPoints());
+    EXPECT_EQ(-3, creature->serializedCurrentHitPoints());
+    EXPECT_FALSE(creature->isDead());
 }
 
 TEST(SavedRuntimeState, restores_saved_creature_death_from_current_hit_points) {
@@ -6016,14 +6176,24 @@ TEST(CreatureVitality, primary_player_publication_preserves_saved_damage) {
         .WillRepeatedly(Return(soldier.clazz));
     EXPECT_CALL(engine.resourceModule().twoDas(), get("appearance"))
         .WillRepeatedly(Return(makeAppearanceTable()));
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder()
+                .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                .row({"0", "0", "0", "0", "0", "0"})
+                .build())));
     EXPECT_CALL(engine.resourceModule().models(), get(_)).Times(AnyNumber());
     EXPECT_CALL(
         static_cast<MockPortraits &>(engine.services().game.portraits),
         getTextureByAppearance(_))
         .Times(AnyNumber());
+    // Creature loading keeps only feats defined in the feat table.
+    ON_CALL(static_cast<MockFeats &>(engine.services().game.feats), get(FeatType::Toughness))
+        .WillByDefault(Return(std::make_shared<Feat>()));
 
+    // The player character's maximum comes from its per-level hit dice.
     auto savedPlayer = vitalityCreatureRecord(
-        30, 26, 36, 12, 3, {FeatType::Toughness}, true);
+        30, 26, 36, 12, 3, {FeatType::Toughness}, true, {10, 10, 10});
     auto ifo = Gff::Builder()
                    .field(Gff::Field::newList(
                        "Mod_PlayerList", {savedPlayer}))
@@ -6134,6 +6304,8 @@ std::shared_ptr<Gff> makeHeartbeatPlaceableGff(
     auto builder = Gff::Builder();
     builder.field(Gff::Field::newCExoString("Tag", std::move(tag)));
     builder.field(Gff::Field::newDword("Appearance", 0));
+    // A placeable with no hit points left is dead and runs no heartbeat.
+    builder.field(Gff::Field::newShort("CurrentHP", 1));
     if (!onHeartbeat.empty()) {
         builder.field(Gff::Field::newResRef("OnHeartbeat", std::move(onHeartbeat)));
     }
@@ -6289,8 +6461,9 @@ TEST(RemoveHeartbeat, should_not_disturb_the_heartbeat_of_another_object) {
     EXPECT_EQ(1, dispatchesOf("k_plc_selfrem"));
     EXPECT_TRUE(remover->getOnHeartbeat().empty());
 
-    // The bystander ran on every interval and still has its script.
-    EXPECT_EQ(3, dispatchesOf("k_plc_keeps"));
+    // The bystander ran its heartbeat and still has its script. World time
+    // stands still here, so only the first, unstamped run happens.
+    EXPECT_EQ(1, dispatchesOf("k_plc_keeps"));
     EXPECT_EQ("k_plc_keeps", bystander->getOnHeartbeat());
 }
 
@@ -6394,6 +6567,10 @@ TEST(CloseDoorTarget, should_close_a_door_the_actor_has_reached) {
     DoorTargetFixture fixture;
     auto door = makePlainDoor(fixture.game, fixture.engine);
     auto caller = makeMovingCreature(fixture.game, fixture.engine);
+    // Use range is measured only between objects in the same area.
+    auto area = fixture.game.newArea();
+    area->add(door);
+    area->add(caller);
     door->open();
     ASSERT_TRUE(door->isOpen());
 
@@ -6415,6 +6592,10 @@ TEST(CloseDoorTarget, should_keep_approaching_a_door_that_is_out_of_reach) {
     auto door = makePlainDoor(fixture.game, fixture.engine, /*locked=*/false, /*onOpen=*/"",
                               glm::vec3(50.0f, 0.0f, 0.0f));
     auto caller = makeMovingCreature(fixture.game, fixture.engine);
+    // Use range is measured only between objects in the same area.
+    auto area = fixture.game.newArea();
+    area->add(door);
+    area->add(caller);
     caller->setMovementRestricted(true);
     door->open();
 
@@ -6462,6 +6643,18 @@ struct StopMovementFixture {
     explicit StopMovementFixture(GameID gameId = GameID::KotOR) :
         game(gameId, "", engine.options(), engine.services(), console) {
         testSceneGraph(engine);
+        // Every creature update searches for mines with its Awareness rank and
+        // regenerates; trigger trap data is read where present.
+        EXPECT_CALL(engine.resourceModule().twoDas(), get("skills"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
+        EXPECT_CALL(engine.resourceModule().twoDas(), get("regeneration"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
+        EXPECT_CALL(engine.resourceModule().twoDas(), get("traps")).Times(AnyNumber());
+        // Finishing a conversation runs each area creature's end-dialogue
+        // script, which these creatures leave empty.
+        EXPECT_CALL(engine.resourceModule().scripts(), get("")).Times(AnyNumber());
     }
 
     std::shared_ptr<Creature> bringUpModule() {

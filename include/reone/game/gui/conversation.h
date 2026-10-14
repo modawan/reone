@@ -44,8 +44,13 @@ public:
     bool handle(const input::Event &event) override;
     void update(float dt) override;
 
+    /**
+     * Start \p dialog owned by \p owner. \p listener is the object that
+     * started the conversation with the owner, when there is one.
+     */
     void start(const std::shared_ptr<resource::Dialog> &dialog, const std::shared_ptr<Object> &owner,
-               GlobalFade::DialogTicket admission = {});
+               GlobalFade::DialogTicket admission = {},
+               const std::shared_ptr<Object> &listener = nullptr);
     void cleanupForModuleTransition();
 
     CameraType getCamera(int &cameraId) const;
@@ -53,6 +58,9 @@ public:
     void pause();
 
     void resume();
+
+    /** The owner breaking off ends the conversation; any other participant leaves it. */
+    void stopParticipant(const Object &object);
 
     struct AutoSkip {
         std::queue<std::optional<int>> replies;
@@ -69,6 +77,8 @@ protected:
     std::shared_ptr<Object> owner() const { return _owner.resolve(); }
     std::shared_ptr<resource::Dialog> _dialog;
     RuntimeObjectRef<Object> _owner;
+    /** The object that started the conversation with the owner. */
+    RuntimeObjectRef<Object> _partner;
     std::shared_ptr<graphics::Model> _cameraModel;
     std::shared_ptr<graphics::LipAnimation> _lipAnimation;
     const resource::Dialog::EntryReply *_currentEntry {nullptr};
@@ -101,6 +111,15 @@ private:
     AutoSkip *_autoSkip {nullptr};
     GlobalFade::DialogTicket _fadeDialog;
     uint64_t _generation {0};
+    /** The objects this conversation has made its participants. */
+    std::vector<RuntimeObjectRef<Object>> _dialogParticipants;
+
+    /** Make \p object a participant of this conversation, unless another conversation still holds it. */
+    void attachDialogParticipant(const std::shared_ptr<Object> &object);
+    /** Release the participants that \p owner's conversation still holds. */
+    void releaseDialogParticipants(const std::shared_ptr<Object> &owner);
+    /** Run the end-dialogue scripts of the creatures and placeables in \p owner's area. */
+    void runAreaEndDialogScripts(const Object &owner);
 
     bool isCurrent(uint64_t generation) const;
 

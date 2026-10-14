@@ -72,7 +72,7 @@ inline const char *minigameTypeName(MinigameType t) {
 struct MinigameModelSpec {
     std::string resRef;
 
-    // Vanilla "RotatingModel": models flagged here follow the player/enemy
+    // Authored "RotatingModel": models flagged here follow the player/enemy
     // rotation; the rest stay fixed in the track frame. On the K1 turret the
     // gun and HUD models rotate while the Ebon Hawk hull does not.
     bool rotating {false};
@@ -142,9 +142,10 @@ struct MinigamePlayerSpec {
     glm::vec3 startOffset {0.0f};
     glm::vec3 targetOffset {0.0f};
 
-    // Tunnel bounds, as stored in the .are. For the swoop race these are the
-    // angular limits (degrees) vanilla applies to bike lean/rotation per axis;
-    // for the turret they are the aim limits (X = pitch, Z = yaw).
+    /**
+     * Tunnel bounds are angular limits in degrees. Swoop races use them for
+     * lean and rotation; turrets use X for pitch and Z for yaw.
+     */
     float tunnelXPos {0.0f};
     float tunnelXNeg {0.0f};
     float tunnelYPos {0.0f};
@@ -188,8 +189,10 @@ struct MinigameObstacleSpec {
     std::string onCreate;
 };
 
-// Vanilla mouse axis binding for the minigame. The axis identifiers are opaque
-// engine constants; only the flip flags have a confirmed meaning.
+/**
+ * Minigame mouse-axis bindings. Axis IDs are retained as opaque values;
+ * only the flip flags currently affect input.
+ */
 struct MinigameMouseSpec {
     uint32_t axisX {0};
     uint32_t axisY {0};

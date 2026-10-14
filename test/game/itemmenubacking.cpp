@@ -54,6 +54,14 @@ std::shared_ptr<TwoDA> makeLightsaberBaseItemsTable() {
     return std::shared_ptr<TwoDA>(builder.build());
 }
 
+std::shared_ptr<TwoDA> makeRacialTypesTable() {
+    return std::shared_ptr<TwoDA>(
+        TwoDA::Builder()
+            .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+            .row({"0", "0", "0", "0", "0", "0"})
+            .build());
+}
+
 std::shared_ptr<Item> makeItem(Game &game, std::string tag, int baseItem, int stackSize) {
     auto gff = Gff::Builder()
                    .field(Gff::Field::newCExoString("Tag", std::move(tag)))
@@ -84,8 +92,18 @@ protected:
         EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
             .Times(AnyNumber())
             .WillRepeatedly(Return(makeLightsaberBaseItemsTable()));
+        // The equipment view reads the subject's Strength through the racial
+        // ability adjustments.
+        EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(makeRacialTypesTable()));
+        // The in-game menus run in the active module.
+        TestGameModule::setActiveModuleArea(game, game.newArea());
         owner = game.newCreature();
         subject = game.newCreature();
+        // The subject is a companion: real NPCs come from records carrying
+        // IsPC 0, and no minimum equip level applies to them.
+        subject->setPC(false);
         game.party().setPlayer(owner);
         ASSERT_TRUE(game.party().setRosterAvailable({RosterKind::Npc, 0}, true));
         ASSERT_TRUE(game.party().addMember(0, subject));

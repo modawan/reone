@@ -6,13 +6,15 @@
 #include <iomanip>
 #include <sstream>
 
+#include <boost/algorithm/string.hpp>
+
 #include "reone/game/game.h"
 #include "reone/graphics/font.h"
 #include "reone/graphics/format/tgareader.h"
 #include "reone/graphics/texture.h"
 #include "reone/gui/guis.h"
-#include "reone/resource/strings.h"
 #include "reone/resource/provider/textures.h"
+#include "reone/resource/strings.h"
 #include "reone/system/logutil.h"
 #include "reone/system/stream/memoryinput.h"
 
@@ -163,6 +165,10 @@ void SaveLoad::onGUILoaded() {
         } else if (_mode == SaveLoadMode::LoadFromMainMenu) {
             dismissTransientState();
             _game.openMainMenu();
+        } else if (_mode == SaveLoadMode::LoadAfterDeath) {
+            // Backing out of the load after the party has fallen ends the game.
+            dismissTransientState();
+            _game.requestEndGame();
         } else {
             dismissTransientState();
             _game.openInGame();
@@ -424,6 +430,22 @@ void SaveLoad::saveGame(uint32_t number, std::string name) {
     } else {
         showStatus(terminalMessage(result));
     }
+}
+
+// The last save is the first one the load list offers for the current
+// character: the list starts with that character's saves and those naming no
+// character, most recent first. Only a save naming the character, in any
+// case, can be launched.
+bool SaveLoad::launchMostRecentSave() {
+    const std::string pcName = _game.party().playerCharacterName();
+    auto first = std::find_if(_saves.begin(), _saves.end(), [&pcName](const SavedGame &save) {
+        return save.metadata.pcName == pcName || save.metadata.pcName.empty();
+    });
+    if (first == _saves.end() || !boost::iequals(first->metadata.pcName, pcName)) {
+        return false;
+    }
+    loadGame(first->slot);
+    return true;
 }
 
 void SaveLoad::loadGame(uint32_t number) {

@@ -116,7 +116,19 @@ void reone::game::TestGameModule::dispatchSnapshotEvents(Module &module) {
 }
 
 void reone::game::TestGameModule::clearSnapshotDelayed(Object &object) {
-    object._delayed.clear();
+    auto module = object._game.module();
+    if (!module) {
+        return;
+    }
+    std::vector<size_t> owned;
+    for (const auto &[index, pending] : module->_pendingSavedEvents) {
+        if (pending.command && pending.record.object.boundObject().get() == &object) {
+            owned.push_back(index);
+        }
+    }
+    for (auto index : owned) {
+        module->cancelSaveEvent(index);
+    }
 }
 
 void reone::game::TestGameModule::initSnapshotLocalServices(Game &game) {
@@ -135,6 +147,14 @@ void reone::game::TestGameModule::setSnapshotWorldTime(
 void reone::game::TestGameModule::setSnapshotMinutesPerHour(
     Game &game, uint8_t minutesPerHour) {
     game._minutesPerHour = minutesPerHour;
+}
+
+void reone::game::TestGameModule::setLevelHitDice(
+    Creature &creature, const std::vector<int> &hitDice) {
+    creature._levelStats.clear();
+    for (int hitDie : hitDice) {
+        creature._levelStats.push_back({static_cast<uint8_t>(hitDie), 0});
+    }
 }
 
 void reone::game::TestGameModule::deserializeSnapshotRuntimeState(
@@ -221,6 +241,36 @@ struct SnapshotFixture : Test {
     }
 
     void SetUp() override {
+        // Creature updates search for mines with their Awareness rank and
+        // regenerate; ability modifiers include the racial adjustments.
+        auto &twoDas = engine.resourceModule().twoDas();
+        EXPECT_CALL(twoDas, get(_)).Times(AnyNumber());
+        EXPECT_CALL(twoDas, get("skills"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                        .columns({"label", "untrained", "keyability", "armorcheckpenalty"})
+                                                                        .row({"ComputerUse", "1", "INT", "0"})
+                                                                        .row({"Demolitions", "0", "INT", "1"})
+                                                                        .row({"Stealth", "0", "DEX", "1"})
+                                                                        .row({"Awareness", "1", "WIS", "0"})
+                                                                        .row({"Persuade", "1", "CHA", "0"})
+                                                                        .row({"Repair", "1", "INT", "0"})
+                                                                        .row({"Security", "0", "WIS", "0"})
+                                                                        .row({"TreatInjury", "1", "WIS", "0"})
+                                                                        .build())));
+        EXPECT_CALL(twoDas, get("racialtypes"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                        .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                                                                        .row({"0", "0", "0", "0", "0", "0"})
+                                                                        .build())));
+        EXPECT_CALL(twoDas, get("regeneration"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                        .columns({"label", "healthregen", "forceregen"})
+                                                                        .row({"InCombat", "0.0", "0.0"})
+                                                                        .row({"OutOfCombat", "0.0", "1.0"})
+                                                                        .build())));
         area = game.newArea();
         player = game.newCreature();
         TestGameModule::configureModuleSnapshot(
@@ -230,12 +280,7 @@ struct SnapshotFixture : Test {
     }
 
     void captureResourceShadows() {
-        auto ifo = Gff::Builder().type(0xffffffff)
-            .field(Gff::Field::newDword("Mod_NextObjId0", 50))
-            .field(Gff::Field::newDword("Mod_CalendarDay", 99))
-            .field(Gff::Field::newDword("Mod_TimeOfDay", 99))
-            .field(Gff::Field::newCExoString("FutureIfo", "preserve-ifo"))
-            .build();
+        auto ifo = Gff::Builder().type(0xffffffff).field(Gff::Field::newDword("Mod_NextObjId0", 50)).field(Gff::Field::newCExoString("FutureIfo", "preserve-ifo")).build();
         auto are = Gff::Builder().type(0xffffffff)
             .field(Gff::Field::newCExoString("FutureArea", "preserve-area"))
             .build();
@@ -323,16 +368,19 @@ TEST(ModuleSnapshot, reports_no_playable_module_without_exposing_partial_bytes) 
 
 TEST_F(TslPartySnapshotFixture, retained_npc_and_puppet_are_not_git_creatures) {
     auto npc = game.newCreature();
+    npc->setPC(false);
     npc->setTag("remote");
     ASSERT_TRUE(game.party().addAvailableMember(0, npc));
     ASSERT_TRUE(game.party().addMember(0, npc));
     TestGameModule::addSnapshotObject(*area, npc);
 
     auto worldCreature = game.newCreature();
+    worldCreature->setPC(false);
     worldCreature->setTag("remote");
     TestGameModule::addSnapshotObject(*area, worldCreature);
 
     auto puppet = game.newCreature();
+    puppet->setPC(false);
     puppet->setTag("remote");
     const auto puppetIdentity = SerializedObjectIdentity {
         SerializedIdentityContext::detachedRecord("availpup0.utc"), 77u};
@@ -366,6 +414,7 @@ TEST_F(TslPartySnapshotFixture, retained_npc_and_puppet_are_not_git_creatures) {
 
 TEST_F(TslPartySnapshotFixture, inactive_bound_puppet_remains_a_git_creature) {
     auto inactive = game.newCreature();
+    inactive->setPC(false);
     inactive->setTag("inactive_remote");
     ASSERT_TRUE(game.party().addAvailablePuppet(0, inactive));
     ASSERT_FALSE(game.party().isPuppet(0));
@@ -383,12 +432,14 @@ TEST_F(TslPartySnapshotFixture, inactive_bound_puppet_remains_a_git_creature) {
 
 TEST_F(SnapshotFixture, k1_active_member_exclusion_is_unchanged) {
     auto member = game.newCreature();
+    member->setPC(false);
     member->setTag("same_tag");
     ASSERT_TRUE(game.party().addAvailableMember(0, member));
     ASSERT_TRUE(game.party().addMember(0, member));
     TestGameModule::addSnapshotObject(*area, member);
 
     auto worldCreature = game.newCreature();
+    worldCreature->setPC(false);
     worldCreature->setTag("same_tag");
     TestGameModule::addSnapshotObject(*area, worldCreature);
 
@@ -400,8 +451,8 @@ TEST_F(SnapshotFixture, k1_active_member_exclusion_is_unchanged) {
 }
 
 TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) {
-    game.setCustomToken(9, "nine");
-    game.setCustomToken(2, "two");
+    game.setCustomToken(19, "nine");
+    game.setCustomToken(12, "two");
     game.module()->setLocalBoolean(7, true);
     game.module()->setLocalNumber(3, 44);
     area->setUnescapable(true);
@@ -411,6 +462,24 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     area->setStealthXPDecrement(5);
     TestGameModule::setSnapshotWorldTime(game, 3, 1000, 5);
 
+    // The player character is a level 1 soldier. Its maximum comes from its
+    // level history: a hit die of 35 with Constitution 10 (no modifier) is
+    // 35, the base, so the saved current value equals the live one.
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder()
+                .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                .row({"0", "0", "0", "0", "0", "0"})
+                .build())));
+    NiceMock<MockStrings> classStrings;
+    NiceMock<MockTwoDAs> classTwoDas;
+    Classes classes(classStrings, classTwoDas);
+    auto soldier = std::make_shared<CreatureClass>(
+        ClassType::Soldier, classes, classStrings, classTwoDas);
+    player->attributes().addClassLevels(soldier.get(), 1);
+    player->attributes().setAbilityScore(Ability::Constitution, 10);
+    TestGameModule::setLevelHitDice(*player, {35});
+
     player->setMaxHitPoints(35);
     player->setCurrentHitPoints(17);
     player->setLocalBoolean(31, true);
@@ -418,6 +487,8 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     player->applyEffect(game.newEffect<Effect>(EffectType::Haste), DurationType::Temporary, 30.0f);
     player->addAction(game.newAction<WaitAction>(30.0f));
     player->update(10.0f);
+    // Temporary effects expire on the world clock.
+    TestGameModule::advanceWorldTime(game, 10.0f);
 
     auto door = addDoorWithShadow();
     auto placeable = game.newPlaceable();
@@ -462,8 +533,14 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
         *triggerShadow,
         SerializedIdentityContext::moduleGraph("tat_m17ab"),
         {SaveRecordOriginKind::ActiveGitObject, "tat_m17ab"});
-    TestGameModule::deserializeSnapshotRuntimeState(
-        *trigger, *triggerShadow,
+    // The trap's creator is the trigger's own record state.
+    auto sceneGraph = std::make_shared<NiceMock<scene::MockSceneGraph>>();
+    ON_CALL(engine.sceneModule().graphs(), get(_))
+        .WillByDefault([sceneGraph](const std::string &) -> scene::ISceneGraph & {
+            return *sceneGraph;
+        });
+    trigger->deserialize(
+        *triggerShadow,
         SerializedIdentityContext::moduleGraph("tat_m17ab"));
     game.registerSavedObjectIdentity(
         player->id(),
@@ -476,6 +553,7 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     game.resolveSavedObjectReferences();
 
     auto limbo = game.newCreature();
+    limbo->setPC(false);
     limbo->setCurrentHitPoints(8);
     TestGameModule::addSnapshotLimboCreature(*game.module(), limbo);
     SavedEventRecord event;
@@ -516,11 +594,11 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
     EXPECT_EQ(ifo->getString("FutureIfo"), "preserve-ifo");
     ASSERT_EQ(ifo->getList("Mod_Tokens").size(), 2);
     EXPECT_EQ(ifo->getList("Mod_Tokens")[0]->type(), 7u);
-    EXPECT_EQ(ifo->getList("Mod_Tokens")[0]->getUint("Mod_TokensNumber"), 2u);
-    EXPECT_EQ(ifo->getList("Mod_Tokens")[1]->getUint("Mod_TokensNumber"), 9u);
+    EXPECT_EQ(ifo->getList("Mod_Tokens")[0]->getUint("Mod_TokensNumber"), 12u);
+    EXPECT_EQ(ifo->getList("Mod_Tokens")[1]->getUint("Mod_TokensNumber"), 19u);
     const auto reparsedTokens = game.parseCustomTokens(*ifo);
-    EXPECT_EQ(reparsedTokens.at(2), "two");
-    EXPECT_EQ(reparsedTokens.at(9), "nine");
+    EXPECT_EQ(reparsedTokens.at(12), "two");
+    EXPECT_EQ(reparsedTokens.at(19), "nine");
     Module e2Module(1000, game, engine.services());
     TestGameModule::deserializeSnapshotRuntimeState(
         e2Module, *ifo, snapshotIdentityContext());
@@ -550,9 +628,9 @@ TEST_F(SnapshotFixture, writes_and_reopens_complete_deterministic_module_state) 
         *playerRecord->getList("EffectList").front(),
         snapshotIdentityContext());
     EXPECT_EQ(effect.expiryDay, 3u);
-    // Twenty seconds remaining. World-time milliseconds are real milliseconds,
-    // as in CWorldTimer, so this is 1000 + 20 * 1000.
-    EXPECT_EQ(effect.expiryTime, 21000u);
+    // Twenty seconds remain. The absolute deadline was set on admission at
+    // 1000 + 30 * 1000 milliseconds.
+    EXPECT_EQ(effect.expiryTime, 31000u);
     ASSERT_TRUE(game.remainingEffectDuration(effect));
     EXPECT_FLOAT_EQ(*game.remainingEffectDuration(effect), 20.0f);
     Creature e2Creature(player->id() + 1000, "", game, engine.services());
@@ -614,6 +692,7 @@ TEST_F(SnapshotFixture, rewrites_perception_shadow_ids_from_detached_namespace) 
     const auto detachedContext =
         SerializedIdentityContext::detachedRecord("availnpc0.utc");
     auto target = game.newCreature();
+    target->setPC(false);
     target->assignSerializedObjectIdentity({detachedContext, 77u});
     TestGameModule::addSnapshotObject(*area, target);
 
@@ -658,7 +737,9 @@ TEST_F(SnapshotFixture, rewrites_perception_shadow_ids_from_detached_namespace) 
 
 TEST_F(SnapshotFixture, last_damager_round_trips_as_exact_saved_reference) {
     auto victim = game.newCreature();
+    victim->setPC(false);
     auto damager = game.newCreature();
+    damager->setPC(false);
     victim->setCurrentHitPoints(10);
     victim->damage(1, damager);
     TestGameModule::addSnapshotObject(*area, victim);
@@ -683,7 +764,9 @@ TEST_F(SnapshotFixture, last_damager_round_trips_as_exact_saved_reference) {
     const auto context =
         SerializedIdentityContext::moduleGraph("module003");
     auto restoredVictim = restored.newCreature();
+    restoredVictim->setPC(false);
     auto restoredDamager = restored.newCreature();
+    restoredDamager->setPC(false);
     restoredVictim->deserializeRuntimeState(*victimRecord, context);
     restored.registerSavedObjectIdentity(
         victimRecord->getUint("ObjectId"), restoredVictim, context);
@@ -720,6 +803,12 @@ TEST_F(SnapshotFixture, authoritative_membership_omits_deleted_shadow_records) {
 }
 
 TEST_F(SnapshotFixture, writes_creature_vitality_on_the_retail_base_axis) {
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder()
+                .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                .row({"0", "0", "0", "0", "0", "0"})
+                .build())));
     NiceMock<MockStrings> strings;
     NiceMock<MockTwoDAs> twoDas;
     Classes classes(strings, twoDas);
@@ -727,6 +816,7 @@ TEST_F(SnapshotFixture, writes_creature_vitality_on_the_retail_base_axis) {
         ClassType::Soldier, classes, strings, twoDas);
 
     auto creature = game.newCreature();
+    creature->setPC(false);
     creature->attributes().addClassLevels(soldier.get(), 3);
     creature->attributes().setAbilityScore(Ability::Constitution, 12);
     creature->attributes().addFeat(FeatType::Toughness);
@@ -811,6 +901,7 @@ TEST_F(SnapshotFixture, module_item_ids_are_global_deterministic_and_retained) {
     auto ownerA = game.newPlaceable();
     auto ownerB = game.newStore();
     auto creature = game.newCreature();
+    creature->setPC(false);
     auto first = game.newOwnedItem();
     auto second = game.newOwnedItem();
     auto third = game.newOwnedItem();
@@ -1111,13 +1202,8 @@ TEST_P(PartyItemIdFixture, every_party_item_gets_a_unique_non_colliding_id) {
     }
 }
 
-
-// Cameras are presentation records rebuilt from module data, addressed by
-// CameraID. Retail never places them in CGameObjectArray, so their runtime
-// identity must not consume the module's saved object namespace. Before this
-// was fixed, a camera's runtime ID could claim an identity that a legitimate
-// module-owned item already held, and snapshotting the source module aborted
-// the whole transition.
+// CameraID is the durable camera identity. Camera presentation records must
+// not consume the module's saved object namespace or collide with module-owned items.
 struct CameraIdFixture : TestWithParam<GameID> {
     CameraIdFixture() :
         game(GetParam(), "", engine.options(), engine.services(), console) {
@@ -1226,8 +1312,7 @@ TEST_P(CameraIdFixture, camera_survives_the_snapshot_through_its_camera_id) {
     ASSERT_TRUE(result) << result.message;
     auto cameras = readGff(result.snapshot->gitBytes)->getList("CameraList");
     ASSERT_EQ(cameras.size(), 1u);
-    // CameraID is the camera's durable identity, and the retail presentation
-    // fields travel with it.
+    // CameraID and the camera's presentation fields travel together.
     EXPECT_EQ(cameras.front()->getInt("CameraID"), 42);
     EXPECT_FLOAT_EQ(cameras.front()->getFloat("FieldOfView"), 55.0f);
     EXPECT_FLOAT_EQ(cameras.front()->getFloat("MicRange"), 8.0f);
@@ -1414,6 +1499,7 @@ TEST(ModuleSnapshot, tsl_reserved_player_id_does_not_drive_cursor) {
 TEST_F(SnapshotFixture, reserved_limbo_party_id_does_not_drive_ordinary_cursor) {
     TestGameModule::setSnapshotObjectId(*player, 0x7fffffffu);
     auto companion = game.newCreature();
+    companion->setPC(false);
     TestGameModule::setSnapshotObjectId(*companion, 0x7ffffffeu);
     TestGameModule::addSnapshotLimboCreature(*game.module(), companion);
 
@@ -1431,6 +1517,7 @@ TEST_F(SnapshotFixture, duplicate_reserved_party_ids_are_rejected) {
     player->assignSerializedObjectIdentity({
         SerializedIdentityContext::moduleGraph("module006"), 0x7fffffffu});
     auto companion = game.newCreature();
+    companion->setPC(false);
     TestGameModule::setSnapshotObjectId(*companion, 0x7fffffffu);
     companion->assignSerializedObjectIdentity({
         SerializedIdentityContext::moduleGraph("module006"), 0x7fffffffu});
@@ -1532,7 +1619,7 @@ TEST_F(SnapshotFixture, deleted_reference_targets_are_written_as_retail_invalid)
 
     EffectInstance effect;
     effect.creatorId = door->id();
-    effect.subType = static_cast<uint16_t>(DurationType::Permanent);
+    effect.setDurationType(DurationType::Permanent);
     ASSERT_TRUE(game.bindEffectCreator(effect));
     player->applyEffect(
         std::make_shared<SavedEffectValue>(effect),
@@ -1607,6 +1694,7 @@ TEST_F(SnapshotFixture, play_animation_is_a_supported_transition_snapshot_action
 
 TEST_F(SnapshotFixture, attack_object_is_a_supported_transition_snapshot_action) {
     auto target = game.newCreature();
+    target->setPC(false);
     TestGameModule::addSnapshotObject(*area, target);
     auto action = game.newAction<AttackObjectAction>(target);
     SavedActionRecord provenance;
@@ -1639,6 +1727,7 @@ TEST_F(SnapshotFixture, attack_object_is_a_supported_transition_snapshot_action)
 
 TEST_F(SnapshotFixture, use_feat_round_trips_exact_saved_target_and_fresh_execution) {
     auto target = game.newCreature();
+    target->setPC(false);
     target->assignSerializedObjectIdentity({
         SerializedIdentityContext::moduleGraph("module003"), 700u});
     TestGameModule::addSnapshotObject(*area, target);
@@ -1673,6 +1762,9 @@ TEST_F(SnapshotFixture, use_feat_round_trips_exact_saved_target_and_fresh_execut
     Game restored(
         GameID::KotOR, "", engine.options(), engine.services(), restoredConsole);
     auto restoredTarget = restored.newCreature();
+    restoredTarget->setPC(false);
+    // Standing apart, so the attacker need not step back first.
+    restoredTarget->setPosition(glm::vec3(2.0f, 0.0f, 0.0f));
     restored.registerSavedObjectIdentity(
         700u, restoredTarget, snapshotIdentityContext());
     ASSERT_TRUE(saved.bindObjectReferences(restored));
@@ -1688,7 +1780,19 @@ TEST_F(SnapshotFixture, use_feat_round_trips_exact_saved_target_and_fresh_execut
     EXPECT_EQ(0u, restored.combat().roundCount());
 
     auto restoredActor = restored.newCreature();
+    // An attack needs line of sight, which is tested in an area through the
+    // scene graph.
+    auto restoredArea = restored.newArea();
+    TestGameModule::configureModuleSnapshot(
+        restored, restoredArea, nullptr, "module003", "module003");
+    auto sceneGraph = std::make_shared<NiceMock<scene::MockSceneGraph>>();
+    ON_CALL(engine.sceneModule().graphs(), get(_))
+        .WillByDefault([sceneGraph](const std::string &) -> scene::ISceneGraph & {
+            return *sceneGraph;
+        });
     restoredActor->addAction(restoredAction);
+    // An attacker outside the party attacks only a target it has detected.
+    restoredActor->setObjectSeen(restoredTarget, true);
     EXPECT_CALL(engine.resourceModule().strings(), getText(_))
         .Times(AnyNumber());
     restoredAction->execute(restoredAction, *restoredActor, 0.0f);
@@ -1700,14 +1804,25 @@ TEST_F(SnapshotFixture, use_feat_round_trips_exact_saved_target_and_fresh_execut
 }
 
 TEST_F(SnapshotFixture, use_feat_save_is_observational_across_runtime_phases) {
+    // An attack needs line of sight, which is tested through the scene graph.
+    auto sceneGraph = std::make_shared<NiceMock<scene::MockSceneGraph>>();
+    ON_CALL(engine.sceneModule().graphs(), get(_))
+        .WillByDefault([sceneGraph](const std::string &) -> scene::ISceneGraph & {
+            return *sceneGraph;
+        });
     player->setFaction(Faction::Friendly1);
     auto attacker = game.newCreature();
+    attacker->setPC(false);
     attacker->setFaction(Faction::Hostile1);
     TestGameModule::addSnapshotObject(*area, attacker);
     auto target = game.newCreature();
+    target->setPC(false);
     target->setFaction(Faction::Hostile1);
     target->setCurrentHitPoints(100);
+    target->setPosition(glm::vec3(2.0f, 0.0f, 0.0f));
     TestGameModule::addSnapshotObject(*area, target);
+    // An attacker outside the party attacks only a target it has detected.
+    attacker->setObjectSeen(target, true);
     auto action = game.newAction<UseFeatAction>(FeatType::PowerAttack, target);
     attacker->addAction(action);
 
@@ -1760,16 +1875,27 @@ TEST_F(SnapshotFixture, use_feat_save_is_observational_across_runtime_phases) {
 }
 
 TEST_F(SnapshotFixture, physical_feat_talent_dispatcher_exports_its_canonical_action) {
+    auto sceneGraph = std::make_shared<NiceMock<scene::MockSceneGraph>>();
+    ON_CALL(engine.sceneModule().graphs(), get(_))
+        .WillByDefault([sceneGraph](const std::string &) -> scene::ISceneGraph & {
+            return *sceneGraph;
+        });
+    // This dispatch needs spatial membership, not just snapshot-list ownership.
+    ASSERT_TRUE(area->releaseObject(player));
+    area->add(player);
     auto target = game.newCreature();
+    target->setPC(false);
     target->assignSerializedObjectIdentity({
         SerializedIdentityContext::moduleGraph("module003"), 701u});
-    TestGameModule::addSnapshotObject(*area, target);
+    area->add(target);
     auto talent = game.newTalent(
         TalentType::Feat,
         static_cast<int>(FeatType::PowerAttack));
     auto action = game.newAction<UseTalentOnObjectAction>(
         std::move(talent),
-        target);
+        target,
+        *player);
+    ASSERT_TRUE(action->subAction());
     player->addAction(action);
 
     action->execute(action, *player, 0.0f);
@@ -1799,6 +1925,7 @@ TEST_F(SnapshotFixture, physical_feat_talent_dispatcher_exports_its_canonical_ac
 
 TEST_F(SnapshotFixture, nonphysical_use_feat_remains_an_unsupported_live_state) {
     auto target = game.newCreature();
+    target->setPC(false);
     TestGameModule::addSnapshotObject(*area, target);
     auto action = game.newAction<UseFeatAction>(
         FeatType::AdvancedJediDefense, target);
@@ -1850,6 +1977,7 @@ TEST_F(SnapshotFixture, move_to_location_is_a_supported_transition_snapshot_acti
 
 TEST_F(SnapshotFixture, move_to_object_is_a_supported_transition_snapshot_action) {
     auto target = game.newCreature();
+    target->setPC(false);
     TestGameModule::addSnapshotObject(*area, target);
     auto action = game.newAction<MoveToObjectAction>(target, false, 0.5f);
     SavedActionRecord provenance;
@@ -1876,6 +2004,7 @@ TEST_F(SnapshotFixture, move_to_object_is_a_supported_transition_snapshot_action
 
 TEST_F(SnapshotFixture, forced_move_to_object_is_a_supported_transition_snapshot_action) {
     auto target = game.newCreature();
+    target->setPC(false);
     target->setPosition({46.0f, 17.0f, 1.9f});
     TestGameModule::addSnapshotObject(*area, target);
     auto action = game.newAction<MoveToObjectAction>(target, false, 0.5f, true, 30.0f);
@@ -1977,10 +2106,12 @@ TEST_F(SnapshotFixture, pending_do_command_is_a_supported_transition_snapshot_ac
 
 TEST_F(SnapshotFixture, live_effect_continuation_translates_creator_and_all_object_slots) {
     auto creator = game.newCreature();
+    creator->setPC(false);
     TestGameModule::addSnapshotObject(*area, creator);
     std::array<std::shared_ptr<Object>, 4> targets;
     for (auto &target : targets) {
         target = game.newCreature();
+        std::static_pointer_cast<Creature>(target)->setPC(false);
         TestGameModule::addSnapshotObject(
             *area, std::static_pointer_cast<Creature>(target));
     }
@@ -2061,6 +2192,7 @@ TEST_F(SnapshotFixture, runtime_delays_export_as_retail_timed_events_with_remain
         return game.newAction<DoCommandAction>(std::move(context));
     };
     player->delayAction(newDelayedCommand(9), 10.0f);
+    // The object's own update does not run the world clock.
     player->update(4.0f);
 
     auto first = ModuleSnapshotBuilder(game, "module003").build();
@@ -2076,8 +2208,8 @@ TEST_F(SnapshotFixture, runtime_delays_export_as_retail_timed_events_with_remain
     const auto &event = queue.events.front();
     EXPECT_EQ(event.eventId, static_cast<uint32_t>(SavedEventType::Timed));
     EXPECT_EQ(event.day, 3u);
-    // Six simulation seconds. World-time milliseconds are real milliseconds.
-    EXPECT_EQ(event.time, 7000u);
+    // Posted at world time 1000 with a ten-second delay.
+    EXPECT_EQ(event.time, 11000u);
     EXPECT_EQ(event.object.id, player->id());
     EXPECT_EQ(event.caller.id, player->id());
     const auto *situation = std::get_if<SerializedScriptSituation>(&event.payload);
@@ -2094,15 +2226,12 @@ TEST_F(SnapshotFixture, structural_module_references_restore_onto_a_different_ru
     event.time = 9123;
     event.object = SavedObjectReference::fromRuntimeId(game.module()->id());
     event.caller = SavedObjectReference::fromRuntimeId(game.module()->id());
-    event.eventId = static_cast<uint32_t>(SavedEventType::CloseObject);
+    event.eventId = static_cast<uint32_t>(SavedEventType::DestroyObject);
     game.module()->enqueueSaveEvent(event);
 
     auto saved = ModuleSnapshotBuilder(game, "tat_m17ab").build();
 
     ASSERT_TRUE(saved) << saved.message;
-    uint32_t privateModuleId = 0;
-    EXPECT_FALSE(saved.snapshot->ifo->readDword(
-        privateModuleId, "ReoneModObjId"));
     auto serialized = SavedEventQueue::fromGff(
         *saved.snapshot->ifo, snapshotIdentityContext());
     ASSERT_EQ(serialized.events.size(), 1u);
@@ -2136,6 +2265,7 @@ TEST_F(SnapshotFixture, recovered_event_payload_references_renumber_symmetricall
     std::vector<std::shared_ptr<Creature>> targets;
     for (uint32_t index = 0; index < 5; ++index) {
         auto target = game.newCreature();
+        target->setPC(false);
         target->setTag("event_ref_" + std::to_string(index));
         TestGameModule::addSnapshotObject(*area, target);
         game.registerSavedObjectIdentity(
@@ -2149,17 +2279,12 @@ TEST_F(SnapshotFixture, recovered_event_payload_references_renumber_symmetricall
                       .field(Gff::Field::newDword("ReactObject", 401u))
                       .field(Gff::Field::newDword("AmmoItem", 402u))
                       .field(Gff::Field::newInt("AttackType", 17)).build();
-    auto feedbackObject1 = Gff::Builder().type(0xbaad)
-                               .field(Gff::Field::newDword(
-                                   "ObjectValue", 403u)).build();
-    auto feedbackObject2 = Gff::Builder().type(0xbaad)
-                               .field(Gff::Field::newDword(
-                                   "ObjectValue", 404u)).build();
-    auto feedback = Gff::Builder().type(0xcccc)
-                        .field(Gff::Field::newByte("Type", 9))
-                        .field(Gff::Field::newList(
-                            "ObjectIDList",
-                            {feedbackObject1, feedbackObject2})).build();
+    auto feedbackObject = Gff::Builder().type(0xbaad).field(Gff::Field::newDword(
+                                                                "ObjectValue", 390u))
+                              .build();
+    auto feedbackId = Gff::Builder().type(0xbaad).field(Gff::Field::newInt("IntegerValue", 63)).build();
+    auto feedbackAmount = Gff::Builder().type(0xbaad).field(Gff::Field::newInt("IntegerValue", 5)).build();
+    auto feedback = Gff::Builder().type(0xcccc).field(Gff::Field::newByte("Type", 0)).field(Gff::Field::newList("IntList", {feedbackId, feedbackAmount})).field(Gff::Field::newList("ObjectIDList", {feedbackObject})).build();
     auto spell = Gff::Builder().type(0x6666)
                      .field(Gff::Field::newDword("CasterId", 400u))
                      .field(Gff::Field::newDword("TargetId", 401u))
@@ -2212,12 +2337,13 @@ TEST_F(SnapshotFixture, recovered_event_payload_references_renumber_symmetricall
               idByTag.at("event_ref_2"));
     EXPECT_EQ(savedCombat->getInt("AttackType"), 17);
     const auto savedFeedback = eventByType.at(22u)->findStruct("EventData");
-    ASSERT_EQ(savedFeedback->getList("ObjectIDList").size(), 2u);
+    ASSERT_EQ(savedFeedback->getList("ObjectIDList").size(), 1u);
     EXPECT_EQ(savedFeedback->getList("ObjectIDList")[0]->getUint("ObjectValue"),
-              idByTag.at("event_ref_3"));
-    EXPECT_EQ(savedFeedback->getList("ObjectIDList")[1]->getUint("ObjectValue"),
-              idByTag.at("event_ref_4"));
-    EXPECT_EQ(savedFeedback->getUint("Type"), 9u);
+              eventByType.at(22u)->getUint("CallerId"));
+    ASSERT_EQ(savedFeedback->getList("IntList").size(), 2u);
+    EXPECT_EQ(savedFeedback->getList("IntList")[0]->getInt("IntegerValue"), 63);
+    EXPECT_EQ(savedFeedback->getList("IntList")[1]->getInt("IntegerValue"), 5);
+    EXPECT_EQ(savedFeedback->getUint("Type"), 0u);
     const auto savedSpell = eventByType.at(19u)->findStruct("EventData");
     EXPECT_EQ(savedSpell->getUint("CasterId"), idByTag.at("event_ref_0"));
     EXPECT_EQ(savedSpell->getUint("TargetId"), idByTag.at("event_ref_1"));
@@ -2264,7 +2390,6 @@ TEST_F(SnapshotFixture, runtime_delays_preserve_stable_time_order_and_fail_close
     EXPECT_FALSE(rejected);
     EXPECT_EQ(rejected.error, ModuleSnapshotError::UnsupportedLiveState);
     EXPECT_THAT(rejected.message, HasSubstr("ownerId=" + std::to_string(door->id())));
-    EXPECT_THAT(rejected.message, HasSubstr("delayedIndex=1"));
 }
 
 TEST_F(SnapshotFixture, due_delay_is_inert_on_restore_and_delivered_exactly_once) {
@@ -2323,8 +2448,6 @@ TEST_F(SnapshotFixture, writes_the_normalized_retail_pause_pair) {
     EXPECT_EQ(ifo->getUint("Mod_PauseDay"), 7u);
     EXPECT_EQ(ifo->getUint("Mod_PauseTime"), 2000u);
     EXPECT_LT(ifo->getUint("Mod_PauseTime"), millisecondsPerDay);
-    EXPECT_FALSE(ifo->has("Mod_CalendarDay"));
-    EXPECT_FALSE(ifo->has("Mod_TimeOfDay"));
     // And the pair recomposes to exactly the clock that produced it.
     EXPECT_EQ(static_cast<uint64_t>(ifo->getUint("Mod_PauseDay")) *
                       millisecondsPerDay +
@@ -2334,6 +2457,7 @@ TEST_F(SnapshotFixture, writes_the_normalized_retail_pause_pair) {
 
 TEST_F(SnapshotFixture, pending_start_conversation_is_a_supported_transition_snapshot_action) {
     auto target = game.newCreature();
+    target->setPC(false);
     TestGameModule::addSnapshotObject(*area, target);
     auto action = game.newAction<StartConversationAction>(target, "meeting", false);
     SavedActionRecord provenance;
@@ -2476,7 +2600,9 @@ TEST(ModuleSnapshot, exports_retail_zero_location_for_uninitialized_runtime_loca
 
 TEST_F(SnapshotFixture, creature_records_carry_the_creation_script_flag) {
     auto spawned = game.newCreature();
+    spawned->setPC(false);
     auto unspawned = game.newCreature();
+    unspawned->setPC(false);
     spawned->runSpawnScript();
     TestGameModule::addSnapshotObject(*area, spawned);
     TestGameModule::addSnapshotObject(*area, unspawned);

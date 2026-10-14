@@ -23,14 +23,16 @@ namespace reone {
 
 namespace game {
 
-class FactionModifierEffect : public Effect {
+class FactionModifierEffect : public CopyableEffect<FactionModifierEffect> {
 public:
     FactionModifierEffect(int newFaction) :
-        Effect(EffectType::FactionModifier),
+        CopyableEffect(EffectType::FactionModifier),
         _newFaction(newFaction) {
+        setSaveFacingInteger(0, newFaction);
     }
 
-    void applyTo(Object &object) override;
+    EffectApplicationResult onApply(Object &object, EffectInstance &) override;
+    EffectRemovalResult onRemove(Object &object, const EffectInstance &) override;
 
 private:
     int _newFaction;

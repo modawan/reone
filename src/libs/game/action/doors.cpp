@@ -15,6 +15,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <algorithm>
+
 #include "reone/game/action.h"
 #include "reone/game/action/closedoor.h"
 #include "reone/game/action/lockobject.h"
@@ -22,7 +24,9 @@
 #include "reone/game/action/opendoor.h"
 #include "reone/game/action/openlock.h"
 #include "reone/game/action/unlockobject.h"
+#include "reone/game/action/wait.h"
 #include "reone/game/di/services.h"
+#include "reone/game/event.h"
 #include "reone/game/game.h"
 #include "reone/game/object.h"
 #include "reone/game/object/creature.h"
@@ -32,6 +36,7 @@
 #include "reone/game/party.h"
 #include "reone/game/script/runner.h"
 #include "reone/system/logutil.h"
+#include "reone/system/randomutil.h"
 
 #include "commonactions.h"
 
@@ -39,17 +44,41 @@ namespace reone {
 
 namespace game {
 
+static constexpr float kLockWorkDuration = 1.5f;
+static constexpr int kLockedEvent = static_cast<int>(SavedSignalEventType::Locked);
+static constexpr int kFailToOpenEvent = static_cast<int>(SavedSignalEventType::FailToOpen);
+static constexpr int kUsedEvent = static_cast<int>(SavedSignalEventType::Used);
+static constexpr int kKeyRequiredStrRef = 1431;
+
+bool springTrapOnUse(Object &target, Object &actor) {
+    auto creature = std::dynamic_pointer_cast<Creature>(actor.game().getObjectById(actor.id()));
+    if (!creature) {
+        return false;
+    }
+    if (auto *door = dyn_cast<Door>(&target); door && door->isTrapped() && door->isTrapHostileTo(*creature)) {
+        door->triggerTrap(creature, false);
+        return true;
+    }
+    if (auto *placeable = dyn_cast<Placeable>(&target);
+        placeable && placeable->isTrapped() && placeable->isTrapHostileTo(*creature)) {
+        placeable->triggerTrap(creature, false);
+        return true;
+    }
+    return false;
+}
+
 void tryUnlockDoorWithKey(Game &game, Door &door, Object &actor, Party &party) {
     if (!door.isLocked() || !door.isKeyRequired() || door.keyName().empty()) {
         return;
     }
-    Object *keyOwner = &actor;
+    // The key may be the actor's, or else the player's.
+    std::reference_wrapper<Object> keyOwner = actor;
     auto key = actor.getItemByTag(door.keyName());
     if (!key) {
         auto player = party.player();
-        if (player && player->id() != actor.id()) {
+        if (player->id() != actor.id()) {
             key = player->getItemByTag(door.keyName());
-            keyOwner = player.get();
+            keyOwner = *player;
         }
     }
     if (!key) {
@@ -58,93 +87,162 @@ void tryUnlockDoorWithKey(Game &game, Door &door, Object &actor, Party &party) {
     door.setLocked(false);
     if (door.isAutoRemoveKey()) {
         bool last = false;
-        keyOwner->removeItem(key, last);
+        keyOwner.get().removeItem(key, last);
         if (last) {
             game.destroyRuntimeObjectGraph(key);
         }
     }
 }
 
-bool unlockDoor(Door &door, Object &actor, float distance, float dt) {
-    if (actor.type() == ObjectType::Creature) {
-        auto &creature = static_cast<Creature &>(actor);
-        bool reached = creature.navigateTo(door.position(), true, distance, dt);
-        if (!reached) {
-            return false;
-        }
-        creature.face(door);
-        creature.playAnimation(AnimationType::LoopingUnlockDoor);
-    }
-
-    // FIXME: wait for animation to play
-
-    if (door.isKeyRequired()) {
-        // FIXME: run onFailedToOpen?
+bool workAtLock(Action &action, Object &target, Object &actor, bool &working, float dt) {
+    auto *creature = dyn_cast<Creature>(&actor);
+    if (!creature || working) {
         return true;
+    }
+    // The walk to a lock takes the use point anew once when it changes, and runs.
+    if (!creature->navigateToUse(target, 0.0f, dt, true, true)) {
+        return false;
+    }
+    creature->turnToward(target);
+    creature->playAnimation(AnimationType::LoopingUnlockDoor);
+    working = true;
+    actor.addActionBefore(action, actor.game().newAction<WaitAction>(kLockWorkDuration));
+    return false;
+}
+
+void signalFailToOpen(Object &target, Object &actor, bool quiet) {
+    actor.game().queueScriptEvent(
+        target, actor, quiet ? Event(kFailToOpenEvent, {1}, {}, {}, {}) : Event(kFailToOpenEvent));
+}
+
+// A lock that wants its key refuses the actor: the object is told it failed to
+// open, and the creature the player controls hears the lock wants its key.
+static void refuseKeyedLock(Object &target, Object &actor) {
+    signalFailToOpen(target, actor);
+    auto leader = actor.game().party().getLeader();
+    if (leader && leader.get() == &actor) {
+        actor.game().addFeedbackMessage(kKeyRequiredStrRef);
+    }
+}
+
+void unlockDoor(Door &door, Object &actor) {
+    if (!door.isLocked()) {
+        return;
+    }
+    tryUnlockDoorWithKey(actor.game(), door, actor, actor.game().party());
+    if (door.isLocked() && door.isKeyRequired()) {
+        refuseKeyedLock(door, actor);
+        return;
     }
 
     door.setLocked(false);
     door.open();
     door.onOpen(actor.id());
-
-    return true;
 }
 
-bool unlockPlaceable(Placeable &placeable, Object &actor, float distance, float dt) {
-    if (auto *creature = dyn_cast<Creature>(&actor)) {
-        bool reached = creature->navigateTo(placeable.position(), true, distance, dt);
-        if (!reached) {
-            return false;
-        }
-        creature->face(placeable);
-        creature->playAnimation(AnimationType::LoopingUnlockDoor);
+void unlockPlaceable(Placeable &placeable, Object &actor) {
+    if (!placeable.isLocked()) {
+        return;
     }
-
-    // FIXME: wait for animation to play
-
     if (placeable.isKeyRequired()) {
-        return true;
+        refuseKeyedLock(placeable, actor);
+        return;
     }
 
     placeable.setLocked(false);
+}
 
-    return true;
+// Locking an object that is not locked: with its key the actor locks it; a
+// lock that wants its key refuses anything else; an object locks itself; a
+// creature locks it when a d20, or 20 out of combat, and its Security rank
+// reach the object's close lock DC, at least 1. A lock made signals the
+// object that it was locked.
+void lockObject(Object &target, Object &actor) {
+    auto *door = dyn_cast<Door>(&target);
+    auto *placeable = dyn_cast<Placeable>(&target);
+    if (!door && !placeable) {
+        return;
+    }
+    if (door ? door->isLocked() : placeable->isLocked()) {
+        return;
+    }
+    const std::string &keyName = door ? door->keyName() : placeable->keyName();
+    bool locked = !keyName.empty() && actor.getItemByTag(keyName);
+    if (!locked && (door ? door->isKeyRequired() : placeable->isKeyRequired())) {
+        refuseKeyedLock(target, actor);
+        return;
+    }
+    if (!locked) {
+        if (&target == &actor) {
+            locked = true;
+        } else if (auto *creature = dyn_cast<Creature>(&actor)) {
+            const int roll = creature->isInCombat() ? randomInt(1, 20) : 20;
+            const int rank = creature->getUnopposedSkillRank(SkillType::Security);
+            const int dc = std::max(1, static_cast<int>(door ? door->closeLockDC() : placeable->closeLockDC()));
+            locked = roll + rank >= dc;
+        }
+    }
+    if (!locked) {
+        return;
+    }
+    if (door) {
+        door->setLocked(true);
+    } else {
+        placeable->setLocked(true);
+    }
+    actor.game().queueScriptEvent(target, actor, Event(kLockedEvent));
 }
 
 void jumpToPositionFacing(Object &actor, const glm::vec3 &position,
-                          float facing, Game &game) {
+                          float facing, float trailFacing, Game &game) {
+    // The position changes at once; a creature's model turns to the new facing.
     actor.setPosition(position);
-    actor.setFacing(facing);
-
-    auto module = game.module();
-    if (!module) {
-        return;
+    if (auto *creature = dyn_cast<Creature>(&actor)) {
+        creature->turnTo(facing);
+    } else {
+        actor.setFacing(facing);
     }
 
     auto area = game.module()->area();
-    if (!area) {
-        return;
-    }
-
     Room *roomBefore = actor.room();
     area->determineObjectRoom(actor);
     Room *roomAfter = actor.room();
 
     if (auto leader = game.party().getLeader()) {
         if (leader->id() == actor.id()) {
+            game.party().resetFollowPath(*area, position, trailFacing, true);
             area->onPartyLeaderMoved(roomBefore != roomAfter);
         }
     }
+    // Areas of effect the creature carries jump with it before its own
+    // entries and exits are noted.
+    if (auto creature = game.getObjectById<Creature>(actor.id())) {
+        area->jumpCarriedAreaEffects(*creature);
+        area->updateSubAreaOccupancy(creature);
+    }
 }
+
+// After walking up to a locked door it steps right up to, a creature waits
+// this long, facing it, before it opens it.
+static constexpr float kPreciseOpenWait = 0.5f;
 
 void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     if (actor.type() == ObjectType::Creature) {
         auto &creature = static_cast<Creature &>(actor);
-        bool reached = creature.navigateTo(_door->position(), true, kDefaultMaxObjectDistance, dt);
-        if (!reached) {
+        if (!creature.navigateToUse(*_door, 0.0f, dt)) {
+            _waitAfterApproach = _door->isPreciseUse() && _door->isLocked();
             return;
         }
-        creature.face(*_door);
+        creature.turnToward(*_door);
+        if (_waitAfterApproach) {
+            _waitAfterApproach = false;
+            actor.addActionBefore(*this, _game.newAction<WaitAction>(kPreciseOpenWait));
+            return;
+        }
+        if (springTrapOnUse(*_door, actor)) {
+            complete();
+            return;
+        }
     }
 
     // Allow a door to open itself, bypassing all requirements. This is used by
@@ -163,7 +261,7 @@ void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float 
         _door->open();
         _door->onOpen(actor.id());
     } else {
-        _door->onFailToOpen(actor);
+        signalFailToOpen(*_door, actor);
     }
 
     complete();
@@ -172,31 +270,47 @@ void OpenDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float 
 void CloseDoorAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     auto creatureActor = _game.getObjectById<Creature>(actor.id());
 
-    bool reached = !creatureActor || creatureActor->navigateTo(_door->position(), true, kDefaultMaxObjectDistance, dt);
+    bool reached = !creatureActor || creatureActor->navigateToUse(*_door, 0.0f, dt);
     if (reached) {
         _door->close();
         complete();
     }
 }
 
+// A lock is worked at from the object's use point.
 void LockObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    // TODO: implement
-
+    if (!_target) {
+        complete();
+        return;
+    }
+    if (!workAtLock(*this, *_target, actor, _working, dt)) {
+        return;
+    }
+    lockObject(*_target, actor);
     complete();
 }
 
+// An unlock is worked at from the object's use point; a trap on the object
+// then goes off instead.
 void UnlockObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     if (!_target || _target->isDead()) {
+        complete();
+        return;
+    }
+    if (!workAtLock(*this, *_target, actor, _working, dt)) {
+        return;
+    }
+    if (springTrapOnUse(*_target, actor)) {
         complete();
         return;
     }
 
     switch (_target->type()) {
     case ObjectType::Door:
-        static_cast<Door &>(*_target).setLocked(false);
+        unlockDoor(static_cast<Door &>(*_target), actor);
         break;
     case ObjectType::Placeable:
-        static_cast<Placeable &>(*_target).setLocked(false);
+        unlockPlaceable(static_cast<Placeable &>(*_target), actor);
         break;
     default:
         break;
@@ -206,9 +320,11 @@ void UnlockObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
 
 void OpenLockAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     if (_target->type() == ObjectType::Door) {
-        if (unlockDoor(static_cast<Door &>(*_target), actor, kDefaultMaxObjectDistance, dt)) {
-            complete();
+        if (!workAtLock(*this, *_target, actor, _working, dt)) {
+            return;
         }
+        unlockDoor(static_cast<Door &>(*_target), actor);
+        complete();
         return;
     }
 
@@ -216,24 +332,71 @@ void OpenLockAction::execute(std::shared_ptr<Action> self, Object &actor, float 
     complete();
 }
 
+// After walking up to an object, a creature waits this long, facing it,
+// before it uses it.
+static constexpr float kUseWaitAfterApproach = 0.5f;
+
+// A use is made from the object's use point: a creature out of use range goes
+// there, turns to the object and waits half a second first. A use does not
+// lock the creature's facing. A placeable without an inventory is then used. A use of a container waits for it to swing open, then opens it
+// for the controlled creature, which also counts as using it. An unusable or
+// open container refuses the use, and a creature the player does not control
+// only hears it open.
 void OpenContainerAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
     if (!_object || !isa<Creature>(actor)) {
         complete();
         return;
     }
-    if (auto *placeable = dyn_cast<Placeable>(_object.get())) {
-        if (placeable->isLocked()) {
-            complete();
-            return;
-        }
+    auto *placeable = dyn_cast<Placeable>(_object.get());
+    if (placeable && placeable->hasInventory() && placeable->isLocked()) {
+        complete();
+        return;
     }
 
     auto &creatureActor = cast<Creature>(actor);
-    bool reached = creatureActor.navigateTo(_object->position(), true, kDefaultMaxObjectDistance, dt);
-    if (reached) {
-        _game.openContainer(_object);
-        complete();
+    if (!creatureActor.navigateToUse(*_object, 0.0f, dt)) {
+        _approached = true;
+        return;
     }
+    if (_approached) {
+        _approached = false;
+        creatureActor.turnToward(*_object);
+        actor.addActionBefore(*this, _game.newAction<WaitAction>(kUseWaitAfterApproach));
+        return;
+    }
+    if (!placeable) {
+        if (!springTrapOnUse(*_object, actor)) {
+            _game.openContainer(_object);
+        }
+        complete();
+        return;
+    }
+    if (!placeable->isUsable() || springTrapOnUse(*_object, actor)) {
+        complete();
+        return;
+    }
+    if (!placeable->hasInventory()) {
+        _game.queueScriptEvent(*placeable, actor, Event(kUsedEvent));
+        complete();
+        return;
+    }
+    if (&actor != _game.party().getLeader().get()) {
+        placeable->playOpenedSound();
+        _game.queueScriptEvent(*placeable, actor, Event(kUsedEvent));
+        complete();
+        return;
+    }
+    if (placeable->isOpen()) {
+        complete();
+        return;
+    }
+    if (!placeable->isInventoryOpenPending()) {
+        actor.addActionBefore(*this, _game.newAction<WaitAction>(placeable->beginOpeningInventory()));
+        return;
+    }
+    placeable->completeOpeningInventory(actor);
+    _game.queueScriptEvent(*placeable, actor, Event(kUsedEvent));
+    complete();
 }
 
 } // namespace game

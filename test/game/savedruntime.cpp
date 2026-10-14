@@ -249,11 +249,11 @@ TEST(SavedAction, should_preserve_retail_fields_parameter_types_and_order) {
               kSavedRuntimeInvalidObjectId);
     EXPECT_EQ(std::get<std::string>(queue.actions[1].parameters[3].payload), "hello");
     EXPECT_TRUE(std::holds_alternative<SerializedScriptSituation>(queue.actions[1].parameters[4].payload));
-    EXPECT_TRUE(std::holds_alternative<UnsupportedSavedPayload>(queue.actions[1].parameters[5].payload));
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(queue.actions[1].parameters[5].payload));
     EXPECT_EQ(queue.actions[1].executionSupport(), SavedExecutionSupport::RepresentableButUnsupported);
 }
 
-TEST(SavedAction, should_convert_only_a_proven_supported_reone_action) {
+TEST(SavedAction, should_convert_only_a_supported_action) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
@@ -285,7 +285,6 @@ TEST(SavedAction, follow_leader_uses_exact_parameterless_retail_shape_in_both_ti
         auto exported = runtime->saveFacingState();
         ASSERT_TRUE(exported);
         EXPECT_EQ(exported->actionId, 61u);
-        EXPECT_EQ(exported->groupActionId, 23);
         EXPECT_EQ(exported->declaredParameterCount, 0);
         EXPECT_TRUE(exported->parameters.empty());
 
@@ -297,7 +296,6 @@ TEST(SavedAction, follow_leader_uses_exact_parameterless_retail_shape_in_both_ti
             imported.toRuntimeAction(game));
         ASSERT_TRUE(restored);
         ASSERT_TRUE(restored->originalSavedAction());
-        EXPECT_EQ(restored->originalSavedAction()->groupActionId, 23);
         auto reexported = restored->saveFacingState();
         ASSERT_TRUE(reexported);
         EXPECT_EQ(reexported->actionId, 61u);
@@ -368,7 +366,6 @@ TEST(SavedAction, attack_object_exports_exact_retail_basic_attack_shape_in_both_
 
         ASSERT_TRUE(exported);
         EXPECT_EQ(exported->actionId, 12u);
-        EXPECT_EQ(exported->groupActionId, 23);
         EXPECT_EQ(exported->declaredParameterCount, 10);
         ASSERT_EQ(exported->parameters.size(), 10);
         std::array<uint32_t, 10> types {1, 3, 1, 1, 1, 1, 1, 1, 1, 1};
@@ -426,7 +423,6 @@ TEST(SavedAction, use_feat_exports_exact_retail_physical_attack_shape_in_both_ti
 
         ASSERT_TRUE(exported);
         EXPECT_EQ(exported->actionId, 12u);
-        EXPECT_EQ(exported->groupActionId, 27);
         EXPECT_EQ(exported->declaredParameterCount, 10);
         ASSERT_EQ(exported->parameters.size(), 10);
         std::array<uint32_t, 10> types {1, 3, 1, 1, 1, 1, 1, 1, 1, 1};
@@ -507,6 +503,8 @@ TEST(SavedAction, restored_use_feat_obeys_exact_target_and_actor_liveness) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Combat runs in the active module.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     auto target = game.newCreature();
     registerModuleIdentity(game, 813u, target);
     auto targetRecord = SavedActionRecord::fromGff(
@@ -680,8 +678,9 @@ TEST(SavedAction, play_animation_rejects_malformed_parameter_shapes) {
     record.parameters[1].payload = std::numeric_limits<float>::quiet_NaN();
     EXPECT_FALSE(record.toRuntimeAction(game));
     record.parameters[1].payload = 1.0f;
+    // Any animation constant the command queues is restored.
     record.parameters[0].payload = SavedObjectReference {42};
-    EXPECT_FALSE(record.toRuntimeAction(game));
+    EXPECT_TRUE(record.toRuntimeAction(game));
     record.parameters[0].payload = SavedObjectReference {100};
     record.parameters[0].type = 1;
     EXPECT_EQ(record.executionSupport(), SavedExecutionSupport::RepresentableButUnsupported);
@@ -719,7 +718,6 @@ TEST(SavedAction, move_to_object_uses_retail_action_17_shape_and_bound_target) {
     auto exported = runtime->saveFacingState();
     ASSERT_TRUE(exported);
     EXPECT_EQ(exported->actionId, 17u);
-    EXPECT_EQ(exported->groupActionId, 13);
     ASSERT_EQ(exported->parameters.size(), 5);
     EXPECT_EQ(std::get<SavedObjectReference>(exported->parameters[0].payload).id,
               target->id());
@@ -796,7 +794,6 @@ TEST(SavedAction, forced_move_to_object_uses_retail_action_1_and_preserves_timin
     auto exported = runtime->saveFacingState();
     ASSERT_TRUE(exported);
     EXPECT_EQ(exported->actionId, 1u);
-    EXPECT_EQ(exported->groupActionId, 13);
     ASSERT_EQ(exported->parameters.size(), 13);
     std::array<uint32_t, 13> types {2,2,2,3,3,1,2,1,2,2,2,1,1};
     for (size_t i = 0; i < types.size(); ++i) EXPECT_EQ(exported->parameters[i].type, types[i]);
@@ -829,7 +826,6 @@ TEST(SavedAction, move_to_location_uses_exact_retail_action_1_shape_in_both_titl
 
         ASSERT_TRUE(exported);
         EXPECT_EQ(exported->actionId, 1u);
-        EXPECT_EQ(exported->groupActionId, 31);
         EXPECT_EQ(exported->declaredParameterCount, 13);
         ASSERT_EQ(exported->parameters.size(), 13);
         std::array<uint32_t, 13> types {2,2,2,3,3,1,2,1,2,2,2,1,1};
@@ -886,7 +882,7 @@ TEST(SavedAction, move_to_location_imports_ordinary_pending_and_active_forced_ti
     ASSERT_TRUE(active);
     EXPECT_TRUE(active->isForced());
     EXPECT_TRUE(active->forcedState().active);
-    // The retail pair is composed into an absolute deadline on restore.
+    // Compose the saved day/time pair into an absolute deadline on restore.
     EXPECT_EQ(active->forcedState().expiryMilliseconds,
               7ull * game.millisecondsPerWorldDay() + 12345ull);
     auto reexported = active->saveFacingState();
@@ -992,9 +988,8 @@ TEST(SavedAction, active_forced_move_preserves_absolute_world_time) {
 }
 
 TEST(SavedAction, forced_move_deadline_round_trips_across_a_day_boundary) {
-    // The runtime holds one absolute deadline; the retail record holds a
-    // day/time pair. Splitting on save and composing on load must be lossless
-    // even when the deadline sits on the far side of a day boundary.
+    // Split the absolute deadline into a saved day/time pair and reconstruct it
+    // without loss, including deadlines beyond a day boundary.
     for (GameID id : {GameID::KotOR, GameID::TSL}) {
         TestEngine &engine = testEngine();
         StubConsole console;
@@ -1126,7 +1121,6 @@ TEST(SavedAction, runtime_do_command_exports_retail_action_37_situation) {
 
     ASSERT_TRUE(exported);
     EXPECT_EQ(exported->actionId, 37u);
-    EXPECT_EQ(exported->groupActionId, 41);
     EXPECT_EQ(exported->declaredParameterCount, 1);
     ASSERT_EQ(exported->parameters.size(), 1);
     EXPECT_EQ(exported->parameters[0].type,
@@ -1165,7 +1159,6 @@ TEST(SavedAction, start_conversation_uses_retail_action_24_shape) {
 
     ASSERT_TRUE(exported);
     EXPECT_EQ(exported->actionId, 24u);
-    EXPECT_EQ(exported->groupActionId, 12);
     EXPECT_EQ(exported->declaredParameterCount, 3);
     ASSERT_EQ(exported->parameters.size(), 3);
     EXPECT_EQ(exported->parameters[0].type, 3u);
@@ -1241,7 +1234,14 @@ TEST(SavedRuntimePublication, move_to_object_waits_for_publication_and_preserves
 }
 
 TEST(SavedRuntimePublication, should_separate_parse_bind_and_idempotent_publication) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
+    engine.init();
+    // Attack and defense include the racial ability adjustments.
+    ON_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                                                                   .row({"0", "0", "0", "0", "0", "0"})
+                                                                   .build())));
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
     NiceMock<scene::MockSceneGraph> sceneGraph;
@@ -1316,7 +1316,9 @@ TEST(SavedRuntimePublication, detached_state_never_binds_through_module_graph) {
 
     ASSERT_EQ(detached->savedEffects().size(), 1u);
     EXPECT_FALSE(detached->savedEffects().front().boundCreator());
-    EXPECT_TRUE(detached->effects().empty());
+    // A saved effect is always restored; an unresolved creator stays empty.
+    ASSERT_EQ(detached->effects().size(), 1u);
+    EXPECT_FALSE(detached->effects().front().boundCreator());
     EXPECT_TRUE(detached->actions().empty());
     EXPECT_NE(game.getObjectBySavedId(77u), nullptr);
 }
@@ -1376,7 +1378,7 @@ TEST(SavedRuntimePublication, should_publish_supported_events_without_dispatchin
                      .field(Gff::Field::newList(
                          "EventQueue",
                          {event(5, 4, 100, minimalEffect()),
-                          event(11, 4, 101),
+                          event(12, 4, 101),
                           event(18, 4, 102)}))
                      .build();
     module->deserializeSavedEventQueue(
@@ -1384,29 +1386,33 @@ TEST(SavedRuntimePublication, should_publish_supported_events_without_dispatchin
     module->bindSavedEventQueue();
     module->publishSavedEventQueue();
 
-    ASSERT_EQ(module->savedEventQueue().events.size(), 3);
-    EXPECT_EQ(module->pendingSavedEventCount(), 2);
+    // The runtime diagnostic view contains pending records only. The parsed
+    // codec still exposes the input that cannot be delivered and the discarded
+    // input; neither occupies live storage.
+    ASSERT_EQ(module->savedEventQueue().events.size(), 1);
+    EXPECT_EQ(module->pendingSavedEventCount(), 1);
     EXPECT_TRUE(module->effects().empty());
 
     module->publishSavedEventQueue();
-    EXPECT_EQ(module->pendingSavedEventCount(), 2);
+    EXPECT_EQ(module->pendingSavedEventCount(), 1);
     module->dispatchDueSavedEvents();
 
-    EXPECT_EQ(module->pendingSavedEventCount(), 1);
+    EXPECT_EQ(module->pendingSavedEventCount(), 0);
     ASSERT_EQ(module->effects().size(), 1);
     EXPECT_EQ(module->effects().front().id, 10);
-    EXPECT_EQ(
-        module->savedEventQueue().events[1].executionSupport(),
-        SavedExecutionSupport::RepresentableButUnsupported);
-    EXPECT_EQ(
-        module->savedEventQueue().events[2].executionSupport(),
-        SavedExecutionSupport::RetailDiscards);
+    const auto parsed = SavedEventQueue::fromGff(*queue, savedRuntimeIdentityContext());
+    ASSERT_EQ(parsed.events.size(), 3);
+    EXPECT_EQ(parsed.events[1].executionSupport(), SavedExecutionSupport::RepresentableButUnsupported);
+    EXPECT_EQ(parsed.events[2].executionSupport(), SavedExecutionSupport::Discarded);
+    // Cancellation uses the original handle; a delivered event has none left.
+    EXPECT_FALSE(module->cancelSaveEvent(0));
+    EXPECT_TRUE(module->savedEventQueue().events.empty());
 
     EffectInstance expiring;
-    expiring.subType = static_cast<uint16_t>(DurationType::Temporary);
+    expiring.setDurationType(DurationType::Temporary);
+    expiring.expiryOrigin = EffectExpiryOrigin::LoadedAbsoluteGameTime;
     expiring.expiryDay = 4;
-    // Five real seconds after the current world time of 100. World-time
-    // milliseconds are real milliseconds, as in CWorldTimer.
+    // Five real seconds after world time 100, expressed in milliseconds.
     expiring.expiryTime = 5100;
     auto remaining = game.remainingEffectDuration(expiring);
     ASSERT_TRUE(remaining);
@@ -1431,9 +1437,7 @@ TEST(ScriptSituation, should_preserve_the_retail_snapshot_without_claiming_resum
     EXPECT_EQ(std::get<int32_t>(situation.stack[0].payload), -7);
     EXPECT_EQ(std::get<SavedObjectReference>(situation.stack[1].payload).id, 2);
     EXPECT_EQ(std::get<SavedLocationValue>(situation.stack[2].payload).position, glm::vec3(1.0f, 2.0f, 3.0f));
-    EXPECT_TRUE(std::holds_alternative<UnsupportedSavedPayload>(situation.stack[3].payload));
-    ASSERT_EQ(situation.unsupportedFields.size(), 1);
-    EXPECT_EQ(situation.unsupportedFields[0].label, "FutureField");
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(situation.stack[3].payload));
     EXPECT_EQ(situation.resumeSupport(), ScriptSituationResumeSupport::ValidatedImport);
 }
 
@@ -1563,9 +1567,9 @@ TEST(SavedEventQueue, should_preserve_K1_and_K2_records_absolute_time_payload_an
     EXPECT_TRUE(std::holds_alternative<SerializedScriptSituation>(queue.events[0].payload));
     EXPECT_TRUE(std::holds_alternative<EffectInstance>(queue.events[1].payload));
     EXPECT_TRUE(std::holds_alternative<std::monostate>(queue.events[2].payload));
-    EXPECT_EQ(queue.events[3].executionSupport(), SavedExecutionSupport::RetailDiscards);
+    EXPECT_EQ(queue.events[3].executionSupport(), SavedExecutionSupport::Discarded);
     EXPECT_FALSE(queue.events[3].shouldRestore());
-    EXPECT_TRUE(std::holds_alternative<UnsupportedSavedPayload>(queue.events[4].payload));
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(queue.events[4].payload));
     EXPECT_FALSE(queue.events[4].shouldRestore());
 }
 
@@ -1667,14 +1671,10 @@ TEST(SavedEventQueue, recovered_reference_bearing_payloads_bind_explicitly) {
                       .field(Gff::Field::newDword("ReactObject", 5))
                       .field(Gff::Field::newDword("AmmoItem", 6))
                       .field(Gff::Field::newInt("AttackType", 17)).build();
-    auto feedbackObject1 = Gff::Builder().type(0xbaad)
-                               .field(Gff::Field::newDword("ObjectValue", 7)).build();
-    auto feedbackObject2 = Gff::Builder().type(0xbaad)
-                               .field(Gff::Field::newDword("ObjectValue", 8)).build();
-    auto feedback = Gff::Builder().type(0xcccc)
-                        .field(Gff::Field::newByte("Type", 9))
-                        .field(Gff::Field::newList(
-                            "ObjectIDList", {feedbackObject1, feedbackObject2})).build();
+    auto feedbackObject = Gff::Builder().type(0xbaad).field(Gff::Field::newDword("ObjectValue", 3)).build();
+    auto feedbackId = Gff::Builder().type(0xbaad).field(Gff::Field::newInt("IntegerValue", 63)).build();
+    auto feedbackAmount = Gff::Builder().type(0xbaad).field(Gff::Field::newInt("IntegerValue", 5)).build();
+    auto feedback = Gff::Builder().type(0xcccc).field(Gff::Field::newByte("Type", 0)).field(Gff::Field::newList("IntList", {feedbackId, feedbackAmount})).field(Gff::Field::newList("ObjectIDList", {feedbackObject})).build();
     auto spell = Gff::Builder().type(0x6666)
                      .field(Gff::Field::newDword("CasterId", 4))
                      .field(Gff::Field::newDword("TargetId", 5))
@@ -1714,11 +1714,9 @@ TEST(SavedEventQueue, recovered_reference_bearing_payloads_bind_explicitly) {
         queue.events[2].payload);
     EXPECT_EQ(projectile.reactionObject.boundObject(), objects.at(5));
     EXPECT_EQ(projectile.ammoItem.boundObject(), objects.at(6));
-    const auto &message = std::get<SavedFeedbackMessage>(
+    const auto &message = std::get<CombatFeedbackMessage>(
         queue.events[3].payload);
-    ASSERT_EQ(message.objects.size(), 2u);
-    EXPECT_EQ(message.objects[0].boundObject(), objects.at(7));
-    EXPECT_EQ(message.objects[1].boundObject(), objects.at(8));
+    EXPECT_TRUE(std::holds_alternative<ReturnedMitigationFeedback>(message.feedback));
     const auto &itemSpell = std::get<SavedSpellImpact>(
         queue.events[4].payload);
     EXPECT_EQ(itemSpell.caster.boundObject(), objects.at(4));

@@ -170,7 +170,9 @@ std::shared_ptr<Effect> getEffect(const std::vector<Variable> &args, int index) 
     throwIfUnexpectedType(VariableType::Effect, args[index].type);
     auto effect = std::static_pointer_cast<Effect>(args[index].engineType);
     throwIfInvalidEffect(effect);
-    return effect;
+    // A script effect is passed by value: a routine that transforms it must
+    // not change the caller's effect.
+    return effect->cloneEffect();
 }
 
 std::shared_ptr<Event> getEvent(const std::vector<Variable> &args, int index) {

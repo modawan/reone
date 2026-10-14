@@ -23,14 +23,17 @@ namespace reone {
 
 namespace game {
 
-class DisguiseEffect : public Effect {
+class DisguiseEffect : public CopyableEffect<DisguiseEffect> {
 public:
     DisguiseEffect(int appearance) :
-        Effect(EffectType::Disguise),
+        CopyableEffect(EffectType::Disguise),
         _appearance(appearance) {
+        setSaveFacingInteger(0, appearance);
+        setSaveFacingInteger(1, 0);
     }
 
-    void applyTo(Object &object) override;
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
+    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
 
 private:
     int _appearance;

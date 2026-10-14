@@ -118,7 +118,9 @@ void Sound::update(float dt) {
         return;
     }
     auto &sceneNode = static_cast<SoundSceneNode &>(*_sceneNode);
-    if (sceneNode.isSoundPlaying()) {
+    // Only an audible sound plays. One that stops being audible is stopped by
+    // the scene and starts again once it is audible again.
+    if (!sceneNode.auidible() || sceneNode.isSoundPlaying()) {
         return;
     }
     if (_timeout > 0.0f) {

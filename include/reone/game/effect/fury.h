@@ -23,13 +23,14 @@ namespace reone {
 
 namespace game {
 
-class FuryEffect : public Effect {
+class FuryEffect : public CopyableEffect<FuryEffect> {
 public:
     FuryEffect() :
-        Effect(EffectType::Fury) {
+        CopyableEffect(EffectType::Fury) {
     }
 
-    void applyTo(Object &object) override;
+    EffectApplicationResult onApply(Object &object, EffectInstance &) override;
+    EffectRemovalResult onRemove(Object &object, const EffectInstance &) override;
 };
 
 } // namespace game

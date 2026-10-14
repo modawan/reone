@@ -23,6 +23,11 @@ namespace reone {
 
 namespace game {
 
+class Creature;
+
+/** Moves each weapon set into the other's slots and resumes a direct attack. */
+void swapWeaponSets(Game &game, Creature &creature);
+
 class SwitchWeaponsAction : public Action {
 public:
     SwitchWeaponsAction(Game &game, ServicesView &services) :
@@ -33,7 +38,10 @@ public:
         return from->type() == ActionType::SwitchWeapons;
     }
 
+    uint32_t serializedActionId() const override { return static_cast<uint32_t>(SavedActionType::SwitchWeapons); }
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    bool cancel(std::shared_ptr<Action> self, Object &actor) override;
+    std::optional<SavedActionRecord> saveFacingState() const override;
 };
 
 } // namespace game

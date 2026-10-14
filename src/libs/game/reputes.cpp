@@ -19,11 +19,18 @@
 
 #include <algorithm>
 
+#include "reone/game/di/services.h"
+#include "reone/game/game.h"
+#include "reone/game/object/areaofeffect.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/object/door.h"
+#include "reone/game/object/encounter.h"
+#include "reone/game/object/placeable.h"
+#include "reone/game/object/trigger.h"
+#include "reone/game/party.h"
 #include "reone/resource/2da.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/provider/2das.h"
-
-#include "reone/game/object/creature.h"
 
 using namespace reone::resource;
 
@@ -33,6 +40,10 @@ namespace game {
 
 static constexpr int kDefaultRepute = 50;
 static constexpr int kMinRepute = 0;
+// A standing of at most 10 is hostile and one above 89 is friendly; the
+// standings between are neutral.
+static constexpr int kHighestEnemyRepute = 10;
+static constexpr int kLowestFriendRepute = 90;
 
 void Reputes::init() {
     replace(baseState());
@@ -102,7 +113,7 @@ std::optional<IReputes::State> Reputes::parse(const resource::Gff &gff) const {
         labels.push_back(boost::to_lower_copy(name));
     }
 
-    // Odyssey preserves saved faction IDs by list order, then appends only the
+    // The game preserves saved faction IDs by list order, then appends only the
     // base-table rows beyond the saved list's length.
     for (int row = static_cast<int>(factions.size()); row < repute->getRowCount(); ++row) {
         std::string label = boost::to_lower_copy(repute->getString(row, "label"));
@@ -114,21 +125,21 @@ std::optional<IReputes::State> Reputes::parse(const resource::Gff &gff) const {
     loadBase(*repute, factions.size(), values);
 
     for (const auto &saved : repList) {
-        uint32_t factionId1 = 0;
-        uint32_t factionId2 = 0;
+        uint32_t source = 0;
+        uint32_t target = 0;
         uint32_t reputation = 0;
-        if (!saved->readDword(factionId1, "FactionID1") ||
-            !saved->readDword(factionId2, "FactionID2") ||
+        if (!saved->readDword(source, "FactionID1") ||
+            !saved->readDword(target, "FactionID2") ||
             !saved->readDword(reputation, "FactionRep")) {
             return std::nullopt;
         }
 
-        // FAC stores the target as ID1 and the NPC source as ID2. Player (0)
-        // is not an NPC source; invalid pairs are ignored by the retail setter.
-        if (factionId1 >= values.size() || factionId2 == 0 || factionId2 >= values.size()) {
+        // FAC uses source rows and NPC target columns; player-target values
+        // remain derived from the base table.
+        if (source >= values.size() || target == 0 || target >= values.size()) {
             continue;
         }
-        values[factionId2][factionId1] = std::clamp(
+        values[source][target] = std::clamp(
             static_cast<int64_t>(reputation),
             static_cast<int64_t>(kMinRepute),
             static_cast<int64_t>(kMaxReputation));
@@ -157,9 +168,9 @@ void Reputes::loadBase(
         baseLabels.push_back(boost::to_lower_copy(repute.getString(static_cast<int>(index), "label")));
     }
 
-    // Preserve Reone's established source-row/target-column runtime contract
+    // Preserve the established source-row/target-column runtime contract
     // for authored base relationships. Cells outside the base table retain the
-    // retail faction-manager initialization value of 100.
+    // faction-manager initialization value of 100.
     for (size_t row = 0; row < baseCount; ++row) {
         for (size_t column = 0; column < baseCount; ++column) {
             const std::string &label = baseLabels[column];
@@ -176,9 +187,19 @@ void Reputes::loadBase(
 int Reputes::getReputation(Faction sourceFaction, Faction targetFaction) const {
     int source = static_cast<int>(sourceFaction);
     int target = static_cast<int>(targetFaction);
+    const auto isNPC = [this](int id) { return id > 0 && id < static_cast<int>(_factionValues.size()); };
 
+    // Only NPC factions are regarded. When the target is not one, the
+    // relationship is read from the target's side; between two factions that
+    // are not NPC factions the standing is the default.
+    if (!isNPC(target)) {
+        if (!isNPC(source)) {
+            return kDefaultRepute;
+        }
+        std::swap(source, target);
+    }
     if (source < 0 || source >= static_cast<int>(_factionValues.size()) ||
-        target < 0 || target >= static_cast<int>(_factionValues[source].size()))
+        target >= static_cast<int>(_factionValues[source].size()))
         return kDefaultRepute;
 
     return _factionValues[source][target];
@@ -202,19 +223,88 @@ void Reputes::adjustReputation(Faction sourceFaction, Faction targetFaction, int
 }
 
 bool Reputes::getIsEnemy(const Creature &source, const Creature &target) const {
-    return getIsEnemy(source.faction(), target.faction());
-}
-
-bool Reputes::getIsEnemy(Faction sourceFaction, Faction targetFaction) const {
-    return getReputation(sourceFaction, targetFaction) < 50;
+    return getObjectReputation(source, target, source.game()) <= kHighestEnemyRepute;
 }
 
 bool Reputes::getIsFriend(const Creature &source, const Creature &target) const {
-    return getReputation(source.faction(), target.faction()) > 50;
+    return getObjectReputation(source, target, source.game()) >= kLowestFriendRepute;
 }
 
 bool Reputes::getIsNeutral(const Creature &source, const Creature &target) const {
-    return getReputation(source.faction(), target.faction()) == 50;
+    const int reputation = getObjectReputation(source, target, source.game());
+    return reputation > kHighestEnemyRepute && reputation < kLowestFriendRepute;
+}
+
+std::optional<Faction> getObjectFaction(const Object &object) {
+    switch (object.type()) {
+    case ObjectType::Creature:
+        return static_cast<const Creature &>(object).faction();
+    case ObjectType::Door:
+        return static_cast<const Door &>(object).faction();
+    case ObjectType::Placeable:
+        return static_cast<const Placeable &>(object).faction();
+    case ObjectType::Trigger:
+        return static_cast<const Trigger &>(object).faction();
+    case ObjectType::Encounter:
+        return static_cast<const Encounter &>(object).faction();
+    default:
+        return std::nullopt;
+    }
+}
+
+int getObjectReputation(const Object &receiver, const Object &other, const Game &game) {
+    // An area of effect stands for its creator, on either side.
+    std::shared_ptr<Object> receiverCreator;
+    std::shared_ptr<Object> otherCreator;
+    const Object *source = &receiver;
+    const Object *target = &other;
+    if (const auto *areaOfEffect = dyn_cast<AreaOfEffect>(target)) {
+        otherCreator = areaOfEffect->creator();
+        if (!otherCreator) {
+            return kDefaultRepute;
+        }
+        target = otherCreator.get();
+    }
+    if (const auto *areaOfEffect = dyn_cast<AreaOfEffect>(source)) {
+        receiverCreator = areaOfEffect->creator();
+        if (!receiverCreator) {
+            return kDefaultRepute;
+        }
+        source = receiverCreator.get();
+    }
+    auto sourceFaction = getObjectFaction(*source);
+    auto targetFaction = getObjectFaction(*target);
+    if (!sourceFaction || !targetFaction) {
+        return kDefaultRepute;
+    }
+    if (source == target) {
+        return IReputes::kMaxReputation;
+    }
+
+    const auto &reputes = receiver.services().game.reputes;
+    const size_t factionCount = reputes.state().factions.size();
+    const auto isNPCFaction = [factionCount](Faction faction) {
+        const int id = static_cast<int>(faction);
+        return id > 0 && static_cast<size_t>(id) < factionCount;
+    };
+    // A relationship involving the player faction is evaluated from its side.
+    if (!isNPCFaction(*targetFaction) && isNPCFaction(*sourceFaction)) {
+        std::swap(source, target);
+        std::swap(sourceFaction, targetFaction);
+    }
+
+    if (const auto *creature = dyn_cast<Creature>(source)) {
+        if (const auto *otherCreature = dyn_cast<Creature>(target)) {
+            return creature->getReputationToward(*otherCreature);
+        }
+        if (game.party().isMember(*creature)) {
+            sourceFaction = Faction::Player;
+        }
+    }
+    if (!isNPCFaction(*targetFaction)) {
+        return kDefaultRepute;
+    }
+    return reputes.getReputation(*sourceFaction, *targetFaction);
 }
 
 } // namespace game

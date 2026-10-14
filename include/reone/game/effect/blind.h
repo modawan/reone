@@ -23,13 +23,18 @@ namespace reone {
 
 namespace game {
 
-class BlindEffect : public Effect {
+/**
+ * Blinds a creature, with a miss chance and the blind visual, for as long as
+ * it lasts. Integer 0 says which blindness it is: that of darkness, which
+ * Ultravision and True Seeing see through, or blindness itself, which a
+ * creature may be immune to.
+ */
+class BlindEffect : public CopyableEffect<BlindEffect> {
 public:
-    BlindEffect() :
-        Effect(EffectType::Blindness) {
-    }
+    BlindEffect();
 
-    void applyTo(Object &object) override;
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
+    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
 };
 
 } // namespace game

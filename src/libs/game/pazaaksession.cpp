@@ -137,21 +137,6 @@ const std::array<int, 4> &PazaakSession::valueChangeStates() {
     return states;
 }
 
-std::vector<PazaakCollectionCard> PazaakSession::temporaryK1TestCollection() {
-    std::vector<PazaakCollectionCard> cards;
-    cards.reserve(18);
-    for (int magnitude = 1; magnitude <= 6; ++magnitude) {
-        cards.push_back({CardDefinition::fixedPositive(magnitude), 2, magnitude - 1});
-    }
-    for (int magnitude = 1; magnitude <= 6; ++magnitude) {
-        cards.push_back({CardDefinition::fixedNegative(magnitude), 2, 6 + magnitude - 1});
-    }
-    for (int magnitude = 1; magnitude <= 6; ++magnitude) {
-        cards.push_back({CardDefinition::signSelectable(magnitude), 2, 12 + magnitude - 1});
-    }
-    return cards;
-}
-
 void PazaakSession::increaseWager() {
     if (_screen == PazaakFlowScreen::Wager && _wager < _wagerLimit) {
         _wager = std::min(_wagerLimit, _wager + 5);
@@ -228,7 +213,22 @@ SideDeck PazaakSession::chosenSideDeck() const {
     };
 }
 
-SideDeck PazaakSession::temporaryK1OpponentSideDeck() {
+SideDeck PazaakSession::makeDebugOpponentSideDeck(bool tsl) {
+    if (tsl) {
+        return {
+            CardDefinition::fixedPositive(3),
+            CardDefinition::fixedPositive(4),
+            CardDefinition::fixedPositive(5),
+            CardDefinition::signSelectable(1),
+            CardDefinition::signSelectable(2),
+            CardDefinition::fixedNegative(6),
+            CardDefinition::doubleCard(),
+            CardDefinition::valueChange(),
+            CardDefinition::tiebreaker(),
+            CardDefinition::flipTwoFour(),
+        };
+    }
+
     return {
         CardDefinition::fixedPositive(1),
         CardDefinition::fixedPositive(2),
@@ -243,9 +243,9 @@ SideDeck PazaakSession::temporaryK1OpponentSideDeck() {
     };
 }
 
-std::vector<PazaakCollectionCard> PazaakSession::k2DefaultCollection() {
+std::vector<PazaakCollectionCard> PazaakSession::makeDebugCollection(bool tsl) {
     std::vector<PazaakCollectionCard> cards;
-    cards.reserve(23);
+    cards.reserve(tsl ? 23 : 18);
     int id = 0;
     for (int magnitude = 1; magnitude <= 6; ++magnitude) {
         cards.push_back({CardDefinition::fixedPositive(magnitude), 2, id++});
@@ -256,32 +256,19 @@ std::vector<PazaakCollectionCard> PazaakSession::k2DefaultCollection() {
     for (int magnitude = 1; magnitude <= 6; ++magnitude) {
         cards.push_back({CardDefinition::signSelectable(magnitude), 2, id++});
     }
-    // Specials follow the authored side-deck screen order.
-    cards.push_back({CardDefinition::tiebreaker(), 2, id++});
-    cards.push_back({CardDefinition::doubleCard(), 2, id++});
-    cards.push_back({CardDefinition::flipTwoFour(), 2, id++});
-    cards.push_back({CardDefinition::flipThreeSix(), 2, id++});
-    cards.push_back({CardDefinition::valueChange(), 2, id++});
+    if (tsl) {
+        // Specials follow the authored side-deck screen order.
+        cards.push_back({CardDefinition::tiebreaker(), 2, id++});
+        cards.push_back({CardDefinition::doubleCard(), 2, id++});
+        cards.push_back({CardDefinition::flipTwoFour(), 2, id++});
+        cards.push_back({CardDefinition::flipThreeSix(), 2, id++});
+        cards.push_back({CardDefinition::valueChange(), 2, id++});
+    }
     return cards;
 }
 
-SideDeck PazaakSession::temporaryK2OpponentSideDeck() {
-    return {
-        CardDefinition::fixedPositive(3),
-        CardDefinition::fixedPositive(4),
-        CardDefinition::fixedPositive(5),
-        CardDefinition::signSelectable(1),
-        CardDefinition::signSelectable(2),
-        CardDefinition::fixedNegative(6),
-        CardDefinition::doubleCard(),
-        CardDefinition::valueChange(),
-        CardDefinition::tiebreaker(),
-        CardDefinition::flipTwoFour(),
-    };
-}
-
-std::vector<size_t> PazaakSession::k2ShowcaseChosenCards() {
-    // Indices into k2DefaultCollection, which is ordered +1..+6, -1..-6,
+std::vector<size_t> PazaakSession::specialCardShowcaseSelection() {
+    // Indices into makeDebugCollection, which is ordered +1..+6, -1..-6,
     // +/-1..+/-6, then Tiebreaker, Double, Flip 2&4, Flip 3&6, Value Change.
     // The first four become the opening hand and deliberately cover a Value
     // Change card, a sign-selectable card, a fixed card and a non-switchable

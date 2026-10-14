@@ -17,7 +17,13 @@
 
 #pragma once
 
-#include "presentationpointer.h"
+#include <array>
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <optional>
+#include <queue>
+#include <vector>
 
 #include "reone/audio/source.h"
 #include "reone/graphics/cursor.h"
@@ -54,6 +60,7 @@
 #include "location.h"
 #include "messagelog.h"
 #include "object/area.h"
+#include "object/areaofeffect.h"
 #include "object/camera/animated.h"
 #include "object/camera/dialog.h"
 #include "object/camera/firstperson.h"
@@ -71,16 +78,14 @@
 #include "options.h"
 #include "party.h"
 #include "pazaaksession.h"
-#include "saveprovenance.h"
+#include "presentationpointer.h"
 #include "savegame.h"
+#include "saveprovenance.h"
 #include "script/runner.h"
 #include "statussummary.h"
 #include "swooprace.h"
 #include "talent.h"
 #include "turret.h"
-
-#include <queue>
-#include <vector>
 
 namespace reone {
 
@@ -105,6 +110,66 @@ class SaveWorkingState;
 }
 
 namespace game {
+
+/**
+ * Temporary death recovery's millisecond counters, independent of world simulation.
+ * Game owns readiness/game-over/modal admission. Blocked calls must not sample
+ * the clock: the next admitted call includes that real-time interval.
+ */
+class TemporaryDeathRecovery {
+public:
+    /** While a member is down, the area is scanned for hostiles this often. */
+    static constexpr std::uint32_t kHostileScanMilliseconds = 1000;
+    /** Members recover once no hostile has been seen for this long. */
+    static constexpr std::uint32_t kSafeMilliseconds = 5000;
+
+    /** A new session starts both counters at zero, sampled from now. */
+    void reset(std::uint32_t now) {
+        _lastSample = now;
+        _hostileScanElapsed = 0;
+        _safeElapsed = 0;
+    }
+
+    /**
+     * Advance to the real time now. Returns whether the downed members recover.
+     *
+     * @param hasTemporaryDeath a party member is down
+     * @param scan whether a hostile creature sees a party member
+     */
+    template <class HostileScan>
+    bool sample(std::uint32_t now, bool hasTemporaryDeath, HostileScan scan) {
+        const std::uint32_t elapsed = _lastSample ? now - *_lastSample : 0;
+        _lastSample = now;
+        return update(elapsed, hasTemporaryDeath, scan);
+    }
+
+    /** As sample, by the milliseconds elapsed since the last call. */
+    template <class HostileScan>
+    bool update(std::uint32_t elapsedMilliseconds, bool hasTemporaryDeath, HostileScan scan) {
+        if (!hasTemporaryDeath) {
+            // The scan accumulator survives a no-down-member gap.
+            _safeElapsed = 0;
+            return false;
+        }
+        _hostileScanElapsed += elapsedMilliseconds;
+        if (_hostileScanElapsed > kHostileScanMilliseconds) {
+            _hostileScanElapsed = 0;
+            if (scan()) {
+                _safeElapsed = 0;
+                return false;
+            }
+        }
+        _safeElapsed += elapsedMilliseconds;
+        // Keep retrying until the next party scan finds no temporary deaths,
+        // including cases where resurrection was refused.
+        return _safeElapsed > kSafeMilliseconds;
+    }
+
+private:
+    std::optional<std::uint32_t> _lastSample;
+    std::uint32_t _hostileScanElapsed {0};
+    std::uint32_t _safeElapsed {0};
+};
 
 enum class ModuleLoadContext {
     FreshModule,
@@ -144,7 +209,8 @@ public:
         PazaakWager,
         PazaakSetup,
         PazaakBoard,
-        Turret
+        Turret,
+        Death
     };
 
     Game(
@@ -167,6 +233,8 @@ public:
         _floatingText(*this, services),
         _pointer(pointer ? std::move(pointer) : std::make_shared<PresentationPointer>(services.resource.cursors)) {
         initJournalNotifications();
+        // TSL keeps combat lines in a list of their own.
+        _messageLog.setCombatBufferEnabled(gameId == resource::GameID::TSL);
     }
 
     void init();
@@ -189,6 +257,21 @@ public:
     void playVideo(const std::string &name);
 
     bool isPaused() const { return _paused; }
+    bool isFreeLook() const { return _freeLook; }
+    /**
+     * While blocked, the player's presses, pointer motion and wheel are
+     * ignored; releases still arrive, so nothing stays held.
+     */
+    void setPlayerInputBlocked(bool blocked) { _playerInputBlocked = blocked; }
+    /** Stops the leader's steering and the camera's turning and mouse-look. */
+    void stopMovement();
+    /**
+     * For the given world milliseconds from now, a click neither starts a
+     * conversation nor uses a placeable.
+     */
+    void markNoClickEvent(uint32_t milliseconds);
+    /** Whether a click may start a conversation or use a placeable. */
+    bool canClick() const;
     bool isTSL() const { return _gameId == resource::GameID::TSL; }
     resource::GameID gameId() const { return _gameId; }
 
@@ -197,7 +280,9 @@ public:
     OptionsView &options() { return _options; }
     const OptionsView &options() const { return _options; }
     Party &party() { return _party; }
+    const Party &party() const { return _party; }
     Combat &combat() { return _combat; }
+    const Combat &combat() const { return _combat; }
     Journal &journal() { return _journal; }
     MessageLog &messageLog() { return _messageLog; }
     FloatingText &floatingText() { return _floatingText; }
@@ -211,10 +296,122 @@ public:
     const std::set<std::string> &saveNames() const { return _saveNames; }
 
     void initLocalServices();
+    std::shared_ptr<Spell> getSpell(SpellType type) const;
     void setSceneSurfaces();
 
     void setCursorType(resource::CursorType type);
-    void setPaused(bool paused);
+    void setPaused(bool paused, PauseReason reason = PauseReason::Other) {
+        _paused = paused;
+        if (paused) {
+            _pauseReason = reason;
+        } else {
+            _autoPaused = false;
+        }
+    }
+    /**
+     * The player's pause control: toggles play and ends any autopause.
+     * Returns whether play is now paused.
+     */
+    bool togglePlayerPause() {
+        setPaused(!_paused, PauseReason::Player);
+        return _paused;
+    }
+    PauseReason pauseReason() const { return _pauseReason; }
+
+    // Time stop
+
+    /**
+     * While time is stopped the world clock stands still and only the objects
+     * excluded from the stop act; they run on a clock of their own, which
+     * rejoins world time whenever the stop starts or ends.
+     */
+    bool isTimeStopped() const { return _timeStopped; }
+    /** Starts or ends the time stop; the excluded objects' clock rejoins world time. */
+    void toggleTimeStop();
+    /** \p object acts through the time stop. */
+    void addTimeStopExclusion(Object &object);
+    /** \p object no longer acts through the time stop. */
+    void removeTimeStopExclusion(const Object &object);
+    /** Whether \p object acts through the time stop. */
+    bool isExcludedFromTimeStop(const Object &object) const;
+    /** Whether \p object is held still by the time stop. */
+    bool isFrozenByTimeStop(const Object &object) const {
+        return _timeStopped && !isExcludedFromTimeStop(object);
+    }
+    /** The time the object lives by: its own clock while it acts in a time stop. */
+    uint64_t activeTimeMilliseconds(const Object &object) const {
+        return _timeStopped && isExcludedFromTimeStop(object) ? _timeStopMilliseconds : _worldTimeMilliseconds;
+    }
+    /** The calendar day and the time of day of the object's own time. */
+    uint32_t activeTimeDay(const Object &object) const {
+        return static_cast<uint32_t>(activeTimeMilliseconds(object) / millisecondsPerWorldDay());
+    }
+    uint32_t activeTimeOfDay(const Object &object) const {
+        return static_cast<uint32_t>(activeTimeMilliseconds(object) % millisecondsPerWorldDay());
+    }
+    /** Time stands still only while an excluded creature keeps a Time Stop effect. */
+    void updateTimeStop();
+
+    // END Time stop
+
+    /** A pause key: toggles play, with the pause tutorial or the action sound. */
+    void pressPauseKey();
+    /** The HUD pause toggle: toggles play and asks for the pause tutorial. */
+    void pressPauseButton();
+    /**
+     * The player's stealth control: the leader uses its Stealth skill, once
+     * the party is in solo mode or has no one else.
+     */
+    void requestStealth();
+    /** Ask whether to switch solo mode (and, for stealth, then use the skill). */
+    void showSoloModeQuery(bool forStealth);
+    void updateSoloModeQuery();
+    /**
+     * Conversation locks set by scripts, kept for the whole session: a
+     * creature with its orientation locked is not turned toward the other
+     * speaker, and one with head-follow locked turns its body instead of its head.
+     */
+    void setDialogOrientationLocked(uint32_t objectId, bool locked) {
+        if (locked) {
+            _dialogOrientationLocks.insert(objectId);
+        } else {
+            _dialogOrientationLocks.erase(objectId);
+        }
+    }
+    bool isDialogOrientationLocked(uint32_t objectId) const { return _dialogOrientationLocks.count(objectId) > 0; }
+    void setDialogHeadFollowLocked(uint32_t objectId, bool locked) {
+        if (locked) {
+            _dialogHeadFollowLocks.insert(objectId);
+        } else {
+            _dialogHeadFollowLocks.erase(objectId);
+        }
+    }
+    bool isDialogHeadFollowLocked(uint32_t objectId) const { return _dialogHeadFollowLocks.count(objectId) > 0; }
+
+    /** Show a message box dismissed with OK. False when the popup cannot be loaded. */
+    bool showMessagePopup(
+        const std::string &message,
+        std::shared_ptr<graphics::Texture> icon = nullptr,
+        std::function<void()> onConfirm = {});
+    /** Close an open in-game popup as its key would. */
+    void closeMessagePopup();
+    /** Pause play for a situation the player enabled in the autopause options. */
+    void requestAutoPause(AutoPauseReason reason);
+    const AutoPauseOptions &autoPauseOptions() const { return _options.game.autoPause; }
+    bool isAutoPaused() const { return _autoPaused; }
+    void setAutoPauseOptions(const AutoPauseOptions &options);
+    /** Write the autopause options to the configuration. */
+    void saveAutoPauseOptions() const;
+    bool clientCombatMode() const { return _clientCombatMode; }
+    /** Combat mode follows the leader's, in the area it stands in. */
+    void syncClientCombatMode();
+    /**
+     * Step the target through the nearby objects in bearing order: direction 0
+     * turns counter-clockwise from the leader's facing, direction 1 clockwise.
+     * In combat mode only visible hostile creatures qualify while any remain.
+     */
+    std::shared_ptr<Object> selectNearestObject(int direction);
+    void setKeepStealthInDialog(bool value) { _keepStealthInDialog = value; }
     void setRelativeMouseMode(bool relative);
 
     void openMainMenu();
@@ -245,9 +442,24 @@ public:
     // END Turret minigame
 
     void openInGameMenu(InGameMenuTab tab);
+    /** The roster index whose inventory the menu shows, or -1 when it is closed. */
+    int inventoryMenuCharacter() const;
+    void setInventoryMenuCharacter(int npc);
+    /** Script cost multipliers per base item; they last for the process and are not saved. */
+    float baseItemCostMultiplier(int baseItem) const;
+    void setBaseItemCostMultiplier(int baseItem, float multiplier) { _baseItemCostMultipliers[baseItem] = multiplier; }
+    /** Control returns to this party member when the conversation it handed on ends. */
+    void setPostDialogCharacterSwitch(const std::shared_ptr<Creature> &creature) { _postDialogCharacterSwitch = creature; }
+    void cancelPostDialogCharacterSwitch() { _postDialogCharacterSwitch.reset(); }
+    void finishPostDialogCharacterSwitch();
     void openLevelUp();
-    void notifyLevelUpPending(const Creature &creature);
+    /**
+     * A party member has enough experience to level up; newly when this
+     * award brought it there.
+     */
+    void notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable);
     void openContainer(const std::shared_ptr<Object> &container);
+    void closeContainer(const Object &container);
     void openPartySelection(const PartySelectionContext &ctx);
 
     /**
@@ -292,17 +504,28 @@ public:
 
     void startCharacterGeneration();
     void startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
-                     GlobalFade::DialogTicket admission = {});
+                     GlobalFade::DialogTicket admission = {},
+                     const std::shared_ptr<Object> &listener = nullptr);
 
     GlobalFade &globalFade() { return _globalFade; }
     const GlobalFade &globalFade() const { return _globalFade; }
 
     void pauseConversation();
     void resumeConversation();
+    /** A caller that is still standing pauses its conversation and holds its place in it until it resumes. */
+    void pauseConversationBy(Object &caller);
+    /** Resuming releases the caller's hold on the conversation and ends its stealth. */
+    void resumeConversationBy(Object &caller);
+    /** The object stops taking part in the running conversation. */
+    void stopConversationParticipation(const Object &object);
 
     void setBarkBubbleText(std::string text, float durartion);
+    /** Show a combat-mode line for the controlled character. */
+    void presentCombatMessage(int strref);
+    /** Append a feedback line from a string reference, filling the given custom tokens. */
+    void addFeedbackMessage(int strRef, const std::map<int, std::string> &tokens = {});
 
-    /** Submit one of vanilla's fixed status-summary categories. */
+    /** Submit one of the fixed status-summary categories. */
     void submitStatusSummary(StatusSummaryCategory category, int amount = 0, std::vector<std::string> items = {});
     StatusSummaryAccumulator &statusSummary() { return _statusSummary; }
 
@@ -318,9 +541,16 @@ public:
         return _screen;
     }
 
+    ServicesView &services() const { return _services; }
+
     /** True while a conversation owns the screen, i.e. a dialogue is running. */
     bool isConversationActive() const {
         return _screen == Screen::Conversation;
+    }
+
+    /** The object is the running dialogue's current speaker or listener. */
+    bool isConversationSpeakerOrListener(const Object &object) const {
+        return isConversationActive() && _conversation == _dialog.get() && _dialog->isSpeakerOrListener(object);
     }
 
     std::shared_ptr<movie::IMovie> movie() const {
@@ -355,6 +585,7 @@ public:
 
     void scheduleModuleTransition(const std::string &moduleName, const std::string &entry);
     void scheduleModuleTransitionWithMovies(const std::string &moduleName, const std::string &entry, std::vector<std::string> movies);
+    bool isModuleTransitionScheduled() const { return !_nextModule.empty(); }
 
     // Load a savegame. The slot is the durable identity discovered by
     // discoverSavedGames(); it is mounted verbatim rather than re-resolved, so
@@ -426,7 +657,149 @@ public:
     // Objects
 
     std::shared_ptr<Object> getObjectById(uint32_t id) const;
+    uint32_t lastTarget() const {
+        auto target = _lastTarget.resolve();
+        return target ? target->id() : script::kObjectInvalid;
+    }
+    /** A look asks the next selection pass to present the target anew, when it changes. */
+    void setLastTarget(uint32_t objectId, bool look = false) {
+        auto object = getObjectById(objectId);
+        if (look && object != _lastTarget.resolve()) {
+            _lastTargetLook = true;
+        }
+        _lastTarget = RuntimeObjectRef<Object>(object);
+    }
+    bool floatingTextEnabled() const {
+        return _options.game.feedback.floatingNumbers;
+    }
+    /**
+     * The GUI font for a base font name: its small variant when the small-font
+     * option is on, else its large variant. The console font has no variants.
+     */
+    std::string guiFontName(const std::string &baseFont) const {
+        if (baseFont == "fnt_console") {
+            return baseFont;
+        }
+        return baseFont + (_options.game.feedback.smallFonts ? 'a' : 'b');
+    }
+    bool tutorialWindowsEnabled() const {
+        return _options.game.feedback.tutorialPopups;
+    }
+    void setTutorialWindowsEnabled(bool enabled) {
+        _options.game.feedback.tutorialPopups = enabled;
+    }
+    const FeedbackOptions &feedbackOptions() const { return _options.game.feedback; }
+    void setFeedbackOptions(const FeedbackOptions &options) { _options.game.feedback = options; }
+    /** Write the feedback options to the configuration. */
+    void saveFeedbackOptions() const;
+    /**
+     * Ask for tutorial window id (a tutorial.2da row). It shows on the next
+     * frame, at most once per game, while tutorials are on and no conversation
+     * runs. True when it will show: the caller then drops the action it was
+     * taking, and the window takes it once dismissed.
+     */
+    bool requestTutorialWindow(
+        int id,
+        uint32_t actor = script::kObjectInvalid,
+        uint32_t subject = script::kObjectInvalid,
+        uint32_t param = 0);
+    /**
+     * Whether the caster can cast a Force power from the action menu: it needs
+     * a Jedi class in its first two positions, except (TSL) for forms and the
+     * powers granted by feats.
+     */
+    bool canMenuCast(const Creature &caster, const Spell &spell) const;
+    /**
+     * A menu cast by a caster that cannot cast it: nothing is cast. A droid's
+     * cast goes out as the use of an item that does not exist.
+     */
+    void refuseMenuCast(Creature &caster);
+    /**
+     * The use of an item's property at \p target that a menu sends, carrying
+     * \p location. Out of combat the user's actions clear first. A use that
+     * useItem refuses, or one with no cast-spell property, reports string
+     * 1434; a user that cannot be commanded uses nothing.
+     */
+    void useMenuItem(Creature &user, const std::shared_ptr<Item> &item, std::optional<size_t> property,
+                     const std::shared_ptr<Object> &target, const glm::vec3 &location);
+    /**
+     * A creature's use of an item's property, from a menu or a talent: the
+     * use goes on the creature's round when the creature may use the item and
+     * the property is a usable cast spell whose upgrade, if it waits for one,
+     * is installed. Once the creature may use the item and the property
+     * exists, a party member breaks the forfeit condition that forbids items
+     * or, with forearm bands, the one that forbids all but a shield. Returns
+     * whether the use went on the round.
+     */
+    bool useItem(Creature &user, const Item &item, size_t property, const std::shared_ptr<Action> &use);
+    /**
+     * A Force power cast from a menu: out of combat the caster's actions
+     * clear first, the cast goes on the caster's round, and a party member
+     * breaks the forfeit condition that forbids Force powers. A caster that
+     * cannot be commanded casts nothing.
+     */
+    void sendMenuCast(Creature &caster, const std::shared_ptr<Spell> &spell, const std::shared_ptr<Object> &target);
+    /**
+     * A party member breaks a forfeit condition: when scripts have set it, it
+     * becomes the last violation and the member's area is signalled user
+     * event 4001. Returns whether the condition was set.
+     */
+    bool breakForfeitCondition(const Creature &member, int condition);
+    /**
+     * The tutorial window a Force power from the action menu asks for: 4 for
+     * powers with a hostile slot, else 3; none for the (TSL) forms and powers
+     * granted by feats.
+     */
+    std::optional<int> forcePowerTutorial(const Spell &spell) const;
+    /**
+     * The Clear One button and key: only in combat mode, and the first time
+     * through its tutorial window, which then clears.
+     */
+    void clearOneAction();
+    /**
+     * Drop the leader's most recently scheduled round entry; with none
+     * pending, clear its actions.
+     */
+    void clearOneCombatAction(Creature &leader);
+    /**
+     * The Cancel Combat key: in combat mode, the leader leaves it and its
+     * orders are cleared as the Clear All button clears them.
+     */
+    void cancelCombat();
+    /**
+     * While a conversation runs: every creature of the area outside the party
+     * that regards the controlled creature as an enemy drops its actions,
+     * forced, and its orders.
+     */
+    void clearPlayerHostileActions();
+    /** A menu attack opens a three-second window of game time in which another shows the repeated-attack tutorial. */
+    bool attackMashActive() const { return _attackMashTime > 0.0f; }
+    /**
+     * The attack menu entry and default action, before the attack is sent:
+     * the repeated-attack and attack tutorial windows may take it (a repeated
+     * attack is then dropped); otherwise the attacker enters combat mode.
+     * Returns whether the attack goes out.
+     */
+    bool prepareMenuAttack(Creature &attacker, const std::shared_ptr<Object> &target);
+    /**
+     * The bash menu entry, before the attack is sent: the first time through
+     * its tutorial window. A door is bashed after the basher's actions and
+     * pending round entries are dropped. Returns whether the attack goes out.
+     */
+    bool prepareMenuBash(Creature &basher, const std::shared_ptr<Object> &target);
+    /**
+     * A menu attack puts the attacker, and in TSL the whole party when the
+     * attacker is a member, into combat mode, then opens the repeated-attack window.
+     */
+    void beginMenuAttack(Creature &attacker);
+    /**
+     * The player's attack order: an attack on the attacker's round. In TSL,
+     * party members with no attack target join an attack on a creature.
+     */
+    void sendAttack(Creature &attacker, const std::shared_ptr<Object> &target, FeatType feat = FeatType::Invalid);
     int scaleDamageForDifficulty(int damage, const Object &target) const;
+    /** TSL shifts trap detect and disarm DCs by -5 on easy and +5 on difficult. */
+    int trapDifficultyModifier() const;
     bool isRuntimeObjectLive(const Object &object) const;
 
     // End the semantic lifetime of this exact object and every runtime object
@@ -562,6 +935,11 @@ public:
         return newObject<ThirdPersonCamera>(std::move(style), std::move(sceneName), *this, _services);
     }
 
+    inline std::shared_ptr<AreaOfEffect> newAreaOfEffect(std::string sceneName = kSceneMain) {
+        return newObject<AreaOfEffect>(std::move(sceneName), *this, _services);
+    }
+    std::shared_ptr<AreaOfEffect> newAreaOfEffect(const resource::Gff &gff, const SerializedIdentityContext &identityContext, std::string sceneName = kSceneMain);
+
     inline std::shared_ptr<Encounter> newEncounter(std::string sceneName = kSceneMain) {
         return newObject<Encounter>(std::move(sceneName), *this, _services);
     }
@@ -587,10 +965,93 @@ public:
      *
      * This is the canonical runtime clock. It advances with simulation dt and
      * is never rescaled; Mod_MinPerHour only changes how the calendar divides
-     * it. Retail saves store a day and a time of day instead, so that split
-     * happens at the save and load boundaries and nowhere else.
+     * it. The game saves store a day and a time of day instead, so that split
+     * happens at the save and load boundaries and at a module start, which
+     * keeps the day and time of day and counts them in the new module's hours.
      */
     uint64_t worldTimeMilliseconds() const { return _worldTimeMilliseconds; }
+    /** Apply an effect to the target through the module's event queue, after the delay. */
+    void queueEffectApplication(Object &target, EffectInstance effect, uint32_t delayMilliseconds = 0);
+    /** SignalEvent: the event runs on the target through the module's event queue. */
+    void queueScriptEvent(Object &target, std::optional<std::reference_wrapper<const Object>> caller, const Event &event);
+    /** Remove an effect from the target through the module's event queue. */
+    void queueEffectRemoval(Object &target, EffectId id);
+    /** Destroy the target after the delay, replacing a destruction already pending for it. */
+    void queueObjectDestruction(Object &target, float delay);
+    void cancelObjectDestruction(Object &target);
+    /** World time after a script delay, or none when the delay is dropped. */
+    std::optional<uint64_t> delayedWorldTime(float seconds) const;
+    /** DelayCommand: a timed event that runs command as owner when due. */
+    void postDelayedCommand(Object &owner, std::shared_ptr<Action> command, float seconds);
+    /**
+     * Visual programs 1601 and 1602 count their holders across all objects.
+     * The speed blur turns on when the first holder is the player and turns
+     * off when the last one goes; a minigame owns the blur while it runs.
+     */
+    void addMotionBlurProgram(bool onPlayer);
+    void removeMotionBlurProgram();
+    void setSpeedBlur(bool enabled);
+    void setSpeedBlurRatio(float ratio);
+    /**
+     * Shows a videoeffects row over the world in place of the one showing:
+     * its scan noise, its desaturation with channel modulation, Force Sight,
+     * and the clairvoyance and fury overlays, each when the row enables it.
+     * A negative row only takes the current one away. A row that enables any
+     * of its parts becomes the current video effect.
+     */
+    void enableVideoEffect(int row);
+    void disableVideoEffect();
+    /**
+     * In TSL the leader's Force Sight and Fury choose the video effect each
+     * frame outside a conversation; their rows go away with the effects and
+     * during a conversation.
+     */
+    void updateLeaderVideoEffect();
+    /**
+     * The same, asked for by a script. In TSL a script's effect is held: a
+     * conversation shot without an effect of its own leaves it showing until
+     * a script takes it away.
+     */
+    void enableScriptVideoEffect(int row);
+    void disableScriptVideoEffect();
+    bool isVideoEffectHeldByScript() const { return _scriptVideoEffectHeld; }
+    /** A swoop race or turret session is running. */
+    bool isMiniGameActive() const;
+    /** DestroyObject: a destroy event for target after the delay. */
+    void postObjectDestruction(Object &target, std::optional<std::reference_wrapper<const Object>> caller, float seconds, bool keepsCallerFade);
+    /**
+     * Every frame: the party falls when every member is down, and downed
+     * members recover once no hostile has seen a member for a while.
+     */
+    void updateTemporaryDeath();
+    /** Every frame: how fast the world runs while the game is over, and its end. */
+    void updateDeathSequence();
+    /** The fallen party's game is over. */
+    void runDeathSequence();
+    /** Menu keys pressed while the fallen party's game is over bring the fade to black forward. */
+    void hurryDeathSequence();
+    /** Menu keys while the controlled character lies dead hurry the death sequence. */
+    bool handleDeathSequenceKey(const input::KeyEvent &event);
+    /** The camera of a following death sequence orbits the last party member to fall. */
+    void setLastPartyMemberTempKilled(const Creature &creature);
+    bool isGameOver() const { return _gameOver; }
+    /** Leave the game-over state, ending the game or cancelling a pending end. */
+    void leaveGameOver(bool endGame) {
+        _gameOver = false;
+        _endGamePending = endGame;
+    }
+    /** How loading the most recent save after death went. */
+    enum class LastSaveLaunch {
+        NoSaves,
+        Launched,
+        Unavailable
+    };
+    /** Load the current character's most recent save instead of ending the game. */
+    LastSaveLaunch launchMostRecentSave();
+    /** Whether a panel holds the input instead of the world: a popup in play, or an exclusive screen. */
+    bool hasModalPanel() const;
+    /** End the game on the next frame, returning to the main menu. */
+    void requestEndGame() { _endGamePending = true; }
 
     uint8_t minutesPerHour() const { return _minutesPerHour; }
 
@@ -602,9 +1063,11 @@ public:
      * destruction - whose results the save already holds. It is true only
      * while the initial module of a save load is being restored, so an
      * ordinary transition or a revisit to a module the save already knows
-     * reports false.
+     * reports false. An area's entered event runs its script with the answer
+     * captured when the event was made.
      */
     bool isLoadingFromSaveGame() const { return _loadingFromSaveGame; }
+    void setLoadingFromSaveGame(bool loading) { _loadingFromSaveGame = loading; }
 
     /**
      * Persist the current state of one roster NPC over its availnpc record.
@@ -634,7 +1097,7 @@ public:
      *
      * Mod_MinPerHour shortens the day - an in-game hour lasts that many
      * minutes of world time - it does not change the rate at which the clock
-     * advances. Matches CWorldTimer, where m_nMillisecondsInDay =
+     * advances. The day length is
      * MinutesPerHour * 60 * 1000 * HOURS_IN_DAY and the raw timer accumulates
      * elapsed time.
      */
@@ -657,6 +1120,35 @@ public:
     uint32_t worldTimeOfDay() const {
         return static_cast<uint32_t>(
             _worldTimeMilliseconds % millisecondsPerWorldDay());
+    }
+
+    /** The hour of the current calendar day, from 0 to 23. */
+    uint32_t worldTimeHour() const {
+        return worldTimeOfDay() / (millisecondsPerWorldDay() / 24u);
+    }
+    /** World milliseconds since a calendar day and time; none for a moment still ahead. */
+    uint64_t worldTimeSince(uint32_t day, uint32_t time) const {
+        const uint64_t then = static_cast<uint64_t>(day) * millisecondsPerWorldDay() + time;
+        return _worldTimeMilliseconds > then ? _worldTimeMilliseconds - then : 0;
+    }
+    /**
+     * The world time from one calendar day and time back to another, as whole
+     * days and a time of day in the current day length. When both times lie
+     * within the current day and the first is the earlier, the result is left
+     * as it was. A time beyond the current day length is taken as it stands.
+     */
+    void subtractWorldTimes(uint32_t day, uint32_t time, uint32_t sinceDay, uint32_t sinceTime,
+                            uint32_t &days, uint32_t &timeOfDay) const {
+        const uint32_t length = millisecondsPerWorldDay();
+        if (time < length && sinceTime < length &&
+            (day < sinceDay || (day == sinceDay && time < sinceTime)))
+            return;
+        days = day - sinceDay;
+        timeOfDay = time - sinceTime;
+        if (timeOfDay >= length) {
+            --days;
+            timeOfDay += length;
+        }
     }
     std::optional<float> remainingEffectDuration(const EffectInstance &effect) const;
 
@@ -760,11 +1252,49 @@ public:
 
     void setCustomToken(int token, std::string value);
     /**
-     * Resolves the custom tokens of a talk-table string, dropping its {...}
-     * notes. "{{" stands for "{".
+     * Custom tokens up to this number carry the values of feedback lines and
+     * the like: scripts cannot set them, and saves leave them out.
+     */
+    static constexpr int kLastReservedCustomToken = 9;
+    /**
+     * Resolves the tokens of a talk-table string for the party leader: custom
+     * tokens, the tokens of stringtokens.2da (names, gender forms, race,
+     * class and the like), "<<" and "{{" escapes, and {...} notes, which are
+     * dropped. A token that resolves to nothing reads "<UNRECOGNIZED TOKEN>".
      */
     std::string substituteCustomTokens(std::string str) const;
-    std::string substituteCustomToken(std::string str, int token, std::string value) const;
+    /**
+     * An interface string: the talk-table string of strRef resolved as
+     * substituteCustomTokens does. Talk-table strings read any other way keep
+     * their tokens and {...} notes as written.
+     */
+    std::string getInterfaceText(int strRef) const;
+    /**
+     * As getInterfaceText, after setting the given custom tokens to the given
+     * values. The tokens keep those values afterwards, as the tokens set for a
+     * feedback line do.
+     */
+    std::string getInterfaceText(int strRef, const std::map<int, std::string> &tokens);
+    /**
+     * A feedback line's text: the talk-table string of strRef resolved with
+     * no subject, so a token that names a creature (its name, race, class,
+     * alignment or gender form) reads its default, and with actions shown.
+     */
+    std::string getFeedbackText(int strRef) const;
+    /**
+     * As getFeedbackText, after setting the given custom tokens to the given
+     * values, which they keep afterwards.
+     */
+    std::string getFeedbackText(int strRef, const std::map<int, std::string> &tokens);
+    /**
+     * As substituteCustomTokens, for text shown with its actions hidden: the
+     * text of <StartAction> and <StartCheck> sections, up to </Start>, is
+     * hidden. Used for message-screen and journal lines, item names and
+     * descriptions, and the names shown over a target and in the menus.
+     */
+    std::string substituteLogTokens(std::string str) const;
+    /** As substituteLogTokens, with the tokens resolved for the given creature. */
+    std::string substituteLogTokens(std::string str, const Creature &subject) const;
 
     void setGlobalBoolean(const std::string &name, bool value);
     void setGlobalLocation(const std::string &name, const std::shared_ptr<Location> &location);
@@ -803,8 +1333,14 @@ public:
         const std::shared_ptr<resource::Gff> &ptGff,
         const std::shared_ptr<resource::Gff> &pcGff,
         const SerializedIdentityContext &moduleIdentityContext);
-    Party::PersistedState parsePartyTable(const resource::Gff &ptGff) const;
-    void replacePartyTable(Party::PersistedState state);
+    /** The party table's contents: the party's state and the message lists saved with it. */
+    struct PartyTable {
+        Party::PersistedState party;
+        std::vector<MessageLog::DialogEntry> dialogMessages;
+        std::vector<MessageLog::Entry> logMessages;
+    };
+    PartyTable parsePartyTable(const resource::Gff &ptGff) const;
+    void replacePartyTable(PartyTable table);
     void deserializePazaakPartyTable(resource::Gff &ptGff);
     void deserializeGalaxyMap(resource::Gff &ptGff);
     void resetGalaxyMap();
@@ -822,6 +1358,11 @@ private:
     friend struct SerializedScriptSituation;
     friend class SavedScriptContinuation;
 
+    /** No videoeffects row is the current effect. */
+    static constexpr int kNoVideoEffect = -2;
+    /** A menu attack within this many seconds of the last one is a repeated attack. */
+    static constexpr float kAttackMashWindow = 3.0f;
+
     resource::GameID _gameId;
     std::filesystem::path _path;
     OptionsView &_options;
@@ -829,6 +1370,18 @@ private:
     IConsole &_console;
 
     Screen _screen {Screen::None};
+    std::map<int, float> _baseItemCostMultipliers;
+    bool _soloModeQueryOpen {false};
+    bool _freeLook {false};
+    bool _playerInputBlocked {false};
+    /** The world time a click was last shut off at, and for how long. */
+    uint32_t _noClickDay {0};
+    uint32_t _noClickTime {0};
+    uint32_t _noClickMilliseconds {0};
+    /** The videoeffects row that is the current effect, whether or not any of its parts is drawn. */
+    int _videoEffectType {kNoVideoEffect};
+    bool _scriptVideoEffectHeld {false};
+    RuntimeObjectRef<Creature> _postDialogCharacterSwitch;
 
     struct DeveloperOverlay {
         bool visible {false};
@@ -850,7 +1403,7 @@ private:
         std::string originModule;   // module resref to return to
         glm::vec3 originPosition {0.0f};
         float originFacing {0.0f};
-        bool forcedSuccess {true};  // PR1: finish is always non-blocking success
+        bool forcedSuccess {true}; /**< Finish is always non-blocking success */
     };
 
     MinigameLifecycle _swoopLifecycle;
@@ -878,6 +1431,92 @@ private:
     CameraType _cameraType {CameraType::ThirdPerson};
     CameraType _savedCameraType {CameraType::ThirdPerson};
     bool _paused {false};
+    int _motionBlurPrograms {0};
+    bool _autoPaused {false};
+    PauseReason _pauseReason {PauseReason::Other};
+
+    // Target presentation
+
+    struct HostileHilite {
+        RuntimeObjectRef<Creature> creature;
+        float timer {0.0f};
+    };
+
+    bool _lastTargetLook {false};
+    float _attackMashTime {0.0f};
+    std::set<uint32_t> _dialogOrientationLocks;
+    std::set<uint32_t> _dialogHeadFollowLocks;
+    std::vector<HostileHilite> _hostileHilites;
+
+    void showTarget(const std::shared_ptr<Object> &object, bool look, bool camera);
+    void updateHostileHilites(float dt);
+
+    // END Target presentation
+
+    // Tutorial windows
+
+    /** A tutorial window and the action it interrupted, to be taken once it is dismissed. */
+    struct TutorialRequest {
+        int id {0};
+        uint32_t actor {script::kObjectInvalid};
+        uint32_t subject {script::kObjectInvalid};
+        uint32_t param {0};
+    };
+
+    /** The window asked for this frame; it opens on the next. */
+    std::optional<TutorialRequest> _tutorialPending;
+    /** The window open, if any. */
+    std::optional<TutorialRequest> _tutorial;
+    int _tutorialPage {0};
+    /** The open window paused play, and resumes it when dismissed. */
+    bool _tutorialPausedGame {false};
+
+    bool isTutorialWindowValid(int id) const;
+    void commitTutorialWindow();
+    bool showTutorialPage();
+    void finishTutorialWindow(bool takeAction);
+
+    // END Tutorial windows
+    float _partyKilledAutoPauseDelay {0.0f};
+    bool _enemySighted {false};
+    float _enemySightingHold {0.0f};
+    bool _mineSighted {false};
+    float _mineSightingHold {0.0f};
+
+    /** An object around the leader that can hold the target. */
+    struct NearestObject {
+        RuntimeObjectRef<Object> object;
+        bool inCone {false};
+        bool hostile {false};
+        /** Whether the leader sees it, once asked. */
+        std::optional<bool> seen;
+    };
+
+    /** How the leader's target came to be held this pass, which decides how it is presented. */
+    struct TargetPass {
+        std::shared_ptr<Object> target;
+        bool keep {false};
+        bool sighted {false};
+        bool repicked {false};
+        bool unseenGrace {false};
+    };
+
+    /** The objects around the leader that can hold the target, in bearing order. */
+    std::vector<NearestObject> _nearestObjects;
+    /**
+     * A creature that goes down while it is the target stops holding it; its
+     * lootable remains stand in for a separate body and are a new candidate.
+     */
+    RuntimeObjectRef<Object> _passTarget;
+    bool _passTargetUp {false};
+    bool _passTargetGone {false};
+    float _targetUnseenTime {0.0f};
+    float _deadTargetHold {0.0f};
+    float _targetMoveTime {0.0f};
+    bool _clientCombatMode {false};
+    RuntimeObjectRef<Creature> _clientCombatLeader;
+    RuntimeObjectRef<Area> _clientCombatArea;
+    bool _keepStealthInDialog {false};
     bool _timingDiscontinuity {false};
     GlobalFade _globalFade;
     GlobalFade::ArrivalTicket _fadeArrival;
@@ -926,6 +1565,11 @@ private:
     uint64_t _worldTimeMilliseconds {0};
     uint8_t _minutesPerHour {5};
     double _worldTimeFraction {0.0};
+    bool _timeStopped {false};
+    std::vector<RuntimeObjectRef<Object>> _timeStopExclusions;
+    uint64_t _timeStopMilliseconds {0};
+    double _timeStopFraction {0.0};
+    std::optional<uint64_t> _worldClockSample;
     double _playedTimeFraction {0.0};
 
     std::optional<SaveRequest> _pendingSave;
@@ -939,6 +1583,7 @@ private:
 
     // Services
 
+    RuntimeObjectRef<Object> _lastTarget;
     Party _party;
     Combat _combat;
     SwoopRace _swoopRace;
@@ -963,6 +1608,22 @@ private:
     std::unique_ptr<DialogGUI> _dialog;
     std::unique_ptr<ComputerGUI> _computer;
     std::unique_ptr<ConfirmPopup> _confirmPopup;
+    std::unique_ptr<ConfirmPopup> _deathMessage;
+    TemporaryDeathRecovery _temporaryDeathRecovery;
+    bool _gameOver {false};
+    bool _endGamePending {false};
+    uint32_t _lastPartyMemberTempKilled {script::kObjectInvalid};
+    /**
+     * How fast the world, its presentation and the fade run during the death
+     * sequence. Play slows from full speed to a fifth over the first four
+     * seconds of real time; its time and rate carry over to later deaths for
+     * the program's lifetime.
+     */
+    float _deathTimeScale {1.0f};
+    uint32_t _deathSequenceSample {0};
+    float _deathSequenceSeconds {0.0f};
+    float _deathSlowRate {0.0f};
+    bool _deathSequenceStarting {true};
     std::unique_ptr<ContainerGUI> _container;
     std::unique_ptr<PartySelection> _partySelect;
     std::unique_ptr<SaveLoad> _saveLoad;
@@ -1028,9 +1689,20 @@ private:
 
     // END Global variables
 
-    void stopMovement();
+    /**
+     * Resolve the tokens and notes of a talk-table string for the subject, if
+     * any. The hiding state is shared by nested parses of interface text.
+     */
+    std::string parseTokens(const std::string &text, const std::map<int, std::string> &customTokens,
+                            std::optional<std::reference_wrapper<const Creature>> subject, bool hideActions,
+                            bool &hidden) const;
+    /** The value of one token, by its name: a custom token or a row of stringtokens.2da. */
+    std::string getTokenValue(const std::string &name, const std::map<int, std::string> &customTokens,
+                              std::optional<std::reference_wrapper<const Creature>> subject, bool hideActions,
+                              bool &hidden) const;
 
-    void advanceWorldTime(float dt);
+    void advanceWorldTime(double dt);
+    void advanceTimeStopClock(double dt);
     void advancePlayedTime(float dt);
     std::shared_ptr<const resource::SaveWorkingState>
     prepareCurrentModuleWorkingState();
@@ -1093,11 +1765,33 @@ private:
             []() noexcept {});
         return object;
     }
+    /**
+     * What a resident party creature still had queued when it left the
+     * source module, in save-facing form, to be published in the destination.
+     */
+    struct PartyTransitionState {
+        RuntimeObjectRef<Creature> creature;
+        SavedActionQueue actions;
+        std::vector<bool> actionReferencesBound;
+    };
+
+    void clearDepartingActions();
+    std::vector<PartyTransitionState> captureResidentPartyActions();
+    /** End the source module's session: minigames, the conversation and the module's runtime. */
+    void endSourceSession(const std::string &destination);
+    /** Create the destination module and make it the current one. */
+    void publishDestinationModule(const std::string &name, const resource::Gff &ifo, bool restoringSavedWorld);
+    void restorePartyTransitionState(std::vector<PartyTransitionState> &states);
+
     void loadDefaultParty();
     bool loadParty();
     void loadNextModule();
     void playMusic(const std::string &resRef);
     void toggleInGameCameraType();
+    void enterFreeLook();
+    void exitFreeLook();
+    bool handleFreeLookKey(const input::KeyEvent &event);
+    void updateFreeLookExits();
 
     // Stop the active lifecycle race and return to the stored origin module
     // (restoring the leader's position/facing). Safe no-op if no lifecycle race.
@@ -1108,8 +1802,10 @@ private:
     // return to the origin, but only a win emits the completion state.
     void finishTurretLifecycle(Turret::Outcome outcome);
 
-    // Apply the vanilla post-turret globals for the given turret module
-    // (K1 M12ab confirmed; others no-op). Only a victory writes them.
+    /**
+     * Apply post-turret globals for K1 M12ab after a victory.
+     * Other modules are unchanged.
+     */
     void applyTurretResult(const std::string &turretModule, Turret::Outcome outcome);
 
     // Give up on a scheduled turret session and go back where it started.
@@ -1122,18 +1818,16 @@ private:
                                  const glm::vec3 &position,
                                  float facing);
 
-    // Show/hide the active party creatures. Used to suppress the normal party
-    // while a minigame is running: vanilla does not add the party to the scene
-    // in a minigame module (the minigame actor represents the player).
+    /** Show or hide active party creatures while a minigame represents the player. */
     void setPartyVisible(bool visible);
 
-    // The vanilla race-end return waypoint tag for the given race module (the
-    // StartNewModule startpoint the race-end script uses), or "" if unknown.
+    /** Return the race-end waypoint tag for the module, or an empty string if unknown. */
     std::string swoopReturnWaypoint(const std::string &raceModule) const;
 
-    // Apply the planet-specific forced-success race result for the given race
-    // module (K1 Taris confirmed; others no-op). Sets the player's finish-time
-    // globals and runs the vanilla post-race result script.
+    /**
+     * Record a winning finish time for K1 Taris so the post-race script can
+     * process the result. Other planets are unchanged.
+     */
     void applySwoopForcedSuccessResult(const std::string &raceModule);
     void applyTarisForcedWinningTime();
 
@@ -1155,6 +1849,19 @@ private:
     bool playNextModuleTransitionMovie();
     void updateMovie(float dt);
     void updateMusic();
+    void updatePassiveSelection(float frameTime);
+    void releaseTargetOnMove(float frameTime);
+    void selectPassTarget(TargetPass &pass, const Creature &leader, const Area &area, float frameTime);
+    bool holdsDeadTarget(const std::shared_ptr<Object> &target, float frameTime);
+    void takeSightedTarget(TargetPass &pass, bool hostileCreature, bool hostileTrigger,
+                           const Creature &leader, const Area &area, float frameTime);
+    bool isTargetLost(TargetPass &pass, const Creature &leader, const Area &area, float frameTime);
+    std::shared_ptr<Object> pickTarget(const std::vector<size_t> &cone, bool hostileCreature,
+                                       const Creature &leader, const Area &area);
+    void presentPassTarget(const TargetPass &pass);
+    std::vector<size_t> collectNearestObjects(const Creature &leader, const Area &area);
+    bool isNearestObjectSeen(NearestObject &entry, const Creature &leader, const Area &area);
+    bool isDownForSelection(const Creature &creature) const;
     void updateCamera(float dt);
     void updateSceneGraph(float dt);
     void updateImGui(float dt);

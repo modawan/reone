@@ -41,6 +41,8 @@ public:
 
 private:
     std::shared_ptr<Object> _object;
+    /** Whether the creature walked up to the object for this use. */
+    bool _approached {false};
 };
 
 } // namespace game

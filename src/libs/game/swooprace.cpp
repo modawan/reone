@@ -37,12 +37,12 @@ static constexpr float kSpeedRampSeconds = 3.0f;
 // Dev steering tuning. The parsed lateralAccel (e.g. 300) ramps the sideways
 // velocity quickly; the velocity cap keeps it controllable while still snappy
 // relative to the high forward speed. Values are tuned for testing feel, not
-// vanilla accuracy.
+// to match the game.
 static constexpr float kMaxLateralSpeed = 20.0f; // units per second
 static constexpr float kLateralDecay = 40.0f;    // units per second^2 when not steering
 
 // Lateral travel bounds (world units). The dev proxy moves the bike laterally
-// in world space, so it needs a positional limit. Vanilla tunnel values are
+// in world space, so it needs a positional limit. The module tunnel values are
 // angular (deg) lean/rotation limits and do not directly bound lateral
 // position (the track walkmesh does), so the tunnel X magnitude is reused here
 // only as a per-module hint, safety-clamped to this range. A proper positional
@@ -121,9 +121,9 @@ void SwoopRace::stop() {
 }
 
 void SwoopRace::computeLateralBounds(const MinigamePlayerSpec &player) {
-    // Lateral axis is X: KotOR.js applies the steering force to the track's X
-    // (forceVector.x = lateralForce), so tunnel X is the matching axis. The raw
-    // tunnel X values are angular in vanilla; we only use their magnitude as a
+    // Lateral axis is X: the steering force acts along the track's X, so
+    // tunnel X is the matching axis. The raw tunnel X values are angular in
+    // the module data; we only use their magnitude as a
     // per-module hint and safety-clamp it into a controllable positional range.
     float rawPos = glm::abs(player.tunnelXPos);
     float rawNeg = glm::abs(player.tunnelXNeg);
@@ -274,7 +274,11 @@ bool SwoopRace::handleKeyDown(const input::KeyEvent &event) {
         // Jump is stubbed for the skeleton: accepted but has no gameplay effect.
         return true;
     case input::KeyCode::Escape:
-        _game.exitSwoopRace();
+    case input::KeyCode::Pause:
+        // Escape pauses the race; it does not leave it.
+        if (!event.repeat) {
+            _game.pressPauseKey();
+        }
         return true;
     default:
         return false;

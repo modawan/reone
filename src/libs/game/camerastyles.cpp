@@ -17,6 +17,8 @@
 
 #include "reone/game/camerastyles.h"
 
+#include <algorithm>
+
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
 
@@ -31,6 +33,13 @@ void CameraStyles::init() {
     if (!twoDa) {
         return;
     }
+    // KotOR's table gives the free-look speeds in fl_tiltspeed and
+    // fl_rotatespeed; TSL's gives them for the player character, in
+    // fl_pc_tiltspeed and fl_pc_rotatespeed.
+    const auto &columns = twoDa->columns();
+    bool playerSpeeds = std::find(columns.begin(), columns.end(), "fl_pc_tiltspeed") != columns.end();
+    auto tiltSpeedColumn = playerSpeeds ? "fl_pc_tiltspeed" : "fl_tiltspeed";
+    auto rotateSpeedColumn = playerSpeeds ? "fl_pc_rotatespeed" : "fl_rotatespeed";
     for (int row = 0; row < twoDa->getRowCount(); ++row) {
         auto style = std::make_shared<CameraStyle>();
         style->name = twoDa->getString(row, "name");
@@ -38,12 +47,17 @@ void CameraStyles::init() {
         style->pitch = twoDa->getFloat(row, "pitch");
         style->viewAngle = twoDa->getFloat(row, "viewangle");
         style->height = twoDa->getFloat(row, "height");
+        style->freeLookTiltSpeed = twoDa->getFloat(row, tiltSpeedColumn);
+        style->freeLookRotateSpeed = twoDa->getFloat(row, rotateSpeedColumn);
+        style->freeLookUp = twoDa->getFloat(row, "fl_lookup");
+        style->freeLookDown = twoDa->getFloat(row, "fl_lookdown");
         _styles.push_back(std::move(style));
     }
 }
 
 std::shared_ptr<CameraStyle> CameraStyles::get(int index) const {
-    return _styles[index];
+    // A row outside the table has no style.
+    return index >= 0 && index < static_cast<int>(_styles.size()) ? _styles[index] : nullptr;
 }
 
 std::shared_ptr<CameraStyle> CameraStyles::get(const std::string &name) const {

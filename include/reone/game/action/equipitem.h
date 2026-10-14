@@ -28,7 +28,7 @@ class Item;
 
 class EquipItemAction : public Action {
 public:
-    EquipItemAction(Game &game, ServicesView &services, std::shared_ptr<Item> item, int inventorySlot, bool instant) :
+    EquipItemAction(Game &game, ServicesView &services, std::shared_ptr<Item> item, int inventorySlot, int32_t instant) :
         Action(game, services, ActionType::EquipItem),
         _item(std::move(item)),
         _inventorySlot(inventorySlot),
@@ -41,11 +41,12 @@ public:
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    std::optional<SavedActionRecord> saveFacingState() const override;
 
 private:
     std::shared_ptr<Item> _item;
     int _inventorySlot;
-    bool _instant;
+    int32_t _instant;
 };
 
 } // namespace game

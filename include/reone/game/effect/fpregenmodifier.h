@@ -23,14 +23,16 @@ namespace reone {
 
 namespace game {
 
-class FPRegenModifierEffect : public Effect {
+class FPRegenModifierEffect : public CopyableEffect<FPRegenModifierEffect> {
 public:
     FPRegenModifierEffect(int percent) :
-        Effect(EffectType::FPRegenModifier),
+        CopyableEffect(EffectType::FPRegenModifier),
         _percent(percent) {
+        setSaveFacingInteger(0, percent);
     }
 
-    void applyTo(Object &object) override {
+    EffectApplicationResult onApply(Object &object, EffectInstance &) override {
+        return EffectApplicationResult::Retained;
     }
 
 private:

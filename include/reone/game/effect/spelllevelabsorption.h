@@ -23,16 +23,20 @@ namespace reone {
 
 namespace game {
 
-class SpellLevelAbsorptionEffect : public Effect {
+class SpellLevelAbsorptionEffect : public CopyableEffect<SpellLevelAbsorptionEffect> {
 public:
     SpellLevelAbsorptionEffect(int maxSpellLevelAbsorbed, int totalSpellLevelsAbsorbed, int spellSchool) :
-        Effect(EffectType::SpellLevelAbsorption),
+        CopyableEffect(EffectType::SpellLevelAbsorption),
         _maxSpellLevelAbsorbed(maxSpellLevelAbsorbed),
         _totalSpellLevelsAbsorbed(totalSpellLevelsAbsorbed),
         _spellSchool(spellSchool) {
+        setSaveFacingInteger(0, maxSpellLevelAbsorbed);
+        setSaveFacingInteger(1, totalSpellLevelsAbsorbed);
+        setSaveFacingInteger(2, spellSchool);
     }
 
-    void applyTo(Object &object) override {
+    EffectApplicationResult onApply(Object &object, EffectInstance &) override {
+        return EffectApplicationResult::Retained;
     }
 
 private:

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,17 +23,28 @@ namespace reone {
 
 namespace game {
 
-class PoisonEffect : public Effect {
+/**
+ * Poisons a creature with a poison.2da row: a Fortitude save resists it;
+ * otherwise it deals its damage at once and then once a period until its
+ * duration runs out, its ability damage growing each time. A creature holds
+ * one poison at a time.
+ */
+class PoisonEffect : public CopyableEffect<PoisonEffect> {
 public:
-    PoisonEffect(Poison poisonType) :
-        Effect(EffectType::Poison),
-        _poisonType(poisonType) {
+    explicit PoisonEffect(Poison type) :
+        CopyableEffect(EffectType::Poison) {
+        setSaveFacingInteger(0, static_cast<int>(type));
     }
 
-    void applyTo(Object &object) override;
+    EffectApplicationResult onApply(Object &, EffectInstance &) override;
+    EffectRemovalResult onRemove(Object &, const EffectInstance &) override;
+    void onUpdate(Object &, const EffectInstance &, float) override;
 
 private:
-    Poison _poisonType;
+    /** Ends the poison at the next update; it is kept until then. */
+    EffectApplicationResult queueRemoval(Object &, EffectId);
+    /** Deals the poison's damage, its ability damage times \p factor. */
+    void applyDamage(Creature &, const EffectInstance &, float factor);
 };
 
 } // namespace game

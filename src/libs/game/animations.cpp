@@ -16,13 +16,19 @@
  */
 
 #include "reone/game/animations.h"
-#include "reone/game/attack.h"
-#include "reone/resource/2da.h"
-#include "reone/resource/provider/2das.h"
-#include "reone/system/logutil.h"
 
+#include <algorithm>
 #include <cctype>
 #include <string>
+
+#include <boost/algorithm/string.hpp>
+
+#include "reone/game/attack.h"
+#include "reone/game/twodautil.h"
+#include "reone/resource/2da.h"
+#include "reone/resource/provider/2das.h"
+#include "reone/system/exception/validation.h"
+#include "reone/system/logutil.h"
 
 using namespace reone::resource;
 
@@ -35,8 +41,21 @@ void Animations::parseAnims(TwoDA &animDa) {
         Anim anim;
         anim.name = animDa.getString(row, "name");
         anim.attack = animDa.getBool(row, "attack");
+        anim.overlay = animDa.getBool(row, "overlay");
+        anim.looping = animDa.getBool(row, "looping");
+        anim.parry = animDa.getBool(row, "parry");
+        anim.hidesEquippedItems = animDa.getBool(row, "hideequippeditems");
+        _animIndexByName.emplace(boost::to_lower_copy(anim.name), _anims.size());
         _anims.push_back(anim);
     }
+}
+
+std::optional<std::reference_wrapper<const Animations::Anim>> Animations::findByName(const std::string &name) const {
+    const auto it = _animIndexByName.find(boost::to_lower_copy(name));
+    if (it == _animIndexByName.end()) {
+        return std::nullopt;
+    }
+    return _anims[it->second];
 }
 
 struct CombatAnimColumn {
@@ -97,22 +116,24 @@ static std::vector<CombatAnimColumn> parseCombatAnimColumns(TwoDA &combatAnimDa)
 }
 
 void Animations::parseCombatAnim(TwoDA &combatAnimDa) {
-    const auto &columnNames = combatAnimDa.columns();
-    if (columnNames.empty() || columnNames.front() != "hits") {
-        throw ValidationException("combatanimations.2da: missing hits column");
+    const std::vector<std::string> &columnNames = combatAnimDa.columns();
+    if (columnNames.size() < 2 || columnNames.front() != "hits") {
+        throw ValidationException(
+            "combatanimations.2da: invalid attack columns");
     }
 
     std::vector<CombatAnimColumn> columns = parseCombatAnimColumns(combatAnimDa);
-    const auto &rows = combatAnimDa.rows();
+    const std::vector<TwoDA::Row> &rows = combatAnimDa.rows();
+
     for (int row = 0; row < combatAnimDa.getRowCount(); ++row) {
         const std::string &rowLabel = rows[row].label;
         size_t parsedLength = 0;
-        unsigned long animationId = 0;
+        unsigned long animationId;
         try {
             animationId = std::stoul(rowLabel, &parsedLength, 10);
         } catch (const std::exception &) {
             throw ValidationException(
-                "combatanimations.2da: invalid animation row " + rowLabel);
+                "combatanimations.2da: invalid row label " + rowLabel);
         }
         if (parsedLength != rowLabel.size() || animationId >= _anims.size()) {
             throw ValidationException(
@@ -120,23 +141,24 @@ void Animations::parseCombatAnim(TwoDA &combatAnimDa) {
         }
 
         const Anim &attackAnim = _anims[animationId];
-        if (!attackAnim.attack) {
-            throw ValidationException(
-                "combatanimations.2da: non-attack animation row " + rowLabel);
-        }
-
-        int hits = std::max(0, combatAnimDa.getInt(row, "hits", 0));
+        // Store every column after `hits` in source order. getMeleeImpactTime()
+        // indexes this sequence by the attack's zero-based position in the round.
         std::vector<int> impactTimes;
-        impactTimes.reserve(hits);
-        for (int hit = 1; hit <= hits; ++hit) {
-            impactTimes.push_back(std::max(
-                0,
-                combatAnimDa.getInt(
-                    row,
-                    "hit" + std::to_string(hit),
-                    0)));
+        impactTimes.reserve(columnNames.size() - 1);
+        for (size_t column = 1; column < columnNames.size(); ++column) {
+            impactTimes.push_back(combatAnimDa.getInt(
+                row,
+                columnNames[column],
+                0));
         }
-        _meleeImpactTimes[attackAnim.name] = std::move(impactTimes);
+        if (!_meleeImpactTimes.emplace(
+                                  attackAnim.name,
+                                  std::move(impactTimes))
+                 .second) {
+            throw ValidationException(
+                "combatanimations.2da: duplicate attack animation " +
+                attackAnim.name);
+        }
 
         // Parse animations that follow an attack: parry, dodge, damage.
         for (const CombatAnimColumn &column : columns) {
@@ -172,32 +194,14 @@ void Animations::init() {
 
     parseAnims(*animDa);
 
-    std::shared_ptr<TwoDA> combatAnimDa(_twoDas.get("combatanimations.2da"));
-    if (!combatAnimDa) {
-        return;
-    }
-
-    parseCombatAnim(*combatAnimDa);
+    parseCombatAnim(*getRequiredTwoDA(_twoDas, "combatanimations"));
 }
 
 void Animations::clear() {
     _anims.clear();
+    _animIndexByName.clear();
     _attackResults.clear();
     _meleeImpactTimes.clear();
-}
-
-int Animations::getMeleeImpactTime(
-    const std::string &attackAnim,
-    size_t attackIndex) const {
-
-    auto found = _meleeImpactTimes.find(attackAnim);
-    if (found == _meleeImpactTimes.end() ||
-        attackIndex >= found->second.size()) {
-        // Retail initializes the output to zero before the 2DA lookup. Missing
-        // rows and shots therefore deliver at the start of the melee phase.
-        return 0;
-    }
-    return found->second[attackIndex];
 }
 
 std::string Animations::getNameById(uint32_t id) const {
@@ -207,34 +211,53 @@ std::string Animations::getNameById(uint32_t id) const {
     return _anims[id].name;
 }
 
-std::string Animations::getAttackResult(std::string attackAnim,
-                                        CreatureWieldType targetWield,
-                                        AttackResultType result) const {
+std::string Animations::getReactionAnimation(const std::string &attackAnim,
+                                             CreatureWieldType targetWield,
+                                             AttackReaction reaction) const {
     auto it = _attackResults.find({attackAnim, targetWield});
     if (it == _attackResults.end()) {
         return std::string();
     }
-
-    switch (result) {
-    case AttackResultType::Invalid:
-        return std::string();
-    case AttackResultType::HitSuccessful:
-    case AttackResultType::CriticalHit:
-    case AttackResultType::AutomaticHit:
-        return getNameById(it->second.damage);
-
-    case AttackResultType::Miss:
-    case AttackResultType::AttackResisted:
-    case AttackResultType::AttackFailed:
-    case AttackResultType::Parried:
-    case AttackResultType::Deflected:
-        if (isRangedWieldType(targetWield)) {
-            return getNameById(it->second.dodge);
-        }
+    switch (reaction) {
+    case AttackReaction::Dodge:
+        return getNameById(it->second.dodge);
+    case AttackReaction::Parry:
         return getNameById(it->second.parry);
+    case AttackReaction::Damage:
+        return getNameById(it->second.damage);
     }
-
     return std::string();
+}
+
+int Animations::getMeleeImpactTime(
+    const std::string &attackAnim,
+    size_t attackIndex) const {
+
+    // A swing with no timing row or cell lands at once.
+    auto it = _meleeImpactTimes.find(attackAnim);
+    if (it == _meleeImpactTimes.end()) {
+        return 0;
+    }
+    return attackIndex < it->second.size() ? it->second[attackIndex] : 0;
+}
+
+bool Animations::isLoopingById(uint32_t id) const {
+    return id < _anims.size() && _anims[id].looping;
+}
+
+bool Animations::isOverlay(const std::string &name) const {
+    const auto anim = findByName(name);
+    return anim && anim->get().overlay;
+}
+
+bool Animations::hidesEquippedItems(const std::string &name) const {
+    const auto anim = findByName(name);
+    return anim && anim->get().hidesEquippedItems;
+}
+
+bool Animations::isParry(const std::string &name) const {
+    const auto anim = findByName(name);
+    return anim && anim->get().parry;
 }
 
 } // namespace game

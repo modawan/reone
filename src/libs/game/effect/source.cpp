@@ -119,6 +119,42 @@ std::map<int, int> EffectModifierReducer::cappedBySubtype(
     return result;
 }
 
+void AbilityEffectReducer::addIncrease(EffectSourceKey source, int amount) {
+    if (amount <= 0) {
+        return;
+    }
+    if (source.kind == EffectSourceKind::Independent) {
+        _increases.independent += amount;
+        return;
+    }
+    auto &value = _increases.bySource[source];
+    value = std::max(value, amount);
+}
+
+void AbilityEffectReducer::addDecrease(EffectSourceKey source, int amount) {
+    if (amount <= 0) {
+        return;
+    }
+    if (source.kind == EffectSourceKind::Independent) {
+        _decreases.independent += amount;
+        return;
+    }
+    _decreases.bySource[source] += amount;
+}
+
+int AbilityEffectReducer::Direction::total() const {
+    int sum = independent;
+    for (const auto &[source, amount] : bySource) {
+        sum += amount;
+    }
+    return sum;
+}
+
+int AbilityEffectReducer::total() const {
+    return std::min(_increases.total(), getAbilityEffectIncreaseCap(_tsl)) -
+           std::min(_decreases.total(), getAbilityEffectDecreaseCap(_tsl));
+}
+
 } // namespace game
 
 } // namespace reone

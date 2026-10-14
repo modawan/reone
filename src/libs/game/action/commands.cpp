@@ -20,11 +20,12 @@
 #include "reone/game/action/surrendertoenemies.h"
 #include "reone/game/action/wait.h"
 #include "reone/game/animationutil.h"
+#include "reone/game/game.h"
 #include "reone/game/modulesnapshot.h"
 #include "reone/game/object.h"
+#include "reone/game/object/creature.h"
 #include "reone/game/savedruntime.h"
 #include "reone/game/script/savedsituation.h"
-#include "reone/graphics/animation.h"
 #include "reone/scene/animproperties.h"
 #include "reone/script/executioncontext.h"
 #include "reone/script/executionstate.h"
@@ -103,9 +104,8 @@ std::optional<SavedActionRecord> DoCommandAction::saveFacingState() const {
         throw ValidationException(message.str());
     }
 
-    SavedActionRecord result =
-        originalSavedAction().value_or(SavedActionRecord {});
-    result.actionId = 37;
+    SavedActionRecord result;
+    result.actionId = static_cast<uint32_t>(SavedActionType::DoCommand);
     result.declaredParameterCount = 1;
     result.parameters = {SavedActionParameter {
         static_cast<uint32_t>(SavedActionParameterType::ScriptSituation),
@@ -113,68 +113,122 @@ std::optional<SavedActionRecord> DoCommandAction::saveFacingState() const {
     return result;
 }
 
-void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    if (_playing) {
-        _timer.update(dt);
-        if (_timer.elapsed()) {
-            complete();
+// An animation the actor has no clip for still takes a second.
+static constexpr float kNoClipSeconds = 1.0f;
+static constexpr float kCoalescingSeconds = 30.0f;
+// The animation constants a negative duration plays at once: in KotOR those up
+// to this one, in TSL those below the first and from the second on.
+static constexpr int kLastImmediateAnimation = 32;
+static constexpr int kFirstQueuedAnimationTSL = 47;
+static constexpr int kFirstImmediateDialogAnimationTSL = 10001;
+
+void requestScriptAnimation(Game &game, Object &caller, int constant, float speed, float seconds, bool replaceActions) {
+    auto *creature = dyn_cast<Creature>(&caller);
+    if (creature && game.isConversationSpeakerOrListener(caller)) {
+        creature->playScriptAnimation(creature->getScriptAnimation(static_cast<int>(AnimationType::LoopingPause)), 1.0f);
+    }
+    if (seconds < 0.0f) {
+        const bool direct = game.isTSL() ? (constant < kFirstQueuedAnimationTSL || constant >= kFirstImmediateDialogAnimationTSL)
+                                         : constant <= kLastImmediateAnimation;
+        if (direct && creature) {
+            creature->playScriptAnimation(creature->getScriptAnimation(constant), 1.0f);
         }
         return;
     }
-
-    bool looping = _looping.value_or(isAnimationLooping(_animation));
-    if (looping) {
-        // Looping animations never finish. Complete the action immediately to
-        // avoid stalling the action queue.
-        if (_durationSeconds < 0.0f) {
-            complete();
-        } else {
-            _timer.reset(_durationSeconds);
-        }
-    } else {
-        // Set the timer to match duration of the animation.
-        auto node = actor.sceneNode();
-        if (node->type() != SceneNodeType::Model) {
-            complete();
-            return;
-        }
-
-        const graphics::Model &model = std::static_pointer_cast<ModelSceneNode>(node)->model();
-        std::shared_ptr<graphics::Animation> anim = model.getAnimation(actor.getAnimationName(_animation));
-        if (!anim) {
-            complete();
-            return;
-        }
-
-        _timer.reset(anim->length());
+    if (!caller.isCommandable()) {
+        return;
     }
+    auto action = game.newAction<PlayAnimationAction>(static_cast<AnimationType>(constant), speed, seconds);
+    if (replaceActions) {
+        caller.clearAllActions();
+        caller.addActionOnTop(std::move(action));
+    } else {
+        caller.addAction(std::move(action));
+    }
+}
 
-    AnimationProperties properties;
-    properties.speed = _speed;
-    properties.duration = _durationSeconds;
-    actor.playAnimation(_animation, std::move(properties));
-    _playing = true;
+// The clip plays for its length at the speed given, and a loop given a
+// duration plays for that long; without a clip the action takes a second.
+// From 30 seconds on, the same animation queued right behind it at the same
+// speed is dropped. At the end a creature goes back to its pause or ready
+// pose.
+void PlayAnimationAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    auto *creature = dyn_cast<Creature>(&actor);
+    // A downed party member cannot play it.
+    if (creature && creature->isTemporarilyDead()) {
+        complete();
+        return;
+    }
+    const int constant = static_cast<int>(_animation);
+    // The clip is looked up only while it is still to be timed or shown.
+    std::optional<Creature::ScriptAnimation> animation;
+    if (creature && (!_playing || !_shown)) {
+        animation = creature->getScriptAnimation(constant);
+    }
+    if (_playing) {
+        _timer.update(dt);
+    } else {
+        float duration = animation && animation->length > 0.0f ? animation->length : kNoClipSeconds;
+        if (_speed != 0.0f) {
+            duration /= std::abs(_speed);
+        }
+        const bool fireForget = animation && !animation->loop;
+        if (_durationSeconds > 0.0f && !fireForget) {
+            duration = _durationSeconds;
+        }
+        _timer.reset(duration);
+        _playing = true;
+    }
+    if (_durationSeconds >= kCoalescingSeconds) {
+        const bool characterModel = creature && creature->modelType() != Creature::ModelType::Creature;
+        const int id = scriptAnimationId(constant, _game.isTSL(), characterModel);
+        actor.removeActionsBehind(*this, [&](const Action &next) {
+            if (next.type() != ActionType::PlayAnimation) {
+                return false;
+            }
+            const auto &other = static_cast<const PlayAnimationAction &>(next);
+            return scriptAnimationId(static_cast<int>(other.animation()), _game.isTSL(), characterModel) == id &&
+                   other.speed() == _speed;
+        });
+    }
+    if (!_timer.elapsed()) {
+        if (!_shown) {
+            if (animation) {
+                creature->playScriptAnimation(*animation, _speed);
+            } else {
+                AnimationProperties properties;
+                properties.speed = _speed;
+                actor.playAnimation(_animation, std::move(properties));
+            }
+            _shown = true;
+        }
+        return;
+    }
+    if (creature) {
+        creature->refreshPauseAnimation();
+    }
+    complete();
 }
 
 std::optional<SavedActionRecord> PlayAnimationAction::saveFacingState() const {
-    SavedActionRecord result = originalSavedAction().value_or(SavedActionRecord {});
-    result.actionId = 6;
+    SavedActionRecord result;
+    result.actionId = static_cast<uint32_t>(SavedActionType::PlayAnimation);
     result.declaredParameterCount = 5;
     result.parameters = {
         SavedActionParameter {
-            static_cast<uint32_t>(SavedActionParameterType::Object),
+            kSavedObjectParameter,
             SavedObjectReference::fromRuntimeId(
                 static_cast<uint32_t>(_animation))},
         SavedActionParameter {
-            static_cast<uint32_t>(SavedActionParameterType::Float), _speed},
+            kSavedFloatParameter, _speed},
         SavedActionParameter {
-            static_cast<uint32_t>(SavedActionParameterType::Float),
+            kSavedFloatParameter,
             _playing ? _timer.remaining() : _durationSeconds},
         SavedActionParameter {
-            static_cast<uint32_t>(SavedActionParameterType::Integer),
+            kSavedIntegerParameter,
             static_cast<int32_t>(_playing ? 0 : 1)},
         SavedActionParameter {
-            static_cast<uint32_t>(SavedActionParameterType::Integer),
+            kSavedIntegerParameter,
             static_cast<int32_t>(_looping.value_or(isAnimationLooping(_animation)) ? 1 : 0)},
     };
     return result;
@@ -188,18 +242,22 @@ void WaitAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) 
 }
 
 std::optional<SavedActionRecord> WaitAction::saveFacingState() const {
-    SavedActionRecord result = originalSavedAction().value_or(SavedActionRecord {});
-    result.actionId = 30;
+    SavedActionRecord result;
+    result.actionId = static_cast<uint32_t>(SavedActionType::Wait);
     result.declaredParameterCount = 1;
     result.parameters = {SavedActionParameter {
-        static_cast<uint32_t>(SavedActionParameterType::Float),
+        kSavedFloatParameter,
         _timer.remaining()}};
     return result;
 }
 
+// Only non-player creatures are given this action; a player character's
+// surrender fails.
 void SurrenderToEnemiesAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
-    // TODO: implement
-
+    auto &creature = static_cast<Creature &>(actor);
+    if (!creature.isPC()) {
+        creature.surrenderToEnemies(false);
+    }
     complete();
 }
 

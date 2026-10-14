@@ -23,24 +23,16 @@ namespace reone {
 
 namespace game {
 
-class AbilityIncreaseEffect : public Effect {
+/** Raises an ability score; the ability and the amount are its first two integers. */
+class AbilityIncreaseEffect : public CopyableEffect<AbilityIncreaseEffect> {
 public:
     AbilityIncreaseEffect(Ability abilityToIncrease, int modifyBy) :
-        Effect(EffectType::AbilityIncrease),
-        _abilityToIncrease(abilityToIncrease),
-        _modifyBy(modifyBy) {
+        CopyableEffect(EffectType::AbilityIncrease) {
         setSaveFacingInteger(0, static_cast<int>(abilityToIncrease));
         setSaveFacingInteger(1, modifyBy);
     }
 
-    void applyTo(Object &object) override;
-
-    Ability ability() const { return _abilityToIncrease; }
-    int amount() const { return _modifyBy; }
-
-private:
-    Ability _abilityToIncrease;
-    int _modifyBy;
+    EffectApplicationResult onApply(Object &object, EffectInstance &) override;
 };
 
 } // namespace game

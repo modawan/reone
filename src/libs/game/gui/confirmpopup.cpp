@@ -40,7 +40,7 @@ void ConfirmPopup::preload(IGUI &gui) {
 
     // The confirmation dialog is authored for 640x480 in both games. It
     // scales and centers with the game-wide Scaled default from the base
-    // preload; an explicit Center here kept it at native size.
+    // preload; an explicit Center here kept it unscaled.
     gui.setResolution(kAuthoredCanvasWidth, kAuthoredCanvasHeight);
 }
 
@@ -57,8 +57,8 @@ void ConfirmPopup::onGUILoaded() {
         hide();
         if (callback) callback();
     });
+    _defaultConfirmText = _controls.BTN_OK->text().text;
     _controls.LB_MESSAGE->setItemsInteractive(false);
-    _controls.LB_MESSAGE->setScrollBarEnabled(false);
 
     // The authored confirmation panel reserves a second button row. This
     // popup only exposes OK, so retain the top inset below that button instead
@@ -81,7 +81,7 @@ void ConfirmPopup::onGUILoaded() {
     auto icon = _gui->newControl(ControlType::Label, kIconControlTag);
     Control::Extent iconExtent;
     iconExtent.left = _messageExtent.left;
-    iconExtent.top = _messageExtent.top + (_messageExtent.height - _iconSize) / 2;
+    iconExtent.top = _messageExtent.top;
     iconExtent.width = _iconSize;
     iconExtent.height = _iconSize;
     icon->setExtent(std::move(iconExtent));
@@ -91,10 +91,12 @@ void ConfirmPopup::onGUILoaded() {
     _gui->addControlToFront(_icon, IGUI::ControlCoordinates::Screen);
 }
 
-void ConfirmPopup::show(const std::string &message, std::shared_ptr<graphics::Texture> icon) {
-    _onConfirm = {};
+void ConfirmPopup::show(const std::string &message, std::shared_ptr<graphics::Texture> icon,
+                        std::function<void()> onConfirm) {
+    _onConfirm = std::move(onConfirm);
     _onCancel = {};
     _controls.BTN_CANCEL->setVisible(false);
+    _controls.BTN_OK->setTextMessage(_defaultConfirmText);
     // Reserve a gutter for the icon, if any, before the message is broken
     // into lines.
     bool hasIcon = static_cast<bool>(icon);
@@ -108,10 +110,11 @@ void ConfirmPopup::show(const std::string &message, std::shared_ptr<graphics::Te
     _icon->setVisible(hasIcon);
     _controls.LB_MESSAGE->protoItem().setExtent(std::move(textExtent));
 
+    // A message box resolves the tokens of whatever message it is given.
+    // The message is laid out a line to a row, and scrolls when it runs
+    // past the list.
     _controls.LB_MESSAGE->clearItems();
-    ListBox::Item item;
-    item.text = message;
-    _controls.LB_MESSAGE->addItem(std::move(item));
+    _controls.LB_MESSAGE->addTextLinesAsItems(_game.substituteCustomTokens(message));
 
     _visible = true;
 }
@@ -126,10 +129,22 @@ void ConfirmPopup::showConfirm(
     _controls.BTN_CANCEL->setVisible(true);
 }
 
+void ConfirmPopup::setConfirmText(const std::string &text) {
+    _controls.BTN_OK->setTextMessage(text);
+}
+
 void ConfirmPopup::hide() {
     _visible = false;
     _onConfirm = {};
     _onCancel = {};
+}
+
+void ConfirmPopup::close() {
+    auto callback = _controls.BTN_CANCEL->isVisible() ? std::move(_onCancel) : std::move(_onConfirm);
+    hide();
+    if (callback) {
+        callback();
+    }
 }
 
 } // namespace game

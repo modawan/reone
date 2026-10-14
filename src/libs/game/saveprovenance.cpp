@@ -101,9 +101,10 @@ std::vector<SerializedObjectIdClaim> collectSerializedObjectIdClaims(
     }
     case SerializedGraphRoot::AreaGit: {
         addCreatureList("Creature List", "git");
-        static constexpr std::array<const char *, 9> objectLists {
+        static constexpr std::array<const char *, 10> objectLists {
             "Door List", "Placeable List", "TriggerList", "Trigger List",
-            "Encounter List", "StoreList", "WaypointList", "SoundList", "List"};
+            "Encounter List", "StoreList", "WaypointList", "SoundList", "List",
+            "AreaEffectList"};
         for (const char *label : objectLists) {
             const auto objects = root.getList(label);
             for (size_t index = 0; index < objects.size(); ++index) {

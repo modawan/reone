@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,103 +16,816 @@
  */
 
 #include "reone/game/effect/visual.h"
+
+#include <algorithm>
+
 #include "reone/audio/mixer.h"
+#include "reone/audio/source.h"
 #include "reone/game/di/services.h"
+#include "reone/game/game.h"
 #include "reone/game/object.h"
 #include "reone/game/object/area.h"
+#include "reone/game/object/creature.h"
+#include "reone/game/object/door.h"
+#include "reone/game/object/module.h"
+#include "reone/game/object/placeable.h"
 #include "reone/game/visualeffects.h"
 #include "reone/graphics/animation.h"
 #include "reone/graphics/model.h"
+#include "reone/graphics/texture.h"
+#include "reone/resource/provider/audioclips.h"
+#include "reone/resource/provider/models.h"
+#include "reone/resource/provider/textures.h"
 #include "reone/scene/graph.h"
+#include "reone/scene/node/mesh.h"
+#include "reone/scene/node/model.h"
+#include "reone/system/randomutil.h"
 
 namespace reone {
 
 namespace game {
 
+// A second Speed Knight visual on an object that still carries one is not
+// shown at all.
+static constexpr int kSpeedKnightVisual = 1020;
+
+// Programs (progfx_impact and progfx_duration values).
+static constexpr int kHandFizzleProgram = 1201;
+static constexpr int kResistProgram = 1202;
+static constexpr int kViewAngleProgram = 1500;
+static constexpr int kMotionBlurProgram = 1601;
+static constexpr int kMotionBlurProgramAlternate = 1602;
+static constexpr int kBreathProgram = 1703;
+
+// Every impact program lasts one second, except the hand fizzle and the
+// widened view.
+static constexpr float kImpactProgramSeconds = 1.0f;
+
+// Program 1500 on the player: the view angle widens to 135 degrees over
+// 0.75 s with the dolly zoom out of combat, narrows back from the moment
+// 4 s remain, and the saved angle returns when the program ends, 4.75 s on.
+static constexpr float kWideViewAngle = 135.0f;
+static constexpr float kWideningSeconds = 0.75f;
+static constexpr float kNarrowingRemaining = 4.0f;
+static constexpr float kViewAngleProgramSeconds = 4.75f;
+
+// Programs 1601 and 1602 hold the motion blur. It follows the player's drive
+// speed every frame, and leaves while the holder is not the player or is
+// debilitated.
+static constexpr float kMotionBlurRatio = 0.75f;
+
+// A node model without an impact animation, on an application that is not
+// kept, shows for this long.
+static constexpr float kNodeModelHold = 1.0f;
+
+// The bumped-out shell stands this far off the body.
+static constexpr float kShellOffset = 0.02f;
+
+// The model a missed beam ends at.
+static constexpr const char *kBeamStandInModel = "c_dummy";
+
+static float impactDuration(const std::shared_ptr<graphics::Model> &model,
+                            const std::shared_ptr<audio::AudioClip> &sound) {
+    auto animation = model ? model->getAnimation("impact") : nullptr;
+    return std::max(animation ? animation->length() : 0.0f, sound ? sound->duration() : 0.0f);
+}
+
+static void collectBeamMeshes(scene::SceneNode &node, std::vector<scene::MeshSceneNode *> &meshes) {
+    if (node.type() == scene::SceneNodeType::Mesh) {
+        meshes.push_back(static_cast<scene::MeshSceneNode *>(&node));
+    }
+    for (auto *child : node.children()) {
+        collectBeamMeshes(*child, meshes);
+    }
+}
+
+// Where a visual's models attach on an object. Creatures name their nodes;
+// a placeable prefixes its with its model name after the first four
+// characters, a door with its whole model name.
+enum class VisualSite {
+    Root,
+    Impact,
+    Head
+};
+
+static std::string placeableNodePrefix(const scene::ModelSceneNode &model) {
+    const std::string &name = model.model().name();
+    return name.substr(std::min<size_t>(4, name.size()));
+}
+
+static std::string visualSiteNode(const Object &object, const scene::ModelSceneNode &model, VisualSite site) {
+    if (isa<Placeable>(&object)) {
+        static constexpr const char *suffixes[] = {"_ground", "_impact", "_head_hit"};
+        return placeableNodePrefix(model) + suffixes[static_cast<int>(site)];
+    }
+    if (isa<Door>(&object)) {
+        static constexpr const char *suffixes[] = {"grnd", "impc", "hhit"};
+        return model.model().name() + suffixes[static_cast<int>(site)];
+    }
+    static constexpr const char *nodes[] = {"root", "impact", "talkdummy"};
+    return nodes[static_cast<int>(site)];
+}
+
+// The node a beam starts from on its source, by body part; the source's root
+// when its model lacks that node.
+static std::optional<std::reference_wrapper<scene::SceneNode>> beamSourceNode(const Object &source,
+                                                                              scene::ModelSceneNode &model,
+                                                                              int bodyNode) {
+    std::string name;
+    if (isa<Placeable>(&source)) {
+        static constexpr const char *suffixes[] = {"_hand", "_impact", "_head"};
+        name = placeableNodePrefix(model) + (bodyNode >= 0 && bodyNode <= 2 ? suffixes[bodyNode] : "_ground");
+    } else if (isa<Door>(&source)) {
+        name = model.model().name() + (bodyNode >= 0 && bodyNode <= 2 ? "impc" : "grnd");
+    } else {
+        name = beamSourceHook(static_cast<BodyNode>(bodyNode));
+    }
+    auto *node = model.getNodeByName(name);
+    if (!node) {
+        node = model.getNodeByName("root");
+    }
+    if (!node) {
+        return std::nullopt;
+    }
+    return *node;
+}
+
+// A missed spell is aimed at a point near its target. From farther than 10 m
+// the point lies up to 2 m from the target, turned up to 120 degrees either
+// way from the direction of the caster, 1 m above the target's feet. From
+// closer it lies 10 to 19 m beyond the target, pushed sideways past the
+// target's personal space. A miss with no caster is aimed at the world
+// origin.
+static glm::vec3 spellRangedMissPoint(std::optional<std::reference_wrapper<const Object>> caster,
+                                      const Object &target) {
+    if (!caster) {
+        return glm::vec3 {0.0f};
+    }
+    const auto &casterPosition = caster->get().position();
+    float personalSpace = 0.5f;
+    if (auto *creature = dyn_cast<Creature>(&target)) {
+        personalSpace = creature->creaturePersonalSpace() - 0.1f;
+    }
+    const float reach = static_cast<float>(randomInt(0, 1999) + 1) / 1000.0f;
+    const glm::vec3 &targetPosition = target.position();
+    const glm::vec3 toCaster = casterPosition - targetPosition;
+    if (glm::length2(toCaster) > 100.0f) {
+        const auto direction = glm::normalize(toCaster);
+        float angle = std::atan(direction.y / direction.x);
+        const bool clockwise = randomInt(0, 1) == 1;
+        const float turn = static_cast<float>(randomInt(0, 2093)) / 1000.0f;
+        angle = clockwise ? angle - turn : angle + turn;
+        if (angle > glm::two_pi<float>()) {
+            angle -= glm::two_pi<float>();
+        }
+        if (angle < 0.0f) {
+            angle += glm::two_pi<float>();
+        }
+        glm::vec2 offset {std::cos(angle), std::sin(angle)};
+        if (direction.x < 0.0f) {
+            offset = -offset;
+        }
+        offset *= reach;
+        return glm::vec3 {targetPosition.x + offset.x, targetPosition.y + offset.y, targetPosition.z + 1.0f};
+    }
+    const glm::vec3 away = targetPosition - casterPosition;
+    const auto direction = glm::normalize(away);
+    glm::vec2 side = randomInt(0, 1) == 1 ? glm::vec2 {direction.y, -direction.x} : glm::vec2 {-direction.y, direction.x};
+    side *= 1.0f + personalSpace;
+    if (glm::length2(away) > 25.0f) {
+        side *= 1.0f + static_cast<float>(randomInt(0, static_cast<int>(reach * 1000.0f) - 1)) / 1000.0f;
+    }
+    const auto heading = glm::normalize(glm::vec3 {away.x + side.x, away.y + side.y, away.z});
+    const float distance = static_cast<float>(randomInt(0, 9)) + 10.0f;
+    return glm::vec3 {targetPosition.x + distance * heading.x,
+                      targetPosition.y + distance * heading.y,
+                      2.0f * targetPosition.z + 1.0f};
+}
+
+// The parts of a body a shell covers: the body, and its head and hand models.
+template <class Apply>
+static void forEachShellModel(scene::ModelSceneNode &body, Apply &&apply) {
+    apply(body);
+    for (const char *hook : {"headhook", "rhand"}) {
+        if (auto *model = dynamic_cast<scene::ModelSceneNode *>(body.getAttachment(hook))) {
+            apply(*model);
+        }
+    }
+}
+
+void setShell(scene::ModelSceneNode &body, std::shared_ptr<graphics::Texture> texture) {
+    forEachShellModel(body, [&texture](scene::ModelSceneNode &model) {
+        model.setBumpedOutShell(texture, kShellOffset);
+    });
+}
+
+void clearShell(scene::ModelSceneNode &body) {
+    forEachShellModel(body, [](scene::ModelSceneNode &model) {
+        model.clearBumpedOutShell();
+    });
+}
+
 VisualEffect::VisualEffect(int visualEffectId, bool missEffect, ServicesView &services) :
-    Effect(EffectType::Visual),
+    CopyableEffect(EffectType::Visual),
     _visualEffectId(visualEffectId),
     _missEffect(missEffect),
-    _desc(services.game.visualEffects.get(visualEffectId).value_or(nullptr)),
     _services(services) {
     setSaveFacingInteger(0, visualEffectId);
     setSaveFacingInteger(2, missEffect ? 1 : 0);
 }
 
-VisualEffect::~VisualEffect() {
-    retireAreaRuntime({});
+VisualEffect::VisualEffect(const VisualEffect &other) :
+    CopyableEffect(other),
+    _visualEffectId(other._visualEffectId),
+    _missEffect(other._missEffect),
+    _location(other._location),
+    _services(other._services) {
+    // Scene nodes, beams, shells and sounds belong to one application.
 }
 
-void VisualEffect::retireAreaRuntime(
-    const std::set<const Object *> &) {
+VisualEffect::~VisualEffect() {
+    clearPresentation();
+}
+
+void VisualEffect::retireAreaRuntime(const std::set<const Object *> &) {
+    // A held motion blur comes back when its holder is presented again.
+    const bool motionBlur = _motionBlurProgram;
+    clearPresentation();
+    _motionBlurProgram = motionBlur;
+}
+
+void VisualEffect::clearPresentation(std::optional<std::reference_wrapper<Object>> holder) {
+    if (_durationSound) {
+        _durationSound->stop();
+        _durationSound.reset();
+    }
+    for (auto *mesh : _beamMeshes) {
+        mesh->clearProjectedBeamTarget();
+    }
+    _beamMeshes.clear();
+    _beamSourceOwner.reset();
+    _beamTargetOwner.reset();
     if (_node) {
-        scene::ISceneGraph &graph = _node->graph();
-        graph.removeRoot(*_node);
+        _node->graph().removeRoot(*_node);
         _node.reset();
     }
-}
-
-static float durationAnim(const std::shared_ptr<graphics::Model> &model) {
-    if (!model) {
-        return 0.0f;
+    if (_beamEnd) {
+        _beamEnd->graph().removeRoot(*_beamEnd);
+        _beamEnd.reset();
     }
-
-    if (std::shared_ptr<graphics::Animation> anim = model->getAnimation("impact")) {
-        return anim->length();
-    };
-
-    return 0.0f;
-}
-
-static float durationSound(const std::shared_ptr<audio::AudioClip> &sound) {
-    if (!sound) {
-        return 0.0f;
+    for (auto &nodeModel : _nodeModels) {
+        if (nodeModel.hook && !nodeModel.followsPositionOnly) {
+            nodeModel.hook->removeChild(*nodeModel.model);
+        } else {
+            nodeModel.model->graph().removeRoot(*nodeModel.model);
+        }
     }
-
-    return sound->duration();
-}
-
-void VisualEffect::applyTo(Object &object) {
-    if (!_desc || !_location) {
-        return;
-    }
-
-    scene::ISceneGraph *graph = nullptr;
-    if (Area *area = dyn_cast<Area>(&object)) {
-        graph = &area->graph();
-    } else if (auto node = object.sceneNode()) {
-        graph = &node->graph();
-    }
-
-    if (!graph) {
-        return;
-    }
-
-    if (_desc->impRootMNode) {
-        _node = graph->newModel(*_desc->impRootMNode, scene::ModelUsage::Projectile);
-        graph->addRoot(_node);
-        _node->setLocalTransform(glm::translate(_location.value()));
-        _node->playAnimation("impact");
-    }
-
-    if (_desc->soundImpact) {
-        _services.audio.mixer.play(
-            _desc->soundImpact,
-            audio::AudioType::Sound,
-            /*gain=*/1.0f,
-            /*loop=*/false,
-            _location);
-    }
+    _nodeModels.clear();
+    stopProgram(holder);
 }
 
 float VisualEffect::duration() const {
-    if (!_desc) {
+    const auto row = _services.game.visualEffects.get(_visualEffectId);
+    if (!row) {
         return 0.0f;
     }
+    const VisualEffectDesc &desc = row->get();
+    return impactDuration(desc.locationModel, desc.soundImpact);
+}
 
-    float anim = durationAnim(_desc->impRootMNode);
-    float sound = durationSound(_desc->soundImpact);
-    return std::max(anim, sound);
+EffectApplicationResult VisualEffect::onApply(Object &object, EffectInstance &instance) {
+    // Each application presents a visual of its own, so the effect can be
+    // applied again while one is showing.
+    auto runtime = std::make_shared<VisualEffect>(instance.integerParameter(0), instance.integerParameter(2) != 0, _services);
+    instance.effect = runtime;
+    return runtime->present(object, instance);
+}
+
+// A beam or spell visual comes from object parameter 0, or from the creator
+// when that parameter holds no object.
+static std::shared_ptr<Object> visualSource(const EffectInstance &instance) {
+    auto source = instance.boundObjectParameter(0);
+    return source ? source : instance.boundCreator();
+}
+
+float VisualEffect::impactProgramLength(int program) const {
+    // The hand fizzle lasts as long as its model's impact animation.
+    if (program == kHandFizzleProgram) {
+        if (auto model = _services.resource.models.get(spellVisualForProgram(program)->model)) {
+            if (auto animation = model->getAnimation("impact")) {
+                return animation->length();
+            }
+        }
+    }
+    if (program == kViewAngleProgram && _viewAngleHold) {
+        return kViewAngleProgramSeconds;
+    }
+    return kImpactProgramSeconds;
+}
+
+bool VisualEffect::startViewAngleProgram(Object &object) {
+    auto *active = object.game().getActiveCamera();
+    if (!active || object.game().party().getLeader().get() != &object) {
+        return false;
+    }
+    auto camera = std::dynamic_pointer_cast<Camera>(object.game().getObjectById(active->id()));
+    if (!camera) {
+        return false;
+    }
+    _viewAngleCamera = camera;
+    _viewAngleHold = camera->beginViewAngleHold();
+    camera->beginViewAngleAnimation(kWideViewAngle, kWideningSeconds);
+    _viewAngleNarrowed = false;
+    return true;
+}
+
+void VisualEffect::updateViewAngleProgram(Object &object) {
+    if (!_viewAngleHold) {
+        return;
+    }
+    auto camera = _viewAngleCamera.lock();
+    // A pause has already returned the angle.
+    if (!camera || !camera->holdsViewAngle(*_viewAngleHold)) {
+        _viewAngleHold.reset();
+        return;
+    }
+    if (object.game().party().getLeader().get() != &object) {
+        stopViewAngleProgram();
+        return;
+    }
+    if (!_viewAngleNarrowed && _impactRemaining <= kNarrowingRemaining) {
+        camera->endViewAngleAnimation();
+        camera->beginViewAngleAnimation(camera->heldViewAngle(), _impactRemaining);
+        _viewAngleNarrowed = true;
+    }
+}
+
+void VisualEffect::stopViewAngleProgram() {
+    if (auto camera = _viewAngleCamera.lock()) {
+        camera->releaseViewAngleHold(*_viewAngleHold);
+    }
+    _viewAngleCamera.reset();
+    _viewAngleHold.reset();
+}
+
+void VisualEffect::startMotionBlurProgram(Object &object) {
+    auto &game = object.game();
+    _motionBlurGame = &game;
+    _motionBlurProgram = true;
+    game.addMotionBlurProgram(game.party().getLeader().get() == &object);
+    _motionBlurApplied = true;
+}
+
+void VisualEffect::updateMotionBlurProgram(Object &object) {
+    auto &game = object.game();
+    auto *creature = dyn_cast<Creature>(&object);
+    const bool player = creature && game.party().getLeader().get() == &object;
+    if (!player || creature->isDebilitated()) {
+        if (_motionBlurApplied) {
+            game.removeMotionBlurProgram();
+        }
+        _motionBlurApplied = false;
+        return;
+    }
+    if (!_motionBlurApplied) {
+        game.addMotionBlurProgram(true);
+        _motionBlurApplied = true;
+    }
+    const float speed = creature->driveSpeed() / creature->driveMaxSpeed();
+    game.setSpeedBlurRatio(speed > 1.0f ? kMotionBlurRatio : kMotionBlurRatio * speed);
+}
+
+bool VisualEffect::startProgram(int program, Object &object, const EffectInstance &instance) {
+    if (program == kViewAngleProgram) {
+        return startViewAngleProgram(object);
+    }
+    if (program == kMotionBlurProgram || program == kMotionBlurProgramAlternate) {
+        startMotionBlurProgram(object);
+        return true;
+    }
+    auto body = std::dynamic_pointer_cast<scene::ModelSceneNode>(object.sceneNode());
+    if (!body) {
+        return false;
+    }
+    const bool tsl = object.game().isTSL();
+    if (const auto beamName = beamModelForProgram(program, tsl); !beamName.empty()) {
+        const auto ends = resolveBeamEnds(object, instance);
+        auto model = ends.complete() ? _services.resource.models.get(beamName) : nullptr;
+        if (!model) {
+            return false;
+        }
+        _beam = true;
+        _beamSourceOwner = ends.sourceModel;
+        _beamTargetOwner = ends.targetModel;
+        _node = body->graph().newModel(*model, scene::ModelUsage::Projectile);
+        _node->setCullingEnabled(false);
+        _node->setLocalTransform(ends.sourceNode->absoluteTransform());
+        _node->playAnimation("cast01");
+        collectBeamMeshes(*_node, _beamMeshes);
+        for (auto *mesh : _beamMeshes) {
+            mesh->setProjectedBeamTarget(*ends.targetNode);
+        }
+        body->graph().addRoot(_node);
+        return true;
+    }
+    if (const std::string texture = shieldTextureForProgram(program); !texture.empty()) {
+        _shellTexture = _services.resource.textures.get(texture, graphics::TextureUsage::MainTex);
+        if (!_shellTexture) {
+            return false;
+        }
+        _shellOwner = body;
+        setShell(*body, _shellTexture);
+        return true;
+    }
+    const auto spellVisual = spellVisualForProgram(program);
+    const auto attachment = spellVisual ? spellVisual : modelAttachmentForProgram(program, tsl);
+    if (!attachment) {
+        return false;
+    }
+    auto model = _services.resource.models.get(attachment->model);
+    // The breath hooks the head model, and the body only when there is no
+    // head model.
+    auto *head = program == kBreathProgram ? dynamic_cast<scene::ModelSceneNode *>(body->getAttachment("headhook")) : nullptr;
+    auto *hook = head ? head->getNodeByName(attachment->hook) : body->getNodeByName(attachment->hook);
+    if (!model || !hook) {
+        return false;
+    }
+    _hookNode = hook;
+    _attachedOwner = body;
+    _attachmentProgram = program;
+    if (program == kBreathProgram) {
+        _releaseArea = object.game().module()->area();
+    }
+    _attached = body->graph().newModel(*model, scene::ModelUsage::Projectile);
+    _hookNode->addChild(*_attached);
+    if (program == kResistProgram) {
+        // The resist visual faces its source.
+        if (auto source = visualSource(instance)) {
+            const glm::vec3 direction = source->position() - _hookNode->origin();
+            if (glm::length2(direction) >= 1e-4f) {
+                const float facing = glm::half_pi<float>() - glm::atan(direction.x, direction.y);
+                _attached->setLocalTransform(_hookNode->absoluteTransformInverse() *
+                                             glm::translate(_hookNode->origin()) * glm::eulerAngleZ(facing));
+            }
+        }
+    }
+    if (spellVisual) {
+        _attached->playAnimation("impact");
+    } else if (program == kBreathProgram) {
+        _attached->playAnimation("impact", nullptr, scene::AnimationProperties::fromFlags(scene::AnimationFlags::loop));
+    }
+    return true;
+}
+
+// A beam runs from its source's node for the body part to the target's
+// impact node, or its root when the model lacks one. A missed beam runs to its
+// stand-in instead.
+VisualEffect::BeamEnds VisualEffect::resolveBeamEnds(Object &object, const EffectInstance &instance) {
+    BeamEnds ends;
+    auto source = visualSource(instance);
+    ends.sourceModel = source ? std::dynamic_pointer_cast<scene::ModelSceneNode>(source->sceneNode()) : nullptr;
+    if (ends.sourceModel) {
+        if (auto node = beamSourceNode(*source, *ends.sourceModel, instance.integerParameter(1))) {
+            ends.sourceNode = &node->get();
+        }
+    }
+    if (!_beamEndNode.empty()) {
+        if (!_beamEnd) {
+            return ends;
+        }
+        ends.targetModel = _beamEnd;
+        ends.targetNode = _beamEnd->getNodeByName(_beamEndNode);
+    } else {
+        ends.targetModel = std::dynamic_pointer_cast<scene::ModelSceneNode>(object.sceneNode());
+        if (ends.targetModel) {
+            ends.targetNode = ends.targetModel->getNodeByName(visualSiteNode(object, *ends.targetModel, VisualSite::Impact));
+        }
+    }
+    if (ends.targetModel && !ends.targetNode) {
+        ends.targetNode = ends.targetModel->getNodeByName("root");
+    }
+    return ends;
+}
+
+void VisualEffect::showLatestShell(Object &holder) {
+    const VisualEffect *latest = nullptr;
+    uint64_t latestOrder = 0;
+    for (const auto &applied : holder.effects()) {
+        auto *visual = dynamic_cast<const VisualEffect *>(applied.effect.get());
+        if (visual && visual->_shellTexture && !visual->_shellOwner.expired() &&
+            (!latest || applied.applicationOrder >= latestOrder)) {
+            latest = visual;
+            latestOrder = applied.applicationOrder;
+        }
+    }
+    auto body = std::dynamic_pointer_cast<scene::ModelSceneNode>(holder.sceneNode());
+    // A creature's own shell began after every application ordered before it.
+    if (auto *creature = dyn_cast<Creature>(&holder)) {
+        uint64_t order = 0;
+        if (auto own = creature->latestOwnShell(order); own && (!latest || order > latestOrder)) {
+            if (body) {
+                setShell(*body, own);
+            }
+            return;
+        }
+    }
+    if (latest) {
+        if (auto owner = latest->_shellOwner.lock()) {
+            setShell(*owner, latest->_shellTexture);
+        }
+    } else if (body) {
+        clearShell(*body);
+    }
+}
+
+void VisualEffect::stopProgram(std::optional<std::reference_wrapper<Object>> holder) {
+    // The removed breath holds the first frame of its stop animation where
+    // its hook last was, and the area keeps it until its emitter empties.
+    auto releaseArea = _attachmentProgram == kBreathProgram ? _releaseArea.lock() : nullptr;
+    if (_hookNode && _attached && releaseArea) {
+        scene::AnimationProperties hold;
+        hold.speed = 0.0f;
+        _attached->playAnimation("stop", nullptr, hold);
+        const glm::mat4 world = _attached->absoluteTransform();
+        _hookNode->removeChild(*_attached);
+        _attached->setLocalTransform(world);
+        _attached->graph().addRoot(_attached);
+        releaseArea->releaseEffectModel(std::move(_attached));
+    } else if (_hookNode && _attached) {
+        _hookNode->removeChild(*_attached);
+    }
+    _attached.reset();
+    _hookNode = nullptr;
+    _attachedOwner.reset();
+    _attachmentProgram.reset();
+    _releaseArea.reset();
+    if (_viewAngleHold) {
+        stopViewAngleProgram();
+    }
+    if (_motionBlurApplied && _motionBlurGame) {
+        _motionBlurGame->removeMotionBlurProgram();
+    }
+    _motionBlurApplied = false;
+    _motionBlurProgram = false;
+    // Ending a shell empties the slot. The latest shell left then shows again,
+    // unless the ended shell belonged to a kept application and was not the
+    // one showing.
+    if (auto body = _shellOwner.lock()) {
+        const bool shown = body->bumpedOutShellTexture() == _shellTexture;
+        clearShell(*body);
+        _shellOwner.reset();
+        _shellTexture.reset();
+        if (holder && (shown || !_kept)) {
+            showLatestShell(holder->get());
+        }
+    }
+    _shellOwner.reset();
+    _shellTexture.reset();
+}
+
+// A node model plays its impact animation. Without one, a kept application
+// goes straight to its looping duration animation and any other holds the
+// model for a second.
+void VisualEffect::startNodeModel(scene::ISceneGraph &graph, graphics::Model &model,
+                                  std::optional<std::reference_wrapper<scene::SceneNode>> hook, bool orientationOff,
+                                  std::shared_ptr<scene::ModelSceneNode> owner, const glm::vec3 &position,
+                                  bool restoring) {
+    NodeModel nodeModel;
+    nodeModel.model = graph.newModel(model, scene::ModelUsage::Projectile);
+    nodeModel.owner = std::move(owner);
+    nodeModel.hook = hook ? &hook->get() : nullptr;
+    nodeModel.followsPositionOnly = hook && orientationOff;
+    if (hook && !nodeModel.followsPositionOnly) {
+        hook->get().addChild(*nodeModel.model);
+    } else {
+        graph.addRoot(nodeModel.model);
+        nodeModel.model->setLocalTransform(glm::translate(hook ? hook->get().origin() : position));
+    }
+    auto impact = restoring ? nullptr : model.getAnimation("impact");
+    if (impact) {
+        nodeModel.model->playAnimation("impact");
+        nodeModel.impactRemaining = impact->length();
+    } else if (_kept) {
+        nodeModel.model->playAnimation("duration", nullptr, scene::AnimationProperties::fromFlags(scene::AnimationFlags::loop));
+    } else {
+        nodeModel.impactRemaining = kNodeModelHold;
+    }
+    _nodeModels.push_back(std::move(nodeModel));
+}
+
+// The root model goes to the object's root, chosen by its size (an object
+// that is not a creature counts as medium), the impact model to its impact
+// node and the head model to its head: on a creature, the talk dummy of its
+// head model when it has one. A model whose node is missing is not shown.
+void VisualEffect::attachNodeModels(Object &object, const std::shared_ptr<scene::ModelSceneNode> &body,
+                                    const VisualEffectDesc &desc, bool restoring) {
+    auto *creature = dyn_cast<Creature>(&object);
+    const CreatureSize size = creature ? creature->size() : CreatureSize::Medium;
+    const std::pair<const std::shared_ptr<graphics::Model> *, VisualSite> models[] = {
+        {&desc.rootModel(size), VisualSite::Root},
+        {&desc.impactModel, VisualSite::Impact},
+        {&desc.headModel, VisualSite::Head}};
+    for (const auto &[model, site] : models) {
+        if (!*model) {
+            continue;
+        }
+        scene::ModelSceneNode *owner = body.get();
+        if (site == VisualSite::Head && creature) {
+            if (auto *head = dynamic_cast<scene::ModelSceneNode *>(body->getAttachment("headhook"))) {
+                owner = head;
+            }
+        }
+        auto *hook = owner->getNodeByName(visualSiteNode(object, *body, site));
+        if (!hook) {
+            continue;
+        }
+        startNodeModel(body->graph(), **model, *hook, desc.orientationOff, body, glm::vec3 {0.0f}, restoring);
+    }
+}
+
+void VisualEffect::updateNodeModels(float dt) {
+    for (auto it = _nodeModels.begin(); it != _nodeModels.end();) {
+        if (it->followsPositionOnly) {
+            it->model->setLocalTransform(glm::translate(it->hook->origin()));
+        }
+        if (it->impactRemaining > 0.0f) {
+            it->impactRemaining -= dt;
+            if (it->impactRemaining <= 0.0f) {
+                if (!_kept) {
+                    if (it->hook && !it->followsPositionOnly) {
+                        it->hook->removeChild(*it->model);
+                    } else {
+                        it->model->graph().removeRoot(*it->model);
+                    }
+                    it = _nodeModels.erase(it);
+                    continue;
+                }
+                it->model->playAnimation("duration", nullptr, scene::AnimationProperties::fromFlags(scene::AnimationFlags::loop));
+            }
+        }
+        ++it;
+    }
+}
+
+float VisualEffect::nodeModelsImpactLength() const {
+    float length = 0.0f;
+    for (const auto &nodeModel : _nodeModels) {
+        length = std::max(length, nodeModel.impactRemaining);
+    }
+    return length;
+}
+
+EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &instance) {
+    if (_visualEffectId == kSpeedKnightVisual &&
+        std::any_of(object.effects().begin(), object.effects().end(), [](const EffectInstance &applied) {
+            return applied.type() == EffectType::Visual && applied.integerParameter(0) == kSpeedKnightVisual;
+        })) {
+        return instance.durationType() == DurationType::Instant ? EffectApplicationResult::Applied
+                                                                : EffectApplicationResult::Retained;
+    }
+    const auto row = _services.game.visualEffects.get(_visualEffectId);
+    if (row) {
+        return present(object, instance, row->get());
+    }
+    // A row the table does not have shows nothing, but a timed application
+    // that hit is kept all the same, and a miss still draws its point.
+    if (_missEffect) {
+        auto caster = instance.boundCreator();
+        spellRangedMissPoint(caster ? std::optional<std::reference_wrapper<const Object>>(*caster) : std::nullopt, object);
+    }
+    _kept = instance.durationType() != DurationType::Instant && !_missEffect;
+    return _kept ? EffectApplicationResult::Retained : EffectApplicationResult::Applied;
+}
+
+EffectApplicationResult VisualEffect::present(Object &object, EffectInstance &instance, const VisualEffectDesc &desc) {
+    auto body = std::dynamic_pointer_cast<scene::ModelSceneNode>(object.sceneNode());
+    scene::ISceneGraph *graph = body ? &body->graph() : nullptr;
+    const bool tsl = object.game().isTSL();
+    // Only a timed application that hit, of a row that is not fire-and-forget,
+    // is kept on the object. Any other is shown once as an impact, which never
+    // runs the duration program; a beam shown once still runs it for the
+    // application's duration.
+    const bool beamRow = !beamModelForProgram(desc.progFXDuration, tsl).empty();
+    _kept = instance.durationType() != DurationType::Instant && !_missEffect && !desc.fireAndForget;
+    const bool runsDuration = _kept || (beamRow && instance.duration != 0.0f);
+    std::optional<int> durationProgram;
+    if (runsDuration && desc.progFXDuration >= 0) {
+        durationProgram = desc.progFXDuration;
+    }
+    // A miss is aimed at a point near the target: a missed beam ends at a
+    // stand-in there, reaching its impact node when the point is 1 m above
+    // the target's feet and its root otherwise; any other missed visual is
+    // shown at the point. TSL still draws the point's random terms but aims
+    // every miss at the world origin.
+    if (_missEffect) {
+        auto caster = instance.boundCreator();
+        const auto drawnPoint = spellRangedMissPoint(
+            caster ? std::optional<std::reference_wrapper<const Object>>(*caster) : std::nullopt, object);
+        const auto missPoint = tsl ? glm::vec3 {0.0f} : drawnPoint;
+        if (beamRow) {
+            _beamEndNode = missPoint.z == object.position().z + 1.0f ? "impact" : "root";
+            auto standIn = graph ? _services.resource.models.get(kBeamStandInModel) : nullptr;
+            if (standIn) {
+                _beamEnd = graph->newModel(*standIn, scene::ModelUsage::Projectile);
+                graph->addRoot(_beamEnd);
+                _beamEnd->setLocalTransform(glm::translate(missPoint));
+            }
+        } else {
+            _location = missPoint;
+        }
+    }
+    const glm::vec3 position = _location.value_or(object.position());
+    float presentationDuration = 0.0f;
+
+    if (graph) {
+        // The impact program runs first and the duration program follows it.
+        // Without an impact program the duration program starts at once.
+        const bool impactProgram = !instance.restoring && desc.progFXImpact >= 0;
+        if (impactProgram) {
+            startProgram(desc.progFXImpact, object, instance);
+            _impactRemaining = impactProgramLength(desc.progFXImpact);
+            _pendingDurationProgram = durationProgram;
+            presentationDuration = _impactRemaining;
+        } else if (durationProgram) {
+            startProgram(*durationProgram, object, instance);
+        }
+        // A restored application only brings back what it keeps showing.
+        if (!_beam && (!instance.restoring || _kept)) {
+            if (_location) {
+                if (desc.locationModel) {
+                    startNodeModel(*graph, *desc.locationModel, std::nullopt, desc.orientationOff, nullptr, position, instance.restoring);
+                }
+            } else if (body) {
+                attachNodeModels(object, body, desc, instance.restoring);
+            }
+        }
+        presentationDuration = std::max(presentationDuration, nodeModelsImpactLength());
+        // The impact sound plays where the visual lands: a missed beam's
+        // stand-in, otherwise the object or point.
+        if (!instance.restoring && desc.soundImpact) {
+            const glm::vec3 soundPosition = _beamEnd ? _beamEnd->origin() : position;
+            _services.audio.mixer.play(desc.soundImpact, audio::AudioType::Sound, 1.0f, false, soundPosition);
+            presentationDuration = std::max(presentationDuration, desc.soundImpact->duration());
+        }
+        if (desc.soundDuration) {
+            _durationSound = _services.audio.mixer.play(desc.soundDuration, audio::AudioType::Sound, 1.0f, true, position);
+        }
+    }
+    if (_kept) {
+        return EffectApplicationResult::Retained;
+    }
+    // An application shown once is not kept: it lasts as long as what it
+    // shows, and a beam shown once lasts for the application's duration.
+    if (runsDuration && _beam) {
+        presentationDuration = std::max(presentationDuration, instance.duration);
+    }
+    if (presentationDuration <= 0.0f) {
+        return EffectApplicationResult::Applied;
+    }
+    instance.setDuration(DurationType::Temporary, presentationDuration);
+    return EffectApplicationResult::Retained;
+}
+
+void VisualEffect::onUpdate(Object &object, const EffectInstance &instance, float dt) {
+    if (_impactRemaining > 0.0f) {
+        _impactRemaining -= dt;
+        if (_impactRemaining <= 0.0f) {
+            stopProgram(object);
+            if (_pendingDurationProgram) {
+                startProgram(*_pendingDurationProgram, object, instance);
+            }
+            _pendingDurationProgram.reset();
+        } else {
+            updateViewAngleProgram(object);
+        }
+    }
+    if (_motionBlurProgram && _impactRemaining <= 0.0f) {
+        updateMotionBlurProgram(object);
+    }
+    updateNodeModels(dt);
+    if (_durationSound) {
+        _durationSound->setPosition(object.position());
+    }
+    if (_beam) {
+        const auto ends = resolveBeamEnds(object, instance);
+        if (ends.sourceNode && _node) {
+            _node->setLocalTransform(ends.sourceNode->absoluteTransform());
+        }
+        for (auto *mesh : _beamMeshes) {
+            if (ends.complete()) {
+                mesh->setProjectedBeamTarget(*ends.targetNode);
+            } else {
+                mesh->clearProjectedBeamTarget();
+            }
+        }
+        _beamSourceOwner = ends.sourceModel;
+        _beamTargetOwner = ends.targetModel;
+    }
+}
+
+EffectRemovalResult VisualEffect::onRemove(Object &object, const EffectInstance &) {
+    clearPresentation(object);
+    return EffectRemovalResult::Removed;
 }
 
 } // namespace game

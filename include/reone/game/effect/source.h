@@ -22,19 +22,20 @@
 #include <tuple>
 #include <utility>
 
+#include "../effect.h"
+
 namespace reone {
 
 namespace game {
 
-struct EffectInstance;
-
-/** A calculation-only grouping key derived from one canonical effect. */
-enum class EffectSourceKind : uint8_t {
+/** What kind of source an effect is grouped by. */
+enum class EffectSourceKind {
     Item,
     Spell,
     Independent,
 };
 
+/** The item, spell or single effect an effect comes from. */
 struct EffectSourceKey {
     EffectSourceKind kind {EffectSourceKind::Independent};
     uint64_t value {0};
@@ -44,8 +45,43 @@ struct EffectSourceKey {
     }
 };
 
+/** The source of \p effect: its creating item, its spell, or itself. */
 EffectSourceKey getEffectSourceKey(const EffectInstance &effect);
 
+/**
+ * Totals the ability increases and decreases on a creature by source. A
+ * source's increases count once, at the largest; its decreases add up. Effects
+ * of no item or spell each count on their own. Each direction is capped.
+ */
+class AbilityEffectReducer {
+public:
+    explicit AbilityEffectReducer(bool tsl) :
+        _tsl(tsl) {
+    }
+
+    void addIncrease(EffectSourceKey source, int amount);
+    void addDecrease(EffectSourceKey source, int amount);
+
+    /** The capped increases less the capped decreases. */
+    int total() const;
+
+private:
+    struct Direction {
+        std::map<EffectSourceKey, int> bySource;
+        int independent {0};
+
+        int total() const;
+    };
+
+    bool _tsl;
+    Direction _increases;
+    Direction _decreases;
+};
+
+/**
+ * Totals effect modifiers by source and subtype: for each pair only the
+ * largest counts, and the total is capped.
+ */
 class EffectModifierReducer {
 public:
     void addIncrease(EffectSourceKey source, int subtype, int amount);

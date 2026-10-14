@@ -17,26 +17,38 @@
 
 #pragma once
 
-#include "reone/game/galaxymapstate.h"
-#include "reone/input/event.h"
-
 #include <array>
+#include <functional>
 #include <optional>
+#include <set>
 #include <tuple>
+
+#include <glm/vec3.hpp>
+
+#include "reone/game/galaxymapstate.h"
+#include "reone/game/runtimeref.h"
+#include "reone/input/event.h"
 
 namespace reone {
 
 namespace game {
 
+class Area;
 class Creature;
 class Game;
+class Item;
 class Object;
+
+/** Party slots, the leader's included. */
+constexpr int kPartyFollowSlots = 3;
 
 enum class XPSource {
     Plot,
     Combat,
     Stealth,
-    Console
+    Console,
+    Skill, /**< disarming and recovering mines */
+    Script /**< a script award naming a creature outside the party */
 };
 
 enum class RosterKind {
@@ -77,17 +89,16 @@ public:
     static constexpr size_t kMaxNpcCount = kK2NpcCount;
     static constexpr size_t kMaxPuppetCount = 3;
     static constexpr size_t kGalaxyPlanetCount = 16;
+    /** PT_TUT_WND_SHOWN holds one bit per tutorial window: six bytes in KotOR, 33 in TSL. */
+    static constexpr size_t kK1TutorialShownBytes = 6;
+    static constexpr size_t kTutorialShownBytes = 33;
+    // Forfeit conditions: no Force powers, no items, no item but a shield.
+    /** The combat-mode line shown while the leader moves to attack its target. */
+    static constexpr int kMovingToAttackCombatMessage = 42477;
 
-    struct SavedDialogMessage {
-        std::string speaker;
-        std::string text;
-    };
-
-    struct SavedLogMessage {
-        uint8_t color {0};
-        uint32_t type {0};
-        std::string text;
-    };
+    static constexpr int kForfeitNoForcePowers = 1;
+    static constexpr int kForfeitNoItems = 2;
+    static constexpr int kForfeitNoItemButShield = 128;
 
     struct PersistedState {
         std::string pcName;
@@ -113,9 +124,11 @@ public:
         int selectedPlanet {-1};
         bool mapDisabled {false};
         bool regenerationDisabled {false};
-        std::vector<SavedDialogMessage> dialogMessages;
-        std::vector<SavedLogMessage> feedbackMessages;
-        std::vector<SavedLogMessage> combatMessages;
+        /** The tutorial windows already shown. */
+        std::set<int> tutorialsShown;
+        /** The forfeit conditions scripts set, and the last one a party member broke (TSL). */
+        int forfeitConditions {0};
+        int forfeitViolation {0};
 
         PersistedState() {
             npcSelectable.fill(true);
@@ -127,10 +140,12 @@ public:
     struct Member {
         int npc {0};
         std::shared_ptr<Creature> creature;
+        RuntimeObjectRef<Object> lastTarget;
     };
 
     Party(Game &game) :
         _game(game) {
+        resetFollowSlots();
     }
 
     bool handle(const input::Event &event);
@@ -145,7 +160,18 @@ public:
     void retireRuntimeSession();
 
     void clear();
-    void switchLeader();
+    /** The next member takes the lead; the one leading goes to the back. */
+    void switchLeader(bool sound = true);
+    /**
+     * Rotate the lead, up to three times, to the next member neither dead nor
+     * downed. True when the lead moved; the select sound then plays once.
+     */
+    bool changeToNextLivingMember(bool sound);
+    /**
+     * Hands control to the next member standing, as the change-character key
+     * does; with no one else standing, control stays where it is.
+     */
+    bool selectNextStandingMember();
 
     bool isEmpty() const;
     bool isSoloMode() const { return _solo; }
@@ -153,34 +179,64 @@ public:
     int getSize() const;
     std::shared_ptr<Creature> getLeader() const;
 
+    /** The combat-mode line shown while no other combat message is being presented. */
+    int idleCombatMessage() const;
+    /** Post a member's combat-mode line; only the controlled member's line is presented. */
+    void setCombatMessage(const Creature &creature, int strref);
+
     std::shared_ptr<Creature> player() const { return _player; }
     std::shared_ptr<Creature> actualPlayer() const { return _actualPlayer ? _actualPlayer : _player; }
+    /** The player character's name as saves record it. */
+    std::string playerCharacterName() const;
     const std::vector<Member> &members() const { return _members; }
+    /** The leader's slot remembers the current target; the pass writes it every frame. */
+    void setLeaderLastTarget(RuntimeObjectRef<Object> target) {
+        if (!_members.empty()) {
+            _members.front().lastTarget = std::move(target);
+        }
+    }
 
     const PersistedState &persistedState() const { return _persistedState; }
+    /** The party-wide AI style scripts set and read. */
+    int aiStyle() const { return _persistedState.aiState; }
+    void setAIStyle(int style) { _persistedState.aiState = style; }
+    bool isHealthRegenerationDisabled() const { return _persistedState.regenerationDisabled; }
+    void setHealthRegenerationDisabled(bool disabled) { _persistedState.regenerationDisabled = disabled; }
+    bool isTutorialShown(int id) const { return _persistedState.tutorialsShown.count(id) != 0; }
+    void setTutorialShown(int id) { _persistedState.tutorialsShown.insert(id); }
+    int forfeitConditions() const { return _persistedState.forfeitConditions; }
+    void setForfeitConditions(int conditions) { _persistedState.forfeitConditions = conditions; }
+    int lastForfeitViolation() const { return _persistedState.forfeitViolation; }
+    void setLastForfeitViolation(int condition) { _persistedState.forfeitViolation = condition; }
 
     /** Roster index of the actor standing in for the PC, or kNpcPlayer. */
     int controlledNpc() const { return _persistedState.controlledNpc; }
 
     /**
-     * Hand control to a creature, leaving the rest of the party alone.
+     * Hand control to a creature.
      *
-     * Retail models temporary control as a roster NPC taking the player's
-     * place: the outgoing actor is parked rather than demoted to a companion,
-     * and the companions travelling with it are untouched. The incoming
-     * creature occupies the leading slot exactly once, however it was
-     * represented before.
+     * Temporary control is a roster NPC taking the player's place: the
+     * outgoing actor leaves the party rather than being demoted to a
+     * companion. The incoming creature occupies the leading slot exactly
+     * once, however it was represented before, and becomes a player
+     * character. The character switch takes the outgoing actor out of the
+     * world and removes the other companions before handing control over.
      */
     void setControlledMember(int npc, const std::shared_ptr<Creature> &creature);
     void setPersistedState(PersistedState state);
-    /** Retail LoadTableInfo semantics: persisted fields replace all bindings. */
+    /** Persisted party-table fields replace all bindings. */
     void loadPersistedState(PersistedState state);
 
     void setPartyLeader(int npc);
     void setPartyLeaderByIndex(int index);
     void setPlayer(const std::shared_ptr<Creature> &player);
     void setActualPlayer(const std::shared_ptr<Creature> &player) { _actualPlayer = player; }
-    void setSoloMode(bool value) { _solo = value; }
+    /** Leaving solo mode ends the party's stealth. */
+    void setSoloMode(bool value);
+    /** End stealth for the controlled creature and the other members. */
+    void endStealth();
+    /** Members other than the player's own creature. */
+    int companionCount() const;
 
     // Members
 
@@ -191,15 +247,15 @@ public:
 
     bool removeMember(int npc);
 
-    /**
-     * Persist and remove a TSL companion from the adventuring party before
-     * its runtime representation is retired by RemoveNPCFromPartyToBase.
-     * Logical availability and puppet assignment remain unchanged.
-     */
-    bool removeMemberToBase(int npc);
-
     bool isMember(int npc) const;
     bool isMember(const Object &object) const;
+    /**
+     * Whether a companion travels with the party as a follower. A follower
+     * whose creature was destroyed still does: its place stays, naming
+     * nothing. Neither the player character nor a companion standing in for
+     * it is a follower.
+     */
+    bool isFollower(int npc) const;
 
     /**
      * Whether this exact Creature is retained by Party/session lifetime across
@@ -233,7 +289,7 @@ public:
 
     /**
      * Add or replace the detached persistent record from a live creature.
-     * Retail AddNPC/AddPUP does not implicitly bind the supplied module object.
+     * This does not implicitly bind the supplied module object.
      */
     bool addAvailableRosterRecord(
         const RosterIdentity &identity,
@@ -276,10 +332,37 @@ public:
     bool bindRosterCreature(
         const RosterIdentity &identity,
         const std::shared_ptr<Creature> &creature);
+    /**
+     * The creature standing in the area for TSL companion slot npc, found by the
+     * companion's tag, becomes that slot's creature. Returns it; null when no
+     * creature with the companion's tag stands in the area.
+     */
+    std::shared_ptr<Creature> bindPlacedCompanion(int npc, const Area &area);
     bool clearRosterCreature(
         const RosterIdentity &identity,
         const Creature *expected = nullptr);
     bool clearRosterCreature(const Creature &creature);
+    /**
+     * The creature's member entries keep their places but name nothing, as
+     * when the creature is taken out of the world while still in the party.
+     * An entry naming nothing in the leading place leaves no one leading.
+     */
+    void vacateMemberEntries(const Creature &creature);
+    /** The creature's member entries leave the party, the places behind them moving up. */
+    void removeMemberEntries(const Creature &creature);
+    /**
+     * The roster slot naming the creature forgets it; the party's follower and
+     * puppet lists stay as they are. A companion under control that is
+     * forgotten leaves no one under control.
+     */
+    bool releaseRosterSlot(const Creature &creature);
+    /**
+     * Forming the party anew brings each follower whose place names nothing
+     * back from its roster record, in that place.
+     */
+    void respawnVacantFollowers();
+    /** Rebuilding the party drops the entries that name nothing. */
+    void removeVacantMembers();
     std::shared_ptr<Creature> rosterCreature(
         const RosterIdentity &identity) const;
     std::shared_ptr<Creature> rosterCreature(
@@ -314,10 +397,33 @@ public:
     // that target a party member operate on this pool.
 
     int gold() const { return _gold; }
+    /** The party's credits rise by amount, up to 999999999. */
     void giveGold(int amount);
+    /** The party's credits fall by amount, down to none. */
     void takeGold(int amount);
 
+    /** A creature's credits: the shared pool for a party member, its own otherwise. */
+    int creatureGold(const Creature &creature) const;
+    /**
+     * Credits a creature gains, up to 999999999, or loses, down to none. The
+     * creature the player controls is told the change. Returns the change.
+     */
+    int addCreatureGold(Creature &creature, int amount);
+    int removeCreatureGold(Creature &creature, int amount);
+
     // END Credits
+
+    /**
+     * Credits, chemicals (TSL), components (TSL) and pazaak cards a creature
+     * acquires are counted, not kept.
+     */
+    bool isCountedItem(const Item &item) const;
+    /**
+     * A creature acquires a counted item: credits become its credits,
+     * chemicals and components the party's counts, and pazaak cards join the
+     * party's collection. The caller discards the item.
+     */
+    void acquireCountedItem(Creature &acquirer, const Item &item);
 
     // Pazaak state stored in PARTYTABLE.res. The final ownership slot is retained
     // verbatim even though side decks only use the card-type IDs before it.
@@ -331,22 +437,46 @@ public:
         PazaakSideDeck sideDeck,
         size_t cardCount = kK1PazaakCardCount);
     void setPazaakSideDeck(PazaakSideDeck sideDeck);
+    /** Takes up to count cards of one kind from the collection. */
+    void removePazaakCards(int card, int count);
+    /** Adds count cards of one kind to the collection. */
+    void addPazaakCards(int card, int count);
     /** Establish title-correct durable Party defaults for a fresh new game. */
     void initializeNewGameState();
 
     // Experience
     //
-    // KOTOR stores experience as a single party-shared pool. XP awarded to a
-    // party member feeds this pool; current members derive their creature XP
-    // from it, and members added later are synced to it.
+    // The party pool records every award at its face value. Each award pays
+    // the companions travelling with the party and the creature under the
+    // player's control their own share (npc.2da PercentXP); roster companions
+    // who were away catch up with the pool when they are brought into the
+    // world.
 
     int xp() const { return _xp; }
 
-    /** Add to the shared pool and apply feedback appropriate to the award source. */
+    /**
+     * Record an award in the pool and pay it, with the TSL companion bonus,
+     * to the travelling companions and the creature under the player's
+     * control; feedback and the Status Summary follow the award source.
+     */
     void awardXP(int amount, XPSource source);
+    /** The TSL mentor's bonus on an award, paid to the recipients but not recorded in the pool. */
+    int companionXPBonus(int amount) const;
+    /** Set the pool; current members take it as their experience. */
     void setXP(int xp);
+    /**
+     * A roster companion brought into the world is paid up to its joining
+     * experience plus its share of the pool.
+     */
+    void catchUpExperience(int npc, Creature &creature);
 
     // END Experience
+
+    /**
+     * In TSL a roster companion brought into the world for the party joins
+     * the player character's faction.
+     */
+    void spawnIntoPlayerFaction(Creature &creature) const;
 
     // Galaxy map
     //
@@ -371,7 +501,69 @@ public:
 
     // END Inventory
 
+    // Follow path
+
+    /**
+     * The leader's walked trail: the last hundred points it moved through
+     * with its facing, a point dropped when it moved under half a metre in a
+     * clear line, and the last clear point added when the way from the
+     * previous one is blocked. Once a follower falls seven metres behind, the
+     * trail from the nearest follower on is pulled straight where it can be
+     * walked and laid out again a metre apart. Each follower keeps a follow
+     * point a follow range back along the trail from the leader, the first
+     * follower a metre nearer and the second a metre further, never behind its
+     * previous one.
+     */
+    void recordLeaderStep(const Area &area, const glm::vec3 &position, float facing);
+    /**
+     * Start the trail over at a point: every follow point becomes that point
+     * and members standing where they do not fit move to the nearest spot
+     * that does. Seeding first lays the followers' spots behind it.
+     */
+    void resetFollowPath(Area &area, const glm::vec3 &position, float facing, bool seed);
+    /**
+     * Outside conversations, once the furthest follower falls seven metres
+     * behind, the follow points are recomputed; when the nearest follower
+     * faces against the leader's way, the formation also swaps sides.
+     */
+    void updateFollowPath();
+    /**
+     * The way a following member faces: where it last moved, or the leader
+     * it turned to. Its model turns to it, and the party turning back is
+     * noticed from it.
+     */
+    void noteFollowerFacing(const Creature &follower, const glm::vec3 &forward);
+    const glm::vec3 &followerFacing(int slot) const { return _followSlots[slot].lastFacing; }
+    const glm::vec3 &followPoint(int slot) const { return _followSlots[slot].point; }
+    /** Where a slot stands relative to the leader, in the leader's frame with forward along +Y. */
+    const glm::vec3 &formationOffset(int slot) const { return _followSlots[slot].formationOffset; }
+    /**
+     * Where a follower stands at its follow point: its formation offset turned
+     * to the facing of the trail step the point lies on.
+     */
+    glm::vec3 formationSpot(int slot) const;
+
+    // END Follow path
+
 private:
+    /** The leader's trail keeps this many steps. */
+    static constexpr int kFollowSteps = 100;
+
+    /** A point of the leader's trail and the way the leader faced there. */
+    struct FollowStep {
+        glm::vec3 position {0.0f};
+        float facing {0.0f};
+    };
+
+    /** A party slot's place in the formation. */
+    struct FollowSlot {
+        glm::vec3 point {0.0f};
+        /** The trail step the point lies on. */
+        int index {0};
+        glm::vec3 formationOffset {0.0f};
+        glm::vec3 lastFacing {0.0f, 1.0f, 0.0f};
+    };
+
     Game &_game;
 
     std::shared_ptr<Creature> _player;
@@ -389,15 +581,74 @@ private:
     PersistedState _persistedState;
     std::map<int, std::shared_ptr<Creature>> _puppetBindings;
 
+    // Follow path
+
+    /** The trail, a ring of steps: the next step is written at the head. */
+    std::array<FollowStep, kFollowSteps> _followSteps {};
+    int _followHead {0};
+    int _followCount {0};
+    /** The last point the leader reached in a clear line from the trail. */
+    glm::vec3 _lastClearStep {0.0f};
+    std::array<FollowSlot, kPartyFollowSlots> _followSlots {};
+
+    // END Follow path
+
     bool handleKeyDown(const input::KeyEvent &event);
+    /**
+     * The roster slot forgets its creature, when it binds the expected one or
+     * no creature is expected. Returns the creature released.
+     */
+    std::shared_ptr<Creature> releaseRosterSlot(
+        const RosterIdentity &identity,
+        std::optional<std::reference_wrapper<const Creature>> expected);
     bool makeRosterAvailableAndBind(
         const RosterIdentity &identity,
         const std::shared_ptr<Creature> &creature);
 
     // Apply the party XP pool value to every current member's creature XP.
     void syncMembersXP();
+    /** Companions travelling with the party: neither the player character nor a companion standing in for it. */
+    bool isCompanion(const Member &member) const;
+    /** PercentXP of an npc.2da row; a blank cell counts as 100. */
+    int percentXP(int row) const;
+    /** Pay a creature its share of an award. */
+    void receiveExperience(Creature &creature, int amount);
+    /** A companion added to the roster starts from the pool. */
+    void applyJoiningExperience(int npc, Creature &creature);
+    /**
+     * A companion added to the roster joins the player character's faction;
+     * a puppet joins the party puppet faction.
+     */
+    void joinRosterFaction(const RosterIdentity &identity, Creature &creature) const;
+    void transferInventory(Creature &creature);
 
-    void onLeaderChanged();
+    void saveLeaderAttackTarget();
+    void onLeaderChanged(const std::shared_ptr<Creature> &previous, bool sound = true);
+    void playLeaderSelectSound();
+
+    void resetFollowSlots();
+    int newestStep() const { return _followHead > 0 ? _followHead - 1 : kFollowSteps - 1; }
+    static int stepAfter(int step) { return step > kFollowSteps - 2 ? 0 : step + 1; }
+    static int stepBefore(int step) { return step > 0 ? step - 1 : kFollowSteps - 1; }
+    /** How far behind the leader the followers keep, by the party's follow state. */
+    float followRange() const;
+    /**
+     * The point a distance back along the trail from the leader, not behind
+     * the slot's own step, and the step it lies on. False for a trail too short.
+     */
+    bool pointBackFromStart(float distance, int slot, glm::vec3 &point, int &step) const;
+    void recalculateFollowPoints();
+    /** The follower slot whose point lies furthest back along the trail. */
+    int furthestFollower() const;
+    /** The follower slot whose point lies nearest the leader along the trail. */
+    int closestFollower() const;
+    /** Squared distance from the leader to the slot's follow point. */
+    float followerLag2(int slot) const;
+    /** A straight walk the trail can take: clear, or blocked only by a party member. */
+    bool isTrailLineClear(
+        const Area &area, const Creature &walker, const glm::vec3 &from, const glm::vec3 &to, bool &clear) const;
+    void smoothFollowPath(const Area &area);
+    bool turnBack();
 };
 
 } // namespace game

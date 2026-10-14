@@ -38,8 +38,12 @@ public:
     }
 
     void open(std::shared_ptr<Object> contanier);
+    void update(float dt) override;
 
     Object &container() const;
+    bool displays(const Object &object) const { return _container.resolve().get() == &object; }
+    /** The screen is closed from outside: the controlled creature takes everything left. */
+    void closeTakingAll();
 
 private:
     struct Controls {
@@ -59,6 +63,11 @@ private:
 
     Mode _mode {Mode::ContainerToPlayer};
     RuntimeObjectRef<Object> _container;
+    /**
+     * The list shows the container as it is once the world update in which
+     * the screen opened has finished, its open and used scripts included.
+     */
+    bool _itemsListed {false};
 
     std::string _giveItemMsg;
     std::string _getItemsMsg;
@@ -78,8 +87,7 @@ private:
     void switchMode();
     void transferItemsToPlayer();
     void onItemDoubleClick(const std::string &tag);
-    void close();
-
+    void close(bool takeAll = false);
 };
 
 } // namespace game

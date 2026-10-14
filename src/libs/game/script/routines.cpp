@@ -17,9 +17,12 @@
 
 #include "reone/game/script/routines.h"
 
+#include <set>
+
 #include "reone/game/di/services.h"
 #include "reone/game/effect.h"
 #include "reone/game/game.h"
+#include "reone/game/object/creature.h"
 #include "reone/game/script/routine/context.h"
 #include "reone/game/types.h"
 #include "reone/script/executioncontext.h"
@@ -33,6 +36,46 @@ namespace reone {
 namespace game {
 
 static constexpr int kBaseItemInvalid = 256;
+
+namespace {
+
+// What an effect constructor routine stamps on the effect it builds. Most
+// make it magical and give it OBJECT_SELF as its creator (and the creator's
+// spell); a few make it magical but take OBJECT_SELF as the creator only when
+// it is a creature; a few give it only the creator, and a few neither, leaving
+// the effect without a category, creator or spell.
+enum class EffectConstructorStamp {
+    MagicalWithCreator,
+    MagicalWithCreatureCreator,
+    CreatorOnly,
+    None
+};
+
+EffectConstructorStamp getEffectConstructorStamp(const std::string &name) {
+    static const std::set<std::string> kUnstamped {
+        "EffectBlasterDeflectionDecrease", "EffectBlasterDeflectionIncrease", "EffectBodyFuel",
+        "EffectChoke", "EffectCrush", "EffectDamageForcePoints", "EffectDroidStun",
+        "EffectHealForcePoints", "EffectHorrified", "EffectLightsaberThrow", "EffectPsychicStatic",
+        "EffectWhirlWind"};
+    static const std::set<std::string> kCreatureCreator {
+        "EffectHeal", "EffectTemporaryForcePoints", "EffectTemporaryHitpoints"};
+    static const std::set<std::string> kCreatorOnly {
+        "EffectBlind", "EffectFPRegenModifier", "EffectFactionModifier", "EffectForceBody",
+        "EffectForceJump", "EffectForcePushTargeted", "EffectForcePushed", "EffectForceShield",
+        "EffectForceSight", "EffectFury", "EffectHitPointChangeWhenDying", "EffectVPRegenModifier"};
+    if (kUnstamped.count(name)) {
+        return EffectConstructorStamp::None;
+    }
+    if (kCreatureCreator.count(name)) {
+        return EffectConstructorStamp::MagicalWithCreatureCreator;
+    }
+    if (kCreatorOnly.count(name)) {
+        return EffectConstructorStamp::CreatorOnly;
+    }
+    return EffectConstructorStamp::MagicalWithCreator;
+}
+
+} // namespace
 
 void Routines::init() {
     if (_gameId == GameID::TSL) {
@@ -94,30 +137,38 @@ void Routines::insert(
 
     const bool constructsEffect =
         retType == VariableType::Effect && name.rfind("Effect", 0) == 0;
+    const auto stamp = constructsEffect ? getEffectConstructorStamp(name) : EffectConstructorStamp::None;
     _routines[index] = Routine(
         std::move(name),
         retType,
         std::move(defRetValue),
         std::move(argTypes),
-        [this, fn, retType, constructsEffect](auto &args, auto &execution) {
+        [this, fn, retType, constructsEffect, stamp](auto &args, auto &execution) {
             RoutineContext ctx(*_game, *_services, execution);
             auto result = fn(args, std::move(ctx));
-            // Retail stamps VM-created CGameEffect values with OBJECT_SELF.
-            // Keep that save-facing creator independently of executable
-            // subclass behavior so delayed continuations can serialize it.
+            // An effect a script constructs is stamped with OBJECT_SELF.
             if (constructsEffect) {
                 auto effect = std::dynamic_pointer_cast<Effect>(result.engineType);
                 if (effect) {
+                    effect->setSaveFacingId(_game->allocateEffectId());
                     effect->captureSaveFacingScriptArguments(args, *_game);
+                    // The constructed value itself becomes magical; linked members
+                    // keep their own values until the link is applied.
+                    if (stamp == EffectConstructorStamp::MagicalWithCreator ||
+                        stamp == EffectConstructorStamp::MagicalWithCreatureCreator)
+                        effect->Effect::setCategory(EffectCategory::Magical);
                 }
                 auto caller = execution.findArg(ArgKind::Caller);
-                if (effect && caller) {
-                    effect->setSaveFacingCreator(
-                        _game->getObjectById(caller->objectId));
-                }
-                auto spell = execution.findArg(ArgKind::SpellId);
-                if (effect && spell) {
-                    effect->setSaveFacingSpellId(spell->intValue);
+                // A creator-only constructor that yields an effect of no type
+                // gives it no creator.
+                const bool typeless = effect && effect->type() == EffectType::Invalid;
+                if (effect && caller && stamp != EffectConstructorStamp::None &&
+                    !(stamp == EffectConstructorStamp::CreatorOnly && typeless)) {
+                    auto creator = _game->getObjectById(caller->objectId);
+                    if (stamp != EffectConstructorStamp::MagicalWithCreatureCreator ||
+                        std::dynamic_pointer_cast<Creature>(creator)) {
+                        effect->setCreatorFromCaller(creator);
+                    }
                 }
             }
             return result;

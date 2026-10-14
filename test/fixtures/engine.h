@@ -70,6 +70,23 @@ public:
             _scriptModule->services(),
             _resourceModule->services(),
             _systemModule->services());
+
+        // Tables the game always reads. Empty, every row reads as blank; a
+        // test that needs rows mocks the table itself.
+        EXPECT_CALL(_resourceModule->twoDas(), get(testing::_)).Times(testing::AnyNumber());
+        std::shared_ptr<resource::TwoDA> empty(resource::TwoDA::Builder().build());
+        for (const char *table : {"npc", "ranges", "traps", "skills", "animations", "dialoganimations", "tutorial",
+                                  "encdifficulty", "ambientmusic", "ambientsound", "prioritygroups"}) {
+            ON_CALL(_resourceModule->twoDas(), get(std::string(table))).WillByDefault(testing::Return(empty));
+        }
+        // The combat tables the game loads at start, with no rows but an
+        // excitement of no duration.
+        testing::NiceMock<resource::MockTwoDAs> combatTables;
+        std::shared_ptr<resource::TwoDA> excited(
+            resource::TwoDA::Builder().columns({"duration"}).row({"0"}).row({"0"}).row({"0"}).build());
+        ON_CALL(combatTables, get(testing::_)).WillByDefault(testing::Return(empty));
+        ON_CALL(combatTables, get("excitedduration")).WillByDefault(testing::Return(excited));
+        _gameModule->combatTables().init(combatTables, resource::GameID::KotOR);
     }
 
     game::OptionsView &options() {

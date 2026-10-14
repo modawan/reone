@@ -64,6 +64,7 @@ std::shared_ptr<Gff> creatureRecord(
         .field(Gff::Field::newByte("Gender", 0))
         .field(Gff::Field::newByte("Race", 6))
         .field(Gff::Field::newWord("SoundSetFile", 21))
+        .field(Gff::Field::newByte("IsPC", 0))
         .build();
 }
 
@@ -103,7 +104,7 @@ std::shared_ptr<Gff> itemRecord(
                             .field(Gff::Field::newWord(
                                 "Subtype",
                                 static_cast<uint16_t>(FeatType::MasterToughness)))
-                            .field(Gff::Field::newByte("UpgradeType", 0))
+                            .field(Gff::Field::newByte("UpgradeType", 0xff))
                             .build();
         builder.field(Gff::Field::newList(
             "PropertiesList", {std::move(property)}));
@@ -136,6 +137,9 @@ public:
         EXPECT_CALL(testEngine().resourceModule().twoDas(), get("soundset"))
             .Times(AnyNumber())
             .WillRepeatedly(Return(nullptr));
+        // Perception ranges are outside these tests.
+        EXPECT_CALL(testEngine().resourceModule().twoDas(), get("ranges"))
+            .Times(AnyNumber());
         EXPECT_CALL(testEngine().resourceModule().twoDas(), get("baseitems"))
             .Times(AnyNumber())
             .WillRepeatedly(Return(itemBaseTable()));
@@ -165,9 +169,18 @@ public:
         return graph;
     }
 
+    // A companion or other NPC: real NPCs come from records carrying IsPC 0.
     std::shared_ptr<Creature> creature(std::string tag) {
         auto result = game.newCreature();
         result->setTag(std::move(tag));
+        result->setPC(false);
+        return result;
+    }
+
+    // The player character.
+    std::shared_ptr<Creature> playerCreature() {
+        auto result = game.newCreature();
+        result->setTag("player");
         return result;
     }
 
@@ -187,7 +200,7 @@ class PartySelectionRuntimeHarness {
 public:
     explicit PartySelectionRuntimeHarness(GameID gameId) :
         roster(gameId) {
-        player = roster.creature("player");
+        player = roster.playerCreature();
         area = roster.game.newArea();
         TestGameModule::configureModuleSnapshot(
             roster.game, area, player, "party_select", "party_select");
@@ -360,7 +373,7 @@ TEST(PartySelectionRuntimeTSL, changed_selection_uses_normal_reconciliation) {
 
     EXPECT_FALSE(harness.roster.game.party().isMember(0));
     EXPECT_EQ(replacement, harness.roster.game.party().getMemberByNPC(1));
-    EXPECT_FALSE(harness.area->isObjectResident(*oldMember));
+    EXPECT_TRUE(harness.area->isObjectResident(*oldMember));
     EXPECT_TRUE(harness.area->isObjectResident(*replacement));
     EXPECT_TRUE(harness.roster.game.isRuntimeObjectLive(*oldMember));
     EXPECT_EQ(1u, harness.partyOccurrences(1));
@@ -522,7 +535,7 @@ TEST(RosterBinding, canonical_player_cannot_be_claimed_by_roster_slot) {
     Party::PersistedState state;
     state.npcAvailable[0] = true;
     harness.game.party().setPersistedState(state);
-    auto player = harness.creature("player");
+    auto player = harness.playerCreature();
     harness.game.party().setPlayer(player);
     harness.game.party().setActualPlayer(player);
 
@@ -731,7 +744,7 @@ TEST(RosterBinding, removing_active_member_preserves_availability_and_binding) {
 
 TEST(RosterBinding, controlled_member_cannot_be_removed_as_a_follower) {
     RosterHarness harness;
-    auto canonical = harness.creature("player");
+    auto canonical = harness.playerCreature();
     auto controlled = harness.creature("controlled");
     harness.game.party().setPlayer(canonical);
     harness.game.party().setActualPlayer(canonical);
@@ -746,7 +759,7 @@ TEST(RosterBinding, controlled_member_cannot_be_removed_as_a_follower) {
 
 TEST(RosterBinding, controlling_active_companion_retires_its_assigned_puppet) {
     RosterHarness harness;
-    auto canonical = harness.creature("player");
+    auto canonical = harness.playerCreature();
     auto controlled = harness.creature("controlled");
     auto puppet = harness.creature("remote");
     harness.game.party().setPlayer(canonical);
@@ -1057,7 +1070,7 @@ TEST(RosterBinding, member_lifecycle_activates_and_kills_assigned_puppet) {
 
 TEST(RemoveNPCFromPartyToBase, persists_then_retires_the_exact_runtime_companion) {
     RosterHarness harness;
-    auto player = harness.creature("player");
+    auto player = harness.playerCreature();
     auto companion = harness.creature("companion");
     auto area = harness.game.newArea();
     TestGameModule::configureModuleSnapshot(
@@ -1129,9 +1142,11 @@ TEST(RemoveNPCFromPartyToBase, persists_then_retires_the_exact_runtime_companion
         static_cast<int32_t>(FeatType::PowerAttack),
         savedAction->getList("Paramaters")[6]->getInt("Value"));
     EXPECT_TRUE(saved->getList("EffectList").empty());
-    EXPECT_EQ(1u, saved->getList("ItemList").size());
+    // The companion's carried item became the party's when it joined.
+    EXPECT_TRUE(saved->getList("ItemList").empty());
     EXPECT_EQ(1u, saved->getList("Equip_ItemList").size());
-    EXPECT_FALSE(carried->isRuntimeLive());
+    EXPECT_TRUE(carried->isRuntimeLive());
+    EXPECT_EQ(player->id(), carried->owner());
     EXPECT_FALSE(equipped->isRuntimeLive());
     harness.game.combat().update(0.0f);
     EXPECT_TRUE(companionAttack->isCancelled());
@@ -1141,7 +1156,7 @@ TEST(RemoveNPCFromPartyToBase, persists_then_retires_the_exact_runtime_companion
 
 TEST(RemoveNPCFromPartyToBase, readding_materializes_one_fresh_representation) {
     RosterHarness harness;
-    auto player = harness.creature("player");
+    auto player = harness.playerCreature();
     auto companion = harness.creature("companion");
     auto area = harness.game.newArea();
     TestGameModule::configureModuleSnapshot(
@@ -1192,6 +1207,13 @@ TEST(RemoveNPCFromPartyToBase, readding_materializes_one_fresh_representation) {
 
 TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_rematerialization) {
     RosterHarness harness;
+    EXPECT_CALL(testEngine().resourceModule().twoDas(), get("racialtypes"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder()
+                .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                .row({"0", "0", "0", "0", "0", "0"})
+                .build())));
     NiceMock<MockStrings> strings;
     NiceMock<MockTwoDAs> twoDas;
     Classes classes(strings, twoDas);
@@ -1199,8 +1221,12 @@ TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_remateriali
         ClassType::Soldier, classes, strings, twoDas);
     EXPECT_CALL(testEngine().gameModule().classes(), get(ClassType::Soldier))
         .WillRepeatedly(Return(soldier));
+    // The reload keeps only feats defined in the feat table.
+    auto &feats = static_cast<MockFeats &>(testEngine().services().game.feats);
+    ON_CALL(feats, get(FeatType::Toughness))
+        .WillByDefault(Return(std::make_shared<Feat>()));
 
-    auto player = harness.creature("player");
+    auto player = harness.playerCreature();
     auto companion = harness.creature("companion");
     auto area = harness.game.newArea();
     TestGameModule::configureModuleSnapshot(
@@ -1217,7 +1243,7 @@ TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_remateriali
     ASSERT_TRUE(companion->equip(InventorySlots::body, equipped));
     ASSERT_TRUE(harness.game.party().addAvailableMember(4, companion));
     ASSERT_TRUE(harness.game.party().addMember(4, companion));
-    EXPECT_EQ(36, companion->maxHitPoints());
+    EXPECT_EQ(39, companion->maxHitPoints());
     EXPECT_EQ(32, companion->currentHitPoints());
     EXPECT_FALSE(companion->attributes().hasFeat(FeatType::MasterToughness));
     EXPECT_TRUE(companion->hasEffectiveFeat(FeatType::MasterToughness));
@@ -1243,8 +1269,8 @@ TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_remateriali
     ASSERT_TRUE(savedResource);
     auto saved = decodeGff(savedResource->data);
     EXPECT_EQ(30, saved->getInt("HitPoints"));
-    EXPECT_EQ(36, saved->getInt("MaxHitPoints"));
-    EXPECT_EQ(26, saved->getInt("CurrentHitPoints"));
+    EXPECT_EQ(39, saved->getInt("MaxHitPoints"));
+    EXPECT_EQ(23, saved->getInt("CurrentHitPoints"));
     EXPECT_TRUE(saved->getList("EffectList").empty());
     EXPECT_EQ(1u, saved->getList("Equip_ItemList").size());
 
@@ -1258,9 +1284,9 @@ TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_remateriali
     auto replacement = harness.game.party().getAvailableMember(4, true);
     ASSERT_TRUE(replacement);
     EXPECT_EQ(30, replacement->hitPoints());
-    EXPECT_EQ(36, replacement->maxHitPoints());
-    EXPECT_EQ(32, replacement->currentHitPoints());
-    EXPECT_EQ(26, replacement->serializedCurrentHitPoints());
+    EXPECT_EQ(39, replacement->maxHitPoints());
+    EXPECT_EQ(26, replacement->currentHitPoints());
+    EXPECT_EQ(17, replacement->serializedCurrentHitPoints());
     EXPECT_FALSE(replacement->attributes().hasFeat(FeatType::MasterToughness));
     EXPECT_TRUE(replacement->hasEffectiveFeat(FeatType::MasterToughness));
     auto replacementItem =
@@ -1268,11 +1294,13 @@ TEST(RemoveNPCFromPartyToBase, detached_vitality_preserves_damage_on_remateriali
     ASSERT_TRUE(replacementItem);
     ASSERT_EQ(1u, replacement->effects().size());
     EXPECT_EQ(replacementItem, replacement->effects().front().boundCreator());
+    // testEngine() is process-global: drop this test's feat table answer.
+    testing::Mock::VerifyAndClear(&feats);
 }
 
 TEST(RemoveNPCFromPartyToBase, retires_the_active_assigned_puppet_but_keeps_assignment) {
     RosterHarness harness;
-    auto player = harness.creature("player");
+    auto player = harness.playerCreature();
     auto companion = harness.creature("bao_dur");
     auto puppet = harness.creature("remote");
     auto area = harness.game.newArea();
@@ -1341,9 +1369,9 @@ TEST(RemoveNPCFromPartyToBase, retires_the_active_assigned_puppet_but_keeps_assi
         savedAction->getList("Paramaters")[6]->getInt("Value"));
 }
 
-TEST(RemoveNPCFromPartyToBase, controlled_companion_returns_control_to_the_canonical_pc) {
+TEST(RemoveNPCFromPartyToBase, controlled_companion_leaves_no_one_under_control) {
     RosterHarness harness;
-    auto canonical = harness.creature("player");
+    auto canonical = harness.playerCreature();
     auto controlled = harness.creature("controlled");
     auto area = harness.game.newArea();
     TestGameModule::configureModuleSnapshot(
@@ -1355,26 +1383,20 @@ TEST(RemoveNPCFromPartyToBase, controlled_companion_returns_control_to_the_canon
     area->add(controlled);
     ASSERT_EQ(controlled, harness.game.party().player());
 
-    auto committed = std::make_shared<const SaveWorkingState>();
-    EXPECT_CALL(
-        testEngine().resourceModule().director(), committedSaveWorkingState())
-        .WillOnce(Invoke([&committed]() { return committed; }));
-    EXPECT_CALL(
-        testEngine().resourceModule().director(), adoptSaveWorkingState(_))
-        .WillOnce(Invoke(
-            [&committed](auto state) { committed = std::move(state); }));
-
+    // The party has no followers, so the removal itself does nothing (no
+    // save); the controlled companion's creature is then destroyed, which
+    // leaves solo mode on and nobody under control.
     EXPECT_EQ(
         1,
         harness.call(
                    "RemoveNPCFromPartyToBase", {Variable::ofInt(4)})
             .intValue);
 
-    EXPECT_EQ(kNpcPlayer, harness.game.party().controlledNpc());
-    EXPECT_EQ(canonical, harness.game.party().player());
-    EXPECT_EQ(canonical, harness.game.party().getLeader());
-    EXPECT_TRUE(harness.game.party().isMember(*canonical));
-    EXPECT_FALSE(harness.game.party().isSoloMode());
+    EXPECT_EQ(4, harness.game.party().controlledNpc());
+    EXPECT_EQ(nullptr, harness.game.party().player());
+    EXPECT_EQ(nullptr, harness.game.party().getLeader());
+    EXPECT_FALSE(harness.game.party().isMember(*canonical));
+    EXPECT_TRUE(harness.game.party().isSoloMode());
     EXPECT_FALSE(harness.game.party().isMember(4));
     EXPECT_FALSE(harness.game.party().getAvailableMember(4));
     EXPECT_TRUE(canonical->isRuntimeLive());
@@ -1382,7 +1404,7 @@ TEST(RemoveNPCFromPartyToBase, controlled_companion_returns_control_to_the_canon
 
 TEST(RemoveNPCFromPartyToBase, repeated_board_and_selection_cycles_do_not_accumulate_representations) {
     RosterHarness harness;
-    auto player = harness.creature("player");
+    auto player = harness.playerCreature();
     auto first = harness.creature("first");
     auto second = harness.creature("second");
     auto area = harness.game.newArea();

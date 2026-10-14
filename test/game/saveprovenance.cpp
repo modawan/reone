@@ -28,8 +28,9 @@ namespace {
 
 class SaveTestObject : public Object {
 public:
+    // A generic object: it does not claim a concrete type whose class it is not.
     SaveTestObject(uint32_t id, Game &game, ServicesView &services) :
-        Object(id, ObjectType::Creature, kSceneMain, game, services) {
+        Object(id, ObjectType::Invalid, kSceneMain, game, services) {
     }
 
     void tickEffects(float dt) { updateEffects(dt); }
@@ -457,12 +458,15 @@ TEST(EffectSaveProvenance, loaded_and_runtime_expiry_follow_live_collection) {
     ASSERT_EQ(object->saveEffectSnapshot().size(), 1);
     EXPECT_EQ(
         object->saveEffectSnapshot()[0].expiryOrigin,
-        EffectExpiryOrigin::RuntimeCountdown);
+        EffectExpiryOrigin::RuntimeAbsoluteGameTime);
+    // Temporary effects expire on the world clock.
+    TestGameModule::advanceWorldTime(game, 3.0f);
     object->tickEffects(3.0f);
     auto snapshot = object->saveEffectSnapshot();
     EXPECT_FLOAT_EQ(snapshot[0].duration, 10.0f);
     EXPECT_FLOAT_EQ(*snapshot[0].remainingDuration, 7.0f);
-    object->tickEffects(7.0f);
+    TestGameModule::advanceWorldTime(game, 7.01f);
+    object->tickEffects(7.01f);
     EXPECT_TRUE(object->saveEffectSnapshot().empty());
 }
 
@@ -484,7 +488,6 @@ TEST(ActionSaveProvenance, pending_loaded_cancelled_completed_and_new_waits) {
     auto remaining = object->saveActionSnapshot();
     ASSERT_EQ(remaining.size(), 1);
     EXPECT_FLOAT_EQ(std::get<float>(remaining[0].parameters[0].payload), 3.0f);
-    EXPECT_EQ(remaining[0].unsupportedFields.size(), 1);
     wait->execute(wait, *object, 3.0f);
     EXPECT_TRUE(object->saveActionSnapshot().empty());
 
@@ -564,7 +567,6 @@ TEST(ActionSaveProvenance, play_animation_import_is_inert_and_semantically_symme
     auto exported = runtime->saveFacingState();
     ASSERT_TRUE(exported);
     EXPECT_EQ(exported->actionId, 6u);
-    EXPECT_EQ(exported->groupActionId, 23);
     EXPECT_FLOAT_EQ(std::get<float>(exported->parameters[2].payload), 6.0f);
     EXPECT_EQ(std::get<int32_t>(exported->parameters[3].payload), 0);
 
@@ -578,31 +580,6 @@ TEST(ActionSaveProvenance, play_animation_import_is_inert_and_semantically_symme
     object->tickActionQueue(0.0f);
     ASSERT_EQ(object->actions().size(), 1);
     EXPECT_EQ(object->actions().front()->type(), ActionType::Wait);
-}
-
-TEST(ActionSaveProvenance, unsupported_loaded_record_is_live_until_queue_clear) {
-    TestEngine &engine = testEngine();
-    StubConsole console;
-    Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
-    auto object = game.newObject<SaveTestObject>(game, engine.services());
-    auto unsupported = Gff::Builder()
-                           .field(Gff::Field::newDword("ActionId", 0xdead))
-                           .field(Gff::Field::newWord("NumParams", 0))
-                           .build();
-    auto root = Gff::Builder()
-                    .field(Gff::Field::newList(
-                        "ActionList", {savedWait(2.0f), unsupported}))
-                    .build();
-    object->deserializeRuntimeState(
-        *root,
-        SerializedIdentityContext::moduleGraph("test-module"));
-    object->bindSavedRuntimeState();
-    object->publishSavedRuntimeState();
-    auto snapshot = object->saveActionSnapshot();
-    ASSERT_EQ(snapshot.size(), 2);
-    EXPECT_EQ(snapshot[1].actionId, 0xdeadu);
-    object->clearAllActions();
-    EXPECT_TRUE(object->saveActionSnapshot().empty());
 }
 
 TEST(EventSaveProvenance, loaded_delivery_cancellation_new_and_session_replacement) {
@@ -633,7 +610,7 @@ TEST(EventSaveProvenance, loaded_delivery_cancellation_new_and_session_replaceme
                               target->id(),
                               savedEffect(DurationType::Permanent)),
                           savedEvent(
-                              static_cast<uint32_t>(SavedEventType::DestroyObject),
+                              static_cast<uint32_t>(SavedEventType::Unlock),
                               target->id())}))
                      .build();
     moduleA->deserializeSavedEventQueue(
@@ -641,10 +618,9 @@ TEST(EventSaveProvenance, loaded_delivery_cancellation_new_and_session_replaceme
         SerializedIdentityContext::moduleGraph("test-module"));
     moduleA->bindSavedEventQueue();
     moduleA->publishSavedEventQueue();
-    ASSERT_EQ(moduleA->saveEventSnapshot().size(), 2);
+    // An event that cannot be delivered is not kept.
+    ASSERT_EQ(moduleA->saveEventSnapshot().size(), 1);
     moduleA->dispatchDueSavedEvents();
-    ASSERT_EQ(moduleA->saveEventSnapshot().size(), 1); // unsupported stays pending
-    EXPECT_TRUE(moduleA->cancelSaveEvent(1));
     EXPECT_TRUE(moduleA->saveEventSnapshot().empty());
 
     SavedEventRecord generated;

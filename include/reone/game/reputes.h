@@ -32,6 +32,8 @@ class TwoDA;
 namespace game {
 
 class Creature;
+class Game;
+class Object;
 
 class IReputes {
 public:
@@ -58,12 +60,21 @@ public:
     virtual void replace(State state) = 0;
 
     // Reputation is directed: it is the source faction's disposition toward the
-    // target faction, and the reverse relationship is independent of it.
+    /**
+     * target faction, and the reverse relationship is independent of it. Only
+     * NPC factions are regarded: a relationship with the player faction is
+     * read from the player faction's side.
+     */
     virtual int getReputation(Faction sourceFaction, Faction targetFaction) const = 0;
     virtual void adjustReputation(Faction sourceFaction, Faction targetFaction, int adjustment) = 0;
 
+    /**
+     * Whether the source creature regards the target creature as an enemy (10
+     * or less), a friend (90 or more) or neutral, by
+     * getObjectReputation(source, target): a party member counts as the player
+     * faction.
+     */
     virtual bool getIsEnemy(const Creature &source, const Creature &target) const = 0;
-    virtual bool getIsEnemy(Faction sourceFaction, Faction targetFaction) const = 0;
     virtual bool getIsFriend(const Creature &source, const Creature &target) const = 0;
     virtual bool getIsNeutral(const Creature &source, const Creature &target) const = 0;
 };
@@ -87,7 +98,6 @@ public:
     void adjustReputation(Faction sourceFaction, Faction targetFaction, int adjustment) override;
 
     bool getIsEnemy(const Creature &source, const Creature &target) const override;
-    bool getIsEnemy(Faction sourceFaction, Faction targetFaction) const override;
     bool getIsFriend(const Creature &source, const Creature &target) const override;
     bool getIsNeutral(const Creature &source, const Creature &target) const override;
 
@@ -102,6 +112,21 @@ private:
         size_t factionCount,
         std::vector<std::vector<int>> &values) const;
 };
+
+/**
+ * The faction of a creature, door, placeable, trigger or encounter; other
+ * objects have none. A companion joins the player's faction when it becomes
+ * available to the party.
+ */
+std::optional<Faction> getObjectFaction(const Object &object);
+
+/**
+ * How the receiver regards the other object, from 0 to 100. An area of effect
+ * stands for its creator. Objects without a faction are regarded at 50 and an
+ * object regards itself at 100. A relationship with the player faction is
+ * read from its side, and a party member counts as the player faction.
+ */
+int getObjectReputation(const Object &receiver, const Object &other, const Game &game);
 
 } // namespace game
 

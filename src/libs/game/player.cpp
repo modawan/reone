@@ -17,6 +17,7 @@
 
 #include "reone/game/player.h"
 
+#include "reone/game/game.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/camera.h"
 #include "reone/game/object/creature.h"
@@ -66,7 +67,7 @@ bool Player::handleKeyDown(const input::KeyEvent &event) {
     }
     case input::KeyCode::X: {
         std::shared_ptr<Creature> partyLeader(_party.getLeader());
-        partyLeader->playAnimation(CombatAnimation::Draw, partyLeader->getWieldType());
+        partyLeader->flourishWeapons(true);
         return true;
     }
     case input::KeyCode::B: {
@@ -126,8 +127,15 @@ bool Player::handleMouseButtonUp(const input::MouseButtonEvent &event) {
 }
 
 void Player::update(float dt) {
+    _moving = false;
     std::shared_ptr<Creature> partyLeader(_party.getLeader());
-    if (!partyLeader || partyLeader->isMovementRestricted()) {
+    if (partyLeader) {
+        partyLeader->setDriveSpeed(0.0f);
+    }
+    // A leader that cannot be commanded, or held by a time stop, does not
+    // answer the steering.
+    if (!partyLeader || partyLeader->isMovementRestricted() || !partyLeader->isCommandable() ||
+        _module.game().isFrozenByTimeStop(*partyLeader)) {
         return;
     }
     float facing = 0.0f;
@@ -146,17 +154,28 @@ void Player::update(float dt) {
     }
 
     if (movement) {
-        partyLeader->clearAllActions();
+        // Moving by input clears as the player's controls do.
+        _module.game().combat().clearAllOrders(*partyLeader);
         partyLeader->clearPath();
+        // Moving by input releases the leader's orientation lock and ends its
+        // engaged exchange.
+        partyLeader->setOrientationLock(script::kObjectInvalid);
+        partyLeader->setEngagedExchange(false);
         glm::vec2 dir(glm::normalize(glm::vec2(-glm::sin(facing), glm::cos(facing))));
-        _area.moveCreature(partyLeader, dir, !_walk, dt, FLT_MAX);
-        partyLeader->setMovementType(_walk ? Creature::MovementType::Walk : Creature::MovementType::Run);
+        // A leader limited from running walks however it is driven.
+        const bool run = !_walk && !partyLeader->isRunLimited();
+        _area.moveCreature(partyLeader, dir, run, dt, FLT_MAX, Area::MoveFacing::Instant);
+        _moving = true;
+        partyLeader->setMovementType(run ? Creature::MovementType::Run : Creature::MovementType::Walk);
+        // The driven speed, which the motion blur follows.
+        partyLeader->setDriveSpeed(run ? partyLeader->runSpeed() : partyLeader->walkSpeed());
     } else if (partyLeader->actions().empty()) {
         partyLeader->setMovementType(Creature::MovementType::None);
     }
 }
 
 void Player::stopMovement() {
+    _moving = false;
     _moveForward = false;
     _moveLeft = false;
     _moveBackward = false;

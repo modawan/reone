@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <functional>
+
 #include "../types.h"
 
 #include "spell.h"
@@ -69,6 +71,16 @@ public:
     virtual ~ISpells() = default;
 
     virtual std::shared_ptr<Spell> get(SpellType type) const = 0;
+    /**
+     * The powers a menu offers from \p candidates, one per slot in slot
+     * order: of those \p offered admits, the highest priority of each slot,
+     * the earlier candidate on equal priority. With \p mergeTiers a slot-21
+     * power takes the place of a slot-20 entry and a slot-17 power that of a
+     * slot-16 entry.
+     */
+    std::vector<std::shared_ptr<Spell>> getActionSpells(
+        const std::vector<SpellType> &candidates, bool hostileMenu,
+        const std::function<bool(const Spell &)> &offered, bool mergeTiers) const;
     virtual bool isLevelUpCandidate(
         SpellType type,
         const CreatureAttributes &attributes,

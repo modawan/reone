@@ -42,7 +42,7 @@ void reone::game::TestGameModule::configurePazaak(
     game._pazaakFirstParticipantSelector = [](size_t) { return Participant::One; };
     game._pazaakPaceAutomaticDraws = false;
     game._pazaakContinuationOverride = std::move(continuation);
-    game._pazaakOpponentDeckOverride = PazaakSession::temporaryK1OpponentSideDeck();
+    game._pazaakOpponentDeckOverride = PazaakSession::makeDebugOpponentSideDeck(false);
     // Own two of every card type the running title stores; entries beyond the
     // title's table stay zero so a save round trip is byte-for-byte stable.
     size_t cardCount = game.isTSL() ? Party::kK2PazaakCardCount : Party::kK1PazaakCardCount;
@@ -336,7 +336,7 @@ TEST(PazaakGameLifecycle, TslBuildStartsKotorTwoPazaakFromOwnedCards) {
     game.abortPazaak();
 }
 
-TEST(PazaakGameLifecycle, NativeKotorTwoMatchOffersOnlyTheCardsTheSaveOwns) {
+TEST(PazaakGameLifecycle, KotorTwoMatchOffersOnlyTheCardsTheSaveOwns) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
@@ -374,7 +374,7 @@ TEST(PazaakGameLifecycle, NativeKotorTwoMatchOffersOnlyTheCardsTheSaveOwns) {
     game.abortPazaak();
 }
 
-TEST(PazaakGameLifecycle, NativeKotorTwoMatchUsesTheSavedSideDeckIncludingSpecials) {
+TEST(PazaakGameLifecycle, KotorTwoMatchUsesTheSavedSideDeckIncludingSpecials) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
@@ -562,7 +562,7 @@ TEST(PazaakConsoleCommand, StartsExactlyOnceWithoutSelectionAndPreservesGameData
     EXPECT_EQ(0u, session->opponentId());
     EXPECT_TRUE(session->continuationScript().empty());
     EXPECT_EQ(
-        PazaakSession::temporaryK1TestCollection().size(),
+        PazaakSession::makeDebugCollection(false).size(),
         session->collection().size());
     EXPECT_EQ(creditsBefore, fixture.game.party().gold());
     EXPECT_EQ(inventorySizeBefore, player->items().size());
@@ -2271,7 +2271,7 @@ TEST(PazaakK2Showcase, AuthoredMatchesDoNotUseShowcaseData) {
     auto opponent = game.newCreature();
     configure(game);
 
-    // A native launch leaves the side-deck selection to ordinary setup.
+    // Ordinary launch leaves side-deck selection to the setup screen.
     ASSERT_TRUE(game.playPazaak(0, "", 0, false, opponent));
     EXPECT_TRUE(game.pazaakSession()->chosenCards().empty());
     game.abortPazaak();

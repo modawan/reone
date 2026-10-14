@@ -25,19 +25,28 @@ namespace reone {
 
 namespace game {
 
+/**
+ * A spell, feat or skill as scripts handle it, with the class or item it is
+ * used through and its caster level and meta type.
+ */
 class Talent : public script::EngineType {
 public:
+    /** The meta type of a talent that has none. */
+    static constexpr int kNoMetaType = 255;
+    /** The type of the talent answered when there is none to offer. */
+    static constexpr TalentType kNoType = static_cast<TalentType>(-1);
+
     Talent(
         TalentType type,
         int value,
-        uint8_t multiClass = 0,
+        int castingClass = 0,
         uint32_t item = 0x7f000000,
         int itemPropertyIndex = -1,
-        uint8_t casterLevel = 0xff,
-        uint8_t metaType = 0xff) :
+        int casterLevel = kUnspecifiedCasterLevel,
+        int metaType = kNoMetaType) :
         _type(type),
         _value(value),
-        _multiClass(multiClass),
+        _castingClass(castingClass),
         _item(item),
         _itemPropertyIndex(itemPropertyIndex),
         _casterLevel(casterLevel),
@@ -46,20 +55,21 @@ public:
 
     TalentType type() const { return _type; }
     int value() const { return _value; }
-    uint8_t multiClass() const { return _multiClass; }
+    /** The class index the talent is used through, or a casting source kind (castingSourceKind). */
+    int castingClass() const { return _castingClass; }
     uint32_t item() const { return _item; }
     int itemPropertyIndex() const { return _itemPropertyIndex; }
-    uint8_t casterLevel() const { return _casterLevel; }
-    uint8_t metaType() const { return _metaType; }
+    int casterLevel() const { return _casterLevel; }
+    int metaType() const { return _metaType; }
 
 private:
     TalentType _type;
     int _value;
-    uint8_t _multiClass;
+    int _castingClass;
     uint32_t _item;
     int _itemPropertyIndex;
-    uint8_t _casterLevel;
-    uint8_t _metaType;
+    int _casterLevel;
+    int _metaType;
 };
 
 } // namespace game

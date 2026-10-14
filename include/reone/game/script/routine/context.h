@@ -21,8 +21,7 @@ namespace reone {
 
 namespace script {
 
-class ExecutionContext;
-
+struct ExecutionContext;
 }
 
 namespace game {
@@ -31,6 +30,7 @@ struct ServicesView;
 
 class Game;
 
+/** What a script routine runs against: the game, its services and the calling script's execution. */
 struct RoutineContext {
     Game &game;
     ServicesView &services;
