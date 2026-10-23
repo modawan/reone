@@ -619,18 +619,19 @@ TEST(EventSaveProvenance, loaded_delivery_cancellation_new_and_session_replaceme
         SerializedIdentityContext::moduleGraph("test-module"));
     moduleA->bindSavedEventQueue();
     moduleA->publishSavedEventQueue();
-    // An event that cannot be delivered is not kept.
-    ASSERT_EQ(moduleA->saveEventSnapshot().size(), 1);
+    // An event that cannot be delivered is kept and saved again.
+    ASSERT_EQ(moduleA->saveEventSnapshot().size(), 2);
     moduleA->dispatchDueSavedEvents();
-    EXPECT_TRUE(moduleA->saveEventSnapshot().empty());
+    ASSERT_EQ(moduleA->saveEventSnapshot().size(), 1);
+    EXPECT_EQ(moduleA->saveEventSnapshot()[0].eventId, static_cast<uint32_t>(SavedEventType::Unlock));
 
     SavedEventRecord generated;
     generated.day = 9;
     generated.time = 10;
     generated.eventId = static_cast<uint32_t>(SavedEventType::CloseObject);
     auto index = moduleA->enqueueSaveEvent(generated);
-    ASSERT_EQ(moduleA->saveEventSnapshot().size(), 1);
-    EXPECT_EQ(moduleA->saveEventSnapshot()[0].day, 9u);
+    ASSERT_EQ(moduleA->saveEventSnapshot().size(), 2);
+    EXPECT_EQ(moduleA->saveEventSnapshot()[1].day, 9u);
     EXPECT_TRUE(moduleA->cancelSaveEvent(index));
 
     game.retireRuntimeSession();

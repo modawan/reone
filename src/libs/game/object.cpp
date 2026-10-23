@@ -435,6 +435,7 @@ void Object::deserializeRuntimeState(
             creature->clearVisibilityCounters();
         }
         _actions.clear();
+        _publishedSavedActions.clear();
         _executingActionNode.reset();
     }
 
@@ -536,16 +537,15 @@ void Object::publishSavedRuntimeState() {
         restoreEffect(std::move(effect));
     }
 
-    // A saved action whose objects are gone, or that cannot be built, is not kept.
+    // A saved action that cannot be built, or whose objects are gone, keeps
+    // its place in the queue and is saved again as it was loaded.
     for (size_t index = 0; index < _savedActionQueue.actions.size(); ++index) {
         const auto &savedAction = _savedActionQueue.actions[index];
-        if (!_savedActionReferencesBound.at(index)) {
-            continue;
-        }
-        if (auto action = savedAction.toRuntimeAction(_game, &importer)) {
-            restoreAction(std::move(action));
+        auto action = _savedActionReferencesBound.at(index) ? savedAction.toRuntimeAction(_game, &importer) : nullptr;
+        if (action) {
+            _publishedSavedActions.push_back(PublishedSavedAction {restoreAction(std::move(action)), std::nullopt});
         } else {
-            warn("Saved action " + std::to_string(savedAction.actionId) + " cannot be restored; it is dropped");
+            _publishedSavedActions.push_back(PublishedSavedAction {{}, savedAction});
         }
     }
     onEffectsRestored();
@@ -648,6 +648,30 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
             throw ValidationException(message.str());
         }
     };
+    // A kept saved action is written back behind the restored node it followed
+    // in its saved queue, or behind the nearest restored node before that one
+    // still saved; with none, ahead of every live action.
+    auto isSaved = [this](const OrdinaryActionQueue::Node &node) {
+        return std::find(_actions.nodes.begin(), _actions.nodes.end(), node) != _actions.nodes.end() &&
+               !node->action->isCompleted() && !node->action->isCancelled();
+    };
+    std::vector<std::pair<OrdinaryActionQueue::Node, SavedActionRecord>> kept;
+    OrdinaryActionQueue::Node anchor;
+    for (const auto &published : _publishedSavedActions) {
+        if (published.kept) {
+            kept.emplace_back(anchor, *published.kept);
+        } else if (auto node = published.restored.lock(); node && isSaved(node)) {
+            anchor = std::move(node);
+        }
+    }
+    auto saveKeptBehind = [&](const OrdinaryActionQueue::Node &node) {
+        for (const auto &[after, record] : kept) {
+            if (after == node) {
+                result.push_back(record);
+            }
+        }
+    };
+    saveKeptBehind(nullptr);
     for (size_t index = 0; index < _actions.nodes.size(); ++index) {
         const auto &node = _actions.nodes[index];
         const auto &action = node->action;
@@ -658,10 +682,15 @@ std::vector<SavedActionRecord> Object::saveActionSnapshot() const {
             saved->groupActionId = node->groupId;
             saved->round = _game.combat().saveRound(*action);
             saved->scheduled = action->isScheduledCommand();
+            // A restored command keeps the fields of its saved record that are not read.
+            if (const auto &original = action->originalSavedAction()) {
+                saved->unknownFields = original->unknownFields;
+            }
             result.push_back(std::move(*saved));
         } else {
             throw unsupportedAction(*action, index);
         }
+        saveKeptBehind(node);
     }
     return result;
 }
@@ -689,6 +718,7 @@ void Object::retireAreaRuntimeState(
         if (action) action->markCancelled();
     }
     _actions.clear();
+    _publishedSavedActions.clear();
     _executingActionNode.reset();
     _savedActionQueue = SavedActionQueue {};
     _savedScheduledActions.clear();
@@ -852,6 +882,7 @@ void Object::teardownActions() {
 }
 
 void Object::removeActions(bool force, bool keepUnclearable) {
+    _publishedSavedActions.clear();
     auto &nodes = _actions.nodes;
     // Every node goes that may, the one running included. Cancelling one may
     // take others with it.
@@ -980,14 +1011,16 @@ void Object::addAction(std::shared_ptr<Action> action, std::optional<int> group)
     action->onQueued(*this);
 }
 
-void Object::restoreAction(std::shared_ptr<Action> action) {
-    if (!isRuntimeLive()) return;
+OrdinaryActionQueue::Node Object::restoreAction(std::shared_ptr<Action> action) {
+    if (!isRuntimeLive())
+        return nullptr;
     auto node = std::make_shared<ActionQueueNode>();
     node->action = action;
     node->actionId = action->serializedActionId();
     node->groupId = action->originalSavedAction()->groupActionId;
     _actions.nodes.push_back(node);
     action->onQueued(*this);
+    return node;
 }
 
 void Object::addActionOnTop(std::shared_ptr<Action> action, std::optional<int> group) {

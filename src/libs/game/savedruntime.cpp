@@ -121,6 +121,17 @@ constexpr uint32_t kFakeCastBit = 0x80000000u;
 constexpr uint32_t kInstantCastBit = 0x40000000u;
 constexpr uint32_t kProjectilePathMask = 0xffu;
 
+// The fields of a saved struct whose labels are not among \p known, copied.
+std::vector<resource::Gff::Field> unknownFieldsOf(const resource::Gff &gff, const std::set<std::string_view> &known) {
+    std::vector<resource::Gff::Field> result;
+    for (const auto &field : gff.fields()) {
+        if (known.count(field.label) == 0) {
+            result.push_back(field.deepCopy());
+        }
+    }
+    return result;
+}
+
 SavedLocationValue savedLocationFromGff(const resource::Gff &gff) {
     SavedLocationValue result;
     result.position = glm::vec3(
@@ -292,6 +303,8 @@ SerializedScriptSituation SerializedScriptSituation::fromGff(
     result.secondaryPointer = gff.getInt("SecondaryPtr");
     result.scriptName = gff.getString("Name");
     result.stackSize = gff.getInt("StackSize");
+    result.unknownFields = unknownFieldsOf(
+        gff, {"CodeSize", "Code", "CRC", "InstructionPtr", "SecondaryPtr", "Name", "StackSize", "Stack"});
 
     auto stackStruct = gff.findStruct("Stack");
     if (!stackStruct) {
@@ -341,6 +354,9 @@ SerializedScriptSituation SerializedScriptSituation::fromGff(
             break;
         default:
             break;
+        }
+        if (std::holds_alternative<std::monostate>(value.payload)) {
+            value.unread = item->deepCopy();
         }
         result.stack.push_back(std::move(value));
     }
@@ -417,6 +433,9 @@ SavedActionParameter SavedActionParameter::fromGff(
         break;
     default:
         break;
+    }
+    if (std::holds_alternative<std::monostate>(result.payload)) {
+        result.unread = gff.deepCopy();
     }
     return result;
 }
@@ -613,6 +632,12 @@ SavedCombatAttack SavedCombatAttack::fromGff(const resource::Gff &gff, const Ser
     result.history->mode = static_cast<int>(gff.getUint("AttackMode"));
     result.reactionObject = SavedObjectReference::fromSerializedId(gff.getUint("ReactObject"), identityContext);
     result.ammoItem = SavedObjectReference::fromSerializedId(gff.getUint("AmmoItem"), identityContext);
+    result.unknownFields = unknownFieldsOf(
+        gff, {"AttackGroup", "AnimationLength", "MissedBy", "AttackResult", "ReactObject", "ReaxnDelay",
+              "ReaxnAnimation", "ReaxnAnimLength", "Concealment", "AttackType", "AttackMode", "RangedAttack",
+              "SneakAttack", "WeaponAttackType", "RangedTargetX", "RangedTargetY", "RangedTargetZ", "DamageList",
+              "KillingBlow", "CoupDeGrace", "CriticalThreat", "AttackDeflected", "AmmoItem", "AttackDebugText",
+              "DamageDebugText"});
     return result;
 }
 
@@ -623,7 +648,11 @@ std::shared_ptr<resource::Gff> SavedCombatAttack::toGff() const {
     for (int amount : fields->damage) {
         damage.push_back(resource::Gff::Builder().type(kAttackDamageStructType).field(Field::newShort("DamageValue", amount)).build());
     }
-    return resource::Gff::Builder().type(kStructType).field(Field::newByte("AttackGroup", fields->group ? static_cast<uint32_t>(*fields->group) : kNoAttackGroup)).field(Field::newWord("AnimationLength", fields->animationLength)).field(Field::newDword("MissedBy", fields->missedBy)).field(Field::newByte("AttackResult", static_cast<uint32_t>(fields->result))).field(Field::newDword("ReactObject", reactionObject.id)).field(Field::newWord("ReaxnDelay", fields->reactionDelay)).field(Field::newWord("ReaxnAnimation", fields->reactionAnimation ? static_cast<uint32_t>(*fields->reactionAnimation) : kNoReactionAnimation)).field(Field::newWord("ReaxnAnimLength", fields->reactionAnimationLength)).field(Field::newByte("Concealment", fields->concealment)).field(Field::newWord("AttackType", history->type)).field(Field::newByte("AttackMode", history->mode)).field(Field::newInt("RangedAttack", fields->ranged)).field(Field::newInt("SneakAttack", fields->sneakAttack)).field(Field::newByte("WeaponAttackType", fields->weaponAttackType)).field(Field::newFloat("RangedTargetX", fields->rangedTarget[0])).field(Field::newFloat("RangedTargetY", fields->rangedTarget[1])).field(Field::newFloat("RangedTargetZ", fields->rangedTarget[2])).field(Field::newList("DamageList", std::move(damage))).field(Field::newByte("KillingBlow", fields->killingBlow)).field(Field::newByte("CoupDeGrace", fields->coupDeGrace)).field(Field::newByte("CriticalThreat", fields->criticalThreat)).field(Field::newByte("AttackDeflected", fields->deflected)).field(Field::newDword("AmmoItem", ammoItem.id)).field(Field::newCExoString("AttackDebugText", fields->attackDebugText)).field(Field::newCExoString("DamageDebugText", fields->damageDebugText)).build();
+    auto result = resource::Gff::Builder().type(kStructType).field(Field::newByte("AttackGroup", fields->group ? static_cast<uint32_t>(*fields->group) : kNoAttackGroup)).field(Field::newWord("AnimationLength", fields->animationLength)).field(Field::newDword("MissedBy", fields->missedBy)).field(Field::newByte("AttackResult", static_cast<uint32_t>(fields->result))).field(Field::newDword("ReactObject", reactionObject.id)).field(Field::newWord("ReaxnDelay", fields->reactionDelay)).field(Field::newWord("ReaxnAnimation", fields->reactionAnimation ? static_cast<uint32_t>(*fields->reactionAnimation) : kNoReactionAnimation)).field(Field::newWord("ReaxnAnimLength", fields->reactionAnimationLength)).field(Field::newByte("Concealment", fields->concealment)).field(Field::newWord("AttackType", history->type)).field(Field::newByte("AttackMode", history->mode)).field(Field::newInt("RangedAttack", fields->ranged)).field(Field::newInt("SneakAttack", fields->sneakAttack)).field(Field::newByte("WeaponAttackType", fields->weaponAttackType)).field(Field::newFloat("RangedTargetX", fields->rangedTarget[0])).field(Field::newFloat("RangedTargetY", fields->rangedTarget[1])).field(Field::newFloat("RangedTargetZ", fields->rangedTarget[2])).field(Field::newList("DamageList", std::move(damage))).field(Field::newByte("KillingBlow", fields->killingBlow)).field(Field::newByte("CoupDeGrace", fields->coupDeGrace)).field(Field::newByte("CriticalThreat", fields->criticalThreat)).field(Field::newByte("AttackDeflected", fields->deflected)).field(Field::newDword("AmmoItem", ammoItem.id)).field(Field::newCExoString("AttackDebugText", fields->attackDebugText)).field(Field::newCExoString("DamageDebugText", fields->damageDebugText)).build();
+    for (const auto &field : unknownFields) {
+        result->fields().push_back(field.deepCopy());
+    }
+    return result;
 }
 
 std::shared_ptr<resource::Gff> SavedPhysicalAction::toGff() const {
@@ -993,6 +1022,8 @@ SavedActionRecord SavedActionRecord::fromGff(
     if (auto value = gff.findStruct("PhysicalState")) {
         result.physical = SavedPhysicalAction::fromGff(*value, identityContext);
     }
+    result.unknownFields = unknownFieldsOf(
+        gff, {"ActionId", "Scheduled", "GroupActionId", "NumParams", "Paramaters", "CastState", "RoundState", "PhysicalState"});
     return result;
 }
 
@@ -1385,6 +1416,7 @@ SavedEventRecord SavedEventRecord::fromGff(
     result.caller = SavedObjectReference::fromSerializedId(
         gff.getUint("CallerId"), identityContext);
     result.eventId = gff.getUint("EventId");
+    result.unknownFields = unknownFieldsOf(gff, {"Day", "Time", "ObjectId", "CallerId", "EventId", "EventData"});
 
     auto data = gff.findStruct("EventData");
     if (!data) {
@@ -1433,13 +1465,17 @@ SavedEventRecord SavedEventRecord::fromGff(
                 data->getUint("Value"), identityContext)};
         break;
     case SavedEventType::FeedbackMessage:
-        // Feedback that shows no line here is not kept.
         if (auto message = CombatFeedbackMessage::fromGff(*data, gff.getUint("CallerId"))) {
             result.payload = std::move(*message);
         }
         break;
     default:
         break;
+    }
+    // Data that is not read, such as feedback that shows no line here, is
+    // kept as it was saved.
+    if (std::holds_alternative<std::monostate>(result.payload)) {
+        result.unreadData = data->deepCopy();
     }
     return result;
 }

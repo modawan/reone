@@ -648,6 +648,23 @@ protected:
     OrdinaryActionQueue _actions;
     std::weak_ptr<ActionQueueNode> _executingActionNode;
 
+    /**
+     * One entry of the saved action queue as it was published: the queue node
+     * of a restored action, or a saved action that cannot run, kept as it was
+     * loaded.
+     */
+    struct PublishedSavedAction {
+        /** The queue node of the restored action. */
+        std::weak_ptr<ActionQueueNode> restored;
+        /** The saved action that cannot run, saved again unchanged in its place. */
+        std::optional<SavedActionRecord> kept;
+    };
+    /**
+     * The published saved action queue, in its saved order. A clearing of the
+     * queue drops the kept saved actions with the live ones.
+     */
+    std::vector<PublishedSavedAction> _publishedSavedActions;
+
     // END Actions
 
     RuntimeObjectRef<Object> _lastHostileActor;
@@ -706,14 +723,19 @@ protected:
      * Queues an action restored from a save behind the others, in its saved
      * group. It was admitted when it was given, so it is not scheduled into a
      * combat round again.
+     *
+     * @return the node the action is queued in; none when the object is not live
      */
-    void restoreAction(std::shared_ptr<Action> action);
+    OrdinaryActionQueue::Node restoreAction(std::shared_ptr<Action> action);
     /**
      * The group \p action joins: \p group if given, else the group of the
      * record it was restored from, else a new group.
      */
     int chooseActionGroup(const Action &action, std::optional<int> group);
-    /** Cancels and removes queued actions; see clearAllActions for \p force and \p keepUnclearable. */
+    /**
+     * Cancels and removes queued actions, and drops the kept saved actions;
+     * see clearAllActions for \p force and \p keepUnclearable.
+     */
     void removeActions(bool force, bool keepUnclearable);
     void removeCompletedActions();
 

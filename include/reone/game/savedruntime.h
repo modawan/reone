@@ -149,7 +149,10 @@ enum class SavedVmStackType : int8_t {
     Talent = 19,
 };
 
-/** A stack value of a type the stack does not hold is empty. */
+/**
+ * A stack value of a type the stack does not hold, or without the data its
+ * type needs, is empty.
+ */
 using SavedVmStackPayload = std::variant<
     std::monostate,
     int32_t,
@@ -164,6 +167,8 @@ using SavedVmStackPayload = std::variant<
 struct SavedVmStackValue {
     int8_t type {0};
     SavedVmStackPayload payload;
+    /** The saved stack entry of an empty value, saved again unchanged. */
+    std::shared_ptr<const resource::Gff> unread;
 };
 
 enum class ScriptSituationResumeSupport {
@@ -184,6 +189,8 @@ struct SerializedScriptSituation {
     int32_t stackPointer {0};
     int32_t totalSize {0};
     std::vector<SavedVmStackValue> stack;
+    /** The situation's fields that are not read, saved again unchanged. */
+    std::vector<resource::Gff::Field> unknownFields;
 
     static SerializedScriptSituation fromGff(
         const resource::Gff &gff,
@@ -256,7 +263,10 @@ enum class SavedActionParameterType : uint32_t {
     ScriptSituation = 5,
 };
 
-/** A parameter of a type no command takes is empty. */
+/**
+ * A parameter of a type no command takes, or without the data its type needs,
+ * is empty.
+ */
 using SavedActionParameterPayload = std::variant<
     std::monostate,
     int32_t,
@@ -268,6 +278,8 @@ using SavedActionParameterPayload = std::variant<
 struct SavedActionParameter {
     uint32_t type {0};
     SavedActionParameterPayload payload;
+    /** The saved parameter entry of an empty parameter, saved again unchanged. */
+    std::shared_ptr<const resource::Gff> unread;
 
     static SavedActionParameter fromGff(
         const resource::Gff &gff,
@@ -506,6 +518,8 @@ struct SavedCombatAttack {
     std::shared_ptr<AttackEventFields> fields {std::make_shared<AttackEventFields>()};
     SavedObjectReference reactionObject;
     SavedObjectReference ammoItem;
+    /** The record's fields that are not read, saved again unchanged. */
+    std::vector<resource::Gff::Field> unknownFields;
 
     static SavedCombatAttack fromGff(const resource::Gff &gff, const SerializedIdentityContext &identityContext);
     std::shared_ptr<resource::Gff> toGff() const;
@@ -537,6 +551,8 @@ struct SavedActionRecord {
     std::optional<SavedCastAction> cast;
     std::optional<SavedRoundClock> round;
     std::optional<SavedPhysicalAction> physical;
+    /** The record's fields that are not read, saved again unchanged. */
+    std::vector<resource::Gff::Field> unknownFields;
 
     static SavedActionRecord fromGff(
         const resource::Gff &gff,
@@ -692,6 +708,10 @@ struct SavedEventRecord {
     SavedObjectReference caller;
     uint32_t eventId {0};
     SavedEventPayload payload;
+    /** The event's data when it is not read, saved again unchanged. */
+    std::shared_ptr<const resource::Gff> unreadData;
+    /** The record's fields that are not read, saved again unchanged. */
+    std::vector<resource::Gff::Field> unknownFields;
 
     static SavedEventRecord fromGff(
         const resource::Gff &gff,

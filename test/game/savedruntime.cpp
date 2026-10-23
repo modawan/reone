@@ -1386,18 +1386,17 @@ TEST(SavedRuntimePublication, should_publish_supported_events_without_dispatchin
     module->bindSavedEventQueue();
     module->publishSavedEventQueue();
 
-    // The runtime diagnostic view contains pending records only. The parsed
-    // codec still exposes the input that cannot be delivered and the discarded
-    // input; neither occupies live storage.
-    ASSERT_EQ(module->savedEventQueue().events.size(), 1);
-    EXPECT_EQ(module->pendingSavedEventCount(), 1);
+    // The runtime diagnostic view contains pending records only: the event
+    // that cannot be delivered is kept, the discarded one is not.
+    ASSERT_EQ(module->savedEventQueue().events.size(), 2);
+    EXPECT_EQ(module->pendingSavedEventCount(), 2);
     EXPECT_TRUE(module->effects().empty());
 
     module->publishSavedEventQueue();
-    EXPECT_EQ(module->pendingSavedEventCount(), 1);
+    EXPECT_EQ(module->pendingSavedEventCount(), 2);
     module->dispatchDueSavedEvents();
 
-    EXPECT_EQ(module->pendingSavedEventCount(), 0);
+    EXPECT_EQ(module->pendingSavedEventCount(), 1);
     ASSERT_EQ(module->effects().size(), 1);
     EXPECT_EQ(module->effects().front().id, 10);
     const auto parsed = SavedEventQueue::fromGff(*queue, savedRuntimeIdentityContext());
@@ -1406,7 +1405,8 @@ TEST(SavedRuntimePublication, should_publish_supported_events_without_dispatchin
     EXPECT_EQ(parsed.events[2].executionSupport(), SavedExecutionSupport::Discarded);
     // Cancellation uses the original handle; a delivered event has none left.
     EXPECT_FALSE(module->cancelSaveEvent(0));
-    EXPECT_TRUE(module->savedEventQueue().events.empty());
+    ASSERT_EQ(module->savedEventQueue().events.size(), 1);
+    EXPECT_EQ(module->savedEventQueue().events.front().eventId, 12u);
 
     EffectInstance expiring;
     expiring.setDurationType(DurationType::Temporary);

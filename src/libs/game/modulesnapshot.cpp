@@ -128,6 +128,13 @@ void put(Gff &record, Gff::Field field) {
     replaceSaveField(record, std::move(field));
 }
 
+// Writes back, unchanged, the fields of a loaded record that are not read.
+void putUnknown(Gff &record, const std::vector<Gff::Field> &fields) {
+    for (const auto &field : fields) {
+        put(record, field.deepCopy());
+    }
+}
+
 std::shared_ptr<Gff> writeLocals(const Object &object) {
     std::array<uint32_t, 5> bits {};
     std::array<uint8_t, 32> bytes {};
@@ -234,8 +241,15 @@ std::shared_ptr<Gff> situationToGff(
     const SerializedScriptSituation &situation, const Game *game = nullptr) {
     auto result = Gff::Builder().type(0x7777).field(Gff::Field::newInt("CodeSize", situation.codeSize)).field(Gff::Field::newVoid("Code", situation.code)).field(Gff::Field::newDword("CRC", situation.crc)).field(Gff::Field::newInt("InstructionPtr", situation.instructionPointer)).field(Gff::Field::newInt("SecondaryPtr", situation.secondaryPointer)).field(Gff::Field::newCExoString("Name", situation.scriptName)).field(Gff::Field::newInt("StackSize", situation.stackSize)).build();
 
+    putUnknown(*result, situation.unknownFields);
+
     std::vector<std::shared_ptr<Gff>> values;
     for (const auto &saved : situation.stack) {
+        // A value that was not read goes back as it was saved.
+        if (saved.unread) {
+            values.push_back(saved.unread->deepCopy());
+            continue;
+        }
         auto value = Gff::Builder().type(0)
             .field(Gff::Field::newChar("Type", saved.type)).build();
         switch (static_cast<SavedVmStackType>(saved.type)) {
@@ -302,8 +316,14 @@ std::shared_ptr<Gff> actionToGff(
     if (action.physical) {
         put(*result, Gff::Field::newStruct("PhysicalState", action.physical->toGff()));
     }
+    putUnknown(*result, action.unknownFields);
     std::vector<std::shared_ptr<Gff>> parameters;
     for (const auto &parameter : action.parameters) {
+        // A parameter that was not read goes back as it was saved.
+        if (parameter.unread) {
+            parameters.push_back(parameter.unread->deepCopy());
+            continue;
+        }
         auto record = Gff::Builder().type(1)
             .field(Gff::Field::newDword("Type", parameter.type)).build();
         if (auto value = std::get_if<int32_t>(&parameter.payload)) put(*record, Gff::Field::newInt("Value", *value));
@@ -327,8 +347,11 @@ std::shared_ptr<Gff> actionToGff(
 std::shared_ptr<Gff> eventToGff(
     const SavedEventRecord &event, const Game *game = nullptr) {
     auto result = Gff::Builder().type(0xabcd).field(Gff::Field::newDword("Day", event.day)).field(Gff::Field::newDword("Time", event.time)).field(Gff::Field::newDword("ObjectId", event.object.id)).field(Gff::Field::newDword("CallerId", event.caller.id)).field(Gff::Field::newDword("EventId", event.eventId)).build();
+    putUnknown(*result, event.unknownFields);
     std::shared_ptr<Gff> data;
-    if (auto value = std::get_if<SerializedScriptSituation>(&event.payload)) {
+    if (event.unreadData) {
+        data = event.unreadData->deepCopy();
+    } else if (auto value = std::get_if<SerializedScriptSituation>(&event.payload)) {
         data = situationToGff(*value, game);
     } else if (auto value = std::get_if<EffectInstance>(&event.payload)) {
         data = value->toGff();

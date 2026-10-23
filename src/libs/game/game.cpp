@@ -1380,6 +1380,7 @@ void Game::restorePartyTransitionState(std::vector<PartyTransitionState> &states
         creature->_savedRuntimeParsed = true;
         creature->_savedRuntimePublished = false;
         creature->_actions.clear();
+        creature->_publishedSavedActions.clear();
         creature->refillForceShieldPools();
     }
 }
@@ -2008,6 +2009,7 @@ bool Game::restoreSaveLoad(PreparedSaveLoad prepared) {
         creature->_savedActionQueue = SavedActionQueue {};
         creature->_savedActionReferencesBound.clear();
         creature->_actions.clear();
+        creature->_publishedSavedActions.clear();
     };
     for (const auto &member : _party.members()) {
         if (member.creature && member.creature != _party.player() &&

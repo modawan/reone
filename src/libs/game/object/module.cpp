@@ -716,10 +716,11 @@ void Module::deserializeSavedEventQueue(
     _pendingSavedEvents.clear();
     _publishedSavedEvents.clear();
     _savedEventsPublished = false;
-    // An event that cannot be delivered is not kept.
+    // Every event but a discarded one is kept. One that cannot be delivered
+    // stays pending, is never published, and is saved again as it was loaded.
     for (auto &event : queue.events) {
         const auto index = _nextSavedEventIndex++;
-        if (event.shouldRestore() && event.executionSupport() == SavedExecutionSupport::Executable) {
+        if (event.shouldRestore()) {
             _pendingSavedEvents.emplace(index, PendingSavedEvent {std::move(event), false});
         }
     }
@@ -812,10 +813,7 @@ void Module::publishSavedEventQueue() {
         return;
     }
     _publishedSavedEvents.clear();
-    // Publication may drop the event it publishes.
-    for (auto it = _pendingSavedEvents.begin(); it != _pendingSavedEvents.end();) {
-        const auto index = it->first;
-        ++it;
+    for (const auto &[index, pending] : _pendingSavedEvents) {
         publishSavedEvent(index);
     }
     _savedEventsPublished = true;
@@ -842,10 +840,10 @@ void Module::publishSavedEvent(size_t index) {
         }
         SavedScriptSituationImporter importer(_game, _services.resource.scripts);
         auto imported = importer.import(*situation);
-        // A situation that cannot be resumed is dropped with its event.
+        // A situation that cannot be resumed leaves its event pending and
+        // unpublished, to be saved again as it was loaded.
         if (!imported) {
-            warn("Module: dropping a timed event that cannot be resumed: " + imported.message);
-            _pendingSavedEvents.erase(index);
+            warn("Module: keeping a timed event that cannot be resumed: " + imported.message);
             return;
         }
         event.continuation = std::move(imported.continuation);

@@ -266,8 +266,9 @@ private:
     void loadPlayer();
     void loadLimboCreatures(const resource::Gff &ifo);
     /**
-     * Schedules a pending event for delivery. A timed event whose script
-     * situation cannot be resumed is dropped.
+     * Schedules a pending event for delivery. An event that cannot be
+     * delivered, a timed event whose script situation cannot be resumed
+     * among them, stays pending without being scheduled, to be saved again.
      */
     void publishSavedEvent(size_t index);
     void deliverSavedEvent(PublishedSavedEvent &event);
