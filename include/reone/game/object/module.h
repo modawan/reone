@@ -27,6 +27,7 @@
 #include "reone/resource/parser/gff/ifo.h"
 #include "reone/resource/types.h"
 
+
 #include "../contextaction.h"
 #include "../object.h"
 #include "../player.h"
