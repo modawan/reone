@@ -39,7 +39,7 @@ class FirstPersonCamera;
  * parsed from the area's .are MiniGame struct (see MinigameSpec).
  *
  * Movement uses an explicit track-relative progress model that matches the
- * vanilla drag-race shape (not an arcade racer):
+ * game's drag-race shape (not an arcade racer):
  *
  *   centerline = trackStart + trackForward * progress
  *   bikePos    = centerline + trackRight   * lateralOffset
@@ -52,7 +52,7 @@ class FirstPersonCamera;
  * fallback is used when that is unavailable.
  *
  * Intentionally minimal: no obstacles, enemies, boost, lap/finish, HUD, or
- * scripts; the track model's animation is not sampled for progress (vanilla
+ * scripts; the track model's animation is not sampled for progress (the game
  * does not either).
  */
 class SwoopRace {

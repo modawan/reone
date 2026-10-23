@@ -3,9 +3,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "../fixtures/engine.h"
-#include "../fixtures/game.h"
-
+#include "reone/game/d20/class.h"
+#include "reone/game/d20/classes.h"
 #include "reone/game/game.h"
 #include "reone/game/location.h"
 #include "reone/game/modulesnapshot.h"
@@ -14,16 +13,19 @@
 #include "reone/game/object/item.h"
 #include "reone/game/party.h"
 #include "reone/game/saveprovenance.h"
-#include "reone/game/script/routines.h"
 #include "reone/game/savewidesnapshot.h"
+#include "reone/game/script/routines.h"
 #include "reone/resource/format/erfwriter.h"
 #include "reone/resource/format/gffreader.h"
 #include "reone/resource/gff.h"
 #include "reone/resource/parser/gff/gvt.h"
 #include "reone/resource/saveworkingstate.h"
+#include "reone/script/executioncontext.h"
 #include "reone/system/stream/fileoutput.h"
 #include "reone/system/stream/memoryinput.h"
-#include "reone/script/executioncontext.h"
+
+#include "../fixtures/engine.h"
+#include "../fixtures/game.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -127,9 +129,10 @@ RichState configureRich(Game &game, bool tsl) {
     state.selectedPlanet = 4;
     state.mapDisabled = true;
     state.regenerationDisabled = true;
-    state.dialogMessages.push_back({"Carth", "We should go."});
-    state.feedbackMessages.push_back({2, 5, "Feedback"});
-    state.combatMessages.push_back({3, 7, "Combat"});
+    // The party-state message lists are the game's message log.
+    game.messageLog().addDialog("Carth", "We should go.");
+    game.messageLog().add(5, MessageLog::Style::Normal, "Feedback");
+    game.messageLog().add(7, MessageLog::Style::Combat, "Combat", MessageLog::Buffer::Combat);
     if (tsl) {
         state.puppetAvailable[0] = true;
         state.puppetSelectable[0] = false;
@@ -152,6 +155,8 @@ RichState configureRich(Game &game, bool tsl) {
     game.party().setPazaakData(cards, sideDeck, cardCount);
 
     result.npc = game.newCreature();
+    // A companion: real NPCs come from records carrying IsPC 0.
+    result.npc->setPC(false);
     result.npc->setName("Companion");
     auto npcShadow = Gff::Builder().type(0xffffffff)
                          .field(Gff::Field::newCExoString(
@@ -170,6 +175,7 @@ RichState configureRich(Game &game, bool tsl) {
 
     if (tsl) {
         result.puppet = game.newCreature();
+        result.puppet->setPC(false);
         auto puppetShadow = Gff::Builder().type(0xffffffff)
                                 .field(Gff::Field::newCExoString(
                                     "FuturePuppet", "puppet-shadow"))
@@ -323,7 +329,7 @@ struct TempArchive {
 
     TempArchive() {
         path = std::filesystem::temp_directory_path() /
-               "reone_e3e_candidate_application.sav";
+               "reone_global_snapshot_candidate_application.sav";
         ErfWriter writer;
         writer.add({"inventory", ResType::Res, {'o', 'l', 'd'}});
         writer.add({"repute", ResType::Fac, {'o', 'l', 'd'}});
@@ -515,10 +521,11 @@ TEST(SaveWideSnapshot, rich_k1_round_trips_all_common_state_and_shadows) {
     EXPECT_FALSE(fac->getList("FactionList")[2]->getBool("FactionGlobal"));
     EXPECT_EQ(fac->getList("FactionList")[0]->getString("FutureDefinition"),
               "definition-shadow");
-    ASSERT_EQ(fac->getList("RepList").size(), 4);
-    EXPECT_EQ(fac->getList("RepList")[0]->getUint("FactionID1"), 0u);
-    EXPECT_EQ(fac->getList("RepList")[0]->getUint("FactionID2"), 1u);
-    EXPECT_EQ(fac->getList("RepList")[0]->getUint("FactionRep"), 12u);
+    // Source rows and non-player target columns; 100 is not stored.
+    ASSERT_EQ(fac->getList("RepList").size(), 2);
+    EXPECT_EQ(fac->getList("RepList")[0]->getUint("FactionID1"), 1u);
+    EXPECT_EQ(fac->getList("RepList")[0]->getUint("FactionID2"), 2u);
+    EXPECT_EQ(fac->getList("RepList")[0]->getUint("FactionRep"), 77u);
 
     auto npc = readGff(first.snapshot->outerWorkingResources.at({"availnpc0", ResType::Utc}));
     EXPECT_FALSE(npc->has("ObjectId"));
@@ -650,6 +657,23 @@ TEST(SaveWideSnapshot, rich_k2_writes_title_specific_party_pc_puppet_and_nfo) {
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
     auto rich = configureRich(game, true);
+    // The player character is a level 1 soldier. Its maximum comes from its
+    // level history: a hit die of 40 with Constitution 10 (no modifier) is
+    // 40, the base, so the saved current value equals the live one.
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder()
+                .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                .row({"0", "0", "0", "0", "0", "0"})
+                .build())));
+    NiceMock<MockStrings> classStrings;
+    NiceMock<MockTwoDAs> classTwoDas;
+    Classes classes(classStrings, classTwoDas);
+    auto soldier = std::make_shared<CreatureClass>(
+        ClassType::Soldier, classes, classStrings, classTwoDas);
+    rich.player->attributes().addClassLevels(soldier.get(), 1);
+    rich.player->attributes().setAbilityScore(Ability::Constitution, 10);
+    TestGameModule::setLevelHitDice(*rich.player, {40});
 
     auto saved = SaveWideSnapshotBuilder(game, metadata(true)).build();
 
@@ -932,11 +956,12 @@ TEST(SaveWideSnapshot, failed_build_exposes_no_partial_result_or_mutation) {
     EXPECT_EQ(game.party().actualPlayer()->currentHitPoints(), 17);
 }
 
-TEST(SaveWideSnapshot, authored_player_source_reputation_is_derived_but_mutation_is_rejected) {
-    auto &engine = testEngine();
+TEST(SaveWideSnapshot, authored_player_target_reputation_is_derived_but_mutation_is_rejected) {
+    TestEngine engine;
+    engine.init();
     auto &reputes = static_cast<MockReputes &>(engine.services().game.reputes);
     auto base = factionState();
-    base.values[0][1] = 55;
+    base.values[1][0] = 55;
     auto live = base;
     EXPECT_CALL(reputes, baseState())
         .Times(AnyNumber())
@@ -949,10 +974,10 @@ TEST(SaveWideSnapshot, authored_player_source_reputation_is_derived_but_mutation
     auto preserved = SaveWideSnapshotBuilder(game, metadata(false)).build();
     ASSERT_TRUE(preserved) << preserved.message;
 
-    live.values[0][1] = 54;
+    live.values[1][0] = 54;
     EXPECT_CALL(reputes, state()).WillOnce(Return(live));
     auto rejected = SaveWideSnapshotBuilder(game, metadata(false)).build();
     EXPECT_FALSE(rejected);
     EXPECT_EQ(SaveWideSnapshotError::UnsupportedLiveState, rejected.error);
-    EXPECT_THAT(rejected.message, HasSubstr("modified player-source reputation"));
+    EXPECT_THAT(rejected.message, HasSubstr("modified player-target reputation"));
 }

@@ -23,16 +23,17 @@ namespace reone {
 
 namespace game {
 
-class DamageReductionEffect : public Effect {
+class DamageReductionEffect : public CopyableEffect<DamageReductionEffect> {
 public:
     DamageReductionEffect(int amount, DamagePower damagePower, int limit) :
-        Effect(EffectType::DamageReduction) {
+        CopyableEffect(EffectType::DamageReduction) {
         setSaveFacingInteger(0, amount);
         setSaveFacingInteger(1, static_cast<int>(damagePower));
         setSaveFacingInteger(2, limit);
     }
 
-    void applyTo(Object &) override {
+    EffectApplicationResult onApply(Object &, EffectInstance &) override {
+        return EffectApplicationResult::Retained;
     }
 };
 

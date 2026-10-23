@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023 The reone project contributors
+ * Copyright (c) 2026 The reone project contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,15 +15,27 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "reone/game/effect/choke.h"
+#pragma once
+
+#include "../effect.h"
 
 namespace reone {
 
 namespace game {
 
-void ChokeEffect::applyTo(Object &object) {
-    // TODO: implement
-}
+/**
+ * Deals a creature a share of its vitality at once, by rank: a quarter, a
+ * third or half for ranks 1 to 3. Nothing is kept.
+ */
+class AssassinateEffect : public CopyableEffect<AssassinateEffect> {
+public:
+    explicit AssassinateEffect(int rank) :
+        CopyableEffect(EffectType::Assassinate) {
+        setSaveFacingInteger(0, rank);
+    }
+
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
+};
 
 } // namespace game
 

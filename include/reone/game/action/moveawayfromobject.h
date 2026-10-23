@@ -23,6 +23,10 @@ namespace reone {
 
 namespace game {
 
+/**
+ * Keeps a creature walking away from an object until it is farther than the
+ * range from it, the object leaves the area, or it has set off ten times.
+ */
 class MoveAwayFromObject : public Action {
 public:
     MoveAwayFromObject(Game &game,
@@ -44,9 +48,12 @@ public:
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
 private:
+    static constexpr int kMaxAttempts = 10;
+
     std::shared_ptr<Object> _fleeFrom;
     bool _run;
     float _moveAwayRange;
+    int _attemptsLeft {kMaxAttempts};
 };
 
 } // namespace game

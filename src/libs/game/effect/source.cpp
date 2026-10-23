@@ -63,14 +63,6 @@ int EffectModifierReducer::totalDecrease(int cap) const {
     return cappedTotal(_decreases, cap);
 }
 
-std::map<int, int> EffectModifierReducer::increasesBySubtype(int cap) const {
-    return cappedBySubtype(_increases, cap);
-}
-
-std::map<int, int> EffectModifierReducer::decreasesBySubtype(int cap) const {
-    return cappedBySubtype(_decreases, cap);
-}
-
 void EffectModifierReducer::add(
     Values &values,
     EffectSourceKey source,
@@ -97,26 +89,40 @@ int EffectModifierReducer::cappedTotal(const Values &values, int cap) {
     return result;
 }
 
-std::map<int, int> EffectModifierReducer::cappedBySubtype(
-    const Values &values, int cap) {
-    std::map<int, int> totals;
-    for (const auto &[key, amount] : values) {
-        totals[key.second] += amount;
+void AbilityEffectReducer::addIncrease(EffectSourceKey source, int amount) {
+    if (amount <= 0) {
+        return;
     }
+    if (source.kind == EffectSourceKind::Independent) {
+        _increases.independent += amount;
+        return;
+    }
+    auto &value = _increases.bySource[source];
+    value = std::max(value, amount);
+}
 
-    std::map<int, int> result;
-    int remaining = cap;
-    for (const auto &[subtype, amount] : totals) {
-        if (remaining <= 0) {
-            break;
-        }
-        int retained = std::min(remaining, amount);
-        if (retained > 0) {
-            result[subtype] = retained;
-            remaining -= retained;
-        }
+void AbilityEffectReducer::addDecrease(EffectSourceKey source, int amount) {
+    if (amount <= 0) {
+        return;
     }
-    return result;
+    if (source.kind == EffectSourceKind::Independent) {
+        _decreases.independent += amount;
+        return;
+    }
+    _decreases.bySource[source] += amount;
+}
+
+int AbilityEffectReducer::Direction::total() const {
+    int sum = independent;
+    for (const auto &[source, amount] : bySource) {
+        sum += amount;
+    }
+    return sum;
+}
+
+int AbilityEffectReducer::total() const {
+    return std::min(_increases.total(), getAbilityEffectIncreaseCap(_tsl)) -
+           std::min(_decreases.total(), getAbilityEffectDecreaseCap(_tsl));
 }
 
 } // namespace game

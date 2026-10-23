@@ -16,37 +16,54 @@
  */
 
 #include "reone/game/game.h"
-#include "reone/game/savedruntime.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <exception>
 #include <numeric>
+#include <optional>
 
-#include "reone/game/minigame.h"
+#include <boost/algorithm/string/case_conv.hpp>
+#include <boost/algorithm/string/predicate.hpp>
+#include <imgui.h>
 
 #include "reone/audio/context.h"
 #include "reone/audio/di/services.h"
 #include "reone/audio/mixer.h"
+#include "reone/game/action/attackobject.h"
 #include "reone/game/action/castspellatobject.h"
-#include "reone/game/action/cutsceneattack.h"
 #include "reone/game/action/startconversation.h"
+#include "reone/game/action/usefeat.h"
+#include "reone/game/action/useskill.h"
 #include "reone/game/combat.h"
 #include "reone/game/d20/classes.h"
 #include "reone/game/d20/spells.h"
 #include "reone/game/debug.h"
 #include "reone/game/di/services.h"
 #include "reone/game/difficultyoptions.h"
+#include "reone/game/effect/creaturestate.h"
+#include "reone/game/effect/resurrection.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/gui/hud.h"
 #include "reone/game/gui/sounds.h"
 #include "reone/game/location.h"
+#include "reone/game/minigame.h"
+#include "reone/game/object/door.h"
+#include "reone/game/object/item.h"
+#include "reone/game/object/placeable.h"
+#include "reone/game/object/trigger.h"
 #include "reone/game/party.h"
+#include "reone/game/player.h"
+#include "reone/game/projectiles.h"
 #include "reone/game/reputes.h"
 #include "reone/game/room.h"
+#include "reone/game/savedruntime.h"
 #include "reone/game/savewidesnapshot.h"
 #include "reone/game/script/routines.h"
 #include "reone/game/surfaces.h"
+#include "reone/game/twodautil.h"
 #include "reone/graphics/context.h"
 #include "reone/graphics/di/services.h"
 #include "reone/graphics/font.h"
@@ -68,8 +85,8 @@
 #include "reone/resource/format/erfwriter.h"
 #include "reone/resource/format/gffreader.h"
 #include "reone/resource/format/gffwriter.h"
-#include "reone/resource/parser/gff/gvt.h"
 #include "reone/resource/parser/gff/git.h"
+#include "reone/resource/parser/gff/gvt.h"
 #include "reone/resource/parser/gff/nfo.h"
 #include "reone/resource/provider/2das.h"
 #include "reone/resource/provider/audioclips.h"
@@ -87,6 +104,7 @@
 #include "reone/resource/provider/walkmeshes.h"
 #include "reone/resource/resources.h"
 #include "reone/resource/saveworkingstate.h"
+#include "reone/resource/strings.h"
 #include "reone/scene/di/services.h"
 #include "reone/scene/drawdebug.h"
 #include "reone/scene/graphs.h"
@@ -102,8 +120,6 @@
 #include "reone/system/smallset.h"
 #include "reone/system/stream/memoryinput.h"
 #include "reone/system/threadutil.h"
-
-#include <imgui.h>
 
 using namespace reone::audio;
 using namespace reone::graphics;
@@ -155,22 +171,8 @@ bool Game::bindEffectCreator(EffectInstance &effect) const {
         return false;
     }
     const auto &serializedContext = effect.serializedReferenceContext;
-    const bool moduleGraphReferences =
-        serializedContext &&
-        serializedContext->domain == SerializedIdentityDomain::ModuleGraph;
-    if (moduleGraphReferences && effect._savedGraph &&
-        *effect._savedGraph != _savedGraphGeneration) {
-        effect.creator.reset();
-        for (auto &object : effect.objectParameterObjects) {
-            object.reset();
-        }
-        return false;
-    }
     if (!effect._runtimeSession) {
         effect._runtimeSession = _runtimeSessionGeneration;
-    }
-    if (moduleGraphReferences && !effect._savedGraph) {
-        effect._savedGraph = _savedGraphGeneration;
     }
     auto resolve = [this, &serializedContext](uint32_t id) {
         return serializedContext
@@ -191,6 +193,22 @@ bool Game::bindEffectCreator(EffectInstance &effect) const {
         allBound = effect.bindObjectParameter(index, resolve(id)) &&
                    allBound;
     }
+    if (serializedContext) {
+        // Object identities are stable: once bound, the creator and object
+        // parameters are the identities of the objects they name, and a
+        // reference with no object names none.
+        auto rebase = [](uint32_t &id, const std::shared_ptr<Object> &object) {
+            if (id == kSavedEffectInvalidObjectId || id == kSavedRuntimeInvalidObjectId) {
+                return;
+            }
+            id = object ? object->id() : kSavedEffectInvalidObjectId;
+        };
+        rebase(effect.creatorId, effect.boundCreator());
+        for (size_t index = 0; index < effect.objectParameters.size(); ++index) {
+            rebase(effect.objectParameters[index], effect.boundObjectParameter(index));
+        }
+        effect.serializedReferenceContext.reset();
+    }
     return allBound;
 }
 
@@ -199,7 +217,7 @@ bool Game::bindSavedObjectReference(SavedObjectReference &reference) const {
         reference._object.reset();
         return false;
     }
-    if (reference.isInvalid()) {
+    if (reference.isInvalid() || reference.isRawValue()) {
         reference._object.reset();
         return false;
     }
@@ -242,9 +260,7 @@ std::shared_ptr<Object> Game::resolveSerializedObjectReference(
         }
         return getObjectBySavedId(id);
     case SerializedIdentityDomain::Template:
-        // ObjectId-shaped fields in blueprints do not name instances in any
-        // live serialized graph. Treating them as module references would
-        // recreate the cross-domain equality assumption A1 removed.
+        // ObjectId-shaped blueprint fields are not references into a live serialized graph.
         return nullptr;
     case SerializedIdentityDomain::DetachedRecord: {
         std::shared_ptr<Object> result;
@@ -359,9 +375,26 @@ static pazaak::MainDeck randomPazaakMainDeck() {
     return pazaak::MainDeck(std::move(cards));
 }
 
-static std::optional<pazaak::CardDefinition> k1PazaakCardDefinition(int cardId) {
-    if (cardId < 0 || cardId >= 18) {
+// KotOR II owns five extra card types after the numbered ones. Their order
+// follows the authored side-deck screen: Tiebreaker, Double, Flip 2&4, Flip 3&6
+// and Value Change.
+static std::optional<pazaak::CardDefinition> getPazaakCardDefinition(int cardId, bool tsl) {
+    if (cardId < 0 || cardId >= (tsl ? 23 : 18)) {
         return std::nullopt;
+    }
+    if (cardId >= 18) {
+        switch (cardId) {
+        case 18:
+            return pazaak::CardDefinition::tiebreaker();
+        case 19:
+            return pazaak::CardDefinition::doubleCard();
+        case 20:
+            return pazaak::CardDefinition::flipTwoFour();
+        case 21:
+            return pazaak::CardDefinition::flipThreeSix();
+        default:
+            return pazaak::CardDefinition::valueChange();
+        }
     }
     int magnitude = cardId % 6 + 1;
     if (cardId < 6) {
@@ -373,109 +406,63 @@ static std::optional<pazaak::CardDefinition> k1PazaakCardDefinition(int cardId) 
     return pazaak::CardDefinition::signSelectable(magnitude);
 }
 
-// KotOR II owns five extra card types after the numbered ones. Their order
-// follows the authored side-deck screen: Tiebreaker, Double, Flip 2&4, Flip 3&6
-// and Value Change.
-static std::optional<pazaak::CardDefinition> k2PazaakCardDefinition(int cardId) {
-    if (cardId < 0 || cardId >= 23) {
-        return std::nullopt;
-    }
-    if (cardId < 18) {
-        return k1PazaakCardDefinition(cardId);
-    }
-    switch (cardId) {
-    case 18:
-        return pazaak::CardDefinition::tiebreaker();
-    case 19:
-        return pazaak::CardDefinition::doubleCard();
-    case 20:
-        return pazaak::CardDefinition::flipTwoFour();
-    case 21:
-        return pazaak::CardDefinition::flipThreeSix();
-    default:
-        return pazaak::CardDefinition::valueChange();
-    }
-}
+// The card a pazaakdecks.2da cell names. The first character picks the kind:
+// '-' and '*' for the negative and sign-selectable cards and, in KotOR II, '$'
+// for Double and T, F and V (in either case) for Tiebreaker, the Flip cards
+// (F1 is Flip 2&4, any other Flip 3&6) and Value Change. Any other first
+// character is a positive card. The second character is the card's value.
+static std::optional<pazaak::CardDefinition> parsePazaakDeckCard(
+    const std::string &token, bool tsl) {
 
-static std::optional<pazaak::CardDefinition> parseK1PazaakDeckCard(
-    const std::string &token) {
-
-    if (token.size() != 2 ||
-        (token[0] != '+' && token[0] != '-' && token[0] != '*') ||
-        token[1] < '1' || token[1] > '6') {
-        return std::nullopt;
-    }
-    int magnitude = token[1] - '0';
-    switch (token[0]) {
-    case '+':
-        return pazaak::CardDefinition::fixedPositive(magnitude);
-    case '-':
-        return pazaak::CardDefinition::fixedNegative(magnitude);
-    case '*':
-        return pazaak::CardDefinition::signSelectable(magnitude);
-    default:
-        return std::nullopt;
-    }
-}
-
-static std::optional<pazaak::SideDeck> loadK1PazaakOpponentDeck(
-    const resource::TwoDA &decks,
-    int row) {
-
-    if (row < 0 || row >= decks.getRowCount()) {
-        return std::nullopt;
-    }
-    std::vector<pazaak::CardDefinition> cards;
-    cards.reserve(pazaak::kSideDeckSize);
-    for (size_t i = 0; i < pazaak::kSideDeckSize; ++i) {
-        auto card = parseK1PazaakDeckCard(
-            decks.getString(row, "card" + std::to_string(i)));
-        if (!card) {
-            return std::nullopt;
+    const char kind = token.empty() ? '\0' : token[0];
+    const char value = token.size() > 1 ? token[1] : '\0';
+    int cardId = value - '1';
+    if (kind == '-') {
+        cardId = value - '1' + 6;
+    } else if (kind == '*') {
+        cardId = value - '1' + 12;
+    } else if (tsl) {
+        switch (kind) {
+        case '$':
+            cardId = 19;
+            break;
+        case 'T':
+        case 't':
+            cardId = 18;
+            break;
+        case 'F':
+        case 'f':
+            cardId = value == '1' ? 20 : 21;
+            break;
+        case 'V':
+        case 'v':
+            cardId = 22;
+            break;
+        default:
+            break;
         }
-        cards.push_back(*card);
     }
-    return pazaak::SideDeck {
-        cards[0], cards[1], cards[2], cards[3], cards[4],
-        cards[5], cards[6], cards[7], cards[8], cards[9],
-    };
+    return getPazaakCardDefinition(cardId, tsl);
 }
 
-static std::optional<pazaak::CardDefinition> parseK2PazaakDeckCard(
-    const std::string &token) {
-
-    // KotOR II special-card tokens, verified from shipped card descriptions.
-    if (token == "$$") {
-        return pazaak::CardDefinition::doubleCard();
-    }
-    if (token == "F1") {
-        return pazaak::CardDefinition::flipTwoFour();
-    }
-    if (token == "F2") {
-        return pazaak::CardDefinition::flipThreeSix();
-    }
-    if (token == "TT") {
-        return pazaak::CardDefinition::tiebreaker();
-    }
-    if (token == "VV") {
-        return pazaak::CardDefinition::valueChange();
-    }
-    // Otherwise the KotOR I grammar (+N / -N / *N) applies unchanged.
-    return parseK1PazaakDeckCard(token);
-}
-
-static std::optional<pazaak::SideDeck> loadK2PazaakOpponentDeck(
+// The opponent's side deck is a row's first ten columns; a negative row is a
+// random one.
+static std::optional<pazaak::SideDeck> loadPazaakOpponentDeck(
     const resource::TwoDA &decks,
-    int row) {
+    int row, bool tsl) {
 
+    if (row < 0 && decks.getRowCount() > 0) {
+        row = randomInt(0, decks.getRowCount() - 1);
+    }
     if (row < 0 || row >= decks.getRowCount()) {
         return std::nullopt;
     }
+    const auto &columns = decks.columns();
     std::vector<pazaak::CardDefinition> cards;
     cards.reserve(pazaak::kSideDeckSize);
     for (size_t i = 0; i < pazaak::kSideDeckSize; ++i) {
-        auto card = parseK2PazaakDeckCard(
-            decks.getString(row, "card" + std::to_string(i)));
+        auto card = parsePazaakDeckCard(
+            i < columns.size() ? decks.getString(row, columns[i]) : std::string(), tsl);
         if (!card) {
             return std::nullopt;
         }
@@ -573,6 +560,8 @@ static int getDebugFaction(const std::shared_ptr<Object> &object) {
 }
 
 void Game::init() {
+    _options.game.autoPause = AutoPauseOptions::load(_options.game.configurationPath, isTSL());
+    _options.game.feedback = FeedbackOptions::load(_options.game.configurationPath);
     initConsole();
     resetGalaxyMap();
     initLocalServices();
@@ -687,6 +676,10 @@ void Game::initConsole() {
     }
 }
 
+std::shared_ptr<Spell> Game::getSpell(SpellType type) const {
+    return _services.game.spells.get(type);
+}
+
 void Game::initLocalServices() {
     auto routines = std::make_unique<Routines>(_gameId, this, &_services);
     routines->init();
@@ -716,7 +709,19 @@ void Game::setSceneSurfaces() {
 }
 
 bool Game::handle(const input::Event &event) {
+    if (_playerInputBlocked && event.type != input::EventType::KeyUp &&
+        event.type != input::EventType::MouseButtonUp) {
+        return true;
+    }
     if (_confirmPopup && _confirmPopup->isVisible()) {
+        // The drawn pointer keeps following the mouse while the popup takes
+        // the input.
+        if (event.type == input::EventType::MouseMotion) {
+            _pointer->setPosition({event.motion.x, event.motion.y});
+        } else if ((event.type == input::EventType::MouseButtonDown || event.type == input::EventType::MouseButtonUp) &&
+                   event.button.button == input::MouseButton::Left) {
+            _pointer->setPressed(event.type == input::EventType::MouseButtonDown);
+        }
         _confirmPopup->handle(event);
         return true;
     }
@@ -790,11 +795,25 @@ bool Game::consumeTimingDiscontinuity() {
 }
 
 void Game::update(float frameTime) {
+    // The death sequence sets how fast the world, its presentation and the
+    // fade run this frame; ending it ends the game at once.
+    updateDeathSequence();
+    if (_endGamePending) {
+        openMainMenu();
+        return;
+    }
+    // A movie runs from the frame after it is started, so the code that
+    // started it carries on as if it had already finished. While it runs,
+    // the fade is frozen and takes no requests.
+    _globalFade.setMovieOverride(static_cast<bool>(_movie));
     // Presentation advances once, before callbacks can replace its request.
     // The driver rebases frameTime after synchronous loading; movies suspend it.
-    _globalFade.update(frameTime);
-    float dt = frameTime * _gameSpeed;
+    _globalFade.update(frameTime * _deathTimeScale);
+    _partyKilledAutoPauseDelay = std::max(0.0f, _partyKilledAutoPauseDelay - frameTime);
+    updateDeferredAutoPause(frameTime);
+    float dt = frameTime * _gameSpeed * _deathTimeScale;
     if (_movie) {
+        _worldClockSample.reset();
         updateMovie(dt);
         return;
     }
@@ -831,9 +850,37 @@ void Game::update(float frameTime) {
     if (!_nextModule.empty()) {
         loadNextModule();
     }
+    // Sounds wait while a movie runs and resume once the frame's module
+    // transition, if any, has been made.
+    _services.audio.mixer.setSoundsHeldForMovie(static_cast<bool>(_movie));
+    syncClientCombatMode();
+    if (_screen == Screen::InGame && _globalFade.opacity() <= 0.0f) {
+        updatePassiveSelection(frameTime);
+        // Each member's client combat mode follows its own targets. Leaving it
+        // lets the next enemy sighting count at once.
+        for (int i = 0; i < _party.getSize(); ++i) {
+            auto member = _party.getMember(i);
+            if (!member) {
+                continue;
+            }
+            const auto stored = _party.members()[i].lastTarget.resolve();
+            std::optional<std::reference_wrapper<const Object>> storedTarget;
+            if (stored) {
+                storedTarget = *stored;
+            }
+            if (member->updateClientCombatMode(storedTarget, i == 0 && _deadTargetHold > 0.0f)) {
+                _enemySightingHold = -1.0f;
+            }
+        }
+        syncClientCombatMode();
+    }
     updateCamera(dt);
+    if (_module) {
+        updateLeaderVideoEffect();
+    }
 
-    if (_swoopRace.isActive()) {
+    // A paused minigame stands still.
+    if (_swoopRace.isActive() && !_paused) {
         _swoopRace.update(dt);
 
         // Non-blocking auto-finish: when a lifecycle race reaches the finish
@@ -848,7 +895,7 @@ void Game::update(float frameTime) {
         }
     }
 
-    if (_turret.isActive()) {
+    if (_turret.isActive() && !_paused) {
         _turret.update(dt);
 
         // Non-blocking auto-finish: a lifecycle session ends as soon as the
@@ -864,16 +911,59 @@ void Game::update(float frameTime) {
         }
     }
 
-    bool updModule = !_movie && _module && (_screen == Screen::InGame || _screen == Screen::Conversation);
+    if (_module && _module->area()) {
+        _party.updateFollowPath();
+    }
+    updateTemporaryDeath();
+
+    // The world keeps running behind the death sequence.
+    bool updModule = !_movie && _module &&
+                     (_screen == Screen::InGame || _screen == Screen::Conversation || _screen == Screen::Death);
+    const auto clockSample = _services.system.clock.micros();
+    const auto elapsed = _worldClockSample ? clockSample - *_worldClockSample : 0;
+    _worldClockSample = clockSample;
     if (updModule && !_paused) {
         _floatingText.update(dt);
-        advanceWorldTime(dt);
+        updateHostileHilites(dt);
+        _attackMashTime = std::max(0.0f, _attackMashTime - dt);
+        const double elapsedSeconds =
+            static_cast<double>(elapsed) * static_cast<double>(_gameSpeed * _deathTimeScale) / 1000000.0;
+        // While time is stopped the world clock waits and only the excluded
+        // objects' clock runs.
+        if (_timeStopped) {
+            advanceTimeStopClock(elapsedSeconds);
+        } else {
+            advanceWorldTime(elapsedSeconds);
+        }
         advancePlayedTime(dt);
+        // Inventory and equipped items are not necessarily area objects.
+        // Refresh their readiness before scripts can query item talents.
+        for (const auto &[id, object] : _objectById) {
+            if (auto *item = dyn_cast<Item>(object.get())) {
+                if (item->isRuntimeLive()) {
+                    item->refreshSpellReadiness();
+                }
+            }
+        }
         auto updatedModule = _module;
         auto generation = _runtimeSessionGeneration;
         updatedModule->update(dt);
-        _combat.update(dt);
-        if (_module == updatedModule && _runtimeSessionGeneration == generation) {
+        // A movie started in the update holds the rest of the world, and the
+        // arrival, until it ends.
+        auto current = [&]() {
+            return _module == updatedModule && _runtimeSessionGeneration == generation && !_movie;
+        };
+        if (current()) {
+            _combat.update(dt);
+        }
+        // Projectiles in flight stand still while time is stopped.
+        if (current() && !_timeStopped) {
+            _services.game.projectiles.update(dt, *this, _services);
+        }
+        if (current()) {
+            updatedModule->dispatchDueSavedEvents();
+        }
+        if (current()) {
             settleFadeArrival();
         }
     }
@@ -882,6 +972,11 @@ void Game::update(float frameTime) {
         settleFadeArrival();
     }
 
+    if (isConversationActive()) {
+        clearPlayerHostileActions();
+    }
+    syncClientCombatMode();
+    commitTutorialWindow();
     auto gui = getScreenGUI();
     if (gui) {
         gui->update(dt);
@@ -889,6 +984,7 @@ void Game::update(float frameTime) {
     if (_confirmPopup && _confirmPopup->isVisible()) {
         _confirmPopup->update(dt);
     }
+    updateSoloModeQuery();
     updateSceneGraph(dt);
     if (!_paused) {
         updateDrawDebug(dt);
@@ -910,6 +1006,13 @@ void Game::render() {
 bool Game::handleKeyDown(const input::KeyEvent &event) {
     if (event.repeat)
         return false;
+
+    if (_screen == Screen::InGame && handleFreeLookKey(event)) {
+        return true;
+    }
+    if (_gameOver && handleDeathSequenceKey(event)) {
+        return true;
+    }
 
     if (handleDeveloperKeyDown(event)) {
         return true;
@@ -1010,6 +1113,10 @@ bool Game::handleMouseMotion(const input::MouseMotionEvent &event) {
 }
 
 bool Game::handleMouseButtonDown(const input::MouseButtonEvent &event) {
+    // Clicks do nothing in free-look.
+    if (_freeLook && _screen == Screen::InGame) {
+        return true;
+    }
     if (event.button != input::MouseButton::Left) {
         return false;
     }
@@ -1043,7 +1150,7 @@ Game::PreparedDestinationModule Game::prepareDestinationModule(
     prepared.are = prepared.resources->areaAre();
     prepared.git = prepared.resources->areaGit();
     prepared.name = prepared.resources->moduleName();
-    // GIT.UseTemplates is the retail world-representation discriminator.
+    // GIT.UseTemplates is the world-representation discriminator.
     // Mod_IsSaveGame describes the surrounding IFO but cannot turn a
     // template GIT into an authoritative instance graph (or vice versa).
     const bool authoritativeSavedWorld =
@@ -1140,6 +1247,144 @@ bool Game::loadModule(
         /*resourcesCommitted=*/false);
 }
 
+// Before anything is stored, leaving the module clears the actions of the
+// creature the player controls and of every roster creature and puppet in the
+// world, each that can be commanded; what an uncommandable creature was doing
+// goes with it.
+void Game::clearDepartingActions() {
+    const size_t npcCount = isTSL() ? Party::kK2NpcCount : Party::kK1NpcCount;
+    for (size_t npc = 0; npc < npcCount; ++npc) {
+        if (auto creature = _party.rosterCreature({RosterKind::Npc, static_cast<int>(npc)})) {
+            creature->clearAllActions(true);
+        }
+    }
+    if (isTSL()) {
+        for (size_t puppet = 0; puppet < Party::kMaxPuppetCount; ++puppet) {
+            if (auto creature = _party.rosterCreature({RosterKind::Puppet, static_cast<int>(puppet)})) {
+                creature->clearAllActions(true);
+            }
+        }
+    }
+    if (auto player = _party.player()) {
+        player->clearAllActions(true);
+    }
+}
+
+// Resident party creatures cross the transition as the same objects, but
+// their live action and timer objects still belong to the outgoing Area.
+// Capture the save-facing forms of what is left in their queues now and
+// reconstruct them only after the destination is authoritative.
+std::vector<Game::PartyTransitionState> Game::captureResidentPartyActions() {
+    std::vector<PartyTransitionState> states;
+    const auto &residentCreatures = _module->area()->getObjectsByType(ObjectType::Creature);
+    std::set<const Creature *> captured;
+    for (const auto &object : _party.runtimeObjects()) {
+        auto creature = std::dynamic_pointer_cast<Creature>(object);
+        if (!creature || !captured.insert(creature.get()).second ||
+            std::find(residentCreatures.begin(), residentCreatures.end(), creature) == residentCreatures.end()) {
+            continue;
+        }
+        PartyTransitionState state;
+        state.creature = creature;
+        state.actions.actions = creature->saveActionSnapshot();
+        for (auto &action : state.actions.actions) {
+            // Bind references while their source registry is authoritative.
+            // Preserve the exact runtime incarnation rather than
+            // reinterpreting its numeric ID.
+            state.actionReferencesBound.push_back(action.bindObjectReferences(*this));
+        }
+        // Pending delayed commands are events of the outgoing module. They
+        // stay in its queue and are stored with it.
+        states.push_back(std::move(state));
+    }
+    return states;
+}
+
+// Destination structure and the source snapshot are both viable. Technical
+// teardown belongs on the commit side of that boundary: a rejected destination
+// or failed snapshot must not abort an otherwise valid gameplay session.
+void Game::endSourceSession(const std::string &destination) {
+    abortPazaak();
+    if (_swoopRace.isActive()) {
+        _swoopRace.stop();
+        _cameraType = _savedCameraType;
+    }
+    if (_turret.isActive()) {
+        _turret.stop();
+        _cameraType = _savedCameraType;
+    }
+    if (_swoopLifecycle.active) {
+        _swoopLifecycle = MinigameLifecycle();
+    }
+    if (_turretLifecycle.active) {
+        _turretLifecycle = MinigameLifecycle();
+    }
+    if (_pendingTurret.active && !boost::iequals(_pendingTurret.targetModule, destination)) {
+        debug(str(boost::format("turret: scheduled session for '%s' dropped, loading '%s' instead") %
+                  _pendingTurret.targetModule % destination));
+        _pendingTurret = PendingTurretRequest();
+    }
+    if (_screen == Screen::Conversation && _conversation) {
+        _conversation->cleanupForModuleTransition();
+    }
+
+    if (_module) {
+        // The source snapshot is already frozen. Module retirement now owns
+        // the full Area-departure boundary itself.
+        retireActiveModuleRuntime();
+    }
+
+    // Do not carry a displayed or pending batch, indicator, or GUI controls
+    // across module teardown. OnLoad events start a new batch for the
+    // destination module.
+    _floatingText.reset();
+    _statusSummary.reset();
+    if (_hud) {
+        _hud->resetStatusSummaryPresentation();
+    }
+}
+
+// The module itself needs a transient runtime identity even though it is not
+// serialized. Keep that allocation clear of identities explicitly owned by the
+// saved IFO graph (notably the Area).
+void Game::publishDestinationModule(const std::string &name, const resource::Gff &ifo, bool restoringSavedWorld) {
+    if (restoringSavedWorld) {
+        reserveSavedObjectIds(ifo, SerializedIdentityContext::moduleGraph(name), SerializedGraphRoot::ModuleIfo);
+    }
+    std::shared_ptr<Module> destinationModule;
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            destinationModule = restoringSavedWorld ? newSavedModule() : newModule();
+            if (restoringSavedWorld) {
+                registerSavedModuleReferenceTarget(destinationModule, SerializedIdentityContext::moduleGraph(name));
+            }
+        },
+        [&]() noexcept {
+            _module = std::move(destinationModule);
+        });
+}
+
+// Publish the exact runtime incarnations already bound in their source graph.
+// Do not look up their serialized numbers again in the destination.
+void Game::restorePartyTransitionState(std::vector<PartyTransitionState> &states) {
+    for (auto &state : states) {
+        auto creature = state.creature.resolve();
+        if (!creature) {
+            continue;
+        }
+        creature->_savedEffects.clear();
+        creature->_savedActionQueue = std::move(state.actions);
+        creature->_savedActionReferencesBound = std::move(state.actionReferencesBound);
+        creature->_savedRuntimeParsed = true;
+        creature->_savedRuntimePublished = false;
+        creature->_actions.clear();
+        creature->_publishedSavedActions.clear();
+        creature->refillForceShieldPools();
+    }
+}
+
 bool Game::loadPreparedModule(
     PreparedDestinationModule prepared,
     std::string entry,
@@ -1163,17 +1408,7 @@ bool Game::loadPreparedModule(
         ~LoadFromSaveGuard() { value = false; }
     } loadFromSaveGuard {_loadingFromSaveGame};
 
-    struct PartyTransitionRuntimeState {
-        struct DelayedEvent {
-            SavedEventRecord event;
-            bool referencesBound {false};
-        };
-        RuntimeObjectRef<Creature> creature;
-        SavedActionQueue actions;
-        std::vector<bool> actionReferencesBound;
-        std::vector<DelayedEvent> delayedEvents;
-    };
-    std::vector<PartyTransitionRuntimeState> partyTransitionState;
+    std::vector<PartyTransitionState> partyTransitionState;
 
     // Exit scripts are part of the source module's last observable state. The
     // resulting working state remains a candidate until the resource/runtime
@@ -1185,87 +1420,14 @@ bool Game::loadPreparedModule(
             error("Source module exit script failed: " + std::string(e.what()));
             return false;
         }
+        clearDepartingActions();
         sourceWorkingState = prepareCurrentModuleWorkingState();
         if (!sourceWorkingState) {
             return false;
         }
 
-        // Retail serializes resident Party members before destroying their
-        // source representations. Reone retains the Creature storage, but the
-        // live action/timer objects still belong to the outgoing Area. Capture
-        // their existing save-facing forms now and reconstruct them only after
-        // the destination is authoritative.
         try {
-            const auto &residentCreatures =
-                _module->area()->getObjectsByType(ObjectType::Creature);
-            std::set<const Creature *> captured;
-            for (const auto &object : _party.runtimeObjects()) {
-                auto creature = std::dynamic_pointer_cast<Creature>(object);
-                if (!creature || !captured.insert(creature.get()).second ||
-                    std::find(
-                        residentCreatures.begin(), residentCreatures.end(), creature) ==
-                        residentCreatures.end()) {
-                    continue;
-                }
-
-                PartyTransitionRuntimeState state;
-                state.creature = creature;
-                state.actions.actions = creature->saveActionSnapshot();
-                for (auto &action : state.actions.actions) {
-                    // Bind while the source registry is authoritative. Copies of
-                    // these references retain exact C4 incarnation handles, never
-                    // a numeric promise that the destination may reinterpret.
-                    state.actionReferencesBound.push_back(
-                        action.bindObjectReferences(*this));
-                }
-
-                for (size_t index = 0; index < creature->_delayed.size(); ++index) {
-                    const auto &delayed = creature->_delayed[index];
-                    if (!delayed.action || delayed.action->isCompleted() ||
-                        delayed.action->isCancelled()) {
-                        continue;
-                    }
-                    auto savedAction = delayed.action->saveFacingState();
-                    if (!savedAction || savedAction->actionId != 37 ||
-                        savedAction->parameters.size() != 1) {
-                        throw ValidationException(
-                            "Party delayed action has no retail timed-event representation");
-                    }
-                    auto situation = std::get_if<SerializedScriptSituation>(
-                        &savedAction->parameters.front().payload);
-                    if (!situation) {
-                        throw ValidationException(
-                            "Party delayed DoCommand action lacks a script situation");
-                    }
-
-                    const double remainingSeconds = delayed.timer
-                                                        ? std::max(
-                                                              0.0f,
-                                                              delayed.timer->remaining())
-                                                        : 0.0f;
-                    const uint64_t absolute = _worldTimeMilliseconds +
-                        static_cast<uint64_t>(
-                            std::floor(remainingSeconds * 1000.0));
-                    const uint64_t millisecondsPerDay = millisecondsPerWorldDay();
-
-                    SavedEventRecord event;
-                    event.day = static_cast<uint32_t>(
-                        absolute / millisecondsPerDay);
-                    event.time = static_cast<uint32_t>(
-                        absolute % millisecondsPerDay);
-                    event.object =
-                        SavedObjectReference::fromRuntimeId(creature->id());
-                    event.caller =
-                        SavedObjectReference::fromRuntimeId(creature->id());
-                    event.eventId = static_cast<uint32_t>(SavedEventType::Timed);
-                    event.payload = *situation;
-                    const bool referencesBound =
-                        event.bindObjectReferences(*this);
-                    state.delayedEvents.push_back({
-                        std::move(event), referencesBound});
-                }
-                partyTransitionState.push_back(std::move(state));
-            }
+            partyTransitionState = captureResidentPartyActions();
         } catch (const std::exception &e) {
             error(
                 "Unable to snapshot Party transition state: " +
@@ -1306,50 +1468,7 @@ bool Game::loadPreparedModule(
         try {
             commitStarted = true;
             _globalFade.request(GlobalFade::Direction::Out);
-            // Destination structure and the source snapshot are both viable.
-            // Technical teardown belongs on the commit side of that boundary:
-            // a rejected destination or failed snapshot must not abort an
-            // otherwise valid gameplay session.
-            abortPazaak();
-            if (_swoopRace.isActive()) {
-                _swoopRace.stop();
-                _cameraType = _savedCameraType;
-            }
-            if (_turret.isActive()) {
-                _turret.stop();
-                _cameraType = _savedCameraType;
-            }
-            if (_swoopLifecycle.active) {
-                _swoopLifecycle = MinigameLifecycle();
-            }
-            if (_turretLifecycle.active) {
-                _turretLifecycle = MinigameLifecycle();
-            }
-            if (_pendingTurret.active &&
-                !boost::iequals(_pendingTurret.targetModule, name)) {
-                debug(str(boost::format(
-                              "turret: scheduled session for '%s' dropped, loading '%s' instead")
-                          % _pendingTurret.targetModule % name));
-                _pendingTurret = PendingTurretRequest();
-            }
-            if (_screen == Screen::Conversation && _conversation) {
-                _conversation->cleanupForModuleTransition();
-            }
-
-            if (_module) {
-                // The source snapshot is already frozen. Module retirement
-                // now owns the full Area-departure boundary itself.
-                retireActiveModuleRuntime();
-            }
-
-            // Do not carry a displayed or pending batch, indicator, or GUI
-            // controls across module teardown. OnLoad events below start a new
-            // batch for the destination module.
-            _floatingText.reset();
-            _statusSummary.reset();
-            if (_hud) {
-                _hud->resetStatusSummaryPresentation();
-            }
+            endSourceSession(name);
 
             if (!resourcesCommitted) {
                 _services.resource.director.commitModuleLoad(
@@ -1377,37 +1496,16 @@ bool Game::loadPreparedModule(
             ModuleLoadContext context = prepared.context;
             bool restoringSavedWorld = restoresSavedWorld(context);
 
-            const auto identityContext =
-                restoringSavedWorld
-                    ? SerializedIdentityContext::moduleGraph(name)
-                    : SerializedIdentityContext::templateResource(name);
-            const std::string entryArea = ifo->getString("Mod_Entry_Area");
-            // The module itself needs a transient runtime identity even though
-            // it is not serialized. Keep that allocation clear of identities
-            // explicitly owned by the saved IFO graph (notably the Area).
-            if (restoringSavedWorld) {
-                reserveSavedObjectIds(
-                    *ifo,
-                    SerializedIdentityContext::moduleGraph(name),
-                    SerializedGraphRoot::ModuleIfo);
+            // Every module start takes its hour length from the module. A
+            // restored save has already set the calendar day and time of day
+            // from its own module record; any other start (a new game or a
+            // transition) keeps the day and time of day the world had and
+            // counts them in the destination's hours.
+            if (!initialSaveRestore) {
+                restoreWorldTime(*ifo, worldTimeDay(), worldTimeOfDay());
             }
-            std::shared_ptr<Module> destinationModule;
-            std::vector<std::shared_ptr<Object>> noObsolete;
-            replaceRuntimeObjectGraph(
-                noObsolete,
-                [&]() {
-                    destinationModule = restoringSavedWorld
-                                            ? newSavedModule()
-                                            : newModule();
-                    if (restoringSavedWorld) {
-                        registerSavedModuleReferenceTarget(
-                            destinationModule,
-                            SerializedIdentityContext::moduleGraph(name));
-                    }
-                },
-                [&]() noexcept {
-                    _module = std::move(destinationModule);
-                });
+
+            publishDestinationModule(name, *ifo, restoringSavedWorld);
             _fadeArrival = _globalFade.beginArrival();
             _fadeArrivalModule = _module;
             auto destination = _module;
@@ -1437,48 +1535,35 @@ bool Game::loadPreparedModule(
                 }
             }
 
-            if (_party.isEmpty()) {
+            // Only a session without a player character gets the default
+            // party; one whose controlled companion was taken out keeps its
+            // parked player character.
+            if (_party.isEmpty() && !_party.actualPlayer()) {
                 loadDefaultParty();
             }
+            // A follower whose creature was destroyed is still listed with
+            // the party, and comes back from its roster record.
+            _party.respawnVacantFollowers();
 
-            // Retail makes restored effects, actions and events visible before
+            // The game makes restored effects, actions and events visible before
             // authored OnLoad/OnEnter scripts inspect or mutate them. Binding
             // remains explicit and graph-local; only publication moves ahead
             // of the entry hooks.
             bindSavedRuntimeState();
 
-            for (auto &state : partyTransitionState) {
-                auto creature = state.creature.resolve();
-                if (!creature) continue;
-
-                // Source references were resolved while their graph was still
-                // authoritative. Publish those exact C4 incarnations without
-                // looking their serialized numbers up in the destination.
-                creature->_savedEffects.clear();
-                creature->_savedActionQueue = std::move(state.actions);
-                creature->_savedEffectReferencesBound.clear();
-                creature->_savedActionReferencesBound =
-                    std::move(state.actionReferencesBound);
-                creature->_savedRuntimeParsed = true;
-                creature->_savedRuntimePublished = false;
-                creature->_loadedSaveActionSlots.clear();
-
-                for (auto &delayed : state.delayedEvents) {
-                    _module->enqueueBoundSaveEvent(
-                        std::move(delayed.event), delayed.referencesBound);
-                }
-            }
+            restorePartyTransitionState(partyTransitionState);
             publishSavedRuntimeState();
 
             // Whether the world came from persisted state decides what gets
             // restored, not whether the module's authored entry hook runs.
             // Content relies on that hook every time it is entered, including
-            // when revisiting a module whose world state is restored.
-            destination->runOnLoadScript();
-            if (!stillCurrent()) {
-                return;
-            }
+            // when revisiting a module whose world state is restored. It runs
+            // as an event after the area's creature entries.
+            destination->signalLoaded();
 
+            // The party is formed anew in the destination: a place that names
+            // no one does not come along, and the first member there leads.
+            _party.removeVacantMembers();
             destination->loadParty(entry, preservesSavedPlacement(context));
             if (!stillCurrent()) {
                 return;
@@ -1491,8 +1576,8 @@ bool Game::loadPreparedModule(
             }
             render();
 
-            std::string musicName(_module->area()->music());
-            playMusic(musicName);
+            // Menu and minigame music ends when the module loads.
+            playMusic("");
 
             _globalFade.finishLoading(arrival);
             if (!isConversationActive()) {
@@ -1519,13 +1604,7 @@ bool Game::loadPreparedModule(
         } else {
             // A terminal-path dependency failed while retiring the published
             // destination. Do not expose a blank or resurrected old world.
-            try {
-                retireToMainMenu();
-            } catch (const std::exception &terminalError) {
-                error("Failed entering Main Menu after load failure: " +
-                      std::string(terminalError.what()));
-                _screen = Screen::MainMenu;
-            }
+            retireToMainMenu();
         }
         return false;
     }
@@ -1533,8 +1612,9 @@ bool Game::loadPreparedModule(
     // However long that took, none of it was time the game world lived
     // through. Whoever drives the frame clock has to start a new epoch before
     // the next update, or the whole load lands on the world as one enormous
-    // step.
+    // step. The world clock does not run during a load either.
     _timingDiscontinuity = true;
+    _worldClockSample.reset();
     return loaded;
 }
 
@@ -1542,6 +1622,16 @@ void Game::retireActiveModuleRuntime() {
     _globalFade.invalidateModule();
     _fadeArrival.reset();
     _fadeArrivalModule.reset();
+    _lastTarget.reset();
+    _nearestObjects.clear();
+    // Leaving a module forgets both sightings and both sighting holds, and the
+    // autopause delay window and any deferred autopause.
+    _autoPauseDelayWindow = 0.0f;
+    _deferredAutoPauseDelay = 0.0f;
+    _enemySighted = false;
+    _mineSighted = false;
+    _enemySightingHold = 0.0f;
+    _mineSightingHold = 0.0f;
     _lastRenderedSceneOutput = nullptr;
     _runtimeSessionPlayable = false;
 
@@ -1556,6 +1646,12 @@ void Game::retireActiveModuleRuntime() {
     }
 
     _combat.reset();
+    // Leaving a module ends the player's pause and a time stop, and the stop's
+    // exclusions go with it. A Time Stop effect applied again afterwards, a
+    // restored one included, stops time anew.
+    setPaused(false);
+    _timeStopped = false;
+    _timeStopExclusions.clear();
     _module.reset();
     _loadedModules.clear();
     std::vector<std::shared_ptr<Object>> retiredObjects;
@@ -1571,6 +1667,7 @@ void Game::retireActiveModuleRuntime() {
 }
 
 void Game::retireActiveAreaRuntime() {
+    _services.game.projectiles.retireAreaRuntime();
     auto module = _module;
     auto area = module ? module->area() : nullptr;
     if (area) {
@@ -1613,7 +1710,6 @@ void Game::retireRuntimeSession() {
 
     abortPazaak();
     _lastPazaakResult.reset();
-    _pazaakContinuationCaller.reset();
     _pazaakDevelopmentSelectedObjectOverride.reset();
     if (_swoopRace.isActive()) {
         _swoopRace.stop();
@@ -1640,7 +1736,20 @@ void Game::retireRuntimeSession() {
     setCursorType(CursorType::Default);
     _cameraType = CameraType::ThirdPerson;
     _savedCameraType = CameraType::ThirdPerson;
+    _freeLook = false;
+    disableVideoEffect();
+    _scriptVideoEffectHeld = false;
+    _playerInputBlocked = false;
+    _postDialogCharacterSwitch.reset();
     _paused = false;
+    _timeStopped = false;
+    _timeStopExclusions.clear();
+    _timeStopMilliseconds = 0;
+    _timeStopFraction = 0.0;
+    _clientCombatMode = false;
+    _clientCombatLeader.reset();
+    _clientCombatArea.reset();
+    _keepStealthInDialog = false;
     _relativeMouseMode = false;
 
     _statusSummary.reset();
@@ -1686,6 +1795,7 @@ void Game::retireRuntimeSession() {
     _worldTimeMilliseconds = 0;
     _minutesPerHour = 5;
     _worldTimeFraction = 0.0;
+    _worldClockSample.reset();
 
     _nextModule.clear();
     _nextEntry.clear();
@@ -1693,6 +1803,26 @@ void Game::retireRuntimeSession() {
 }
 
 void Game::resetGame() {
+    _temporaryDeathRecovery.reset(static_cast<std::uint32_t>(_services.system.clock.millis()));
+    _gameOver = false;
+    _endGamePending = false;
+    _lastPartyMemberTempKilled = script::kObjectInvalid;
+    _deathTimeScale = 1.0f;
+    // The death message is taken down rather than destroyed.
+    if (_deathMessage) {
+        _deathMessage->hide();
+    }
+    _lastTarget.reset();
+    _lastTargetLook = false;
+    _hostileHilites.clear();
+    _nearestObjects.clear();
+    _tutorialPending.reset();
+    if (_tutorial) {
+        if (_confirmPopup) {
+            _confirmPopup->hide();
+        }
+        finishTutorialWindow(false);
+    }
     retireRuntimeSession();
 
     _quitRequested = false;
@@ -1739,8 +1869,7 @@ Game::PreparedSaveLoad Game::prepareSaveLoad(const resource::SaveSlotDescriptor 
     }
     (void)resource::parseGVT(*prepared.globalVars);
 
-    // Save-wide records remain optional where retail permits them, but any
-    // record supplied by the slot is decoded while the candidate is private.
+    // Optional save-wide records are decoded while the candidate is still private.
     prepared.partyTable = decodeSaveGff(
         prepared.session->findMetadata(ResourceId("partytable", ResType::Res)));
     prepared.inventory = decodeSaveGff(
@@ -1799,13 +1928,7 @@ bool Game::loadGame(const resource::SaveSlotDescriptor &slot) {
         // leaves behind.
         error("Failed restoring savegame '" +
               slot.directory.filename().string() + "': " + std::string(e.what()));
-        try {
-            retireToMainMenu();
-        } catch (const std::exception &terminalError) {
-            error("Failed entering Main Menu after save-load failure: " +
-                  std::string(terminalError.what()));
-            _screen = Screen::MainMenu;
-        }
+        retireToMainMenu();
         return false;
     }
 }
@@ -1845,10 +1968,9 @@ bool Game::restoreSaveLoad(PreparedSaveLoad prepared) {
     // still unpublished.
     deserializeGlobalVariables(*prepared.globalVars);
 
-    // Deserialize party from records inspected before the old session was
-    // retired. A disk restore and a saved module graph are independent: retail
-    // transition autosaves restore save-wide state while constructing the
-    // module world from installed templates and the player from pifo.ifo.
+    // Deserialize the party from records read before retiring the previous session.
+    // A save may contain save-wide state without an instantiated module graph;
+    // transition autosaves build the module from templates and the player from pifo.ifo.
     const auto &ifo = prepared.destination.ifo;
     replaceCustomTokens(parseCustomTokens(*ifo));
     std::string entry;
@@ -1880,16 +2002,14 @@ bool Game::restoreSaveLoad(PreparedSaveLoad prepared) {
         entry = prepared.autosave->startWaypoint;
     }
 
-    // Retail CreateParty clears the detached NPC/PUP ActionList when it
-    // respawns those representations as part of a full disk restore. This is
-    // intentionally different from ordinary travel, whose UpdateMembers(0)
-    // queue is restored below. The module player is loaded through the IFO or
-    // pifo path and is not one of these spawned detached followers.
+    // Party creation clears the detached companion ActionList before binding
+    // its representation into the active area.
     auto discardDetachedRosterActions = [](const std::shared_ptr<Creature> &creature) {
         if (!creature) return;
         creature->_savedActionQueue = SavedActionQueue {};
         creature->_savedActionReferencesBound.clear();
-        creature->_loadedSaveActionSlots.clear();
+        creature->_actions.clear();
+        creature->_publishedSavedActions.clear();
     };
     for (const auto &member : _party.members()) {
         if (member.creature && member.creature != _party.player() &&
@@ -1923,7 +2043,7 @@ void Game::validatePartyLoad(const resource::Gff *partyTable) const {
         return;
     }
 
-    const auto state = parsePartyTable(*partyTable);
+    const auto state = parsePartyTable(*partyTable).party;
     const auto validNpc = [this](int npc) {
         const int count = isTSL()
                               ? static_cast<int>(Party::kK2NpcCount)
@@ -2015,8 +2135,8 @@ void Game::deserializeParty(
     const auto &players = ifoGff.getList("Mod_PlayerList");
     if (!players.empty()) {
         const int controlledNpc =
-            ptGff ? parsePartyTable(*ptGff).controlledNpc : -1;
-        // Retail K2 may mark the controlled module creature primary even while
+            ptGff ? parsePartyTable(*ptGff).party.controlledNpc : -1;
+        // K2 may mark the controlled module creature primary even while
         // pc.utc holds a distinct canonical player. PARTYTABLE is authoritative.
         if (controlledNpc != -1) {
             try {
@@ -2047,12 +2167,12 @@ void Game::publishPartyRuntimeState(
 
         uint32_t xp = 0;
         if (ptGff->readDword(xp, "PT_XP_POOL")) {
-            // Populate the shared party XP pool. Members added below are synced to it.
+            // Restore the party pool before any member is added; members keep
+            // their own saved experience and companions catch up with the pool.
             _party.setXP(xp);
         }
 
-        Party::PersistedState partyState = parsePartyTable(*ptGff);
-        replacePartyTable(std::move(partyState));
+        replacePartyTable(parsePartyTable(*ptGff));
         deserializePazaakPartyTable(*ptGff);
     }
 
@@ -2097,15 +2217,13 @@ void Game::publishPartyRuntimeState(
     }
 }
 
-Party::PersistedState Game::parsePartyTable(const resource::Gff &ptGff) const {
-    Party::PersistedState state;
+Game::PartyTable Game::parsePartyTable(const resource::Gff &ptGff) const {
+    PartyTable table;
+    Party::PersistedState &state = table.party;
     state.pcName = ptGff.getString("PT_PCNAME");
-    // GFF labels are capped at sixteen bytes. Retail KotOR II stores the
+    // GFF labels are capped at sixteen bytes. KotOR II stores the
     // component count under this exact truncated label.
     state.itemComponent = ptGff.getUint("PT_ITEM_COMPONEN");
-    if (!ptGff.has("PT_ITEM_COMPONEN")) {
-        state.itemComponent = ptGff.getUint("PT_ITEM_COMPONENT");
-    }
     state.itemChemical = ptGff.getUint("PT_ITEM_CHEMICAL");
     state.swoopUpgrades[0] = ptGff.getUint("PT_SWOOP1");
     state.swoopUpgrades[1] = ptGff.getUint("PT_SWOOP2");
@@ -2173,32 +2291,56 @@ Party::PersistedState Game::parsePartyTable(const resource::Gff &ptGff) const {
     }
     state.mapDisabled = ptGff.getBool("PT_DISABLEMAP");
     state.regenerationDisabled = ptGff.getBool("PT_DISABLEREGEN");
+    state.forfeitViolation = ptGff.getInt("FORFEITVIOL");
+    state.forfeitConditions = ptGff.getInt("FORFEITCONDS");
 
     for (const auto &entry : ptGff.getList("PT_DLG_MSG_LIST")) {
-        Party::SavedDialogMessage message;
-        message.speaker = entry->getString("PT_DLG_MSG_SPKR");
-        message.text = entry->getString("PT_DLG_MSG_MSG");
-        state.dialogMessages.push_back(std::move(message));
+        table.dialogMessages.push_back(
+            {entry->getString("PT_DLG_MSG_SPKR"), entry->getString("PT_DLG_MSG_MSG")});
     }
+    // The saved colour is the highlight flag.
+    auto logMessage = [](const Gff &entry, const char *colorLabel, const char *typeLabel, const char *textLabel,
+                         MessageLog::Buffer buffer) {
+        uint8_t color = 0;
+        uint32_t type = 0;
+        entry.readByte(color, colorLabel);
+        entry.readDword(type, typeLabel);
+        return MessageLog::Entry {
+            type, color == 1 ? MessageLog::Style::Combat : MessageLog::Style::Normal, entry.getString(textLabel), buffer};
+    };
     for (const auto &entry : ptGff.getList("PT_FB_MSG_LIST")) {
-        Party::SavedLogMessage message;
-        entry->readByte(message.color, "PT_FB_MSG_COLOR");
-        entry->readDword(message.type, "PT_FB_MSG_TYPE");
-        message.text = entry->getString("PT_FB_MSG_MSG");
-        state.feedbackMessages.push_back(std::move(message));
+        table.logMessages.push_back(
+            logMessage(*entry, "PT_FB_MSG_COLOR", "PT_FB_MSG_TYPE", "PT_FB_MSG_MSG", MessageLog::Buffer::Messages));
     }
     for (const auto &entry : ptGff.getList("PT_COM_MSG_LIST")) {
-        Party::SavedLogMessage message;
-        entry->readByte(message.color, "PT_COM_MSG_COOR");
-        entry->readDword(message.type, "PT_COM_MSG_TYPE");
-        message.text = entry->getString("PT_COM_MSG_MSG");
-        state.combatMessages.push_back(std::move(message));
+        table.logMessages.push_back(
+            logMessage(*entry, "PT_COM_MSG_COOR", "PT_COM_MSG_TYPE", "PT_COM_MSG_MSG", MessageLog::Buffer::Combat));
     }
-    return state;
+    // PT_TUT_WND_SHOWN holds one bit per tutorial window, eight windows to a
+    // byte. A missing field leaves every tutorial unseen.
+    const auto tutorialShown = ptGff.getData("PT_TUT_WND_SHOWN");
+    const size_t tutorialBytes = std::min(
+        tutorialShown.size(), isTSL() ? Party::kTutorialShownBytes : Party::kK1TutorialShownBytes);
+    for (size_t byte = 0; byte < tutorialBytes; ++byte) {
+        const auto bits = static_cast<uint8_t>(tutorialShown[byte]);
+        for (int bit = 0; bit < 8; ++bit) {
+            if ((bits & (1 << bit)) != 0) {
+                state.tutorialsShown.insert(static_cast<int>(byte) * 8 + bit);
+            }
+        }
+    }
+    return table;
 }
 
-void Game::replacePartyTable(Party::PersistedState state) {
-    _party.loadPersistedState(std::move(state));
+void Game::replacePartyTable(PartyTable table) {
+    // The saved message lists are appended back to the log's lists.
+    for (auto &message : table.dialogMessages) {
+        _messageLog.addDialog(std::move(message.speaker), std::move(message.text));
+    }
+    for (auto &message : table.logMessages) {
+        _messageLog.add(message.type, message.style, std::move(message.text), message.buffer);
+    }
+    _party.loadPersistedState(std::move(table.party));
 }
 
 void Game::resetGalaxyMap() {
@@ -2259,7 +2401,7 @@ void Game::deserializePazaakPartyTable(resource::Gff &ptGff) {
 }
 
 void Game::saveNpcState(int npc) {
-    // Retail bounds the roster flat, then treats an empty slot as nothing to
+    // The game bounds the roster flat, then treats an empty slot as nothing to
     // save rather than an error.
     if (npc < 0 || npc >= static_cast<int>(Party::kMaxNpcCount)) {
         return;
@@ -2329,7 +2471,7 @@ std::shared_ptr<Creature> Game::materializeRosterCreature(
             throw ValidationException("Could not bind materialized roster creature");
         }
         // Initial restoration performs one graph-wide bind/publication after
-        // every object exists. A retail-style lazy GetNPCObject call in an
+        // every object exists. A lazy GetNPCObject call in an
         // already playable session must complete the same detached-record
         // publication for this one newly materialized object immediately.
         if (_runtimeSessionPlayable) {
@@ -2352,6 +2494,12 @@ bool Game::killRosterCreature(const RosterIdentity &identity) {
     if (!creature) {
         _party.clearRosterCreature(identity);
         return false;
+    }
+    // Its place in the party stays, naming nothing, and the events still
+    // pending for it go with it.
+    _party.vacateMemberEntries(*creature);
+    if (_module) {
+        _module->dropPendingEvents(*creature);
     }
     if (_module && _module->area()) {
         _module->area()->retireCreatureAreaRuntime(creature);
@@ -2379,14 +2527,16 @@ void Game::deserializePartyMembers(resource::Gff &ptGff) {
             return;
         }
 
-        auto member =
+        const bool controlled =
             npc == _party.persistedState().controlledNpc &&
-                    _party.player() != _party.actualPlayer()
-                ? _party.player()
-                : _party.getAvailableMember(npc, true);
+            _party.player() != _party.actualPlayer();
+        auto member = controlled ? _party.player() : _party.getAvailableMember(npc, true);
         if (!member) {
             warn("Game: NPC is not available: " + std::to_string(npc));
             return;
+        }
+        if (!controlled) {
+            _party.spawnIntoPlayerFaction(*member);
         }
 
         _party.addMember(npc, member);
@@ -2399,11 +2549,10 @@ void Game::deserializePartyMembers(resource::Gff &ptGff) {
     }
 
     auto actualPlayer = _party.actualPlayer();
-    // A zero-member controlled-NPC PARTYTABLE is used by retail K2 prologue
-    // saves for an NPC operating alone while the canonical PC remains in
-    // limbo. Non-empty lists retain the usual implicit canonical PC member.
-    const bool canonicalPlayerIsActive =
-        _party.persistedState().controlledNpc == -1 || !savedMembers.empty();
+    // While a companion is controlled in its place, the player character is
+    // out of the world and no member of the party; PT_MEMBERS lists only the
+    // followers.
+    const bool canonicalPlayerIsActive = _party.persistedState().controlledNpc == -1;
     if (canonicalPlayerIsActive && actualPlayer && !_party.isMember(*actualPlayer)) {
         _party.addMember(kNpcPlayer, actualPlayer);
     }
@@ -2461,26 +2610,26 @@ void Game::loadDefaultParty() {
     std::string member1, member2, member3;
     _party.defaultMembers(member1, member2, member3);
 
-    if (!member1.empty()) {
-        std::shared_ptr<Creature> player =
-            newCreatureFromBlueprint(member1);
+    // A member without a template is left out.
+    std::shared_ptr<Creature> player =
+        member1.empty() ? nullptr : newCreatureFromBlueprint(member1);
+    if (player) {
         player->setTag(kObjectTagPlayer);
+        // The stand-in is the player character, in the player faction.
+        player->setPC(true);
+        player->setFaction(Faction::Player);
         player->setImmortal(true);
         _party.addMember(kNpcPlayer, player);
         _party.setPlayer(player);
         _party.setActualPlayer(player);
     }
-    if (!member2.empty()) {
-        std::shared_ptr<Creature> companion =
-            newCreatureFromBlueprint(member2);
+    if (auto companion = member2.empty() ? nullptr : newCreatureFromBlueprint(member2)) {
         companion->setImmortal(true);
         companion->equip("g_w_dblsbr001");
         _party.addAvailableMember(0, companion);
         _party.addMember(0, companion);
     }
-    if (!member3.empty()) {
-        std::shared_ptr<Creature> companion =
-            newCreatureFromBlueprint(member3);
+    if (auto companion = member3.empty() ? nullptr : newCreatureFromBlueprint(member3)) {
         companion->setImmortal(true);
         _party.addAvailableMember(1, companion);
         _party.addMember(1, companion);
@@ -2519,6 +2668,370 @@ void Game::renderScene() {
     _services.graphics.context.useProgram(_services.graphics.shaderRegistry.get(ShaderProgramId::ndcTexture));
     _services.graphics.context.bindTexture(output);
     _services.graphics.meshRegistry.get(MeshName::quadNDC).draw(_services.graphics.statistic);
+}
+
+// Temporary death
+
+// Recovered party members are placed within this radius of where they lie,
+// or of their follow point when they are further than kRegroupDistance from
+// the leader and the party is not solo.
+static constexpr float kRecoveryPlacementRadius = 5.0f;
+static constexpr float kRegroupDistance = 40.0f;
+// A creature regarding another at this standing or less is hostile to it.
+static constexpr int kHighestHostileReputation = 10;
+// The death fade holds the view for twelve seconds before a one second fade to
+// black; hurrying it fades at once over half a second.
+static constexpr float kDeathFadeWait = 12.0f;
+static constexpr float kDeathFadeLength = 1.0f;
+static constexpr float kHurriedFadeLength = 0.5f;
+// The first title's slow motion: it reaches kDeathSlowestSpeed after
+// kDeathSlowSeconds of real time, easing logarithmically from full speed.
+static constexpr float kDeathSlowSeconds = 4.0f;
+static constexpr float kDeathSlowestSpeed = 0.2f;
+static constexpr double kDeathSlowSpan = 0.8;
+// The first title's death message.
+static constexpr int kStrRefDeathMessage = 42351;
+
+void Game::updateTemporaryDeath() {
+    // Party members lie down only in a module's area: the main menu and
+    // character generation have none.
+    if (!_module) {
+        return;
+    }
+    // Readiness and game over are common; the second title also waits while
+    // a modal panel is up. Pausing the simulation does not hold recovery back.
+    if (_gameOver || _screen == Screen::Loading || (isTSL() && hasModalPanel())) {
+        return;
+    }
+    auto &area = *_module->area();
+
+    std::shared_ptr<Creature> reference;
+    bool anyDown = false;
+    bool allDown = true;
+    for (const Party::Member &member : _party.members()) {
+        // The last member's creature anchors the hostile scan; a member without
+        // one keeps the party from counting as fallen.
+        reference = member.creature;
+        if (!reference) {
+            allDown = false;
+            continue;
+        }
+        if (reference->isTemporarilyDead()) {
+            anyDown = true;
+        } else {
+            allDown = false;
+        }
+    }
+    if (allDown && !_party.members().empty()) {
+        runDeathSequence();
+    }
+
+    const auto milliseconds = _services.system.clock.millis();
+    const bool recover = _temporaryDeathRecovery.sample(
+        static_cast<std::uint32_t>(milliseconds), anyDown, [&]() {
+            if (!reference) {
+                return false;
+            }
+            for (const auto &object : area.getObjectsByType(ObjectType::Creature)) {
+                const auto creature = dyn_cast<Creature>(object);
+                // Dead nonparty candidates are not excluded by the scan.
+                if (!creature || _party.isMember(*creature)) {
+                    continue;
+                }
+                if (creature->getReputationToward(*reference) > kHighestHostileReputation) {
+                    continue;
+                }
+                const bool seesMember = std::any_of(
+                    _party.members().begin(), _party.members().end(), [&](const Party::Member &member) {
+                        return member.creature && creature->perception().seen.count(member.creature->id()) != 0;
+                    });
+                if (seesMember) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    if (!recover) {
+        return;
+    }
+
+    // The leader's position is taken before anyone moves. Every member, fallen
+    // or not, that ends up too far from it regroups at its follow point.
+    const glm::vec3 leaderPosition {_party.getLeader()->position()};
+    const auto &members = _party.members();
+    for (size_t slot = 0; slot < members.size(); ++slot) {
+        const auto &creature = members[slot].creature;
+        if (!creature) {
+            continue;
+        }
+        if (creature->isTemporarilyDead()) {
+            const glm::vec3 lying {creature->position()};
+            creature->setPosition(area.computeSafeLocation(lying, kRecoveryPlacementRadius, *creature, false).value_or(lying));
+            area.determineObjectRoom(*creature);
+            creature->applyEffect(newEffect<ResurrectionEffect>(0), DurationType::Instant);
+            // The creature becomes raiseable only once the resurrection is
+            // applied, so a first attempt may be refused; the next recovery
+            // tries again.
+            creature->setRaiseable(true);
+        }
+        // Only the follow slots have follow points.
+        if (slot >= static_cast<size_t>(kPartyFollowSlots) || _party.isSoloMode()) {
+            continue;
+        }
+        const glm::vec3 offset {creature->position() - leaderPosition};
+        if (glm::dot(offset, offset) <= kRegroupDistance * kRegroupDistance) {
+            continue;
+        }
+        const glm::vec3 followPoint {_party.followPoint(static_cast<int>(slot))};
+        creature->setPosition(area.computeSafeLocation(followPoint, kRecoveryPlacementRadius, *creature, false).value_or(followPoint));
+        area.determineObjectRoom(*creature);
+    }
+}
+
+bool Game::hasModalPanel() const {
+    if (_screen == Screen::InGame) {
+        return _confirmPopup && _confirmPopup->isVisible();
+    }
+    // These exclusive screens own input instead of the world. The complete
+    // modal stack of the GUI manager is not exposed to scripts.
+    switch (_screen) {
+    case Screen::InGameMenu:
+    case Screen::Container:
+    case Screen::PartySelection:
+    case Screen::SaveLoad:
+    case Screen::PazaakWager:
+    case Screen::PazaakSetup:
+    case Screen::PazaakBoard:
+    case Screen::Death:
+    case Screen::MainMenu:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void Game::setLastPartyMemberTempKilled(const Creature &creature) {
+    if (_party.isMember(creature)) {
+        _lastPartyMemberTempKilled = creature.id();
+    }
+}
+
+// The death sequence ends play: panels close, the title's death message comes
+// up, the camera starts orbiting the last party member to fall, and the view
+// holds before fading to black. Only a fallen party in a module's area starts it.
+void Game::runDeathSequence() {
+    _gameOver = true;
+    _deathSequenceStarting = true;
+    // Every panel closes, a tutorial window about to open included.
+    _tutorialPending.reset();
+    stopMovement();
+    const Camera *view = getActiveCamera();
+    const glm::mat4 viewTransform {view ? view->sceneNode()->absoluteTransform() : glm::mat4 {1.0f}};
+    exitFreeLook();
+    setRelativeMouseMode(false);
+    changeScreen(Screen::Death);
+    if (!_deathMessage) {
+        _deathMessage = std::make_unique<ConfirmPopup>(*this, _services);
+        _deathMessage->init();
+    }
+    // Queue end-game so the GUI isn't destroyed in its own callback.
+    _deathMessage->show(_services.resource.strings.getText(kStrRefDeathMessage), nullptr, [this]() { requestEndGame(); });
+    auto &camera = *_module->area()->getCamera<ThirdPersonCamera>(CameraType::ThirdPerson);
+    const auto fallen = getObjectById(_lastPartyMemberTempKilled);
+    if (fallen && fallen->type() == ObjectType::Creature) {
+        camera.startDeathOrbit(fallen, viewTransform);
+        _cameraType = CameraType::ThirdPerson;
+    }
+    _globalFade.request(GlobalFade::Direction::Out, kDeathFadeWait, kDeathFadeLength, glm::vec3 {0.0f});
+}
+
+void Game::hurryDeathSequence() {
+    _globalFade.request(GlobalFade::Direction::Out, 0.0f, kHurriedFadeLength, glm::vec3 {0.0f});
+}
+
+// The world slows while the game is over, and the game ends once the fade to
+// black has finished or an end was asked for.
+void Game::updateDeathSequence() {
+    const auto now = static_cast<uint32_t>(_services.system.clock.millis());
+    const uint32_t elapsed = now - _deathSequenceSample;
+    _deathSequenceSample = now;
+    if (!_gameOver) {
+        return;
+    }
+    _deathSequenceSeconds += static_cast<float>(elapsed) / 1000.0f;
+    if (_deathSequenceStarting) {
+        _deathSequenceStarting = false;
+        _deathSlowRate = static_cast<float>(
+            -std::log(static_cast<double>(_deathSequenceSeconds * (1.0f / kDeathSlowSeconds))) / kDeathSlowSpan);
+    }
+    _deathTimeScale = _deathSequenceSeconds > kDeathSlowSeconds
+                          ? kDeathSlowestSpeed
+                          : -std::log(_deathSequenceSeconds * (1.0f / kDeathSlowSeconds)) / _deathSlowRate + kDeathSlowestSpeed;
+    if (_globalFade.fading() && !_endGamePending) {
+        return;
+    }
+    _deathTimeScale = 1.0f;
+    _gameOver = false;
+    _deathSequenceStarting = true;
+    _globalFade.stop();
+    _endGamePending = true;
+    if (_deathMessage) {
+        _deathMessage->hide();
+    }
+}
+
+Game::LastSaveLaunch Game::launchMostRecentSave() {
+    _saveLoad->setMode(SaveLoadMode::LoadAfterDeath);
+    _saveLoad->refresh();
+    if (_saveLoad->savedGameCount() == 0) {
+        return LastSaveLaunch::NoSaves;
+    }
+    return _saveLoad->launchMostRecentSave() ? LastSaveLaunch::Launched : LastSaveLaunch::Unavailable;
+}
+
+// While the game is over and the controlled character lies dead, the menu key
+// and the menu page keys hurry the death sequence to black.
+bool Game::handleDeathSequenceKey(const input::KeyEvent &event) {
+    switch (event.code) {
+    case input::KeyCode::Escape:
+    case input::KeyCode::U:
+    case input::KeyCode::I:
+    case input::KeyCode::P:
+    case input::KeyCode::K:
+    case input::KeyCode::J:
+    case input::KeyCode::L:
+    case input::KeyCode::M:
+    case input::KeyCode::O: {
+        auto leader = _party.getLeader();
+        if (!leader || !leader->isTemporarilyDead()) {
+            return false;
+        }
+        hurryDeathSequence();
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+// END Temporary death
+
+// Free-look toggles on Caps Lock. Neither way works while the leader is in
+// combat state; it opens only with nothing queued for the leader and play
+// running.
+bool Game::handleFreeLookKey(const input::KeyEvent &event) {
+    auto leader = _party.getLeader();
+    if (event.code == input::KeyCode::CapsLock) {
+        if (!leader || leader->isInCombat() || _gameOver) {
+            return true;
+        }
+        if (_freeLook) {
+            exitFreeLook();
+        } else if (_cameraType == CameraType::ThirdPerson && !leader->hasOrdinaryActionsPending() && !_paused) {
+            enterFreeLook();
+        }
+        return true;
+    }
+    if (!_freeLook) {
+        return false;
+    }
+    switch (event.code) {
+    // Selection, the solo query and the menu keys only leave free-look.
+    case input::KeyCode::Q:
+    case input::KeyCode::E:
+    case input::KeyCode::V:
+    case input::KeyCode::Escape:
+    case input::KeyCode::Return:
+        exitFreeLook();
+        return true;
+    case input::KeyCode::Tab:
+        exitFreeLook();
+        if (auto clip = _services.game.guiSounds.getActionAccepted()) {
+            _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+        }
+        return true;
+    // The pause key and the menu pages leave free-look and then act.
+    case input::KeyCode::Pause:
+    case input::KeyCode::U:
+    case input::KeyCode::I:
+    case input::KeyCode::P:
+    case input::KeyCode::K:
+    case input::KeyCode::J:
+    case input::KeyCode::L:
+    case input::KeyCode::M:
+    case input::KeyCode::O:
+        exitFreeLook();
+        return false;
+    // Keys free-look does not take.
+    case input::KeyCode::Space:
+    case input::KeyCode::G:
+    case input::KeyCode::X:
+    case input::KeyCode::Y:
+    case input::KeyCode::F5:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Entering turns the leader to where the camera looked and looks from its
+// head. Free-look is entered and left only in a module's area.
+void Game::enterFreeLook() {
+    auto leader = _party.getLeader();
+    auto &area = *_module->area();
+    _module->player().stopMovement();
+    auto &thirdPerson = *area.getCamera<ThirdPersonCamera>(CameraType::ThirdPerson);
+    auto &firstPerson = *area.getCamera<FirstPersonCamera>(CameraType::FirstPerson);
+    leader->setFacing(thirdPerson.facing());
+    firstPerson.attach(leader, area.camStyleDefault());
+    enableVideoEffect(leader->freeLookVideoEffect());
+    _cameraType = CameraType::FirstPerson;
+    _freeLook = true;
+    // The leader at rest shows its pause or ready loop, never the injured one.
+    leader->refreshPauseAnimation();
+    setRelativeMouseMode(true);
+    area.updateRoomVisibility();
+}
+
+void Game::exitFreeLook() {
+    if (!_freeLook) {
+        return;
+    }
+    _freeLook = false;
+    disableVideoEffect();
+    auto &area = *_module->area();
+    area.getCamera<FirstPersonCamera>(CameraType::FirstPerson)->detach();
+    if (_cameraType == CameraType::FirstPerson) {
+        _cameraType = CameraType::ThirdPerson;
+    }
+    // Out of free-look an injured leader standing in its pause shows the
+    // injured pause again.
+    if (auto leader = _party.getLeader(); leader && leader->showsPauseReadyAnimation()) {
+        leader->refreshPauseAnimation();
+    }
+    setRelativeMouseMode(false);
+    area.updateRoomVisibility();
+}
+
+// Free-look ends when play leaves the world, a party member is in combat
+// state, or the leader has something queued.
+void Game::updateFreeLookExits() {
+    if (!_freeLook) {
+        return;
+    }
+    auto leader = _party.getLeader();
+    auto &firstPerson = *_module->area()->getCamera<FirstPersonCamera>(CameraType::FirstPerson);
+    bool exit = _screen != Screen::InGame || !leader || !firstPerson.isAttached() ||
+                leader->hasOrdinaryActionsPending();
+    for (int i = 0; !exit && i < _party.getSize(); ++i) {
+        auto member = _party.getMember(i);
+        if (member && member->isInCombat()) {
+            exit = true;
+        }
+    }
+    if (exit) {
+        exitFreeLook();
+    }
 }
 
 void Game::toggleInGameCameraType() {
@@ -2583,6 +3096,25 @@ int Game::scaleDamageForDifficulty(
             static_cast<int>(_options.game.clientDifficulty));
     return static_cast<int>(
         static_cast<float>(damage) * difficulty.damageMultiplier);
+}
+
+// The client difficulty settings that shift TSL trap DCs.
+static constexpr int kEasyDifficulty = 0;
+static constexpr int kDifficultDifficulty = 2;
+static constexpr int kTrapDifficultyShift = 5;
+
+int Game::trapDifficultyModifier() const {
+    if (!isTSL()) {
+        return 0;
+    }
+    switch (_options.game.clientDifficulty) {
+    case kEasyDifficulty:
+        return -kTrapDifficultyShift;
+    case kDifficultDifficulty:
+        return kTrapDifficultyShift;
+    default:
+        return 0;
+    }
 }
 
 bool Game::isRuntimeObjectLive(const Object &object) const {
@@ -2994,13 +3526,19 @@ std::shared_ptr<Creature> Game::newCreatureFromBlueprint(
     std::string sceneName) {
     std::vector<std::shared_ptr<Object>> noObsolete;
     std::shared_ptr<Creature> creature;
+    bool loaded = false;
     replaceRuntimeObjectGraph(
         noObsolete,
         [&]() {
             creature = newCreature(std::move(sceneName));
-            creature->loadFromBlueprint(resRef);
+            loaded = creature->loadFromBlueprint(resRef);
         },
         []() noexcept {});
+    // A creature without a template is not created.
+    if (!loaded) {
+        destroyRuntimeObjectGraph(creature);
+        return nullptr;
+    }
     return creature;
 }
 
@@ -3043,6 +3581,19 @@ std::shared_ptr<Waypoint> Game::newWaypoint(
         gff, identityContext, std::move(sceneName), *this, _services);
 }
 
+std::shared_ptr<Waypoint> Game::newWaypointFromBlueprint(const std::string &resRef) {
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    std::shared_ptr<Waypoint> waypoint;
+    replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            waypoint = newWaypoint();
+            waypoint->loadFromBlueprint(resRef);
+        },
+        []() noexcept {});
+    return waypoint;
+}
+
 std::shared_ptr<Trigger> Game::newTrigger(
     const resource::Gff &gff,
     const SerializedIdentityContext &identityContext,
@@ -3056,6 +3607,14 @@ std::shared_ptr<Sound> Game::newSound(
     const SerializedIdentityContext &identityContext,
     std::string sceneName) {
     return newObjectFromGff<Sound>(
+        gff, identityContext, std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<AreaOfEffect> Game::newAreaOfEffect(
+    const resource::Gff &gff,
+    const SerializedIdentityContext &identityContext,
+    std::string sceneName) {
+    return newObjectFromGff<AreaOfEffect>(
         gff, identityContext, std::move(sceneName), *this, _services);
 }
 
@@ -3073,6 +3632,19 @@ std::shared_ptr<Store> Game::newStore(
     std::string sceneName) {
     return newObjectFromGff<Store>(
         gff, identityContext, std::move(sceneName), *this, _services);
+}
+
+std::shared_ptr<Store> Game::newStoreFromBlueprint(const std::string &resRef) {
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    std::shared_ptr<Store> store;
+    replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            store = newStore();
+            store->loadFromBlueprint(resRef);
+        },
+        []() noexcept {});
+    return store;
 }
 
 void Game::prepareSavedRuntimeNamespace(
@@ -3095,17 +3667,8 @@ void Game::prepareSavedRuntimeNamespace(
         }
     }
 
-    uint64_t pauseDay = 0;
-    uint64_t pauseTime = 0;
-    if (ifo.has("Mod_PauseDay") || ifo.has("Mod_PauseTime")) {
-        pauseDay = ifo.getUint("Mod_PauseDay");
-        pauseTime = ifo.getUint("Mod_PauseTime");
-    } else {
-        // Read-only compatibility for saves written by the short-lived Reone
-        // field-name mistake. New snapshots always emit the retail fields.
-        pauseDay = ifo.getUint("Mod_CalendarDay");
-        pauseTime = ifo.getUint("Mod_TimeOfDay");
-    }
+    const uint64_t pauseDay = ifo.getUint("Mod_PauseDay");
+    const uint64_t pauseTime = ifo.getUint("Mod_PauseTime");
     restoreWorldTime(ifo, pauseDay, pauseTime);
 }
 
@@ -3123,15 +3686,13 @@ void Game::restoreWorldTime(
                           ? 5
                           : static_cast<uint8_t>(minutesPerHour);
 
-    // Compose the canonical clock from the retail day/time pair. An oversized
-    // time of day carries into later days rather than being rejected, as
-    // CWorldTimer::GetWorldTime does: saves written before the day length
-    // became Mod_MinPerHour-derived hold a time of day on the old fixed
-    // 24-hour scale, and must still load. Both fields are Dwords, so the
-    // composition cannot overflow the 64-bit clock.
+    // Compose the absolute clock from the saved day/time pair. Oversized time
+    // carries into later days. Both inputs are DWORDs, so the 64-bit composition cannot
+    // overflow.
     _worldTimeMilliseconds =
         pauseDay * millisecondsPerWorldDay() + pauseTime;
     _worldTimeFraction = 0.0;
+    _worldClockSample.reset();
 }
 
 void Game::reserveSavedObjectIds(
@@ -3189,50 +3750,384 @@ void Game::publishSavedRuntimeState() {
     for (const auto &[_, object] : _objectById) {
         object->publishSavedRuntimeState();
     }
+    for (const auto &[_, object] : _objectById) {
+        auto actor = std::dynamic_pointer_cast<Creature>(object);
+        if (!actor) {
+            continue;
+        }
+        for (const auto &action : actor->actions()) {
+            const auto &saved = action->originalSavedAction();
+            if (saved && saved->round) {
+                _combat.restoreRound(action, actor, *saved->round);
+            }
+        }
+        // Rounds no queued command carries: one still running after its
+        // command was cleared, or a side ended while its partner's runs on.
+        for (const auto &saved : actor->_savedRounds) {
+            _combat.restoreRound(actor, saved);
+        }
+        actor->_savedRounds.clear();
+    }
+    for (const auto &[_, object] : _objectById) {
+        auto actor = std::dynamic_pointer_cast<Creature>(object);
+        if (actor)
+            _combat.restoreScheduled(actor, actor->_savedScheduledActions,
+                                     actor->_savedScheduledReferencesBound, actor->_savedScheduledTime);
+        // A creature's round has one pause: a round restored with its own
+        // keeps it, and only a creature owning no round is held by the saved one.
+        if (actor && actor->_savedOwnerHold > 0.0f) {
+            if (!_combat.ownsRound(*actor)) {
+                _combat.restoreOwnerHold(actor, actor->_savedOwnerHold, actor->_savedOwnerHoldBy.boundObject());
+            }
+            actor->_savedOwnerHold = 0.0f;
+        }
+    }
+    _module->restoreProjectilePresentations();
     _module->publishSavedEventQueue();
+    syncClientCombatMode();
 }
 
-void Game::advanceWorldTime(float dt) {
+// One simulation second advances a clock by 1000 milliseconds.
+static void advanceClock(uint64_t &milliseconds, double &fraction, double dt) {
     if (dt <= 0.0f) {
         return;
     }
-    // One second of simulation is one thousand world milliseconds.
-    // Mod_MinPerHour shortens the day, it does not accelerate the clock:
-    // CWorldTimer accumulates elapsed time into m_nSnapshotTime and only
-    // derives the day boundary from m_nMillisecondsInDay. Scaling the rate
-    // here instead made every duration measured in world time short by
-    // 60 / Mod_MinPerHour.
-    double gameMilliseconds =
-        _worldTimeFraction + static_cast<double>(dt) * 1000.0;
+    double gameMilliseconds = fraction + static_cast<double>(dt) * 1000.0;
     uint64_t wholeMilliseconds =
         static_cast<uint64_t>(std::floor(gameMilliseconds));
-    _worldTimeFraction =
-        gameMilliseconds - static_cast<double>(wholeMilliseconds);
-
-    _worldTimeMilliseconds += wholeMilliseconds;
+    fraction = gameMilliseconds - static_cast<double>(wholeMilliseconds);
+    milliseconds += wholeMilliseconds;
 }
 
-std::optional<float> Game::remainingEffectDuration(
-    const EffectInstance &effect) const {
+void Game::advanceWorldTime(double dt) {
+    // Mod_MinPerHour changes the day boundary, not the clock rate; scaling the
+    // clock rate would shorten effect durations and delayed actions.
+    advanceClock(_worldTimeMilliseconds, _worldTimeFraction, dt);
+}
+
+void Game::advanceTimeStopClock(double dt) {
+    advanceClock(_timeStopMilliseconds, _timeStopFraction, dt);
+}
+
+void Game::toggleTimeStop() {
+    _timeStopped = !_timeStopped;
+    _timeStopMilliseconds = _worldTimeMilliseconds;
+    _timeStopFraction = 0.0;
+}
+
+void Game::addTimeStopExclusion(Object &object) {
+    if (isExcludedFromTimeStop(object)) {
+        return;
+    }
+    _timeStopExclusions.emplace_back(getObjectById(object.id()));
+}
+
+void Game::removeTimeStopExclusion(const Object &object) {
+    auto excluded = std::find_if(_timeStopExclusions.begin(), _timeStopExclusions.end(),
+                                 [&object](const auto &ref) { return ref.resolve().get() == &object; });
+    if (excluded != _timeStopExclusions.end()) {
+        _timeStopExclusions.erase(excluded);
+    }
+}
+
+bool Game::isExcludedFromTimeStop(const Object &object) const {
+    return std::any_of(_timeStopExclusions.begin(), _timeStopExclusions.end(),
+                       [&object](const auto &ref) { return ref.resolve().get() == &object; });
+}
+
+void Game::updateTimeStop() {
+    if (!_timeStopped) {
+        return;
+    }
+    const bool held = std::any_of(_timeStopExclusions.begin(), _timeStopExclusions.end(), [](const auto &ref) {
+        auto creature = std::dynamic_pointer_cast<Creature>(ref.resolve());
+        return creature && creature->hasEffect(EffectType::TimeStop);
+    });
+    if (!held) {
+        toggleTimeStop();
+    }
+}
+
+void Game::queueScriptEvent(Object &target, std::optional<std::reference_wrapper<const Object>> caller, const Event &event) {
+    SavedEventRecord queued;
+    queued.day = worldTimeDay();
+    queued.time = worldTimeOfDay();
+    queued.object = SavedObjectReference::fromRuntimeId(target.id());
+    // An absent object is carried as no reference, so it never holds the event back.
+    auto reference = [](uint32_t id) {
+        return id == script::kObjectInvalid ? SavedObjectReference {} : SavedObjectReference::fromRuntimeId(id);
+    };
+    queued.caller = reference(caller ? caller->get().id() : script::kObjectInvalid);
+    queued.eventId = static_cast<uint32_t>(SavedEventType::SignalEvent);
+    SavedScriptEvent payload;
+    payload.type = static_cast<uint16_t>(event.number());
+    payload.integers = event.integers();
+    payload.floats = event.floats();
+    payload.strings = event.strings();
+    for (uint32_t id : event.objects()) {
+        payload.objects.push_back(reference(id));
+    }
+    queued.payload = std::move(payload);
+    _module->enqueueSaveEvent(std::move(queued));
+}
+
+void Game::queueEffectApplication(Object &target, EffectInstance effect, uint32_t delayMilliseconds) {
+    SavedEventRecord event;
+    const uint64_t when = worldTimeMilliseconds() + delayMilliseconds;
+    event.day = static_cast<uint32_t>(when / millisecondsPerWorldDay());
+    event.time = static_cast<uint32_t>(when % millisecondsPerWorldDay());
+    event.object = SavedObjectReference::fromRuntimeId(target.id());
+    event.eventId = static_cast<uint32_t>(SavedEventType::ApplyEffect);
+    event.payload = std::move(effect);
+    const bool bound = bindSavedObjectReference(event.object);
+    _module->enqueueBoundSaveEvent(std::move(event), bound);
+}
+
+std::optional<uint64_t> Game::delayedWorldTime(float seconds) const {
+    // The delay is truncated to whole milliseconds and added to the time of
+    // day as a day-0 delta. A negative delta, or one of a whole game day or
+    // more, cannot be added, so nothing is posted. NaN and products outside
+    // the int range truncate to a negative value.
+    const float milliseconds = seconds * 1000.0f;
+    if (!(milliseconds > -1.0f) ||
+        !(static_cast<double>(milliseconds) < static_cast<double>(millisecondsPerWorldDay()))) {
+        return std::nullopt;
+    }
+    return _worldTimeMilliseconds + static_cast<uint64_t>(static_cast<int64_t>(milliseconds));
+}
+
+void Game::postDelayedCommand(Object &owner, std::shared_ptr<Action> command, float seconds) {
+    const auto when = delayedWorldTime(seconds);
+    if (!when) {
+        return;
+    }
+    SavedEventRecord event;
+    event.day = static_cast<uint32_t>(*when / millisecondsPerWorldDay());
+    event.time = static_cast<uint32_t>(*when % millisecondsPerWorldDay());
+    event.object = SavedObjectReference::fromRuntimeId(owner.id());
+    event.caller = SavedObjectReference::fromRuntimeId(owner.id());
+    event.eventId = static_cast<uint32_t>(SavedEventType::Timed);
+    _module->enqueueSaveEvent(std::move(event), std::move(command));
+}
+
+static constexpr float kMotionBlurRatio = 0.75f;
+
+// While a minigame runs, its script owns the speed blur.
+bool Game::isMiniGameActive() const {
+    return _swoopRace.isActive() || _turret.isActive();
+}
+
+void Game::addMotionBlurProgram(bool onPlayer) {
+    ++_motionBlurPrograms;
+    if (!onPlayer || _motionBlurPrograms != 1 || isMiniGameActive()) {
+        return;
+    }
+    setSpeedBlurRatio(kMotionBlurRatio);
+    setSpeedBlur(true);
+}
+
+void Game::removeMotionBlurProgram() {
+    _motionBlurPrograms = std::max(0, _motionBlurPrograms - 1);
+    if (_motionBlurPrograms == 0 && !isMiniGameActive()) {
+        setSpeedBlur(false);
+    }
+}
+
+void Game::setSpeedBlur(bool enabled) {
+    _services.scene.graphs.get(kSceneMain).setSpeedBlur(enabled);
+}
+
+void Game::setSpeedBlurRatio(float ratio) {
+    _services.scene.graphs.get(kSceneMain).setSpeedBlurRatio(ratio);
+}
+
+// The fury overlays fx_fury01 to fx_fury03, by fury level.
+static constexpr int kMaxFuryLevel = 3;
+
+void Game::enableVideoEffect(int row) {
+    disableVideoEffect();
+    if (row < 0) {
+        return;
+    }
+    auto effects = getRequiredTwoDA(_services.resource.twoDas, "videoeffects");
+    // TSL's table suffixes its colour columns with _pc.
+    const bool tsl = isTSL();
+    scene::VideoEffect effect;
+    const bool scanNoise = effects->getInt(row, "enablescannoise") != 0;
+    const bool saturation = effects->getInt(row, "enablesaturation") != 0;
+    // Both clairvoyance columns lay the same overlay. The fury level picks
+    // its texture and 0 is no fury.
+    const bool clairvoyance = effects->getInt(row, "enableclairvoyance") != 0 ||
+                              effects->getInt(row, "enableclairvoyancefull") != 0;
+    const bool forceSight = effects->getInt(row, "enableforcesight") != 0;
+    const int furyLevel = std::clamp(effects->getInt(row, "enablefury"), 0, kMaxFuryLevel);
+    // A row enabling any of its parts is the current effect.
+    if (scanNoise || saturation || clairvoyance || forceSight || effects->getInt(row, "enablefury") != 0) {
+        _videoEffectType = row;
+    }
+    if (scanNoise) {
+        effect.scanNoise = _services.resource.textures.get("filmnoisetex", TextureUsage::MainTex);
+    }
+    effect.forceSight = forceSight;
+    if (clairvoyance || furyLevel > 0) {
+        effect.distortion = _services.resource.textures.get("distortiontex", TextureUsage::MainTex);
+    }
+    if (clairvoyance) {
+        effect.clairvoyance = _services.resource.textures.get("fx_clair01", TextureUsage::MainTex);
+    }
+    if (furyLevel > 0) {
+        effect.fury = _services.resource.textures.get("fx_fury0" + std::to_string(furyLevel), TextureUsage::MainTex);
+    }
+    if (saturation) {
+        effect.saturation = true;
+        effect.modulation = glm::vec3(
+            effects->getFloat(row, tsl ? "modulationred_pc" : "modulationred"),
+            effects->getFloat(row, tsl ? "modulationgreen_pc" : "modulationgreen"),
+            effects->getFloat(row, tsl ? "modulationblue_pc" : "modulationblue"));
+        effect.saturationAmount = effects->getFloat(row, tsl ? "saturation_pc" : "saturation");
+    }
+    if (!effect.scanNoise && !effect.saturation && !effect.forceSight && !effect.clairvoyance && !effect.fury) {
+        return;
+    }
+    _services.scene.graphs.get(kSceneMain).setVideoEffect(std::move(effect));
+}
+
+void Game::disableVideoEffect() {
+    if (_videoEffectType == kNoVideoEffect) {
+        return;
+    }
+    _videoEffectType = kNoVideoEffect;
+    _services.scene.graphs.get(kSceneMain).setVideoEffect(std::nullopt);
+}
+
+// The videoeffects rows of the leader's Force Sight and of its three Fury levels.
+static constexpr int kForceSightVideoEffect = 4;
+static constexpr int kFirstFuryVideoEffect = 7;
+static constexpr int kLastFuryVideoEffect = 9;
+
+void Game::updateLeaderVideoEffect() {
+    if (!isTSL()) {
+        return;
+    }
+    const auto isLeaderEffectRow = [](int row) {
+        return row == kForceSightVideoEffect || (row >= kFirstFuryVideoEffect && row <= kLastFuryVideoEffect);
+    };
+    if (isConversationActive()) {
+        if (isLeaderEffectRow(_videoEffectType)) {
+            disableVideoEffect();
+        }
+        return;
+    }
+    const auto leader = _party.getLeader();
+    if (!leader) {
+        return;
+    }
+    // Showing the row that is already the current effect changes nothing.
+    const auto show = [this](int row) {
+        if (_videoEffectType != row) {
+            enableVideoEffect(row);
+        }
+    };
+    bool fury = false;
+    for (const auto &effect : leader->effects()) {
+        if (effect.type() == EffectType::ForceSight) {
+            show(kForceSightVideoEffect);
+            return;
+        }
+        fury |= effect.type() == EffectType::Fury;
+    }
+    if (_services.scene.graphs.get(kSceneMain).isSpeedBlurEnabled()) {
+        disableVideoEffect();
+    } else if (fury) {
+        show(leader->furySpellState());
+    } else if (isLeaderEffectRow(_videoEffectType)) {
+        disableVideoEffect();
+    }
+}
+
+void Game::enableScriptVideoEffect(int row) {
+    if (isTSL()) {
+        _scriptVideoEffectHeld = true;
+    }
+    enableVideoEffect(row);
+}
+
+void Game::disableScriptVideoEffect() {
+    if (isTSL()) {
+        _scriptVideoEffectHeld = false;
+    }
+    disableVideoEffect();
+}
+
+void Game::postObjectDestruction(Object &target, std::optional<std::reference_wrapper<const Object>> caller, float seconds, bool keepsCallerFade) {
+    const auto when = delayedWorldTime(seconds);
+    if (!when) {
+        return;
+    }
+    SavedEventRecord event;
+    event.day = static_cast<uint32_t>(*when / millisecondsPerWorldDay());
+    event.time = static_cast<uint32_t>(*when % millisecondsPerWorldDay());
+    event.eventId = static_cast<uint32_t>(SavedEventType::DestroyObject);
+    event.object = SavedObjectReference::fromRuntimeId(target.id());
+    if (caller) {
+        event.caller = SavedObjectReference::fromRuntimeId(caller->get().id());
+    }
+    _module->enqueueSaveEvent(std::move(event), nullptr, keepsCallerFade);
+}
+
+void Game::queueObjectDestruction(Object &target, float delay) {
+    if (!delayedWorldTime(delay)) {
+        return;
+    }
+    cancelObjectDestruction(target);
+    postObjectDestruction(target, delay);
+}
+
+void Game::postObjectDestruction(Object &target, float delay) {
+    const auto time = delayedWorldTime(delay);
+    if (!time) {
+        return;
+    }
+    SavedEventRecord event;
+    event.day = static_cast<uint32_t>(*time / millisecondsPerWorldDay());
+    event.time = static_cast<uint32_t>(*time % millisecondsPerWorldDay());
+    event.eventId = static_cast<uint32_t>(SavedEventType::DestroyObject);
+    event.object = SavedObjectReference::fromRuntimeId(target.id());
+    const bool bound = bindSavedObjectReference(event.object);
+    _module->enqueueBoundSaveEvent(std::move(event), bound);
+}
+
+void Game::cancelObjectDestruction(Object &target) {
+    if (_module) {
+        _module->cancelObjectDestruction(target);
+    }
+}
+
+void Game::queueEffectRemoval(Object &target, EffectId id) {
+    SavedEventRecord event;
+    event.day = worldTimeDay();
+    event.time = worldTimeOfDay();
+    event.object = SavedObjectReference::fromRuntimeId(target.id());
+    event.eventId = static_cast<uint32_t>(SavedEventType::RemoveEffect);
+    EffectInstance value;
+    value.id = id;
+    value.creatorId = kSavedEffectInvalidObjectId;
+    event.payload = std::move(value);
+    const bool bound = bindSavedObjectReference(event.object);
+    _module->enqueueBoundSaveEvent(std::move(event), bound);
+}
+
+std::optional<float> Game::remainingEffectDuration(const EffectInstance &effect) const {
     if (effect.durationType() != DurationType::Temporary) {
         return std::nullopt;
     }
-    if (effect.expiryDay == 0 && effect.expiryTime == 0) {
-        return std::max(0.0f, effect.duration);
-    }
-
-    // Save-facing expiry provenance, converted once here at the restoration
-    // boundary. Live effects then count down in world seconds and never
-    // reconstruct a calendar day again.
-    uint64_t expiry =
-        static_cast<uint64_t>(effect.expiryDay) * millisecondsPerWorldDay() +
-        effect.expiryTime;
-    if (expiry <= _worldTimeMilliseconds) {
-        return 0.0f;
-    }
-    double remainingSeconds =
-        static_cast<double>(expiry - _worldTimeMilliseconds) / 1000.0;
-    return static_cast<float>(remainingSeconds);
+    if (effect.expiryOrigin == EffectExpiryOrigin::RuntimeCountdown ||
+        effect.expiryOrigin == EffectExpiryOrigin::None)
+        return effect.duration;
+    const uint64_t expiry = static_cast<uint64_t>(effect.expiryDay) * millisecondsPerWorldDay() + effect.expiryTime;
+    return expiry >= _worldTimeMilliseconds
+               ? static_cast<float>(expiry - _worldTimeMilliseconds) / 1000.0f
+               : -static_cast<float>(_worldTimeMilliseconds - expiry) / 1000.0f;
 }
 
 void Game::renderGUI() {
@@ -3470,7 +4365,7 @@ void Game::renderDeveloperActorLabels(const glm::mat4 &projection, const glm::ma
         bool hostile = false;
         auto creature = dyn_cast<Creature>(object);
         if (creature) {
-            hostile = !creature->isDead() && _services.game.reputes.getIsEnemy(*leader, *creature);
+            hostile = !creature->isDead() && _services.game.reputes.getIsEnemy(*creature, *leader);
         }
 
         glm::vec3 color = inspected ? glm::vec3(1.0f, 1.0f, 1.0f) : (hostile ? glm::vec3(1.0f, 0.42f, 0.36f) : glm::vec3(0.68f, 0.92f, 1.0f));
@@ -3650,12 +4545,9 @@ void Game::loadNextModule() {
         return;
     }
 
-    // Vanilla K1 minigame entry: a dialogue node or cutscene script calls
-    // StartNewModule("<*mg>"); the engine auto-enters the minigame on load (no
-    // dedicated start routine). Route that generic transition through the
-    // forced-success lifecycle harness when the loaded area declares one.
-    // A session scheduled by startturretgame carries its own origin, captured
-    // before the transition was queued.
+    // A transition into an area declaring a minigame enters its minigame session
+    // automatically. A session scheduled by startturretgame carries the origin
+    // captured before the transition was queued.
     bool pendingTurret = _pendingTurret.active && boost::iequals(_pendingTurret.targetModule, target);
     if (pendingTurret) {
         originModule = _pendingTurret.originModule;
@@ -3761,16 +4653,14 @@ void Game::scheduleModuleTransitionWithMovies(const std::string &moduleName, con
 }
 
 bool Game::startVideo(const std::string &name) {
-    _services.audio.mixer.stopAll();
-    _music.reset();
-
     _movie = _services.resource.movies.get(name);
-    _globalFade.setMovieOverride(static_cast<bool>(_movie));
     _timingDiscontinuity = true;
     if (!_movie) {
         return false;
     }
-
+    // Every sound waits for the movie, including sounds started before it is
+    // first shown.
+    _services.audio.mixer.setSoundsHeldForMovie(true);
     return true;
 }
 
@@ -3791,19 +4681,34 @@ void Game::updateMovie(float dt) {
 
     if (_movie->isFinished()) {
         _movie.reset();
-        _globalFade.setMovieOverride(false);
         _timingDiscontinuity = true;
         playNextModuleTransitionMovie();
     }
 }
 
+static constexpr float kThirdPersonListenerShare = 0.75f;
+
 void Game::updateCamera(float dt) {
+    // The world cameras belong to a module's area: the main menu and character
+    // generation have none.
+    if (!_module) {
+        return;
+    }
+    auto &area = *_module->area();
+    updateFreeLookExits();
+    // Client combat mode holds the third-person camera in its combat behavior.
+    area.setThirdPersonCombat(_clientCombatMode);
+    // The combat camera follows the leader's posed head every frame.
+    if (_clientCombatMode) {
+        area.update3rdPersonCameraTarget();
+    }
+    auto &thirdPerson = *area.getCamera<ThirdPersonCamera>(CameraType::ThirdPerson);
     switch (_screen) {
     case Screen::Conversation: {
         int cameraId;
         CameraType cameraType = getConversationCamera(cameraId);
         if (cameraType == CameraType::Static) {
-            _module->area()->setStaticCamera(cameraId);
+            area.setStaticCamera(cameraId);
         }
         _cameraType = cameraType;
         break;
@@ -3811,6 +4716,17 @@ void Game::updateCamera(float dt) {
     case Screen::InGame:
         if (_cameraType != CameraType::FirstPerson && _cameraType != CameraType::ThirdPerson) {
             _cameraType = CameraType::ThirdPerson;
+            // Returning to play during combat aims the camera from the leader
+            // toward the last target.
+            auto leader = _party.getLeader();
+            auto target = _lastTarget.resolve();
+            // The combat camera starts turning from rest again.
+            if (_clientCombatMode) {
+                thirdPerson.resetCombatTurn();
+            }
+            if (_clientCombatMode && leader && target) {
+                thirdPerson.faceAlong(leader->position(), target->position());
+            }
         }
         break;
     default:
@@ -3820,14 +4736,12 @@ void Game::updateCamera(float dt) {
     if (camera) {
         camera->update(dt);
 
-        glm::vec3 listenerPosition;
-        if (_cameraType == CameraType::ThirdPerson) {
-            std::shared_ptr<Creature> partyLeader(_party.getLeader());
-            if (partyLeader) {
-                listenerPosition = partyLeader->position() + glm::vec3 {0.0f, 0.0f, 1.7f}; // TODO: height based on appearance
-            }
-        } else {
-            listenerPosition = camera->sceneNode()->origin();
+        // Behind the leader the listener sits three quarters of the way from
+        // the camera to the point it follows, the leader's camera hook; any
+        // other view, the death orbit included, listens from the camera.
+        glm::vec3 listenerPosition {camera->sceneNode()->origin()};
+        if (_cameraType == CameraType::ThirdPerson && !thirdPerson.isDeathOrbit() && _party.getLeader()) {
+            listenerPosition += kThirdPersonListenerShare * (thirdPerson.targetPosition() - listenerPosition);
         }
         _services.audio.context.setListenerPosition(std::move(listenerPosition));
     }
@@ -3840,7 +4754,17 @@ void Game::updateSceneGraph(float dt) {
     }
     auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
     sceneGraph.setActiveCamera(camera->cameraSceneNode().get());
-    sceneGraph.setUpdateRoots(!_paused);
+    sceneGraph.setUpdateRoots(!_paused && !_timeStopped);
+    // While time is stopped only the excluded objects' models animate.
+    if (!_paused && _timeStopped) {
+        for (const auto &excluded : _timeStopExclusions) {
+            auto object = excluded.resolve();
+            auto model = object ? std::dynamic_pointer_cast<ModelSceneNode>(object->sceneNode()) : nullptr;
+            if (model) {
+                model->update(dt);
+            }
+        }
+    }
     sceneGraph.setRenderAABB(isShowAABBEnabled());
     sceneGraph.setRenderWalkmeshes(isShowWalkmeshEnabled());
     bool renderDeveloperTriggers = _options.game.developer &&
@@ -3875,77 +4799,451 @@ void Game::setCustomToken(int token, std::string value) {
     _customTokens[token] = std::move(value);
 }
 
-// Text between "{" and "}" is dropped; "{{" stands for "{". A string with no
-// note is returned as it is.
-static std::string dropNotes(const std::string &text) {
-    if (text.find('{') == std::string::npos) {
+static constexpr char kUnrecognizedToken[] = "<UNRECOGNIZED TOKEN>";
+
+// The calendar the date and time tokens read: years of 12 months of 28 days,
+// days of 24 hours. A year beyond the last one the calendar counts reads 1340.
+static constexpr uint32_t kCalendarDaysInMonth = 28;
+static constexpr uint32_t kCalendarMonthsInYear = 12;
+static constexpr uint32_t kCalendarHoursInDay = 24;
+static constexpr uint32_t kCalendarLastYear = 32767;
+static constexpr uint32_t kCalendarYearPastLast = 1340;
+
+// The good-evil forms of a token: evil below 41, neutral below 60, good from 60.
+static constexpr int kLowestNeutralGoodEvil = 41;
+static constexpr int kLowestGoodGoodEvil = 60;
+
+// What a token of stringtokens.2da stands for, by its actioncode.
+enum class StringTokenAction {
+    Deity = 0,
+    GenderForm = 1,
+    FullName = 2,
+    FirstName = 3,
+    LastName = 4,
+    Race = 5,
+    RaceLower = 6,
+    Subrace = 7,
+    Class = 8,
+    ClassLower = 9,
+    Level = 10,
+    Alignment = 11,
+    AlignmentLower = 12,
+    LawChaos = 13,
+    GoodEvil = 14,
+    GameYear = 15,
+    GameTime = 16,
+    GameMonth = 17,
+    PartOfDay = 18,
+    StartAction = 19,
+    StartCheck = 20,
+    StartHighlight = 21,
+    EndStart = 22,
+    PlayerName = 23,
+    Button = 24,
+    KeyName = 25,
+    MouseButton = 26,
+    Bounty = 27
+};
+
+// The mouse-button texts a MouseButton token picks by its default value.
+static constexpr std::array<int, 4> kMouseButtonStrRefsK1 {48483, 48482, 48485, 48484};
+static constexpr std::array<int, 4> kMouseButtonStrRefsTSL {48726, 48725, 48728, 48727};
+// The bounty token reads this global number and names that many times this
+// amount of credits.
+static constexpr char kBountyGlobal[] = "300NAR_Bounty";
+static constexpr int kBountyCreditsPerPoint = 500;
+
+// Keys are numbered from the mouse's, then the keyboard's from Return, in
+// bindablekeys.2da order, then the controller's. Key 0 names nothing.
+static constexpr int kFirstKeyboardKey = 6;
+static constexpr int kFirstControllerKey = 110;
+// What a key outside the keyboard reads, and a keyboard key without a name.
+static constexpr int kNonKeyboardKeyStrRefK1 = 48144;
+static constexpr int kNonKeyboardKeyStrRefTSL = 48724;
+static constexpr char kUnnamedKey[] = "N/A";
+// Input events numbered from this one take their keys from keymap.2da.
+static constexpr int kFirstMappedInputEvent = 200;
+
+/** An input event the engine defines itself, and the key it takes. */
+struct EngineInputEvent {
+    int event {0};
+    int key {0};
+};
+
+static constexpr std::array<EngineInputEvent, 24> kEngineInputEventsK1 {{
+    {0x03, 110},
+    {0x04, 111},
+    {0x07, 111},
+    {0x08, 110},
+    {0x0b, 124},
+    {0x0c, 113},
+    {0x0d, 114},
+    {0x17, 3},
+    {0x18, 4},
+    {0x19, 0},
+    {0x41, 3},
+    {0x42, 4},
+    {0x43, 0},
+    {0x44, 1},
+    {0x45, 2},
+    {0x46, 5},
+    {0x50, 38},
+    {0xb5, 6},
+    {0xb6, 9},
+    {0xb7, 10},
+    {0xb8, 7},
+    {0xb9, 8},
+    {0xbb, 88},
+    {0xbc, 89},
+}};
+static constexpr std::array<EngineInputEvent, 29> kEngineInputEventsTSL {{
+    {0x01, 125},
+    {0x03, 110},
+    {0x04, 111},
+    {0x07, 111},
+    {0x08, 110},
+    {0x0b, 122},
+    {0x0c, 113},
+    {0x0d, 114},
+    {0x17, 3},
+    {0x18, 4},
+    {0x19, 0},
+    {0x1a, 1},
+    {0x33, 111},
+    {0x34, 110},
+    {0x37, 117},
+    {0x38, 116},
+    {0x41, 3},
+    {0x42, 4},
+    {0x43, 0},
+    {0x44, 1},
+    {0x45, 2},
+    {0x46, 5},
+    {0x50, 38},
+    {0xb5, 6},
+    {0xb6, 9},
+    {0xb7, 10},
+    {0xb8, 7},
+    {0xb9, 8},
+    {0xbb, 88},
+}};
+
+// The key an input event takes by default, or none when no such event
+// exists. A two-key event takes its alternate key when asked for it.
+static std::optional<int> inputEventKey(resource::ITwoDAs &twoDas, bool tsl, int event, bool alternateKey) {
+    if (event >= kFirstMappedInputEvent) {
+        auto keymap = getRequiredTwoDA(twoDas, "keymap");
+        // A disabled row makes no event.
+        const auto enabledRow = [&keymap](const std::string &label) -> std::optional<int> {
+            const int row = keymap->indexByLabel(label);
+            if (row == -1 || keymap->getInt(row, "disabled", 0) == 1) {
+                return std::nullopt;
+            }
+            return row;
+        };
+        const std::string label = "action" + std::to_string(event);
+        if (auto row = enabledRow(label)) {
+            return keymap->getInt(*row, "language0", 0);
+        }
+        // A two-key event is made from its A and B rows when both name a key:
+        // the B key is its key and the A key its alternate. Only the A row can
+        // disable it.
+        const auto rowA = enabledRow(label + "a");
+        const int rowB = keymap->indexByLabel(label + "b");
+        if (!rowA || rowB == -1) {
+            return std::nullopt;
+        }
+        const int keyA = keymap->getInt(*rowA, "language0", -1);
+        const int keyB = keymap->getInt(rowB, "language0", -1);
+        if (keyA < 0 || keyB < 0) {
+            return std::nullopt;
+        }
+        return alternateKey ? keyA : keyB;
+    }
+    const auto find = [event](const auto &events) -> std::optional<int> {
+        auto it = std::find_if(events.begin(), events.end(), [event](const EngineInputEvent &engineEvent) {
+            return engineEvent.event == event;
+        });
+        if (it == events.end()) {
+            return std::nullopt;
+        }
+        return it->key;
+    };
+    return tsl ? find(kEngineInputEventsTSL) : find(kEngineInputEventsK1);
+}
+
+// Text between "<" and ">" names a token; "<<" and "{{" stand for "<" and
+// "{". Text between "{" and "}" is dropped, as is text that a StartAction or
+// StartCheck token hides; token values are kept either way. A string with no
+// token or note is returned as it is.
+std::string Game::parseTokens(const std::string &text, const std::map<int, std::string> &customTokens,
+                              std::optional<std::reference_wrapper<const Creature>> subject, bool hideActions,
+                              bool &hidden) const {
+    hidden = false;
+    if (text.find_first_of("<{") == std::string::npos) {
         return text;
     }
     std::string result;
     size_t start = 0;
     size_t i = 0;
+    const auto appendLiteral = [&](size_t end) {
+        if (!hidden) {
+            result.append(text, start, end - start);
+        }
+    };
     while (i < text.size()) {
-        if (text[i] != '{') {
+        const char c = text[i];
+        if (c != '<' && c != '{') {
             ++i;
             continue;
         }
-        if (i + 1 < text.size() && text[i + 1] == '{') {
-            result.append(text, start, i + 1 - start);
+        if (i + 1 < text.size() && text[i + 1] == c) {
+            appendLiteral(i + 1);
             i += 2;
             start = i;
             continue;
         }
-        result.append(text, start, i - start);
-        const size_t close = text.find('}', i + 1);
+        appendLiteral(i);
+        const size_t close = text.find(c == '<' ? '>' : '}', i + 1);
+        if (c == '<') {
+            if (close == std::string::npos) {
+                result += kUnrecognizedToken;
+            } else {
+                result += getTokenValue(text.substr(i + 1, close - i - 1), customTokens, subject, hideActions,
+                                        hidden);
+            }
+        }
         i = close == std::string::npos ? text.size() : close + 1;
         start = i;
     }
-    result.append(text, start, text.size() - start);
+    appendLiteral(text.size());
     return result;
 }
 
-static std::string substituteCustomTokensFromMap(
-    std::string str,
-    const std::map<int, std::string> &customTokens) {
-
-    str = dropNotes(str);
-    size_t start = 0;
-    while ((start = str.find("<CUSTOM", start)) != std::string::npos) {
-        size_t digitsStart = start + 7;
-        size_t digitsEnd = digitsStart;
-        while (digitsEnd < str.size() && std::isdigit(static_cast<unsigned char>(str[digitsEnd]))) {
-            ++digitsEnd;
+std::string Game::getTokenValue(const std::string &name, const std::map<int, std::string> &customTokens,
+                                std::optional<std::reference_wrapper<const Creature>> subject, bool hideActions,
+                                bool &hidden) const {
+    static constexpr char kCustomTokenPrefix[] = "CUSTOM";
+    static constexpr size_t kCustomTokenPrefixLength = 6;
+    if (name.size() > kCustomTokenPrefixLength && name.compare(0, kCustomTokenPrefixLength, kCustomTokenPrefix) == 0) {
+        uint32_t token = 0;
+        for (size_t i = kCustomTokenPrefixLength; i < name.size(); ++i) {
+            if (!std::isdigit(static_cast<unsigned char>(name[i]))) {
+                return kUnrecognizedToken;
+            }
+            token = token * 10 + static_cast<uint32_t>(name[i] - '0');
         }
-        if (digitsEnd == digitsStart || digitsEnd >= str.size() || str[digitsEnd] != '>') {
-            start = digitsStart;
-            continue;
-        }
-        int token = 0;
-        try {
-            token = std::stoi(str.substr(digitsStart, digitsEnd - digitsStart));
-        } catch (const std::exception &) {
-            start = digitsEnd + 1;
-            continue;
-        }
-        auto it = customTokens.find(token);
-        if (it == customTokens.end()) {
-            start = digitsEnd + 1;
-            continue;
-        }
-        str.replace(start, digitsEnd - start + 1, it->second);
-        start += it->second.size();
+        auto it = customTokens.find(static_cast<int>(token));
+        return it != customTokens.end() ? it->second : kUnrecognizedToken;
     }
-    return str;
+
+    auto tokens = getRequiredTwoDA(_services.resource.twoDas, "stringtokens");
+    const int row = tokens->indexByCellValue("token", name);
+    if (row == -1) {
+        return kUnrecognizedToken;
+    }
+    auto &strings = _services.resource.strings;
+    const auto strRef = [&](int index) {
+        return tokens->getInt(row, "strref" + std::to_string(index + 1), -1);
+    };
+    const int defaultValue = tokens->getInt(row, "default", -1);
+    // Interface text is itself parsed, on the same hiding state.
+    const auto guiText = [&](int textStrRef) {
+        return parseTokens(strings.getText(textStrRef), customTokens, subject, hideActions, hidden);
+    };
+    const auto action = static_cast<StringTokenAction>(tokens->getInt(row, "actioncode", -1));
+    // TSL also asks for a subject before naming the player.
+    const bool needsSubject = (action >= StringTokenAction::FullName && action <= StringTokenAction::AlignmentLower) ||
+                              action == StringTokenAction::GoodEvil ||
+                              (isTSL() && action == StringTokenAction::PlayerName);
+    std::string value;
+    if (needsSubject && !subject) {
+        value = guiText(defaultValue);
+    } else {
+        const std::string pcName = _party.playerCharacterName();
+        const size_t space = pcName.find(' ');
+        const auto racialTypes = [&]() { return getRequiredTwoDA(_services.resource.twoDas, "racialtypes"); };
+        switch (action) {
+        case StringTokenAction::Deity:
+            value = guiText(strRef(0));
+            break;
+        case StringTokenAction::GenderForm:
+            // Only a female creature takes the second form.
+            value = guiText(strRef(subject && subject->get().gender() == Gender::Female ? 1 : 0));
+            break;
+        case StringTokenAction::FullName:
+            // TSL names the player character; K1 names the subject.
+            value = isTSL() ? pcName : subject->get().name();
+            break;
+        case StringTokenAction::PlayerName:
+            value = pcName;
+            break;
+        case StringTokenAction::FirstName:
+            value = !isTSL() ? subject->get().firstName() : space == std::string::npos ? pcName
+                                                                                       : pcName.substr(0, space);
+            break;
+        case StringTokenAction::LastName:
+            if (!isTSL()) {
+                value = subject->get().lastName();
+            } else {
+                // A name without a second word is its own last name.
+                const std::string last = space == std::string::npos ? std::string() : pcName.substr(space + 1);
+                value = last.empty() ? pcName : last;
+            }
+            break;
+        case StringTokenAction::Race:
+        case StringTokenAction::RaceLower:
+            value = strings.getText(racialTypes()->getInt(static_cast<int>(subject->get().racialType()),
+                                                          action == StringTokenAction::Race ? "convername"
+                                                                                            : "convernamelower",
+                                                          -1));
+            break;
+        case StringTokenAction::Subrace:
+            // A creature without subrace text reads its race's name.
+            value = strings.getText(racialTypes()->getInt(static_cast<int>(subject->get().racialType()), "name", -1));
+            break;
+        case StringTokenAction::Class:
+        case StringTokenAction::ClassLower:
+        case StringTokenAction::Level: {
+            // The first class is the one named; a creature without one has none to name.
+            const auto &classLevels = subject->get().attributes().classLevels();
+            if (classLevels.empty()) {
+                break;
+            }
+            const auto &[firstClass, firstClassLevel] = classLevels.front();
+            if (action == StringTokenAction::Level) {
+                value = std::to_string(firstClassLevel);
+            } else if (action == StringTokenAction::Class) {
+                value = firstClass->name();
+            } else {
+                value = strings.getText(getRequiredTwoDA(_services.resource.twoDas, "classes")
+                                            ->getInt(static_cast<int>(firstClass->type()), "lower", -1));
+            }
+            break;
+        }
+        case StringTokenAction::Alignment:
+        case StringTokenAction::AlignmentLower:
+            value = strings.getText(0);
+            break;
+        case StringTokenAction::GoodEvil:
+            value = guiText(strRef(subject->get().goodEvil() < kLowestNeutralGoodEvil ? 2
+                                   : subject->get().goodEvil() < kLowestGoodGoodEvil  ? 1
+                                                                                      : 0));
+            break;
+        case StringTokenAction::GameYear: {
+            const uint32_t year = worldTimeDay() / (kCalendarDaysInMonth * kCalendarMonthsInYear);
+            value = std::to_string(year > kCalendarLastYear ? kCalendarYearPastLast : year);
+            break;
+        }
+        case StringTokenAction::GameTime:
+            // A 12-hour clock: midnight and noon read 12.
+            value = std::to_string((worldTimeHour() + kCalendarHoursInDay / 2 - 1) % (kCalendarHoursInDay / 2) + 1);
+            break;
+        case StringTokenAction::GameMonth:
+            value = std::to_string(worldTimeDay() / kCalendarDaysInMonth % kCalendarMonthsInYear + 1);
+            break;
+        case StringTokenAction::PartOfDay: {
+            // The hours before dawn and after dusk take the first form; the
+            // hours from dawn to dusk split evenly into the other three.
+            const auto &info = _module->info();
+            const int hour = static_cast<int>(worldTimeHour());
+            int part = 0;
+            if (hour >= info.dawnHour && hour <= info.duskHour) {
+                part = 3 * (hour - info.dawnHour) / (info.duskHour - info.dawnHour + 1) + 1;
+            }
+            value = guiText(strRef(part));
+            break;
+        }
+        case StringTokenAction::StartAction:
+        case StringTokenAction::StartCheck:
+            hidden = hideActions;
+            break;
+        case StringTokenAction::StartHighlight:
+            break;
+        case StringTokenAction::EndStart:
+            hidden = false;
+            break;
+        case StringTokenAction::Button:
+            value = std::string(1, static_cast<char>(defaultValue));
+            break;
+        case StringTokenAction::KeyName: {
+            // The name of the key bound to the input event the default names;
+            // a two-key event names its alternate key when strref1 is 2 or
+            // more. Without an event or a key it reads string 0. A keyboard
+            // key is named by its bindablekeys.2da text.
+            value = strings.getText(0);
+            const auto key = inputEventKey(_services.resource.twoDas, isTSL(), defaultValue, strRef(0) >= 2);
+            if (!key || *key == 0) {
+                break;
+            }
+            if (*key < kFirstKeyboardKey || *key >= kFirstControllerKey) {
+                value = strings.getText(isTSL() ? kNonKeyboardKeyStrRefTSL : kNonKeyboardKeyStrRefK1);
+                break;
+            }
+            auto keys = getRequiredTwoDA(_services.resource.twoDas, "bindablekeys");
+            const int keyRow = *key - kFirstKeyboardKey;
+            value = keyRow < keys->getRowCount() ? strings.getText(keys->getInt(keyRow, "keynamestrref", -1)) : kUnnamedKey;
+            break;
+        }
+        case StringTokenAction::MouseButton: {
+            // A default outside the four texts reads string 0.
+            const auto &mouseButtons = isTSL() ? kMouseButtonStrRefsTSL : kMouseButtonStrRefsK1;
+            const bool known = defaultValue >= 0 && defaultValue < static_cast<int>(mouseButtons.size());
+            value = strings.getText(known ? mouseButtons[defaultValue] : 0);
+            break;
+        }
+        case StringTokenAction::Bounty:
+            // Only TSL has the bounty token.
+            value = isTSL() ? std::to_string(getGlobalNumber(kBountyGlobal) * kBountyCreditsPerPoint)
+                            : kUnrecognizedToken;
+            break;
+        default:
+            value = kUnrecognizedToken;
+            break;
+        }
+    }
+    value.erase(0, value.find_first_not_of(' '));
+    return value;
 }
 
 std::string Game::substituteCustomTokens(std::string str) const {
-    return substituteCustomTokensFromMap(std::move(str), _customTokens);
+    bool hidden = false;
+    const auto leader = _party.getLeader();
+    return parseTokens(str, _customTokens, Creature::asCreature(leader), false, hidden);
 }
 
-std::string Game::substituteCustomToken(std::string str, int token, std::string value) const {
-    auto customTokens = _customTokens;
-    customTokens[token] = std::move(value);
-    return substituteCustomTokensFromMap(std::move(str), customTokens);
+std::string Game::getInterfaceText(int strRef) const {
+    return substituteCustomTokens(_services.resource.strings.getText(strRef));
+}
+
+std::string Game::getInterfaceText(int strRef, const std::map<int, std::string> &tokens) {
+    for (const auto &[token, value] : tokens) {
+        setCustomToken(token, value);
+    }
+    return getInterfaceText(strRef);
+}
+
+std::string Game::getFeedbackText(int strRef) const {
+    bool hidden = false;
+    return parseTokens(_services.resource.strings.getText(strRef), _customTokens, std::nullopt, false, hidden);
+}
+
+std::string Game::getFeedbackText(int strRef, const std::map<int, std::string> &tokens) {
+    for (const auto &[token, value] : tokens) {
+        setCustomToken(token, value);
+    }
+    return getFeedbackText(strRef);
+}
+
+std::string Game::substituteLogTokens(std::string str) const {
+    bool hidden = false;
+    const auto leader = _party.getLeader();
+    return parseTokens(str, _customTokens, Creature::asCreature(leader), true, hidden);
+}
+
+std::string Game::substituteLogTokens(std::string str, const Creature &subject) const {
+    bool hidden = false;
+    return parseTokens(str, _customTokens, subject, true, hidden);
 }
 
 void Game::setGlobalBoolean(const std::string &name, bool value) {
@@ -3953,7 +5251,7 @@ void Game::setGlobalBoolean(const std::string &name, bool value) {
 }
 
 void Game::setGlobalNumber(const std::string &name, int value) {
-    // Retail SetGlobalNumber stores the low byte in its signed-char table.
+    // SetGlobalNumber stores the low byte in its signed-char table.
     // Express that conversion portably instead of relying on plain-char
     // signedness or an implementation-defined narrowing conversion.
     uint8_t raw = static_cast<uint8_t>(value);
@@ -3973,8 +5271,20 @@ void Game::setGlobalLocation(const std::string &name, const std::shared_ptr<Loca
     _globalLocations[name] = location;
 }
 
-void Game::setPaused(bool paused) {
-    _paused = paused;
+// Combat mode is the leader's, in the area it stands in. Outside a module (the
+// main menu, character generation) nobody is in combat mode.
+void Game::syncClientCombatMode() {
+    auto leader = _party.getLeader();
+    std::shared_ptr<Area> area;
+    if (_module) {
+        area = _module->area();
+    }
+    _clientCombatLeader = RuntimeObjectRef<Creature>(leader);
+    _clientCombatArea = RuntimeObjectRef<Area>(area);
+    _clientCombatMode = leader && area && area->isObjectResident(*leader) && leader->clientCombatMode();
+    if (!_clientCombatMode) {
+        _attackMashTime = 0.0f;
+    }
 }
 
 void Game::setRelativeMouseMode(bool relative) {
@@ -3992,24 +5302,22 @@ void Game::withLoadingScreen(const std::string &imageResRef, const std::function
     changeScreen(Screen::Loading);
     render();
     block();
+    // Player input returns once a load is done.
+    _playerInputBlocked = false;
 }
 
 /**
  * Terminal destination for a load that failed after the commit boundary.
  *
  * openMainMenu retires whatever was half-built and drops the candidate mounts
- * with it, so nothing of either session survives. It gives up early when the
- * menu GUI cannot be loaded, which would leave the screen wherever the
- * abandoned session left it; record the intended destination regardless, so a
- * missing menu resource is its own visible failure rather than an engine that
- * renders nothing while still running.
+ * with it, so nothing of either session survives.
  */
 void Game::retireToMainMenu() {
     openMainMenu();
-    if (_screen == Screen::None) {
-        _screen = Screen::MainMenu;
-    }
 }
+
+// The selector of the TSL menu that shows the party leader.
+static constexpr int kLeaderMenuSelector = 4;
 
 void Game::openMainMenu() {
     // Only a committed playable session may replace the durable menu snapshot.
@@ -4017,24 +5325,23 @@ void Game::openMainMenu() {
     if (isTSL() && _runtimeSessionPlayable) {
         MenuPresentation state;
         state.selector = MenuPresentation::validateSelector(getGlobalNumber("GBL_MAIN_SITH_LORD"));
-        if (state.selector == 4) {
-            if (auto leader = _party.getLeader()) state.leader = leader->presentation();
+        if (state.selector == kLeaderMenuSelector) {
+            if (auto leader = _party.getLeader()) {
+                state.leader = leader->presentation();
+            }
         }
         _options.game.menuPresentation = state;
-        try {
-            state.save(_options.game.configurationPath);
-        } catch (const std::exception &ex) {
-            warn(std::string("Could not persist main menu presentation: ") + ex.what());
-        }
+        state.save(_options.game.configurationPath);
     }
     resetGame();
+    // The main menu is the game's home screen: failing to load it is an error
+    // of its own, not a screen left blank.
     if (!_mainMenu) {
-        _mainMenu = tryLoadGUI<MainMenu>();
+        auto mainMenu = std::make_unique<MainMenu>(*this, _services);
+        mainMenu->init();
+        _mainMenu = std::move(mainMenu);
     } else {
         _mainMenu->refreshScene();
-    }
-    if (!_mainMenu) {
-        return;
     }
     if (!_saveLoad) {
         _saveLoad = tryLoadGUI<SaveLoad>();
@@ -4042,6 +5349,1197 @@ void Game::openMainMenu() {
     playMusic(_mainMenu->musicResRef());
     changeScreen(Screen::MainMenu);
 }
+
+static constexpr int kPauseTutorial = 6;
+
+void Game::pressPauseKey() {
+    // Pausing asks for the pause tutorial; the sound plays unless it opens.
+    const bool paused = togglePlayerPause();
+    if (paused && requestTutorialWindow(kPauseTutorial)) {
+        return;
+    }
+    if (auto clip = _services.game.guiSounds.getActionAccepted()) {
+        _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+    }
+}
+
+void Game::pressPauseButton() {
+    // The HUD toggle asks for the pause tutorial whichever way it turns play.
+    togglePlayerPause();
+    requestTutorialWindow(kPauseTutorial);
+}
+
+static constexpr int kSoloModeOnStrRef = 37889;
+static constexpr int kSoloModeForStealthStrRef = 37890;
+static constexpr int kSoloModeOffStrRef = 37891;
+static constexpr int kSoloModeOffStealthedStrRef = 37892;
+static constexpr char kSoloModeScript[] = "k_sup_solo";
+
+void Game::requestStealth() {
+    auto leader = _party.getLeader();
+    if (!leader || !leader->isStealthCapable()) {
+        return;
+    }
+    if (_party.isSoloMode() || _party.getSize() == 1) {
+        leader->useStealthSkill();
+    } else {
+        showSoloModeQuery(true);
+    }
+}
+
+// The open query closes by itself, without restoring the pause, once a
+// conversation or a transition starts or the leader goes down.
+void Game::updateSoloModeQuery() {
+    if (!_soloModeQueryOpen) {
+        return;
+    }
+    if (!_confirmPopup || !_confirmPopup->isVisible()) {
+        _soloModeQueryOpen = false;
+        return;
+    }
+    // The query is up only in play.
+    auto leader = _party.getLeader();
+    if (isConversationActive() || _module->area()->transitionPending() ||
+        (leader && (leader->isDead() || (_party.isMember(*leader) && leader->currentHitPoints() <= 0)))) {
+        _soloModeQueryOpen = false;
+        _confirmPopup->hide();
+    }
+}
+
+// The query pauses play while it is up, unless play was already paused.
+void Game::showSoloModeQuery(bool forStealth) {
+    auto leader = _party.getLeader();
+    if (isConversationActive() || _module->area()->transitionPending() || !leader || leader->isDead() ||
+        leader->currentHitPoints() <= 0 || _party.getSize() <= 1) {
+        if (auto clip = _services.game.guiSounds.getActionUnavailable()) {
+            _services.audio.mixer.play(std::move(clip), AudioType::Sound);
+        }
+        return;
+    }
+    if (!_confirmPopup) {
+        _confirmPopup = tryLoadGUI<ConfirmPopup>();
+    }
+    if (!_confirmPopup) {
+        return;
+    }
+    int strRef = kSoloModeOnStrRef;
+    if (forStealth) {
+        strRef = kSoloModeForStealthStrRef;
+    } else if (_party.isSoloMode()) {
+        strRef = leader->isStealthed() ? kSoloModeOffStealthedStrRef : kSoloModeOffStrRef;
+    }
+    const bool pausedBefore = _paused;
+    if (!pausedBefore) {
+        setPaused(true);
+    }
+    auto restorePause = [this, pausedBefore]() {
+        _soloModeQueryOpen = false;
+        if (!pausedBefore) {
+            setPaused(false);
+        }
+    };
+    _confirmPopup->showConfirm(
+        _services.resource.strings.getText(strRef),
+        [this, forStealth, restorePause]() {
+            _soloModeQueryOpen = false;
+            _party.setSoloMode(!_party.isSoloMode());
+            _scriptRunner->run(kSoloModeScript, script::kObjectInvalid);
+            if (forStealth) {
+                if (auto leader = _party.getLeader()) {
+                    leader->useStealthSkill();
+                }
+            }
+            restorePause();
+        },
+        restorePause);
+    _soloModeQueryOpen = true;
+}
+
+// The party-killed autopause comes at most once in this many seconds.
+static constexpr float kPartyKilledAutoPauseInterval = 2.0f;
+// After a door is opened, unlocked or bashed, an autopause requested within
+// this many seconds is deferred by the second constant.
+static constexpr float kAutoPauseDelayWindow = 5.0f;
+static constexpr float kDeferredAutoPauseDelay = 1.0f;
+
+void Game::requestAutoPause(AutoPauseReason reason) {
+    const auto &options = _options.game.autoPause;
+    bool enabled = false;
+    switch (reason) {
+    case AutoPauseReason::EnemySighted:
+        enabled = options.enemySighted;
+        break;
+    case AutoPauseReason::EndOfCombatRound:
+        enabled = options.endOfCombatRound;
+        break;
+    case AutoPauseReason::ActionMenu:
+        enabled = options.actionMenu;
+        break;
+    case AutoPauseReason::PartyKilled:
+        enabled = options.partyKilled;
+        break;
+    case AutoPauseReason::MineSighted:
+        enabled = options.mineSighted;
+        break;
+    case AutoPauseReason::NewTargetSelected:
+        enabled = options.newTargetSelected;
+        break;
+    }
+    if (!enabled) {
+        return;
+    }
+    autoPause(reason);
+}
+
+void Game::autoPause(AutoPauseReason reason) {
+    // Autopause never stacks on an existing pause.
+    if (_autoPaused || _paused) {
+        return;
+    }
+    // Within the delay window the request is deferred, even one made during
+    // a conversation.
+    if (_autoPauseDelayWindow > 0.0f) {
+        _deferredAutoPauseDelay = kDeferredAutoPauseDelay;
+        _autoPauseDelayWindow = 0.0f;
+        _deferredAutoPauseReason = reason;
+        return;
+    }
+    // Autopause applies only over live play.
+    if (_screen != Screen::InGame) {
+        return;
+    }
+    if (reason == AutoPauseReason::PartyKilled) {
+        if (_partyKilledAutoPauseDelay > 0.0f) {
+            return;
+        }
+        _partyKilledAutoPauseDelay = kPartyKilledAutoPauseInterval;
+    }
+    static const std::map<AutoPauseReason, PauseReason> kPauseReasons {
+        {AutoPauseReason::EnemySighted, PauseReason::EnemySighted},
+        {AutoPauseReason::EndOfCombatRound, PauseReason::EndOfCombatRound},
+        {AutoPauseReason::ActionMenu, PauseReason::ActionMenu},
+        {AutoPauseReason::PartyKilled, PauseReason::PartyKilled},
+        {AutoPauseReason::MineSighted, PauseReason::MineSighted},
+        {AutoPauseReason::NewTargetSelected, PauseReason::NewTargetSelected}};
+    setPaused(true, kPauseReasons.at(reason));
+    _autoPaused = true;
+}
+
+void Game::delayNextEnemyAutoPause() {
+    if (_deferredAutoPauseDelay <= 0.0f) {
+        _autoPauseDelayWindow = kAutoPauseDelayWindow;
+    }
+}
+
+// A deferred autopause is dropped when the leader is in combat mode once it
+// is due. TSL pauses for an enemy sighting first; otherwise the stored reason
+// pauses.
+void Game::updateDeferredAutoPause(float frameTime) {
+    if (_deferredAutoPauseDelay > 0.0f) {
+        _deferredAutoPauseDelay -= frameTime;
+        if (_deferredAutoPauseDelay <= 0.0f && !_clientCombatMode) {
+            if (isTSL()) {
+                autoPause(AutoPauseReason::EnemySighted);
+            }
+            autoPause(_deferredAutoPauseReason);
+        }
+    } else if (_autoPauseDelayWindow > 0.0f) {
+        _autoPauseDelayWindow -= frameTime;
+    }
+}
+
+void Game::setAutoPauseOptions(const AutoPauseOptions &options) {
+    _options.game.autoPause = options;
+}
+
+void Game::saveAutoPauseOptions() const {
+    _options.game.autoPause.save(_options.game.configurationPath);
+}
+
+void Game::saveFeedbackOptions() const {
+    _options.game.feedback.save(_options.game.configurationPath);
+}
+
+// Tutorial windows
+
+static constexpr int kTutorialNextStrRef = 38623;
+static constexpr int kTutorialCloseStrRef = 1580;
+static constexpr int kK1LastTutorial = 42;
+// Tutorial windows are numbered from 0 to 255.
+static constexpr int kLastTutorial = 255;
+static constexpr int kCombatFeatTutorial = 0;
+static constexpr int kGrenadeTutorial = 1;
+static constexpr int kSetMineTutorial = 2;
+static constexpr int kFriendlyPowerTutorial = 3;
+static constexpr int kHostilePowerTutorial = 4;
+static constexpr int kClearOneActionTutorial = 32;
+static constexpr int kBashTutorial = 33;
+static constexpr int kAttackTutorial = 34;
+static constexpr int kAttackMashTutorial = 35;
+static constexpr int kMenuCastRefusedStrRef = 1434;
+
+// tutorial.2da names its columns in either case.
+static std::string tutorialColumn(const TwoDA &table, const std::string &column) {
+    const auto &columns = table.columns();
+    const auto found = std::find_if(columns.begin(), columns.end(), [&column](const std::string &name) {
+        return boost::iequals(name, column);
+    });
+    return found != columns.end() ? *found : column;
+}
+
+// A page of a tutorial window: the string reference of its message, none
+// when the cell is blank.
+static std::optional<int> tutorialMessage(const TwoDA &table, int row, bool tsl, int page) {
+    return table.getIntOpt(row, tutorialColumn(table, (tsl ? "Message_PC" : "Message") + std::to_string(page)));
+}
+
+// A tutorial window exists when its row has a first page.
+bool Game::isTutorialWindowValid(int id) const {
+    if (id < 0 || id > kLastTutorial) {
+        return false;
+    }
+    auto table = getRequiredTwoDA(_services.resource.twoDas, "tutorial");
+    return id < table->getRowCount() && tutorialMessage(*table, id, isTSL(), 0).has_value();
+}
+
+bool Game::requestTutorialWindow(int id, uint32_t actor, uint32_t subject, uint32_t param) {
+    if (!tutorialWindowsEnabled() || id < 0 || id > kLastTutorial) {
+        return false;
+    }
+    if (!isTSL() && id > kK1LastTutorial) {
+        return false;
+    }
+    if (_party.isTutorialShown(id) || isConversationActive() || !isTutorialWindowValid(id)) {
+        return false;
+    }
+    // One slot: a later request before the next frame replaces this one.
+    _tutorialPending = TutorialRequest {id, actor, subject, param};
+    return true;
+}
+
+void Game::commitTutorialWindow() {
+    if (!_tutorialPending) {
+        return;
+    }
+    const auto request = *_tutorialPending;
+    _tutorialPending.reset();
+    if (!tutorialWindowsEnabled() || _party.isTutorialShown(request.id)) {
+        return;
+    }
+    _party.setTutorialShown(request.id);
+    // A window already open takes the new text; the game stays as it was paused.
+    if (!_tutorial) {
+        _tutorialPausedGame = !_paused;
+        if (_tutorialPausedGame) {
+            setPaused(true);
+        }
+    }
+    _tutorial = request;
+    _tutorialPage = 0;
+    // A window that cannot be shown gives its action back at once.
+    if (!showTutorialPage()) {
+        finishTutorialWindow(true);
+    }
+}
+
+bool Game::showTutorialPage() {
+    auto table = getRequiredTwoDA(_services.resource.twoDas, "tutorial");
+    auto message = tutorialMessage(*table, _tutorial->id, isTSL(), _tutorialPage);
+    if (!message) {
+        return false;
+    }
+    const bool hasNext = tutorialMessage(*table, _tutorial->id, isTSL(), _tutorialPage + 1).has_value();
+
+    std::shared_ptr<Texture> icon;
+    auto iconResRef = table->getString(_tutorial->id, tutorialColumn(*table, "Icon"));
+    if (!iconResRef.empty()) {
+        // TSL leaves out controller button glyphs.
+        static const std::array<const char *, 14> controllerGlyphs {
+            "WHITEBUTTON", "STARTBUTTON", "XBUTTON", "YBUTTON", "Abutton", "Backbutton", "Bbutton",
+            "Blbutton", "Whbutton", "Xbutton", "Ybutton", "uibut_Start", "uibut_X", "uibut_Y"};
+        const bool glyph = isTSL() && std::any_of(controllerGlyphs.begin(), controllerGlyphs.end(), [&](const char *name) {
+                               return boost::iequals(iconResRef, name);
+                           });
+        if (!glyph) {
+            icon = _services.resource.textures.get(boost::to_lower_copy(iconResRef), TextureUsage::GUI);
+        }
+    }
+
+    auto text = getInterfaceText(*message);
+    if (!showMessagePopup(text, std::move(icon), [this, hasNext]() {
+            if (hasNext) {
+                ++_tutorialPage;
+                if (showTutorialPage()) {
+                    return;
+                }
+            }
+            finishTutorialWindow(true);
+        })) {
+        return false;
+    }
+    _confirmPopup->setConfirmText(_services.resource.strings.getText(hasNext ? kTutorialNextStrRef : kTutorialCloseStrRef));
+    return true;
+}
+
+void Game::finishTutorialWindow(bool takeAction) {
+    const auto tutorial = *_tutorial;
+    _tutorial.reset();
+    if (_tutorialPausedGame) {
+        setPaused(false);
+    }
+    _tutorialPausedGame = false;
+    if (!takeAction) {
+        return;
+    }
+    // The window finishes the action it interrupted.
+    auto actor = getObjectById<Creature>(tutorial.actor);
+    if (!actor) {
+        return;
+    }
+    auto subject = getObjectById(tutorial.subject);
+    std::shared_ptr<Action> action;
+    switch (tutorial.id) {
+    case kCombatFeatTutorial:
+        if (subject) {
+            sendAttack(*actor, subject, static_cast<FeatType>(tutorial.param));
+        }
+        break;
+    case kGrenadeTutorial: {
+        // The grenade may be the party's, carried by the player for whoever leads.
+        auto item = getObjectById<Item>(tutorial.param);
+        const auto spell = item ? item->activateSpell() : std::nullopt;
+        if (subject && spell) {
+            useMenuItem(*actor, item, item->spellProperty(*spell), subject, menuItemLocation(*actor, *subject));
+        }
+        break;
+    }
+    case kSetMineTutorial:
+        // The kit is set where the setter stands, not on the door or placeable it was chosen for.
+        if (auto item = std::dynamic_pointer_cast<Item>(subject)) {
+            action = newAction<UseSkillAction>(SkillType::Demolitions, actor, 0, item);
+        }
+        break;
+    case kFriendlyPowerTutorial:
+    case kHostilePowerTutorial:
+        if (auto spell = _services.game.spells.get(static_cast<SpellType>(tutorial.param)); spell && subject) {
+            sendMenuCast(*actor, spell, subject);
+        }
+        break;
+    case kClearOneActionTutorial:
+        clearOneCombatAction(*actor);
+        break;
+    // The bash and the attack come back through their menu entries, whose
+    // windows have now been shown.
+    case kBashTutorial:
+        if (prepareMenuBash(*actor, subject)) {
+            sendAttack(*actor, subject);
+        }
+        break;
+    case kAttackTutorial:
+        if (prepareMenuAttack(*actor, subject)) {
+            sendAttack(*actor, subject);
+        }
+        break;
+    default:
+        break;
+    }
+    // A creature that cannot be commanded sets no mine.
+    if (action && actor->isCommandable()) {
+        action->setUserAction(true);
+        actor->addAction(std::move(action));
+    }
+}
+
+void Game::beginMenuAttack(Creature &attacker) {
+    attacker.setClientCombatMode(true);
+    if (isTSL() && _party.isMember(attacker)) {
+        for (const auto &member : _party.members()) {
+            if (member.creature && member.creature.get() != &attacker) {
+                member.creature->setClientCombatMode(true);
+            }
+        }
+    }
+    _attackMashTime = kAttackMashWindow;
+}
+
+// TSL takes up forms and casts the powers its feats grant straight away,
+// whatever the caster's class.
+static bool isImmediateMenuCast(bool tsl, SpellType spell) {
+    static const std::array<SpellType, 5> kFeatPowers {
+        SpellType::DroidTrick, SpellType::DroidConfusion, SpellType::WookieeRageI, SpellType::WookieeRageII,
+        SpellType::WookieeRageIII};
+    const bool form = spell >= SpellType::FormSaberIShiiCho && spell <= SpellType::FormForceIVMastery;
+    return tsl && (form || std::find(kFeatPowers.begin(), kFeatPowers.end(), spell) != kFeatPowers.end());
+}
+
+bool Game::canMenuCast(const Creature &caster, const Spell &spell) const {
+    if (isImmediateMenuCast(isTSL(), spell.type)) {
+        return true;
+    }
+    // The Jedi classes, and in TSL the prestige classes.
+    auto isJedi = [this](ClassType clazz) {
+        return (clazz >= ClassType::JediGuardian && clazz <= ClassType::JediSentinel) ||
+               (isTSL() && clazz >= ClassType::JediWeaponMaster && clazz <= ClassType::SithAssassin);
+    };
+    const auto &attributes = caster.attributes();
+    return isJedi(attributes.getClassByPosition(1)) || isJedi(attributes.getClassByPosition(2));
+}
+
+void Game::refuseMenuCast(Creature &caster) {
+    if (caster.racialType() == RacialType::Droid) {
+        useMenuItem(caster, nullptr, std::nullopt, nullptr, glm::vec3(0.0f));
+    }
+}
+
+void Game::useMenuItem(Creature &user, const std::shared_ptr<Item> &item, std::optional<size_t> property,
+                       const std::shared_ptr<Object> &target, const glm::vec3 &location) {
+    if (!user.isInCombat()) {
+        _combat.clearActions(user);
+    }
+    const auto *entry = item && property && *property < item->properties().size() ? &item->properties()[*property] : nullptr;
+    const auto spell = entry && entry->propertyName == static_cast<uint16_t>(ItemProperty::ActivateItem)
+                           ? _services.game.spells.get(static_cast<SpellType>(entry->subtype))
+                           : nullptr;
+    if (!spell) {
+        addFeedbackMessage(kMenuCastRefusedStrRef);
+        return;
+    }
+    // A creature that cannot be commanded uses no item.
+    if (!user.isCommandable()) {
+        return;
+    }
+    auto action = newAction<CastSpellAtObjectAction>(spell, target, std::optional(item), false,
+                                                     ProjectilePathType::Default, false, property);
+    action->setCommandLocation(location);
+    action->setUserAction(true);
+    if (!useItem(user, *item, *property, action)) {
+        addFeedbackMessage(kMenuCastRefusedStrRef);
+    }
+}
+
+bool Game::useItem(Creature &user, const Item &item, size_t property, const std::shared_ptr<Action> &use) {
+    if (!canUseItem(user, item, false) || property >= item.properties().size()) {
+        return false;
+    }
+    const auto &entry = item.properties()[property];
+    const bool usable = entry.propertyName == static_cast<uint16_t>(ItemProperty::ActivateItem) &&
+                        item.isPropertyActive(entry) && entry.usable;
+    if (usable) {
+        _combat.scheduleCast(user, use);
+    }
+    if (!breakForfeitCondition(user, Party::kForfeitNoItems) && item.itemType() == Item::kForearmBandsItemType) {
+        breakForfeitCondition(user, Party::kForfeitNoItemButShield);
+    }
+    return usable;
+}
+
+void Game::sendMenuCast(Creature &caster, const std::shared_ptr<Spell> &spell, const std::shared_ptr<Object> &target) {
+    if (!caster.isCommandable()) {
+        return;
+    }
+    if (!caster.isInCombat()) {
+        _combat.clearActions(caster);
+    }
+    auto action = newAction<CastSpellAtObjectAction>(spell, target, std::nullopt);
+    action->setUserAction(true);
+    _combat.scheduleCast(caster, action);
+    breakForfeitCondition(caster, Party::kForfeitNoForcePowers);
+}
+
+// The user-defined event a broken forfeit condition signals to the area.
+static constexpr int kForfeitViolationEvent = 4001;
+
+bool Game::breakForfeitCondition(const Creature &member, int condition) {
+    if (!_party.isMember(member) || (_party.forfeitConditions() & condition) == 0) {
+        return false;
+    }
+    _party.setLastForfeitViolation(condition);
+    if (auto area = member.spatialArea()) {
+        queueScriptEvent(area->get(), area->get(), *newEvent(static_cast<int>(SavedSignalEventType::UserDefined), std::vector<int32_t> {kForfeitViolationEvent}, std::vector<float> {}, std::vector<std::string> {}, std::vector<std::shared_ptr<Object>> {}));
+    }
+    return true;
+}
+
+std::optional<int> Game::forcePowerTutorial(const Spell &spell) const {
+    if (isImmediateMenuCast(isTSL(), spell.type)) {
+        return std::nullopt;
+    }
+    return spell.hostileSlot != -1 ? kHostilePowerTutorial : kFriendlyPowerTutorial;
+}
+
+void Game::clearOneAction() {
+    auto leader = _party.getLeader();
+    if (!leader || !_clientCombatMode) {
+        return;
+    }
+    if (requestTutorialWindow(kClearOneActionTutorial, leader->id())) {
+        return;
+    }
+    clearOneCombatAction(*leader);
+}
+
+// The last pending round entry goes; without one, a forced clear takes the
+// leader's actions, the one its round has taken up included.
+void Game::clearOneCombatAction(Creature &leader) {
+    if (_combat.removeLastScheduled(leader)) {
+        return;
+    }
+    leader.clearAllActions(true);
+}
+
+void Game::cancelCombat() {
+    auto leader = _party.getLeader();
+    if (!leader || !_clientCombatMode) {
+        return;
+    }
+    leader->setClientCombatMode(false);
+    _combat.clearAllOrders(*leader);
+}
+
+void Game::markNoClickEvent(uint32_t milliseconds) {
+    _noClickDay = worldTimeDay();
+    _noClickTime = worldTimeOfDay();
+    _noClickMilliseconds = milliseconds;
+}
+
+// A whole day on, or the marked time past, a click works again; so does one
+// made from a world time earlier than the mark.
+bool Game::canClick() const {
+    const uint32_t day = worldTimeDay();
+    const uint32_t time = worldTimeOfDay();
+    if (day < _noClickDay || (day == _noClickDay && time < _noClickTime)) {
+        return true;
+    }
+    uint32_t days = 0;
+    uint32_t elapsed = 0;
+    subtractWorldTimes(day, time, _noClickDay, _noClickTime, days, elapsed);
+    return days != 0 || elapsed >= _noClickMilliseconds;
+}
+
+void Game::clearPlayerHostileActions() {
+    auto player = _party.getLeader();
+    if (!player) {
+        return;
+    }
+    const ObjectList creatures = _module->area()->getObjectsByType(ObjectType::Creature);
+    for (const auto &object : creatures) {
+        auto &creature = static_cast<Creature &>(*object);
+        if (_party.isMember(creature) || creature.getReputationToward(*player) > kHighestHostileReputation) {
+            continue;
+        }
+        creature.clearAllActions(true);
+        _combat.clearAllOrders(creature);
+    }
+}
+
+bool Game::prepareMenuBash(Creature &basher, const std::shared_ptr<Object> &target) {
+    if (!target) {
+        return false;
+    }
+    const bool door = target->type() == ObjectType::Door;
+    if (requestTutorialWindow(kBashTutorial, basher.id(), target->id(), door ? 1 : 0)) {
+        return false;
+    }
+    // A door is bashed after everything else the basher was doing is dropped,
+    // as the player's controls clear it.
+    if (door) {
+        _combat.clearAllOrders(basher);
+        delayNextEnemyAutoPause();
+    }
+    return true;
+}
+
+bool Game::prepareMenuAttack(Creature &attacker, const std::shared_ptr<Object> &target) {
+    if (!target) {
+        return false;
+    }
+    // A repeated attack soon after the last one asks not to mash, and is dropped.
+    if (attackMashActive() && requestTutorialWindow(kAttackMashTutorial, attacker.id(), target->id())) {
+        return false;
+    }
+    if (requestTutorialWindow(kAttackTutorial, attacker.id(), target->id())) {
+        return false;
+    }
+    beginMenuAttack(attacker);
+    return true;
+}
+
+static constexpr char kNihilusTag[] = "darthnihilus";
+static constexpr int kNihilusUnassailableBoolean = 52;
+
+void Game::sendAttack(Creature &attacker, const std::shared_ptr<Object> &target, FeatType feat) {
+    if (!target) {
+        return;
+    }
+    // TSL ignores attacks on Nihilus while his local boolean 52 is set.
+    if (isTSL()) {
+        auto nihilus = _module->area()->getObjectByTag(kNihilusTag);
+        if (nihilus && nihilus == target && nihilus->getLocalBoolean(kNihilusUnassailableBoolean)) {
+            return;
+        }
+    }
+    if (auto action = _combat.scheduleAttack(attacker, target, feat)) {
+        action->setUserAction(true);
+    }
+    // TSL party members with no attack target of their own join an attack on a
+    // creature, at once and in front of anything else.
+    auto targetCreature = std::dynamic_pointer_cast<Creature>(target);
+    if (!isTSL() || !targetCreature || !_party.isMember(attacker) || _party.isSoloMode() || _party.getSize() < 2) {
+        return;
+    }
+    for (const auto &member : _party.members()) {
+        auto creature = member.creature;
+        // A member who is down does not join.
+        if (!creature || creature.get() == &attacker || creature->isDead() || creature->isTemporarilyDead() ||
+            creature->getAttemptedAttackTarget() != script::kObjectInvalid) {
+            continue;
+        }
+        // A confused member joins whether or not it can be commanded, and
+        // whatever it thinks of the target.
+        const auto state = static_cast<CreatureState>(creature->effectState());
+        const bool stateExempt = state == CreatureState::Confusion || state == CreatureState::DroidConfused;
+        if (!creature->isCommandable() && !stateExempt) {
+            continue;
+        }
+        if (_services.game.reputes.getIsFriend(*targetCreature, *creature) && !stateExempt) {
+            continue;
+        }
+        _combat.clearActions(*creature);
+        creature->addActionOnTop(newAction<AttackObjectAction>(target));
+    }
+}
+
+// END Tutorial windows
+
+static constexpr float kSightingHold = 10.0f;
+static constexpr int kTargetCyclingTutorial = 8;
+static constexpr int kHostileCreatureTutorial = 21;
+static constexpr float kNearestHostileRange = 30.0f;
+static constexpr float kNearestOtherRangeTSL = 10.0f;
+static constexpr float kNearestOtherRange = 30.0f;
+static constexpr float kNearestConeApexOffset = 4.0f;
+static constexpr float kNearestConeCosine = 0.866f;
+static constexpr float kDegreesPerRadian = 57.2958f;
+static constexpr float kTargetUnseenGrace = 1.0f;
+static constexpr float kDeadTargetHold = 1.5f;
+static constexpr float kTargetMoveSpeedTime = 0.5f;
+static constexpr int kHostileStanding = 11;
+
+// A creature that is dead, or (TSL) a party member at zero vitality, or
+// (KotOR) temporarily dead, cannot hold the target.
+bool Game::isDownForSelection(const Creature &creature) const {
+    if (creature.isDead()) {
+        return true;
+    }
+    if (isTSL()) {
+        return _party.isMember(creature) && creature.currentHitPoints() <= 0;
+    }
+    return creature.isTemporarilyDead();
+}
+
+// Whether the leader sees an object is asked once per pass.
+bool Game::isNearestObjectSeen(NearestObject &entry, const Creature &leader, const Area &area) {
+    if (!entry.seen) {
+        auto object = entry.object.resolve();
+        entry.seen = object && area.isObjectSeen(leader, *object);
+    }
+    return *entry.seen;
+}
+
+// Rebuilds the objects that can hold the leader's target, sorted by bearing
+// from the leader's facing, and returns the ones in the forward cone sorted by
+// distance. Hostile objects count out to 30 m; others to 10 m in TSL, 30 m in KotOR.
+std::vector<size_t> Game::collectNearestObjects(const Creature &leader, const Area &area) {
+    struct Candidate {
+        NearestObject entry;
+        float bearing;
+        float distance2;
+    };
+    const float otherRange = isTSL() ? kNearestOtherRangeTSL : kNearestOtherRange;
+    const glm::vec3 facing {-std::sin(leader.getFacing()), std::cos(leader.getFacing()), 0.0f};
+    const float facingYaw = std::atan2(-facing.x, facing.y) * kDegreesPerRadian;
+    auto &reputes = _services.game.reputes;
+    std::vector<Candidate> candidates;
+    for (const auto &object : area.objects()) {
+        if (object.get() == &leader) {
+            continue;
+        }
+        bool rangeHostile = false;
+        bool hostile = false;
+        if (auto *creature = dyn_cast<Creature>(object.get())) {
+            if (isDownForSelection(*creature)) {
+                // A lootable corpse is what the player targets to search it.
+                if (!creature->isSelectable()) {
+                    continue;
+                }
+            } else {
+                // Listed once seen, or when spotted now while heard.
+                const auto &perception = leader.perception();
+                if (!perception.sees(creature->id()) &&
+                    !(perception.hears(creature->id()) &&
+                      leader.detectsBySight(*creature, false)))
+                    continue;
+                rangeHostile = hostile = _module->isHostileToPartyLeader(*creature);
+            }
+        } else if (auto *trigger = dyn_cast<Trigger>(object.get())) {
+            // Hostile mines are listed once the leader has found them, and at the shorter range.
+            if (!trigger->isTrap() ||
+                (!trigger->trapDetection().isDetectedBy(leader.id()) && trigger->isTrapHostileTo(leader)))
+                continue;
+            hostile = trigger->isTrapHostileTo(leader);
+        } else if (auto *placeable = dyn_cast<Placeable>(object.get())) {
+            if (!placeable->isUsable()) {
+                continue;
+            }
+            hostile = placeable->isHostileAppearance();
+            rangeHostile = hostile && reputes.getReputation(placeable->faction(), leader.faction()) < kHostileStanding;
+        } else if (auto *door = dyn_cast<Door>(object.get())) {
+            if (door->state() != DoorState::Closed || door->isStatic()) {
+                continue;
+            }
+        } else {
+            continue;
+        }
+        const glm::vec3 offset {object->position() - leader.position()};
+        const float distance2 = glm::dot(offset, offset);
+        const float range = rangeHostile ? kNearestHostileRange : otherRange;
+        if (distance2 >= range * range) {
+            continue;
+        }
+        float bearing = std::atan2(-offset.x, offset.y) * kDegreesPerRadian - facingYaw;
+        while (bearing < 0.0f) {
+            bearing += 360.0f;
+        }
+        while (bearing > 359.0f) {
+            bearing -= 360.0f;
+        }
+        const glm::vec3 fromApex {object->position() - (leader.position() - kNearestConeApexOffset * facing)};
+        const bool inCone = glm::dot(facing, offset) >= 0.0f &&
+                            glm::dot(facing, glm::normalize(fromApex)) > kNearestConeCosine;
+        Candidate candidate {NearestObject {RuntimeObjectRef<Object>(object), inCone, hostile, std::nullopt}, bearing, distance2};
+        candidates.push_back(std::move(candidate));
+    }
+    std::stable_sort(candidates.begin(), candidates.end(), [](const auto &left, const auto &right) {
+        return left.bearing < right.bearing;
+    });
+    _nearestObjects.clear();
+    std::vector<size_t> cone;
+    for (size_t i = 0; i < candidates.size(); ++i) {
+        _nearestObjects.push_back(candidates[i].entry);
+        if (candidates[i].entry.inCone) {
+            cone.push_back(i);
+        }
+    }
+    std::stable_sort(cone.begin(), cone.end(), [&candidates](size_t left, size_t right) {
+        return candidates[left].distance2 < candidates[right].distance2;
+    });
+    return cone;
+}
+
+// Direct movement out of combat mode lets go of the target after half a second.
+void Game::releaseTargetOnMove(float frameTime) {
+    // A deferred autopause holds the target too.
+    if (!_clientCombatMode && _deferredAutoPauseDelay <= 0.0f && _lastTarget.resolve() && !_paused &&
+        _module->isPlayerMoving()) {
+        _targetMoveTime += frameTime;
+        if (_targetMoveTime >= kTargetMoveSpeedTime) {
+            _targetMoveTime = 0.0f;
+            _lastTarget.reset();
+        }
+    } else {
+        _targetMoveTime = 0.0f;
+    }
+}
+
+// In combat mode a dead target stays for a moment before another is picked.
+bool Game::holdsDeadTarget(const std::shared_ptr<Object> &target, float frameTime) {
+    auto targetCreature = std::dynamic_pointer_cast<Creature>(target);
+    const bool down = targetCreature && isDownForSelection(*targetCreature);
+    if (_deadTargetHold <= 0.0f) {
+        if (down) {
+            _deadTargetHold = kDeadTargetHold;
+            return true;
+        }
+        return false;
+    }
+    _deadTargetHold -= frameTime;
+    if (_deadTargetHold <= 0.0f) {
+        return false;
+    }
+    if (!down) {
+        _deadTargetHold = 0.0f;
+        return false;
+    }
+    return true;
+}
+
+// The first enemy or mine to come into view takes the target, unless play is
+// paused. A sighting holds while anything of its kind stays in view and for
+// ten seconds after the last one leaves, so only a fresh one counts.
+void Game::takeSightedTarget(TargetPass &pass, bool hostileCreature, bool hostileTrigger,
+                             const Creature &leader, const Area &area, float frameTime) {
+    bool enemyInView = false;
+    bool mineInView = false;
+    if (hostileCreature || hostileTrigger) {
+        bool enemyDone = !hostileCreature;
+        bool mineDone = !hostileTrigger;
+        for (auto &entry : _nearestObjects) {
+            auto object = entry.object.resolve();
+            if (!object || !entry.hostile || !isNearestObjectSeen(entry, leader, area)) {
+                continue;
+            }
+            auto *trigger = dyn_cast<Trigger>(object.get());
+            const bool mine = trigger && trigger->isTrap();
+            if (mine) {
+                mineInView = true;
+            } else {
+                enemyInView = true;
+            }
+            if (!_paused) {
+                bool &done = mine ? mineDone : enemyDone;
+                done = true;
+                if (!(mine ? _mineSighted : _enemySighted)) {
+                    if (!mine) {
+                        requestTutorialWindow(kHostileCreatureTutorial);
+                    }
+                    if (!_clientCombatMode) {
+                        requestAutoPause(mine ? AutoPauseReason::MineSighted : AutoPauseReason::EnemySighted);
+                    }
+                    pass.target = object;
+                    pass.keep = true;
+                    pass.sighted = true;
+                    _passTargetGone = false;
+                    break;
+                }
+            }
+            if (enemyDone && mineDone) {
+                break;
+            }
+        }
+    }
+    auto updateSighting = [frameTime](bool inView, bool &sighted, float &hold) {
+        if (sighted && !inView) {
+            if (hold < 0.0f) {
+                sighted = false;
+            } else {
+                hold -= frameTime;
+            }
+        } else {
+            sighted = inView;
+            hold = kSightingHold;
+        }
+    };
+    updateSighting(enemyInView, _enemySighted, _enemySightingHold);
+    updateSighting(mineInView, _mineSighted, _mineSightingHold);
+}
+
+// A kept target must stay in view, or return to it within a second.
+bool Game::isTargetLost(TargetPass &pass, const Creature &leader, const Area &area, float frameTime) {
+    auto listed = std::find_if(_nearestObjects.begin(), _nearestObjects.end(), [&pass](const auto &entry) {
+        return entry.object.resolve() == pass.target;
+    });
+    const bool seen = listed != _nearestObjects.end()
+                          ? isNearestObjectSeen(*listed, leader, area)
+                          : area.isObjectSeen(leader, *pass.target);
+    if (seen) {
+        _targetUnseenTime = 0.0f;
+        return false;
+    }
+    _targetUnseenTime += frameTime;
+    if (_targetUnseenTime >= kTargetUnseenGrace) {
+        _targetUnseenTime = 0.0f;
+        return true;
+    }
+    pass.unseenGrace = true;
+    return false;
+}
+
+// In combat mode with a hostile creature about: the nearest visible hostile
+// ahead, then any visible hostile, then the nearest other object ahead.
+// Otherwise the nearest visible object ahead.
+std::shared_ptr<Object> Game::pickTarget(const std::vector<size_t> &cone, bool hostileCreature,
+                                         const Creature &leader, const Area &area) {
+    if (!_clientCombatMode || !hostileCreature) {
+        for (size_t index : cone) {
+            auto &entry = _nearestObjects[index];
+            auto object = entry.object.resolve();
+            if (object && isNearestObjectSeen(entry, leader, area)) {
+                return object;
+            }
+        }
+        return nullptr;
+    }
+    std::shared_ptr<Object> ahead;
+    for (size_t index : cone) {
+        auto &entry = _nearestObjects[index];
+        auto object = entry.object.resolve();
+        if (!object) {
+            continue;
+        }
+        if (!entry.hostile) {
+            if (!ahead) {
+                ahead = object;
+            }
+        } else if (isNearestObjectSeen(entry, leader, area)) {
+            return object;
+        }
+    }
+    for (auto &entry : _nearestObjects) {
+        auto object = entry.object.resolve();
+        if (object && entry.hostile && isNearestObjectSeen(entry, leader, area)) {
+            return object;
+        }
+    }
+    return ahead;
+}
+
+// Holds the target among the objects around the leader, or picks another.
+void Game::selectPassTarget(TargetPass &pass, const Creature &leader, const Area &area, float frameTime) {
+    const auto cone = collectNearestObjects(leader, area);
+    if (_nearestObjects.empty()) {
+        return;
+    }
+    // Whether a hostile creature or mine is around, and whether the target is listed.
+    bool hostileCreature = false;
+    bool hostileTrigger = false;
+    for (const auto &entry : _nearestObjects) {
+        auto object = entry.object.resolve();
+        if (!hostileCreature && object && entry.hostile) {
+            if (isa<Creature>(object.get())) {
+                hostileCreature = true;
+            } else if (isa<Trigger>(object.get())) {
+                hostileTrigger = true;
+            }
+        }
+        if (object && object == pass.target && !_passTargetGone) {
+            pass.keep = true;
+        }
+    }
+    if (hostileCreature && _clientCombatMode && !pass.keep) {
+        pass.keep = holdsDeadTarget(pass.target, frameTime);
+    } else {
+        _deadTargetHold = 0.0f;
+    }
+    takeSightedTarget(pass, hostileCreature, hostileTrigger, leader, area, frameTime);
+    const bool repick = !pass.keep || !pass.target || isTargetLost(pass, leader, area, frameTime);
+    if (!repick) {
+        return;
+    }
+    pass.keep = false;
+    if (auto picked = pickTarget(cone, hostileCreature, leader, area)) {
+        pass.target = std::move(picked);
+        pass.keep = true;
+        pass.repicked = true;
+        _passTargetGone = false;
+    }
+}
+
+// The target held is the leader's and the HUD's, and a new one is looked at;
+// a sighting also swings the camera to it.
+void Game::presentPassTarget(const TargetPass &pass) {
+    _lastTarget = pass.keep ? RuntimeObjectRef<Object>(pass.target) : RuntimeObjectRef<Object>();
+    _party.setLeaderLastTarget(_lastTarget);
+    _passTarget = _lastTarget;
+    auto targetCreature = pass.keep ? std::dynamic_pointer_cast<Creature>(pass.target) : nullptr;
+    _passTargetUp = targetCreature && !isDownForSelection(*targetCreature);
+    // The HUD shows the target unless the console pinned a selection.
+    auto &area = *_module->area();
+    if (!area.isSelectionForced()) {
+        area.selectObject(pass.keep ? pass.target : nullptr);
+    }
+    if (pass.keep && pass.target) {
+        const bool look = pass.repicked || (!pass.unseenGrace && (pass.sighted || _lastTargetLook));
+        showTarget(pass.target, look, !pass.repicked && !pass.unseenGrace && pass.sighted);
+    } else {
+        showTarget(nullptr, false, false);
+    }
+    _lastTargetLook = false;
+}
+
+// Keeps the leader's target on a valid nearby object, every in-game frame and
+// also while paused. A first enemy or mine sighting takes the target and may
+// pause play. A target that stays listed and in view, or out of view for less
+// than a second, is kept; otherwise one is picked from what lies ahead.
+void Game::updatePassiveSelection(float frameTime) {
+    releaseTargetOnMove(frameTime);
+    TargetPass pass;
+    pass.target = _lastTarget.resolve();
+    if (!pass.target || pass.target != _passTarget.resolve()) {
+        _passTargetGone = false;
+    } else if (_passTargetUp) {
+        auto creature = std::dynamic_pointer_cast<Creature>(pass.target);
+        if (creature && isDownForSelection(*creature)) {
+            _passTargetGone = true;
+        }
+    }
+    if (auto leader = _party.getLeader()) {
+        selectPassTarget(pass, *leader, *_module->area(), frameTime);
+    }
+    presentPassTarget(pass);
+}
+
+std::shared_ptr<Object> Game::selectNearestObject(int direction) {
+    requestTutorialWindow(kTargetCyclingTutorial);
+    auto leader = _party.getLeader();
+    if (!leader || _nearestObjects.empty()) {
+        return nullptr;
+    }
+    // Targets are cycled only in play.
+    const auto area = _module->area();
+    auto hostileCreature = [](const NearestObject &entry, const Object &object) {
+        return entry.hostile && isa<Creature>(&object);
+    };
+    // In combat mode only hostile creatures qualify, if any visible one remains.
+    // Entries that are gone or out of view are dropped on the way.
+    bool hostilesOnly = _clientCombatMode;
+    if (hostilesOnly) {
+        bool found = false;
+        for (size_t i = _nearestObjects.size(); i-- > 0;) {
+            auto object = _nearestObjects[i].object.resolve();
+            if (!object || !isNearestObjectSeen(_nearestObjects[i], *leader, *area)) {
+                _nearestObjects.erase(_nearestObjects.begin() + i);
+                continue;
+            }
+            if (hostileCreature(_nearestObjects[i], *object)) {
+                found = true;
+                break;
+            }
+        }
+        hostilesOnly = found;
+    }
+    if (_nearestObjects.empty()) {
+        _lastTarget.reset();
+        if (!area->isSelectionForced()) {
+            area->selectObject(nullptr);
+        }
+        showTarget(nullptr, true, false);
+        return nullptr;
+    }
+
+    const auto target = _lastTarget.resolve();
+    int count = static_cast<int>(_nearestObjects.size());
+    int current = -1;
+    for (int i = 0; target && i < count; ++i) {
+        if (_nearestObjects[i].object.resolve() == target) {
+            current = i;
+            break;
+        }
+    }
+    int index;
+    if (current >= 0) {
+        index = direction == 0 ? (current < count - 1 ? current + 1 : 0) : (current == 0 ? count - 1 : current - 1);
+    } else {
+        index = direction == 0 ? 0 : count - 1;
+    }
+    std::shared_ptr<Object> found;
+    for (int steps = count; steps > 0 && count > 0; --steps) {
+        auto &entry = _nearestObjects[index];
+        auto object = entry.object.resolve();
+        bool removed = false;
+        if (!object) {
+            removed = true;
+        } else if (!hostilesOnly || hostileCreature(entry, *object)) {
+            if (isNearestObjectSeen(entry, *leader, *area)) {
+                found = object;
+                break;
+            }
+            removed = true;
+        }
+        if (removed) {
+            _nearestObjects.erase(_nearestObjects.begin() + index);
+            --count;
+            if (count == 0) {
+                break;
+            }
+        } else if (direction == 0) {
+            ++index;
+        }
+        if (direction == 0) {
+            if (index >= count) {
+                index = 0;
+            }
+        } else {
+            index = (index <= 0 || index > count) ? count - 1 : index - 1;
+        }
+    }
+    if (found) {
+        _lastTarget = RuntimeObjectRef<Object>(found);
+        if (!area->isSelectionForced()) {
+            area->selectObject(found);
+        }
+        showTarget(found, true, true);
+    } else if (_nearestObjects.empty()) {
+        _lastTarget.reset();
+        if (!area->isSelectionForced()) {
+            area->selectObject(nullptr);
+        }
+        showTarget(nullptr, true, false);
+    }
+    return found;
+}
+
+// Target presentation
+
+static constexpr float kTargetLookDistance = 10.0f;
+static constexpr float kHostileHiliteTime = 0.25f;
+static const glm::vec3 kHostileHiliteColor(0.74f, 0.11f, 0.0f);
+
+// The leader's head turns to a newly presented target; the camera swings to
+// it when asked or in combat mode (the combat camera itself never swings);
+// and in combat mode a hostile creature flashes red for a quarter second.
+void Game::showTarget(const std::shared_ptr<Object> &object, bool look, bool camera) {
+    auto leader = _party.getLeader();
+    if (!object) {
+        if (leader) {
+            leader->lookAt(nullptr, kTargetLookDistance);
+        }
+        return;
+    }
+    if (!look) {
+        return;
+    }
+    if (leader) {
+        leader->lookAt(object, kTargetLookDistance);
+    }
+    if ((camera || _clientCombatMode) && _cameraType == CameraType::ThirdPerson) {
+        _module->area()->getCamera<ThirdPersonCamera>(CameraType::ThirdPerson)->setLookAtTarget(object);
+    }
+    auto creature = std::dynamic_pointer_cast<Creature>(object);
+    if (_clientCombatMode && creature && _module->isHostileToPartyLeader(*creature)) {
+        auto model = creature->sceneNode();
+        if (model && model->type() == SceneNodeType::Model) {
+            static_cast<ModelSceneNode &>(*model).setHiliteColor(kHostileHiliteColor);
+        }
+        auto hilite = std::find_if(_hostileHilites.begin(), _hostileHilites.end(), [&creature](const auto &entry) {
+            return entry.creature.resolve() == creature;
+        });
+        if (hilite != _hostileHilites.end()) {
+            hilite->timer = kHostileHiliteTime;
+        } else {
+            _hostileHilites.push_back(HostileHilite {RuntimeObjectRef<Creature>(creature), kHostileHiliteTime});
+        }
+    }
+}
+
+// The red flash runs on game time: it holds while play is paused.
+void Game::updateHostileHilites(float dt) {
+    for (size_t i = _hostileHilites.size(); i-- > 0;) {
+        auto &entry = _hostileHilites[i];
+        entry.timer -= dt;
+        if (entry.timer > 0.0f) {
+            continue;
+        }
+        if (auto creature = entry.creature.resolve()) {
+            auto model = creature->sceneNode();
+            if (model && model->type() == SceneNodeType::Model) {
+                static_cast<ModelSceneNode &>(*model).setHiliteColor(std::nullopt);
+            }
+        }
+        _hostileHilites.erase(_hostileHilites.begin() + i);
+    }
+}
+
+// END Target presentation
 
 void Game::openInGame() {
     _runtimeSessionPlayable = static_cast<bool>(_module);
@@ -4066,20 +6564,18 @@ struct SwoopTrackFrame {
 // teleport the bike into the void, so the proven leader anchor is kept.
 constexpr float kTrackFrameMaxDistance = 64.0f;
 
-// PR1 non-blocking finish threshold (forward-progress units). The race finishes
+// Non-blocking finish threshold (forward-progress units). The race finishes
 // a margin past the furthest mapped obstacle, or at a conservative fallback
 // distance when no obstacle placements exist.
 constexpr float kSwoopFinishMargin = 500.0f;
 constexpr float kSwoopFallbackFinishProgress = 4000.0f;
 
-// Derive the bike start frame from the player track model's "modelhook" node
-// (vanilla parents the player to this node). When an LYT track placement is
-// supplied, the hook is placed into module/world space and used unconditionally;
-// otherwise it is trusted only if it already resolves near the party leader,
-// falling back to the leader frame.
+// Derive the bike start frame from the player track model's modelhook node.
+// With LYT placement, transform the hook into world space. Without placement,
+// use the hook only when it resolves near the party leader; otherwise use the leader frame.
 SwoopTrackFrame deriveSwoopTrackFrame(const std::shared_ptr<graphics::Model> &trackModel,
                                       const std::string &trackResRef,
-                                      const glm::vec3 *lytTrackPos,
+                                      const std::optional<glm::vec3> &lytTrackPos,
                                       const glm::vec3 &leaderPos,
                                       float leaderFacing) {
     SwoopTrackFrame frame;
@@ -4105,17 +6601,17 @@ SwoopTrackFrame deriveSwoopTrackFrame(const std::shared_ptr<graphics::Model> &tr
     }
 
     const glm::mat4 &abs = hook->absoluteTransform();
-    glm::vec3 hookLocal(abs[3]);
-    // Engine facing convention: forward = (-sin f, cos f). The LYT track
-    // placement carries no rotation, so the hook's model-space orientation is
-    // also its world orientation.
-    glm::vec3 forward = glm::normalize(glm::vec3(glm::mat3(abs) * glm::vec3(0.0f, 1.0f, 0.0f)));
+    glm::vec3 hookLocal {abs[3]};
+    // Facing convention: forward = (-sin f, cos f). The LYT track placement
+    // carries no rotation, so the hook's model-space orientation is also its
+    // world orientation.
+    glm::vec3 forward {glm::normalize(glm::vec3 {glm::mat3 {abs} * glm::vec3 {0.0f, 1.0f, 0.0f}})};
     float facing = glm::atan(-forward.x, forward.y);
 
     if (lytTrackPos) {
         // Combine the LYT placement (translation only) with the modelhook's
         // model-local transform to get the hook in module/world space.
-        glm::vec3 start = *lytTrackPos + hookLocal;
+        glm::vec3 start {*lytTrackPos + hookLocal};
         frame.position = start;
         frame.facing = facing;
         frame.mode = "lyt-track";
@@ -4127,7 +6623,7 @@ SwoopTrackFrame deriveSwoopTrackFrame(const std::shared_ptr<graphics::Model> &tr
         return frame;
     }
 
-    float dist = glm::distance(glm::vec2(hookLocal), glm::vec2(leaderPos));
+    float dist = glm::distance(glm::vec2 {hookLocal}, glm::vec2 {leaderPos});
     frame.info = str(boost::format("modelhook=yes placement=no anims=%zu hook=[%.1f,%.1f,%.1f] dist=%.1f")
                      % animCount % hookLocal.x % hookLocal.y % hookLocal.z % dist);
 
@@ -4143,6 +6639,94 @@ SwoopTrackFrame deriveSwoopTrackFrame(const std::shared_ptr<graphics::Model> &tr
     return frame;
 }
 
+// The bike's models: every Player.Models entry except the camera mount
+// (player.cameraResRef), the first as the root and the rest attached to it. The
+// visible bike may appear after the first entry.
+struct SwoopBikeModels {
+    std::shared_ptr<ModelSceneNode> root;
+    std::vector<std::shared_ptr<ModelSceneNode>> children;
+    /** A load line per entry, for the developer log. */
+    std::vector<std::string> diagnostics;
+    bool anyMissing {false};
+};
+
+SwoopBikeModels loadSwoopBikeModels(const MinigameSpec &mg, ServicesView &services, float drawDistance) {
+    auto &sceneGraph = services.scene.graphs.get(kSceneMain);
+    SwoopBikeModels bike;
+    for (const auto &modelSpec : mg.player.models) {
+        const auto &resRef = modelSpec.resRef;
+        if (resRef.empty()) {
+            continue;
+        }
+        if (!mg.player.cameraResRef.empty() && boost::iequals(resRef, mg.player.cameraResRef)) {
+            bike.diagnostics.push_back(resRef + " camera-skip");
+            continue;
+        }
+        auto model = services.resource.models.get(resRef);
+        if (!model) {
+            bike.diagnostics.push_back(resRef + " missing");
+            bike.anyMissing = true;
+            continue;
+        }
+        auto node = sceneGraph.newModel(*model, ModelUsage::Placeable);
+        node->setDrawDistance(drawDistance);
+        if (!bike.root) {
+            bike.root = std::move(node);
+        } else {
+            bike.root->addChild(*node);
+            bike.children.push_back(std::move(node));
+        }
+        bike.diagnostics.push_back(resRef + " loaded");
+    }
+    return bike;
+}
+
+// Choose a non-blocking finish threshold. Loop/finish handling is
+// script-driven and not yet implemented, so use the furthest mapped LYT
+// obstacle (the obstacle field spans the playable track) plus a margin, or
+// a conservative fallback distance when no obstacle placements are present.
+float swoopFinishProgress(const SwoopTrackFrame &trackFrame, const std::shared_ptr<resource::Layout> &layout) {
+    glm::vec3 frameForward {-glm::sin(trackFrame.facing), glm::cos(trackFrame.facing), 0.0f};
+    float maxObstacleProgress = 0.0f;
+    if (layout) {
+        for (const auto &obs : layout->obstacles) {
+            float progress = glm::dot(obs.position - trackFrame.position, frameForward);
+            maxObstacleProgress = glm::max(maxObstacleProgress, progress);
+        }
+    }
+    return maxObstacleProgress > 0.0f ? maxObstacleProgress + kSwoopFinishMargin : kSwoopFallbackFinishProgress;
+}
+
+// Map authored LYT obstacle placements into the current track frame
+// (progress = down-course distance, lateral = strafe offset). Diagnostic
+// only: no damage/collision is applied in this slice. The "match" count is
+// how many .are MiniGame obstacles have a same-name LYT placement.
+void logSwoopObstacles(const MinigameSpec &mg, const SwoopTrackFrame &trackFrame, const resource::Layout &layout) {
+    glm::vec3 fwd {-glm::sin(trackFrame.facing), glm::cos(trackFrame.facing), 0.0f};
+    glm::vec3 right {glm::cos(trackFrame.facing), glm::sin(trackFrame.facing), 0.0f};
+    size_t areMatched = 0;
+    for (const auto &obs : mg.obstacles) {
+        if (layout.findObstacleByName(obs.name)) {
+            ++areMatched;
+        }
+    }
+    debug(str(boost::format("swoop: lyt obstacles=%zu areObstacles=%zu matched=%zu") % layout.obstacles.size() % mg.obstacles.size() % areMatched));
+    constexpr size_t kMaxObstacleDiag = 6;
+    for (size_t i = 0; i < layout.obstacles.size() && i < kMaxObstacleDiag; ++i) {
+        const auto &obs = layout.obstacles[i];
+        glm::vec3 d {obs.position - trackFrame.position};
+        float progress = glm::dot(d, fwd);
+        float lateral = glm::dot(d, right);
+        debug(str(boost::format("  swoopobj[%zu] name=%s pos=[%.1f,%.1f,%.1f] progress=%.1f lateral=%.1f type=obstacle") % i % obs.name % obs.position.x % obs.position.y % obs.position.z % progress % lateral));
+    }
+}
+
+void logSwoopModelDiagnostics(const std::vector<std::string> &diagnostics) {
+    for (size_t i = 0; i < diagnostics.size(); ++i) {
+        debug(str(boost::format("  model[%zu]=%s") % i % diagnostics[i]));
+    }
+}
+
 } // namespace
 
 void Game::openSwoopRace() {
@@ -4150,7 +6734,8 @@ void Game::openSwoopRace() {
         _console.printLine("swoop: already running");
         return;
     }
-    if (!_module || !_module->area()) {
+    // The console command may be given outside a module.
+    if (!_module) {
         _console.printLine("swoop: no module loaded");
         return;
     }
@@ -4167,53 +6752,16 @@ void Game::openSwoopRace() {
 
     const auto &mg = area->miniGame();
     auto camera = area->getCamera<FirstPersonCamera>(CameraType::FirstPerson);
-    if (camera) {
-        camera->stopMovement();
-    }
+    camera->stopMovement();
 
-    // Load the whole player model set, not just the first entry. Vanilla loads
-    // every Player.Models entry and hides the one that is the camera mount
-    // (player.cameraResRef). We skip that mount so areas whose visible bike is
-    // in a later entry (e.g. Tatooine) still show a body.
-    auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
-    std::shared_ptr<ModelSceneNode> bikeRoot;
-    std::vector<std::shared_ptr<ModelSceneNode>> bikeChildNodes;
-    std::vector<std::string> modelDiag;
-    bool anyMissing = false;
-    for (const auto &modelSpec : mg.player.models) {
-        const auto &resRef = modelSpec.resRef;
-        if (resRef.empty()) {
-            continue;
-        }
-        if (!mg.player.cameraResRef.empty() && boost::iequals(resRef, mg.player.cameraResRef)) {
-            modelDiag.push_back(resRef + " camera-skip");
-            continue;
-        }
-        auto model = _services.resource.models.get(resRef);
-        if (!model) {
-            modelDiag.push_back(resRef + " missing");
-            anyMissing = true;
-            continue;
-        }
-        auto node = sceneGraph.newModel(*model, ModelUsage::Placeable);
-        node->setDrawDistance(_options.graphics.drawDistance);
-        if (!bikeRoot) {
-            bikeRoot = std::move(node);
-        } else {
-            bikeRoot->addChild(*node);
-            bikeChildNodes.push_back(std::move(node));
-        }
-        modelDiag.push_back(resRef + " loaded");
-    }
-    size_t loadedCount = bikeRoot ? 1 + bikeChildNodes.size() : 0;
-    if (!bikeRoot) {
+    auto bike = loadSwoopBikeModels(mg, _services, _options.graphics.drawDistance);
+    if (!bike.root) {
         _console.printLine("swoop: no visible bike models loaded");
-        for (size_t i = 0; i < modelDiag.size(); ++i) {
-            debug(str(boost::format("  model[%zu]=%s") % i % modelDiag[i]));
-        }
+        logSwoopModelDiagnostics(bike.diagnostics);
         return;
     }
-    sceneGraph.addRoot(bikeRoot);
+    const size_t loadedCount = 1 + bike.children.size();
+    _services.scene.graphs.get(kSceneMain).addRoot(bike.root);
 
     // Anchor the race to the authored player track. Prefer the LYT track
     // placement (module/world space); otherwise fall back as before.
@@ -4222,36 +6770,18 @@ void Game::openSwoopRace() {
         trackModel = _services.resource.models.get(mg.player.trackResRef);
     }
     auto layout = _services.resource.layouts.get(area->name());
-    glm::vec3 lytTrackPos(0.0f);
-    bool haveLytTrackPos = false;
+    std::optional<glm::vec3> lytTrackPos;
     if (layout && !mg.player.trackResRef.empty()) {
         if (auto placement = layout->findTrackByName(mg.player.trackResRef)) {
             lytTrackPos = placement->get().position;
-            haveLytTrackPos = true;
         }
     }
     SwoopTrackFrame trackFrame = deriveSwoopTrackFrame(
-        trackModel, mg.player.trackResRef, haveLytTrackPos ? &lytTrackPos : nullptr,
-        leader->position(), leader->getFacing());
-
-    // Choose a non-blocking finish threshold (PR1). Vanilla loop/finish is
-    // script-driven and not yet implemented, so use the furthest mapped LYT
-    // obstacle (the obstacle field spans the playable track) plus a margin, or
-    // a conservative fallback distance when no obstacle placements are present.
-    glm::vec3 frameForward(-glm::sin(trackFrame.facing), glm::cos(trackFrame.facing), 0.0f);
-    float maxObstacleProgress = 0.0f;
-    if (layout) {
-        for (const auto &obs : layout->obstacles) {
-            float p = glm::dot(obs.position - trackFrame.position, frameForward);
-            maxObstacleProgress = glm::max(maxObstacleProgress, p);
-        }
-    }
-    float finishProgress = maxObstacleProgress > 0.0f
-                               ? maxObstacleProgress + kSwoopFinishMargin
-                               : kSwoopFallbackFinishProgress;
+        trackModel, mg.player.trackResRef, lytTrackPos, leader->position(), leader->getFacing());
+    const float finishProgress = swoopFinishProgress(trackFrame, layout);
 
     _savedCameraType = _cameraType;
-    _swoopRace.start(mg, camera, std::move(bikeRoot), std::move(bikeChildNodes), trackFrame.position, trackFrame.facing, finishProgress);
+    _swoopRace.start(mg, camera, std::move(bike.root), std::move(bike.children), trackFrame.position, trackFrame.facing, finishProgress);
 
     _cameraType = CameraType::FirstPerson;
     setRelativeMouseMode(false);
@@ -4267,14 +6797,12 @@ void Game::openSwoopRace() {
     // Endar Spire Trask/Bandon cutscene) keep their queued party actions.
     for (auto &member : _party.members()) {
         if (member.creature) {
-            member.creature->clearAllActions(/*force=*/true);
+            member.creature->teardownActions();
         }
     }
 
-    // Hide the normal party while the minigame runs. Vanilla does not add the
-    // party to the scene in a minigame module (the swoop bike actor represents
-    // the player); otherwise the frozen-but-rendered party leader appears on the
-    // track. Restored on exit (or naturally re-spawned on the return module).
+    // Hide normal party models while the minigame actor represents the player. Restore them
+    // on exit or when the return module spawns them.
     setPartyVisible(false);
 
     debug(str(boost::format("swoop: started type=%s track=%s models=%zu loaded=%zu camera=chase movePerSec=%.0f lataccel=%.0f camfov=%.0f")
@@ -4288,7 +6816,7 @@ void Game::openSwoopRace() {
 
     // Track frame: lyt-track/track-model/fallback mode and how the start frame
     // was chosen (see deriveSwoopTrackFrame).
-    std::string trackLabel(mg.player.trackResRef.empty() ? std::string("<none>") : mg.player.trackResRef);
+    std::string trackLabel {mg.player.trackResRef.empty() ? std::string("<none>") : mg.player.trackResRef};
     if (trackFrame.mode == "fallback") {
         debug(str(boost::format("swoop: track=%s mode=fallback reason=%s%s")
                   % trackLabel
@@ -4316,40 +6844,14 @@ void Game::openSwoopRace() {
               % mg.player.tunnelXNeg
               % mg.player.tunnelXPos));
 
-    // Map authored LYT obstacle placements into the current track frame
-    // (progress = down-course distance, lateral = strafe offset). Diagnostic
-    // only: no damage/collision is applied in this slice. The "match" count is
-    // how many .are MiniGame obstacles have a same-name LYT placement.
     if (layout) {
-        glm::vec3 fwd(-glm::sin(trackFrame.facing), glm::cos(trackFrame.facing), 0.0f);
-        glm::vec3 right(glm::cos(trackFrame.facing), glm::sin(trackFrame.facing), 0.0f);
-        size_t areMatched = 0;
-        for (const auto &obs : mg.obstacles) {
-            if (layout->findObstacleByName(obs.name)) {
-                ++areMatched;
-            }
-        }
-        debug(str(boost::format("swoop: lyt obstacles=%zu areObstacles=%zu matched=%zu")
-                  % layout->obstacles.size() % mg.obstacles.size() % areMatched));
-        constexpr size_t kMaxObstacleDiag = 6;
-        for (size_t i = 0; i < layout->obstacles.size() && i < kMaxObstacleDiag; ++i) {
-            const auto &obs = layout->obstacles[i];
-            glm::vec3 d = obs.position - trackFrame.position;
-            float progress = glm::dot(d, fwd);
-            float lateral = glm::dot(d, right);
-            debug(str(boost::format("  swoopobj[%zu] name=%s pos=[%.1f,%.1f,%.1f] progress=%.1f lateral=%.1f type=obstacle")
-                      % i % obs.name
-                      % obs.position.x % obs.position.y % obs.position.z
-                      % progress % lateral));
-        }
+        logSwoopObstacles(mg, trackFrame, *layout);
     }
 
-    // Print the per-model breakdown when nothing loaded or a load failed; it is
-    // a one-shot dev diagnostic, so avoid spam on the common success path.
-    if (loadedCount == 0 || anyMissing) {
-        for (size_t i = 0; i < modelDiag.size(); ++i) {
-            debug(str(boost::format("  model[%zu]=%s") % i % modelDiag[i]));
-        }
+    // Print the per-model breakdown when a load failed; it is a one-shot dev
+    // diagnostic, so avoid spam on the common success path.
+    if (bike.anyMissing) {
+        logSwoopModelDiagnostics(bike.diagnostics);
     }
 }
 
@@ -4403,10 +6905,8 @@ void Game::finishSwoopLifecycle(bool success) {
     // Stop the race (removes bike models, restores camera/FOV/input, screen).
     closeSwoopRace();
 
-    // Return to the originating module. Prefer the vanilla race-return waypoint
-    // (e.g. Taris heartbeat returns to tar_m03af at tar03_wpmechanic) so the
-    // leader lands on the authored return spot and naturally occupies the
-    // post-race trigger; fall back to the saved pre-race position otherwise.
+    // Return to the originating module using its race-end waypoint when known.
+    // Otherwise restore the saved pre-race position.
     const auto returnWaypoint = swoopReturnWaypoint(raceModule);
     if (!returnWaypoint.empty()) {
         debug(str(boost::format("swoop: return waypoint=%s") % returnWaypoint));
@@ -4437,10 +6937,8 @@ void Game::finishSwoopLifecycle(bool success) {
 }
 
 std::string Game::swoopReturnWaypoint(const std::string &raceModule) const {
-    // Vanilla race-end transition target (StartNewModule waypoint), confirmed
-    // from assets. K1 Taris: heartbeat.ncs returns to tar_m03af at the
-    // tar03_wpmechanic waypoint, which sits inside the tar03_postrace trigger.
-    // Other planets are not yet wired (empty = use the saved pre-race position).
+    // Return Taris races to the mechanic waypoint inside the post-race trigger.
+    // Other planets use the saved pre-race position until their return routes are wired.
     if (boost::iequals(raceModule, "tar_m03mg")) {
         return "tar03_wpmechanic";
     }
@@ -4448,29 +6946,17 @@ std::string Game::swoopReturnWaypoint(const std::string &raceModule) const {
 }
 
 void Game::applyTarisForcedWinningTime() {
-    // Read the current heat's time-to-beat. k_ptar_racefirst sets these to
-    // MIN_BEAT=0 / SEC_BEAT=38 / MSEC_BEAT=43 for heat 1 (total=3843 in the
-    // vanilla comparison unit: MIN*10000 + SEC*100 + MSEC, confirmed by
-    // disassembly of k_ptar_postswoop.ncs subroutine at 0x0524).
-    //
-    // We must win (playerTotal < beatTotal) AND keep playerTotal > 25 so that
-    // the win-handler's beat update (k_ptar_postswoop 0x0572,
-    // new_beat = playerTime - 25cs) stays strictly positive. Setting
-    // player=0:00.00 underflows to MIN_BEAT=-1 (total=-4025), making every
-    // subsequent heat unwinnable.
+    // Read the current heat's time-to-beat in MIN*10000 + SEC*100 + MSEC units.
+    // The winning time must remain above 25 because the next target is the player
+    // time minus 25. A zero player time would make the next target negative.
     int beatMin  = getGlobalNumber("TAR_SWOOP_MIN_BEAT");
     int beatSec  = getGlobalNumber("TAR_SWOOP_SEC_BEAT");
     int beatMsec = getGlobalNumber("TAR_SWOOP_MSEC_BEAT");
     int beatTotal = beatMin * 10000 + beatSec * 100 + beatMsec;
 
-    // Choose a player time that wins with comfortable headroom. A 50cs margin
-    // keeps enough distance from the beat target while the next beat
-    // (playerTotal - 25) stays well above zero.
-    //   - Normal case (beatTotal > 150): subtract the full 50cs margin;
-    //     guarantees playerTotal > 100 and next beat stays positive.
-    //   - Low beat (26-150): win by 1cs, floor at 26 so next beat stays > 0.
-    //   - Degenerate beat (<= 25): use the asset-confirmed heat-1 reference
-    //     (3793 = 3843 - 50); this path should not occur in normal Taris flow.
+    // Choose a winning time while keeping the next target positive. Use a 50-unit
+    // margin when there is room, a one-unit margin for low targets, and the first
+    // heat's default winning time for degenerate targets.
     static constexpr int kMargin = 50;
     static constexpr int kMinSafe = 26;                     // next beat = playerTotal - 25 > 0
     static constexpr int kMinSafePlayerTime = 100;          // floor for the comfortable-margin branch
@@ -4502,26 +6988,11 @@ void Game::applyTarisForcedWinningTime() {
 }
 
 void Game::applySwoopForcedSuccessResult(const std::string &raceModule) {
-    // K1 Taris swoop result contract, confirmed from local assets:
-    //   tar_m03mg.are -> player OnHeartbeat = "heartbeat" is the race brain. At
-    //     race start it sets the boolean global TAR_SWOOP_RUN = TRUE
-    //     (SetGlobalBoolean) and records the run time in TAR_SWOOP_MIN / _SEC /
-    //     _MSEC; reone substitutes the race and never runs heartbeat.
-    //   The post-race scene is the "tar03_postrace" trigger, whose ScriptOnEnter
-    //     is k_ptar_postswoop. Disassembly of k_ptar_postswoop.ncs shows it
-    //     begins with: if (!GetGlobalBoolean("TAR_SWOOP_RUN")) return; then
-    //     SetGlobalBoolean("TAR_SWOOP_RUN", FALSE); compares the run time vs the
-    //     TAR_SWOOP_*_BEAT targets; SetGlobalNumber("Tar_SwoopStatus", 2) when
-    //     the player time is lower (won) else 1; increments Tar_SwoopRaceCounter;
-    //     and starts the announcer/Brejik scene (ActionStartConversation, using
-    //     the entering PC).
-    // So forced success must reproduce heartbeat's race-state outputs: set
-    // TAR_SWOOP_RUN = TRUE so postswoop passes its guard, then choose a player
-    // time strictly less than TAR_SWOOP_*_BEAT so postswoop computes a win.
-    // Win state (Tar_SwoopStatus) and the scene are produced by the vanilla
-    // trigger->postswoop chain (see Area::updateLeaderTriggerOccupancy and the
-    // return-waypoint placement). No result/winner globals are set here.
-    // Other planets are not yet wired.
+    // Set the race-state globals consumed by the post-race trigger. The trigger
+    // checks TAR_SWOOP_RUN, compares the recorded time against TAR_SWOOP_*_BEAT,
+    // updates the result and race counter, and starts the post-race conversation.
+    // Leave those result and scene updates to the trigger; only record a winning
+    // time and mark the run complete here. Other planets are not yet wired.
     if (!boost::iequals(raceModule, "tar_m03mg")) {
         return;
     }
@@ -4574,12 +7045,12 @@ void Game::openTurret() {
     // they do not survive the module transitions (mirrors the swoop entry).
     for (auto &member : _party.members()) {
         if (member.creature) {
-            member.creature->clearAllActions(/*force=*/true);
+            member.creature->teardownActions();
         }
     }
 
-    // Vanilla does not add the party to the scene in a minigame module; the
-    // turret actor represents the player. Restored on exit.
+    // The turret actor represents the player while the minigame runs. Restore normal party
+    // visibility on exit.
     setPartyVisible(false);
 
     if (!mg.music.empty()) {
@@ -4713,8 +7184,8 @@ void Game::finishTurretLifecycle(Turret::Outcome outcome) {
 
     closeTurret();
 
-    // Prefer the vanilla return module (the StartNewModule target the turret's
-    // end scripts use); fall back to the module the player came from.
+    // Use the turret end-script destination when known; otherwise return
+    // to the module where the session started.
     std::string returnModule = game::turretReturnModule(turretModule, session.originModule);
     if (returnModule.empty()) {
         // Nothing authored and nothing captured: stay put rather than schedule
@@ -4737,14 +7208,8 @@ void Game::finishTurretLifecycle(Turret::Outcome outcome) {
 }
 
 void Game::applyTurretResult(const std::string &turretModule, Turret::Outcome outcome) {
-    // K1 M12ab result contract, confirmed from local assets: k_pebo_mgload seeds
-    // the globals ebo_num_fighters (Number) and ebo_turret_done (Boolean); each
-    // enemy death script decrements ebo_num_fighters and, on the last kill, sets
-    // ebo_turret_done before returning to ebo_m12aa. reone substitutes the
-    // minigame and never runs those scripts, so reproduce their outputs here.
-    //
-    // Only the last kill writes them in vanilla, so only a victory writes them
-    // here: a defeat or an abandoned session leaves the turret outstanding.
+    // A victory in M12ab clears the remaining-fighters count and marks the turret
+    // sequence complete. Defeat or abandonment leaves the sequence outstanding.
     if (!boost::iequals(turretModule, "m12ab")) {
         return;
     }
@@ -4802,6 +7267,14 @@ void Game::openContainer(const std::shared_ptr<Object> &container) {
     setCursorType(CursorType::Default);
     _container->open(container);
     changeScreen(Screen::Container);
+}
+
+// A container closed from outside its screen leaves everything in it to the
+// controlled creature.
+void Game::closeContainer(const Object &container) {
+    if (_screen == Screen::Container && _container->displays(container)) {
+        _container->closeTakingAll();
+    }
 }
 
 void Game::openPartySelection(const PartySelectionContext &ctx) {
@@ -4891,28 +7364,46 @@ bool Game::reconcilePartySelection(
     }
 
     const auto currentMembers = _party.members();
+    bool leadHandedBack = false;
     for (const auto &member : currentMembers) {
-        if (member.npc != kNpcPlayer &&
+        // The actor standing in for the player character is not a follower,
+        // and a follower whose creature was destroyed is not on the screen to
+        // be deselected: it keeps its place.
+        if (member.creature && member.npc != kNpcPlayer && member.npc != _party.controlledNpc() &&
             (member.npc < 0 ||
              member.npc >= static_cast<int>(requested.size()) ||
              !requested[member.npc])) {
-            // This companion ceases to inhabit the current Area; unlike a
-            // control switch, party removal is a full Area-departure boundary.
-            area->retirePartyMemberAreaRuntime(member.creature);
+            // In TSL the player character takes the lead back before the
+            // first deselected companion leaves.
+            if (isTSL() && !leadHandedBack) {
+                _party.leadWithPlayerCharacter();
+                leadHandedBack = true;
+            }
+            // A deselected companion leaves the party as any removed member
+            // does: its effects are cleared, its record saved and its puppet
+            // dismissed. Its creature stays where it stands.
+            _party.removeMember(member.npc);
         }
     }
 
-    _party.clear();
-    const int controlled = _party.controlledNpc();
-    if (!_party.addMember(
-            controlled == kNpcPlayer ? kNpcPlayer : controlled,
-            _party.player())) {
-        warn("Party selection: could not restore the controlled character");
-        return false;
-    }
-
+    // The party keeps its controlled character, or the place of one no longer
+    // there, and its remaining companions where they stand; a selected
+    // companion not travelling with it joins at the end.
     for (int npc : selectedNpcs) {
+        // A follower whose creature was destroyed cannot join again.
+        if (_party.isMember(npc) || _party.isFollower(npc)) {
+            continue;
+        }
         auto member = _party.getAvailableMember(npc, true);
+        if (member) {
+            _party.spawnIntoPlayerFaction(*member);
+            // A companion newly brought in drops its actions, commandable or not.
+            const bool kept = std::any_of(currentMembers.begin(), currentMembers.end(),
+                                          [npc](const Party::Member &current) { return current.npc == npc; });
+            if (!kept) {
+                member->clearAllActions(true, true);
+            }
+        }
         if (!member || !_party.addMember(npc, member)) {
             warn("Party selection: could not realize NPC: " +
                  std::to_string(npc));
@@ -5039,8 +7530,13 @@ bool Game::playPazaak(
     params.tutorialRequested = tutorialRequested;
     params.opponentId = opponent->id();
     params.opponentName = opponent->name().empty() ? opponent->tag() : opponent->name();
+    // TSL shows a creature opponent's name with its actions hidden, resolved
+    // for the opponent.
+    if (auto creature = std::dynamic_pointer_cast<Creature>(opponent); creature && isTSL()) {
+        params.opponentName = substituteLogTokens(std::move(params.opponentName), *creature);
+    }
 
-    // A native match always plays with the cards the player actually owns, read
+    // A match always plays with the cards the player actually owns, read
     // from PARTYTABLE.res. Only the developer command uses temporary cards.
     if (!_party.hasValidPazaakData()) {
         error("Unable to start Pazaak: PARTYTABLE.res has no valid Pazaak data");
@@ -5055,8 +7551,7 @@ bool Game::playPazaak(
         if (counts[cardId] == 0) {
             continue;
         }
-        auto definition = isTSL() ? k2PazaakCardDefinition(cardId)
-                                  : k1PazaakCardDefinition(cardId);
+        auto definition = getPazaakCardDefinition(cardId, isTSL());
         if (!definition) {
             error("Unable to start Pazaak: invalid player collection card ID");
             return false;
@@ -5093,9 +7588,7 @@ bool Game::playPazaak(
                 error("Unable to start Pazaak: pazaakdecks.2da is missing");
                 return false;
             }
-            params.opponentSideDeck = isTSL()
-                                          ? loadK2PazaakOpponentDeck(*decks, opponentDeck)
-                                          : loadK1PazaakOpponentDeck(*decks, opponentDeck);
+            params.opponentSideDeck = loadPazaakOpponentDeck(*decks, opponentDeck, isTSL());
         } catch (const std::exception &e) {
             error("Unable to read pazaakdecks.2da: " + std::string(e.what()));
             return false;
@@ -5105,7 +7598,7 @@ bool Game::playPazaak(
             return false;
         }
     }
-    return startPazaakFlow(std::move(params), opponent, false);
+    return startPazaakFlow(std::move(params), false);
 }
 
 bool Game::startDevelopmentPazaak(std::string opponentName, int maximumWager) {
@@ -5116,23 +7609,22 @@ bool Game::startDevelopmentPazaak(std::string opponentName, int maximumWager) {
     // The developer route never touches save-owned cards or credits: it uses a
     // temporary, title-appropriate collection and opponent deck only.
     if (isTSL()) {
-        params.collection = PazaakSession::k2DefaultCollection();
-        params.opponentSideDeck = PazaakSession::temporaryK2OpponentSideDeck();
+        params.collection = PazaakSession::makeDebugCollection(true);
+        params.opponentSideDeck = PazaakSession::makeDebugOpponentSideDeck(true);
         // Deterministic showcase deck covering every KotOR II family. The first
         // four entries become the opening hand: a Value Change card, a
         // sign-selectable card, a fixed card and a non-switchable special.
-        params.initialChosenCards = PazaakSession::k2ShowcaseChosenCards();
+        params.initialChosenCards = PazaakSession::specialCardShowcaseSelection();
         _pazaakShowcaseHands = true;
     } else {
-        params.collection = PazaakSession::temporaryK1TestCollection();
-        params.opponentSideDeck = PazaakSession::temporaryK1OpponentSideDeck();
+        params.collection = PazaakSession::makeDebugCollection(false);
+        params.opponentSideDeck = PazaakSession::makeDebugOpponentSideDeck(false);
     }
-    return startPazaakFlow(std::move(params), nullptr, true);
+    return startPazaakFlow(std::move(params), true);
 }
 
 bool Game::startPazaakFlow(
     PazaakSessionParams params,
-    const std::shared_ptr<Object> &continuationCaller,
     bool developmentLaunch) {
 
     if (_pazaakSession) {
@@ -5140,7 +7632,6 @@ bool Game::startPazaakFlow(
     }
 
     _pazaakOriginScreen = _screen;
-    _pazaakContinuationCaller = continuationCaller;
     _pazaakDevelopmentLaunch = developmentLaunch;
     _pazaakSelectionPersisted = false;
     _pazaakSettlementApplied = false;
@@ -5307,21 +7798,25 @@ void Game::finishPazaak(PazaakCompletedResult result) {
     }
 
     std::string continuation(_pazaakSession->continuationScript());
-    uint32_t opponentId = _pazaakSession->opponentId();
-    std::shared_ptr<Object> continuationCaller(
-        _pazaakContinuationCaller.resolve());
     bool developmentLaunch = _pazaakDevelopmentLaunch;
     int wager = _pazaakSession->wager();
-    bool callerValid = continuationCaller &&
-                       continuationCaller->id() == opponentId &&
-                       getObjectById(opponentId) == continuationCaller;
     _lastPazaakResult = result;
 
     if (!developmentLaunch && !_pazaakSettlementApplied) {
-        if (result == PazaakCompletedResult::PlayerWon) {
-            _party.giveGold(wager);
-        } else {
-            _party.takeGold(wager);
+        // A wager is won onto the party's credits or lost from them, down to
+        // none; the change the wager makes, if any, is reported in the status
+        // summary.
+        if (wager > 0) {
+            const int before = _party.gold();
+            const int after = result == PazaakCompletedResult::PlayerWon ? before + wager : std::max(before - wager, 0);
+            if (after != before) {
+                if (after > before) {
+                    _party.giveGold(after - before);
+                } else {
+                    _party.takeGold(before - after);
+                }
+                submitStatusSummary(StatusSummaryCategory::Credits, after - before);
+            }
         }
         _pazaakSettlementApplied = true;
     }
@@ -5344,17 +7839,14 @@ void Game::finishPazaak(PazaakCompletedResult result) {
         }
     }
 
+    // The end script runs without a caller, whatever became of the opponent.
     if (continuation.empty()) {
         return;
     }
-    if (!callerValid) {
-        error("Pazaak continuation skipped because its caller is no longer valid");
-        return;
-    }
     if (_pazaakContinuationOverride) {
-        _pazaakContinuationOverride(continuation, opponentId);
+        _pazaakContinuationOverride(continuation, script::kObjectInvalid);
     } else if (_scriptRunner) {
-        _scriptRunner->run(continuation, opponentId);
+        _scriptRunner->run(continuation, script::kObjectInvalid);
     }
 }
 
@@ -5380,7 +7872,6 @@ void Game::releasePazaakFlow(bool restoreOrigin) {
     _pazaakSetup.reset();
     _pazaakBoard.reset();
     _pazaakGUIsReady = false;
-    _pazaakContinuationCaller.reset();
     _pazaakDevelopmentLaunch = false;
     _pazaakSelectionPersisted = false;
     _pazaakSettlementApplied = false;
@@ -5406,11 +7897,32 @@ void Game::openLevelUp() {
     changeScreen(Screen::CharacterGeneration);
 }
 
-void Game::notifyLevelUpPending(const Creature &creature) {
+static constexpr int kLevelUpAvailableStrRef = 1438;
+static constexpr char kLevelUpDialogFiredGlobal[] = "000_Level_Dlg_Fired";
+static constexpr char kLevelUpDialogScript[] = "k_level_dlg";
+
+void Game::notifyLevelUpAvailable(const Creature &creature, bool newlyAvailable) {
     if (!_party.isMember(creature)) {
         return;
     }
-    _services.audio.mixer.play(_services.game.guiSounds.getOnLevelUpNotify(), AudioType::Sound);
+    // The chime waits for the status summary.
+    if (newlyAvailable) {
+        _statusSummary.submitLevelUpSound();
+    }
+    // Only the controlled creature is told.
+    if (&creature != _party.getLeader().get()) {
+        return;
+    }
+    if (newlyAvailable) {
+        addFeedbackMessage(kLevelUpAvailableStrRef);
+    }
+    // TSL introduces levelling up the first time the player character can,
+    // outside a conversation.
+    if (isTSL() && creature.isPlayerCreated() && !isConversationActive() &&
+        getGlobalNumber(kLevelUpDialogFiredGlobal) == 0) {
+        setGlobalNumber(kLevelUpDialogFiredGlobal, 1);
+        _scriptRunner->run(kLevelUpDialogScript);
+    }
 }
 
 void Game::startCharacterGeneration() {
@@ -5430,7 +7942,7 @@ void Game::startCharacterGeneration() {
 }
 
 void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &resRef,
-                       GlobalFade::DialogTicket admission) {
+                       GlobalFade::DialogTicket admission, const std::shared_ptr<Object> &listener) {
     if (_captureHUDPresentation) {
         return;
     }
@@ -5465,9 +7977,22 @@ void Game::startDialog(const std::shared_ptr<Object> &owner, const std::string &
     setCursorType(CursorType::Default);
     changeScreen(Screen::Conversation);
 
+    // A computer conversation leaves everyone's stealth alone.
+    if (!computerConversation && (!isTSL() || !_keepStealthInDialog)) {
+        if (auto creature = std::dynamic_pointer_cast<Creature>(owner)) {
+            creature->setStealthMode(false);
+        }
+        if (auto leader = _party.getLeader()) {
+            leader->setStealthMode(false);
+        }
+        for (int i = 0; i < _party.getSize(); ++i)
+            if (auto member = _party.getMember(i)) {
+                member->setStealthMode(false);
+            }
+    }
     _conversation = conversation;
     _conversation->setAutoSkip(&_conversationAutoSkip);
-    _conversation->start(dialog, owner, std::move(admission));
+    _conversation->start(dialog, owner, std::move(admission), listener);
 }
 
 void Game::resumeConversation() {
@@ -5475,6 +8000,43 @@ void Game::resumeConversation() {
         return;
     }
     _conversation->resume();
+}
+
+// Conversations are paused and resumed by callers that are still standing.
+static bool canHoldConversation(Party &party, Object &caller) {
+    if (caller.isDead()) {
+        return false;
+    }
+    auto *creature = dyn_cast<Creature>(&caller);
+    return !creature || !party.isMember(*creature) || creature->currentHitPoints() > 0;
+}
+
+void Game::pauseConversationBy(Object &caller) {
+    if (!canHoldConversation(_party, caller)) {
+        return;
+    }
+    pauseConversation();
+    if (auto *creature = dyn_cast<Creature>(&caller)) {
+        creature->setConversationPaused(true);
+    }
+}
+
+void Game::resumeConversationBy(Object &caller) {
+    if (!canHoldConversation(_party, caller)) {
+        return;
+    }
+    resumeConversation();
+    if (auto *creature = dyn_cast<Creature>(&caller)) {
+        creature->setConversationPaused(false);
+        creature->setStealthMode(false);
+    }
+}
+
+void Game::stopConversationParticipation(const Object &object) {
+    if (!_conversation || !isConversationActive()) {
+        return;
+    }
+    _conversation->stopParticipant(object);
 }
 
 void Game::pauseConversation() {
@@ -5505,6 +8067,34 @@ void Game::loadInGameMenus() {
     }
 }
 
+int Game::inventoryMenuCharacter() const {
+    return _screen == Screen::InGameMenu && _inGame ? _inGame->inventoryCharacter() : -1;
+}
+
+void Game::setInventoryMenuCharacter(int npc) {
+    if (_inGame) {
+        _inGame->setInventoryCharacter(npc);
+    }
+}
+
+void Game::finishPostDialogCharacterSwitch() {
+    auto companion = _postDialogCharacterSwitch.resolve();
+    _postDialogCharacterSwitch.reset();
+    if (!companion) {
+        return;
+    }
+    // The lead passes to the next member, one step at a time, until the
+    // companion leads; each step is a leader change of its own.
+    for (int step = 0; step < _party.getSize() && _party.getLeader() != companion; ++step) {
+        _party.switchLeader(false);
+    }
+}
+
+float Game::baseItemCostMultiplier(int baseItem) const {
+    auto found = _baseItemCostMultipliers.find(baseItem);
+    return found != _baseItemCostMultipliers.end() ? found->second : 1.0f;
+}
+
 void Game::changeScreen(Screen screen) {
     auto gui = getScreenGUI();
     if (gui) {
@@ -5513,11 +8103,16 @@ void Game::changeScreen(Screen screen) {
     if (_confirmPopup) {
         _confirmPopup->hide();
     }
+    if (_tutorial) {
+        finishTutorialWindow(false);
+    }
     _screen = screen;
 }
 
 GameGUI *Game::getScreenGUI() const {
     switch (_screen) {
+    case Screen::Death:
+        return _deathMessage.get();
     case Screen::MainMenu:
         return _mainMenu.get();
     case Screen::Loading:
@@ -5557,17 +8152,29 @@ void Game::setBarkBubbleText(std::string text, float duration) {
     _hud->barkBubble().setBarkText(text, duration);
 }
 
+void Game::addFeedbackMessage(int strRef, const std::map<int, std::string> &tokens) {
+    auto text = getFeedbackText(strRef, tokens);
+    // An empty line is not written.
+    if (text.empty()) {
+        return;
+    }
+    _messageLog.add(MessageLog::kFeedbackMessageType, MessageLog::Style::Normal, std::move(text));
+}
+
+void Game::presentCombatMessage(int strref) {
+    if (_hud) {
+        _hud->setCombatMessage(strref);
+    }
+}
+
 void Game::submitStatusSummary(
     StatusSummaryCategory category,
     int amount,
     std::vector<std::string> items) {
 
-    // Suppression and the Status Summary preference belong at this single
-    // submission boundary when those vanilla behaviours are implemented.
+    // A suppressed report leaves no trace; the summary option decides at
+    // presentation.
     _statusSummary.submit(category, amount, std::move(items));
-    if (_hud) {
-        _hud->activateStatusSummaryIndicator(category);
-    }
 }
 
 int Game::getPlotXP(const std::string &plotName) {
@@ -5810,8 +8417,8 @@ void Game::consoleGiveGold(const ConsoleArgs &args) {
 // The free camera is the first-person camera flown off the player: WASD/QZ
 // move it, the mouse aims it. These commands exist so a viewpoint found by
 // hand can be replayed exactly from a commands file - camstatus prints the
-// line to paste - and the same commands drive other builds of the engine,
-// which keeps captures comparable between them.
+// line to paste - and the same commands drive other builds, which keeps
+// captures comparable between them.
 void Game::consoleCamera(const ConsoleArgs &args) {
     consoleCheckUsage(args, 1, 1, "free");
     if (args[1].value() != "free") {
@@ -6012,19 +8619,37 @@ void Game::consoleSkipMovie(const ConsoleArgs &args) {
 
 void Game::consoleShowPopup(const ConsoleArgs &args) {
     consoleCheckUsage(args, 2, 1024, "icon|none message ...");
-    if (!_confirmPopup) {
-        _confirmPopup = tryLoadGUI<ConfirmPopup>();
-    }
-    if (!_confirmPopup) {
-        throw std::runtime_error("Confirmation popup GUI is unavailable");
-    }
-
     std::shared_ptr<Texture> icon;
     std::string_view iconResRef(args[1].value());
     if (!boost::iequals(iconResRef, "none")) {
         icon = _services.resource.textures.get(std::string(iconResRef), TextureUsage::GUI);
     }
-    _confirmPopup->show(joinConsoleArgs(args, 2), std::move(icon));
+    if (!showMessagePopup(joinConsoleArgs(args, 2), std::move(icon))) {
+        throw std::runtime_error("Confirmation popup GUI is unavailable");
+    }
+}
+
+void Game::closeMessagePopup() {
+    if (_confirmPopup && _confirmPopup->isVisible()) {
+        _confirmPopup->close();
+    }
+}
+
+bool Game::showMessagePopup(
+    const std::string &message,
+    std::shared_ptr<Texture> icon,
+    std::function<void()> onConfirm) {
+    if (!_confirmPopup) {
+        _confirmPopup = tryLoadGUI<ConfirmPopup>();
+    }
+    if (!_confirmPopup) {
+        return false;
+    }
+    // The popup takes all input, key and button releases included, so the
+    // steering and mouse-look held when it opens stop now.
+    stopMovement();
+    _confirmPopup->show(message, std::move(icon), std::move(onConfirm));
+    return true;
 }
 
 void Game::consoleSeed(const ConsoleArgs &args) {
@@ -6191,11 +8816,16 @@ void Game::consoleSpawnCreature(const ConsoleArgs &args) {
             [&]() {
                 creature = newObjectAtId<Creature>(
                     *explicitId, false, kSceneMain, *this, _services);
-                creature->loadFromBlueprint(res);
+                if (!creature->loadFromBlueprint(res)) {
+                    throw std::runtime_error("Creature template not found");
+                }
             },
             []() noexcept {});
     } else {
         creature = newCreatureFromBlueprint(res);
+        if (!creature) {
+            throw std::runtime_error("Creature template not found");
+        }
     }
     creature->setPosition(leader->position());
     creature->setFacing(leader->getFacing());
@@ -6227,11 +8857,16 @@ void Game::consoleSpawnCompanion(const ConsoleArgs &args) {
             [&]() {
                 companion = newObjectAtId<Creature>(
                     id.value(), false, kSceneMain, *this, _services);
-                companion->loadFromBlueprint(res);
+                if (!companion->loadFromBlueprint(res)) {
+                    throw std::runtime_error("Creature template not found");
+                }
             },
             []() noexcept {});
     } else {
         companion = newCreatureFromBlueprint(res);
+        if (!companion) {
+            throw std::runtime_error("Creature template not found");
+        }
     }
     companion->setPosition(leader->position());
     companion->setFacing(leader->getFacing());
@@ -6307,7 +8942,7 @@ void Game::consoleSetPosition(const ConsoleArgs &args) {
     area->determineObjectRoom(*creature);
 
     auto leader = party().getLeader();
-    if (&*creature == &*leader) {
+    if (creature == leader) {
         area->onPartyLeaderMoved(/*roomChanged=*/true);
     }
 }
@@ -6384,7 +9019,7 @@ void Game::consoleKillRoom(const ConsoleArgs &args) {
     }
 
     auto leader = party().getLeader();
-    bool killEnemies = &*target == &*leader;
+    bool killEnemies = target == leader;
 
     SmallSet<Creature *, 16> targets;
     for (Object *object : room->tenants()) {
@@ -6394,8 +9029,8 @@ void Game::consoleKillRoom(const ConsoleArgs &args) {
         }
 
         if (killEnemies) {
-            // Kill enemies of the leader
-            if (_services.game.reputes.getIsEnemy(*target, *creature)) {
+            // Kill the creatures hostile to the leader
+            if (_services.game.reputes.getIsEnemy(*creature, *target)) {
                 targets.insert(creature);
             }
         } else {
@@ -6458,7 +9093,7 @@ void Game::consoleStartConversation(const ConsoleArgs &args) {
     _captureHUDPresentation = false;
     auto resRef = args[1];
     if (resRef) {
-        startDialog(leader, std::string(resRef.value()));
+        startDialog(leader, std::string(resRef.value()), {}, _party.player());
         return;
     }
 
@@ -6478,13 +9113,8 @@ void Game::consoleCutsceneAttack(const ConsoleArgs &args) {
         throw std::runtime_error("Target not found");
     }
 
-    int anim = args.get<int>(2).value();
-    AttackResultType result = args.getEnum<AttackResultType>(3).value();
-    int damage = args.get<int>(4).value();
-
-    auto action = newAction<CutsceneAttackAction>(
-        std::move(target), anim, result, damage);
-    actor->addAction(std::move(action));
+    const CutsceneAttack cutscene {args.get<int>(2).value(), args.get<int>(3).value(), args.get<int>(4).value()};
+    _combat.scheduleAttack(*actor, target, FeatType::Invalid, cutscene);
 }
 
 void Game::consoleSetAbility(const ConsoleArgs &args) {
@@ -6586,7 +9216,7 @@ void Game::consoleCastSpellAtObject(const ConsoleArgs &args) {
     auto action = newAction<CastSpellAtObjectAction>(
         spell, std::move(target), std::move(item), cheat);
 
-    leader->addAction(std::move(action));
+    _combat.scheduleCast(*leader, action);
 }
 
 void Game::consoleOpenCloseDoor(const ConsoleArgs &args) {
@@ -6608,13 +9238,17 @@ void Game::consoleOpenCloseDoor(const ConsoleArgs &args) {
     }
 
     if (args[0].value() == "opendoor") {
-        target->open();
         if (triggerer) {
+            target->open(*triggerer);
             target->onOpen(triggerer->id());
+        } else {
+            target->open();
         }
     } else {
         target->close();
-        // There is no Door::onClose yet
+        if (triggerer) {
+            target->onClosed(triggerer->id());
+        }
     }
 }
 

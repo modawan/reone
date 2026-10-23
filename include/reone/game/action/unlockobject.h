@@ -36,9 +36,12 @@ public:
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    /** Clearing the work at the lock gives the pose back to the creature's state. */
+    bool cancel(std::shared_ptr<Action> self, Object &actor) override;
 
 private:
     std::shared_ptr<Object> _target;
+    bool _working {false};
 };
 
 } // namespace game

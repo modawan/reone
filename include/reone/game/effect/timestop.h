@@ -23,14 +23,18 @@ namespace reone {
 
 namespace game {
 
-class TimeStopEffect : public Effect {
+/**
+ * Stops time for everything but the object it is applied to. Applied again
+ * while time stands still, it only renews the target's own Time Stop.
+ */
+class TimeStopEffect : public CopyableEffect<TimeStopEffect> {
 public:
     TimeStopEffect() :
-        Effect(EffectType::TimeStop) {
+        CopyableEffect(EffectType::TimeStop) {
     }
 
-    void applyTo(Object &object) override {
-    }
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
+    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
 };
 
 } // namespace game

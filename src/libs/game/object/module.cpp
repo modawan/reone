@@ -17,16 +17,41 @@
 
 #include "reone/game/object/module.h"
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <sstream>
+#include <utility>
+
+#include <boost/algorithm/string/case_conv.hpp>
+
+#include "reone/audio/di/services.h"
+#include "reone/audio/mixer.h"
 #include "reone/game/action/attackobject.h"
 #include "reone/game/action/opencontainer.h"
 #include "reone/game/action/opendoor.h"
 #include "reone/game/action/startconversation.h"
+#include "reone/game/attack.h"
+#include "reone/game/castspell.h"
+#include "reone/game/combatfeedback.h"
+#include "reone/game/d20/spells.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/sounds.h"
+#include "reone/game/location.h"
+#include "reone/game/object/door.h"
+#include "reone/game/object/encounter.h"
+#include "reone/game/object/item.h"
+#include "reone/game/object/placeable.h"
+#include "reone/game/object/trigger.h"
 #include "reone/game/party.h"
-#include "reone/game/script/savedsituation.h"
+#include "reone/game/projectiles.h"
 #include "reone/game/reputes.h"
 #include "reone/game/script/runner.h"
+#include "reone/game/script/savedsituation.h"
+#include "reone/game/twodautil.h"
+#include "reone/resource/2da.h"
 #include "reone/resource/di/services.h"
 #include "reone/resource/exception/notfound.h"
 #include "reone/resource/provider/gffs.h"
@@ -37,9 +62,6 @@
 
 #include "../action/commonactions.h"
 
-#include <algorithm>
-#include <boost/algorithm/string/case_conv.hpp>
-
 using namespace reone::graphics;
 using namespace reone::resource;
 using namespace reone::scene;
@@ -48,6 +70,118 @@ namespace reone {
 
 namespace game {
 
+namespace detail {
+// Pending events are ordered by world deadline and module-lifetime handle.
+// Removing the head preserves chronological and FIFO order while cancellation
+// uses stable handles. Delivered entries do not remain as tombstones. Delivery
+// stops while the world is held.
+template <class Events, class Clock, class Deliver, class Held>
+void dispatchDueSavedEvents(Events &events, bool &dispatching, Clock now, Deliver deliver, Held held) {
+    // Observe appended events after the current callback returns.
+    // Do not recursively enter the same delivery pump.
+    if (dispatching) {
+        return;
+    }
+    dispatching = true;
+    struct Dispatch {
+        bool &active;
+        ~Dispatch() { active = false; }
+    } dispatch {dispatching};
+    while (!events.empty() && !held()) {
+        const auto next = events.begin();
+        if (next->first.first > now()) {
+            return;
+        }
+        auto node = events.extract(next);
+        auto event = std::move(node.mapped());
+        // Destroy the queue node before invoking any user/game callback.
+        node = {};
+        deliver(event);
+    }
+}
+} // namespace detail
+
+// A harmful spell at a door or placeable excites its caster for the spell row
+// of excitedduration.
+static constexpr int kSpellCasterExcitedState = 2;
+// A broadcast bolt leaves from its source's impact node, which hand 2 names.
+static constexpr int kSafeProjectileHand = 2;
+
+// The delay in milliseconds before a destroyed creature's body fades; blank
+// keeps the body as a corpse.
+static std::optional<int> readFadeDelayOnDeath(const resource::TwoDA &table, int row) {
+    return table.getIntOpt(row, "fadedelayondeath");
+}
+
+// The droid power offered against a mine (TSL). Minor mine types allow
+// Destroy, else Disable, else Stun; average types Destroy, else Disable; the
+// stronger odd types from 17 to 25 Destroy only; any other type none.
+std::shared_ptr<Spell> Module::mineForcePower(const Trigger &trigger, const Creature &leader) const {
+    // The mine types of each kind, as bits by trap type: minor (0, 3, 6, 9
+    // and 14), average (1, 4, 7, 10 and 15), and the stronger odd types.
+    static constexpr uint32_t kMinorMineTypes = 0x4249;
+    static constexpr uint32_t kAverageMineTypes = 0x8492;
+    static constexpr uint32_t kStrongMineTypes = 0x2aa0000;
+    static constexpr int kMineTypeBits = 32;
+    if (!_game.isTSL()) {
+        return nullptr;
+    }
+    const int trapType = trigger.trapBaseType();
+    auto inMask = [trapType](uint32_t mask) { return trapType < kMineTypeBits && ((mask >> trapType) & 1) != 0; };
+    std::vector<SpellType> powers;
+    if (inMask(kMinorMineTypes)) {
+        powers = {SpellType::DroidDestroy, SpellType::DroidDisable, SpellType::DroidStun};
+    } else if (inMask(kAverageMineTypes)) {
+        powers = {SpellType::DroidDestroy, SpellType::DroidDisable};
+    } else if (inMask(kStrongMineTypes)) {
+        powers = {SpellType::DroidDestroy};
+    }
+    for (SpellType power : powers) {
+        if (leader.attributes().hasSpell(power)) {
+            return _services.game.spells.get(power);
+        }
+    }
+    return nullptr;
+}
+
+// Mine kits the leader may set on a locked door or placeable (TSL): trap kits
+// that are not plot items, whose first usable property (one that activates the
+// item, a security spike, a trap or a computer spike) is a mine type that can
+// be set on an object (types 3 to 8, 14 to 16, 19 to 22, 25 and 26).
+static void addMineKitActions(std::vector<ContextAction> &actions, Game &game, const Area &area,
+                              const std::shared_ptr<Creature> &leader) {
+    static constexpr uint32_t kObjectMineTypes = 0x679c1f8;
+    static constexpr int kLastObjectMineType = 26;
+    if (!game.isTSL() || !leader->attributes().hasSkill(SkillType::Demolitions)) {
+        return;
+    }
+    if (area.playerRestrictMode()) {
+        return;
+    }
+    auto inventory = game.party().sharedInventoryReceiver(leader);
+    if (!inventory) {
+        return;
+    }
+    for (const auto &item : inventory->items()) {
+        if (item->plotFlag() || item->itemType() != Item::kTrapKitItemType) {
+            continue;
+        }
+        const auto &properties = item->properties();
+        auto property = std::find_if(properties.begin(), properties.end(), [](const Item::PropertyEntry &entry) {
+            const ItemProperty type = entry.type();
+            return type == ItemProperty::ActivateItem || type == ItemProperty::SecuritySpike ||
+                   type == ItemProperty::Trap || type == ItemProperty::ComputerSpike;
+        });
+        if (property == properties.end()) {
+            continue;
+        }
+        const int mineType = property->subtype;
+        if (mineType <= kLastObjectMineType && ((kObjectMineTypes >> mineType) & 1) != 0) {
+            actions.push_back(ContextAction(SkillType::Demolitions, 0, item));
+        }
+    }
+}
+
 static bool canUseSecurityOnPlaceable(const Placeable &placeable, const Creature &actor) {
     return placeable.hasInventory() &&
            placeable.isLocked() &&
@@ -55,14 +189,14 @@ static bool canUseSecurityOnPlaceable(const Placeable &placeable, const Creature
            actor.attributes().hasSkill(SkillType::Security);
 }
 
-static bool canBashPlaceable(const Placeable &placeable, const Creature &actor, const IReputes &reputes) {
+// Standing toward the placeable plays no part in whether it can be bashed.
+static bool canBashPlaceable(const Placeable &placeable) {
     return placeable.hasInventory() &&
            placeable.isLocked() &&
            placeable.isSelectable() &&
            !placeable.isDead() &&
            !placeable.plotFlag() &&
            !placeable.isNotBlastable() &&
-           reputes.getIsEnemy(actor.faction(), placeable.faction()) &&
            (placeable.hitPoints() > 0 || placeable.currentHitPoints() > 0);
 }
 
@@ -103,18 +237,30 @@ void Module::load(
 
     auto ifoParsed = resource::generated::parseIFO(ifo);
     _isSaveGame = restoreSavedWorld && ifoParsed.Mod_IsSaveGame != 0;
+    _projectilesAwaitingRestore = restoreSavedWorld;
     if (restoreSavedWorld) {
         const auto identityContext =
             SerializedIdentityContext::moduleGraph(_name);
         deserializeRuntimeState(ifo, identityContext);
         deserializeSavedEventQueue(ifo, identityContext);
+        _savedProjectiles.clear();
+        for (const auto &record : ifo.getList("ProjectileState")) {
+            _savedProjectiles.push_back(SavedProjectile::fromGff(*record, identityContext));
+        }
         loadLimboCreatures(ifo);
     } else {
-        _savedEventQueue = SavedEventQueue {};
-        _savedEventLive.clear();
+        _pendingSavedEvents.clear();
+        _savedProjectiles.clear();
     }
     loadInfo(ifoParsed);
     loadArea(ifoParsed, are, git, restoreSavedWorld);
+    // Outside a saved game, each creature placed from the area's instance
+    // list is announced to the area.
+    if (!_isSaveGame) {
+        for (const auto &object : _area->getObjectsByType(ObjectType::Creature)) {
+            _area->signalEntered(static_cast<Creature &>(*object));
+        }
+    }
 
     _area->initCameras(_info.entryPosition, _info.entryFacing);
 
@@ -154,6 +300,15 @@ void Module::loadInfo(const resource::generated::IFO &ifo) {
 
     _info.onModLoad = boost::to_lower_copy(ifo.Mod_OnModLoad);
     _info.onModStart = boost::to_lower_copy(ifo.Mod_OnModStart);
+    _info.onActivateItem = boost::to_lower_copy(ifo.Mod_OnActvtItem);
+    _info.onAcquireItem = boost::to_lower_copy(ifo.Mod_OnAcquirItem);
+    _info.onUnacquireItem = boost::to_lower_copy(ifo.Mod_OnUnAqreItem);
+    _info.onPlayerDeath = boost::to_lower_copy(ifo.Mod_OnPlrDeath);
+    _info.onClientEnter = boost::to_lower_copy(ifo.Mod_OnClientEntr);
+    _onHeartbeat = boost::to_lower_copy(ifo.Mod_OnHeartbeat);
+
+    _info.dawnHour = ifo.Mod_DawnHour;
+    _info.duskHour = ifo.Mod_DuskHour;
 }
 
 void Module::loadArea(
@@ -222,14 +377,48 @@ void Module::loadParty(const std::string &entry, bool preserveSavedPlacement) {
     _area->loadParty(position, facing, preserveSavedPlacement);
     _area->onPartyLeaderMoved(true);
     _area->update3rdPersonCameraFacing();
+    // Placing the party ends its stealth and leaves solo mode.
+    _game.party().setSoloMode(false);
+}
 
-    // Where the party stands is restored from the save; the area's authored
-    // OnEnter still runs. Retail defers that script and hands it the
-    // load-from-save answer captured when the enter event was made, so the
-    // script sees the restore it was created during. Here the script runs
-    // inline, still inside the load, so it reads the same answer from the
-    // live value without anything needing to carry it.
-    _area->runOnEnterScript();
+// The event carries whether a saved game was being loaded when the module
+// finished loading.
+void Module::signalLoaded() {
+    _game.queueScriptEvent(*this, *this,
+                           Event(static_cast<int>(SavedSignalEventType::ModuleLoaded), {static_cast<int32_t>(_game.isLoadingFromSaveGame())}, {}, {}, {}));
+}
+
+// The load script runs once the load is over, so it is never told the module
+// came from a save, and neither is the module's client-enter script that runs
+// next for the player character. The arrival of the creature the player
+// controls is then announced to the area like any other entry, with the
+// load-from-save answer the event carries, unless the load script has sent the
+// party on to another module.
+void Module::receiveLoadedSignal(bool loadFromSaveGame) {
+    struct LoadFromSaveScope {
+        Game &game;
+        bool live;
+        ~LoadFromSaveScope() { game.setLoadingFromSaveGame(live); }
+    } scope {_game, _game.isLoadingFromSaveGame()};
+    _game.setLoadingFromSaveGame(false);
+    runOnLoadScript();
+    if (_game.isModuleTransitionScheduled()) {
+        return;
+    }
+    if (auto player = _game.party().player()) {
+        receiveClientEntered(*player);
+    }
+    _game.setLoadingFromSaveGame(loadFromSaveGame);
+    if (auto leader = _game.party().getLeader()) {
+        _area->signalEntered(*leader);
+    }
+}
+
+void Module::receiveClientEntered(const Creature &player) {
+    _lastEnteredId = player.id();
+    if (!_info.onClientEnter.empty()) {
+        _game.scriptRunner().run(_info.onClientEnter, id());
+    }
 }
 
 void Module::runOnLoadScript() {
@@ -317,6 +506,13 @@ bool Module::handleMouseButtonDown(const input::MouseButtonEvent &event) {
         return false;
     }
     auto objectPtr = _game.getObjectById(object->id());
+    if (!objectPtr) {
+        return false;
+    }
+    // World-click handling publishes the selected target before
+    // interaction. Repeat clicks must rebind it too; hover and programmatic
+    // selection are not substitutes for this player-input producer.
+    _game.setLastTarget(objectPtr->id());
     auto selectedObject = _area->selectedObject();
     if (objectPtr != selectedObject) {
         _area->selectObject(objectPtr);
@@ -327,10 +523,13 @@ bool Module::handleMouseButtonDown(const input::MouseButtonEvent &event) {
     return true;
 }
 
-void Module::onObjectClick(const std::shared_ptr<Object> &object) {
+void Module::onObjectClick(const std::shared_ptr<Object> &object, bool sound) {
+    if (!_game.party().getLeader()) {
+        return;
+    }
     switch (object->type()) {
     case ObjectType::Creature:
-        onCreatureClick(std::static_pointer_cast<Creature>(object));
+        onCreatureClick(std::static_pointer_cast<Creature>(object), sound);
         break;
     case ObjectType::Door:
         onDoorClick(std::static_pointer_cast<Door>(object));
@@ -343,58 +542,89 @@ void Module::onObjectClick(const std::shared_ptr<Object> &object) {
     }
 }
 
+// With no one under control nothing is hostile to the leader.
 bool Module::isHostileToPartyLeader(const Creature &creature) const {
-    if (creature.isDead()) {
+    const auto leader = _game.party().getLeader();
+    if (!leader || creature.isDead()) {
         return false;
     }
-    return _services.game.reputes.getIsEnemy(creature, *_game.party().getLeader());
+    return _services.game.reputes.getIsEnemy(creature, *leader);
 }
 
-void Module::onCreatureClick(const std::shared_ptr<Creature> &creature) {
+void Module::onCreatureClick(const std::shared_ptr<Creature> &creature, bool sound) {
     debug(str(boost::format("Module: click: creature '%s', faction %d") % creature->tag() % static_cast<int>(creature->faction())));
 
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
 
+    // A dead creature is looted through its body bag, never directly.
     if (creature->isDead()) {
-        if (!creature->items().empty()) {
-            partyLeader->clearAllActions();
-            partyLeader->addAction(_game.newAction<OpenContainerAction>(creature));
+        return;
+    }
+    if (isHostileToPartyLeader(*creature)) {
+        // The default action on a hostile creature is the menu attack,
+        // which a restricted area does not offer. A click plays its sound.
+        if (_area && _area->playerRestrictMode()) {
+            return;
         }
-    } else {
-        if (isHostileToPartyLeader(*creature)) {
-            partyLeader->clearAllActions();
-            auto action = _game.newAction<AttackObjectAction>(creature);
-            action->setUserAction(true);
-            partyLeader->addAction(std::move(action));
-        } else if (!creature->conversation().empty()) {
-            partyLeader->clearAllActions();
-            partyLeader->addAction(_game.newAction<StartConversationAction>(creature, ""));
+        if (sound) {
+            if (auto clip = _services.game.guiSounds.getActionAccepted()) {
+                _services.audio.mixer.play(std::move(clip), audio::AudioType::Sound);
+            }
         }
+        if (_game.prepareMenuAttack(*partyLeader, creature)) {
+            _game.sendAttack(*partyLeader, creature);
+        }
+    } else if (!creature->conversation().empty() && !creature->isInCombat()) {
+        // A creature in combat does not answer a click to talk, and nobody
+        // does while clicks are shut off.
+        if (!_game.canClick()) {
+            return;
+        }
+        // The clicked creature drops everything it was doing and, unless it
+        // keeps its facing or cannot be commanded, turns to the leader. The
+        // leader drops everything too and goes to talk.
+        creature->clearAllActions(true);
+        if (!creature->isNotReorienting() && creature->isCommandable()) {
+            creature->face(*partyLeader);
+        }
+        partyLeader->clearAllActions(true);
+        partyLeader->addAction(_game.newAction<StartConversationAction>(creature, ""));
     }
 }
 
+// Opening or using an object is an order a creature that cannot be commanded
+// does not take. A door's default action first clears the leader's orders, as
+// the player's controls clear them.
 void Module::onDoorClick(const std::shared_ptr<Door> &door) {
+    _game.combat().clearAllOrders(*_game.party().getLeader());
+    if (!_game.party().getLeader()->isCommandable()) {
+        return;
+    }
     if (!door->linkedToModule().empty() && door->getOnOpen().empty()) {
         std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
         if (door->isLocked()) {
             tryUnlockDoorWithKey(_game, *door, *partyLeader, _game.party());
         }
         if (door->isLocked()) {
-            door->onFailToOpen(*partyLeader);
+            signalFailToOpen(*door, *partyLeader);
             return;
         }
+        door->setLastEnteredId(partyLeader->id());
         _game.scheduleModuleTransition(door->linkedToModule(), door->linkedTo());
         return;
     }
     if (!door->isOpen()) {
         std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
-        partyLeader->clearAllActions();
         partyLeader->addAction(_game.newAction<OpenDoorAction>(door));
+        _game.delayNextEnemyAutoPause();
     }
 }
 
 void Module::onPlaceableClick(const std::shared_ptr<Placeable> &placeable) {
     std::shared_ptr<Creature> partyLeader(_game.party().getLeader());
+    if (!partyLeader->isCommandable() || !_game.canClick()) {
+        return;
+    }
 
     if (placeable->hasInventory()) {
         partyLeader->clearAllActions();
@@ -405,285 +635,811 @@ void Module::onPlaceableClick(const std::shared_ptr<Placeable> &placeable) {
         partyLeader->clearAllActions();
         partyLeader->addAction(_game.newAction<StartConversationAction>(placeable, ""));
     } else {
-        placeable->runOnUsed(std::move(partyLeader));
+        partyLeader->clearAllActions();
+        partyLeader->addAction(_game.newAction<OpenContainerAction>(placeable));
     }
 }
 
+static constexpr uint32_t kBodyBagDelayMilliseconds = 500;
+static constexpr int kDefaultBodyBagAppearance = 3;
+
+// A dead creature or a destroyed placeable leaves its items in a body bag,
+// added to the area half a second later. A creature whose bag row is a
+// corpse leaves one even with nothing to hold.
+uint32_t Module::spawnBodyBag(Object &source) {
+    auto *creature = dyn_cast<Creature>(&source);
+    if (creature) {
+        creature->stripHandWeapons();
+    }
+    auto area = source.spatialArea();
+    if (!area) {
+        return script::kObjectInvalid;
+    }
+    // A placeable with nothing to hold leaves no bag.
+    if (!creature && source.items().empty()) {
+        return script::kObjectInvalid;
+    }
+    const auto bodyBags = getRequiredTwoDA(_services.resource.twoDas, "bodybag");
+    std::optional<int> appearance;
+    std::optional<int> nameStrRef;
+    bool corpse = false;
+    if (creature) {
+        // A bag row of 0 takes the appearance's row.
+        const auto appearances = getRequiredTwoDA(_services.resource.twoDas, "appearance");
+        const int appearanceRow = appearances->getIntOpt(creature->appearance(), "body_bag").value_or(0);
+        const int row = creature->bodyBagRow() != 0 ? creature->bodyBagRow() : appearanceRow;
+        corpse = bodyBags->getIntOpt(row, "corpse").value_or(0) != 0;
+        if (!corpse && creature->dropableItems().empty() && creature->gold() == 0) {
+            return script::kObjectInvalid;
+        }
+        appearance = bodyBags->getIntOpt(creature->bodyBagRow(), "appearance");
+        if (!appearance) {
+            appearance = bodyBags->getIntOpt(appearanceRow, "appearance");
+        }
+        nameStrRef = bodyBags->getIntOpt(creature->bodyBagRow(), "name");
+    } else {
+        const auto &placeable = cast<Placeable>(source);
+        appearance = bodyBags->getIntOpt(placeable.bodyBagRow(), "appearance");
+        nameStrRef = bodyBags->getIntOpt(placeable.bodyBagRow(), "name");
+    }
+    std::vector<std::shared_ptr<Object>> noObsolete;
+    std::shared_ptr<Placeable> bag;
+    _game.replaceRuntimeObjectGraph(
+        noObsolete,
+        [&]() {
+            bag = _game.newPlaceable();
+            bag->loadBodyBag(appearance.value_or(kDefaultBodyBagAppearance));
+        },
+        []() noexcept {});
+    bag->fillBodyBag(source, corpse, nameStrRef);
+
+    SavedEventRecord event;
+    const uint64_t when = _game.worldTimeMilliseconds() + kBodyBagDelayMilliseconds;
+    event.day = static_cast<uint32_t>(when / _game.millisecondsPerWorldDay());
+    event.time = static_cast<uint32_t>(when % _game.millisecondsPerWorldDay());
+    event.object = SavedObjectReference::fromRuntimeId(area->get().id());
+    event.caller = SavedObjectReference::fromRuntimeId(source.id());
+    event.eventId = static_cast<uint32_t>(SavedEventType::SpawnBodyBag);
+    event.payload = SavedBodyBag {SavedObjectReference::fromRuntimeId(bag->id()), source.position()};
+    enqueueSaveEvent(std::move(event));
+    return bag->id();
+}
+
 size_t Module::pendingSavedEventCount() const {
-    return static_cast<size_t>(std::count(
-        _savedEventLive.begin(), _savedEventLive.end(), true));
+    return _pendingSavedEvents.size();
 }
 
 void Module::deserializeSavedEventQueue(
     const resource::Gff &ifo,
     const SerializedIdentityContext &identityContext) {
-    _savedEventQueue = SavedEventQueue::fromGff(ifo, identityContext);
-    _savedEventLive.clear();
-    _savedEventReferencesBound.clear();
-    _savedEventLive.reserve(_savedEventQueue.events.size());
-    for (const auto &event : _savedEventQueue.events) {
-        _savedEventLive.push_back(event.shouldRestore());
-    }
+    auto queue = SavedEventQueue::fromGff(ifo, identityContext);
+    _pendingSavedEvents.clear();
     _publishedSavedEvents.clear();
     _savedEventsPublished = false;
+    // Every event but a discarded one is kept. One that cannot be delivered
+    // stays pending, is never published, and is saved again as it was loaded.
+    for (auto &event : queue.events) {
+        const auto index = _nextSavedEventIndex++;
+        if (event.shouldRestore()) {
+            _pendingSavedEvents.emplace(index, PendingSavedEvent {std::move(event), false});
+        }
+    }
+}
+
+// Binds every reference of a queued event. Only the target decides whether
+// the event can be delivered; nothing else is looked up.
+static bool bindForDelivery(SavedEventRecord &event, const Game &game) {
+    event.bindObjectReferences(game);
+    return event.object.isInvalid() || event.object.boundObject() != nullptr;
 }
 
 std::vector<SavedEventRecord> Module::saveEventSnapshot() const {
-    // Stable-frame semantic snapshot; byte encoding is deliberately later E3.
     std::vector<SavedEventRecord> result;
-    for (size_t index = 0; index < _savedEventQueue.events.size(); ++index) {
-        if (index < _savedEventLive.size() && _savedEventLive[index]) {
-            result.push_back(_savedEventQueue.events[index]);
+    result.reserve(_pendingSavedEvents.size());
+    for (const auto &[index, pending] : _pendingSavedEvents) {
+        result.push_back(pending.record);
+        if (!pending.command) {
+            continue;
         }
+        // A delayed command is saved as a timed event:
+        // the script situation of its DoCommand continuation.
+        auto savedAction = pending.command->saveFacingState();
+        const auto *situation =
+            savedAction && savedAction->type() == SavedActionType::DoCommand && savedAction->parameters.size() == 1
+                ? std::get_if<SerializedScriptSituation>(&savedAction->parameters.front().payload)
+                : nullptr;
+        if (!situation) {
+            std::ostringstream message;
+            message << "live delayed action has no serializable timed-event representation"
+                    << ": ownerId=" << pending.record.object.id
+                    << " eventIndex=" << index
+                    << " actionType=" << static_cast<int>(pending.command->type());
+            throw ValidationException(message.str());
+        }
+        result.back().payload = *situation;
     }
     return result;
 }
 
-size_t Module::enqueueSaveEvent(SavedEventRecord event) {
-    // New events bind through the current B registry before becoming visible to
-    // a save snapshot; raw IDs never gain cross-session authority.
-    const bool referencesBound = event.bindObjectReferences(_game);
-    _savedEventQueue.events.push_back(std::move(event));
-    _savedEventLive.push_back(true);
-    _savedEventReferencesBound.push_back(referencesBound);
-    return _savedEventQueue.events.size() - 1;
+size_t Module::enqueueSaveEvent(SavedEventRecord event, std::shared_ptr<Action> command, bool keepsCallerFade) {
+    // Bind before snapshot/publication, while this registry owns the domain.
+    const bool targetBound = bindForDelivery(event, _game);
+    return enqueueBoundSaveEvent(std::move(event), targetBound, std::move(command), keepsCallerFade);
 }
 
 size_t Module::enqueueBoundSaveEvent(
-    SavedEventRecord event, bool referencesBound) {
-    // Ordinary travel captures Party timers while the source registry still
-    // owns their reference domain. The record already carries C4 exact-
-    // incarnation handles; looking its numeric carriers up again after the
-    // destination publishes could alias an unrelated object.
-    _savedEventQueue.events.push_back(std::move(event));
-    _savedEventLive.push_back(true);
-    _savedEventReferencesBound.push_back(referencesBound);
-    return _savedEventQueue.events.size() - 1;
+    SavedEventRecord event, bool targetBound, std::shared_ptr<Action> command, bool keepsCallerFade) {
+    // The caller has bound the target already.
+    const auto index = _nextSavedEventIndex++;
+    PendingSavedEvent pending {std::move(event), targetBound};
+    pending.command = std::move(command);
+    pending.keepsCallerFade = keepsCallerFade;
+    _pendingSavedEvents.emplace(index, std::move(pending));
+    if (_savedEventsPublished) {
+        publishSavedEvent(index);
+    }
+    return index;
 }
 
 bool Module::cancelSaveEvent(size_t index) {
-    if (index >= _savedEventLive.size() || !_savedEventLive[index]) {
+    const auto pending = _pendingSavedEvents.find(index);
+    if (pending == _pendingSavedEvents.end()) {
         return false;
     }
-    _savedEventLive[index] = false;
-    for (auto &published : _publishedSavedEvents) {
-        if (published.savedIndex == index) {
-            published.delivered = true;
-        }
+    if (const auto due = pending->second.publishedDueMilliseconds) {
+        _publishedSavedEvents.erase(SavedEventDeadline {*due, index});
     }
+    _pendingSavedEvents.erase(pending);
     return true;
 }
 
 void Module::bindSavedEventQueue() {
-    _savedEventReferencesBound.clear();
-    _savedEventReferencesBound.reserve(_savedEventQueue.events.size());
-    for (auto &event : _savedEventQueue.events) {
-        _savedEventReferencesBound.push_back(
-            !event.shouldRestore() || event.bindObjectReferences(_game));
+    for (auto &[index, pending] : _pendingSavedEvents) {
+        pending.targetBound = !pending.record.shouldRestore() ||
+                              bindForDelivery(pending.record, _game);
     }
 }
 
+void Module::restoreProjectilePresentations() {
+    if (!_projectilesAwaitingRestore) {
+        return;
+    }
+    _projectilesAwaitingRestore = false;
+    _services.game.projectiles.restorePresentations(std::move(_savedProjectiles), _game, _services);
+    _savedProjectiles.clear();
+}
 void Module::publishSavedEventQueue() {
     if (_savedEventsPublished) {
         return;
     }
-    SavedScriptSituationImporter importer(
-        _game, _services.resource.scripts);
     _publishedSavedEvents.clear();
-
-    for (size_t index = 0; index < _savedEventQueue.events.size(); ++index) {
-        const auto &savedEvent = _savedEventQueue.events[index];
-        if (!savedEvent.shouldRestore() ||
-            index >= _savedEventReferencesBound.size() ||
-            !_savedEventReferencesBound[index] ||
-            savedEvent.executionSupport() != SavedExecutionSupport::Executable) {
-            continue;
-        }
-
-        PublishedSavedEvent event;
-        event.savedIndex = index;
-        // Both fields are Dwords and a day is at most 255 * 60 * 1000 * 24 ms,
-        // so the composition cannot overflow the 64-bit clock.
-        event.dueMilliseconds =
-            static_cast<uint64_t>(savedEvent.day) *
-                _game.millisecondsPerWorldDay() +
-            savedEvent.time;
-        if (savedEvent.eventId == static_cast<uint32_t>(SavedEventType::Timed)) {
-            auto situation = std::get_if<SerializedScriptSituation>(
-                &savedEvent.payload);
-            if (!situation) {
-                continue;
-            }
-            auto imported = importer.import(*situation);
-            if (!imported) {
-                warn("Module: preserving unsupported timed event: " + imported.message);
-                continue;
-            }
-            event.continuation = std::move(imported.continuation);
-        }
-        _publishedSavedEvents.push_back(std::move(event));
+    for (const auto &[index, pending] : _pendingSavedEvents) {
+        publishSavedEvent(index);
     }
     _savedEventsPublished = true;
 }
 
-void Module::dispatchDueSavedEvents() {
-    for (auto &published : _publishedSavedEvents) {
-        if (published.delivered) {
-            continue;
+void Module::publishSavedEvent(size_t index) {
+    auto &pending = _pendingSavedEvents.find(index)->second;
+    const auto &savedEvent = pending.record;
+    if (!savedEvent.shouldRestore() || !pending.targetBound) {
+        return;
+    }
+    if (!pending.command && savedEvent.executionSupport() != SavedExecutionSupport::Executable) {
+        return;
+    }
+    PublishedSavedEvent event;
+    event.savedIndex = index;
+    event.dueMilliseconds = static_cast<uint64_t>(savedEvent.day) * _game.millisecondsPerWorldDay() + savedEvent.time;
+    event.command = pending.command;
+    event.keepsCallerFade = pending.keepsCallerFade;
+    if (!pending.command && savedEvent.eventId == static_cast<uint32_t>(SavedEventType::Timed)) {
+        auto situation = std::get_if<SerializedScriptSituation>(&savedEvent.payload);
+        if (!situation) {
+            return;
         }
-        if (published.dueMilliseconds <= _game.worldTimeMilliseconds()) {
-            deliverSavedEvent(published);
+        SavedScriptSituationImporter importer(_game, _services.resource.scripts);
+        auto imported = importer.import(*situation);
+        // A situation that cannot be resumed leaves its event pending and
+        // unpublished, to be saved again as it was loaded.
+        if (!imported) {
+            warn("Module: keeping a timed event that cannot be resumed: " + imported.message);
+            return;
+        }
+        event.continuation = std::move(imported.continuation);
+    }
+    const SavedEventDeadline deadline {event.dueMilliseconds, index};
+    _publishedSavedEvents.emplace(deadline, std::move(event));
+    pending.publishedDueMilliseconds = deadline.first;
+}
+
+void Module::dispatchDueSavedEvents() {
+    publishSavedEventQueue();
+    detail::dispatchDueSavedEvents(_publishedSavedEvents, _dispatchingSavedEvents, [&]() { return _game.worldTimeMilliseconds(); }, [&](PublishedSavedEvent &event) { deliverSavedEvent(event); }, [&]() { return static_cast<bool>(_game.movie()); });
+}
+
+void Module::cancelObjectDestruction(const Object &object) {
+    for (auto it = _pendingSavedEvents.begin(); it != _pendingSavedEvents.end();) {
+        const auto index = it->first;
+        const auto &event = it->second.record;
+        // Only the death fade is withdrawn. Its records carry no caller; a
+        // script's DestroyObject cannot be cancelled.
+        const bool matches = event.eventId == static_cast<uint32_t>(SavedEventType::DestroyObject) &&
+                             event.caller.isInvalid() &&
+                             event.object.boundObject().get() == &object;
+        ++it;
+        if (matches) {
+            cancelSaveEvent(index);
+        }
+    }
+}
+
+void Module::dropPendingEvents(const Object &target) {
+    for (auto it = _pendingSavedEvents.begin(); it != _pendingSavedEvents.end();) {
+        const auto index = it->first;
+        const bool matches = it->second.record.object.boundObject().get() == &target;
+        ++it;
+        if (matches) {
+            cancelSaveEvent(index);
         }
     }
 }
 
 void Module::deliverSavedEvent(PublishedSavedEvent &published) {
-    published.delivered = true;
-    if (published.savedIndex < _savedEventLive.size()) {
-        _savedEventLive[published.savedIndex] = false;
-    }
-    const auto &savedEvent = _savedEventQueue.events[published.savedIndex];
+    // Remove the pending node before callbacks. The local value owns its payload
+    // through delivery, including exception unwinding.
+    auto node = _pendingSavedEvents.extract(published.savedIndex);
+    const auto savedEvent = std::move(node.mapped().record);
+    node = {};
     auto target = savedEvent.object.boundObject();
     if (!target) {
         return;
     }
 
     switch (static_cast<SavedEventType>(savedEvent.eventId)) {
+    case SavedEventType::SpellImpact:
+    case SavedEventType::ItemOnHitSpellImpact:
+        deliverSpellImpact(savedEvent, *target);
+        break;
+    case SavedEventType::SignalEvent:
+        deliverSignalEvent(savedEvent, target);
+        break;
+    case SavedEventType::OnMeleeAttacked:
+        deliverAttackedEvent(savedEvent, *target);
+        break;
+    case SavedEventType::BroadcastSafeProjectile:
+        deliverSafeProjectile(savedEvent);
+        break;
+    case SavedEventType::DestroyObject:
+        deliverDestruction(target, published.keepsCallerFade);
+        break;
+    case SavedEventType::OpenObject: {
+        // The caller opens the placeable's inventory.
+        auto placeable = std::dynamic_pointer_cast<Placeable>(target);
+        auto opener = std::dynamic_pointer_cast<Creature>(savedEvent.caller.boundObject());
+        if (placeable && opener) {
+            placeable->openInventory(*opener);
+        }
+        break;
+    }
+    case SavedEventType::SpawnBodyBag:
+        deliverBodyBag(std::get<SavedBodyBag>(savedEvent.payload), cast<Area>(*target));
+        break;
     case SavedEventType::Timed:
-        if (published.continuation) {
+        // The situation runs as the target whatever its state:
+        // dead, stunned or in a combat round, and without its action queue.
+        if (published.command) {
+            published.command->execute(published.command, *target, 0.0f);
+        } else if (published.continuation) {
             _game.scriptRunner().run(
                 *published.continuation, _game, target->id());
         }
         break;
-    case SavedEventType::ApplyEffect: {
-        auto savedEffect = std::get_if<EffectInstance>(&savedEvent.payload);
-        if (!savedEffect) {
-            break;
-        }
-        EffectInstance effect(*savedEffect);
-        if (effect.durationType() == DurationType::Temporary) {
-            auto remaining = _game.remainingEffectDuration(effect);
-            if (!remaining || *remaining <= 0.0f) {
-                break;
-            }
-            effect.remainingDuration = *remaining;
-        }
-        if (effect.hasStableId()) {
-            _game.importEffectId(effect.id);
-        } else {
-            effect.id = _game.allocateEffectId();
-        }
-        target->restoreEffect(std::move(effect));
+    case SavedEventType::ApplyEffect:
+        deliverAppliedEffect(std::get<EffectInstance>(savedEvent.payload), *target);
         break;
-    }
-    case SavedEventType::RemoveEffect: {
-        auto effect = std::get_if<EffectInstance>(&savedEvent.payload);
-        if (effect) {
-            target->removeEffectsById(effect->id);
-        }
+    case SavedEventType::RemoveEffect:
+        target->removeEffectsById(std::get<EffectInstance>(savedEvent.payload).id);
         break;
-    }
+    case SavedEventType::FeedbackMessage:
+        showCombatFeedbackMessage(_game, savedEvent.caller.boundObject(), *target,
+                                  std::get<CombatFeedbackMessage>(savedEvent.payload));
+        break;
     default:
         break;
     }
 }
 
+void Module::deliverSpellImpact(const SavedEventRecord &savedEvent, Object &target) {
+    if (const auto *hit = std::get_if<SavedWeaponImpact>(&savedEvent.payload)) {
+        auto source = hit->source.boundObject();
+        auto applications = hit->applications;
+        for (auto &application : applications) {
+            application.creator = source;
+        }
+        if (!std::dynamic_pointer_cast<Creature>(source)) {
+            return;
+        }
+        applyItemOnHitApplications(std::move(applications), target, _game, _services);
+        return;
+    }
+    const auto *impact = std::get_if<SavedSpellImpact>(&savedEvent.payload);
+    if (!impact) {
+        return;
+    }
+    auto caster = impact->caster.boundObject();
+    if (!caster) {
+        return;
+    }
+    auto spell = *_services.game.spells.get(static_cast<SpellType>(impact->spellId));
+    spell.impactScript = impact->script;
+    auto spellTarget = impact->target.boundObject();
+    // The event updates the spell and its cost; the impact otherwise reads
+    // the caster as it is now: its caster level, metamagic, casting class,
+    // level override and facing.
+    SpellCastContext context = caster->spellCastContext();
+    context.spellId = impact->spellId;
+    context.forcePointCost = impact->finalForceCost;
+    const float targetFacing = scriptFacingFromObject(caster->getFacing());
+    auto position = impact->targetPosition;
+    if (spellTarget && spellTarget->type() < ObjectType::Module &&
+        caster->spatialArea() && caster->sharesSpatialArea(*spellTarget)) {
+        position = spellTarget->position();
+    }
+    const auto item = impact->item.boundObject();
+    // An item's on-hit impact casts at the event's item level, which a spell
+    // impact event does not carry: zero.
+    const std::optional<int> overrideLevel =
+        savedEvent.eventId == static_cast<uint32_t>(SavedEventType::ItemOnHitSpellImpact)
+            ? std::optional<int>(0)
+            : std::nullopt;
+    // A creature's on-hit impact measures its flight again, on the default
+    // path, to where the impact lands.
+    if (overrideLevel && isa<Creature>(caster.get()))
+        caster->setLastSpellProjectileMilliseconds(spellProjectileTimeMilliseconds(
+            spell, caster->position(), position, ProjectilePathType::Default, _game.isTSL()));
+    runSpellImpact(_game, spell, *caster, spellTarget,
+                   std::make_shared<Location>(position, targetFacing), context, item, overrideLevel);
+}
+
+void Module::deliverSignalEvent(const SavedEventRecord &savedEvent, const std::shared_ptr<Object> &target) {
+    using Signal = SavedSignalEventType;
+    const auto &event = std::get<SavedScriptEvent>(savedEvent.payload);
+    const auto type = static_cast<Signal>(event.type);
+    const auto callerId = [&savedEvent]() {
+        const auto caller = savedEvent.caller.boundObject();
+        return caller ? caller->id() : script::kObjectInvalid;
+    };
+    const auto subject = [&event]() { return event.objects.empty() ? nullptr : event.objects[0].boundObject(); };
+    const bool doorOrPlaceable = isa<Door>(target.get()) || isa<Placeable>(target.get());
+    auto placeable = dyn_cast<Placeable>(target);
+    auto encounter = dyn_cast<Encounter>(target);
+    auto areaOfEffect = dyn_cast<AreaOfEffect>(target);
+    if (type == Signal::Damaged) {
+        const auto damager = savedEvent.caller.boundObject();
+        if (auto door = dyn_cast<Door>(target)) {
+            door->receiveDamagedSignal(damager);
+        } else if (placeable) {
+            placeable->receiveDamagedSignal(damager);
+        }
+    } else if (type == Signal::Death) {
+        if (target.get() == this) {
+            receivePlayerDeathEvent(savedEvent.caller);
+        } else if (auto door = dyn_cast<Door>(target)) {
+            door->receiveDeathSignal(callerId());
+        } else if (placeable) {
+            placeable->receiveDeathSignal(callerId());
+        }
+    } else if (placeable && (type == Signal::InventoryOpened || type == Signal::InventoryClosed || type == Signal::Used)) {
+        // An inventory opened or closed runs the matching script with the
+        // one who opened or closed it; a usable placeable that was used
+        // runs its used script.
+        if (type == Signal::InventoryOpened) {
+            placeable->onOpen(callerId());
+        } else if (type == Signal::InventoryClosed) {
+            placeable->onClosed(callerId());
+        } else if (placeable->isUsable()) {
+            placeable->runOnUsed(savedEvent.caller.boundObject());
+        }
+    } else if (type == Signal::Locked && doorOrPlaceable) {
+        // A locked door or placeable runs its script for being locked.
+        if (auto door = dyn_cast<Door>(target)) {
+            door->onLocked();
+        } else {
+            placeable->onLocked();
+        }
+    } else if (type == Signal::FailToOpen && doorOrPlaceable) {
+        // A door or placeable that failed to open for its caller runs its
+        // script for that; the first integer quiets a door's locked line.
+        if (auto door = dyn_cast<Door>(target)) {
+            door->onFailToOpen(callerId(), !event.integers.empty() && event.integers[0] != 0);
+        } else {
+            placeable->onFailToOpen(callerId());
+        }
+    } else if (target.get() == this &&
+               (type == Signal::ItemActivated || type == Signal::ItemAcquired || type == Signal::ItemLost)) {
+        receiveItemEvent(event, savedEvent.caller);
+    } else if (target.get() == this && type == Signal::ModuleLoaded) {
+        receiveLoadedSignal(!event.integers.empty() && event.integers[0] != 0);
+    } else if (encounter && (type == Signal::Heartbeat || type == Signal::Entered || type == Signal::Exited ||
+                             type == Signal::EncounterExhausted)) {
+        if (type == Signal::Heartbeat) {
+            encounter->receiveHeartbeatSignal();
+        } else if (type == Signal::EncounterExhausted) {
+            encounter->receiveExhaustedSignal();
+        } else if (type == Signal::Entered) {
+            encounter->receiveEnteredSignal(subject());
+        } else {
+            encounter->receiveExitedSignal(subject());
+        }
+    } else if (areaOfEffect && (type == Signal::Entered || type == Signal::Exited)) {
+        if (type == Signal::Entered) {
+            areaOfEffect->receiveEnteredSignal(subject());
+        } else {
+            areaOfEffect->receiveExitedSignal(subject());
+        }
+    } else if (auto area = dyn_cast<Area>(target); area && type == Signal::Entered) {
+        area->receiveEnteredSignal(savedEvent.caller.boundObject(), !event.integers.empty() && event.integers[0] != 0);
+    } else if (type == Signal::UserDefined && !event.integers.empty()) {
+        _game.scriptRunner().run(target->getOnUserDefined(), {{script::ArgKind::Caller, script::Variable::ofObject(target->id())},
+                                                              {script::ArgKind::UserDefinedEventNumber, script::Variable::ofInt(event.integers[0])}});
+    } else if (type == Signal::SpellCastAt && event.integers.size() >= 2) {
+        deliverSpellCastAtSignal(event, *target);
+    }
+}
+
+// The spell-cast-at signal carries the spell and whether it is harmful in its
+// integers, and its caster as its first object.
+void Module::deliverSpellCastAtSignal(const SavedScriptEvent &event, Object &target) {
+    auto caster = event.objects.empty() ? nullptr : event.objects[0].boundObject();
+    const uint32_t casterId = caster ? caster->id() : script::kObjectInvalid;
+    const int spell = event.integers[0];
+    const int harmful = event.integers[1];
+    if (auto *creature = dyn_cast<Creature>(&target)) {
+        creature->receiveSpellCastAt(casterId, spell, harmful);
+        return;
+    }
+    // A harmful spell at a door or placeable records its caster as the last
+    // hostile actor and excites the caster's spell row before the
+    // spell-cast-at script runs.
+    const bool doorOrPlaceable = isa<Door>(&target) || isa<Placeable>(&target);
+    if (doorOrPlaceable && harmful != 0) {
+        target.setLastHostileActor(casterId);
+        if (auto casterCreature = caster ? dyn_cast<Creature>(caster) : nullptr) {
+            casterCreature->setExcitedState(kSpellCasterExcitedState);
+            casterCreature->removeCombatInvisibilityEffects();
+        }
+    }
+    _game.scriptRunner().run(target.getOnSpellCastAt(), {{script::ArgKind::Caller, script::Variable::ofObject(target.id())},
+                                                         {script::ArgKind::LastSpellCaster, script::Variable::ofObject(casterId)},
+                                                         {script::ArgKind::LastSpell, script::Variable::ofInt(spell)},
+                                                         {script::ArgKind::LastSpellHarmful, script::Variable::ofInt(harmful)}});
+}
+
+void Module::deliverAttackedEvent(const SavedEventRecord &savedEvent, Object &target) {
+    const auto *attack = std::get_if<SavedCombatAttack>(&savedEvent.payload);
+    auto caller = savedEvent.caller.boundObject();
+    const uint32_t attackerId = caller ? caller->id() : script::kObjectInvalid;
+    std::optional<std::reference_wrapper<const AttackHistory>> history;
+    std::optional<std::reference_wrapper<const AttackEventFields>> fields;
+    if (attack) {
+        history = *attack->history;
+        fields = *attack->fields;
+    }
+    if (auto *creature = dyn_cast<Creature>(&target)) {
+        creature->receiveAttackEvent(history, attackerId, fields);
+    } else if (auto *door = dyn_cast<Door>(&target)) {
+        door->receiveAttackEvent(attackerId, fields);
+    } else if (auto *placeable = dyn_cast<Placeable>(&target)) {
+        placeable->receiveAttackEvent(attackerId, fields);
+    }
+}
+
+// Only a loaded save carries this event. It shows one bolt from the source's
+// impact node to the receiver's current position.
+void Module::deliverSafeProjectile(const SavedEventRecord &savedEvent) {
+    const auto &attack = std::get<SavedCombatAttack>(savedEvent.payload);
+    auto source = std::dynamic_pointer_cast<Creature>(savedEvent.caller.boundObject());
+    auto receiver = std::dynamic_pointer_cast<Creature>(attack.reactionObject.boundObject());
+    auto weapon = std::dynamic_pointer_cast<Item>(attack.ammoItem.boundObject());
+    if (!source || !receiver || !weapon || !_area->isObjectResident(*source) || !_area->isObjectResident(*receiver)) {
+        return;
+    }
+    SafeProjectileShot shot;
+    shot.result = attack.fields->result;
+    shot.endpoint = receiver->position();
+    shot.delayMilliseconds = attack.fields->reactionDelay;
+    shot.hand = kSafeProjectileHand;
+    _services.game.projectiles.launchSafeProjectile(*source, *receiver, *weapon, shot, _game, _services);
+}
+
+void Module::deliverDestruction(const std::shared_ptr<Object> &target, bool keepsCallerFade) {
+    if ((isa<Door>(target) || isa<Placeable>(target)) && !target->isDestroyable()) {
+        return;
+    }
+    if (auto creature = dyn_cast<Creature>(target)) {
+        // A creature that cannot be destroyed, a party member and the
+        // player character stay.
+        auto &party = _game.party();
+        if (!creature->isDestroyable() || party.isMember(*creature) ||
+            party.actualPlayer().get() == creature.get())
+            return;
+        // A dead creature leaves a body bag, whatever fade it takes.
+        if (creature->isDead()) {
+            creature->setSpawnedBodyBag(spawnBodyBag(*creature));
+        }
+        // Any destruction but a script's takes the death fade: the
+        // appearance's fade delay, or a kept corpse when it has none.
+        if (!keepsCallerFade) {
+            const auto table = getRequiredTwoDA(_services.resource.twoDas, "appearance");
+            if (const auto delay = readFadeDelayOnDeath(*table, creature->appearance())) {
+                creature->setFadeOutTime(static_cast<uint32_t>(*delay));
+                creature->setKeepCorpse(false);
+            } else {
+                creature->setKeepCorpse(true);
+            }
+        }
+    }
+    if (auto placeable = dyn_cast<Placeable>(target)) {
+        _game.closeContainer(*placeable);
+        spawnBodyBag(*placeable);
+    }
+    if (auto item = dyn_cast<Item>(target)) {
+        if (auto owner = _game.getObjectById(item->owner())) {
+            if (item->isEquipped()) {
+                if (auto *creature = dyn_cast<Creature>(owner.get())) {
+                    creature->takeEquippedItem(item);
+                }
+            } else {
+                owner->removeItemStack(item);
+            }
+        }
+    }
+    _area->destroyObject(*target);
+}
+
+// The bag appears where its source stood. A corpse bag takes over its
+// creature's body and moves the creatures it lands on out of its way.
+void Module::deliverBodyBag(const SavedBodyBag &spawn, Area &area) {
+    auto bag = std::dynamic_pointer_cast<Placeable>(spawn.object.boundObject());
+    if (!bag) {
+        return;
+    }
+    if (bag->isCorpse()) {
+        if (auto body = area.takeCorpseBagBody(bag->id())) {
+            bag->adoptCorpseModel(std::move(body));
+        }
+    }
+    bag->setPosition(spawn.position);
+    area.add(bag);
+    if (bag->isCorpse()) {
+        area.budgeCreatures(spawn.position, bag->collisionBounds());
+    }
+}
+
+void Module::deliverAppliedEffect(const EffectInstance &savedEffect, Object &target) {
+    EffectInstance effect(savedEffect);
+    // An area keeps no effects: it takes only a visual, played once at the
+    // point floats 0-2 name.
+    if (auto *area = dyn_cast<Area>(&target)) {
+        if (effect.type() == EffectType::Visual) {
+            area->presentVisualAt(static_cast<uint16_t>(effect.integerParameter(0)),
+                                  glm::vec3(effect.floatParameters[0], effect.floatParameters[1], effect.floatParameters[2]));
+        }
+        return;
+    }
+    effect.restoring = false;
+    if (effect.hasStableId()) {
+        _game.importEffectId(effect.id);
+    } else {
+        effect.id = _game.allocateEffectId();
+    }
+    target.applyEffect(std::move(effect));
+}
 
 void Module::update(float dt) {
-    // Process the module object's own action queue so delayed/assigned commands
-    // scheduled by module scripts (e.g. Mod_OnModLoad) execute. Without this the
-    // module is never ticked and its DelayCommand continuations never run.
-    Object::update(dt);
+    // A script that plays a movie waits for it to end, and the world with it:
+    // once a movie starts, the rest of the update waits for the next one
+    // after the movie.
+    auto held = [this]() { return static_cast<bool>(_game.movie()); };
+    // Due events are delivered before the world moves and again once it has
+    // moved. The module's own actions and heartbeat come last.
     dispatchDueSavedEvents();
+    if (held()) {
+        return;
+    }
+    _game.updateTimeStop();
 
     if (_game.cameraType() == CameraType::ThirdPerson) {
         _player->update(dt);
     }
     _area->update(dt);
+    if (held()) {
+        return;
+    }
+    dispatchDueSavedEvents();
+    if (held()) {
+        return;
+    }
+    // Process the module object's own action queue so commands assigned to
+    // the module by its scripts execute. Delayed commands are module events.
+    Object::update(dt);
+    if (held()) {
+        return;
+    }
+    updateStampedHeartbeat(_onHeartbeat);
+}
+
+// Item events (activated, acquired and lost) record their objects for the
+// module's getters, then run the matching module script.
+void Module::receiveItemEvent(const SavedScriptEvent &event, const SavedObjectReference &caller) {
+    auto objectId = [&event](size_t index) {
+        if (index >= event.objects.size()) {
+            return script::kObjectInvalid;
+        }
+        auto object = event.objects[index].boundObject();
+        return object ? object->id() : script::kObjectInvalid;
+    };
+    std::string script;
+    switch (static_cast<SavedSignalEventType>(event.type)) {
+    case SavedSignalEventType::ItemActivated:
+        // The item, its user and its target are the event's first, second and
+        // fourth objects; its floats give the point it was used at.
+        _itemEvents.activated = objectId(0);
+        _itemEvents.activator = objectId(1);
+        _itemEvents.activatedTarget = objectId(3);
+        _itemEvents.activatedPosition = glm::vec3(0.0f);
+        for (size_t i = 0; i < 3 && i < event.floats.size(); ++i) {
+            _itemEvents.activatedPosition[i] = event.floats[i];
+        }
+        script = _info.onActivateItem;
+        break;
+    case SavedSignalEventType::ItemAcquired:
+        _itemEvents.acquired = objectId(0);
+        _itemEvents.acquiredFrom = objectId(1);
+        script = _info.onAcquireItem;
+        break;
+    default: {
+        _itemEvents.lost = objectId(0);
+        auto lostBy = caller.boundObject();
+        _itemEvents.lostBy = lostBy ? lostBy->id() : script::kObjectInvalid;
+        script = _info.onUnacquireItem;
+        break;
+    }
+    }
+    _game.scriptRunner().run(script, {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
+}
+
+// A fallen party member's death event records it for GetLastPlayerDied, then
+// runs the module's player-death script.
+void Module::receivePlayerDeathEvent(const SavedObjectReference &caller) {
+    auto fallen = caller.boundObject();
+    _lastPlayerDied = fallen ? fallen->id() : script::kObjectInvalid;
+    _game.scriptRunner().run(_info.onPlayerDeath, {{script::ArgKind::Caller, script::Variable::ofObject(_id)}});
+}
+
+// A standing of at most this is hostile.
+static constexpr int kHighestHostileReputation = 10;
+
+// The usable items of the party's shared inventory, which the player carries
+// for whoever leads.
+static const ItemAttributes &partyItemAttributes(Game &game, const std::shared_ptr<Creature> &leader) {
+    auto receiver = std::dynamic_pointer_cast<Creature>(game.party().sharedInventoryReceiver(leader));
+    return (receiver ? *receiver : *leader).itemAttributes();
 }
 
 std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Object> &object) const {
     std::vector<ContextAction> actions;
+    // With no one under control there is no one to act.
+    const auto leader = _game.party().getLeader();
+    if (!leader) {
+        return actions;
+    }
 
     switch (object->type()) {
     case ObjectType::Creature: {
-        auto leader = _game.party().getLeader();
         auto creature = std::static_pointer_cast<Creature>(object);
         if (isHostileToPartyLeader(*creature)) {
-            actions.push_back(ContextAction(ActionType::AttackObject));
+            // In a restricted area neither the attack nor the combat feats are
+            // offered.
+            const bool restricted = _area->playerRestrictMode();
+            if (!restricted) {
+                actions.push_back(ContextAction(ActionType::AttackObject));
+            }
             auto weapon = leader->getEquippedItem(InventorySlots::rightWeapon);
+            // Each attack feat chain offers the highest rank the leader holds.
+            auto offerChain = [&](FeatType master, FeatType improved, FeatType basic) {
+                if (restricted) {
+                    return;
+                }
+                for (FeatType feat : {master, improved, basic}) {
+                    if (leader->hasEffectiveFeat(feat)) {
+                        actions.push_back(ContextAction(feat));
+                        return;
+                    }
+                }
+            };
             if (weapon && weapon->isRanged()) {
-                if (leader->hasEffectiveFeat(FeatType::MasterPowerBlast)) {
-                    actions.push_back(ContextAction(FeatType::MasterPowerBlast));
-                } else if (leader->hasEffectiveFeat(FeatType::ImprovedPowerBlast)) {
-                    actions.push_back(ContextAction(FeatType::ImprovedPowerBlast));
-                } else if (leader->hasEffectiveFeat(FeatType::PowerBlast)) {
-                    actions.push_back(ContextAction(FeatType::PowerBlast));
-                }
-                if (leader->hasEffectiveFeat(FeatType::MasterSniperShot)) {
-                    actions.push_back(ContextAction(FeatType::MasterSniperShot));
-                } else if (leader->hasEffectiveFeat(FeatType::ImprovedSniperShot)) {
-                    actions.push_back(ContextAction(FeatType::ImprovedSniperShot));
-                } else if (leader->hasEffectiveFeat(FeatType::SniperShot)) {
-                    actions.push_back(ContextAction(FeatType::SniperShot));
-                }
-                if (leader->hasEffectiveFeat(FeatType::MultiShot)) {
-                    actions.push_back(ContextAction(FeatType::MultiShot));
-                } else if (leader->hasEffectiveFeat(FeatType::ImprovedRapidShot)) {
-                    actions.push_back(ContextAction(FeatType::ImprovedRapidShot));
-                } else if (leader->hasEffectiveFeat(FeatType::RapidShot)) {
-                    actions.push_back(ContextAction(FeatType::RapidShot));
-                }
+                offerChain(FeatType::MasterPowerBlast, FeatType::ImprovedPowerBlast, FeatType::PowerBlast);
+                offerChain(FeatType::MultiShot, FeatType::ImprovedRapidShot, FeatType::RapidShot);
+                offerChain(FeatType::MasterSniperShot, FeatType::ImprovedSniperShot, FeatType::SniperShot);
             } else {
-                if (leader->hasEffectiveFeat(FeatType::MasterPowerAttack)) {
-                    actions.push_back(ContextAction(FeatType::MasterPowerAttack));
-                } else if (leader->hasEffectiveFeat(FeatType::ImprovedPowerAttack)) {
-                    actions.push_back(ContextAction(FeatType::ImprovedPowerAttack));
-                } else if (leader->hasEffectiveFeat(FeatType::PowerAttack)) {
-                    actions.push_back(ContextAction(FeatType::PowerAttack));
-                }
-                if (leader->hasEffectiveFeat(FeatType::MasterCriticalStrike)) {
-                    actions.push_back(ContextAction(FeatType::MasterCriticalStrike));
-                } else if (leader->hasEffectiveFeat(FeatType::ImprovedCriticalStrike)) {
-                    actions.push_back(ContextAction(FeatType::ImprovedCriticalStrike));
-                } else if (leader->hasEffectiveFeat(FeatType::CriticalStrike)) {
-                    actions.push_back(ContextAction(FeatType::CriticalStrike));
-                }
-                if (leader->hasEffectiveFeat(FeatType::WhirlwindAttack)) {
-                    actions.push_back(ContextAction(FeatType::WhirlwindAttack));
-                } else if (leader->hasEffectiveFeat(FeatType::ImprovedFlurry)) {
-                    actions.push_back(ContextAction(FeatType::ImprovedFlurry));
-                } else if (leader->hasEffectiveFeat(FeatType::Flurry)) {
-                    actions.push_back(ContextAction(FeatType::Flurry));
+                offerChain(FeatType::MasterCriticalStrike, FeatType::ImprovedCriticalStrike, FeatType::CriticalStrike);
+                offerChain(FeatType::WhirlwindAttack, FeatType::ImprovedFlurry, FeatType::Flurry);
+                offerChain(FeatType::MasterPowerAttack, FeatType::ImprovedPowerAttack, FeatType::PowerAttack);
+                if (!restricted && _game.isTSL() && leader->hasEffectiveFeat(FeatType::ShieldBreaker)) {
+                    actions.push_back(ContextAction(FeatType::ShieldBreaker));
                 }
             }
 
-            auto &itemAttrs = _game.party().getLeader()->itemAttributes();
-            for (const auto &[item, spell] : itemAttrs.attackingSpells()) {
-                actions.push_back(ContextAction(item, spell));
+            for (auto &power : leader->powerMenuActions(*object, true)) {
+                actions.push_back(std::move(power));
+            }
+
+            // Hostile items come from the party's inventory.
+            for (const auto &[item, spell] : partyItemAttributes(_game, leader).attackingSpells()) {
+                actions.emplace_back(item, spell);
             }
         }
         break;
     }
     case ObjectType::Door: {
         auto door = std::static_pointer_cast<Door>(object);
-        auto leader = _game.party().getLeader();
-        if (canBashDoor(*door, *leader, _services.game.reputes)) {
+        if (canBashDoor(*door)) {
             actions.push_back(ContextAction(ActionType::AttackObject));
         }
         if (door->isLocked() && !door->isKeyRequired() && leader->attributes().hasSkill(SkillType::Security)) {
             actions.push_back(ContextAction(SkillType::Security));
         }
+        if (door->isLocked()) {
+            addMineKitActions(actions, _game, *_area, leader);
+        }
         break;
     }
     case ObjectType::Placeable: {
         auto placeable = cast<Placeable>(object);
-        auto leader = _game.party().getLeader();
-        if (canBashPlaceable(*placeable, *leader, _services.game.reputes)) {
+        if (canBashPlaceable(*placeable)) {
             actions.push_back(ContextAction(ActionType::AttackObject));
         }
         if (canUseSecurityOnPlaceable(*placeable, *leader)) {
             actions.push_back(ContextAction(SkillType::Security));
+        }
+        // A hostile placeable without an inventory that regards the leader as
+        // an enemy takes the hostile power menu and, in TSL, the hostile item
+        // list in place of its own mine kits (which only TSL has).
+        const bool hostileTarget = placeable->isHostileAppearance() && !placeable->hasInventory() &&
+                                   leader->getReputationFrom(placeable->faction()) <= kHighestHostileReputation;
+        if (hostileTarget) {
+            for (auto &power : leader->powerMenuActions(*object, true)) {
+                actions.push_back(std::move(power));
+            }
+            if (_game.isTSL()) {
+                for (const auto &[item, spell] : partyItemAttributes(_game, leader).attackingSpells()) {
+                    actions.emplace_back(item, spell);
+                }
+            }
+        }
+        if (placeable->isLocked() && !hostileTarget) {
+            addMineKitActions(actions, _game, *_area, leader);
+        }
+        break;
+    }
+    case ObjectType::Trigger: {
+        // A mine: disable it when hostile, recover it either way.
+        auto trigger = std::static_pointer_cast<Trigger>(object);
+        if (!trigger->isTrap()) {
+            break;
+        }
+        if (leader->attributes().hasSkill(SkillType::Demolitions)) {
+            if (trigger->isTrapHostileTo(*leader)) {
+                actions.push_back(ContextAction(SkillType::Demolitions));
+            }
+            actions.push_back(ContextAction(SkillType::Demolitions, static_cast<int>(SubSkill::RecoverTrap)));
+        }
+        // TSL: one droid power the leader knows, chosen by the mine's type.
+        if (auto spell = mineForcePower(*trigger, *leader)) {
+            actions.emplace_back(spell);
+            actions.back().availability = leader->powerMenuStatus(*spell, *trigger);
         }
         break;
     }
@@ -696,9 +1452,51 @@ std::vector<ContextAction> Module::getContextActions(const std::shared_ptr<Objec
 
 bool Module::handleKeyDown(const input::KeyEvent &event) {
     switch (event.code) {
-    case input::KeyCode::Space: {
-        bool paused = !_game.isPaused();
-        _game.setPaused(paused);
+    case input::KeyCode::Space:
+    case input::KeyCode::Pause:
+        // Pause keys do not repeat: holding one toggles once.
+        if (!event.repeat) {
+            _game.pressPauseKey();
+        }
+        return true;
+    case input::KeyCode::G:
+        // The stealth key.
+        if (!event.repeat) {
+            _game.requestStealth();
+        }
+        return true;
+    case input::KeyCode::Y:
+        // The clear-one key.
+        if (!event.repeat) {
+            _game.clearOneAction();
+        }
+        return true;
+    case input::KeyCode::F:
+        // The cancel-combat key.
+        if (!event.repeat) {
+            _game.cancelCombat();
+        }
+        return true;
+    case input::KeyCode::R:
+        // The default action key runs the selected target's default action, silently.
+        if (event.repeat) {
+            return true;
+        }
+        if (auto selected = _area->selectedObject()) {
+            onObjectClick(selected, false);
+        }
+        return true;
+    case input::KeyCode::Q:
+    case input::KeyCode::E: {
+        // Target cycling: Q steps counter-clockwise, E clockwise.
+        if (_game.cameraType() != CameraType::ThirdPerson) {
+            return false;
+        }
+        _game.selectNearestObject(event.code == input::KeyCode::Q ? 0 : 1);
+        // In combat mode a new target may pause play, whether or not one was found.
+        if (_game.clientCombatMode()) {
+            _game.requestAutoPause(AutoPauseReason::NewTargetSelected);
+        }
         return true;
     }
     default:

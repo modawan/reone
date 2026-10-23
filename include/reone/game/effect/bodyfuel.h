@@ -23,13 +23,14 @@ namespace reone {
 
 namespace game {
 
-class BodyFuelEffect : public Effect {
+class BodyFuelEffect : public CopyableEffect<BodyFuelEffect> {
 public:
     BodyFuelEffect() :
-        Effect(EffectType::BodyFuel) {
+        CopyableEffect(EffectType::BodyFuel) {
     }
 
-    void applyTo(Object &object) override;
+    EffectApplicationResult onApply(Object &object, EffectInstance &) override;
+    EffectRemovalResult onRemove(Object &object, const EffectInstance &) override;
 };
 
 } // namespace game

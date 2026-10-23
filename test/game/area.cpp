@@ -32,8 +32,20 @@ using namespace testing;
 namespace {
 
 TEST(Area, get_object_by_tag_should_partition_by_is_dead) {
-    TestEngine &engine = testEngine();
+    TestEngine engine;
     engine.init();
+    // Dying reads the effects death keeps and the body's destroy delay.
+    ON_CALL(engine.resourceModule().twoDas(), get("removefxondeath"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"label", "effecttype"})
+                                                                   .row({"EFFECT_DISGUISE", "62"})
+                                                                   .row({"EFFECT_BEAM", "21"})
+                                                                   .build())));
+    ON_CALL(engine.resourceModule().twoDas(), get("appearance"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"destroyobjectdelay"})
+                                                                   .row({""})
+                                                                   .build())));
     StubConsole console;
     Game game(resource::GameID::KotOR, "", engine.options(), engine.services(), console);
     NiceMock<scene::MockSceneGraph> sceneGraph;
@@ -43,6 +55,8 @@ TEST(Area, get_object_by_tag_should_partition_by_is_dead) {
     std::string tag = "foo";
 
     auto area = game.newArea();
+    // The bodies' destruction is queued on the active module.
+    TestGameModule::setActiveModuleArea(game, area);
 
     auto alive0 = game.newCreature();
     alive0->setTag(tag);

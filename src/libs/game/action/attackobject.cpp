@@ -17,14 +17,15 @@
 
 #include "reone/game/action/attackobject.h"
 
+#include <algorithm>
+
 #include "reone/game/animations.h"
 #include "reone/game/attack.h"
 #include "reone/game/combat.h"
 #include "reone/game/di/services.h"
 #include "reone/game/game.h"
 #include "reone/game/object/creature.h"
-#include "reone/game/projectiles.h"
-#include "reone/scene/graphs.h"
+#include "reone/game/party.h"
 #include "reone/system/randomutil.h"
 
 #include "attackanimations.h"
@@ -33,133 +34,85 @@ namespace reone {
 
 namespace game {
 
-// Attack animation variants are numbered from 1 - a0 is not an authored
-// animation. Cinematic attacks consume the whole 1-5 roll, while non-cinematic
-// attacks keep to the a1/a2 subset this selector has always intended to use.
-// Some K2 families author further variants; selecting those is a separate
-// change.
-static constexpr int kNonCinematicVariants = 2;
+namespace {
 
-static int nonCinematicVariant(int variant) {
-    return 1 + std::max(0, variant - 1) % kNonCinematicVariants;
+constexpr int kNonCinematicVariantCount = 2;
+
+int nonCinematicVariant(int variant) {
+    return 1 + std::max(0, variant - 1) % kNonCinematicVariantCount;
 }
 
-std::string getMeleeAttackAnim(CreatureWieldType attackerWield,
-                               CreatureWieldType targetWield,
-                               int variant, bool duel) {
-    // Cinematic attack variants.
+std::string attackAnimation(
+    char prefix,
+    CreatureWieldType wield,
+    int variant) {
+
+    return str(boost::format("%c%da%d") %
+               prefix %
+               static_cast<int>(wield) %
+               variant);
+}
+
+} // namespace
+
+std::string getMeleeAttackAnim(
+    CreatureWieldType attackerWield,
+    CreatureWieldType targetWield,
+    int variant,
+    bool duel) {
+
     if (duel && isMeleeWieldType(targetWield)) {
-        return str(boost::format("c%da%d") % static_cast<int>(attackerWield) % variant);
+        return attackAnimation('c', attackerWield, variant);
     }
 
     variant = nonCinematicVariant(variant);
-
-    if (targetWield != CreatureWieldType::None) {
-        return str(boost::format("m%da%d") % static_cast<int>(attackerWield) % variant);
-    }
-
-    return str(boost::format("g%da%d") % static_cast<int>(attackerWield) % variant);
+    return attackAnimation(
+        targetWield != CreatureWieldType::None ? 'm' : 'g',
+        attackerWield,
+        variant);
 }
 
-std::string getUnarmedAttackAnim(CreatureWieldType attackerWield, CreatureWieldType targetWield, int variant, bool duel) {
-    if (attackerWield == CreatureWieldType::HandToHandComplex) {
-        if (duel && targetWield == attackerWield) {
-            return str(boost::format("c%da%d") % static_cast<int>(attackerWield) % variant);
-        }
+std::string getUnarmedAttackAnim(
+    CreatureWieldType attackerWield,
+    CreatureWieldType targetWield,
+    int variant,
+    bool duel) {
+
+    if (attackerWield == CreatureWieldType::HandToHandComplex &&
+        duel &&
+        targetWield == attackerWield) {
+        return attackAnimation('c', attackerWield, variant);
     }
 
-    // Fallback to a basic unarmed animation.
-    variant = nonCinematicVariant(variant);
-    return str(boost::format("g8a%d") % variant);
+    return attackAnimation(
+        'g',
+        CreatureWieldType::HandToHand,
+        nonCinematicVariant(variant));
 }
 
 std::string getStunBatonAttackAnim(int variant) {
-    variant = nonCinematicVariant(variant);
-    return str(boost::format("g1a%d") % variant);
-}
-
-static std::vector<std::string> attack(
-    const CombatRound &round,
-    Creature &attacker,
-    Object &target,
-    const IAnimations &anims,
-    AttackBuffer &attacks) {
-    attacks.addPhysicalAttacks(attacker, target);
-
-    scene::AnimationProperties animProp =
-        scene::AnimationProperties::fromFlags(scene::AnimationFlags::blend);
-
-    CreatureWieldType targetWield = CreatureWieldType::None;
-    if (auto *targetCreature = dyn_cast<Creature>(&target)) {
-        targetWield = targetCreature->getWieldType();
-    }
-
-    int variant = randomInt(1, 5);
-
-    CreatureWieldType attackerWield = attacker.getWieldType();
-
-    std::string attackAnim;
-    switch (attackerWield) {
-    case CreatureWieldType::None: {
-        assert(0 && "Monster attacks are not supported");
-        break;
-    }
-    case CreatureWieldType::SingleSword:
-    case CreatureWieldType::DoubleBladedSword:
-    case CreatureWieldType::DualSwords: {
-        attackAnim = getMeleeAttackAnim(attackerWield, targetWield, variant, round.duel);
-        break;
-    }
-    case CreatureWieldType::BlasterPistol:
-    case CreatureWieldType::DualPistols:
-    case CreatureWieldType::BlasterRifle:
-    case CreatureWieldType::HeavyWeapon: {
-        attackAnim = getRangedAttackAnim(attacker, /*kind=*/1);
-        break;
-    }
-    case CreatureWieldType::HandToHand:
-    case CreatureWieldType::HandToHandComplex: {
-        attackAnim = getUnarmedAttackAnim(attackerWield, targetWield, variant, round.duel);
-        break;
-    }
-    case CreatureWieldType::StunBaton:
-        attackAnim = getStunBatonAttackAnim(variant);
-        break;
-    }
-
-    attacker.playAnimation(attackAnim, animProp);
-
-    if (round.duel) {
-        auto &opponent = cast<Creature>(target);
-        opponent.face(attacker);
-
-        std::string resultAnim = anims.getAttackResult(attackAnim, targetWield, attacks.result());
-        opponent.playAnimation(resultAnim, animProp);
-    }
-
-    size_t animationCount = isRangedWieldType(attackerWield)
-                                ? 1
-                                : attacks.attackCount();
-    return std::vector<std::string>(animationCount, attackAnim);
-}
-
-/**
- * Add projectiles matching the corresponding attack animation.
- */
-void AttackObjectAction::addProjectiles(const Creature &creature) {
-    ProjectileSpec *spec = _services.game.projectiles.get(
-        ProjectileAttackType::Basic, creature.getWieldType(), creature.appearance());
-
-    if (!spec) {
-        // no projectiles for this attack
-        return;
-    }
-
-    addProjectilesFromSpec(_projectiles, *spec);
+    return attackAnimation(
+        'g',
+        CreatureWieldType::StunBaton,
+        nonCinematicVariant(variant));
 }
 
 void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
+    if (isCompleted() || isCancelled()) {
+        return;
+    }
     Creature &attacker = cast<Creature>(actor);
+    // The attack is taken up as it first runs, and not by a creature that
+    // cannot be commanded. An attack restored from a save is not refused
+    // again: a save need not record whether it was taken up.
+    if (!_continuationDispatched && !originalSavedAction() && Combat::refusesAttack(attacker)) {
+        finish(attacker);
+        return;
+    }
+    _continuationDispatched = true;
+    // A creature carrying out an attack makes no new combat decision.
+    attacker.refreshCombatDecisionTimer();
+    _game.party().setCombatMessage(attacker, _game.party().idleCombatMessage());
     if (!runtimeDependenciesLive()) {
         cancel(self, actor);
         markCancelled();
@@ -167,23 +120,63 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
     }
     auto target = _target.resolve();
     if (!target || target->id() == attacker.id()) {
+        attacker.cancelAllCombatModes();
+        finish(attacker);
+        return;
+    }
+    // An attack not taken from the round is refused on a friend as it would
+    // start, as a round entry is when taken.
+    if (!isScheduledCommand() && !_schedule.started() && !_approach.reached &&
+        Combat::refusesAttackOnFriend(attacker, *target)) {
+        finish(attacker);
+        return;
+    }
+    // A target that is dead, or a party member down at zero vitality, ends
+    // the attack; released discharges keep draining.
+    if (isAttackTargetDown(*target) && !_attacks.hasPendingMelee() && !_attacks.hasPendingDischarges()) {
         finish(attacker);
         return;
     }
     attacker.setAttemptedAttackTarget(target->id());
-
-    if (target->isDead() && !_attacks.hasPendingMelee()) {
+    // A creature outside the party cannot go on attacking one it does not see.
+    if (!attacker.hasDetectedTarget(*target)) {
         finish(attacker);
         return;
     }
 
-    if (!navigateToAttackTarget(attacker, *target, dt, _reachedTarget)) {
+    if (_game.combat().isActionPaused(*self)) {
         return;
     }
 
-    attacker.face(*target);
+    // An attacker may leap at the target instead of closing on it; the attack
+    // is then its Force Jump.
+    switch (approachAttackTarget(attacker, *target, dt, _approach, _game, *self, true)) {
+    case AttackApproachStep::Ended:
+        finish(attacker);
+        return;
+    case AttackApproachStep::Approaching:
+        return;
+    case AttackApproachStep::Reached:
+        break;
+    }
 
+    attacker.setDesiredFacingToward(target->position());
+
+    // Once its round has been ended, a started attack has nothing left to do.
+    if ((_schedule.isMelee() || _schedule.isRanged()) && !_game.combat().ownsRound(attacker)) {
+        finish(attacker);
+        return;
+    }
+
+    // A round held while the attacker owns none keeps the attack from starting,
+    // as does a round the attacker has acted in that has not ended.
+    if (_game.combat().awaitsRoundEnd(attacker, *self)) {
+        return;
+    }
     const CombatRound &round = _game.combat().addAction(self, actor);
+    if (round.suspends(*self)) {
+        return;
+    }
     AttackSchedule::State state = _schedule.update(round, *self, dt);
 
     // Gameplay updates
@@ -193,52 +186,60 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
         attacker.setMovementType(Creature::MovementType::None);
         attacker.setMovementRestricted(true);
 
-        std::vector<std::string> attackAnimations = attack(
-            round,
+        auto swing = beginPhysicalAttack(
             attacker,
             *target,
             _services.game.animations,
-            _attacks);
+            _attacks,
+            _approach.forceJump,
+            true,
+            !_approach.withoutSwing);
+        if (!swing || isCompleted() || isCancelled()) {
+            return;
+        }
+        if (swing->animations.empty()) {
+            // The round still retires normally, without a swing or hit to emit.
+            _schedule.skipAttacks();
+            return;
+        }
         _attacks.resolve(attacker, *target);
+        if (isCompleted() || isCancelled()) {
+            return;
+        }
+        presentPhysicalAttack(attacker, *target, _services.game.animations, _attacks, *swing);
 
-        if (!isRangedWieldType(attacker.getWieldType())) {
+        // Hits and discharges are released from the next update on.
+        if (!swing->ranged) {
             _attacks.prepareMeleeSequence(
                 _services.game.animations,
-                attackAnimations);
-            _schedule.startMelee(
-                _attacks.latestMeleeImpactMilliseconds());
-            _attacks.signalReadyMelee(
-                0,
-                _game,
-                _services,
-                attacker,
-                *target);
+                swing->animations);
+            _schedule.startMelee();
+        } else {
+            _schedule.startRanged();
         }
-
-        addProjectiles(attacker);
         return;
     }
-    case AttackSchedule::WaitDamage: {
-        if (_schedule.isMelee()) {
-            _attacks.signalReadyMelee(
-                _schedule.meleeElapsedMilliseconds(),
-                _game,
-                _services,
-                attacker,
-                *target);
-        }
-        break;
-    }
+    case AttackSchedule::WaitDamage:
     case AttackSchedule::Damage: {
         if (_schedule.isMelee()) {
             _attacks.signalReadyMelee(
-                _schedule.meleeElapsedMilliseconds(),
+                _schedule.elapsedMilliseconds(),
                 _game,
                 _services,
                 attacker,
                 *target);
-        } else {
-            _attacks.signal(_game, _services, attacker, *target);
+        } else if (_schedule.isRanged()) {
+            _attacks.signalReadyRanged(
+                _schedule.elapsedMilliseconds(),
+                _game,
+                _services,
+                attacker,
+                *target);
+        }
+        // The pause end flushes the last hits; a round that ends with them
+        // clears their record before their events are delivered.
+        if (state == AttackSchedule::Damage && !isCompleted() && !isCancelled()) {
+            _game.combat().requestSettle(self);
         }
         break;
     }
@@ -249,25 +250,38 @@ void AttackObjectAction::execute(std::shared_ptr<Action> self, Object &actor, fl
     default:
         break;
     }
+}
 
-    // Projectiles
-    switch (state) {
-    case AttackSchedule::Damage:
-    case AttackSchedule::WaitDamage:
-    case AttackSchedule::WaitFinish: {
-        auto &sceneGraph = _services.scene.graphs.get(kSceneMain);
-        _projectiles.update(dt, attacker, *target, sceneGraph);
-        break;
-    }
-    default:
-        break;
+// An attack restored from a save was recorded as queued when it was given;
+// restoring the queue does not record it again.
+void AttackObjectAction::onQueued(Object &actor) {
+    if (!originalSavedAction()) {
+        if (auto target = _target.resolve()) {
+            cast<Creature>(actor).recordQueuedAttack(*target);
+        }
     }
 }
 
-void AttackObjectAction::cancel(std::shared_ptr<Action> self, Object &actor) {
+void AttackObjectAction::retarget(const std::shared_ptr<Object> &target) {
+    // The old target no longer holds the attack.
+    const uint64_t previous = _target.incarnation();
+    _runtimeDependencies.erase(std::remove_if(_runtimeDependencies.begin(), _runtimeDependencies.end(),
+                                              [&](const auto &ref) { return ref.incarnation() == previous; }),
+                               _runtimeDependencies.end());
+    _target = target;
+    requireRuntimeObject(target);
+}
+
+bool AttackObjectAction::cancel(std::shared_ptr<Action> self, Object &actor) {
     Creature &attacker = cast<Creature>(actor);
-    _attacks.discardPendingMelee();
+    _game.combat().transferEquipment(static_cast<Creature &>(actor));
+    _attacks.discardPending();
+    _attacks.clearHistory();
+    // Clearing an attack forgets both its current and its attempted target.
+    attacker.clearCurrentAttackTarget();
+    attacker.setAttemptedAttackTarget(script::kObjectInvalid);
     finish(attacker);
+    return true;
 }
 
 std::optional<SavedActionRecord> AttackObjectAction::saveFacingState() const {
@@ -276,30 +290,35 @@ std::optional<SavedActionRecord> AttackObjectAction::saveFacingState() const {
         return std::nullopt;
     }
 
-    // K1 and K2 both save the high-level physical-attack command as retail
-    // ActionId 12. Combat-round resolution, navigation, animations and
-    // projectiles live outside this queue record and restart after load.
-    SavedActionRecord result = originalSavedAction().value_or(SavedActionRecord {});
-    result.actionId = 12;
-    result.declaredParameterCount = 10;
-    result.parameters = {
-        {1, int32_t {0}},
-        {3, SavedObjectReference::fromRuntimeId(target->id())},
-        {1, int32_t {1}},
-        {1, int32_t {10009}},
-        {1, int32_t {1500}},
-        {1, int32_t {1}},
-        {1, int32_t {0}},
-        {1, int32_t {0}},
-        {1, int32_t {4}},
-        {1, int32_t {0}},
-    };
+    // The command's parameters order the attack; its progress (pending
+    // resolution and scheduling) goes beside them.
+    SavedActionRecord result;
+    SavedAttackCommand {SavedObjectReference::fromRuntimeId(target->id()), FeatType::Invalid, _attacks.cutscene()}
+        .toAction(result);
+    SavedPhysicalAction progress;
+    _attacks.saveContinuation(progress, _game);
+    _schedule.saveContinuation(*progress.state);
+    progress.state->fields().push_back(resource::Gff::Field::newByte("Reached", _approach.reached));
+    progress.state->fields().push_back(resource::Gff::Field::newWord("ForceJump", static_cast<uint32_t>(_approach.forceJump)));
+    progress.state->fields().push_back(resource::Gff::Field::newByte("NoSwing", _approach.withoutSwing));
+    progress.state->fields().push_back(resource::Gff::Field::newByte("RoundContinues", _roundContinuation));
+    progress.state->fields().push_back(resource::Gff::Field::newByte("ContinueTaken", _continuationDispatched));
+    result.physical = std::move(progress);
     return result;
+}
+
+void AttackObjectAction::restorePhysicalState(const SavedPhysicalAction &state) {
+    _attacks.restoreContinuation(state);
+    _schedule.restoreContinuation(*state.state);
+    _approach.reached = state.state->getBool("Reached");
+    _approach.forceJump = static_cast<FeatType>(state.state->getUint("ForceJump"));
+    _approach.withoutSwing = state.state->getBool("NoSwing");
+    _roundContinuation = state.state->getBool("RoundContinues");
+    _continuationDispatched = state.state->getBool("ContinueTaken");
 }
 
 void AttackObjectAction::finish(Creature &attacker) {
     attacker.setMovementRestricted(false);
-    _projectiles.reset();
     complete();
 }
 

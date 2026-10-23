@@ -26,6 +26,8 @@ namespace reone {
 
 namespace game {
 
+class Creature;
+
 class StartConversationAction : public Action {
 public:
     StartConversationAction(Game &game,
@@ -59,7 +61,8 @@ public:
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
-    void cancel(std::shared_ptr<Action> self, Object &actor) override;
+    bool cancel(std::shared_ptr<Action> self, Object &actor) override;
+    void onQueued(Object &actor) override;
     void admit();
 
     std::optional<SavedActionRecord> saveFacingState() const override;
@@ -83,6 +86,18 @@ private:
     bool _dontClearAllActions;
     bool _admitted {false};
     GlobalFade::DialogTicket _fadeDialog;
+    /** The companion that handed this conversation to the player character. */
+    std::shared_ptr<Creature> _transferredFrom;
+    /** Whether the speaker has set off toward the partner. */
+    bool _approaching {false};
+
+    /** Brings the speaker close enough to its partner; true once it is. */
+    bool approach(Creature &speaker, float dt);
+    /** A companion's conversation goes to the player character instead. */
+    bool handsOffToPlayer(const std::shared_ptr<Object> &actor) const;
+    void handOffToPlayer(std::shared_ptr<Action> self, Object &actor);
+    /** The player character takes its companion's place; false while the screen still fades. */
+    bool takeOverFromCompanion(Object &actor);
 };
 
 } // namespace game

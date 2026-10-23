@@ -17,47 +17,35 @@
 
 #pragma once
 
-#include "../action.h"
 #include "../location.h"
+
+#include "castspell.h"
 
 namespace reone {
 
 namespace game {
 
-class CastSpellAtLocationAction : public Action {
+/** A spell cast or an item use aimed at a location. */
+class CastSpellAtLocationAction : public CastSpellAction {
 public:
-    CastSpellAtLocationAction(Game &game,
-                              ServicesView &services,
-                              SpellType spell,
-                              std::shared_ptr<Location> targetLocation,
-                              int metaMagic,
-                              bool cheat,
-                              ProjectilePathType projectilePathType,
-                              bool instantSpell) :
-        Action(game, services, ActionType::CastSpellAtLocation),
-        _spell(spell),
-        _targetLocation(std::move(targetLocation)),
-        _metaMagic(metaMagic),
-        _cheat(cheat),
-        _projectilePathType(projectilePathType),
-        _instantSpell(instantSpell) {
-    }
+    CastSpellAtLocationAction(
+        Game &game,
+        ServicesView &services,
+        std::shared_ptr<Spell> spell,
+        const std::shared_ptr<Location> &targetLocation,
+        bool cheat,
+        ProjectilePathType projectilePathType,
+        bool instantSpell,
+        std::optional<std::shared_ptr<Item>> item = std::nullopt,
+        std::optional<size_t> itemProperty = std::nullopt,
+        std::optional<int> itemCasterLevel = std::nullopt,
+        std::optional<SpellSelection> selection = std::nullopt,
+        std::optional<FeatType> associatedFeat = std::nullopt,
+        bool fake = false);
 
     static bool classof(Action *from) {
         return from->type() == ActionType::CastSpellAtLocation;
     }
-
-    void execute(std::shared_ptr<Action> self, Object &actor, float dt) override {
-        complete();
-    }
-
-private:
-    SpellType _spell;
-    std::shared_ptr<Location> _targetLocation;
-    int _metaMagic;
-    bool _cheat;
-    ProjectilePathType _projectilePathType;
-    bool _instantSpell;
 };
 
 } // namespace game

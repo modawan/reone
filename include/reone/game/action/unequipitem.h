@@ -28,11 +28,20 @@ class Item;
 
 class UnequipItemAction : public Action {
 public:
-    UnequipItemAction(Game &game, ServicesView &services, std::shared_ptr<Item> item, bool instant) :
+    UnequipItemAction(Game &game, ServicesView &services, std::shared_ptr<Item> item, int32_t instant) :
         Action(game, services, ActionType::UnequipItem),
         _item(std::move(item)),
         _instant(instant) {
         requireRuntimeObject(_item);
+    }
+
+    UnequipItemAction(Game &game, ServicesView &services, std::shared_ptr<Item> item,
+                      int32_t flags, std::shared_ptr<Item> container) :
+        UnequipItemAction(game, services, std::move(item), flags) {
+        if (container) {
+            _containerId = container->id();
+            requireRuntimeObject(container);
+        }
     }
 
     static bool classof(Action *from) {
@@ -40,10 +49,26 @@ public:
     }
 
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
+    std::optional<SavedActionRecord> saveFacingState() const override;
+
+    const std::shared_ptr<Item> &item() const { return _item; }
+    /**
+     * A later unequip of the same item writes its instant flag over the
+     * container. The container then names no item, and the unequip takes
+     * nothing off when it runs. The written value is kept as it is, so a
+     * save carries it unchanged.
+     */
+    void overwriteContainer(int32_t instant);
 
 private:
     std::shared_ptr<Item> _item;
-    bool _instant;
+    /**
+     * The container the item goes into; invalid for the owner's inventory.
+     * Once written over, the value written, which names no item.
+     */
+    uint32_t _containerId {kSavedRuntimeInvalidObjectId};
+    bool _containerOverwritten {false};
+    int32_t _instant;
 };
 
 } // namespace game

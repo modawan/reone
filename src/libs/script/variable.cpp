@@ -16,13 +16,50 @@
  */
 
 #include "reone/script/variable.h"
+
+#include <cstring>
+
 #include "reone/game/location.h"
+#include "reone/script/enginetype.h"
 
 namespace reone {
 
 namespace script {
 
 std::atomic<uint64_t> g_id {0};
+
+// An effect variable holds a value scripts copy and compare by value; a
+// variable that holds anything else is a defect, reported as std::bad_cast.
+static const CopyableEngineType &effectValue(const EngineType &value) {
+    return dynamic_cast<const CopyableEngineType &>(value);
+}
+
+Variable::Variable(const Variable &other) :
+    type(other.type), strValue(other.strValue), vecValue(other.vecValue),
+    engineType(other.engineType), context(other.context), id(other.id) {
+    // Copy the scalar union's representation without reading an inactive member.
+    std::memcpy(&intValue, &other.intValue, sizeof(intValue));
+    if (type == VariableType::Effect && engineType) {
+        engineType = effectValue(*engineType).cloneForScript();
+    }
+}
+
+Variable &Variable::operator=(const Variable &other) {
+    if (this != &other) {
+        Variable copy(other);
+        *this = std::move(copy);
+    }
+    return *this;
+}
+
+bool equalEffectValues(const std::shared_ptr<EngineType> &left,
+                       const std::shared_ptr<EngineType> &right) {
+    if (!left || !right) {
+        return left == right;
+    }
+    // Effects compare by the identity their copies keep.
+    return effectValue(*left).scriptValueId() == effectValue(*right).scriptValueId();
+}
 
 Variable Variable::ofNull() {
     Variable result;
@@ -159,12 +196,6 @@ const char *argKindToString(ArgKind kind) {
         return "UserDefinedEventNumber";
     case ArgKind::ClickingObject:
         return "ClickingObject";
-    case ArgKind::EnteringObject:
-        return "EnteringObject";
-    case ArgKind::ExitingObject:
-        return "ExitingObject";
-    case ArgKind::BlockingDoor:
-        return "BlockingDoor";
     case ArgKind::LastClosedBy:
         return "LastClosedBy";
     case ArgKind::LastOpenedBy:
@@ -262,15 +293,6 @@ Argument Argument::fromString(std::string str) {
     }
     if (kind == "ClickingObject") {
         return {ArgKind::ClickingObject, Variable::ofObject(std::stoul(value))};
-    }
-    if (kind == "EnteringObject") {
-        return {ArgKind::EnteringObject, Variable::ofObject(std::stoul(value))};
-    }
-    if (kind == "ExitingObject") {
-        return {ArgKind::ExitingObject, Variable::ofObject(std::stoul(value))};
-    }
-    if (kind == "BlockingDoor") {
-        return {ArgKind::BlockingDoor, Variable::ofObject(std::stoul(value))};
     }
     if (kind == "LastClosedBy") {
         return {ArgKind::LastClosedBy, Variable::ofObject(std::stoul(value))};
@@ -385,9 +407,6 @@ void Argument::verify() {
     switch (kind) {
     case ArgKind::Caller:
     case ArgKind::ClickingObject:
-    case ArgKind::EnteringObject:
-    case ArgKind::ExitingObject:
-    case ArgKind::BlockingDoor:
     case ArgKind::LastClosedBy:
     case ArgKind::LastOpenedBy:
     case ArgKind::LastDisturbed:

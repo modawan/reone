@@ -23,16 +23,21 @@ namespace reone {
 
 namespace game {
 
-class ConcealmentEffect : public Effect {
+class ConcealmentEffect : public CopyableEffect<ConcealmentEffect> {
 public:
-    ConcealmentEffect(int percentage) :
-        Effect(EffectType::Concealment),
+    /** Concealment applies to all races; a miss chance is a concealment with none. */
+    ConcealmentEffect(int percentage, int racialType = static_cast<int>(RacialType::All)) :
+        CopyableEffect(EffectType::Concealment),
         _percentage(percentage) {
         setSaveFacingInteger(0, percentage);
-        setSaveFacingInteger(1, 0);
+        setSaveFacingInteger(1, racialType);
     }
 
-    void applyTo(Object &object) override {
+    EffectApplicationResult onApply(Object &, EffectInstance &instance) override {
+        const int percentage = instance.integerParameter(0);
+        return percentage >= 1 && percentage <= 100
+                   ? EffectApplicationResult::Retained
+                   : EffectApplicationResult::Rejected;
     }
 
 private:

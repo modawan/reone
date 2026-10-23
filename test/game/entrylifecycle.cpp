@@ -140,6 +140,8 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
 
         game = std::make_unique<Game>(
             GetParam(), "", engine.options(), engine.services(), console);
+        // A failed load lands on the main menu.
+        TestGameModule::installMainMenu(*game);
         routines = std::make_unique<Routines>(
             GetParam(), game.get(), &engine.services());
         routines->init();
@@ -302,7 +304,18 @@ struct EntryLifecycleFixture : TestWithParam<GameID> {
 } // namespace
 
 size_t reone::game::TestGameModule::delayedActionCount(const Object &object) {
-    return object._delayed.size();
+    // Delayed commands are pending module events that run as their owner.
+    auto module = object._game.module();
+    if (!module) {
+        return 0;
+    }
+    size_t count = 0;
+    for (const auto &[index, pending] : module->_pendingSavedEvents) {
+        if (pending.command && pending.record.object.boundObject().get() == &object) {
+            ++count;
+        }
+    }
+    return count;
 }
 
 // Entering a module for the first time runs both authored hooks, and neither
@@ -311,6 +324,9 @@ TEST_P(EntryLifecycleFixture, a_fresh_entry_runs_both_hooks_outside_a_restore) {
     serveModule(/*savedModuleSnapshot=*/false);
 
     game->loadModule("module_b");
+    // The module's load script and the player's area OnEnter are queued
+    // events; both run at the next update.
+    game->module()->update(0.0f);
 
     EXPECT_EQ(1, dispatchCount(kOnLoadScript));
     EXPECT_EQ(1, dispatchCount(kOnEnterScript));
@@ -324,6 +340,9 @@ TEST_P(EntryLifecycleFixture, revisiting_a_module_with_persisted_state_still_run
     serveModule(/*savedModuleSnapshot=*/true);
 
     game->loadModule("module_b");
+    // The module's load script and the player's area OnEnter are queued
+    // events; both run at the next update.
+    game->module()->update(0.0f);
 
     EXPECT_EQ(1, dispatchCount(kOnLoadScript))
         << "a revisit must still run the module's authored entry hook";
@@ -333,18 +352,21 @@ TEST_P(EntryLifecycleFixture, revisiting_a_module_with_persisted_state_still_run
     EXPECT_THAT(observedDuring(kOnEnterScript), Optional(false));
 }
 
-// Restoring from disk runs the same hooks, and both are told what they are
-// being built into.
-TEST_P(EntryLifecycleFixture, a_disk_restore_runs_both_hooks_and_tells_them_so) {
+// Restoring from disk runs the same hooks. Only the area's OnEnter is told the
+// module came from a save; the module's load script runs after that has cleared.
+TEST_P(EntryLifecycleFixture, a_disk_restore_runs_both_hooks_and_tells_only_the_area_entry) {
     serveModule(/*savedModuleSnapshot=*/true);
 
     game->loadModule("module_b", "", /*initialSaveRestore=*/true);
+    // The module's load script and the player's area OnEnter are queued
+    // events; both run at the next update.
+    game->module()->update(0.0f);
 
     EXPECT_EQ(1, dispatchCount(kOnLoadScript));
     EXPECT_EQ(1, dispatchCount(kOnEnterScript));
-    EXPECT_THAT(observedDuring(kOnLoadScript), Optional(true));
+    EXPECT_THAT(observedDuring(kOnLoadScript), Optional(false));
     EXPECT_THAT(observedDuring(kOnEnterScript), Optional(true))
-        << "the area's OnEnter runs inside the load and reads the same answer";
+        << "the queued OnEnter reads the answer captured during the load";
 }
 
 // The answer belongs to the load. Once it is over, nothing still claims to be
@@ -353,6 +375,9 @@ TEST_P(EntryLifecycleFixture, the_restore_answer_does_not_outlive_the_load) {
     serveModule(/*savedModuleSnapshot=*/true);
 
     game->loadModule("module_b", "", /*initialSaveRestore=*/true);
+    // The module's load script and the player's area OnEnter are queued
+    // events; both run at the next update.
+    game->module()->update(0.0f);
 
     ASSERT_THAT(observedDuring(kOnEnterScript), Optional(true));
     EXPECT_FALSE(game->isLoadingFromSaveGame());
@@ -364,6 +389,9 @@ TEST_P(EntryLifecycleFixture, neither_hook_is_dispatched_twice) {
     serveModule(/*savedModuleSnapshot=*/true);
 
     game->loadModule("module_b", "", /*initialSaveRestore=*/true);
+    // The module's load script and the player's area OnEnter are queued
+    // events; both run at the next update.
+    game->module()->update(0.0f);
 
     EXPECT_EQ(1, dispatchCount(kOnLoadScript));
     EXPECT_EQ(1, dispatchCount(kOnEnterScript));
@@ -392,6 +420,9 @@ TEST_P(EntryLifecycleFixture, authored_entry_work_on_a_revisit_takes_effect) {
         }));
 
     game->loadModule("module_b");
+    // The module's load script and the player's area OnEnter are queued
+    // events; both run at the next update.
+    game->module()->update(0.0f);
 
     ASSERT_EQ(1, dispatchCount(kOnLoadScript));
     EXPECT_EQ(1, game->party().getSize())
@@ -416,7 +447,9 @@ TEST_P(EntryLifecycleFixture, a_restored_module_owns_and_executes_its_delayed_on
     ASSERT_TRUE(restored);
     EXPECT_NE(kObjectSelf, restored->id());
     EXPECT_EQ(restored, game->getObjectById(restored->id()));
-    EXPECT_EQ(1u, TestGameModule::delayedActionCount(*restored));
+    // The load script has not run yet: it runs at the next update, together
+    // with the command it delays by no time at all.
+    EXPECT_EQ(0u, TestGameModule::delayedActionCount(*restored));
     EXPECT_EQ(0u, TestGameModule::delayedActionCount(*restored->area()));
     EXPECT_EQ(0u, TestGameModule::delayedActionCount(*player));
     EXPECT_FALSE(restored->getLocalBoolean(kDelayedMutationLocal));
@@ -453,6 +486,9 @@ TEST_P(EntryLifecycleFixture, restored_runtime_state_is_visible_to_onload_and_st
         }));
 
     ASSERT_TRUE(game->loadModule("module_b", "", /*initialSaveRestore=*/true));
+    // The module's load script and the player's area OnEnter are queued
+    // events; both run at the next update.
+    game->module()->update(0.0f);
     EXPECT_TRUE(player->effects().empty());
     EXPECT_TRUE(player->actions().empty());
 }
@@ -479,6 +515,9 @@ TEST_P(EntryLifecycleFixture, restored_runtime_state_is_visible_to_onenter) {
         }));
 
     ASSERT_TRUE(game->loadModule("module_b", "", /*initialSaveRestore=*/true));
+    // The module's load script and the player's area OnEnter are queued
+    // events; both run at the next update.
+    game->module()->update(0.0f);
 }
 
 // Fresh and restored entry scripts use the same caller contract. This guards
@@ -499,7 +538,9 @@ TEST_P(EntryLifecycleFixture, a_fresh_module_owns_and_executes_its_delayed_onloa
     ASSERT_TRUE(fresh);
     EXPECT_NE(kObjectSelf, fresh->id());
     EXPECT_EQ(fresh, game->getObjectById(fresh->id()));
-    EXPECT_EQ(1u, TestGameModule::delayedActionCount(*fresh));
+    // The load script has not run yet: it runs at the next update, together
+    // with the command it delays by no time at all.
+    EXPECT_EQ(0u, TestGameModule::delayedActionCount(*fresh));
     EXPECT_FALSE(fresh->getLocalBoolean(kDelayedMutationLocal));
 
     fresh->update(0.0f);
@@ -515,6 +556,9 @@ TEST_P(EntryLifecycleFixture, ordinary_transition_reconstructs_party_action_queu
     auto outgoing = game->newAction<WaitAction>(5.0f);
     player->addAction(outgoing);
     ASSERT_EQ(1u, player->actions().size());
+    // Leaving a module clears the actions of every party creature that can be
+    // commanded; an uncommandable one carries what it was doing.
+    player->setCommandable(false);
 
     ASSERT_TRUE(game->loadModule("module_b"));
 
@@ -533,6 +577,22 @@ TEST_P(EntryLifecycleFixture, ordinary_transition_reconstructs_party_action_queu
 }
 
 TEST_P(EntryLifecycleFixture, fade_hold_transfers_to_reconstructed_party_conversation) {
+    // The update below would end the game if the party's only member were
+    // down, so it stands with some vitality of its own. A creature update
+    // searches for mines and regenerates.
+    player->setPC(false);
+    player->setMaxHitPoints(10);
+    player->setCurrentHitPoints(10);
+    ON_CALL(engine.resourceModule().twoDas(), get("skills"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"label", "untrained"})
+                                                                   .build())));
+    ON_CALL(engine.resourceModule().twoDas(), get("regeneration"))
+        .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                   .columns({"label", "healthregen", "forceregen"})
+                                                                   .row({"InCombat", "0.0", "0.0"})
+                                                                   .row({"OutOfCombat", "0.0", "1.0"})
+                                                                   .build())));
     serveModule(/*savedModuleSnapshot=*/false);
     ASSERT_TRUE(game->loadModule("module_b"));
     game->globalFade().holdForDialog();
@@ -542,6 +602,9 @@ TEST_P(EntryLifecycleFixture, fade_hold_transfers_to_reconstructed_party_convers
     player->addAction(wait);
     player->addAction(outgoing);
     ASSERT_TRUE(game->globalFade().dialogPending());
+    // Leaving a module clears the actions of every party creature that can be
+    // commanded; an uncommandable one carries what it was doing.
+    player->setCommandable(false);
 
     ASSERT_TRUE(game->loadModule("module_b"));
     ASSERT_EQ(2u, player->actions().size());
@@ -601,6 +664,9 @@ TEST_P(EntryLifecycleFixture, ordinary_transition_keeps_only_exact_live_action_t
 
     auto outgoing = game->newAction<AttackObjectAction>(companion);
     player->addAction(outgoing);
+    // Leaving a module clears the actions of every party creature that can be
+    // commanded; an uncommandable one carries what it was doing.
+    player->setCommandable(false);
 
     ASSERT_TRUE(game->loadModule("module_b"));
 
@@ -624,6 +690,9 @@ TEST_P(EntryLifecycleFixture, ordinary_transition_reconstructs_physical_feat_for
     player->addAction(outgoing);
     game->combat().addAction(outgoing, *player);
     ASSERT_EQ(1u, game->combat().roundCount());
+    // Leaving a module clears the actions of every party creature that can be
+    // commanded; an uncommandable one carries what it was doing.
+    player->setCommandable(false);
 
     ASSERT_TRUE(game->loadModule("module_b"));
 
@@ -637,7 +706,8 @@ TEST_P(EntryLifecycleFixture, ordinary_transition_reconstructs_physical_feat_for
     EXPECT_EQ(restored->result(), AttackResultType::Invalid);
     EXPECT_TRUE(restored->runtimeDependenciesLive());
     EXPECT_TRUE(outgoing->isCancelled());
-    EXPECT_EQ(0u, game->combat().roundCount());
+    // The retained action brings its started round with it.
+    EXPECT_EQ(1u, game->combat().roundCount());
 }
 
 TEST_P(EntryLifecycleFixture, ordinary_transition_drops_outgoing_area_action_target) {
@@ -688,6 +758,9 @@ TEST_P(EntryLifecycleFixture, controlled_companion_uses_same_transition_continui
 
     auto outgoing = game->newAction<WaitAction>(5.0f);
     controlled->addAction(outgoing);
+    // Leaving a module clears the actions of every party creature that can be
+    // commanded; an uncommandable one carries what it was doing.
+    controlled->setCommandable(false);
 
     ASSERT_TRUE(game->loadModule("module_b"));
 
@@ -714,13 +787,13 @@ TEST_P(EntryLifecycleFixture, k2_puppet_uses_same_transition_continuity) {
 
     ASSERT_TRUE(game->loadModule("module_b"));
 
-    ASSERT_EQ(1u, puppet->actions().size());
+    // Leaving the module clears the puppet's actions, and a puppet the party
+    // brings into an area drops its actions again.
+    EXPECT_TRUE(puppet->actions().empty());
     EXPECT_TRUE(outgoing->isCancelled());
-    ASSERT_TRUE(puppet->actions().front()->originalSavedAction());
-    EXPECT_EQ(30u, puppet->actions().front()->originalSavedAction()->actionId);
 }
 
-TEST_P(EntryLifecycleFixture, ordinary_transition_preserves_party_delay_due_time) {
+TEST_P(EntryLifecycleFixture, ordinary_transition_leaves_party_delay_in_the_outgoing_module) {
     serveModule(/*savedModuleSnapshot=*/false);
     ASSERT_TRUE(game->loadModule("module_b"));
     TestGameModule::setSnapshotWorldTime(*game, 3, 1200, 2);
@@ -739,14 +812,12 @@ TEST_P(EntryLifecycleFixture, ordinary_transition_preserves_party_delay_due_time
 
     ASSERT_TRUE(game->loadModule("module_b"));
 
+    // The pending event belongs to the outgoing module's queue; nothing is
+    // moved to the destination, whose only pending event is its own
+    // module-loaded signal.
     EXPECT_EQ(0u, TestGameModule::delayedActionCount(*player));
     ASSERT_TRUE(game->module());
     EXPECT_EQ(1u, game->module()->pendingSavedEventCount());
-
-    game->update(1.0f);
-    EXPECT_EQ(1u, game->module()->pendingSavedEventCount());
-    game->update(1.1f);
-    EXPECT_EQ(0u, game->module()->pendingSavedEventCount());
 }
 
 TEST_P(EntryLifecycleFixture, failed_destination_retires_attached_session_creatures_before_teardown) {
@@ -765,14 +836,18 @@ TEST_P(EntryLifecycleFixture, failed_destination_retires_attached_session_creatu
         ASSERT_TRUE(game->party().addPuppet(0, puppet));
     }
 
+    // The module's load script and the player's area OnEnter are queued
+    // events, so no authored script runs inside the load once the party is
+    // placed. Fail the load after placement at the spawn script of the last
+    // creature placed, which runs once it is in the area.
     auto expectedLeader = game->party().player();
+    (puppet ? puppet : expectedLeader)->setOnSpawn("fail_on_spawn");
     std::shared_ptr<Area> failedArea;
     std::shared_ptr<Trigger> failedTrigger;
-    EXPECT_CALL(engine.resourceModule().scripts(), get(std::string(kOnEnterScript)))
+    EXPECT_CALL(engine.resourceModule().scripts(), get("fail_on_spawn"))
         .WillOnce(Invoke([this, &failedArea, &failedTrigger, expectedLeader, puppet](
-                             const std::string &resRef)
+                             const std::string &)
                              -> std::shared_ptr<ScriptProgram> {
-            dispatched.push_back({resRef, game->isLoadingFromSaveGame()});
             failedArea = game->module()->area();
             TestGameModule::setAreaRuntimePath(
                 *expectedLeader, failedArea->pathfinder());
@@ -784,8 +859,9 @@ TEST_P(EntryLifecycleFixture, failed_destination_retires_attached_session_creatu
                     *puppet, failedArea->pathfinder());
                 failedTrigger->addTenant(puppet);
             }
-            throw std::runtime_error("injected Area OnEnter failure");
-        }));
+            throw std::runtime_error("injected post-placement failure");
+        }))
+        .RetiresOnSaturation();
 
     ASSERT_FALSE(game->loadModule("module_b"));
     ASSERT_TRUE(failedArea);
@@ -825,14 +901,21 @@ TEST_P(EntryLifecycleFixture, failed_destination_retires_attached_session_creatu
 TEST_P(EntryLifecycleFixture, failed_destination_before_party_placement_is_harmless) {
     serveModule(/*savedModuleSnapshot=*/false);
 
+    // The module's load script is a queued event and no longer runs inside
+    // the load. Fail the load where the leader is first landed in the
+    // destination area, before any party member is attached to it: with an
+    // empty instance list that is the load's first elevation test.
     std::shared_ptr<Area> failedArea;
-    EXPECT_CALL(engine.resourceModule().scripts(), get(std::string(kOnLoadScript)))
-        .WillOnce(Invoke([this, &failedArea](const std::string &resRef)
-                             -> std::shared_ptr<ScriptProgram> {
-            dispatched.push_back({resRef, game->isLoadingFromSaveGame()});
+    // The failure goes to whichever scene graph the shared engine serves;
+    // afterwards the graph answers as it did before.
+    auto &graph = static_cast<scene::MockSceneGraph &>(
+        engine.sceneModule().graphs().get(kSceneMain));
+    EXPECT_CALL(graph, testElevation(_, _))
+        .WillOnce(Invoke([this, &failedArea](const glm::vec3 &, scene::Collision &) -> bool {
             failedArea = game->module()->area();
-            throw std::runtime_error("injected Module OnLoad failure");
-        }));
+            throw std::runtime_error("injected pre-placement failure");
+        }))
+        .WillRepeatedly(DoDefault());
 
     ASSERT_FALSE(game->loadModule("module_b"));
     ASSERT_TRUE(failedArea);

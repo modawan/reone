@@ -372,6 +372,7 @@ void DialogGUI::loadCurrentSpeaker() {
         }
     }
     _currentSpeaker = speaker;
+    updateSpeakerPair(speaker);
 
     // Make current speaker face the player, and vice versa
     if (speaker) {
@@ -384,6 +385,61 @@ void DialogGUI::loadCurrentSpeaker() {
             speakerCreature->face(*player);
         }
     }
+}
+
+// The entry's listener: none, the owner, the player, or an object by tag.
+std::shared_ptr<Object> DialogGUI::resolveEntryListener() const {
+    const std::string &listener = _currentEntry->listener;
+    if (listener.empty()) {
+        return nullptr;
+    }
+    if (boost::iequals(listener, kObjectTagOwner)) {
+        return owner();
+    }
+    if (boost::iequals(listener, kObjectTagPlayer)) {
+        return _game.party().player();
+    }
+    return _game.module()->area()->getObjectByTag(boost::to_lower_copy(listener));
+}
+
+// The first entry's listener defaults to whoever started the conversation, or
+// else the player. Later entries without a listener answer the previous speaker when the
+// speaker changed, and otherwise that same partner.
+void DialogGUI::updateSpeakerPair(const std::shared_ptr<Object> &speaker) {
+    std::shared_ptr<Object> partner = _partner.resolve();
+    if (!partner) {
+        partner = _game.party().player();
+    }
+    auto listener = resolveEntryListener();
+    auto previousSpeaker = _pairSpeaker.resolve();
+    _previousPairListener = _pairListener;
+    if (!_pairStarted) {
+        _pairStarted = true;
+        _pairListener = listener ? listener : partner;
+    } else if (!listener) {
+        _pairListener = previousSpeaker != speaker ? previousSpeaker : partner;
+    } else {
+        _pairListener = listener;
+    }
+    _previousPairSpeaker = _pairSpeaker;
+    _pairSpeaker = speaker;
+}
+
+bool DialogGUI::isSpeakerOrListener(const Object &object) const {
+    return _pairSpeaker.resolve().get() == &object || _pairListener.resolve().get() == &object;
+}
+
+void DialogGUI::endSpeakerPair() {
+    for (auto &reference : {_pairSpeaker, _pairListener}) {
+        if (auto creature = std::dynamic_pointer_cast<Creature>(reference.resolve())) {
+            creature->lookAt(nullptr, 0.0f);
+        }
+    }
+    _pairSpeaker.reset();
+    _pairListener.reset();
+    _previousPairSpeaker.reset();
+    _previousPairListener.reset();
+    _pairStarted = false;
 }
 
 void DialogGUI::updateCamera() {
@@ -572,6 +628,9 @@ void DialogGUI::repositionMessage() {
 }
 
 void DialogGUI::onFinish() {
+    // The last speaker and listener stop looking.
+    endSpeakerPair();
+
     if (hasStuntPresentation()) {
         releaseStuntParticipants();
     }

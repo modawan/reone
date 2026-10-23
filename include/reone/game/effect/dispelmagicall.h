@@ -23,18 +23,18 @@ namespace reone {
 
 namespace game {
 
-class DispelMagicAllEffect : public Effect {
+/**
+ * Removes each magical temporary or permanent effect group on the target
+ * whose roll succeeds: d20 plus the caster's level must beat 11 plus the
+ * level of the group's creator. The dispel itself is not retained.
+ */
+class DispelMagicAllEffect : public CopyableEffect<DispelMagicAllEffect> {
 public:
-    DispelMagicAllEffect(int casterLevel) :
-        Effect(EffectType::DispelMagicAll),
-        _casterLevel(casterLevel) {
+    DispelMagicAllEffect() :
+        CopyableEffect(EffectType::DispelMagicAll) {
     }
 
-    void applyTo(Object &object) override {
-    }
-
-private:
-    int _casterLevel;
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
 };
 
 } // namespace game

@@ -245,9 +245,9 @@ public:
             if (live(item))
                 view.equipment[equippedSlot] = item->icon();
         int minimum, maximum;
-        subject->getMainHandDamage(minimum, maximum);
+        subject->getDamageRange(subject->getEquippedItem(InventorySlots::rightWeapon), false, true, minimum, maximum);
         view.mainDamage = str(boost::format("%d-%d") % minimum % maximum);
-        subject->getOffhandDamage(minimum, maximum);
+        subject->getDamageRange(subject->getEquippedOffhandWeapon(), true, true, minimum, maximum);
         view.offDamage = str(boost::format("%d-%d") % minimum % maximum);
         auto attack = [](int bonus) { return (bonus > 0 ? "+" : "") + std::to_string(bonus); };
         view.mainAttack = attack(subject->getAttackBonus());

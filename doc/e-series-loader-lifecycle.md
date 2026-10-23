@@ -2,7 +2,7 @@
 
 **Status:** Canonical current specification  
 **Applies to:** The completed L-series resource loader and the final corrected E-series save/runtime implementation
-**Historical sources:** `Reone_E-Series_Save_Load_Design_Baseline_UPDATED.md` and `reone_l_series_loader_design_v1.0.md` in the project design archive
+**Scope:** Current save/load lifecycle. Superseded development layouts are not supported.
 
 This document is the authoritative current E-series architecture specification. The historical E baseline remains the evidence and roadmap record, but its prospective stage descriptions are superseded by this document where they describe current behavior. The L-series design remains authoritative for Odyssey resource selection, lookup buckets, mount planning, and source ownership; this document summarizes only the L contracts needed to understand E.
 
@@ -134,9 +134,9 @@ Detached records may contain real effects/actions. Their parse context remains d
 
 ### 4.2 World clock and timed state
 
-Reone's canonical runtime clock is absolute simulation milliseconds. Retail saved module state decomposes it into `Mod_PauseDay` and `Mod_PauseTime`; `Mod_MinPerHour` defines the resulting world-day length and does not accelerate elapsed simulation time. Snapshot output writes the retail pair, normalizes `Mod_PauseTime` below one world day, and removes the erroneous historical Reone fields `Mod_CalendarDay` and `Mod_TimeOfDay` from the merged shadow.
+Reone's canonical runtime clock is absolute simulation milliseconds. Retail saved module state decomposes it into `Mod_PauseDay` and `Mod_PauseTime`; `Mod_MinPerHour` defines the resulting world-day length and does not accelerate elapsed simulation time. Snapshot output writes this pair and normalizes `Mod_PauseTime` below one world day.
 
-Reading retains a narrow backward fallback to that historical Reone pair only when neither retail pause field is present. Template-world transition autosaves instead seed the clock from `AUTOSAVEPARAMS.TIME_PAUSEDAY` and `TIME_PAUSETIME`. Saved events, delayed commands, and effect expiry use the reconstructed absolute clock, so their original due schedule survives restoration or supported ordinary-travel continuation.
+Reading uses only `Mod_PauseDay` and `Mod_PauseTime`. Template-world transition autosaves instead seed the clock from `AUTOSAVEPARAMS.TIME_PAUSEDAY` and `TIME_PAUSETIME`. Saved events, delayed commands, and effect expiry use the reconstructed absolute clock, so their original due schedule survives restoration or supported ordinary-travel continuation.
 
 ## 5. Logical Party and roster identity
 
@@ -625,3 +625,28 @@ The following are intentionally separate from E correctness:
 - Actual async execution, replication/network identity, and deeper multiplayer authority remain later architectures.
 
 These are bounded roadmap items, not reasons to enlarge E into a component refactor, immutable content store, or whole-world transaction.
+
+## Current runtime continuation records
+
+The action snapshot uses `CastState`, `PhysicalState`, `RoundState`, and
+`Scheduled`. The module stores presentation in `ProjectileState`; `Kind`
+describes the projectile, not a schema generation. These records have one
+current layout and no development-version selectors or alternate-label readers.
+
+Object spell-query state is stored in `SpellContext`. A released spell event
+can contain `CastContext` with explicitly captured caster level, metamagic and
+facing. Original-game spell payloads have no such record. Loading or
+re-exporting them does not fabricate one. A present but incomplete capture
+remains unsupported rather than being repaired as an uncaptured event.
+
+Original-game impact delivery updates the event-owned spell, target, position
+and cost. It does not infer a previous casting action, level or metamagic byte.
+Current casting-state and query-provider integration remains a separate
+equivalence boundary, especially item-on-hit caster overrides and class/trap
+queries. The field/layout cleanup does not complete those providers.
+
+Current save publication uses `.save-transaction-` markers, `.save-staging-`
+and `.save-backup-` sibling directories, and the `SAVE_TRANSACTION` signature.
+Publication and recovery use the same names, without alternate-name readers.
+The project name, namespace, include paths and platform/library identifiers
+are unchanged.

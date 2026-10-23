@@ -23,14 +23,19 @@ namespace reone {
 
 namespace game {
 
-class KnockdownEffect : public Effect {
+/**
+ * Knocks a creature down: its round stands still and it takes no commands
+ * until the effect ends, its AI stays restricted a second and a half longer,
+ * and it shows the fall. In TSL it also lies in the knocked-down state.
+ */
+class KnockdownEffect : public CopyableEffect<KnockdownEffect> {
 public:
     KnockdownEffect() :
-        Effect(EffectType::Knockdown) {
+        CopyableEffect(EffectType::Knockdown) {
     }
 
-    void applyTo(Object &object) override {
-    }
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
+    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
 };
 
 } // namespace game

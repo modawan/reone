@@ -51,6 +51,13 @@ public:
     void addDamage(const Object &object, int amount, int adjustedAmount, uint32_t damager);
     void addHeal(const Object &object, int amount);
     void addMiss(const Creature &attacker, const Object &target);
+    /**
+     * Shows the experience a kill awarded, over the creature killed.
+     *
+     * @param object the object the text is shown over
+     * @param amount the experience awarded
+     */
+    void addExperience(const Object &object, int amount);
 
     void update(float dt);
     void render();
@@ -61,6 +68,7 @@ private:
         Damage,
         Heal,
         Miss,
+        Experience,
     };
 
     struct Entry {
@@ -80,6 +88,9 @@ private:
     std::string _fontResRef;
 
     void add(const Object &object, std::string text, Style style);
+
+    /** How long text of the style stays up, in seconds. */
+    static float getDuration(Style style);
 };
 
 } // namespace game

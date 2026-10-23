@@ -37,21 +37,29 @@ std::shared_ptr<TwoDA> makeLightsaberBaseItemsTable() {
     TwoDA::Builder builder;
     builder.columns({"maxattackrange", "crithitmult", "critthreat", "damageflags", "dietoroll",
                      "equipableslots", "itemclass", "numdice", "weapontype", "weaponwield",
-                     "ammunitiontype", "bodyvar"});
+                     "ammunitiontype", "bodyvar", "rangedweapon"});
     for (int i = 0; i <= 12; ++i) {
         if (i == 1) {
-            builder.row({"1.5", "2", "2", "2", "4", "48", "w_stunbaton", "1", "1", "1", "-1", ""});
+            builder.row({"1.5", "2", "2", "2", "4", "48", "w_stunbaton", "1", "1", "1", "-1", "", ""});
         } else if (i == 3) {
-            builder.row({"1.5", "2", "2", "2", "6", "48", "w_vbroswrd", "1", "1", "2", "-1", ""});
+            builder.row({"1.5", "2", "2", "2", "6", "48", "w_vbroswrd", "1", "1", "2", "-1", "", ""});
         } else if (i == 8) {
-            builder.row({"1.5", "2", "2", "2", "8", "48", "w_lghtsbr", "1", "1", "2", "-1", ""});
+            builder.row({"1.5", "2", "2", "2", "8", "48", "w_lghtsbr", "1", "1", "2", "-1", "", ""});
         } else if (i == 12) {
-            builder.row({"23", "2", "2", "2", "6", "48", "w_blstrpstl", "1", "4", "4", "-1", ""});
+            builder.row({"23", "2", "2", "2", "6", "48", "w_blstrpstl", "1", "4", "4", "-1", "", "1"});
         } else {
-            builder.row({"", "", "", "", "", "", "", "", "", "", "", ""});
+            builder.row({"", "", "", "", "", "", "", "", "", "", "", "", ""});
         }
     }
     return std::shared_ptr<TwoDA>(builder.build());
+}
+
+std::shared_ptr<TwoDA> makeRacialTypesTable() {
+    return std::shared_ptr<TwoDA>(
+        TwoDA::Builder()
+            .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+            .row({"0", "0", "0", "0", "0", "0"})
+            .build());
 }
 
 std::shared_ptr<Item> makeItem(Game &game, std::string tag, int baseItem, int stackSize) {
@@ -84,8 +92,18 @@ protected:
         EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
             .Times(AnyNumber())
             .WillRepeatedly(Return(makeLightsaberBaseItemsTable()));
+        // The equipment view reads the subject's Strength through the racial
+        // ability adjustments.
+        EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(makeRacialTypesTable()));
+        // The in-game menus run in the active module.
+        TestGameModule::setActiveModuleArea(game, game.newArea());
         owner = game.newCreature();
         subject = game.newCreature();
+        // The subject is a companion: real NPCs come from records carrying
+        // IsPC 0, and no minimum equip level applies to them.
+        subject->setPC(false);
         game.party().setPlayer(owner);
         ASSERT_TRUE(game.party().setRosterAvailable({RosterKind::Npc, 0}, true));
         ASSERT_TRUE(game.party().addMember(0, subject));

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "../action.h"
 #include "../object.h"
 #include "../object/item.h"
@@ -44,6 +46,8 @@ public:
 private:
     std::shared_ptr<Item> _item;
     std::shared_ptr<Object> _giveTo;
+    /** Whether the giver runs to the receiver, fixed when it sets off. */
+    std::optional<bool> _run;
 };
 
 } // namespace game

@@ -23,17 +23,26 @@ namespace reone {
 
 namespace game {
 
-class LinkEffectsEffect : public Effect {
+class LinkEffectsEffect : public CopyableEffect<LinkEffectsEffect> {
 public:
     LinkEffectsEffect(std::shared_ptr<Effect> childEffect, std::shared_ptr<Effect> parentEffect) :
-        Effect(EffectType::LinkEffects),
+        CopyableEffect(EffectType::LinkEffects),
         _childEffect(std::move(childEffect)),
         _parentEffect(std::move(parentEffect)) {
     }
 
-    void applyTo(Object &object) override;
+    LinkEffectsEffect(const LinkEffectsEffect &other) :
+        CopyableEffect(other),
+        _childEffect(other._childEffect ? other._childEffect->cloneEffect() : nullptr),
+        _parentEffect(other._parentEffect ? other._parentEffect->cloneEffect() : nullptr) {
+    }
+
+    void setCategory(EffectCategory category) override;
+    EffectApplicationResult onApply(Object &object, EffectInstance &) override;
     void retireAreaRuntime(
         const std::set<const Object *> &retainedObjects) override;
+    const std::shared_ptr<Effect> &childEffect() const { return _childEffect; }
+    const std::shared_ptr<Effect> &parentEffect() const { return _parentEffect; }
 
 private:
     std::shared_ptr<Effect> _childEffect;

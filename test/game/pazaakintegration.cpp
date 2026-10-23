@@ -42,7 +42,7 @@ void reone::game::TestGameModule::configurePazaak(
     game._pazaakFirstParticipantSelector = [](size_t) { return Participant::One; };
     game._pazaakPaceAutomaticDraws = false;
     game._pazaakContinuationOverride = std::move(continuation);
-    game._pazaakOpponentDeckOverride = PazaakSession::temporaryK1OpponentSideDeck();
+    game._pazaakOpponentDeckOverride = PazaakSession::makeDebugOpponentSideDeck(false);
     // Own two of every card type the running title stores; entries beyond the
     // title's table stay zero so a save round trip is byte-for-byte stable.
     size_t cardCount = game.isTSL() ? Party::kK2PazaakCardCount : Party::kK1PazaakCardCount;
@@ -336,7 +336,7 @@ TEST(PazaakGameLifecycle, TslBuildStartsKotorTwoPazaakFromOwnedCards) {
     game.abortPazaak();
 }
 
-TEST(PazaakGameLifecycle, NativeKotorTwoMatchOffersOnlyTheCardsTheSaveOwns) {
+TEST(PazaakGameLifecycle, KotorTwoMatchOffersOnlyTheCardsTheSaveOwns) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
@@ -374,7 +374,7 @@ TEST(PazaakGameLifecycle, NativeKotorTwoMatchOffersOnlyTheCardsTheSaveOwns) {
     game.abortPazaak();
 }
 
-TEST(PazaakGameLifecycle, NativeKotorTwoMatchUsesTheSavedSideDeckIncludingSpecials) {
+TEST(PazaakGameLifecycle, KotorTwoMatchUsesTheSavedSideDeckIncludingSpecials) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
@@ -562,7 +562,7 @@ TEST(PazaakConsoleCommand, StartsExactlyOnceWithoutSelectionAndPreservesGameData
     EXPECT_EQ(0u, session->opponentId());
     EXPECT_TRUE(session->continuationScript().empty());
     EXPECT_EQ(
-        PazaakSession::temporaryK1TestCollection().size(),
+        PazaakSession::makeDebugCollection(false).size(),
         session->collection().size());
     EXPECT_EQ(creditsBefore, fixture.game.party().gold());
     EXPECT_EQ(inventorySizeBefore, player->items().size());
@@ -915,14 +915,14 @@ TEST(PazaakGameLifecycle, ConfirmedForfeitClearsBeforeOneShotContinuation) {
     EXPECT_EQ(PazaakCompletedResult::PlayerForfeited, *fixture.game.lastPazaakResult());
     EXPECT_EQ(1, continuationCount);
     EXPECT_EQ("after_pazaak", continuedScript);
-    EXPECT_EQ(fixture.opponent->id(), continuedOpponent);
+    EXPECT_EQ(script::kObjectInvalid, continuedOpponent);
 
     fixture.game.update(1.5f);
     fixture.game.abortPazaak();
     EXPECT_EQ(1, continuationCount);
 }
 
-TEST(PazaakGameLifecycle, DeletedContinuationCallerFailsSafely) {
+TEST(PazaakGameLifecycle, DeletedOpponentStillRunsContinuation) {
     GameFixture fixture;
     int continuationCount = 0;
     configure(
@@ -947,7 +947,7 @@ TEST(PazaakGameLifecycle, DeletedContinuationCallerFailsSafely) {
 
     fixture.game.update(1.5f);
     EXPECT_EQ(nullptr, fixture.game.pazaakSession());
-    EXPECT_EQ(0, continuationCount);
+    EXPECT_EQ(1, continuationCount);
     ASSERT_TRUE(fixture.game.lastPazaakResult().has_value());
     EXPECT_EQ(
         PazaakCompletedResult::PlayerForfeited,
@@ -2031,7 +2031,7 @@ TEST(PazaakK2Data, MalformedKotorTwoDeckRowFailsSafely) {
     configure(game);
     TestGameModule::useAuthoredPazaakDecks(game);
     auto table = pazaakDeckTable({
-        {"$$", "F1", "F2", "TT", "VV", "+1", "-1", "*1", "+2", "F9"},
+        {"$$", "F1", "F2", "TT", "VV", "+1", "-1", "*1", "+2", "+0"},
     });
     EXPECT_CALL(engine.resourceModule().twoDas(), get("pazaakdecks"))
         .Times(testing::AnyNumber())
@@ -2271,7 +2271,7 @@ TEST(PazaakK2Showcase, AuthoredMatchesDoNotUseShowcaseData) {
     auto opponent = game.newCreature();
     configure(game);
 
-    // A native launch leaves the side-deck selection to ordinary setup.
+    // Ordinary launch leaves side-deck selection to the setup screen.
     ASSERT_TRUE(game.playPazaak(0, "", 0, false, opponent));
     EXPECT_TRUE(game.pazaakSession()->chosenCards().empty());
     game.abortPazaak();

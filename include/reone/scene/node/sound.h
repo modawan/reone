@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "reone/audio/source.h"
 
 #include "../node.h"
@@ -50,16 +52,26 @@ public:
 
     int priority() const { return _priority; }
     float maxDistance() const { return _maxDistance; }
-    bool auidible() const { return _audible; }
+    /** A positional sound is heard only within its maximum distance; any other is heard everywhere. */
+    bool isPositional() const { return _positional; }
+    bool auidible() const { return _audible.value_or(false); }
+    /** The scene has told whether the sound is audible at least once. */
+    bool isAudibilityKnown() const { return _audible.has_value(); }
 
     void setPriority(int priority) { _priority = priority; }
     void setMaxDistance(float distance) { _maxDistance = distance; }
+    /**
+     * @param positional whether the sound is heard only within its maximum
+     *        distance, rather than everywhere
+     */
+    void setPositional(bool positional) { _positional = positional; }
     void setAudible(bool audible);
 
 private:
     int _priority {0};
     float _maxDistance {0.0f};
-    bool _audible {false};
+    bool _positional {true};
+    std::optional<bool> _audible;
 
     std::shared_ptr<audio::AudioSource> _source;
 };

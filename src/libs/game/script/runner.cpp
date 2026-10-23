@@ -33,8 +33,12 @@ namespace game {
 
 int ScriptRunner::run(const std::string &resRef, const std::vector<Argument> &args) {
     auto program = _scripts.get(resRef);
-    if (!program)
+    if (!program) {
+        if (!resRef.empty()) {
+            warn("Script not found: " + resRef, LogChannel::Script);
+        }
         return -1;
+    }
 
     auto ctx = std::make_unique<ExecutionContext>();
     ctx->routines = &_routines;
@@ -59,8 +63,8 @@ int ScriptRunner::run(
         return -1;
     }
 
-    // Invocation advances semantic VM state even though this runner works on a
-    // copy. The untouched retail snapshot may no longer be reused by a save.
+    // Running the continuation advances its script state, even though this
+    // runner works on a copy, so a save may no longer reuse the saved snapshot.
     continuation.markAdvanced();
 
     auto ctx = std::make_unique<ExecutionContext>();

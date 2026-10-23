@@ -12,6 +12,7 @@
 #include "reone/game/action/attackobject.h"
 #include "reone/game/effect.h"
 #include "reone/game/effect/modifyattacks.h"
+#include "reone/game/effect/spellimmunity.h"
 #include "reone/game/game.h"
 #include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
@@ -91,6 +92,8 @@ public:
 
     std::shared_ptr<Creature> addRosterNpc(int npc) {
         auto creature = _game.newCreature();
+        // A companion: real NPCs come from records carrying IsPC 0.
+        creature->setPC(false);
         _game.party().addAvailableMember(npc, creature);
         return creature;
     }
@@ -139,6 +142,21 @@ public:
         _room("control", glm::vec3(0.0f), nullptr, nullptr, nullptr) {
 
         _engine.init();
+        // A creature update searches for mines with its Awareness rank, which
+        // includes the racial Wisdom adjustment.
+        ON_CALL(_engine.resourceModule().twoDas(), get("skills"))
+            .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                       .columns({"label", "untrained", "keyability", "armorcheckpenalty"})
+                                                                       .row({"ComputerUse", "1", "INT", "0"})
+                                                                       .row({"Demolitions", "0", "INT", "1"})
+                                                                       .row({"Stealth", "0", "DEX", "1"})
+                                                                       .row({"Awareness", "1", "WIS", "0"})
+                                                                       .build())));
+        ON_CALL(_engine.resourceModule().twoDas(), get("racialtypes"))
+            .WillByDefault(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                       .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                                                                       .row({"0", "0", "0", "0", "0", "0"})
+                                                                       .build())));
         ON_CALL(_engine.sceneModule().graphs(), get(_))
             .WillByDefault(ReturnRef(_sceneGraph));
         ON_CALL(_sceneGraph, testElevation(_, _))
@@ -172,6 +190,7 @@ public:
             *_game, _area, _player, "control_module", "control_area");
 
         _companion = _game->newCreature();
+        _companion->setPC(false);
         _game->party().addAvailableMember(0, _companion);
         _game->party().addMember(0, _companion);
         _area->loadParty(glm::vec3(2.0f, 3.0f, 0.0f), 0.25f);
@@ -239,21 +258,22 @@ TEST_P(PartyControl, controlPassesToARosterNpcAndBackOnAFreshGame) {
     EXPECT_EQ(kNpcPlayer, harness.party().controlledNpc());
 }
 
-TEST_P(PartyControl, unrelatedCompanionsSurviveAControlChange) {
-    // given a companion travelling with the player, as on the Leviathan
+TEST_P(PartyControl, unrelatedCompanionsLeaveThePartyOnAControlChange) {
+    // given a companion travelling with the player: a character switch removes
+    // every other companion from the party and destroys its creature
     ControlHarness harness(GetParam());
     auto player = harness.startFreshGame();
     auto companion = harness.addCompanion(0);
     auto breaker = harness.addRosterNpc(5);
 
     ASSERT_EQ(1, harness.switchTo(5));
-    EXPECT_EQ(1u, harness.occurrences(companion));
-    EXPECT_TRUE(harness.party().isMember(0));
+    EXPECT_EQ(0u, harness.occurrences(companion));
+    EXPECT_FALSE(harness.party().isMember(0));
 
     ASSERT_EQ(1, harness.switchTo(kNpcPlayer));
     EXPECT_EQ(player, harness.party().getLeader());
-    EXPECT_EQ(1u, harness.occurrences(companion));
-    EXPECT_TRUE(harness.party().isMember(0));
+    EXPECT_EQ(0u, harness.occurrences(companion));
+    EXPECT_FALSE(harness.party().isMember(0));
 }
 
 TEST_P(PartyControl, takingControlOfACompanionLeavesItInThePartyOnlyOnce) {
@@ -294,7 +314,9 @@ TEST_P(PartyControl, switchingToAnUnknownNpcChangesNothing) {
     EXPECT_EQ(kNpcPlayer, harness.party().controlledNpc());
 }
 
-TEST_P(PartyControl, sameAreaControlSwitchPreservesRuntimeExecutionAndEffects) {
+// The player character giving up control leaves the area: its queued and
+// delayed commands go with its area presence, while its effects stay.
+TEST_P(PartyControl, controlSwitchParksThePlayerAndKeepsItsEffects) {
     AreaControlHarness harness(GetParam());
     auto player = harness.player();
     auto companion = harness.companion();
@@ -313,9 +335,9 @@ TEST_P(PartyControl, sameAreaControlSwitchPreservesRuntimeExecutionAndEffects) {
     harness.game().combat().addAction(combatAction, *player);
     ASSERT_EQ(1u, harness.game().combat().roundCount());
     EffectInstance referencedEffect;
-    referencedEffect.effect = std::make_shared<Effect>(EffectType::Invalid);
+    referencedEffect.effect = std::make_shared<SpellImmunityEffect>(SpellType::All);
     referencedEffect.id = harness.game().allocateEffectId();
-    referencedEffect.subType = static_cast<uint16_t>(DurationType::Permanent);
+    referencedEffect.setDurationType(DurationType::Permanent);
     referencedEffect.creatorId = companion->id();
     referencedEffect.objectParameters[0] = companion->id();
     ASSERT_TRUE(harness.game().bindEffectCreator(referencedEffect));
@@ -333,25 +355,32 @@ TEST_P(PartyControl, sameAreaControlSwitchPreservesRuntimeExecutionAndEffects) {
     EXPECT_EQ(player, harness.game().party().actualPlayer());
     EXPECT_EQ(companion, harness.game().party().rosterCreature({RosterKind::Npc, 0}));
     EXPECT_EQ(generation, TestGameModule::savedGraphGeneration(harness.game()));
-    EXPECT_EQ(1u, player->actions().size());
-    EXPECT_EQ(1u, TestGameModule::delayedActionCount(*player));
-    EXPECT_TRUE(TestGameModule::hasAreaRuntimePath(*player));
-    EXPECT_TRUE(player->isStuntMode());
+    EXPECT_EQ(0u, player->actions().size());
+    EXPECT_EQ(0u, TestGameModule::delayedActionCount(*player));
+    EXPECT_FALSE(TestGameModule::hasAreaRuntimePath(*player));
+    EXPECT_FALSE(player->isStuntMode());
     EXPECT_EQ(1, player->modifiedAttacks());
     ASSERT_EQ(2u, player->effects().size());
-    EXPECT_EQ(companion, player->effects()[1].boundCreator());
-    EXPECT_EQ(companion, player->effects()[1].boundObjectParameter(0));
+    // Effects are kept in save-type order; the reference record (type 0) is first.
+    EXPECT_EQ(companion, player->effects()[0].boundCreator());
+    EXPECT_EQ(companion, player->effects()[0].boundObjectParameter(0));
     EXPECT_EQ(1u, harness.game().combat().roundCount());
     EXPECT_FALSE(combatAction->isCancelled());
 
     player->update(0.5f);
-    EXPECT_EQ(1, queuedExecutions);
+    EXPECT_EQ(0, queuedExecutions);
+    // A delayed command is a module timed event on the world clock.
+    TestGameModule::advanceWorldTime(harness.game(), 0.5f);
+    TestGameModule::dispatchSnapshotEvents(*harness.game().module());
     EXPECT_EQ(0, delayedExecutions);
-    player->update(0.6f);
-    EXPECT_EQ(1, delayedExecutions);
+    TestGameModule::advanceWorldTime(harness.game(), 0.6f);
+    TestGameModule::dispatchSnapshotEvents(*harness.game().module());
+    EXPECT_EQ(0, delayedExecutions);
 }
 
-TEST_P(PartyControl, sameAreaControlSwitchDoesNotDetachOrDuplicateResidents) {
+// The player character giving up control leaves the area; the companion
+// taking control stays where it stands.
+TEST_P(PartyControl, controlSwitchTakesThePlayerOutOfTheAreaAndLeavesTheCompanionInPlace) {
     AreaControlHarness harness(GetParam());
     auto player = harness.player();
     auto companion = harness.companion();
@@ -361,16 +390,16 @@ TEST_P(PartyControl, sameAreaControlSwitchDoesNotDetachOrDuplicateResidents) {
     ASSERT_EQ(1u, harness.room().tenants().count(player.get()));
     ASSERT_EQ(1u, harness.room().tenants().count(companion.get()));
 
-    const glm::vec3 outgoingPosition = player->position();
+    const glm::vec3 companionPosition = companion->position();
     ASSERT_EQ(1, harness.switchTo(0));
 
     const auto &creatures = harness.area().getObjectsByType(ObjectType::Creature);
-    EXPECT_EQ(1, std::count(creatures.begin(), creatures.end(), player));
+    EXPECT_EQ(0, std::count(creatures.begin(), creatures.end(), player));
     EXPECT_EQ(1, std::count(creatures.begin(), creatures.end(), companion));
-    EXPECT_EQ(outgoingPosition, companion->position());
-    EXPECT_EQ(&harness.room(), player->room());
+    EXPECT_EQ(companionPosition, companion->position());
+    EXPECT_EQ(nullptr, player->room());
     EXPECT_EQ(&harness.room(), companion->room());
-    EXPECT_EQ(1u, harness.room().tenants().count(player.get()));
+    EXPECT_EQ(0u, harness.room().tenants().count(player.get()));
     EXPECT_EQ(1u, harness.room().tenants().count(companion.get()));
 }
 

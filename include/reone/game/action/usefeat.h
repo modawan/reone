@@ -24,6 +24,10 @@ namespace reone {
 
 namespace game {
 
+/**
+ * Use of a feat on a target. A physical attack feat is a special attack, made
+ * on its creature's combat round as an ordinary attack is.
+ */
 class UseFeatAction : public Action {
 public:
     UseFeatAction(Game &game,
@@ -40,10 +44,24 @@ public:
         return from->type() == ActionType::UseFeat;
     }
 
+    /**
+     * An attack that has ended no longer holds its round, which runs out; the
+     * round's one attack is then spent. While the attack runs, it is the round.
+     */
+    bool holdsCombatRound() const override { return _schedule.holdsCombatRound() && !isCompleted(); }
+    bool tookRoundAction() const override { return _schedule.started() && isCompleted() && !_instantCastAttack; }
     void execute(std::shared_ptr<Action> self, Object &actor, float dt) override;
 
-    void cancel(std::shared_ptr<Action> self, Object &actor) override;
+    bool cancel(std::shared_ptr<Action> self, Object &actor) override;
+    void onQueued(Object &actor) override;
+    void retireCombatRound() override { _attacks.clearHistory(); }
+    void clearSpecialAttacks() override { _attacks.clearSpecialAttacks(); }
+    int currentCombatAttackType() const override { return _attacks.currentCombatAttackType(); }
+    AttackResultType currentCombatAttackResult() const override { return _attacks.currentRangedResult(); }
+    std::optional<std::reference_wrapper<AttackBuffer>> combatAttacks() override { return std::ref(_attacks); }
     std::optional<SavedActionRecord> saveFacingState() const override;
+    /** Takes up the progress of an attack loaded from a save. */
+    void restorePhysicalState(const SavedPhysicalAction &state);
 
     std::shared_ptr<Object> target() const { return _target.resolve(); }
 
@@ -51,8 +69,17 @@ public:
 
     FeatType feat() const { return _feat; }
 
+    /**
+     * Make this the attack an instant cast makes: it needs no approach,
+     * engages no one, takes no action of its round and ends with its pause.
+     */
+    void markInstantCastAttack() {
+        _instantCastAttack = true;
+        _approach.reached = true;
+    }
+    bool isInstantCastAttack() const { return _instantCastAttack; }
+
 private:
-    void addProjectiles(const Creature &creature, FeatType feat);
     void finish(Creature &attacker);
 
     FeatType _feat;
@@ -60,9 +87,10 @@ private:
 
     AttackSchedule _schedule;
     AttackBuffer _attacks;
-    bool _reachedTarget {false};
-
-    ProjectileSequence _projectiles;
+    AttackApproach _approach;
+    bool _instantCastAttack {false};
+    /** The attack has run once, and so has been taken up. */
+    bool _taken {false};
 };
 
 } // namespace game

@@ -15,14 +15,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "../fixtures/engine.h"
-#include "../fixtures/itempresentation.h"
+#include "reone/game/d20/class.h"
+#include "reone/game/d20/classes.h"
 #include "reone/game/game.h"
 #include "reone/game/gui/ingame/itembacking.h"
 #include "reone/game/object/creature.h"
 #include "reone/game/object/item.h"
 #include "reone/game/party.h"
 #include "reone/resource/2da.h"
+
+#include "../fixtures/engine.h"
+#include "../fixtures/itempresentation.h"
 
 namespace {
 
@@ -33,6 +36,8 @@ TEST_F(SPItemPresentation, sp_backing_applies_the_real_equipment_presenters_sele
     engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // The equipment menus run in the active module.
+    TestGameModule::setActiveModuleArea(game, game.newArea());
     auto baseItems = std::shared_ptr<TwoDA>(TwoDA::Builder()
                                                 .columns({"equipableslots", "itemclass"})
                                                 .row({"2", "armor"})
@@ -41,9 +46,58 @@ TEST_F(SPItemPresentation, sp_backing_applies_the_real_equipment_presenters_sele
     EXPECT_CALL(engine.resourceModule().twoDas(), get("baseitems"))
         .Times(AnyNumber())
         .WillRepeatedly(Return(baseItems));
+    // The equipment view reads the player's Strength through the racial
+    // ability adjustments.
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("racialtypes"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder()
+                .columns({"stradjust", "dexadjust", "conadjust", "intadjust", "wisadjust", "chaadjust"})
+                .row({"0", "0", "0", "0", "0", "0"})
+                .build())));
+    // Equipping checks the item's minimum level against itemvalue.
+    EXPECT_CALL(engine.resourceModule().twoDas(), get("itemvalue"))
+        .Times(AnyNumber())
+        .WillRepeatedly(Return(std::shared_ptr<resource::TwoDA>(resource::TwoDA::Builder()
+                                                                    .columns({"maxsingleitemvalue"})
+                                                                    .row({"13500000"})
+                                                                    .build())));
     auto player = game.newCreature();
     game.party().setPlayer(player);
     ASSERT_TRUE(game.party().addMember(kNpcPlayer, player));
+    // The player character is a level 1 soldier with a hit die of 10: it
+    // reaches every item's minimum level, and the equipment view reads the
+    // class's attack and defense bonuses.
+    NiceMock<MockStrings> classStrings;
+    NiceMock<MockTwoDAs> classTwoDas;
+    ON_CALL(classTwoDas, get("skills"))
+        .WillByDefault(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
+    ON_CALL(classTwoDas, get("save"))
+        .WillByDefault(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder()
+                .columns({"level", "fortsave", "refsave", "willsave"})
+                .row({"1", "0", "0", "0"})
+                .build())));
+    ON_CALL(classTwoDas, get("attack"))
+        .WillByDefault(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder().columns({"bab"}).row({"0"}).build())));
+    ON_CALL(classTwoDas, get("acbonus"))
+        .WillByDefault(Return(std::shared_ptr<TwoDA>(
+            TwoDA::Builder().columns({"soldier"}).row({"0"}).build())));
+    Classes classes(classStrings, classTwoDas);
+    CreatureClass soldier(ClassType::Soldier, classes, classStrings, classTwoDas);
+    soldier.load(*TwoDA::Builder()
+                      .columns({"name", "description", "hitdie", "skillpointbase",
+                                "str", "dex", "con", "int", "wis", "cha",
+                                "skillstable", "savingthrowtable", "attackbonustable",
+                                "armorclasscolumn", "featstable", "featgain", "spellgaintable"})
+                      .row({"0", "0", "10", "0",
+                            "10", "10", "10", "10", "10", "10",
+                            "unused", "save", "attack",
+                            "soldier", "", "", ""})
+                      .build(),
+                 0);
+    player->applyLevelUp(player->attributes(), soldier);
     auto record = Gff::Builder().field(Gff::Field::newInt("BaseItem", 0)).field(Gff::Field::newWord("StackSize", 2)).field(Gff::Field::newCExoLocString("LocalizedName", -1, "Saved armor")).field(Gff::Field::newCExoString("Tag", "same_tag")).build();
     auto item = game.newItem();
     item->deserialize(*record, SerializedIdentityContext::templateResource());

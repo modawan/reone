@@ -46,7 +46,7 @@ struct ServicesView;
 /**
  * Aim state of the player turret, in radians.
  *
- * Vanilla stores the aim limits in the .are MiniGame Player "Tunnel" fields:
+ * The module stores the aim limits in the .are MiniGame Player "Tunnel" fields:
  * X is the pitch axis and Z is the yaw axis (Y is unused by the turret). The
  * stored values are signed degree limits, so the usable range of an axis is
  * [Neg, Pos] rather than [-Neg, +Pos]; K1's Ebon Hawk turret pitches between
@@ -79,8 +79,8 @@ public:
     float yawTravel() const;
 
     /**
-     * Unit vector the turret is pointing along, in the track frame. Odyssey
-     * models look down +Y, so this is Rz(yaw) * Rx(pitch) applied to +Y.
+     * Unit vector the turret is pointing along, in the track frame. Models
+     * look down +Y, so this is Rz(yaw) * Rx(pitch) applied to +Y.
      */
     glm::vec3 forward() const;
 
@@ -110,7 +110,7 @@ private:
 /**
  * Turn rate of one aim axis while a key is held.
  *
- * This is reone's existing keyboard rotation model (ThirdPersonCamera): a held
+ * This is the existing keyboard rotation model (ThirdPersonCamera): a held
  * key starts at a minimum rate and accelerates to a cap, so a tap gives fine
  * adjustment while a hold sweeps. The rates are scaled by the axis's authored
  * travel and calibrated so an unbounded axis reproduces ThirdPersonCamera's
@@ -156,8 +156,8 @@ private:
 };
 
 /**
- * Rate-of-fire gate for a single gun bank. Vanilla stores the interval between
- * shots in the bank's Bullet.Rate_Of_Fire.
+ * Rate-of-fire gate for a single gun bank. The module stores the interval
+ * between shots in the bank's Bullet.Rate_Of_Fire.
  */
 class TurretGunTimer {
 public:
@@ -225,9 +225,9 @@ struct TurretBullet {
 
 /**
  * Cockpit HUD state, reproducing what K1's module-local OnDamage script
- * (k_pebo_hawkhit) computes. reone substitutes the minigame and cannot run that
- * script - its SWMG_ routines are unimplemented - so the small part of it that
- * drives the HUD is reproduced here from the shipped bytecode:
+ * (k_pebo_hawkhit) computes. The minigame is substituted here and that script
+ * cannot run - its SWMG_ routines are unimplemented - so the small part of it
+ * that drives the HUD is reproduced here:
  *
  *   if (!GetGlobalBoolean("M12AB_END_SYNC")) {
  *     if (SWMG_GetHitPoints(OBJECT_SELF) >= 2000) {
@@ -392,15 +392,15 @@ TurretRequestResolution resolveTurretRequest(bool pendingForModule,
 const char *turretRequestResolutionMessage(TurretRequestResolution resolution);
 
 /**
- * Where a finished turret session returns to: the vanilla end-script target for
+ * Where a finished turret session returns to: the module's end-script target for
  * the turret module when one is known, otherwise the module it started from.
  */
 std::string turretReturnModule(const std::string &turretModule,
                                const std::string &originModule);
 
 /**
- * Direction an actor with this world orientation fires along. Odyssey models
- * look down +Y, so both the bolt's travel and its visual long axis come from the
+ * Direction an actor with this world orientation fires along. Models look
+ * down +Y, so both the bolt's travel and its visual long axis come from the
  * same orientation - which is also why every gun bank of one actor fires
  * symmetrically, differing only in muzzle position.
  */
@@ -441,7 +441,7 @@ bool rayIntersectsSphere(const glm::vec3 &origin,
  * in the track frame. Gun banks mount on the rotating group's "gunbankN" hooks
  * and spawn bullets from the gun model's "bullethook0".
  *
- * Not implemented in this slice: the vanilla minigame scripts (the SWMG_*
+ * Not implemented in this slice: the module's minigame scripts (the SWMG_*
  * routines they need are unimplemented), obstacles, and the player invincibility
  * period. Win/lose is decided engine-side: destroying every enemy wins, running
  * out of hit points loses.

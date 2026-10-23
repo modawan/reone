@@ -46,10 +46,8 @@ void reone::game::TestGameModule::restoreAutosaveWorldTime(
 
 namespace {
 
-// The world clock is part of the shared Game contract, so both games must
-// agree. Every shipped K2 module and 113 of 117 K1 modules carry
-// Mod_MinPerHour = 2, so both were affected identically; the parameters below
-// pin that neither game lets Mod_MinPerHour change the rate of the clock.
+// Mod_MinPerHour changes calendar scale, not the rate of the elapsed clock.
+// Exercise the shared clock contract for both titles.
 struct WorldTimeFixture : TestWithParam<GameID> {
     WorldTimeFixture() :
         game(GetParam(), "", engine.options(), engine.services(), console) {
@@ -98,9 +96,8 @@ TEST_P(WorldTimeFixture, advances_at_real_time_rate_regardless_of_minutes_per_ho
 }
 
 TEST_P(WorldTimeFixture, changing_the_day_length_does_not_move_the_canonical_clock) {
-    // Retail K1 ships danm14aa at Mod_MinPerHour=1 while 113 other modules use
-    // 2, so the calendar scale genuinely differs between modules. Rescaling the
-    // calendar must reinterpret the elapsed clock, never displace it.
+    // Changing calendar scale must reinterpret the same elapsed clock
+    // without displacing it.
     TestGameModule::setSnapshotWorldTime(game, 0, 0, 2);
     advance(600.0f, 60.0f);
     const uint64_t elapsed = absoluteWorldTime();
@@ -141,8 +138,7 @@ TEST_P(WorldTimeFixture, accumulates_sub_millisecond_remainders_without_drift) {
 }
 
 TEST_P(WorldTimeFixture, day_length_follows_minutes_per_hour) {
-    // CWorldTimer::SetMinutesPerHour: m_nMillisecondsInDay =
-    // MinutesPerHour * 60 * MILLISECONDS_IN_SECOND * HOURS_IN_DAY.
+    // Milliseconds per day = minutes per hour * 60 * 1000 * 24.
     TestGameModule::setSnapshotWorldTime(game, 0, 0, 2);
     EXPECT_EQ(game.millisecondsPerWorldDay(), 2u * 60u * 1000u * 24u);
 
@@ -165,8 +161,12 @@ TEST_P(WorldTimeFixture, forced_move_timeout_expires_after_the_scripted_real_dur
     TestGameModule::setSnapshotWorldTime(game, 0, 0, 2);
     auto actor = game.newCreature();
     actor->setPosition({0.0f, 0.0f, 0.0f});
-    // No module or scene graph in this fixture, so keep the action off the
-    // navigation path. The forced-timeout branch runs before navigateTo and is
+    // Movement runs in the active module.
+    auto sceneGraph = std::make_shared<NiceMock<scene::MockSceneGraph>>();
+    ON_CALL(engine.sceneModule().graphs(), get(_))
+        .WillByDefault([sceneGraph](const std::string &) -> scene::ISceneGraph & { return *sceneGraph; });
+    TestGameModule::setActiveModuleArea(game, game.newArea());
+    // Keep the action off the navigation path. The forced-timeout branch runs before navigateTo and is
     // what this test is about.
     actor->setMovementRestricted(true);
 
@@ -193,11 +193,12 @@ TEST_P(WorldTimeFixture, temporary_effect_expiry_round_trips_as_a_real_duration)
 
         EffectInstance instance;
         instance.effect = game.newEffect<Effect>(EffectType::Haste);
-        instance.subType = 1; // DurationType::Temporary
+        instance.setDurationType(DurationType::Temporary);
         instance.duration = 45.0f;
         instance.remainingDuration = 45.0f;
         instance.expiryDay = 0;
         instance.expiryTime = static_cast<uint32_t>(45.0f * 1000.0f);
+        instance.expiryOrigin = EffectExpiryOrigin::LoadedAbsoluteGameTime;
 
         auto remaining = game.remainingEffectDuration(instance);
         ASSERT_TRUE(remaining);
@@ -228,21 +229,15 @@ TEST_P(WorldTimeFixture, composes_the_canonical_clock_from_the_retail_pause_pair
 }
 
 TEST_P(WorldTimeFixture, out_of_range_saved_time_of_day_carries_into_the_calendar) {
-    // Saves written before the day length became Mod_MinPerHour-derived hold a
-    // time of day on the old fixed 24-hour scale. Carry it, as
-    // CWorldTimer::GetWorldTime does, rather than rejecting the save.
-    constexpr uint32_t kLegacyTimeOfDay = 24u * 60u * 60u * 1000u - 1u;
-    auto ifo = Gff::Builder().type(0xffffffff)
-        .field(Gff::Field::newDword("Mod_PauseDay", 3))
-        .field(Gff::Field::newDword("Mod_PauseTime", kLegacyTimeOfDay))
-        .field(Gff::Field::newDword("Mod_MinPerHour", 2))
-        .build();
+    // Time beyond the configured day length carries into later days.
+    constexpr uint32_t kOverflowTimeOfDay = 24u * 60u * 60u * 1000u - 1u;
+    auto ifo = Gff::Builder().type(0xffffffff).field(Gff::Field::newDword("Mod_PauseDay", 3)).field(Gff::Field::newDword("Mod_PauseTime", kOverflowTimeOfDay)).field(Gff::Field::newDword("Mod_MinPerHour", 2)).build();
 
     ASSERT_NO_THROW(TestGameModule::prepareWorldTimeFromIfo(game, *ifo));
     EXPECT_EQ(game.minutesPerHour(), 2);
     // Nothing is discarded: the oversized time simply lands further along.
     EXPECT_EQ(game.worldTimeMilliseconds(),
-              3ull * (2u * 60u * 1000u * 24u) + kLegacyTimeOfDay);
+              3ull * (2u * 60u * 1000u * 24u) + kOverflowTimeOfDay);
     // The derived view is normalized, so anything written from here on is too.
     EXPECT_LT(game.worldTimeOfDay(), game.millisecondsPerWorldDay());
     EXPECT_GT(game.worldTimeDay(), 3u);
@@ -268,26 +263,10 @@ TEST_P(WorldTimeFixture, calendar_pair_round_trips_across_a_day_boundary) {
         << "splitting on save and composing on load must be lossless";
 }
 
-TEST_P(WorldTimeFixture, reads_legacy_reone_clock_only_when_retail_fields_are_absent) {
-    auto legacy = Gff::Builder().type(0xffffffff)
-        .field(Gff::Field::newDword("Mod_CalendarDay", 3))
-        .field(Gff::Field::newDword("Mod_TimeOfDay", 1234u))
-        .field(Gff::Field::newDword("Mod_MinPerHour", 2))
-        .build();
-    ASSERT_NO_THROW(TestGameModule::prepareWorldTimeFromIfo(game, *legacy));
-    EXPECT_EQ(game.worldTimeMilliseconds(),
-              3ull * (2u * 60u * 1000u * 24u) + 1234ull);
-
-    auto retail = Gff::Builder().type(0xffffffff)
-        .field(Gff::Field::newDword("Mod_PauseDay", 4))
-        .field(Gff::Field::newDword("Mod_PauseTime", 5678u))
-        .field(Gff::Field::newDword("Mod_CalendarDay", 99))
-        .field(Gff::Field::newDword("Mod_TimeOfDay", 99u))
-        .field(Gff::Field::newDword("Mod_MinPerHour", 2))
-        .build();
-    ASSERT_NO_THROW(TestGameModule::prepareWorldTimeFromIfo(game, *retail));
-    EXPECT_EQ(game.worldTimeMilliseconds(),
-              4ull * (2u * 60u * 1000u * 24u) + 5678ull);
+TEST_P(WorldTimeFixture, missing_pause_fields_start_at_zero) {
+    auto ifo = Gff::Builder().type(0xffffffff).field(Gff::Field::newDword("Mod_MinPerHour", 2)).build();
+    ASSERT_NO_THROW(TestGameModule::prepareWorldTimeFromIfo(game, *ifo));
+    EXPECT_EQ(game.worldTimeMilliseconds(), 0u);
 }
 
 TEST_P(WorldTimeFixture, template_autosave_uses_pause_time_from_autosave_params) {

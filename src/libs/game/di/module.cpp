@@ -26,7 +26,7 @@ void GameModule::init() {
     _classes = std::make_unique<Classes>(_resource.strings(), _resource.twoDas());
     _difficultyOptions = std::make_unique<DifficultyOptions>(_resource.twoDas());
     _feats = std::make_unique<Feats>(_resource.textures(), _resource.strings(), _resource.twoDas());
-    _footstepSounds = std::make_unique<FootstepSounds>(_resource.audioClips(), _resource.twoDas());
+    _footstepSounds = std::make_unique<FootstepSounds>(_resource.twoDas());
     _guiSounds = std::make_unique<GUISounds>(_resource.audioClips(), _resource.twoDas());
     _portraits = std::make_unique<Portraits>(_resource.textures(), _resource.twoDas());
     _reputes = std::make_unique<Reputes>(_resource.twoDas());
@@ -62,7 +62,7 @@ void GameModule::init() {
     _reputes->init();
     _feats->init();
     _skills->init();
-    _spells->init();
+    _spells->init(_gameId);
     _surfaces->init();
     _animations->init();
     _visualEffects->init();

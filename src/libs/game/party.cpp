@@ -18,16 +18,45 @@
 #include "reone/game/party.h"
 
 #include <algorithm>
+#include <cmath>
+#include <vector>
 
+#include <boost/algorithm/string/predicate.hpp>
+#include <glm/gtc/quaternion.hpp>
+
+#include "reone/audio/mixer.h"
+#include "reone/game/di/services.h"
+#include "reone/game/effect/resurrection.h"
+#include "reone/game/equipmentrules.h"
 #include "reone/game/game.h"
+#include "reone/game/gui/sounds.h"
+#include "reone/game/object/area.h"
 #include "reone/game/object/creature.h"
+#include "reone/game/object/item.h"
+#include "reone/game/twodautil.h"
 #include "reone/game/types.h"
+#include "reone/resource/2da.h"
+#include "reone/resource/provider/2das.h"
 #include "reone/system/logutil.h"
 #include "reone/system/randomutil.h"
 
 namespace reone {
 
 namespace game {
+
+/** The script a new leader runs when the lead changes hands. */
+static constexpr char kLeaderChangedScript[] = "k_hen_leadchng";
+
+static constexpr int kPlayerPerceptionRangeRow = 12;
+static constexpr int kPartyPerceptionRangeRow = 11;
+
+static constexpr int kExperienceGainedStrRef = 42438;
+
+// npc.2da: the companions' rows come first, then the share every recipient of
+// an award takes. Shares are percentages.
+static constexpr int kK1GeneralXPRow = 9;
+static constexpr int kTSLGeneralXPRow = 13;
+static constexpr int kFullShare = 100;
 
 static constexpr char kBlueprintResRefCarth[] = "p_carth";
 static constexpr char kBlueprintResRefBastila[] = "p_bastilla";
@@ -40,9 +69,8 @@ void Party::setPersistedState(PersistedState state) {
 }
 
 void Party::loadPersistedState(PersistedState state) {
-    // Retail LoadTableInfo clears every transient object binding before it
-    // publishes the persisted PartyTable fields. A new session must rebuild
-    // active and inactive runtime representations explicitly.
+    // Loading the party table clears transient object bindings before applying
+    // persisted fields. Active module references are bound separately.
     for (const auto &[_, puppet] : _puppetBindings) {
         if (puppet) puppet->setPuppet(false);
     }
@@ -65,6 +93,19 @@ void Party::setPazaakData(
 
 void Party::setPazaakSideDeck(PazaakSideDeck sideDeck) {
     _pazaakSideDeck = std::move(sideDeck);
+}
+
+void Party::removePazaakCards(int card, int count) {
+    // A card outside the collection takes nothing from it.
+    if (card < 0 || static_cast<size_t>(card) >= _pazaakCardCount) {
+        return;
+    }
+    auto &owned = _pazaakCardCounts[static_cast<size_t>(card)];
+    owned -= std::min(owned, count);
+}
+
+void Party::addPazaakCards(int card, int count) {
+    _pazaakCardCounts[static_cast<size_t>(card)] += count;
 }
 
 void Party::initializeNewGameState() {
@@ -94,7 +135,12 @@ bool Party::handleKeyDown(const input::KeyEvent &event) {
 
     switch (event.code) {
     case input::KeyCode::Tab:
-        switchLeader();
+        // The change-character key sounds the accepted cue whether or not
+        // the lead moved.
+        selectNextStandingMember();
+        if (auto clip = _game.services().game.guiSounds.getActionAccepted()) {
+            _game.services().audio.mixer.play(std::move(clip), audio::AudioType::Sound);
+        }
         return true;
     }
 
@@ -236,7 +282,7 @@ bool Party::isRosterSelectable(const RosterIdentity &identity) const {
 bool Party::setRosterSelectable(
     const RosterIdentity &identity,
     bool selectable) {
-    // Retail ignores SetNPCSelectability for invalid or unavailable slots.
+    // Ignore selectability updates for invalid or unavailable roster slots.
     if (!isRosterAvailable(identity)) return false;
     bool &current = identity.kind == RosterKind::Npc
                         ? _persistedState.npcSelectable[identity.slot]
@@ -257,11 +303,18 @@ bool Party::makeRosterAvailableAndBind(
                            : _persistedState.puppetSelectable[identity.slot];
     const bool previousAvailable = available;
     const bool previousSelectable = selectable;
+    if (identity.kind == RosterKind::Npc && !previousAvailable) {
+        applyJoiningExperience(identity.slot, *creature);
+    }
     if (!setRosterAvailable(identity, true) ||
         !bindRosterCreature(identity, creature)) {
         available = previousAvailable;
         selectable = previousSelectable;
         return false;
+    }
+    joinRosterFaction(identity, *creature);
+    if (identity.kind == RosterKind::Npc) {
+        transferInventory(*creature);
     }
     return true;
 }
@@ -270,6 +323,13 @@ bool Party::addAvailableRosterRecord(
     const RosterIdentity &identity,
     const std::shared_ptr<Creature> &creature) {
     if (!creature || !isRosterIdentityValid(identity)) return false;
+    if (identity.kind == RosterKind::Npc && !isRosterAvailable(identity)) {
+        applyJoiningExperience(identity.slot, *creature);
+    }
+    joinRosterFaction(identity, *creature);
+    if (identity.kind == RosterKind::Npc) {
+        transferInventory(*creature);
+    }
     try {
         _game.saveRosterState(identity, *creature);
     } catch (const std::exception &e) {
@@ -287,6 +347,17 @@ bool Party::addAvailableRosterRecord(
     std::shared_ptr<Creature> creature;
     try {
         creature = _game.newCreatureFromBlueprint(blueprint);
+        // A companion without a template is not added.
+        if (!creature) {
+            return false;
+        }
+        if (identity.kind == RosterKind::Npc && !isRosterAvailable(identity)) {
+            applyJoiningExperience(identity.slot, *creature);
+        }
+        joinRosterFaction(identity, *creature);
+        if (identity.kind == RosterKind::Npc) {
+            transferInventory(*creature);
+        }
         _game.saveRosterState(identity, *creature);
     } catch (const std::exception &e) {
         if (creature) _game.destroyRuntimeObjectGraph(creature);
@@ -296,6 +367,22 @@ bool Party::addAvailableRosterRecord(
     }
     _game.destroyRuntimeObjectGraph(creature);
     return setRosterAvailable(identity, true);
+}
+
+std::shared_ptr<Creature> Party::bindPlacedCompanion(int npc, const Area &area) {
+    // The tag by which each TSL companion slot finds its creature in an area.
+    static const std::array<const char *, kK2NpcCount> kCompanionTags {
+        "atton", "baodur", "mand", "g0t0", "handmaiden", "hk47",
+        "kreia", "mira", "t3m4", "visasmarr", "hanharr", "disciple"};
+    const std::string tag = kCompanionTags.at(static_cast<size_t>(npc));
+    for (const auto &object : area.objects()) {
+        if (object->type() == ObjectType::Creature && boost::iequals(object->tag(), tag)) {
+            auto creature = std::static_pointer_cast<Creature>(object);
+            bindRosterCreature({RosterKind::Npc, npc}, creature);
+            return creature;
+        }
+    }
+    return nullptr;
 }
 
 bool Party::bindRosterCreature(
@@ -332,8 +419,10 @@ bool Party::bindRosterCreature(
             creature->assignedPuppet() >= static_cast<int>(kMaxPuppetCount)) {
             creature->setAssignedPuppet(-1);
         }
+        // An entry left naming nothing stays so; rebinding the slot does not
+        // fill it.
         for (auto &member : _members) {
-            if (member.npc == identity.slot) {
+            if (member.npc == identity.slot && member.creature) {
                 member.creature = creature;
             }
         }
@@ -351,34 +440,46 @@ bool Party::bindRosterCreature(
     return true;
 }
 
-bool Party::clearRosterCreature(
+std::shared_ptr<Creature> Party::releaseRosterSlot(
     const RosterIdentity &identity,
-    const Creature *expected) {
-    if (!isRosterIdentityValid(identity)) return false;
+    std::optional<std::reference_wrapper<const Creature>> expected) {
+    if (!isRosterIdentityValid(identity)) {
+        return nullptr;
+    }
     auto &bindings = identity.kind == RosterKind::Npc
                          ? _npcBindings
                          : _puppetBindings;
     auto found = bindings.find(identity.slot);
     if (found == bindings.end() ||
-        (expected && found->second.get() != expected)) {
-        return false;
+        (expected && found->second.get() != &expected->get())) {
+        return nullptr;
     }
     auto removed = found->second;
     bindings.erase(found);
+    // Clearing the slot releases only its creature: the controlled index
+    // stays, and when that creature was the one under control nobody is
+    // controlled afterwards.
+    if (identity.kind == RosterKind::Npc && _player == removed) {
+        _player.reset();
+    }
+    return removed;
+}
+
+bool Party::releaseRosterSlot(const Creature &creature) {
+    auto identity = rosterIdentity(creature);
+    return identity && releaseRosterSlot(*identity, creature);
+}
+
+bool Party::clearRosterCreature(
+    const RosterIdentity &identity,
+    const Creature *expected) {
+    auto removed = releaseRosterSlot(
+        identity, expected ? std::optional<std::reference_wrapper<const Creature>>(*expected) : std::nullopt);
+    if (!removed) {
+        return false;
+    }
     if (identity.kind == RosterKind::Npc) {
-        _members.erase(
-            std::remove_if(
-                _members.begin(), _members.end(),
-                [&identity, &removed](const Member &member) {
-                    return member.npc == identity.slot ||
-                           member.creature == removed;
-                }),
-            _members.end());
-        if (_persistedState.controlledNpc == identity.slot &&
-            _player == removed) {
-            _player = _actualPlayer;
-            _persistedState.controlledNpc = kNpcPlayer;
-        }
+        removeMemberEntries(*removed);
     } else {
         removed->setPuppet(false);
         _persistedState.puppetIds.erase(
@@ -395,8 +496,54 @@ bool Party::clearRosterCreature(const Creature &creature) {
     return identity && clearRosterCreature(*identity, &creature);
 }
 
+void Party::vacateMemberEntries(const Creature &creature) {
+    for (auto &member : _members) {
+        if (member.creature.get() == &creature) {
+            member.creature.reset();
+            member.lastTarget.reset();
+        }
+    }
+}
+
+void Party::removeMemberEntries(const Creature &creature) {
+    _members.erase(
+        std::remove_if(
+            _members.begin(), _members.end(),
+            [&creature](const Member &member) {
+                return member.creature.get() == &creature;
+            }),
+        _members.end());
+}
+
+// A follower brought back catches up with the party's experience, as any
+// companion brought into the world does, and perceives at the range of its
+// place.
+void Party::respawnVacantFollowers() {
+    for (auto &member : _members) {
+        if (member.creature || !isCompanion(member)) {
+            continue;
+        }
+        if (auto creature = rosterCreature({RosterKind::Npc, member.npc}, true)) {
+            catchUpExperience(member.npc, *creature);
+            spawnIntoPlayerFaction(*creature);
+            creature->setPerceptionRangeRow(&member == &_members.front() ? kPlayerPerceptionRangeRow
+                                                                         : kPartyPerceptionRangeRow);
+            member.creature = std::move(creature);
+        }
+    }
+}
+
+void Party::removeVacantMembers() {
+    _members.erase(
+        std::remove_if(
+            _members.begin(), _members.end(),
+            [](const Member &member) { return !member.creature; }),
+        _members.end());
+}
+
 bool Party::addMember(int npc, std::shared_ptr<Creature> creature) {
-    if (!creature || isMember(npc) || isMember(*creature)) {
+    // A follower whose creature was destroyed keeps its place and cannot join again.
+    if (!creature || isMember(npc) || isFollower(npc) || isMember(*creature)) {
         return false;
     }
     if (npc != kNpcPlayer) {
@@ -411,13 +558,27 @@ bool Party::addMember(int npc, std::shared_ptr<Creature> creature) {
             return false;
         }
     }
-    // A creature joining the party derives its XP from the shared party pool.
-    creature->setXP(_xp);
+    if (npc != kNpcPlayer) {
+        catchUpExperience(npc, *creature);
+    }
+    // A first companion joining a stealthed leader puts the party in solo mode.
+    const bool firstCompanion = npc != kNpcPlayer && npc != _persistedState.controlledNpc && companionCount() == 0;
+    if (firstCompanion && !_members.empty() && _members.front().creature && _members.front().creature->isStealthed()) {
+        _solo = true;
+    }
 
     Member member;
     member.npc = npc;
     member.creature = creature;
     _members.push_back(std::move(member));
+    // A companion's carried items join the party's; then a member whose body
+    // armour was refused on load joins in the party's clothing.
+    if (npc != kNpcPlayer) {
+        transferInventory(*creature);
+    }
+    creature->forceEquipClothing();
+    // A joining member perceives at the party range; a first one leads.
+    creature->setPerceptionRangeRow(_members.size() == 1 ? kPlayerPerceptionRangeRow : kPartyPerceptionRangeRow);
 
     if (_game.isTSL() && npc != kNpcPlayer &&
         npc != _persistedState.controlledNpc &&
@@ -436,6 +597,39 @@ bool Party::addMember(int npc, std::shared_ptr<Creature> creature) {
     return true;
 }
 
+void Party::setSoloMode(bool value) {
+    if (!value) {
+        endStealth();
+    }
+    _solo = value;
+}
+
+void Party::endStealth() {
+    for (const auto &member : _members) {
+        if (member.creature) {
+            member.creature->setStealthMode(false);
+        }
+    }
+}
+
+bool Party::isCompanion(const Member &member) const {
+    return member.npc != kNpcPlayer && member.npc != _persistedState.controlledNpc;
+}
+
+int Party::companionCount() const {
+    return static_cast<int>(std::count_if(_members.begin(), _members.end(), [this](const Member &member) {
+        return isCompanion(member);
+    }));
+}
+
+std::string Party::playerCharacterName() const {
+    if (!_persistedState.pcName.empty()) {
+        return _persistedState.pcName;
+    }
+    auto player = actualPlayer();
+    return player ? player->name() : std::string();
+}
+
 void Party::reset() {
     retireRuntimeSession();
     _solo = false;
@@ -446,6 +640,7 @@ void Party::reset() {
     _pazaakCardCounts.fill(0);
     _pazaakSideDeck.fill(-1);
     _persistedState = PersistedState();
+    resetFollowSlots();
 }
 
 void Party::retireRuntimeSession() {
@@ -463,24 +658,176 @@ void Party::clear() {
     _members.clear();
 }
 
+static constexpr int kMaxGold = 999999999;
+static constexpr int kGoldGainedStrRef = 1493;
+static constexpr int kGoldLostStrRef = 1494;
+static constexpr int kComponentsGainedStrRef = 128117;
+static constexpr int kChemicalsGainedStrRef = 128118;
+static constexpr char kPazaakSideboardResRef[] = "g_i_pazsidebd001";
+
+// A count raised by amount, up to 999999999.
+static int raisedCount(int count, int amount) {
+    return static_cast<int>(std::min<int64_t>(static_cast<int64_t>(count) + amount, kMaxGold));
+}
+
 void Party::giveGold(int amount) {
-    _gold += amount;
+    _gold = raisedCount(_gold, amount);
 }
 
 void Party::takeGold(int amount) {
-    _gold -= amount;
-    if (_gold < 0) {
-        _gold = 0;
+    _gold = std::max(_gold - amount, 0);
+}
+
+int Party::creatureGold(const Creature &creature) const {
+    return isMember(creature) ? _gold : creature.gold();
+}
+
+int Party::addCreatureGold(Creature &creature, int amount) {
+    const int before = creatureGold(creature);
+    const int after = raisedCount(before, amount);
+    const int change = after - before;
+    if (isMember(creature)) {
+        giveGold(change);
+    } else {
+        creature.giveGold(change);
+    }
+    if (change != 0 && getLeader().get() == &creature) {
+        _game.addFeedbackMessage(kGoldGainedStrRef, {{0, std::to_string(change)}});
+    }
+    return change;
+}
+
+int Party::removeCreatureGold(Creature &creature, int amount) {
+    const int before = creatureGold(creature);
+    const int after = std::max(before - amount, 0);
+    const int change = before - after;
+    if (isMember(creature)) {
+        takeGold(change);
+    } else {
+        creature.takeGold(change);
+    }
+    if (change != 0 && getLeader().get() == &creature) {
+        _game.addFeedbackMessage(kGoldLostStrRef, {{0, std::to_string(change)}});
+    }
+    return change;
+}
+
+// The collection slot a pazaak card item joins, from its model variation. KotOR
+// maps every variation onto its eighteen cards; TSL maps the first eighteen
+// the same way, the five that follow onto its further cards, and any other to
+// the first slot.
+static int acquiredPazaakCardSlot(int variation, bool tsl) {
+    static constexpr int kCardCount = 18;
+    if (!tsl || (variation >= 1 && variation <= kCardCount)) {
+        return (variation + 11) % kCardCount;
+    }
+    static constexpr int kFurtherSlots[] = {22, 19, 18, 20, 21};
+    if (variation > kCardCount && variation <= kCardCount + 5) {
+        return kFurtherSlots[variation - kCardCount - 1];
+    }
+    return 0;
+}
+
+bool Party::isCountedItem(const Item &item) const {
+    switch (item.itemType()) {
+    case Item::kCreditsItemType:
+    case Item::kPazaakCardItemType:
+        return true;
+    case Item::kChemicalsItemType:
+    case Item::kComponentsItemType:
+        return _game.isTSL();
+    default:
+        return false;
     }
 }
 
+// A party member's chemicals and components are the party's counts; the
+// creature the player controls is told the change. The acquirer of a pazaak
+// card is given a sideboard to hold the collection when it has none.
+void Party::acquireCountedItem(Creature &acquirer, const Item &item) {
+    const int amount = item.stackSize();
+    auto raisePartyCount = [&](uint32_t &count, int strRef) {
+        if (!isMember(acquirer)) {
+            return;
+        }
+        const int before = static_cast<int>(count);
+        const int after = raisedCount(before, amount);
+        count = static_cast<uint32_t>(after);
+        if (after != before && getLeader().get() == &acquirer) {
+            _game.addFeedbackMessage(strRef, {{0, std::to_string(after - before)}});
+        }
+    };
+    switch (item.itemType()) {
+    case Item::kCreditsItemType:
+        addCreatureGold(acquirer, amount);
+        break;
+    case Item::kChemicalsItemType:
+        raisePartyCount(_persistedState.itemChemical, kChemicalsGainedStrRef);
+        break;
+    case Item::kComponentsItemType:
+        raisePartyCount(_persistedState.itemComponent, kComponentsGainedStrRef);
+        break;
+    case Item::kPazaakCardItemType: {
+        addPazaakCards(acquiredPazaakCardSlot(item.modelVariation(), _game.isTSL()), amount);
+        const bool hasSideboard = std::any_of(acquirer.items().begin(), acquirer.items().end(),
+                                              [](const std::shared_ptr<Item> &held) { return held->itemType() == Item::kPazaakSideboardItemType; });
+        if (!hasSideboard) {
+            acquirer.addItem(kPazaakSideboardResRef, 1, std::nullopt);
+        }
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+// TSL: the first companion in the party with feat 202 adds 3%, 5% or 7% of
+// an award by its own level (1-6, 7-12, 13 and up), rounded up.
+int Party::companionXPBonus(int amount) const {
+    if (!_game.isTSL()) {
+        return 0;
+    }
+    for (const auto &member : _members) {
+        if (!isCompanion(member) || !member.creature) {
+            continue;
+        }
+        const auto &attributes = member.creature->attributes();
+        if (!attributes.hasFeat(FeatType::Mentor)) {
+            continue;
+        }
+        const int level = attributes.getAggregateLevel();
+        if (level <= 0) {
+            return 0;
+        }
+        const float rate = level > 12 ? 0.07f : (level > 6 ? 0.05f : 0.03f);
+        return static_cast<int>(std::ceil(static_cast<float>(amount) * rate));
+    }
+    return 0;
+}
+
 void Party::awardXP(int amount, XPSource source) {
-    _xp += amount;
-    syncMembersXP();
-    // Preserve zero/negative pool semantics, but only positive awards are XP
-    // received. Submit the call amount once, not the pool total or per member.
+    // Only positive awards are distributed.
     if (amount <= 0) {
         return;
+    }
+    // The pool takes the award at face value; the companion bonus is paid to
+    // the recipients only.
+    _xp += amount;
+    const int paid = amount + companionXPBonus(amount);
+    // The followers are paid, then the creature under the player's control:
+    // a companion controlled in the player character's place is paid in its
+    // stead.
+    for (const auto &member : _members) {
+        if (isCompanion(member) && member.creature) {
+            receiveExperience(*member.creature, paid);
+        }
+    }
+    if (_player) {
+        receiveExperience(*_player, paid);
+    }
+    // Every award but kill experience is announced with the amount paid.
+    if (source != XPSource::Combat) {
+        _game.addFeedbackMessage(kExperienceGainedStrRef, {{0, std::to_string(paid)}});
     }
 
     switch (source) {
@@ -488,11 +835,12 @@ void Party::awardXP(int amount, XPSource source) {
     case XPSource::Console:
         _game.submitStatusSummary(StatusSummaryCategory::PlotXP, amount);
         break;
-    case XPSource::Combat:
-        // Combat rewards are intentionally silent in the Status Summary.
-        break;
     case XPSource::Stealth:
-        // Stealth accounting and presentation are implemented in a later slice.
+        _game.submitStatusSummary(StatusSummaryCategory::StealthXP, amount);
+        break;
+    case XPSource::Combat:
+    case XPSource::Skill:
+    case XPSource::Script:
         break;
     }
 }
@@ -500,6 +848,90 @@ void Party::awardXP(int amount, XPSource source) {
 void Party::setXP(int xp) {
     _xp = xp;
     syncMembersXP();
+}
+
+// A blank or missing share pays nothing.
+int Party::percentXP(int row) const {
+    return getRequiredTwoDA(_game.services().resource.twoDas, "npc")->getInt(row, "percentxp", 0);
+}
+
+// A roster companion takes its npc.2da share and every recipient the
+// general share, rounded up. TSL pays nothing to creatures tagged 204_b4d4 or
+// remote, and keeps G_PC_LEVEL at the level the player character's
+// experience reaches.
+void Party::receiveExperience(Creature &creature, int amount) {
+    if (_game.isTSL() &&
+        (boost::iequals(creature.tag(), "204_b4d4") || boost::iequals(creature.tag(), "remote"))) {
+        return;
+    }
+    auto identity = rosterIdentity(creature);
+    float share = identity && identity->kind == RosterKind::Npc ? percentXP(identity->slot) / static_cast<float>(kFullShare) : 1.0f;
+    share *= percentXP(_game.isTSL() ? kTSLGeneralXPRow : kK1GeneralXPRow) / static_cast<float>(kFullShare);
+    creature.giveXP(static_cast<int>(std::ceil(static_cast<float>(amount) * share)));
+    if (_game.isTSL() && creature.isPlayerCreated()) {
+        _game.setGlobalNumber("G_PC_LEVEL", creature.potentialLevel());
+    }
+}
+
+// The share of the pool a roster addition or catch-up is measured against;
+// a zero entry counts as the whole pool.
+static int rosterPercent(int percent) {
+    return percent != 0 ? percent : kFullShare;
+}
+
+// The experience a level takes grows by this much per level: a character of
+// level n has at least 500 * n * (n - 1).
+static constexpr int kLevelXPStep = 500;
+
+void Party::applyJoiningExperience(int npc, Creature &creature) {
+    const int percent = rosterPercent(percentXP(npc));
+    const int share = static_cast<int>(percent / 100.0f * static_cast<float>(_xp));
+    const int level = creature.attributes().getAggregateLevel();
+    // The experience a character of this level has at least.
+    const int levelXP = kLevelXPStep * level * (level - 1);
+    if (_game.isTSL()) {
+        creature.setJoiningXP(0);
+        receiveExperience(creature, levelXP - share > 0 ? levelXP - share : share);
+    } else {
+        creature.setJoiningXP(share >= levelXP ? 0 : levelXP - share);
+    }
+}
+
+// A creature joining the party, or made available to it, hands its credits
+// and carried items to the party; what it wears stays on it, and its own
+// credit count is left as it was.
+void Party::transferInventory(Creature &creature) {
+    auto receiver = actualPlayer();
+    _gold += creature.gold();
+    const auto carried = creature.items();
+    for (const auto &item : carried) {
+        transferItemTo(_game, item, *receiver);
+    }
+}
+
+void Party::joinRosterFaction(const RosterIdentity &identity, Creature &creature) const {
+    if (identity.kind == RosterKind::Puppet) {
+        creature.setFaction(Faction::PartyPuppet);
+        return;
+    }
+    if (_player) {
+        creature.setFaction(_player->faction());
+    }
+}
+
+void Party::spawnIntoPlayerFaction(Creature &creature) const {
+    if (_game.isTSL() && _player) {
+        creature.setFaction(_player->faction());
+    }
+}
+
+void Party::catchUpExperience(int npc, Creature &creature) {
+    const int percent = rosterPercent(percentXP(npc));
+    const int earned = creature.xp() - creature.joiningXP();
+    if (earned >= static_cast<int>(static_cast<float>(_xp) * (percent / 100.0f))) {
+        return;
+    }
+    receiveExperience(creature, _xp - static_cast<int>(static_cast<float>(earned) / static_cast<float>(percent) * 100.0f));
 }
 
 void Party::syncMembersXP() {
@@ -512,27 +944,131 @@ void Party::syncMembersXP() {
     }
 }
 
-void Party::switchLeader() {
+static constexpr int kK1IdleCombatMessageStrRef = 48208;
+static constexpr int kTSLIdleCombatMessageStrRef = 111303;
+
+int Party::idleCombatMessage() const {
+    return _game.isTSL() ? kTSLIdleCombatMessageStrRef : kK1IdleCombatMessageStrRef;
+}
+
+void Party::setCombatMessage(const Creature &creature, int strref) {
+    auto member = std::find_if(_members.begin(), _members.end(),
+                               [&creature](const Member &entry) { return entry.creature.get() == &creature; });
+    if (member == _members.end()) {
+        return;
+    }
+    member->combatMessage = strref;
+    if (member == _members.begin()) {
+        _game.presentCombatMessage(strref);
+    }
+}
+
+void Party::switchLeader(bool sound) {
     if (_members.size() <= 1) {
         return;
     }
+
+    saveLeaderAttackTarget();
 
     Member tmp(_members[0]);
     _members.erase(_members.begin());
     _members.push_back(tmp);
 
-    onLeaderChanged();
+    onLeaderChanged(tmp.creature, sound);
 }
 
-void Party::onLeaderChanged() {
-    auto entry = static_cast<resource::SoundSetEntry>(static_cast<int>(resource::SoundSetEntry::Select1) + randomInt(0, 2));
-    _members[0].creature->playSound(entry, false);
+bool Party::changeToNextLivingMember(bool sound) {
+    if (_members.empty()) {
+        return false;
+    }
+    const auto start = _members.front().creature;
+    auto isDown = [](const Creature &creature) { return creature.isDead() || creature.isTemporarilyDead(); };
+    // From a living leader the rotation only comes back round to it.
+    const bool startDown = isDown(*start);
+    int tries = 3;
+    bool reached = false;
+    while (!reached && tries > 0) {
+        switchLeader(false);
+        // An entry naming nothing cannot take the lead.
+        const auto &leader = _members.front().creature;
+        if (!leader || isDown(*leader)) {
+            --tries;
+            continue;
+        }
+        reached = startDown || leader == start;
+    }
+    if (!reached || _members.front().creature == start) {
+        return false;
+    }
+    if (sound) {
+        playLeaderSelectSound();
+    }
+    return true;
+}
 
-    for (auto &member : _members) {
-        member.creature->clearAllActions();
+bool Party::selectNextStandingMember() {
+    auto isDown = [](const Creature &creature) { return creature.isDead() || creature.isTemporarilyDead(); };
+    for (size_t index = 1; index < _members.size(); ++index) {
+        const auto &creature = _members[index].creature;
+        if (!creature || isDown(*creature)) {
+            continue;
+        }
+        for (size_t turn = 0; turn < index; ++turn) {
+            switchLeader(false);
+        }
+        playLeaderSelectSound();
+        return true;
+    }
+    return false;
+}
+
+void Party::saveLeaderAttackTarget() {
+    auto &member = _members.front();
+    member.lastTarget = member.creature ? member.creature->getAttackTarget() : nullptr;
+}
+
+void Party::onLeaderChanged(const std::shared_ptr<Creature> &previous, bool sound) {
+    // The new leader perceives at the player range and takes over what the
+    // old one perceived; the old one looks around again at the party range.
+    // The lead changes only within a module's area.
+    auto &area = *_game.module()->area();
+    const auto &leader = _members[0].creature;
+    if (leader && previous && leader != previous) {
+        leader->setPerceptionRangeRow(kPlayerPerceptionRangeRow);
+        previous->setPerceptionRangeRow(kPartyPerceptionRangeRow);
+        leader->takePerception(*previous);
+        area.perceiveNow(previous);
+    }
+    // A new leader starts the trail over where it stands.
+    if (leader && leader != previous) {
+        resetFollowPath(area, leader->position(), leader->getFacing(), true);
+        _game.scriptRunner().run(kLeaderChangedScript, leader->id());
     }
 
-    _game.module()->area()->onPartyLeaderMoved(true);
+    // A dead or downed leader makes no select sound, and nor does a place
+    // that names no one.
+    if (sound && leader && !leader->isDead() && !leader->isTemporarilyDead()) {
+        playLeaderSelectSound();
+    }
+    auto lastTarget = _members[0].lastTarget.resolve();
+    _game.setLastTarget(lastTarget ? lastTarget->id() : script::kObjectInvalid);
+    // A new leader in combat mode shows its own last combat-mode line again.
+    const auto &combatMessage = _members[0].combatMessage;
+    if (leader && leader->clientCombatMode() && combatMessage && *combatMessage != idleCombatMessage()) {
+        _game.presentCombatMessage(*combatMessage);
+    }
+
+    // The new leader stops following; everyone else carries on.
+    if (leader) {
+        leader->removeActionsOfType(ActionType::FollowLeader);
+    }
+
+    area.onPartyLeaderMoved(true);
+}
+
+void Party::playLeaderSelectSound() {
+    auto entry = static_cast<resource::SoundSetEntry>(static_cast<int>(resource::SoundSetEntry::Select1) + randomInt(0, 2));
+    _members[0].creature->playSound(entry);
 }
 
 std::shared_ptr<Creature> Party::getAvailableMember(int npc) const {
@@ -555,7 +1091,7 @@ std::shared_ptr<Creature> Party::getMember(int index) const {
 
 std::shared_ptr<Creature> Party::getMemberByNPC(int npc) const {
     for (auto &member : _members) {
-        if (member.npc == npc) {
+        if (member.npc == npc && member.creature) {
             return member.creature;
         }
     }
@@ -574,12 +1110,20 @@ int Party::getSize() const {
     return static_cast<int>(_members.size());
 }
 
+// An entry naming nothing makes no one a member.
 bool Party::isMember(int npc) const {
     for (auto &member : _members) {
-        if (member.npc == npc)
+        if (member.npc == npc && member.creature) {
             return true;
+        }
     }
     return false;
+}
+
+bool Party::isFollower(int npc) const {
+    return std::any_of(_members.begin(), _members.end(), [this, npc](const Member &member) {
+        return member.npc == npc && isCompanion(member);
+    });
 }
 
 bool Party::isMemberAvailable(int npc) const {
@@ -605,9 +1149,10 @@ bool Party::removePuppet(int puppet) {
         _persistedState.puppetIds.end(), puppet);
     if (found == _persistedState.puppetIds.end()) return false;
     if (auto creature = rosterCreature({RosterKind::Puppet, puppet})) {
+        // A puppet leaving the party has its effects cleared before it is saved.
+        creature->clearAllEffects();
         try {
-            // Retail RemovePuppet snapshots the live representation before
-            // KillPUPObject invalidates its transient object binding.
+            // Snapshot the puppet before retiring its transient object binding.
             _game.saveRosterState({RosterKind::Puppet, puppet}, *creature);
         } catch (const std::exception &e) {
             warn("Party: could not persist puppet before removal: " +
@@ -699,33 +1244,64 @@ std::shared_ptr<Creature> Party::getLeader() const {
     return !_members.empty() ? _members[0].creature : nullptr;
 }
 
-void Party::setPartyLeader(int npc) {
+bool Party::setPartyLeader(int npc) {
+    if (npc == kNpcPlayer) {
+        // Handing the lead to the player character stands a downed player
+        // character up first, whether or not it already leads, and leaves it
+        // raiseable.
+        for (const auto &member : _members) {
+            const auto &creature = member.creature;
+            if (!creature || !creature->isPC()) {
+                continue;
+            }
+            if (creature->isTemporarilyDead()) {
+                creature->applyEffect(_game.newEffect<ResurrectionEffect>(0), DurationType::Instant);
+                creature->setRaiseable(true);
+            }
+        }
+        leadWithPlayerCharacter();
+        return true;
+    }
     int memberIdx = -1;
     for (int i = 0; i < static_cast<int>(_members.size()); ++i) {
-        if (_members[i].npc == npc) {
+        if (_members[i].npc == npc && _members[i].creature) {
             memberIdx = i;
             break;
         }
     }
     if (memberIdx == -1) {
         warn("Party: NPC not found: " + std::to_string(npc));
-        return;
+        return false;
     }
-    if (memberIdx == 0)
-        return;
+    if (memberIdx > 0) {
+        setPartyLeaderByIndex(memberIdx);
+    }
+    return true;
+}
 
-    setPartyLeaderByIndex(memberIdx);
+void Party::leadWithPlayerCharacter() {
+    for (int i = 0; i < static_cast<int>(_members.size()); ++i) {
+        const auto &creature = _members[i].creature;
+        if (creature && creature->isPC()) {
+            if (i > 0) {
+                setPartyLeaderByIndex(i);
+            }
+            return;
+        }
+    }
 }
 
 void Party::setPartyLeaderByIndex(int index) {
     if (index < 1 || index >= _members.size())
         return;
 
-    Member tmp(_members[0]);
-    _members[0] = _members[index];
-    _members[index] = tmp;
+    saveLeaderAttackTarget();
 
-    onLeaderChanged();
+    // The members ahead of the new leader move to the back in their order.
+    const auto previous = _members[0].creature;
+    std::rotate(_members.begin(), _members.begin() + index, _members.end());
+
+    onLeaderChanged(previous);
 }
 
 void Party::setPlayer(const std::shared_ptr<Creature> &player) {
@@ -741,26 +1317,30 @@ void Party::setControlledMember(int npc, const std::shared_ptr<Creature> &creatu
         return;
     }
     if (npc != kNpcPlayer && isMember(npc)) {
-        // Retail removes an incoming companion from the two-member array
-        // before it becomes the controlled player, including its active
-        // assigned-puppet runtime representation.
+        // An incoming companion leaves the followers as any removed member
+        // does, its assigned puppet included, before it takes control.
         removeMember(npc);
     }
     // However the incoming creature was represented before, it ends up in the
     // leading slot once and only once.
+    // Entries left naming nothing do not survive the change of control.
     _members.erase(
         std::remove_if(
             _members.begin(), _members.end(),
             [&npc, &creature](const Member &member) {
-                return member.npc == npc || member.creature == creature;
+                return member.npc == npc || member.creature == creature || !member.creature;
             }),
         _members.end());
 
     // The actor being relieved stops being a party member rather than becoming
-    // a companion: the canonical PC waits in _actualPlayer and a relieved NPC
-    // waits in the available roster, which is where each is looked up again.
-    if (!_members.empty() && _player && _members.front().creature == _player) {
-        _members.erase(_members.begin());
+    // a companion, whichever slot leads: the canonical PC waits in
+    // _actualPlayer, where it is looked up again.
+    if (_player) {
+        _members.erase(
+            std::remove_if(
+                _members.begin(), _members.end(),
+                [this](const Member &member) { return member.creature == _player; }),
+            _members.end());
     }
 
     Member member;
@@ -768,94 +1348,48 @@ void Party::setControlledMember(int npc, const std::shared_ptr<Creature> &creatu
     member.creature = creature;
     _members.insert(_members.begin(), std::move(member));
 
+    // The controlled creature is a player character.
+    creature->setPC(true);
     _player = creature;
+    // The controlled creature perceives at the player range.
+    creature->setPerceptionRangeRow(kPlayerPerceptionRangeRow);
+    // A control transfer creates a new member entry, not a leader rotation.
+    _game.setLastTarget(script::kObjectInvalid);
     _persistedState.controlledNpc = npc;
 }
 
 bool Party::removeMember(int npc) {
-    if (npc == kNpcPlayer ||
-        (npc == _persistedState.controlledNpc &&
-         _player == rosterCreature({RosterKind::Npc, npc}))) {
+    const RosterIdentity identity {RosterKind::Npc, npc};
+    // Removal needs a follower in the party and an available roster slot;
+    // KotOR refuses it while another actor stands in for the player character.
+    if (npc == kNpcPlayer || companionCount() == 0 || !isRosterAvailable(identity) ||
+        (!_game.isTSL() && _persistedState.controlledNpc != kNpcPlayer)) {
         return false;
     }
-    auto maybeMember = std::find_if(_members.begin(), _members.end(), [&npc](auto &member) { return member.npc == npc; });
-    if (maybeMember != _members.end()) {
-        const auto creature = maybeMember->creature;
-        const int puppet = creature ? creature->assignedPuppet() : -1;
-        if (creature) {
-            try {
-                // Retail RemoveMember saves the current bound NPC before its
-                // runtime membership changes. Reone retains the binding, but
-                // keeping the detached snapshot current preserves the same
-                // explicit PartyTable repository semantics.
-                _game.saveRosterState({RosterKind::Npc, npc}, *creature);
-            } catch (const std::exception &e) {
-                warn("Party: could not persist NPC before removal: " +
-                     std::string(e.what()));
-                return false;
-            }
-        }
+    // The slot's live creature has its effects cleared, gives up its assigned
+    // puppet and is saved, whether or not it is travelling with the party.
+    if (const auto creature = rosterCreature(identity)) {
+        creature->clearAllEffects();
+        const int puppet = creature->assignedPuppet();
         if (_game.isTSL() && puppet >= 0 && isPuppet(puppet)) {
             if (!removePuppet(puppet)) return false;
             _game.killRosterCreature({RosterKind::Puppet, puppet});
         }
-        _members.erase(maybeMember);
-        return true;
-    }
-    return false;
-}
-
-bool Party::removeMemberToBase(int npc) {
-    const RosterIdentity identity {RosterKind::Npc, npc};
-    if (!_game.isTSL() || !isRosterAvailable(identity)) {
-        return false;
-    }
-
-    auto creature = rosterCreature(identity);
-    if (!creature) {
-        return true;
-    }
-
-    // Retail RemoveMember returns early when the active member table is
-    // empty. RemoveNPCFromPartyToBase still proceeds to KillNPCObject, so the
-    // caller deliberately keeps that final retirement separate.
-    if (_members.empty()) {
-        return true;
-    }
-
-    // K2 removes transient effects before writing AVAILNPCn, but retains the
-    // supported action queue in the detached record. Runtime retirement later
-    // clears the old live execution state through the Area/C4 boundary.
-    creature->clearAllEffects();
-
-    const int puppet = creature->assignedPuppet();
-    if (puppet >= 0 && isPuppet(puppet)) {
-        if (auto puppetCreature = rosterCreature(
-                {RosterKind::Puppet, puppet})) {
-            puppetCreature->clearAllEffects();
-        }
-        if (!removePuppet(puppet)) {
-            return false;
-        }
-        _game.killRosterCreature({RosterKind::Puppet, puppet});
-    }
-
-    try {
+        // Keep the detached PartyTable record current while retaining the
+        // live binding.
         _game.saveRosterState(identity, *creature);
-    } catch (const std::exception &e) {
-        warn("Party: could not persist NPC before base removal: " +
-             std::string(e.what()));
+    }
+    // The actor standing in for the player character is not a follower.
+    if (npc == _persistedState.controlledNpc) {
         return false;
     }
-
-    _members.erase(
-        std::remove_if(
-            _members.begin(), _members.end(),
-            [npc, &creature](const Member &member) {
-                return member.npc == npc || member.creature == creature;
-            }),
-        _members.end());
-    if (_members.empty()) {
+    auto maybeMember = std::find_if(_members.begin(), _members.end(), [&npc](auto &member) { return member.npc == npc; });
+    if (maybeMember == _members.end()) {
+        return false;
+    }
+    _members.erase(maybeMember);
+    // Solo mode ends with the last companion.
+    if (companionCount() == 0) {
         _solo = false;
     }
     return true;
@@ -871,6 +1405,353 @@ void Party::defaultMembers(std::string &member1, std::string &member2, std::stri
         member2 = kBlueprintResRefBastila;
         member3.clear();
     }
+}
+
+// Follow path
+
+// Steps closer than this, in a clear line from the previous one, are dropped.
+static constexpr float kFollowStepMinimum2 = 0.25f;
+// The trail is straightened once a follower lags this far (squared metres).
+static constexpr float kFollowerLagLimit2 = 49.0f;
+// The followers' follow points sit this far either side of the follow range.
+static constexpr float kFollowSpacing = 1.0f;
+// The party's follow states that take their follow range from ranges.2da.
+static constexpr int kCloseFollowState = 0;
+static constexpr int kHoldFollowState = 1;
+// Follow range when the follow state names no ranges row.
+static constexpr float kDefaultFollowRange = 5.0f;
+static constexpr int kCloseFollowRangeRow = 14;
+static constexpr int kHoldFollowRangeRow = 15;
+// A straightened trail is laid out at this spacing.
+static constexpr float kFollowStepLength = 1.0f;
+// Points this close together are taken as in line without a walk test.
+static constexpr double kFollowSameStep2 = 1e-05;
+// The most corners a straightened trail keeps.
+static constexpr size_t kFollowCorners = 200;
+// Seeded followers stand this far behind the leader, one and two spacings back.
+static constexpr float kSeedFollowerSpacing = 1.5f;
+static constexpr float kSeedPlacementRadius = 2.0f;
+// A member that does not fit where it stands moves within this radius.
+static constexpr float kResetPlacementRadius = 5.0f;
+
+static const glm::vec3 kFirstFollowerFormation {1.5f, -0.7f, 0.0f};
+static const glm::vec3 kSecondFollowerFormation {-1.5f, 0.8f, 0.0f};
+
+static glm::vec3 forwardOf(float facing) {
+    return glm::angleAxis(facing, glm::vec3(0.0f, 0.0f, 1.0f)) * glm::vec3(0.0f, 1.0f, 0.0f);
+}
+
+static float facingAlong(const glm::vec3 &direction) {
+    return direction.x == 0.0f && direction.y == 0.0f ? 0.0f : -std::atan2(direction.x, direction.y);
+}
+
+static glm::vec3 unitOrForward(const glm::vec3 &vector) {
+    const float length = glm::length(vector);
+    return length < 1e-9f ? glm::vec3(1.0f, 0.0f, 0.0f) : vector / length;
+}
+
+void Party::resetFollowSlots() {
+    _followSteps.fill(FollowStep());
+    _followHead = 0;
+    _followCount = 0;
+    _lastClearStep = glm::vec3(0.0f);
+    _followSlots.fill(FollowSlot());
+    _followSlots[1].formationOffset = kFirstFollowerFormation;
+    _followSlots[2].formationOffset = kSecondFollowerFormation;
+}
+
+bool Party::isTrailLineClear(
+    const Area &area, const Creature &walker, const glm::vec3 &from, const glm::vec3 &to, bool &clear) const {
+    const auto line = area.testDirectLine(walker, from, to);
+    clear = line.result == Area::DirectLine::Clear;
+    return clear || (line.result == Area::DirectLine::CreatureBlocked && line.blocker && isMember(line.blocker->get()));
+}
+
+void Party::recordLeaderStep(const Area &area, const glm::vec3 &position, float facing) {
+    const glm::vec3 previous {_followSteps[newestStep()].position};
+    if (_followCount == 0) {
+        _lastClearStep = position;
+    }
+    const auto leader = getLeader();
+    if (!leader) {
+        return;
+    }
+
+    const glm::vec3 offset {position - previous};
+    bool clear = false;
+    if (!isTrailLineClear(area, *leader, previous, position, clear)) {
+        // The way round a corner goes through the last point reached in a clear line.
+        _followSteps[_followHead].position = _lastClearStep;
+        _followHead = stepAfter(_followHead);
+    }
+    _lastClearStep = position;
+    if (glm::dot(offset, offset) < kFollowStepMinimum2 && clear) {
+        return;
+    }
+
+    _followSteps[_followHead] = FollowStep {position, facing};
+    _followHead = stepAfter(_followHead);
+    if (_followCount < kFollowSteps) {
+        ++_followCount;
+        if (_followCount <= 2) {
+            return;
+        }
+    }
+    if (getSize() >= 2 && followerLag2(furthestFollower()) >= kFollowerLagLimit2) {
+        smoothFollowPath(area);
+    }
+}
+
+void Party::resetFollowPath(Area &area, const glm::vec3 &position, float facing, bool seed) {
+    for (auto &step : _followSteps) {
+        step = FollowStep {position, facing};
+    }
+    _followHead = 0;
+    _followCount = 0;
+    // An unseeded reset records no step. A seeded one records the seeded
+    // spots nearest first, then the position itself; while they are recorded
+    // the trail is judged against the followers' points from before the reset.
+    if (seed) {
+        if (const auto leader = getLeader()) {
+            const glm::vec3 back {forwardOf(facing) * -kSeedFollowerSpacing};
+            if (auto spot = area.computeSafeLocation(position + back, kSeedPlacementRadius, *leader, true)) {
+                recordLeaderStep(area, *spot, facing);
+            }
+            if (auto spot = area.computeSafeLocation(position + 2.0f * back, kSeedPlacementRadius, *leader, true)) {
+                recordLeaderStep(area, *spot, facing);
+            }
+        }
+        recordLeaderStep(area, position, facing);
+    }
+    for (auto &slot : _followSlots) {
+        slot.point = position;
+        slot.index = 0;
+    }
+    // A follower keeps the way it faces until it moves or turns to the leader;
+    // the slots may now hold other members than before.
+    for (int slot = 1; slot < kPartyFollowSlots && slot < getSize(); ++slot) {
+        if (const auto member = getMember(slot)) {
+            _followSlots[slot].lastFacing = forwardOf(member->getFacing());
+        }
+    }
+    for (int slot = 0; slot < kPartyFollowSlots && slot < getSize(); ++slot) {
+        const auto member = getMember(slot);
+        if (!member || area.isSafeLocationPoint(member->position(), *member)) {
+            continue;
+        }
+        const glm::vec3 standing {member->position()};
+        member->setPosition(area.computeSafeLocation(standing, kResetPlacementRadius, *member, true).value_or(standing));
+        area.determineObjectRoom(*member);
+    }
+}
+
+void Party::updateFollowPath() {
+    // Nobody follows while no one leads.
+    if (!getLeader()) {
+        return;
+    }
+    const int furthest = furthestFollower();
+    if (!getMember(furthest) || _game.isConversationActive()) {
+        return;
+    }
+    if (followerLag2(furthest) >= kFollowerLagLimit2 && !turnBack()) {
+        recalculateFollowPoints();
+    }
+}
+
+glm::vec3 Party::formationSpot(int slot) const {
+    const auto &follow = _followSlots[slot];
+    const glm::quat facing {glm::angleAxis(_followSteps[follow.index].facing, glm::vec3(0.0f, 0.0f, 1.0f))};
+    return follow.point + facing * follow.formationOffset;
+}
+
+void Party::noteFollowerFacing(const Creature &follower, const glm::vec3 &forward) {
+    for (int slot = 1; slot < kPartyFollowSlots && slot < getSize(); ++slot) {
+        if (getMember(slot).get() == &follower) {
+            _followSlots[slot].lastFacing = forward;
+        }
+    }
+}
+
+float Party::followRange() const {
+    int row;
+    switch (_persistedState.followState) {
+    case kCloseFollowState:
+        row = kCloseFollowRangeRow;
+        break;
+    case kHoldFollowState:
+        row = kHoldFollowRangeRow;
+        break;
+    default:
+        return kDefaultFollowRange;
+    }
+    return getRequiredTwoDA(_game.services().resource.twoDas, "ranges")->getFloat(row, "primaryrange");
+}
+
+// Walk back from the leader's newest step, segment by segment, until the
+// distance is used up inside a segment or the slot's own step is reached.
+// A trail of two steps or fewer has no point. A distance used up exactly on a
+// step leaves the point as given.
+bool Party::pointBackFromStart(float distance, int slot, glm::vec3 &point, int &step) const {
+    int index = newestStep();
+    if (_followCount <= 2) {
+        step = 0;
+        point = glm::vec3(0.0f);
+        return false;
+    }
+    glm::vec3 current {_followSteps[index].position};
+    const int own = slot != 0 ? _followSlots[slot].index : -1;
+    int remaining = _followCount;
+    step = index;
+    if (!(distance > 0.0f)) {
+        return true;
+    }
+    for (;;) {
+        step = index;
+        if (slot != 0 && index == own) {
+            point = current;
+            return true;
+        }
+        index = stepBefore(index);
+        const glm::vec3 segment {_followSteps[index].position - current};
+        const float length2 = glm::dot(segment, segment);
+        if (length2 >= distance * distance) {
+            point = current + unitOrForward(segment) * distance;
+            return true;
+        }
+        if (remaining <= 0) {
+            point = glm::vec3(0.0f);
+            return false;
+        }
+        distance -= std::sqrt(length2);
+        current = _followSteps[index].position;
+        --remaining;
+        if (!(distance > 0.0f)) {
+            return true;
+        }
+    }
+}
+
+void Party::recalculateFollowPoints(std::optional<int> sightedStep) {
+    const float range = followRange();
+    glm::vec3 point {0.0f};
+    int step = 0;
+    if (pointBackFromStart(range - kFollowSpacing, 1, point, step)) {
+        _followSlots[1].point = point;
+        _followSlots[1].index = step;
+    } else if (sightedStep) {
+        _followSlots[1].index = *sightedStep;
+    }
+    if (pointBackFromStart(range + kFollowSpacing, 2, point, step)) {
+        _followSlots[2].point = point;
+        _followSlots[2].index = step;
+    } else if (sightedStep) {
+        _followSlots[2].index = *sightedStep;
+    }
+}
+
+// Followers are ordered by how recent their trail step is; an absent follower
+// counts as furthest back, and a tie goes to the second.
+int Party::furthestFollower() const {
+    auto recency = [this](int slot) {
+        const int step = getMember(slot) ? _followSlots[slot].index : -1;
+        return step != -1 && _followHead > step ? step + kFollowSteps : step;
+    };
+    return recency(1) >= recency(2) ? 2 : 1;
+}
+
+int Party::closestFollower() const {
+    auto recency = [this](int slot) {
+        const int step = getMember(slot) ? _followSlots[slot].index : -1;
+        return step != -1 && _followHead > step ? step + kFollowSteps : step;
+    };
+    return recency(1) <= recency(2) ? 2 : 1;
+}
+
+float Party::followerLag2(int slot) const {
+    const glm::vec3 offset {_followSlots[slot].point - getLeader()->position()};
+    return glm::dot(offset, offset);
+}
+
+// From the nearest follower's step, keep the furthest trail step the leader
+// could walk to straight from the last corner, cornering where it cannot, end
+// on the newest step, and lay the result back into the trail a metre apart.
+void Party::smoothFollowPath(const Area &area) {
+    const auto leader = getLeader();
+    const int start = newestStep();
+    // In TSL, whether the leader can walk straight to the newest step: a
+    // follower whose point cannot be laid out afterwards then goes for that
+    // step.
+    bool clear = false;
+    const bool newestInSight = _game.isTSL() && isTrailLineClear(area, *leader, leader->position(), _followSteps[start].position, clear);
+    int anchor = _followSlots[closestFollower()].index;
+    if (anchor < 0 || anchor >= kFollowSteps) {
+        anchor = 0;
+    }
+
+    std::vector<glm::vec3> corners {_followSteps[anchor].position};
+    int last = stepAfter(anchor);
+    int current = last;
+    while (current != start && start != anchor && corners.size() < kFollowCorners) {
+        const glm::vec3 &from = corners.back();
+        const glm::vec3 &to = _followSteps[current].position;
+        const glm::vec3 gap {from - to};
+        const bool visible = static_cast<double>(glm::dot(gap, gap)) <= kFollowSameStep2 ||
+                             isTrailLineClear(area, *leader, from, to, clear);
+        if (visible) {
+            last = current;
+            current = stepAfter(current);
+            continue;
+        }
+        if (from == _followSteps[last].position) {
+            corners.push_back(_followSteps[current].position);
+            current = stepAfter(current);
+        } else {
+            corners.push_back(_followSteps[last].position);
+        }
+    }
+    if (corners.size() < kFollowCorners) {
+        isTrailLineClear(area, *leader, corners.back(), _followSteps[current].position, clear);
+        if (!clear) {
+            corners.push_back(_followSteps[last].position);
+        }
+        corners.push_back(_followSteps[current].position);
+    }
+
+    glm::vec3 base {_followSteps[anchor].position};
+    _followHead = anchor;
+    size_t next = 0;
+    do {
+        const glm::vec3 toCorner {corners[next] - base};
+        glm::vec3 placed;
+        if (glm::dot(toCorner, toCorner) > kFollowStepLength * kFollowStepLength) {
+            placed = base + unitOrForward(toCorner) * kFollowStepLength;
+        } else {
+            placed = corners[next++];
+        }
+        auto &step = _followSteps[_followHead];
+        step.position = placed;
+        if (!(toCorner.x == 0.0f && toCorner.y == 0.0f && toCorner.z == 0.0f)) {
+            step.facing = facingAlong(unitOrForward(placed - base));
+        }
+        _followHead = stepAfter(_followHead);
+        base = placed;
+    } while (next < corners.size());
+    recalculateFollowPoints(newestInSight ? std::optional<int>(start) : std::nullopt);
+}
+
+// When the nearest follower faces against the leader's newest step, the
+// follow points are recomputed and the formation swaps sides.
+bool Party::turnBack() {
+    const glm::vec3 forward {forwardOf(_followSteps[newestStep()].facing)};
+    if (!(glm::dot(forward, _followSlots[closestFollower()].lastFacing) < 0.0f)) {
+        return false;
+    }
+    recalculateFollowPoints();
+    for (int slot = 1; slot < kPartyFollowSlots; ++slot) {
+        _followSlots[slot].formationOffset.x = -_followSlots[slot].formationOffset.x;
+    }
+    return true;
 }
 
 } // namespace game

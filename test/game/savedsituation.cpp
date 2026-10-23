@@ -184,8 +184,8 @@ TEST_F(SavedSituationTest, translates_every_supported_stack_value_without_losing
     auto runtimeObject = game.newCreature();
     EffectInstance effect;
     effect.id = 77;
-    effect.retailType = static_cast<uint16_t>(EffectType::Disease);
-    effect.subType = 8;
+    effect.serializedType = static_cast<uint16_t>(EffectType::Disease);
+    effect.setCategory(EffectCategory::Magical);
     effect.creatorId = kSavedRuntimeInvalidObjectId;
     effect.integerParameters = {4, 5, 6};
     SavedScriptEvent event;
@@ -251,7 +251,7 @@ TEST_F(SavedSituationTest, translates_every_supported_stack_value_without_losing
     ASSERT_TRUE(runtimeTalent);
     EXPECT_EQ(runtimeTalent->type(), TalentType::Feat);
     EXPECT_EQ(runtimeTalent->value(), 42);
-    EXPECT_EQ(runtimeTalent->multiClass(), 2);
+    EXPECT_EQ(runtimeTalent->castingClass(), 2);
     EXPECT_EQ(runtimeTalent->item(), kObjectInvalid);
     EXPECT_EQ(runtimeTalent->itemPropertyIndex(), 6);
     EXPECT_EQ(runtimeTalent->casterLevel(), 12);
@@ -264,8 +264,8 @@ TEST_F(SavedSituationTest, saved_effect_vm_value_reuses_effect_instance_when_app
     auto situation = situationFor(fixture);
     EffectInstance effect;
     effect.id = 19160;
-    effect.retailType = static_cast<uint16_t>(EffectType::Disease);
-    effect.subType = 8;
+    effect.serializedType = 5; // Disease save type
+    effect.setCategory(EffectCategory::Magical);
     effect.creatorId = kSavedRuntimeInvalidObjectId;
     effect.spellId = 321;
     effect.integerParameters = {9, 8, 7};
@@ -285,8 +285,8 @@ TEST_F(SavedSituationTest, saved_effect_vm_value_reuses_effect_instance_when_app
     ASSERT_EQ(target->effects().size(), 1);
     const auto &applied = target->effects().front();
     EXPECT_EQ(applied.id, 19160);
-    EXPECT_EQ(applied.retailType, static_cast<uint16_t>(EffectType::Disease));
-    EXPECT_EQ(applied.semanticSubType(), 8);
+    EXPECT_EQ(applied.serializedType, 5);
+    EXPECT_EQ(applied.category(), EffectCategory::Magical);
     EXPECT_EQ(applied.durationType(), DurationType::Permanent);
     EXPECT_FLOAT_EQ(applied.duration, 12.0f);
     EXPECT_EQ(applied.spellId, 321);
@@ -369,7 +369,7 @@ TEST_F(SavedSituationTest, refuses_unbound_crc_secondary_code_pointer_and_stack_
     EXPECT_EQ(bindAndImport(capacity).error, SavedScriptSituationImportError::InvalidStackBounds);
 
     auto unsupported = base;
-    unsupported.stack[0] = SavedVmStackValue {23, UnsupportedSavedPayload {}};
+    unsupported.stack[0] = SavedVmStackValue {23, std::monostate {}};
     EXPECT_EQ(bindAndImport(unsupported).error, SavedScriptSituationImportError::InvalidStackValue);
 
     auto invalidTalent = base;
@@ -434,7 +434,7 @@ TEST_F(SavedSituationTest, delay_event_and_do_command_action_payloads_share_the_
     // ActionDoCommand/DoCommand owns the same script-situation wire payload;
     // the broad action restorer decides when the resulting action is run.
     SavedActionRecord action;
-    action.actionId = 37; // Retail AIActionDoCommand, not Reone ActionType.
+    action.actionId = 37; // Serialized command ID, not the runtime ActionType ordinal.
     action.declaredParameterCount = 1;
     action.parameters.push_back(SavedActionParameter {
         static_cast<uint32_t>(SavedActionParameterType::ScriptSituation),
@@ -451,8 +451,8 @@ TEST_F(SavedSituationTest, delay_event_and_do_command_action_payloads_share_the_
     EXPECT_EQ(runtimeAction->type(), ActionType::DoCommand);
     EXPECT_FALSE(runtimeAction->isCompleted());
 
-    // Retail DelayCommand delivery is a Timed EventQueue situation. Absolute
-    // Day/Time scheduling remains outside this explicit import/execution seam.
+    // DelayCommand stores a timed EventQueue situation. Absolute Day/Time
+    // scheduling is outside this import/execution seam.
     SavedEventRecord event;
     event.eventId = static_cast<uint32_t>(SavedEventType::Timed);
     event.object.id = kSavedRuntimeInvalidObjectId;
@@ -466,7 +466,7 @@ TEST_F(SavedSituationTest, delay_event_and_do_command_action_payloads_share_the_
     EXPECT_EQ(event.executionSupport(), SavedExecutionSupport::Executable);
 }
 
-TEST_F(SavedSituationTest, missing_runtime_stack_object_fails_closed) {
+TEST_F(SavedSituationTest, missing_runtime_stack_object_keeps_its_id) {
     auto fixture = continuationProgram();
     auto situation = situationFor(fixture);
     situation.stack[0] = {
@@ -475,10 +475,10 @@ TEST_F(SavedSituationTest, missing_runtime_stack_object_fails_closed) {
     EXPECT_FALSE(situation.bindObjectReferences(game));
     auto imported = SavedScriptSituationImporter(game, scripts).import(situation);
 
-    EXPECT_FALSE(imported);
+    ASSERT_TRUE(imported) << imported.message;
     EXPECT_EQ(
-        imported.error,
-        SavedScriptSituationImportError::UnboundRuntimeSession);
+        imported.continuation->executionState().globals.front().objectId,
+        123456u);
 }
 
 TEST_F(SavedSituationTest, translates_bound_serialized_stack_references_to_runtime_identity) {
@@ -538,7 +538,7 @@ TEST_F(SavedSituationTest, translates_bound_serialized_stack_references_to_runti
     EXPECT_FALSE(savedEffect->instance().hasSerializedObjectReferences());
 }
 
-TEST_F(SavedSituationTest, missing_serialized_stack_object_fails_closed) {
+TEST_F(SavedSituationTest, missing_serialized_stack_object_reads_as_invalid) {
     auto fixture = continuationProgram();
     auto situation = situationFor(fixture);
     situation.stack[0] = {
@@ -550,10 +550,10 @@ TEST_F(SavedSituationTest, missing_serialized_stack_object_fails_closed) {
     EXPECT_FALSE(situation.bindObjectReferences(game));
     auto imported = SavedScriptSituationImporter(game, scripts).import(situation);
 
-    EXPECT_FALSE(imported);
+    ASSERT_TRUE(imported) << imported.message;
     EXPECT_EQ(
-        imported.error,
-        SavedScriptSituationImportError::UnboundRuntimeSession);
+        imported.continuation->executionState().globals.front().objectId,
+        kObjectInvalid);
 }
 
 TEST_F(SavedSituationTest, detached_reference_never_uses_active_module_saved_map) {
@@ -572,7 +572,11 @@ TEST_F(SavedSituationTest, detached_reference_never_uses_active_module_saved_map
 
     EXPECT_FALSE(situation.bindObjectReferences(game));
     auto imported = SavedScriptSituationImporter(game, scripts).import(situation);
-    EXPECT_FALSE(imported);
+    // The unresolved reference reads as no object.
+    ASSERT_TRUE(imported) << imported.message;
+    EXPECT_EQ(
+        imported.continuation->executionState().globals.front().objectId,
+        kObjectInvalid);
     EXPECT_FALSE(
         std::get<SavedObjectReference>(situation.stack[0].payload)
             .boundObject());

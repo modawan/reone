@@ -17,11 +17,11 @@
 
 #include "reone/game/footstepsounds.h"
 
+#include <boost/algorithm/string.hpp>
+
 #include "reone/resource/2da.h"
 #include "reone/resource/provider/2das.h"
-#include "reone/resource/provider/audioclips.h"
 
-using namespace reone::audio;
 using namespace reone::resource;
 
 namespace reone {
@@ -34,23 +34,10 @@ std::shared_ptr<FootstepTypeSounds> FootstepSounds::doGet(uint32_t type) {
     std::shared_ptr<TwoDA> twoDa(_twoDas.get("footstepsounds"));
     if (twoDa) {
         result = std::make_shared<FootstepTypeSounds>();
-        std::map<std::string, std::vector<std::shared_ptr<AudioClip>> &> dict {
-            {"dirt", result->dirt},
-            {"grass", result->grass},
-            {"stone", result->stone},
-            {"wood", result->wood},
-            {"water", result->water},
-            {"carpet", result->carpet},
-            {"metal", result->metal},
-            {"leaves", result->leaves}};
-        for (auto &pair : dict) {
-            for (int i = 0; i < 3; ++i) {
-                std::string key(str(boost::format("%s%d") % pair.first % i));
-                std::string resRef(twoDa->getString(static_cast<int>(type), key));
-                std::shared_ptr<AudioClip> audio(_audioClips.get(resRef));
-                pair.second.push_back(std::move(audio));
-            }
+        for (const auto &column : twoDa->columns()) {
+            result->cells.emplace(boost::to_lower_copy(column), twoDa->getString(static_cast<int>(type), column));
         }
+        result->pitchOffset = twoDa->getFloat(static_cast<int>(type), "pitchoffset");
     }
 
     return result;

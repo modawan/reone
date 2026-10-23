@@ -212,7 +212,8 @@ std::string StatusSummary::descriptionText(
     const std::string &authoredText) const {
 
     if (category == StatusSummaryCategory::PlotXP) {
-        return _game.substituteCustomToken(authoredText, 0, std::to_string(entry.amount));
+        _game.setCustomToken(0, std::to_string(entry.amount));
+        return _game.substituteCustomTokens(authoredText);
     }
     return authoredText;
 }

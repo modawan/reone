@@ -16,14 +16,17 @@
  */
 
 #include <limits>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "../fixtures/engine.h"
 #include "reone/game/action/startconversation.h"
 #include "reone/game/game.h"
 #include "reone/game/script/routines.h"
 #include "reone/script/virtualmachine.h"
+
+#include "../fixtures/engine.h"
+#include "../fixtures/game.h"
 
 using namespace reone;
 using namespace reone::game;
@@ -214,7 +217,8 @@ TEST_P(GlobalFadeVM, real_vm_fades_do_not_suspend_immediate_or_delayed_script_wo
     routines.init();
     EXPECT_EQ("HoldWorldFadeInForDialog", routines.get(760).name());
     EXPECT_EQ(GetParam() == resource::GameID::KotOR ? "QueueMovie" : "SetFadeUntilScript", routines.get(769).name());
-    auto caller = game.newModule();
+    TestGameModule::setActiveModule(game, true);
+    auto caller = game.module();
     auto program = std::make_shared<ScriptProgram>("fade_progress");
     for (int action : {720, 719}) {
         for (float arg : {0.2f, 0.4f, 0.6f, action == 719 ? 1.5f : 0.0f, action == 719 ? 3.0f : 0.0f}) {
@@ -244,9 +248,12 @@ TEST_P(GlobalFadeVM, real_vm_fades_do_not_suspend_immediate_or_delayed_script_wo
     EXPECT_FALSE(caller->getLocalBoolean(42));
     EXPECT_FLOAT_EQ(1, game.globalFade().opacity());
     EXPECT_EQ(glm::vec3(.6f, .4f, .2f), game.globalFade().color());
-    caller->Object::update(.25f);
+    // The delayed command is a module timed event on the world clock.
+    TestGameModule::advanceWorldTime(game, .25f);
+    TestGameModule::dispatchSnapshotEvents(*caller);
     EXPECT_FALSE(caller->getLocalBoolean(42));
-    caller->Object::update(.25f);
+    TestGameModule::advanceWorldTime(game, .25f);
+    TestGameModule::dispatchSnapshotEvents(*caller);
     EXPECT_TRUE(caller->getLocalBoolean(42));
     EXPECT_FLOAT_EQ(1, game.globalFade().opacity());
 }

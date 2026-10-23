@@ -23,18 +23,15 @@ namespace reone {
 
 namespace game {
 
-class ModifyAttacksEffect : public Effect {
+class ModifyAttacksEffect : public CopyableEffect<ModifyAttacksEffect> {
 public:
     ModifyAttacksEffect(int attacks) :
-        Effect(EffectType::ModifyAttacks),
-        _attacks(attacks) {
+        CopyableEffect(EffectType::ModifyAttacks) {
+        setSaveFacingInteger(0, attacks);
     }
 
-    bool onApply(Object &object, const EffectInstance &instance) override;
-    void onRemove(Object &object, const EffectInstance &instance) override;
-
-private:
-    int _attacks;
+    EffectApplicationResult onApply(Object &object, EffectInstance &instance) override;
+    EffectRemovalResult onRemove(Object &object, const EffectInstance &instance) override;
 };
 
 } // namespace game

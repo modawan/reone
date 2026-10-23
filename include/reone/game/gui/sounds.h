@@ -41,7 +41,17 @@ public:
 
     virtual std::shared_ptr<audio::AudioClip> getOnClick() const = 0;
     virtual std::shared_ptr<audio::AudioClip> getOnEnter() const = 0;
+    /** The sound of an accepted action-menu selection. */
+    virtual std::shared_ptr<audio::AudioClip> getActionAccepted() const = 0;
+    /** The sound of a refused action-menu selection. */
+    virtual std::shared_ptr<audio::AudioClip> getActionUnavailable() const = 0;
     virtual std::shared_ptr<audio::AudioClip> getOnLevelUpNotify() const = 0;
+    /** The click of a toggle button. */
+    virtual std::shared_ptr<audio::AudioClip> getCheckboxCheck() const = 0;
+    /** The sound of an item chosen for an equipment slot. */
+    virtual std::shared_ptr<audio::AudioClip> getInventorySelect() const = 0;
+    /** The sound of an item cleared from an equipment slot. */
+    virtual std::shared_ptr<audio::AudioClip> getInventoryDrop() const = 0;
 };
 
 class GUISounds : public IGUISounds, boost::noncopyable {
@@ -58,7 +68,12 @@ public:
 
     std::shared_ptr<audio::AudioClip> getOnClick() const override { return _onClick; }
     std::shared_ptr<audio::AudioClip> getOnEnter() const override { return _onEnter; }
+    std::shared_ptr<audio::AudioClip> getActionAccepted() const override { return _actionAccepted; }
+    std::shared_ptr<audio::AudioClip> getActionUnavailable() const override { return _actionUnavailable; }
     std::shared_ptr<audio::AudioClip> getOnLevelUpNotify() const override { return _onLevelUpNotify; }
+    std::shared_ptr<audio::AudioClip> getCheckboxCheck() const override { return _checkboxCheck; }
+    std::shared_ptr<audio::AudioClip> getInventorySelect() const override { return _inventorySelect; }
+    std::shared_ptr<audio::AudioClip> getInventoryDrop() const override { return _inventoryDrop; }
 
 private:
     resource::AudioClips &_audioClips;
@@ -67,6 +82,11 @@ private:
     std::shared_ptr<audio::AudioClip> _onClick;
     std::shared_ptr<audio::AudioClip> _onEnter;
     std::shared_ptr<audio::AudioClip> _onLevelUpNotify;
+    std::shared_ptr<audio::AudioClip> _actionAccepted;
+    std::shared_ptr<audio::AudioClip> _actionUnavailable;
+    std::shared_ptr<audio::AudioClip> _checkboxCheck;
+    std::shared_ptr<audio::AudioClip> _inventorySelect;
+    std::shared_ptr<audio::AudioClip> _inventoryDrop;
 
     void loadSound(const resource::TwoDA &twoDa, const std::string &label, std::shared_ptr<audio::AudioClip> &sound);
 };

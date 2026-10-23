@@ -98,28 +98,6 @@ std::shared_ptr<Event> eventValue(const SavedScriptEvent &saved) {
         std::move(objects));
 }
 
-EffectInstance runtimeEffectInstance(const EffectInstance &saved) {
-    EffectInstance result = saved;
-    if (!result.hasSerializedObjectReferences()) return result;
-
-    if (result.creatorId != kSavedEffectInvalidObjectId &&
-        result.creatorId != kSavedRuntimeInvalidObjectId) {
-        auto creator = result.boundCreator();
-        result.creatorId = creator ? creator->id() : kSavedRuntimeInvalidObjectId;
-    }
-    for (size_t index = 0; index < result.objectParameters.size(); ++index) {
-        uint32_t &id = result.objectParameters[index];
-        if (id == kSavedEffectInvalidObjectId ||
-            id == kSavedRuntimeInvalidObjectId) {
-            continue;
-        }
-        auto object = result.boundObjectParameter(index);
-        id = object ? object->id() : kSavedRuntimeInvalidObjectId;
-    }
-    result.serializedReferenceContext.reset();
-    return result;
-}
-
 bool convertStackValue(
     const SavedVmStackValue &saved,
     script::Variable &result,
@@ -152,7 +130,7 @@ bool convertStackValue(
     case SavedVmStackType::Effect:
         if (auto value = std::get_if<EffectInstance>(&saved.payload)) {
             result = script::Variable::ofEffect(
-                std::make_shared<SavedEffectValue>(runtimeEffectInstance(*value)));
+                std::make_shared<SavedEffectValue>(*value));
             if (value->hasStableId()) {
                 effectIds.push_back(value->id);
             }
@@ -221,12 +199,12 @@ SavedScriptSituationImportResult SavedScriptSituationImporter::import(
     if (situation.crc != 0) {
         return failure(
             SavedScriptSituationImportError::UnsupportedCrc,
-            "retail only executes saved script situations with CRC zero");
+            "saved script execution requires CRC zero");
     }
     if (situation.secondaryPointer != 0) {
         return failure(
             SavedScriptSituationImportError::UnsupportedSecondaryPointer,
-            "non-zero SecondaryPtr is not executable by the retail resume path");
+            "saved script execution requires SecondaryPtr zero");
     }
     if (situation.codeSize < 0 ||
         static_cast<size_t>(situation.codeSize) != situation.code.size()) {
@@ -358,7 +336,7 @@ std::optional<SavedActionRecord> SavedDoCommandAction::saveFacingState() const {
         throw ValidationException(message.str());
     }
     SavedActionRecord result = originalSavedAction().value_or(SavedActionRecord {});
-    result.actionId = 37;
+    result.actionId = static_cast<uint32_t>(SavedActionType::DoCommand);
     result.declaredParameterCount = 1;
     result.parameters = {SavedActionParameter {
         static_cast<uint32_t>(SavedActionParameterType::ScriptSituation),

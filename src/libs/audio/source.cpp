@@ -194,6 +194,10 @@ void AudioSource::setGainScale(float scale) {
     alSourcef(_source, AL_GAIN, _gain * scale);
 }
 
+void AudioSource::setPitch(float pitch) {
+    alSourcef(_source, AL_PITCH, pitch);
+}
+
 } // namespace audio
 
 } // namespace reone

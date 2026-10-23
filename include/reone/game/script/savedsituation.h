@@ -38,7 +38,7 @@ enum class SavedScriptSituationImportError {
 };
 
 /**
- * An ordinary Reone ExecutionState reconstructed from a retail situation.
+ * An ordinary ExecutionState reconstructed from a saved situation.
  *
  * The wrapper only owns code/state and a runtime-session guard. Queue timing
  * and publication remain responsibilities of the action/event coordinator.
@@ -95,7 +95,7 @@ struct SavedScriptSituationImportResult {
     explicit operator bool() const { return static_cast<bool>(continuation); }
 };
 
-/** Explicit, synchronous translation from retail wire state to live VM state. */
+/** Explicit, synchronous translation from serialized state to live VM state. */
 class SavedScriptSituationImporter {
 public:
     SavedScriptSituationImporter(Game &game, resource::IScripts &scripts) :
@@ -109,7 +109,7 @@ private:
     Game &_game;
     resource::IScripts &_scripts;
 };
-/** Runtime DoCommand action backed by a validated retail continuation. */
+/** Runtime DoCommand action backed by a validated saved continuation. */
 class SavedDoCommandAction : public Action {
 public:
     SavedDoCommandAction(

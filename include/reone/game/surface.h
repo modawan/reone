@@ -27,7 +27,8 @@ struct Surface {
     bool walkcheck {false};
     bool lineOfSight {false};
     bool grass {false};
-    std::string sound;
+    /** Names the footstep sounds of the surface; a surface without a name is silent underfoot. */
+    std::string name;
 };
 
 } // namespace game

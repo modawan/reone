@@ -25,9 +25,10 @@ namespace game {
 
 class MoveToPointAction : public Action {
 public:
-    MoveToPointAction(Game &game, ServicesView &services, glm::vec3 point) :
+    MoveToPointAction(Game &game, ServicesView &services, glm::vec3 point, bool run = true) :
         Action(game, services, ActionType::MoveToPoint),
-        _point(std::move(point)) {
+        _point(std::move(point)),
+        _run(run) {
     }
 
     static bool classof(Action *from) {
@@ -40,6 +41,7 @@ public:
 
 private:
     glm::vec3 _point;
+    bool _run {true};
 };
 
 } // namespace game

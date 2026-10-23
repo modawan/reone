@@ -68,8 +68,12 @@ protected:
 
     void load(std::shared_ptr<TwoDA> table) {
         EXPECT_CALL(twoDas, get("spells")).WillOnce(Return(std::move(table)));
+        // Spell ranges are outside these tests.
+        EXPECT_CALL(twoDas, get("ranges"))
+            .Times(AnyNumber())
+            .WillRepeatedly(Return(std::shared_ptr<TwoDA>(TwoDA::Builder().build())));
         spells = std::make_unique<Spells>(textures, audioClips, models, strings, twoDas);
-        spells->init();
+        spells->init(GameID::KotOR);
     }
 
     CreatureClass &getGuardian() {

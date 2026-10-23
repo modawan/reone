@@ -62,6 +62,8 @@ struct SaveNpcStateFixture : TestWithParam<GameID> {
     /** Put a companion in roster slot `npc`, as party selection would. */
     std::shared_ptr<Creature> rosterCompanion(int npc) {
         auto creature = game->newCreature();
+        // A companion: real NPCs come from records carrying IsPC 0.
+        creature->setPC(false);
         game->party().addAvailableMember(npc, creature);
         return creature;
     }

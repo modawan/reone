@@ -47,30 +47,27 @@ namespace game {
 
 namespace {
 
-// Odyssey models look down +Y.
+// Models look down +Y.
 const glm::vec3 kModelForward(0.0f, 1.0f, 0.0f);
 
-// reone's existing keyboard rotation rates (ThirdPersonCamera), used here as the
-// calibration point for a full-turn axis. MiniGame.LateralAccel is deliberately
-// not used: the swoop race authors 300 and steers laterally with it, the turret
-// authors 1200 and never translates at all, and KotOR.js ignores it for the
-// turret too, so it has no confirmed turret aim meaning.
+// Use the existing ThirdPersonCamera rotation rates for turret aiming.
+// MiniGame.LateralAccel controls translation, not angular speed here.
 constexpr float kTurnRateMin = 1.0f;      // radians per second
 constexpr float kTurnRateMax = 2.5f;      // radians per second
 constexpr float kTurnAcceleration = 1.0f; // radians per second squared
 
 // Mouse aim sensitivity, matching FirstPersonCamera's kMouseMultiplier so the
-// turret feels like the rest of the engine.
+// turret aims like the first-person camera.
 const float kMouseAimRadiansPerPixel = glm::pi<float>() / 4000.0f;
 
-// Engine default field of view, restored to the reused first-person camera on
+// Default field of view, restored to the reused first-person camera on
 // exit (mirrors Area's default camera FOV).
 constexpr float kDefaultCameraFovDegrees = 75.0f;
 
 // Distance an enemy shoots from when its gun bank declares no sensing radius.
 constexpr float kFallbackSensingRadius = 200.0f;
 
-// Names of the hook nodes vanilla uses to assemble a minigame actor.
+// Hook names used to assemble a minigame actor.
 const std::string kModelHookName("modelhook");
 const std::string kCameraHookName("camerahook");
 const std::string kBulletHookName("bullethook0");
@@ -113,18 +110,11 @@ void playIdleAnimation(ModelSceneNode &node) {
 }
 
 /**
- * Silence a projectile's emitters for ordinary flight.
+ * Suppress free-running projectile emitters during flight.
  *
- * EmitterSceneNode latches its birth rate from the model at time zero and, in
- * Fountain mode, then emits for as long as the node lives - no animation is
- * involved. The shipped bolt models carry the explosion presentation as
- * emitters (mgb_ebonleft has plume, rim and inner nodes textured
- * LMG_explplume01 / LMG_explrim01), so left alone every bolt trails an
- * explosion for its whole flight and sustained fire fills the cockpit. Vanilla
- * only shows those on the authored explosion event, which reone reaches through
- * ModelSceneNode::signalEvent("detonate"), so free-running emission on a bolt in
- * flight is never wanted. Mesh geometry - the visible bolt itself - is
- * untouched.
+ * The bolt model's explosion emitters activate on the detonate event. Leaving their birth
+ * rate active throughout flight would create a continuous explosion trail. Keep the visible
+ * bolt mesh unchanged.
  */
 void silenceEmitters(SceneNode &node) {
     for (auto &child : node.children()) {
@@ -194,7 +184,7 @@ float TurretAim::yawTravel() const {
 }
 
 void TurretAimRate::configure(float travelRadians) {
-    // Scale reone's full-turn rates by how much travel this axis actually has,
+    // Scale the camera's full-turn rates by how much travel this axis actually has,
     // so a narrow axis is proportionally gentler and every axis crosses its
     // authored range in about the same time.
     float scale = travelRadians > 0.0f
@@ -482,10 +472,7 @@ const char *turretRequestResolutionMessage(TurretRequestResolution resolution) {
 
 std::string turretReturnModule(const std::string &turretModule,
                                const std::string &originModule) {
-    // Vanilla turret exit, confirmed from local assets: the M12ab enemy death
-    // scripts (k_pebo_sthdeath2..7) and the module heartbeat (k_pebo_mgheart)
-    // both end the sequence with StartNewModule("ebo_m12aa"). Other modules are
-    // not wired, so they fall back to wherever the session started.
+    // M12ab returns to ebo_m12aa. Other turret modules return to the session origin.
     if (boost::iequals(turretModule, "m12ab")) {
         return "ebo_m12aa";
     }
@@ -743,8 +730,8 @@ bool Turret::start(const MinigameSpec &spec, FirstPersonCamera *camera, const st
     }
     loadEnemies(_spec);
 
-    // The camera mount model is not added to the scene: only its static
-    // "camerahook" transform is needed, and vanilla hides the mount anyway.
+    // The camera mount supplies only its static camerahook transform
+    // and is not added to the scene.
     _cameraHookLocal = glm::mat4(1.0f);
     _haveCameraHook = false;
     if (!_spec.player.cameraResRef.empty()) {
@@ -972,7 +959,7 @@ void Turret::updatePlayerTransforms() {
     // only the rotating one takes the aim rotation.
     //
     // The authored Start_Offset is deliberately not applied. Its turret meaning
-    // is unconfirmed (KotOR.js ignores it too), and m12ab's Start_Offset_X of 7
+    // is unconfirmed, and m12ab's Start_Offset_X of 7
     // slides the gun sideways out of its mount, leaving the Ebon Hawk hull
     // clipping through the turret frame.
     if (_bodyRoot) {
@@ -1223,9 +1210,8 @@ void Turret::damagePlayer(uint32_t amount) {
         return; // already destroyed: the destruction branch runs once
     }
     _hitPoints = glm::max(0, _hitPoints - static_cast<int>(amount));
-    // Vanilla drives the gauge from the player's OnDamage script, i.e. once per
-    // hit rather than once per frame. That script plays no cockpit "damage"
-    // animation and touches no LED node, so neither is triggered here.
+    // Update the cockpit gauge once per hit, not once per frame. Do not trigger an extra
+    // cockpit damage animation or change LED nodes here.
     updateHealthHud();
 }
 
@@ -1443,10 +1429,17 @@ bool Turret::handleKeyDown(const input::KeyEvent &event) {
         _yawRate.setDirection(-1);
         return true;
     case input::KeyCode::Space:
-        _firing = true;
+        // Fire input is dropped while paused.
+        if (!_game.isPaused()) {
+            _firing = true;
+        }
         return true;
     case input::KeyCode::Escape:
-        _game.exitTurret();
+    case input::KeyCode::Pause:
+        // Escape pauses the minigame; it does not leave it.
+        if (!event.repeat) {
+            _game.pressPauseKey();
+        }
         return true;
     default:
         return false;
@@ -1491,6 +1484,10 @@ bool Turret::handleMouseMotion(const input::MouseMotionEvent &event) {
     if (!_active) {
         return false;
     }
+    // The mouse does not aim while paused.
+    if (_game.isPaused()) {
+        return true;
+    }
     float yaw = -event.xrel * kMouseAimRadiansPerPixel;
     float pitch = -event.yrel * kMouseAimRadiansPerPixel;
     if (_spec.mouse.flipAxisX) {
@@ -1507,6 +1504,10 @@ bool Turret::handleMouseMotion(const input::MouseMotionEvent &event) {
 bool Turret::handleMouseButton(const input::MouseButtonEvent &event) {
     if (event.button != input::MouseButton::Left) {
         return false;
+    }
+    // Fire input is dropped while paused; a release still stops firing.
+    if (event.pressed && _game.isPaused()) {
+        return true;
     }
     _firing = event.pressed;
     return true;

@@ -23,14 +23,19 @@ namespace reone {
 
 namespace game {
 
-class MissChanceEffect : public Effect {
+class MissChanceEffect : public CopyableEffect<MissChanceEffect> {
 public:
     MissChanceEffect(int percentage) :
-        Effect(EffectType::MissChance),
+        CopyableEffect(EffectType::MissChance),
         _percentage(percentage) {
+        setSaveFacingInteger(0, percentage);
     }
 
-    void applyTo(Object &object) override {
+    EffectApplicationResult onApply(Object &, EffectInstance &instance) override {
+        const int percentage = instance.integerParameter(0);
+        return percentage >= 1 && percentage <= 100
+                   ? EffectApplicationResult::Retained
+                   : EffectApplicationResult::Rejected;
     }
 
 private:

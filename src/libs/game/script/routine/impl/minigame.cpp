@@ -15,6 +15,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "reone/game/game.h"
 #include "reone/game/script/routine/argutil.h"
 #include "reone/game/script/routine/context.h"
 #include "reone/game/script/routines.h"
@@ -62,7 +63,10 @@ static Variable SWMG_SetSpeedBlurEffect(const std::vector<Variable> &args, const
     // Transform
 
     // Execute
-    throw RoutineNotImplementedException("SWMG_SetSpeedBlurEffect");
+    // The ratio is set first; the blur then follows bEnabled.
+    ctx.game.setSpeedBlurRatio(fRatio);
+    ctx.game.setSpeedBlur(bEnabled != 0);
+    return Variable::ofNull();
 }
 
 static Variable SWMG_GetLastEvent(const std::vector<Variable> &args, const RoutineContext &ctx) {
