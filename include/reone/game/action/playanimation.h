@@ -66,7 +66,8 @@ public:
     std::optional<SavedActionRecord> saveFacingState() const override;
     /**
      * A saved PlayAnimation command. A command that has run already times its
-     * animation again from the load.
+     * animation again from the load. None when its times or its first-run flag
+     * are not ones a command carries.
      */
     static std::shared_ptr<Action> restore(const SavedActionRecord &record, Game &game);
 

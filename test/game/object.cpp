@@ -3816,6 +3816,8 @@ TEST(Party, should_award_xp_to_pool_and_sync_current_members) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Game::init reads npc.2da's experience shares; these tests skip it.
+    game.party().init();
 
     auto player = game.newCreature();
     auto companion = game.newCreature();
@@ -3875,6 +3877,8 @@ TEST(Party, should_restore_saved_pool_after_reset_and_sync_late_member) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Game::init reads npc.2da's experience shares; these tests skip it.
+    game.party().init();
     game.party().setXP(5000);
     game.party().reset();
 
@@ -3896,6 +3900,8 @@ TEST(Party, should_sync_member_added_after_xp_gain) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Game::init reads npc.2da's experience shares; these tests skip it.
+    game.party().init();
 
     auto player = game.newCreature();
     game.party().addMember(kNpcPlayer, player);
@@ -3915,6 +3921,8 @@ TEST(Party, should_keep_non_party_creature_xp_local) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Game::init reads npc.2da's experience shares; these tests skip it.
+    game.party().init();
 
     auto player = game.newCreature();
     game.party().addMember(kNpcPlayer, player);
@@ -3934,6 +3942,8 @@ TEST(XPStatusSummary, should_accumulate_each_positive_party_award_once) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Game::init reads npc.2da's experience shares; these tests skip it.
+    game.party().init();
     auto player = game.newCreature();
     auto companion = game.newCreature();
     game.party().addMember(kNpcPlayer, player);
@@ -4009,6 +4019,8 @@ TEST(XPStatusSummary, combat_source_updates_pool_without_plot_notification) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Game::init reads npc.2da's experience shares; these tests skip it.
+    game.party().init();
     auto player = game.newCreature();
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
@@ -4056,6 +4068,8 @@ TEST(ScriptedPlotXP, give_plot_xp_resolves_label_case_insensitively_and_awards_p
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Game::init reads npc.2da's experience shares; these tests skip it.
+    game.party().init();
     EXPECT_CALL(engine.resourceModule().twoDas(), get("plot"))
         .WillOnce(Return(makePlotTable()));
     auto player = game.newCreature();
@@ -4125,6 +4139,8 @@ TEST(ScriptedPlotXP, journal_dialogue_and_explicit_contributions_accumulate_in_o
         .Times(3)
         .WillRepeatedly(Return(makePlotTable()));
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Game::init reads npc.2da's experience shares; these tests skip it.
+    game.party().init();
     auto player = game.newCreature();
     game.party().addMember(kNpcPlayer, player);
     game.party().setPlayer(player);
@@ -4177,6 +4193,8 @@ TEST(AddMultiClass, k1_class_starts_at_level_zero_and_the_party_shares_the_exper
     engine.init();
     StubConsole console;
     Game game(GameID::KotOR, "", engine.options(), engine.services(), console);
+    // Game::init reads npc.2da's experience shares; these tests skip it.
+    game.party().init();
     VitalityTestClass soldier(10);
     VitalityTestClass guardian(10, ClassType::JediGuardian);
     EXPECT_CALL(engine.gameModule().classes(), get(ClassType::JediGuardian))

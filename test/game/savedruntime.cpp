@@ -655,34 +655,33 @@ TEST(SavedAction, play_animation_rejects_malformed_parameter_shapes) {
     TestEngine &engine = testEngine();
     StubConsole console;
     Game game(GameID::TSL, "", engine.options(), engine.services(), console);
+    // The animation ID, speed, requested duration and first-run flag.
     auto valid = action(6, 7, {
-        valueParameter(3, Gff::Field::newDword(
-            "Value", static_cast<uint32_t>(AnimationType::LoopingPause))),
+        valueParameter(1, Gff::Field::newInt("Value", 10000)),
         valueParameter(2, Gff::Field::newFloat("Value", 1.0f)),
         valueParameter(2, Gff::Field::newFloat("Value", 4.0f)),
         valueParameter(1, Gff::Field::newInt("Value", 1)),
-        valueParameter(1, Gff::Field::newInt("Value", 0)),
     });
     auto record = SavedActionRecord::fromGff(
         *valid, savedRuntimeIdentityContext());
     EXPECT_EQ(record.executionSupport(), SavedExecutionSupport::Executable);
     EXPECT_TRUE(record.toRuntimeAction(game));
 
-    record.declaredParameterCount = 4;
+    record.declaredParameterCount = 3;
     EXPECT_EQ(record.executionSupport(), SavedExecutionSupport::RepresentableButUnsupported);
     EXPECT_FALSE(record.toRuntimeAction(game));
-    record.declaredParameterCount = 5;
+    record.declaredParameterCount = 4;
     record.parameters[3].payload = int32_t {2};
     EXPECT_FALSE(record.toRuntimeAction(game));
     record.parameters[3].payload = int32_t {1};
     record.parameters[1].payload = std::numeric_limits<float>::quiet_NaN();
     EXPECT_FALSE(record.toRuntimeAction(game));
     record.parameters[1].payload = 1.0f;
-    // Any animation constant the command queues is restored.
-    record.parameters[0].payload = SavedObjectReference {42};
+    // Any animation ID the command queues is restored.
+    record.parameters[0].payload = int32_t {42};
     EXPECT_TRUE(record.toRuntimeAction(game));
     record.parameters[0].payload = SavedObjectReference {100};
-    record.parameters[0].type = 1;
+    record.parameters[0].type = 3;
     EXPECT_EQ(record.executionSupport(), SavedExecutionSupport::RepresentableButUnsupported);
 }
 

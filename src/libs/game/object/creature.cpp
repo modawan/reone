@@ -4640,6 +4640,14 @@ bool Creature::playExternalAnimation(const std::shared_ptr<Animation> &anim, Ani
     bool started = doPlayAnimation(fireForget, [&]() {
         auto model = std::static_pointer_cast<ModelSceneNode>(_sceneNode);
         if (model) {
+            // The one-shot played again starts over. The ended one is still
+            // the model's clip when no pause went on in its place (the stored
+            // loop is state-driven, or the pause names no clip the model has),
+            // and the model would keep a clip it already runs going on.
+            const auto base = model->baseAnimationChannel();
+            if (fireForget && base && boost::iequals(base->get().anim->name(), anim->name())) {
+                model->removeAnimation(anim->name());
+            }
             model->playAnimation(*anim, nullptr, properties);
             presentEquippedItems(anim->name());
         }

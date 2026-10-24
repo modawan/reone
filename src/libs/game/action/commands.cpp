@@ -248,8 +248,15 @@ std::optional<SavedActionRecord> PlayAnimationAction::saveFacingState() const {
 }
 
 std::shared_ptr<Action> PlayAnimationAction::restore(const SavedActionRecord &record, Game &game) {
-    return game.newAction<PlayAnimationAction>(record.integerParameter(0), record.floatParameter(1),
-                                               record.floatParameter(2), record.integerParameter(3) == 1);
+    // Any animation ID the command queues comes back; its times and its
+    // first-run flag are ones a command carries.
+    const float speed = record.floatParameter(1);
+    const float duration = record.floatParameter(2);
+    const int32_t firstRun = record.integerParameter(3);
+    if (!std::isfinite(speed) || !std::isfinite(duration) || (firstRun != 0 && firstRun != 1)) {
+        return nullptr;
+    }
+    return game.newAction<PlayAnimationAction>(record.integerParameter(0), speed, duration, firstRun == 1);
 }
 
 void AppearAction::execute(std::shared_ptr<Action> self, Object &actor, float dt) {
